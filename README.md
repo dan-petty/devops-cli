@@ -80,6 +80,8 @@ devops ai test
 | **Grafana** | `devops grafana search [--query <q>]` | Search Grafana dashboards by tag or query |
 | **Prometheus**| `devops prometheus query "<promql>"` | Execute PromQL query against Prometheus endpoint |
 | **Docker** | `devops docker prune` | Prune dangling Docker containers, networks, and volumes |
+| **Config** | `devops config output [--export\|--json]` | Output environment variables available for configuration |
+| | `devops config show` | Print configuration settings with masked secrets |
 | **CI / Quality**| `devops ci` | Run full quality gate (`pytest`, `ruff check`, `ruff format`, `mypy`) |
 
 ---
@@ -128,6 +130,20 @@ devops ai test
 
 ---
 
+## Local Workstation vs. Production / CI Operations
+
+- **Local Workstation / Dev Container Model (Default)**:
+  - **High Timeouts**: Uses generous HTTP/subprocess timeouts (`DEFAULT_REVIEW_TIMEOUT_SECONDS = 3600.0`, `DEFAULT_SUBPROCESS_TIMEOUT_SECONDS = 1800.0`) to accommodate local LLM inference (e.g. Ollama running large models on local CPU/GPU) and network latency.
+  - **Host Key Material**: Bind-mounts host `${localEnv:HOME}/.ssh` into `.devcontainer` by design to support local key generation, 90-day rotation tracking, and GitHub registration.
+  - **Private Network Access**: Opt-in flag `DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true` permits connections to private-IP Ollama, ArgoCD, Grafana, and Prometheus endpoints.
+  - **OS Keyring Secrets**: Secrets are stored exclusively in the host/container OS keyring (`keyring`) — unencrypted fallback is explicitly rejected.
+
+- **Production / CI Execution Guards**:
+  - **Path & Workspace Boundary Enforcement**: File operations (`read_file`, `list_files`, `devops review path`, `devops workspace add`) enforce strict workspace boundary checks (`_is_safe_workspace_path`) to prevent path traversal outside the repository root.
+  - **Non-Interactive Execution**: All external tool subcommands (`kubectl`, `argo`, `gh`, `docker`) run non-interactively with explicit `timeout` guards on `subprocess.run()` calls.
+
+---
+
 ## Strategic Prioritization (Value vs. Effort)
 
 `devops-cli` follows a strict value-versus-effort framework to prioritize ongoing development:
@@ -136,13 +152,15 @@ devops ai test
 |---|---|---|---|---|
 | **Quick Wins** | RFC 1123 Namespace & Input Sanitization | High | Low | ✅ Completed |
 | | Human Finding Invalidation & Stats CLI | High | Low | ✅ Completed |
-| | Pydantic Schema Model Unification | High | Low | ✅ Completed |
+| | Fast Deterministic Static Segment Metadata (`SegmentMeta`) | High | Low | ✅ Completed |
+| | Pydantic Schema Model & Exception Fix Unification | High | Low | ✅ Completed |
+| | Workspace Path & Repository Boundary Enforcement | High | Low | ✅ Completed |
 | **Strategic Investments** | Line-Level GitHub PR Inline Comments | High | High | 🔄 Short-Term (Q3 2026) |
-| | Human Invalidation Feedback Dataset Exporter | High | High | 🔄 Short-Term (Q3 2026) |
-| | Custom Team Persona Prompt Overrides | High | Medium | 🔄 Short-Term (Q3 2026) |
+| | Human Invalidation Feedback Dataset Exporter | High | Medium | 🔄 Short-Term (Q3 2026) |
+| | Custom Team Persona Prompt Overrides (`.devops/personas/`) | High | Medium | 🔄 Short-Term (Q3 2026) |
 | **Fill-ins** | Non-Interactive GitHub CLI Timeout Config | Medium | Low | ℹ️ Mitigated via Env Var |
 | | Ephemeral Headless Keyring Fallback Auth | Medium | Medium | 🔄 Mid-Term (Q4 2026) |
-| **De-prioritized** | Full Bare-Metal OS Install Installers | Low | High | ❌ Rejected (Devcontainer native) |
+| **De-prioritized** | Full Bare-Metal OS Installers | Low | High | ❌ Rejected (Devcontainer native) |
 
 ---
 

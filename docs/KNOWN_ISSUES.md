@@ -60,7 +60,23 @@ Run `uv sync` inside the dev container to ensure all optional dependencies in `p
 
 ---
 
-## 5. Remediation Cost vs. Operational Impact Matrix
+## 5. Local Workstation vs. Production Container Boundaries
+
+### Issue / Design Policy
+`devops-cli` is intentionally architected as a local DevOps Engineer workstation tool running inside Dev Containers. It employs intentional design trade-offs that differ from bare-metal or shared production cloud workloads.
+
+### Context & Impact
+- **High Timeouts**: Generous HTTP/subprocess timeouts (`DEFAULT_REVIEW_TIMEOUT_SECONDS = 3600.0`, `DEFAULT_SUBPROCESS_TIMEOUT_SECONDS = 1800.0`) prevent failures during long local LLM inference (Ollama running heavy models) or high network latency.
+- **Bind-Mounted Key Material**: `${localEnv:HOME}/.ssh` is bind-mounted into `.devcontainer` to manage key generation, rotation, and GitHub registration directly from the local workstation.
+- **SSRF Opt-In**: Private network endpoints (internal ArgoCD, Grafana, Ollama) require explicit `DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true` opt-in.
+- **Path Traversal Guards**: CLI file tools (`read_file`, `list_files`, `devops review path`, `devops workspace add`) enforce strict workspace boundary checks (`_is_safe_workspace_path`) to prevent arbitrary file access outside the repository root.
+
+### Mitigation / Workaround
+Defer to the Environment & Modernization Policy in `AGENTS.md`. Do not flag high default timeouts or host SSH mounts as unmitigated production vulnerabilities.
+
+---
+
+## 6. Remediation Cost vs. Operational Impact Matrix
 
 | Known Issue / Edge Case | Security / Ops Impact | Resolution Effort | Recommended Action |
 |---|---|---|---|
@@ -68,4 +84,5 @@ Run `uv sync` inside the dev container to ensure all optional dependencies in `p
 | **2. Private Network Egress (SSRF Defense)** | High (Security protection by default) | Low | **Keep Safe Default**: Default blocking prevents SSRF; `DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true` explicit opt-in maintains security & ease-of-use. |
 | **3. Large Workspace Iteration Bounds** | Low (Performance edge case) | Low | **Keep Workaround**: `.gitignore` filtering and standard directory exclusion lists (`.venv`, `node_modules`) eliminate 99% of path traversal slowdowns. |
 | **4. Optional SDK Dependencies** | Low (Setup error) | Low | **Keep Environment Guard**: `uv sync` in devcontainer ensures 100% dependency availability out-of-the-box. |
+| **5. Local Workstation Design Policy** | Low (Architectural trade-off) | Low | **Keep DevContainer Policy**: Workspace boundary checks secure file access; high timeouts and SSH mounts serve workstation usage model. |
 

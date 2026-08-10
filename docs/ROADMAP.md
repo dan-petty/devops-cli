@@ -21,20 +21,23 @@
 - [x] Infrastructure commands: `repos`, `ssh`, `k8s`, `argo`, `grafana`, `prometheus`, `docker`.
 - [x] `devops ci` unified quality gate (pytest, ruff check, ruff format, mypy strict).
 
-### Phase 2: Finding Verification & Human Feedback Loop (Current)
+### Phase 2: Finding Verification & Security Hardening (Completed)
 - [x] Structured finding schema with verification status (`UNVERIFIED`, `VERIFIED`, `INVALIDATED`, `MITIGATED`).
 - [x] Finding inspection & human invalidation CLI (`devops review findings`, `devops review verify`).
 - [x] Review accuracy metrics & false-positive analytics (`devops review stats`).
+- [x] Fast deterministic segment metadata extraction (`SegmentMeta` / `ReviewMeta`) replacing LLM network overhead.
+- [x] DevSecOps code review remediation: Python 2 exception syntax fixes, path traversal boundary checks, and redirect header protection.
 - [x] Robust RFC 1123 label sanitization and path traversal guards across all subcommands.
 
 ### Phase 3: Enhanced PR Collaboration & Customization (Short-Term: Q3 2026)
-- [ ] **GitHub PR Inline Line-Level Comments**: Post persona review findings directly to specific lines on GitHub PRs via PyGithub REST/GraphQL APIs.
+- [ ] **GitHub PR Line-Level Inline Comments**: Post persona review findings directly to specific lines on GitHub PRs via PyGithub REST/GraphQL APIs.
+- [ ] **Human Invalidation Dataset Exporter**: Export invalidated findings (`status="INVALIDATED"`) as benchmark datasets for prompt tuning (`devops review export-feedback`).
 - [ ] **Custom Persona Prompting**: Project-level `.devops/personas/` prompt overrides allowing teams to define domain-specific reviewer personas.
-- [ ] **Prompt Fine-Tuning Pipeline**: Export human-invalidated findings (`status="INVALIDATED"`) as benchmark datasets for prompt tuning.
 
 ### Phase 4: Enterprise Infrastructure & Governance (Mid-Term: Q4 2026)
 - [ ] **Multi-Cluster Kubeconfig Management**: Seamless context switching with namespace access control policies.
 - [ ] **SIEM Audit Log Streaming**: Optional JSON audit trail output to Syslog / CloudWatch / Datadog for compliance reporting (PCI-DSS, SOC 2).
+- [ ] **Headless CI Keyring Fallback Auth**: Ephemeral memory token loading (`devops config auth-headless`) for headless CI environments lacking DBus.
 - [ ] **ArgoCD Multi-App Batch Sync**: Parallel sync operations with health dependency checks.
 
 ### Phase 5: Autonomous Remediation & Offline Bundling (Long-Term: 2027+)
@@ -47,12 +50,13 @@
 
 | Category | Milestone / Feature | Value | Effort | Rationale & Impact |
 |---|---|---|---|---|
-| **Quick Wins** | Finding Invalidation CLI & Stats | **High** | **Low** | Enables human verification loops and false-positive tracking with minimal code footprint. |
+| **Completed Quick Wins** | Finding Invalidation CLI & Stats | **High** | **Low** | Enables human verification loops and false-positive tracking with minimal code footprint. |
 | | RFC 1123 & Path Traversal Guards | **High** | **Low** | Hardens input validation against injection and path traversal with low implementation overhead. |
-| | Pydantic Schema Model Unification | **High** | **Low** | Replaces complex dict parsing with type-checked models, improving IDE auto-complete and maintainability. |
+| | Fast Static Segment Metadata (`SegmentMeta`) | **High** | **Low** | Reduces Step 1 metadata extraction time from >300s to <5ms with 100% consistency. |
+| | DevSecOps Remediation & Pydantic Unification | **High** | **Low** | Eliminates Python 2 syntax bugs, keyring vulnerabilities, and unifies domain models. |
 | **Strategic Investments** | Line-Level GitHub PR Inline Comments | **High** | **High** | High developer UX impact; requires diff position mapping and PyGithub GraphQL API integration. |
-| | Custom Persona Prompt Overrides | **High** | **Medium** | Enables team-specific governance rules (`.devops/personas/`) without altering core codebase. |
 | | Human Invalidation Dataset Exporter | **High** | **Medium** | High long-term value for automated LLM prompt tuning and benchmark creation. |
+| | Custom Persona Prompt Overrides | **High** | **Medium** | Enables team-specific governance rules (`.devops/personas/`) without altering core codebase. |
 | **Fill-ins** | Multi-Cluster Kubeconfig Management | **Medium** | **Medium** | Useful for multi-environment cluster management; standard `kubectl` context switching mitigates urgency. |
 | | SIEM Audit Log Streaming | **Medium** | **Low** | Structured JSON logging meets compliance audit needs; simple handler addition. |
 | | Headless Keyring Fallback Auth | **Medium** | **Medium** | Unblocks headless CI containers where DBus / SecretService is unavailable. |

@@ -105,6 +105,9 @@ Secrets (`github.token`, `grafana.token`, `argocd.token`, `ai.api_key`) are stor
 the OS keyring only — never in config files or environment variables. Set them with
 `devops config set <key> <value>`.
 
+Inspect or export environment variables available for configuration:
+`devops config output [--export|--json]` (aliases: `devops config env`, `devops config env-vars`).
+
 ## AI Features (`devops ai`, `devops review`)
 - `devops ai config --provider <ollama|claude|copilot|openai>`
 - `devops ai test` — verify LLM connectivity
@@ -116,6 +119,7 @@ the OS keyring only — never in config files or environment variables. Set them
 - `devops review verify <session> --index <N> --status <verified|invalidated> [--reason "..."]` — validate/invalidate findings & record feedback
 - `devops review stats` — compute review accuracy metrics across saved sessions
 - Personas: `devsecops` · `architect` · `pm` · `auditor` · `qa`
+- All `devops review` commands execute Step 1/4 segment metadata extraction upfront before starting persona analysis. Metadata is computed using fast, deterministic static analysis (`SegmentMeta`) for 100% consistency and sub-millisecond execution time, extracting `primary_purpose`, `key_symbols`, `dependencies`, and `change_types`.
 - All `devops review` commands save output to `.data/reviews/<YYMMDD-HHMM>-<title>/`:
   - `summary.md` — table of persona recommendations and links to all files
   - `segment-N.md` — raw content fed to the LLM for segment N
@@ -125,6 +129,18 @@ the OS keyring only — never in config files or environment variables. Set them
   inject it into the reviewer's system prompt, so findings must defer to conventions
   and policies documented here (e.g. the Environment & Modernization Policy above)
   rather than flag them as issues.
+
+## Local Workstation vs. Production / CI Operations
+
+- **Local Workstation / Dev Container Model (Default)**:
+  - **High Timeouts**: Uses generous HTTP and subprocess timeouts (`DEFAULT_REVIEW_TIMEOUT_SECONDS = 3600.0`, `DEFAULT_SUBPROCESS_TIMEOUT_SECONDS = 1800.0`) to accommodate local LLM inference (e.g., Ollama running large models on CPU/GPU) and slow corporate proxy connections. Do not flag high default timeouts as DoS risks.
+  - **Host Key Material**: Mounts host `${localEnv:HOME}/.ssh` into `.devcontainer` by design to support local key generation, 90-day rotation tracking, and GitHub registration.
+  - **Private Network Access**: Opt-in flag `DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true` permits connections to private-IP Ollama, ArgoCD, Grafana, and Prometheus endpoints.
+  - **OS Keyring Secrets**: Secrets (`github.token`, `grafana.token`, `argocd.token`, `ai.api_key`) are stored exclusively in the host/container OS keyring (`keyring`) — unencrypted fallback is explicitly rejected.
+
+- **Production / CI Execution Guards**:
+  - **Path & Workspace Boundary Enforcement**: File operations (`read_file`, `list_files`, `devops review path`, `devops workspace add`) enforce strict workspace boundary checks (`_is_safe_workspace_path`) to prevent path traversal outside the repository root.
+  - **Non-Interactive Execution**: All external tool subcommands (`kubectl`, `argo`, `gh`, `docker`) run non-interactively with explicit `timeout` guards on `subprocess.run()` calls.
 
 ## Project Working Documentation
 - Overview & Usage: [README.md](./README.md) — project summary, architecture, command reference matrix, and persona guides
