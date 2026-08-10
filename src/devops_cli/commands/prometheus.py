@@ -1,0 +1,164 @@
+"""Prometheus query and rule management (httpx REST API)."""
+
+from __future__ import annotations
+
+import time
+from typing import Annotated, Any
+
+import httpx2
+import typer
+from rich import print as rprint
+from rich.console import Console
+from rich.table import Table
+
+from devops_cli.cli import new_typer
+from devops_cli.config import Settings, load_settings
+
+app = new_typer(help="Prometheus query and rule management.", no_args_is_help=True)
+console = Console()
+
+
+def _base_url(settings: Settings) -> str:
+    if not settings.prometheus.url:
+        rprint(
+            "[red]Prometheus URL not configured. Run: devops config set prometheus.url <url>[/red]"
+        )
+        raise typer.Exit(1)
+    return settings.prometheus.url.rstrip("/")
+
+
+def _parse_duration(s: str) -> float:
+    """Parse simple relative durations like '1h', '30m', '7d' to seconds."""
+    units = {"s": 1, "m": 60, "h": 3600, "d": 86400}
+    if s[-1] in units:
+        return int(s[:-1]) * units[s[-1]]
+    return float(s)
+
+
+@app.command()
+def query(
+    expr: Annotated[str, typer.Argument(help="PromQL expression")],
+    at: Annotated[
+        str | None, typer.Option("--time", "-t", help="Evaluation time (RFC3339 or Unix)")
+    ] = None,
+) -> None:
+    """Execute an instant PromQL query."""
+    settings = load_settings()
+    base = _base_url(settings)
+    params: dict[str, Any] = {"query": expr}
+    if at:
+        params["time"] = at
+
+    with httpx2.Client() as c:
+        resp = c.get(f"{base}/api/v1/query", params=params, timeout=30)
+        resp.raise_for_status()
+
+    data = resp.json()
+    if data["status"] != "success":
+        rprint(f"[red]Query failed: {data.get('error', 'unknown')}[/red]")
+        raise typer.Exit(1)
+
+    results = data["data"]["result"]
+    if not results:
+        rprint("[yellow]No results.[/yellow]")
+        return
+
+    table = Table(title=expr[:80])
+    table.add_column("Labels", style="dim")
+    table.add_column("Value", style="cyan")
+
+    for r in results:
+        labels = ", ".join(f"{k}={v}" for k, v in r["metric"].items() if k != "__name__")
+        _, value = r["value"]
+        table.add_row(labels or "(no labels)", value)
+    console.print(table)
+
+
+@app.command("query-range")
+def query_range(
+    expr: Annotated[str, typer.Argument(help="PromQL expression")],
+    start: Annotated[
+        str, typer.Option("--start", "-s", help="Start: duration ago (e.g. 1h) or Unix ts")
+    ] = "1h",
+    end: Annotated[str | None, typer.Option("--end", "-e")] = None,
+    step: Annotated[str, typer.Option("--step")] = "60s",
+) -> None:
+    """Execute a range PromQL query and summarise the result."""
+    settings = load_settings()
+    base = _base_url(settings)
+
+    now = time.time()
+    try:
+        start_ts = str(now - _parse_duration(start))
+    except ValueError:
+        start_ts = start
+    end_ts = end or str(now)
+
+    params = {"query": expr, "start": start_ts, "end": end_ts, "step": step}
+    with httpx2.Client() as c:
+        resp = c.get(f"{base}/api/v1/query_range", params=params, timeout=60)
+        resp.raise_for_status()
+
+    results = resp.json()["data"]["result"]
+    total_points = sum(len(r["values"]) for r in results)
+    rprint(f"[bold]{expr[:80]}[/bold]")
+    rprint(f"{len(results)} series, {total_points} total data points (step={step})")
+    for r in results:
+        labels = ", ".join(f"{k}={v}" for k, v in r["metric"].items() if k != "__name__")
+        rprint(f"  [cyan]{labels or '(no labels)'}[/cyan]: {len(r['values'])} points")
+
+
+@app.command()
+def rules() -> None:
+    """List Prometheus recording and alerting rules."""
+    settings = load_settings()
+    base = _base_url(settings)
+
+    with httpx2.Client() as c:
+        resp = c.get(f"{base}/api/v1/rules", timeout=30)
+        resp.raise_for_status()
+
+    table = Table(title="Prometheus Rules")
+    table.add_column("Group", style="cyan")
+    table.add_column("Name")
+    table.add_column("Type")
+    table.add_column("Health")
+
+    for group in resp.json()["data"]["groups"]:
+        for rule in group["rules"]:
+            name = rule.get("name") or rule.get("alert", "")
+            health = rule.get("health", "")
+            table.add_row(
+                group["name"],
+                name,
+                rule.get("type", ""),
+                "[green]ok[/green]" if health == "ok" else f"[red]{health}[/red]",
+            )
+    console.print(table)
+
+
+@app.command()
+def targets() -> None:
+    """List active Prometheus scrape targets."""
+    settings = load_settings()
+    base = _base_url(settings)
+
+    with httpx2.Client() as c:
+        resp = c.get(f"{base}/api/v1/targets", timeout=30)
+        resp.raise_for_status()
+
+    table = Table(title="Prometheus Scrape Targets")
+    table.add_column("Job", style="cyan")
+    table.add_column("Instance")
+    table.add_column("State")
+    table.add_column("Last Scrape")
+
+    for t in resp.json()["data"]["activeTargets"]:
+        up = t["health"] == "up"
+        table.add_row(
+            t["labels"].get("job", ""),
+            t["labels"].get("instance", ""),
+            "[green]up[/green]" if up else "[red]down[/red]",
+            t.get("lastScrape", "")[:19],
+        )
+    console.print(table)

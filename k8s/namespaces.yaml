@@ -1,0 +1,23 @@
+# Namespaces for the local Kubernetes infrastructure stack.
+# Applied by: kubectl apply -k k8s/
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: argocd
+  labels:
+    app.kubernetes.io/part-of: devops-cli-stack
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+  labels:
+    app.kubernetes.io/part-of: devops-cli-stack
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: otel
+  labels:
+    app.kubernetes.io/part-of: devops-cli-stack

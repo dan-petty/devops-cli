@@ -1,0 +1,87 @@
+"""uv command wrappers for environment and task management."""
+
+from __future__ import annotations
+
+import subprocess
+from collections.abc import Sequence
+from pathlib import Path
+from typing import Annotated
+
+import typer
+from rich import print as rprint
+
+app = typer.Typer(help="Run uv commands through devops.", no_args_is_help=True)
+
+# Repo root: src/devops_cli/commands/uv.py -> parents[3]
+_ROOT = Path(__file__).resolve().parents[3]
+
+
+def _run(cmd: Sequence[str]) -> None:
+    result = subprocess.run(list(cmd), cwd=_ROOT)
+    if result.returncode != 0:
+        raise typer.Exit(result.returncode)
+
+
+@app.command()
+def sync(
+    frozen: Annotated[bool, typer.Option("--frozen", help="Do not update lockfile")] = False,
+) -> None:
+    """Sync project dependencies into the virtual environment."""
+    cmd = ["uv", "sync"]
+    if frozen:
+        cmd.append("--frozen")
+    _run(cmd)
+
+
+@app.command()
+def lock(
+    upgrade: Annotated[
+        bool,
+        typer.Option("--upgrade", help="Upgrade dependencies while locking"),
+    ] = False,
+) -> None:
+    """Regenerate the uv lockfile."""
+    cmd = ["uv", "lock"]
+    if upgrade:
+        cmd.append("--upgrade")
+    _run(cmd)
+
+
+@app.command(name="python-install")
+def python_install(
+    version: Annotated[
+        str | None,
+        typer.Option(
+            "--version",
+            "-v",
+            help="Python version to install (defaults to .python-version)",
+        ),
+    ] = None,
+) -> None:
+    """Install project Python version with uv."""
+    if version is None:
+        version = (
+            (_ROOT / ".python-version").read_text(encoding="utf-8").strip()
+            if (_ROOT / ".python-version").exists()
+            else None
+        )
+
+    if not version:
+        rprint("[red]No Python version provided and .python-version is missing.[/red]")
+        raise typer.Exit(1)
+
+    _run(["uv", "python", "install", version])
+
+
+@app.command(context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
+def run(ctx: typer.Context) -> None:
+    """Run an arbitrary command using `uv run`.
+
+    Example:
+      devops uv run -- pytest -q
+    """
+    if not ctx.args:
+        rprint("[red]Missing command. Example: devops uv run -- pytest -q[/red]")
+        raise typer.Exit(1)
+
+    _run(["uv", "run", *ctx.args])

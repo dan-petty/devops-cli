@@ -1,0 +1,59 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "devops-cli"
+version = "0.1.0"
+description = "DevOps CLI for managing repos, SSH keys, Kubernetes, and more"
+requires-python = ">=3.14"
+dependencies = [
+    "click==8.4.2",
+    "typer>=0.12",
+    "rich>=13",
+    "pydantic>=2",
+    "PyGithub>=2",
+    "gitpython>=3",
+    "cryptography>=43",
+    "httpx2==2.9.0",
+    "keyring>=25",
+    "keyrings.alt>=5",
+    "PyYAML>=6",
+    "jinja2>=3",
+    "kubernetes>=30",
+    "docker>=7",
+]
+
+[project.scripts]
+devops = "devops_cli.main:app"
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.23",
+    "pytest-mock>=3",
+    "ruff>=0.9",
+    "mypy>=1.11",
+    "types-PyYAML>=6",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/devops_cli"]
+
+[tool.ruff]
+target-version = "py314"
+line-length = 100
+exclude = ["repos"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+ignore = ["N818"]
+
+[tool.mypy]
+python_version = "3.14"
+strict = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["src"]

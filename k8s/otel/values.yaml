@@ -1,0 +1,69 @@
+# OpenTelemetry Collector Helm values — local dev configuration.
+# Chart: open-telemetry/opentelemetry-collector
+# Repo:  https://open-telemetry.github.io/opentelemetry-helm-charts
+
+mode: deployment
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 256Mi
+
+# ── Collector pipeline configuration ─────────────────────────────────────────
+config:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+        http:
+          endpoint: 0.0.0.0:4318
+
+  processors:
+    batch:
+      send_batch_size: 1024
+      timeout: 5s
+
+    memory_limiter:
+      check_interval: 5s
+      limit_mib: 200
+      spike_limit_mib: 50
+
+  exporters:
+    # Console/stdout exporter for local dev visibility
+    debug:
+      verbosity: basic
+
+    # Prometheus remote write to in-cluster Prometheus
+    prometheusremotewrite:
+      endpoint: http://kube-prometheus-kube-prom-prometheus.monitoring.svc:9090/api/v1/write
+
+  service:
+    pipelines:
+      traces:
+        receivers: [otlp]
+        processors: [memory_limiter, batch]
+        exporters: [debug]
+
+      metrics:
+        receivers: [otlp]
+        processors: [memory_limiter, batch]
+        exporters: [debug, prometheusremotewrite]
+
+      logs:
+        receivers: [otlp]
+        processors: [memory_limiter, batch]
+        exporters: [debug]
+
+# Expose OTLP ports as NodePort for application instrumentation
+service:
+  type: NodePort
+
+ports:
+  otlp:
+    enabled: true
+  otlp-http:
+    enabled: true

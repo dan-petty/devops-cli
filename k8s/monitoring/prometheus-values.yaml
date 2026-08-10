@@ -1,0 +1,74 @@
+# kube-prometheus-stack Helm values — minimal dev-mode for minikube.
+# Chart: prometheus-community/kube-prometheus-stack
+# Repo:  https://prometheus-community.github.io/helm-charts
+#
+# Bundles: Prometheus, Alertmanager, Grafana, node-exporter, kube-state-metrics.
+
+# ── Prometheus ────────────────────────────────────────────────────────────────
+prometheus:
+  prometheusSpec:
+    # Short retention for local dev — keeps storage minimal
+    retention: 2h
+    retentionSize: 512MB
+
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+    # Enable remote write receiver so OTEL Collector can push metrics
+    enableRemoteWriteReceiver: true
+
+  service:
+    type: NodePort
+
+# ── Alertmanager — disabled for local dev ─────────────────────────────────────
+alertmanager:
+  enabled: false
+
+# ── Grafana ───────────────────────────────────────────────────────────────────
+grafana:
+  adminPassword: admin
+
+  service:
+    type: NodePort
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+  # Auto-provision Prometheus as default datasource
+  sidecar:
+    dashboards:
+      enabled: true
+    datasources:
+      enabled: true
+
+  # Pre-loaded dashboards for Kubernetes monitoring
+  dashboardProviders:
+    dashboardproviders.yaml:
+      apiVersion: 1
+      providers:
+        - name: default
+          orgId: 1
+          folder: ""
+          type: file
+          disableDeletion: false
+          editable: true
+          options:
+            path: /var/lib/grafana/dashboards/default
+
+# ── Node Exporter — minimal for local dev ─────────────────────────────────────
+nodeExporter:
+  enabled: true
+
+# ── kube-state-metrics ────────────────────────────────────────────────────────
+kubeStateMetrics:
+  enabled: true
