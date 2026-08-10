@@ -1,10 +1,10 @@
-"""Shared HTTP client timeout settings."""
+"""Shared HTTP client creation and timeout configuration."""
 
 from __future__ import annotations
 
 import httpx2
 
-from devops_cli.defaults import (
+from devops_cli.config.defaults import (
     HTTP_CONNECT_TIMEOUT_SECONDS,
     HTTP_POOL_TIMEOUT_SECONDS,
     HTTP_READ_TIMEOUT_SECONDS,
