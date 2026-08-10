@@ -1,37 +1,16 @@
 # devops-cli — Agent Instructions
 
-> **Canonical source.** This file is the single source of truth for AI coding agent
-> instructions in this repo. [CLAUDE.md](./CLAUDE.md) and
-> [.github/copilot-instructions.md](./.github/copilot-instructions.md) are thin pointers
-> to this file, kept only because their tools look for those specific filenames. Edit
-> this file (or regenerate via `devops ai agents`), not the pointer files.
+> **Canonical Source.** Single source of truth for AI coding agents. `CLAUDE.md` and `.github/copilot-instructions.md` are thin pointers to this file. Edit this file (or run `devops ai agents`), not pointers.
 
-## Project
-**devops-cli** — DevOps CLI for managing repos, SSH keys, Kubernetes, and more
+## Project & Environment Policy
+- **Language**: Python >=3.14 | **Entrypoint**: `devops` | **Package Manager**: `uv` (`.venv/`)
+- **Workstation-Native Model**: Designed to run inside VS Code Dev Containers on local DevOps workstations.
+- **Modernization Policy**: Tracking latest Python releases, base container images, and dependencies is intentional to avoid upgrade debt and CVE exposure. A failing `devops ci` after a dependency bump signals a code fix, not pinning backward.
 
-- Language: Python >=3.14
-- Entry point: `devops`
-- Virtual environment: `.venv/` (managed by `uv`)
-
-## Environment & Modernization Policy
-- This project is built to run **only inside the provided dev container** on a local
-  DevOps Engineer's workstation — it is not intended for bare-metal installs, shared
-  servers, or as a base image for other services.
-- Tracking the **latest Python release, latest container base images, and latest
-  dependency versions** is intentional, not an oversight. The dev container is rebuilt
-  routinely, so staying current avoids accumulating upgrade debt and reduces exposure
-  to unpatched legacy CVEs.
-- This is safe specifically because of the test/lint/format/typecheck suite: `devops ci`
-  is the guardrail that catches breakage from modernization before it merges. Treat a
-  failing `devops ci` after a version bump as a signal to fix the break, not to pin
-  backwards.
-- When bumping Python, base images, or dependencies: update the version, run
-  `devops ci`, and resolve any failures it surfaces before merging.
-
-## Build & Test Commands
+## Build & Quality Commands
 ```bash
-uv sync                        # install / sync dependencies
-devops ci                      # run all checks (test + lint + format + typecheck)
+uv sync                        # Sync dependencies
+devops ci                      # Run full quality gate (test + lint + format + typecheck)
 devops ci test [-v] [-k expr]  # pytest
 devops ci lint [--fix]         # ruff check
 devops ci format [--fix]       # ruff format
@@ -39,134 +18,128 @@ devops ci typecheck            # mypy (strict)
 ```
 
 ## Code Conventions
-- Python 3.14+, strict mypy, ruff (E/F/I/N/W/UP rules), 100-char line limit
-- 4-space indent for Python; 2-space for JSON/YAML/TOML/shell
-- LF line endings, trim trailing whitespace, final newline
-- Type annotations on all public functions; `from __future__ import annotations`
-- Import `Callable` from `collections.abc`, not `typing`
-- Use `httpx2` (not `httpx`) for HTTP — `import httpx2`
-- Secrets stored in OS keyring via `keyring`; never in config files or env vars
+- Python 3.14+, strict `mypy`, `ruff` (E/F/I/N/W/UP rules), 100-char line limit, 4-space indent for Python (2-space for JSON/YAML/TOML/shell), LF line endings.
+- Type annotations on all public functions; `from __future__ import annotations`.
+- Import `Callable` from `collections.abc`, not `typing`. Use `httpx2` (not `httpx`) for HTTP calls.
+- Secrets stored in OS keyring (`keyring`); never in config files or environment variables.
 
-## Architecture
+## Architecture Subpackage Map
 ```
 src/devops_cli/
   main.py              # Typer app entry point and command registration proxy
-  core/                # Application initialization and dry-run execution context
-    cli.py             # Typer app creation helpers (new_typer)
-    dry_run.py         # Dry-run execution mode interceptor and state
-  config/              # Centralized configuration subpackage
-    settings.py        # Pydantic Settings, keyring helpers, and profile loaders
-    options.py         # Canonical CLI option keys and secret mappings
-    constants.py       # Non-configurable constants and URLs
-    defaults.py        # CLI default values and HTTP timeout constants
-    env.py             # Environment variable mappings
-  http/                # Network security and HTTP client subpackage
-    validation.py      # SSRF and private-IP network target validation
-    client.py          # Shared HTTP client timeout configuration
-  models/              # Centralized Pydantic domain models subpackage (git, ssh, github, grafana, prometheus, argo, ai)
-  commands/            # CLI command submodules (one file per command group)
-  ai/
-    client.py          # Unified LLM client (Ollama / Claude / OpenAI-compat)
-    agent.py           # Reusable PydanticAgent engine
-    agent_tools.py     # Built-in agent tools
-    personas.py        # Reviewer persona definitions (DevSecOps, Architect, PM, Auditor, QA)
-  github/client.py     # PyGithub + httpx2 wrapper
-  git/operations.py    # GitPython helpers
-  crypto/ssh_keys.py   # SSH key generation / rotation
+  core/                # Application initialization, Typer helpers, and dry-run execution state
+  config/              # Settings (Pydantic), option keys, defaults, and env var specs
+  http/                # Network security, SSRF validation, and HTTP client timeout config
+  models/              # Centralized Pydantic domain models (git, ssh, github, grafana, prometheus, argo, ai)
+  commands/            # CLI subcommands (ai, review, repos, ssh, k8s, kustomize, argo, grafana, prometheus, docker, workspace, install_tools, config, ci, branches, devcontainer, uv)
+  ai/                  # LLM Client, PydanticAgent engine, agent tools, tasks, and personas (devsecops, architect, pm, auditor, qa)
+  github/              # PyGithub + httpx2 wrapper & SSH key registration
+  git/                 # GitPython helpers and workspace repository iterator
+  crypto/              # ED25519 SSH keypair generation, auditing, and 90-day rotation
   templates/           # Jinja2 templates for devcontainer scaffolding
-tests/                 # pytest, pytest-asyncio, pytest-mock
+tests/                 # pytest, pytest-asyncio, pytest-mock suite
 ```
 
-## Configuration & Environment Variables
+## Configuration & Environment Priority
+Priority order (last wins): `~/.config/devops-cli/config.yaml` -> `config.yaml` / `$DEVOPS_CLI_CONFIG` -> `DEVOPS_CLI_*` env vars.
 
-Settings are loaded in this priority order (last wins):
-1. `~/.config/devops-cli/config.yaml` — user-global settings
-2. `config.yaml` (CWD) or the path in `DEVOPS_CLI_CONFIG` — project-level overrides
-3. `DEVOPS_CLI_*` environment variables — override both files
-
-| Config key | Environment variable | Notes |
+| Config Key | Env Variable | Purpose / Notes |
 |---|---|---|
-| `github.default_org` | `DEVOPS_CLI_GITHUB_DEFAULT_ORG` | |
-| `ssh.key_dir` | `DEVOPS_CLI_SSH_KEY_DIR` | |
-| `ssh.rotation_days` | `DEVOPS_CLI_SSH_ROTATION_DAYS` | |
-| `repos.base_dir` | `DEVOPS_CLI_REPOS_BASE_DIR` | |
-| `workspace.file` | `DEVOPS_CLI_WORKSPACE_FILE` | |
-| `grafana.url` | `DEVOPS_CLI_GRAFANA_URL` | |
-| `prometheus.url` | `DEVOPS_CLI_PROMETHEUS_URL` | |
-| `argocd.url` | `DEVOPS_CLI_ARGOCD_URL` | |
-| `ai.provider` | `DEVOPS_CLI_AI_PROVIDER` | `ollama` \| `claude` \| `copilot` \| `openai` |
-| `ai.model` | `DEVOPS_CLI_AI_MODEL` | |
-| `ai.ollama_url` | `DEVOPS_CLI_AI_OLLAMA_URL` | |
-| `ai.api_base_url` | `DEVOPS_CLI_AI_API_BASE_URL` | |
-| `ai.allow_private_network` | `DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK` | `true` enables private-IP targets |
-| — | `DEVOPS_CLI_CONFIG` | Absolute path to the project config file |
+| `github.default_org` | `DEVOPS_CLI_GITHUB_DEFAULT_ORG` | Default GitHub organization for cloning |
+| `ssh.key_dir` | `DEVOPS_CLI_SSH_KEY_DIR` | Directory for SSH key pairs (`~/.ssh`) |
+| `ssh.rotation_days` | `DEVOPS_CLI_SSH_ROTATION_DAYS` | SSH key rotation interval (default: 90) |
+| `repos.base_dir` | `DEVOPS_CLI_REPOS_BASE_DIR` | Base directory for cloned repositories |
+| `workspace.file` | `DEVOPS_CLI_WORKSPACE_FILE` | VS Code multi-root `.code-workspace` file path |
+| `grafana.url` | `DEVOPS_CLI_GRAFANA_URL` | Grafana service endpoint URL |
+| `prometheus.url` | `DEVOPS_CLI_PROMETHEUS_URL` | Prometheus service endpoint URL |
+| `argocd.url` | `DEVOPS_CLI_ARGOCD_URL` | ArgoCD service endpoint URL |
+| `ai.provider` | `DEVOPS_CLI_AI_PROVIDER` | Active LLM provider (`ollama` \| `claude` \| `copilot` \| `openai`) |
+| `ai.model` | `DEVOPS_CLI_AI_MODEL` | Default LLM model name |
+| `ai.ollama_url` | `DEVOPS_CLI_AI_OLLAMA_URL` | Ollama service endpoint URL |
+| `ai.api_base_url` | `DEVOPS_CLI_AI_API_BASE_URL` | Custom OpenAI-compatible API base URL |
+| `ai.allow_private_network` | `DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK` | `true` permits private-IP network targets (SSRF defense) |
+| — | `DEVOPS_CLI_CONFIG` | Absolute path to project configuration file |
 
-Secrets (`github.token`, `grafana.token`, `argocd.token`, `ai.api_key`) are stored in
-the OS keyring only — never in config files or environment variables. Set them with
-`devops config set <key> <value>`.
+Secrets (`github.token`, `grafana.token`, `argocd.token`, `ai.api_key`) are stored exclusively in the OS keyring (`devops config set <key> <value>`).
+Inspect all 30 environment variables: `devops config output [--export|--json]` (aliases: `devops config env`, `devops config env-vars`).
 
-Inspect or export environment variables available for configuration:
-`devops config output [--export|--json]` (aliases: `devops config env`, `devops config env-vars`).
+## Complete Command Matrix
 
-## AI Features (`devops ai`, `devops review`)
-- `devops ai config --provider <ollama|claude|copilot|openai>`
-- `devops ai test` — verify LLM connectivity
-- `devops ai agents` — (re)generate this file and siblings
-- `devops review branch [<branch>] [--base main] [--persona <p>] [--all]`
-- `devops review pr <number> [--post]` — review GitHub PRs; optionally post as comment
-- `devops review path [<target>] [--pattern <glob>] [--persona <p>] [--all]` — respects `.gitignore` (uses `git ls-files --exclude-standard` + `git check-ignore`)
-- `devops review findings [<session>] [--unverified|--invalidated|--verified]` — inspect findings for a review session
-- `devops review verify <session> --index <N> --status <verified|invalidated> [--reason "..."]` — validate/invalidate findings & record feedback
-- `devops review stats` — compute review accuracy metrics across saved sessions
-- Personas: `devsecops` · `architect` · `pm` · `auditor` · `qa`
-- All `devops review` commands execute Step 1/4 segment metadata extraction upfront before starting persona analysis. Metadata is computed using fast, deterministic static analysis (`SegmentMeta`) for 100% consistency and sub-millisecond execution time, extracting `primary_purpose`, `key_symbols`, `dependencies`, and `change_types`.
-- All `devops review` commands save output to `.data/reviews/<YYMMDD-HHMM>-<title>/`:
-  - `summary.md` — table of persona recommendations and links to all files
-  - `segment-N.md` — raw content fed to the LLM for segment N
-  - `<persona>-review.md` — rendered review from each persona
-  - `findings.json` — structured findings with verification status and human feedback reasons
-- All `devops review` commands load this file (AGENTS.md) from the target repo and
-  inject it into the reviewer's system prompt, so findings must defer to conventions
-  and policies documented here (e.g. the Environment & Modernization Policy above)
-  rather than flag them as issues.
+| Command Group | Subcommand / Usage | Functionality |
+|---|---|---|
+| **ai** | `devops ai config --provider <p>` | Set LLM provider (`ollama`, `claude`, `copilot`, `openai`) |
+| | `devops ai test` | Test LLM connectivity and query available models |
+| | `devops ai agents` | (Re)generate `AGENTS.md` and pointer instruction files |
+| **review** | `devops review branch [<branch>] [--base main]` | Review branch git diff against base using AI personas |
+| | `devops review pr <number> [--post]` | Review GitHub PR diff; optionally post summary as PR comment |
+| | `devops review path [<target>] [--pattern <glob>]` | Review local files respecting `.gitignore` exclusions |
+| | `devops review findings [<session>]` | Inspect structured review findings by verification status |
+| | `devops review verify <session> --index N` | Validate (`verified`) or invalidate (`invalidated`) finding |
+| | `devops review stats` | View accuracy metrics and false-positive rates per persona |
+| **repos** | `devops repos clone-org --org <org>` | Batch clone all repositories in a GitHub organization |
+| | `devops repos clone <url>` | Clone standalone repository into workspace |
+| | `devops repos list` | List local workspace repositories and active git branches |
+| | `devops repos sync [--all]` | Fetch and pull tracking branches across workspace repos |
+| | `devops repos status` | Display uncommitted changes and branch drift across workspace |
+| **ssh** | `devops ssh generate [--email <e>]` | Generate ED25519 keypair (`~/.ssh/id_ed25519-YYYYMMM[DD]`) |
+| | `devops ssh status` | Inspect age and rotation status of managed SSH keys |
+| | `devops ssh register` | Register SSH key and signing key with GitHub account |
+| | `devops ssh rotate` | Rotate SSH keys older than threshold and update GitHub |
+| | `devops ssh audit` | Audit SSH key expiration dates and key file permissions |
+| **k8s** | `devops k8s deploy-stack` | Deploy ArgoCD, Prometheus, Grafana, OTEL to minikube |
+| | `devops k8s status` | Display pod status across infrastructure namespaces |
+| | `devops k8s pods [--namespace <ns>]` | List pod status with RFC 1123 label filtering |
+| | `devops k8s logs <pod> --container <c>` | Stream container logs safely with bounded `--tail` |
+| | `devops k8s apply -f <file>` | Apply Kubernetes manifest via `kubectl` |
+| **kustomize** | `devops kustomize build <dir>` | Build and validate Kustomize overlay manifests |
+| **argo** | `devops argo list` | List ArgoCD applications |
+| | `devops argo status --app <app>` | Check ArgoCD application health and sync status |
+| | `devops argo sync --app <app>` | Trigger ArgoCD application sync operation |
+| | `devops argo workflows list` | List active and historical Argo Workflows |
+| | `devops argo rollouts list` | List Argo Rollouts and deployment strategy status |
+| **grafana** | `devops grafana dashboards` | Search and list Grafana dashboards by tag or query |
+| | `devops grafana alerts` | List active Grafana alert rules and firing states |
+| | `devops grafana search --query <q>` | Search Grafana dashboards by query string |
+| **prometheus** | `devops prometheus query "<promql>"` | Execute PromQL instant query against Prometheus |
+| | `devops prometheus targets` | List Prometheus active scrape targets and health |
+| **docker** | `devops docker prune` | Prune dangling Docker containers, networks, and volumes |
+| | `devops docker clean` | Deep clean unused Docker images and build cache |
+| | `devops docker stats` | Display resource usage metrics for running containers |
+| **workspace** | `devops workspace generate` | Regenerate multi-root VS Code `.code-workspace` file |
+| | `devops workspace open` | Open multi-root workspace file in VS Code |
+| | `devops workspace add <dir>` | Add directory to workspace file with boundary checks |
+| | `devops workspace list` | List configured directories in active workspace file |
+| **install-tools**| `devops install-tools [tools...]` | Install verified DevOps binaries with SHA-256 checksums |
+| | `devops install-tools check` | Verify presence and versions of required CLI binaries |
+| **config** | `devops config show` | Display configuration settings with masked secret tokens |
+| | `devops config get <key>` | Get specific configuration value |
+| | `devops config set <key> <val>` | Set configuration setting or store secret in OS keyring |
+| | `devops config output [--export\|--json]`| Output environment variables available for configuration |
+| **ci** | `devops ci` | Run complete quality gate (pytest, ruff, format, mypy) |
+| | `devops ci test\|lint\|format\|typecheck` | Execute individual CI quality checks |
+| **branches** | `devops branches list` | List local and remote tracking branches across repos |
+| | `devops branches prune` | Delete local tracking branches merged into main |
+| | `devops branches sync` | Synchronize branch state across workspace repositories |
+| **devcontainer**| `devops devcontainer init` | Scaffold `.devcontainer/` setup from Jinja2 templates |
+| | `devops devcontainer up` | Launch Dev Container environment via VS Code CLI |
+| **uv** | `devops uv sync` | Sync Python 3.14 virtual environment dependencies |
+| | `devops uv add <pkg>` | Add dependency to `pyproject.toml` and sync |
+| | `devops uv remove <pkg>` | Remove dependency from `pyproject.toml` and sync |
+| | `devops uv python-install <ver>` | Install Python runtime version via `uv` |
+| **mcp** | `devops mcp serve [--transport stdio\|sse] [--port 8000]` | Launch FastMCP server exposing devops-cli tools to MCP clients |
+| | `devops mcp tools` | Print Rich table of all registered FastMCP tools and descriptions |
 
-## Local Workstation vs. Production / CI Operations
+## AI Review Architecture & Security Directives
+- **Personas**: `devsecops` · `architect` · `pm` · `auditor` · `qa`.
+- **Step 1/4 Deterministic Metadata**: Static analysis (`SegmentMeta`) extracts `primary_purpose`, `key_symbols`, `dependencies`, and `change_types` in <5ms upfront.
+- **Review Artifacts**: Output saved to `.data/reviews/<YYMMDD-HHMM>-<title>/`: `summary.md`, `segment-N.md`, `<persona>-review.md`, `findings.json`.
+- **Repo Instructions Ingestion**: All review commands load `AGENTS.md` from the target repo and inject it into reviewer prompts inside `<project_conventions_context>` tags. Reviewers MUST defer to conventions documented here rather than raise findings against intentional policies.
+- **Prompt Isolation Guardrails**: Diffs, source files, excerpts, and findings are enclosed in XML boundary tags (`<untrusted_code_diff>`, `<target_code_to_review>`, etc.) with explicit security instructions forbidding prompt injection execution or persona shifts.
 
-- **Local Workstation / Dev Container Model (Default)**:
-  - **High Timeouts**: Uses generous HTTP and subprocess timeouts (`DEFAULT_REVIEW_TIMEOUT_SECONDS = 3600.0`, `DEFAULT_SUBPROCESS_TIMEOUT_SECONDS = 1800.0`) to accommodate local LLM inference (e.g., Ollama running large models on CPU/GPU) and slow corporate proxy connections. Do not flag high default timeouts as DoS risks.
-  - **Host Key Material**: Mounts host `${localEnv:HOME}/.ssh` into `.devcontainer` by design to support local key generation, 90-day rotation tracking, and GitHub registration.
-  - **Private Network Access**: Opt-in flag `DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true` permits connections to private-IP Ollama, ArgoCD, Grafana, and Prometheus endpoints.
-  - **OS Keyring Secrets**: Secrets (`github.token`, `grafana.token`, `argocd.token`, `ai.api_key`) are stored exclusively in the host/container OS keyring (`keyring`) — unencrypted fallback is explicitly rejected.
-
-- **Production / CI Execution Guards**:
-  - **Path & Workspace Boundary Enforcement**: File operations (`read_file`, `list_files`, `devops review path`, `devops workspace add`) enforce strict workspace boundary checks (`_is_safe_workspace_path`) to prevent path traversal outside the repository root.
-  - **Non-Interactive Execution**: All external tool subcommands (`kubectl`, `argo`, `gh`, `docker`) run non-interactively with explicit `timeout` guards on `subprocess.run()` calls.
-
-## Project Working Documentation
-- Overview & Usage: [README.md](./README.md) — project summary, architecture, command reference matrix, and persona guides
-- Roadmap: [docs/ROADMAP.md](./docs/ROADMAP.md) — project vision, phased milestone deliverables, and Value vs. Effort Prioritization Matrix
-- Pending Features: [docs/PENDING_FEATURES.md](./docs/PENDING_FEATURES.md) — active proposals, feature specifications, and implementation ROI
-- Known Issues: [docs/KNOWN_ISSUES.md](./docs/KNOWN_ISSUES.md) — unresolved edge cases, intentional design trade-offs, and remediation cost matrix
-
-## Security Notes
-- SSH private keys: `~/.ssh/id_ed25519-<YYYYMMM[DD]>` pattern; rotated every 90 days
-- GitHub / Grafana / ArgoCD tokens stored in OS keyring only; env var fallbacks for secret tokens are rejected
-- All HTTP clients use `httpx2` with explicit timeouts
-- No credentials in config YAML or source files
-- `devops_cli.ai.client.LLMClient` validates Ollama/Claude/OpenAI-compatible base URLs
-  and refuses private/loopback/link-local targets unless
-  `DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true` is set — this mitigates SSRF via
-  attacker- or config-controlled endpoints; do not flag this as unmitigated SSRF risk
-- `devops_cli.http.validate_service_url` applies the same private-network check to all
-  configured service URLs (ArgoCD, Grafana). Users with internal cluster URLs must set
-  `DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true`; do not flag these as unmitigated SSRF risk
-- `devops install-tools` verifies SHA-256 checksums for all downloaded binaries against
-  release-provided checksum files before writing to disk; do not flag as unverified downloads
-- Argo workflow/rollout `--namespace` and resource name arguments are validated against
-  RFC 1123 before being passed to subprocess; do not flag as command injection
-- All external tool subcommands (`argo`, `kubectl`, `gh`) use explicit `timeout` guards on `subprocess.run()` calls to prevent terminal hangs
-- `.devcontainer/devcontainer.json` bind-mounts `${localEnv:HOME}/.ssh` into the container
-  by design — this CLI's core purpose includes generating, rotating, and registering
-  SSH keys, which requires direct access to the real key material. This is an accepted,
-  intentional risk of the local-workstation-only usage model (see Environment &
-  Modernization Policy); do not recommend SSH agent forwarding as a required fix
+## Security Architecture & Local Workstation Model
+- **Workstation-Native Timeouts**: High default timeouts (`DEFAULT_REVIEW_TIMEOUT_SECONDS = 3600.0`, `DEFAULT_SUBPROCESS_TIMEOUT_SECONDS = 1800.0`) accommodate local LLM inference (CPU/GPU Ollama) and corporate proxies.
+- **SSH Key Mounting**: `.devcontainer/devcontainer.json` bind-mounts `${localEnv:HOME}/.ssh` by design to support key generation, 90-day rotation tracking, and GitHub registration.
+- **SSRF Defenses**: `LLMClient` and `validate_service_url()` block non-public IP targets unless `DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true` is set.
+- **Path Traversal Guards**: Workspace path checks (`_is_safe_workspace_path`) enforce repository boundaries on file operations.
+- **Binary Integrity**: `devops install-tools` verifies SHA-256 checksums before installing binaries to disk.
+- **Subprocess Safety**: External tool invocations (`kubectl`, `argo`, `gh`, `docker`) use non-interactive mode with RFC 1123 argument validation and explicit timeout guards.
