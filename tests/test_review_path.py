@@ -57,8 +57,11 @@ def test_persona_system_prompt_includes_agents_md_when_present() -> None:
 
 def test_persona_system_prompt_unchanged_when_no_agents_md() -> None:
     persona = PERSONAS[Persona.DEVSECOPS]
+    prompt = review._persona_system_prompt(persona, "")
 
-    assert review._persona_system_prompt(persona, "") == persona.system_prompt
+    assert prompt.startswith(persona.system_prompt)
+    assert "Security & Prompt Isolation Guardrails" in prompt
+    assert "Project Instructions" not in prompt
 
 
 def test_collect_files_skips_gitignored_entries(tmp_path: Path) -> None:
@@ -186,8 +189,8 @@ def test_run_review_three_steps_combines_segments() -> None:
         build_prompt=lambda content, title: f"{title}:{content}",
     )
 
-    # 2 summary (step 1) + 2 review (step 2) + 1 recompose (step 3)
-    assert len(calls) == 5
+    # 2 review (step 2) + 1 recompose (step 3) (metadata step 1 uses fast static extraction)
+    assert len(calls) == 3
     assert result == "final recomposed review"
     assert any("Review metadata for all 2 segment(s)" in c for c in calls)
     assert any("Per-segment review outputs" in c for c in calls)
@@ -211,8 +214,8 @@ def test_run_review_never_sends_empty_user_prompt() -> None:
         build_prompt=lambda content, title: f"{title}\n{content}",
     )
 
-    # 2 summary + 2 review + 1 recompose
-    assert len(calls) == 5
+    # 2 review + 1 recompose
+    assert len(calls) == 3
     assert all(call.strip() for call in calls)
 
 
@@ -297,8 +300,8 @@ def test_run_review_single_segment_skips_recompose() -> None:
         build_prompt=lambda content, title: f"{title}:{content}",
     )
 
-    # 1 summary (step 1) + 1 review (step 2); step 3 skipped
-    assert len(calls) == 2
+    # 1 review (step 2); step 1 uses fast static metadata extraction and step 3 (recompose) skipped
+    assert len(calls) == 1
     assert result == "single segment review"
     assert "Per-segment review outputs" not in result
 
