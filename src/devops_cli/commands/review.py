@@ -2,16 +2,44 @@
 
 from __future__ import annotations
 
+import json
+import re
 import subprocess
+import time
+from collections.abc import Callable
+from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Any
 
 import typer
+from pydantic import BaseModel, ConfigDict
 from rich import print as rprint
 from rich.console import Console
 from rich.rule import Rule
+from rich.table import Table
 
-from devops_cli.ai.personas import PERSONAS, Persona, PersonaDefinition
+from devops_cli.ai.client import AIClientError, LLMClient
+from devops_cli.ai.personas import METADATA_SYSTEM_PROMPT, PERSONAS, Persona, PersonaDefinition
+from devops_cli.ai.review_schema import (
+    Finding,
+    ReviewResult,
+    ReviewSessionPayload,
+    SavedFinding,
+    extract_json_block,
+    parse_review_result,
+)
+from devops_cli.config.constants import (
+    CONST_AGENTS_MD_FILENAME,
+    CONST_DATA_DIR,
+    CONST_GITIGNORE_DIRS,
+    CONST_REVIEW_GENERATED_FILES,
+    CONST_REVIEW_MAX_DIFF_CHARS,
+)
+from devops_cli.config.defaults import DEFAULT_REVIEW_TIMEOUT_SECONDS
+from devops_cli.config.settings import get_ai_api_key, load_settings
+from devops_cli.core.dry_run import format_command, is_dry_run, set_dry_run
+
+_TASKS_DIR = Path(__file__).parent.parent / "ai" / "tasks"
 
 app = typer.Typer(
     help="AI-powered code reviews using expert personas.",
@@ -19,8 +47,46 @@ app = typer.Typer(
 )
 console = Console()
 
-_MAX_DIFF_CHARS = 80_000  # stay within typical LLM context windows
+_MAX_DIFF_CHARS = CONST_REVIEW_MAX_DIFF_CHARS
+_MAX_SEGMENT_RETRIES = 2  # retry empty/failed segments this many extra times
+_PAGINATED_REVIEW_PROTOCOL = (
+    "Task: you are performing a structured CODE REVIEW — produce review findings only. "
+    "Do not generate, modify, or suggest new code unless it is a concise fix example.\n"
+    "Review protocol:\n"
+    "1. Validate each finding against the provided code before asserting it.\n"
+    "2. Ignore speculative or low-confidence issues.\n"
+    "3. Prefer concrete remediation steps with technical detail.\n"
+    "4. Avoid duplicate findings across parts; keep the strongest version only.\n"
+)
 
+
+_VALIDATION_SYSTEM = (_TASKS_DIR / "verify_finding.md").read_text(encoding="utf-8")
+
+# Appended to every segment and recompose prompt to enforce structured JSON output.
+_REVIEW_OUTPUT_INSTRUCTION = """
+Output your findings as a single JSON block:
+
+```json
+{
+  "findings": [
+    {
+      "severity": "HIGH",
+      "location": "src/file.py:42-55",
+      "title": "Short descriptive title",
+      "description": "What the issue is and the exploit/impact scenario.",
+      "fix": "The specific change needed to resolve this finding.",
+      "references": []
+    }
+  ],
+  "positive_observations": ["Good practice at src/..."],
+  "recommendation": "REQUEST CHANGES",
+  "summary": "One-paragraph overall assessment."
+}
+```
+
+Severity must be one of: CRITICAL, HIGH, MEDIUM, LOW.
+Recommendation must be one of: APPROVE, REQUEST CHANGES, BLOCK.
+"""
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -31,48 +97,1280 @@ def _personas_to_run(all_personas: bool, persona: Persona | None) -> list[Person
     return [PERSONAS[persona or Persona.DEVSECOPS]]
 
 
-def _build_prompt(diff: str, title: str) -> str:
-    truncated = len(diff) > _MAX_DIFF_CHARS
-    snippet = diff[:_MAX_DIFF_CHARS]
-    suffix = "\n[diff truncated to fit context window]" if truncated else ""
-    return (
-        f"Please review the following code changes.\n\n"
-        f"## {title}\n\n"
-        f"```diff\n{snippet}\n```{suffix}\n"
+def _debug_block(title: str, payload: dict[str, Any]) -> None:
+    rprint(f"[yellow][dry-run][/yellow] {title}")
+    # print_json escapes markup so prompt content can't break Rich rendering
+    console.print_json(json.dumps(payload, ensure_ascii=True))
+
+
+_QUIET_SUBPROCESS_ARGS = {"check-ignore", "ls-files"}
+
+
+def _run_subprocess(
+    command: list[str],
+    *,
+    cwd: Path | None = None,
+    capture_output: bool = False,
+    text: bool = False,
+    check: bool = False,
+    quiet: bool = False,
+) -> subprocess.CompletedProcess[Any]:
+    if is_dry_run() and not quiet and not _QUIET_SUBPROCESS_ARGS.intersection(command):
+        rendered = format_command(command, cwd=str(cwd) if cwd else None)
+        rprint(f"[yellow][dry-run][/yellow] Would run command: [cyan]{rendered}[/cyan]")
+    return subprocess.run(
+        command,
+        cwd=cwd,
+        capture_output=capture_output,
+        text=text,
+        check=check,
     )
 
 
-def _run_review(diff: str, title: str, persona: PersonaDefinition, client: Any) -> str:
-    return str(client.chat(system=persona.system_prompt, user=_build_prompt(diff, title)))
+def _llm_request_preview(client: Any, system: str, user: str) -> dict[str, Any]:
+    config = getattr(client, "_config", None)
+    provider = getattr(config, "provider", "unknown")
+    model = getattr(config, "model", "unknown")
+
+    if provider == "ollama":
+        base = getattr(config, "ollama_url", "")
+        return {
+            "provider": provider,
+            "endpoint": f"{base.rstrip('/')}/api/chat",
+            "method": "POST",
+            "json": {
+                "model": model,
+                "stream": False,
+                "messages": [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+            },
+        }
+
+    if provider == "claude":
+        base = getattr(config, "api_base_url", "https://api.anthropic.com")
+        return {
+            "provider": provider,
+            "endpoint": f"{str(base).rstrip('/')}/v1/messages",
+            "method": "POST",
+            "headers": {
+                "x-api-key": "***REDACTED***",
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            "json": {
+                "model": model,
+                "max_tokens": 8192,
+                "system": system,
+                "messages": [{"role": "user", "content": user}],
+            },
+        }
+
+    base = getattr(config, "api_base_url", "")
+    if provider == "copilot" and not base:
+        base = "https://api.githubcopilot.com"
+    if provider == "openai" and not base:
+        base = "https://api.openai.com/v1"
+    return {
+        "provider": provider,
+        "endpoint": f"{str(base).rstrip('/')}/chat/completions",
+        "method": "POST",
+        "headers": {
+            "Authorization": "Bearer ***REDACTED***",
+            "Content-Type": "application/json",
+        },
+        "json": {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+        },
+    }
 
 
-def _print_review(persona: PersonaDefinition, review: str) -> None:
-    from rich.markdown import Markdown
+def _build_prompt(diff: str, title: str) -> str:
+    return f"Please review the following code changes.\n\n## {title}\n\n```diff\n{diff}\n```\n"
+
+
+def _unique_preserve_order(items: list[str]) -> list[str]:
+    seen: set[str] = set()
+    unique: list[str] = []
+    for item in items:
+        if item in seen:
+            continue
+        seen.add(item)
+        unique.append(item)
+    return unique
+
+
+def _truncate_for_prompt(text: str, cap: int = 6000) -> str:
+    """Clip text to cap chars for prompt payloads, appending an ellipsis when truncated."""
+    return text[:cap] + ("\u2026" if len(text) > cap else "")
+
+
+# TODO: Move to Settings
+_DEFAULT_CONTEXT_LINES = 2  # configurable: first/last N code lines captured per segment
+
+
+class SegmentMeta(BaseModel):
+    index: int
+    filenames: list[str]
+    first_lines: list[str]
+    last_lines: list[str]
+    char_count: int
+    summary: str
+
+
+class ReviewMeta(BaseModel):
+    title: str
+    total_segments: int
+    total_chars: int
+    all_files: list[str]
+    segments: list[SegmentMeta]
+
+
+def _extract_diff_filenames(segment: str) -> list[str]:
+    """Extract filenames from git diff headers."""
+    items: list[str] = []
+    for line in segment.splitlines():
+        if line.startswith("diff --git "):
+            parts = line.split()
+            if len(parts) >= 4:
+                items.append(parts[2].removeprefix("a/"))
+    return _unique_preserve_order(items)
+
+
+def _extract_path_filenames(segment: str) -> list[str]:
+    """Extract filenames from file block headers."""
+    items: list[str] = []
+    for line in segment.splitlines():
+        if line.startswith("### File: "):
+            item = line.removeprefix("### File: ").strip()
+            item = item.split(" (part ", 1)[0].strip()
+            if item:
+                items.append(item)
+    return _unique_preserve_order(items)
+
+
+def _extract_segment_filenames(segment: str) -> list[str]:
+    """Extract filenames from either git diff headers or file block headers."""
+    return _unique_preserve_order(
+        _extract_diff_filenames(segment) + _extract_path_filenames(segment)
+    )
+
+
+_CODE_LINE_SKIP_PREFIXES = ("diff --git", "index ", "--- ", "+++ ", "@@ ", "### File: ", "```")
+
+
+def _extract_code_lines(segment: str, n: int) -> tuple[list[str], list[str]]:
+    lines = [
+        line.rstrip()
+        for line in segment.splitlines()
+        if line.strip() and not any(line.startswith(p) for p in _CODE_LINE_SKIP_PREFIXES)
+    ]
+    return lines[:n], lines[-n:] if len(lines) > n else []
+
+
+def _persona_format_section(persona: PersonaDefinition) -> str:
+    """Extract the output-format specification from the persona's system prompt."""
+    marker = "Respond in this exact format:"
+    if marker not in persona.system_prompt:
+        return ""
+    return marker + persona.system_prompt.split(marker, 1)[1].rstrip()
+
+
+def _extract_location_context(segment: str, location: str, context_lines: int = 12) -> str:
+    """Extract the referenced file+line range from a segment's markdown code blocks."""
+    file_part = location.split(":")[0].strip()
+    line_range: tuple[int, int] | None = None
+    if ":" in location:
+        try:
+            nums = [int(x) for x in location.split(":", 1)[1].replace("-", " ").split()]
+            if nums:
+                line_range = (nums[0], nums[-1])
+        except ValueError:
+            pass
+
+    # Segments use "### File: path/to/file" headers — try exact then basename match
+    header = f"### File: {file_part}"
+    header_idx = segment.find(header)
+    if header_idx == -1:
+        basename = Path(file_part).name
+        for seg_line in segment.splitlines():
+            if seg_line.startswith("### File: ") and basename in seg_line:
+                header_idx = segment.find(seg_line)
+                break
+    if header_idx == -1:
+        return ""
+
+    # Locate the opening ``` fence, then extract code up to its closing fence
+    fence_open = segment.find("```", header_idx)
+    if fence_open == -1:
+        return segment[header_idx : header_idx + 2000]
+    code_start = segment.find("\n", fence_open) + 1
+    fence_close = segment.find("\n```", code_start)
+    code = segment[code_start : fence_close if fence_close != -1 else code_start + 4000]
+
+    if line_range is None:
+        return code[:2000]
+
+    lines = code.splitlines()
+    lo = max(0, line_range[0] - 1 - context_lines)
+    hi = min(len(lines), line_range[1] + context_lines)
+    return "\n".join(lines[lo:hi])
+
+
+def _build_validation_prompt(findings: list[Finding], all_segments: list[str]) -> str:
+    # Search every segment for each finding's location so cross-segment context is included.
+    excerpts: list[str] = []
+    for f in findings:
+        primary = ""
+        additional: list[str] = []
+        for seg in all_segments:
+            ctx = _extract_location_context(seg, f.location)
+            if not ctx:
+                continue
+            if not primary:
+                primary = ctx
+            elif ctx != primary:
+                additional.append(ctx)
+        parts: list[str] = []
+        if primary:
+            parts.append(f"```\n{primary[:1500]}\n```")
+        for extra in additional[:2]:  # cap additional excerpts to keep prompt manageable
+            parts.append(f"*(related context)*\n```\n{extra[:800]}\n```")
+        if parts:
+            excerpts.append(f"**{f.location}:**\n" + "\n".join(parts))
+    code_section = (
+        "\n\n".join(excerpts)
+        if excerpts
+        else all_segments[0][:6000] + ("\u2026" if len(all_segments[0]) > 6000 else "")
+    )
+    findings_json = json.dumps(
+        [
+            {k: v for k, v in f.model_dump().items() if k not in {"verified", "mitigated"}}
+            for f in findings
+        ],
+        indent=2,
+        ensure_ascii=True,
+    )
+    return (
+        "Verify each finding below against the provided code. "
+        'Set "verified": true if the issue is clearly present, '
+        "false if it cannot be confirmed.\n\n"
+        f"Code:\n{code_section}\n\n"
+        f"Findings:\n```json\n{findings_json}\n```\n\n"
+        'Return ONLY the JSON array with "verified" fields updated.'
+    )
+
+
+def _validate_segment_findings(
+    result: ReviewResult,
+    all_segments: list[str],
+    client: Any,
+) -> ReviewResult:
+    """Ask the LLM to verify each finding, searching all segments for relevant context."""
+    if not result.findings:
+        return result
+    prompt = _build_validation_prompt(result.findings, all_segments)
+    try:
+        response = str(client.chat(system=_VALIDATION_SYSTEM, user=prompt, enable_thinking=False))
+        data = extract_json_block(response)
+        if isinstance(data, list) and len(data) == len(result.findings):
+            from devops_cli.ai.review_schema import _SEVERITY_RANK
+
+            validated: list[Finding] = []
+            now_iso = datetime.now().isoformat()
+            for f, item in zip(result.findings, data):
+                if not isinstance(item, dict):
+                    validated.append(f)
+                    continue
+                is_v = bool(item.get("verified", True))
+                is_m = bool(item.get("mitigated", False))
+                status_val = "MITIGATED" if is_m else ("VERIFIED" if is_v else "UNVERIFIED")
+                updates: dict[str, object] = {
+                    "verified": is_v,
+                    "mitigated": is_m,
+                    "status": status_val,
+                    "verified_by": "llm",
+                    "verified_at": now_iso,
+                }
+                new_sev = str(item.get("severity", "")).upper().strip()
+                if new_sev and new_sev in _SEVERITY_RANK:
+                    updates["severity"] = new_sev
+                new_loc = str(item.get("location", "")).strip()
+                if new_loc and new_loc != f.location:
+                    updates["location"] = new_loc
+                validated.append(f.model_copy(update=updates))
+            if len(validated) == len(result.findings):
+                return result.model_copy(update={"findings": validated})
+    except Exception:
+        pass
+    return result
+
+
+def _merge_segment_results(results: list[ReviewResult | None]) -> ReviewResult | None:
+    """Python-level merge of validated segment ReviewResults used as recompose fallback."""
+    valid = [r for r in results if r is not None]
+    if not valid:
+        return None
+    merged = valid[0]
+    for other in valid[1:]:
+        merged = merged.merge(other)
+    return merged
+
+
+def _reconcile_verified(
+    recomposed: ReviewResult, segment_results: list[ReviewResult | None]
+) -> ReviewResult:
+    """Carry verified=False and mitigated=True from step-3 validation into the recomposed result."""
+    unverified: set[str] = set()
+    mitigated: set[str] = set()
+    for r in segment_results:
+        if r is not None:
+            for f in r.findings:
+                if not f.verified:
+                    unverified.add(f.title.lower())
+                if f.mitigated:
+                    mitigated.add(f.title.lower())
+    if not unverified and not mitigated:
+        return recomposed
+    updated = []
+    for f in recomposed.findings:
+        key = f.title.lower()
+        u: dict[str, object] = {}
+        if key in unverified:
+            u["verified"] = False
+        if key in mitigated:
+            u["mitigated"] = True
+        updated.append(f.model_copy(update=u) if u else f)
+    return recomposed.model_copy(update={"findings": updated})
+
+
+def _build_metadata_summary_prompt(segment: str) -> str:
+    """Produce a summariser prompt for one review segment."""
+    return (
+        "Provide a brief, comprehensive list of changes in this segment. "
+        "Be specific. Do not make recommendations.\n\n"
+        f"{_truncate_for_prompt(segment)}"
+    )
+
+
+def _build_segment_review_prompt(
+    segment: str,
+    title: str,
+    index: int,
+    total: int,
+    metadata: ReviewMeta,
+    build_base: Callable[[str, str], str],
+    persona: PersonaDefinition,
+) -> str:
+    meta_json = json.dumps(metadata.model_dump(), indent=2, ensure_ascii=True)
+    part_title = title if total == 1 else f"{title} \u2014 segment {index}/{total}"
+    format_section = _persona_format_section(persona)
+    return (
+        f"You are performing a code review as: {persona.title}.\n\n"
+        f"Review metadata for all {total} segment(s):\n"
+        f"```json\n{meta_json}\n```\n\n"
+        f"{_PAGINATED_REVIEW_PROTOCOL}\n"
+        f"{build_base(segment, part_title)}"
+        + (f"\n\n{format_section}" if format_section else "")
+        + _REVIEW_OUTPUT_INSTRUCTION
+    )
+
+
+def _build_recompose_prompt(
+    title: str,
+    metadata: ReviewMeta,
+    responses: list[str],
+    persona: PersonaDefinition,
+    segment_results: list[ReviewResult | None],
+) -> str:
+    meta_json = json.dumps(metadata.model_dump(), indent=2, ensure_ascii=True)
+    # Prefer structured findings from parsed results; fall back to raw text segments.
+    parsed_findings = [f for r in segment_results if r for f in r.sorted_findings]
+    if parsed_findings:
+        findings_json = json.dumps(
+            [f.model_dump() for f in parsed_findings], indent=2, ensure_ascii=True
+        )
+        findings_block = (
+            f"Structured findings from {len(parsed_findings)} validated finding(s):\n"
+            f"```json\n{findings_json}\n```"
+        )
+    else:
+        non_empty = [(i + 1, r) for i, r in enumerate(responses) if r.strip()]
+        total = len(responses)
+        parts = "\n\n".join(f"## Segment {i}/{total}\n{r}" for i, r in non_empty)
+        findings_block = (
+            f"Per-segment review outputs ({len(non_empty)} of {total} segments had content):\n"
+            f"{parts}"
+        )
+    format_section = _persona_format_section(persona)
+    return (
+        f"You are performing a code review as: {persona.title}.\n\n"
+        "Consolidate the findings below into one final review. "
+        "Deduplicate, keeping the strongest description of each. "
+        "Do not add findings absent from the provided data.\n"
+        f"{_PAGINATED_REVIEW_PROTOCOL}"
+        f"Review title: {title}\n\n"
+        f"Review metadata:\n```json\n{meta_json}\n```\n\n"
+        f"{findings_block}"
+        + (f"\n\n{format_section}" if format_section else "")
+        + _REVIEW_OUTPUT_INSTRUCTION
+    )
+
+
+def _fallback_join(reviews: list[str]) -> str:
+    """Best-effort line-level deduplication when LLM recompose is unavailable."""
+    lines: list[str] = []
+    seen: set[str] = set()
+    for r in reviews:
+        for line in r.splitlines():
+            key = line.strip().lower()
+            if key and key in seen:
+                continue
+            if key:
+                seen.add(key)
+            lines.append(line)
+        lines.append("")
+    return "\n".join(lines).strip()
+
+
+_SUMMARIZER_SYSTEM = METADATA_SYSTEM_PROMPT
+
+
+class ReviewClients(BaseModel):
+    """LLM clients resolved per review task, each potentially using a different model."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    metadata: Any
+    analysis: Any
+    compose: Any
+
+
+def _split_text_lines(text: str, max_chars: int) -> list[str]:
+    """Split text into chunks on line boundaries, avoiding mid-line splits when possible."""
+    if not text:
+        return [""]
+
+    lines = text.splitlines(keepends=True)
+    chunks: list[str] = []
+    current: list[str] = []
+    current_len = 0
+
+    for line in lines:
+        line_len = len(line)
+        if line_len > max_chars:
+            if current:
+                chunks.append("".join(current))
+                current, current_len = [], 0
+            chunks.extend(line[i : i + max_chars] for i in range(0, line_len, max_chars))
+            continue
+        if current and current_len + line_len > max_chars:
+            chunks.append("".join(current))
+            current, current_len = [], 0
+        current.append(line)
+        current_len += line_len
+
+    if current:
+        chunks.append("".join(current))
+    return chunks
+
+
+def _render_source_block(rel: Path, suffix: str, text: str, index: int = 1, total: int = 1) -> str:
+    title = f"### File: {rel}" if total == 1 else f"### File: {rel} (part {index}/{total})"
+    return f"{title}\n```{suffix}\n{text}\n```"
+
+
+def _split_source_file_blocks(rel: Path, suffix: str, text: str, max_chars: int) -> list[str]:
+    """Split oversized source files into part-labelled blocks for review pagination."""
+    block = _render_source_block(rel, suffix, text)
+    if len(block) <= max_chars:
+        return [block]
+
+    overhead = len(_render_source_block(rel, suffix, "", 1, 9999))
+    payload_budget = max_chars - overhead
+    if payload_budget <= 0:
+        return _split_text_lines(block, max_chars)
+    parts = _split_text_lines(text, payload_budget)
+    total = len(parts)
+    return [_render_source_block(rel, suffix, part, i, total) for i, part in enumerate(parts, 1)]
+
+
+def _paginate_blocks(blocks: list[str], max_chars: int) -> list[str]:
+    """Pack blocks into pages up to max_chars each, without dropping any content.
+
+    A single block larger than max_chars is hard-split so nothing is silently lost.
+    """
+    pages: list[str] = []
+    current: list[str] = []
+    current_len = 0
+
+    for block in blocks:
+        if len(block) > max_chars:
+            if current:
+                pages.append("\n\n".join(current))
+                current, current_len = [], 0
+            pages.extend(_split_text_lines(block, max_chars))
+            continue
+        if current and current_len + len(block) + 2 > max_chars:
+            pages.append("\n\n".join(current))
+            current, current_len = [], 0
+        current.append(block)
+        current_len += len(block) + 2
+
+    if current:
+        pages.append("\n\n".join(current))
+    return pages or [""]
+
+
+def _split_diff_into_file_blocks(diff: str) -> list[str]:
+    """Split a unified diff into one block per file, without cutting through a hunk."""
+    marker = "diff --git "
+    blocks: list[str] = []
+    current: list[str] = []
+
+    for line in diff.splitlines(keepends=True):
+        if line.startswith(marker) and current:
+            blocks.append("".join(current))
+            current = []
+        current.append(line)
+
+    if current:
+        blocks.append("".join(current))
+    return blocks or [diff]
+
+
+def _split_large_diff_block(block: str, max_chars: int) -> list[str]:
+    """Split one file-diff block by line chunks while repeating the diff preamble."""
+    if len(block) <= max_chars:
+        return [block]
+
+    lines = block.splitlines(keepends=True)
+    hunk_start = next((i for i, line in enumerate(lines) if line.startswith("@@ ")), len(lines))
+    preamble = "".join(lines[:hunk_start])
+    body = "".join(lines[hunk_start:])
+
+    if len(preamble) >= max_chars:
+        return _split_text_lines(block, max_chars)
+
+    if not body:
+        return _split_text_lines(block, max_chars)
+
+    payload_budget = max_chars - len(preamble)
+    chunks = _split_text_lines(body, payload_budget)
+    parts = [f"{preamble}{chunk}" for chunk in chunks]
+    safe_parts: list[str] = []
+    for part in parts:
+        if len(part) <= max_chars:
+            safe_parts.append(part)
+            continue
+        safe_parts.extend(_split_text_lines(part, max_chars))
+    return safe_parts
+
+
+def _is_generated_diff_block(block: str) -> bool:
+    """Return True if the block's diff header names a known autogenerated file."""
+    first = block.splitlines()[0] if block else ""
+    if not first.startswith("diff --git "):
+        return False
+    parts = first.split()
+    filename = parts[2].removeprefix("a/") if len(parts) >= 4 else ""
+    return Path(filename).name in CONST_REVIEW_GENERATED_FILES
+
+
+def _diff_pages(diff: str, max_chars: int) -> list[str]:
+    """Paginate a unified diff into pages that fit the model's context window."""
+    blocks: list[str] = []
+    for block in _split_diff_into_file_blocks(diff):
+        if _is_generated_diff_block(block):
+            continue
+        blocks.extend(_split_large_diff_block(block, max_chars))
+    return _paginate_blocks(blocks, max_chars)
+
+
+def _load_agents_md(start: Path) -> str:
+    """Return AGENTS.md content from the repo root, or empty string if absent."""
+    repo_root = _git_repo_root(start) or start
+    agents_file = repo_root / CONST_AGENTS_MD_FILENAME
+    if not agents_file.is_file():
+        return ""
+    try:
+        return agents_file.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+
+
+def _persona_system_prompt(persona: PersonaDefinition, agents_md: str) -> str:
+    if not agents_md:
+        return persona.system_prompt
+    return (
+        f"{persona.system_prompt}\n\n"
+        f"── Project Instructions ({CONST_AGENTS_MD_FILENAME}) ──\n"
+        "The project's maintainers documented the conventions and policies below. "
+        "Do not raise findings that merely restate or contradict a decision explicitly "
+        "documented here as intentional; instead defer to it.\n\n"
+        f"{agents_md}"
+    )
+
+
+def _build_review_metadata(
+    pages: list[str],
+    title: str,
+    client: Any,
+    context_lines: int = _DEFAULT_CONTEXT_LINES,
+) -> ReviewMeta:
+    total = len(pages)
+    seg_metas: list[SegmentMeta] = []
+    for i, page in enumerate(pages, 1):
+        filenames = _extract_segment_filenames(page)
+        first_lines, last_lines = _extract_code_lines(page, context_lines)
+        summary_prompt = _build_metadata_summary_prompt(page)
+        if is_dry_run():
+            _debug_block(
+                f"Would send LLM metadata summary request for segment {i}/{total}",
+                _llm_request_preview(client, _SUMMARIZER_SYSTEM, summary_prompt),
+            )
+            summary = f"[dry-run] Summary for segment {i}/{total}."
+        else:
+            summary = str(
+                client.chat(system=_SUMMARIZER_SYSTEM, user=summary_prompt, enable_thinking=False)
+            )
+        seg_metas.append(
+            SegmentMeta(
+                index=i,
+                filenames=filenames,
+                first_lines=first_lines,
+                last_lines=last_lines,
+                char_count=len(page),
+                summary=summary,
+            )
+        )
+    all_files = _unique_preserve_order([f for s in seg_metas for f in s.filenames])
+    return ReviewMeta(
+        title=title,
+        total_segments=total,
+        total_chars=sum(len(p) for p in pages),
+        all_files=all_files,
+        segments=seg_metas,
+    )
+
+
+def _print_review_metadata(metadata: ReviewMeta) -> None:
+    from rich.table import Table
 
     console.print()
+    console.print(Rule(" Review Summary ", style="bold cyan"))
+    console.print(f"[bold]Title:[/bold]    {metadata.title}")
+    console.print(f"[bold]Segments:[/bold] {metadata.total_segments}")
+    console.print(f"[bold]Content:[/bold]  {metadata.total_chars:,} chars")
+    if metadata.all_files:
+        console.print()
+        console.print("[bold]Files in scope:[/bold]")
+        for f in metadata.all_files:
+            console.print(f"  [cyan]{f}[/cyan]")
+    console.print()
+    for seg in metadata.segments:
+        table = Table(
+            title=f"Segment {seg.index}/{metadata.total_segments}",
+            show_header=False,
+            box=None,
+            padding=(0, 1),
+            title_style="bold cyan",
+        )
+        table.add_column(style="bold dim", no_wrap=True)
+        table.add_column()
+        table.add_row("Size", f"{seg.char_count:,} chars")
+        if seg.filenames:
+            table.add_row("Files", ", ".join(seg.filenames))
+        if seg.first_lines:
+            table.add_row("First lines", "  ".join(seg.first_lines))
+        if seg.last_lines:
+            table.add_row("Last lines", "  ".join(seg.last_lines))
+        table.add_row("Summary", seg.summary)
+        console.print(table)
+        console.print()
+
+
+def _log_event(
+    event_type: str,
+    *,
+    segment_index: int,
+    total_segments: int,
+    persona_name: str,
+    attempt: int,
+    system_prompt: str,
+    user_prompt: str,
+    error_message: str = "",
+    response_text: str = "",
+) -> None:
+    """Write a structured JSON failure log to .data/logs/ for post-mortem investigation."""
+    log_dir = CONST_DATA_DIR / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now().strftime("%y%m%d-%H%M%S-%f")
+    filename = log_dir / f"{ts}-{event_type}-seg{segment_index}.json"
+    default_msg = (
+        f"LLM returned empty or whitespace-only response on attempt {attempt}."
+        if event_type == "empty_response"
+        else ""
+    )
+    payload = {
+        "event_type": event_type,
+        "timestamp": datetime.now().isoformat(),
+        "segment_index": segment_index,
+        "total_segments": total_segments,
+        "persona": persona_name,
+        "attempt": attempt,
+        "system_prompt_chars": len(system_prompt),
+        "user_prompt_chars": len(user_prompt),
+        "user_prompt_preview": user_prompt[:1000],
+        "error_message": error_message or default_msg,
+        "response_text": response_text,
+    }
+    try:
+        filename.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    except OSError:
+        pass  # log writes must never abort a review
+
+
+def _run_review(
+    pages: list[str],
+    title: str,
+    persona: PersonaDefinition,
+    clients: ReviewClients,
+    agents_md: str,
+    build_prompt: Callable[[str, str], str],
+    context_lines: int = _DEFAULT_CONTEXT_LINES,
+    prebuilt_metadata: ReviewMeta | None = None,
+) -> ReviewResult | str:
+    """Four-step review: (1) metadata, (2) segment review, (3) validate, (4) compose."""
+    total = len(pages)
+    analysis_system = _persona_system_prompt(persona, agents_md)
+    compose_system = persona.compose_prompt
+
+    # ── Step 1: generate (or reuse) metadata for every segment ────────────────
+    if prebuilt_metadata is not None:
+        rprint(f"[dim]Step 1/4: Reusing pre-computed metadata for {total} segment(s).[/dim]")
+        metadata = prebuilt_metadata
+    else:
+        rprint(f"[dim]Step 1/4: Generating metadata for {total} segment(s)...[/dim]")
+        t1 = time.monotonic()
+        metadata = _build_review_metadata(pages, title, clients.metadata, context_lines)
+        rprint(f"[dim]  ✓ {time.monotonic() - t1:.1f}s[/dim]")
+        if is_dry_run():
+            rprint("[yellow][dry-run][/yellow] Review metadata:")
+            console.print_json(json.dumps(metadata.model_dump(), ensure_ascii=True))
+
+    # ── Step 2: review each segment (with retry on empty/error) ──────────────
+    rprint(f"[dim]Step 2/4: Reviewing {total} segment(s)...[/dim]")
+    t2 = time.monotonic()
+    responses: list[str] = []
+    for i, page in enumerate(pages, 1):
+        user_prompt = _build_segment_review_prompt(
+            page, title, i, total, metadata, build_prompt, persona
+        )
+        if is_dry_run():
+            _debug_block(
+                f"Would send LLM review request for segment {i}/{total}",
+                _llm_request_preview(clients.analysis, analysis_system, user_prompt),
+            )
+            responses.append(f"[dry-run] Review skipped for segment {i}/{total}.")
+            continue
+        result_text = ""
+        for attempt in range(1, _MAX_SEGMENT_RETRIES + 2):
+            seg_start = time.monotonic()
+            try:
+                result_text = str(clients.analysis.chat(system=analysis_system, user=user_prompt))
+            except AIClientError as exc:
+                seg_elapsed = time.monotonic() - seg_start
+                _log_event(
+                    "error",
+                    segment_index=i,
+                    total_segments=total,
+                    persona_name=persona.name,
+                    attempt=attempt,
+                    system_prompt=analysis_system,
+                    user_prompt=user_prompt,
+                    error_message=str(exc),
+                )
+                if attempt <= _MAX_SEGMENT_RETRIES:
+                    rprint(
+                        f"[yellow]  ✗ segment {i}/{total} error in {seg_elapsed:.1f}s "
+                        f"(attempt {attempt}), retrying...[/yellow]"
+                    )
+                    continue
+                rprint(
+                    f"[yellow]  ✗ segment {i}/{total} failed in {seg_elapsed:.1f}s after "
+                    f"{_MAX_SEGMENT_RETRIES + 1} attempt(s); skipping.[/yellow]"
+                )
+                break
+            seg_elapsed = time.monotonic() - seg_start
+            if not result_text.strip():
+                empty_msg = (
+                    f"LLM returned empty or whitespace-only response (len={len(result_text)}) "
+                    f"in {seg_elapsed:.1f}s on attempt {attempt}."
+                )
+                _log_event(
+                    "empty_response",
+                    segment_index=i,
+                    total_segments=total,
+                    persona_name=persona.name,
+                    attempt=attempt,
+                    system_prompt=analysis_system,
+                    user_prompt=user_prompt,
+                    error_message=empty_msg,
+                    response_text=result_text,
+                )
+                if attempt <= _MAX_SEGMENT_RETRIES:
+                    rprint(
+                        f"[yellow]  ✗ segment {i}/{total} empty in {seg_elapsed:.1f}s "
+                        f"(attempt {attempt}), retrying...[/yellow]"
+                    )
+                    continue
+                rprint(
+                    f"[yellow]Warning: segment {i}/{total} still empty in {seg_elapsed:.1f}s "
+                    f"after {_MAX_SEGMENT_RETRIES + 1} attempt(s).[/yellow]"
+                )
+            else:
+                retry_note = f" (attempt {attempt})" if attempt > 1 else ""
+                rprint(f"[dim]  ✓ segment {i}/{total} in {seg_elapsed:.1f}s{retry_note}[/dim]")
+            break
+        responses.append(result_text)
+    if not is_dry_run():
+        rprint(f"[dim]  total {time.monotonic() - t2:.1f}s[/dim]")
+
+    non_empty = [r for r in responses if r.strip()]
+    if not non_empty:
+        return ""
+
+    # ── Step 3: validate findings against the source code ─────────────────────
+    segment_results: list[ReviewResult | None] = [parse_review_result(r) for r in responses]
+    if not is_dry_run():
+        rprint(f"[dim]Step 3/4: Validating findings for {total} segment(s)...[/dim]")
+        t3 = time.monotonic()
+        for i, (page, parsed) in enumerate(zip(pages, segment_results), 1):
+            if parsed is None or not parsed.findings:
+                continue
+            val_start = time.monotonic()
+            validated = _validate_segment_findings(parsed, pages, clients.analysis)
+            val_elapsed = time.monotonic() - val_start
+            segment_results[i - 1] = validated
+            n_verified = sum(1 for f in validated.findings if f.verified)
+            rprint(
+                f"[dim]  ✓ segment {i}/{total} in {val_elapsed:.1f}s: "
+                f"{n_verified}/{len(validated.findings)} finding(s) verified[/dim]"
+            )
+        rprint(f"[dim]  total {time.monotonic() - t3:.1f}s[/dim]")
+
+    if total == 1:
+        return segment_results[0] if segment_results[0] is not None else responses[0]
+
+    # ── Step 4: compose final review ──────────────────────────────────────────
+    rprint("[dim]Step 4/4: Composing final review...[/dim]")
+    recompose_prompt = _build_recompose_prompt(title, metadata, responses, persona, segment_results)
+    if is_dry_run():
+        _debug_block(
+            "Would send LLM recompose request",
+            _llm_request_preview(clients.compose, compose_system, recompose_prompt),
+        )
+        return _merge_segment_results(segment_results) or _fallback_join(non_empty)
+    try:
+        t4 = time.monotonic()
+        raw = str(clients.compose.chat(system=compose_system, user=recompose_prompt))
+        rprint(f"[dim]  ✓ {time.monotonic() - t4:.1f}s[/dim]")
+        if not raw.strip():
+            return _merge_segment_results(segment_results) or _fallback_join(non_empty)
+        parsed = parse_review_result(raw)
+        if parsed is not None:
+            return _reconcile_verified(parsed, segment_results)
+        return raw
+    except Exception:
+        return _merge_segment_results(segment_results) or _fallback_join(non_empty)
+
+
+def _render_review_result(persona: PersonaDefinition, result: ReviewResult) -> None:
+    from rich.markdown import Markdown
+    from rich.table import Table
+
+    sev_color = {
+        "CRITICAL": "red",
+        "HIGH": "orange3",
+        "MEDIUM": "yellow",
+        "LOW": "blue",
+        "INFO": "green",
+    }
+    rec_color_map = {"APPROVE": "green", "REQUEST CHANGES": "yellow", "BLOCK": "red"}
+    rec_color = rec_color_map.get(result.recommendation, "white")
+    console.print(f"[bold {rec_color}]\u25b6 {result.recommendation}[/bold {rec_color}]")
+    console.print()
+
+    findings = result.sorted_findings
+    if findings:
+        table = Table(show_header=True, header_style="bold dim", box=None, padding=(0, 1))
+        table.add_column("Sev", no_wrap=True)
+        table.add_column("Location", style="dim")
+        table.add_column("Title")
+        table.add_column("\u2713", no_wrap=True)
+        for f in findings:
+            color = sev_color.get(f.severity, "white")
+            mark = (
+                "[green]✓[/green]"
+                if f.verified and not f.mitigated
+                else "[yellow]~[/yellow]"
+                if f.mitigated
+                else "[dim]?[/dim]"
+            )
+            table.add_row(f"[{color}]{f.severity}[/{color}]", f.location, f.title, mark)
+        console.print(table)
+        console.print()
+
+        for idx, f in enumerate(findings, 1):
+            color = sev_color.get(f.severity, "white")
+            unverified = (
+                ""
+                if f.verified and not f.mitigated
+                else " [dim](mitigated)[/dim]"
+                if f.mitigated
+                else " [dim](unverified)[/dim]"
+            )
+            console.print(
+                f"[bold {color}]{idx}. {f.severity} \u2014 {f.title}[/bold {color}]{unverified}"
+            )
+            console.print(f"[dim]Location:[/dim] {f.location}")
+            if f.description:
+                console.print(Markdown(f.description))
+            if f.fix:
+                console.print("[bold]Fix:[/bold]")
+                console.print(Markdown(f.fix))
+            if f.references:
+                console.print(f"[dim]References: {', '.join(f.references)}[/dim]")
+            console.print()
+
+    if result.positive_observations:
+        console.print("[bold green]Positive Observations[/bold green]")
+        for obs in result.positive_observations:
+            console.print(f"  [green]\u2713[/green] {obs}")
+        console.print()
+
+    if result.summary:
+        console.print("[bold]Summary[/bold]")
+        console.print(Markdown(result.summary))
+
+
+def _review_session_dir(label: str) -> Path:
+    """Create and return .data/reviews/<YYMMDD-HHMM>-<label>/ for this run."""
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    safe_label = label.replace("/", "-").replace(" ", "-")[:40]
+    session = CONST_DATA_DIR / "reviews" / f"{stamp}-{safe_label}"
+    session.mkdir(parents=True, exist_ok=True)
+    return session
+
+
+def _save_segments(pages: list[str], session_dir: Path) -> None:
+    for i, page in enumerate(pages, 1):
+        (session_dir / f"segment-{i}.md").write_text(page, encoding="utf-8")
+
+
+def _save_metadata_json(metadata: ReviewMeta, session_dir: Path) -> None:
+    (session_dir / "metadata.json").write_text(
+        metadata.model_dump_json(indent=2),
+        encoding="utf-8",
+    )
+
+
+def _save_findings_json(
+    completed: list[tuple[PersonaDefinition, ReviewResult | str]],
+    session_dir: Path,
+) -> None:
+    findings: list[SavedFinding] = []
+    for pd, review in completed:
+        if not isinstance(review, ReviewResult):
+            continue
+        for f in review.sorted_findings:
+            findings.append(
+                SavedFinding(
+                    persona=pd.name,
+                    persona_title=pd.title,
+                    recommendation=review.recommendation,
+                    **f.model_dump(),
+                )
+            )
+    payload = ReviewSessionPayload(
+        generated_at=datetime.now().isoformat(),
+        personas=[pd.name for pd, _ in completed],
+        findings=findings,
+    )
+    (session_dir / "findings.json").write_text(
+        payload.model_dump_json(indent=2),
+        encoding="utf-8",
+    )
+
+
+def _review_to_markdown(review: ReviewResult | str) -> str:
+    """Render a ReviewResult or raw string as markdown for file storage."""
+    if isinstance(review, str):
+        parsed = parse_review_result(review)
+        return _review_to_markdown(parsed) if parsed else review
+    lines: list[str] = [f"**Recommendation: {review.recommendation}**\n"]
+    if review.findings:
+        lines.append("## Findings\n")
+        for f in review.sorted_findings:
+            verified = (
+                ""
+                if f.verified and not f.mitigated
+                else " *(mitigated)*"
+                if f.mitigated
+                else " *(unverified)*"
+            )
+            lines.append(f"### [{f.severity}] {f.title}{verified}")
+            lines.append(f"**Location:** `{f.location}`\n")
+            if f.description:
+                lines.append(f.description + "\n")
+            if f.fix:
+                lines.append(f"**Fix:** {f.fix}\n")
+            if f.references:
+                lines.append(f"**References:** {', '.join(f.references)}\n")
+    if review.positive_observations:
+        lines.append("## Positive Observations\n")
+        lines.extend(f"- {obs}" for obs in review.positive_observations)
+        lines.append("")
+    if review.summary:
+        lines.append("## Summary\n")
+        lines.append(review.summary)
+    return "\n".join(lines)
+
+
+def _save_persona_review(
+    pd: PersonaDefinition,
+    review: ReviewResult | str,
+    session_dir: Path,
+) -> Path:
+    filename = f"{pd.name}-review.md"
+    content = f"# {pd.title}\n\n{_review_to_markdown(review)}\n"
+    dest = session_dir / filename
+    dest.write_text(content, encoding="utf-8")
+    return dest
+
+
+def _write_summary(
+    title: str,
+    session_dir: Path,
+    pages: list[str],
+    completed: list[tuple[PersonaDefinition, ReviewResult | str]],
+    metadata: ReviewMeta | None = None,
+) -> None:
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    if metadata:
+        _save_metadata_json(metadata, session_dir)
+    lines: list[str] = [
+        f"# Review: {title}",
+        f"**Date:** {now}  ",
+        f"**Segments:** {len(pages)}  ",
+        f"**Session:** `{session_dir}`  ",
+        "**Metadata:** [metadata.json](metadata.json)\n",
+    ]
+    if metadata:
+        lines.append("## Metadata\n")
+        lines.append(f"**Total content:** {metadata.total_chars:,} chars  ")
+        lines.append(f"**Files reviewed:** {len(metadata.all_files)}  \n")
+        if metadata.all_files:
+            lines.append("**Files in scope:**\n")
+            lines.extend(f"- `{f}`" for f in metadata.all_files)
+            lines.append("")
+        lines.append("### Segment Summaries\n")
+        for seg in metadata.segments:
+            lines.append(
+                f"**Segment {seg.index}/{metadata.total_segments}**"
+                f" — {seg.char_count:,} chars"
+                f"{', ' + ', '.join(seg.filenames) if seg.filenames else ''}"
+            )
+            if seg.summary:
+                lines.append(f"> {seg.summary.strip()}")
+            lines.append("")
+    if completed:
+        lines.append("## Reviews\n")
+        lines.append("| Persona | Recommendation | File |")
+        lines.append("|---------|---------------|------|")
+        for pd, review in completed:
+            rec = review.recommendation if isinstance(review, ReviewResult) else "—"
+            clean_title = pd.title.replace("\\", "\\\\").replace("|", "\\|").replace("\n", "<br>")
+            clean_rec = rec.replace("\\", "\\\\").replace("|", "\\|").replace("\n", "<br>")
+            lines.append(
+                f"| {clean_title} | {clean_rec} | [{pd.name}-review.md]({pd.name}-review.md) |"
+            )
+        lines.append("")
+    if pages:
+        lines.append("## Segments\n")
+        lines.append("| # | File |")
+        lines.append("|---|------|")
+        for i in range(1, len(pages) + 1):
+            lines.append(f"| {i} | [segment-{i}.md](segment-{i}.md) |")
+        lines.append("")
+    (session_dir / "summary.md").write_text("\n".join(lines), encoding="utf-8")
+    if completed:
+        _save_findings_json(completed, session_dir)
+    rprint(f"[dim]Review saved → {session_dir}[/dim]")
+
+
+def _run_persona_loop(
+    pages: list[str],
+    title: str,
+    build_prompt: Callable[[str, str], str],
+    clients: ReviewClients,
+    agents_md: str,
+    all_personas: bool,
+    persona: Persona | None,
+) -> list[tuple[PersonaDefinition, ReviewResult | str]]:
+    """Run the full persona loop: shared metadata, session saving, print + save each review.
+
+    Returns completed (PersonaDefinition, review) pairs in run order.
+    Raises typer.Exit(1) on AIClientError.
+    """
+    personas = _personas_to_run(all_personas, persona)
+    shared_meta: ReviewMeta | None = None
+    if len(personas) > 1:
+        rprint("[dim]Pre-computing segment metadata (shared across all personas)...[/dim]")
+        shared_meta = _build_review_metadata(pages, title, clients.metadata)
+        if is_dry_run():
+            rprint("[yellow][dry-run][/yellow] Shared review metadata:")
+            console.print_json(json.dumps(shared_meta.model_dump(), ensure_ascii=True))
+
+    session_dir = _review_session_dir(title) if not is_dry_run() else None
+    if session_dir:
+        _save_segments(pages, session_dir)
+        _write_summary(title, session_dir, pages, [], shared_meta)
+
+    completed: list[tuple[PersonaDefinition, ReviewResult | str]] = []
+    try:
+        for pd in personas:
+            rprint(f"Reviewing as [bold magenta]{pd.title}[/bold magenta]...")
+            review_text = _run_review(
+                pages,
+                title,
+                pd,
+                clients,
+                agents_md,
+                build_prompt,
+                prebuilt_metadata=shared_meta,
+            )
+            _print_review(pd, review_text)
+            completed.append((pd, review_text))
+            if session_dir:
+                _save_persona_review(pd, review_text, session_dir)
+                _write_summary(title, session_dir, pages, completed, shared_meta)
+    except AIClientError as exc:
+        rprint(f"[red]AI provider error:[/red] {exc}")
+        raise typer.Exit(1)
+    finally:
+        if session_dir and completed:
+            _write_summary(title, session_dir, pages, completed, shared_meta)
+
+    return completed
+
+
+def _print_review(persona: PersonaDefinition, review: ReviewResult | str) -> None:
+    console.print()
     console.print(Rule(f" {persona.title} ", style="bold magenta"))
+    if isinstance(review, ReviewResult):
+        _render_review_result(persona, review)
+        return
+    if not review.strip():
+        rprint("[yellow]No review content returned by the model.[/yellow]")
+        return
+    parsed = parse_review_result(review)
+    if parsed:
+        _render_review_result(persona, parsed)
+        return
+    from rich.markdown import Markdown
+
     console.print(Markdown(review))
 
 
-def _collect_files(root: Path, pattern: str) -> str:
-    """Read matching source files under root and return as annotated text."""
-    chunks: list[str] = []
-    total = 0
-    for p in sorted(root.rglob(pattern)):
-        if any(part in {".venv", "__pycache__", ".git", ".mypy_cache"} for part in p.parts):
+def _git_repo_root(path: Path) -> Path | None:
+    probe = path if path.is_dir() else path.parent
+    result = _run_subprocess(
+        ["git", "-C", str(probe), "rev-parse", "--show-toplevel"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        return None
+    return Path(result.stdout.strip())
+
+
+def _is_git_ignored(repo_root: Path, path: Path) -> bool:
+    try:
+        rel_path = path.relative_to(repo_root)
+    except ValueError:
+        return False
+
+    result = _run_subprocess(
+        ["git", "-C", str(repo_root), "check-ignore", "-q", "--no-index", "--", str(rel_path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return result.returncode == 0
+
+
+def _collect_file_blocks(root: Path, pattern: str) -> list[str]:
+    """Read matching source files under root and return one annotated block per file.
+
+    Every matching file produces its own block — nothing is truncated here so that
+    pagination downstream can present all of it to the reviewer.
+    """
+    blocks: list[str] = []
+    repo_root = _git_repo_root(root)
+    if repo_root is not None:
+        result = _run_subprocess(
+            [
+                "git",
+                "-C",
+                str(repo_root),
+                "ls-files",
+                "--cached",
+                "--others",
+                "--exclude-standard",
+                "-z",
+                "--",
+                str(root.relative_to(repo_root)),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        candidates = [repo_root / Path(item) for item in result.stdout.split("\0") if item]
+    else:
+        candidates = [p for p in sorted(root.rglob("*")) if p.is_file()]
+
+    for p in sorted(candidates):
+        if not p.is_file():
+            continue
+        if any(part in CONST_GITIGNORE_DIRS for part in p.parts):
+            continue
+        if p.name in CONST_REVIEW_GENERATED_FILES:
+            continue
+        if repo_root is not None and _is_git_ignored(repo_root, p):
             continue
         rel = p.relative_to(root)
+        if not rel.match(pattern):
+            continue
         try:
             text = p.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
-        block = f"### {rel}\n```python\n{text}\n```"
-        if total + len(block) > _MAX_DIFF_CHARS:
-            chunks.append("*(remaining files truncated to fit context window)*")
-            break
-        chunks.append(block)
-        total += len(block)
-    return "\n\n".join(chunks)
+        suffix = rel.suffix.lstrip(".") or "text"
+        blocks.extend(_split_source_file_blocks(rel, suffix, text, _MAX_DIFF_CHARS))
+    return blocks
+
+
+def _collect_files(root: Path, pattern: str) -> str:
+    """Join collected file blocks into a single string."""
+    return "\n\n".join(_collect_file_blocks(root, pattern))
 
 
 def _build_path_prompt(content: str, title: str) -> str:
@@ -80,6 +1378,155 @@ def _build_path_prompt(content: str, title: str) -> str:
         f"Please review the following source files for security, quality, and "
         f"architecture concerns.\n\n## {title}\n\n{content}"
     )
+
+
+# ── path ──────────────────────────────────────────────────────────────────────
+
+
+def _make_review_clients(settings: Any) -> ReviewClients:
+    """Build unified LLM clients for metadata, analysis, and compose tasks."""
+    api_key = get_ai_api_key(settings)
+    return ReviewClients(
+        metadata=LLMClient(
+            settings.ai.for_task("metadata"),
+            api_key=api_key,
+            request_timeout_seconds=DEFAULT_REVIEW_TIMEOUT_SECONDS,
+        ),
+        analysis=LLMClient(
+            settings.ai.for_task("analysis"),
+            api_key=api_key,
+            request_timeout_seconds=DEFAULT_REVIEW_TIMEOUT_SECONDS,
+        ),
+        compose=LLMClient(
+            settings.ai.for_task("compose"),
+            api_key=api_key,
+            request_timeout_seconds=DEFAULT_REVIEW_TIMEOUT_SECONDS,
+        ),
+    )
+
+
+def _execute_review_workflow(
+    pages: list[str],
+    title: str,
+    prompt_builder: Callable[..., str],
+    agents_md: str,
+    all_personas: bool,
+    persona: Persona | None,
+    summary_only: bool,
+    clients: ReviewClients,
+) -> list[tuple[PersonaDefinition, ReviewResult | str]]:
+    """Common 4-step review execution workflow for path, branch, and PR reviews."""
+    if len(pages) > 1:
+        rprint(f"[dim]Content spans {len(pages)} pages to ensure full coverage.[/dim]")
+
+    if summary_only:
+        rprint("[dim]Generating segment metadata...[/dim]")
+        _print_review_metadata(_build_review_metadata(pages, title, clients.metadata))
+        return []
+
+    return _run_persona_loop(
+        pages, title, prompt_builder, clients, agents_md, all_personas, persona
+    )
+
+
+def _prepare_path_content(target: Path, pattern: str) -> tuple[list[str], str, str]:
+    """Prepare paginated pages, title, and agents_md for path review target."""
+    target_resolved = target.resolve()
+    if target_resolved.is_file():
+        if target_resolved.stat().st_size > 2 * 1024 * 1024:
+            rprint("[yellow]File exceeds 2MB limit; skipping.[/yellow]")
+            raise typer.Exit(0)
+        suffix = target_resolved.suffix.lstrip(".") or "text"
+        content = target_resolved.read_text(encoding="utf-8", errors="replace")
+        blocks = [f"### File: {target_resolved.name}\n```{suffix}\n{content}\n```"]
+        title = str(target_resolved.name)
+    else:
+        rprint(f"Collecting [cyan]{pattern}[/cyan] files under [dim]{target_resolved}[/dim]...")
+        blocks = _collect_file_blocks(target_resolved, pattern)
+        title = str(target_resolved)
+
+    if not blocks:
+        rprint("[yellow]No files found.[/yellow]")
+        raise typer.Exit(0)
+
+    pages = _paginate_blocks(blocks, _MAX_DIFF_CHARS)
+    agents_md = _load_agents_md(
+        target_resolved if target_resolved.is_dir() else target_resolved.parent
+    )
+    return pages, title, agents_md
+
+
+def _prepare_branch_content(
+    branch_name: str | None, base: str, repo_path: Path
+) -> tuple[list[str], str, str]:
+    """Prepare paginated diff pages, title, and agents_md for branch review target."""
+    if branch_name is None:
+        proc = _run_subprocess(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            capture_output=True,
+            text=True,
+            cwd=repo_path,
+        )
+        if (
+            proc.returncode != 0
+            or not (branch_name := proc.stdout.strip())
+            or branch_name == "HEAD"
+        ):
+            rprint(
+                "[red]Could not detect branch. Ensure command is run inside a valid git repo.[/red]"
+            )
+            raise typer.Exit(1)
+
+    rprint(f"Diffing [cyan]{branch_name}[/cyan] against [cyan]{base}[/cyan]...")
+
+    diff_proc = _run_subprocess(
+        ["git", "diff", f"{base}...{branch_name}"],
+        capture_output=True,
+        text=True,
+        cwd=repo_path,
+    )
+    if diff_proc.returncode != 0:
+        rprint(f"[red]git diff failed: {diff_proc.stderr.strip()}[/red]")
+        raise typer.Exit(1)
+    if not diff_proc.stdout.strip():
+        rprint("[yellow]No differences found between branches.[/yellow]")
+        raise typer.Exit(0)
+
+    title = f"Branch `{branch_name}` vs `{base}`"
+    agents_md = _load_agents_md(repo_path)
+    pages = _diff_pages(diff_proc.stdout, _MAX_DIFF_CHARS)
+    return pages, title, agents_md
+
+
+def _prepare_pr_content(
+    number: int, repo_arg: str | None, token: str
+) -> tuple[list[str], str, str, Any, str]:
+    """Fetch PR details, diff pages, title, and agents_md for PR review target."""
+    from devops_cli.github.client import GitHubClient
+
+    repo = repo_arg
+    if repo is None:
+        proc = _run_subprocess(
+            ["git", "remote", "get-url", "origin"],
+            capture_output=True,
+            text=True,
+        )
+        raw = proc.stdout.strip()
+        m = re.search(r"[:/]([a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+?)(?:\.git)?$", raw)
+        if m:
+            repo = m.group(1)
+        else:
+            rprint(f"[red]Could not parse GitHub repo owner/name from remote URL: {raw}[/red]")
+            raise typer.Exit(1)
+
+    rprint(f"Fetching PR [cyan]#{number}[/cyan] from [cyan]{repo}[/cyan]...")
+    gh = GitHubClient(token)
+    pull = gh.get_pull(repo, number)
+    diff = gh.get_pr_diff(repo, number)
+    title = f"PR #{number}: {pull.title}"
+    agents_md = _load_agents_md(Path.cwd())
+    pages = _diff_pages(diff, _MAX_DIFF_CHARS)
+    return pages, title, agents_md, pull, repo
 
 
 # ── path ──────────────────────────────────────────────────────────────────────
@@ -93,8 +1540,8 @@ def path(
     ] = Path("."),
     pattern: Annotated[
         str,
-        typer.Option("--pattern", "-g", help="Glob pattern for files (used when target is a dir)"),
-    ] = "*.py",
+        typer.Option("--pattern", "-g", help="Glob pattern for files (default: all files)"),
+    ] = "*",
     persona: Annotated[
         Persona | None,
         typer.Option("--persona", "-p", help="Reviewer persona"),
@@ -103,36 +1550,25 @@ def path(
         bool,
         typer.Option("--all", help="Run all four reviewer personas"),
     ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Print commands and AI request payloads without executing."),
+    ] = False,
+    summary: Annotated[
+        bool,
+        typer.Option(
+            "--summary", "-s", help="Show segment metadata without running a full review."
+        ),
+    ] = False,
 ) -> None:
     """Review source files directly (no git required)."""
-    from devops_cli.ai.client import AIClientError, LLMClient
-    from devops_cli.config import get_ai_api_key, load_settings
-
-    target = target.resolve()
-    if target.is_file():
-        content = f"### {target.name}\n```python\n{target.read_text(encoding='utf-8')}\n```"
-        title = str(target.name)
-    else:
-        rprint(f"Collecting [cyan]{pattern}[/cyan] files under [dim]{target}[/dim]...")
-        content = _collect_files(target, pattern)
-        title = str(target)
-
-    if not content.strip():
-        rprint("[yellow]No files found.[/yellow]")
-        raise typer.Exit(0)
-
+    set_dry_run(dry_run)
     settings = load_settings()
-    client = LLMClient(settings.ai, api_key=get_ai_api_key(settings))
-
-    try:
-        for pd in _personas_to_run(all_personas, persona):
-            rprint(f"Reviewing as [bold magenta]{pd.title}[/bold magenta]...")
-            _print_review(
-                pd, client.chat(system=pd.system_prompt, user=_build_path_prompt(content, title))
-            )
-    except AIClientError as exc:
-        rprint(f"[red]AI provider error:[/red] {exc}")
-        raise typer.Exit(1)
+    clients = _make_review_clients(settings)
+    pages, title, agents_md = _prepare_path_content(target, pattern)
+    _execute_review_workflow(
+        pages, title, _build_path_prompt, agents_md, all_personas, persona, summary, clients
+    )
 
 
 # ── branch ────────────────────────────────────────────────────────────────────
@@ -160,46 +1596,25 @@ def branch(
         Path,
         typer.Option("--repo", help="Path to the git repository"),
     ] = Path("."),
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Print commands and AI request payloads without executing."),
+    ] = False,
+    summary: Annotated[
+        bool,
+        typer.Option(
+            "--summary", "-s", help="Show segment metadata without running a full review."
+        ),
+    ] = False,
 ) -> None:
     """Review a git branch diff with one or all AI personas."""
-    from devops_cli.ai.client import AIClientError, LLMClient
-    from devops_cli.config import get_ai_api_key, load_settings
-
-    if branch_name is None:
-        proc = subprocess.run(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-            capture_output=True,
-            text=True,
-            cwd=repo_path,
-        )
-        branch_name = proc.stdout.strip()
-
-    rprint(f"Diffing [cyan]{branch_name}[/cyan] against [cyan]{base}[/cyan]...")
-
-    diff_proc = subprocess.run(
-        ["git", "diff", f"{base}...{branch_name}"],
-        capture_output=True,
-        text=True,
-        cwd=repo_path,
-    )
-    if diff_proc.returncode != 0:
-        rprint(f"[red]git diff failed: {diff_proc.stderr.strip()}[/red]")
-        raise typer.Exit(1)
-    if not diff_proc.stdout.strip():
-        rprint("[yellow]No differences found between branches.[/yellow]")
-        return
-
+    set_dry_run(dry_run)
     settings = load_settings()
-    client = LLMClient(settings.ai, api_key=get_ai_api_key(settings))
-    title = f"Branch `{branch_name}` vs `{base}`"
-
-    try:
-        for pd in _personas_to_run(all_personas, persona):
-            rprint(f"Reviewing as [bold magenta]{pd.title}[/bold magenta]...")
-            _print_review(pd, _run_review(diff_proc.stdout, title, pd, client))
-    except AIClientError as exc:
-        rprint(f"[red]AI provider error:[/red] {exc}")
-        raise typer.Exit(1)
+    clients = _make_review_clients(settings)
+    pages, title, agents_md = _prepare_branch_content(branch_name, base, repo_path)
+    _execute_review_workflow(
+        pages, title, _build_prompt, agents_md, all_personas, persona, summary, clients
+    )
 
 
 # ── pr ────────────────────────────────────────────────────────────────────────
@@ -224,12 +1639,21 @@ def pr(
         bool,
         typer.Option("--post", help="Post the review as a comment on the GitHub PR"),
     ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Print commands and AI request payloads without executing."),
+    ] = False,
+    summary: Annotated[
+        bool,
+        typer.Option(
+            "--summary", "-s", help="Show segment metadata without running a full review."
+        ),
+    ] = False,
 ) -> None:
     """Review a GitHub pull request with one or all AI personas."""
-    from devops_cli.ai.client import AIClientError, LLMClient
-    from devops_cli.config import get_ai_api_key, get_github_token, load_settings
-    from devops_cli.github.client import GitHubClient
+    from devops_cli.config.settings import get_github_token
 
+    set_dry_run(dry_run)
     settings = load_settings()
     token = get_github_token(settings)
     if not token:
@@ -238,39 +1662,269 @@ def pr(
         )
         raise typer.Exit(1)
 
-    if repo is None:
-        proc = subprocess.run(
-            ["git", "remote", "get-url", "origin"],
-            capture_output=True,
-            text=True,
-        )
-        raw = proc.stdout.strip()
-        repo = (
-            raw.removeprefix("https://github.com/")
-            .removeprefix("git@github.com:")
-            .removesuffix(".git")
-        )
-
-    rprint(f"Fetching PR [cyan]#{number}[/cyan] from [cyan]{repo}[/cyan]...")
-    gh = GitHubClient(token)
-    pull = gh.get_pull(repo, number)
-    diff = gh.get_pr_diff(repo, number)
-    title = f"PR #{number}: {pull.title}"
-
-    client = LLMClient(settings.ai, api_key=get_ai_api_key(settings))
-    reviews: list[tuple[PersonaDefinition, str]] = []
-
-    try:
-        for pd in _personas_to_run(all_personas, persona):
-            rprint(f"Reviewing as [bold magenta]{pd.title}[/bold magenta]...")
-            review_text = _run_review(diff, title, pd, client)
-            _print_review(pd, review_text)
-            reviews.append((pd, review_text))
-    except AIClientError as exc:
-        rprint(f"[red]AI provider error:[/red] {exc}")
-        raise typer.Exit(1)
+    clients = _make_review_clients(settings)
+    pages, title, agents_md, pull, repo_name = _prepare_pr_content(number, repo, token)
+    reviews = _execute_review_workflow(
+        pages, title, _build_prompt, agents_md, all_personas, persona, summary, clients
+    )
 
     if post_comment and reviews:
-        sections = "\n\n---\n\n".join(f"## Review by {pd.title}\n\n{text}" for pd, text in reviews)
-        pull.create_issue_comment(f"## 🤖 AI Code Review\n\n{sections}")
+        sections = "\n\n---\n\n".join(
+            f"## Review by {pd.title}\n\n{_review_to_markdown(text)}" for pd, text in reviews
+        )
+        comment_body = f"## 🤖 AI Code Review\n\n{sections}"
+        if is_dry_run():
+            _debug_block(
+                f"Would post PR comment on #{number}",
+                {"repo": repo_name, "pr_number": number, "comment_body": comment_body},
+            )
+            rprint(f"\n[yellow][dry-run][/yellow] Skipped posting comment to PR #{number}")
+            return
+        pull.create_issue_comment(comment_body)
         rprint(f"\n[green]✓[/green] Review posted as comment on PR #{number}")
+
+
+# ── Verification & Invalidation Commands ─────────────────────────────────────
+
+
+def _find_session_dir(session_arg: str | None) -> Path | None:
+    reviews_dir = CONST_DATA_DIR / "reviews"
+    if not reviews_dir.exists():
+        return None
+    if session_arg:
+        target = reviews_dir / session_arg
+        if target.exists() and target.is_dir():
+            return target
+        matches = [d for d in reviews_dir.iterdir() if d.is_dir() and session_arg in d.name]
+        if matches:
+            return sorted(matches)[-1]
+        return None
+    sessions = [d for d in reviews_dir.iterdir() if d.is_dir() and (d / "findings.json").exists()]
+    return max(sessions, key=lambda p: p.stat().st_mtime) if sessions else None
+
+
+@app.command("findings")
+def list_findings(
+    session: Annotated[
+        str | None,
+        typer.Option("--session", "-s", help="Session ID or substring (default: latest)"),
+    ] = None,
+    status_filter: Annotated[
+        str | None,
+        typer.Option(
+            "--status", help="Filter by status: VERIFIED | UNVERIFIED | INVALIDATED | MITIGATED"
+        ),
+    ] = None,
+    unverified: Annotated[
+        bool, typer.Option("--unverified", help="Show unverified findings only")
+    ] = False,
+    invalidated: Annotated[
+        bool, typer.Option("--invalidated", help="Show invalidated findings only")
+    ] = False,
+    verified: Annotated[
+        bool, typer.Option("--verified", help="Show verified findings only")
+    ] = False,
+) -> None:
+    """Inspect structured findings for a review session."""
+    session_dir = _find_session_dir(session)
+    if not session_dir:
+        rprint("[yellow]No review sessions found in .data/reviews/[/yellow]")
+        raise typer.Exit(0)
+
+    findings_file = session_dir / "findings.json"
+    if not findings_file.exists():
+        rprint(f"[yellow]No findings.json in session {session_dir.name}[/yellow]")
+        raise typer.Exit(0)
+
+    payload = ReviewSessionPayload.model_validate_json(findings_file.read_text(encoding="utf-8"))
+    findings = payload.findings
+
+    target_status = status_filter.upper() if status_filter else None
+    if unverified:
+        target_status = "UNVERIFIED"
+    elif invalidated:
+        target_status = "INVALIDATED"
+    elif verified:
+        target_status = "VERIFIED"
+
+    if target_status:
+        findings = [f for f in findings if f.status == target_status]
+
+    table = Table(title=f"Findings: {session_dir.name}")
+    table.add_column("#", justify="right", style="dim")
+    table.add_column("Persona", style="cyan")
+    table.add_column("Sev", style="bold")
+    table.add_column("Location", overflow="fold")
+    table.add_column("Title", overflow="fold")
+    table.add_column("Status")
+    table.add_column("Verified By / Reason", overflow="fold")
+
+    for i, f in enumerate(findings, 1):
+        st = f.status
+        if st == "VERIFIED":
+            st_fmt = "[green]VERIFIED[/green]"
+        elif st == "INVALIDATED":
+            st_fmt = "[red]INVALIDATED[/red]"
+        elif st == "MITIGATED":
+            st_fmt = "[cyan]MITIGATED[/cyan]"
+        else:
+            st_fmt = "[yellow]UNVERIFIED[/yellow]"
+
+        by = f.verified_by or ""
+        reason = f.invalidation_reason or ""
+        info = f"{by}: {reason}".strip(": ") if (by or reason) else "—"
+
+        table.add_row(
+            str(i),
+            f.persona,
+            f.severity,
+            f.location,
+            f.title,
+            st_fmt,
+            info,
+        )
+
+    console.print(table)
+
+
+@app.command("verify")
+def verify_finding(
+    session: Annotated[str, typer.Argument(help="Session ID or substring")],
+    index: Annotated[
+        int | None,
+        typer.Option("--index", "-i", help="1-based index of the finding to update"),
+    ] = None,
+    title_pattern: Annotated[
+        str | None,
+        typer.Option("--title", "-t", help="Title substring to match finding"),
+    ] = None,
+    status: Annotated[
+        str,
+        typer.Option(
+            "--status", help="Target status: VERIFIED | INVALIDATED | MITIGATED | UNVERIFIED"
+        ),
+    ] = "INVALIDATED",
+    reason: Annotated[
+        str,
+        typer.Option("--reason", "-r", help="Explanation or justification for the status change"),
+    ] = "",
+) -> None:
+    """Validate or invalidate a review finding, persisting feedback reasons."""
+    session_dir = _find_session_dir(session)
+    if not session_dir:
+        rprint(f"[red]Session not found matching: {session}[/red]")
+        raise typer.Exit(1)
+
+    findings_file = session_dir / "findings.json"
+    if not findings_file.exists():
+        rprint(f"[red]No findings.json in {session_dir}[/red]")
+        raise typer.Exit(1)
+
+    payload = ReviewSessionPayload.model_validate_json(findings_file.read_text(encoding="utf-8"))
+    if not payload.findings:
+        rprint("[yellow]Session has no findings to update.[/yellow]")
+        raise typer.Exit(0)
+
+    target_idx: int | None = None
+    if index is not None:
+        if index < 1 or index > len(payload.findings):
+            rprint(f"[red]Index out of bounds (1-{len(payload.findings)})[/red]")
+            raise typer.Exit(1)
+        target_idx = index - 1
+    elif title_pattern is not None:
+        for idx, f in enumerate(payload.findings):
+            if title_pattern.lower() in f.title.lower():
+                target_idx = idx
+                break
+
+    if target_idx is None:
+        rprint("[red]Must specify --index <N> or --title <pattern>[/red]")
+        raise typer.Exit(1)
+
+    new_status = status.upper().strip()
+    if new_status not in {"VERIFIED", "INVALIDATED", "MITIGATED", "UNVERIFIED"}:
+        rprint("[red]Status must be one of: VERIFIED, INVALIDATED, MITIGATED, UNVERIFIED[/red]")
+        raise typer.Exit(1)
+
+    finding = payload.findings[target_idx]
+    finding.status = new_status
+    finding.verified = new_status != "INVALIDATED"
+    finding.mitigated = new_status == "MITIGATED"
+    finding.verified_by = "human"
+    finding.verified_at = datetime.now().isoformat()
+    if reason:
+        finding.invalidation_reason = reason
+
+    findings_file.write_text(payload.model_dump_json(indent=2), encoding="utf-8")
+    rprint(f"[green]✓ Updated finding #{target_idx + 1} status → [bold]{new_status}[/bold][/green]")
+
+
+@app.command("stats")
+def review_stats(
+    reviews_dir: Annotated[
+        Path | None,
+        typer.Option("--reviews-dir", help="Directory containing review sessions"),
+    ] = None,
+) -> None:
+    """Compute and display review accuracy statistics across saved sessions."""
+    r_dir = reviews_dir or (CONST_DATA_DIR / "reviews")
+    if not r_dir.exists():
+        rprint("[yellow]No review directory found.[/yellow]")
+        raise typer.Exit(0)
+
+    session_dirs = [d for d in r_dir.iterdir() if d.is_dir() and (d / "findings.json").exists()]
+    if not session_dirs:
+        rprint("[yellow]No saved review sessions found.[/yellow]")
+        raise typer.Exit(0)
+
+    total_sessions = len(session_dirs)
+    total_findings = 0
+    by_status: dict[str, int] = {"VERIFIED": 0, "UNVERIFIED": 0, "INVALIDATED": 0, "MITIGATED": 0}
+    by_persona_total: dict[str, int] = {}
+    by_persona_invalidated: dict[str, int] = {}
+
+    for d in session_dirs:
+        try:
+            payload = ReviewSessionPayload.model_validate_json(
+                (d / "findings.json").read_text(encoding="utf-8")
+            )
+            for f in payload.findings:
+                total_findings += 1
+                st = f.status
+                by_status[st] = by_status.get(st, 0) + 1
+                persona = f.persona or "unknown"
+                by_persona_total[persona] = by_persona_total.get(persona, 0) + 1
+                if st == "INVALIDATED":
+                    by_persona_invalidated[persona] = by_persona_invalidated.get(persona, 0) + 1
+        except Exception:
+            continue
+
+    rprint(Rule(" AI Code Review Accuracy & Verification Stats ", style="bold cyan"))
+    rprint(f"[bold]Total Sessions:[/bold]  {total_sessions}")
+    rprint(f"[bold]Total Findings:[/bold]  {total_findings}\n")
+
+    table = Table(title="Finding Status Breakdown")
+    table.add_column("Status", style="cyan")
+    table.add_column("Count", justify="right")
+    table.add_column("Percentage", justify="right")
+
+    for st, count in by_status.items():
+        pct = (count / total_findings * 100) if total_findings else 0.0
+        table.add_row(st, str(count), f"{pct:.1f}%")
+
+    console.print(table)
+    console.print()
+
+    if by_persona_total:
+        ptable = Table(title="Persona False Positive Rate (Invalidated)")
+        ptable.add_column("Persona", style="magenta")
+        ptable.add_column("Total Findings", justify="right")
+        ptable.add_column("Invalidated", justify="right")
+        ptable.add_column("False-Positive Rate", justify="right")
+
+        for persona, count in by_persona_total.items():
+            inval = by_persona_invalidated.get(persona, 0)
+            rate = (inval / count * 100) if count else 0.0
+            ptable.add_row(persona, str(count), str(inval), f"{rate:.1f}%")
+
+        console.print(ptable)

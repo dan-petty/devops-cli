@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 from rich import print as rprint
@@ -12,9 +12,17 @@ from rich.console import Console
 from rich.rule import Rule
 from rich.table import Table
 
-from devops_cli.cli import new_typer
-from devops_cli.config import SecretStorageError, dotted_set
-from devops_cli.env_vars import env_var_for_option
+from devops_cli.ai.personas import PERSONAS, Persona
+from devops_cli.config.constants import (
+    CONST_AGENTS_MD_FILENAME,
+    CONST_DEVCONTAINER_JSON_PATH,
+    CONST_GIT_DIR_NAME,
+)
+from devops_cli.config.env import env_var_for_option
+from devops_cli.config.options import AI_API_KEY
+from devops_cli.config.settings import SecretStorageError, dotted_set
+from devops_cli.core.cli import new_typer
+from devops_cli.models.ai import ChatMessage
 
 app = new_typer(
     help="Configure and test AI providers (Ollama, Claude, Copilot).",
@@ -27,22 +35,26 @@ _PROVIDERS = ("ollama", "claude", "copilot", "openai")
 # ── Agent file targets ────────────────────────────────────────────────────────
 
 _AGENT_FILES: dict[str, str] = {
-    "AGENTS.md": "Generic agent instructions (Codex, custom agents)",
-    "CLAUDE.md": "Claude-specific instructions",
-    ".github/copilot-instructions.md": "GitHub Copilot workspace instructions",
+    CONST_AGENTS_MD_FILENAME: "Canonical agent instructions (single source of truth)",
+    "CLAUDE.md": "Pointer stub redirecting Claude Code to AGENTS.md",
+    ".github/copilot-instructions.md": "Pointer stub redirecting GitHub Copilot to AGENTS.md",
 }
 
-_AGENT_SYSTEM_PROMPT = """\
-You are an Enterprise Infrastructure Architect writing precise, structured \
-instructions for AI coding agents. Your output will be read by AI assistants \
-(GitHub Copilot, Claude, Codex) to understand the project and assist developers.
+# Task-specific addendum appended to the architect persona when generating AGENTS.md
+_AGENTS_TASK_ADDENDUM = """\
+\nYour current task is to write the `AGENTS.md` file — precise, structured
+instructions for AI coding agents (GitHub Copilot, Claude, Codex). The output
+will be read by AI assistants to understand this project and assist developers.
 
-Guidelines:
-- Be concise and factual — no marketing language
-- Include exact commands, paths, and conventions
-- Highlight security-sensitive areas
-- Cover build, test, lint, and deploy workflows
-- Note non-obvious architecture decisions
+The file MUST include:
+- Project purpose, language, entry point, virtual environment
+- An "Environment & Modernization Policy" section (latest Python/images/deps is
+  intentional; `devops ci` is the safety net)
+- Exact build/test/lint/format/typecheck commands
+- Code conventions (line length, import style, HTTP library, secrets storage)
+- Architecture overview with key file paths
+- AI feature commands (`devops ai`, `devops review`) and persona names
+- Security notes covering SSH keys, tokens, SSRF mitigations, and accepted risks
 """
 
 
@@ -72,7 +84,7 @@ def _collect_project_context(repo: Path) -> str:
                 "3",
                 "-not",
                 "-path",
-                "./.git/*",
+                f"./{CONST_GIT_DIR_NAME}/*",
                 "-not",
                 "-path",
                 "./.venv/*",
@@ -94,9 +106,9 @@ def _collect_project_context(repo: Path) -> str:
         sections.append(f"## .editorconfig\n```ini\n{ec.read_text()}\n```")
 
     # devcontainer.json
-    dc = repo / ".devcontainer" / "devcontainer.json"
+    dc = repo / CONST_DEVCONTAINER_JSON_PATH
     if dc.exists():
-        sections.append(f"## .devcontainer/devcontainer.json\n```json\n{dc.read_text()}\n```")
+        sections.append(f"## {CONST_DEVCONTAINER_JSON_PATH}\n```json\n{dc.read_text()}\n```")
 
     return "\n\n".join(sections)
 
@@ -111,20 +123,72 @@ def _agent_prompt(context: str, target_file: str) -> str:
     )
 
 
+_CANONICAL_AGENT_FILE = CONST_AGENTS_MD_FILENAME
+
+
+def _pointer_stub(title: str, tool_name: str, filename: str, canonical_relpath: str) -> str:
+    """Thin stub for a tool-specific file that defers to the canonical AGENTS.md."""
+    return f"""\
+# {title}
+
+> **This file is a pointer, not the source.** {tool_name} looks specifically for
+> `{filename}`, so this stub exists to redirect it. All actual instructions — project
+> overview, build/test commands, code conventions, architecture, AI features,
+> environment & modernization policy, and security notes — live in
+> [AGENTS.md]({canonical_relpath}). Read that file. Regenerate both via
+> `devops ai agents`; do not duplicate content here.
+"""
+
+
 def _template_content(target_file: str, context_summary: dict[str, str]) -> str:
     """Fallback template when no LLM is configured."""
+    if target_file == "CLAUDE.md":
+        return _pointer_stub(
+            "devops-cli — Claude Instructions", "Claude Code", "CLAUDE.md", "./AGENTS.md"
+        )
+    if "copilot" in target_file:
+        return _pointer_stub(
+            "GitHub Copilot Instructions",
+            "GitHub Copilot",
+            ".github/copilot-instructions.md",
+            "../AGENTS.md",
+        )
+
     name = context_summary.get("name", "devops-cli")
     description = context_summary.get("description", "")
     python_version = context_summary.get("requires_python", ">=3.14")
     entry_point = context_summary.get("entry_point", "")
 
-    shared = f"""\
+    return f"""\
+# {name} — Agent Instructions
+
+> **Canonical source.** This file is the single source of truth for AI coding agent
+> instructions in this repo. [CLAUDE.md](./CLAUDE.md) and
+> [.github/copilot-instructions.md](./.github/copilot-instructions.md) are thin pointers
+> to this file, kept only because their tools look for those specific filenames. Edit
+> this file (or regenerate via `devops ai agents`), not the pointer files.
+
 ## Project
 **{name}** — {description}
 
 - Language: Python {python_version}
 - Entry point: `{entry_point}`
 - Virtual environment: `.venv/` (managed by `uv`)
+
+## Environment & Modernization Policy
+- This project is built to run **only inside the provided dev container** on a local
+  DevOps Engineer's workstation — it is not intended for bare-metal installs, shared
+  servers, or as a base image for other services.
+- Tracking the **latest Python release, latest container base images, and latest
+  dependency versions** is intentional, not an oversight. The dev container is rebuilt
+  routinely, so staying current avoids accumulating upgrade debt and reduces exposure
+  to unpatched legacy CVEs.
+- This is safe specifically because of the test/lint/format/typecheck suite: `devops ci`
+  is the guardrail that catches breakage from modernization before it merges. Treat a
+  failing `devops ci` after a version bump as a signal to fix the break, not to pin
+  backwards.
+- When bumping Python, base images, or dependencies: update the version, run
+  `devops ci`, and resolve any failures it surfaces before merging.
 
 ## Build & Test Commands
 ```bash
@@ -153,7 +217,7 @@ src/devops_cli/
   commands/            # One file per command group
   ai/
     client.py          # Unified LLM client (Ollama / Claude / OpenAI-compat)
-    personas.py        # Reviewer persona definitions (DevSecOps, Architect, PM, Auditor)
+    personas.py        # Reviewer persona definitions (DevSecOps, Architect, PM, Auditor, QA)
   github/client.py     # PyGithub + httpx2 wrapper
   git/operations.py    # GitPython helpers
   crypto/ssh_keys.py   # SSH key generation / rotation
@@ -167,20 +231,27 @@ tests/                 # pytest, pytest-asyncio, pytest-mock
 - `devops ai agents` — (re)generate this file and siblings
 - `devops review branch [<branch>] [--base main] [--persona <p>] [--all]`
 - `devops review pr <number> [--post]` — review GitHub PRs; optionally post as comment
-- Personas: `devsecops` · `architect` · `pm` · `auditor`
+- `devops review path [<target>] [--pattern <glob>] [--persona <p>] [--all]`
+- Personas: `devsecops` · `architect` · `pm` · `auditor` · `qa`
+- All `devops review` commands load this file (AGENTS.md) from the target repo and
+  inject it into the reviewer's system prompt, so findings must defer to conventions
+  and policies documented here rather than flag them as issues.
 
 ## Security Notes
 - SSH private keys: `~/.ssh/id_ed25519-<YYYYMMM>` pattern; rotated every 90 days
 - GitHub / Grafana / ArgoCD tokens stored in OS keyring only
 - All HTTP clients use `httpx2` with explicit timeouts
 - No credentials in config YAML or source files
+- `devops_cli.ai.client.LLMClient` validates Ollama/Claude/OpenAI-compatible base URLs
+  and refuses private/loopback/link-local targets unless
+  `DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true` is set — this mitigates SSRF via
+  attacker- or config-controlled endpoints; do not flag this as unmitigated SSRF risk
+- `.devcontainer/devcontainer.json` bind-mounts the host's `~/.ssh` into the container
+  by design — this CLI's core purpose includes generating, rotating, and registering
+  SSH keys, which requires direct access to the real key material. This is an accepted,
+  intentional risk of the local-workstation-only usage model; do not recommend SSH
+  agent forwarding as a required fix
 """
-
-    if "CLAUDE.md" in target_file:
-        return f"# {name} — Claude Instructions\n\n{shared}"
-    if "copilot" in target_file:
-        return f"# GitHub Copilot Instructions\n\n{shared}"
-    return f"# {name} — Agent Instructions\n\n{shared}"
 
 
 def _parse_pyproject(repo: Path) -> dict[str, str]:
@@ -226,7 +297,11 @@ def config(
     ] = None,
 ) -> None:
     """Show or update AI provider configuration."""
-    from devops_cli.config import get_ai_api_key, load_settings, save_settings
+    from devops_cli.config.settings import (
+        get_ai_api_key,
+        load_settings,
+        save_settings,
+    )
 
     settings = load_settings()
 
@@ -258,11 +333,11 @@ def config(
         settings.ai.api_base_url = api_base_url
     if api_key:
         try:
-            dotted_set(settings, "ai.api_key", api_key)
+            dotted_set(settings, AI_API_KEY, api_key)
             rprint("[green]✓[/green] API key saved to keyring")
         except SecretStorageError as exc:
             rprint(f"[red]Could not store ai.api_key: {exc}[/red]")
-            env_var = env_var_for_option("ai.api_key")
+            env_var = env_var_for_option(AI_API_KEY)
             if env_var:
                 rprint(
                     f"[yellow]Use environment variable fallback: export {env_var}=<value>[/yellow]"
@@ -277,7 +352,7 @@ def config(
 def models() -> None:
     """List available models for the configured provider."""
     from devops_cli.ai.client import LLMClient
-    from devops_cli.config import get_ai_api_key, load_settings
+    from devops_cli.config.settings import get_ai_api_key, load_settings
 
     settings = load_settings()
     client = LLMClient(settings.ai, api_key=get_ai_api_key(settings))
@@ -303,7 +378,7 @@ def test(
 ) -> None:
     """Send a test prompt to verify AI provider connectivity."""
     from devops_cli.ai.client import LLMClient
-    from devops_cli.config import get_ai_api_key, load_settings
+    from devops_cli.config.settings import get_ai_api_key, load_settings
 
     settings = load_settings()
     rprint(
@@ -335,7 +410,7 @@ def agents(
 ) -> None:
     """Generate LLM/Agent instruction files (AGENTS.md, CLAUDE.md, copilot-instructions.md)."""
     from devops_cli.ai.client import LLMClient
-    from devops_cli.config import get_ai_api_key, load_settings
+    from devops_cli.config.settings import get_ai_api_key, load_settings
 
     repo = repo.resolve()
     meta = _parse_pyproject(repo)
@@ -356,11 +431,16 @@ def agents(
         dest = repo / target
         console.print(Rule(f" {target} ", style="cyan"))
 
-        if use_llm and client is not None:
+        # Only the canonical file is worth spending an LLM call on — the others
+        # are static pointers to it, so they always use the template.
+        if target != _CANONICAL_AGENT_FILE:
+            content = _template_content(target, meta)
+        elif use_llm and client is not None:
             rprint(f"Generating [cyan]{target}[/cyan] via LLM...")
+            system = PERSONAS[Persona.ARCHITECT].system_prompt + _AGENTS_TASK_ADDENDUM
             try:
                 content = client.chat(
-                    system=_AGENT_SYSTEM_PROMPT,
+                    system=system,
                     user=_agent_prompt(context, target),
                 )
             except Exception as exc:
@@ -374,3 +454,113 @@ def agents(
             content += "\n"
         dest.write_text(content, encoding="utf-8")
         rprint(f"[green]✓[/green] Written: {dest.relative_to(repo)}")
+
+
+_PERSONA_NAMES = [p.value for p in Persona]
+
+
+@app.command()
+def chat(
+    persona: Annotated[
+        str,
+        typer.Option(
+            "--persona",
+            "-p",
+            help=f"Persona to chat with: {', '.join(_PERSONA_NAMES)}",
+        ),
+    ] = Persona.ARCHITECT,
+    context_file: Annotated[
+        Path | None,
+        typer.Option(
+            "--context",
+            "-c",
+            help="Optional file to inject as background context (e.g. AGENTS.md)",
+            exists=True,
+            readable=True,
+        ),
+    ] = None,
+    stream: Annotated[
+        bool, typer.Option("--stream/--no-stream", help="Stream response tokens")
+    ] = True,
+    tools: Annotated[
+        bool, typer.Option("--tools/--no-tools", help="Enable DevOps agent tools")
+    ] = True,
+    thinking: Annotated[
+        bool, typer.Option("--thinking/--no-thinking", help="Enable model reasoning/thinking")
+    ] = True,
+) -> None:
+    """Start an interactive chat with a Pydantic AI persona (tools, thinking, streaming)."""
+    import sys
+
+    from devops_cli.ai.agent import PydanticAgent
+    from devops_cli.ai.agent_tools import get_default_tools
+    from devops_cli.ai.client import LLMClient
+    from devops_cli.config.settings import get_ai_api_key, load_settings
+
+    if persona not in _PERSONA_NAMES:
+        rprint(f"[red]Unknown persona {persona!r}. Choose: {', '.join(_PERSONA_NAMES)}[/red]")
+        raise typer.Exit(1)
+
+    persona_def = PERSONAS[Persona(persona)]
+    system = persona_def.chat_prompt
+    if context_file is not None:
+        system = system + "\n\n## Project Context\n\n" + context_file.read_text(encoding="utf-8")
+
+    settings = load_settings()
+    client = LLMClient(settings.ai.for_task("chat"), api_key=get_ai_api_key(settings))
+
+    agent_tools = get_default_tools() if tools else []
+    agent: PydanticAgent[Any] = PydanticAgent(
+        client=client, system_prompt=system, tools=agent_tools
+    )
+
+    console.print(
+        Rule(
+            f" [cyan]{persona_def.title}[/cyan] (Pydantic Agent)  "
+            f"[dim]{settings.ai.provider} / {settings.ai.model}[/dim] ",
+            style="cyan",
+        )
+    )
+    rprint("[dim]Type your message and press Enter. Ctrl+C or [bold]exit[/bold] to quit.[/dim]\n")
+
+    history: list[ChatMessage] = []
+    while True:
+        try:
+            user_input = console.input("[bold cyan]You:[/bold cyan] ").strip()
+        except EOFError, KeyboardInterrupt:
+            rprint("\n[dim]Goodbye.[/dim]")
+            break
+
+        if not user_input:
+            continue
+        if user_input.lower() in {"exit", "quit", "/exit", "/quit"}:
+            rprint("[dim]Goodbye.[/dim]")
+            break
+
+        history.append(ChatMessage(role="user", content=user_input))
+        try:
+            rprint(f"\n[green]{persona_def.title}:[/green] ", end="")
+            sys.stdout.flush()
+
+            if stream:
+                full_reply: list[str] = []
+                system_with_tools = agent._build_system_prompt_with_tools()
+                for chunk in client.chat_messages_stream(
+                    system_with_tools, history, enable_thinking=thinking
+                ):
+                    sys.stdout.write(chunk)
+                    sys.stdout.flush()
+                    full_reply.append(chunk)
+                reply = "".join(full_reply)
+                rprint("\n")
+            else:
+                agent_res = agent.run(user_input, enable_thinking=thinking)
+                reply = agent_res.content
+                rprint(f"{reply.strip()}\n")
+
+        except Exception as exc:
+            rprint(f"\n[red]Error: {exc}[/red]\n")
+            history.pop()  # don't add failed turn to history
+            continue
+
+        history.append(ChatMessage(role="assistant", content=reply))
