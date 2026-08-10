@@ -230,20 +230,11 @@ def docker_stats() -> str:
 def workspace_list() -> str:
     """Show the active VS Code workspace file and configured repository directories."""
     res = subprocess.run(
-        ["uv", "run", "devops", "workspace", "generate", "--dry-run"],
+        ["uv", "run", "devops", "workspace", "generate"],
         capture_output=True,
         text=True,
         timeout=30,
     )
-    if res.returncode != 0:
-        # Fallback: show the workspace file path from config
-        res2 = subprocess.run(
-            ["uv", "run", "devops", "config", "show"],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        return res2.stdout or res2.stderr
     return res.stdout or res.stderr
 
 
