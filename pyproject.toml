@@ -22,6 +22,7 @@ dependencies = [
     "jinja2>=3",
     "kubernetes>=30",
     "docker>=7",
+    "fastmcp>=0.4.0",
 ]
 
 [project.scripts]

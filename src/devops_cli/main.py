@@ -46,6 +46,7 @@ _COMMAND_SPECS: Final[dict[str, tuple[str, str]]] = {
     "uv": ("devops_cli.commands.uv", "Run uv commands through devops."),
     "ai": ("devops_cli.commands.ai", "Configure and test AI providers."),
     "review": ("devops_cli.commands.review", "AI-powered code reviews using expert personas."),
+    "mcp": ("devops_cli.commands.mcp", "FastMCP server for Model Context Protocol integration."),
 }
 
 app = new_typer(
