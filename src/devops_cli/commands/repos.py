@@ -7,44 +7,45 @@ from collections.abc import Generator
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated
 
+import git as gitlib
 import typer
 from rich import print as rprint
 from rich.console import Console
 from rich.progress import track
 from rich.table import Table
 
+from devops_cli.commands.workspace import sync_from_repos
+from devops_cli.config.constants import (
+    CONST_GIT_DIR_NAME,
+    CONST_GITHUB_HOST,
+    CONST_GITHUB_REPO_SUFFIX,
+    CONST_URL_SCHEME_HTTPS,
+    CONST_VSCODE_CLI,
+    CONST_VSCODE_WORKSPACE_FILE,
+)
+from devops_cli.core.cli import new_typer, repo_label
 from devops_cli.git.operations import clone_repo, fetch_all, pull_tracking
 
 if TYPE_CHECKING:
-    from devops_cli.config import Settings
+    from devops_cli.config.settings import Settings
     from devops_cli.github.client import GitHubClient
 
-app = typer.Typer(help="Clone and manage repositories.", no_args_is_help=True)
+app = new_typer(help="Clone and manage repositories.", no_args_is_help=True)
 console = Console()
 
 
 def _github_https_url(full_name: str) -> str:
-    return f"https://github.com/{full_name}.git"
-
-
-def _normalize_clone_url(url: str) -> str:
-    if url.startswith(("git@github.com:", "ssh://git@github.com/")):
-        return url
-    if url.startswith("github.com/"):
-        return f"https://{url}"
-    if url.startswith("http://github.com/"):
-        return f"https://{url.removeprefix('http://')}"
-    return url
+    return f"{CONST_URL_SCHEME_HTTPS}{CONST_GITHUB_HOST}/{full_name}{CONST_GITHUB_REPO_SUFFIX}"
 
 
 def load_settings() -> Settings:
-    from devops_cli.config import load_settings as _load_settings
+    from devops_cli.config.settings import load_settings as _load_settings
 
     return _load_settings()
 
 
 def get_github_token(settings: Settings) -> str | None:
-    from devops_cli.config import get_github_token as _get_github_token
+    from devops_cli.config.settings import get_github_token as _get_github_token
 
     return _get_github_token(settings)
 
@@ -70,21 +71,37 @@ def _iter_repos(root: Path) -> Generator[Path]:
         if not group_dir.is_dir():
             continue
         for repo_dir in sorted(group_dir.iterdir()):
-            if (repo_dir / ".git").exists():
+            if (repo_dir / CONST_GIT_DIR_NAME).exists():
                 yield repo_dir
 
 
 def _current_branch(repo_dir: Path) -> str:
     try:
-        r = subprocess.run(
-            ["git", "-C", str(repo_dir), "branch", "--show-current"],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        return r.stdout.strip() or "HEAD detached"
-    except subprocess.CalledProcessError:
+        repo = gitlib.Repo(str(repo_dir))
+        return "HEAD detached" if repo.head.is_detached else repo.active_branch.name
+    except Exception:
         return "unknown"
+
+
+def _resolve_workspace_file(root: Path, workspace_file: Path) -> Path:
+    if workspace_file.is_absolute():
+        return workspace_file
+    if workspace_file == CONST_VSCODE_WORKSPACE_FILE:
+        return root.parent / workspace_file
+    return workspace_file
+
+
+def _reload_workspace(workspace_file: Path) -> None:
+    try:
+        subprocess.run([CONST_VSCODE_CLI, "--reuse-window", str(workspace_file)], check=False)
+    except OSError:
+        rprint("[yellow]Workspace updated, but VS Code CLI is not available to reload.[/yellow]")
+
+
+def _sync_and_reload_workspace(root: Path, workspace_file: Path) -> None:
+    resolved_workspace_file = _resolve_workspace_file(root, workspace_file)
+    sync_from_repos(root, resolved_workspace_file)
+    _reload_workspace(resolved_workspace_file)
 
 
 @app.command("clone-org")
@@ -107,7 +124,7 @@ def clone_org(
         )
         raise typer.Exit(1)
 
-    root = base_dir or settings.repos.base_dir
+    root = (base_dir or settings.repos.base_dir).resolve()
     client = _require_client(settings)
 
     repos = client.get_org_repos(
@@ -131,6 +148,8 @@ def clone_org(
         except Exception as exc:
             rprint(f"  [red]fail[/red] {repo.name}: {exc}")
 
+    _sync_and_reload_workspace(root, settings.workspace.file)
+
 
 @app.command()
 def clone(
@@ -139,20 +158,20 @@ def clone(
 ) -> None:
     """Clone an individual repository into repos/_standalone/<name>/."""
     settings = load_settings()
-    root = base_dir or settings.repos.base_dir
+    root = (base_dir or settings.repos.base_dir).resolve()
     dest_dir = root / "_standalone"
     dest_dir.mkdir(parents=True, exist_ok=True)
 
-    name = url.rstrip("/").split("/")[-1].removesuffix(".git")
+    name = url.rstrip("/").split("/")[-1].removesuffix(CONST_GITHUB_REPO_SUFFIX)
     dest = dest_dir / name
 
     if dest.exists():
         rprint(f"[yellow]Repository already exists at {dest}[/yellow]")
         raise typer.Exit(1)
 
-    clone_url = _normalize_clone_url(url)
-    rprint(f"Cloning [dim]{clone_url}[/dim] → [dim]{dest}[/dim]")
-    clone_repo(clone_url, dest)
+    rprint(f"Cloning [dim]{url}[/dim] → [dim]{dest}[/dim]")
+    clone_repo(url, dest)
+    _sync_and_reload_workspace(root, settings.workspace.file)
     rprint("[green]Done.[/green]")
 
 
@@ -183,6 +202,7 @@ def list_repos(
     console.print(table)
 
 
+@app.command("sync")
 @app.command()
 def update(
     base_dir: Annotated[Path | None, typer.Option("--base-dir", "-d")] = None,
@@ -190,7 +210,7 @@ def update(
 ) -> None:
     """Fetch (and optionally pull) all tracking branches across repos."""
     settings = load_settings()
-    root = base_dir or settings.repos.base_dir
+    root = (base_dir or settings.repos.base_dir).resolve()
 
     repos_list = list(_iter_repos(root))
     if not repos_list:
@@ -198,7 +218,7 @@ def update(
         raise typer.Exit(0)
 
     for repo_dir in track(repos_list, description="Updating..."):
-        label = f"{repo_dir.parent.name}/{repo_dir.name}"
+        label = repo_label(repo_dir)
         try:
             fetch_all(repo_dir)
             if pull:
@@ -206,3 +226,5 @@ def update(
             rprint(f"  [green]✓[/green] {label}")
         except Exception as exc:
             rprint(f"  [red]✗[/red] {label}: {exc}")
+
+    _sync_and_reload_workspace(root, settings.workspace.file)

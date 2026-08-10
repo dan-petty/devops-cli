@@ -2,17 +2,19 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import httpx2
+from pydantic import BaseModel
+
+from devops_cli.config.constants import CONST_URL_GITHUB_API_BASE
+from devops_cli.models.github import SSHKeyInfo
 
 if TYPE_CHECKING:
     from github.PullRequest import PullRequest
 
 
-@dataclass
-class RepoInfo:
+class RepoInfo(BaseModel):
     name: str
     full_name: str
     ssh_url: str
@@ -68,9 +70,9 @@ class GitHubClient:
             )
         return result
 
-    def get_user_ssh_keys(self) -> list[dict[str, Any]]:
+    def get_user_ssh_keys(self) -> list[SSHKeyInfo]:
         user = self._gh.get_user()
-        return [{"id": k.id, "title": k.title, "key": k.key} for k in user.get_keys()]
+        return [SSHKeyInfo(id=k.id, title=k.title, key=k.key) for k in user.get_keys()]
 
     def add_user_ssh_key(self, title: str, key: str) -> int:
         user = self._gh.get_user()
@@ -90,7 +92,7 @@ class GitHubClient:
         """Fetch the raw unified diff for a pull request."""
         with httpx2.Client(timeout=60, follow_redirects=True) as c:
             r = c.get(
-                f"https://api.github.com/repos/{repo}/pulls/{number}",
+                f"{CONST_URL_GITHUB_API_BASE}/repos/{repo}/pulls/{number}",
                 headers={
                     "Accept": "application/vnd.github.diff",
                     "Authorization": f"Bearer {self._token}",

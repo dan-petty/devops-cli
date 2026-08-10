@@ -12,7 +12,10 @@ from rich import print as rprint
 from rich.console import Console
 from rich.table import Table
 
-from devops_cli.config import (
+from devops_cli.config import options as opt
+from devops_cli.config.constants import CONST_CONFIG_PATH
+from devops_cli.config.env import env_var_for_option
+from devops_cli.config.settings import (
     _SECRET_FIELDS,
     SecretStorageError,
     dotted_get,
@@ -24,8 +27,7 @@ from devops_cli.config import (
     load_settings,
     save_settings,
 )
-from devops_cli.defaults import CONFIG_PATH
-from devops_cli.env_vars import env_var_for_option
+from devops_cli.http.validation import validate_service_url
 
 app = typer.Typer(help="Manage devops-cli configuration.", no_args_is_help=True)
 console = Console()
@@ -45,7 +47,7 @@ def _gh_auth_status() -> bool:
             capture_output=True,
             text=True,
             check=False,
-            timeout=5,
+            timeout=20,
         )
     except OSError, subprocess.SubprocessError:
         return False
@@ -59,7 +61,7 @@ def _gh_auth_token() -> str | None:
             capture_output=True,
             text=True,
             check=False,
-            timeout=5,
+            timeout=20,
         )
     except OSError, subprocess.SubprocessError:
         return None
@@ -85,25 +87,25 @@ def show() -> None:
             display = str(value) if value is not None else "[dim]not set[/dim]"
         table.add_row(key, display)
 
-    _row("github.token", get_github_token(settings), secret=True)
-    _row("github.default_org", settings.github.default_org)
-    _row("ssh.key_dir", settings.ssh.key_dir)
-    _row("ssh.rotation_days", settings.ssh.rotation_days)
-    _row("repos.base_dir", settings.repos.base_dir)
-    _row("workspace.file", settings.workspace.file)
-    _row("grafana.url", settings.grafana.url)
-    _row("grafana.token", get_grafana_token(settings), secret=True)
-    _row("prometheus.url", settings.prometheus.url)
-    _row("argocd.url", settings.argocd.url)
-    _row("argocd.token", get_argocd_token(settings), secret=True)
-    _row("ai.provider", settings.ai.provider)
-    _row("ai.model", settings.ai.model)
-    _row("ai.ollama_url", settings.ai.ollama_url)
-    _row("ai.api_base_url", settings.ai.api_base_url)
-    _row("ai.api_key", get_ai_api_key(settings), secret=True)
+    _row(opt.GITHUB_TOKEN, get_github_token(settings), secret=True)
+    _row(opt.GITHUB_DEFAULT_ORG, settings.github.default_org)
+    _row(opt.SSH_KEY_DIR, settings.ssh.key_dir)
+    _row(opt.SSH_ROTATION_DAYS, settings.ssh.rotation_days)
+    _row(opt.REPOS_BASE_DIR, settings.repos.base_dir)
+    _row(opt.WORKSPACE_FILE, settings.workspace.file)
+    _row(opt.GRAFANA_URL, settings.grafana.url)
+    _row(opt.GRAFANA_TOKEN, get_grafana_token(settings), secret=True)
+    _row(opt.PROMETHEUS_URL, settings.prometheus.url)
+    _row(opt.ARGOCD_URL, settings.argocd.url)
+    _row(opt.ARGOCD_TOKEN, get_argocd_token(settings), secret=True)
+    _row(opt.AI_PROVIDER, settings.ai.provider)
+    _row(opt.AI_MODEL, settings.ai.model)
+    _row(opt.AI_OLLAMA_URL, settings.ai.ollama_url)
+    _row(opt.AI_API_BASE_URL, settings.ai.api_base_url)
+    _row(opt.AI_API_KEY, get_ai_api_key(settings), secret=True)
 
     console.print(table)
-    console.print(f"\nConfig file: [dim]{CONFIG_PATH}[/dim]")
+    console.print(f"\nConfig file: [dim]{CONST_CONFIG_PATH}[/dim]")
 
 
 @app.command("get")
@@ -163,10 +165,10 @@ def init() -> None:
         gh_token = _gh_auth_token()
         if gh_token and typer.confirm("Import GitHub CLI token into devops keyring?", default=True):
             try:
-                dotted_set(settings, "github.token", gh_token)
+                dotted_set(settings, opt.GITHUB_TOKEN, gh_token)
                 rprint("  [green]✓[/green] GitHub token stored in keyring.")
             except SecretStorageError as exc:
-                _render_secret_store_error("github.token", exc)
+                _render_secret_store_error(opt.GITHUB_TOKEN, exc)
         elif gh_token:
             rprint("  [green]✓[/green] Using GitHub CLI authentication via 'gh auth token'.")
         else:
@@ -177,10 +179,10 @@ def init() -> None:
         token = typer.prompt("Personal Access Token (PAT)", hide_input=True, default="")
         if token:
             try:
-                dotted_set(settings, "github.token", token)
+                dotted_set(settings, opt.GITHUB_TOKEN, token)
                 rprint("  [green]✓[/green] GitHub token stored in keyring.")
             except SecretStorageError as exc:
-                _render_secret_store_error("github.token", exc)
+                _render_secret_store_error(opt.GITHUB_TOKEN, exc)
 
     default_org = typer.prompt("Default org (leave blank to skip)", default="")
     if default_org:
@@ -195,32 +197,44 @@ def init() -> None:
     console.print("\n[cyan]Grafana[/cyan]")
     grafana_url = typer.prompt("Grafana URL (leave blank to skip)", default="")
     if grafana_url:
-        settings.grafana.url = grafana_url
+        try:
+            validate_service_url(grafana_url, "Grafana", allow=settings.ai.allow_private_network)
+            settings.grafana.url = grafana_url
+        except ValueError as exc:
+            rprint(f"  [red]{exc}[/red]")
         g_token = typer.prompt("Grafana API token", hide_input=True, default="")
         if g_token:
             try:
-                dotted_set(settings, "grafana.token", g_token)
+                dotted_set(settings, opt.GRAFANA_TOKEN, g_token)
             except SecretStorageError as exc:
-                _render_secret_store_error("grafana.token", exc)
+                _render_secret_store_error(opt.GRAFANA_TOKEN, exc)
 
     # ── Prometheus ─────────────────────────────────────────────────────────
     console.print("\n[cyan]Prometheus[/cyan]")
     prom_url = typer.prompt("Prometheus URL (leave blank to skip)", default="")
     if prom_url:
-        settings.prometheus.url = prom_url
+        try:
+            validate_service_url(prom_url, "Prometheus", allow=settings.ai.allow_private_network)
+            settings.prometheus.url = prom_url
+        except ValueError as exc:
+            rprint(f"  [red]{exc}[/red]")
 
     # ── ArgoCD ─────────────────────────────────────────────────────────────
     console.print("\n[cyan]ArgoCD[/cyan]")
     argocd_url = typer.prompt("ArgoCD URL (leave blank to skip)", default="")
     if argocd_url:
-        settings.argocd.url = argocd_url
+        try:
+            validate_service_url(argocd_url, "ArgoCD", allow=settings.ai.allow_private_network)
+            settings.argocd.url = argocd_url
+        except ValueError as exc:
+            rprint(f"  [red]{exc}[/red]")
         a_token = typer.prompt("ArgoCD API token", hide_input=True, default="")
         if a_token:
             try:
-                dotted_set(settings, "argocd.token", a_token)
+                dotted_set(settings, opt.ARGOCD_TOKEN, a_token)
             except SecretStorageError as exc:
-                _render_secret_store_error("argocd.token", exc)
+                _render_secret_store_error(opt.ARGOCD_TOKEN, exc)
 
     save_settings(settings)
     console.print("\n[bold green]Configuration saved![/bold green]")
-    console.print(f"Config file: [dim]{CONFIG_PATH}[/dim]")
+    console.print(f"Config file: [dim]{CONST_CONFIG_PATH}[/dim]")

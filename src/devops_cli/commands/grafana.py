@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Annotated
 
@@ -12,8 +13,10 @@ from rich import print as rprint
 from rich.console import Console
 from rich.table import Table
 
-from devops_cli.cli import new_typer
-from devops_cli.config import Settings, get_grafana_token, load_settings
+from devops_cli.config.settings import Settings, get_grafana_token, load_settings
+from devops_cli.core.cli import new_typer
+from devops_cli.http.validation import validate_service_url
+from devops_cli.models.grafana import GrafanaAlertRule, GrafanaDashboard, GrafanaDatasource
 
 app = new_typer(help="Grafana dashboard and alert management.", no_args_is_help=True)
 console = Console()
@@ -26,6 +29,13 @@ def _client_args(settings: Settings) -> tuple[str, dict[str, str]]:
     """Return (base_url, headers) for Grafana API requests."""
     if not settings.grafana.url:
         rprint("[red]Grafana URL not configured. Run: devops config set grafana.url <url>[/red]")
+        raise typer.Exit(1)
+    try:
+        validate_service_url(
+            settings.grafana.url, "Grafana", allow=settings.ai.allow_private_network
+        )
+    except ValueError as exc:
+        rprint(f"[red]{exc}[/red]")
         raise typer.Exit(1)
     headers: dict[str, str] = {"Content-Type": "application/json"}
     token = get_grafana_token(settings)
@@ -43,21 +53,20 @@ def dashboards_list() -> None:
     settings = load_settings()
     base, headers = _client_args(settings)
 
-    with httpx2.Client() as c:
-        resp = c.get(f"{base}/api/search", headers=headers, params={"type": "dash-db"}, timeout=30)
-        resp.raise_for_status()
+    with httpx2.Client() as http_client:
+        response = http_client.get(
+            f"{base}/api/search", headers=headers, params={"type": "dash-db"}, timeout=30
+        )
+        response.raise_for_status()
 
     table = Table(title="Grafana Dashboards")
     table.add_column("UID", style="dim")
     table.add_column("Title", style="cyan")
     table.add_column("Folder")
 
-    for dash in resp.json():
-        table.add_row(
-            dash.get("uid", ""),
-            dash.get("title", ""),
-            dash.get("folderTitle", "General"),
-        )
+    for item in response.json():
+        dash = GrafanaDashboard.model_validate(item)
+        table.add_row(dash.uid, dash.title, dash.folder_title)
     console.print(table)
 
 
@@ -67,15 +76,23 @@ def dashboards_export(
     output: Annotated[Path | None, typer.Option("--output", "-o")] = None,
 ) -> None:
     """Export a dashboard to JSON."""
+    if not re.match(r"^[a-zA-Z0-9_-]+$", uid):
+        rprint("[red]Invalid Dashboard UID: alphanumeric, hyphens, and underscores only.[/red]")
+        raise typer.Exit(1)
+    if output is not None:
+        resolved = output.resolve()
+        if not resolved.is_relative_to(Path.cwd().resolve()):
+            rprint("[red]Invalid output path: path traversal not allowed.[/red]")
+            raise typer.Exit(1)
     settings = load_settings()
     base, headers = _client_args(settings)
 
-    with httpx2.Client() as c:
-        resp = c.get(f"{base}/api/dashboards/uid/{uid}", headers=headers, timeout=30)
-        resp.raise_for_status()
+    with httpx2.Client() as http_client:
+        response = http_client.get(f"{base}/api/dashboards/uid/{uid}", headers=headers, timeout=30)
+        response.raise_for_status()
 
     dest = output or Path(f"{uid}.json")
-    dest.write_text(json.dumps(resp.json(), indent=2), encoding="utf-8")
+    dest.write_text(json.dumps(response.json(), indent=2), encoding="utf-8")
     rprint(f"[green]Exported → {dest}[/green]")
 
 
@@ -93,18 +110,48 @@ def dashboards_import(
     dashboard.pop("id", None)
     dashboard.pop("uid", None)
 
-    with httpx2.Client() as c:
-        resp = c.post(
+    with httpx2.Client() as http_client:
+        response = http_client.post(
             f"{base}/api/dashboards/db",
             headers=headers,
             json={"dashboard": dashboard, "folderId": folder_id, "overwrite": True},
             timeout=30,
         )
-        resp.raise_for_status()
-    rprint(f"[green]Imported:[/green] {resp.json().get('slug', 'unknown')}")
+        response.raise_for_status()
+    rprint(f"[green]Imported:[/green] {response.json().get('slug', 'unknown')}")
 
 
-# ── datasources ───────────────────────────────────────────────────────────────
+# ── search & datasources ───────────────────────────────────────────────────────
+
+
+@app.command()
+def search(
+    query: Annotated[str, typer.Option("--query", "-q", help="Search query")] = "",
+) -> None:
+    """Search Grafana dashboards and folders by query string."""
+    settings = load_settings()
+    base, headers = _client_args(settings)
+    params = {"query": query} if query else {}
+
+    with httpx2.Client() as http_client:
+        response = http_client.get(f"{base}/api/search", headers=headers, params=params, timeout=30)
+        response.raise_for_status()
+
+    table = Table(title=f"Grafana Search: {query!r}" if query else "Grafana Search")
+    table.add_column("UID", style="dim")
+    table.add_column("Title", style="cyan")
+    table.add_column("Type")
+    table.add_column("Folder")
+
+    for item in response.json():
+        dash = GrafanaDashboard.model_validate(item)
+        table.add_row(
+            dash.uid,
+            dash.title,
+            item.get("type", ""),  # type is not on GrafanaDashboard — keep raw
+            dash.folder_title,
+        )
+    console.print(table)
 
 
 @app.command()
@@ -113,9 +160,9 @@ def datasources() -> None:
     settings = load_settings()
     base, headers = _client_args(settings)
 
-    with httpx2.Client() as c:
-        resp = c.get(f"{base}/api/datasources", headers=headers, timeout=30)
-        resp.raise_for_status()
+    with httpx2.Client() as http_client:
+        response = http_client.get(f"{base}/api/datasources", headers=headers, timeout=30)
+        response.raise_for_status()
 
     table = Table(title="Grafana Datasources")
     table.add_column("Name", style="cyan")
@@ -123,12 +170,13 @@ def datasources() -> None:
     table.add_column("URL")
     table.add_column("Default", justify="center")
 
-    for ds in resp.json():
+    for item in response.json():
+        ds = GrafanaDatasource.model_validate(item)
         table.add_row(
-            ds.get("name", ""),
-            ds.get("type", ""),
-            ds.get("url", ""),
-            "[green]●[/green]" if ds.get("isDefault") else "",
+            ds.name,
+            ds.type,
+            ds.url,
+            "[green]●[/green]" if ds.is_default else "",
         )
     console.print(table)
 
@@ -142,9 +190,11 @@ def alerts() -> None:
     settings = load_settings()
     base, headers = _client_args(settings)
 
-    with httpx2.Client() as c:
-        resp = c.get(f"{base}/api/v1/provisioning/alert-rules", headers=headers, timeout=30)
-        resp.raise_for_status()
+    with httpx2.Client() as http_client:
+        response = http_client.get(
+            f"{base}/api/v1/provisioning/alert-rules", headers=headers, timeout=30
+        )
+        response.raise_for_status()
 
     table = Table(title="Grafana Alert Rules")
     table.add_column("UID", style="dim")
@@ -152,11 +202,7 @@ def alerts() -> None:
     table.add_column("Folder")
     table.add_column("Condition")
 
-    for rule in resp.json():
-        table.add_row(
-            rule.get("uid", ""),
-            rule.get("title", ""),
-            rule.get("folderUID", ""),
-            rule.get("condition", ""),
-        )
+    for item in response.json():
+        rule = GrafanaAlertRule.model_validate(item)
+        table.add_row(rule.uid, rule.title, rule.folder_uid, rule.condition)
     console.print(table)

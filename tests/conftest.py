@@ -37,7 +37,7 @@ def mock_settings(tmp_path: Path):
     settings.repos.base_dir = tmp_path / "repos"
     settings.ssh.key_dir = tmp_path / ".ssh"
     settings.ssh.rotation_days = 90
-    settings.workspace.file = tmp_path / "devops.code-workspace"
+    settings.workspace.file = tmp_path / ".code-workspace"
     settings.github.default_org = None
     settings.grafana.url = None
     settings.prometheus.url = None

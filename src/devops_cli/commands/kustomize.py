@@ -8,7 +8,7 @@ from typing import Annotated
 
 import typer
 
-from devops_cli.cli import new_typer
+from devops_cli.core.cli import new_typer
 
 app = new_typer(help="Kustomize build and apply operations.", no_args_is_help=True)
 
@@ -43,6 +43,10 @@ def apply(
     namespace: Annotated[str | None, typer.Option("--namespace", "-n")] = None,
 ) -> None:
     """Apply a kustomization (delegates to kubectl apply -k)."""
+    if namespace:
+        from devops_cli.commands.k8s import _validate_k8s_identifier
+
+        _validate_k8s_identifier(namespace, "namespace", namespace=True)
     cmd = ["kubectl", "apply", "-k", str(path)]
     if dry_run:
         cmd += ["--dry-run=client"]

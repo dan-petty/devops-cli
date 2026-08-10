@@ -11,11 +11,15 @@ from rich import print as rprint
 from rich.console import Console
 from rich.table import Table
 
-from devops_cli.cli import new_typer
-from devops_cli.config import Settings, load_settings
+from devops_cli.config.settings import Settings, load_settings
+from devops_cli.core.cli import new_typer
+from devops_cli.http.validation import validate_service_url
+from devops_cli.models.prometheus import PrometheusQueryResult
 
 app = new_typer(help="Prometheus query and rule management.", no_args_is_help=True)
 console = Console()
+
+_MAX_PROMQL_LEN = 4096
 
 
 def _base_url(settings: Settings) -> str:
@@ -24,7 +28,22 @@ def _base_url(settings: Settings) -> str:
             "[red]Prometheus URL not configured. Run: devops config set prometheus.url <url>[/red]"
         )
         raise typer.Exit(1)
+    try:
+        validate_service_url(
+            settings.prometheus.url, "Prometheus", allow=settings.ai.allow_private_network
+        )
+    except ValueError as exc:
+        rprint(f"[red]{exc}[/red]")
+        raise typer.Exit(1)
     return settings.prometheus.url.rstrip("/")
+
+
+def _validate_expr(expr: str) -> None:
+    if len(expr) > _MAX_PROMQL_LEN:
+        rprint(
+            f"[red]PromQL expression exceeds maximum length of {_MAX_PROMQL_LEN} characters.[/red]"
+        )
+        raise typer.Exit(1)
 
 
 def _parse_duration(s: str) -> float:
@@ -43,23 +62,23 @@ def query(
     ] = None,
 ) -> None:
     """Execute an instant PromQL query."""
+    _validate_expr(expr)
     settings = load_settings()
     base = _base_url(settings)
     params: dict[str, Any] = {"query": expr}
     if at:
         params["time"] = at
 
-    with httpx2.Client() as c:
-        resp = c.get(f"{base}/api/v1/query", params=params, timeout=30)
-        resp.raise_for_status()
+    with httpx2.Client() as http_client:
+        response = http_client.get(f"{base}/api/v1/query", params=params, timeout=30)
+        response.raise_for_status()
 
-    data = resp.json()
-    if data["status"] != "success":
-        rprint(f"[red]Query failed: {data.get('error', 'unknown')}[/red]")
+    result = PrometheusQueryResult.from_instant_response(response.json())
+    if result.status != "success":
+        rprint(f"[red]Query failed: {result.error or 'unknown'}[/red]")
         raise typer.Exit(1)
 
-    results = data["data"]["result"]
-    if not results:
+    if not result.series:
         rprint("[yellow]No results.[/yellow]")
         return
 
@@ -67,10 +86,8 @@ def query(
     table.add_column("Labels", style="dim")
     table.add_column("Value", style="cyan")
 
-    for r in results:
-        labels = ", ".join(f"{k}={v}" for k, v in r["metric"].items() if k != "__name__")
-        _, value = r["value"]
-        table.add_row(labels or "(no labels)", value)
+    for series in result.series:
+        table.add_row(series.label_str or "(no labels)", series.value)
     console.print(table)
 
 
@@ -84,6 +101,7 @@ def query_range(
     step: Annotated[str, typer.Option("--step")] = "60s",
 ) -> None:
     """Execute a range PromQL query and summarise the result."""
+    _validate_expr(expr)
     settings = load_settings()
     base = _base_url(settings)
 
@@ -95,17 +113,16 @@ def query_range(
     end_ts = end or str(now)
 
     params = {"query": expr, "start": start_ts, "end": end_ts, "step": step}
-    with httpx2.Client() as c:
-        resp = c.get(f"{base}/api/v1/query_range", params=params, timeout=60)
-        resp.raise_for_status()
+    with httpx2.Client() as http_client:
+        response = http_client.get(f"{base}/api/v1/query_range", params=params, timeout=60)
+        response.raise_for_status()
 
-    results = resp.json()["data"]["result"]
-    total_points = sum(len(r["values"]) for r in results)
+    result = PrometheusQueryResult.from_range_response(response.json())
+    total_points = sum(len(s.values) for s in result.series)
     rprint(f"[bold]{expr[:80]}[/bold]")
-    rprint(f"{len(results)} series, {total_points} total data points (step={step})")
-    for r in results:
-        labels = ", ".join(f"{k}={v}" for k, v in r["metric"].items() if k != "__name__")
-        rprint(f"  [cyan]{labels or '(no labels)'}[/cyan]: {len(r['values'])} points")
+    rprint(f"{len(result.series)} series, {total_points} total data points (step={step})")
+    for series in result.series:
+        rprint(f"  [cyan]{series.label_str or '(no labels)'}[/cyan]: {len(series.values)} points")
 
 
 @app.command()
@@ -114,9 +131,9 @@ def rules() -> None:
     settings = load_settings()
     base = _base_url(settings)
 
-    with httpx2.Client() as c:
-        resp = c.get(f"{base}/api/v1/rules", timeout=30)
-        resp.raise_for_status()
+    with httpx2.Client() as http_client:
+        response = http_client.get(f"{base}/api/v1/rules", timeout=30)
+        response.raise_for_status()
 
     table = Table(title="Prometheus Rules")
     table.add_column("Group", style="cyan")
@@ -124,7 +141,7 @@ def rules() -> None:
     table.add_column("Type")
     table.add_column("Health")
 
-    for group in resp.json()["data"]["groups"]:
+    for group in response.json()["data"]["groups"]:
         for rule in group["rules"]:
             name = rule.get("name") or rule.get("alert", "")
             health = rule.get("health", "")
@@ -143,9 +160,9 @@ def targets() -> None:
     settings = load_settings()
     base = _base_url(settings)
 
-    with httpx2.Client() as c:
-        resp = c.get(f"{base}/api/v1/targets", timeout=30)
-        resp.raise_for_status()
+    with httpx2.Client() as http_client:
+        response = http_client.get(f"{base}/api/v1/targets", timeout=30)
+        response.raise_for_status()
 
     table = Table(title="Prometheus Scrape Targets")
     table.add_column("Job", style="cyan")
@@ -153,12 +170,13 @@ def targets() -> None:
     table.add_column("State")
     table.add_column("Last Scrape")
 
-    for t in resp.json()["data"]["activeTargets"]:
-        up = t["health"] == "up"
+    for target in response.json()["data"]["activeTargets"]:
+        up = target.get("health", "unknown") == "up"
+        labels = target.get("labels") or {}
         table.add_row(
-            t["labels"].get("job", ""),
-            t["labels"].get("instance", ""),
+            labels.get("job", ""),
+            labels.get("instance", ""),
             "[green]up[/green]" if up else "[red]down[/red]",
-            t.get("lastScrape", "")[:19],
+            target.get("lastScrape", "")[:19],
         )
     console.print(table)

@@ -12,7 +12,7 @@ from rich import print as rprint
 from rich.console import Console
 from rich.table import Table
 
-from devops_cli.cli import new_typer
+from devops_cli.core.cli import new_typer
 
 app = new_typer(
     help="SSH key generation, rotation, and GitHub registration.",
@@ -45,12 +45,12 @@ def generate(
     comment: Annotated[str, typer.Option("--comment", "-c")] = "",
 ) -> None:
     """Generate a new Ed25519 SSH key with today's date suffix."""
-    from devops_cli.config import load_settings
+    from devops_cli.config.settings import load_settings
     from devops_cli.crypto.ssh_keys import generate_ed25519_key
 
     settings = load_settings()
-    kdir = key_dir or settings.ssh.key_dir
-    key_path = kdir / f"id_ed25519-{_date_suffix()}"
+    target_key_dir = key_dir or settings.ssh.key_dir
+    key_path = target_key_dir / f"id_ed25519-{_date_suffix()}"
 
     if key_path.exists():
         rprint(f"[yellow]Key already exists: {key_path}[/yellow]")
@@ -70,15 +70,12 @@ def register(
     title: Annotated[str | None, typer.Option("--title")] = None,
 ) -> None:
     """Register an SSH key on GitHub for git access and commit signing."""
-    from devops_cli.config import get_github_token, load_settings
+    from devops_cli.config.settings import get_github_token, load_settings
     from devops_cli.crypto.ssh_keys import find_newest_key
-    from devops_cli.github.ssh import register_key_on_github
+    from devops_cli.github.ssh import SSHRegistrationError, register_key_on_github
 
     settings = load_settings()
     token = get_github_token(settings)
-    if not token:
-        rprint("[red]GitHub token not configured. Run 'devops config init'.[/red]")
-        raise typer.Exit(1)
 
     if key_file is None:
         key_file = find_newest_key(settings.ssh.key_dir)
@@ -94,7 +91,16 @@ def register(
     pub_key = pub_path.read_text(encoding="utf-8").strip()
     key_title = title or f"devops-cli-{_date_suffix()}"
 
-    register_key_on_github(token, pub_key, key_title)
+    try:
+        register_key_on_github(pub_key, key_title, token=token)
+    except SSHRegistrationError as exc:
+        rprint(f"[red]Failed to register key on GitHub:[/red] {exc}")
+        rprint(
+            "[yellow]Tip:[/yellow] run "
+            "'gh auth refresh -h github.com -s admin:public_key,write:ssh_signing_key' and retry."
+        )
+        raise typer.Exit(1)
+
     _configure_git_signing(key_file)
     rprint(f"[green]✓[/green] Registered [bold]{key_title}[/bold] on GitHub (auth + signing).")
     rprint(
@@ -113,14 +119,14 @@ def rotate(
 
     Generates, registers, and reports the old key.
     """
-    from devops_cli.config import get_github_token, load_settings
+    from devops_cli.config.settings import get_github_token, load_settings
     from devops_cli.crypto.ssh_keys import find_newest_key, generate_ed25519_key, get_key_age_days
-    from devops_cli.github.ssh import register_key_on_github
+    from devops_cli.github.ssh import SSHRegistrationError, register_key_on_github
 
     settings = load_settings()
-    kdir = key_dir or settings.ssh.key_dir
+    target_key_dir = key_dir or settings.ssh.key_dir
 
-    newest = find_newest_key(kdir)
+    newest = find_newest_key(target_key_dir)
     if newest is None:
         rprint("[yellow]No managed SSH keys found. Run 'devops ssh generate' first.[/yellow]")
         raise typer.Exit(0)
@@ -135,25 +141,27 @@ def rotate(
 
     rprint(f"[yellow]Key is {age} days old — rotating...[/yellow]")
 
-    new_key_path = kdir / f"id_ed25519-{_date_suffix()}"
+    new_key_path = target_key_dir / f"id_ed25519-{_date_suffix()}"
+    created_new = False
     if new_key_path.exists():
         rprint(f"[yellow]New key already exists: {new_key_path}[/yellow]")
     else:
         generate_ed25519_key(new_key_path, comment=f"devops-cli-{date.today().isoformat()}")
+        created_new = True
         rprint(f"[green]✓[/green] Generated: {new_key_path}")
 
     token = get_github_token(settings)
-    if token:
-        pub_key = (
-            new_key_path.with_name(f"{new_key_path.name}.pub").read_text(encoding="utf-8").strip()
-        )
-        register_key_on_github(token, pub_key, f"devops-cli-{_date_suffix()}")
+    pub_key = new_key_path.with_name(f"{new_key_path.name}.pub").read_text(encoding="utf-8").strip()
+    try:
+        register_key_on_github(pub_key, f"devops-cli-{_date_suffix()}", token=token)
         _configure_git_signing(new_key_path)
         rprint("[green]✓[/green] Registered new key and updated git signing config.")
-    else:
-        rprint(
-            "[yellow]No GitHub token — run 'devops ssh register' after configuring token.[/yellow]"
-        )
+    except SSHRegistrationError as exc:
+        if created_new:
+            new_key_path.unlink(missing_ok=True)
+            new_key_path.with_name(f"{new_key_path.name}.pub").unlink(missing_ok=True)
+        rprint(f"[yellow]GitHub key registration failed:[/yellow] {exc}")
+        rprint("[yellow]Cleaned up un-registered key files. Fix auth and re-run rotation.[/yellow]")
 
     rprint(
         f"\n[dim]Old key {newest.name} remains active for {_GRACE_DAYS} grace days. "
@@ -161,39 +169,40 @@ def rotate(
     )
 
 
+@app.command("audit")
 @app.command("list")
 def list_keys(
     key_dir: Annotated[Path | None, typer.Option("--key-dir")] = None,
 ) -> None:
     """List all managed SSH keys with their age and rotation status."""
-    from devops_cli.config import load_settings
-    from devops_cli.crypto.ssh_keys import get_key_age_days, list_managed_keys
+    from devops_cli.config.settings import load_settings
+    from devops_cli.crypto.ssh_keys import list_managed_keys_info
 
     settings = load_settings()
-    kdir = key_dir or settings.ssh.key_dir
-    keys = list_managed_keys(kdir)
+    target_key_dir = key_dir or settings.ssh.key_dir
+    keys = list_managed_keys_info(target_key_dir)
 
     if not keys:
         rprint("[yellow]No managed SSH keys found (expected: id_ed25519-YYYYMMMDD).[/yellow]")
         raise typer.Exit(0)
 
-    rot = settings.ssh.rotation_days
+    rotation_days = settings.ssh.rotation_days
     table = Table(title="Managed SSH Keys")
     table.add_column("Key", style="cyan")
     table.add_column("Age (days)", justify="right")
     table.add_column("Status")
 
-    for key_path in sorted(keys):
-        age = get_key_age_days(key_path)
-        if age > rot + _GRACE_DAYS:
-            status = "[red]overdue for deletion[/red]"
-        elif age > rot:
-            status = "[yellow]grace period[/yellow]"
-        elif age > rot - 7:
-            status = "[yellow]rotation soon[/yellow]"
+    for key in keys:
+        age = key.age_days if key.age_days is not None else 0
+        if age > rotation_days + _GRACE_DAYS:
+            status_text = "[red]overdue for deletion[/red]"
+        elif age > rotation_days:
+            status_text = "[yellow]grace period[/yellow]"
+        elif age > rotation_days - 7:
+            status_text = "[yellow]rotation soon[/yellow]"
         else:
-            status = "[green]active[/green]"
-        table.add_row(key_path.name, str(age), status)
+            status_text = "[green]active[/green]"
+        table.add_row(key.path.name, str(age), status_text)
 
     console.print(table)
 
@@ -203,20 +212,20 @@ def status(
     key_dir: Annotated[Path | None, typer.Option("--key-dir")] = None,
 ) -> None:
     """Show the active SSH key and days until rotation."""
-    from devops_cli.config import load_settings
+    from devops_cli.config.settings import load_settings
     from devops_cli.crypto.ssh_keys import find_newest_key, get_key_age_days
 
     settings = load_settings()
-    kdir = key_dir or settings.ssh.key_dir
-    rot = settings.ssh.rotation_days
+    target_key_dir = key_dir or settings.ssh.key_dir
+    rotation_days = settings.ssh.rotation_days
 
-    newest = find_newest_key(kdir)
+    newest = find_newest_key(target_key_dir)
     if newest is None:
         rprint("[yellow]No managed SSH keys found. Run 'devops ssh generate'.[/yellow]")
         raise typer.Exit(0)
 
     age = get_key_age_days(newest)
-    days_left = rot - age
+    days_left = rotation_days - age
 
     rprint(f"Active key:  [bold cyan]{newest.name}[/bold cyan]")
     rprint(f"Age:         [bold]{age}[/bold] days")

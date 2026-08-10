@@ -1,4 +1,10 @@
-"""Git operations using gitpython."""
+"""Git repository operations using GitPython and git CLI subprocesses.
+
+Functionality:
+- URL normalization: forces HTTPS for web URLs while leaving SSH URLs intact.
+- SSH known_hosts management: ensures GitHub host key presence in `~/.ssh/known_hosts` (mode 0600).
+- Branch management: listing, tracking branch pull, and merged branch deletion.
+"""
 
 from __future__ import annotations
 
@@ -8,8 +14,31 @@ from pathlib import Path
 
 import git as gitlib
 
+from devops_cli.config.constants import (
+    CONST_GITHUB_HOST,
+    CONST_GITHUB_HTTP_PREFIX,
+    CONST_GITHUB_HTTPS_PREFIX,
+    CONST_GITHUB_SSH_PREFIX,
+    CONST_GITHUB_SSH_URL_PREFIX,
+    CONST_URL_SCHEME_HTTP,
+    CONST_URL_SCHEME_HTTPS,
+)
+from devops_cli.models.git import BranchListing
 
-def _ensure_known_host(hostname: str = "github.com") -> None:
+
+def _normalize_clone_url(url: str) -> str:
+    if url.startswith((CONST_GITHUB_SSH_PREFIX, CONST_GITHUB_SSH_URL_PREFIX)):
+        return url
+    if url.startswith(f"{CONST_GITHUB_HOST}/"):
+        return f"{CONST_URL_SCHEME_HTTPS}{url}"
+    if url.startswith(CONST_GITHUB_HTTP_PREFIX):
+        return f"{CONST_URL_SCHEME_HTTPS}{url.removeprefix(CONST_URL_SCHEME_HTTP)}"
+    if url.startswith(CONST_GITHUB_HTTPS_PREFIX):
+        return url
+    return url
+
+
+def _ensure_known_host(hostname: str = CONST_GITHUB_HOST) -> None:
     """Add *hostname* to ~/.ssh/known_hosts when it is missing."""
     ssh_dir = Path.home() / ".ssh"
     known_hosts = ssh_dir / "known_hosts"
@@ -43,9 +72,10 @@ def _ensure_known_host(hostname: str = "github.com") -> None:
 
 def clone_repo(url: str, dest: Path) -> None:
     """Clone a repository to *dest*."""
-    if url.startswith(("git@github.com:", "ssh://git@github.com/")):
+    normalized_url = _normalize_clone_url(url)
+    if normalized_url.startswith((CONST_GITHUB_SSH_PREFIX, CONST_GITHUB_SSH_URL_PREFIX)):
         _ensure_known_host()
-    gitlib.Repo.clone_from(url, str(dest))
+    gitlib.Repo.clone_from(normalized_url, str(dest))
 
 
 def fetch_all(repo_dir: Path) -> None:
@@ -81,17 +111,17 @@ def create_branch(repo_dir: Path, branch_name: str) -> None:
 def list_branches(
     repo_dir: Path,
     all_branches: bool = False,
-) -> tuple[list[str], str]:
-    """Return *(branch_names, current_branch)*."""
+) -> BranchListing:
+    """Return a BranchListing with branch names and the current branch name."""
     repo = gitlib.Repo(str(repo_dir))
     current = "HEAD" if repo.head.is_detached else repo.active_branch.name
     local = sorted(b.name for b in repo.branches)
     if not all_branches:
-        return local, current
+        return BranchListing(branches=local, current=current)
     remote_names = [
         ref.name for remote in repo.remotes for ref in remote.refs if not ref.name.endswith("/HEAD")
     ]
-    return sorted(set(local) | set(remote_names)), current
+    return BranchListing(branches=sorted(set(local) | set(remote_names)), current=current)
 
 
 def delete_merged_branches(repo_dir: Path, dry_run: bool = False) -> list[str]:
@@ -104,12 +134,8 @@ def delete_merged_branches(repo_dir: Path, dry_run: bool = False) -> list[str]:
     if not default:
         return []
 
-    result = subprocess.run(
-        ["git", "-C", str(repo_dir), "branch", "--merged", default],
-        capture_output=True,
-        text=True,
-    )
-    merged = {b.strip().lstrip("* ") for b in result.stdout.splitlines()}
+    merged_output = repo.git.branch("--merged", default)
+    merged = {b.strip().lstrip("* ") for b in merged_output.splitlines()}
     protected = {default, "main", "master"}
     to_delete = [b for b in repo.branches if b.name in merged - protected]
 

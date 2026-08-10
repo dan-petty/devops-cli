@@ -14,8 +14,10 @@ from cryptography.hazmat.primitives.serialization import (
     PublicFormat,
 )
 
-# Matches id_ed25519-2024JAN15  (YYYY + 3-letter month uppercase + 2-digit day)
-_KEY_RE = re.compile(r"^id_ed25519-(\d{4}[A-Z]{3}\d{2})$")
+from devops_cli.models.ssh import ManagedSSHKey
+
+# Matches id_ed25519-2024JAN15 or id_ed25519-2024JAN
+_KEY_RE = re.compile(r"^id_ed25519-(\d{4}[A-Z]{3}(\d{2})?)$")
 
 
 def generate_ed25519_key(key_path: Path, comment: str = "") -> None:
@@ -32,8 +34,12 @@ def generate_ed25519_key(key_path: Path, comment: str = "") -> None:
         encryption_algorithm=NoEncryption(),
     )
     key_path.parent.mkdir(parents=True, exist_ok=True)
-    key_path.write_bytes(private_bytes)
-    key_path.chmod(0o600)
+    # Write with restricted permissions atomically to avoid a world-readable window.
+    import os as _os
+
+    fd = _os.open(key_path, _os.O_WRONLY | _os.O_CREAT | _os.O_TRUNC, 0o600)
+    with _os.fdopen(fd, "wb") as file_handle:
+        file_handle.write(private_bytes)
 
     pub_raw = (
         private_key.public_key()
@@ -50,15 +56,16 @@ def generate_ed25519_key(key_path: Path, comment: str = "") -> None:
 
 
 def parse_key_date(key_path: Path) -> date | None:
-    """Parse the YYYYMMMDD date suffix from a managed key filename, or None."""
-    m = _KEY_RE.match(key_path.name)
-    if not m:
+    """Parse the YYYYMMM[DD] date suffix from a managed key filename, or None."""
+    match = _KEY_RE.match(key_path.name)
+    if not match:
         return None
-    date_str = m.group(1)  # e.g. "2024JAN15"
-    # strptime %b requires title-case: "2024Jan15"
+    date_str = match.group(1)  # e.g. "2024JAN15" or "2024JAN"
+    # strptime %b requires title-case: "2024Jan15" / "2024Jan"
     normalized = date_str[:4] + date_str[4:7].capitalize() + date_str[7:]
+    date_format = "%Y%b%d" if len(date_str) == 9 else "%Y%b"
     try:
-        return datetime.strptime(normalized, "%Y%b%d").date()
+        return datetime.strptime(normalized, date_format).date()
     except ValueError:
         return None
 
@@ -76,11 +83,22 @@ def find_newest_key(key_dir: Path) -> Path | None:
     keys = list_managed_keys(key_dir)
     if not keys:
         return None
-    return max(keys, key=lambda p: parse_key_date(p) or date.min)
+    return max(keys, key=lambda path: parse_key_date(path) or date.min)
 
 
 def list_managed_keys(key_dir: Path) -> list[Path]:
     """List all managed SSH private keys matching id_ed25519-YYYYMMMDD."""
     if not key_dir.exists():
         return []
-    return [p for p in key_dir.iterdir() if p.is_file() and _KEY_RE.match(p.name)]
+    return [path for path in key_dir.iterdir() if path.is_file() and _KEY_RE.match(path.name)]
+
+
+def list_managed_keys_info(key_dir: Path) -> list[ManagedSSHKey]:
+    """Return ManagedSSHKey objects for all managed keys, with date and age pre-computed."""
+    today = date.today()
+    result: list[ManagedSSHKey] = []
+    for path in sorted(list_managed_keys(key_dir)):
+        key_date = parse_key_date(path)
+        age = (today - key_date).days if key_date is not None else None
+        result.append(ManagedSSHKey(path=path, key_date=key_date, age_days=age))
+    return result

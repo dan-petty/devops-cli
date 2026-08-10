@@ -73,11 +73,14 @@ def test_repos_clone_org_uses_default_org(tmp_path: Path) -> None:
         patch("devops_cli.commands.repos.load_settings") as mock_load,
         patch("devops_cli.commands.repos.get_github_token", return_value="token"),
         patch("devops_cli.commands.repos.clone_repo") as mock_clone_repo,
+        patch("devops_cli.commands.repos.sync_from_repos") as mock_sync,
+        patch("devops_cli.commands.repos._reload_workspace") as mock_reload,
         patch("devops_cli.github.client.GitHubClient") as mock_client_cls,
     ):
         settings = MagicMock()
         settings.github.default_org = "example-org"
         settings.repos.base_dir = tmp_path / "repos"
+        settings.workspace.file = tmp_path / ".code-workspace"
         mock_load.return_value = settings
 
         mock_client = MagicMock()
@@ -94,6 +97,8 @@ def test_repos_clone_org_uses_default_org(tmp_path: Path) -> None:
         include_archived=False,
     )
     mock_clone_repo.assert_not_called()
+    mock_sync.assert_called_once_with(settings.repos.base_dir.resolve(), settings.workspace.file)
+    mock_reload.assert_called_once_with(settings.workspace.file)
 
 
 def test_repos_clone_org_skips_archived_repos(tmp_path: Path) -> None:
@@ -119,11 +124,14 @@ def test_repos_clone_org_skips_archived_repos(tmp_path: Path) -> None:
         patch("devops_cli.commands.repos.load_settings") as mock_load,
         patch("devops_cli.commands.repos.get_github_token", return_value="token"),
         patch("devops_cli.commands.repos.clone_repo") as mock_clone_repo,
+        patch("devops_cli.commands.repos.sync_from_repos") as mock_sync,
+        patch("devops_cli.commands.repos._reload_workspace") as mock_reload,
         patch("devops_cli.github.client.GitHubClient") as mock_client_cls,
     ):
         settings = MagicMock()
         settings.github.default_org = "example-org"
         settings.repos.base_dir = tmp_path / "repos"
+        settings.workspace.file = tmp_path / ".code-workspace"
         mock_load.return_value = settings
 
         mock_client = MagicMock()
@@ -143,24 +151,55 @@ def test_repos_clone_org_skips_archived_repos(tmp_path: Path) -> None:
         "https://github.com/example/active-repo.git",
         settings.repos.base_dir / "example-org" / "active-repo",
     )
+    mock_sync.assert_called_once_with(settings.repos.base_dir.resolve(), settings.workspace.file)
+    mock_reload.assert_called_once_with(settings.workspace.file)
 
 
-def test_repos_clone_normalizes_github_urls_to_https(tmp_path: Path) -> None:
+def test_repos_clone_passes_github_urls_to_clone_repo(tmp_path: Path) -> None:
     with (
         patch("devops_cli.commands.repos.load_settings") as mock_load,
         patch("devops_cli.commands.repos.clone_repo") as mock_clone_repo,
+        patch("devops_cli.commands.repos.sync_from_repos") as mock_sync,
+        patch("devops_cli.commands.repos._reload_workspace") as mock_reload,
     ):
         settings = MagicMock()
         settings.repos.base_dir = tmp_path / "repos"
+        settings.workspace.file = tmp_path / ".code-workspace"
         mock_load.return_value = settings
 
         result = runner.invoke(app, ["repos", "clone", "github.com/example/repo.git"])
 
     assert result.exit_code == 0
     mock_clone_repo.assert_called_once_with(
-        "https://github.com/example/repo.git",
+        "github.com/example/repo.git",
         tmp_path / "repos" / "_standalone" / "repo",
     )
+    mock_sync.assert_called_once_with(settings.repos.base_dir.resolve(), settings.workspace.file)
+    mock_reload.assert_called_once_with(settings.workspace.file)
+
+
+def test_repos_update_syncs_workspace(tmp_path: Path) -> None:
+    repos_dir = tmp_path / "repos"
+    group_dir = repos_dir / "group"
+    repo_dir = group_dir / "repo"
+    repo_dir.mkdir(parents=True)
+    (repo_dir / ".git").mkdir()
+
+    with (
+        patch("devops_cli.commands.repos.load_settings") as mock_load,
+        patch("devops_cli.commands.repos.sync_from_repos") as mock_sync,
+        patch("devops_cli.commands.repos._reload_workspace") as mock_reload,
+    ):
+        settings = MagicMock()
+        settings.repos.base_dir = repos_dir
+        settings.workspace.file = tmp_path / ".code-workspace"
+        mock_load.return_value = settings
+
+        result = runner.invoke(app, ["repos", "update"])
+
+    assert result.exit_code == 0
+    mock_sync.assert_called_once_with(settings.repos.base_dir.resolve(), settings.workspace.file)
+    mock_reload.assert_called_once_with(settings.workspace.file)
 
 
 def test_repos_update_no_repos(tmp_path: Path) -> None:

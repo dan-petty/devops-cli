@@ -3,25 +3,34 @@
 from __future__ import annotations
 
 import gzip
+import hashlib
 import io
 import os
 import platform
 import re
-import stat
 import subprocess
 import tarfile
 from collections.abc import Callable
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated
 
 import httpx2
 import typer
+from pydantic import BaseModel, ConfigDict
 from rich import print as rprint
 from rich.console import Console
 from rich.table import Table
 
-from devops_cli.cli import new_typer
+from devops_cli.config.constants import (
+    CONST_URL_GITHUB_API_BASE,
+    CONST_URL_GITHUB_ARGO_ROLLOUTS_RELEASES_BASE,
+    CONST_URL_GITHUB_ARGO_WORKFLOWS_RELEASES_BASE,
+    CONST_URL_GITHUB_ARGOCD_RELEASES_BASE,
+    CONST_URL_GITHUB_KUSTOMIZE_RELEASES_BASE,
+    CONST_URL_HELM_DOWNLOAD_BASE,
+    CONST_URL_K8S_DOWNLOAD_BASE,
+)
+from devops_cli.core.cli import new_typer
 
 app = new_typer(help="Install and manage DevOps tool binaries.", no_args_is_help=True)
 console = Console()
@@ -52,7 +61,7 @@ _EXE = ".exe" if _OS == "windows" else ""
 def _gh_latest(repo: str) -> str:
     with httpx2.Client(follow_redirects=True) as c:
         r = c.get(
-            f"https://api.github.com/repos/{repo}/releases/latest",
+            f"{CONST_URL_GITHUB_API_BASE}/repos/{repo}/releases/latest",
             headers={"Accept": "application/vnd.github+json"},
             timeout=30,
         )
@@ -67,10 +76,29 @@ def _download(url: str) -> bytes:
         return r.content
 
 
+def _verify_sha256(data: bytes, expected_hex: str) -> None:
+    """Raise ValueError if SHA-256 of data doesn't match expected_hex."""
+    actual = hashlib.sha256(data).hexdigest().lower()
+    if actual != expected_hex.strip().lower():
+        raise ValueError(f"SHA-256 checksum mismatch (got {actual[:16]}…)")
+
+
+def _parse_checksum_file(text: str, filename: str) -> str:
+    """Extract hex digest for filename from a multi-entry checksums file."""
+    for line in text.splitlines():
+        line = line.strip().replace("\r", "")
+        if not line:
+            continue
+        parts = line.split()
+        if len(parts) >= 2 and parts[1].lstrip("*").strip() == filename:
+            return parts[0].strip()
+    raise ValueError(f"No checksum entry found for {filename!r}")
+
+
 def _write_binary(data: bytes, dest: Path) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_bytes(data)
-    dest.chmod(dest.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+    dest.chmod(0o755)
 
 
 def _extract_tar_member(data: bytes, member: str, dest: Path) -> None:
@@ -95,58 +123,84 @@ def _current_version(cmd: list[str]) -> str | None:
 
 def _install_kubectl(version: str, target_dir: Path) -> None:
     v = version.lstrip("v")
-    url = f"https://dl.k8s.io/release/v{v}/bin/{_OS}/{_ARCH}/kubectl{_EXE}"
-    _write_binary(_download(url), target_dir / f"kubectl{_EXE}")
+    url = f"{CONST_URL_K8S_DOWNLOAD_BASE}/release/v{v}/bin/{_OS}/{_ARCH}/kubectl{_EXE}"
+    data = _download(url)
+    sha256_text = _download(f"{url}.sha256").decode()
+    _verify_sha256(data, sha256_text.split()[0])
+    _write_binary(data, target_dir / f"kubectl{_EXE}")
 
 
 def _latest_kubectl() -> str:
     with httpx2.Client(follow_redirects=True) as c:
-        r = c.get("https://dl.k8s.io/release/stable.txt", timeout=30)
+        r = c.get(f"{CONST_URL_K8S_DOWNLOAD_BASE}/release/stable.txt", timeout=30)
         r.raise_for_status()
         return r.text.strip()
 
 
 def _install_kustomize(version: str, target_dir: Path) -> None:
     v = version.lstrip("v")
-    url = (
-        f"https://github.com/kubernetes-sigs/kustomize/releases/download/"
-        f"kustomize%2Fv{v}/kustomize_v{v}_{_OS}_{_ARCH}.tar.gz"
-    )
-    _extract_tar_member(_download(url), "kustomize", target_dir / f"kustomize{_EXE}")
+    tar_name = f"kustomize_v{v}_{_OS}_{_ARCH}.tar.gz"
+    url = f"{CONST_URL_GITHUB_KUSTOMIZE_RELEASES_BASE}/kustomize%2Fv{v}/{tar_name}"
+    checksums_url = f"{CONST_URL_GITHUB_KUSTOMIZE_RELEASES_BASE}/kustomize%2Fv{v}/checksums.txt"
+    data = _download(url)
+    expected = _parse_checksum_file(_download(checksums_url).decode(), tar_name)
+    _verify_sha256(data, expected)
+    _extract_tar_member(data, "kustomize", target_dir / f"kustomize{_EXE}")
 
 
 def _install_helm(version: str, target_dir: Path) -> None:
     v = version.lstrip("v")
-    url = f"https://get.helm.sh/helm-v{v}-{_OS}-{_ARCH}.tar.gz"
-    _extract_tar_member(_download(url), f"{_OS}-{_ARCH}/helm", target_dir / f"helm{_EXE}")
+    tar_name = f"helm-v{v}-{_OS}-{_ARCH}.tar.gz"
+    url = f"{CONST_URL_HELM_DOWNLOAD_BASE}/{tar_name}"
+    data = _download(url)
+    sha256_text = _download(f"{url}.sha256sum").decode()
+    expected = _parse_checksum_file(sha256_text, tar_name)
+    _verify_sha256(data, expected)
+    _extract_tar_member(data, f"{_OS}-{_ARCH}/helm", target_dir / f"helm{_EXE}")
 
 
 def _install_argo(version: str, target_dir: Path) -> None:
     v = version.lstrip("v")
-    url = f"https://github.com/argoproj/argo-workflows/releases/download/v{v}/argo-{_OS}-{_ARCH}.gz"
-    _write_binary(gzip.decompress(_download(url)), target_dir / f"argo{_EXE}")
+    gz_name = f"argo-{_OS}-{_ARCH}.gz"
+    url = f"{CONST_URL_GITHUB_ARGO_WORKFLOWS_RELEASES_BASE}/v{v}/{gz_name}"
+    data = _download(url)
+    sha256_text = _download(f"{url}.sha256").decode()
+    _verify_sha256(data, sha256_text.split()[0])
+    _write_binary(gzip.decompress(data), target_dir / f"argo{_EXE}")
 
 
 def _install_argocd(version: str, target_dir: Path) -> None:
     v = version.lstrip("v")
-    url = f"https://github.com/argoproj/argo-cd/releases/download/v{v}/argocd-{_OS}-{_ARCH}{_EXE}"
-    _write_binary(_download(url), target_dir / f"argocd{_EXE}")
+    bin_name = f"argocd-{_OS}-{_ARCH}{_EXE}"
+    url = f"{CONST_URL_GITHUB_ARGOCD_RELEASES_BASE}/v{v}/{bin_name}"
+    data = _download(url)
+    checksums_text = _download(
+        f"{CONST_URL_GITHUB_ARGOCD_RELEASES_BASE}/v{v}/cli_checksums.txt"
+    ).decode()
+    expected = _parse_checksum_file(checksums_text, bin_name)
+    _verify_sha256(data, expected)
+    _write_binary(data, target_dir / f"argocd{_EXE}")
 
 
 def _install_rollouts(version: str, target_dir: Path) -> None:
     v = version.lstrip("v")
-    url = (
-        f"https://github.com/argoproj/argo-rollouts/releases/download/"
-        f"v{v}/kubectl-argo-rollouts-{_OS}-{_ARCH}{_EXE}"
-    )
-    _write_binary(_download(url), target_dir / f"kubectl-argo-rollouts{_EXE}")
+    bin_name = f"kubectl-argo-rollouts-{_OS}-{_ARCH}{_EXE}"
+    url = f"{CONST_URL_GITHUB_ARGO_ROLLOUTS_RELEASES_BASE}/v{v}/{bin_name}"
+    data = _download(url)
+    checksums_text = _download(
+        f"{CONST_URL_GITHUB_ARGO_ROLLOUTS_RELEASES_BASE}/v{v}/sha256checksums.txt"
+    ).decode()
+    expected = _parse_checksum_file(checksums_text, bin_name)
+    _verify_sha256(data, expected)
+    _write_binary(data, target_dir / f"kubectl-argo-rollouts{_EXE}")
 
 
 # ── Tool registry ─────────────────────────────────────────────────────────────
 
 
-@dataclass
-class Tool:
+class Tool(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
     name: str
     description: str
     bin_name: str

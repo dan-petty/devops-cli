@@ -10,7 +10,8 @@ from rich import print as rprint
 from rich.console import Console
 from rich.table import Table
 
-from devops_cli.cli import new_typer
+from devops_cli.core.cli import new_typer
+from devops_cli.core.dry_run import is_dry_run
 
 app = new_typer(help="Docker image management.", no_args_is_help=True)
 console = Console()
@@ -19,9 +20,10 @@ console = Console()
 def _client() -> Any:
     try:
         import docker  # type: ignore[import-untyped]
+        from docker.errors import DockerException  # type: ignore[import-untyped]
 
         return docker.from_env()
-    except Exception as exc:
+    except (ImportError, DockerException) as exc:
         rprint(f"[red]Cannot connect to Docker: {exc}[/red]")
         raise typer.Exit(1)
 
@@ -31,6 +33,9 @@ def list_images(
     name: Annotated[str | None, typer.Option("--name", "-n", help="Filter by name")] = None,
 ) -> None:
     """List local Docker images."""
+    if is_dry_run():
+        rprint("[yellow][dry-run][/yellow] Would list local Docker images.")
+        return
     client = _client()
     images = client.images.list(name=name)
 
@@ -58,6 +63,9 @@ def build(
     no_cache: Annotated[bool, typer.Option("--no-cache")] = False,
 ) -> None:
     """Build a Docker image."""
+    if is_dry_run():
+        rprint(f"[yellow][dry-run][/yellow] Would build Docker image from {context}.")
+        return
     client = _client()
     kwargs: dict[str, Any] = {"path": str(context), "rm": True, "nocache": no_cache}
     if tag:
@@ -80,6 +88,9 @@ def push(
     image: Annotated[str, typer.Argument(help="Image name[:tag] to push")],
 ) -> None:
     """Push a Docker image to a registry."""
+    if is_dry_run():
+        rprint(f"[yellow][dry-run][/yellow] Would push Docker image {image}.")
+        return
     client = _client()
     rprint(f"Pushing [dim]{image}[/dim]...")
     for chunk in client.images.push(image, stream=True, decode=True):
@@ -97,6 +108,11 @@ def prune(
     force: Annotated[bool, typer.Option("--force", "-f", help="Skip confirmation")] = False,
 ) -> None:
     """Remove unused containers, images, and networks."""
+    if is_dry_run():
+        rprint(
+            "[yellow][dry-run][/yellow] Would prune unused Docker containers, images, and networks."
+        )
+        return
     if not force:
         typer.confirm(
             "Remove all unused containers, images, and networks?",
@@ -104,5 +120,11 @@ def prune(
         )
     client = _client()
     result = client.system.prune(volumes=volumes)
-    reclaimed_mb = result.get("SpaceReclaimed", 0) // (1024 * 1024)
+    if isinstance(result, tuple) and len(result) == 2 and isinstance(result[1], dict):
+        reclaimed_bytes = sum(result[1].values())
+    elif isinstance(result, dict):
+        reclaimed_bytes = result.get("SpaceReclaimed", 0)
+    else:
+        reclaimed_bytes = 0
+    reclaimed_mb = reclaimed_bytes // (1024 * 1024)
     rprint(f"[green]Pruned. Space reclaimed: {reclaimed_mb} MB[/green]")

@@ -12,8 +12,9 @@ from rich import print as rprint
 from rich.console import Console
 from rich.table import Table
 
-from devops_cli.cli import new_typer
-from devops_cli.config import load_settings
+from devops_cli.config.constants import CONST_GIT_DIR_NAME
+from devops_cli.config.settings import load_settings
+from devops_cli.core.cli import new_typer, repo_label
 from devops_cli.git.operations import (
     create_branch,
     delete_merged_branches,
@@ -35,10 +36,11 @@ def _iter_repos(root: Path) -> Generator[Path]:
         if not group_dir.is_dir():
             continue
         for repo_dir in sorted(group_dir.iterdir()):
-            if (repo_dir / ".git").exists():
+            if (repo_dir / CONST_GIT_DIR_NAME).exists():
                 yield repo_dir
 
 
+@app.command("sync")
 @app.command()
 def update(
     base_dir: Annotated[Path | None, typer.Option("--base-dir", "-d")] = None,
@@ -48,7 +50,7 @@ def update(
     root = base_dir or settings.repos.base_dir
 
     for repo_dir in _iter_repos(root):
-        label = f"{repo_dir.parent.name}/{repo_dir.name}"
+        label = repo_label(repo_dir)
         try:
             fetch_all(repo_dir)
             pull_tracking(repo_dir)
@@ -73,7 +75,7 @@ def jira(
         raise typer.Exit(1)
 
     repo_path = repo or Path.cwd()
-    if not (repo_path / ".git").exists():
+    if not (repo_path / CONST_GIT_DIR_NAME).exists():
         rprint(f"[red]Not a git repository: {repo_path}[/red]")
         raise typer.Exit(1)
 
@@ -109,10 +111,10 @@ def list_all(
     table.add_column("", justify="center")  # current indicator
 
     for repo_dir in _iter_repos(root):
-        label = f"{repo_dir.parent.name}/{repo_dir.name}"
-        branches, current = list_branches(repo_dir, all_branches=all_branches)
-        for branch in branches:
-            indicator = "[green]●[/green]" if branch == current else ""
+        label = repo_label(repo_dir)
+        result = list_branches(repo_dir, all_branches=all_branches)
+        for branch in result.branches:
+            indicator = "[green]●[/green]" if branch == result.current else ""
             table.add_row(label, branch, indicator)
 
     console.print(table)
@@ -131,7 +133,7 @@ def clean(
     any_deleted = False
 
     for repo_dir in _iter_repos(root):
-        label = f"{repo_dir.parent.name}/{repo_dir.name}"
+        label = repo_label(repo_dir)
         deleted = delete_merged_branches(repo_dir, dry_run=dry_run)
         for branch in deleted:
             any_deleted = True
