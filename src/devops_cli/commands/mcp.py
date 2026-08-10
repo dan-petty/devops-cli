@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from typing import Annotated
 
 import typer
@@ -53,7 +54,11 @@ def serve_cmd(
             f"[bold green]Starting FastMCP server (SSE)[/bold green] on [cyan]http://{host}:{port}[/cyan]..."
         )
     else:
-        rprint("[bold green]Starting FastMCP server (stdio)...[/bold green]")
+        # For stdio, stdout must carry ONLY MCP JSON-RPC. Write status to stderr.
+        print(
+            "Starting FastMCP server (stdio) — devops-cli",
+            file=sys.stderr,
+        )
 
     run_mcp_server(transport=transport, host=host, port=port)
 
