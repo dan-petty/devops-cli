@@ -38,6 +38,7 @@ htmlcov/
 
 # Generated repo clones
 repos/
+.code-workspace
 
 # OS
 .DS_Store
@@ -47,3 +48,10 @@ Thumbs.db
 *.env
 .env.*
 secrets/
+
+# Local project config override (copy config.example.yaml → config.yaml to activate)
+config.yaml
+
+# Local data directory — reports, review output, computed artefacts
+.data/*
+!.data/.gitkeep
