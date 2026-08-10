@@ -7,6 +7,8 @@ import os
 import socket
 from urllib.parse import urlparse
 
+from devops_cli.config.defaults import DEFAULT_DNS_TIMEOUT_SECONDS
+
 _ALLOW_PRIVATE_NETWORK_ENV = "DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK"
 
 
@@ -45,10 +47,15 @@ def validate_service_url(url: str, purpose: str, *, allow: bool = False) -> None
             )
         return
 
+    old_timeout = socket.getdefaulttimeout()
     try:
-        addrinfos = socket.getaddrinfo(host, parsed.port, type=socket.SOCK_STREAM)
-    except socket.gaierror:
+        socket.setdefaulttimeout(DEFAULT_DNS_TIMEOUT_SECONDS)
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        addrinfos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    except socket.gaierror, TimeoutError, OSError:
         return
+    finally:
+        socket.setdefaulttimeout(old_timeout)
 
     resolved_ips: list[ipaddress.IPv4Address | ipaddress.IPv6Address] = []
     for addrinfo in addrinfos:

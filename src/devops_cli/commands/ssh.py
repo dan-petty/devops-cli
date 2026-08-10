@@ -30,13 +30,17 @@ def _date_suffix() -> str:
 
 def _configure_git_signing(key_path: Path) -> None:
     """Point git's SSH commit signing at *key_path*."""
+    from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
+
     for cmd in [
         ["git", "config", "--global", "gpg.format", "ssh"],
         ["git", "config", "--global", "user.signingkey", str(key_path)],
         ["git", "config", "--global", "commit.gpgsign", "true"],
         ["git", "config", "--global", "tag.gpgsign", "true"],
     ]:
-        subprocess.run(cmd, check=True, capture_output=True)
+        subprocess.run(
+            cmd, check=True, capture_output=True, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
+        )
 
 
 @app.command()

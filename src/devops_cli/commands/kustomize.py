@@ -8,6 +8,7 @@ from typing import Annotated
 
 import typer
 
+from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.core.cli import new_typer
 
 app = new_typer(help="Kustomize build and apply operations.", no_args_is_help=True)
@@ -24,7 +25,7 @@ def build(
     cmd = ["kustomize", "build", str(path)]
     if output:
         cmd += ["--output", output]
-    subprocess.run(cmd, check=True)
+    subprocess.run(cmd, check=True, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS)
 
 
 @app.command()
@@ -33,7 +34,7 @@ def diff(
 ) -> None:
     """Show a diff of pending changes (delegates to kubectl diff -k)."""
     # kubectl diff returns exit code 1 when diffs exist; don't treat that as error
-    subprocess.run(["kubectl", "diff", "-k", str(path)])
+    subprocess.run(["kubectl", "diff", "-k", str(path)], timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS)
 
 
 @app.command()
@@ -52,4 +53,4 @@ def apply(
         cmd += ["--dry-run=client"]
     if namespace:
         cmd += ["--namespace", namespace]
-    subprocess.run(cmd, check=True)
+    subprocess.run(cmd, check=True, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS)

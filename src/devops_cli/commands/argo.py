@@ -18,6 +18,11 @@ from rich import print as rprint
 from rich.console import Console
 from rich.table import Table
 
+from devops_cli.config.defaults import (
+    DEFAULT_HTTP_LONG_TIMEOUT_SECONDS,
+    DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS,
+    DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
+)
 from devops_cli.core.cli import new_typer
 from devops_cli.http.validation import validate_service_url
 from devops_cli.models.argo import ArgoCDApp
@@ -83,7 +88,11 @@ def cd_apps_list() -> None:
     base, headers = _argocd(settings)
 
     with httpx2.Client() as c:
-        resp = c.get(f"{base}/api/v1/applications", headers=headers, timeout=30)
+        resp = c.get(
+            f"{base}/api/v1/applications",
+            headers=headers,
+            timeout=DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS,
+        )
         resp.raise_for_status()
 
     table = Table(title="ArgoCD Applications")
@@ -127,7 +136,7 @@ def cd_apps_sync(
             f"{base}/api/v1/applications/{name}/sync",
             headers=headers,
             json={"sync": {"prune": prune, "force": force}},
-            timeout=60,
+            timeout=DEFAULT_HTTP_LONG_TIMEOUT_SECONDS,
         )
         resp.raise_for_status()
     rprint(f"[green]Sync triggered:[/green] {name}")
@@ -147,7 +156,11 @@ def cd_apps_status(
     base, headers = _argocd(settings)
 
     with httpx2.Client() as c:
-        resp = c.get(f"{base}/api/v1/applications/{name}", headers=headers, timeout=30)
+        resp = c.get(
+            f"{base}/api/v1/applications/{name}",
+            headers=headers,
+            timeout=DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS,
+        )
         resp.raise_for_status()
 
     data = resp.json()
@@ -172,7 +185,7 @@ def workflows_list(
     cmd = ["argo", "list", "--output", "wide"]
     if namespace:
         cmd += ["--namespace", namespace]
-    subprocess.run(cmd, check=True, timeout=300)
+    subprocess.run(cmd, check=True, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS)
 
 
 @workflows_app.command("submit")
@@ -189,7 +202,7 @@ def workflows_submit(
         cmd += ["--namespace", namespace]
     if wait:
         cmd.append("--wait")
-    subprocess.run(cmd, check=True, timeout=300)
+    subprocess.run(cmd, check=True, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS)
 
 
 @workflows_app.command("logs")
@@ -223,7 +236,7 @@ def rollouts_list(
     cmd = ["kubectl", "argo", "rollouts", "list"]
     if namespace:
         cmd += ["--namespace", namespace]
-    subprocess.run(cmd, check=True, timeout=300)
+    subprocess.run(cmd, check=True, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS)
 
 
 @rollouts_app.command("status")
@@ -243,4 +256,4 @@ def rollouts_status(
         cmd.append("--watch")
         subprocess.run(cmd, check=True)
     else:
-        subprocess.run(cmd, check=True, timeout=300)
+        subprocess.run(cmd, check=True, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS)

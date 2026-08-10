@@ -7,10 +7,16 @@ from pathlib import Path
 from typing import Any
 
 
+def _is_safe_workspace_path(target: Path) -> bool:
+    cwd = Path.cwd().resolve()
+    target_resolved = target.resolve()
+    return target_resolved == cwd or target_resolved.is_relative_to(cwd)
+
+
 def list_files(directory: str = ".") -> list[str]:
     """List non-hidden files in the specified directory up to 2 levels deep."""
     root = Path(directory).resolve()
-    if not root.exists() or not root.is_dir():
+    if not _is_safe_workspace_path(root) or not root.exists() or not root.is_dir():
         return []
     results: list[str] = []
     for path in root.glob("*"):
@@ -29,6 +35,8 @@ def list_files(directory: str = ".") -> list[str]:
 def read_file(path: str, max_bytes: int = 4000) -> str:
     """Read contents of a text file up to max_bytes."""
     file_path = Path(path).resolve()
+    if not _is_safe_workspace_path(file_path):
+        return f"Access Denied: {path} is outside workspace."
     if not file_path.exists() or not file_path.is_file():
         return f"File not found: {path}"
     try:

@@ -25,6 +25,7 @@ from devops_cli.config.constants import (
     CONST_URL_GITHUB_COPILOT_API_BASE,
     CONST_URL_OPENAI_API_BASE,
 )
+from devops_cli.config.defaults import DEFAULT_HTTP_TIMEOUT_SECONDS
 from devops_cli.config.settings import AIConfig
 from devops_cli.http.client import request_timeout
 from devops_cli.models.ai import ChatMessage
@@ -140,7 +141,7 @@ class LLMClient:
     # ── Ollama ────────────────────────────────────────────────────────────────
 
     def _request_timeout(self) -> httpx2.Timeout:
-        return request_timeout(read=self._request_timeout_seconds or 300)
+        return request_timeout(read=self._request_timeout_seconds or DEFAULT_HTTP_TIMEOUT_SECONDS)
 
     def _allow_private_network(self) -> bool:
         if self._config.allow_private_network:
@@ -482,7 +483,7 @@ class LLMClient:
 
     def _openai_models(self) -> list[str]:
         try:
-            with httpx2.Client(timeout=request_timeout()) as http_client:
+            with httpx2.Client(timeout=self._request_timeout()) as http_client:
                 response = http_client.get(
                     f"{self._api_base()}/models",
                     headers={"Authorization": f"Bearer {self._api_key}"},

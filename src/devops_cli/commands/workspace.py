@@ -10,9 +10,11 @@ from typing import Annotated, Any
 import typer
 from rich import print as rprint
 
-from devops_cli.config.constants import CONST_GIT_DIR_NAME, CONST_VSCODE_CLI
+from devops_cli.config.constants import CONST_VSCODE_CLI
+from devops_cli.config.defaults import DEFAULT_SUBPROCESS_SHORT_TIMEOUT_SECONDS
 from devops_cli.config.settings import load_settings
 from devops_cli.core.cli import new_typer
+from devops_cli.git.operations import iter_workspace_repos
 
 app = new_typer(help="Manage VS Code workspace files.", no_args_is_help=True)
 
@@ -36,15 +38,7 @@ def _ensure_root_entry(data: dict[str, Any]) -> dict[str, Any]:
 
 
 def _workspace_data_from_repos(root: Path) -> dict[str, Any]:
-    resolved_root = root.resolve()
-    folders = [
-        {"path": str(repo_dir.resolve())}
-        for group_dir in sorted(root.iterdir())
-        if group_dir.is_dir()
-        for repo_dir in sorted(group_dir.iterdir())
-        if (repo_dir / CONST_GIT_DIR_NAME).exists()
-        and repo_dir.resolve().is_relative_to(resolved_root)
-    ]
+    folders = [{"path": str(repo_dir.resolve())} for repo_dir in iter_workspace_repos(root)]
     return {
         "folders": folders,
         "settings": {
@@ -91,7 +85,21 @@ def add(
     ws_file = _resolve_from_project_root(workspace_file or settings.workspace.file)
     data = _load(ws_file)
 
-    folder_str = str(repo_path.resolve())
+    repo_resolved = repo_path.resolve()
+    base_dir = settings.repos.base_dir.resolve()
+    proj_root = _PROJECT_ROOT.resolve()
+    if not (
+        repo_resolved == base_dir
+        or repo_resolved == proj_root
+        or repo_resolved.is_relative_to(base_dir)
+        or repo_resolved.is_relative_to(proj_root)
+    ):
+        rprint(
+            f"[red]Error: Cannot add path '{repo_resolved}' outside allowed workspace roots.[/red]"
+        )
+        raise typer.Exit(1)
+
+    folder_str = str(repo_resolved)
     if any(folder.get("path") == folder_str for folder in data["folders"]):
         rprint(f"[yellow]Already in workspace: {folder_str}[/yellow]")
         raise typer.Exit(0)
@@ -152,4 +160,8 @@ def open_workspace(
     if not ws_file.exists():
         rprint(f"[red]Workspace file not found: {ws_file}[/red]")
         raise typer.Exit(1)
-    subprocess.run([CONST_VSCODE_CLI, str(ws_file)], check=True)
+    subprocess.run(
+        [CONST_VSCODE_CLI, str(ws_file)],
+        check=True,
+        timeout=DEFAULT_SUBPROCESS_SHORT_TIMEOUT_SECONDS,
+    )

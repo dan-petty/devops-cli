@@ -11,6 +11,10 @@ from rich import print as rprint
 from rich.console import Console
 from rich.table import Table
 
+from devops_cli.config.defaults import (
+    DEFAULT_HTTP_LONG_TIMEOUT_SECONDS,
+    DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS,
+)
 from devops_cli.config.settings import Settings, load_settings
 from devops_cli.core.cli import new_typer
 from devops_cli.http.validation import validate_service_url
@@ -48,10 +52,16 @@ def _validate_expr(expr: str) -> None:
 
 def _parse_duration(s: str) -> float:
     """Parse simple relative durations like '1h', '30m', '7d' to seconds."""
+    if not s:
+        return 0.0
     units = {"s": 1, "m": 60, "h": 3600, "d": 86400}
-    if s[-1] in units:
-        return int(s[:-1]) * units[s[-1]]
-    return float(s)
+    unit = s[-1].lower()
+    if unit in units and s[:-1].isdigit():
+        return float(int(s[:-1]) * units[unit])
+    try:
+        return float(s)
+    except ValueError:
+        return 0.0
 
 
 @app.command()
@@ -70,7 +80,11 @@ def query(
         params["time"] = at
 
     with httpx2.Client() as http_client:
-        response = http_client.get(f"{base}/api/v1/query", params=params, timeout=30)
+        response = http_client.get(
+            f"{base}/api/v1/query",
+            params=params,
+            timeout=DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS,
+        )
         response.raise_for_status()
 
     result = PrometheusQueryResult.from_instant_response(response.json())
@@ -114,7 +128,11 @@ def query_range(
 
     params = {"query": expr, "start": start_ts, "end": end_ts, "step": step}
     with httpx2.Client() as http_client:
-        response = http_client.get(f"{base}/api/v1/query_range", params=params, timeout=60)
+        response = http_client.get(
+            f"{base}/api/v1/query_range",
+            params=params,
+            timeout=DEFAULT_HTTP_LONG_TIMEOUT_SECONDS,
+        )
         response.raise_for_status()
 
     result = PrometheusQueryResult.from_range_response(response.json())
@@ -132,7 +150,10 @@ def rules() -> None:
     base = _base_url(settings)
 
     with httpx2.Client() as http_client:
-        response = http_client.get(f"{base}/api/v1/rules", timeout=30)
+        response = http_client.get(
+            f"{base}/api/v1/rules",
+            timeout=DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS,
+        )
         response.raise_for_status()
 
     table = Table(title="Prometheus Rules")
@@ -141,12 +162,14 @@ def rules() -> None:
     table.add_column("Type")
     table.add_column("Health")
 
-    for group in response.json()["data"]["groups"]:
-        for rule in group["rules"]:
+    data = response.json() if response.content else {}
+    groups = data.get("data", {}).get("groups", []) if isinstance(data, dict) else []
+    for group in groups:
+        for rule in group.get("rules", []):
             name = rule.get("name") or rule.get("alert", "")
             health = rule.get("health", "")
             table.add_row(
-                group["name"],
+                group.get("name", ""),
                 name,
                 rule.get("type", ""),
                 "[green]ok[/green]" if health == "ok" else f"[red]{health}[/red]",
@@ -161,7 +184,10 @@ def targets() -> None:
     base = _base_url(settings)
 
     with httpx2.Client() as http_client:
-        response = http_client.get(f"{base}/api/v1/targets", timeout=30)
+        response = http_client.get(
+            f"{base}/api/v1/targets",
+            timeout=DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS,
+        )
         response.raise_for_status()
 
     table = Table(title="Prometheus Scrape Targets")

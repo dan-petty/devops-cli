@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class GrafanaDashboard(BaseModel):
@@ -12,7 +12,7 @@ class GrafanaDashboard(BaseModel):
     title: str = ""
     folder_title: str = Field("General", alias="folderTitle")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class GrafanaDatasource(BaseModel):
@@ -23,7 +23,7 @@ class GrafanaDatasource(BaseModel):
     url: str = ""
     is_default: bool = Field(False, alias="isDefault")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class GrafanaAlertRule(BaseModel):
@@ -34,4 +34,4 @@ class GrafanaAlertRule(BaseModel):
     folder_uid: str = Field("", alias="folderUID")
     condition: str = ""
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)

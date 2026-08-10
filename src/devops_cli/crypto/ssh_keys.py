@@ -14,6 +14,7 @@ from cryptography.hazmat.primitives.serialization import (
     PublicFormat,
 )
 
+from devops_cli.config.constants import CONST_PERM_PRIVATE_KEY, CONST_PERM_PUBLIC_KEY
 from devops_cli.models.ssh import ManagedSSHKey
 
 # Matches id_ed25519-2024JAN15 or id_ed25519-2024JAN
@@ -37,7 +38,7 @@ def generate_ed25519_key(key_path: Path, comment: str = "") -> None:
     # Write with restricted permissions atomically to avoid a world-readable window.
     import os as _os
 
-    fd = _os.open(key_path, _os.O_WRONLY | _os.O_CREAT | _os.O_TRUNC, 0o600)
+    fd = _os.open(key_path, _os.O_WRONLY | _os.O_CREAT | _os.O_TRUNC, CONST_PERM_PRIVATE_KEY)
     with _os.fdopen(fd, "wb") as file_handle:
         file_handle.write(private_bytes)
 
@@ -52,7 +53,7 @@ def generate_ed25519_key(key_path: Path, comment: str = "") -> None:
     pub_line = f"{pub_raw} {comment}".strip() + "\n"
     pub_path = key_path.with_name(f"{key_path.name}.pub")
     pub_path.write_text(pub_line, encoding="utf-8")
-    pub_path.chmod(0o644)
+    pub_path.chmod(CONST_PERM_PUBLIC_KEY)
 
 
 def parse_key_date(key_path: Path) -> date | None:

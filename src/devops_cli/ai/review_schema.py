@@ -36,7 +36,7 @@ class Finding(BaseModel):
     description: str = ""
     fix: str = ""
     references: list[str] = []
-    verified: bool = True
+    verified: bool = False
     mitigated: bool = False
     status: str = "UNVERIFIED"  # UNVERIFIED | VERIFIED | INVALIDATED | MITIGATED
     invalidation_reason: str | None = None
@@ -91,9 +91,13 @@ class ReviewResult(BaseModel):
     def merge(self, other: ReviewResult) -> ReviewResult:
         """Merge another ReviewResult, deduplicating findings by (title, location)."""
         seen: set[tuple[str, str]] = {(f.title.lower(), f.location.lower()) for f in self.findings}
-        new_findings = [
-            f for f in other.findings if (f.title.lower(), f.location.lower()) not in seen
-        ]
+        new_findings: list[Finding] = []
+        for f in other.findings:
+            key = (f.title.lower(), f.location.lower())
+            if key not in seen:
+                seen.add(key)
+                new_findings.append(f)
+
         rec_order = {"BLOCK": 0, "REQUEST CHANGES": 1, "APPROVE": 2}
         recommendation = min(
             (self.recommendation, other.recommendation),
@@ -118,13 +122,13 @@ def extract_json_block(text: str) -> Any:
                 return json.loads(m.group(1))
             except json.JSONDecodeError:
                 pass
-    for pattern in (r"\{[\s\S]*?\}", r"\[[\s\S]*?\]"):
-        m = re.search(pattern, text, re.DOTALL)
-        if m:
-            try:
-                return json.loads(m.group(0))
-            except json.JSONDecodeError:
-                pass
+    decoder = json.JSONDecoder()
+    for m in re.finditer(r"[\{\[]", text):
+        try:
+            obj, _ = decoder.raw_decode(text, idx=m.start())
+            return obj
+        except json.JSONDecodeError:
+            continue
     return None
 
 

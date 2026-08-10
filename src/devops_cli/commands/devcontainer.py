@@ -21,9 +21,9 @@ from devops_cli.config.constants import (
     CONST_DEVCONTAINER_JSON_PATH,
     CONST_DEVCONTAINER_POST_CREATE_NAME,
     CONST_DEVCONTAINER_POST_CREATE_PATH,
-    CONST_GIT_DIR_NAME,
 )
 from devops_cli.core.cli import new_typer, repo_label
+from devops_cli.git.operations import iter_workspace_repos
 
 app = new_typer(help="Manage devcontainer configurations.", no_args_is_help=True)
 console = Console()
@@ -136,18 +136,13 @@ def list_devcontainers(
     table.add_column(CONST_DEVCONTAINER_JSON_NAME)
     table.add_column(CONST_DEVCONTAINER_POST_CREATE_NAME, justify="center")
 
-    for group_dir in sorted(root.iterdir()):
-        if not group_dir.is_dir():
-            continue
-        for repo_dir in sorted(group_dir.iterdir()):
-            if not (repo_dir / CONST_GIT_DIR_NAME).exists():
-                continue
-            dc_ok = (repo_dir / CONST_DEVCONTAINER_JSON_PATH).exists()
-            sh_ok = (repo_dir / CONST_DEVCONTAINER_POST_CREATE_PATH).exists()
-            table.add_row(
-                repo_label(repo_dir),
-                "[green]✓ configured[/green]" if dc_ok else "[yellow]✗ missing[/yellow]",
-                "[green]✓[/green]" if sh_ok else "[dim]—[/dim]",
-            )
+    for repo_dir in iter_workspace_repos(root):
+        dc_ok = (repo_dir / CONST_DEVCONTAINER_JSON_PATH).exists()
+        sh_ok = (repo_dir / CONST_DEVCONTAINER_POST_CREATE_PATH).exists()
+        table.add_row(
+            repo_label(repo_dir),
+            "[green]✓ configured[/green]" if dc_ok else "[yellow]✗ missing[/yellow]",
+            "[green]✓[/green]" if sh_ok else "[dim]—[/dim]",
+        )
 
     console.print(table)

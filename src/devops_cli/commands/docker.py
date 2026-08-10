@@ -91,6 +91,11 @@ def push(
     if is_dry_run():
         rprint(f"[yellow][dry-run][/yellow] Would push Docker image {image}.")
         return
+    import re
+
+    if not re.match(r"^[a-zA-Z0-9_.-]+(?:/[a-zA-Z0-9_.-]+)*(?::[a-zA-Z0-9_.-]+)?$", image):
+        rprint(f"[red]Invalid Docker image name format: '{image}'[/red]")
+        raise typer.Exit(1)
     client = _client()
     rprint(f"Pushing [dim]{image}[/dim]...")
     for chunk in client.images.push(image, stream=True, decode=True):

@@ -8,6 +8,7 @@ import httpx2
 from pydantic import BaseModel
 
 from devops_cli.config.constants import CONST_URL_GITHUB_API_BASE
+from devops_cli.config.defaults import DEFAULT_HTTP_LONG_TIMEOUT_SECONDS
 from devops_cli.models.github import SSHKeyInfo
 
 if TYPE_CHECKING:
@@ -90,14 +91,19 @@ class GitHubClient:
 
     def get_pr_diff(self, repo: str, number: int) -> str:
         """Fetch the raw unified diff for a pull request."""
-        with httpx2.Client(timeout=60, follow_redirects=True) as c:
-            r = c.get(
-                f"{CONST_URL_GITHUB_API_BASE}/repos/{repo}/pulls/{number}",
-                headers={
-                    "Accept": "application/vnd.github.diff",
-                    "Authorization": f"Bearer {self._token}",
-                    "X-GitHub-Api-Version": "2022-11-28",
-                },
-            )
+        url = f"{CONST_URL_GITHUB_API_BASE}/repos/{repo}/pulls/{number}"
+        headers = {
+            "Accept": "application/vnd.github.diff",
+            "Authorization": f"Bearer {self._token}",
+            "X-GitHub-Api-Version": "2022-11-28",
+        }
+        with httpx2.Client(timeout=DEFAULT_HTTP_LONG_TIMEOUT_SECONDS, follow_redirects=False) as c:
+            r = c.get(url, headers=headers)
+            if r.is_redirect:
+                target_url = r.headers.get("location", "")
+                if target_url.startswith(CONST_URL_GITHUB_API_BASE) or target_url.startswith(
+                    "https://github.com"
+                ):
+                    r = c.get(target_url, headers=headers)
             r.raise_for_status()
             return r.text

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Generator
 from pathlib import Path
 from typing import Annotated
 
@@ -19,6 +18,7 @@ from devops_cli.git.operations import (
     create_branch,
     delete_merged_branches,
     fetch_all,
+    iter_workspace_repos,
     list_branches,
     pull_tracking,
 )
@@ -27,17 +27,6 @@ app = new_typer(help="Branch management and Jira workflows.", no_args_is_help=Tr
 console = Console()
 
 _JIRA_RE = re.compile(r"^([A-Z][A-Z0-9]+-\d+)$", re.IGNORECASE)
-
-
-def _iter_repos(root: Path) -> Generator[Path]:
-    if not root.exists():
-        return
-    for group_dir in sorted(root.iterdir()):
-        if not group_dir.is_dir():
-            continue
-        for repo_dir in sorted(group_dir.iterdir()):
-            if (repo_dir / CONST_GIT_DIR_NAME).exists():
-                yield repo_dir
 
 
 @app.command("sync")
@@ -49,7 +38,7 @@ def update(
     settings = load_settings()
     root = base_dir or settings.repos.base_dir
 
-    for repo_dir in _iter_repos(root):
+    for repo_dir in iter_workspace_repos(root):
         label = repo_label(repo_dir)
         try:
             fetch_all(repo_dir)
@@ -110,7 +99,7 @@ def list_all(
     table.add_column("Branch")
     table.add_column("", justify="center")  # current indicator
 
-    for repo_dir in _iter_repos(root):
+    for repo_dir in iter_workspace_repos(root):
         label = repo_label(repo_dir)
         result = list_branches(repo_dir, all_branches=all_branches)
         for branch in result.branches:
@@ -132,7 +121,7 @@ def clean(
     root = base_dir or settings.repos.base_dir
     any_deleted = False
 
-    for repo_dir in _iter_repos(root):
+    for repo_dir in iter_workspace_repos(root):
         label = repo_label(repo_dir)
         deleted = delete_merged_branches(repo_dir, dry_run=dry_run)
         for branch in deleted:

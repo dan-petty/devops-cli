@@ -22,6 +22,7 @@ from rich.console import Console
 from rich.table import Table
 
 from devops_cli.config.constants import (
+    CONST_PERM_EXEC,
     CONST_URL_GITHUB_API_BASE,
     CONST_URL_GITHUB_ARGO_ROLLOUTS_RELEASES_BASE,
     CONST_URL_GITHUB_ARGO_WORKFLOWS_RELEASES_BASE,
@@ -29,6 +30,11 @@ from devops_cli.config.constants import (
     CONST_URL_GITHUB_KUSTOMIZE_RELEASES_BASE,
     CONST_URL_HELM_DOWNLOAD_BASE,
     CONST_URL_K8S_DOWNLOAD_BASE,
+)
+from devops_cli.config.defaults import (
+    DEFAULT_HTTP_DOWNLOAD_TIMEOUT_SECONDS,
+    DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS,
+    DEFAULT_SUBPROCESS_FAST_TIMEOUT_SECONDS,
 )
 from devops_cli.core.cli import new_typer
 
@@ -63,15 +69,17 @@ def _gh_latest(repo: str) -> str:
         r = c.get(
             f"{CONST_URL_GITHUB_API_BASE}/repos/{repo}/releases/latest",
             headers={"Accept": "application/vnd.github+json"},
-            timeout=30,
+            timeout=DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS,
         )
         r.raise_for_status()
         return str(r.json()["tag_name"])
 
 
 def _download(url: str) -> bytes:
+    if not url.startswith("https://"):
+        raise ValueError(f"Only HTTPS URLs are permitted for tool downloads, got: {url!r}")
     with httpx2.Client(follow_redirects=True) as c:
-        r = c.get(url, timeout=120)
+        r = c.get(url, timeout=DEFAULT_HTTP_DOWNLOAD_TIMEOUT_SECONDS)
         r.raise_for_status()
         return r.content
 
@@ -98,20 +106,30 @@ def _parse_checksum_file(text: str, filename: str) -> str:
 def _write_binary(data: bytes, dest: Path) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_bytes(data)
-    dest.chmod(0o755)
+    dest.chmod(CONST_PERM_EXEC)
 
 
 def _extract_tar_member(data: bytes, member: str, dest: Path) -> None:
+    import shutil
+
+    dest.parent.mkdir(parents=True, exist_ok=True)
     with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as tf:
         f = tf.extractfile(member)
         if f is None:
             raise FileNotFoundError(f"Member '{member}' not found in archive")
-        _write_binary(f.read(), dest)
+        with dest.open("wb") as out:
+            shutil.copyfileobj(f, out)
+    dest.chmod(CONST_PERM_EXEC)
 
 
 def _current_version(cmd: list[str]) -> str | None:
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        r = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=DEFAULT_SUBPROCESS_FAST_TIMEOUT_SECONDS,
+        )
         m = re.search(r"v?(\d+\.\d+[\.\d]*)", r.stdout + r.stderr)
         return f"v{m.group(1)}" if m else ("installed" if r.returncode == 0 else None)
     except FileNotFoundError, subprocess.TimeoutExpired, OSError:
@@ -132,7 +150,10 @@ def _install_kubectl(version: str, target_dir: Path) -> None:
 
 def _latest_kubectl() -> str:
     with httpx2.Client(follow_redirects=True) as c:
-        r = c.get(f"{CONST_URL_K8S_DOWNLOAD_BASE}/release/stable.txt", timeout=30)
+        r = c.get(
+            f"{CONST_URL_K8S_DOWNLOAD_BASE}/release/stable.txt",
+            timeout=DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS,
+        )
         r.raise_for_status()
         return r.text.strip()
 

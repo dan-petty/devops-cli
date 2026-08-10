@@ -47,19 +47,9 @@ class SecretStorageError(RuntimeError):
 
 
 def _ensure_keyring_backend() -> bool:
-    """Ensure keyring has a usable backend, falling back to keyrings.alt when available."""
+    """Ensure keyring has a usable, encrypted backend."""
     import keyring
     from keyring.backends.fail import Keyring as FailKeyring
-
-    if not isinstance(keyring.get_keyring(), FailKeyring):
-        return True
-
-    try:
-        from keyrings.alt.file import PlaintextKeyring  # type: ignore[import-untyped]
-
-        keyring.set_keyring(PlaintextKeyring())
-    except Exception:
-        return False
 
     return not isinstance(keyring.get_keyring(), FailKeyring)
 

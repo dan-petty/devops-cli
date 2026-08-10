@@ -10,14 +10,17 @@ from typing import Annotated
 import typer
 from rich import print as rprint
 
-app = typer.Typer(help="Run uv commands through devops.", no_args_is_help=True)
+from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
+from devops_cli.core.cli import new_typer
+
+app = new_typer(help="uv dependency management proxies.", no_args_is_help=True)
 
 # Repo root: src/devops_cli/commands/uv.py -> parents[3]
 _ROOT = Path(__file__).resolve().parents[3]
 
 
 def _run(cmd: Sequence[str]) -> None:
-    result = subprocess.run(list(cmd), cwd=_ROOT)
+    result = subprocess.run(list(cmd), cwd=_ROOT, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS)
     if result.returncode != 0:
         raise typer.Exit(result.returncode)
 
@@ -68,6 +71,12 @@ def python_install(
 
     if not version:
         rprint("[red]No Python version provided and .python-version is missing.[/red]")
+        raise typer.Exit(1)
+
+    import re
+
+    if not re.match(r"^\d+(\.\d+)*[a-zA-Z0-9._-]*$", version):
+        rprint(f"[red]Invalid Python version format: {version}[/red]")
         raise typer.Exit(1)
 
     _run(["uv", "python", "install", version])

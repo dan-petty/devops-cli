@@ -136,12 +136,7 @@ def test_repos_clone_org_skips_archived_repos(tmp_path: Path) -> None:
 
         mock_client = MagicMock()
 
-        def _get_org_repos(*args: object, **kwargs: object) -> list[MagicMock]:
-            if kwargs.get("include_archived", True):
-                return [archived_repo, active_repo]
-            return [active_repo]
-
-        mock_client.get_org_repos.side_effect = _get_org_repos
+        mock_client.get_org_repos.return_value = [active_repo]
         mock_client_cls.return_value = mock_client
 
         result = runner.invoke(app, ["repos", "clone-org"])

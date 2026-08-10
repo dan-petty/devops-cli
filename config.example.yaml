@@ -1,7 +1,7 @@
 # devops-cli project configuration template
 #
 # Copy this file to config.yaml to activate project-level overrides.
-#   cp .devops.example.yaml config.yaml
+#   cp config.example.yaml config.yaml
 #
 # Load order (last wins):
 #   1. ~/.config/devops-cli/config.yaml  — user-global settings

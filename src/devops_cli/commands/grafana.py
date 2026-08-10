@@ -13,6 +13,7 @@ from rich import print as rprint
 from rich.console import Console
 from rich.table import Table
 
+from devops_cli.config.defaults import DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS
 from devops_cli.config.settings import Settings, get_grafana_token, load_settings
 from devops_cli.core.cli import new_typer
 from devops_cli.http.validation import validate_service_url
@@ -55,7 +56,10 @@ def dashboards_list() -> None:
 
     with httpx2.Client() as http_client:
         response = http_client.get(
-            f"{base}/api/search", headers=headers, params={"type": "dash-db"}, timeout=30
+            f"{base}/api/search",
+            headers=headers,
+            params={"type": "dash-db"},
+            timeout=DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS,
         )
         response.raise_for_status()
 
@@ -88,7 +92,11 @@ def dashboards_export(
     base, headers = _client_args(settings)
 
     with httpx2.Client() as http_client:
-        response = http_client.get(f"{base}/api/dashboards/uid/{uid}", headers=headers, timeout=30)
+        response = http_client.get(
+            f"{base}/api/dashboards/uid/{uid}",
+            headers=headers,
+            timeout=DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS,
+        )
         response.raise_for_status()
 
     dest = output or Path(f"{uid}.json")
@@ -105,17 +113,27 @@ def dashboards_import(
     settings = load_settings()
     base, headers = _client_args(settings)
 
-    raw = json.loads(file.read_text(encoding="utf-8"))
+    try:
+        raw = json.loads(file.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as exc:
+        rprint(f"[red]Failed to parse dashboard JSON file '{file}': {exc}[/red]")
+        raise typer.Exit(1)
+
+    if not isinstance(raw, dict):
+        rprint(f"[red]Invalid dashboard JSON in '{file}': expected JSON object.[/red]")
+        raise typer.Exit(1)
+
     dashboard = raw.get("dashboard", raw)
-    dashboard.pop("id", None)
-    dashboard.pop("uid", None)
+    if isinstance(dashboard, dict):
+        dashboard.pop("id", None)
+        dashboard.pop("uid", None)
 
     with httpx2.Client() as http_client:
         response = http_client.post(
             f"{base}/api/dashboards/db",
             headers=headers,
             json={"dashboard": dashboard, "folderId": folder_id, "overwrite": True},
-            timeout=30,
+            timeout=DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS,
         )
         response.raise_for_status()
     rprint(f"[green]Imported:[/green] {response.json().get('slug', 'unknown')}")
@@ -134,7 +152,12 @@ def search(
     params = {"query": query} if query else {}
 
     with httpx2.Client() as http_client:
-        response = http_client.get(f"{base}/api/search", headers=headers, params=params, timeout=30)
+        response = http_client.get(
+            f"{base}/api/search",
+            headers=headers,
+            params=params,
+            timeout=DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS,
+        )
         response.raise_for_status()
 
     table = Table(title=f"Grafana Search: {query!r}" if query else "Grafana Search")
@@ -161,7 +184,11 @@ def datasources() -> None:
     base, headers = _client_args(settings)
 
     with httpx2.Client() as http_client:
-        response = http_client.get(f"{base}/api/datasources", headers=headers, timeout=30)
+        response = http_client.get(
+            f"{base}/api/datasources",
+            headers=headers,
+            timeout=DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS,
+        )
         response.raise_for_status()
 
     table = Table(title="Grafana Datasources")
@@ -192,7 +219,9 @@ def alerts() -> None:
 
     with httpx2.Client() as http_client:
         response = http_client.get(
-            f"{base}/api/v1/provisioning/alert-rules", headers=headers, timeout=30
+            f"{base}/api/v1/provisioning/alert-rules",
+            headers=headers,
+            timeout=DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS,
         )
         response.raise_for_status()
 

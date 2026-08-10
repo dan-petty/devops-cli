@@ -15,7 +15,7 @@ runner = CliRunner()
 def test_finding_status_defaults_and_normalization() -> None:
     f1 = Finding(title="SQL Injection", location="db.py:10", status="unverified")
     assert f1.status == "UNVERIFIED"
-    assert f1.verified is True
+    assert f1.verified is False
 
     f2 = Finding(
         title="XSS", location="ui.py:5", status="invalidated", invalidation_reason="False positive"

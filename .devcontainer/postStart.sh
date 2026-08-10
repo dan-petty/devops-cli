@@ -56,17 +56,15 @@ export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
 uv python install "$(cat "${WORKSPACE_DIR}/.python-version" | tr -d '[:space:]')"
 
 # ── Project dependencies ──────────────────────────────────────────────────────
-uv sync
+if [ ! -d "${WORKSPACE_DIR}/.venv" ]; then
+  uv sync
+fi
 
 # ── SSH key permissions ───────────────────────────────────────────────────────
 if [ -d "${HOME}/.ssh" ]; then
-  # Recursive chown only when needed — avoids an unconditional sudo call on every start.
-  if [ "$(stat -c '%U' "${HOME}/.ssh")" != "vscode" ]; then
-    sudo chown -R vscode:vscode "${HOME}/.ssh"
-  fi
-  chmod 700 "${HOME}/.ssh"
-  find "${HOME}/.ssh" -maxdepth 1 -name "id_*" ! -name "*.pub" -exec chmod 600 {} +
-  find "${HOME}/.ssh" -maxdepth 1 -name "*.pub" -exec chmod 644 {} +
+  chmod 700 "${HOME}/.ssh" 2>/dev/null || true
+  find "${HOME}/.ssh" -maxdepth 1 -name "id_*" ! -name "*.pub" -exec chmod 600 {} + 2>/dev/null || true
+  find "${HOME}/.ssh" -maxdepth 1 -name "*.pub" -exec chmod 644 {} + 2>/dev/null || true
 fi
 
 # ── Kubernetes kubeconfig ─────────────────────────────────────────────────────
@@ -107,13 +105,9 @@ if [ "${DEVOPS_MINIKUBE_AUTOSTART:-true}" = "true" ]; then
 fi
 
 # ── Git SSH commit signing ────────────────────────────────────────────────────
-NEWEST_KEY=$(find "${HOME}/.ssh" -maxdepth 1 -type f \
-  \( -name "id_ed25519*" -o -name "id_ecdsa*" -o -name "id_rsa*" \) \
-  ! -name "*.pub" | sort | tail -1 || true)
+NEWEST_KEY=$(ls -1t "${HOME}/.ssh"/id_* 2>/dev/null | grep -v '\.pub$' | head -1 || true)
 if [ -n "${NEWEST_KEY:-}" ]; then
   git config --global gpg.format ssh
   git config --global user.signingkey "${NEWEST_KEY}"
-  git config --global commit.gpgsign true
-  git config --global tag.gpgsign true
   echo "git signing configured: ${NEWEST_KEY##*/}"
 fi

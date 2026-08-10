@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import ItemsView, Iterator, KeysView, Mapping, ValuesView
 from enum import StrEnum
+from functools import lru_cache
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
@@ -41,6 +43,7 @@ _TASK_CHAT: str = _load(_TASKS_DIR / "chat.md")
 _TASK_COMPOSE: str = _load(_TASKS_DIR / "compose.md")
 
 
+@lru_cache
 def _load_persona(persona: Persona) -> PersonaDefinition:
     d = _PERSONAS_DIR / persona
     names = {
@@ -61,6 +64,38 @@ def _load_persona(persona: Persona) -> PersonaDefinition:
     )
 
 
-# ── Registry ────────────────────────────────────────────────────────────────────────────
+# ── Lazy-loading Registry ─────────────────────────────────────────────────────────────
 
-PERSONAS: dict[Persona, PersonaDefinition] = {p: _load_persona(p) for p in Persona}
+
+class _PersonaRegistry(Mapping[Persona, PersonaDefinition]):
+    def __getitem__(self, item: object) -> PersonaDefinition:
+        if isinstance(item, Persona):
+            return _load_persona(item)
+        if isinstance(item, str):
+            return _load_persona(Persona(item))
+        raise KeyError(item)
+
+    def __contains__(self, item: object) -> bool:
+        if isinstance(item, Persona):
+            return True
+        if isinstance(item, str):
+            return item in [p.value for p in Persona]
+        return False
+
+    def __len__(self) -> int:
+        return len(Persona)
+
+    def __iter__(self) -> Iterator[Persona]:
+        return iter(Persona)
+
+    def keys(self) -> KeysView[Persona]:
+        return dict.fromkeys(Persona).keys()
+
+    def values(self) -> ValuesView[PersonaDefinition]:
+        return {p: _load_persona(p) for p in Persona}.values()
+
+    def items(self) -> ItemsView[Persona, PersonaDefinition]:
+        return {p: _load_persona(p) for p in Persona}.items()
+
+
+PERSONAS: Mapping[Persona, PersonaDefinition] = _PersonaRegistry()

@@ -18,6 +18,7 @@ from rich import print as rprint
 from rich.console import Console
 from rich.table import Table
 
+from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.core.cli import new_typer
 from devops_cli.core.dry_run import is_dry_run
 
@@ -152,7 +153,7 @@ def apply(
     if is_dry_run():
         rprint(f"[yellow][dry-run][/yellow] Would run: [cyan]{' '.join(cmd)}[/cyan]")
         return
-    subprocess.run(cmd, check=True)
+    _run_cmd(cmd, check=True)
 
 
 @app.command()
@@ -169,7 +170,8 @@ def logs(
         _validate_k8s_identifier(container, "container name")
     if namespace:
         _validate_k8s_identifier(namespace, "namespace", namespace=True)
-    cmd = ["kubectl", "logs", pod, f"--tail={tail}"]
+    bounded_tail = max(1, min(tail, 10000))
+    cmd = ["kubectl", "logs", pod, f"--tail={bounded_tail}"]
     if container:
         cmd += ["--container", container]
     if namespace:
@@ -179,7 +181,10 @@ def logs(
     if is_dry_run():
         rprint(f"[yellow][dry-run][/yellow] Would run: [cyan]{' '.join(cmd)}[/cyan]")
         return
-    subprocess.run(cmd, check=True)
+    if follow:
+        subprocess.run(cmd, check=True)
+    else:
+        _run_cmd(cmd, check=True)
 
 
 # ── Helm chart definitions for deploy-stack ──────────────────────────────────
@@ -215,13 +220,18 @@ _HELM_RELEASES: list[dict[str, str]] = [
 
 
 def _run_cmd(
-    cmd: list[str], *, check: bool = True, capture: bool = False
+    cmd: list[str],
+    *,
+    check: bool = True,
+    capture: bool = False,
+    timeout: float = DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
 ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         cmd,
         check=check,
         capture_output=capture,
-        text=True,  # noqa: S603
+        text=True,
+        timeout=timeout,
     )
 
 

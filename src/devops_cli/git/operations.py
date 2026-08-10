@@ -10,19 +10,23 @@ from __future__ import annotations
 
 import os
 import subprocess
+from collections.abc import Generator
 from pathlib import Path
 
 import git as gitlib
 
 from devops_cli.config.constants import (
+    CONST_GIT_DIR_NAME,
     CONST_GITHUB_HOST,
     CONST_GITHUB_HTTP_PREFIX,
     CONST_GITHUB_HTTPS_PREFIX,
     CONST_GITHUB_SSH_PREFIX,
     CONST_GITHUB_SSH_URL_PREFIX,
+    CONST_PERM_DIR,
     CONST_URL_SCHEME_HTTP,
     CONST_URL_SCHEME_HTTPS,
 )
+from devops_cli.config.defaults import DEFAULT_SUBPROCESS_FAST_TIMEOUT_SECONDS
 from devops_cli.models.git import BranchListing
 
 
@@ -38,17 +42,33 @@ def _normalize_clone_url(url: str) -> str:
     return url
 
 
+def iter_workspace_repos(root: Path) -> Generator[Path]:
+    """Yield all valid Git repository directories under *root* across 2 directory levels."""
+    if not root.exists():
+        return
+    resolved_root = root.resolve()
+    for group_dir in sorted(root.iterdir()):
+        if not group_dir.is_dir():
+            continue
+        for repo_dir in sorted(group_dir.iterdir()):
+            if (repo_dir / CONST_GIT_DIR_NAME).exists() and repo_dir.resolve().is_relative_to(
+                resolved_root
+            ):
+                yield repo_dir
+
+
 def _ensure_known_host(hostname: str = CONST_GITHUB_HOST) -> None:
     """Add *hostname* to ~/.ssh/known_hosts when it is missing."""
     ssh_dir = Path.home() / ".ssh"
     known_hosts = ssh_dir / "known_hosts"
-    ssh_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    ssh_dir.mkdir(mode=CONST_PERM_DIR, parents=True, exist_ok=True)
     if known_hosts.exists():
         result = subprocess.run(
             ["ssh-keygen", "-F", hostname, "-f", str(known_hosts)],
             capture_output=True,
             text=True,
             check=False,
+            timeout=DEFAULT_SUBPROCESS_FAST_TIMEOUT_SECONDS,
         )
         if result.returncode == 0:
             return
@@ -58,7 +78,7 @@ def _ensure_known_host(hostname: str = CONST_GITHUB_HOST) -> None:
         capture_output=True,
         text=True,
         check=False,
-        timeout=10,
+        timeout=DEFAULT_SUBPROCESS_FAST_TIMEOUT_SECONDS,
     )
     if result.returncode != 0 or not result.stdout.strip():
         return

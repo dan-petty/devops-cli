@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import subprocess
-from collections.abc import Generator
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated
 
@@ -16,7 +15,6 @@ from rich.table import Table
 
 from devops_cli.commands.workspace import sync_from_repos
 from devops_cli.config.constants import (
-    CONST_GIT_DIR_NAME,
     CONST_GITHUB_HOST,
     CONST_GITHUB_REPO_SUFFIX,
     CONST_URL_SCHEME_HTTPS,
@@ -24,7 +22,12 @@ from devops_cli.config.constants import (
     CONST_VSCODE_WORKSPACE_FILE,
 )
 from devops_cli.core.cli import new_typer, repo_label
-from devops_cli.git.operations import clone_repo, fetch_all, pull_tracking
+from devops_cli.git.operations import (
+    clone_repo,
+    fetch_all,
+    iter_workspace_repos,
+    pull_tracking,
+)
 
 if TYPE_CHECKING:
     from devops_cli.config.settings import Settings
@@ -61,18 +64,6 @@ def _require_client(settings: Settings) -> GitHubClient:
         )
         raise typer.Exit(1)
     return GitHubClient(token)
-
-
-def _iter_repos(root: Path) -> Generator[Path]:
-    """Yield all repo directories under *root*."""
-    if not root.exists():
-        return
-    for group_dir in sorted(root.iterdir()):
-        if not group_dir.is_dir():
-            continue
-        for repo_dir in sorted(group_dir.iterdir()):
-            if (repo_dir / CONST_GIT_DIR_NAME).exists():
-                yield repo_dir
 
 
 def _current_branch(repo_dir: Path) -> str:
@@ -138,7 +129,10 @@ def clone_org(
 
     rprint(f"Cloning [bold]{len(repos)}[/bold] repos into [dim]{org_dir}[/dim]")
     for repo in track(repos, description="Cloning..."):
-        dest = org_dir / repo.name
+        dest = (org_dir / repo.name).resolve()
+        if not dest.is_relative_to(org_dir.resolve()):
+            rprint(f"  [red]skip[/red] {repo.name} (path traversal detected)")
+            continue
         if dest.exists():
             rprint(f"  [yellow]skip[/yellow] {repo.name} (already exists)")
             continue
@@ -192,7 +186,7 @@ def list_repos(
     table.add_column("Repository")
     table.add_column("Branch", style="green")
 
-    for repo_dir in _iter_repos(root):
+    for repo_dir in iter_workspace_repos(root):
         table.add_row(
             repo_dir.parent.name,
             repo_dir.name,
@@ -212,7 +206,7 @@ def update(
     settings = load_settings()
     root = (base_dir or settings.repos.base_dir).resolve()
 
-    repos_list = list(_iter_repos(root))
+    repos_list = list(iter_workspace_repos(root))
     if not repos_list:
         rprint("[yellow]No repositories found.[/yellow]")
         raise typer.Exit(0)
