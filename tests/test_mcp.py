@@ -85,10 +85,10 @@ class TestRunMcpServer:
     """Tests for run_mcp_server launch helper."""
 
     def test_run_stdio(self) -> None:
-        """run_mcp_server stdio must call mcp.run(transport='stdio')."""
+        """run_mcp_server stdio must call mcp.run(transport='stdio', show_banner=False)."""
         with patch("devops_cli.mcp.mcp") as mock_mcp:
             run_mcp_server(transport="stdio")
-            mock_mcp.run.assert_called_once_with(transport="stdio")
+            mock_mcp.run.assert_called_once_with(transport="stdio", show_banner=False)
 
     def test_run_sse(self) -> None:
         """run_mcp_server sse must call mcp.run with host and port."""

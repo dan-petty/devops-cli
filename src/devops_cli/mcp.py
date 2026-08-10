@@ -277,4 +277,6 @@ def run_mcp_server(transport: str = "stdio", host: str = "127.0.0.1", port: int 
     if transport == "sse":
         mcp.run(transport="sse", host=host, port=port)
     else:
-        mcp.run(transport="stdio")
+        # show_banner=False prevents the ASCII banner from writing to stdout,
+        # which would corrupt the JSON-RPC stream for stdio MCP clients.
+        mcp.run(transport="stdio", show_banner=False)
