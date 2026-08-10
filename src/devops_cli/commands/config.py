@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -14,10 +16,12 @@ from rich.table import Table
 
 from devops_cli.config import options as opt
 from devops_cli.config.constants import CONST_CONFIG_PATH
-from devops_cli.config.env import env_var_for_option
+from devops_cli.config.defaults import DEFAULT_GH_AUTH_TIMEOUT_SECONDS
+from devops_cli.config.env import EnvVarSpec, env_var_for_option, get_all_env_var_specs
 from devops_cli.config.settings import (
     _SECRET_FIELDS,
     SecretStorageError,
+    Settings,
     dotted_get,
     dotted_set,
     get_ai_api_key,
@@ -47,7 +51,7 @@ def _gh_auth_status() -> bool:
             capture_output=True,
             text=True,
             check=False,
-            timeout=20,
+            timeout=DEFAULT_GH_AUTH_TIMEOUT_SECONDS,
         )
     except OSError, subprocess.SubprocessError:
         return False
@@ -61,7 +65,7 @@ def _gh_auth_token() -> str | None:
             capture_output=True,
             text=True,
             check=False,
-            timeout=20,
+            timeout=DEFAULT_GH_AUTH_TIMEOUT_SECONDS,
         )
     except OSError, subprocess.SubprocessError:
         return None
@@ -238,3 +242,110 @@ def init() -> None:
     save_settings(settings)
     console.print("\n[bold green]Configuration saved![/bold green]")
     console.print(f"Config file: [dim]{CONST_CONFIG_PATH}[/dim]")
+
+
+def _resolve_env_spec_value(spec: EnvVarSpec, settings: Settings) -> tuple[object, bool]:
+    """Return (value, is_from_env) for an environment variable specification."""
+    env_val = os.environ.get(spec.env_var)
+    if env_val is not None:
+        return env_val, True
+
+    if spec.option_key is None:
+        return None, False
+
+    if spec.is_secret:
+        if spec.option_key == opt.GITHUB_TOKEN:
+            return get_github_token(settings), False
+        if spec.option_key == opt.GRAFANA_TOKEN:
+            return get_grafana_token(settings), False
+        if spec.option_key == opt.ARGOCD_TOKEN:
+            return get_argocd_token(settings), False
+        if spec.option_key == opt.AI_API_KEY:
+            return get_ai_api_key(settings), False
+        return None, False
+
+    try:
+        val: object = dotted_get(settings, spec.option_key)
+        return val, False
+    except AttributeError:
+        return None, False
+
+
+@app.command("output")
+@app.command("env")
+@app.command("env-vars")
+def output_env_vars(
+    export: Annotated[
+        bool,
+        typer.Option(
+            "--export",
+            "-e",
+            help="Print environment variables as shell export statements.",
+        ),
+    ] = False,
+    json_output: Annotated[
+        bool,
+        typer.Option(
+            "--json",
+            "-j",
+            help="Print environment variables as JSON.",
+        ),
+    ] = False,
+) -> None:
+    """Output environment variables available for devops-cli configuration."""
+    settings = load_settings()
+    specs = get_all_env_var_specs()
+
+    if json_output:
+        data = []
+        for spec in specs:
+            val, is_from_env = _resolve_env_spec_value(spec, settings)
+            display_val = (
+                "****" if (spec.is_secret and val) else (str(val) if val is not None else None)
+            )
+            data.append(
+                {
+                    "env_var": spec.env_var,
+                    "option_key": spec.option_key,
+                    "value": display_val,
+                    "is_secret": spec.is_secret,
+                    "from_env": is_from_env,
+                    "description": spec.description,
+                }
+            )
+        console.print(json.dumps(data, indent=2))
+        return
+
+    if export:
+        console.print("# devops-cli environment variables export")
+        for spec in specs:
+            val, _ = _resolve_env_spec_value(spec, settings)
+            if spec.is_secret:
+                console.print(f'# export {spec.env_var}="****"  # secret (stored in OS keyring)')
+            elif val is not None:
+                console.print(f'export {spec.env_var}="{val}"')
+            else:
+                console.print(f'# export {spec.env_var}=""  # {spec.description}')
+        return
+
+    table = Table(title="devops-cli environment variables", show_header=True, header_style="bold")
+    table.add_column("Environment Variable", style="bold cyan", no_wrap=True)
+    table.add_column("Config Key", style="dim", no_wrap=True)
+    table.add_column("Current Value", overflow="fold")
+    table.add_column("Description", overflow="fold")
+
+    for spec in specs:
+        val, is_from_env = _resolve_env_spec_value(spec, settings)
+        key_display = spec.option_key if spec.option_key else "[dim](config file)[/dim]"
+        if spec.is_secret:
+            val_display = "[green]set (****)[/green]" if val else "[dim]not set[/dim]"
+        elif is_from_env:
+            val_display = f"[bold yellow]{val}[/bold yellow] [cyan](via env)[/cyan]"
+        elif val is not None:
+            val_display = str(val)
+        else:
+            val_display = "[dim]not set[/dim]"
+
+        table.add_row(spec.env_var, key_display, val_display, spec.description)
+
+    console.print(table)
