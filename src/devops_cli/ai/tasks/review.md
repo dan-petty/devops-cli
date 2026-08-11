@@ -1,7 +1,8 @@
 ## Universal Review Protocol
 Perform a structured code review adhering to these rules:
 - **Validation & Precision**: Confirm findings exist in visible code. State exact file paths, line ranges, specific functions, libraries, and config keys.
-- **Language & Runtime Standards**: Inspect for language-appropriate syntax compatibility, target runtime features, and unhandled import or compilation errors. Respect target runtime capabilities specified in project configuration (`AGENTS.md`, `README.md`, or package manifests).
+- **Language & Runtime Standards**: Inspect for language-appropriate syntax compatibility, target runtime features, and unhandled import or compilation errors. For Python, verify multiple exceptions in `except` clauses strictly use parenthesized tuples (e.g. `except (Err1, Err2):`).
+- **Input & Argument Injection Safety**: Verify user/agent-controlled arguments passed to subprocesses, shell commands, or CLI tools cannot inject extra flags (e.g. validate leading hyphens `-` or use `--` delimiters).
 - **Secret Redaction Compliance**: Input code/diffs may contain automated pre-submission secret redaction placeholders (e.g., `<masked-*>`, `[REDACTED]`, or environment masking placeholders). Treat these as intentional automated redactions; do NOT flag placeholder strings as hardcoded plain-text credentials.
 - **Project Policies & Architectural Design**: Evaluate security and architectural controls against documented project conventions (`AGENTS.md` or `README.md`). Do NOT flag intentional opt-in configurations, documented architectural trade-offs, or explicit environment overrides as unmitigated vulnerabilities.
 - **Resource & Process Safety**: Ensure all non-interactive subprocess executions, network requests, and external tool invocations specify explicit timeout parameters and error handling guards.

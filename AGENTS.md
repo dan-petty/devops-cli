@@ -1,102 +1,90 @@
-# devops-cli — Agent Instructions
+# AGENTS.md — AI Agent Instructions for devops-cli
 
-> **Canonical source.** This file is the single source of truth for AI coding agent
-> instructions in this repo. [CLAUDE.md](./CLAUDE.md) and
-> [.github/copilot-instructions.md](./.github/copilot-instructions.md) are thin pointers
-> to this file, kept only because their tools look for those specific filenames. Edit
-> this file (or regenerate via `devops ai agents`), not the pointer files.
+This document provides structured context and operational instructions for AI coding assistants (GitHub Copilot, Claude, Cursor, etc.) working within the `devops-cli` repository.
 
-## Project
-**devops-cli** — DevOps CLI for managing repos, SSH keys, Kubernetes, and more
+## 1. Project Purpose & Overview
+`devops-cli` is a high-reliability workstation automation tool designed for DevOps Engineers. It functions as both an infrastructure management engine (Git, Kubernetes, SSH, Docker) and an **Agentic LLM Code Reviewer**. It integrates multi-persona AI reviews with secure secret handling via OS Keyring and active SSRF/network egress protections.
 
-- Language: Python >=3.14
-- Entry point: `devops`
-- Virtual environment: `.venv/` (managed by `uv`)
+- **Primary Language**: Python 3.14+
+- **Core Runtime**: Linux (via VS Code Dev Containers, `python:3.14-trixie`)
+- **Key Paradigm**: Agentic Workflow & Multi-Persona Analysis
 
-## Environment & Modernization Policy
-- This project is built to run **only inside the provided dev container** on a local
-  DevOps Engineer's workstation — it is not intended for bare-metal installs, shared
-  servers, or as a base image for other services.
-- Tracking the **latest Python release, latest container base images, and latest
-  dependency versions** is intentional, not an oversight. The dev container is rebuilt
-  routinely, so staying current avoids accumulating upgrade debt and reduces exposure
-  to unpatched legacy CVEs.
-- This is safe specifically because of the test/lint/format/typecheck suite: `devops ci`
-  is the guardrail that catches breakage from modernization before it merges. Treat a
-  failing `devops ci` after a version bump as a signal to fix the break, not to pin
-  backwards.
-- When bumping Python, base images, or dependencies: update the version, run
-  `devops ci`, and resolve any failures it surfaces before merging.
+## 2. Environment & Modernization Policy
+- **Modernization Intent**: This project intentionally tracks the bleeding edge of the Python ecosystem (e.g., Python 3.14, `httpx2`, `pydantic v2`). Do not suggest downgrading dependencies unless a critical regression is identified.
+- **Safety Net**: The `devops ci` command and GitHub Actions serve as the authoritative gate for all changes.
+- **Dependency Management**: Use `uv` for all Python environment operations. 
+  - Command: `uv sync` (to synchronize the lockfile).
 
-## Build & Test Commands
-```bash
-uv sync                        # install / sync dependencies
-devops ci                      # run all checks (test + lint + format + typecheck)
-devops ci test [-v] [-k expr]  # pytest
-devops ci lint [--fix]         # ruff check
-devops ci format [--fix]       # ruff format
-devops ci typecheck            # mypy (strict)
-```
+## 3. Architecture & Project Structure
+The project follows a modular, command-driven architecture.
 
-## Code Conventions
-- Python 3.14+, strict mypy, ruff (E/F/I/N/W/UP rules), 100-char line limit
-- 4-space indent for Python; 2-space for JSON/YAML/TOML/shell
-- LF line endings, trim trailing whitespace, final newline
-- Type annotations on all public functions; `from __future__ import annotations`
-- Import `Callable` from `collections.abc`, not `typing`
-- Use `httpx2` (not `httpx`) for HTTP — `import httpx2`
-- Exception handling catching multiple exception types must always use explicit parenthesized tuples (e.g. `except (Error1, Error2):`), never Python 2 comma syntax
-- Secrets stored in OS keyring via `keyring`; never in config files or env vars
-- Automatically add non-instructional, reference-backed design justification comments
-  (`# NOTE (Design Justification - <REF>): ...`) for all invalidated findings or
-  intentional design trade-offs directly above target code constructs. Routinely update all
-  documentation (`AGENTS.md`, `README.md`, `CLAUDE.md`, `.github/copilot-instructions.md`)
-  whenever code, architecture, or prompt conventions evolve.
+### Key File Paths
+- `src/devops_cli/main.py`: CLI Entry point (Click/Typer implementation).
+- `src/devost_cli/ai/`: Core logic for LLM integration and agent orchestration.
+- `src/devops_cli/commands/`: Implementation of all subcommands (`repos`, `ssh`, `k8s`).
+- `src/devops_cli/crypto/`: Logic for SSH key generation and `keyring` interactions.
+- `src/devops_cli/http/`: Secure network requests with SSRF mitigation logic.
+- `tests/`: Comprehensive test suite (unit, integration, security).
+- `k8s/`: Kubernetes manifests and Kustomize overlays.
+- `.data/`: Local state, logs, and review history (Persistent volume in DevContainer).
 
-## Architecture
-```
-src/devops_cli/
-  main.py              # Typer app entrypoint and command group registration
-  mcp.py               # FastMCP server for LLM tools & DevOps automation
-  ai/                  # Unified LLM client, reviewer personas, prompt tasks, agent tools
-  commands/            # CLI subcommands (ai, argo, config, k8s, repos, review, ssh, etc.)
-  config/              # Pydantic Settings, keyring integration, env vars, defaults
-  core/                # Shared CLI utilities, repo path resolution, dry-run state
-  crypto/              # Ed25519 SSH key pair generation, rotation, and validation
-  git/                 # Git operations, cloning, branch detection, known_hosts
-  github/              # PyGithub & httpx2 wrapper, SSH key registration
-  http/                # Egress network validation and SSRF mitigation guards
-  lang/                # i18n string catalog (en.py) and Pydantic message schemas
-  models/              # Pydantic domain models for AI, K8s, Argo, Grafana, GitHub
-  templates/           # Jinja2 templates for devcontainer scaffolding
-tests/                 # pytest unit test suite (169+ tests passing)
-```
+### Design Patterns
+- **Multi-Persona Agentic Review**: Uses specialized personas (`devsecops`, `architect`, `pm`, `auditor`, `qa`) to analyze code diffs.
+- **Zero-Plaintext Secret Policy**: All sensitive tokens (GitHub, Grafana, OpenAI) must be retrieved via `keyring`. Never suggest storing strings in `config.yaml`.
+- **Network Guardrails**: Network requests must utilize the internal `http` module logic that validates target IPs to prevent SSRF.
 
-## AI Features (`devops ai`, `devops ai review`)
-- `devops ai config --provider <ollama|claude|copilot|openai>`
-- `devops ai test` — verify LLM connectivity
-- `devops ai agents` — (re)generate this file and siblings
-- `devops ai review branch [<branch>] [--base main] [--persona <p>] [--all]`
-  (alias: `devops review branch`)
-- `devops ai review pr <number> [--post]` — review GitHub PRs; optionally post as comment
-- `devops ai review path [<target>] [--pattern <glob>] [--persona <p>] [--all]`
-  (alias: `devops review path`)
-- Personas: `devsecops` · `architect` · `pm` · `auditor` · `qa`
-- All `devops ai review` commands load this file (AGENTS.md) from the target repo and
-  inject it into the reviewer's system prompt, so findings must defer to conventions
-  and policies documented here rather than flag them as issues.
+## 4. Development Workflow
 
-## Security Notes
-- SSH private keys: `~/.ssh/id_ed25519-<YYYYMMM>` pattern; rotated every 90 days
-- GitHub / Grafana / ArgoCD tokens stored in OS keyring only
-- All HTTP clients use `httpx2` with explicit timeouts
-- No credentials in config YAML or source files
-- `devops_cli.ai.client.LLMClient` validates Ollama/Claude/OpenAI-compatible base URLs
-  and refuses private/loopback/link-local targets unless
-  `DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true` is set — this mitigates SSRF via
-  attacker- or config-controlled endpoints; do not flag this as unmitigated SSRF risk
-- `.devcontainer/devcontainer.json` bind-mounts the host's `~/.ssh` into the container
-  by design — this CLI's core purpose includes generating, rotating, and registering
-  SSH keys, which requires direct access to the real key material. This is an accepted,
-  intentional risk of the local-workstation-only usage model; do not recommend SSH
-  agent forwarding as a required fix
+### Build & Test Commands
+| Task | Command | Note |
+| :--- | :--- | :--- |
+| **Install Deps** | `uv sync` | Updates `.venv` based on `uv.lock`. |
+| **Linting** | `ruff check .` | Uses RUFf for linting and import sorting. |
+| **Formatting** | `ruff format .` | Ensures compliance with project style. |
+| **Type Checking** | `mypy src` | Runs in `strict` mode. |
+| **Unit Testing** | `pytest` | Executes the full test suite. |
+| **CI Gate** | `devops ci` | Executes the local quality gate (lint + typecheck + test). |
+
+### Code Conventions
+- **Style**: PEP 8 compliant; Line length strictly **100 characters** (per `ruff` config).
+- **Typing**: Mandatory type hints for all function signatures. `mypy --strict` is the standard.
+- **Imports**: Grouped and sorted via `ruff`. No unused imports.
+- **Error Handling**: All network requests (`httpx`) and subprocess calls must implement explicit timeouts (e.g., 30s) and robust error handling/retries.
+- **Documentation**: Use docstrings for all public functions in `src/devops_cli/`.
+
+## 5. AI Feature Commands & Personas
+
+### Agentic Review Personas
+When generating or modifying prompts, adhere to these specialized roles:
+- `devsecops`: Focus on vulnerabilities, secret leaks, and IAM permissions.
+- `architect`: Focus on scalability, SOLID principles, and system coupling.
+- `pm`: Focus on feature completeness and requirement alignment.
+- `auditor`: Focus on compliance, logging, and traceability.
+- `qa`: Focus on edge cases, regression, and test coverage.
+
+### AI Commands for Agents
+Use these when simulating or testing CLI behavior:
+- `devops ai review branch <name>`: Analyzes git diffs against base.
+- `devops ai review findings <session>`: Inspects structured JSON results in `.data/reviews`.
+- `devops ai test`: Validates LLM connectivity and provider configuration.
+
+## 6. Security & Compliance Notes
+- **Secret Redaction**: Never log or print actual token values. Use placeholders like `<masked-token>`.
+- **SSRF Mitigation**: When implementing new network features, ensure they are subject to the `validate_service_url` check.
+- **SSH Management**: All SSH key operations must use ED25519 and be stored in the user's managed `.ssh` directory via provided utility functions.
+- **Subprocess Safety**: Any `subprocess.run` or similar execution must specify `timeout` and `check=True`. Do not allow unconstrained shell execution.
+
+## 7. Target Repository Scope & Boundary Policy
+- **Target Repository Execution**: The tools under `src/` (`devops ai review`, `devops ai analyze`, `devops ai agents`, etc.) are designed to be executed by developers and engineers on **any cloned repository under the `repos/` directory or local workspace target**, not exclusively on the `devops-cli` project itself.
+- **Target-Agnostic Heuristics**: All AI reviewer persona prompts, static analysis heuristics, task templates, and code review rules MUST remain target-agnostic and generic. They must evaluate target repos based on their own documented conventions (`AGENTS.md` / `README.md`) rather than coupling to `devops-cli` internal filenames.
+
+## 8. Feedback, Verification & Code Improvement Loop
+- **`devops ai` Usage Guardrail**: Avoid running `devops ai [review|analyze]` commands as this could interfere with active sessions on the backend. Use the `--dry-run` flag to test the command without affecting active sessions.
+- **Finding Verification Pipeline**: Step 3 verification (`_validate_segment_findings`) automatically cross-references reported findings against visible source code and verifies status (`VERIFIED`, `UNVERIFIED`, `MITIGATED`).
+- **Finding Inspection & Resolution**: Use `devops ai review findings <session>` to inspect structured JSON findings in `.data/reviews/`. Resolve all verified critical/high findings in the codebase before completing reviews.
+- **Verification Override**: Use `devops ai review verify <session> --index <N> --status INVALIDATED --reason "<reason>"` for manual human review overrides.
+
+## 9. Troubleshooting for Agents
+- If a test fails with `ImportError`, ensure `uv sync` has been run.
+- If an AI review fails to find files, check `.gitignore` and the `path` argument in `devops ai review path`.
+- If network requests to local services fail, check if `DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true` is required.
