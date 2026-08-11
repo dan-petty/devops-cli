@@ -1,70 +1,96 @@
-# AGENTS.md — AI Agent Instructions for devops-cli
+# devops-cli — Agent Instructions
 
-This document provides structural context, operational constraints, and architectural patterns for AI coding assistants (GitHub Copilot, Claude, Cursor, etc.) working on the `devops-cli` repository.
+> **Canonical source.** This file is the single source of truth for AI coding agent
+> instructions in this repo. [CLAUDE.md](./CLAUDE.md) and
+> [.github/copilot-instructions.md](./.github/copilot-instructions.md) are thin pointers
+> to this file, kept only because their tools look for those specific filenames. Edit
+> this file (or regenerate via `devops ai agents`), not the pointer files.
 
-## 1. Project Essence
-**Purpose**: `devops-cli` is an advanced workstation automation tool designed for DevOps Engineers. It provides a unified interface for managing multi-repo Git workflows, Kubernetes/ArgoCD clusters, SSH key lifecycles, and integrating **Agentic LLM Code Reviews**.
-- **Primary Language**: Python 3.14+ (Targeting the latest stable/pre-release features).
-- **Entry Point**: `devops` (via `src/devops_cli/main.py`).
-- **Environment Manager**: `uv` (Standard for dependency resolution and virtual environments).
-- **Runtime Environment**: Primarily designed to run within a VS Code Dev Container (`.devcontainer/`).
+## Project
+**devops-cli** — DevOps CLI for managing repos, SSH keys, Kubernetes, and more
 
-## s2. Environment & Modernization Policy
-**Strict Adherence Required**:
-- **Intentionality**: This project uses cutting-edge dependencies (e.g., Python 3.14, `httpx2`, `fastmcp`). Do **NOT** suggest downgrading dependencies to "stable" versions unless a specific breakage is identified.
-- **The Source of Truth**: The `pyproject.toml` and `uv.lock` files are the authoritative definitions for the runtime environment. 
-- **Quality Gate**: Any change that breaks `devops ci` (the internal quality check command) must be reverted.
+- Language: Python >=3.14
+- Entry point: `devops`
+- Virtual environment: `.venv/` (managed by `uv`)
 
-## 3. Developer Workflow & Commands
-Use these commands to validate changes:
-- **Setup/Sync**: `uv sync` (Always run after modifying `pyproject.toml`).
-- **Linting**: `ruff check .` (Enforces PEP8, Import sorting, and Modern Python upgrades).
-- **Formatting**: `ruff format .` (Standardizes code style).
+## Environment & Modernization Policy
+- This project is built to run **only inside the provided dev container** on a local
+  DevOps Engineer's workstation — it is not intended for bare-metal installs, shared
+  servers, or as a base image for other services.
+- Tracking the **latest Python release, latest container base images, and latest
+  dependency versions** is intentional, not an oversight. The dev container is rebuilt
+  routinely, so staying current avoids accumulating upgrade debt and reduces exposure
+  to unpatched legacy CVEs.
+- This is safe specifically because of the test/lint/format/typecheck suite: `devops ci`
+  is the guardrail that catches breakage from modernization before it merges. Treat a
+  failing `devops ci` after a version bump as a signal to fix the break, not to pin
+  backwards.
+- When bumping Python, base images, or dependencies: update the version, run
+  `devops ci`, and resolve any failures it surfaces before merging.
 
-- **Type Checking**: `mypy src` (Strict mode enabled; all type hints must be accurate).
-- **Testing**: `pytest` (Run the full suite).
-- **Integration Check**: `devops ci` (Executes a holistic check of lints, types, and core tests).
-
-## 4. Code Conventions & Standards
-- **Python Syntax**: Use Python 3.14+ features. Specifically, use parenthesized exception tuples `except (E1, E2):`.
-- **Line Length**: Maximum **100 characters** (defined in `ruff` and `.devcontainer`).
-- **String Formatting**: Prefer f-strings for all interpolation.
-- **Imports**: Use absolute imports from `src.devops_cli`. Follow `ruff`'s `I` (Isort) rules.
-- **HTTP Operations**: Use `httpx` for all network requests. Ensure all subprocess calls include an explicit `timeout` parameter (`DEFAULT_SUBPROCESS_TIMEOUT_SECONDS`).
-- **Secret Management**: 
-    - **NEVER** hardcode tokens, keys, or passwords in source code.
-    - **ALWAYS** use the `keyring` integration for sensitive data (e.g., `github.token`, `ai.api_key`).
-    - Use `.env` only for non-sensitive configuration overrides.
-
-## 5. Architecture Overview
-The project follows a modular command-pattern architecture:
-
-```text
-src/devops_cli/
-├── ai/             # Agentic LLM logic (LLM providers, prompt templates)
-├── commands/       # CLI Subcommand implementations (Click/Typer)
-├── config/         # Configuration management (YAML, Keyring integration)
-├── core/           # Shared business logic and orchestration
-├── crypto/         # SSH key generation and Ed25519 management
-├── github/         # GitHub API integrations (PRs, Repos, Users)
-├── http/           # Network utilities & SSRF mitigation logic
-├── models/         # Pydantic schemas for data validation
-└── mcp.py          # Model Context Protocol implementation
+## Build & Test Commands
+```bash
+uv sync                        # install / sync dependencies
+devops ci                      # run all checks (test + lint + format + typecheck)
+devops ci test [-v] [-k expr]  # pytest
+devops ci lint [--fix]         # ruff check
+devops ci format [--fix]       # ruff format
+devops ci typecheck            # mypy (strict)
 ```
 
-**Data Persistence**:
-- `.data/reviews/`: Stores structured AI review findings and session metadata.
-- `.data/logs/`: Stores execution logs for auditing and debugging.
+## Code Conventions
+- Python 3.14+, strict mypy, ruff (E/F/I/N/W/UP rules), 100-char line limit
+- 4-space indent for Python; 2-space for JSON/YAML/TOML/shell
+- LF line endings, trim trailing whitespace, final newline
+- Type annotations on all public functions; `from __future__ import annotations`
+- Import `Callable` from `collections.abc`, not `typing`
+- Use `httpx2` (not `httpx`) for HTTP — `import httpx2`
+- Secrets stored in OS keyring via `keyring`; never in config files or env vars
+- Automatically add non-instructional, reference-backed design justification comments
+  (`# NOTE (Design Justification - <REF>): ...`) for all invalidated findings or
+  intentional design trade-offs directly above target code constructs. Routinely update all
+  documentation (`AGENTS.md`, `README.md`, `CLAUDE.md`, `.github/copilot-instructions.md`)
+  whenever code, architecture, or prompt conventions evolve.
 
-## 6. AI Feature Commands & Personas
-When generating or modifying code related to `devops review`, respect the multi-persona paradigm:
-- **Available Personas**: `devsecops` (Security), `architect` (Design), `pm` (Product/Logic), `auditor` (Compliance), `qa` (Testing).
-- **Key AI Workflows**:
-    - `devops review branch`: Analyzing diffs.
-    - `devops review verify`: The human-in-the-loop mechanism to validate findings.
-    - `devops ai agents`: Command used to regenerate the instructions found in this file and other agent configuration files.
+## Architecture
+```
+src/devops_cli/
+  main.py              # Typer app, command registration
+  config.py            # Pydantic Settings, keyring helpers
+  commands/            # One file per command group
+  ai/
+    client.py          # Unified LLM client (Ollama / Claude / OpenAI-compat)
+    personas.py        # Reviewer persona definitions (DevSecOps, Architect, PM, Auditor, QA)
+  github/client.py     # PyGithub + httpx2 wrapper
+  git/operations.py    # GitPython helpers
+  crypto/ssh_keys.py   # SSH key generation / rotation
+  templates/           # Jinja2 templates for devcontainer scaffolding
+tests/                 # pytest, pytest-asyncio, pytest-mock
+```
 
-## 7. Security & Network Integrity
-- **SSRF Protection**: The `LLMClient` and `validate_service_url()` functions implement a strict egress policy. They refuse connections to private/loopback IP ranges (e.g., `127.0.0.1`, `169.254.x.x`) unless the explicit override `DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true` is present in the environment.
-- **Identity**: SSH keys are managed and rotated via the `ssh` command group; do not modify `.ssh` logic without updating the `crypto` module test suite.
-- **Credential Exposure**: Do not flag `<masked-*>` placeholders as leaks; these are intentional redactions by our deployment pipeline.
+## AI Features (`devops ai`, `devops review`)
+- `devops ai config --provider <ollama|claude|copilot|openai>`
+- `devops ai test` — verify LLM connectivity
+- `devops ai agents` — (re)generate this file and siblings
+- `devops review branch [<branch>] [--base main] [--persona <p>] [--all]`
+- `devops review pr <number> [--post]` — review GitHub PRs; optionally post as comment
+- `devops review path [<target>] [--pattern <glob>] [--persona <p>] [--all]`
+- Personas: `devsecops` · `architect` · `pm` · `auditor` · `qa`
+- All `devops review` commands load this file (AGENTS.md) from the target repo and
+  inject it into the reviewer's system prompt, so findings must defer to conventions
+  and policies documented here rather than flag them as issues.
+
+## Security Notes
+- SSH private keys: `~/.ssh/id_ed25519-<YYYYMMM>` pattern; rotated every 90 days
+- GitHub / Grafana / ArgoCD tokens stored in OS keyring only
+- All HTTP clients use `httpx2` with explicit timeouts
+- No credentials in config YAML or source files
+- `devops_cli.ai.client.LLMClient` validates Ollama/Claude/OpenAI-compatible base URLs
+  and refuses private/loopback/link-local targets unless
+  `DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true` is set — this mitigates SSRF via
+  attacker- or config-controlled endpoints; do not flag this as unmitigated SSRF risk
+- `.devcontainer/devcontainer.json` bind-mounts the host's `~/.ssh` into the container
+  by design — this CLI's core purpose includes generating, rotating, and registering
+  SSH keys, which requires direct access to the real key material. This is an accepted,
+  intentional risk of the local-workstation-only usage model; do not recommend SSH
+  agent forwarding as a required fix

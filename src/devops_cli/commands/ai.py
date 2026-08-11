@@ -52,10 +52,12 @@ The file MUST include:
 - An "Environment & Modernization Policy" section (latest Python/images/deps is
   intentional; `devops ci` is the safety net)
 - Exact build/test/lint/format/typecheck commands
-- Code conventions (line length, import style, HTTP library, secrets storage)
+- Code conventions (line length, import style, HTTP library, secrets storage,
+  non-instructional design justification comments for invalidated findings)
 - Architecture overview with key file paths
 - AI feature commands (`devops ai`, `devops review`) and persona names
-- Security notes covering SSH keys, tokens, SSRF mitigations, and accepted risks
+- Security notes covering SSH keys, tokens, SSRF mitigations, accepted risks,
+  and routine maintenance of all project documentation and references
 """
 
 
@@ -225,6 +227,11 @@ devops ci typecheck            # mypy (strict)
 - Import `Callable` from `collections.abc`, not `typing`
 - Use `httpx2` (not `httpx`) for HTTP — `import httpx2`
 - Secrets stored in OS keyring via `keyring`; never in config files or env vars
+- Automatically add non-instructional, reference-backed design justification comments
+  (`# NOTE (Design Justification - <REF>): ...`) for all invalidated findings or
+  intentional design trade-offs directly above target code constructs. Routinely update all
+  documentation (`AGENTS.md`, `README.md`, `CLAUDE.md`, `.github/copilot-instructions.md`)
+  whenever code, architecture, or prompt conventions evolve.
 
 ## Architecture
 ```
