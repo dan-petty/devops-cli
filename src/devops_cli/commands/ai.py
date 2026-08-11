@@ -322,6 +322,10 @@ def config(
         str | None,
         typer.Option("--api-key", help="API key — stored in OS keyring, not config file"),
     ] = None,
+    max_retries: Annotated[
+        int | None,
+        typer.Option("--max-retries", help="Maximum retry count for AI requests upon failure"),
+    ] = None,
 ) -> None:
     """Show or update AI provider configuration."""
     from devops_cli.config.settings import (
@@ -332,7 +336,7 @@ def config(
 
     settings = load_settings()
 
-    if not any([provider, model, ollama_urls, api_base_url, api_key]):
+    if not any([provider, model, ollama_urls, api_base_url, api_key, max_retries is not None]):
         ai = settings.ai
         current_key = get_ai_api_key(settings)
         table = Table(title="AI Configuration")
@@ -344,6 +348,7 @@ def config(
         table.add_row("api_base_url", ai.api_base_url or "(default)")
         key_display = "[green]***set***[/green]" if current_key else "[dim](not set)[/dim]"
         table.add_row("api_key", key_display)
+        table.add_row("max_retries", str(ai.max_retries))
         console.print(table)
         return
 
@@ -358,6 +363,8 @@ def config(
         settings.ai.ollama_urls = [u.strip() for u in ollama_urls.split(",") if u.strip()]
     if api_base_url:
         settings.ai.api_base_url = api_base_url
+    if max_retries is not None:
+        settings.ai.max_retries = max_retries
     if api_key:
         try:
             dotted_set(settings, AI_API_KEY, api_key)

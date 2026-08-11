@@ -25,6 +25,7 @@ ENV_AI_OLLAMA_URLS = "DEVOPS_CLI_AI_OLLAMA_URLS"
 ENV_AI_API_BASE_URL = "DEVOPS_CLI_AI_API_BASE_URL"
 ENV_AI_API_KEY = "DEVOPS_CLI_AI_API_KEY"
 ENV_AI_ALLOW_PRIVATE_NETWORK = "DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK"
+ENV_AI_MAX_RETRIES = "DEVOPS_CLI_AI_MAX_RETRIES"
 
 ENV_AI_TASK_CHAT_PROVIDER = "DEVOPS_CLI_AI_TASK_CHAT_PROVIDER"
 ENV_AI_TASK_CHAT_MODEL = "DEVOPS_CLI_AI_TASK_CHAT_MODEL"
@@ -57,6 +58,7 @@ OPTION_TO_ENV_VAR: dict[str, str] = {
     opt.AI_API_BASE_URL: ENV_AI_API_BASE_URL,
     opt.AI_API_KEY: ENV_AI_API_KEY,
     opt.AI_ALLOW_PRIVATE_NETWORK: ENV_AI_ALLOW_PRIVATE_NETWORK,
+    opt.AI_MAX_RETRIES: ENV_AI_MAX_RETRIES,
     opt.AI_TASK_CHAT_PROVIDER: ENV_AI_TASK_CHAT_PROVIDER,
     opt.AI_TASK_CHAT_MODEL: ENV_AI_TASK_CHAT_MODEL,
     opt.AI_TASK_CHAT_OLLAMA_URLS: ENV_AI_TASK_CHAT_OLLAMA_URLS,
@@ -214,6 +216,12 @@ def get_all_env_var_specs() -> list[EnvVarSpec]:
             opt.AI_ALLOW_PRIVATE_NETWORK,
             False,
             "Permit private-IP network targets",
+        ),
+        EnvVarSpec(
+            ENV_AI_MAX_RETRIES,
+            opt.AI_MAX_RETRIES,
+            False,
+            "Maximum retry count for AI requests upon response validation failure",
         ),
         EnvVarSpec(
             ENV_AI_TASK_CHAT_PROVIDER,

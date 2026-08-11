@@ -19,6 +19,7 @@ AI_OLLAMA_URLS = "ai.ollama_urls"
 AI_API_BASE_URL = "ai.api_base_url"
 AI_API_KEY = "ai.api_key"
 AI_ALLOW_PRIVATE_NETWORK = "ai.allow_private_network"
+AI_MAX_RETRIES = "ai.max_retries"
 
 # Per-task model overrides (each falls back to the base ai.* values if unset)
 AI_TASK_CHAT_PROVIDER = "ai.tasks.chat.provider"
@@ -52,6 +53,7 @@ CONFIG_OPTIONS: tuple[str, ...] = (
     AI_API_BASE_URL,
     AI_API_KEY,
     AI_ALLOW_PRIVATE_NETWORK,
+    AI_MAX_RETRIES,
     AI_TASK_CHAT_PROVIDER,
     AI_TASK_CHAT_MODEL,
     AI_TASK_CHAT_OLLAMA_URLS,

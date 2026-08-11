@@ -172,7 +172,14 @@ def test_run_review_three_steps_combines_segments() -> None:
     calls: list[str] = []
 
     class DummyClient:
-        def chat(self, system: str, user: str, *, enable_thinking: bool = True) -> str:
+        def chat(
+            self,
+            system: str,
+            user: str,
+            *,
+            enable_thinking: bool = True,
+            **kwargs: object,
+        ) -> str:
             calls.append(user)
             if "Per-segment review outputs" in user:
                 return "final recomposed review"
@@ -201,7 +208,14 @@ def test_run_review_never_sends_empty_user_prompt() -> None:
     calls: list[str] = []
 
     class DummyClient:
-        def chat(self, system: str, user: str, *, enable_thinking: bool = True) -> str:
+        def chat(
+            self,
+            system: str,
+            user: str,
+            *,
+            enable_thinking: bool = True,
+            **kwargs: object,
+        ) -> str:
             calls.append(user)
             return "ok"
 
@@ -224,7 +238,14 @@ def test_run_review_metadata_includes_filenames() -> None:
     review_calls: list[str] = []
 
     class DummyClient:
-        def chat(self, system: str, user: str, *, enable_thinking: bool = True) -> str:
+        def chat(
+            self,
+            system: str,
+            user: str,
+            *,
+            enable_thinking: bool = True,
+            **kwargs: object,
+        ) -> str:
             if "Review metadata for all" in user:
                 review_calls.append(user)
             if "Per-segment review outputs" in user:
@@ -259,7 +280,14 @@ def test_run_review_dry_run_skips_client_calls(
     call_count = 0
 
     class DummyClient:
-        def chat(self, system: str, user: str, *, enable_thinking: bool = True) -> str:
+        def chat(
+            self,
+            system: str,
+            user: str,
+            *,
+            enable_thinking: bool = True,
+            **kwargs: object,
+        ) -> str:
             nonlocal call_count
             call_count += 1
             return "should-not-be-called"
@@ -285,7 +313,14 @@ def test_run_review_single_segment_skips_recompose() -> None:
     calls: list[str] = []
 
     class DummyClient:
-        def chat(self, system: str, user: str, *, enable_thinking: bool = True) -> str:
+        def chat(
+            self,
+            system: str,
+            user: str,
+            *,
+            enable_thinking: bool = True,
+            **kwargs: object,
+        ) -> str:
             calls.append(user)
             if "Be specific. Do not make recommendations." in user:
                 return "summary"

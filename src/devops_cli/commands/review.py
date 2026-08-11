@@ -1190,7 +1190,11 @@ def _run_review(
             seg_start = time.monotonic()
             proc_sec: float | None = None
             try:
-                res_obj = clients.analysis.chat(system=analysis_system, user=user_prompt)
+                res_obj = clients.analysis.chat(
+                    system=analysis_system,
+                    user=user_prompt,
+                    validator=lambda text: parse_review_result(text) is not None,
+                )
                 result_text = str(res_obj)
                 proc_sec = getattr(res_obj, "processing_seconds", None)
             except AIClientError as exc:
@@ -1324,7 +1328,13 @@ def _run_review(
         return _merge_segment_results(segment_results) or _fallback_join(non_empty)
     try:
         t4 = time.monotonic()
-        raw = str(clients.compose.chat(system=compose_system, user=recompose_prompt))
+        raw = str(
+            clients.compose.chat(
+                system=compose_system,
+                user=recompose_prompt,
+                validator=lambda text: parse_review_result(text) is not None,
+            )
+        )
         rprint(f"[dim]  ✓ {time.monotonic() - t4:.1f}s[/dim]")
         if not raw.strip():
             return _merge_segment_results(segment_results) or _fallback_join(non_empty)

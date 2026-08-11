@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from devops_cli.config.constants import CONST_REVIEW_TIMEOUT_SECONDS, CONST_URL_OLLAMA_LOCALHOST
+from devops_cli.config.constants import (
+    CONST_DEFAULT_AI_MAX_RETRIES,
+    CONST_REVIEW_TIMEOUT_SECONDS,
+    CONST_URL_OLLAMA_LOCALHOST,
+)
 
 # ── General Defaults ──────────────────────────────────────────────────────────
 DEFAULT_SSH_KEY_DIR = Path.home() / ".ssh"
@@ -14,6 +18,7 @@ DEFAULT_WORKSPACE_FILE = Path(".code-workspace")
 DEFAULT_AI_PROVIDER = "ollama"
 DEFAULT_AI_MODEL = "gemma4:26b"
 DEFAULT_OLLAMA_URLS: tuple[str, ...] = (CONST_URL_OLLAMA_LOCALHOST,)
+DEFAULT_AI_MAX_RETRIES: int = CONST_DEFAULT_AI_MAX_RETRIES
 DEFAULT_PYTHON_VERSION = "3.14"
 
 # NOTE (Design Justification - AGENTS.md §4 & README.md): High default timeouts are intentional

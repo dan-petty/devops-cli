@@ -16,7 +16,7 @@ import re
 import socket
 import threading
 import time
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
 from typing import Any
@@ -152,22 +152,36 @@ class LLMClient:
 
         return results
 
-    def chat(self, system: str, user: str, *, enable_thinking: bool = True) -> LLMResponse:
-        """Send a single-turn chat message and return the assistant reply."""
-        return self.chat_messages(
-            system,
-            [ChatMessage(role="user", content=user)],
-            enable_thinking=enable_thinking,
-        )
+    @staticmethod
+    def _validate_response_text(
+        content: str,
+        validator: Callable[[str], bool] | None = None,
+    ) -> bool:
+        """Quick and effective validation of AI response content."""
+        if not isinstance(content, str) or not content.strip():
+            return False
+        stripped = content.strip()
+        if stripped.startswith("{") and stripped.endswith("}"):
+            try:
+                data = json.loads(stripped)
+                if isinstance(data, dict) and ("error" in data or "error_code" in data):
+                    return False
+            except json.JSONDecodeError, TypeError, ValueError:
+                pass
+        if validator is not None:
+            try:
+                return bool(validator(content))
+            except Exception:
+                return False
+        return True
 
-    def chat_messages(
+    def _dispatch_messages(
         self,
         system: str,
         messages: list[ChatMessage],
         *,
         enable_thinking: bool = True,
     ) -> LLMResponse:
-        """Send a multi-turn conversation and return the assistant reply."""
         p = self._config.provider
         if p == "ollama":
             return self._ollama_messages(system, messages, enable_thinking=enable_thinking)
@@ -186,6 +200,58 @@ class LLMClient:
                 wall_seconds=res_openai.wall_seconds,
             )
         raise ValueError(f"Unknown provider: {p!r}. Choose: ollama, claude, copilot, openai")
+
+    def chat(
+        self,
+        system: str,
+        user: str,
+        *,
+        enable_thinking: bool = True,
+        validator: Callable[[str], bool] | None = None,
+        max_retries: int | None = None,
+    ) -> LLMResponse:
+        """Send a single-turn chat message and return the assistant reply."""
+        return self.chat_messages(
+            system,
+            [ChatMessage(role="user", content=user)],
+            enable_thinking=enable_thinking,
+            validator=validator,
+            max_retries=max_retries,
+        )
+
+    def chat_messages(
+        self,
+        system: str,
+        messages: list[ChatMessage],
+        *,
+        enable_thinking: bool = True,
+        validator: Callable[[str], bool] | None = None,
+        max_retries: int | None = None,
+    ) -> LLMResponse:
+        """Send a multi-turn chat request with response validation and retries."""
+        retries = max_retries if max_retries is not None else self._config.max_retries
+        attempts = max(1, retries + 1)
+        last_exc: Exception | None = None
+
+        for attempt in range(1, attempts + 1):
+            try:
+                res = self._dispatch_messages(system, messages, enable_thinking=enable_thinking)
+                if self._validate_response_text(res, validator):
+                    return res
+                last_exc = AIClientError(
+                    f"Response validation failed for model '{self._config.model}' "
+                    f"(attempt {attempt}/{attempts})."
+                )
+            except Exception as exc:
+                last_exc = exc
+            if attempt < attempts:
+                time.sleep(0.5 * attempt)
+
+        if isinstance(last_exc, AIClientError):
+            raise last_exc
+        if last_exc is not None:
+            raise self._connection_error(last_exc)
+        raise AIClientError("AI request failed with no valid response.")
 
     def chat_stream(
         self, system: str, user: str, *, enable_thinking: bool = True

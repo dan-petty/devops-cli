@@ -28,6 +28,7 @@ from devops_cli.config.constants import (
     CONST_PROJECT_CONFIG_FILENAME as PROJECT_CONFIG_FILENAME,
 )
 from devops_cli.config.defaults import (
+    DEFAULT_AI_MAX_RETRIES,
     DEFAULT_AI_MODEL,
     DEFAULT_AI_PROVIDER,
     DEFAULT_OLLAMA_URLS,
@@ -98,6 +99,7 @@ class AITaskOverride(BaseModel):
     model: str | None = None
     ollama_urls: list[str] | None = None
     api_base_url: str | None = None
+    max_retries: int | None = None
 
 
 class AITasksConfig(BaseModel):
@@ -115,6 +117,7 @@ class AIConfig(BaseModel):
     ollama_urls: list[str] = Field(default_factory=lambda: list(DEFAULT_OLLAMA_URLS))
     api_base_url: str | None = None
     allow_private_network: bool = False
+    max_retries: int = DEFAULT_AI_MAX_RETRIES
     tasks: AITasksConfig = AITasksConfig()
 
     @property
@@ -136,6 +139,7 @@ class AIConfig(BaseModel):
                 "model": override.model,
                 "ollama_urls": override.ollama_urls,
                 "api_base_url": override.api_base_url,
+                "max_retries": override.max_retries,
             }.items()
             if v is not None
         }
