@@ -25,6 +25,7 @@ def test_config_output_export_view() -> None:
     assert result.exit_code == 0
     assert "# devops-cli environment variables export" in result.stdout
     assert "export DEVOPS_CLI_" in result.stdout or "# export DEVOPS_CLI_" in result.stdout
+    assert '# export DEVOPS_CLI_GITHUB_TOKEN="****"' in result.stdout
 
 
 def test_config_output_json_view() -> None:
@@ -40,6 +41,10 @@ def test_config_output_json_view() -> None:
     ai_model_item = next(item for item in data if item["env_var"] == "DEVOPS_CLI_AI_MODEL")
     assert ai_model_item["option_key"] == "ai.model"
     assert ai_model_item["is_secret"] is False
+
+    github_token_item = next(item for item in data if item["env_var"] == "DEVOPS_CLI_GITHUB_TOKEN")
+    assert github_token_item["option_key"] == "github.token"
+    assert github_token_item["is_secret"] is True
 
 
 def test_config_env_aliases() -> None:

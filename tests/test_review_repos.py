@@ -4,16 +4,12 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import pytest
 from typer.testing import CliRunner
 
 from devops_cli.commands.review import _detect_base_branch, _is_allowed_review_boundary, app
 from devops_cli.config.settings import Settings
-
-if TYPE_CHECKING:
-    pass
 
 
 @pytest.fixture
