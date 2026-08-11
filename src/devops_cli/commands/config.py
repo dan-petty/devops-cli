@@ -91,6 +91,8 @@ def show() -> None:
     def _row(key: str, value: object, secret: bool = False) -> None:
         if secret:
             display = "[green]set (****)[/green]" if value else "[dim]not set[/dim]"
+        elif isinstance(value, list):
+            display = ", ".join(str(v) for v in value) if value else "[dim]not set[/dim]"
         else:
             display = str(value) if value is not None else "[dim]not set[/dim]"
         table.add_row(key, display)
@@ -109,6 +111,7 @@ def show() -> None:
     _row(opt.AI_PROVIDER, settings.ai.provider)
     _row(opt.AI_MODEL, settings.ai.model)
     _row(opt.AI_OLLAMA_URL, settings.ai.ollama_url)
+    _row(opt.AI_OLLAMA_URLS, settings.ai.ollama_urls)
     _row(opt.AI_API_BASE_URL, settings.ai.api_base_url)
     _row(opt.AI_ALLOW_PRIVATE_NETWORK, settings.ai.allow_private_network)
     _row(opt.AI_API_KEY, get_ai_api_key(settings), secret=True)

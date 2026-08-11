@@ -318,5 +318,10 @@ def dotted_set(settings: Settings, key: str, value: str) -> None:
         setattr(section, field_name, int(value))
     elif isinstance(current, bool):
         setattr(section, field_name, value.strip().lower() in {"1", "true", "yes", "on"})
+    elif isinstance(current, list) or field_name.endswith("s"):
+        if isinstance(value, str):
+            setattr(section, field_name, [v.strip() for v in value.split(",") if v.strip()])
+        else:
+            setattr(section, field_name, value)
     else:
         setattr(section, field_name, value)

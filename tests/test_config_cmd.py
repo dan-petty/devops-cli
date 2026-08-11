@@ -76,11 +76,16 @@ def test_config_show_includes_allow_private_network_and_active_path(
     tmp_path: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     custom_cfg = tmp_path / "custom_config.yaml"
-    custom_cfg.write_text("ai:\n  allow_private_network: true\n", encoding="utf-8")
+    custom_cfg.write_text(
+        "ai:\n  allow_private_network: true\n  ollama_urls:\n    - http://hog.lan:11434\n    - http://workhorse.lan:11435\n",
+        encoding="utf-8",
+    )
     monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(custom_cfg))
 
     result = runner.invoke(app, ["show"])
     assert result.exit_code == 0
     assert "ai.allow_private_network" in result.stdout
+    assert "ai.ollama_urls" in result.stdout
+    assert "http://hog.lan:11434, http://workhorse.lan:11435" in result.stdout
     assert "True" in result.stdout
     assert str(custom_cfg) in result.stdout
