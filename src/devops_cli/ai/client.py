@@ -18,6 +18,7 @@ import threading
 import time
 from collections.abc import Generator
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import contextmanager
 from typing import Any
 from urllib.parse import urlparse
 
@@ -62,6 +63,22 @@ class LLMClient:
     """Unified chat-completion client across AI providers."""
 
     _ALLOW_PRIVATE_NETWORK_ENV = "DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK"
+    _active_ollama_requests: dict[str, int] = {}
+    _ollama_active_lock = threading.Lock()
+
+    @classmethod
+    @contextmanager
+    def _track_ollama_url(cls, url: str) -> Generator[None]:
+        """Track active in-flight requests per Ollama server node."""
+        with cls._ollama_active_lock:
+            cls._active_ollama_requests[url] = cls._active_ollama_requests.get(url, 0) + 1
+        try:
+            yield
+        finally:
+            with cls._ollama_active_lock:
+                cls._active_ollama_requests[url] = max(
+                    0, cls._active_ollama_requests.get(url, 0) - 1
+                )
 
     def __init__(
         self,
@@ -313,7 +330,7 @@ class LLMClient:
             ) from exc
 
     def _get_ollama_urls_loop(self) -> list[tuple[int, str]]:
-        """Return list of (index, url) tuples for Ollama failover, advancing starting index."""
+        """Return list of (index, url) tuples for Ollama failover sorted by active requests."""
         all_urls = self._config.get_ollama_urls
         n = len(all_urls)
         if n == 0:
@@ -321,7 +338,15 @@ class LLMClient:
         with self._ollama_url_lock:
             start = self._ollama_url_index % n
             self._ollama_url_index = (start + 1) % n
-        return [((start + i) % n, all_urls[(start + i) % n]) for i in range(n)]
+            indexed_urls = [((start + i) % n, all_urls[(start + i) % n]) for i in range(n)]
+
+        with LLMClient._ollama_active_lock:
+            sorted_candidates = sorted(
+                indexed_urls,
+                key=lambda item: (LLMClient._active_ollama_requests.get(item[1], 0), item[0]),
+            )
+
+        return [(idx, url) for idx, url in sorted_candidates]
 
     def _ollama_messages(
         self, system: str, messages: list[ChatMessage], *, enable_thinking: bool = True
@@ -338,16 +363,18 @@ class LLMClient:
                 )
                 use_thinking = enable_thinking and self._ollama_thinking_supported is not False
                 try:
-                    res = self._ollama_request(base, system, messages, use_thinking)
-                    return res
+                    with self._track_ollama_url(candidate_url):
+                        res = self._ollama_request(base, system, messages, use_thinking)
+                        return res
                 except httpx2.HTTPStatusError as exc:
                     if (
                         exc.response.status_code == 400
                         and "does not support thinking" in exc.response.text
                     ):
                         self._ollama_thinking_supported = False
-                        res = self._ollama_request(base, system, messages, think=False)
-                        return res
+                        with self._track_ollama_url(candidate_url):
+                            res = self._ollama_request(base, system, messages, think=False)
+                            return res
                     msg_text = exc.response.text[:300].strip() or "(empty)"
                     raise AIClientError(
                         f"Ollama returned HTTP {exc.response.status_code}. Response: {msg_text}"
