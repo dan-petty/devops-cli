@@ -6,6 +6,9 @@ Chronological log of refactoring milestones, quality gates, and security enhance
 
 ## Log Entries
 
+### [2026-08-11] Release v0.1.2 Planning
+- **v0.1.2 Implementation Plan**: Formulated plan for multi-cluster Kubeconfig context management (`devops k8s context`), SIEM audit trail logging (`AuditLogger`), automated patch application prep (`apply-patch`), and dry-run model expansion.
+
 ### [2026-08-11] Release v0.1.1 Implementation & Completion
 - **Feedback Dataset Exporter**: Added `devops ai review export-feedback` command (`export_invalidated_feedback`) to export false-positive review findings into JSONL benchmark datasets.
 - **Custom Team Personas**: Implemented `load_custom_repo_persona` to discover and load team prompt overrides defined in `.devops/personas/<name>.md`.
