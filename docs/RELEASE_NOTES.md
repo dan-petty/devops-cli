@@ -1,30 +1,30 @@
-# Release Notes — devops-cli v1.0.0
+# Release Notes — devops-cli v0.1.0
 
 Workstation-native DevOps CLI for managing repositories, SSH keys, Kubernetes clusters, Kustomize, ArgoCD, Grafana, Prometheus, Docker, workspace files, and multi-persona AI code reviews.
 
 ---
 
-## Highlights
+## 🚀 Highlights of v0.1.0
 
-### 🤖 Multi-Persona AI Code Reviews & Prompt Guardrails
+### 🤖 Codebase Metadata Analysis & Structured Dry-Run Responses
+- **`devops ai analyze [path|branch|pr]`**: Scans project repositories using standard library metadata extraction and dynamic `.gitignore` parsing to generate structured `.data/analysis/*-metadata.json` metadata files.
+- **Pydantic Dry-Run Models**: All subcommands in `--dry-run` mode construct and output structured Pydantic model JSON responses (`ReviewResult`, `AnalysisMetadata`, `CommandDryRunResult`).
+- **Dedicated `dry_run` Submodule**: Created `src/devops_cli/dry_run/` (`state.py`, `models.py`) for clean environment-backed dry-run state management.
+
+### 🛡️ Vulnerability Audit & DevContainer Security
+- **`devops ci audit`**: Added `audit` subcommand running `uv audit` to scan dependencies for known package advisories.
+- **`UV_MALWARE_CHECK=1`**: Configured `UV_MALWARE_CHECK=1` in `.devcontainer/devcontainer.json` and `.devcontainer/postCreate.sh`.
+- **Target-Agnostic AI Reviewers**: Persona prompts, static analysis heuristics, and review task templates evaluate target repositories under `repos/` based on their own documented conventions (`AGENTS.md` / `README.md`).
+
+### 📦 Multi-Persona AI Code Reviews & Finding Verification
 - **Specialized Personas**: Multi-persona reviews (`devsecops`, `architect`, `pm`, `auditor`, `qa`).
-- **Prompt Isolation Guardrails**: Boundary tag sanitization (`_sanitize_prompt_boundary_tags`) and XML tag framing (`<untrusted_code_diff>`, `<target_code_to_review>`) isolate untrusted reviewed code from LLM instructions.
-- **Fast Deterministic Metadata**: Static analysis (`SegmentMeta`) extracts segment metadata upfront in <5ms with 100% consistency.
-- **Verification & Analytics**: Inspect findings (`devops review findings`), validate/invalidate entries (`devops review verify`), and track persona accuracy metrics (`devops review stats`).
-
-### 🛡️ Security Hardening & Zero-Plaintext Secret Storage
-- **OS Keyring Integration**: All tokens (`github.token`, `grafana.token`, `argocd.token`, `ai.api_key`) stored exclusively in OS keyring via `keyring`.
-- **SSRF Defenses**: `validate_service_url` blocks non-public IPs unless `DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true` is set.
-- **Path Traversal Guards**: Strict workspace boundary checks (`_is_safe_workspace_path`) enforce path isolation.
-- **Binary Checksum Verification**: `devops install-tools` verifies SHA-256 checksums before installing binaries.
-
-### ⚙️ Complete DevOps Subcommand Suite
-- **Comprehensive Commands**: `ai`, `review`, `repos`, `ssh`, `k8s`, `kustomize`, `argo`, `grafana`, `prometheus`, `docker`, `workspace`, `install-tools`, `config`, `ci`, `branches`, `devcontainer`, `uv`.
-- **Environment Output Command**: `devops config output` (aliases `env`, `env-vars`) displays metadata for all 30 environment variables with Rich Table, `--export`, and `--json` formats.
+- **Prompt Isolation Guardrails**: Boundary tag sanitization (`_sanitize_prompt_boundary_tags`) and XML tag framing isolate untrusted reviewed code from LLM instructions.
+- **Finding Verification Pipeline**: Step 3 verification (`_validate_segment_findings`) automatically cross-references reported findings against visible source code.
+- **Centralized Language Catalog**: All user-facing strings and message templates are defined in `src/devops_cli/lang/en.py` (`LanguageCatalog`).
 
 ---
 
-## Environment & Requirements
+## 🛠️ Environment & Requirements
 - **Runtime**: Python >=3.14 (managed by `uv`)
-- **Container**: VS Code Dev Container / Local workstation environment
+- **Container**: VS Code Dev Container / Local workstation environment (`python:3.14-trixie`)
 - **Tool Dependencies**: `kubectl`, `helm`, `minikube`, `kustomize`, `docker`, `gh`
