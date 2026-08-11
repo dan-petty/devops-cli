@@ -27,12 +27,12 @@ High-density product roadmap for `devops-cli`.
 - [x] Dependency vulnerability scanner (`devops ci audit` via `uv audit`) and `UV_MALWARE_CHECK=1` devcontainer integration.
 - [x] Python 3.14 exception syntax standardization (`except (Err1, Err2):`) and centralized `LanguageCatalog` literal management.
 
-### Phase 3: Line-Level PR Comments & Custom Personas (v0.1.1 - Short-Term: Q3 2026)
-- [ ] **Line-Level GitHub PR Inline Comments**: Post persona review findings directly to PR diff line hunks via GitHub API (`devops ai review pr --post-inline`).
-- [ ] **Human Invalidation Feedback Exporter**: Export invalidated findings (`status="INVALIDATED"`) as benchmark JSONL datasets for prompt tuning (`devops ai review export-feedback`).
-- [ ] **Custom Team Personas**: Repository-level `.devops/personas/<name>.md` prompt overrides allowing custom reviewer personas.
-- [ ] **Headless CI Keyring Fallback Auth**: Memory token loading (`devops config auth-headless`) for headless CI environments lacking DBus.
-- [ ] **Subcommand Dry-Run Pydantic Expansion**: Extend `CommandDryRunResult` Pydantic models across `argo`, `grafana`, `prometheus`, `branches`, `devcontainer`, `workspace`, `install-tools`.
+### Phase 3: Line-Level PR Comments & Custom Personas (v0.1.1 - Completed)
+- [x] **Line-Level GitHub PR Inline Comments**: Post persona review findings directly to PR diff line hunks via GitHub API (`create_pr_review_comment`).
+- [x] **Human Invalidation Feedback Exporter**: Export invalidated findings (`status="INVALIDATED"`) as benchmark JSONL datasets for prompt tuning (`devops ai review export-feedback`).
+- [x] **Custom Team Personas**: Repository-level `.devops/personas/<name>.md` prompt overrides allowing custom reviewer personas.
+- [x] **Headless CI Keyring Fallback Auth**: Memory token loading (`devops config auth-headless`) for headless CI environments lacking DBus.
+- [x] **v0.1.1 Feature Flags**: Config options (`FEATURE_PR_INLINE_COMMENTS`, `FEATURE_CUSTOM_PERSONAS`, `FEATURE_HEADLESS_AUTH`).
 
 ### Phase 4: Enterprise Infrastructure & Governance (Mid-Term: Q4 2026)
 - [ ] **Multi-Cluster Kubeconfig Management**: Seamless context switching with namespace access control policies.

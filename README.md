@@ -52,7 +52,11 @@ devops ci
 | | `devops ai review path [<target>]` | Review local files respecting `.gitignore` exclusions |
 | | `devops ai review findings [<session>]` | Inspect structured review findings by verification status |
 | | `devops ai review verify <session> --index N` | Validate (`verified`) or invalidate (`invalidated`) finding |
+| | `devops ai review export-feedback` | Export invalidated findings into JSONL benchmark dataset for prompt tuning |
 | | `devops ai review stats` | View accuracy metrics and false-positive rates per persona |
+| **config** | `devops config show` | Display current CLI configuration and active env var overrides |
+| | `devops config output` | Display specification for all 30 environment variables |
+| | `devops config auth-headless` | Load secret tokens into memory for headless DBus-less CI environments |
 | **repos** | `devops repos clone-org --org <org>` | Batch clone all repositories in a GitHub organization |
 | | `devops repos clone <url>` | Clone standalone repository into workspace |
 | | `devops repos list` | List local workspace repositories and active git branches |
