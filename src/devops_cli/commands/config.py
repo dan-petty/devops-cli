@@ -24,6 +24,7 @@ from devops_cli.config.settings import (
     Settings,
     dotted_get,
     dotted_set,
+    get_active_config_path,
     get_ai_api_key,
     get_argocd_token,
     get_github_token,
@@ -109,10 +110,11 @@ def show() -> None:
     _row(opt.AI_MODEL, settings.ai.model)
     _row(opt.AI_OLLAMA_URL, settings.ai.ollama_url)
     _row(opt.AI_API_BASE_URL, settings.ai.api_base_url)
+    _row(opt.AI_ALLOW_PRIVATE_NETWORK, settings.ai.allow_private_network)
     _row(opt.AI_API_KEY, get_ai_api_key(settings), secret=True)
 
     console.print(table)
-    console.print(f"\nConfig file: [dim]{CONST_CONFIG_PATH}[/dim]")
+    console.print(f"\nConfig file: [dim]{get_active_config_path()}[/dim]")
 
 
 @app.command("get")

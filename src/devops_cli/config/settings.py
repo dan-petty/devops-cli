@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from devops_cli.config import options as opt
 from devops_cli.config.constants import (
@@ -97,6 +97,7 @@ class AITaskOverride(BaseModel):
     provider: str | None = None
     model: str | None = None
     ollama_url: str | None = None
+    ollama_urls: list[str] | None = None
     api_base_url: str | None = None
 
 
@@ -113,9 +114,23 @@ class AIConfig(BaseModel):
     provider: str = DEFAULT_AI_PROVIDER  # ollama | claude | copilot | openai
     model: str = DEFAULT_AI_MODEL
     ollama_url: str = DEFAULT_OLLAMA_URL
+    ollama_urls: list[str] = Field(default_factory=list)
     api_base_url: str | None = None
     allow_private_network: bool = False
     tasks: AITasksConfig = AITasksConfig()
+
+    @property
+    def get_ollama_urls(self) -> list[str]:
+        """Return non-empty list of Ollama base URLs."""
+        if self.ollama_urls:
+            cleaned = [u.strip().rstrip("/") for u in self.ollama_urls if u and u.strip()]
+            if cleaned:
+                return cleaned
+        if self.ollama_url:
+            cleaned = [u.strip().rstrip("/") for u in self.ollama_url.split(",") if u and u.strip()]
+            if cleaned:
+                return cleaned
+        return [DEFAULT_OLLAMA_URL]
 
     def for_task(self, task: str) -> AIConfig:
         """Return a copy with task-specific overrides from ai.tasks.<task> applied."""
@@ -126,6 +141,7 @@ class AIConfig(BaseModel):
                 "provider": override.provider,
                 "model": override.model,
                 "ollama_url": override.ollama_url,
+                "ollama_urls": override.ollama_urls,
                 "api_base_url": override.api_base_url,
             }.items()
             if v is not None
@@ -219,6 +235,15 @@ def load_settings() -> Settings:
             continue
 
     return settings
+
+
+def get_active_config_path() -> Path:
+    """Return active config file path (DEVOPS_CLI_CONFIG > ./config.yaml > ~/.config)."""
+    env_config = os.environ.get(PROJECT_CONFIG_ENV)
+    project_path = Path(env_config) if env_config else Path(PROJECT_CONFIG_FILENAME)
+    if project_path.exists():
+        return project_path.resolve()
+    return CONFIG_PATH
 
 
 def save_settings(settings: Settings) -> None:

@@ -53,6 +53,7 @@ class LLMClient:
         self._api_key = api_key or ""
         self._request_timeout_seconds = request_timeout_seconds
         self._ollama_thinking_supported: bool | None = None  # None = unknown
+        self._ollama_url_index: int = 0
 
     def _connection_error(self, exc: Exception) -> AIClientError:
         provider = self._config.provider
@@ -240,32 +241,60 @@ class LLMClient:
         raw_res: dict[str, Any] = response.json()
         return raw_res
 
+    def _get_ollama_urls_loop(self) -> list[tuple[int, str]]:
+        """Return list of (index, url) tuples for Ollama failover, starting at active index."""
+        all_urls = self._config.get_ollama_urls
+        n = len(all_urls)
+        start = self._ollama_url_index % n
+        return [((start + i) % n, all_urls[(start + i) % n]) for i in range(n)]
+
     def _ollama_messages(
         self, system: str, messages: list[ChatMessage], *, enable_thinking: bool = True
     ) -> str:
-        base = self._validate_base_url(
-            self._config.ollama_url,
-            purpose="Ollama",
-            allow_loopback_for_local_tooling=True,
-        )
-        use_thinking = enable_thinking and self._ollama_thinking_supported is not False
-        try:
-            return self._ollama_request(base, system, messages, use_thinking)
-        except httpx2.HTTPStatusError as exc:
-            if exc.response.status_code == 400 and "does not support thinking" in exc.response.text:
-                self._ollama_thinking_supported = False
-                return self._ollama_request(base, system, messages, think=False)
-            body = exc.response.text[:300].strip()
-            raise AIClientError(
-                f"Ollama returned HTTP {exc.response.status_code}. Response: {body or '(empty)'}"
-            ) from exc
-        except (httpx2.ConnectError, httpx2.ConnectTimeout) as exc:
-            raise self._connection_error(exc) from exc
-        except httpx2.HTTPError as exc:
-            raise AIClientError(
-                f"Ollama request failed ({type(exc).__name__}). "
-                "Check provider connectivity and configuration."
-            ) from exc
+        candidates = self._get_ollama_urls_loop()
+        last_exc: Exception | None = None
+
+        for idx, candidate_url in candidates:
+            try:
+                base = self._validate_base_url(
+                    candidate_url,
+                    purpose="Ollama",
+                    allow_loopback_for_local_tooling=True,
+                )
+                use_thinking = enable_thinking and self._ollama_thinking_supported is not False
+                try:
+                    res = self._ollama_request(base, system, messages, use_thinking)
+                    self._ollama_url_index = idx
+                    return res
+                except httpx2.HTTPStatusError as exc:
+                    if (
+                        exc.response.status_code == 400
+                        and "does not support thinking" in exc.response.text
+                    ):
+                        self._ollama_thinking_supported = False
+                        res = self._ollama_request(base, system, messages, think=False)
+                        self._ollama_url_index = idx
+                        return res
+                    msg_text = exc.response.text[:300].strip() or "(empty)"
+                    raise AIClientError(
+                        f"Ollama returned HTTP {exc.response.status_code}. Response: {msg_text}"
+                    ) from exc
+            except (
+                httpx2.ConnectError,
+                httpx2.ConnectTimeout,
+                httpx2.ReadTimeout,
+                httpx2.TimeoutException,
+                OSError,
+            ) as exc:
+                last_exc = exc
+                continue
+            except httpx2.HTTPError as exc:
+                raise AIClientError(
+                    f"Ollama request failed ({type(exc).__name__}). "
+                    "Check provider connectivity and configuration."
+                ) from exc
+
+        raise self._connection_error(last_exc or RuntimeError("All Ollama servers unreachable"))
 
     def _ollama_request(
         self, base: str, system: str, messages: list[ChatMessage], think: bool
@@ -290,25 +319,39 @@ class LLMClient:
             return content if "thinking" in msg else self._strip_think_blocks(content)
 
     def _ollama_models(self) -> list[str]:
-        base = self._validate_base_url(
-            self._config.ollama_url,
-            purpose="Ollama",
-            allow_loopback_for_local_tooling=True,
-        )
-        try:
-            with httpx2.Client(timeout=request_timeout()) as http_client:
-                response = http_client.get(f"{base}/api/tags")
-                response.raise_for_status()
-                return [
-                    model_info["name"]
-                    for model_info in self._read_limited_json(response).get("models", [])
-                ]
-        except (httpx2.ConnectError, httpx2.ConnectTimeout) as exc:
-            raise self._connection_error(exc) from exc
-        except httpx2.HTTPError as exc:
-            raise AIClientError(
-                "Failed to list Ollama models. Check provider connectivity and configuration."
-            ) from exc
+        candidates = self._get_ollama_urls_loop()
+        last_exc: Exception | None = None
+
+        for idx, candidate_url in candidates:
+            try:
+                base = self._validate_base_url(
+                    candidate_url,
+                    purpose="Ollama",
+                    allow_loopback_for_local_tooling=True,
+                )
+                with httpx2.Client(timeout=request_timeout()) as http_client:
+                    response = http_client.get(f"{base}/api/tags")
+                    response.raise_for_status()
+                    self._ollama_url_index = idx
+                    return [
+                        model_info["name"]
+                        for model_info in self._read_limited_json(response).get("models", [])
+                    ]
+            except (
+                httpx2.ConnectError,
+                httpx2.ConnectTimeout,
+                httpx2.ReadTimeout,
+                httpx2.TimeoutException,
+                OSError,
+            ) as exc:
+                last_exc = exc
+                continue
+            except httpx2.HTTPError as exc:
+                raise AIClientError(
+                    "Failed to list Ollama models. Check provider connectivity and configuration."
+                ) from exc
+
+        raise self._connection_error(last_exc or RuntimeError("All Ollama servers unreachable"))
 
     # ── Anthropic Claude ──────────────────────────────────────────────────────
 
@@ -373,28 +416,50 @@ class LLMClient:
     def _ollama_stream(
         self, system: str, messages: list[ChatMessage], *, enable_thinking: bool = True
     ) -> Generator[str]:
-        base = self._validate_base_url(
-            self._config.ollama_url,
-            purpose="Ollama",
-            allow_loopback_for_local_tooling=True,
-        )
-        use_thinking = enable_thinking and self._ollama_thinking_supported is not False
-        try:
-            yield from self._ollama_stream_request(base, system, messages, think=use_thinking)
-        except httpx2.HTTPStatusError as exc:
-            if exc.response.status_code == 400 and "does not support thinking" in exc.response.text:
-                self._ollama_thinking_supported = False
-                yield from self._ollama_stream_request(base, system, messages, think=False)
-            else:
-                body = exc.response.text[:300].strip()
-                msg_text = body or "(empty)"
-                raise AIClientError(
-                    f"Ollama returned HTTP {exc.response.status_code}. Response: {msg_text}"
-                ) from exc
-        except (httpx2.ConnectError, httpx2.ConnectTimeout) as exc:
-            raise self._connection_error(exc) from exc
-        except httpx2.HTTPError as exc:
-            raise AIClientError(f"Ollama streaming failed: {exc}") from exc
+        candidates = self._get_ollama_urls_loop()
+        last_exc: Exception | None = None
+
+        for idx, candidate_url in candidates:
+            try:
+                base = self._validate_base_url(
+                    candidate_url,
+                    purpose="Ollama",
+                    allow_loopback_for_local_tooling=True,
+                )
+                use_thinking = enable_thinking and self._ollama_thinking_supported is not False
+                try:
+                    yield from self._ollama_stream_request(
+                        base, system, messages, think=use_thinking
+                    )
+                    self._ollama_url_index = idx
+                    return
+                except httpx2.HTTPStatusError as exc:
+                    if (
+                        exc.response.status_code == 400
+                        and "does not support thinking" in exc.response.text
+                    ):
+                        self._ollama_thinking_supported = False
+                        yield from self._ollama_stream_request(base, system, messages, think=False)
+                        self._ollama_url_index = idx
+                        return
+                    body = exc.response.text[:300].strip()
+                    msg_text = body or "(empty)"
+                    raise AIClientError(
+                        f"Ollama returned HTTP {exc.response.status_code}. Response: {msg_text}"
+                    ) from exc
+            except (
+                httpx2.ConnectError,
+                httpx2.ConnectTimeout,
+                httpx2.ReadTimeout,
+                httpx2.TimeoutException,
+                OSError,
+            ) as exc:
+                last_exc = exc
+                continue
+            except httpx2.HTTPError as exc:
+                raise AIClientError(f"Ollama streaming failed: {exc}") from exc
+
+        raise self._connection_error(last_exc or RuntimeError("All Ollama servers unreachable"))
 
     def _ollama_stream_request(
         self, base: str, system: str, messages: list[ChatMessage], think: bool

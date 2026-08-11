@@ -127,3 +127,43 @@ def test_ollama_non_thinking_400_raises_ai_client_error(
 
     with pytest.raises(AIClientError, match="HTTP 400"):
         client._ollama_messages("sys", [ChatMessage(role="user", content="user")])
+
+
+def test_get_ollama_urls_parsing() -> None:
+    cfg1 = AIConfig(ollama_url="http://192.168.1.4:11434, http://192.168.1.5:11434/")
+    assert cfg1.get_ollama_urls == ["http://192.168.1.4:11434", "http://192.168.1.5:11434"]
+
+    cfg2 = AIConfig(ollama_urls=["http://10.0.0.1:11434/", "http://10.0.0.2:11434"])
+    assert cfg2.get_ollama_urls == ["http://10.0.0.1:11434", "http://10.0.0.2:11434"]
+
+
+def test_ollama_multiserver_failover(monkeypatch: pytest.MonkeyPatch) -> None:
+    import httpx2
+
+    cfg = AIConfig(
+        provider="ollama",
+        ollama_urls=["http://localhost:11434", "http://localhost:11435"],
+    )
+    client = LLMClient(cfg)
+
+    requested_urls: list[str] = []
+
+    def fake_post(_client: object, url: str, **kwargs: object) -> httpx2.Response:
+        requested_urls.append(url)
+        if "11434" in url:
+            raise httpx2.ConnectError("Connection refused", request=httpx2.Request("POST", url))
+        return httpx2.Response(
+            200,
+            json={"message": {"role": "assistant", "content": "Hello from server 2"}},
+            request=httpx2.Request("POST", url),
+        )
+
+    monkeypatch.setattr("httpx2.Client.post", fake_post)
+
+    reply = client._ollama_messages("sys", [ChatMessage(role="user", content="hi")])
+    assert reply == "Hello from server 2"
+    assert requested_urls == [
+        "http://localhost:11434/api/chat",
+        "http://localhost:11435/api/chat",
+    ]
+    assert client._ollama_url_index == 1

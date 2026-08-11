@@ -67,8 +67,13 @@ ai:
   # Copilot/OpenAI:   gpt-4o, gpt-4o-mini
   model: gemma4:26b
 
-  # Ollama server URL. Use DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true for remote hosts.
+  # Ollama server URL(s). Provide a single URL, comma-separated list, or YAML list (ollama_urls).
+  # AI request loops automatically failover across configured servers if one is unreachable.
+  # Use DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true for remote/private IP hosts.
   ollama_url: http://localhost:11434
+  # ollama_urls:
+  #   - http://localhost:11434
+  #   - http://localhost:11435
 
   # Custom base URL for claude/openai-compatible providers (leave null for defaults).
   api_base_url: null

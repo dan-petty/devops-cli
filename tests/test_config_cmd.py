@@ -70,3 +70,17 @@ def test_config_output_reflects_env_override(monkeypatch: pytest.MonkeyPatch) ->
     assert result_table.exit_code == 0
     assert "gpt-4o" in result_table.stdout
     assert "(via env)" in result_table.stdout
+
+
+def test_config_show_includes_allow_private_network_and_active_path(
+    tmp_path: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    custom_cfg = tmp_path / "custom_config.yaml"
+    custom_cfg.write_text("ai:\n  allow_private_network: true\n", encoding="utf-8")
+    monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(custom_cfg))
+
+    result = runner.invoke(app, ["show"])
+    assert result.exit_code == 0
+    assert "ai.allow_private_network" in result.stdout
+    assert "True" in result.stdout
+    assert str(custom_cfg) in result.stdout
