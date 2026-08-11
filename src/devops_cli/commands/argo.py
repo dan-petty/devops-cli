@@ -220,7 +220,7 @@ def workflows_logs(
         cmd += ["--namespace", namespace]
     if follow:
         cmd.append("--follow")
-        subprocess.run(cmd, check=True)
+        subprocess.run(cmd, check=True, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS)
     else:
         subprocess.run(cmd, check=True, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS)
 
@@ -256,6 +256,6 @@ def rollouts_status(
         cmd += ["--namespace", namespace]
     if watch:
         cmd.append("--watch")
-        subprocess.run(cmd, check=True)
+        subprocess.run(cmd, check=True, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS)
     else:
         subprocess.run(cmd, check=True, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS)

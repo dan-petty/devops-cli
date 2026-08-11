@@ -16,8 +16,17 @@ from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 app = typer.Typer(help="Run tests, linting, formatting, and type-checks.")
 console = Console()
 
-# Repo root: src/devops_cli/commands/ci.py -> parents[3]
-_ROOT = Path(__file__).resolve().parents[3]
+
+def _find_root() -> Path:
+    cur = Path(__file__).resolve().parent
+    while cur != cur.parent:
+        if (cur / "pyproject.toml").exists():
+            return cur
+        cur = cur.parent
+    return Path(__file__).resolve().parents[3]
+
+
+_ROOT = _find_root()
 
 
 def _run(cmd: list[str], timeout: float = DEFAULT_SUBPROCESS_TIMEOUT_SECONDS) -> bool:

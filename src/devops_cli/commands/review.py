@@ -1124,6 +1124,11 @@ def _log_event(
     log_dir.mkdir(parents=True, exist_ok=True)
     ts = datetime.now().strftime("%y%m%d-%H%M%S-%f")
     filename = log_dir / f"{ts}-{event_type}-seg{segment_index}.json"
+    safe_response = (
+        _mask_secrets_in_content(response_text[:2000]) + "..."
+        if len(response_text) > 2000
+        else _mask_secrets_in_content(response_text)
+    )
     payload = {
         "event_type": event_type,
         "timestamp": datetime.now().isoformat(),
@@ -1134,7 +1139,7 @@ def _log_event(
         "system_prompt_chars": len(system_prompt),
         "user_prompt_chars": len(user_prompt),
         "error_message": msg,
-        "response_text": response_text,
+        "response_text": safe_response,
     }
     try:
         filename.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")

@@ -147,7 +147,7 @@ def clone_org(
         try:
             clone_repo(_github_https_url(repo.full_name), dest)
             rprint(f"  [green]done[/green] {repo.name}")
-        except Exception as exc:
+        except (gitlib.exc.GitError, OSError, subprocess.SubprocessError) as exc:
             rprint(f"  [red]fail[/red] {repo.name}: {exc}")
 
     _sync_and_reload_workspace(root, settings.workspace.file)
@@ -226,7 +226,7 @@ def update(
             if pull:
                 pull_tracking(repo_dir)
             rprint(f"  [green]✓[/green] {label}")
-        except Exception as exc:
+        except (gitlib.exc.GitError, OSError, subprocess.SubprocessError) as exc:
             rprint(f"  [red]✗[/red] {label}: {exc}")
 
     _sync_and_reload_workspace(root, settings.workspace.file)

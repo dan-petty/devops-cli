@@ -13,7 +13,7 @@ from devops_cli.config.defaults import (
 
 
 def request_timeout(*, read: float | None = None) -> httpx2.Timeout:
-    """Build a timeout object with a strict 1-second connection timeout."""
+    """Build an httpx2.Timeout object configured with project default HTTP timeout bounds."""
     return httpx2.Timeout(
         connect=HTTP_CONNECT_TIMEOUT_SECONDS,
         read=HTTP_READ_TIMEOUT_SECONDS if read is None else read,

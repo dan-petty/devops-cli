@@ -100,9 +100,11 @@ def push(
     rprint(f"Pushing [dim]{image}[/dim]...")
     for chunk in client.images.push(image, stream=True, decode=True):
         if "status" in chunk and "progressDetail" not in chunk:
-            rprint(chunk["status"])
+            clean_status = re.sub(r"[\x00-\x1f\x7f]", "", str(chunk["status"]))
+            rprint(clean_status)
         elif "error" in chunk:
-            rprint(f"[red]{chunk['error']}[/red]")
+            clean_err = re.sub(r"[\x00-\x1f\x7f]", "", str(chunk["error"]))
+            rprint(f"[red]{clean_err}[/red]")
             raise typer.Exit(1)
     rprint("[green]Pushed.[/green]")
 

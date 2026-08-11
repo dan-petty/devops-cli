@@ -18,10 +18,25 @@ mcp = FastMCP(
 )
 
 
+def _run_mcp_cmd(cmd: list[str], timeout: int = 60) -> str:
+    """Run a subprocess command for an MCP tool and return combined output or error status."""
+    try:
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return f"Command timed out after {timeout} seconds: {' '.join(cmd)}"
+    except (OSError, subprocess.SubprocessError) as exc:
+        return f"Execution failed: {exc}"
+
+    output = (res.stdout + ("\n" + res.stderr if res.stderr else "")).strip()
+    if res.returncode != 0:
+        return f"Command exited with status {res.returncode}:\n{output}"
+    return output or "Success"
+
+
 @mcp.tool()
 def review_path(target: str = ".", pattern: str = "*", persona: str = "devsecops") -> str:
     """Run an AI code review on local files matching pattern using specified persona."""
-    res = subprocess.run(
+    return _run_mcp_cmd(
         [
             "uv",
             "run",
@@ -34,11 +49,8 @@ def review_path(target: str = ".", pattern: str = "*", persona: str = "devsecops
             "--persona",
             persona,
         ],
-        capture_output=True,
-        text=True,
         timeout=300,
     )
-    return res.stdout or res.stderr
 
 
 @mcp.tool()
@@ -48,8 +60,7 @@ def review_branch(branch: str = "", base: str = "main", persona: str = "devsecop
     if branch:
         cmd.append(branch)
     cmd.extend(["--base", base, "--persona", persona])
-    res = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-    return res.stdout or res.stderr
+    return _run_mcp_cmd(cmd, timeout=300)
 
 
 @mcp.tool()
@@ -58,8 +69,7 @@ def review_pr(number: int, post: bool = False, persona: str = "devsecops") -> st
     cmd = ["uv", "run", "devops", "review", "pr", str(number), "--persona", persona]
     if post:
         cmd.append("--post")
-    res = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-    return res.stdout or res.stderr
+    return _run_mcp_cmd(cmd, timeout=300)
 
 
 @mcp.tool()
@@ -70,8 +80,7 @@ def review_findings(session_id: str = "", status: str = "") -> str:
         cmd.append(session_id)
     if status:
         cmd.extend(["--" + status.lower().strip("-")])
-    res = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-    return res.stdout or res.stderr
+    return _run_mcp_cmd(cmd, timeout=60)
 
 
 @mcp.tool()
@@ -91,35 +100,25 @@ def verify_finding(session_id: str, index: int, status: str, reason: str = "") -
     ]
     if reason:
         cmd.extend(["--reason", reason])
-    res = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-    return res.stdout or res.stderr
+    return _run_mcp_cmd(cmd, timeout=60)
 
 
 @mcp.tool()
 def review_stats() -> str:
     """View accuracy metrics and false-positive rates per reviewer persona."""
-    res = subprocess.run(
-        ["uv", "run", "devops", "review", "stats"], capture_output=True, text=True, timeout=60
-    )
-    return res.stdout or res.stderr
+    return _run_mcp_cmd(["uv", "run", "devops", "review", "stats"], timeout=60)
 
 
 @mcp.tool()
 def repos_list() -> str:
     """List local workspace repositories and active git branches."""
-    res = subprocess.run(
-        ["uv", "run", "devops", "repos", "list"], capture_output=True, text=True, timeout=30
-    )
-    return res.stdout or res.stderr
+    return _run_mcp_cmd(["uv", "run", "devops", "repos", "list"], timeout=30)
 
 
 @mcp.tool()
 def repos_status() -> str:
     """Display uncommitted changes and branch drift across workspace repositories."""
-    res = subprocess.run(
-        ["uv", "run", "devops", "repos", "status"], capture_output=True, text=True, timeout=60
-    )
-    return res.stdout or res.stderr
+    return _run_mcp_cmd(["uv", "run", "devops", "repos", "status"], timeout=60)
 
 
 @mcp.tool()
@@ -128,26 +127,19 @@ def repos_sync(all_repos: bool = False) -> str:
     cmd = ["uv", "run", "devops", "repos", "sync"]
     if all_repos:
         cmd.append("--all")
-    res = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-    return res.stdout or res.stderr
+    return _run_mcp_cmd(cmd, timeout=120)
 
 
 @mcp.tool()
 def ssh_status() -> str:
     """Inspect age and rotation status of managed SSH keys in ~/.ssh."""
-    res = subprocess.run(
-        ["uv", "run", "devops", "ssh", "status"], capture_output=True, text=True, timeout=30
-    )
-    return res.stdout or res.stderr
+    return _run_mcp_cmd(["uv", "run", "devops", "ssh", "status"], timeout=30)
 
 
 @mcp.tool()
 def ssh_audit() -> str:
     """Audit SSH key expiration dates and key file permissions."""
-    res = subprocess.run(
-        ["uv", "run", "devops", "ssh", "audit"], capture_output=True, text=True, timeout=30
-    )
-    return res.stdout or res.stderr
+    return _run_mcp_cmd(["uv", "run", "devops", "ssh", "audit"], timeout=30)
 
 
 @mcp.tool()
@@ -156,46 +148,25 @@ def k8s_pods(namespace: str = "default") -> str:
     cmd = ["uv", "run", "devops", "k8s", "pods"]
     if namespace:
         cmd.extend(["--namespace", namespace])
-    res = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
-    return res.stdout or res.stderr
+    return _run_mcp_cmd(cmd, timeout=30)
 
 
 @mcp.tool()
 def k8s_status() -> str:
     """Display pod status across infrastructure namespaces."""
-    res = subprocess.run(
-        ["uv", "run", "devops", "k8s", "status"], capture_output=True, text=True, timeout=60
-    )
-    return res.stdout or res.stderr
+    return _run_mcp_cmd(["uv", "run", "devops", "k8s", "status"], timeout=60)
 
 
 @mcp.tool()
 def argo_list() -> str:
     """List ArgoCD applications."""
-    res = subprocess.run(
-        ["uv", "run", "devops", "argo", "list"],
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
-    return res.stdout or res.stderr
+    return _run_mcp_cmd(["uv", "run", "devops", "argo", "list"], timeout=30)
 
 
 @mcp.tool()
 def argo_status(app: str) -> str:
     """Check ArgoCD application health and sync status."""
-    res = subprocess.run(
-        ["uv", "run", "devops", "argo", "status", "--app", app],
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
-    return res.stdout or res.stderr
+    return _run_mcp_cmd(["uv", "run", "devops", "argo", "status", "--app", app], timeout=30)
 
 
 @mcp.tool()
@@ -204,63 +175,38 @@ def grafana_dashboards(query: str = "") -> str:
     cmd = ["uv", "run", "devops", "grafana", "dashboards"]
     if query:
         cmd.extend(["--query", query])
-    res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-    return res.stdout or res.stderr
+    return _run_mcp_cmd(cmd, timeout=30)
 
 
 @mcp.tool()
 def prometheus_query(promql: str) -> str:
     """Execute PromQL instant query against Prometheus endpoint."""
-    res = subprocess.run(
-        ["uv", "run", "devops", "prometheus", "query", promql],
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
-    return res.stdout or res.stderr
+    return _run_mcp_cmd(["uv", "run", "devops", "prometheus", "query", promql], timeout=30)
 
 
 @mcp.tool()
 def docker_stats() -> str:
     """List local Docker images and display container information."""
-    res = subprocess.run(
-        ["uv", "run", "devops", "docker", "stats"], capture_output=True, text=True, timeout=30
-    )
-    return res.stdout or res.stderr
+    return _run_mcp_cmd(["uv", "run", "devops", "docker", "stats"], timeout=30)
 
 
 @mcp.tool()
 def workspace_list() -> str:
     """Show the active VS Code workspace file and configured repository directories."""
-    res = subprocess.run(
-        ["uv", "run", "devops", "workspace", "list"],
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
-    return res.stdout or res.stderr
+    return _run_mcp_cmd(["uv", "run", "devops", "workspace", "list"], timeout=30)
 
 
 @mcp.tool()
 def config_show() -> str:
     """Display configuration settings with masked secret tokens."""
-    res = subprocess.run(
-        ["uv", "run", "devops", "config", "show"], capture_output=True, text=True, timeout=30
-    )
-    return res.stdout or res.stderr
+    return _run_mcp_cmd(["uv", "run", "devops", "config", "show"], timeout=30)
 
 
 @mcp.tool()
 def config_output(output_format: str = "json") -> str:
     """Output environment variables available for configuration (text or json)."""
     flag = "--json" if output_format == "json" else "--export"
-    res = subprocess.run(
-        ["uv", "run", "devops", "config", "output", flag],
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
-    return res.stdout or res.stderr
+    return _run_mcp_cmd(["uv", "run", "devops", "config", "output", flag], timeout=30)
 
 
 @mcp.tool()
@@ -269,8 +215,7 @@ def ci_run(check: Literal["all", "test", "lint", "format", "typecheck"] = "all")
     cmd = ["uv", "run", "devops", "ci"]
     if check != "all":
         cmd.append(check)
-    res = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
-    return res.stdout or res.stderr
+    return _run_mcp_cmd(cmd, timeout=180)
 
 
 def list_mcp_tools() -> list[dict[str, str]]:

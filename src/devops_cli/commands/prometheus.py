@@ -71,6 +71,15 @@ def _parse_duration(s: str) -> float:
     return res
 
 
+def _read_json(response: httpx2.Response) -> dict[str, Any]:
+    content_type = response.headers.get("content-type", "")
+    if "application/json" not in content_type:
+        rprint(f"[red]Unexpected Content-Type '{content_type}' from Prometheus API endpoint.[/red]")
+        raise typer.Exit(1)
+    data = response.json()
+    return data if isinstance(data, dict) else {}
+
+
 @app.command()
 def query(
     expr: Annotated[str, typer.Argument(help="PromQL expression")],
@@ -94,7 +103,7 @@ def query(
         )
         response.raise_for_status()
 
-    result = PrometheusQueryResult.from_instant_response(response.json())
+    result = PrometheusQueryResult.from_instant_response(_read_json(response))
     if result.status != "success":
         rprint(f"[red]Query failed: {result.error or 'unknown'}[/red]")
         raise typer.Exit(1)
@@ -142,7 +151,7 @@ def query_range(
         )
         response.raise_for_status()
 
-    result = PrometheusQueryResult.from_range_response(response.json())
+    result = PrometheusQueryResult.from_range_response(_read_json(response))
     total_points = sum(len(s.values) for s in result.series)
     rprint(f"[bold]{expr[:80]}[/bold]")
     rprint(f"{len(result.series)} series, {total_points} total data points (step={step})")
@@ -169,7 +178,7 @@ def rules() -> None:
     table.add_column("Type")
     table.add_column("Health")
 
-    data = response.json() if response.content else {}
+    data = _read_json(response) if response.content else {}
     groups = data.get("data", {}).get("groups", []) if isinstance(data, dict) else []
     for group in groups:
         for rule in group.get("rules", []):
@@ -203,7 +212,8 @@ def targets() -> None:
     table.add_column("State")
     table.add_column("Last Scrape")
 
-    for target in response.json()["data"]["activeTargets"]:
+    data = _read_json(response)
+    for target in data.get("data", {}).get("activeTargets", []):
         up = target.get("health", "unknown") == "up"
         labels = target.get("labels") or {}
         table.add_row(

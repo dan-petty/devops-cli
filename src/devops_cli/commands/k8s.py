@@ -316,7 +316,7 @@ def deploy_stack(
         "[dim]ArgoCD admin password: kubectl -n argocd get secret"
         " argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d[/dim]"
     )
-    rprint("[dim]Grafana credentials: admin / admin[/dim]")
+    rprint("[dim]Grafana credentials: set via grafana.token in 'devops config set'[/dim]")
 
 
 @app.command("teardown-stack")

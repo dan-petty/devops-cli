@@ -13,6 +13,7 @@ from rich import print as rprint
 from rich.console import Console
 from rich.table import Table
 
+from devops_cli.config.constants import CONST_MAX_FILE_SIZE_BYTES
 from devops_cli.config.defaults import DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS
 from devops_cli.config.settings import Settings, get_grafana_token, load_settings
 from devops_cli.core.cli import new_typer
@@ -112,6 +113,13 @@ def dashboards_import(
     """Import a dashboard from JSON."""
     settings = load_settings()
     base, headers = _client_args(settings)
+
+    if file.stat().st_size > CONST_MAX_FILE_SIZE_BYTES:
+        rprint(
+            f"[red]File '{file}' exceeds maximum allowed size "
+            f"({CONST_MAX_FILE_SIZE_BYTES} bytes).[/red]"
+        )
+        raise typer.Exit(1)
 
     try:
         raw = json.loads(file.read_text(encoding="utf-8"))

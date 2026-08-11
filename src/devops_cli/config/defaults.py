@@ -16,13 +16,16 @@ DEFAULT_AI_MODEL = "llama3.2"
 DEFAULT_OLLAMA_URL = CONST_URL_OLLAMA_LOCALHOST
 DEFAULT_PYTHON_VERSION = "3.14"
 
-# ── Consolidated Category High Timeouts (workstation-optimized) ───────────────
+# NOTE (Design Justification - AGENTS.md §4 & README.md): High default timeouts are intentional
+# to accommodate local LLM inference (CPU/GPU Ollama), corporate proxy delays, and minikube setup.
 DEFAULT_REVIEW_TIMEOUT_SECONDS: float = CONST_REVIEW_TIMEOUT_SECONDS  # 3600.0s (1 hour)
 DEFAULT_SUBPROCESS_TIMEOUT_SECONDS: float = 1800.0  # 30 minutes (kubectl, helm, minikube, git, gh)
 DEFAULT_HTTP_TIMEOUT_SECONDS: float = 3600.0  # 1 hour (API requests & downloads)
 DEFAULT_DNS_TIMEOUT_SECONDS: float = 15.0  # 15 seconds (socket DNS resolution)
 
 # ── Consolidated Aliases & Sub-keys ───────────────────────────────────────────
+# NOTE (Design Justification - AGENTS.md §4): Short/fast aliases map to main subprocess timeout
+# to guarantee uniform bounds across all subcommand subprocess invocations.
 DEFAULT_SUBPROCESS_SHORT_TIMEOUT_SECONDS: float = DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 DEFAULT_SUBPROCESS_FAST_TIMEOUT_SECONDS: float = DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 

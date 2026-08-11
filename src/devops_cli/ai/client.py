@@ -189,7 +189,14 @@ class LLMClient:
         try:
             addrinfos = socket.getaddrinfo(host, parsed.port, type=socket.SOCK_STREAM)
         except socket.gaierror:
-            # DNS resolution failures are handled by the eventual connect call.
+            h_lower = host.lower()
+            if (
+                h_lower.endswith(".local") or h_lower.endswith(".internal")
+            ) and not self._allow_private_network():
+                raise AIClientError(
+                    f"Refusing non-public {purpose} URL by default. "
+                    f"Set {self._ALLOW_PRIVATE_NETWORK_ENV}=true to override intentionally."
+                )
             return base_url.rstrip("/")
 
         for addrinfo in addrinfos:

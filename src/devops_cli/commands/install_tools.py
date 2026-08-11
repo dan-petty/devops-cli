@@ -115,6 +115,9 @@ def _write_binary(data: bytes, dest: Path) -> None:
 def _extract_tar_member(data: bytes, member: str, dest: Path) -> None:
     import shutil
 
+    if member.startswith("/") or ".." in Path(member).parts:
+        raise ValueError(f"Path traversal detected in archive member '{member}'")
+
     dest.parent.mkdir(parents=True, exist_ok=True)
     with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as tf:
         f = tf.extractfile(member)
@@ -302,6 +305,10 @@ def install_all(
     """Install DevOps tool binaries. Without --tool, installs all tools."""
     if ctx.invoked_subcommand is not None:
         return
+
+    if version and not re.match(r"^v?\d+\.\d+(\.\d+)*(-\w+)?$", version):
+        rprint(f"[red]Invalid version format '{version}'. Expected semver e.g. v1.30.0[/red]")
+        raise typer.Exit(1)
 
     if tool and tool not in TOOLS:
         rprint(f"[red]Unknown tool '{tool}'. Available: {', '.join(TOOLS)}[/red]")
