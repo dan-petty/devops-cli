@@ -95,6 +95,16 @@ def init(
     rprint(f"[green]Created:[/green] {dc_file}")
     rprint(f"[green]Created:[/green] {sh_file}")
 
+    vscode_dir = repo_path / ".vscode"
+    mcp_file = vscode_dir / "mcp.json"
+    if not mcp_file.exists():
+        vscode_dir.mkdir(parents=True, exist_ok=True)
+        mcp_file.write_text(
+            env.get_template("mcp.json.j2").render(project_name=name),
+            encoding="utf-8",
+        )
+        rprint(f"[green]Created:[/green] {mcp_file}")
+
 
 @app.command()
 def update(

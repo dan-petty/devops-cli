@@ -52,4 +52,12 @@ if [ -n "${NEWEST_KEY:-}" ]; then
   echo "✓ git signing configured: ${NEWEST_KEY##*/}"
 fi
 
+# ── MCP configuration ─────────────────────────────────────────────────────────
+mkdir -p "${HOME}/.gemini/config"
+if [ -f ".vscode/mcp.json" ]; then
+  sed "s|\${workspaceFolder}|$(pwd)|g" .vscode/mcp.json > "${HOME}/.gemini/config/mcp_config.json"
+  echo "✓ mcp configuration synced to ~/.gemini/config/mcp_config.json"
+fi
+
 echo "✓ postCreate complete"
+

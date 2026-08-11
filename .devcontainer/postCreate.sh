@@ -30,6 +30,7 @@ BASHRC
 fi
 
 # ── devops-cli config ────────────────────────────────────────────────────────
+mkdir -p "${HOME}/.gemini/config"
 if [[ -n "${DEVOPS_CLI_CONFIG:-}" && ! -f "${DEVOPS_CLI_CONFIG}" ]]; then
   echo ""
   echo "⚠  No project config found at: ${DEVOPS_CLI_CONFIG}"

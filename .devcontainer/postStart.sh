@@ -111,3 +111,11 @@ if [ -n "${NEWEST_KEY:-}" ]; then
   git config --global user.signingkey "${NEWEST_KEY}"
   echo "git signing configured: ${NEWEST_KEY##*/}"
 fi
+
+# ── MCP configuration ─────────────────────────────────────────────────────────
+mkdir -p "${HOME}/.gemini/config"
+if [ -f "${WORKSPACE_DIR}/.vscode/mcp.json" ]; then
+  sed "s|\${workspaceFolder}|${WORKSPACE_DIR}|g" "${WORKSPACE_DIR}/.vscode/mcp.json" > "${HOME}/.gemini/config/mcp_config.json"
+  echo "✓ mcp configuration synced to ~/.gemini/config/mcp_config.json"
+fi
+
