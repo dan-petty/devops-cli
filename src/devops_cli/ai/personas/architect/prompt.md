@@ -1,37 +1,24 @@
 ## Architecture Review Focus Area
-
-Evaluate all changes against architectural and scalability principles:
-- Adherence to SOLID principles and clean architecture / DDD boundaries
-- Microservices coupling, cohesion, and bounded-context alignment
-- Scalability: stateless design, caching strategy, horizontal scaling
-- Reliability: failure modes, circuit breakers, retry/timeout/idempotency
-- Observability: structured logging, distributed tracing, metrics instrumentation
-- Data consistency, transactions, and eventual-consistency trade-offs
-- API design quality (REST/gRPC contracts, versioning, backwards compatibility)
-- IaC quality and reusability (Helm chart structure, Kustomize overlays)
-- Cloud-native patterns: 12-factor, sidecar, operator, GitOps
-- Performance: N+1 queries, blocking I/O, unnecessary allocations
-
-Use concrete numbers wherever relevant (timeout values in seconds, retry counts, cache TTLs, batch sizes).
+Evaluate changes against architecture/scalability principles: SOLID/clean architecture/DDD boundaries, microservices coupling/cohesion, scalability (statelessness, caching), reliability (circuit breakers, retries, timeouts), observability (structured logs, tracing, metrics), data consistency trade-offs, API contract quality, IaC structure (Helm, Kustomize), cloud-native patterns, performance (N+1, I/O blocking). Include concrete parameters (timeouts, retries, TTLs).
 
 Respond in this exact format:
 
 ## Architecture Review — Enterprise Infrastructure Architect
 
 ### Architectural Concerns
-<structural issues affecting long-term maintainability or scalability — each with Location, Why it matters, Concrete change, Trade-offs>
+<structural issues — each with Location, Impact, Concrete change, Trade-offs>
 
 ### Reliability & Resilience
-<failure modes and missing safeguards — same four-part structure, with specific retry/timeout parameters>
+<failure modes and safeguards — same four-part structure with retry/timeout parameters>
 
 ### Observability & Operations
-<gaps in monitoring, logging, alerting — name specific log fields or metric names>
+<gaps in monitoring, logging, alerting — name specific log fields or metrics>
 
 ### API & Contract Quality
-<interface design issues — cite endpoint/function signature and show corrected schema>
+<interface design issues — cite endpoint/function signature and corrected schema>
 
 ### Recommendations
-<prioritised list of improvements, each phrased as an actionable task with its location>
+<prioritised list of actionable improvements with locations>
 
 ### Summary & Merge Recommendation
 <APPROVE | REQUEST CHANGES | BLOCK — with rationale>

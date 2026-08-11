@@ -19,6 +19,7 @@ devops ci typecheck            # mypy (strict)
 
 ## Code Conventions
 - Python 3.14+, strict `mypy`, `ruff` (E/F/I/N/W/UP rules), 100-char line limit, 4-space indent for Python (2-space for JSON/YAML/TOML/shell), LF line endings.
+- Always use parenthesized exception tuples `except (E1, E2):` (never comma-separated legacy Python 2 syntax `except E1, E2:`).
 - Type annotations on all public functions; `from __future__ import annotations`.
 - Import `Callable` from `collections.abc`, not `typing`. Use `httpx2` (not `httpx`) for HTTP calls.
 - Secrets stored in OS keyring (`keyring`); never in config files or environment variables.
@@ -140,6 +141,9 @@ Inspect all 30 environment variables: `devops config output [--export|--json]` (
 - **Workstation-Native Timeouts**: High default timeouts (`DEFAULT_REVIEW_TIMEOUT_SECONDS = 3600.0`, `DEFAULT_SUBPROCESS_TIMEOUT_SECONDS = 1800.0`) accommodate local LLM inference (CPU/GPU Ollama) and corporate proxies.
 - **SSH Key Mounting**: `.devcontainer/devcontainer.json` bind-mounts `${localEnv:HOME}/.ssh` by design to support key generation, 90-day rotation tracking, and GitHub registration.
 - **SSRF Defenses**: `LLMClient` and `validate_service_url()` block non-public IP targets unless `DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true` is set.
-- **Path Traversal Guards**: Workspace path checks (`_is_safe_workspace_path`) enforce repository boundaries on file operations.
+- **Secret Scrubbing**: Review engine automatically redacts GitHub tokens (`ghp_`), API keys (`sk-`), JWTs, and private keys (`_mask_secrets_in_content`) before sending payloads to LLMs.
+- **MCP Security**: FastMCP SSE transport binds to `127.0.0.1` loopback by default; non-loopback host binding requires explicit `--allow-remote`.
+- **Stream Bounds**: LLM responses are capped at `MAX_STREAM_BYTES` (50MB) to prevent memory exhaustion during streaming.
+- **Path Traversal Guards**: Workspace path checks (`_is_safe_workspace_file`) enforce repository boundaries on file operations.
 - **Binary Integrity**: `devops install-tools` verifies SHA-256 checksums before installing binaries to disk.
 - **Subprocess Safety**: External tool invocations (`kubectl`, `argo`, `gh`, `docker`) use non-interactive mode with RFC 1123 argument validation and explicit timeout guards.
