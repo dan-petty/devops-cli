@@ -8,6 +8,7 @@ import socket
 from urllib.parse import urlparse
 
 from devops_cli.config.defaults import DEFAULT_DNS_TIMEOUT_SECONDS
+from devops_cli.lang import MESSAGES
 
 _ALLOW_PRIVATE_NETWORK_ENV = "DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK"
 
@@ -24,7 +25,7 @@ def validate_service_url(url: str, purpose: str, *, allow: bool = False) -> None
     """
     parsed = urlparse(url)
     if parsed.scheme not in {"http", "https"} or not parsed.hostname:
-        raise ValueError(f"Invalid {purpose} URL: must use http:// or https:// with a hostname.")
+        raise ValueError(MESSAGES.messages.invalid_url_scheme.format(purpose=purpose))
 
     allow = allow or os.environ.get(_ALLOW_PRIVATE_NETWORK_ENV, "").strip().lower() in {
         "1",
@@ -41,10 +42,7 @@ def validate_service_url(url: str, purpose: str, *, allow: bool = False) -> None
 
     if literal_ip is not None:
         if _is_non_public_ip(literal_ip) and not allow:
-            raise ValueError(
-                f"Refusing non-public {purpose} URL. "
-                f"Set {_ALLOW_PRIVATE_NETWORK_ENV}=true to override."
-            )
+            raise ValueError(MESSAGES.messages.refusing_non_public_url.format(purpose=purpose))
         return
 
     old_timeout = socket.getdefaulttimeout()
@@ -66,6 +64,4 @@ def validate_service_url(url: str, purpose: str, *, allow: bool = False) -> None
             continue
 
     if resolved_ips and any(_is_non_public_ip(ip) for ip in resolved_ips) and not allow:
-        raise ValueError(
-            f"Refusing non-public {purpose} URL. Set {_ALLOW_PRIVATE_NETWORK_ENV}=true to override."
-        )
+        raise ValueError(MESSAGES.messages.refusing_non_public_url.format(purpose=purpose))

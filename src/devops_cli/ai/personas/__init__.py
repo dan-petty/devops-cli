@@ -9,6 +9,8 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 
+from devops_cli.lang import MESSAGES
+
 _PERSONAS_DIR = Path(__file__).parent
 _TASKS_DIR = _PERSONAS_DIR.parent / "tasks"
 
@@ -47,11 +49,11 @@ _TASK_COMPOSE: str = _load(_TASKS_DIR / "compose.md")
 def _load_persona(persona: Persona) -> PersonaDefinition:
     d = _PERSONAS_DIR / persona
     names = {
-        Persona.DEVSECOPS: "Principal DevSecOps Engineer",
-        Persona.ARCHITECT: "Enterprise Infrastructure Architect",
-        Persona.PM: "Enterprise Project Manager",
-        Persona.AUDITOR: "NIST/PCI/SOC Auditor",
-        Persona.QA: "Senior Test Engineer",
+        Persona.DEVSECOPS: MESSAGES.persona_titles.devsecops,
+        Persona.ARCHITECT: MESSAGES.persona_titles.architect,
+        Persona.PM: MESSAGES.persona_titles.pm,
+        Persona.AUDITOR: MESSAGES.persona_titles.auditor,
+        Persona.QA: MESSAGES.persona_titles.qa,
     }
     role = _load(d / "role.md")
     domain = _load(d / "prompt.md")

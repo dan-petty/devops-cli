@@ -57,8 +57,10 @@ def generate(
     target_key_dir.mkdir(parents=True, exist_ok=True)
     key_path = target_key_dir / f"id_ed25519-{_date_suffix()}"
 
+    from devops_cli.lang import MESSAGES
+
     if key_path.exists():
-        rprint(f"[yellow]Key already exists: {key_path}[/yellow]")
+        rprint(f"[yellow]{MESSAGES.messages.key_already_exists.format(key_path=key_path)}[/yellow]")
         raise typer.Exit(1)
 
     generate_ed25519_key(key_path, comment=comment or f"devops-cli-{date.today().isoformat()}")
@@ -74,10 +76,10 @@ def register(
     ] = None,
     title: Annotated[str | None, typer.Option("--title")] = None,
 ) -> None:
-    """Register an SSH key on GitHub for git access and commit signing."""
     from devops_cli.config.settings import get_github_token, load_settings
     from devops_cli.crypto.ssh_keys import find_newest_key
     from devops_cli.github.ssh import SSHRegistrationError, register_key_on_github
+    from devops_cli.lang import MESSAGES
 
     settings = load_settings()
     token = get_github_token(settings)
@@ -85,12 +87,12 @@ def register(
     if key_file is None:
         key_file = find_newest_key(settings.ssh.key_dir)
         if key_file is None:
-            rprint("[red]No managed SSH key found. Run 'devops ssh generate' first.[/red]")
+            rprint(f"[red]{MESSAGES.messages.no_ssh_key_found}[/red]")
             raise typer.Exit(1)
 
     pub_path = key_file.with_name(f"{key_file.name}.pub")
     if not pub_path.exists():
-        rprint(f"[red]Public key not found: {pub_path}[/red]")
+        rprint(f"[red]{MESSAGES.messages.public_key_not_found.format(pub_path=pub_path)}[/red]")
         raise typer.Exit(1)
 
     pub_key = pub_path.read_text(encoding="utf-8").strip()
@@ -100,13 +102,11 @@ def register(
         register_key_on_github(pub_key, key_title, token=token)
     except SSHRegistrationError as exc:
         from devops_cli.commands.review import _mask_secrets_in_content
+        from devops_cli.lang import MESSAGES
 
         masked_err = _mask_secrets_in_content(str(exc))
-        rprint(f"[red]Failed to register key on GitHub:[/red] {masked_err}")
-        rprint(
-            "[yellow]Tip:[/yellow] run "
-            "'gh auth refresh -h github.com -s admin:public_key,write:ssh_signing_key' and retry."
-        )
+        rprint(f"[red]{MESSAGES.messages.failed_to_register_key.format(error=masked_err)}[/red]")
+        rprint(f"[yellow]{MESSAGES.messages.gh_auth_refresh_tip}[/yellow]")
         raise typer.Exit(1)
 
     _configure_git_signing(key_file)

@@ -430,10 +430,13 @@ def agents(
             use_llm = False
 
     for target in files:
+        from devops_cli.lang import MESSAGES
+
         dest = (repo / target).resolve()
         repo_resolved = repo.resolve()
         if not (dest == repo_resolved or dest.is_relative_to(repo_resolved)):
-            rprint(f"[red]Error: Target path '{dest}' is outside repository boundary.[/red]")
+            msg = MESSAGES.messages.target_path_outside_repo.format(dest=dest)
+            rprint(f"[red]{msg}[/red]")
             continue
         console.print(Rule(f" {target} ", style="cyan"))
 
@@ -450,7 +453,8 @@ def agents(
                     user=_agent_prompt(context, target),
                 )
             except Exception as exc:
-                rprint(f"[yellow]LLM failed ({exc}), using template.[/yellow]")
+                msg = MESSAGES.messages.llm_failed_template_fallback.format(exc=exc)
+                rprint(f"[yellow]{msg}[/yellow]")
                 content = _template_content(target, meta)
         else:
             content = _template_content(target, meta)
@@ -534,7 +538,9 @@ def chat(
         try:
             user_input = console.input("[bold cyan]You:[/bold cyan] ").strip()
         except EOFError, KeyboardInterrupt:
-            rprint("\n[dim]Goodbye.[/dim]")
+            from devops_cli.lang import MESSAGES
+
+            rprint(f"\n[dim]{MESSAGES.messages.goodbye}[/dim]")
             break
 
         if not user_input:

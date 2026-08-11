@@ -92,7 +92,9 @@ def _reload_workspace(workspace_file: Path) -> None:
             timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
         )
     except OSError, subprocess.SubprocessError:
-        rprint("[yellow]Workspace updated, but VS Code CLI is not available to reload.[/yellow]")
+        from devops_cli.lang import MESSAGES
+
+        rprint(f"[yellow]{MESSAGES.messages.vscode_cli_unavailable}[/yellow]")
 
 
 def _sync_and_reload_workspace(root: Path, workspace_file: Path) -> None:
