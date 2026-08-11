@@ -65,7 +65,7 @@ The file MUST include:
   intentional; `devops ci` is the safety net)
 - Exact build/test/lint/format/typecheck commands
 - Code conventions (line length, import style, HTTP library, secrets storage,
-  non-instructional design justification comments for invalidated findings)
+  config and language literal centralization, non-instructional design justification comments)
 - Architecture overview with key file paths
 - AI feature commands (`devops ai`, `devops review`) and persona names
 - Security notes covering SSH keys, tokens, SSRF mitigations, accepted risks,

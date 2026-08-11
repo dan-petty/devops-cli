@@ -49,6 +49,7 @@ The project follows a modular, command-driven architecture.
 - **Style**: PEP 8 compliant; Line length strictly **100 characters** (per `ruff` config).
 - **Typing**: Mandatory type hints for all function signatures. `mypy --strict` is the standard.
 - **Imports**: Grouped and sorted via `ruff`. No unused imports.
+- **Config & Literal Centralization**: Strictly observe project standards and maintain user-facing strings, system prompts, error messages, and configuration constants in central config/language modules (e.g., `config/` and `lang.py`) rather than scattering hardcoded inline literals throughout implementation code.
 - **Error Handling**: All network requests (`httpx`) and subprocess calls must implement explicit timeouts (e.g., 30s) and robust error handling/retries.
 - **Documentation**: Use docstrings for all public functions in `src/devops_cli/`.
 
