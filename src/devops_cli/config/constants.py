@@ -12,7 +12,16 @@ CONST_KEYRING_SERVICE = CONST_APP_NAME
 
 CONST_VSCODE_WORKSPACE_FILE = Path(".code-workspace")
 CONST_GIT_DIR_NAME = ".git"
-CONST_GITIGNORE_DIRS = (".venv", "__pycache__", ".git", ".mypy_cache")
+CONST_GITIGNORE_DIRS = (
+    ".venv",
+    "__pycache__",
+    ".git",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".uv",
+    ".data",
+)
 CONST_VSCODE_CLI = "code"
 CONST_GITHUB_HOST = "github.com"
 CONST_URL_SCHEME_HTTP = "http://"
@@ -60,7 +69,7 @@ CONST_PERM_EXEC = 0o755
 
 CONST_MAX_FILE_SIZE_BYTES = 200 * 1024 * 1024
 
-CONST_REVIEW_MAX_DIFF_CHARS = 16000
+CONST_REVIEW_MAX_DIFF_CHARS = 24000
 CONST_REVIEW_TIMEOUT_SECONDS = 3600
 # Exact filenames excluded from review regardless of .gitignore status
 CONST_REVIEW_GENERATED_FILES = frozenset(

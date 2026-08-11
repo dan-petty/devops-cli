@@ -12,6 +12,7 @@ from devops_cli.commands.review import (
     _build_prompt,
     _build_recompose_prompt,
     _build_validation_prompt,
+    _mask_secrets_in_content,
     _persona_system_prompt,
     _sanitize_prompt_boundary_tags,
 )
@@ -132,3 +133,20 @@ def test_build_recompose_prompt_wraps_segment_outputs() -> None:
     assert "<untrusted_segment_outputs>" in prompt
     assert "</untrusted_segment_outputs>" in prompt
     assert "&lt;/untrusted_segment_outputs&gt;" in prompt
+
+
+def test_mask_secrets_in_content() -> None:
+    raw = (
+        "token = 'ghp_1234567890abcdef1234567890abcdef1234'\n"
+        "key = 'sk-proj-12345678901234567890123456789012345'\n"
+        "ssh = '-----BEGIN PRIVATE KEY-----\n"
+        "MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQC...\n"
+        "-----END PRIVATE KEY-----'\n"
+    )
+    scrubbed = _mask_secrets_in_content(raw)
+    assert "ghp_1234567890abcdef" not in scrubbed
+    assert "<masked-github-token>" in scrubbed
+    assert "sk-proj-1234567890" not in scrubbed
+    assert "<masked-openai-key>" in scrubbed
+    assert "-----BEGIN PRIVATE KEY-----" not in scrubbed
+    assert "<masked-private-key>" in scrubbed

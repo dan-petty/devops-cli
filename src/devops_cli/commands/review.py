@@ -38,7 +38,7 @@ from devops_cli.config.constants import (
     CONST_REVIEW_MAX_DIFF_CHARS,
 )
 from devops_cli.config.defaults import DEFAULT_REVIEW_TIMEOUT_SECONDS
-from devops_cli.config.settings import get_ai_api_key, load_settings
+from devops_cli.config.settings import Settings, get_ai_api_key, load_settings
 from devops_cli.core.dry_run import format_command, is_dry_run, set_dry_run
 from devops_cli.models.ai import ReviewMeta, SegmentMeta
 
@@ -238,6 +238,32 @@ def _unique_preserve_order(items: list[str]) -> list[str]:
 def _truncate_for_prompt(text: str, cap: int = 6000) -> str:
     """Clip text to cap chars for prompt payloads, appending an ellipsis when truncated."""
     return text[:cap] + ("\u2026" if len(text) > cap else "")
+
+
+_SECRET_PATTERNS = (
+    (re.compile(r"ghp_[A-Za-z0-9_]{36,40}"), "<masked-github-token>"),
+    (re.compile(r"github_pat_[A-Za-z0-9_]{82}"), "<masked-github-pat>"),
+    (re.compile(r"sk-[A-Za-z0-9_-]{32,}"), "<masked-openai-key>"),
+    (
+        re.compile(r"eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"),
+        "<masked-jwt>",
+    ),
+    (
+        re.compile(
+            r"-----BEGIN (?:[A-Z0-9_-]+\s+)?PRIVATE KEY-----"
+            r"[\s\S]+?-----END (?:[A-Z0-9_-]+\s+)?PRIVATE KEY-----"
+        ),
+        "<masked-private-key>",
+    ),
+)
+
+
+def _mask_secrets_in_content(text: str) -> str:
+    """Scrub sensitive credentials (tokens, keys, JWTs) from review text before LLM call."""
+    scrubbed = text
+    for pattern, replacement in _SECRET_PATTERNS:
+        scrubbed = pattern.sub(replacement, scrubbed)
+    return scrubbed
 
 
 # TODO: Move to Settings
@@ -903,15 +929,37 @@ def _diff_pages(diff: str, max_chars: int) -> list[str]:
 
 
 def _load_agents_md(start: Path) -> str:
-    """Return AGENTS.md content from the repo root, or empty string if absent."""
-    repo_root = _git_repo_root(start) or start
-    agents_file = repo_root / CONST_AGENTS_MD_FILENAME
-    if not agents_file.is_file():
+    """Return AGENTS.md content from target repo, start dir, or CWD repo root."""
+    start_resolved = start.resolve()
+    target_repo = _git_repo_root(start_resolved)
+    if target_repo is not None:
+        agents_file = target_repo / CONST_AGENTS_MD_FILENAME
+        if agents_file.is_file():
+            try:
+                return agents_file.read_text(encoding="utf-8")
+            except OSError:
+                pass
         return ""
-    try:
-        return agents_file.read_text(encoding="utf-8")
-    except OSError:
-        return ""
+
+    agents_file = (
+        start_resolved / CONST_AGENTS_MD_FILENAME
+        if start_resolved.is_dir()
+        else start_resolved.parent / CONST_AGENTS_MD_FILENAME
+    )
+    if agents_file.is_file():
+        try:
+            return agents_file.read_text(encoding="utf-8")
+        except OSError:
+            pass
+
+    if (cwd_repo := _git_repo_root(Path.cwd())) is not None:
+        cwd_agents = cwd_repo / CONST_AGENTS_MD_FILENAME
+        if cwd_agents.is_file():
+            try:
+                return cwd_agents.read_text(encoding="utf-8")
+            except OSError:
+                pass
+    return ""
 
 
 def _persona_system_prompt(persona: PersonaDefinition, agents_md: str) -> str:
@@ -1600,26 +1648,41 @@ def _collect_file_blocks(root: Path, pattern: str) -> list[str]:
     """
     blocks: list[str] = []
     repo_root = _git_repo_root(root)
+    candidates: list[Path] = []
+    root_ignored = False
+
     if repo_root is not None:
-        result = _run_subprocess(
-            [
-                "git",
-                "-C",
-                str(repo_root),
-                "ls-files",
-                "--cached",
-                "--others",
-                "--exclude-standard",
-                "-z",
-                "--",
-                str(root.relative_to(repo_root)),
-            ],
-            capture_output=True,
-            text=True,
-            check=False,
+        try:
+            rel_to_repo = root.relative_to(repo_root)
+            rel_str = str(rel_to_repo) if str(rel_to_repo) != "." else "."
+        except ValueError:
+            rel_str = "."
+
+        root_ignored = (
+            _is_git_ignored(repo_root, root) if root.resolve() != repo_root.resolve() else False
         )
-        candidates = [repo_root / Path(item) for item in result.stdout.split("\0") if item]
-    else:
+        if not root_ignored:
+            result = _run_subprocess(
+                [
+                    "git",
+                    "-C",
+                    str(repo_root),
+                    "ls-files",
+                    "--cached",
+                    "--others",
+                    "--exclude-standard",
+                    "-z",
+                    "--",
+                    rel_str,
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if result.returncode == 0 and result.stdout:
+                candidates = [repo_root / Path(item) for item in result.stdout.split("\0") if item]
+
+    if not candidates:
         candidates = [p for p in sorted(root.rglob("*")) if p.is_file()]
 
     for p in sorted(candidates):
@@ -1629,9 +1692,12 @@ def _collect_file_blocks(root: Path, pattern: str) -> list[str]:
             continue
         if p.name in CONST_REVIEW_GENERATED_FILES:
             continue
-        if repo_root is not None and _is_git_ignored(repo_root, p):
+        if repo_root is not None and not root_ignored and _is_git_ignored(repo_root, p):
             continue
-        rel = p.relative_to(root)
+        try:
+            rel = p.relative_to(root)
+        except ValueError:
+            rel = p
         if not rel.match(pattern):
             continue
         try:
@@ -1710,21 +1776,96 @@ def _execute_review_workflow(
     )
 
 
+def _is_allowed_review_boundary(target: Path, settings: Settings) -> bool:
+    target_resolved = target.resolve()
+    allowed_roots: list[Path] = [Path.cwd().resolve()]
+    if (cwd_repo := _git_repo_root(Path.cwd())) is not None:
+        allowed_roots.append(cwd_repo.resolve())
+    if (target_repo := _git_repo_root(target_resolved)) is not None:
+        allowed_roots.append(target_repo.resolve())
+
+    repos_base = settings.repos.base_dir.resolve()
+    allowed_roots.append(repos_base)
+
+    for root in allowed_roots:
+        if target_resolved == root or target_resolved.is_relative_to(root):
+            return True
+    return False
+
+
+def _detect_base_branch(repo_path: Path, preferred_base: str = "main") -> str:
+    """Return preferred_base if it exists, otherwise detect master/main/origin default."""
+    res = _run_subprocess(
+        ["git", "rev-parse", "--verify", "--quiet", f"refs/heads/{preferred_base}"],
+        capture_output=True,
+        text=True,
+        cwd=repo_path,
+        check=False,
+    )
+    if res.returncode == 0:
+        return preferred_base
+
+    branches_proc = _run_subprocess(
+        ["git", "for-each-ref", "--format=%(refname:short)", "refs/heads/"],
+        capture_output=True,
+        text=True,
+        cwd=repo_path,
+        check=False,
+    )
+    local_branches = (
+        [b.strip() for b in branches_proc.stdout.splitlines() if b.strip()]
+        if branches_proc.returncode == 0
+        else []
+    )
+
+    if preferred_base in local_branches:
+        return preferred_base
+
+    for alt in ("main", "master", "trunk"):
+        if alt in local_branches:
+            return alt
+
+    res_sym = _run_subprocess(
+        ["git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
+        capture_output=True,
+        text=True,
+        cwd=repo_path,
+        check=False,
+    )
+    if res_sym.returncode == 0 and res_sym.stdout:
+        target: str = res_sym.stdout.strip().removeprefix("origin/")
+        if target:
+            return target
+
+    head_proc = _run_subprocess(
+        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+        capture_output=True,
+        text=True,
+        cwd=repo_path,
+        check=False,
+    )
+    if (
+        head_proc.returncode == 0
+        and (head_name := str(head_proc.stdout).strip())
+        and head_name != "HEAD"
+    ):
+        return head_name
+
+    return str(preferred_base)
+
+
 def _prepare_path_content(target: Path, pattern: str) -> tuple[list[str], str, str]:
     """Prepare paginated pages, title, and agents_md for path review target."""
+    settings = load_settings()
     target_resolved = target.resolve()
-    repo_root = _git_repo_root(Path.cwd())
-    boundary = repo_root or Path.cwd().resolve()
-    if not (target_resolved == boundary or target_resolved.is_relative_to(boundary)):
-        rprint(
-            f"[red]Error: Target path '{target_resolved}' is outside boundary '{boundary}'.[/red]"
-        )
+    if not _is_allowed_review_boundary(target, settings):
+        rprint(f"[red]Error: Target path '{target_resolved}' is outside allowed boundaries.[/red]")
         raise typer.Exit(1)
     if target_resolved.is_file():
         if target_resolved.stat().st_size > CONST_MAX_FILE_SIZE_BYTES:
             rprint(
                 f"[red]Error: Target file '{target_resolved}' exceeds maximum size "
-                f"({CONST_MAX_FILE_SIZE_BYTES // (1024 * 1024)}MB).[/red]"
+                f"({CONST_MAX_FILE_SIZE_BYTES // (1024 * 1024)}MB)."
             )
             raise typer.Exit(0)
         suffix = target_resolved.suffix.lstrip(".") or "text"
@@ -1740,7 +1881,7 @@ def _prepare_path_content(target: Path, pattern: str) -> tuple[list[str], str, s
         rprint("[yellow]No files found.[/yellow]")
         raise typer.Exit(0)
 
-    pages = _paginate_blocks(blocks, _MAX_DIFF_CHARS)
+    pages = [_mask_secrets_in_content(p) for p in _paginate_blocks(blocks, _MAX_DIFF_CHARS)]
     agents_md = _load_agents_md(
         target_resolved if target_resolved.is_dir() else target_resolved.parent
     )
@@ -1751,6 +1892,16 @@ def _prepare_branch_content(
     branch_name: str | None, base: str, repo_path: Path
 ) -> tuple[list[str], str, str]:
     """Prepare paginated diff pages, title, and agents_md for branch review target."""
+    settings = load_settings()
+    repo_resolved = repo_path.resolve()
+    if not _is_allowed_review_boundary(repo_resolved, settings):
+        rprint(
+            f"[red]Error: Repository path '{repo_resolved}' is outside allowed boundaries.[/red]"
+        )
+        raise typer.Exit(1)
+
+    effective_base = _detect_base_branch(repo_path, base)
+
     if branch_name is None:
         proc = _run_subprocess(
             ["git", "rev-parse", "--abbrev-ref", "HEAD"],
@@ -1768,14 +1919,21 @@ def _prepare_branch_content(
             )
             raise typer.Exit(1)
 
-    rprint(f"Diffing [cyan]{branch_name}[/cyan] against [cyan]{base}[/cyan]...")
+    rprint(f"Diffing [cyan]{branch_name}[/cyan] against [cyan]{effective_base}[/cyan]...")
 
     diff_proc = _run_subprocess(
-        ["git", "diff", f"{base}...{branch_name}"],
+        ["git", "diff", f"{effective_base}...{branch_name}"],
         capture_output=True,
         text=True,
         cwd=repo_path,
     )
+    if diff_proc.returncode != 0:
+        diff_proc = _run_subprocess(
+            ["git", "diff", effective_base, branch_name],
+            capture_output=True,
+            text=True,
+            cwd=repo_path,
+        )
     if diff_proc.returncode != 0:
         rprint(f"[red]git diff failed: {diff_proc.stderr.strip()}[/red]")
         raise typer.Exit(1)
@@ -1783,9 +1941,9 @@ def _prepare_branch_content(
         rprint("[yellow]No differences found between branches.[/yellow]")
         raise typer.Exit(0)
 
-    title = f"Branch `{branch_name}` vs `{base}`"
+    title = f"Branch `{branch_name}` vs `{effective_base}`"
     agents_md = _load_agents_md(repo_path)
-    pages = _diff_pages(diff_proc.stdout, _MAX_DIFF_CHARS)
+    pages = [_mask_secrets_in_content(p) for p in _diff_pages(diff_proc.stdout, _MAX_DIFF_CHARS)]
     return pages, title, agents_md
 
 
@@ -1816,7 +1974,7 @@ def _prepare_pr_content(
     diff = gh.get_pr_diff(repo, number)
     title = f"PR #{number}: {pull.title}"
     agents_md = _load_agents_md(Path.cwd())
-    pages = _diff_pages(diff, _MAX_DIFF_CHARS)
+    pages = [_mask_secrets_in_content(p) for p in _diff_pages(diff, _MAX_DIFF_CHARS)]
     return pages, title, agents_md, pull, repo
 
 
