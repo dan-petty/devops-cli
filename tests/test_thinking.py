@@ -53,21 +53,21 @@ def test_thinking_stream_processor_split_across_chunks() -> None:
     assert proc.thinking_content == "Reasoning line"
 
 
-def test_thinking_stream_processor_callbacks() -> None:
-    """ThinkingStreamProcessor triggers callbacks for think start, think end, and content."""
+def test_thinking_stream_processor_consolidates_header_and_footer() -> None:
+    """Multiple <think> blocks in succession trigger think_start and think_end callbacks once."""
     events: list[str] = []
-    content_chunks: list[str] = []
 
     proc = ThinkingStreamProcessor(
         show_thinking=True,
         on_think_start=lambda: events.append("think_start"),
         on_think_end=lambda: events.append("think_end"),
-        on_content_chunk=lambda chunk: content_chunks.append(chunk),
     )
 
-    proc.feed("<think>Reasoning</think>Hello World")
+    proc.feed("<think>Part 1</think>")
+    proc.feed("<think> Part 2</think>")
+    proc.feed("Final response content")
     proc.flush()
 
     assert events == ["think_start", "think_end"]
-    assert "".join(content_chunks) == "Hello World"
-    assert proc.clean_content == "Hello World"
+    assert proc.clean_content == "Final response content"
+    assert proc.thinking_content == "Part 1 Part 2"

@@ -46,6 +46,7 @@ class ThinkingStreamProcessor:
 
         self.in_think = False
         self.think_started = False
+        self.think_ended = False
         self._buffer = ""
         self.clean_content = ""
         self.thinking_content = ""
@@ -73,8 +74,11 @@ class ThinkingStreamProcessor:
                 sys.stdout.flush()
 
     def _handle_think_end(self) -> None:
-        if self.in_think:
-            self.in_think = False
+        self.in_think = False
+
+    def _finalize_thinking_footer(self) -> None:
+        if self.think_started and not self.think_ended:
+            self.think_ended = True
             if self.on_think_end:
                 self.on_think_end()
             elif self.show_thinking:
@@ -84,6 +88,7 @@ class ThinkingStreamProcessor:
     def _handle_content_chunk(self, chunk: str) -> None:
         if not chunk:
             return
+        self._finalize_thinking_footer()
         self.clean_content += chunk
         if self.on_content_chunk:
             self.on_content_chunk(chunk)
@@ -158,3 +163,4 @@ class ThinkingStreamProcessor:
             else:
                 self._handle_content_chunk(self._buffer)
             self._buffer = ""
+        self._finalize_thinking_footer()
