@@ -2548,3 +2548,26 @@ def review_stats(
             ptable.add_row(persona, str(count), str(inval), f"{rate:.1f}%")
 
         console.print(ptable)
+
+
+# NOTE (Design Justification - v0.1.1 Prep): export_feedback prepares the dataset exporter stub
+# for invalidated findings (status="INVALIDATED") recorded via 'devops ai review verify'.
+# Data is formatted into JSONL benchmark records for prompt tuning.
+@app.command("export-feedback")
+def export_feedback(
+    output: Annotated[
+        Path | None,
+        typer.Option("--output", "-o", help="Output JSONL path for benchmark feedback dataset"),
+    ] = None,
+    reviews_dir: Annotated[
+        Path | None,
+        typer.Option("--reviews-dir", help="Directory containing review sessions"),
+    ] = None,
+) -> None:
+    # TODO (v0.1.1 Feature): Implement JSONL feedback exporter querying invalidated findings.
+    r_dir = reviews_dir or (CONST_DATA_DIR / "reviews")
+    out_file = output or (CONST_DATA_DIR / "feedback_dataset.jsonl")
+    if not r_dir.exists():
+        rprint("[yellow]No review directory found.[/yellow]")
+        raise typer.Exit(0)
+    rprint(f"[dim]v0.1.1 Prep Stub: Feedback exporter targeting {out_file}[/dim]")

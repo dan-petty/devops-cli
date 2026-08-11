@@ -358,3 +358,26 @@ def output_env_vars(
         table.add_row(spec.env_var, key_display, val_display, spec.description)
 
     console.print(table)
+
+
+# NOTE (Design Justification - v0.1.1 Prep): auth_headless provides the command stub
+# for loading session tokens into ephemeral memory for headless Linux CI environments lacking DBus.
+@app.command("auth-headless")
+def auth_headless(
+    key: Annotated[str, typer.Argument(help="Dotted secret key, e.g. github.token")],
+    token: Annotated[str, typer.Argument(help="Secret token string")],
+) -> None:
+    """Load secret tokens into ephemeral memory for headless CI environments lacking DBus."""
+    # TODO (v0.1.1 Feature): Implement memory-backed fallback secret storage for headless CI runners
+    from devops_cli.config.options import KEYRING_KEYS
+    from devops_cli.config.settings import _EPHEMERAL_CI_SECRETS
+
+    if key not in KEYRING_KEYS:
+        rprint(
+            f"[red]Invalid secret key '{key}'. Must be one of: {list(KEYRING_KEYS.keys())}[/red]"
+        )
+        raise typer.Exit(1)
+
+    keyring_field = KEYRING_KEYS[key]
+    _EPHEMERAL_CI_SECRETS[keyring_field] = token
+    rprint(f"[green]✓ Ephemeral secret loaded into memory: {key}[/green]")

@@ -158,9 +158,16 @@ class Settings(BaseModel):
     ai: AIConfig = AIConfig()
 
 
+# TODO (v0.1.1 Feature): MemoryKeyringStore for headless CI environments lacking DBus/SecretService
+_EPHEMERAL_CI_SECRETS: dict[str, str] = {}
+
+
 def _keyring_get(key: str) -> str | None:
     import keyring
     from keyring.errors import NoKeyringError
+
+    if key in _EPHEMERAL_CI_SECRETS:
+        return _EPHEMERAL_CI_SECRETS[key]
 
     if not _ensure_keyring_backend():
         return None

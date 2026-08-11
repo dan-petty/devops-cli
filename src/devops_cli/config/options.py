@@ -35,6 +35,11 @@ AI_TASK_COMPOSE_PROVIDER = "ai.tasks.compose.provider"
 AI_TASK_COMPOSE_MODEL = "ai.tasks.compose.model"
 AI_TASK_COMPOSE_OLLAMA_URLS = "ai.tasks.compose.ollama_urls"
 
+# v0.1.1 Feature Flags
+FEATURE_PR_INLINE_COMMENTS = "features.pr_inline_comments"
+FEATURE_CUSTOM_PERSONAS = "features.custom_personas"
+FEATURE_HEADLESS_AUTH = "features.headless_auth"
+
 CONFIG_OPTIONS: tuple[str, ...] = (
     GITHUB_TOKEN,
     GITHUB_DEFAULT_ORG,
