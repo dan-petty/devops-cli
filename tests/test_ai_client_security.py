@@ -187,3 +187,26 @@ def test_preload_models(monkeypatch: pytest.MonkeyPatch) -> None:
     assert len(requested) == 2
     assert "http://localhost:11434/api/generate" in requested
     assert "http://localhost:11435/api/generate" in requested
+
+
+def test_llm_response_processing_time(monkeypatch: pytest.MonkeyPatch) -> None:
+    cfg = AIConfig(provider="ollama", ollama_urls=["http://localhost:11434"])
+    client = LLMClient(cfg)
+
+    def fake_post(_self: object, url: str, **kwargs: object) -> httpx2.Response:
+        return httpx2.Response(
+            200,
+            json={
+                "message": {"role": "assistant", "content": "Done"},
+                "prompt_eval_duration": 4_000_000_000,
+                "eval_duration": 6_000_000_000,
+                "total_duration": 60_000_000_000,
+            },
+            request=httpx2.Request("POST", url),
+        )
+
+    monkeypatch.setattr("httpx2.Client.post", fake_post)
+    res = client.chat("sys", "user")
+    assert isinstance(res, str)
+    assert res == "Done"
+    assert res.processing_seconds == 10.0

@@ -1198,8 +1198,11 @@ def _run_review(
         result_text = ""
         for attempt in range(1, _MAX_SEGMENT_RETRIES + 2):
             seg_start = time.monotonic()
+            proc_sec: float | None = None
             try:
-                result_text = str(clients.analysis.chat(system=analysis_system, user=user_prompt))
+                res_obj = clients.analysis.chat(system=analysis_system, user=user_prompt)
+                result_text = str(res_obj)
+                proc_sec = getattr(res_obj, "processing_seconds", None)
             except AIClientError as exc:
                 seg_elapsed = time.monotonic() - seg_start
                 _log_event(
@@ -1223,7 +1226,7 @@ def _run_review(
                     f"{_MAX_SEGMENT_RETRIES + 1} attempt(s); skipping.[/yellow]"
                 )
                 break
-            seg_elapsed = time.monotonic() - seg_start
+            seg_elapsed = proc_sec if proc_sec is not None else (time.monotonic() - seg_start)
             if not result_text.strip():
                 empty_msg = (
                     f"LLM returned empty or whitespace-only response (len={len(result_text)}) "

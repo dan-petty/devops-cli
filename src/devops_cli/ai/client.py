@@ -15,6 +15,7 @@ import os
 import re
 import socket
 import threading
+import time
 from collections.abc import Generator
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
@@ -37,6 +38,24 @@ MAX_STREAM_BYTES = 50 * 1024 * 1024  # 50MB maximum streamed response size
 
 class AIClientError(RuntimeError):
     """Raised when an AI provider request fails with a user-actionable message."""
+
+
+class LLMResponse(str):
+    """String response from LLM with optional execution timing metadata."""
+
+    processing_seconds: float | None
+    wall_seconds: float
+
+    def __new__(
+        cls,
+        content: str,
+        processing_seconds: float | None = None,
+        wall_seconds: float = 0.0,
+    ) -> LLMResponse:
+        obj = super().__new__(cls, content)
+        obj.processing_seconds = processing_seconds
+        obj.wall_seconds = wall_seconds
+        return obj
 
 
 class LLMClient:
@@ -116,7 +135,7 @@ class LLMClient:
 
         return results
 
-    def chat(self, system: str, user: str, *, enable_thinking: bool = True) -> str:
+    def chat(self, system: str, user: str, *, enable_thinking: bool = True) -> LLMResponse:
         """Send a single-turn chat message and return the assistant reply."""
         return self.chat_messages(
             system,
@@ -130,15 +149,25 @@ class LLMClient:
         messages: list[ChatMessage],
         *,
         enable_thinking: bool = True,
-    ) -> str:
+    ) -> LLMResponse:
         """Send a multi-turn conversation and return the assistant reply."""
         p = self._config.provider
         if p == "ollama":
             return self._ollama_messages(system, messages, enable_thinking=enable_thinking)
         if p == "claude":
-            return self._strip_think_blocks(self._claude_messages(system, messages))
+            res_claude = self._claude_messages(system, messages)
+            return LLMResponse(
+                self._strip_think_blocks(res_claude),
+                processing_seconds=res_claude.processing_seconds,
+                wall_seconds=res_claude.wall_seconds,
+            )
         if p in ("copilot", "openai"):
-            return self._strip_think_blocks(self._openai_compat_messages(system, messages))
+            res_openai = self._openai_compat_messages(system, messages)
+            return LLMResponse(
+                self._strip_think_blocks(res_openai),
+                processing_seconds=res_openai.processing_seconds,
+                wall_seconds=res_openai.wall_seconds,
+            )
         raise ValueError(f"Unknown provider: {p!r}. Choose: ollama, claude, copilot, openai")
 
     def chat_stream(
@@ -291,7 +320,7 @@ class LLMClient:
 
     def _ollama_messages(
         self, system: str, messages: list[ChatMessage], *, enable_thinking: bool = True
-    ) -> str:
+    ) -> LLMResponse:
         candidates = self._get_ollama_urls_loop()
         last_exc: Exception | None = None
 
@@ -337,7 +366,8 @@ class LLMClient:
 
     def _ollama_request(
         self, base: str, system: str, messages: list[ChatMessage], think: bool
-    ) -> str:
+    ) -> LLMResponse:
+        t0 = time.monotonic()
         with httpx2.Client(timeout=self._request_timeout()) as http_client:
             payload: dict[str, Any] = {
                 "model": self._config.model,
@@ -353,9 +383,26 @@ class LLMClient:
             response.raise_for_status()
             if think and self._ollama_thinking_supported is None:
                 self._ollama_thinking_supported = True
-            msg = self._read_limited_json(response)["message"]
-            content = str(msg["content"])
-            return content if "thinking" in msg else self._strip_think_blocks(content)
+
+            raw_res = self._read_limited_json(response)
+            wall_elapsed = time.monotonic() - t0
+
+            msg = raw_res.get("message", {})
+            content = str(msg.get("content", ""))
+            text = content if "thinking" in msg else self._strip_think_blocks(content)
+
+            prompt_eval_ns = int(raw_res.get("prompt_eval_duration") or 0)
+            eval_ns = int(raw_res.get("eval_duration") or 0)
+            if prompt_eval_ns or eval_ns:
+                proc_sec: float | None = (prompt_eval_ns + eval_ns) / 1_000_000_000.0
+            elif "total_duration" in raw_res:
+                load_ns = int(raw_res.get("load_duration") or 0)
+                tot_ns = int(raw_res["total_duration"])
+                proc_sec = max((tot_ns - load_ns) / 1_000_000_000.0, 0.0)
+            else:
+                proc_sec = None
+
+            return LLMResponse(text, processing_seconds=proc_sec, wall_seconds=wall_elapsed)
 
     def _ollama_models(self) -> list[str]:
         candidates = self._get_ollama_urls_loop()
@@ -393,11 +440,12 @@ class LLMClient:
 
     # ── Anthropic Claude ──────────────────────────────────────────────────────
 
-    def _claude_messages(self, system: str, messages: list[ChatMessage]) -> str:
+    def _claude_messages(self, system: str, messages: list[ChatMessage]) -> LLMResponse:
         base = self._validate_base_url(
             self._config.api_base_url or CONST_URL_ANTHROPIC_API_BASE,
             purpose="Claude API",
         )
+        t0 = time.monotonic()
         try:
             with httpx2.Client(timeout=self._request_timeout()) as http_client:
                 response = http_client.post(
@@ -415,7 +463,9 @@ class LLMClient:
                     },
                 )
                 response.raise_for_status()
-                return str(self._read_limited_json(response)["content"][0]["text"])
+                wall_elapsed = time.monotonic() - t0
+                text = str(self._read_limited_json(response)["content"][0]["text"])
+                return LLMResponse(text, processing_seconds=None, wall_seconds=wall_elapsed)
         except (httpx2.ConnectError, httpx2.ConnectTimeout) as exc:
             raise self._connection_error(exc) from exc
         except httpx2.HTTPError as exc:
@@ -425,7 +475,8 @@ class LLMClient:
 
     # ── OpenAI-compatible (GitHub Copilot, OpenAI, Azure OpenAI) ─────────────
 
-    def _openai_compat_messages(self, system: str, messages: list[ChatMessage]) -> str:
+    def _openai_compat_messages(self, system: str, messages: list[ChatMessage]) -> LLMResponse:
+        t0 = time.monotonic()
         try:
             with httpx2.Client(timeout=self._request_timeout()) as http_client:
                 response = http_client.post(
@@ -443,7 +494,9 @@ class LLMClient:
                     },
                 )
                 response.raise_for_status()
-                return str(self._read_limited_json(response)["choices"][0]["message"]["content"])
+                wall_elapsed = time.monotonic() - t0
+                text = str(self._read_limited_json(response)["choices"][0]["message"]["content"])
+                return LLMResponse(text, processing_seconds=None, wall_seconds=wall_elapsed)
         except (httpx2.ConnectError, httpx2.ConnectTimeout) as exc:
             raise self._connection_error(exc) from exc
         except httpx2.HTTPError as exc:
