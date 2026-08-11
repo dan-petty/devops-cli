@@ -45,6 +45,7 @@ devops ci typecheck            # mypy (strict)
 - Type annotations on all public functions; `from __future__ import annotations`
 - Import `Callable` from `collections.abc`, not `typing`
 - Use `httpx2` (not `httpx`) for HTTP — `import httpx2`
+- Exception handling catching multiple exception types must always use explicit parenthesized tuples (e.g. `except (Error1, Error2):`), never Python 2 comma syntax
 - Secrets stored in OS keyring via `keyring`; never in config files or env vars
 - Automatically add non-instructional, reference-backed design justification comments
   (`# NOTE (Design Justification - <REF>): ...`) for all invalidated findings or

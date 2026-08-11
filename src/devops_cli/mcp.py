@@ -79,7 +79,9 @@ def review_findings(session_id: str = "", status: str = "") -> str:
     if session_id:
         cmd.append(session_id)
     if status:
-        cmd.extend(["--" + status.lower().strip("-")])
+        st_clean = status.lower().strip("-")
+        if st_clean in {"verified", "unverified", "mitigated"}:
+            cmd.append(f"--{st_clean}")
     return _run_mcp_cmd(cmd, timeout=60)
 
 

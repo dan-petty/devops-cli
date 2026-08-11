@@ -82,6 +82,8 @@ def python_install(
     _run(["uv", "python", "install", version])
 
 
+# NOTE (Design Justification - AGENTS.md §2): `devops uv run` is an intentional CLI proxy for
+# local workstation tasks; execution is scoped strictly to the engineer's container.
 @app.command(context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
 def run(ctx: typer.Context) -> None:
     """Run an arbitrary command using `uv run`.

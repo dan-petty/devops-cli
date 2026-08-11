@@ -135,8 +135,8 @@ class PydanticAgent[T]:
                         if tool_name in self._tools:
                             try:
                                 tool_result = self._tools[tool_name].execute(**args)
-                            except TypeError as exc:
-                                tool_result = f"Invalid tool arguments for {tool_name}: {exc}"
+                            except Exception as exc:
+                                tool_result = f"Tool execution error for {tool_name}: {exc}"
                             tc = ToolCall(tool_name=tool_name, arguments=args, result=tool_result)
                             tool_calls.append(tc)
 

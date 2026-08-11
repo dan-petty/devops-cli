@@ -304,8 +304,13 @@ class LLMClient:
                     f"Invalid JSON response payload from AI provider: {exc}"
                 ) from exc
 
-        raw_res: dict[str, Any] = response.json()
-        return raw_res
+        try:
+            raw_res: dict[str, Any] = response.json()
+            return raw_res
+        except Exception as exc:
+            raise AIClientError(
+                f"Failed to parse JSON response body from AI provider: {exc}"
+            ) from exc
 
     def _get_ollama_urls_loop(self) -> list[tuple[int, str]]:
         """Return list of (index, url) tuples for Ollama failover, advancing starting index."""
