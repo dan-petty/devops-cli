@@ -40,9 +40,11 @@ High-density product roadmap for `devops-cli`.
 - [x] **Automated Code Patch Application Prep**: Staging suggested LLM code fixes (`devops ai review apply-patch`).
 - [x] **Expanded Subcommand Dry-Run Models**: Pydantic `CommandDryRunResult` models across `argo`, `grafana`, `prometheus`, `devcontainer`.
 
-### Phase 5: Autonomous Remediation & Offline Bundling (Long-Term: 2027+)
-- [ ] **Automated Code Patch Application**: Apply suggested LLM fixes (`finding.fix`) directly to source files with interactive git staging.
-- [ ] **Air-Gapped Container Bundles**: Pre-packaged devcontainers with local Ollama models for offline environments.
+### Phase 5: Autonomous Remediation & Air-Gapped Bundling (v0.1.3 - Short-Term: Q3 2026)
+- [ ] **Interactive Code Patch Application**: Interactive diff preview and staging for LLM code fixes (`devops ai review apply-patch --interactive`).
+- [ ] **Air-Gapped Model Bundling**: Package local Ollama model weights for offline DevContainers (`devops ai bundle-models`).
+- [ ] **Kubernetes RBAC Audit Policy**: RBAC security scanner for namespace role bindings (`devops k8s rbac-audit`).
+- [ ] **SIEM Live Audit Streaming**: Live JSON audit trail streaming (`devops config audit-stream`).
 
 ---
 

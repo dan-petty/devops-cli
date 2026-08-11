@@ -6,6 +6,9 @@ Chronological log of refactoring milestones, quality gates, and security enhance
 
 ## Log Entries
 
+### [2026-08-11] Release v0.1.3 Planning
+- **v0.1.3 Implementation Plan**: Formulated plan for interactive patch application (`apply-patch --interactive`), air-gapped model bundling (`bundle-models`), Kubernetes RBAC auditing (`rbac-audit`), and live SIEM audit streaming.
+
 ### [2026-08-11] Release v0.1.2 Implementation & Completion
 - **Multi-Cluster Kubeconfig Management**: Added `devops k8s switch-context` for active cluster context management.
 - **SIEM Audit Trail Logger**: Integrated `AuditLogger` (`record_audit_event`) streaming execution events to `.data/logs/audit.jsonl`.
