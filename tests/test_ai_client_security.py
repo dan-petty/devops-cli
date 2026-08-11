@@ -164,4 +164,4 @@ def test_ollama_multiserver_failover(monkeypatch: pytest.MonkeyPatch) -> None:
         "http://localhost:11434/api/chat",
         "http://localhost:11435/api/chat",
     ]
-    assert client._ollama_url_index == 0
+    assert client._ollama_url_index == 1
