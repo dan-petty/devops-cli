@@ -30,6 +30,8 @@ from devops_cli.config.settings import AIConfig
 from devops_cli.http.client import request_timeout
 from devops_cli.models.ai import ChatMessage
 
+MAX_STREAM_BYTES = 50 * 1024 * 1024  # 50MB maximum streamed response size
+
 
 class AIClientError(RuntimeError):
     """Raised when an AI provider request fails with a user-actionable message."""
@@ -376,6 +378,7 @@ class LLMClient:
                 response.raise_for_status()
                 if think and self._ollama_thinking_supported is None:
                     self._ollama_thinking_supported = True
+                total_bytes = 0
                 for line in response.iter_lines():
                     if not line:
                         continue
@@ -387,9 +390,16 @@ class LLMClient:
                     content = msg.get("content", "")
                     thinking = msg.get("thinking", "")
                     if thinking:
-                        yield f"<think>{thinking}</think>"
+                        chunk_str = f"<think>{thinking}</think>"
                     elif content:
-                        yield str(content)
+                        chunk_str = str(content)
+                    else:
+                        continue
+
+                    total_bytes += len(chunk_str.encode("utf-8"))
+                    if total_bytes > MAX_STREAM_BYTES:
+                        raise AIClientError("LLM response exceeded maximum stream size (50MB).")
+                    yield chunk_str
 
     def _claude_stream(self, system: str, messages: list[ChatMessage]) -> Generator[str]:
         base = self._validate_base_url(
@@ -417,6 +427,7 @@ class LLMClient:
                     if response.status_code >= 400:
                         response.read()
                     response.raise_for_status()
+                    total_bytes = 0
                     for line in response.iter_lines():
                         if not line or not line.startswith("data:"):
                             continue
@@ -432,7 +443,13 @@ class LLMClient:
                             if delta.get("type") == "text_delta":
                                 text_val = delta.get("text", "")
                                 if text_val:
-                                    yield str(text_val)
+                                    chunk_str = str(text_val)
+                                    total_bytes += len(chunk_str.encode("utf-8"))
+                                    if total_bytes > MAX_STREAM_BYTES:
+                                        raise AIClientError(
+                                            "Claude response exceeded maximum stream size (50MB)."
+                                        )
+                                    yield chunk_str
         except (httpx2.ConnectError, httpx2.ConnectTimeout) as exc:
             raise self._connection_error(exc) from exc
         except httpx2.HTTPError as exc:
@@ -460,6 +477,7 @@ class LLMClient:
                     if response.status_code >= 400:
                         response.read()
                     response.raise_for_status()
+                    total_bytes = 0
                     for line in response.iter_lines():
                         if not line or not line.startswith("data:"):
                             continue
@@ -475,7 +493,13 @@ class LLMClient:
                             delta = choices[0].get("delta", {})
                             content = delta.get("content")
                             if content:
-                                yield str(content)
+                                chunk_str = str(content)
+                                total_bytes += len(chunk_str.encode("utf-8"))
+                                if total_bytes > MAX_STREAM_BYTES:
+                                    raise AIClientError(
+                                        "Provider response exceeded maximum stream size (50MB)."
+                                    )
+                                yield chunk_str
         except (httpx2.ConnectError, httpx2.ConnectTimeout) as exc:
             raise self._connection_error(exc) from exc
         except httpx2.HTTPError as exc:

@@ -43,6 +43,13 @@ def serve_cmd(
             help="Port number for SSE transport.",
         ),
     ] = 8000,
+    allow_remote: Annotated[
+        bool,
+        typer.Option(
+            "--allow-remote",
+            help="Permit binding SSE transport to non-loopback network interfaces.",
+        ),
+    ] = False,
 ) -> None:
     """Launch FastMCP server to expose devops-cli tools to MCP clients."""
     if transport not in {"stdio", "sse"}:
@@ -60,7 +67,11 @@ def serve_cmd(
             file=sys.stderr,
         )
 
-    run_mcp_server(transport=transport, host=host, port=port)
+    try:
+        run_mcp_server(transport=transport, host=host, port=port, allow_remote=allow_remote)
+    except ValueError as exc:
+        rprint(f"[red]Error: {exc}[/red]")
+        raise typer.Exit(1)
 
 
 @app.command("tools")

@@ -52,14 +52,42 @@ def _workspace_data_from_repos(root: Path) -> dict[str, Any]:
 def _load(ws_file: Path) -> dict[str, Any]:
     if ws_file.exists():
         try:
-            data: dict[str, Any] = json.loads(ws_file.read_text(encoding="utf-8"))
-            return data
+            data = json.loads(ws_file.read_text(encoding="utf-8"))
+            if isinstance(data, dict) and "folders" in data and isinstance(data["folders"], list):
+                return data
+            rprint(
+                f"[yellow]Malformed workspace file structure: {ws_file}. Using defaults.[/yellow]"
+            )
         except json.JSONDecodeError:
             rprint(f"[yellow]Corrupted workspace file: {ws_file}. Using defaults.[/yellow]")
     return {"folders": [], "settings": {}}
 
 
+_FORBIDDEN_SYSTEM_DIRS = (
+    Path("/etc"),
+    Path("/usr"),
+    Path("/bin"),
+    Path("/sbin"),
+    Path("/var"),
+    Path("/sys"),
+    Path("/proc"),
+)
+
+
+def _is_safe_workspace_file(ws_file: Path) -> bool:
+    resolved = ws_file.resolve()
+    for sys_dir in _FORBIDDEN_SYSTEM_DIRS:
+        if resolved == sys_dir or resolved.is_relative_to(sys_dir):
+            return False
+    return resolved.suffix in {".code-workspace", ".json", ""}
+
+
 def _save(ws_file: Path, data: dict[str, Any]) -> None:
+    if not _is_safe_workspace_file(ws_file):
+        rprint(
+            f"[red]Error: Cannot write workspace file '{ws_file.resolve()}' outside boundary.[/red]"
+        )
+        raise typer.Exit(1)
     ws_file.parent.mkdir(parents=True, exist_ok=True)
     ws_file.write_text(json.dumps(_ensure_root_entry(data), indent=2) + "\n", encoding="utf-8")
 

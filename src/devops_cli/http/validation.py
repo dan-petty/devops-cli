@@ -53,6 +53,7 @@ def validate_service_url(url: str, purpose: str, *, allow: bool = False) -> None
         port = parsed.port or (443 if parsed.scheme == "https" else 80)
         addrinfos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
     except socket.gaierror, TimeoutError, OSError:
+        # Unable to resolve IP address (e.g., offline or unresolvable domain)
         return
     finally:
         socket.setdefaulttimeout(old_timeout)
@@ -64,7 +65,7 @@ def validate_service_url(url: str, purpose: str, *, allow: bool = False) -> None
         except ValueError:
             continue
 
-    if resolved_ips and all(_is_non_public_ip(ip) for ip in resolved_ips) and not allow:
+    if resolved_ips and any(_is_non_public_ip(ip) for ip in resolved_ips) and not allow:
         raise ValueError(
             f"Refusing non-public {purpose} URL. Set {_ALLOW_PRIVATE_NETWORK_ENV}=true to override."
         )

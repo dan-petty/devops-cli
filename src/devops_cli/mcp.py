@@ -278,9 +278,20 @@ def list_mcp_tools() -> list[dict[str, str]]:
     ]
 
 
-def run_mcp_server(transport: str = "stdio", host: str = "127.0.0.1", port: int = 8000) -> None:
+def run_mcp_server(
+    transport: str = "stdio",
+    host: str = "127.0.0.1",
+    port: int = 8000,
+    allow_remote: bool = False,
+) -> None:
     """Launch FastMCP server using stdio or sse transport."""
     if transport == "sse":
+        allowed_hosts = {"127.0.0.1", "::1", "localhost"}
+        if not allow_remote and host not in allowed_hosts:
+            raise ValueError(
+                f"Refusing to bind SSE transport to non-loopback host '{host}' by default. "
+                "Use allow_remote=True to permit external host binding."
+            )
         mcp.run(transport="sse", host=host, port=port)
     else:
         # show_banner=False prevents the ASCII banner from writing to stdout,

@@ -91,10 +91,17 @@ class TestRunMcpServer:
             mock_mcp.run.assert_called_once_with(transport="stdio", show_banner=False)
 
     def test_run_sse(self) -> None:
-        """run_mcp_server sse must call mcp.run with host and port."""
+        """run_mcp_server sse must call mcp.run with host and port when allowed."""
         with patch("devops_cli.mcp.mcp") as mock_mcp:
-            run_mcp_server(transport="sse", host="0.0.0.0", port=9000)
+            run_mcp_server(transport="sse", host="0.0.0.0", port=9000, allow_remote=True)
             mock_mcp.run.assert_called_once_with(transport="sse", host="0.0.0.0", port=9000)
+
+    def test_run_sse_rejects_non_loopback_by_default(self) -> None:
+        """run_mcp_server sse must reject non-loopback host unless allow_remote=True."""
+        import pytest
+
+        with pytest.raises(ValueError, match="Refusing to bind SSE transport"):
+            run_mcp_server(transport="sse", host="0.0.0.0", port=9000)
 
 
 # ── commands/mcp.py CLI ──────────────────────────────────────────────────────
@@ -120,7 +127,9 @@ class TestMcpCli:
         with patch("devops_cli.commands.mcp.run_mcp_server") as mock_run:
             result = runner.invoke(app, ["serve", "--transport", "stdio"])
             assert result.exit_code == 0
-            mock_run.assert_called_once_with(transport="stdio", host="127.0.0.1", port=8000)
+            mock_run.assert_called_once_with(
+                transport="stdio", host="127.0.0.1", port=8000, allow_remote=False
+            )
 
     def test_serve_sse_calls_run_mcp_server(self, runner: CliRunner) -> None:
         """devops mcp serve --transport sse must pass host and port to run_mcp_server."""
@@ -129,4 +138,6 @@ class TestMcpCli:
                 app, ["serve", "--transport", "sse", "--host", "0.0.0.0", "--port", "9090"]
             )
             assert result.exit_code == 0
-            mock_run.assert_called_once_with(transport="sse", host="0.0.0.0", port=9090)
+            mock_run.assert_called_once_with(
+                transport="sse", host="0.0.0.0", port=9090, allow_remote=False
+            )

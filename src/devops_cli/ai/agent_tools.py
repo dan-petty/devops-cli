@@ -6,6 +6,8 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
+
 
 def _is_safe_workspace_path(target: Path) -> bool:
     cwd = Path.cwd().resolve()
@@ -51,7 +53,13 @@ def read_file(path: str, max_bytes: int = 4000) -> str:
 def git_status() -> str:
     """Return current git status summary."""
     try:
-        res = subprocess.run(["git", "status", "-s"], capture_output=True, text=True, check=False)
+        res = subprocess.run(
+            ["git", "status", "-s"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
+        )
         return res.stdout.strip() or "Working tree clean."
     except Exception as exc:
         return f"Git status failed: {exc}"
@@ -60,7 +68,13 @@ def git_status() -> str:
 def git_diff() -> str:
     """Return current unstaged git diff up to 4000 characters."""
     try:
-        res = subprocess.run(["git", "diff"], capture_output=True, text=True, check=False)
+        res = subprocess.run(
+            ["git", "diff"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
+        )
         output = res.stdout.strip()
         if len(output) > 4000:
             return output[:4000] + "\n... [diff truncated]"

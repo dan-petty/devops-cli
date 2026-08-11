@@ -22,7 +22,7 @@ def _client() -> Any:
         import docker  # type: ignore[import-untyped]
         from docker.errors import DockerException  # type: ignore[import-untyped]
 
-        return docker.from_env()
+        return docker.from_env(timeout=300)
     except (ImportError, DockerException) as exc:
         rprint(f"[red]Cannot connect to Docker: {exc}[/red]")
         raise typer.Exit(1)

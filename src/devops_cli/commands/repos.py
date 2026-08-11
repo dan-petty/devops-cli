@@ -83,9 +83,15 @@ def _resolve_workspace_file(root: Path, workspace_file: Path) -> Path:
 
 
 def _reload_workspace(workspace_file: Path) -> None:
+    from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
+
     try:
-        subprocess.run([CONST_VSCODE_CLI, "--reuse-window", str(workspace_file)], check=False)
-    except OSError:
+        subprocess.run(
+            [CONST_VSCODE_CLI, "--reuse-window", str(workspace_file)],
+            check=False,
+            timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
+        )
+    except OSError, subprocess.SubprocessError:
         rprint("[yellow]Workspace updated, but VS Code CLI is not available to reload.[/yellow]")
 
 

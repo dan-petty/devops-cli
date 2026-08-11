@@ -24,6 +24,9 @@ def test_public_http_url_allowed(monkeypatch: pytest.MonkeyPatch) -> None:
         "http://10.0.0.1",
         "http://172.16.0.1:8080",
         "http://127.0.0.1:3000",
+        "http://[::1]:3000",
+        "http://[fe80::1]/admin",
+        "http://[fc00::1]:8080",
     ],
 )
 def test_private_ip_rejected_by_default(url: str, monkeypatch: pytest.MonkeyPatch) -> None:
