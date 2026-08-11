@@ -64,8 +64,9 @@ def generate(
         raise typer.Exit(1)
 
     generate_ed25519_key(key_path, comment=comment or f"devops-cli-{date.today().isoformat()}")
-    rprint(f"[green]Generated:[/green] {key_path}")
-    rprint(f"[green]Public key:[/green] {key_path}.pub")
+    rprint(f"[green]{MESSAGES.messages.generated_key.format(key_path=key_path)}[/green]")
+    pub_path = key_path.with_name(f"{key_path.name}.pub")
+    rprint(f"[green]{MESSAGES.messages.public_key_path.format(pub_path=pub_path)}[/green]")
     rprint("\nRun [bold]devops ssh register[/bold] to add it to GitHub.")
 
 

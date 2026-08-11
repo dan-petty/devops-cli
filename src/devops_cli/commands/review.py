@@ -44,6 +44,7 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.config.settings import Settings, get_ai_api_key, load_settings
 from devops_cli.core.dry_run import format_command, is_dry_run, set_dry_run
+from devops_cli.lang import MESSAGES
 from devops_cli.models.ai import ReviewMeta, SegmentMeta
 
 _TASKS_DIR = Path(__file__).parent.parent / "ai" / "tasks"
@@ -1857,10 +1858,11 @@ def _execute_review_workflow(
 ) -> list[tuple[PersonaDefinition, ReviewResult | str]]:
     """Common 4-step review execution workflow for path, branch, and PR reviews."""
     if len(pages) > 1:
-        rprint(f"[dim]Content spans {len(pages)} pages to ensure full coverage.[/dim]")
+        spans_msg = MESSAGES.review.spans_pages.format(count=len(pages))
+        rprint(f"[dim]{spans_msg}[/dim]")
 
     if summary_only:
-        rprint("[dim]Generating segment metadata...[/dim]")
+        rprint(f"[dim]{MESSAGES.review.generating_metadata}[/dim]")
         _print_review_metadata(_build_review_metadata(pages, title, clients.metadata))
         return []
 
@@ -1952,26 +1954,31 @@ def _prepare_path_content(target: Path, pattern: str) -> tuple[list[str], str, s
     settings = load_settings()
     target_resolved = target.resolve()
     if not _is_allowed_review_boundary(target, settings):
-        rprint(f"[red]Error: Target path '{target_resolved}' is outside allowed boundaries.[/red]")
+        err_msg = MESSAGES.review.outside_boundary.format(target=target_resolved)
+        rprint(f"[red]{err_msg}[/red]")
         raise typer.Exit(1)
     if target_resolved.is_file():
         if target_resolved.stat().st_size > CONST_MAX_FILE_SIZE_BYTES:
-            rprint(
-                f"[red]Error: Target file '{target_resolved}' exceeds maximum size "
-                f"({CONST_MAX_FILE_SIZE_BYTES // (1024 * 1024)}MB)."
+            max_mb = CONST_MAX_FILE_SIZE_BYTES // (1024 * 1024)
+            err_size = MESSAGES.review.exceeds_max_size.format(
+                target=target_resolved, max_mb=max_mb
             )
+            rprint(f"[red]{err_size}[/red]")
             raise typer.Exit(0)
         suffix = target_resolved.suffix.lstrip(".") or "text"
         content = target_resolved.read_text(encoding="utf-8", errors="replace")
         blocks = [f"### File: {target_resolved.name}\n```{suffix}\n{content}\n```"]
         title = str(target_resolved.name)
     else:
-        rprint(f"Collecting [cyan]{pattern}[/cyan] files under [dim]{target_resolved}[/dim]...")
+        collecting_msg = MESSAGES.review.collecting_files.format(
+            pattern=f"[cyan]{pattern}[/cyan]", target=f"[dim]{target_resolved}[/dim]"
+        )
+        rprint(collecting_msg)
         blocks = _collect_file_blocks(target_resolved, pattern)
         title = str(target_resolved)
 
     if not blocks:
-        rprint("[yellow]No files found.[/yellow]")
+        rprint(f"[yellow]{MESSAGES.review.no_files_found}[/yellow]")
         raise typer.Exit(0)
 
     pages = [_mask_secrets_in_content(p) for p in _paginate_blocks(blocks, _MAX_DIFF_CHARS)]
@@ -1988,9 +1995,8 @@ def _prepare_branch_content(
     settings = load_settings()
     repo_resolved = repo_path.resolve()
     if not _is_allowed_review_boundary(repo_resolved, settings):
-        rprint(
-            f"[red]Error: Repository path '{repo_resolved}' is outside allowed boundaries.[/red]"
-        )
+        err_msg = MESSAGES.review.outside_boundary.format(target=repo_resolved)
+        rprint(f"[red]{err_msg}[/red]")
         raise typer.Exit(1)
 
     effective_base = _detect_base_branch(repo_path, base)
@@ -2007,12 +2013,13 @@ def _prepare_branch_content(
             or not (branch_name := proc.stdout.strip())
             or branch_name == "HEAD"
         ):
-            rprint(
-                "[red]Could not detect branch. Ensure command is run inside a valid git repo.[/red]"
-            )
+            rprint(f"[red]{MESSAGES.review.detect_branch_failed}[/red]")
             raise typer.Exit(1)
 
-    rprint(f"Diffing [cyan]{branch_name}[/cyan] against [cyan]{effective_base}[/cyan]...")
+    diffing_msg = MESSAGES.review.diffing_branches.format(
+        branch=f"[cyan]{branch_name}[/cyan]", base=f"[cyan]{effective_base}[/cyan]"
+    )
+    rprint(diffing_msg)
 
     diff_proc = _run_subprocess(
         ["git", "diff", f"{effective_base}...{branch_name}"],
@@ -2028,10 +2035,11 @@ def _prepare_branch_content(
             cwd=repo_path,
         )
     if diff_proc.returncode != 0:
-        rprint(f"[red]git diff failed: {diff_proc.stderr.strip()}[/red]")
+        diff_err = MESSAGES.review.git_diff_failed.format(error=diff_proc.stderr.strip())
+        rprint(f"[red]{diff_err}[/red]")
         raise typer.Exit(1)
     if not diff_proc.stdout.strip():
-        rprint("[yellow]No differences found between branches.[/yellow]")
+        rprint(f"[yellow]{MESSAGES.review.no_diff_found}[/yellow]")
         raise typer.Exit(0)
 
     title = f"Branch `{branch_name}` vs `{effective_base}`"
@@ -2058,10 +2066,12 @@ def _prepare_pr_content(
         if m:
             repo = m.group(1)
         else:
-            rprint(f"[red]Could not parse GitHub repo owner/name from remote URL: {raw}[/red]")
+            parse_err = MESSAGES.review.github_repo_parse_failed.format(raw=raw)
+            rprint(f"[red]{parse_err}[/red]")
             raise typer.Exit(1)
 
-    rprint(f"Fetching PR [cyan]#{number}[/cyan] from [cyan]{repo}[/cyan]...")
+    fetch_msg = MESSAGES.review.fetching_pr.format(number=number, repo=f"[cyan]{repo}[/cyan]")
+    rprint(fetch_msg)
     gh = GitHubClient(token)
     pull = gh.get_pull(repo, number)
     diff = gh.get_pr_diff(repo, number)

@@ -425,17 +425,20 @@ def test(
     """Send a test prompt to verify AI provider connectivity."""
     from devops_cli.ai.client import LLMClient
     from devops_cli.config.settings import get_ai_api_key, load_settings
+    from devops_cli.lang import MESSAGES
 
     settings = load_settings()
-    rprint(
-        f"Provider: [cyan]{settings.ai.provider}[/cyan]  Model: [cyan]{settings.ai.model}[/cyan]"
+    info_msg = MESSAGES.ai.provider_model_info.format(
+        provider=f"[cyan]{settings.ai.provider}[/cyan]",
+        model=f"[cyan]{settings.ai.model}[/cyan]",
     )
+    rprint(info_msg)
     client = LLMClient(settings.ai, api_key=get_ai_api_key(settings))
     try:
         reply = client.chat(system="You are a helpful assistant.", user=prompt)
-        rprint(f"[green]✓[/green] {reply.strip()}")
+        rprint(MESSAGES.ai.test_success.format(reply=reply.strip()))
     except Exception as exc:
-        rprint(f"[red]✗ Failed: {exc}[/red]")
+        rprint(MESSAGES.ai.test_failed.format(exc=exc))
         raise typer.Exit(1)
 
 
@@ -489,7 +492,7 @@ def agents(
         if target != _CANONICAL_AGENT_FILE:
             content = _template_content(target, meta)
         elif use_llm and client is not None:
-            rprint(f"Generating [cyan]{target}[/cyan] via LLM...")
+            rprint(MESSAGES.ai.generating_agents.format(target=f"[cyan]{target}[/cyan]"))
             system = PERSONAS[Persona.ARCHITECT].system_prompt + _AGENTS_TASK_ADDENDUM
             try:
                 content = client.chat(
@@ -507,7 +510,7 @@ def agents(
         if not content.endswith("\n"):
             content += "\n"
         dest.write_text(content, encoding="utf-8")
-        rprint(f"[green]✓[/green] Written: {dest.relative_to(repo)}")
+        rprint(MESSAGES.ai.written_file.format(path=dest.relative_to(repo)))
 
 
 _PERSONA_NAMES = [p.value for p in Persona]

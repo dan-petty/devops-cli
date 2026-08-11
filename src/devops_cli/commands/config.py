@@ -84,17 +84,20 @@ def show() -> None:
     """Print all configuration values, masking secrets."""
     settings = load_settings()
 
-    table = Table(title="devops-cli configuration", show_header=True, header_style="bold")
-    table.add_column("Key", style="bold cyan", no_wrap=True)
-    table.add_column("Value")
+    from devops_cli.lang import MESSAGES
+
+    table = Table(title=MESSAGES.config.header, show_header=True, header_style="bold")
+    table.add_column(MESSAGES.config.key_col, style="bold cyan", no_wrap=True)
+    table.add_column(MESSAGES.config.val_col)
 
     def _row(key: str, value: object, secret: bool = False) -> None:
+        not_set_str = f"[dim]{MESSAGES.config.not_set}[/dim]"
         if secret:
-            display = "[green]set (****)[/green]" if value else "[dim]not set[/dim]"
+            display = "[green]set (****)[/green]" if value else not_set_str
         elif isinstance(value, list):
-            display = ", ".join(str(v) for v in value) if value else "[dim]not set[/dim]"
+            display = ", ".join(str(v) for v in value) if value else not_set_str
         else:
-            display = str(value) if value is not None else "[dim]not set[/dim]"
+            display = str(value) if value is not None else not_set_str
         table.add_row(key, display)
 
     _row(opt.GITHUB_TOKEN, get_github_token(settings), secret=True)
