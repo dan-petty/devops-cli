@@ -236,17 +236,20 @@ devops ci typecheck            # mypy (strict)
 ## Architecture
 ```
 src/devops_cli/
-  main.py              # Typer app, command registration
-  config.py            # Pydantic Settings, keyring helpers
-  commands/            # One file per command group
-  ai/
-    client.py          # Unified LLM client (Ollama / Claude / OpenAI-compat)
-    personas.py        # Reviewer persona definitions (DevSecOps, Architect, PM, Auditor, QA)
-  github/client.py     # PyGithub + httpx2 wrapper
-  git/operations.py    # GitPython helpers
-  crypto/ssh_keys.py   # SSH key generation / rotation
+  main.py              # Typer app entrypoint and command group registration
+  mcp.py               # FastMCP server for LLM tools & DevOps automation
+  ai/                  # Unified LLM client, reviewer personas, prompt tasks, agent tools
+  commands/            # CLI subcommands (ai, argo, config, k8s, repos, review, ssh, etc.)
+  config/              # Pydantic Settings, keyring integration, env vars, defaults
+  core/                # Shared CLI utilities, repo path resolution, dry-run state
+  crypto/              # Ed25519 SSH key pair generation, rotation, and validation
+  git/                 # Git operations, cloning, branch detection, known_hosts
+  github/              # PyGithub & httpx2 wrapper, SSH key registration
+  http/                # Egress network validation and SSRF mitigation guards
+  lang/                # i18n string catalog (en.py) and Pydantic message schemas
+  models/              # Pydantic domain models for AI, K8s, Argo, Grafana, GitHub
   templates/           # Jinja2 templates for devcontainer scaffolding
-tests/                 # pytest, pytest-asyncio, pytest-mock
+tests/                 # pytest unit test suite (169+ tests passing)
 ```
 
 ## AI Features (`devops ai`, `devops review`)
