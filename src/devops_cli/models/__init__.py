@@ -8,6 +8,7 @@ and re-exported here for convenient single-import access:
 
 from __future__ import annotations
 
+from devops_cli.dry_run import CommandDryRunResult
 from devops_cli.models.ai import ChatMessage
 from devops_cli.models.argo import ArgoCDApp
 from devops_cli.models.git import BranchListing
@@ -20,6 +21,7 @@ __all__ = [
     "ArgoCDApp",
     "BranchListing",
     "ChatMessage",
+    "CommandDryRunResult",
     "GrafanaAlertRule",
     "GrafanaDashboard",
     "GrafanaDatasource",

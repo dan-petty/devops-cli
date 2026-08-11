@@ -11,7 +11,7 @@ from rich.console import Console
 from rich.table import Table
 
 from devops_cli.core.cli import new_typer
-from devops_cli.core.dry_run import is_dry_run
+from devops_cli.dry_run import CommandDryRunResult, is_dry_run
 
 app = new_typer(help="Docker image management.", no_args_is_help=True)
 console = Console()
@@ -34,7 +34,13 @@ def list_images(
 ) -> None:
     """List local Docker images."""
     if is_dry_run():
-        rprint("[yellow][dry-run][/yellow] Would list local Docker images.")
+        res = CommandDryRunResult(
+            command="devops docker images",
+            action="list_docker_images",
+            details={"name_filter": name},
+        )
+        rprint("[yellow][dry-run][/yellow] Command response:")
+        console.print_json(res.model_dump_json(indent=2))
         return
     client = _client()
     images = client.images.list(name=name)
@@ -64,7 +70,18 @@ def build(
 ) -> None:
     """Build a Docker image."""
     if is_dry_run():
-        rprint(f"[yellow][dry-run][/yellow] Would build Docker image from {context}.")
+        res = CommandDryRunResult(
+            command="devops docker build",
+            target=str(context),
+            action="build_docker_image",
+            details={
+                "tag": tag,
+                "dockerfile": str(dockerfile) if dockerfile else None,
+                "no_cache": no_cache,
+            },
+        )
+        rprint("[yellow][dry-run][/yellow] Command response:")
+        console.print_json(res.model_dump_json(indent=2))
         return
     client = _client()
     kwargs: dict[str, Any] = {"path": str(context), "rm": True, "nocache": no_cache}
@@ -89,7 +106,14 @@ def push(
 ) -> None:
     """Push a Docker image to a registry."""
     if is_dry_run():
-        rprint(f"[yellow][dry-run][/yellow] Would push Docker image {image}.")
+        res = CommandDryRunResult(
+            command="devops docker push",
+            target=image,
+            action="push_docker_image",
+            details={"image": image},
+        )
+        rprint("[yellow][dry-run][/yellow] Command response:")
+        console.print_json(res.model_dump_json(indent=2))
         return
     import re
 
@@ -116,9 +140,13 @@ def prune(
 ) -> None:
     """Remove unused containers, images, and networks."""
     if is_dry_run():
-        rprint(
-            "[yellow][dry-run][/yellow] Would prune unused Docker containers, images, and networks."
+        res = CommandDryRunResult(
+            command="devops docker prune",
+            action="prune_docker_resources",
+            details={"volumes": volumes, "force": force},
         )
+        rprint("[yellow][dry-run][/yellow] Command response:")
+        console.print_json(res.model_dump_json(indent=2))
         return
     if not force:
         typer.confirm(

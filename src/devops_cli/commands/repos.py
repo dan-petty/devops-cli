@@ -114,6 +114,19 @@ def clone_org(
     forks: Annotated[bool, typer.Option("--forks/--no-forks")] = False,
 ) -> None:
     """Clone all repos from a GitHub org into repos/<org>/."""
+    from devops_cli.dry_run import CommandDryRunResult, is_dry_run
+
+    if is_dry_run():
+        res = CommandDryRunResult(
+            command="devops repos clone-org",
+            target=org,
+            action="clone_org_repositories",
+            details={"org": org, "private": private, "forks": forks},
+        )
+        rprint("[yellow][dry-run][/yellow] Command response:")
+        console.print_json(res.model_dump_json(indent=2))
+        return
+
     settings = load_settings()
     org_name = org or settings.github.default_org
     if not org_name:
@@ -159,13 +172,29 @@ def clone(
     base_dir: Annotated[Path | None, typer.Option("--base-dir", "-d")] = None,
 ) -> None:
     """Clone an individual repository into repos/_standalone/<name>/."""
+    from devops_cli.dry_run import CommandDryRunResult, is_dry_run
+
+    if is_dry_run():
+        res = CommandDryRunResult(
+            command="devops repos clone",
+            target=url,
+            action="clone_single_repository",
+            details={"url": url},
+        )
+        rprint("[yellow][dry-run][/yellow] Command response:")
+        console.print_json(res.model_dump_json(indent=2))
+        return
+
     settings = load_settings()
     root = (base_dir or settings.repos.base_dir).resolve()
     dest_dir = root / "_standalone"
     dest_dir.mkdir(parents=True, exist_ok=True)
 
-    name = url.rstrip("/").split("/")[-1].removesuffix(CONST_GITHUB_REPO_SUFFIX)
-    dest = dest_dir / name
+    raw_name = Path(url.rstrip("/").split("/")[-1].removesuffix(CONST_GITHUB_REPO_SUFFIX)).name
+    dest = (dest_dir / raw_name).resolve()
+    if not dest.is_relative_to(dest_dir.resolve()):
+        rprint("[red]Invalid repository destination path.[/red]")
+        raise typer.Exit(1)
 
     if dest.exists():
         rprint(f"[yellow]Repository already exists at {dest}[/yellow]")
@@ -182,6 +211,18 @@ def list_repos(
     base_dir: Annotated[Path | None, typer.Option("--base-dir", "-d")] = None,
 ) -> None:
     """List all cloned repositories."""
+    from devops_cli.dry_run import CommandDryRunResult, is_dry_run
+
+    if is_dry_run():
+        res = CommandDryRunResult(
+            command="devops repos list",
+            action="list_cloned_repositories",
+            details={},
+        )
+        rprint("[yellow][dry-run][/yellow] Command response:")
+        console.print_json(res.model_dump_json(indent=2))
+        return
+
     settings = load_settings()
     root = base_dir or settings.repos.base_dir
 
@@ -211,6 +252,18 @@ def update(
     pull: Annotated[bool, typer.Option("--pull/--no-pull")] = True,
 ) -> None:
     """Fetch (and optionally pull) all tracking branches across repos."""
+    from devops_cli.dry_run import CommandDryRunResult, is_dry_run
+
+    if is_dry_run():
+        res = CommandDryRunResult(
+            command="devops repos sync",
+            action="sync_workspace_repositories",
+            details={"pull": pull},
+        )
+        rprint("[yellow][dry-run][/yellow] Command response:")
+        console.print_json(res.model_dump_json(indent=2))
+        return
+
     settings = load_settings()
     root = (base_dir or settings.repos.base_dir).resolve()
 

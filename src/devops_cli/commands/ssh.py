@@ -48,6 +48,17 @@ def generate(
     """Generate a new Ed25519 SSH key with today's date suffix."""
     from devops_cli.config.settings import load_settings
     from devops_cli.crypto.ssh_keys import generate_ed25519_key
+    from devops_cli.dry_run import CommandDryRunResult, is_dry_run
+
+    if is_dry_run():
+        res = CommandDryRunResult(
+            command="devops ssh generate",
+            action="generate_ed25519_ssh_key",
+            details={"key_dir": str(key_dir) if key_dir else None, "comment": comment},
+        )
+        rprint("[yellow][dry-run][/yellow] Command response:")
+        console.print_json(res.model_dump_json(indent=2))
+        return
 
     settings = load_settings()
     target_key_dir = key_dir or settings.ssh.key_dir
@@ -76,8 +87,19 @@ def register(
 ) -> None:
     from devops_cli.config.settings import get_github_token, load_settings
     from devops_cli.crypto.ssh_keys import find_newest_key
+    from devops_cli.dry_run import CommandDryRunResult, is_dry_run
     from devops_cli.github.ssh import SSHRegistrationError, register_key_on_github
     from devops_cli.lang import MESSAGES
+
+    if is_dry_run():
+        res = CommandDryRunResult(
+            command="devops ssh register",
+            action="register_ssh_key_on_github",
+            details={"key_file": str(key_file) if key_file else None, "title": title},
+        )
+        rprint("[yellow][dry-run][/yellow] Command response:")
+        console.print_json(res.model_dump_json(indent=2))
+        return
 
     settings = load_settings()
     token = get_github_token(settings)
@@ -127,7 +149,18 @@ def rotate(
     """
     from devops_cli.config.settings import get_github_token, load_settings
     from devops_cli.crypto.ssh_keys import find_newest_key, generate_ed25519_key, get_key_age_days
+    from devops_cli.dry_run import CommandDryRunResult, is_dry_run
     from devops_cli.github.ssh import SSHRegistrationError, register_key_on_github
+
+    if is_dry_run():
+        res = CommandDryRunResult(
+            command="devops ssh rotate",
+            action="rotate_ssh_keys",
+            details={"key_dir": str(key_dir) if key_dir else None, "force": force},
+        )
+        rprint("[yellow][dry-run][/yellow] Command response:")
+        console.print_json(res.model_dump_json(indent=2))
+        return
 
     settings = load_settings()
     target_key_dir = key_dir or settings.ssh.key_dir
@@ -183,6 +216,17 @@ def list_keys(
     """List all managed SSH keys with their age and rotation status."""
     from devops_cli.config.settings import load_settings
     from devops_cli.crypto.ssh_keys import list_managed_keys_info
+    from devops_cli.dry_run import CommandDryRunResult, is_dry_run
+
+    if is_dry_run():
+        res = CommandDryRunResult(
+            command="devops ssh list",
+            action="audit_ssh_keys",
+            details={},
+        )
+        rprint("[yellow][dry-run][/yellow] Command response:")
+        console.print_json(res.model_dump_json(indent=2))
+        return
 
     settings = load_settings()
     target_key_dir = key_dir or settings.ssh.key_dir
@@ -220,6 +264,17 @@ def status(
     """Show the active SSH key and days until rotation."""
     from devops_cli.config.settings import load_settings
     from devops_cli.crypto.ssh_keys import find_newest_key, get_key_age_days
+    from devops_cli.dry_run import CommandDryRunResult, is_dry_run
+
+    if is_dry_run():
+        res = CommandDryRunResult(
+            command="devops ssh status",
+            action="get_ssh_key_status",
+            details={},
+        )
+        rprint("[yellow][dry-run][/yellow] Command response:")
+        console.print_json(res.model_dump_json(indent=2))
+        return
 
     settings = load_settings()
     target_key_dir = key_dir or settings.ssh.key_dir

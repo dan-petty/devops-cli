@@ -20,7 +20,7 @@ from rich.table import Table
 
 from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.core.cli import new_typer
-from devops_cli.core.dry_run import is_dry_run
+from devops_cli.dry_run import CommandDryRunResult, is_dry_run
 
 app = new_typer(help="Kubernetes resource management.", no_args_is_help=True)
 console = Console()
@@ -51,7 +51,13 @@ def _k8s_clients() -> tuple[Any, Any]:
 def contexts() -> None:
     """List kubeconfig contexts and mark the active one."""
     if is_dry_run():
-        rprint("[yellow][dry-run][/yellow] Would list Kubernetes contexts.")
+        res = CommandDryRunResult(
+            command="devops k8s contexts",
+            action="list_kube_config_contexts",
+            details={"contexts": ["minikube"], "active": "minikube"},
+        )
+        rprint("[yellow][dry-run][/yellow] Command response:")
+        console.print_json(res.model_dump_json(indent=2))
         return
     k8s_config, _ = _k8s_clients()
     try:
@@ -82,7 +88,13 @@ def contexts() -> None:
 def status() -> None:
     """Show node and pod summary for the current context."""
     if is_dry_run():
-        rprint("[yellow][dry-run][/yellow] Would query Kubernetes node and pod status.")
+        res = CommandDryRunResult(
+            command="devops k8s status",
+            action="query_k8s_status",
+            details={"nodes": 1, "status": "Ready"},
+        )
+        rprint("[yellow][dry-run][/yellow] Command response:")
+        console.print_json(res.model_dump_json(indent=2))
         return
     k8s_config, k8s_client = _k8s_clients()
     try:
@@ -151,7 +163,14 @@ def apply(
     if namespace:
         cmd += ["--namespace", namespace]
     if is_dry_run():
-        rprint(f"[yellow][dry-run][/yellow] Would run: [cyan]{' '.join(cmd)}[/cyan]")
+        res = CommandDryRunResult(
+            command="devops k8s apply",
+            target=path,
+            action="kubectl_apply",
+            details={"cmd": " ".join(cmd), "namespace": namespace},
+        )
+        rprint("[yellow][dry-run][/yellow] Command response:")
+        console.print_json(res.model_dump_json(indent=2))
         return
     _run_cmd(cmd, check=True)
 
@@ -179,7 +198,14 @@ def logs(
     if follow:
         cmd.append("--follow")
     if is_dry_run():
-        rprint(f"[yellow][dry-run][/yellow] Would run: [cyan]{' '.join(cmd)}[/cyan]")
+        res = CommandDryRunResult(
+            command="devops k8s logs",
+            target=pod,
+            action="kubectl_logs",
+            details={"cmd": " ".join(cmd), "pod": pod, "tail": bounded_tail},
+        )
+        rprint("[yellow][dry-run][/yellow] Command response:")
+        console.print_json(res.model_dump_json(indent=2))
         return
     if follow:
         subprocess.run(cmd, check=True, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS)
@@ -236,8 +262,13 @@ def _run_cmd(
 
 
 def _minikube_running() -> bool:
-    result = _run_cmd(["minikube", "status", "--format", "{{.Host}}"], check=False, capture=True)
-    return result.returncode == 0 and "Running" in result.stdout
+    try:
+        result = _run_cmd(
+            ["minikube", "status", "--format", "{{.Host}}"], check=False, capture=True
+        )
+        return result.returncode == 0 and "Running" in result.stdout
+    except FileNotFoundError, OSError, subprocess.SubprocessError:
+        return False
 
 
 @app.command("bootstrap")
@@ -251,7 +282,14 @@ def bootstrap(
 ) -> None:
     """Bootstrap minikube Kubernetes cluster and deploy infrastructure stack."""
     if is_dry_run():
-        rprint("[yellow][dry-run][/yellow] Would bootstrap minikube Kubernetes cluster.")
+        res = CommandDryRunResult(
+            command="devops k8s bootstrap",
+            target=str(k8s_dir),
+            action="minikube_bootstrap",
+            details={"auto_start": auto_start, "k8s_dir": str(k8s_dir)},
+        )
+        rprint("[yellow][dry-run][/yellow] Command response:")
+        console.print_json(res.model_dump_json(indent=2))
         return
 
     if not _minikube_running():
@@ -273,13 +311,15 @@ def deploy_stack(
 ) -> None:
     """Deploy ArgoCD, Prometheus, Grafana, and OTEL Collector to minikube."""
     if is_dry_run():
-        rprint("[yellow][dry-run][/yellow] Would deploy k8s infrastructure stack:")
-        rprint(f"  kubectl apply -k {k8s_dir}")
-        for release in _HELM_RELEASES:
-            rprint(
-                f"  helm install {release['name']} {release['chart']}"
-                f" -n {release['namespace']} -f {release['values']}"
-            )
+        releases = [r["name"] for r in _HELM_RELEASES]
+        res = CommandDryRunResult(
+            command="devops k8s deploy-stack",
+            target=str(k8s_dir),
+            action="deploy_k8s_stack",
+            details={"kustomize_dir": str(k8s_dir), "helm_releases": releases},
+        )
+        rprint("[yellow][dry-run][/yellow] Command response:")
+        console.print_json(res.model_dump_json(indent=2))
         return
 
     # 1. Verify minikube
@@ -352,10 +392,15 @@ def teardown_stack(
 ) -> None:
     """Uninstall the k8s infrastructure stack and delete namespaces."""
     if is_dry_run():
-        rprint("[yellow][dry-run][/yellow] Would teardown k8s infrastructure stack:")
-        for release in reversed(_HELM_RELEASES):
-            rprint(f"  helm uninstall {release['name']} -n {release['namespace']}")
-        rprint(f"  kubectl delete -k {k8s_dir}")
+        releases = [r["name"] for r in reversed(_HELM_RELEASES)]
+        res = CommandDryRunResult(
+            command="devops k8s teardown-stack",
+            target=str(k8s_dir),
+            action="teardown_k8s_stack",
+            details={"kustomize_dir": str(k8s_dir), "helm_uninstalls": releases},
+        )
+        rprint("[yellow][dry-run][/yellow] Command response:")
+        console.print_json(res.model_dump_json(indent=2))
         return
 
     if not _minikube_running():

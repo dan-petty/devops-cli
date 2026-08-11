@@ -13,7 +13,7 @@ from rich.console import Console
 
 from devops_cli import __version__
 from devops_cli.core.cli import new_typer
-from devops_cli.core.dry_run import is_dry_run, set_dry_run
+from devops_cli.dry_run import is_dry_run, set_dry_run
 
 _console = Console(stderr=True)
 _timing: dict[str, float] = {}

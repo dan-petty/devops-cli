@@ -304,8 +304,10 @@ def test_run_review_dry_run_skips_client_calls(
     )
 
     assert call_count == 0
-    assert "[dry-run] Review skipped for segment 1/2." in result
-    assert "[dry-run] Review skipped for segment 2/2." in result
+    from devops_cli.ai.review_schema import ReviewResult
+
+    assert isinstance(result, ReviewResult)
+    assert any("[dry-run]" in f.title for f in result.findings)
 
 
 def test_run_review_single_segment_skips_recompose() -> None:
