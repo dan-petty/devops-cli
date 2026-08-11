@@ -571,13 +571,16 @@ def _validate_segment_findings(
     result: ReviewResult,
     all_segments: list[str],
     client: Any,
-) -> ReviewResult:
+) -> tuple[ReviewResult, float | None]:
     """Ask the LLM to verify each finding, searching all segments for relevant context."""
     if not result.findings:
-        return result
+        return result, None
     prompt = _build_validation_prompt(result.findings, all_segments)
+    proc_sec: float | None = None
     try:
-        response = str(client.chat(system=_VALIDATION_SYSTEM, user=prompt, enable_thinking=False))
+        res_obj = client.chat(system=_VALIDATION_SYSTEM, user=prompt, enable_thinking=False)
+        response = str(res_obj)
+        proc_sec = getattr(res_obj, "processing_seconds", None)
         data = extract_json_block(response)
         if isinstance(data, list) and len(data) == len(result.findings):
             from devops_cli.ai.review_schema import _SEVERITY_RANK
@@ -606,10 +609,10 @@ def _validate_segment_findings(
                     updates["location"] = new_loc
                 validated.append(f.model_copy(update=updates))
             if len(validated) == len(result.findings):
-                return result.model_copy(update={"findings": validated})
+                return result.model_copy(update={"findings": validated}), proc_sec
     except Exception:
         pass
-    return result
+    return result, proc_sec
 
 
 def _merge_segment_results(results: list[ReviewResult | None]) -> ReviewResult | None:
@@ -1283,18 +1286,41 @@ def _run_review(
     if not is_dry_run():
         rprint(f"[dim]Step 3/4: Validating findings for {total} segment(s)...[/dim]")
         t3 = time.monotonic()
-        for i, (page, parsed) in enumerate(zip(pages, segment_results), 1):
+
+        def _validate_single_segment(
+            arg: tuple[int, str, ReviewResult | None],
+        ) -> tuple[int, ReviewResult | None]:
+            i, page, parsed = arg
             if parsed is None or not parsed.findings:
-                continue
+                return (i, parsed)
             val_start = time.monotonic()
-            validated = _validate_segment_findings(parsed, pages, clients.analysis)
-            val_elapsed = time.monotonic() - val_start
-            segment_results[i - 1] = validated
+            validated, proc_sec = _validate_segment_findings(parsed, pages, clients.analysis)
+            val_elapsed = proc_sec if proc_sec is not None else (time.monotonic() - val_start)
             n_verified = sum(1 for f in validated.findings if f.verified)
             rprint(
                 f"[dim]  ✓ segment {i}/{total} in {val_elapsed:.1f}s: "
                 f"{n_verified}/{len(validated.findings)} finding(s) verified[/dim]"
             )
+            return (i, validated)
+
+        if total > 1:
+            config = getattr(clients.analysis, "_config", None)
+            ollama_urls = getattr(config, "get_ollama_urls", ["http://localhost:11434"])
+            workers = min(total, max(len(ollama_urls) * 2, 4))
+            val_items = list(enumerate(zip(pages, segment_results), 1))
+            with ThreadPoolExecutor(max_workers=workers) as val_executor:
+                val_futures = [
+                    val_executor.submit(_validate_single_segment, (i, page, parsed))
+                    for i, (page, parsed) in val_items
+                ]
+                for val_fut in val_futures:
+                    idx_val, val_res = val_fut.result()
+                    segment_results[idx_val - 1] = val_res
+        else:
+            for i, (page, parsed) in enumerate(zip(pages, segment_results), 1):
+                _, val_res = _validate_single_segment((i, page, parsed))
+                segment_results[i - 1] = val_res
+
         rprint(f"[dim]  total {time.monotonic() - t3:.1f}s[/dim]")
 
     if total == 1:
