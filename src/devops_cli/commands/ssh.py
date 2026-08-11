@@ -54,6 +54,7 @@ def generate(
 
     settings = load_settings()
     target_key_dir = key_dir or settings.ssh.key_dir
+    target_key_dir.mkdir(parents=True, exist_ok=True)
     key_path = target_key_dir / f"id_ed25519-{_date_suffix()}"
 
     if key_path.exists():
@@ -98,7 +99,10 @@ def register(
     try:
         register_key_on_github(pub_key, key_title, token=token)
     except SSHRegistrationError as exc:
-        rprint(f"[red]Failed to register key on GitHub:[/red] {exc}")
+        from devops_cli.commands.review import _mask_secrets_in_content
+
+        masked_err = _mask_secrets_in_content(str(exc))
+        rprint(f"[red]Failed to register key on GitHub:[/red] {masked_err}")
         rprint(
             "[yellow]Tip:[/yellow] run "
             "'gh auth refresh -h github.com -s admin:public_key,write:ssh_signing_key' and retry."

@@ -205,6 +205,34 @@ class LLMClient:
 
         return base_url.rstrip("/")
 
+    @staticmethod
+    def _read_limited_json(
+        response: httpx2.Response, limit_bytes: int = 20 * 1024 * 1024
+    ) -> dict[str, Any]:
+        """Parse JSON response while enforcing a maximum response body size limit."""
+        headers = getattr(response, "headers", {})
+        content_length = headers.get("content-length") if hasattr(headers, "get") else None
+        if content_length and content_length.isdigit() and int(content_length) > limit_bytes:
+            raise AIClientError(
+                f"Response body exceeded maximum size ({limit_bytes // (1024 * 1024)}MB)."
+            )
+        if hasattr(response, "content") and response.content is not None:
+            body = response.content
+            if len(body) > limit_bytes:
+                raise AIClientError(
+                    f"Response body exceeded maximum size ({limit_bytes // (1024 * 1024)}MB)."
+                )
+            try:
+                res: dict[str, Any] = json.loads(body)
+                return res
+            except json.JSONDecodeError as exc:
+                raise AIClientError(
+                    f"Invalid JSON response payload from AI provider: {exc}"
+                ) from exc
+
+        raw_res: dict[str, Any] = response.json()
+        return raw_res
+
     def _ollama_messages(
         self, system: str, messages: list[ChatMessage], *, enable_thinking: bool = True
     ) -> str:
@@ -250,7 +278,7 @@ class LLMClient:
             response.raise_for_status()
             if think and self._ollama_thinking_supported is None:
                 self._ollama_thinking_supported = True
-            msg = response.json()["message"]
+            msg = self._read_limited_json(response)["message"]
             content = str(msg["content"])
             return content if "thinking" in msg else self._strip_think_blocks(content)
 
@@ -264,7 +292,10 @@ class LLMClient:
             with httpx2.Client(timeout=request_timeout()) as http_client:
                 response = http_client.get(f"{base}/api/tags")
                 response.raise_for_status()
-                return [model_info["name"] for model_info in response.json().get("models", [])]
+                return [
+                    model_info["name"]
+                    for model_info in self._read_limited_json(response).get("models", [])
+                ]
         except (httpx2.ConnectError, httpx2.ConnectTimeout) as exc:
             raise self._connection_error(exc) from exc
         except httpx2.HTTPError as exc:
@@ -296,7 +327,7 @@ class LLMClient:
                     },
                 )
                 response.raise_for_status()
-                return str(response.json()["content"][0]["text"])
+                return str(self._read_limited_json(response)["content"][0]["text"])
         except (httpx2.ConnectError, httpx2.ConnectTimeout) as exc:
             raise self._connection_error(exc) from exc
         except httpx2.HTTPError as exc:
@@ -324,7 +355,7 @@ class LLMClient:
                     },
                 )
                 response.raise_for_status()
-                return str(response.json()["choices"][0]["message"]["content"])
+                return str(self._read_limited_json(response)["choices"][0]["message"]["content"])
         except (httpx2.ConnectError, httpx2.ConnectTimeout) as exc:
             raise self._connection_error(exc) from exc
         except httpx2.HTTPError as exc:
@@ -513,7 +544,10 @@ class LLMClient:
                     headers={"Authorization": f"Bearer {self._api_key}"},
                 )
                 response.raise_for_status()
-                return [model_info["id"] for model_info in response.json().get("data", [])]
+                return [
+                    model_info["id"]
+                    for model_info in self._read_limited_json(response).get("data", [])
+                ]
         except (httpx2.ConnectError, httpx2.ConnectTimeout) as exc:
             raise self._connection_error(exc) from exc
         except httpx2.HTTPError as exc:

@@ -50,7 +50,8 @@ def generate_ed25519_key(key_path: Path, comment: str = "") -> None:
         )
         .decode()
     )
-    pub_line = f"{pub_raw} {comment}".strip() + "\n"
+    clean_comment = re.sub(r"[\r\n\t]", " ", comment).strip()
+    pub_line = f"{pub_raw} {clean_comment}".strip() + "\n"
     pub_path = key_path.with_name(f"{key_path.name}.pub")
     pub_path.write_text(pub_line, encoding="utf-8")
     pub_path.chmod(CONST_PERM_PUBLIC_KEY)

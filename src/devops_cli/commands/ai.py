@@ -18,6 +18,7 @@ from devops_cli.config.constants import (
     CONST_DEVCONTAINER_JSON_PATH,
     CONST_GIT_DIR_NAME,
 )
+from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.config.env import env_var_for_option
 from devops_cli.config.options import AI_API_KEY
 from devops_cli.config.settings import SecretStorageError, dotted_set
@@ -95,6 +96,7 @@ def _collect_project_context(repo: Path) -> str:
             capture_output=True,
             text=True,
             cwd=repo,
+            timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
         )
         sections.append(f"## File tree\n```\n{tree.stdout.strip()}\n```")
     except Exception:
@@ -428,7 +430,11 @@ def agents(
             use_llm = False
 
     for target in files:
-        dest = repo / target
+        dest = (repo / target).resolve()
+        repo_resolved = repo.resolve()
+        if not (dest == repo_resolved or dest.is_relative_to(repo_resolved)):
+            rprint(f"[red]Error: Target path '{dest}' is outside repository boundary.[/red]")
+            continue
         console.print(Rule(f" {target} ", style="cyan"))
 
         # Only the canonical file is worth spending an LLM call on — the others

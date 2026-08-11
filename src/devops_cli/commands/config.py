@@ -321,13 +321,16 @@ def output_env_vars(
         return
 
     if export:
+        import shlex
+
         console.print("# devops-cli environment variables export")
         for spec in specs:
             val, _ = _resolve_env_spec_value(spec, settings)
             if spec.is_secret:
                 console.print(f'# export {spec.env_var}="****"  # secret (stored in OS keyring)')
             elif val is not None:
-                console.print(f'export {spec.env_var}="{val}"')
+                quoted = shlex.quote(str(val))
+                console.print(f"export {spec.env_var}={quoted}")
             else:
                 console.print(f'# export {spec.env_var}=""  # {spec.description}')
         return

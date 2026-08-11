@@ -24,11 +24,15 @@ def list_files(directory: str = ".") -> list[str]:
     for path in root.glob("*"):
         if path.name.startswith(".") or path.name == "__pycache__":
             continue
+        if not _is_safe_workspace_path(path.resolve()):
+            continue
         if path.is_file():
             results.append(path.name)
         elif path.is_dir():
             for child in path.glob("*"):
                 if child.name.startswith(".") or child.name == "__pycache__":
+                    continue
+                if not _is_safe_workspace_path(child.resolve()):
                     continue
                 results.append(f"{path.name}/{child.name}")
     return sorted(results)[:100]
@@ -42,10 +46,14 @@ def read_file(path: str, max_bytes: int = 4000) -> str:
     if not file_path.exists() or not file_path.is_file():
         return f"File not found: {path}"
     try:
-        content = file_path.read_text(encoding="utf-8", errors="replace")
-        if len(content) > max_bytes:
-            return content[:max_bytes] + f"\n... [truncated at {max_bytes} bytes]"
-        return content
+        with open(file_path, "rb") as f:
+            raw = f.read(max_bytes + 1)
+        if len(raw) > max_bytes:
+            return (
+                raw[:max_bytes].decode("utf-8", errors="replace")
+                + f"\n... [truncated at {max_bytes} bytes]"
+            )
+        return raw.decode("utf-8", errors="replace")
     except Exception as exc:
         return f"Error reading file: {exc}"
 
