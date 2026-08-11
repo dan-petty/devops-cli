@@ -84,6 +84,31 @@ def contexts() -> None:
     console.print(table)
 
 
+@app.command("switch-context")
+def switch_context(
+    name: Annotated[str, typer.Argument(help="Target context name to switch to")],
+) -> None:
+    """Switch active kubeconfig context."""
+    from devops_cli.lang import MESSAGES
+
+    if is_dry_run():
+        res = CommandDryRunResult(
+            command="devops k8s switch-context",
+            target=name,
+            action="switch_kube_config_context",
+            details={"target_context": name},
+        )
+        rprint("[yellow][dry-run][/yellow] Command response:")
+        console.print_json(res.model_dump_json(indent=2))
+        return
+
+    _validate_k8s_identifier(name, "context name")
+    cmd = ["kubectl", "config", "use-context", name]
+    _run_cmd(cmd, check=True)
+    msg = MESSAGES.k8s.switched_context.format(context=name)
+    rprint(msg)
+
+
 @app.command()
 def status() -> None:
     """Show node and pod summary for the current context."""

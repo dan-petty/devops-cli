@@ -80,6 +80,18 @@ def _argocd(settings: Any) -> tuple[str, dict[str, str]]:
 @cd_apps_app.command("list")
 def cd_apps_list() -> None:
     """List all ArgoCD applications."""
+    from devops_cli.dry_run import CommandDryRunResult, is_dry_run
+
+    if is_dry_run():
+        res = CommandDryRunResult(
+            command="devops argo cd apps list",
+            action="list_argocd_apps",
+            details={"apps": []},
+        )
+        rprint("[yellow][dry-run][/yellow] Command response:")
+        console.print_json(res.model_dump_json(indent=2))
+        return
+
     import httpx2
 
     from devops_cli.config import load_settings

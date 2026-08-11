@@ -133,6 +133,17 @@ def list_devcontainers(
 ) -> None:
     """List repos with their devcontainer status."""
     from devops_cli.config.settings import load_settings
+    from devops_cli.dry_run import CommandDryRunResult, is_dry_run
+
+    if is_dry_run():
+        res = CommandDryRunResult(
+            command="devops devcontainer list",
+            action="list_devcontainers",
+            details={"repos": []},
+        )
+        rprint("[yellow][dry-run][/yellow] Command response:")
+        console.print_json(res.model_dump_json(indent=2))
+        return
 
     settings = load_settings()
     root = base_dir or settings.repos.base_dir

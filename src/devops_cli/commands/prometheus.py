@@ -88,6 +88,19 @@ def query(
     ] = None,
 ) -> None:
     """Execute an instant PromQL query."""
+    from devops_cli.dry_run import CommandDryRunResult, is_dry_run
+
+    if is_dry_run():
+        res = CommandDryRunResult(
+            command="devops prometheus query",
+            target=expr,
+            action="promql_instant_query",
+            details={"expr": expr, "time": at},
+        )
+        rprint("[yellow][dry-run][/yellow] Command response:")
+        console.print_json(res.model_dump_json(indent=2))
+        return
+
     _validate_expr(expr)
     settings = load_settings()
     base = _base_url(settings)

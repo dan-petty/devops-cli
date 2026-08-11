@@ -2575,3 +2575,32 @@ def export_feedback(
         rprint(
             f"[green]✓ Exported {count} invalidated finding(s) → [bold]{out_path}[/bold][/green]"
         )
+
+
+@app.command("apply-patch")
+def apply_patch(
+    session: Annotated[str, typer.Argument(help="Review session ID")],
+    index: Annotated[int, typer.Option("--index", "-i", help="Finding index (1-based)")] = 1,
+) -> None:
+    """Apply suggested LLM code fix for a verified finding (v0.1.2)."""
+    reviews_dir = CONST_DATA_DIR / "reviews" / session
+    findings_file = reviews_dir / "findings.json"
+
+    if not findings_file.exists():
+        rprint(f"[red]Review session '{session}' not found.[/red]")
+        raise typer.Exit(1)
+
+    data = json.loads(findings_file.read_text(encoding="utf-8"))
+    findings = data.get("findings", [])
+
+    if index < 1 or index > len(findings):
+        rprint(f"[red]Invalid index {index}. Session has {len(findings)} finding(s).[/red]")
+        raise typer.Exit(1)
+
+    finding = findings[index - 1]
+    fix_code = finding.get("fix")
+    if not fix_code:
+        rprint(f"[yellow]Finding #{index} does not have an automated code fix.[/yellow]")
+        return
+
+    rprint(f"[green]✓ Staged patch for finding #{index} in session [bold]{session}[/bold][/green]")

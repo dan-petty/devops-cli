@@ -52,6 +52,18 @@ def _client_args(settings: Settings) -> tuple[str, dict[str, str]]:
 @dashboards_app.command("list")
 def dashboards_list() -> None:
     """List all dashboards."""
+    from devops_cli.dry_run import CommandDryRunResult, is_dry_run
+
+    if is_dry_run():
+        res = CommandDryRunResult(
+            command="devops grafana dashboards list",
+            action="list_grafana_dashboards",
+            details={"dashboards": []},
+        )
+        rprint("[yellow][dry-run][/yellow] Command response:")
+        console.print_json(res.model_dump_json(indent=2))
+        return
+
     settings = load_settings()
     base, headers = _client_args(settings)
 

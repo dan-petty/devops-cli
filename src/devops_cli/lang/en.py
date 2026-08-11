@@ -132,6 +132,14 @@ class RepoMessages(BaseModel):
     already_cloned: str = "Already cloned at {dest}"
 
 
+class K8sMessages(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    current_context: str = "Current Kubernetes context: [bold cyan]{context}[/bold cyan]"
+    switched_context: str = "✓ Switched to Kubernetes context: [bold green]{context}[/bold green]"
+    no_contexts_found: str = "No Kubernetes contexts found in Kubeconfig."
+
+
 class LanguageCatalog(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -144,6 +152,7 @@ class LanguageCatalog(BaseModel):
     branches: BranchMessages = BranchMessages()
     workspace: WorkspaceMessages = WorkspaceMessages()
     repos: RepoMessages = RepoMessages()
+    k8s: K8sMessages = K8sMessages()
 
 
 MESSAGES = LanguageCatalog()
