@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 import subprocess
 from pathlib import Path
 from typing import Any
 
 from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
+
+logger = logging.getLogger(__name__)
 
 
 def _is_safe_workspace_path(target: Path) -> bool:
@@ -42,19 +45,24 @@ def read_file(path: str, max_bytes: int = 4000) -> str:
     """Read contents of a text file up to max_bytes."""
     file_path = Path(path).resolve()
     if not _is_safe_workspace_path(file_path):
+        logger.warning("Access denied attempting to read path outside workspace: %s", path)
         return f"Access Denied: {path} is outside workspace."
     if not file_path.exists() or not file_path.is_file():
         return f"File not found: {path}"
     try:
+        file_size = file_path.stat().st_size
+        bytes_to_read = min(file_size, max_bytes + 1)
         with open(file_path, "rb") as f:
-            raw = f.read(max_bytes + 1)
+            raw = f.read(bytes_to_read)
+        logger.debug("Read %d bytes from %s", len(raw), path)
         if len(raw) > max_bytes:
             return (
                 raw[:max_bytes].decode("utf-8", errors="replace")
                 + f"\n... [truncated at {max_bytes} bytes]"
             )
         return raw.decode("utf-8", errors="replace")
-    except Exception as exc:
+    except (OSError, UnicodeDecodeError) as exc:
+        logger.warning("Error reading file %s: %s", path, exc)
         return f"Error reading file: {exc}"
 
 
@@ -68,8 +76,10 @@ def git_status() -> str:
             check=False,
             timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
         )
+        logger.debug("Executed git_status (returncode=%d)", res.returncode)
         return res.stdout.strip() or "Working tree clean."
-    except Exception as exc:
+    except (OSError, subprocess.SubprocessError) as exc:
+        logger.warning("git_status failed: %s", exc)
         return f"Git status failed: {exc}"
 
 
@@ -84,10 +94,12 @@ def git_diff() -> str:
             timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
         )
         output = res.stdout.strip()
+        logger.debug("Executed git_diff (output_len=%d)", len(output))
         if len(output) > 4000:
             return output[:4000] + "\n... [diff truncated]"
         return output or "No unstaged changes."
-    except Exception as exc:
+    except (OSError, subprocess.SubprocessError) as exc:
+        logger.warning("git_diff failed: %s", exc)
         return f"Git diff failed: {exc}"
 
 

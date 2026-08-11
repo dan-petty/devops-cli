@@ -76,8 +76,11 @@ def _gh_latest(repo: str) -> str:
 
 
 def _download(url: str) -> bytes:
+    from devops_cli.http.validation import validate_service_url
+
     if not url.startswith("https://"):
         raise ValueError(f"Only HTTPS URLs are permitted for tool downloads, got: {url!r}")
+    validate_service_url(url, purpose="tool download")
     with httpx2.Client(follow_redirects=True) as c:
         r = c.get(url, timeout=DEFAULT_HTTP_DOWNLOAD_TIMEOUT_SECONDS)
         r.raise_for_status()

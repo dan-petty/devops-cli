@@ -80,7 +80,7 @@ def _ensure_known_host(hostname: str = CONST_GITHUB_HOST) -> None:
         check=False,
         timeout=DEFAULT_SUBPROCESS_FAST_TIMEOUT_SECONDS,
     )
-    if result.returncode != 0 or not result.stdout.strip():
+    if result.returncode != 0 or not result.stdout.strip() or hostname not in result.stdout:
         return
 
     with known_hosts.open("a", encoding="utf-8") as handle:

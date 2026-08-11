@@ -74,7 +74,10 @@ class _PersonaRegistry(Mapping[Persona, PersonaDefinition]):
         if isinstance(item, Persona):
             return _load_persona(item)
         if isinstance(item, str):
-            return _load_persona(Persona(item))
+            try:
+                return _load_persona(Persona(item))
+            except ValueError as exc:
+                raise KeyError(item) from exc
         raise KeyError(item)
 
     def __contains__(self, item: object) -> bool:

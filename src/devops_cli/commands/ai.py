@@ -68,11 +68,19 @@ def _collect_project_context(repo: Path) -> str:
     if pyproject.exists():
         sections.append(f"## pyproject.toml\n```toml\n{pyproject.read_text()}\n```")
 
+    from devops_cli.commands.review import _sanitize_prompt_boundary_tags
+
     # README
     for name in ("README.md", "README.rst", "README.txt", "README"):
         readme = repo / name
         if readme.exists():
-            sections.append(f"## {name}\n{readme.read_text()[:4000]}")
+            clean_readme = _sanitize_prompt_boundary_tags(readme.read_text()[:4000])
+            sections.append(
+                f"## {name}\n"
+                f'<project_context_file name="{name}">\n'
+                f"{clean_readme}\n"
+                f"</project_context_file>"
+            )
             break
 
     # Directory tree (2 levels)
@@ -98,14 +106,21 @@ def _collect_project_context(repo: Path) -> str:
             cwd=repo,
             timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
         )
-        sections.append(f"## File tree\n```\n{tree.stdout.strip()}\n```")
-    except Exception:
+        clean_tree = _sanitize_prompt_boundary_tags(tree.stdout.strip())
+        sections.append(f"## File tree\n```\n{clean_tree}\n```")
+    except OSError, subprocess.SubprocessError:
         pass
 
     # .editorconfig
     ec = repo / ".editorconfig"
     if ec.exists():
-        sections.append(f"## .editorconfig\n```ini\n{ec.read_text()}\n```")
+        clean_ec = _sanitize_prompt_boundary_tags(ec.read_text()[:4000])
+        sections.append(
+            "## .editorconfig\n"
+            '<project_context_file name=".editorconfig">\n'
+            f"{clean_ec}\n"
+            "</project_context_file>"
+        )
 
     # devcontainer.json
     dc = repo / CONST_DEVCONTAINER_JSON_PATH

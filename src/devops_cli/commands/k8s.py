@@ -182,7 +182,7 @@ def logs(
         rprint(f"[yellow][dry-run][/yellow] Would run: [cyan]{' '.join(cmd)}[/cyan]")
         return
     if follow:
-        subprocess.run(cmd, check=True)
+        subprocess.run(cmd, check=True, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS)
     else:
         _run_cmd(cmd, check=True)
 

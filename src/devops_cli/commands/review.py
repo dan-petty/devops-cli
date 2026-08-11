@@ -37,7 +37,10 @@ from devops_cli.config.constants import (
     CONST_REVIEW_GENERATED_FILES,
     CONST_REVIEW_MAX_DIFF_CHARS,
 )
-from devops_cli.config.defaults import DEFAULT_REVIEW_TIMEOUT_SECONDS
+from devops_cli.config.defaults import (
+    DEFAULT_REVIEW_TIMEOUT_SECONDS,
+    DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
+)
 from devops_cli.config.settings import Settings, get_ai_api_key, load_settings
 from devops_cli.core.dry_run import format_command, is_dry_run, set_dry_run
 from devops_cli.models.ai import ReviewMeta, SegmentMeta
@@ -117,6 +120,7 @@ def _run_subprocess(
     text: bool = False,
     check: bool = False,
     quiet: bool = False,
+    timeout: float | None = DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
 ) -> subprocess.CompletedProcess[Any]:
     if is_dry_run() and not quiet and not _QUIET_SUBPROCESS_ARGS.intersection(command):
         rendered = format_command(command, cwd=str(cwd) if cwd else None)
@@ -127,6 +131,7 @@ def _run_subprocess(
         capture_output=capture_output,
         text=text,
         check=check,
+        timeout=timeout,
     )
 
 

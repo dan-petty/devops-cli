@@ -79,7 +79,7 @@ def _is_safe_workspace_file(ws_file: Path) -> bool:
     for sys_dir in _FORBIDDEN_SYSTEM_DIRS:
         if resolved == sys_dir or resolved.is_relative_to(sys_dir):
             return False
-    return resolved.suffix in {".code-workspace", ".json", ""}
+    return resolved.name.endswith((".code-workspace", ".json"))
 
 
 def _save(ws_file: Path, data: dict[str, Any]) -> None:

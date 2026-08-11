@@ -38,8 +38,11 @@ console = Console()
 
 
 def _render_secret_store_error(key: str, exc: SecretStorageError) -> None:
+    from devops_cli.commands.review import _mask_secrets_in_content
+
     env_var = env_var_for_option(key)
-    rprint(f"[yellow]Could not store secret for {key}: {exc}[/yellow]")
+    masked_err = _mask_secrets_in_content(str(exc))
+    rprint(f"[yellow]Could not store secret for {key}: {masked_err}[/yellow]")
     if env_var:
         rprint(f"[yellow]Use environment variable fallback: export {env_var}=<value>[/yellow]")
 
