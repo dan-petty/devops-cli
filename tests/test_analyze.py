@@ -1,0 +1,99 @@
+"""Unit tests for devops ai analyze command group and metadata generation."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+from typer.testing import CliRunner
+
+from devops_cli.commands.analyze import (
+    analyze_single_file,
+    detect_language,
+    sanitize_reference,
+)
+from devops_cli.commands.analyze import (
+    app as analyze_app,
+)
+from devops_cli.main import app
+from devops_cli.models.ai import AnalysisMetadata
+
+runner = CliRunner()
+
+
+def test_sanitize_reference_basic() -> None:
+    """sanitize_reference converts slashes and special chars to hyphens."""
+    assert sanitize_reference("feature/login-fix") == "feature-login-fix"
+    assert sanitize_reference("refs/heads/main") == "refs-heads-main"
+    assert sanitize_reference("42") == "42"
+    assert sanitize_reference("src/devops_cli/ai") == "src-devops_cli-ai"
+
+
+def test_sanitize_reference_dot(tmp_path: Path) -> None:
+    """sanitize_reference for '.' returns repo directory name."""
+    repo = tmp_path / "my-devops-repo"
+    repo.mkdir()
+    assert sanitize_reference(".", repo_root=repo) == "my-devops-repo"
+
+
+def test_detect_language() -> None:
+    """detect_language maps extensions, filenames, shebangs, and mimetypes."""
+    assert detect_language("script.py") == "python"
+    assert detect_language("app.ts") == "typescript"
+    assert detect_language("config.yaml") == "yaml"
+    assert detect_language("Dockerfile") == "dockerfile"
+    assert detect_language("Jenkinsfile") == "jenkinsfile"
+    assert detect_language("Makefile") == "makefile"
+    assert detect_language("main.tf") == "hcl"
+    assert detect_language("schema.proto") == "protobuf"
+    assert (
+        detect_language("custom_exec", content="#!/usr/bin/env python3\nprint('hello')") == "python"
+    )
+    assert detect_language("run.sh", content="#!/bin/bash\necho hi") == "shell"
+    assert detect_language("unknown.xyz") == "plaintext"
+
+
+def test_analyze_single_file() -> None:
+    """analyze_single_file extracts lines, characters, symbols, and dependencies."""
+    content = '"""Module docstring."""\nimport httpx2\n\nclass MyWorker:\n    pass\n'
+    meta = analyze_single_file("src/worker.py", content, len(content.encode("utf-8")))
+
+    assert meta.path == "src/worker.py"
+    assert meta.language == "python"
+    assert meta.line_count == 5
+    assert "MyWorker" in meta.key_symbols
+    assert "httpx2" in meta.dependencies
+
+
+def test_ai_analyze_path_command(tmp_path: Path) -> None:
+    """devops ai analyze path creates .data/analysis/path-*-metadata.json."""
+    (tmp_path / ".git").mkdir()
+    src_dir = tmp_path / "src"
+    src_dir.mkdir()
+    py_file = src_dir / "sample.py"
+    py_file.write_text('"""Sample module."""\ndef hello() -> str:\n    return "hi"\n')
+
+    result = runner.invoke(app, ["ai", "analyze", "path", str(src_dir)])
+
+    assert result.exit_code == 0
+    analysis_file = tmp_path / ".data" / "analysis" / f"path-{tmp_path.name}-src-metadata.json"
+    if not analysis_file.exists():
+        files = list((tmp_path / ".data" / "analysis").glob("*.json"))
+        assert len(files) == 1
+        analysis_file = files[0]
+
+    data = json.loads(analysis_file.read_text(encoding="utf-8"))
+    payload = AnalysisMetadata.model_validate(data)
+
+    assert payload.project.target_type == "path"
+    assert payload.project.total_files >= 1
+    assert any(f.path.endswith("sample.py") for f in payload.files)
+
+
+def test_ai_analyze_branch_dry_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    """devops ai analyze branch dry run mode."""
+    monkeypatch.setenv("DEVOPS_CLI_DRY_RUN", "true")
+    result = runner.invoke(analyze_app, ["branch", "main"])
+
+    assert result.exit_code == 0

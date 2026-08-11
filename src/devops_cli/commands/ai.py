@@ -13,6 +13,7 @@ from rich.rule import Rule
 from rich.table import Table
 
 from devops_cli.ai.personas import PERSONAS, Persona
+from devops_cli.commands.analyze import app as analyze_app
 from devops_cli.commands.review import app as review_app
 from devops_cli.config.constants import (
     CONST_AGENTS_MD_FILENAME,
@@ -27,13 +28,18 @@ from devops_cli.core.cli import new_typer
 from devops_cli.models.ai import ChatMessage
 
 app = new_typer(
-    help="Configure, test, chat, and perform AI-powered reviews (Ollama, Claude, Copilot).",
+    help="Configure, test, chat, analyze, and review codebases (Ollama, Claude, Copilot).",
     no_args_is_help=True,
 )
 app.add_typer(
     review_app,
     name="review",
     help="AI-powered code reviews using expert personas (devsecops, architect, pm, auditor, qa).",
+)
+app.add_typer(
+    analyze_app,
+    name="analyze",
+    help="Analyze codebase metadata and create/update .data/analysis/*-metadata.json files.",
 )
 console = Console()
 
@@ -167,19 +173,18 @@ def _pointer_stub(title: str, tool_name: str, filename: str, canonical_relpath: 
 
 def _template_content(target_file: str, context_summary: dict[str, str]) -> str:
     """Fallback template when no LLM is configured."""
+    name = context_summary.get("name", "Project")
     if target_file == "CLAUDE.md":
         return _pointer_stub(
-            "devops-cli — Claude Instructions", "Claude Code", "CLAUDE.md", "./AGENTS.md"
+            f"{name} — Claude Instructions", "Claude Code", "CLAUDE.md", "./AGENTS.md"
         )
     if "copilot" in target_file:
         return _pointer_stub(
-            "GitHub Copilot Instructions",
+            f"{name} — GitHub Copilot Instructions",
             "GitHub Copilot",
             ".github/copilot-instructions.md",
             "../AGENTS.md",
         )
-
-    name = context_summary.get("name", "devops-cli")
     description = context_summary.get("description", "")
     python_version = context_summary.get("requires_python", ">=3.14")
     entry_point = context_summary.get("entry_point", "")

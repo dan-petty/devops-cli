@@ -54,3 +54,40 @@ class ReviewMeta(BaseModel):
     total_chars: int
     all_files: list[str]
     segments: list[SegmentMeta]
+
+
+class FileAnalysisMeta(BaseModel):
+    """Metadata attributes for an individual file in an analysis session."""
+
+    path: str
+    size_bytes: int
+    line_count: int
+    char_count: int
+    language: str
+    primary_purpose: str
+    key_symbols: list[str]
+    dependencies: list[str]
+    change_type: str = "existing"
+
+
+class ProjectAnalysisMeta(BaseModel):
+    """Project-level metadata attributes for an analysis session."""
+
+    title: str
+    target_type: Literal["branch", "pr", "path"]
+    target_reference: str
+    timestamp: str
+    total_files: int
+    total_lines: int
+    total_chars: int
+    languages: list[str]
+    primary_purpose: str
+    key_symbols: list[str]
+    dependencies: list[str]
+
+
+class AnalysisMetadata(BaseModel):
+    """Top-level schema for .data/analysis/*-metadata.json files."""
+
+    project: ProjectAnalysisMeta
+    files: list[FileAnalysisMeta]
