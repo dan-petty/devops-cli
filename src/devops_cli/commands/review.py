@@ -605,13 +605,17 @@ def _reconcile_verified(
 ) -> ReviewResult:
     """Carry verified=False and mitigated=True from step-3 validation into the recomposed result."""
     valid_results = [r for r in segment_results if r is not None]
+
+    merged_seg = _merge_segment_results(segment_results)
+    baseline_findings = recomposed.findings
+    if not baseline_findings and merged_seg and merged_seg.findings:
+        baseline_findings = merged_seg.findings
+
     unverified = {f.title.lower() for r in valid_results for f in r.findings if not f.verified}
     mitigated = {f.title.lower() for r in valid_results for f in r.findings if f.mitigated}
-    if not unverified and not mitigated:
-        return recomposed
 
     updated: list[Finding] = []
-    for f in recomposed.findings:
+    for f in baseline_findings:
         key = f.title.lower()
         u: dict[str, object] = {}
         if key in unverified:
@@ -619,7 +623,21 @@ def _reconcile_verified(
         if key in mitigated:
             u["mitigated"] = True
         updated.append(f.model_copy(update=u) if u else f)
-    return recomposed.model_copy(update={"findings": updated})
+
+    summary = recomposed.summary
+    positive = recomposed.positive_observations
+    if not summary and merged_seg and merged_seg.summary:
+        summary = merged_seg.summary
+    if not positive and merged_seg and merged_seg.positive_observations:
+        positive = merged_seg.positive_observations
+
+    return recomposed.model_copy(
+        update={
+            "findings": updated,
+            "summary": summary,
+            "positive_observations": positive,
+        }
+    )
 
 
 def _build_metadata_summary_prompt(segment: str) -> str:
