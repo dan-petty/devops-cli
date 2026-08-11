@@ -14,6 +14,7 @@ import json
 import os
 import re
 import socket
+import threading
 from collections.abc import Generator
 from typing import Any
 from urllib.parse import urlparse
@@ -54,6 +55,7 @@ class LLMClient:
         self._request_timeout_seconds = request_timeout_seconds
         self._ollama_thinking_supported: bool | None = None  # None = unknown
         self._ollama_url_index: int = 0
+        self._ollama_url_lock = threading.Lock()
 
     def _connection_error(self, exc: Exception) -> AIClientError:
         provider = self._config.provider
@@ -61,7 +63,7 @@ class LLMClient:
             return AIClientError(
                 "Cannot connect to Ollama. "
                 "Start Ollama, or run: "
-                "devops ai config --provider ollama --ollama-url <url>"
+                "devops ai config --provider ollama --ollama-urls <urls>"
             )
         if provider == "claude":
             return AIClientError(
@@ -245,8 +247,18 @@ class LLMClient:
         """Return list of (index, url) tuples for Ollama failover, starting at active index."""
         all_urls = self._config.get_ollama_urls
         n = len(all_urls)
-        start = self._ollama_url_index % n
+        if n == 0:
+            return [(0, "http://localhost:11434")]
+        with self._ollama_url_lock:
+            start = self._ollama_url_index % n
         return [((start + i) % n, all_urls[(start + i) % n]) for i in range(n)]
+
+    def _advance_ollama_index(self, idx: int) -> None:
+        all_urls = self._config.get_ollama_urls
+        n = len(all_urls)
+        if n > 0:
+            with self._ollama_url_lock:
+                self._ollama_url_index = (idx + 1) % n
 
     def _ollama_messages(
         self, system: str, messages: list[ChatMessage], *, enable_thinking: bool = True
@@ -264,7 +276,7 @@ class LLMClient:
                 use_thinking = enable_thinking and self._ollama_thinking_supported is not False
                 try:
                     res = self._ollama_request(base, system, messages, use_thinking)
-                    self._ollama_url_index = idx
+                    self._advance_ollama_index(idx)
                     return res
                 except httpx2.HTTPStatusError as exc:
                     if (
@@ -273,7 +285,7 @@ class LLMClient:
                     ):
                         self._ollama_thinking_supported = False
                         res = self._ollama_request(base, system, messages, think=False)
-                        self._ollama_url_index = idx
+                        self._advance_ollama_index(idx)
                         return res
                     msg_text = exc.response.text[:300].strip() or "(empty)"
                     raise AIClientError(
@@ -332,7 +344,7 @@ class LLMClient:
                 with httpx2.Client(timeout=request_timeout()) as http_client:
                     response = http_client.get(f"{base}/api/tags")
                     response.raise_for_status()
-                    self._ollama_url_index = idx
+                    self._advance_ollama_index(idx)
                     return [
                         model_info["name"]
                         for model_info in self._read_limited_json(response).get("models", [])
@@ -431,7 +443,7 @@ class LLMClient:
                     yield from self._ollama_stream_request(
                         base, system, messages, think=use_thinking
                     )
-                    self._ollama_url_index = idx
+                    self._advance_ollama_index(idx)
                     return
                 except httpx2.HTTPStatusError as exc:
                     if (
@@ -440,7 +452,7 @@ class LLMClient:
                     ):
                         self._ollama_thinking_supported = False
                         yield from self._ollama_stream_request(base, system, messages, think=False)
-                        self._ollama_url_index = idx
+                        self._advance_ollama_index(idx)
                         return
                     body = exc.response.text[:300].strip()
                     msg_text = body or "(empty)"

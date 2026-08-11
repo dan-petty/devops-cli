@@ -8,6 +8,7 @@ import re
 import subprocess
 import time
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Any
@@ -1183,7 +1184,8 @@ def _run_review(
     rprint(f"[dim]Step 2/4: Reviewing {total} segment(s)...[/dim]")
     t2 = time.monotonic()
     responses: list[str] = []
-    for i, page in enumerate(pages, 1):
+
+    def _review_segment(i: int, page: str) -> tuple[int, str]:
         user_prompt = _build_segment_review_prompt(
             page, title, i, total, metadata, build_prompt, persona
         )
@@ -1192,8 +1194,7 @@ def _run_review(
                 f"Would send LLM review request for segment {i}/{total}",
                 _llm_request_preview(clients.analysis, analysis_system, user_prompt),
             )
-            responses.append(f"[dry-run] Review skipped for segment {i}/{total}.")
-            continue
+            return (i, f"[dry-run] Review skipped for segment {i}/{total}.")
         result_text = ""
         for attempt in range(1, _MAX_SEGMENT_RETRIES + 2):
             seg_start = time.monotonic()
@@ -1253,7 +1254,20 @@ def _run_review(
                 retry_note = f" (attempt {attempt})" if attempt > 1 else ""
                 rprint(f"[dim]  ✓ segment {i}/{total} in {seg_elapsed:.1f}s{retry_note}[/dim]")
             break
-        responses.append(result_text)
+        return (i, result_text)
+
+    if total > 1 and not is_dry_run():
+        config = getattr(clients.analysis, "_config", None)
+        ollama_urls = getattr(config, "get_ollama_urls", ["http://localhost:11434"])
+        workers = min(total, max(len(ollama_urls) * 2, 4))
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = [executor.submit(_review_segment, i, page) for i, page in enumerate(pages, 1)]
+            indexed_results = [f.result() for f in futures]
+            responses = [res for _, res in sorted(indexed_results, key=lambda x: x[0])]
+    else:
+        for i, page in enumerate(pages, 1):
+            _, res = _review_segment(i, page)
+            responses.append(res)
     if not is_dry_run():
         rprint(f"[dim]  total {time.monotonic() - t2:.1f}s[/dim]")
 
@@ -1581,7 +1595,8 @@ def _run_persona_loop(
 
     completed: list[tuple[PersonaDefinition, ReviewResult | str]] = []
     try:
-        for pd in personas:
+
+        def _execute_persona(pd: PersonaDefinition) -> tuple[PersonaDefinition, ReviewResult | str]:
             rprint(f"Reviewing as [bold magenta]{pd.title}[/bold magenta]...")
             review_text = _run_review(
                 pages,
@@ -1593,11 +1608,29 @@ def _run_persona_loop(
                 prebuilt_metadata=shared_meta,
                 session_dir=session_dir,
             )
-            _print_review(pd, review_text)
-            completed.append((pd, review_text))
-            if session_dir:
-                _save_persona_review(pd, review_text, session_dir)
-                _write_summary(title, session_dir, pages, completed, shared_meta)
+            return (pd, review_text)
+
+        if len(personas) > 1 and not is_dry_run():
+            config = getattr(clients.analysis, "_config", None)
+            ollama_urls = getattr(config, "get_ollama_urls", ["http://localhost:11434"])
+            workers = min(len(personas), max(len(ollama_urls) * 2, 4))
+            with ThreadPoolExecutor(max_workers=workers) as executor:
+                future_map = {executor.submit(_execute_persona, pd): pd for pd in personas}
+                for future in as_completed(future_map):
+                    pd, review_text = future.result()
+                    _print_review(pd, review_text)
+                    completed.append((pd, review_text))
+                    if session_dir:
+                        _save_persona_review(pd, review_text, session_dir)
+                        _write_summary(title, session_dir, pages, completed, shared_meta)
+        else:
+            for pd in personas:
+                pd, review_text = _execute_persona(pd)
+                _print_review(pd, review_text)
+                completed.append((pd, review_text))
+                if session_dir:
+                    _save_persona_review(pd, review_text, session_dir)
+                    _write_summary(title, session_dir, pages, completed, shared_meta)
     except AIClientError as exc:
         rprint(f"[red]AI provider error:[/red] {exc}")
         raise typer.Exit(1)
