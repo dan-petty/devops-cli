@@ -6,6 +6,11 @@ Chronological log of refactoring milestones, quality gates, and security enhance
 
 ## Log Entries
 
+### [2026-08-11] Release v0.1.0 & v0.1.1 Planning
+- **v0.1.0 Release**: Shipped codebase metadata analysis (`devops ai analyze`), structured Pydantic model dry-run outputs, modular `devops_cli.dry_run` package, `devops ci audit` dependency scanning (`uv audit`), `UV_MALWARE_CHECK=1` devcontainer environment, and centralized `LanguageCatalog` literals.
+- **v0.1.1 Implementation Plan**: Formulated roadmap for line-level GitHub PR inline comments (`--post-inline`), human invalidation benchmark exporter (`export-feedback`), repository-level custom team personas (`.devops/personas/`), and headless CI auth fallback (`auth-headless`).
+- **Quality Gate**: Executed `devops ci` — 201 passed, ruff lint clean, ruff format clean, strict mypy clean, uv audit clean.
+
 ### [2026-08-10] AI Review Prompt Injection Defenses & Boundary Sanitization
 - **Tag Sanitization**: Implemented `_sanitize_prompt_boundary_tags()` in `commands/review.py` to escape closing XML tags in reviewed content.
 - **Untrusted Input Framing**: Wrapped diffs, source files, segment summaries, excerpts, and findings in XML boundary tags (`<untrusted_code_diff>`, `<target_code_to_review>`, etc.).

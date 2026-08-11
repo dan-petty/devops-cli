@@ -19,22 +19,24 @@ High-density product roadmap for `devops-cli`.
 - [x] Infrastructure subcommands: `repos`, `ssh`, `k8s`, `kustomize`, `argo`, `grafana`, `prometheus`, `docker`, `workspace`, `install-tools`, `config`, `ci`, `branches`, `devcontainer`, `uv`.
 - [x] `devops ci` unified quality gate (pytest, ruff check, ruff format, strict mypy).
 
-### Phase 2: Finding Verification & Security Hardening (Completed)
-- [x] Structured finding schema with verification status (`UNVERIFIED`, `VERIFIED`, `INVALIDATED`, `MITIGATED`).
+### Phase 2: Finding Verification, Metadata Analysis & Dry-Run Models (v0.1.0 - Completed)
 - [x] Finding inspection & human invalidation CLI (`devops review findings`, `devops review verify`, `devops review stats`).
-- [x] Fast deterministic segment metadata extraction (`SegmentMeta` / `ReviewMeta`) upfront in <5ms.
-- [x] Security hardening: Python 2 exception syntax fixes, path traversal boundary checks, and prompt boundary tag sanitization.
-- [x] `devops config output` subcommand displaying metadata for all 30 environment variables.
+- [x] Codebase metadata analysis command (`devops ai analyze [path|branch|pr]`) producing `.data/analysis/*-metadata.json`.
+- [x] Pydantic model response outputs for all `--dry-run` subcommands (`ReviewResult`, `AnalysisMetadata`, `CommandDryRunResult`).
+- [x] Modular `devops_cli.dry_run` submodule package (`state.py`, `models.py`).
+- [x] Dependency vulnerability scanner (`devops ci audit` via `uv audit`) and `UV_MALWARE_CHECK=1` devcontainer integration.
+- [x] Python 3.14 exception syntax standardization (`except (Err1, Err2):`) and centralized `LanguageCatalog` literal management.
 
-### Phase 3: Enhanced PR Collaboration & Customization (Short-Term: Q3 2026)
-- [ ] **Line-Level GitHub PR Inline Comments**: Post persona review findings directly to PR diff line hunks via GitHub API (`devops review pr --post-inline`).
-- [ ] **Human Feedback Exporter**: Export invalidated findings (`status="INVALIDATED"`) as benchmark datasets for prompt tuning (`devops review export-feedback`).
-- [ ] **Custom Team Personas**: Repository-level `.devops/personas/` prompt overrides allowing custom reviewer personas.
+### Phase 3: Line-Level PR Comments & Custom Personas (v0.1.1 - Short-Term: Q3 2026)
+- [ ] **Line-Level GitHub PR Inline Comments**: Post persona review findings directly to PR diff line hunks via GitHub API (`devops ai review pr --post-inline`).
+- [ ] **Human Invalidation Feedback Exporter**: Export invalidated findings (`status="INVALIDATED"`) as benchmark JSONL datasets for prompt tuning (`devops ai review export-feedback`).
+- [ ] **Custom Team Personas**: Repository-level `.devops/personas/<name>.md` prompt overrides allowing custom reviewer personas.
+- [ ] **Headless CI Keyring Fallback Auth**: Memory token loading (`devops config auth-headless`) for headless CI environments lacking DBus.
+- [ ] **Subcommand Dry-Run Pydantic Expansion**: Extend `CommandDryRunResult` Pydantic models across `argo`, `grafana`, `prometheus`, `branches`, `devcontainer`, `workspace`, `install-tools`.
 
 ### Phase 4: Enterprise Infrastructure & Governance (Mid-Term: Q4 2026)
 - [ ] **Multi-Cluster Kubeconfig Management**: Seamless context switching with namespace access control policies.
 - [ ] **SIEM Audit Log Streaming**: Optional JSON audit trail output to Syslog / CloudWatch for compliance reporting.
-- [ ] **Headless CI Keyring Fallback Auth**: Memory token loading (`devops config auth-headless`) for headless CI environments lacking DBus.
 
 ### Phase 5: Autonomous Remediation & Offline Bundling (Long-Term: 2027+)
 - [ ] **Automated Code Patch Application**: Apply suggested LLM fixes (`finding.fix`) directly to source files with interactive git staging.
