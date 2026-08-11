@@ -79,11 +79,13 @@ Use these when simulating or testing CLI behavior:
 - **Target Repository Execution**: The tools under `src/` (`devops ai review`, `devops ai analyze`, `devops ai agents`, etc.) are designed to be executed by developers and engineers on **any cloned repository under the `repos/` directory or local workspace target**, not exclusively on the `devops-cli` project itself.
 - **Target-Agnostic Heuristics**: All AI reviewer persona prompts, static analysis heuristics, task templates, and code review rules MUST remain target-agnostic and generic. They must evaluate target repos based on their own documented conventions (`AGENTS.md` / `README.md`) rather than coupling to `devops-cli` internal filenames.
 
-## 8. Feedback, Verification & Code Improvement Loop
+## 8. Feedback, Verification & Self-Improvement Loop
 - **`devops ai` Usage Guardrail**: Avoid running `devops ai [review|analyze]` commands as this could interfere with active sessions on the backend. Use the `--dry-run` flag to test the command without affecting active sessions.
 - **Finding Verification Pipeline**: Step 3 verification (`_validate_segment_findings`) automatically cross-references reported findings against visible source code and verifies status (`VERIFIED`, `UNVERIFIED`, `MITIGATED`).
-- **Finding Inspection & Resolution**: Use `devops ai review findings <session>` to inspect structured JSON findings in `.data/reviews/`. Resolve all verified critical/high findings in the codebase before completing reviews.
-- **Verification Override**: Use `devops ai review verify <session> --index <N> --status INVALIDATED --reason "<reason>"` for manual human review overrides.
+- **Finding Inspection & Resolution**: Use `devops ai review findings --session <session>` to inspect structured JSON findings in `.data/reviews/`. Resolve all verified critical/high findings in the codebase before completing reviews.
+- **Verification Override**: Use `devops ai review verify <session> --index <N> --status INVALIDATED|MITIGATED|VERIFIED --reason "<reason>"` for review status updates.
+- **Feedback Dataset Exporter**: Use `devops ai review export-feedback` to format invalidated findings into JSONL datasets for prompt tuning.
+- **Interactive Fix Patch Staging**: Use `devops ai review apply-patch <session> --interactive` to inspect and stage automated LLM code fixes (`finding.fix`).
 
 ## 9. Troubleshooting for Agents
 - If a test fails with `ImportError`, ensure `uv sync` has been run.
