@@ -22,6 +22,7 @@ from devops_cli.git.operations import (
     list_branches,
     pull_tracking,
 )
+from devops_cli.lang import MESSAGES
 
 app = new_typer(help="Branch management and Jira workflows.", no_args_is_help=True)
 console = Console()
@@ -60,12 +61,14 @@ def jira(
 ) -> None:
     """Create a feature branch for a Jira ticket: feature/PROJ-123[-slug]."""
     if not _JIRA_RE.match(ticket_id):
-        rprint(f"[red]Invalid ticket ID '{ticket_id}'. Expected format: PROJ-123[/red]")
+        err_msg = MESSAGES.branches.invalid_ticket_id.format(ticket_id=ticket_id)
+        rprint(f"[red]{err_msg}[/red]")
         raise typer.Exit(1)
 
     repo_path = repo or Path.cwd()
     if not (repo_path / CONST_GIT_DIR_NAME).exists():
-        rprint(f"[red]Not a git repository: {repo_path}[/red]")
+        err_msg = MESSAGES.branches.not_a_git_repo.format(repo_path=repo_path)
+        rprint(f"[red]{err_msg}[/red]")
         raise typer.Exit(1)
 
     ticket_upper = ticket_id.upper()
@@ -77,7 +80,8 @@ def jira(
 
     try:
         create_branch(repo_path, branch_name)
-        rprint(f"[green]Created and checked out:[/green] [bold]{branch_name}[/bold]")
+        ok_msg = MESSAGES.branches.created_branch.format(branch_name=branch_name)
+        rprint(f"[green]{ok_msg}[/green]")
     except ValueError as exc:
         rprint(f"[red]{exc}[/red]")
         raise typer.Exit(1)
@@ -130,4 +134,4 @@ def clean(
             rprint(f"{verb} {label}: [bold]{branch}[/bold]")
 
     if not any_deleted:
-        rprint("[green]No merged branches to clean.[/green]")
+        rprint(f"[green]{MESSAGES.branches.no_merged_branches}[/green]")

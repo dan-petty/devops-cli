@@ -28,6 +28,7 @@ from devops_cli.git.operations import (
     iter_workspace_repos,
     pull_tracking,
 )
+from devops_cli.lang import MESSAGES
 
 if TYPE_CHECKING:
     from devops_cli.config.settings import Settings
@@ -130,10 +131,7 @@ def clone_org(
     settings = load_settings()
     org_name = org or settings.github.default_org
     if not org_name:
-        rprint(
-            "[red]No GitHub organisation configured. Set github.default_org "
-            "or pass an org name.[/red]"
-        )
+        rprint(f"[red]{MESSAGES.repos.no_org_configured}[/red]")
         raise typer.Exit(1)
 
     root = (base_dir or settings.repos.base_dir).resolve()
@@ -148,7 +146,7 @@ def clone_org(
     org_dir = root / org_name
     org_dir.mkdir(parents=True, exist_ok=True)
 
-    rprint(f"Cloning [bold]{len(repos)}[/bold] repos into [dim]{org_dir}[/dim]")
+    rprint(MESSAGES.repos.cloning_org_repos.format(count=len(repos), dest=org_dir))
     for repo in track(repos, description="Cloning..."):
         dest = (org_dir / repo.name).resolve()
         if not dest.is_relative_to(org_dir.resolve()):

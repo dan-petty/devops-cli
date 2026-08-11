@@ -105,6 +105,33 @@ class GeneralMessages(BaseModel):
     )
 
 
+class BranchMessages(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    invalid_ticket_id: str = "Invalid ticket ID '{ticket_id}'. Expected format: PROJ-123"
+    not_a_git_repo: str = "Not a git repository: {repo_path}"
+    created_branch: str = "Created and checked out: {branch_name}"
+    no_merged_branches: str = "No merged branches to clean."
+
+
+class WorkspaceMessages(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    generated_workspace: str = "✓ Generated multi-root workspace file at {path}"
+    synced_repos: str = "✓ Synced workspace with {count} repo(s)"
+    no_repos_found: str = "No cloned repos found under {base_dir}."
+
+
+class RepoMessages(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    no_org_configured: str = (
+        "No GitHub organisation configured. Set github.default_org or pass an org name."
+    )
+    cloning_org_repos: str = "Cloning [bold]{count}[/bold] repos into [dim]{dest}[/dim]"
+    already_cloned: str = "Already cloned at {dest}"
+
+
 class LanguageCatalog(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -114,6 +141,9 @@ class LanguageCatalog(BaseModel):
     ai: AIMessages = AIMessages()
     config: ConfigMessages = ConfigMessages()
     install: InstallMessages = InstallMessages()
+    branches: BranchMessages = BranchMessages()
+    workspace: WorkspaceMessages = WorkspaceMessages()
+    repos: RepoMessages = RepoMessages()
 
 
 MESSAGES = LanguageCatalog()
