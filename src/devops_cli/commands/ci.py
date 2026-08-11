@@ -11,6 +11,8 @@ from rich.console import Console
 from rich.rule import Rule
 from rich.table import Table
 
+from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
+
 app = typer.Typer(help="Run tests, linting, formatting, and type-checks.")
 console = Console()
 
@@ -18,8 +20,8 @@ console = Console()
 _ROOT = Path(__file__).resolve().parents[3]
 
 
-def _run(cmd: list[str]) -> bool:
-    return subprocess.run(cmd, cwd=_ROOT).returncode == 0
+def _run(cmd: list[str], timeout: float = DEFAULT_SUBPROCESS_TIMEOUT_SECONDS) -> bool:
+    return subprocess.run(cmd, cwd=_ROOT, timeout=timeout).returncode == 0
 
 
 def _section(title: str) -> None:

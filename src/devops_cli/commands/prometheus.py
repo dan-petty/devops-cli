@@ -56,12 +56,19 @@ def _parse_duration(s: str) -> float:
         return 0.0
     units = {"s": 1, "m": 60, "h": 3600, "d": 86400}
     unit = s[-1].lower()
+    res = 0.0
     if unit in units and s[:-1].isdigit():
-        return float(int(s[:-1]) * units[unit])
-    try:
-        return float(s)
-    except ValueError:
-        return 0.0
+        res = float(int(s[:-1]) * units[unit])
+    else:
+        try:
+            res = float(s)
+        except ValueError:
+            return 0.0
+
+    max_seconds = 31_536_000.0  # 365 days
+    if res > max_seconds:
+        raise typer.BadParameter("Duration exceeds maximum allowed value (365 days).")
+    return res
 
 
 @app.command()

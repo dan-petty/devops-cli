@@ -220,7 +220,9 @@ def workflows_logs(
         cmd += ["--namespace", namespace]
     if follow:
         cmd.append("--follow")
-    subprocess.run(cmd, check=True)
+        subprocess.run(cmd, check=True)
+    else:
+        subprocess.run(cmd, check=True, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS)
 
 
 # ── Argo Rollouts (kubectl argo rollouts plugin) ──────────────────────────────

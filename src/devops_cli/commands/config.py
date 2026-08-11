@@ -164,7 +164,11 @@ def init() -> None:
         if not _gh_auth_status() and typer.confirm(
             "Authenticate with GitHub CLI now using 'gh auth login'?", default=True
         ):
-            subprocess.run(["gh", "auth", "login"], check=False)
+            subprocess.run(
+                ["gh", "auth", "login"],
+                check=False,
+                timeout=DEFAULT_GH_AUTH_TIMEOUT_SECONDS * 4,
+            )
 
         gh_token = _gh_auth_token()
         if gh_token and typer.confirm("Import GitHub CLI token into devops keyring?", default=True):
