@@ -11,8 +11,6 @@ from devops_cli.config.constants import CONST_URL_GITHUB_API_BASE
 from devops_cli.config.defaults import (
     DEFAULT_GH_AUTH_TIMEOUT_SECONDS,
     DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS,
-    DEFAULT_KEYRING_TIMEOUT_SECONDS,
-    DEFAULT_SUBPROCESS_FAST_TIMEOUT_SECONDS,
 )
 from devops_cli.github.client import GitHubClient
 
@@ -72,28 +70,20 @@ def _register_with_gh(pub_key: str, title: str) -> bool:
 
 
 def _gh_auth_ok() -> bool:
+    from devops_cli.core.process import run_subprocess
+
     try:
-        result = subprocess.run(
-            ["gh", "auth", "status"],
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=DEFAULT_KEYRING_TIMEOUT_SECONDS,
-        )
+        result = run_subprocess(["gh", "auth", "status"], quiet=True)
     except FileNotFoundError, OSError, subprocess.SubprocessError:
         return False
     return result.returncode == 0
 
 
 def _gh_list_keys(endpoint: str) -> set[str] | None:
+    from devops_cli.core.process import run_subprocess
+
     try:
-        result = subprocess.run(
-            ["gh", "api", endpoint],
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=DEFAULT_SUBPROCESS_FAST_TIMEOUT_SECONDS,
-        )
+        result = run_subprocess(["gh", "api", endpoint], quiet=True)
     except FileNotFoundError, OSError, subprocess.SubprocessError:
         return None
 

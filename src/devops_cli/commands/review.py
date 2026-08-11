@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import logging
 import re
-import subprocess
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -40,10 +39,10 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.defaults import (
     DEFAULT_REVIEW_TIMEOUT_SECONDS,
-    DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
 )
 from devops_cli.config.settings import Settings, get_ai_api_key, load_settings
-from devops_cli.core.dry_run import format_command, is_dry_run, set_dry_run
+from devops_cli.core.dry_run import is_dry_run, set_dry_run
+from devops_cli.core.process import run_subprocess as _run_subprocess
 from devops_cli.lang import MESSAGES
 from devops_cli.models.ai import ReviewMeta, SegmentMeta
 
@@ -109,32 +108,6 @@ def _debug_block(title: str, payload: dict[str, Any]) -> None:
     rprint(f"[yellow][dry-run][/yellow] {title}")
     # print_json escapes markup so prompt content can't break Rich rendering
     console.print_json(json.dumps(payload, ensure_ascii=True))
-
-
-_QUIET_SUBPROCESS_ARGS = {"check-ignore", "ls-files"}
-
-
-def _run_subprocess(
-    command: list[str],
-    *,
-    cwd: Path | None = None,
-    capture_output: bool = False,
-    text: bool = False,
-    check: bool = False,
-    quiet: bool = False,
-    timeout: float | None = DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
-) -> subprocess.CompletedProcess[Any]:
-    if is_dry_run() and not quiet and not _QUIET_SUBPROCESS_ARGS.intersection(command):
-        rendered = format_command(command, cwd=str(cwd) if cwd else None)
-        rprint(f"[yellow][dry-run][/yellow] Would run command: [cyan]{rendered}[/cyan]")
-    return subprocess.run(
-        command,
-        cwd=cwd,
-        capture_output=capture_output,
-        text=text,
-        check=check,
-        timeout=timeout,
-    )
 
 
 def _llm_request_preview(client: Any, system: str, user: str) -> dict[str, Any]:
@@ -631,18 +604,13 @@ def _reconcile_verified(
     recomposed: ReviewResult, segment_results: list[ReviewResult | None]
 ) -> ReviewResult:
     """Carry verified=False and mitigated=True from step-3 validation into the recomposed result."""
-    unverified: set[str] = set()
-    mitigated: set[str] = set()
-    for r in segment_results:
-        if r is not None:
-            for f in r.findings:
-                if not f.verified:
-                    unverified.add(f.title.lower())
-                if f.mitigated:
-                    mitigated.add(f.title.lower())
+    valid_results = [r for r in segment_results if r is not None]
+    unverified = {f.title.lower() for r in valid_results for f in r.findings if not f.verified}
+    mitigated = {f.title.lower() for r in valid_results for f in r.findings if f.mitigated}
     if not unverified and not mitigated:
         return recomposed
-    updated = []
+
+    updated: list[Finding] = []
     for f in recomposed.findings:
         key = f.title.lower()
         u: dict[str, object] = {}
@@ -1882,10 +1850,9 @@ def _is_allowed_review_boundary(target: Path, settings: Settings) -> bool:
     repos_base = settings.repos.base_dir.resolve()
     allowed_roots.append(repos_base)
 
-    for root in allowed_roots:
-        if target_resolved == root or target_resolved.is_relative_to(root):
-            return True
-    return False
+    return any(
+        target_resolved == root or target_resolved.is_relative_to(root) for root in allowed_roots
+    )
 
 
 def _detect_base_branch(repo_path: Path, preferred_base: str = "main") -> str:

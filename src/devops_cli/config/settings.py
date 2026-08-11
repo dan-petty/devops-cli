@@ -258,14 +258,10 @@ def get_github_token(settings: Settings) -> str | None:  # noqa: ARG001
 
 def _github_cli_token() -> str | None:
     """Return token from `gh auth token` when GitHub CLI is authenticated."""
+    from devops_cli.core.process import run_subprocess
+
     try:
-        result = subprocess.run(
-            ["gh", "auth", "token"],
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=5,
-        )
+        result = run_subprocess(["gh", "auth", "token"], quiet=True, timeout=5.0)
     except FileNotFoundError, OSError, subprocess.SubprocessError:
         return None
 

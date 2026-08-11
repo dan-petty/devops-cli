@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import subprocess
 from datetime import date
 from pathlib import Path
 from typing import Annotated
@@ -30,7 +29,7 @@ def _date_suffix() -> str:
 
 def _configure_git_signing(key_path: Path) -> None:
     """Point git's SSH commit signing at *key_path*."""
-    from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
+    from devops_cli.core.process import run_subprocess
 
     for cmd in [
         ["git", "config", "--global", "gpg.format", "ssh"],
@@ -38,9 +37,7 @@ def _configure_git_signing(key_path: Path) -> None:
         ["git", "config", "--global", "commit.gpgsign", "true"],
         ["git", "config", "--global", "tag.gpgsign", "true"],
     ]:
-        subprocess.run(
-            cmd, check=True, capture_output=True, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
-        )
+        run_subprocess(cmd, check=True)
 
 
 @app.command()
