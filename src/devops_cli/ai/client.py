@@ -16,6 +16,7 @@ import re
 import socket
 import threading
 from collections.abc import Generator
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 from urllib.parse import urlparse
 
@@ -80,6 +81,40 @@ class LLMClient:
     def _strip_think_blocks(text: str) -> str:
         """Remove <think>...</think> chain-of-thought blocks emitted by thinking models."""
         return re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+
+    def preload_models(self) -> dict[str, bool]:
+        """Preload configured model into VRAM across all configured Ollama servers concurrently."""
+        if self._config.provider != "ollama":
+            return {}
+        all_urls = self._config.get_ollama_urls
+        if not all_urls:
+            return {}
+
+        results: dict[str, bool] = {}
+
+        def _preload_single(url: str) -> tuple[str, bool]:
+            try:
+                base = self._validate_base_url(
+                    url,
+                    purpose="Ollama",
+                    allow_loopback_for_local_tooling=True,
+                )
+                with httpx2.Client(timeout=60.0) as http_client:
+                    res = http_client.post(
+                        f"{base}/api/generate",
+                        json={"model": self._config.model, "keep_alive": "1h"},
+                    )
+                    return (url, res.status_code == 200)
+            except Exception:
+                return (url, False)
+
+        with ThreadPoolExecutor(max_workers=max(len(all_urls), 1)) as executor:
+            futures = [executor.submit(_preload_single, url) for url in all_urls]
+            for future in as_completed(futures):
+                url, ok = future.result()
+                results[url] = ok
+
+        return results
 
     def chat(self, system: str, user: str, *, enable_thinking: bool = True) -> str:
         """Send a single-turn chat message and return the assistant reply."""

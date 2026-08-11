@@ -1582,6 +1582,23 @@ def _run_persona_loop(
     if session_dir:
         _save_segments(pages, session_dir)
 
+    # Preload models on all Ollama nodes concurrently if provider is Ollama
+    config = getattr(clients.analysis, "_config", None)
+    if getattr(config, "provider", None) == "ollama" and not is_dry_run():
+        model_name = getattr(config, "model", "ollama")
+        ollama_urls = getattr(config, "get_ollama_urls", [])
+        if ollama_urls:
+            n = len(ollama_urls)
+            rprint(f"[dim]Warming up model '{model_name}' across {n} Ollama node(s)...[/dim]")
+            preload_results = clients.analysis.preload_models()
+            for url, ok in preload_results.items():
+                status = (
+                    "[dim green]✓ ready[/dim green]"
+                    if ok
+                    else "[dim yellow]✗ offline/skipped[/dim yellow]"
+                )
+                rprint(f"[dim]  {url}: {status}[/dim]")
+
     # Always extract segment metadata ONCE before any persona review starts
     rprint(f"[dim]Step 1/4: Generating metadata for {len(pages)} segment(s)...[/dim]")
     shared_meta: ReviewMeta = _build_review_metadata(

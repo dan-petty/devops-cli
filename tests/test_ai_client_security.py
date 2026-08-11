@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import httpx2
 import pytest
 
 from devops_cli.ai.client import AIClientError, LLMClient
@@ -165,3 +166,24 @@ def test_ollama_multiserver_failover(monkeypatch: pytest.MonkeyPatch) -> None:
         "http://localhost:11435/api/chat",
     ]
     assert client._ollama_url_index == 1
+
+
+def test_preload_models(monkeypatch: pytest.MonkeyPatch) -> None:
+    cfg = AIConfig(
+        provider="ollama",
+        model="gemma4:26b",
+        ollama_urls=["http://localhost:11434", "http://localhost:11435"],
+    )
+    client = LLMClient(cfg)
+    requested: list[str] = []
+
+    def fake_post(_self: object, url: str, **kwargs: object) -> httpx2.Response:
+        requested.append(url)
+        return httpx2.Response(200, json={"status": "success"}, request=httpx2.Request("POST", url))
+
+    monkeypatch.setattr("httpx2.Client.post", fake_post)
+    results = client.preload_models()
+    assert results == {"http://localhost:11434": True, "http://localhost:11435": True}
+    assert len(requested) == 2
+    assert "http://localhost:11434/api/generate" in requested
+    assert "http://localhost:11435/api/generate" in requested

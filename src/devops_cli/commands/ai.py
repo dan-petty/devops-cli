@@ -397,6 +397,25 @@ def models() -> None:
 
 
 @app.command()
+def preload() -> None:
+    """Preload configured model into VRAM across all configured Ollama servers."""
+    from devops_cli.ai.client import LLMClient
+    from devops_cli.config.settings import get_ai_api_key, load_settings
+
+    settings = load_settings()
+    if settings.ai.provider != "ollama":
+        p = settings.ai.provider
+        rprint(f"[yellow]Model preloading is for Ollama provider (current: {p}).[/yellow]")
+        return
+    client = LLMClient(settings.ai, api_key=get_ai_api_key(settings))
+    rprint(f"Preloading model [bold cyan]{settings.ai.model}[/bold cyan] across Ollama nodes...")
+    results = client.preload_models()
+    for url, ok in results.items():
+        status = "[green]✓ preloaded[/green]" if ok else "[red]✗ failed[/red]"
+        rprint(f"  {url}: {status}")
+
+
+@app.command()
 def test(
     prompt: Annotated[
         str,
