@@ -68,6 +68,9 @@ class PrometheusQueryResult(BaseModel):
                 if isinstance(raw_values, list):
                     for pair in raw_values:
                         if isinstance(pair, list) and len(pair) == 2:
-                            values.append((float(pair[0]), str(pair[1])))
+                            try:
+                                values.append((float(pair[0]), str(pair[1])))
+                            except ValueError, TypeError:
+                                continue
                 series.append(PrometheusSeries(labels=labels, values=values))
         return cls(status=status, series=series, error=error)

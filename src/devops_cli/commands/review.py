@@ -41,8 +41,8 @@ from devops_cli.config.defaults import (
     DEFAULT_REVIEW_TIMEOUT_SECONDS,
 )
 from devops_cli.config.settings import Settings, get_ai_api_key, load_settings
-from devops_cli.core.dry_run import is_dry_run, set_dry_run
 from devops_cli.core.process import run_subprocess as _run_subprocess
+from devops_cli.dry_run import is_dry_run, set_dry_run
 from devops_cli.lang import MESSAGES
 from devops_cli.models.ai import ReviewMeta, SegmentMeta
 
@@ -275,7 +275,7 @@ _KNOWN_DEPENDENCY_PACKAGES = (
 
 
 def _extract_primary_purpose(filenames: list[str], segment: str) -> str:
-    """Infer a concise, machine-readable primary purpose for a segment."""
+    """Infer a concise, machine-readable primary purpose for a segment in any repository."""
     if not filenames:
         return "Review segment content"
 
@@ -283,41 +283,47 @@ def _extract_primary_purpose(filenames: list[str], segment: str) -> str:
 
     if any("devcontainer" in f for f in lowered):
         return "Development container environment configuration and post-creation scripts"
-    if any(f.startswith("k8s/") or "helm" in f or "kustomiz" in f for f in lowered):
-        return "Kubernetes manifests, ArgoCD, Prometheus, Grafana, and OpenTelemetry resources"
-    if any(f.startswith("tests/") or "test_" in f for f in lowered):
-        return "Automated unit and integration test suite"
     if any(
-        f.startswith("docs/") or f in ("readme.md", "agents.md", "claude.md", "changelog.md")
+        f.startswith("k8s/") or "helm" in f or "kustomiz" in f or "manifest" in f for f in lowered
+    ):
+        return "Kubernetes manifests, Helm charts, Kustomize overlays, and cloud deployment specs"
+    if any(
+        f.startswith("tests/") or "test_" in f or "_test." in f or ".spec." in f for f in lowered
+    ):
+        return "Automated unit, integration, and end-to-end test suite"
+    if any(
+        f.startswith("docs/")
+        or f in ("readme.md", "agents.md", "claude.md", "changelog.md", "architecture.md")
         for f in lowered
     ):
         return "Project documentation, architecture guidelines, and operational roadmaps"
-    if any("commands/review.py" in f for f in lowered):
-        return "AI multi-persona code review command implementation and prompt orchestration"
-    if any("commands/ai.py" in f for f in lowered):
-        return "AI provider configuration and agent file generation commands"
-    if any("commands/argo.py" in f for f in lowered):
-        return "ArgoCD, Argo Workflows, and Argo Rollouts management commands"
-    if any("commands/k8s.py" in f or "commands/kustomize.py" in f for f in lowered):
-        return "Kubernetes context management, resource application, and pod log commands"
-    if any("commands/grafana.py" in f or "commands/prometheus.py" in f for f in lowered):
-        return "Grafana and Prometheus monitoring integration commands"
-    if any("commands/repos.py" in f or "commands/workspace.py" in f for f in lowered):
-        return "Repository cloning, management, and VS Code workspace synchronization"
-    if any("commands/config.py" in f or "commands/ssh.py" in f for f in lowered):
-        return "CLI configuration, secret keyring management, and SSH key rotation"
-    if any("ai/client.py" in f or "ai/agent" in f for f in lowered):
-        return "Unified LLM provider client and Pydantic reasoning agent engine"
-    if any("ai/personas" in f or "ai/tasks" in f for f in lowered):
-        return "Persona prompts, task templates, and review schemas"
-    if any("config/" in f for f in lowered):
-        return "Centralized settings, constants, environment variable mappings, and defaults"
-    if any("http/" in f or "crypto/" in f or "git/" in f or "github/" in f for f in lowered):
-        return "HTTP security validation, SSH key crypto, and Git/GitHub client helpers"
-    if any("models/" in f for f in lowered):
-        return "Domain models and schema definitions"
-    if any("pyproject.toml" in f or "uv.lock" in f for f in lowered):
-        return "Python project dependencies and package manager configuration"
+    if any(
+        any(k in f for k in ("routes", "api", "controllers", "handlers", "endpoints", "views"))
+        for f in lowered
+    ):
+        return "API endpoints, request handlers, and HTTP routing controllers"
+    if any(
+        any(k in f for k in ("services", "core", "domain", "logic", "usecases")) for f in lowered
+    ):
+        return "Core domain logic, business services, and processing orchestration"
+    if any(
+        any(k in f for k in ("models", "db", "schemas", "entities", "migrations")) for f in lowered
+    ):
+        return "Domain models, data schemas, entity definitions, and database migrations"
+    if any(any(k in f for k in ("cli", "commands", "bin")) for f in lowered):
+        return "Command-line interface commands and executable entry points"
+    if any(any(k in f for k in ("config", "settings", "env")) for f in lowered):
+        return "Centralized project settings, configuration, and environment mappings"
+    if any(
+        any(k in f for k in ("http", "net", "crypto", "auth", "security", "git", "github"))
+        for f in lowered
+    ):
+        return "Network security validation, authentication, and integration client helpers"
+    if any(
+        "pyproject.toml" in f or "package.json" in f or "go.mod" in f or "cargo.toml" in f
+        for f in lowered
+    ):
+        return "Project dependencies and build package manager configuration"
 
     main_file = filenames[0]
     return f"Source module and configuration for {main_file}"
@@ -556,12 +562,20 @@ def _validate_segment_findings(
         response = str(res_obj)
         proc_sec = getattr(res_obj, "processing_seconds", None)
         data = extract_json_block(response)
-        if isinstance(data, list) and len(data) == len(result.findings):
+
+        if isinstance(data, dict):
+            if "findings" in data and isinstance(data["findings"], list):
+                data = data["findings"]
+            elif "items" in data and isinstance(data["items"], list):
+                data = data["items"]
+
+        if isinstance(data, list) and data:
             from devops_cli.ai.review_schema import _SEVERITY_RANK
 
             validated: list[Finding] = []
             now_iso = datetime.now().isoformat()
-            for f, item in zip(result.findings, data):
+            for idx, f in enumerate(result.findings):
+                item = data[idx] if idx < len(data) else None
                 if not isinstance(item, dict):
                     validated.append(f)
                     continue
@@ -582,8 +596,7 @@ def _validate_segment_findings(
                 if new_loc and new_loc != f.location:
                     updates["location"] = new_loc
                 validated.append(f.model_copy(update=updates))
-            if len(validated) == len(result.findings):
-                return result.model_copy(update={"findings": validated}), proc_sec
+            return result.model_copy(update={"findings": validated}), proc_sec
     except Exception:
         pass
     return result, proc_sec
@@ -611,17 +624,37 @@ def _reconcile_verified(
     if not baseline_findings and merged_seg and merged_seg.findings:
         baseline_findings = merged_seg.findings
 
-    unverified = {f.title.lower() for r in valid_results for f in r.findings if not f.verified}
-    mitigated = {f.title.lower() for r in valid_results for f in r.findings if f.mitigated}
+    unverified_findings = [f for r in valid_results for f in r.findings if not f.verified]
+    mitigated_findings = [f for r in valid_results for f in r.findings if f.mitigated]
 
     updated: list[Finding] = []
     for f in baseline_findings:
-        key = f.title.lower()
+        f_title = f.title.lower().strip()
+        f_loc = f.location.lower().strip()
         u: dict[str, object] = {}
-        if key in unverified:
+
+        is_unverified = any(
+            uf.title.lower().strip() == f_title
+            or (f_loc and uf.location.lower().strip() == f_loc)
+            or (len(f_title) > 5 and uf.title.lower().strip() in f_title)
+            or (len(uf.title) > 5 and f_title in uf.title.lower().strip())
+            for uf in unverified_findings
+        )
+        if is_unverified:
             u["verified"] = False
-        if key in mitigated:
+            u["status"] = "UNVERIFIED"
+
+        is_mitigated = any(
+            mf.title.lower().strip() == f_title
+            or (f_loc and mf.location.lower().strip() == f_loc)
+            or (len(f_title) > 5 and mf.title.lower().strip() in f_title)
+            or (len(mf.title) > 5 and f_title in mf.title.lower().strip())
+            for mf in mitigated_findings
+        )
+        if is_mitigated:
             u["mitigated"] = True
+            u["status"] = "MITIGATED"
+
         updated.append(f.model_copy(update=u) if u else f)
 
     summary = recomposed.summary
@@ -1184,7 +1217,23 @@ def _run_review(
                 f"Would send LLM review request for segment {i}/{total}",
                 _llm_request_preview(clients.analysis, analysis_system, user_prompt),
             )
-            return (i, f"[dry-run] Review skipped for segment {i}/{total}.")
+            dry_seg = ReviewResult(
+                findings=[
+                    Finding(
+                        severity="INFO",
+                        location=title,
+                        title=f"[dry-run] Segment {i}/{total} Analysis",
+                        description=f"Dry run analysis performed for segment {i}/{total}.",
+                        fix="No action required (dry-run mode).",
+                        verified=True,
+                        status="VERIFIED",
+                    )
+                ],
+                positive_observations=["Segment code passed dry-run analysis."],
+                recommendation="APPROVE",
+                summary=f"Dry run segment {i}/{total} review simulation.",
+            )
+            return (i, dry_seg.model_dump_json(indent=2))
         result_text = ""
         for attempt in range(1, _MAX_SEGMENT_RETRIES + 2):
             seg_start = time.monotonic()
@@ -1197,10 +1246,10 @@ def _run_review(
                 )
                 result_text = str(res_obj)
                 proc_sec = getattr(res_obj, "processing_seconds", None)
-            except AIClientError as exc:
+            except (AIClientError, OSError) as exc:
                 seg_elapsed = time.monotonic() - seg_start
                 _log_event(
-                    "error",
+                    "exception",
                     segment_index=i,
                     total_segments=total,
                     persona_name=persona.name,
@@ -1208,6 +1257,7 @@ def _run_review(
                     system_prompt=analysis_system,
                     user_prompt=user_prompt,
                     error_message=str(exc),
+                    response_text="",
                 )
                 if attempt <= _MAX_SEGMENT_RETRIES:
                     rprint(
@@ -1283,6 +1333,7 @@ def _run_review(
         ) -> tuple[int, ReviewResult | None]:
             i, page, parsed = arg
             if parsed is None or not parsed.findings:
+                rprint(f"[dim]  ✓ segment {i}/{total}: 0 finding(s) to verify[/dim]")
                 return (i, parsed)
             val_start = time.monotonic()
             validated, proc_sec = _validate_segment_findings(parsed, pages, clients.analysis)
@@ -1325,7 +1376,28 @@ def _run_review(
             "Would send LLM recompose request",
             _llm_request_preview(clients.compose, compose_system, recompose_prompt),
         )
-        return _merge_segment_results(segment_results) or _fallback_join(non_empty)
+        merged = _merge_segment_results(segment_results)
+        if isinstance(merged, ReviewResult):
+            return merged
+        return ReviewResult(
+            findings=[
+                Finding(
+                    severity="INFO",
+                    location=title,
+                    title="[dry-run] Simulated Review Execution",
+                    description=(
+                        f"Dry run analysis performed for persona {persona.name} "
+                        f"across {total} segment(s)."
+                    ),
+                    fix="No changes required (dry-run mode).",
+                    verified=True,
+                    status="VERIFIED",
+                )
+            ],
+            positive_observations=["Dry run command execution completed successfully."],
+            recommendation="APPROVE",
+            summary=f"Dry run execution of review for {title}.",
+        )
     try:
         t4 = time.monotonic()
         raw = str(
@@ -2239,10 +2311,11 @@ def _find_session_dir(session_arg: str | None) -> Path | None:
     if not reviews_dir.exists():
         return None
     if session_arg:
-        target = reviews_dir / session_arg
-        if target.exists() and target.is_dir():
+        safe_arg = Path(session_arg).name
+        target = (reviews_dir / safe_arg).resolve()
+        if target.exists() and target.is_dir() and target.is_relative_to(reviews_dir.resolve()):
             return target
-        matches = [d for d in reviews_dir.iterdir() if d.is_dir() and session_arg in d.name]
+        matches = [d for d in reviews_dir.iterdir() if d.is_dir() and safe_arg in d.name]
         if matches:
             return sorted(matches)[-1]
         return None

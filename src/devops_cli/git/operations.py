@@ -122,10 +122,12 @@ def pull_tracking(repo_dir: Path) -> None:
 
 def create_branch(repo_dir: Path, branch_name: str) -> None:
     """Create and checkout a new branch from the current HEAD."""
+    if branch_name.startswith("-"):
+        raise ValueError(f"Invalid branch name '{branch_name}': cannot start with a hyphen.")
     repo = gitlib.Repo(str(repo_dir))
     if branch_name in [b.name for b in repo.branches]:
         raise ValueError(f"Branch '{branch_name}' already exists")
-    repo.git.checkout("-b", branch_name)
+    repo.git.checkout("-b", "--", branch_name)
 
 
 def list_branches(

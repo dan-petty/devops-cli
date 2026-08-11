@@ -23,9 +23,19 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 
 def _resolve_from_project_root(path: Path) -> Path:
-    if path.is_absolute():
-        return path
-    return _PROJECT_ROOT / path
+    resolved = path.resolve() if path.is_absolute() else (_PROJECT_ROOT / path).resolve()
+    settings = load_settings()
+    proj_root = _PROJECT_ROOT.resolve()
+    base_dir = (
+        settings.repos.base_dir
+        if settings.repos.base_dir.is_absolute()
+        else proj_root / settings.repos.base_dir
+    ).resolve()
+    if not (resolved.is_relative_to(proj_root) or resolved.is_relative_to(base_dir)):
+        raise typer.BadParameter(
+            f"Workspace path '{path}' is outside project root or repos directory."
+        )
+    return resolved
 
 
 def _ensure_root_entry(data: dict[str, Any]) -> dict[str, Any]:

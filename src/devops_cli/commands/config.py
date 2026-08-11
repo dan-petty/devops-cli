@@ -52,7 +52,7 @@ def _gh_auth_status() -> bool:
     from devops_cli.core.process import run_subprocess
 
     try:
-        result = run_subprocess(["gh", "auth", "status"], quiet=True)
+        result = run_subprocess(["gh", "auth", "status"], quiet=True, timeout=30.0)
     except OSError, subprocess.SubprocessError:
         return False
     return result.returncode == 0
@@ -62,7 +62,7 @@ def _gh_auth_token() -> str | None:
     from devops_cli.core.process import run_subprocess
 
     try:
-        result = run_subprocess(["gh", "auth", "token"], quiet=True)
+        result = run_subprocess(["gh", "auth", "token"], quiet=True, timeout=30.0)
     except OSError, subprocess.SubprocessError:
         return None
     if result.returncode != 0:

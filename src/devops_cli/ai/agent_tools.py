@@ -43,6 +43,7 @@ def list_files(directory: str = ".") -> list[str]:
 
 def read_file(path: str, max_bytes: int = 4000) -> str:
     """Read contents of a text file up to max_bytes."""
+    max_bytes = max(1, min(max_bytes, 5_000_000))
     file_path = Path(path).resolve()
     if not _is_safe_workspace_path(file_path):
         logger.warning("Access denied attempting to read path outside workspace: %s", path)

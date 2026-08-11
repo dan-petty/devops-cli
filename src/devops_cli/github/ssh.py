@@ -73,7 +73,7 @@ def _gh_auth_ok() -> bool:
     from devops_cli.core.process import run_subprocess
 
     try:
-        result = run_subprocess(["gh", "auth", "status"], quiet=True)
+        result = run_subprocess(["gh", "auth", "status"], quiet=True, timeout=30.0)
     except FileNotFoundError, OSError, subprocess.SubprocessError:
         return False
     return result.returncode == 0
@@ -83,7 +83,7 @@ def _gh_list_keys(endpoint: str) -> set[str] | None:
     from devops_cli.core.process import run_subprocess
 
     try:
-        result = run_subprocess(["gh", "api", endpoint], quiet=True)
+        result = run_subprocess(["gh", "api", endpoint], quiet=True, timeout=30.0)
     except FileNotFoundError, OSError, subprocess.SubprocessError:
         return None
 
