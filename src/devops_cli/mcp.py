@@ -117,7 +117,7 @@ def repos_list() -> str:
 def repos_status() -> str:
     """Display uncommitted changes and branch drift across workspace repositories."""
     res = subprocess.run(
-        ["uv", "run", "devops", "repos", "list"], capture_output=True, text=True, timeout=60
+        ["uv", "run", "devops", "repos", "status"], capture_output=True, text=True, timeout=60
     )
     return res.stdout or res.stderr
 
@@ -152,9 +152,12 @@ def ssh_audit() -> str:
 
 @mcp.tool()
 def k8s_pods(namespace: str = "default") -> str:
-    """List Kubernetes pod and node status for the current cluster context."""
+    """List Kubernetes pod status for the specified namespace."""
+    cmd = ["uv", "run", "devops", "k8s", "pods"]
+    if namespace:
+        cmd.extend(["--namespace", namespace])
     res = subprocess.run(
-        ["uv", "run", "devops", "k8s", "status"],
+        cmd,
         capture_output=True,
         text=True,
         timeout=30,
@@ -175,7 +178,7 @@ def k8s_status() -> str:
 def argo_list() -> str:
     """List ArgoCD applications."""
     res = subprocess.run(
-        ["uv", "run", "devops", "argo", "cd", "apps", "list"],
+        ["uv", "run", "devops", "argo", "list"],
         capture_output=True,
         text=True,
         timeout=30,
@@ -187,7 +190,7 @@ def argo_list() -> str:
 def argo_status(app: str) -> str:
     """Check ArgoCD application health and sync status."""
     res = subprocess.run(
-        ["uv", "run", "devops", "argo", "cd", "apps", "status", "--app", app],
+        ["uv", "run", "devops", "argo", "status", "--app", app],
         capture_output=True,
         text=True,
         timeout=30,
@@ -198,7 +201,7 @@ def argo_status(app: str) -> str:
 @mcp.tool()
 def grafana_dashboards(query: str = "") -> str:
     """List Grafana dashboards, optionally filtered by search query."""
-    cmd = ["uv", "run", "devops", "grafana", "dashboards", "list"]
+    cmd = ["uv", "run", "devops", "grafana", "dashboards"]
     if query:
         cmd.extend(["--query", query])
     res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
@@ -221,7 +224,7 @@ def prometheus_query(promql: str) -> str:
 def docker_stats() -> str:
     """List local Docker images and display container information."""
     res = subprocess.run(
-        ["uv", "run", "devops", "docker", "images"], capture_output=True, text=True, timeout=30
+        ["uv", "run", "devops", "docker", "stats"], capture_output=True, text=True, timeout=30
     )
     return res.stdout or res.stderr
 
@@ -230,7 +233,7 @@ def docker_stats() -> str:
 def workspace_list() -> str:
     """Show the active VS Code workspace file and configured repository directories."""
     res = subprocess.run(
-        ["uv", "run", "devops", "workspace", "generate"],
+        ["uv", "run", "devops", "workspace", "list"],
         capture_output=True,
         text=True,
         timeout=30,
