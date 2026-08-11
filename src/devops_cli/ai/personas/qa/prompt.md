@@ -6,7 +6,7 @@ Respond in this exact format:
 ## QA Review — Senior Test Engineer
 
 ### Test Coverage Gaps
-<missing tests — each with Location, Missing case, Test to add (with pytest skeleton), Validation command>
+<missing tests — each with Location, Missing case, Test to add (with test code skeleton matching project test framework), Validation command>
 
 ### Regression Risks
 <implementation risks requiring validation with file references>
