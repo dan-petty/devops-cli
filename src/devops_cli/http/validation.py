@@ -17,6 +17,9 @@ def _is_non_public_ip(addr: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bo
     return not addr.is_global
 
 
+# NOTE (Design Justification - AGENTS.md §7): Private/loopback network targets are blocked
+# by default to prevent SSRF vulnerabilities, but explicitly permitted via
+# DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true to support local model servers (e.g. Ollama).
 def validate_service_url(url: str, purpose: str, *, allow: bool = False) -> None:
     """Raise ValueError for non-http/https or private-network URLs.
 

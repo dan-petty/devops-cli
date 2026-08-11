@@ -74,6 +74,9 @@ _FORBIDDEN_SYSTEM_DIRS = (
 )
 
 
+# NOTE (Design Justification - OWASP A01:2021): _is_safe_workspace_file restricts
+# target workspace file writes to .code-workspace and .json filenames while blocking
+# system directories (_FORBIDDEN_SYSTEM_DIRS) to prevent unauthorized file creation.
 def _is_safe_workspace_file(ws_file: Path) -> bool:
     resolved = ws_file.resolve()
     for sys_dir in _FORBIDDEN_SYSTEM_DIRS:

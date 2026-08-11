@@ -231,6 +231,9 @@ def save_settings(settings: Settings) -> None:
     os.replace(tmp, CONFIG_PATH)
 
 
+# NOTE (Design Justification - AGENTS.md §4): Secret storage prioritizes OS keyring integration
+# (_keyring_get/_keyring_set) while environment variable overrides (e.g., DEVOPS_CLI_GITHUB_TOKEN)
+# serve as an intentional fallback mechanism for non-interactive CI environments.
 def get_github_token(settings: Settings) -> str | None:  # noqa: ARG001
     return _keyring_get(_KEYRING_KEYS[opt.GITHUB_TOKEN]) or _github_cli_token()
 
