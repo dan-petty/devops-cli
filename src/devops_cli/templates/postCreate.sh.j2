@@ -58,5 +58,12 @@ if [ -f ".vscode/mcp.json" ]; then
   echo "✓ mcp configuration synced to ~/.gemini/config/mcp_config.json"
 fi
 
+# ── Kubernetes / Minikube Bootstrap ──────────────────────────────────────────
+if command -v minikube &>/dev/null; then
+  echo "Bootstrapping Kubernetes minikube services..."
+  minikube status &>/dev/null || minikube start --driver=docker || true
+  uv run devops k8s bootstrap || true
+fi
+
 echo "✓ postCreate complete"
 

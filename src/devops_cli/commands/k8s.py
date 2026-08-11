@@ -240,6 +240,31 @@ def _minikube_running() -> bool:
     return result.returncode == 0 and "Running" in result.stdout
 
 
+@app.command("bootstrap")
+def bootstrap(
+    k8s_dir: Annotated[
+        Path, typer.Option("--k8s-dir", help="Path to k8s/ config directory")
+    ] = _K8S_DIR,
+    auto_start: Annotated[
+        bool, typer.Option("--auto-start/--no-auto-start", help="Auto-start minikube if stopped")
+    ] = True,
+) -> None:
+    """Bootstrap minikube Kubernetes cluster and deploy infrastructure stack."""
+    if is_dry_run():
+        rprint("[yellow][dry-run][/yellow] Would bootstrap minikube Kubernetes cluster.")
+        return
+
+    if not _minikube_running():
+        if auto_start:
+            rprint("[bold cyan]Starting minikube cluster...[/bold cyan]")
+            _run_cmd(["minikube", "start", "--driver=docker"], check=False)
+        else:
+            rprint("[red]minikube is not running. Start with: minikube start --driver=docker[/red]")
+            raise typer.Exit(1)
+
+    deploy_stack(k8s_dir=k8s_dir)
+
+
 @app.command("deploy-stack")
 def deploy_stack(
     k8s_dir: Annotated[

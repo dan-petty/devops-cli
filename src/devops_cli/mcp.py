@@ -160,6 +160,27 @@ def k8s_status() -> str:
 
 
 @mcp.tool()
+def k8s_bootstrap(auto_start: bool = True) -> str:
+    """Bootstrap minikube Kubernetes cluster and deploy infrastructure stack."""
+    cmd = ["uv", "run", "devops", "k8s", "bootstrap"]
+    if not auto_start:
+        cmd.append("--no-auto-start")
+    return _run_mcp_cmd(cmd, timeout=360)
+
+
+@mcp.tool()
+def k8s_deploy_stack() -> str:
+    """Deploy ArgoCD, Prometheus, Grafana, and OTEL Collector to minikube."""
+    return _run_mcp_cmd(["uv", "run", "devops", "k8s", "deploy-stack"], timeout=360)
+
+
+@mcp.tool()
+def k8s_teardown_stack() -> str:
+    """Uninstall minikube infrastructure stack and delete namespaces."""
+    return _run_mcp_cmd(["uv", "run", "devops", "k8s", "teardown-stack"], timeout=180)
+
+
+@mcp.tool()
 def argo_list() -> str:
     """List ArgoCD applications."""
     return _run_mcp_cmd(["uv", "run", "devops", "argo", "list"], timeout=30)
