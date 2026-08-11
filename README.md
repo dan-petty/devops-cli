@@ -55,9 +55,11 @@ devops ci
 | | `devops ai review export-feedback` | Export invalidated findings into JSONL benchmark dataset for prompt tuning |
 | | `devops ai review apply-patch <session>` | Interactively stage suggested LLM code fixes (`finding.fix`) to workspace |
 | | `devops ai review stats` | View accuracy metrics and false-positive rates per persona |
+| | `devops ai bundle-models` | Package local Ollama model weight manifests for air-gapped DevContainers |
 | **config** | `devops config show` | Display current CLI configuration and active env var overrides |
 | | `devops config output` | Display specification for all 30 environment variables |
 | | `devops config auth-headless` | Load secret tokens into memory for headless DBus-less CI environments |
+| | `devops config audit-stream <dest>` | Stream stored JSON audit records to SIEM destination URL |
 | **repos** | `devops repos clone-org --org <org>` | Batch clone all repositories in a GitHub organization |
 | | `devops repos clone <url>` | Clone standalone repository into workspace |
 | | `devops repos list` | List local workspace repositories and active git branches |
@@ -70,6 +72,8 @@ devops ci
 | | `devops ssh audit` | Audit SSH key expiration dates and key file permissions |
 | **k8s** | `devops k8s deploy-stack` | Deploy ArgoCD, Prometheus, Grafana, OTEL to minikube |
 | | `devops k8s status` | Display pod status across infrastructure namespaces |
+| | `devops k8s switch-context <ctx>` | Switch active Kubernetes context and cluster namespace |
+| | `devops k8s rbac-audit` | Audit RBAC RoleBindings and ServiceAccounts for overprivileged access |
 | | `devops k8s pods [--namespace <ns>]` | List pod status with RFC 1123 label filtering |
 | | `devops k8s logs <pod> --container <c>` | Stream container logs safely with bounded `--tail` |
 | | `devops k8s apply -f <file>` | Apply Kubernetes manifest via `kubectl` |

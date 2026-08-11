@@ -1,22 +1,22 @@
-# Release Notes — devops-cli v0.1.2
+# Release Notes — devops-cli v0.1.3
 
 Workstation-native DevOps CLI for managing repositories, SSH keys, Kubernetes clusters, Kustomize, ArgoCD, Grafana, Prometheus, Docker, workspace files, and multi-persona AI code reviews.
 
 ---
 
-## 🚀 Highlights of v0.1.2
+## 🚀 Highlights of v0.1.3
 
-### ☸️ Multi-Cluster Kubeconfig Management
-- **`devops k8s switch-context <name>`**: Switch active Kubernetes contexts and manage namespace access configuration.
+### 🛠️ Interactive Code Patch Application
+- **`devops ai review apply-patch --interactive`**: Render colored git diff previews using Rich console before staging LLM code fixes (`finding.fix`).
 
-### 📜 SIEM Audit Trail Logger
-- **`devops_cli.core.audit`**: Record structured JSON execution event records (`AuditRecord`) to `.data/logs/audit.jsonl` or custom destination via `DEVOPS_CLI_AUDIT_LOG_DEST`.
+### 📦 Air-Gapped Local Model Bundling
+- **`devops ai bundle-models`**: Export and package local Ollama model weight manifests for air-gapped DevContainer deployment.
 
-### 🛠️ Automated Code Patch Application
-- **`devops ai review apply-patch <session> --index N`**: Interactively stage suggested LLM code fixes (`finding.fix`) to workspace source files.
+### 🛡️ Kubernetes RBAC Audit Policy Scanner
+- **`devops k8s rbac-audit`**: Audit RoleBindings and ServiceAccounts for overprivileged permissions (`*` verbs, cluster-admin bindings).
 
-### 🧪 Subcommand Dry-Run Pydantic Expansion
-- **`CommandDryRunResult`**: Expanded structured JSON dry-run responses across `argo`, `grafana`, `prometheus`, `devcontainer` commands.
+### 📡 SIEM Live Audit Streamer
+- **`devops config audit-stream <dest>`**: Stream structured JSON audit records to Syslog or HTTP log collectors.
 
 ---
 
