@@ -24,8 +24,9 @@ export HISTFILESIZE=20000
 shopt -s histappend
 PROMPT_COMMAND="history -a\${PROMPT_COMMAND:+; \$PROMPT_COMMAND}"
 
-# ── devops-cli venv ──────────────────────────────────────────────────────────
+# ── devops-cli venv & uv settings ─────────────────────────────────────────────
 export PATH="${WORKSPACE_DIR}/.venv/bin:\$HOME/.local/bin:\$PATH"
+export UV_MALWARE_CHECK=1
 BASHRC
 fi
 

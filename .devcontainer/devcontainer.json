@@ -31,7 +31,8 @@
   ],
   "containerEnv": {
     "DEVOPS_CLI_CONFIG": "${containerWorkspaceFolder}/config.yaml",
-    "DEVOPS_MINIKUBE_AUTOSTART": "true"
+    "DEVOPS_MINIKUBE_AUTOSTART": "true",
+    "UV_MALWARE_CHECK": "1"
   },
   "postCreateCommand": "bash .devcontainer/postCreate.sh",
   "postStartCommand": "bash .devcontainer/postStart.sh",

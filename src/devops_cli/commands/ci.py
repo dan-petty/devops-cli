@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
+from rich import print as rprint
 from rich.console import Console
 from rich.rule import Rule
 from rich.table import Table
@@ -59,6 +60,9 @@ def _run_all_checks(*, lint_fix: bool, format_fix: bool) -> list[tuple[str, bool
     _section("mypy")
     checks.append(("typecheck", _run(["uv", "run", "mypy", "src"])))
 
+    _section("uv audit")
+    checks.append(("audit", _run(["uv", "audit"])))
+
     return checks
 
 
@@ -73,7 +77,7 @@ def _print_summary(checks: list[tuple[str, bool]]) -> None:
 
 @app.callback(invoke_without_command=True)
 def all_checks(ctx: typer.Context) -> None:
-    """Run all checks in sequence: test, lint, format, typecheck."""
+    """Run all checks in sequence: test, lint, format, typecheck, audit."""
     if ctx.invoked_subcommand is not None:
         return
 
@@ -95,6 +99,9 @@ def test(
     if verbose:
         cmd.append("-v")
     if k:
+        if k.startswith("-"):
+            rprint("[red]Invalid keyword filter expression.[/red]")
+            raise typer.Exit(1)
         cmd.extend(["-k", k])
     if x:
         cmd.append("-x")
@@ -131,6 +138,13 @@ def fmt(
 def typecheck() -> None:
     """Run mypy static type-checker over src/."""
     if not _run(["uv", "run", "mypy", "src"]):
+        raise typer.Exit(1)
+
+
+@app.command()
+def audit() -> None:
+    """Run uv audit to check for known package vulnerabilities."""
+    if not _run(["uv", "audit"]):
         raise typer.Exit(1)
 
 
