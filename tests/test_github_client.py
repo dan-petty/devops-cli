@@ -98,3 +98,40 @@ def test_get_org_repos_skips_archived_repos() -> None:
     )
 
     assert [repo.name for repo in result] == ["active-repo"]
+
+
+def test_create_pr_review_comment() -> None:
+    client = GitHubClient("token")
+
+    called_kwargs: dict[str, str | int] = {}
+
+    class _FakePull:
+        head = SimpleNamespace(sha="sha-123")
+
+        def create_review_comment(self, **kwargs: str | int) -> str:
+            called_kwargs.update(kwargs)
+            return "comment-123"
+
+    class _FakeRepo:
+        def get_pull(self, number: int) -> _FakePull:
+            return _FakePull()
+
+    class _FakeGithub:
+        def get_repo(self, repo: str) -> _FakeRepo:
+            return _FakeRepo()
+
+    client._gh = _FakeGithub()
+
+    res = client.create_pr_review_comment(
+        repo="octo/repo",
+        number=42,
+        body="LGTM!",
+        commit_id="",
+        path="src/main.py",
+        line=15,
+    )
+    assert res == "comment-123"
+    assert called_kwargs["body"] == "LGTM!"
+    assert called_kwargs["commit"] == "sha-123"
+    assert called_kwargs["path"] == "src/main.py"
+    assert called_kwargs["line"] == 15

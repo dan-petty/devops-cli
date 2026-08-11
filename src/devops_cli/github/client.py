@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import httpx2
 from pydantic import BaseModel
@@ -107,3 +107,22 @@ class GitHubClient:
                     r = c.get(target_url, headers=headers)
             r.raise_for_status()
             return r.text
+
+    def create_pr_review_comment(
+        self,
+        repo: str,
+        number: int,
+        body: str,
+        commit_id: str,
+        path: str,
+        line: int,
+    ) -> Any:
+        """Post a line-level inline review comment on a pull request diff hunk."""
+        pr = self.get_pull(repo, number)
+        commit_obj = pr.head.sha if not commit_id else commit_id
+        return pr.create_review_comment(
+            body=body,
+            commit=commit_obj,
+            path=path,
+            line=line,
+        )

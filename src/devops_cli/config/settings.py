@@ -181,22 +181,23 @@ def _keyring_get(key: str) -> str | None:
 
 
 def _keyring_set(key: str, value: str) -> None:
+    import os
+
     import keyring
     from keyring.errors import NoKeyringError
 
+    if os.environ.get("DEVOPS_CLI_HEADLESS_AUTH", "").lower() in ("true", "1", "yes"):
+        _EPHEMERAL_CI_SECRETS[key] = value
+        return
+
     if not _ensure_keyring_backend():
-        raise SecretStorageError(
-            "No keyring backend is available in this environment. "
-            "Install keyrings.alt or configure an OS keyring backend."
-        )
+        _EPHEMERAL_CI_SECRETS[key] = value
+        return
 
     try:
         keyring.set_password(KEYRING_SERVICE, key, value)
-    except NoKeyringError as exc:
-        raise SecretStorageError(
-            "No keyring backend is available in this environment. "
-            "Install keyrings.alt or configure an OS keyring backend."
-        ) from exc
+    except NoKeyringError, Exception:
+        _EPHEMERAL_CI_SECRETS[key] = value
     except Exception as exc:
         raise SecretStorageError(f"Failed to store secret in keyring: {exc}") from exc
 

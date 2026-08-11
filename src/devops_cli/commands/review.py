@@ -2564,10 +2564,14 @@ def export_feedback(
         typer.Option("--reviews-dir", help="Directory containing review sessions"),
     ] = None,
 ) -> None:
-    # TODO (v0.1.1 Feature): Implement JSONL feedback exporter querying invalidated findings.
-    r_dir = reviews_dir or (CONST_DATA_DIR / "reviews")
-    out_file = output or (CONST_DATA_DIR / "feedback_dataset.jsonl")
-    if not r_dir.exists():
-        rprint("[yellow]No review directory found.[/yellow]")
-        raise typer.Exit(0)
-    rprint(f"[dim]v0.1.1 Prep Stub: Feedback exporter targeting {out_file}[/dim]")
+    """Export invalidated review findings into a JSONL benchmark dataset for prompt tuning."""
+    from devops_cli.ai.review_exporter import export_invalidated_feedback
+
+    count, out_path = export_invalidated_feedback(reviews_dir=reviews_dir, output_file=output)
+    if count == 0:
+        target_dir = reviews_dir or (CONST_DATA_DIR / "reviews")
+        rprint(f"[yellow]No invalidated findings found to export under {target_dir}.[/yellow]")
+    else:
+        rprint(
+            f"[green]✓ Exported {count} invalidated finding(s) → [bold]{out_path}[/bold][/green]"
+        )
