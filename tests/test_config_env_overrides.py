@@ -15,7 +15,7 @@ def test_load_settings_applies_env_overrides_for_non_secret_fields(
         """
 ai:
   provider: ollama
-  model: llama3.2
+  model: gemma4:26b
   ollama_url: http://localhost:11434
 """.lstrip(),
         encoding="utf-8",

@@ -308,7 +308,7 @@ def config(
     ] = None,
     model: Annotated[
         str | None,
-        typer.Option("--model", "-m", help="Model name, e.g. llama3.2, claude-opus-4-5"),
+        typer.Option("--model", "-m", help="Model name, e.g. gemma4:26b, claude-opus-4-5"),
     ] = None,
     ollama_url: Annotated[
         str | None,

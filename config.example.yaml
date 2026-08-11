@@ -62,10 +62,10 @@ ai:
   provider: ollama
 
   # Model name for the selected provider.
-  # Ollama examples:  llama3.2, qwen2.5-coder:7b, qwen3.5:9b
+  # Ollama examples:  gemma4:26b, qwen2.5-coder:7b, qwen3.5:9b
   # Claude examples:  claude-opus-4-5, claude-sonnet-4-5
   # Copilot/OpenAI:   gpt-4o, gpt-4o-mini
-  model: llama3.2
+  model: gemma4:26b
 
   # Ollama server URL. Use DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true for remote hosts.
   ollama_url: http://localhost:11434
