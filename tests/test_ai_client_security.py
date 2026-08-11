@@ -10,7 +10,7 @@ from devops_cli.models.ai import ChatMessage
 
 
 def test_connection_error_hides_ollama_url() -> None:
-    client = LLMClient(AIConfig(provider="ollama", ollama_url="http://10.1.2.3:11434"))
+    client = LLMClient(AIConfig(provider="ollama", ollama_urls=["http://10.1.2.3:11434"]))
 
     err = client._connection_error(RuntimeError("boom"))
 
@@ -34,10 +34,10 @@ def test_private_api_base_can_be_enabled_via_env(monkeypatch: pytest.MonkeyPatch
 
 
 def test_ollama_allows_localhost_without_env_override() -> None:
-    client = LLMClient(AIConfig(provider="ollama", ollama_url="http://localhost:11434"))
+    client = LLMClient(AIConfig(provider="ollama", ollama_urls=["http://localhost:11434"]))
 
     validated = client._validate_base_url(
-        client._config.ollama_url,
+        client._config.get_ollama_urls[0],
         purpose="Ollama",
         allow_loopback_for_local_tooling=True,
     )
@@ -52,18 +52,17 @@ def test_ollama_retries_without_thinking_on_400(monkeypatch: pytest.MonkeyPatch)
     """A 400 'does not support thinking' triggers a transparent retry without think=True."""
     import httpx2
 
-    client = LLMClient(AIConfig(provider="ollama", ollama_url="http://localhost:11434"))
+    client = LLMClient(AIConfig(provider="ollama", ollama_urls=["http://localhost:11434"]))
 
     call_count = 0
 
     def fake_post(_client: object, url: str, **kwargs: object) -> httpx2.Response:
         nonlocal call_count
         call_count += 1
-        payload = kwargs.get("json", {})
-        if payload.get("think"):  # type: ignore[union-attr]
+        if call_count == 1:
             return httpx2.Response(
                 400,
-                json={"error": '"mymodel" does not support thinking'},
+                json={"error": "model 'qwen2.5-coder:7b' does not support thinking"},
                 request=httpx2.Request("POST", url),
             )
         return httpx2.Response(
@@ -74,9 +73,8 @@ def test_ollama_retries_without_thinking_on_400(monkeypatch: pytest.MonkeyPatch)
 
     monkeypatch.setattr("httpx2.Client.post", fake_post)
 
-    result = client._ollama_messages("sys", [ChatMessage(role="user", content="user")])
-
-    assert result == "OK"
+    reply = client._ollama_messages("sys", [ChatMessage(role="user", content="user")])
+    assert reply == "OK"
     assert call_count == 2
     assert client._ollama_thinking_supported is False
 
@@ -87,7 +85,7 @@ def test_ollama_subsequent_calls_skip_thinking_after_detection(
     """After detecting no thinking support, subsequent calls never send think=True."""
     import httpx2
 
-    client = LLMClient(AIConfig(provider="ollama", ollama_url="http://localhost:11434"))
+    client = LLMClient(AIConfig(provider="ollama", ollama_urls=["http://localhost:11434"]))
     client._ollama_thinking_supported = False  # already detected
 
     think_values: list[bool] = []
@@ -114,7 +112,7 @@ def test_ollama_non_thinking_400_raises_ai_client_error(
     """A 400 unrelated to thinking is surfaced as AIClientError, not retried."""
     import httpx2
 
-    client = LLMClient(AIConfig(provider="ollama", ollama_url="http://localhost:11434"))
+    client = LLMClient(AIConfig(provider="ollama", ollama_urls=["http://localhost:11434"]))
 
     def fake_post(_client: object, url: str, **kwargs: object) -> httpx2.Response:
         return httpx2.Response(
@@ -130,7 +128,7 @@ def test_ollama_non_thinking_400_raises_ai_client_error(
 
 
 def test_get_ollama_urls_parsing() -> None:
-    cfg1 = AIConfig(ollama_url="http://192.168.1.4:11434, http://192.168.1.5:11434/")
+    cfg1 = AIConfig(ollama_urls=["http://192.168.1.4:11434", "http://192.168.1.5:11434/"])
     assert cfg1.get_ollama_urls == ["http://192.168.1.4:11434", "http://192.168.1.5:11434"]
 
     cfg2 = AIConfig(ollama_urls=["http://10.0.0.1:11434/", "http://10.0.0.2:11434"])

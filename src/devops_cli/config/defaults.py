@@ -13,7 +13,7 @@ DEFAULT_REPOS_BASE_DIR = Path("repos")
 DEFAULT_WORKSPACE_FILE = Path(".code-workspace")
 DEFAULT_AI_PROVIDER = "ollama"
 DEFAULT_AI_MODEL = "gemma4:26b"
-DEFAULT_OLLAMA_URL = CONST_URL_OLLAMA_LOCALHOST
+DEFAULT_OLLAMA_URLS: tuple[str, ...] = (CONST_URL_OLLAMA_LOCALHOST,)
 DEFAULT_PYTHON_VERSION = "3.14"
 
 # NOTE (Design Justification - AGENTS.md §4 & README.md): High default timeouts are intentional

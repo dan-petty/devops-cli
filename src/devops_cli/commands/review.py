@@ -141,10 +141,11 @@ def _llm_request_preview(client: Any, system: str, user: str) -> dict[str, Any]:
     model = getattr(config, "model", "unknown")
 
     if provider == "ollama":
-        base = getattr(config, "ollama_url", "")
+        urls = getattr(config, "get_ollama_urls", ["http://localhost:11434"])
+        base = urls[0] if urls else "http://localhost:11434"
         return {
             "provider": provider,
-            "endpoint": f"{base.rstrip('/')}/api/chat",
+            "endpoint": f"{str(base).rstrip('/')}/api/chat",
             "method": "POST",
             "json": {
                 "model": model,

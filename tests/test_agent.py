@@ -70,7 +70,7 @@ def test_ollama_stream_thinking_fallback(mocker: MagicMock) -> None:
     from devops_cli.config.settings import AIConfig
 
     config = AIConfig(
-        provider="ollama", model="qwen2.5-coder:7b", ollama_url="http://localhost:11434"
+        provider="ollama", model="qwen2.5-coder:7b", ollama_urls=["http://localhost:11434"]
     )
     client = LLMClient(config)
 

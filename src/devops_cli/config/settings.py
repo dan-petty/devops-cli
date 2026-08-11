@@ -30,7 +30,7 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import (
     DEFAULT_AI_MODEL,
     DEFAULT_AI_PROVIDER,
-    DEFAULT_OLLAMA_URL,
+    DEFAULT_OLLAMA_URLS,
     DEFAULT_REPOS_BASE_DIR,
     DEFAULT_SSH_KEY_DIR,
     DEFAULT_SSH_ROTATION_DAYS,
@@ -96,7 +96,6 @@ class AITaskOverride(BaseModel):
     model_config = ConfigDict(frozen=False)
     provider: str | None = None
     model: str | None = None
-    ollama_url: str | None = None
     ollama_urls: list[str] | None = None
     api_base_url: str | None = None
 
@@ -113,8 +112,7 @@ class AIConfig(BaseModel):
     model_config = ConfigDict(frozen=False)
     provider: str = DEFAULT_AI_PROVIDER  # ollama | claude | copilot | openai
     model: str = DEFAULT_AI_MODEL
-    ollama_url: str = DEFAULT_OLLAMA_URL
-    ollama_urls: list[str] = Field(default_factory=list)
+    ollama_urls: list[str] = Field(default_factory=lambda: list(DEFAULT_OLLAMA_URLS))
     api_base_url: str | None = None
     allow_private_network: bool = False
     tasks: AITasksConfig = AITasksConfig()
@@ -126,11 +124,7 @@ class AIConfig(BaseModel):
             cleaned = [u.strip().rstrip("/") for u in self.ollama_urls if u and u.strip()]
             if cleaned:
                 return cleaned
-        if self.ollama_url:
-            cleaned = [u.strip().rstrip("/") for u in self.ollama_url.split(",") if u and u.strip()]
-            if cleaned:
-                return cleaned
-        return [DEFAULT_OLLAMA_URL]
+        return list(DEFAULT_OLLAMA_URLS)
 
     def for_task(self, task: str) -> AIConfig:
         """Return a copy with task-specific overrides from ai.tasks.<task> applied."""
@@ -140,7 +134,6 @@ class AIConfig(BaseModel):
             for k, v in {
                 "provider": override.provider,
                 "model": override.model,
-                "ollama_url": override.ollama_url,
                 "ollama_urls": override.ollama_urls,
                 "api_base_url": override.api_base_url,
             }.items()

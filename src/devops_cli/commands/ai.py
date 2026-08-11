@@ -310,9 +310,9 @@ def config(
         str | None,
         typer.Option("--model", "-m", help="Model name, e.g. gemma4:26b, claude-opus-4-5"),
     ] = None,
-    ollama_url: Annotated[
+    ollama_urls: Annotated[
         str | None,
-        typer.Option("--ollama-url", help="Ollama server base URL"),
+        typer.Option("--ollama-urls", help="Ollama server base URLs (comma-separated)"),
     ] = None,
     api_base_url: Annotated[
         str | None,
@@ -332,7 +332,7 @@ def config(
 
     settings = load_settings()
 
-    if not any([provider, model, ollama_url, api_base_url, api_key]):
+    if not any([provider, model, ollama_urls, api_base_url, api_key]):
         ai = settings.ai
         current_key = get_ai_api_key(settings)
         table = Table(title="AI Configuration")
@@ -340,7 +340,7 @@ def config(
         table.add_column("Value")
         table.add_row("provider", ai.provider)
         table.add_row("model", ai.model)
-        table.add_row("ollama_url", ai.ollama_url)
+        table.add_row("ollama_urls", ", ".join(ai.get_ollama_urls))
         table.add_row("api_base_url", ai.api_base_url or "(default)")
         key_display = "[green]***set***[/green]" if current_key else "[dim](not set)[/dim]"
         table.add_row("api_key", key_display)
@@ -354,8 +354,8 @@ def config(
         settings.ai.provider = provider
     if model:
         settings.ai.model = model
-    if ollama_url:
-        settings.ai.ollama_url = ollama_url
+    if ollama_urls:
+        settings.ai.ollama_urls = [u.strip() for u in ollama_urls.split(",") if u.strip()]
     if api_base_url:
         settings.ai.api_base_url = api_base_url
     if api_key:

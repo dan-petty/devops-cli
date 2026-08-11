@@ -15,7 +15,6 @@ ARGOCD_URL = "argocd.url"
 ARGOCD_TOKEN = "argocd.token"
 AI_PROVIDER = "ai.provider"
 AI_MODEL = "ai.model"
-AI_OLLAMA_URL = "ai.ollama_url"
 AI_OLLAMA_URLS = "ai.ollama_urls"
 AI_API_BASE_URL = "ai.api_base_url"
 AI_API_KEY = "ai.api_key"
@@ -24,16 +23,16 @@ AI_ALLOW_PRIVATE_NETWORK = "ai.allow_private_network"
 # Per-task model overrides (each falls back to the base ai.* values if unset)
 AI_TASK_CHAT_PROVIDER = "ai.tasks.chat.provider"
 AI_TASK_CHAT_MODEL = "ai.tasks.chat.model"
-AI_TASK_CHAT_OLLAMA_URL = "ai.tasks.chat.ollama_url"
+AI_TASK_CHAT_OLLAMA_URLS = "ai.tasks.chat.ollama_urls"
 AI_TASK_METADATA_PROVIDER = "ai.tasks.metadata.provider"
 AI_TASK_METADATA_MODEL = "ai.tasks.metadata.model"
-AI_TASK_METADATA_OLLAMA_URL = "ai.tasks.metadata.ollama_url"
+AI_TASK_METADATA_OLLAMA_URLS = "ai.tasks.metadata.ollama_urls"
 AI_TASK_ANALYSIS_PROVIDER = "ai.tasks.analysis.provider"
 AI_TASK_ANALYSIS_MODEL = "ai.tasks.analysis.model"
-AI_TASK_ANALYSIS_OLLAMA_URL = "ai.tasks.analysis.ollama_url"
+AI_TASK_ANALYSIS_OLLAMA_URLS = "ai.tasks.analysis.ollama_urls"
 AI_TASK_COMPOSE_PROVIDER = "ai.tasks.compose.provider"
 AI_TASK_COMPOSE_MODEL = "ai.tasks.compose.model"
-AI_TASK_COMPOSE_OLLAMA_URL = "ai.tasks.compose.ollama_url"
+AI_TASK_COMPOSE_OLLAMA_URLS = "ai.tasks.compose.ollama_urls"
 
 CONFIG_OPTIONS: tuple[str, ...] = (
     GITHUB_TOKEN,
@@ -49,23 +48,22 @@ CONFIG_OPTIONS: tuple[str, ...] = (
     ARGOCD_TOKEN,
     AI_PROVIDER,
     AI_MODEL,
-    AI_OLLAMA_URL,
     AI_OLLAMA_URLS,
     AI_API_BASE_URL,
     AI_API_KEY,
     AI_ALLOW_PRIVATE_NETWORK,
     AI_TASK_CHAT_PROVIDER,
     AI_TASK_CHAT_MODEL,
-    AI_TASK_CHAT_OLLAMA_URL,
+    AI_TASK_CHAT_OLLAMA_URLS,
     AI_TASK_METADATA_PROVIDER,
     AI_TASK_METADATA_MODEL,
-    AI_TASK_METADATA_OLLAMA_URL,
+    AI_TASK_METADATA_OLLAMA_URLS,
     AI_TASK_ANALYSIS_PROVIDER,
     AI_TASK_ANALYSIS_MODEL,
-    AI_TASK_ANALYSIS_OLLAMA_URL,
+    AI_TASK_ANALYSIS_OLLAMA_URLS,
     AI_TASK_COMPOSE_PROVIDER,
     AI_TASK_COMPOSE_MODEL,
-    AI_TASK_COMPOSE_OLLAMA_URL,
+    AI_TASK_COMPOSE_OLLAMA_URLS,
 )
 
 SECRET_CONFIG_OPTIONS: frozenset[str] = frozenset(

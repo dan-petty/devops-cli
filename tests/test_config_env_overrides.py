@@ -16,16 +16,17 @@ def test_load_settings_applies_env_overrides_for_non_secret_fields(
 ai:
   provider: ollama
   model: gemma4:26b
-  ollama_url: http://localhost:11434
+  ollama_urls:
+    - http://localhost:11434
 """.lstrip(),
         encoding="utf-8",
     )
 
     monkeypatch.setattr(constants, "CONST_CONFIG_PATH", config_path)
     monkeypatch.setenv("DEVOPS_CLI_AI_MODEL", "qwen3.6:35b")
-    monkeypatch.setenv("DEVOPS_CLI_AI_OLLAMA_URL", "http://192.168.1.4:11434")
+    monkeypatch.setenv("DEVOPS_CLI_AI_OLLAMA_URLS", "http://192.168.1.4:11434")
 
     loaded_settings = settings.load_settings()
 
     assert loaded_settings.ai.model == "qwen3.6:35b"
-    assert loaded_settings.ai.ollama_url == "http://192.168.1.4:11434"
+    assert loaded_settings.ai.get_ollama_urls == ["http://192.168.1.4:11434"]

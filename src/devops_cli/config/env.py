@@ -21,7 +21,6 @@ ENV_ARGOCD_URL = "DEVOPS_CLI_ARGOCD_URL"
 ENV_ARGOCD_TOKEN = "DEVOPS_CLI_ARGOCD_TOKEN"
 ENV_AI_PROVIDER = "DEVOPS_CLI_AI_PROVIDER"
 ENV_AI_MODEL = "DEVOPS_CLI_AI_MODEL"
-ENV_AI_OLLAMA_URL = "DEVOPS_CLI_AI_OLLAMA_URL"
 ENV_AI_OLLAMA_URLS = "DEVOPS_CLI_AI_OLLAMA_URLS"
 ENV_AI_API_BASE_URL = "DEVOPS_CLI_AI_API_BASE_URL"
 ENV_AI_API_KEY = "DEVOPS_CLI_AI_API_KEY"
@@ -29,16 +28,16 @@ ENV_AI_ALLOW_PRIVATE_NETWORK = "DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK"
 
 ENV_AI_TASK_CHAT_PROVIDER = "DEVOPS_CLI_AI_TASK_CHAT_PROVIDER"
 ENV_AI_TASK_CHAT_MODEL = "DEVOPS_CLI_AI_TASK_CHAT_MODEL"
-ENV_AI_TASK_CHAT_OLLAMA_URL = "DEVOPS_CLI_AI_TASK_CHAT_OLLAMA_URL"
+ENV_AI_TASK_CHAT_OLLAMA_URLS = "DEVOPS_CLI_AI_TASK_CHAT_OLLAMA_URLS"
 ENV_AI_TASK_METADATA_PROVIDER = "DEVOPS_CLI_AI_TASK_METADATA_PROVIDER"
 ENV_AI_TASK_METADATA_MODEL = "DEVOPS_CLI_AI_TASK_METADATA_MODEL"
-ENV_AI_TASK_METADATA_OLLAMA_URL = "DEVOPS_CLI_AI_TASK_METADATA_OLLAMA_URL"
+ENV_AI_TASK_METADATA_OLLAMA_URLS = "DEVOPS_CLI_AI_TASK_METADATA_OLLAMA_URLS"
 ENV_AI_TASK_ANALYSIS_PROVIDER = "DEVOPS_CLI_AI_TASK_ANALYSIS_PROVIDER"
 ENV_AI_TASK_ANALYSIS_MODEL = "DEVOPS_CLI_AI_TASK_ANALYSIS_MODEL"
-ENV_AI_TASK_ANALYSIS_OLLAMA_URL = "DEVOPS_CLI_AI_TASK_ANALYSIS_OLLAMA_URL"
+ENV_AI_TASK_ANALYSIS_OLLAMA_URLS = "DEVOPS_CLI_AI_TASK_ANALYSIS_OLLAMA_URLS"
 ENV_AI_TASK_COMPOSE_PROVIDER = "DEVOPS_CLI_AI_TASK_COMPOSE_PROVIDER"
 ENV_AI_TASK_COMPOSE_MODEL = "DEVOPS_CLI_AI_TASK_COMPOSE_MODEL"
-ENV_AI_TASK_COMPOSE_OLLAMA_URL = "DEVOPS_CLI_AI_TASK_COMPOSE_OLLAMA_URL"
+ENV_AI_TASK_COMPOSE_OLLAMA_URLS = "DEVOPS_CLI_AI_TASK_COMPOSE_OLLAMA_URLS"
 
 OPTION_TO_ENV_VAR: dict[str, str] = {
     opt.GITHUB_TOKEN: ENV_GITHUB_TOKEN,
@@ -54,23 +53,22 @@ OPTION_TO_ENV_VAR: dict[str, str] = {
     opt.ARGOCD_TOKEN: ENV_ARGOCD_TOKEN,
     opt.AI_PROVIDER: ENV_AI_PROVIDER,
     opt.AI_MODEL: ENV_AI_MODEL,
-    opt.AI_OLLAMA_URL: ENV_AI_OLLAMA_URL,
     opt.AI_OLLAMA_URLS: ENV_AI_OLLAMA_URLS,
     opt.AI_API_BASE_URL: ENV_AI_API_BASE_URL,
     opt.AI_API_KEY: ENV_AI_API_KEY,
     opt.AI_ALLOW_PRIVATE_NETWORK: ENV_AI_ALLOW_PRIVATE_NETWORK,
     opt.AI_TASK_CHAT_PROVIDER: ENV_AI_TASK_CHAT_PROVIDER,
     opt.AI_TASK_CHAT_MODEL: ENV_AI_TASK_CHAT_MODEL,
-    opt.AI_TASK_CHAT_OLLAMA_URL: ENV_AI_TASK_CHAT_OLLAMA_URL,
+    opt.AI_TASK_CHAT_OLLAMA_URLS: ENV_AI_TASK_CHAT_OLLAMA_URLS,
     opt.AI_TASK_METADATA_PROVIDER: ENV_AI_TASK_METADATA_PROVIDER,
     opt.AI_TASK_METADATA_MODEL: ENV_AI_TASK_METADATA_MODEL,
-    opt.AI_TASK_METADATA_OLLAMA_URL: ENV_AI_TASK_METADATA_OLLAMA_URL,
+    opt.AI_TASK_METADATA_OLLAMA_URLS: ENV_AI_TASK_METADATA_OLLAMA_URLS,
     opt.AI_TASK_ANALYSIS_PROVIDER: ENV_AI_TASK_ANALYSIS_PROVIDER,
     opt.AI_TASK_ANALYSIS_MODEL: ENV_AI_TASK_ANALYSIS_MODEL,
-    opt.AI_TASK_ANALYSIS_OLLAMA_URL: ENV_AI_TASK_ANALYSIS_OLLAMA_URL,
+    opt.AI_TASK_ANALYSIS_OLLAMA_URLS: ENV_AI_TASK_ANALYSIS_OLLAMA_URLS,
     opt.AI_TASK_COMPOSE_PROVIDER: ENV_AI_TASK_COMPOSE_PROVIDER,
     opt.AI_TASK_COMPOSE_MODEL: ENV_AI_TASK_COMPOSE_MODEL,
-    opt.AI_TASK_COMPOSE_OLLAMA_URL: ENV_AI_TASK_COMPOSE_OLLAMA_URL,
+    opt.AI_TASK_COMPOSE_OLLAMA_URLS: ENV_AI_TASK_COMPOSE_OLLAMA_URLS,
 }
 
 ENV_VAR_TO_OPTION: dict[str, str] = {v: k for k, v in OPTION_TO_ENV_VAR.items()}
@@ -194,10 +192,10 @@ def get_all_env_var_specs() -> list[EnvVarSpec]:
             "Default AI model name",
         ),
         EnvVarSpec(
-            ENV_AI_OLLAMA_URL,
-            opt.AI_OLLAMA_URL,
+            ENV_AI_OLLAMA_URLS,
+            opt.AI_OLLAMA_URLS,
             False,
-            "Ollama service URL",
+            "Ollama service URLs (comma-separated)",
         ),
         EnvVarSpec(
             ENV_AI_API_BASE_URL,
@@ -230,10 +228,10 @@ def get_all_env_var_specs() -> list[EnvVarSpec]:
             "AI model override for chat task",
         ),
         EnvVarSpec(
-            ENV_AI_TASK_CHAT_OLLAMA_URL,
-            opt.AI_TASK_CHAT_OLLAMA_URL,
+            ENV_AI_TASK_CHAT_OLLAMA_URLS,
+            opt.AI_TASK_CHAT_OLLAMA_URLS,
             False,
-            "Ollama URL override for chat task",
+            "Ollama URLs override for chat task",
         ),
         EnvVarSpec(
             ENV_AI_TASK_METADATA_PROVIDER,
@@ -248,10 +246,10 @@ def get_all_env_var_specs() -> list[EnvVarSpec]:
             "AI model override for metadata task",
         ),
         EnvVarSpec(
-            ENV_AI_TASK_METADATA_OLLAMA_URL,
-            opt.AI_TASK_METADATA_OLLAMA_URL,
+            ENV_AI_TASK_METADATA_OLLAMA_URLS,
+            opt.AI_TASK_METADATA_OLLAMA_URLS,
             False,
-            "Ollama URL override for metadata task",
+            "Ollama URLs override for metadata task",
         ),
         EnvVarSpec(
             ENV_AI_TASK_ANALYSIS_PROVIDER,
@@ -266,10 +264,10 @@ def get_all_env_var_specs() -> list[EnvVarSpec]:
             "AI model override for analysis task",
         ),
         EnvVarSpec(
-            ENV_AI_TASK_ANALYSIS_OLLAMA_URL,
-            opt.AI_TASK_ANALYSIS_OLLAMA_URL,
+            ENV_AI_TASK_ANALYSIS_OLLAMA_URLS,
+            opt.AI_TASK_ANALYSIS_OLLAMA_URLS,
             False,
-            "Ollama URL override for analysis task",
+            "Ollama URLs override for analysis task",
         ),
         EnvVarSpec(
             ENV_AI_TASK_COMPOSE_PROVIDER,
@@ -284,9 +282,9 @@ def get_all_env_var_specs() -> list[EnvVarSpec]:
             "AI model override for compose task",
         ),
         EnvVarSpec(
-            ENV_AI_TASK_COMPOSE_OLLAMA_URL,
-            opt.AI_TASK_COMPOSE_OLLAMA_URL,
+            ENV_AI_TASK_COMPOSE_OLLAMA_URLS,
+            opt.AI_TASK_COMPOSE_OLLAMA_URLS,
             False,
-            "Ollama URL override for compose task",
+            "Ollama URLs override for compose task",
         ),
     ]
