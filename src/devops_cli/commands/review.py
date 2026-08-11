@@ -2580,9 +2580,12 @@ def export_feedback(
 @app.command("apply-patch")
 def apply_patch(
     session: Annotated[str, typer.Argument(help="Review session ID")],
-    index: Annotated[int, typer.Option("--index", "-i", help="Finding index (1-based)")] = 1,
+    index: Annotated[int, typer.Option("--index", "-idx", help="Finding index (1-based)")] = 1,
+    interactive: Annotated[
+        bool, typer.Option("--interactive", "-i", help="Preview patch diff interactively")
+    ] = False,
 ) -> None:
-    """Apply suggested LLM code fix for a verified finding (v0.1.2)."""
+    """Apply suggested LLM code fix for a verified finding (v0.1.3)."""
     reviews_dir = CONST_DATA_DIR / "reviews" / session
     findings_file = reviews_dir / "findings.json"
 
@@ -2602,5 +2605,9 @@ def apply_patch(
     if not fix_code:
         rprint(f"[yellow]Finding #{index} does not have an automated code fix.[/yellow]")
         return
+
+    if interactive:
+        rprint(f"[bold cyan]Suggested Fix for Finding #{index}:[/bold cyan]")
+        rprint(f"[dim]{fix_code}[/dim]")
 
     rprint(f"[green]✓ Staged patch for finding #{index} in session [bold]{session}[/bold][/green]")

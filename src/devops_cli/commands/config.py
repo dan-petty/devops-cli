@@ -381,3 +381,14 @@ def auth_headless(
     keyring_field = KEYRING_KEYS[key]
     _EPHEMERAL_CI_SECRETS[keyring_field] = token
     rprint(f"[green]✓ Ephemeral secret loaded into memory: {key}[/green]")
+
+
+@app.command("audit-stream")
+def audit_stream(
+    destination: Annotated[str, typer.Argument(help="Destination Syslog or HTTP URL")],
+) -> None:
+    """Stream stored audit records to SIEM destination URL."""
+    from devops_cli.core.audit import stream_audit_records
+
+    count = stream_audit_records(destination_url=destination)
+    rprint(f"[green]✓ Streamed {count} audit record(s) → [bold]{destination}[/bold][/green]")

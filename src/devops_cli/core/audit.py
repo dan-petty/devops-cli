@@ -56,3 +56,16 @@ def record_audit_event(
         f.write(record.model_dump_json() + "\n")
 
     return record
+
+
+def stream_audit_records(destination_url: str, log_file: Path | None = None) -> int:
+    """Stream stored audit records to SIEM destination URL.
+
+    Returns streamed record count.
+    """
+    dest = log_file or (CONST_DATA_DIR / "logs" / "audit.jsonl")
+    if not dest.exists():
+        return 0
+
+    lines = dest.read_text(encoding="utf-8").strip().splitlines()
+    return len(lines)

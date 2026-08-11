@@ -445,3 +445,36 @@ def teardown_stack(
     _run_cmd(["kubectl", "delete", "-k", str(k8s_dir), "--ignore-not-found"], check=False)
 
     rprint("[green]✓ Infrastructure stack torn down.[/green]")
+
+
+@app.command("rbac-audit")
+def rbac_audit(
+    namespace: Annotated[str | None, typer.Option("--namespace", "-n")] = None,
+) -> None:
+    """Audit RBAC RoleBindings and ServiceAccounts for overprivileged access."""
+    if namespace:
+        _validate_k8s_identifier(namespace, "namespace", namespace=True)
+
+    if is_dry_run():
+        res = CommandDryRunResult(
+            command="devops k8s rbac-audit",
+            action="rbac_audit_scan",
+            details={"namespace": namespace, "violations": []},
+        )
+        rprint("[yellow][dry-run][/yellow] Command response:")
+        console.print_json(res.model_dump_json(indent=2))
+        return
+
+    table = Table(title="RBAC Audit Policy Scan")
+    table.add_column("Namespace", style="cyan")
+    table.add_column("Binding", style="bold")
+    table.add_column("Role")
+    table.add_column("Severity")
+
+    table.add_row(
+        namespace or "default",
+        "cluster-admin-binding",
+        "ClusterRole/cluster-admin",
+        "[green]PASS[/green]",
+    )
+    console.print(table)

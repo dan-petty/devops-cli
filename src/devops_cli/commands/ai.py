@@ -649,3 +649,17 @@ def chat(
             continue
 
         history.append(ChatMessage(role="assistant", content=reply))
+
+
+@app.command("bundle-models")
+def bundle_models(
+    output_dir: Annotated[
+        Path | None,
+        typer.Option("--output", "-o", help="Output directory for model archive bundle"),
+    ] = None,
+) -> None:
+    """Bundle Ollama model metadata into tarball for air-gapped DevContainers."""
+    from devops_cli.ai.bundle import bundle_ollama_models
+
+    count, manifest_path = bundle_ollama_models(output_dir=output_dir)
+    rprint(f"[green]✓ Bundled {count} model(s) → [bold]{manifest_path}[/bold][/green]")
