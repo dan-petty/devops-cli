@@ -609,19 +609,25 @@ def chat(
             sys.stdout.flush()
 
             if stream:
-                full_reply: list[str] = []
+                from devops_cli.ai.thinking import ThinkingStreamProcessor
+
+                processor = ThinkingStreamProcessor(
+                    show_thinking=thinking,
+                    console=console,
+                )
                 system_with_tools = agent._build_system_prompt_with_tools()
                 for chunk in client.chat_messages_stream(
                     system_with_tools, history, enable_thinking=thinking
                 ):
-                    sys.stdout.write(chunk)
-                    sys.stdout.flush()
-                    full_reply.append(chunk)
-                reply = "".join(full_reply)
+                    processor.feed(chunk)
+                processor.flush()
+                reply = processor.clean_content
                 rprint("\n")
             else:
                 agent_res = agent.run(user_input, enable_thinking=thinking)
-                reply = agent_res.content
+                from devops_cli.ai.thinking import strip_think_blocks
+
+                reply = strip_think_blocks(agent_res.content)
                 rprint(f"{reply.strip()}\n")
 
         except Exception as exc:

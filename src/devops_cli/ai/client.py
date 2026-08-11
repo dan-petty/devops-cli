@@ -12,7 +12,6 @@ from __future__ import annotations
 import ipaddress
 import json
 import os
-import re
 import socket
 import threading
 import time
@@ -24,6 +23,7 @@ from urllib.parse import urlparse
 
 import httpx2
 
+from devops_cli.ai.thinking import strip_think_blocks
 from devops_cli.config.constants import (
     CONST_URL_ANTHROPIC_API_BASE,
     CONST_URL_GITHUB_COPILOT_API_BASE,
@@ -116,7 +116,7 @@ class LLMClient:
     @staticmethod
     def _strip_think_blocks(text: str) -> str:
         """Remove <think>...</think> chain-of-thought blocks emitted by thinking models."""
-        return re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+        return strip_think_blocks(text)
 
     def preload_models(self) -> dict[str, bool]:
         """Preload configured model into VRAM across all configured Ollama servers concurrently."""
