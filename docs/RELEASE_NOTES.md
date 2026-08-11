@@ -1,22 +1,22 @@
-# Release Notes — devops-cli v0.1.1
+# Release Notes — devops-cli v0.1.2
 
 Workstation-native DevOps CLI for managing repositories, SSH keys, Kubernetes clusters, Kustomize, ArgoCD, Grafana, Prometheus, Docker, workspace files, and multi-persona AI code reviews.
 
 ---
 
-## 🚀 Highlights of v0.1.1
+## 🚀 Highlights of v0.1.2
 
-### 📊 Human Invalidation Feedback Dataset Exporter
-- **`devops ai review export-feedback`**: Queries `.data/reviews/` for review findings marked as `INVALIDATED` during verification (`devops ai review verify`) and exports them into JSONL benchmark datasets for prompt tuning.
+### ☸️ Multi-Cluster Kubeconfig Management
+- **`devops k8s switch-context <name>`**: Switch active Kubernetes contexts and manage namespace access configuration.
 
-### 🎭 Repository-Level Custom Team Personas
-- **`.devops/personas/<name>.md`**: Supports custom reviewer persona prompt overrides defined in target repositories under `.devops/personas/`, loaded dynamically via `load_custom_repo_persona`.
+### 📜 SIEM Audit Trail Logger
+- **`devops_cli.core.audit`**: Record structured JSON execution event records (`AuditRecord`) to `.data/logs/audit.jsonl` or custom destination via `DEVOPS_CLI_AUDIT_LOG_DEST`.
 
-### 🔑 Headless CI Ephemeral Memory Keyring Auth
-- **`devops config auth-headless`**: Provides an in-memory fallback secret store (`_EPHEMERAL_CI_SECRETS`) allowing headless Linux CI runners without DBus/SecretService to securely pass session tokens.
+### 🛠️ Automated Code Patch Application
+- **`devops ai review apply-patch <session> --index N`**: Interactively stage suggested LLM code fixes (`finding.fix`) to workspace source files.
 
-### 💬 GitHub PR Inline Commenting
-- **`GitHubClient.create_pr_review_comment`**: Line-level inline review comment posting capabilities on pull request diff hunks.
+### 🧪 Subcommand Dry-Run Pydantic Expansion
+- **`CommandDryRunResult`**: Expanded structured JSON dry-run responses across `argo`, `grafana`, `prometheus`, `devcontainer` commands.
 
 ---
 

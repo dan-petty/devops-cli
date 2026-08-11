@@ -34,11 +34,11 @@ High-density product roadmap for `devops-cli`.
 - [x] **Headless CI Keyring Fallback Auth**: Memory token loading (`devops config auth-headless`) for headless CI environments lacking DBus.
 - [x] **v0.1.1 Feature Flags**: Config options (`FEATURE_PR_INLINE_COMMENTS`, `FEATURE_CUSTOM_PERSONAS`, `FEATURE_HEADLESS_AUTH`).
 
-### Phase 4: Kubeconfig Contexts & SIEM Audit Logging (v0.1.2 - Short-Term: Q3 2026)
-- [ ] **Multi-Cluster Kubeconfig Management**: Context switching (`devops k8s context [list|switch|current]`) with namespace controls.
-- [ ] **SIEM Audit Trail Logging**: Execution logging (`AuditLogger`) streaming to `.data/logs/audit.jsonl` or Syslog.
-- [ ] **Automated Code Patch Application Prep**: Staging suggested LLM code fixes (`devops ai review apply-patch`).
-- [ ] **Expanded Subcommand Dry-Run Models**: Pydantic `CommandDryRunResult` models across `argo`, `grafana`, `prometheus`, `devcontainer`.
+### Phase 4: Kubeconfig Contexts & SIEM Audit Logging (v0.1.2 - Completed)
+- [x] **Multi-Cluster Kubeconfig Management**: Context switching (`devops k8s switch-context <name>`) with namespace controls.
+- [x] **SIEM Audit Trail Logging**: Execution logging (`AuditLogger`) streaming to `.data/logs/audit.jsonl` or Syslog.
+- [x] **Automated Code Patch Application Prep**: Staging suggested LLM code fixes (`devops ai review apply-patch`).
+- [x] **Expanded Subcommand Dry-Run Models**: Pydantic `CommandDryRunResult` models across `argo`, `grafana`, `prometheus`, `devcontainer`.
 
 ### Phase 5: Autonomous Remediation & Offline Bundling (Long-Term: 2027+)
 - [ ] **Automated Code Patch Application**: Apply suggested LLM fixes (`finding.fix`) directly to source files with interactive git staging.

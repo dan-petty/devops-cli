@@ -53,6 +53,7 @@ devops ci
 | | `devops ai review findings [<session>]` | Inspect structured review findings by verification status |
 | | `devops ai review verify <session> --index N` | Validate (`verified`) or invalidate (`invalidated`) finding |
 | | `devops ai review export-feedback` | Export invalidated findings into JSONL benchmark dataset for prompt tuning |
+| | `devops ai review apply-patch <session>` | Interactively stage suggested LLM code fixes (`finding.fix`) to workspace |
 | | `devops ai review stats` | View accuracy metrics and false-positive rates per persona |
 | **config** | `devops config show` | Display current CLI configuration and active env var overrides |
 | | `devops config output` | Display specification for all 30 environment variables |
