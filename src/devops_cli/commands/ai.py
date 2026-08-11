@@ -13,6 +13,7 @@ from rich.rule import Rule
 from rich.table import Table
 
 from devops_cli.ai.personas import PERSONAS, Persona
+from devops_cli.commands.review import app as review_app
 from devops_cli.config.constants import (
     CONST_AGENTS_MD_FILENAME,
     CONST_DEVCONTAINER_JSON_PATH,
@@ -26,8 +27,13 @@ from devops_cli.core.cli import new_typer
 from devops_cli.models.ai import ChatMessage
 
 app = new_typer(
-    help="Configure and test AI providers (Ollama, Claude, Copilot).",
+    help="Configure, test, chat, and perform AI-powered reviews (Ollama, Claude, Copilot).",
     no_args_is_help=True,
+)
+app.add_typer(
+    review_app,
+    name="review",
+    help="AI-powered code reviews using expert personas (devsecops, architect, pm, auditor, qa).",
 )
 console = Console()
 
@@ -252,15 +258,17 @@ src/devops_cli/
 tests/                 # pytest unit test suite (169+ tests passing)
 ```
 
-## AI Features (`devops ai`, `devops review`)
+## AI Features (`devops ai`, `devops ai review`)
 - `devops ai config --provider <ollama|claude|copilot|openai>`
 - `devops ai test` — verify LLM connectivity
 - `devops ai agents` — (re)generate this file and siblings
-- `devops review branch [<branch>] [--base main] [--persona <p>] [--all]`
-- `devops review pr <number> [--post]` — review GitHub PRs; optionally post as comment
-- `devops review path [<target>] [--pattern <glob>] [--persona <p>] [--all]`
+- `devops ai review branch [<branch>] [--base main] [--persona <p>] [--all]`
+  (alias: `devops review branch`)
+- `devops ai review pr <number> [--post]` — review GitHub PRs; optionally post as comment
+- `devops ai review path [<target>] [--pattern <glob>] [--persona <p>] [--all]`
+  (alias: `devops review path`)
 - Personas: `devsecops` · `architect` · `pm` · `auditor` · `qa`
-- All `devops review` commands load this file (AGENTS.md) from the target repo and
+- All `devops ai review` commands load this file (AGENTS.md) from the target repo and
   inject it into the reviewer's system prompt, so findings must defer to conventions
   and policies documented here rather than flag them as issues.
 

@@ -10,8 +10,8 @@
 
 ## Key Capabilities
 
-- **Multi-Persona AI Code Reviews (`devops review`)**: Paginated reviews across Git branches, GitHub Pull Requests, or local paths with domain-specialized AI personas (`devsecops`, `architect`, `pm`, `auditor`, `qa`).
-- **Finding Verification & Analytics**: Inspect findings (`devops review findings`), validate/invalidate entries (`devops review verify`), and compute persona accuracy metrics (`devops review stats`).
+- **Multi-Persona AI Code Reviews (`devops ai review`)**: Paginated reviews across Git branches, GitHub Pull Requests, or local paths with domain-specialized AI personas (`devsecops`, `architect`, `pm`, `auditor`, `qa`).
+- **Finding Verification & Analytics**: Inspect findings (`devops ai review findings`), validate/invalidate entries (`devops ai review verify`), and compute persona accuracy metrics (`devops ai review stats`).
 - **Zero-Plaintext Secret Storage**: Sensitive tokens (`github.token`, `grafana.token`, `argocd.token`, `ai.api_key`) are stored exclusively in the OS Keyring via `keyring`.
 - **SSRF & Network Egress Safeguards**: Network targets (`validate_service_url`) block non-public IP connections unless `DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true` is explicitly set.
 - **Complete DevOps Automation**: Single entrypoint for managing repositories, SSH key rotation, Kubernetes clusters, ArgoCD applications, Grafana dashboards, Prometheus metrics, Docker resource pruning, workspace files, tool installation, and virtual environments.
@@ -47,12 +47,12 @@ devops ci
 | **ai** | `devops ai config --provider <p>` | Set LLM provider (`ollama`, `claude`, `copilot`, `openai`) |
 | | `devops ai test` | Verify LLM network connectivity and model list |
 | | `devops ai agents` | (Re)generate canonical `AGENTS.md` and pointer files |
-| **review** | `devops review branch [<branch>] [--base main]` | Review branch git diff against base using AI personas |
-| | `devops review pr <number> [--post]` | Review GitHub PR diff; optionally post summary as PR comment |
-| | `devops review path [<target>] [--pattern <glob>]` | Review local files respecting `.gitignore` exclusions |
-| | `devops review findings [<session>]` | Inspect structured review findings by verification status |
-| | `devops review verify <session> --index N` | Validate (`verified`) or invalidate (`invalidated`) finding |
-| | `devops review stats` | View accuracy metrics and false-positive rates per persona |
+| | `devops ai review branch [<branch>]` | Review branch git diff against base using AI personas (alias: `devops review`) |
+| | `devops ai review pr <number> [--post]` | Review GitHub PR diff; optionally post summary as PR comment |
+| | `devops ai review path [<target>]` | Review local files respecting `.gitignore` exclusions |
+| | `devops ai review findings [<session>]` | Inspect structured review findings by verification status |
+| | `devops ai review verify <session> --index N` | Validate (`verified`) or invalidate (`invalidated`) finding |
+| | `devops ai review stats` | View accuracy metrics and false-positive rates per persona |
 | **repos** | `devops repos clone-org --org <org>` | Batch clone all repositories in a GitHub organization |
 | | `devops repos clone <url>` | Clone standalone repository into workspace |
 | | `devops repos list` | List local workspace repositories and active git branches |

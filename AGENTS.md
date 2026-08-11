@@ -72,15 +72,17 @@ src/devops_cli/
 tests/                 # pytest unit test suite (169+ tests passing)
 ```
 
-## AI Features (`devops ai`, `devops review`)
+## AI Features (`devops ai`, `devops ai review`)
 - `devops ai config --provider <ollama|claude|copilot|openai>`
 - `devops ai test` — verify LLM connectivity
 - `devops ai agents` — (re)generate this file and siblings
-- `devops review branch [<branch>] [--base main] [--persona <p>] [--all]`
-- `devops review pr <number> [--post]` — review GitHub PRs; optionally post as comment
-- `devops review path [<target>] [--pattern <glob>] [--persona <p>] [--all]`
+- `devops ai review branch [<branch>] [--base main] [--persona <p>] [--all]`
+  (alias: `devops review branch`)
+- `devops ai review pr <number> [--post]` — review GitHub PRs; optionally post as comment
+- `devops ai review path [<target>] [--pattern <glob>] [--persona <p>] [--all]`
+  (alias: `devops review path`)
 - Personas: `devsecops` · `architect` · `pm` · `auditor` · `qa`
-- All `devops review` commands load this file (AGENTS.md) from the target repo and
+- All `devops ai review` commands load this file (AGENTS.md) from the target repo and
   inject it into the reviewer's system prompt, so findings must defer to conventions
   and policies documented here rather than flag them as issues.
 
