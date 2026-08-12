@@ -1,4 +1,4 @@
-"""FastMCP server integration for devops-cli."""
+"""FastMCP server implementation for devops-cli."""
 
 from __future__ import annotations
 
@@ -7,6 +7,10 @@ import subprocess
 from typing import Literal
 
 from fastmcp import FastMCP
+
+from devops_cli.config.defaults import DEFAULT_MCP_SERVER_PORT
+from devops_cli.core.process import run_subprocess
+from devops_cli.models.ai import MCPToolInfo
 
 mcp = FastMCP(
     name="devops-cli",
@@ -21,7 +25,7 @@ mcp = FastMCP(
 def _run_mcp_cmd(cmd: list[str], timeout: int = 60) -> str:
     """Run a subprocess command for an MCP tool and return combined output or error status."""
     try:
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        res = run_subprocess(cmd, capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired:
         return f"Command timed out after {timeout} seconds: {' '.join(cmd)}"
     except (OSError, subprocess.SubprocessError) as exc:
@@ -262,18 +266,19 @@ def ci_run(check: Literal["all", "test", "lint", "format", "typecheck"] = "all")
     return _run_mcp_cmd(cmd, timeout=180)
 
 
-def list_mcp_tools() -> list[dict[str, str]]:
+def list_mcp_tools() -> list[MCPToolInfo]:
     """Return a list of tool names and descriptions registered on the FastMCP server."""
     tools = asyncio.run(mcp.list_tools())
     return [
-        {"name": t.name, "description": t.description or "No description provided."} for t in tools
+        MCPToolInfo(name=t.name, description=t.description or "No description provided.")
+        for t in tools
     ]
 
 
 def run_mcp_server(
     transport: str = "stdio",
     host: str = "127.0.0.1",
-    port: int = 8000,
+    port: int = DEFAULT_MCP_SERVER_PORT,
     allow_remote: bool = False,
 ) -> None:
     """Launch FastMCP server using stdio or sse transport."""
@@ -286,6 +291,4 @@ def run_mcp_server(
             )
         mcp.run(transport="sse", host=host, port=port)
     else:
-        # show_banner=False prevents the ASCII banner from writing to stdout,
-        # which would corrupt the JSON-RPC stream for stdio MCP clients.
         mcp.run(transport="stdio", show_banner=False)

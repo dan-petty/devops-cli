@@ -1,5 +1,5 @@
 """AI Code Review helper subpackage."""
 
-from __future__ import annotations
+from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
 
-__all__: list[str] = []
+__all__ = ["ReviewPipelineOrchestrator"]

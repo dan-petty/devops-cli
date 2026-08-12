@@ -59,7 +59,7 @@ app = new_typer(
 
 def _delegate(module_path: str, command_name: str, args: list[str]) -> None:
     module = import_module(module_path)
-    module_app = getattr(module, "app")
+    module_app = module.app
     command = typer.main.get_command(module_app)
     try:
         result = command.main(
@@ -97,7 +97,7 @@ def _register_command_proxy(name: str, module_path: str, help_text: str) -> None
 
 def _register_typer_group(name: str, module_path: str) -> None:
     module = import_module(module_path)
-    module_app = getattr(module, "app")
+    module_app = module.app
     app.add_typer(module_app, name=name)
 
 

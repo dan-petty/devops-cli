@@ -292,7 +292,7 @@ def _minikube_running() -> bool:
             ["minikube", "status", "--format", "{{.Host}}"], check=False, capture=True
         )
         return result.returncode == 0 and "Running" in result.stdout
-    except FileNotFoundError, OSError, subprocess.SubprocessError:
+    except (FileNotFoundError, OSError, subprocess.SubprocessError):
         return False
 
 
@@ -388,11 +388,11 @@ def deploy_stack(
         else:
             rprint(f"[green]✓ {release['name']} installed[/green]")
 
-    # 5. Auto-configure monitoring URLs
+    # 5. Auto-configure monitoring URLs & port forwarding
     rprint()
     rprint("[bold green]Infrastructure stack deployed.[/bold green]")
     rprint()
-    configure_urls()
+    port_forward()
     rprint()
     rprint(
         "[dim]ArgoCD admin password: kubectl -n argocd get secret"
@@ -418,7 +418,7 @@ def _detect_service_url(service: str, namespace: str) -> str | None:
                 line_str = line.strip()
                 if line_str.startswith("http://") or line_str.startswith("https://"):
                     return line_str
-    except OSError, subprocess.SubprocessError:
+    except (OSError, subprocess.SubprocessError):
         pass
     return None
 
@@ -440,8 +440,16 @@ def _verify_url_reachability(url: str, timeout: float = 0.8) -> bool:
         return False
 
 
-def _resolve_accessible_url(detected_url: str | None) -> str | None:
+def _resolve_accessible_url(
+    detected_url: str | None, preferred_localhost_ports: list[int] | None = None
+) -> str | None:
     """Resolve service URL to ensure it is accessible from devcontainer / host OS environment."""
+    if preferred_localhost_ports:
+        for port in preferred_localhost_ports:
+            candidate = f"http://localhost:{port}"
+            if _verify_url_reachability(candidate):
+                return candidate
+
     if not detected_url:
         return None
 
@@ -492,9 +500,9 @@ def configure_urls() -> None:
     raw_grafana = _detect_service_url("kube-prometheus-grafana", "monitoring")
     raw_prom = _detect_service_url("kube-prometheus-kube-prome-prometheus", "monitoring")
 
-    argocd_url = _resolve_accessible_url(raw_argocd)
-    grafana_url = _resolve_accessible_url(raw_grafana)
-    prom_url = _resolve_accessible_url(raw_prom)
+    argocd_url = _resolve_accessible_url(raw_argocd, preferred_localhost_ports=[8080])
+    grafana_url = _resolve_accessible_url(raw_grafana, preferred_localhost_ports=[8030, 8000, 3000])
+    prom_url = _resolve_accessible_url(raw_prom, preferred_localhost_ports=[8090, 9090])
 
     from devops_cli.config.settings import dotted_set, load_settings, save_settings
 
@@ -522,6 +530,54 @@ def configure_urls() -> None:
         table.add_row(k, v)
 
     console.print(table)
+
+
+@app.command("port-forward")
+def port_forward(
+    argocd_port: Annotated[int, typer.Option("--argocd-port", help="Local port for ArgoCD")] = 8080,
+    grafana_port: Annotated[
+        int, typer.Option("--grafana-port", help="Local port for Grafana")
+    ] = 8030,
+    prometheus_port: Annotated[
+        int, typer.Option("--prometheus-port", help="Local port for Prometheus")
+    ] = 8090,
+) -> None:
+    """Port-forward k8s monitoring stack services to localhost 8xxx ports and update CLI config."""
+    import time
+
+    if is_dry_run():
+        res = CommandDryRunResult(
+            command="devops k8s port-forward",
+            action="k8s_port_forward",
+            details={
+                "argocd.url": f"http://localhost:{argocd_port}",
+                "grafana.url": f"http://localhost:{grafana_port}",
+                "prometheus.url": f"http://localhost:{prometheus_port}",
+            },
+        )
+        rprint("[yellow][dry-run][/yellow] Command response:")
+        console.print_json(res.model_dump_json(indent=2))
+        return
+
+    if not _minikube_running():
+        rprint("[red]minikube is not running.[/red]")
+        raise typer.Exit(1)
+
+    rprint("[bold cyan]Port-forwarding k8s services to localhost 8xxx ports...[/bold cyan]")
+
+    services = [
+        ("argocd", "svc/argocd-server", argocd_port, 80),
+        ("monitoring", "svc/kube-prometheus-grafana", grafana_port, 80),
+        ("monitoring", "svc/kube-prometheus-kube-prome-prometheus", prometheus_port, 9090),
+    ]
+
+    for ns, svc, lport, rport in services:
+        cmd = ["kubectl", "port-forward", "-n", ns, svc, f"{lport}:{rport}"]
+        subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        rprint(f"[green]✓ Forwarding {svc} ({ns}) to http://localhost:{lport}[/green]")
+
+    time.sleep(1.0)
+    configure_urls()
 
 
 @app.command("teardown-stack")

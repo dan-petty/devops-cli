@@ -23,6 +23,7 @@ _VALIDATION_SYSTEM = (
     '  - "mitigated": boolean (true if a related file, pattern, or guardrail mitigates the risk)\n'
     '  - "location": string (file:lines)\n'
     '  - "severity": string (CRITICAL | HIGH | MEDIUM | LOW | INFO)\n'
+    '  - "confidence_score": float from 0.0 to 1.0 (default null if unestimated)\n'
     '  - "reason": string (brief justification)\n\n'
     "Output ONLY the JSON array inside a ```json ``` code block."
 )

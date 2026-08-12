@@ -55,15 +55,11 @@ def _register_with_gh(pub_key: str, title: str) -> bool:
 
     key_body = " ".join(pub_key.split()[:2])
     existing_auth = _gh_list_keys("/user/keys")
-    if existing_auth is not None and key_body not in existing_auth:
-        _gh_add_key("/user/keys", pub_key, title)
-    elif existing_auth is None:
+    if (existing_auth is not None and key_body not in existing_auth) or existing_auth is None:
         _gh_add_key("/user/keys", pub_key, title)
 
     existing_signing = _gh_list_keys("/user/ssh_signing_keys")
-    if existing_signing is not None and key_body not in existing_signing:
-        _gh_add_key("/user/ssh_signing_keys", pub_key, title)
-    elif existing_signing is None:
+    if existing_signing is None or key_body not in existing_signing:
         _gh_add_key("/user/ssh_signing_keys", pub_key, title)
 
     return True

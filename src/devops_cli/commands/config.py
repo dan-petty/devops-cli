@@ -345,7 +345,7 @@ def output_env_vars(
 
     for spec in specs:
         val, is_from_env = _resolve_env_spec_value(spec, settings)
-        key_display = spec.option_key if spec.option_key else "[dim](config file)[/dim]"
+        key_display = spec.option_key or "[dim](config file)[/dim]"
         if spec.is_secret:
             val_display = "[green]set (****)[/green]" if val else "[dim]not set[/dim]"
         elif is_from_env:

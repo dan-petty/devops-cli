@@ -31,6 +31,17 @@ def _find_root() -> Path:
 _ROOT = _find_root()
 
 
+def _verify_python_314_environment() -> bool:
+    """Verify runtime environment meets strict Python 3.14+ requirements."""
+    import sys
+
+    if sys.version_info < (3, 14):  # noqa: UP036
+        ver_str = sys.version.split()[0]
+        rprint(f"[red]Strict Python 3.14+ requirement failed. Current: {ver_str}[/red]")
+        return False
+    return True
+
+
 def _run(cmd: list[str], timeout: float = DEFAULT_SUBPROCESS_TIMEOUT_SECONDS) -> bool:
     """Run a CI check subprocess, printing stderr output on failure for diagnostics."""
     result = subprocess.run(cmd, cwd=_ROOT, timeout=timeout, capture_output=False)
@@ -44,29 +55,33 @@ def _section(title: str) -> None:
 def _run_all_checks(*, lint_fix: bool, format_fix: bool) -> list[tuple[str, bool]]:
     checks: list[tuple[str, bool]] = []
 
-    _section("pytest")
-    checks.append(("test", _run(["uv", "run", "pytest"])))
+    _section("python version check (3.14+)")
+    checks.append(("python_version", _verify_python_314_environment()))
 
-    _section("pytest coverage")
-    checks.append(
-        ("coverage", _run(["uv", "run", "pytest", "--cov=src", "--cov-report=term-missing"]))
+    _section("pytest & coverage")
+    test_cov_ok = _run(
+        ["uv", "run", "pytest", "-n", "auto", "--cov=src", "--cov-report=term-missing"]
     )
+    checks.append(("test", test_cov_ok))
+    checks.append(("coverage", test_cov_ok))
 
-    _section("ruff check")
-    lint_cmd = ["uv", "run", "ruff", "check", "."]
+    _section("ruff check (py314)")
+    lint_cmd = ["uv", "run", "ruff", "check", "--target-version", "py314", "."]
     if lint_fix:
         lint_cmd.append("--fix")
     checks.append(("lint", _run(lint_cmd)))
 
-    _section("ruff format")
-    fmt_cmd = ["uv", "run", "ruff", "format"]
+    _section("ruff format (py314)")
+    fmt_cmd = ["uv", "run", "ruff", "format", "--target-version", "py314"]
     if not format_fix:
         fmt_cmd.append("--check")
     fmt_cmd.append(".")
     checks.append(("format", _run(fmt_cmd)))
 
-    _section("mypy")
-    checks.append(("typecheck", _run(["uv", "run", "mypy", "src"])))
+    _section("mypy (py314 strict)")
+    checks.append(
+        ("typecheck", _run(["uv", "run", "mypy", "--python-version", "3.14", "--strict", "src"]))
+    )
 
     _section("uv audit")
     checks.append(("audit", _run(["uv", "audit"])))
@@ -88,7 +103,10 @@ def _print_summary(checks: list[tuple[str, bool]]) -> None:
 
 @app.callback(invoke_without_command=True)
 def all_checks(ctx: typer.Context) -> None:
-    """Run all checks in sequence: test, coverage, lint, format, typecheck, audit, security."""
+    """Run all checks in sequence: version, test, coverage, lint, format, typecheck, audit.
+
+    Also includes security scan checks.
+    """
     if ctx.invoked_subcommand is not None:
         return
 
@@ -105,7 +123,9 @@ def test(
     k: Annotated[str | None, typer.Option("-k", help="Filter tests by keyword expression")] = None,
     x: Annotated[bool, typer.Option("-x", help="Stop after first failure")] = False,
 ) -> None:
-    """Run the pytest test suite."""
+    """Run the pytest test suite strictly under Python 3.14."""
+    if not _verify_python_314_environment():
+        raise typer.Exit(1)
     cmd = ["uv", "run", "pytest"]
     if verbose:
         cmd.append("-v")
@@ -127,6 +147,8 @@ def coverage(
     ] = False,
 ) -> None:
     """Run pytest with code coverage analysis over src/."""
+    if not _verify_python_314_environment():
+        raise typer.Exit(1)
     cmd = ["uv", "run", "pytest", "--cov=src", "--cov-report=term-missing"]
     if html:
         cmd.append("--cov-report=html")
@@ -138,8 +160,10 @@ def coverage(
 def lint(
     fix: Annotated[bool, typer.Option("--fix", help="Auto-fix violations where possible")] = False,
 ) -> None:
-    """Run ruff linter across the project."""
-    cmd = ["uv", "run", "ruff", "check", "."]
+    """Run ruff linter strictly targeting Python 3.14 across the project."""
+    if not _verify_python_314_environment():
+        raise typer.Exit(1)
+    cmd = ["uv", "run", "ruff", "check", "--target-version", "py314", "."]
     if fix:
         cmd.append("--fix")
     if not _run(cmd):
@@ -150,8 +174,10 @@ def lint(
 def fmt(
     fix: Annotated[bool, typer.Option("--fix", help="Apply formatting changes in-place")] = False,
 ) -> None:
-    """Check (or apply) code formatting with ruff format."""
-    cmd = ["uv", "run", "ruff", "format"]
+    """Check (or apply) code formatting with ruff format targeting Python 3.14."""
+    if not _verify_python_314_environment():
+        raise typer.Exit(1)
+    cmd = ["uv", "run", "ruff", "format", "--target-version", "py314"]
     if not fix:
         cmd.append("--check")
     cmd.append(".")
@@ -161,14 +187,18 @@ def fmt(
 
 @app.command()
 def typecheck() -> None:
-    """Run mypy static type-checker over src/."""
-    if not _run(["uv", "run", "mypy", "src"]):
+    """Run mypy static type-checker strictly targeting Python 3.14 over src/."""
+    if not _verify_python_314_environment():
+        raise typer.Exit(1)
+    if not _run(["uv", "run", "mypy", "--python-version", "3.14", "--strict", "src"]):
         raise typer.Exit(1)
 
 
 @app.command()
 def audit() -> None:
     """Run uv audit to check for known package vulnerabilities."""
+    if not _verify_python_314_environment():
+        raise typer.Exit(1)
     if not _run(["uv", "audit"]):
         raise typer.Exit(1)
 
@@ -181,6 +211,8 @@ def security(
     ] = "medium",
 ) -> None:
     """Run bandit static security vulnerability analysis over src/."""
+    if not _verify_python_314_environment():
+        raise typer.Exit(1)
     level_flag = (
         "-lll" if severity.lower() == "high" else ("-l" if severity.lower() == "low" else "-ll")
     )

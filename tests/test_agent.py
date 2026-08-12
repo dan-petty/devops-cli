@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import MagicMock
 
 from pydantic import BaseModel
 
-from devops_cli.ai.agent import AgentResponse, PydanticAgent
+from devops_cli.ai.agents import AgentResponse, PydanticAgent
 from devops_cli.ai.client import LLMClient
 
 
@@ -93,3 +94,39 @@ def test_ollama_stream_thinking_fallback(mocker: MagicMock) -> None:
     assert "".join(chunks) == "Response without thinking"
     assert client._ollama_thinking_supported is False
     assert mock_stream_req.call_count == 2
+
+
+def test_multi_agent_pipeline() -> None:
+    from devops_cli.ai.agents import MultiAgentPipeline, PydanticAgent
+
+    client1 = MagicMock(spec=LLMClient)
+    client1.chat_messages.return_value = "Scanner report: files look clean."
+    client2 = MagicMock(spec=LLMClient)
+    client2.chat_messages.return_value = "Architect report: SOLID patterns used."
+
+    agent1 = PydanticAgent(client=client1, name="DevSecOps", system_prompt="Scan code")
+    agent2 = PydanticAgent(client=client2, name="Architect", system_prompt="Check design")
+
+    pipeline = MultiAgentPipeline[Any](agents=[agent1, agent2])
+    res = pipeline.run("Analyze workspace")
+
+    assert len(res.steps) == 2
+    assert res.steps[0].agent_name == "DevSecOps"
+    assert res.steps[0].content == "Scanner report: files look clean."
+    assert res.steps[1].agent_name == "Architect"
+    assert res.steps[1].content == "Architect report: SOLID patterns used."
+    assert res.final_content == "Architect report: SOLID patterns used."
+
+
+def test_get_default_tools_includes_mcp() -> None:
+    from devops_cli.ai.tools import get_default_tools, get_mcp_agent_tools
+
+    mcp_tools = get_mcp_agent_tools()
+    all_tools = get_default_tools()
+
+    assert len(mcp_tools) >= 10
+    assert len(all_tools) >= len(mcp_tools) + 8
+    tool_names = [t.__name__ for t in all_tools]
+    assert "repos_list" in tool_names
+    assert "k8s_status" in tool_names
+    assert "ci_run" in tool_names

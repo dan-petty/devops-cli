@@ -55,6 +55,7 @@ devops ci
 | | `devops ai review export-feedback` | Export invalidated findings into JSONL benchmark dataset for prompt tuning |
 | | `devops ai review apply-patch <session>` | Interactively stage suggested LLM code fixes (`finding.fix`) to workspace |
 | | `devops ai review stats` | View accuracy metrics and false-positive rates per persona |
+| | `devops ai pipeline [<prompt>]` | Run multi-agent Pydantic pipeline with shared DevOps & MCP tools |
 | | `devops ai bundle-models` | Package local Ollama model weight manifests for air-gapped DevContainers |
 | **config** | `devops config show` | Display current CLI configuration and active env var overrides |
 | | `devops config output` | Display specification for all 30 environment variables |

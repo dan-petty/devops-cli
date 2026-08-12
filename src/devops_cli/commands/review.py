@@ -20,6 +20,7 @@ from rich.table import Table
 
 from devops_cli.ai.client import AIClientError, LLMClient
 from devops_cli.ai.personas import PERSONAS, Persona, PersonaDefinition
+from devops_cli.ai.review import ReviewPipelineOrchestrator
 from devops_cli.ai.review.rendering import _render_review_result
 from devops_cli.ai.review.sanitization import (
     _build_prompt,
@@ -984,7 +985,7 @@ def _load_file_analysis_metas(
                             fn,
                             content,
                             file_path.stat().st_size,
-                            enhanced=True,
+                            enhanced=False,
                             repo_root=repo,
                         )
                         any_updated = True
@@ -1807,9 +1808,27 @@ def _execute_review_workflow(
         spans_msg = MESSAGES.review.spans_pages.format(count=len(pages))
         rprint(f"[dim]{spans_msg}[/dim]")
 
+    all_files = sorted(list({fn for page in pages for fn in _extract_segment_filenames(page)}))
+    orchestrator = ReviewPipelineOrchestrator(llm_client=clients.analysis)
+
+    if not is_dry_run() and type(clients.analysis).__name__ == "LLMClient":
+        metadata_by_path = orchestrator.run_pre_analysis_refresh(Path.cwd())
+        if all_files:
+            payloads = orchestrator.init_per_file_payloads(all_files, metadata_by_path)
+            diff_text_by_file = {
+                f: "\n".join([page for page in pages if f in page]) for f in all_files
+            }
+            all_p = ["devsecops", "architect", "qa", "auditor", "pm"]
+            active_p = [persona.value] if persona else (all_p if all_personas else ["devsecops"])
+            orchestrator.execute_multi_persona_review(
+                payloads, diff_text_by_file=diff_text_by_file, personas=active_p
+            )
+            orchestrator.execute_finding_verification(payloads)
+            orchestrator.execute_finding_reranking(payloads)
+            orchestrator.generate_consolidated_report(payloads)
+
     if summary_only:
         rprint(f"[dim]{MESSAGES.review.generating_metadata}[/dim]")
-        all_files = sorted(list({fn for page in pages for fn in _extract_segment_filenames(page)}))
         try:
             from devops_cli.core.repo import find_repo_root
 
@@ -2275,11 +2294,12 @@ def list_findings(
         reason = f.invalidation_reason or ""
         info = f"{by}: {reason}".strip(": ") if (by or reason) else "—"
 
+        conf_str = f"{f.confidence_score:.2f}" if f.confidence_score is not None else "N/A"
         table.add_row(
             str(i),
             f.persona,
             f.severity,
-            f"{f.confidence_score:.2f}",
+            conf_str,
             f.location,
             f.title,
             st_fmt,

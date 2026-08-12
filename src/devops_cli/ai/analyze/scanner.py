@@ -6,6 +6,11 @@ import ast
 import mimetypes
 import re
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from devops_cli.models.ai import FileAnalysisMeta
+
 
 _MANIFEST_LANG_MAP: dict[str, str] = {
     "dockerfile": "dockerfile",
@@ -281,3 +286,30 @@ def _extract_file_purpose(rel_path: str, content: str, lang: str, symbols: list[
 
     clean_stem = stem.replace("_", " ").replace("-", " ").title()
     return f"Provides module implementation for {clean_stem}"
+
+
+def scan_directory(target_dir: Path = Path(".")) -> list[FileAnalysisMeta]:
+    """Scan directory and return basic FileAnalysisMeta for each file."""
+    from devops_cli.ai.analyze.outlines import analyze_single_file
+    from devops_cli.core.repo import find_repo_root, list_repo_files
+
+    repo = find_repo_root(target_dir)
+    target_abs = target_dir.resolve() if target_dir.is_absolute() else (repo / target_dir).resolve()
+    collected_paths = list_repo_files(target_abs)
+    results: list[FileAnalysisMeta] = []
+    for file_path in collected_paths:
+        try:
+            rel_path = str(file_path.relative_to(repo))
+        except ValueError:
+            rel_path = file_path.name
+        content = ""
+        size_bytes = 0
+        if file_path.exists():
+            try:
+                content = file_path.read_text(encoding="utf-8", errors="replace")
+                size_bytes = file_path.stat().st_size
+            except OSError:
+                pass
+        fmeta = analyze_single_file(rel_path, content, size_bytes, repo_root=repo)
+        results.append(fmeta)
+    return results

@@ -9,8 +9,8 @@ from unittest.mock import patch
 import pytest
 from typer.testing import CliRunner
 
+from devops_cli.ai.mcp import list_mcp_tools, mcp, run_mcp_server
 from devops_cli.commands.mcp import app
-from devops_cli.mcp import list_mcp_tools, mcp, run_mcp_server
 
 if TYPE_CHECKING:
     pass
@@ -89,13 +89,13 @@ class TestRunMcpServer:
 
     def test_run_stdio(self) -> None:
         """run_mcp_server stdio must call mcp.run(transport='stdio', show_banner=False)."""
-        with patch("devops_cli.mcp.mcp") as mock_mcp:
+        with patch("devops_cli.ai.mcp.server.mcp") as mock_mcp:
             run_mcp_server(transport="stdio")
             mock_mcp.run.assert_called_once_with(transport="stdio", show_banner=False)
 
     def test_run_sse(self) -> None:
         """run_mcp_server sse must call mcp.run with host and port when allowed."""
-        with patch("devops_cli.mcp.mcp") as mock_mcp:
+        with patch("devops_cli.ai.mcp.server.mcp") as mock_mcp:
             run_mcp_server(transport="sse", host="0.0.0.0", port=9000, allow_remote=True)
             mock_mcp.run.assert_called_once_with(transport="sse", host="0.0.0.0", port=9000)
 

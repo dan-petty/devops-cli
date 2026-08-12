@@ -85,11 +85,19 @@ class LLMClient:
 
     def __init__(
         self,
-        config: AIConfig,
+        config: AIConfig | None = None,
         api_key: str | None = None,
         *,
         request_timeout_seconds: float | None = None,
     ) -> None:
+        if config is None:
+            from devops_cli.config.settings import get_ai_api_key, load_settings
+
+            settings = load_settings()
+            config = settings.ai
+            if not api_key:
+                api_key = get_ai_api_key(settings)
+
         self._config = config
         self._api_key = api_key or ""
         self._request_timeout_seconds = request_timeout_seconds
@@ -203,7 +211,7 @@ class LLMClient:
                 data = json.loads(stripped)
                 if isinstance(data, dict) and ("error" in data or "error_code" in data):
                     return False
-            except json.JSONDecodeError, TypeError, ValueError:
+            except (json.JSONDecodeError, TypeError, ValueError):
                 pass
         if validator is not None:
             try:

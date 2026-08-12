@@ -111,8 +111,7 @@ def is_ignored_by_git(repo_root: Path, target_path: Path) -> bool:
     )
     for pat in patterns:
         clean_pat = pat.rstrip("/")
-        if clean_pat.startswith("/"):
-            clean_pat = clean_pat[1:]
+        clean_pat = clean_pat.removeprefix("/")
         if fnmatch.fnmatch(rel_str, clean_pat) or fnmatch.fnmatch(target_path.name, clean_pat):
             return True
         for part in rel_parts:

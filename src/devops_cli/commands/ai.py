@@ -568,9 +568,9 @@ def chat(
     """Start an interactive chat with a Pydantic AI persona (tools, thinking, streaming)."""
     import sys
 
-    from devops_cli.ai.agent import PydanticAgent
-    from devops_cli.ai.agent_tools import get_default_tools
+    from devops_cli.ai.agents import PydanticAgent
     from devops_cli.ai.client import LLMClient
+    from devops_cli.ai.tools import get_default_tools
     from devops_cli.config.settings import get_ai_api_key, load_settings
 
     if persona not in _PERSONA_NAMES:
@@ -662,3 +662,106 @@ def bundle_models(
 
     count, manifest_path = bundle_ollama_models(output_dir=output_dir)
     rprint(f"[green]✓ Bundled {count} model(s) → [bold]{manifest_path}[/bold][/green]")
+
+
+@app.command("pipeline")
+def pipeline(
+    prompt: Annotated[
+        str,
+        typer.Argument(
+            help="Initial goal or prompt for the multi-agent pipeline",
+        ),
+    ] = "Perform a multi-agent review of workspace security, architecture, and code quality.",
+    personas: Annotated[
+        str,
+        typer.Option(
+            "--personas",
+            "-p",
+            help="Comma-separated persona pipeline sequence (e.g. devsecops,architect,qa)",
+        ),
+    ] = "devsecops,architect,qa",
+    max_turns: Annotated[
+        int,
+        typer.Option("--max-turns", help="Maximum tool turns per agent stage"),
+    ] = 5,
+    thinking: Annotated[
+        bool,
+        typer.Option("--thinking/--no-thinking", help="Enable reasoning/thinking per agent"),
+    ] = True,
+) -> None:
+    """Run a multi-agent Pydantic pipeline with shared DevOps tools."""
+    from devops_cli.ai.agents import MultiAgentPipeline, PydanticAgent
+    from devops_cli.ai.client import LLMClient
+    from devops_cli.ai.tools import get_default_tools
+    from devops_cli.config.settings import get_ai_api_key, load_settings
+    from devops_cli.dry_run import CommandDryRunResult, is_dry_run
+
+    persona_names = [p.strip().lower() for p in personas.split(",") if p.strip()]
+    valid_personas: list[Persona] = []
+    for name in persona_names:
+        if name not in _PERSONA_NAMES:
+            rprint(f"[red]Unknown persona {name!r}. Choose from: {', '.join(_PERSONA_NAMES)}[/red]")
+            raise typer.Exit(1)
+        valid_personas.append(Persona(name))
+
+    if is_dry_run():
+        res = CommandDryRunResult(
+            command="devops ai pipeline",
+            target=prompt,
+            action="multi_agent_pipeline_execution",
+            details={
+                "personas": [p.value for p in valid_personas],
+                "prompt": prompt,
+                "max_turns": max_turns,
+            },
+        )
+        rprint("[yellow][dry-run][/yellow] Command response:")
+        console.print_json(res.model_dump_json(indent=2))
+        return
+
+    settings = load_settings()
+    client = LLMClient(settings.ai.for_task("chat"), api_key=get_ai_api_key(settings))
+    agent_tools = get_default_tools()
+
+    pipeline_engine: MultiAgentPipeline[Any] = MultiAgentPipeline(
+        shared_tools=agent_tools,
+    )
+
+    for p in valid_personas:
+        p_def = PERSONAS[p]
+        agent: PydanticAgent[Any] = PydanticAgent(
+            client=client,
+            system_prompt=p_def.system_prompt,
+            name=p_def.title,
+            tools=agent_tools,
+        )
+        pipeline_engine.add_agent(agent)
+
+    rprint(
+        Rule(
+            f" [cyan]Multi-Agent Pipeline ({len(valid_personas)} Stages)[/cyan]  "
+            f"[dim]{client.backend_info}[/dim] ",
+            style="cyan",
+        )
+    )
+    rprint(f"[bold]Initial Prompt:[/bold] {prompt}\n")
+
+    result = pipeline_engine.run(
+        prompt,
+        max_turns_per_agent=max_turns,
+        enable_thinking=thinking,
+    )
+
+    for idx, step in enumerate(result.steps, 1):
+        rprint(Rule(f" Stage {idx}: {step.agent_name} ", style="bold green"))
+        if step.tool_calls:
+            rprint(f"[dim]Executed {len(step.tool_calls)} tool call(s):[/dim]")
+            for tc in step.tool_calls:
+                rprint(f"  [yellow]⚡ {tc.tool_name}[/yellow]({tc.arguments})")
+        rprint(f"\n{step.content.strip()}\n")
+
+    rprint(
+        f"[bold green]✓ Multi-agent pipeline completed across {len(result.steps)} stage(s) "
+        f"({result.total_turns} total turns, {len(result.all_tool_calls)} tool executions)."
+        "[/bold green]"
+    )

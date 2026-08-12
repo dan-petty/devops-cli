@@ -196,7 +196,7 @@ def _keyring_set(key: str, value: str) -> None:
 
     try:
         keyring.set_password(KEYRING_SERVICE, key, value)
-    except NoKeyringError, Exception:
+    except NoKeyringError:
         _EPHEMERAL_CI_SECRETS[key] = value
     except Exception as exc:
         raise SecretStorageError(f"Failed to store secret in keyring: {exc}") from exc
@@ -235,7 +235,7 @@ def load_settings() -> Settings:
             continue
         try:
             dotted_set(settings, option_key, env_value)
-        except AttributeError, ValueError:
+        except (AttributeError, ValueError):
             # Ignore invalid or unknown env overrides and keep existing settings.
             continue
 
@@ -264,7 +264,7 @@ def save_settings(settings: Settings) -> None:
 # NOTE (Design Justification - AGENTS.md §4): Secret storage prioritizes OS keyring integration
 # (_keyring_get/_keyring_set) while environment variable overrides (e.g., DEVOPS_CLI_GITHUB_TOKEN)
 # serve as an intentional fallback mechanism for non-interactive CI environments.
-def get_github_token(settings: Settings) -> str | None:  # noqa: ARG001
+def get_github_token(settings: Settings) -> str | None:
     return _keyring_get(_KEYRING_KEYS[opt.GITHUB_TOKEN]) or _github_cli_token()
 
 
@@ -274,7 +274,7 @@ def _github_cli_token() -> str | None:
 
     try:
         result = run_subprocess(["gh", "auth", "token"], quiet=True, timeout=5.0)
-    except FileNotFoundError, OSError, subprocess.SubprocessError:
+    except (FileNotFoundError, OSError, subprocess.SubprocessError):
         return None
 
     if result.returncode != 0:
@@ -284,15 +284,15 @@ def _github_cli_token() -> str | None:
     return token or None
 
 
-def get_grafana_token(settings: Settings) -> str | None:  # noqa: ARG001
+def get_grafana_token(settings: Settings) -> str | None:
     return _keyring_get(_KEYRING_KEYS[opt.GRAFANA_TOKEN])
 
 
-def get_argocd_token(settings: Settings) -> str | None:  # noqa: ARG001
+def get_argocd_token(settings: Settings) -> str | None:
     return _keyring_get(_KEYRING_KEYS[opt.ARGOCD_TOKEN])
 
 
-def get_ai_api_key(settings: Settings) -> str | None:  # noqa: ARG001
+def get_ai_api_key(settings: Settings) -> str | None:
     return _keyring_get(_KEYRING_KEYS[opt.AI_API_KEY])
 
 

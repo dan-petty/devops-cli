@@ -35,6 +35,50 @@
     "DEVOPS_K8S_AUTO_DEPLOY": "true",
     "UV_MALWARE_CHECK": "1"
   },
+  "forwardPorts": [
+    8080,
+    8030,
+    8090,
+    3000,
+    9090,
+    4317,
+    4318,
+    11434
+  ],
+  "portsAttributes": {
+    "8080": {
+      "label": "ArgoCD Web UI",
+      "onAutoForward": "notify"
+    },
+    "8030": {
+      "label": "Grafana Dashboard",
+      "onAutoForward": "notify"
+    },
+    "8090": {
+      "label": "Prometheus Metrics",
+      "onAutoForward": "notify"
+    },
+    "3000": {
+      "label": "Grafana Fallback",
+      "onAutoForward": "ignore"
+    },
+    "9090": {
+      "label": "Prometheus Fallback",
+      "onAutoForward": "ignore"
+    },
+    "4317": {
+      "label": "OpenTelemetry gRPC",
+      "onAutoForward": "ignore"
+    },
+    "4318": {
+      "label": "OpenTelemetry HTTP",
+      "onAutoForward": "ignore"
+    },
+    "11434": {
+      "label": "Ollama LLM Engine",
+      "onAutoForward": "ignore"
+    }
+  },
   "postCreateCommand": "bash .devcontainer/postCreate.sh",
   "postStartCommand": "bash .devcontainer/postStart.sh",
   "customizations": {

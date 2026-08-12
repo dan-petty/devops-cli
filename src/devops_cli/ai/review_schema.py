@@ -6,7 +6,9 @@ import json
 import re
 from typing import Any
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
+
+from devops_cli.models.ai import FileAnalysisMeta
 
 _SEVERITY_RANK: dict[str, int] = {
     "CRITICAL": 0,
@@ -42,7 +44,7 @@ class Finding(BaseModel):
     invalidation_reason: str | None = None
     verified_by: str | None = None  # "llm" | "human"
     verified_at: str | None = None
-    confidence_score: float = 0.9
+    confidence_score: float | None = None
 
     @field_validator("severity", mode="before")
     @classmethod
@@ -59,20 +61,29 @@ class Finding(BaseModel):
 
     @field_validator("confidence_score", mode="before")
     @classmethod
-    def _normalize_confidence(cls, v: object) -> float:
-        if v is None:
-            return 0.9
+    def _normalize_confidence(cls, v: object) -> float | None:
+        if v is None or str(v).lower() in ("null", "none", ""):
+            return None
         try:
             val = float(str(v))
             return max(0.0, min(1.0, val))
         except ValueError, TypeError:
-            return 0.9
+            return None
 
 
 class SavedFinding(Finding):
     persona: str = ""
     persona_title: str = ""
     recommendation: str = "REQUEST CHANGES"
+
+
+class FileReviewPayload(BaseModel):
+    file_path: str
+    metadata: FileAnalysisMeta | None = None
+    linked_files: list[FileAnalysisMeta] = Field(default_factory=list)
+    findings: list[SavedFinding] = Field(default_factory=list)
+    ai_scratchpad: dict[str, Any] = Field(default_factory=dict)
+    reportable: bool = True
 
 
 class ReviewSessionPayload(BaseModel):
@@ -86,7 +97,7 @@ class ReviewResult(BaseModel):
     positive_observations: list[str] = []
     recommendation: str = "REQUEST CHANGES"
     summary: str = ""
-    confidence_score: float = 0.9
+    confidence_score: float | None = None
 
     @field_validator("recommendation", mode="before")
     @classmethod
@@ -96,14 +107,14 @@ class ReviewResult(BaseModel):
 
     @field_validator("confidence_score", mode="before")
     @classmethod
-    def _normalize_confidence(cls, v: object) -> float:
-        if v is None:
-            return 0.9
+    def _normalize_confidence(cls, v: object) -> float | None:
+        if v is None or str(v).lower() in ("null", "none", ""):
+            return None
         try:
             val = float(str(v))
             return max(0.0, min(1.0, val))
         except ValueError, TypeError:
-            return 0.9
+            return None
 
     @property
     def sorted_findings(self) -> list[Finding]:
@@ -127,7 +138,9 @@ class ReviewResult(BaseModel):
             (self.recommendation, other.recommendation),
             key=lambda r: rec_order.get(r, 99),
         )
-        merged_conf = round((self.confidence_score + other.confidence_score) / 2.0, 2)
+        c1 = self.confidence_score if self.confidence_score is not None else 0.8
+        c2 = other.confidence_score if other.confidence_score is not None else 0.8
+        merged_conf = round((c1 + c2) / 2.0, 2)
         return ReviewResult(
             findings=self.findings + new_findings,
             positive_observations=list(

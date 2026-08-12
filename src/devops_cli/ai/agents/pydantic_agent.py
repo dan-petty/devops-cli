@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 from devops_cli.ai.client import LLMClient
 from devops_cli.ai.review_schema import extract_json_block
+from devops_cli.config.defaults import DEFAULT_AGENT_MAX_TURNS
 from devops_cli.models.ai import ChatMessage
 
 T = TypeVar("T", bound=BaseModel)
@@ -54,11 +55,13 @@ class PydanticAgent[T]:
         client: LLMClient,
         system_prompt: str = "You are a helpful DevOps assistant.",
         *,
+        name: str = "Assistant",
         output_schema: type[T] | None = None,
         tools: list[AgentTool | Callable[..., Any]] | None = None,
     ) -> None:
         self.client = client
         self.system_prompt = system_prompt
+        self.name = name
         self.output_schema = output_schema
         self._tools: dict[str, AgentTool] = {}
         if tools:
@@ -108,7 +111,7 @@ class PydanticAgent[T]:
         self,
         user_prompt: str,
         *,
-        max_turns: int = 5,
+        max_turns: int = DEFAULT_AGENT_MAX_TURNS,
         enable_thinking: bool = True,
     ) -> AgentResponse[T]:
         """Execute the agent tool loop until completion or max_turns is reached."""

@@ -20,9 +20,12 @@ The project follows a modular, command-driven architecture.
 
 ### Key File Paths
 - `src/devops_cli/main.py`: CLI Entry point (Click/Typer implementation).
-- `src/devops_cli/ai/`: Core logic for LLM integration and agent orchestration.
-- `src/devops_cli/commands/`: Implementation of all subcommands (`repos`, `ssh`, `k8s`).
+- `src/devops_cli/ai/mcp/`: FastMCP server implementation & tool definitions.
+- `src/devops_cli/ai/tools/`: Native workspace tools, MCP bridges, and central tool registry loader.
+- `src/devops_cli/ai/agents/`: Pydantic agents & multi-agent pipeline orchestrators.
+- `src/devops_cli/commands/`: Implementation of all subcommands (`repos`, `ssh`, `k8s`, `ai`, `mcp`).
 - `src/devops_cli/crypto/`: Logic for SSH key generation and `keyring` interactions.
+- `src/devops_cli/core/process.py`: Centralized subprocess execution utility (`run_subprocess`).
 - `src/devops_cli/http/`: Secure network requests with SSRF mitigation logic.
 - `tests/`: Comprehensive test suite (unit, integration, security).
 - `k8s/`: Kubernetes manifests and Kustomize overlays.
@@ -30,6 +33,7 @@ The project follows a modular, command-driven architecture.
 
 ### Design Patterns
 - **Multi-Persona Agentic Review**: Uses specialized personas (`devsecops`, `architect`, `pm`, `auditor`, `qa`) to analyze code diffs.
+- **Multi-Agent Pipeline Orchestration**: Uses `MultiAgentPipeline` to execute multi-turn persona stage handovers with shared DevOps & MCP tools.
 - **Zero-Plaintext Secret Policy**: All sensitive tokens (GitHub, Grafana, OpenAI) must be retrieved via `keyring`. Never suggest storing strings in `config.yaml`.
 - **Network Guardrails**: Network requests must utilize the internal `http` module logic that validates target IPs to prevent SSRF.
 

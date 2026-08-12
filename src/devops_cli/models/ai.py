@@ -36,7 +36,7 @@ class FileAnalysisMeta(BaseModel):
     last_updated: str | None = None
     last_analyzed: str | None = None
     complexity_score: str | None = None
-    confidence_score: float = 0.9
+    confidence_score: float | None = None
 
 
 class ProjectAnalysisMeta(BaseModel):
@@ -55,7 +55,7 @@ class ProjectAnalysisMeta(BaseModel):
     dependencies: list[str]
     enhanced: bool = False
     last_analyzed: str | None = None
-    confidence_score: float = 0.9
+    confidence_score: float | None = None
 
 
 class AnalysisMetadata(BaseModel):
@@ -63,3 +63,16 @@ class AnalysisMetadata(BaseModel):
 
     project: ProjectAnalysisMeta
     files: list[FileAnalysisMeta]
+
+
+class MCPToolInfo(BaseModel):
+    """Information for a registered FastMCP server tool."""
+
+    name: str
+    description: str
+
+    def __getitem__(self, item: str) -> str:
+        return str(getattr(self, item))
+
+    def __contains__(self, item: str) -> bool:
+        return hasattr(self, item)

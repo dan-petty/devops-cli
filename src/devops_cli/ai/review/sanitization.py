@@ -83,3 +83,9 @@ def _mask_secrets_in_content(text: str) -> str:
     for pattern, replacement in _SECRET_PATTERNS:
         scrubbed = pattern.sub(replacement, scrubbed)
     return scrubbed
+
+
+def _sanitize_filename(path: str) -> str:
+    """Sanitize relative file path to safe JSON filename."""
+    clean = path.replace("/", "_").replace("\\", "_").replace(":", "_").replace(".", "_")
+    return clean.strip("_")

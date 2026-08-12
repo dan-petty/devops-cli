@@ -108,6 +108,24 @@ def _render_analysis_summary(payload: AnalysisMetadata, out_path: Path) -> None:
             MESSAGES.analyze.lbl_enhanced,
             MESSAGES.analyze.enhanced_enabled,
         )
-        table.add_row("Confidence Score:", f"{proj.confidence_score:.2f}")
+        conf_str = f"{proj.confidence_score:.2f}" if proj.confidence_score is not None else "N/A"
+        table.add_row("Confidence Score:", conf_str)
     table.add_row(MESSAGES.analyze.lbl_saved_to, f"[link=file://{out_path}]{out_path}[/link]")
     console.print(table)
+
+
+def load_cached_analysis(repo_root: Path = Path(".")) -> AnalysisMetadata | None:
+    """Load latest cached AnalysisMetadata from .data/analysis/ if present."""
+    analysis_dir = repo_root / CONST_DATA_DIR / "analysis"
+    if not analysis_dir.is_dir():
+        return None
+    json_files = sorted(
+        analysis_dir.glob("*-metadata.json"), key=lambda p: p.stat().st_mtime, reverse=True
+    )
+    if not json_files:
+        return None
+    try:
+        data = json_files[0].read_text(encoding="utf-8")
+        return AnalysisMetadata.model_validate_json(data)
+    except Exception:
+        return None

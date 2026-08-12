@@ -10,8 +10,8 @@ from rich import print as rprint
 from rich.console import Console
 from rich.table import Table
 
+from devops_cli.ai.mcp import list_mcp_tools, run_mcp_server
 from devops_cli.core.cli import new_typer
-from devops_cli.mcp import list_mcp_tools, run_mcp_server
 
 app = new_typer(name="mcp", help="FastMCP server and Model Context Protocol integrations.")
 _console = Console()

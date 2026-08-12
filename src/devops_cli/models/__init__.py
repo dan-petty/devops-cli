@@ -9,7 +9,13 @@ and re-exported here for convenient single-import access:
 from __future__ import annotations
 
 from devops_cli.dry_run import CommandDryRunResult
-from devops_cli.models.ai import ChatMessage
+from devops_cli.models.ai import (
+    AnalysisMetadata,
+    ChatMessage,
+    FileAnalysisMeta,
+    MCPToolInfo,
+    ProjectAnalysisMeta,
+)
 from devops_cli.models.argo import ArgoCDApp
 from devops_cli.models.git import BranchListing
 from devops_cli.models.github import SSHKeyInfo
@@ -18,14 +24,18 @@ from devops_cli.models.prometheus import PrometheusQueryResult, PrometheusSeries
 from devops_cli.models.ssh import ManagedSSHKey
 
 __all__ = [
+    "AnalysisMetadata",
     "ArgoCDApp",
     "BranchListing",
     "ChatMessage",
     "CommandDryRunResult",
+    "FileAnalysisMeta",
     "GrafanaAlertRule",
     "GrafanaDashboard",
     "GrafanaDatasource",
+    "MCPToolInfo",
     "ManagedSSHKey",
+    "ProjectAnalysisMeta",
     "PrometheusQueryResult",
     "PrometheusSeries",
     "SSHKeyInfo",

@@ -104,13 +104,16 @@ if [ "${DEVOPS_MINIKUBE_AUTOSTART:-true}" = "true" ]; then
   fi
 fi
 
-# ── Kubernetes infrastructure stack auto-deployment ───────────────────────────
+# ── Kubernetes infrastructure stack auto-deployment & port forwarding ─────────
 if [ "${DEVOPS_K8S_AUTO_DEPLOY:-true}" = "true" ]; then
   if command -v minikube &>/dev/null; then
     if minikube status --format='{{.Host}}' 2>/dev/null | grep -q "Running"; then
       echo "Deploying devops infrastructure stack to minikube..."
       uv run devops k8s deploy-stack || true
       echo "✓ devops k8s infrastructure stack deployed"
+      echo "Setting up background port forwarding..."
+      uv run devops k8s port-forward || true
+      echo "✓ devops k8s port forwarding configured"
     fi
   fi
 fi
