@@ -8,6 +8,11 @@ and OpenTelemetry Collector to the devcontainer's minikube cluster.
 - minikube running (`minikube status` or auto-started by postStart.sh)
 - kubectl and helm on PATH (installed by devcontainer features)
 
+## DevContainer Auto-Deployment
+
+When running inside the devcontainer environment, minikube autostart and infrastructure stack auto-deployment are enabled by default (`DEVOPS_MINIKUBE_AUTOSTART=true` and `DEVOPS_K8S_AUTO_DEPLOY=true`). On container startup, `.devcontainer/postStart.sh` automatically starts minikube and executes `devops k8s deploy-stack` to provision ArgoCD, Prometheus, Grafana, and OpenTelemetry Collector.
+
+
 ## Quick Start
 
 ```bash

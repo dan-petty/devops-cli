@@ -101,8 +101,8 @@ devops ci
 | | `devops config get <key>` | Get specific configuration value |
 | | `devops config set <key> <val>` | Set configuration setting or store secret in OS keyring |
 | | `devops config output [--export\|--json]`| Output environment variables available for configuration |
-| **ci** | `devops ci` | Run complete quality gate (pytest, ruff, format, mypy) |
-| | `devops ci test\|lint\|format\|typecheck` | Execute individual CI quality checks |
+| **ci** | `devops ci` | Run 7-check quality gate (test, coverage, lint, format, typecheck, audit, security) |
+| | `devops ci test\|coverage\|lint\|format\|typecheck\|audit\|security` | Execute individual CI quality checks |
 | **branches** | `devops branches list` | List local and remote tracking branches across repos |
 | | `devops branches prune` | Delete local tracking branches merged into main |
 | | `devops branches sync` | Synchronize branch state across workspace repositories |

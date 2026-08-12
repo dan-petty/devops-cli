@@ -39,11 +39,13 @@ The project follows a modular, command-driven architecture.
 | Task | Command | Note |
 | :--- | :--- | :--- |
 | **Install Deps** | `uv sync` | Updates `.venv` based on `uv.lock`. |
-| **Linting** | `ruff check .` | Uses RUFf for linting and import sorting. |
-| **Formatting** | `ruff format .` | Ensures compliance with project style. |
-| **Type Checking** | `mypy src` | Runs in `strict` mode. |
-| **Unit Testing** | `pytest` | Executes the full test suite. |
-| **CI Gate** | `devops ci` | Executes the local quality gate (lint + typecheck + test). |
+| **Linting** | `devops ci lint` / `ruff check .` | Uses Ruff for linting and import sorting. |
+| **Formatting** | `devops ci format` / `ruff format .` | Ensures compliance with project style. |
+| **Type Checking** | `devops ci typecheck` / `mypy src` | Runs in `strict` mode. |
+| **Unit Testing** | `devops ci test` / `pytest` | Executes the full test suite. |
+| **Code Coverage** | `devops ci coverage [--html]` | Measures test coverage (`pytest-cov`). |
+| **Security Scan** | `devops ci security` | Static security scanner (`bandit`). |
+| **CI Quality Gate** | `devops ci` | Executes local quality gate (test, coverage, lint, format, typecheck, audit, security). |
 
 ### Code Conventions
 - **Style**: PEP 8 compliant; Line length strictly **100 characters** (per `ruff` config).
