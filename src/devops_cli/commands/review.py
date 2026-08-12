@@ -1359,14 +1359,21 @@ def _run_review(
     analysis_system = _persona_system_prompt(persona, agents_md)
     compose_system = persona.compose_prompt
 
-    # ── Step 1: generate (or reuse) metadata for every segment ────────────────
+    meta_info = getattr(clients.metadata, "backend_info", "")
+    meta_suffix = f" [{meta_info}]" if meta_info else ""
+    analysis_info = getattr(clients.analysis, "backend_info", "")
+    analysis_suffix = f" [{analysis_info}]" if analysis_info else ""
+    compose_info = getattr(clients.compose, "backend_info", "")
+    compose_suffix = f" [{compose_info}]" if compose_info else ""
+
+    # ── Step 1: generate (or reuse) metadata for every file ───────────────────
     if prebuilt_metadata is not None:
-        rprint(f"[dim]Step 1/4: Reusing pre-computed metadata for {total} segment(s).[/dim]")
+        rprint(f"[dim]Step 1/4: Reusing pre-computed metadata for {total} file(s).[/dim]")
         if session_dir and (session_dir / "metadata.json").is_file():
             rprint(f"[dim]  ✓ metadata loaded → {session_dir / 'metadata.json'}[/dim]")
         metadata = prebuilt_metadata
     else:
-        rprint(f"[dim]Step 1/4: Generating metadata for {total} segment(s)...[/dim]")
+        rprint(f"[dim]Step 1/4: Generating metadata for {total} file(s)...{meta_suffix}[/dim]")
         metadata = _build_review_metadata(
             pages, title, clients.metadata, context_lines, session_dir=session_dir
         )
@@ -1374,18 +1381,25 @@ def _run_review(
             rprint("[yellow][dry-run][/yellow] Review metadata:")
             console.print_json(json.dumps(metadata.model_dump(), ensure_ascii=True))
 
-    # ── Step 2: review each segment (with retry on empty/error) ──────────────
-    rprint(f"[dim]Step 2/4: Reviewing {total} segment(s)...[/dim]")
+    # ── Step 2: review each file (with retry on empty/error) ──────────────────
+    rprint(f"[dim]Step 2/4: Reviewing {total} file(s)...{analysis_suffix}[/dim]")
     t2 = time.monotonic()
     responses: list[str] = []
 
     def _review_segment(i: int, page: str) -> tuple[int, str]:
+        fns = _extract_segment_filenames(page)
+        if fns:
+            fn_str = ", ".join(fns)
+            file_label = f"{fn_str} ({i}/{total})" if total > 1 else fn_str
+        else:
+            file_label = f"segment {i}/{total}"
+
         user_prompt = _build_segment_review_prompt(
             page, title, i, total, metadata, build_prompt, persona
         )
         if is_dry_run():
             _debug_block(
-                f"Would send LLM review request for segment {i}/{total}",
+                f"Would send LLM review request for {file_label}",
                 _llm_request_preview(clients.analysis, analysis_system, user_prompt),
             )
             dry_seg = ReviewResult(
@@ -1393,8 +1407,8 @@ def _run_review(
                     Finding(
                         severity="INFO",
                         location=title,
-                        title=f"[dry-run] Segment {i}/{total} Analysis",
-                        description=f"Dry run analysis performed for segment {i}/{total}.",
+                        title=f"[dry-run] {file_label} Analysis",
+                        description=f"Dry run analysis performed for {file_label}.",
                         fix="No action required (dry-run mode).",
                         verified=True,
                         status="VERIFIED",
@@ -1402,7 +1416,7 @@ def _run_review(
                 ],
                 positive_observations=["Segment code passed dry-run analysis."],
                 recommendation="APPROVE",
-                summary=f"Dry run segment {i}/{total} review simulation.",
+                summary=f"Dry run {file_label} review simulation.",
             )
             return (i, dry_seg.model_dump_json(indent=2))
         result_text = ""
@@ -1432,13 +1446,13 @@ def _run_review(
                 )
                 if attempt <= _MAX_SEGMENT_RETRIES:
                     rprint(
-                        f"[yellow]  ✗ segment {i}/{total} error in {seg_elapsed:.1f}s "
-                        f"(attempt {attempt}), retrying...[/yellow]"
+                        f"[yellow]  ✗ {file_label} error in {seg_elapsed:.1f}s "
+                        f"(attempt {attempt}){analysis_suffix}, retrying...[/yellow]"
                     )
                     continue
                 rprint(
-                    f"[yellow]  ✗ segment {i}/{total} failed in {seg_elapsed:.1f}s after "
-                    f"{_MAX_SEGMENT_RETRIES + 1} attempt(s); skipping.[/yellow]"
+                    f"[yellow]  ✗ {file_label} failed in {seg_elapsed:.1f}s after "
+                    f"{_MAX_SEGMENT_RETRIES + 1} attempt(s); skipping.{analysis_suffix}[/yellow]"
                 )
                 break
             seg_elapsed = proc_sec if proc_sec is not None else (time.monotonic() - seg_start)
@@ -1460,17 +1474,20 @@ def _run_review(
                 )
                 if attempt <= _MAX_SEGMENT_RETRIES:
                     rprint(
-                        f"[yellow]  ✗ segment {i}/{total} empty in {seg_elapsed:.1f}s "
-                        f"(attempt {attempt}), retrying...[/yellow]"
+                        f"[yellow]  ✗ {file_label} empty in {seg_elapsed:.1f}s "
+                        f"(attempt {attempt}){analysis_suffix}, retrying...[/yellow]"
                     )
                     continue
                 rprint(
-                    f"[yellow]Warning: segment {i}/{total} still empty in {seg_elapsed:.1f}s "
-                    f"after {_MAX_SEGMENT_RETRIES + 1} attempt(s).[/yellow]"
+                    f"[yellow]Warning: {file_label} still empty in {seg_elapsed:.1f}s "
+                    f"after {_MAX_SEGMENT_RETRIES + 1} attempt(s).{analysis_suffix}[/yellow]"
                 )
             else:
                 retry_note = f" (attempt {attempt})" if attempt > 1 else ""
-                rprint(f"[dim]  ✓ segment {i}/{total} in {seg_elapsed:.1f}s{retry_note}[/dim]")
+                rprint(
+                    f"[dim]  ✓ {file_label} in {seg_elapsed:.1f}s"
+                    f"{analysis_suffix}{retry_note}[/dim]"
+                )
             break
         return (i, result_text)
 
@@ -1496,7 +1513,7 @@ def _run_review(
     # ── Step 3: validate findings against source code & related analysis metadata ──
     segment_results: list[ReviewResult | None] = [parse_review_result(r) for r in responses]
     if not is_dry_run():
-        rprint(f"[dim]Step 3/4: Validating findings for {total} segment(s)...[/dim]")
+        rprint(f"[dim]Step 3/4: Validating findings for {total} file(s)...{analysis_suffix}[/dim]")
         t3 = time.monotonic()
         try:
             from devops_cli.core.repo import find_repo_root
@@ -1510,8 +1527,15 @@ def _run_review(
             arg: tuple[int, str, ReviewResult | None],
         ) -> tuple[int, ReviewResult | None]:
             i, page, parsed = arg
+            fns = _extract_segment_filenames(page)
+            if fns:
+                fn_str = ", ".join(fns)
+                file_label = f"{fn_str} ({i}/{total})" if total > 1 else fn_str
+            else:
+                file_label = f"segment {i}/{total}"
+
             if parsed is None or not parsed.findings:
-                rprint(f"[dim]  ✓ segment {i}/{total}: 0 finding(s) to verify[/dim]")
+                rprint(f"[dim]  ✓ {file_label}: 0 finding(s) to verify[/dim]")
                 return (i, parsed)
             val_start = time.monotonic()
             validated, proc_sec = _validate_segment_findings(
@@ -1524,8 +1548,8 @@ def _run_review(
             val_elapsed = proc_sec if proc_sec is not None else (time.monotonic() - val_start)
             n_verified = sum(1 for f in validated.findings if f.verified)
             rprint(
-                f"[dim]  ✓ segment {i}/{total} in {val_elapsed:.1f}s: "
-                f"{n_verified}/{len(validated.findings)} finding(s) verified[/dim]"
+                f"[dim]  ✓ {file_label} in {val_elapsed:.1f}s: "
+                f"{n_verified}/{len(validated.findings)} finding(s) verified{analysis_suffix}[/dim]"
             )
             return (i, validated)
 
@@ -1553,7 +1577,7 @@ def _run_review(
         return segment_results[0] if segment_results[0] is not None else responses[0]
 
     # ── Step 4: compose final review ──────────────────────────────────────────
-    rprint("[dim]Step 4/4: Composing final review...[/dim]")
+    rprint(f"[dim]Step 4/4: Composing final review...{compose_suffix}[/dim]")
     recompose_prompt = _build_recompose_prompt(title, metadata, responses, persona, segment_results)
     if is_dry_run():
         _debug_block(
@@ -1591,7 +1615,7 @@ def _run_review(
                 validator=lambda text: parse_review_result(text) is not None,
             )
         )
-        rprint(f"[dim]  ✓ {time.monotonic() - t4:.1f}s[/dim]")
+        rprint(f"[dim]  ✓ {time.monotonic() - t4:.1f}s{compose_suffix}[/dim]")
         if not raw.strip():
             return _merge_segment_results(segment_results) or _fallback_join(non_empty)
         parsed = parse_review_result(raw)
@@ -1881,8 +1905,9 @@ def _run_persona_loop(
                 )
                 rprint(f"[dim]  {url}: {status}[/dim]")
 
-    # Always extract segment metadata ONCE before any persona review starts
-    rprint(f"[dim]Step 1/4: Generating metadata for {len(pages)} segment(s)...[/dim]")
+    meta_info = getattr(clients.metadata, "backend_info", "")
+    meta_suffix = f" [{meta_info}]" if meta_info else ""
+    rprint(f"[dim]Step 1/4: Generating metadata for {len(pages)} file(s)...{meta_suffix}[/dim]")
     shared_meta: ReviewMeta = _build_review_metadata(
         pages, title, clients.metadata, session_dir=session_dir
     )

@@ -754,6 +754,9 @@ def analyze_path(
 
             settings = load_settings()
             ai_client = LLMClient(settings.ai, api_key=get_ai_api_key(settings))
+            rprint(
+                f"[dim]Analyzing with AI backend: [cyan]{ai_client.backend_info}[/cyan]...[/dim]"
+            )
         except Exception:
             ai_client = None
 
@@ -854,6 +857,9 @@ def analyze_branch(
 
             settings = load_settings()
             ai_client = LLMClient(settings.ai, api_key=get_ai_api_key(settings))
+            rprint(
+                f"[dim]Analyzing with AI backend: [cyan]{ai_client.backend_info}[/cyan]...[/dim]"
+            )
         except Exception:
             ai_client = None
 
@@ -984,6 +990,9 @@ def analyze_pr(
 
             settings = load_settings()
             ai_client = LLMClient(settings.ai, api_key=get_ai_api_key(settings))
+            rprint(
+                f"[dim]Analyzing with AI backend: [cyan]{ai_client.backend_info}[/cyan]...[/dim]"
+            )
         except Exception:
             ai_client = None
 

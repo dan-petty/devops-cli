@@ -448,12 +448,11 @@ def test(
     from devops_cli.lang import MESSAGES
 
     settings = load_settings()
-    info_msg = MESSAGES.ai.provider_model_info.format(
-        provider=f"[cyan]{settings.ai.provider}[/cyan]",
-        model=f"[cyan]{settings.ai.model}[/cyan]",
-    )
-    rprint(info_msg)
     client = LLMClient(settings.ai, api_key=get_ai_api_key(settings))
+    rprint(
+        f"Testing provider: [cyan]{client.backend_info}[/cyan] | "
+        f"model: [cyan]{settings.ai.model}[/cyan]..."
+    )
     try:
         reply = client.chat(system="You are a helpful assistant.", user=prompt)
         rprint(MESSAGES.ai.test_success.format(reply=reply.strip()))
@@ -594,7 +593,7 @@ def chat(
     console.print(
         Rule(
             f" [cyan]{persona_def.title}[/cyan] (Pydantic Agent)  "
-            f"[dim]{settings.ai.provider} / {settings.ai.model}[/dim] ",
+            f"[dim]{client.backend_info} / {settings.ai.model}[/dim] ",
             style="cyan",
         )
     )

@@ -20,9 +20,9 @@ class ReviewMessages(BaseModel):
 
     spans_pages: str = "Content spans {count} pages to ensure full coverage."
     generating_metadata: str = "Generating segment metadata..."
-    step1_metadata: str = "Step 1/4: Analyzing metadata across {count} segment(s)..."
-    step2_segment: str = "Step 2/4: Reviewing {count} segment(s)..."
-    step3_validate: str = "Step 3/4: Validating findings for {count} segment(s)..."
+    step1_metadata: str = "Step 1/4: Analyzing metadata across {count} file(s)..."
+    step2_segment: str = "Step 2/4: Reviewing {count} file(s)..."
+    step3_validate: str = "Step 3/4: Validating findings for {count} file(s)..."
     step4_compose: str = "Step 4/4: Composing final review..."
     segment_progress: str = "  ✓ segment {index}/{total} in {elapsed:.1f}s"
     segment_progress_dryrun: str = "  ✓ segment {index}/{total} (dry-run)"

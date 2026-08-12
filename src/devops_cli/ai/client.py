@@ -113,6 +113,40 @@ class LLMClient:
 
     # ── public API ────────────────────────────────────────────────────────────
 
+    @property
+    def backend_type(self) -> str:
+        """Return the AI provider backend type (e.g. ollama, claude, copilot, openai)."""
+        return self._config.provider
+
+    @property
+    def backend_host(self) -> str:
+        """Return the endpoint host for the current AI provider."""
+        p = self._config.provider
+        if p == "ollama":
+            urls = self._config.get_ollama_urls
+            hosts: list[str] = []
+            for u in urls:
+                parsed = urlparse(u)
+                hosts.append(parsed.netloc or parsed.path or u)
+            return ", ".join(hosts)
+        base_url = self._config.api_base_url
+        if not base_url:
+            if p == "claude":
+                base_url = CONST_URL_ANTHROPIC_API_BASE
+            elif p == "copilot":
+                base_url = CONST_URL_GITHUB_COPILOT_API_BASE
+            elif p == "openai":
+                base_url = CONST_URL_OPENAI_API_BASE
+        if base_url:
+            parsed = urlparse(base_url)
+            return parsed.netloc or parsed.path or base_url
+        return "unknown"
+
+    @property
+    def backend_info(self) -> str:
+        """Return formatted backend type and host string, e.g. 'ollama (localhost:11434)'."""
+        return f"{self.backend_type} ({self.backend_host})"
+
     @staticmethod
     def _strip_think_blocks(text: str) -> str:
         """Remove <think>...</think> chain-of-thought blocks emitted by thinking models."""
