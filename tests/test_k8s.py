@@ -103,3 +103,16 @@ def test_k8s_configure_urls_success(
     result = runner.invoke(app, ["configure-urls"])
     assert result.exit_code == 0
     assert "Configured Monitoring Service Targets" in result.output
+
+
+@patch("devops_cli.commands.k8s._verify_url_reachability")
+def test_resolve_accessible_url_fallback(mock_verify: MagicMock) -> None:
+    """_resolve_accessible_url falls back to localhost when minikube IP is unreachable."""
+    from devops_cli.commands.k8s import _resolve_accessible_url
+
+    def fake_verify(url: str, timeout: float = 0.8) -> bool:
+        return "localhost" in url
+
+    mock_verify.side_effect = fake_verify
+    res = _resolve_accessible_url("http://192.168.49.2:30080")
+    assert res == "http://localhost:30080"

@@ -423,6 +423,48 @@ def _detect_service_url(service: str, namespace: str) -> str | None:
     return None
 
 
+def _verify_url_reachability(url: str, timeout: float = 0.8) -> bool:
+    """Check if target HTTP URL host and port can accept socket connections."""
+    import socket
+    from urllib.parse import urlparse
+
+    try:
+        parsed = urlparse(url)
+        host = parsed.hostname
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        if not host:
+            return False
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except Exception:
+        return False
+
+
+def _resolve_accessible_url(detected_url: str | None) -> str | None:
+    """Resolve service URL to ensure it is accessible from devcontainer / host OS environment."""
+    if not detected_url:
+        return None
+
+    from urllib.parse import urlparse
+
+    if _verify_url_reachability(detected_url):
+        return detected_url
+
+    parsed = urlparse(detected_url)
+    if parsed.port:
+        localhost_url = f"{parsed.scheme}://localhost:{parsed.port}"
+        if _verify_url_reachability(localhost_url):
+            return localhost_url
+
+        loopback_url = f"{parsed.scheme}://127.0.0.1:{parsed.port}"
+        if _verify_url_reachability(loopback_url):
+            return loopback_url
+
+        return localhost_url
+
+    return detected_url
+
+
 @app.command("configure-urls")
 def configure_urls() -> None:
     """Auto-detect Minikube monitoring stack URLs and update CLI config."""
@@ -446,9 +488,13 @@ def configure_urls() -> None:
 
     rprint("[bold]Detecting Minikube monitoring service URLs...[/bold]")
 
-    argocd_url = _detect_service_url("argocd-server", "argocd")
-    grafana_url = _detect_service_url("kube-prometheus-grafana", "monitoring")
-    prom_url = _detect_service_url("kube-prometheus-kube-prome-prometheus", "monitoring")
+    raw_argocd = _detect_service_url("argocd-server", "argocd")
+    raw_grafana = _detect_service_url("kube-prometheus-grafana", "monitoring")
+    raw_prom = _detect_service_url("kube-prometheus-kube-prome-prometheus", "monitoring")
+
+    argocd_url = _resolve_accessible_url(raw_argocd)
+    grafana_url = _resolve_accessible_url(raw_grafana)
+    prom_url = _resolve_accessible_url(raw_prom)
 
     from devops_cli.config.settings import dotted_set, load_settings, save_settings
 

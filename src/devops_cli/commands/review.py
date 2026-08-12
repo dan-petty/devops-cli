@@ -7,7 +7,7 @@ import logging
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -885,10 +885,57 @@ def _persona_system_prompt(persona: PersonaDefinition, agents_md: str) -> str:
     )
 
 
+def _parse_iso_timestamp(iso_str: str | None) -> datetime | None:
+    if not iso_str:
+        return None
+    try:
+        dt = datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=UTC)
+        return dt
+    except Exception:
+        return None
+
+
+def _is_file_outdated_since_analysis(
+    file_path: Path, rel_path: str, fmeta: FileAnalysisMeta, repo_root: Path | None = None
+) -> bool:
+    """Return True if the file on disk or git has been updated since it was last analyzed."""
+    ref_stamp = fmeta.last_updated or fmeta.last_analyzed
+    if not ref_stamp:
+        return True
+
+    meta_dt = _parse_iso_timestamp(ref_stamp)
+    if not meta_dt:
+        return True
+
+    # 1. Compare file stat st_mtime against analysis timestamp
+    try:
+        mtime_dt = datetime.fromtimestamp(file_path.stat().st_mtime, tz=UTC)
+        if mtime_dt > meta_dt:
+            return True
+    except Exception:
+        pass
+
+    # 2. Compare git commit timestamp if available
+    try:
+        from devops_cli.ai.analyze.outlines import _get_last_updated
+
+        git_iso = _get_last_updated(rel_path, repo_root)
+        git_dt = _parse_iso_timestamp(git_iso)
+        if git_dt and git_dt > meta_dt:
+            return True
+    except Exception:
+        pass
+
+    return False
+
+
 def _load_file_analysis_metas(
     filenames: list[str] | None = None, repo_root: Path | None = None
 ) -> dict[str, Any]:
-    """Fetch existing analysis metadata from .data/analysis/ or analyze file on-the-fly."""
+    """Fetch analysis metadata from .data/analysis/ or run analyze on outdated/new files."""
+    from devops_cli.ai.analyze.cache import save_analysis_metadata
     from devops_cli.ai.analyze.outlines import analyze_single_file
     from devops_cli.core.repo import find_repo_root
     from devops_cli.models.ai import AnalysisMetadata
@@ -917,26 +964,40 @@ def _load_file_analysis_metas(
                 except Exception:
                     pass
 
-        if filenames:
-            for fn in filenames:
-                if fn not in metas:
-                    file_path = repo / fn
-                    if (
-                        file_path.exists()
-                        and file_path.is_file()
-                        and file_path.stat().st_size <= CONST_MAX_FILE_SIZE_BYTES
-                    ):
-                        try:
-                            content = file_path.read_text(encoding="utf-8", errors="replace")
-                            metas[fn] = analyze_single_file(
-                                fn,
-                                content,
-                                file_path.stat().st_size,
-                                enhanced=True,
-                                repo_root=repo,
-                            )
-                        except Exception:
-                            pass
+        target_files = filenames if filenames is not None else list(metas.keys())
+        any_updated = False
+
+        for fn in target_files:
+            file_path = repo / fn
+            if (
+                file_path.exists()
+                and file_path.is_file()
+                and file_path.stat().st_size <= CONST_MAX_FILE_SIZE_BYTES
+            ):
+                needs_analysis = fn not in metas or _is_file_outdated_since_analysis(
+                    file_path, fn, metas[fn], repo_root=repo
+                )
+                if needs_analysis:
+                    try:
+                        content = file_path.read_text(encoding="utf-8", errors="replace")
+                        metas[fn] = analyze_single_file(
+                            fn,
+                            content,
+                            file_path.stat().st_size,
+                            enhanced=True,
+                            repo_root=repo,
+                        )
+                        any_updated = True
+                    except Exception:
+                        pass
+
+        if any_updated and not is_dry_run():
+            try:
+                save_analysis_metadata(
+                    "path", "default", "Codebase Analysis", list(metas.values()), repo
+                )
+            except Exception:
+                pass
 
     return metas
 
@@ -1065,8 +1126,6 @@ def _run_review(
             f"{analysis_suffix}[/dim]"
         )
         metadata = _load_file_analysis_metas(all_files, repo_root=repo_target)
-        if session_dir and not is_dry_run():
-            _save_analysis_metadata_json(metadata, session_dir, show_status=True)
         if is_dry_run():
             rprint("[yellow][dry-run][/yellow] Analysis metadata:")
             console.print_json(
@@ -1339,24 +1398,6 @@ def _save_segments(pages: list[str], session_dir: Path) -> None:
         (session_dir / f"segment-{i}.md").write_text(page, encoding="utf-8")
 
 
-def _save_analysis_metadata_json(
-    analysis_metas: dict[str, FileAnalysisMeta], session_dir: Path, show_status: bool = False
-) -> bool:
-    target = session_dir / "metadata.json"
-    try:
-        payload = {path: fmeta.model_dump(mode="json") for path, fmeta in analysis_metas.items()}
-        target.write_text(
-            json.dumps(payload, indent=2),
-            encoding="utf-8",
-        )
-        if show_status:
-            rprint(f"[dim]  ✓ metadata saved → {target}[/dim]")
-        return True
-    except OSError as exc:
-        rprint(f"[red]  ✗ metadata save failed → {target}: {exc}[/red]")
-        return False
-
-
 def _save_findings_json(
     completed: list[tuple[PersonaDefinition, ReviewResult | str]],
     session_dir: Path,
@@ -1448,16 +1489,13 @@ def _write_summary(
     analysis_metas: dict[str, FileAnalysisMeta] | None = None,
 ) -> None:
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
-    if analysis_metas:
-        _save_analysis_metadata_json(analysis_metas, session_dir)
     if completed:
         _save_findings_json(completed, session_dir, show_status=True)
     lines: list[str] = [
         f"# Review: {title}",
         f"**Date:** {now}  ",
         f"**Files/Segments:** {len(pages)}  ",
-        f"**Session:** `{session_dir}`  ",
-        "**Metadata:** [metadata.json](metadata.json)\n",
+        f"**Session:** `{session_dir}`\n",
     ]
     if analysis_metas:
         lines.append("## Analysis Metadata\n")
