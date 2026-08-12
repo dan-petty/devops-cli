@@ -176,6 +176,11 @@ def _llm_request_preview(client: Any, system: str, user: str) -> dict[str, Any]:
     }
 
 
+# NOTE (Design Justification - OWASP LLM01): To prevent prompt injection attacks where untrusted
+# code diffs contain embedded closing XML tags (e.g. </target_code_to_review>),
+# _sanitize_prompt_boundary_tags escapes closing tags inside untrusted user content (&lt;/tag&gt;).
+# The system prompt wrapper retains literal unencoded outer tags (<tag>...</tag>) so LLM parsers
+# recognize the boundary without risking premature block escape.
 def _sanitize_prompt_boundary_tags(text: str) -> str:
     """Sanitize XML-style boundary closing tags in untrusted content to prevent boundary escape."""
     if not text:

@@ -89,3 +89,12 @@ def test_config_show_includes_allow_private_network_and_active_path(
     assert "http://hog.lan:11434, http://workhorse.lan:11435" in result.stdout
     assert "True" in result.stdout
     assert str(custom_cfg) in result.stdout
+
+
+def test_dotted_set_rejects_top_level_section_overwrite() -> None:
+    """dotted_set must raise ValueError when setting a top-level section directly."""
+    from devops_cli.config.settings import Settings, dotted_set
+
+    settings = Settings()
+    with pytest.raises(ValueError, match="Cannot set top-level section 'github' directly"):
+        dotted_set(settings, "github", "invalid_string_overwrite")

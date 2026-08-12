@@ -318,6 +318,12 @@ def dotted_set(settings: Settings, key: str, value: str) -> None:
         return
     parts = key.split(".", 1)
     if len(parts) == 1:
+        target = getattr(settings, parts[0], None)
+        if isinstance(target, BaseModel):
+            raise ValueError(
+                f"Cannot set top-level section '{parts[0]}' directly to a string. "
+                f"Use dotted key (e.g. '{parts[0]}.<field>')."
+            )
         setattr(settings, parts[0], value)
         return
     section = getattr(settings, parts[0])
