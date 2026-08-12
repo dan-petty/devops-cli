@@ -45,7 +45,7 @@ def update(
             fetch_all(repo_dir)
             pull_tracking(repo_dir)
             rprint(f"[green]✓[/green] {label}")
-        except Exception as exc:
+        except (OSError, ValueError) as exc:
             rprint(f"[red]✗[/red] {label}: {exc}")
 
 

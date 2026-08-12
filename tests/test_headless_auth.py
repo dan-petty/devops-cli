@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import os
+import pytest
 
 from devops_cli.config import options as opt
 from devops_cli.config.settings import (
@@ -12,7 +12,7 @@ from devops_cli.config.settings import (
 )
 
 
-def test_ephemeral_keyring_fallback(monkeypatch: os._Environ) -> None:
+def test_ephemeral_keyring_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
     _EPHEMERAL_CI_SECRETS.clear()
     monkeypatch.setenv("DEVOPS_CLI_HEADLESS_AUTH", "true")
 

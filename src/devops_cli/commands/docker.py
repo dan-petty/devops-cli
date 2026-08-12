@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -94,7 +95,7 @@ def build(
     image, build_logs = client.images.build(**kwargs)
     for chunk in build_logs:
         if "stream" in chunk:
-            line = chunk["stream"].rstrip()
+            line = re.sub(r"[\x00-\x1f\x7f]", "", chunk["stream"]).rstrip()
             if line:
                 rprint(line)
     rprint(f"[green]Built:[/green] {image.short_id}" + (f" ({tag})" if tag else ""))
@@ -115,8 +116,6 @@ def push(
         rprint("[yellow][dry-run][/yellow] Command response:")
         console.print_json(res.model_dump_json(indent=2))
         return
-    import re
-
     if not re.match(r"^[a-zA-Z0-9_.-]+(?:/[a-zA-Z0-9_.-]+)*(?::[a-zA-Z0-9_.-]+)?$", image):
         rprint(f"[red]Invalid Docker image name format: '{image}'[/red]")
         raise typer.Exit(1)

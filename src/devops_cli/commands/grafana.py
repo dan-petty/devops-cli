@@ -145,6 +145,16 @@ def dashboards_import(
         dashboard.pop("id", None)
         dashboard.pop("uid", None)
 
+    if is_dry_run():
+        title = dashboard.get("title", "<unknown>") if isinstance(dashboard, dict) else "<unknown>"
+        render_dry_run_result(
+            command="devops grafana dashboards import",
+            target=str(file),
+            action="import_dashboard",
+            details={"folder_id": folder_id, "title": title},
+        )
+        return
+
     with httpx2.Client() as http_client:
         response = http_client.post(
             f"{base}/api/dashboards/db",

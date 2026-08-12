@@ -32,11 +32,7 @@ def record_audit_event(
     log_file: Path | None = None,
 ) -> AuditRecord:
     """Record a structured audit log entry to JSONL audit log file."""
-    dest = log_file or (
-        Path(os.environ["DEVOPS_CLI_AUDIT_LOG_DEST"])
-        if "DEVOPS_CLI_AUDIT_LOG_DEST" in os.environ
-        else CONST_DATA_DIR / "logs" / "audit.jsonl"
-    )
+    dest = _resolve_audit_log_dest(log_file)
 
     dest.parent.mkdir(parents=True, exist_ok=True)
 
@@ -58,6 +54,21 @@ def record_audit_event(
     return record
 
 
+def _resolve_audit_log_dest(log_file: Path | None) -> Path:
+    """Resolve audit log destination path, validating env paths stay in CONST_DATA_DIR."""
+    if log_file is not None:
+        return log_file
+    if "DEVOPS_CLI_AUDIT_LOG_DEST" in os.environ:
+        candidate = Path(os.environ["DEVOPS_CLI_AUDIT_LOG_DEST"]).resolve()
+        allowed_root = CONST_DATA_DIR.resolve()
+        if not candidate.is_relative_to(allowed_root):
+            raise ValueError(
+                f"DEVOPS_CLI_AUDIT_LOG_DEST must be within {allowed_root}; got {candidate}"
+            )
+        return candidate
+    return CONST_DATA_DIR / "logs" / "audit.jsonl"
+
+
 def stream_audit_records(destination_url: str, log_file: Path | None = None) -> int:
     """Stream stored audit records to SIEM destination URL.
 
@@ -67,5 +78,8 @@ def stream_audit_records(destination_url: str, log_file: Path | None = None) -> 
     if not dest.exists():
         return 0
 
-    lines = dest.read_text(encoding="utf-8").strip().splitlines()
-    return len(lines)
+    count = 0
+    with dest.open(encoding="utf-8") as f:
+        for _line in f:
+            count += 1
+    return count

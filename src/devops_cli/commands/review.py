@@ -1324,6 +1324,7 @@ def _log_event(
         if len(response_text) > 2000
         else _mask_secrets_in_content(response_text)
     )
+    safe_msg = _mask_secrets_in_content(msg)
     payload = {
         "event_type": event_type,
         "timestamp": datetime.now().isoformat(),
@@ -1333,7 +1334,7 @@ def _log_event(
         "attempt": attempt,
         "system_prompt_chars": len(system_prompt),
         "user_prompt_chars": len(user_prompt),
-        "error_message": msg,
+        "error_message": safe_msg,
         "response_text": safe_response,
     }
     try:

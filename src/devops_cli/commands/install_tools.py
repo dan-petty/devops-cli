@@ -113,6 +113,7 @@ def _write_binary(data: bytes, dest: Path) -> None:
 
 
 def _extract_tar_member(data: bytes, member: str, dest: Path) -> None:
+    import os
     import shutil
 
     if member.startswith("/") or ".." in Path(member).parts:
@@ -125,6 +126,14 @@ def _extract_tar_member(data: bytes, member: str, dest: Path) -> None:
             raise FileNotFoundError(f"Member '{member}' not found in archive")
         with dest.open("wb") as out:
             shutil.copyfileobj(f, out)
+
+    # Symlink-safe check: verify resolved dest stays within intended directory.
+    resolved = dest.resolve()
+    target_dir = dest.parent.resolve()
+    if os.path.commonpath([resolved, target_dir]) != str(target_dir):
+        dest.unlink(missing_ok=True)
+        raise ValueError(f"Extracted path '{resolved}' escapes target directory '{target_dir}'")
+
     dest.chmod(CONST_PERM_EXEC)
 
 

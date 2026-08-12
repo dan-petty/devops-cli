@@ -20,7 +20,7 @@ The project follows a modular, command-driven architecture.
 
 ### Key File Paths
 - `src/devops_cli/main.py`: CLI Entry point (Click/Typer implementation).
-- `src/devost_cli/ai/`: Core logic for LLM integration and agent orchestration.
+- `src/devops_cli/ai/`: Core logic for LLM integration and agent orchestration.
 - `src/devops_cli/commands/`: Implementation of all subcommands (`repos`, `ssh`, `k8s`).
 - `src/devops_cli/crypto/`: Logic for SSH key generation and `keyring` interactions.
 - `src/devops_cli/http/`: Secure network requests with SSRF mitigation logic.

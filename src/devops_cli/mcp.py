@@ -33,9 +33,21 @@ def _run_mcp_cmd(cmd: list[str], timeout: int = 60) -> str:
     return output or "Success"
 
 
+def _validate_mcp_arg(name: str, value: str) -> None:
+    """Reject MCP tool arguments that start with a hyphen to prevent flag injection."""
+    if value.startswith("-"):
+        raise ValueError(
+            f"Invalid value for '{name}': must not start with a hyphen. "
+            "Hyphen-prefixed values could be interpreted as flags by the underlying command."
+        )
+
+
 @mcp.tool()
 def review_path(target: str = ".", pattern: str = "*", persona: str = "devsecops") -> str:
     """Run an AI code review on local files matching pattern using specified persona."""
+    _validate_mcp_arg("target", target)
+    _validate_mcp_arg("pattern", pattern)
+    _validate_mcp_arg("persona", persona)
     return _run_mcp_cmd(
         [
             "uv",
@@ -56,6 +68,10 @@ def review_path(target: str = ".", pattern: str = "*", persona: str = "devsecops
 @mcp.tool()
 def review_branch(branch: str = "", base: str = "main", persona: str = "devsecops") -> str:
     """Run an AI code review on git branch diff against base branch."""
+    if branch:
+        _validate_mcp_arg("branch", branch)
+    _validate_mcp_arg("base", base)
+    _validate_mcp_arg("persona", persona)
     cmd = ["uv", "run", "devops", "review", "branch"]
     if branch:
         cmd.append(branch)
@@ -88,6 +104,8 @@ def review_findings(session_id: str = "", status: str = "") -> str:
 @mcp.tool()
 def verify_finding(session_id: str, index: int, status: str, reason: str = "") -> str:
     """Validate or invalidate a finding and record human feedback."""
+    _validate_mcp_arg("session_id", session_id)
+    _validate_mcp_arg("status", status)
     cmd = [
         "uv",
         "run",
@@ -147,6 +165,8 @@ def ssh_audit() -> str:
 @mcp.tool()
 def k8s_pods(namespace: str = "default") -> str:
     """List Kubernetes pod status for the specified namespace."""
+    if namespace:
+        _validate_mcp_arg("namespace", namespace)
     cmd = ["uv", "run", "devops", "k8s", "pods"]
     if namespace:
         cmd.extend(["--namespace", namespace])
@@ -189,6 +209,7 @@ def argo_list() -> str:
 @mcp.tool()
 def argo_status(app: str) -> str:
     """Check ArgoCD application health and sync status."""
+    _validate_mcp_arg("app", app)
     return _run_mcp_cmd(["uv", "run", "devops", "argo", "status", "--app", app], timeout=30)
 
 
@@ -204,6 +225,7 @@ def grafana_dashboards(query: str = "") -> str:
 @mcp.tool()
 def prometheus_query(promql: str) -> str:
     """Execute PromQL instant query against Prometheus endpoint."""
+    _validate_mcp_arg("promql", promql)
     return _run_mcp_cmd(["uv", "run", "devops", "prometheus", "query", promql], timeout=30)
 
 

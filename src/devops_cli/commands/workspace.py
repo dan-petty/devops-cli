@@ -62,6 +62,11 @@ def _workspace_data_from_repos(root: Path) -> dict[str, Any]:
 def _load(ws_file: Path) -> dict[str, Any]:
     if ws_file.exists():
         try:
+            if ws_file.stat().st_size > 10 * 1024 * 1024:  # 10 MiB guard
+                rprint(
+                    f"[yellow]Workspace file too large to load: {ws_file}. Using defaults.[/yellow]"
+                )
+                return {"folders": [], "settings": {}}
             data = json.loads(ws_file.read_text(encoding="utf-8"))
             if isinstance(data, dict) and "folders" in data and isinstance(data["folders"], list):
                 return data

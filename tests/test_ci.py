@@ -12,7 +12,7 @@ runner = CliRunner()
 def test_ci_audit_command(monkeypatch) -> None:
     called = []
 
-    def mock_run(cmd, cwd=None, timeout=None):
+    def mock_run(cmd, *args, **kwargs):
         called.append(cmd)
 
         class Res:
@@ -30,7 +30,7 @@ def test_ci_audit_command(monkeypatch) -> None:
 def test_ci_all_checks_includes_audit(monkeypatch) -> None:
     called = []
 
-    def mock_run(cmd, cwd=None, timeout=None):
+    def mock_run(cmd, *args, **kwargs):
         called.append(cmd)
 
         class Res:

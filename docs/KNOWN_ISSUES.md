@@ -23,8 +23,12 @@ Captures operational edge cases, intentional design trade-offs, and mitigations 
 - **Mitigation**: Run `uv sync` inside Dev Container to install all optional dependencies in `pyproject.toml`.
 
 ### 5. Local Workstation vs Production Container Model
-- **Context**: Designed specifically for local DevOps workstations. Uses high timeouts (`DEFAULT_REVIEW_TIMEOUT_SECONDS = 3600.0`) for CPU/GPU Ollama, bind-mounts host `~/.ssh` into `.devcontainer` for key rotation, and uses OS keyring for secret isolation.
-- **Mitigation**: Defer to Environment & Modernization Policy in `AGENTS.md`. High workstation timeouts and SSH bind-mounts are accepted design trade-offs.
+- **Context**: Designed specifically for local DevOps workstations. Uses high timeouts (`DEFAULT_REVIEW_TIMEOUT_SECONDS = 3600.0`) for CPU/GPU Ollama, bind-mounts host `~/.ssh` into `.devcontainer` for key rotation and SSH agent usage, and uses OS keyring for secret isolation. Direct bind mounts of host SSH configuration serve developer convenience in local dev environments.
+- **Mitigation**: Defer to Environment & Modernization Policy in `AGENTS.md`. High workstation timeouts and host SSH mounts are accepted design trade-offs for local devcontainers.
+
+### 6. SSH Host Key Scanning (ssh-keyscan) Fingerprint Verification
+- **Context**: `_ensure_known_host()` uses `ssh-keyscan` to automatically retrieve public SSH host keys during initial clone operations. Without pre-configured host fingerprints, initial trust-on-first-use occurs over the network.
+- **Mitigation**: Pre-populate `~/.ssh/known_hosts` with trusted host fingerprints (e.g. GitHub/GitLab public keys) on developer workstations or build images.
 
 ---
 
@@ -37,3 +41,4 @@ Captures operational edge cases, intentional design trade-offs, and mitigations 
 | **3. Large Workspace Iteration** | Low (performance edge case) | Low | **Keep Path Guards**: `iter_workspace_repos()` and `.gitignore` bounds filtering. |
 | **4. Optional SDK Dependencies** | Low (setup error) | Low | **Keep Env Guard**: `uv sync` ensures full SDK availability. |
 | **5. Local Workstation Design Policy** | Low (architectural trade-off) | Low | **Keep DevContainer Policy**: Workspace bounds secure file access; SSH mounts serve local model. |
+| **6. SSH Host Key Scanning (TOFU)** | Medium (network MITM on initial clone) | Low | **Pre-seed Known Hosts**: Pre-populate `known_hosts` for critical git hosts. |

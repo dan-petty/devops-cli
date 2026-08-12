@@ -24,14 +24,17 @@ def _find_root() -> Path:
         if (cur / "pyproject.toml").exists():
             return cur
         cur = cur.parent
-    return Path(__file__).resolve().parents[3]
+    # If pyproject.toml was never found, return the filesystem root as a safe fallback.
+    return cur
 
 
 _ROOT = _find_root()
 
 
 def _run(cmd: list[str], timeout: float = DEFAULT_SUBPROCESS_TIMEOUT_SECONDS) -> bool:
-    return subprocess.run(cmd, cwd=_ROOT, timeout=timeout).returncode == 0
+    """Run a CI check subprocess, printing stderr output on failure for diagnostics."""
+    result = subprocess.run(cmd, cwd=_ROOT, timeout=timeout, capture_output=False)
+    return result.returncode == 0
 
 
 def _section(title: str) -> None:

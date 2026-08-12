@@ -88,7 +88,7 @@ def _reload_workspace(workspace_file: Path) -> None:
 
     try:
         subprocess.run(
-            [CONST_VSCODE_CLI, "--reuse-window", str(workspace_file)],
+            [CONST_VSCODE_CLI, "--reuse-window", "--", str(workspace_file)],
             check=False,
             timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
         )
@@ -196,6 +196,10 @@ def clone(
 
     if dest.exists():
         rprint(f"[yellow]Repository already exists at {dest}[/yellow]")
+        raise typer.Exit(1)
+
+    if url.startswith("-"):
+        rprint("[red]Invalid repository URL: must not start with a hyphen.[/red]")
         raise typer.Exit(1)
 
     rprint(f"Cloning [dim]{url}[/dim] → [dim]{dest}[/dim]")
