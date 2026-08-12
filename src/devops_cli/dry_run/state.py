@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import shlex
+from typing import Any
 
 _DRY_RUN_ENV = "DEVOPS_CLI_DRY_RUN"
 
@@ -28,3 +29,26 @@ def format_command(command: list[str], *, cwd: str | None = None) -> str:
     if cwd:
         return f"(cd {shlex.quote(cwd)} && {rendered})"
     return rendered
+
+
+def render_dry_run_result(
+    command: str,
+    action: str = "",
+    target: str | None = None,
+    details: dict[str, Any] | None = None,
+) -> Any:
+    """Construct and print structured CommandDryRunResult JSON for dry-run mode."""
+    from rich import print as rprint
+    from rich.console import Console
+
+    from devops_cli.dry_run.models import CommandDryRunResult
+
+    res = CommandDryRunResult(
+        command=command,
+        action=action or "",
+        target=target,
+        details=details or {},
+    )
+    rprint("[yellow][dry-run][/yellow] Command response:")
+    Console().print_json(res.model_dump_json(indent=2))
+    return res

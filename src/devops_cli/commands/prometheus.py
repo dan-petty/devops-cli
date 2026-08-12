@@ -17,6 +17,7 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.config.settings import Settings, load_settings
 from devops_cli.core.cli import new_typer
+from devops_cli.dry_run import is_dry_run, render_dry_run_result
 from devops_cli.http.validation import validate_service_url
 from devops_cli.models.prometheus import PrometheusQueryResult
 
@@ -88,17 +89,13 @@ def query(
     ] = None,
 ) -> None:
     """Execute an instant PromQL query."""
-    from devops_cli.dry_run import CommandDryRunResult, is_dry_run
-
     if is_dry_run():
-        res = CommandDryRunResult(
+        render_dry_run_result(
             command="devops prometheus query",
             target=expr,
             action="promql_instant_query",
             details={"expr": expr, "time": at},
         )
-        rprint("[yellow][dry-run][/yellow] Command response:")
-        console.print_json(res.model_dump_json(indent=2))
         return
 
     _validate_expr(expr)

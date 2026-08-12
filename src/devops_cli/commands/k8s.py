@@ -20,7 +20,7 @@ from rich.table import Table
 
 from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.core.cli import new_typer
-from devops_cli.dry_run import CommandDryRunResult, is_dry_run
+from devops_cli.dry_run import CommandDryRunResult, is_dry_run, render_dry_run_result
 
 app = new_typer(help="Kubernetes resource management.", no_args_is_help=True)
 console = Console()
@@ -418,14 +418,12 @@ def teardown_stack(
     """Uninstall the k8s infrastructure stack and delete namespaces."""
     if is_dry_run():
         releases = [r["name"] for r in reversed(_HELM_RELEASES)]
-        res = CommandDryRunResult(
+        render_dry_run_result(
             command="devops k8s teardown-stack",
             target=str(k8s_dir),
             action="teardown_k8s_stack",
             details={"kustomize_dir": str(k8s_dir), "helm_uninstalls": releases},
         )
-        rprint("[yellow][dry-run][/yellow] Command response:")
-        console.print_json(res.model_dump_json(indent=2))
         return
 
     if not _minikube_running():
@@ -456,13 +454,11 @@ def rbac_audit(
         _validate_k8s_identifier(namespace, "namespace", namespace=True)
 
     if is_dry_run():
-        res = CommandDryRunResult(
+        render_dry_run_result(
             command="devops k8s rbac-audit",
             action="rbac_audit_scan",
             details={"namespace": namespace, "violations": []},
         )
-        rprint("[yellow][dry-run][/yellow] Command response:")
-        console.print_json(res.model_dump_json(indent=2))
         return
 
     table = Table(title="RBAC Audit Policy Scan")

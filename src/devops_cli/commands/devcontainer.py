@@ -22,7 +22,9 @@ from devops_cli.config.constants import (
     CONST_DEVCONTAINER_POST_CREATE_NAME,
     CONST_DEVCONTAINER_POST_CREATE_PATH,
 )
+from devops_cli.config.settings import load_settings
 from devops_cli.core.cli import new_typer, repo_label
+from devops_cli.dry_run import is_dry_run, render_dry_run_result
 from devops_cli.git.operations import iter_workspace_repos
 
 app = new_typer(help="Manage devcontainer configurations.", no_args_is_help=True)
@@ -132,17 +134,12 @@ def list_devcontainers(
     base_dir: Annotated[Path | None, typer.Option("--base-dir", "-d")] = None,
 ) -> None:
     """List repos with their devcontainer status."""
-    from devops_cli.config.settings import load_settings
-    from devops_cli.dry_run import CommandDryRunResult, is_dry_run
-
     if is_dry_run():
-        res = CommandDryRunResult(
+        render_dry_run_result(
             command="devops devcontainer list",
             action="list_devcontainers",
             details={"repos": []},
         )
-        rprint("[yellow][dry-run][/yellow] Command response:")
-        console.print_json(res.model_dump_json(indent=2))
         return
 
     settings = load_settings()

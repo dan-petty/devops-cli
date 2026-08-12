@@ -17,6 +17,7 @@ from devops_cli.config.constants import CONST_MAX_FILE_SIZE_BYTES
 from devops_cli.config.defaults import DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS
 from devops_cli.config.settings import Settings, get_grafana_token, load_settings
 from devops_cli.core.cli import new_typer
+from devops_cli.dry_run import is_dry_run, render_dry_run_result
 from devops_cli.http.validation import validate_service_url
 from devops_cli.models.grafana import GrafanaAlertRule, GrafanaDashboard, GrafanaDatasource
 
@@ -52,16 +53,12 @@ def _client_args(settings: Settings) -> tuple[str, dict[str, str]]:
 @dashboards_app.command("list")
 def dashboards_list() -> None:
     """List all dashboards."""
-    from devops_cli.dry_run import CommandDryRunResult, is_dry_run
-
     if is_dry_run():
-        res = CommandDryRunResult(
+        render_dry_run_result(
             command="devops grafana dashboards list",
             action="list_grafana_dashboards",
             details={"dashboards": []},
         )
-        rprint("[yellow][dry-run][/yellow] Command response:")
-        console.print_json(res.model_dump_json(indent=2))
         return
 
     settings = load_settings()

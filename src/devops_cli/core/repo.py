@@ -164,3 +164,22 @@ def list_repo_files(target_dir: Path) -> list[Path]:
         if p.is_file() and not is_ignored_by_git(repo_root, p):
             walked_files.append(p)
     return sorted(walked_files)
+
+
+def get_repo_origin_name(repo_root: Path | None = None) -> str | None:
+    """Extract owner/repo string from git remote origin URL (e.g. 'org/repo')."""
+    import re
+
+    from devops_cli.core.process import run_subprocess
+
+    root = repo_root or find_repo_root()
+    if not (root / ".git").exists():
+        return None
+
+    proc = run_subprocess(["git", "remote", "get-url", "origin"], cwd=root, quiet=True)
+    if proc.returncode != 0 or not proc.stdout.strip():
+        return None
+
+    raw = proc.stdout.strip()
+    match = re.search(r"[:/]([a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+?)(?:\.git)?$", raw)
+    return match.group(1) if match else None

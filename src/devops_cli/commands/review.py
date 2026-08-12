@@ -2123,17 +2123,11 @@ def _prepare_pr_content(
 
     repo = repo_arg
     if repo is None:
-        proc = _run_subprocess(
-            ["git", "remote", "get-url", "origin"],
-            capture_output=True,
-            text=True,
-        )
-        raw = proc.stdout.strip()
-        m = re.search(r"[:/]([a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+?)(?:\.git)?$", raw)
-        if m:
-            repo = m.group(1)
-        else:
-            parse_err = MESSAGES.review.github_repo_parse_failed.format(raw=raw)
+        from devops_cli.core.repo import get_repo_origin_name
+
+        repo = get_repo_origin_name()
+        if not repo:
+            parse_err = MESSAGES.review.github_repo_parse_failed.format(raw="")
             rprint(f"[red]{parse_err}[/red]")
             raise typer.Exit(1)
 

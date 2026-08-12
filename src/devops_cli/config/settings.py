@@ -296,6 +296,16 @@ def get_ai_api_key(settings: Settings) -> str | None:  # noqa: ARG001
     return _keyring_get(_KEYRING_KEYS[opt.AI_API_KEY])
 
 
+def get_llm_client(task: str | None = None) -> Any:
+    """Instantiate a configured LLMClient instance based on active application settings."""
+    from devops_cli.ai.client import LLMClient
+
+    settings = load_settings()
+    config = settings.ai.for_task(task) if task else settings.ai
+    api_key = get_ai_api_key(settings)
+    return LLMClient(config, api_key=api_key)
+
+
 def dotted_get(settings: Settings, key: str) -> Any:
     """Get a config value by dotted key, e.g. 'github.default_org'."""
     return operator.attrgetter(key)(settings)

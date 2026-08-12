@@ -85,7 +85,7 @@ Use these when simulating or testing CLI behavior:
 - **Finding Inspection & Resolution**: Use `devops ai review findings --session <session>` to inspect structured JSON findings in `.data/reviews/`. Resolve all verified critical/high findings in the codebase before completing reviews.
 - **Verification Override**: Use `devops ai review verify <session> --index <N> --status INVALIDATED|MITIGATED|VERIFIED --reason "<reason>"` for review status updates.
 - **Feedback Dataset Exporter**: Use `devops ai review export-feedback` to format invalidated findings into JSONL datasets for prompt tuning.
-- **Interactive Fix Patch Staging**: Use `devops ai review apply-patch <session> --interactive` to inspect and stage automated LLM code fixes (`finding.fix`).
+- **Interactive Fix Patch Staging**: Avoid running `devops ai review apply-patch <session> --interactive` commands as this could interfere with active sessions on the backend. Use the `--dry-run` flag to test the command without affecting active sessions.
 
 ## 9. Troubleshooting for Agents
 - If a test fails with `ImportError`, ensure `uv sync` has been run.

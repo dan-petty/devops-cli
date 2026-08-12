@@ -24,6 +24,7 @@ from devops_cli.config.defaults import (
     DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
 )
 from devops_cli.core.cli import new_typer
+from devops_cli.dry_run import is_dry_run, render_dry_run_result
 from devops_cli.http.validation import validate_service_url
 from devops_cli.models.argo import ArgoCDApp
 
@@ -80,16 +81,12 @@ def _argocd(settings: Any) -> tuple[str, dict[str, str]]:
 @cd_apps_app.command("list")
 def cd_apps_list() -> None:
     """List all ArgoCD applications."""
-    from devops_cli.dry_run import CommandDryRunResult, is_dry_run
-
     if is_dry_run():
-        res = CommandDryRunResult(
+        render_dry_run_result(
             command="devops argo cd apps list",
             action="list_argocd_apps",
             details={"apps": []},
         )
-        rprint("[yellow][dry-run][/yellow] Command response:")
-        console.print_json(res.model_dump_json(indent=2))
         return
 
     import httpx2
