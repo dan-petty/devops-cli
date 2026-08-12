@@ -104,6 +104,17 @@ if [ "${DEVOPS_MINIKUBE_AUTOSTART:-true}" = "true" ]; then
   fi
 fi
 
+# ── Kubernetes infrastructure stack auto-deployment ───────────────────────────
+if [ "${DEVOPS_K8S_AUTO_DEPLOY:-true}" = "true" ]; then
+  if command -v minikube &>/dev/null; then
+    if minikube status --format='{{.Host}}' 2>/dev/null | grep -q "Running"; then
+      echo "Deploying devops infrastructure stack to minikube..."
+      uv run devops k8s deploy-stack || true
+      echo "✓ devops k8s infrastructure stack deployed"
+    fi
+  fi
+fi
+
 # ── Git SSH commit signing ────────────────────────────────────────────────────
 NEWEST_KEY=$(ls -1t "${HOME}/.ssh"/id_* 2>/dev/null | grep -v '\.pub$' | head -1 || true)
 if [ -n "${NEWEST_KEY:-}" ]; then

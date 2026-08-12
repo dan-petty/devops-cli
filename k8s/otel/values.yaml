@@ -4,6 +4,10 @@
 
 mode: deployment
 
+image:
+  repository: "otel/opentelemetry-collector-contrib"
+
+
 resources:
   requests:
     cpu: 50m

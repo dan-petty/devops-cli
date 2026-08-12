@@ -3,6 +3,3 @@ kind: Kustomization
 
 resources:
   - namespaces.yaml
-  - argocd/namespace.yaml
-  - monitoring/namespace.yaml
-  - otel/namespace.yaml
