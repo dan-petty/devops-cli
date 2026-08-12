@@ -75,3 +75,31 @@ def test_k8s_bootstrap_fails_when_minikube_stopped_and_no_auto_start(
     result = runner.invoke(app, ["bootstrap", "--no-auto-start"])
     assert result.exit_code == 1
     assert "minikube is not running" in result.output
+
+
+def test_k8s_configure_urls_dry_run() -> None:
+    """k8s configure-urls with dry-run active must print dry-run notice."""
+    set_dry_run(True)
+    try:
+        result = runner.invoke(app, ["configure-urls"])
+        assert result.exit_code == 0
+        assert "devops k8s configure-urls" in result.output
+    finally:
+        set_dry_run(False)
+
+
+@patch("devops_cli.commands.k8s._detect_service_url")
+@patch("devops_cli.commands.k8s._minikube_running", return_value=True)
+def test_k8s_configure_urls_success(
+    mock_running: MagicMock,
+    mock_detect: MagicMock,
+) -> None:
+    """k8s configure-urls must query service URLs and update configuration."""
+
+    def fake_detect(service: str, ns: str) -> str | None:
+        return f"http://192.168.49.2:{30000 + len(service)}"
+
+    mock_detect.side_effect = fake_detect
+    result = runner.invoke(app, ["configure-urls"])
+    assert result.exit_code == 0
+    assert "Configured Monitoring Service Targets" in result.output

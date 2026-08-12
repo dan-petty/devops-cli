@@ -388,25 +388,94 @@ def deploy_stack(
         else:
             rprint(f"[green]✓ {release['name']} installed[/green]")
 
-    # 5. Print access info
+    # 5. Auto-configure monitoring URLs
     rprint()
     rprint("[bold green]Infrastructure stack deployed.[/bold green]")
     rprint()
-    rprint("[bold]Access URLs:[/bold]")
-    rprint("  ArgoCD:     [cyan]minikube service argocd-server -n argocd --url[/cyan]")
-    rprint(
-        "  Grafana:    [cyan]minikube service kube-prometheus-grafana -n monitoring --url[/cyan]"
-    )
-    rprint(
-        "  Prometheus: [cyan]minikube service"
-        " kube-prometheus-kube-prom-prometheus -n monitoring --url[/cyan]"
-    )
+    configure_urls()
     rprint()
     rprint(
         "[dim]ArgoCD admin password: kubectl -n argocd get secret"
         " argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d[/dim]"
     )
     rprint("[dim]Grafana credentials: set via grafana.token in 'devops config set'[/dim]")
+
+
+def _detect_service_url(service: str, namespace: str) -> str | None:
+    """Query minikube service URL for given service and namespace."""
+    from devops_cli.config.defaults import DEFAULT_SUBPROCESS_FAST_TIMEOUT_SECONDS
+
+    try:
+        res = subprocess.run(
+            ["minikube", "service", service, "-n", namespace, "--url"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=DEFAULT_SUBPROCESS_FAST_TIMEOUT_SECONDS,
+        )
+        if res.returncode == 0 and res.stdout.strip():
+            for line in res.stdout.splitlines():
+                line_str = line.strip()
+                if line_str.startswith("http://") or line_str.startswith("https://"):
+                    return line_str
+    except OSError, subprocess.SubprocessError:
+        pass
+    return None
+
+
+@app.command("configure-urls")
+def configure_urls() -> None:
+    """Auto-detect Minikube monitoring stack URLs and update CLI config."""
+    if is_dry_run():
+        res = CommandDryRunResult(
+            command="devops k8s configure-urls",
+            action="configure_monitoring_urls",
+            details={
+                "argocd.url": "http://192.168.49.2:30080",
+                "grafana.url": "http://192.168.49.2:32047",
+                "prometheus.url": "http://192.168.49.2:30090",
+            },
+        )
+        rprint("[yellow][dry-run][/yellow] Command response:")
+        console.print_json(res.model_dump_json(indent=2))
+        return
+
+    if not _minikube_running():
+        rprint("[red]minikube is not running.[/red]")
+        raise typer.Exit(1)
+
+    rprint("[bold]Detecting Minikube monitoring service URLs...[/bold]")
+
+    argocd_url = _detect_service_url("argocd-server", "argocd")
+    grafana_url = _detect_service_url("kube-prometheus-grafana", "monitoring")
+    prom_url = _detect_service_url("kube-prometheus-kube-prome-prometheus", "monitoring")
+
+    from devops_cli.config.settings import dotted_set, load_settings, save_settings
+
+    settings = load_settings()
+
+    configured: dict[str, str] = {}
+    if argocd_url:
+        dotted_set(settings, "argocd.url", argocd_url)
+        configured["argocd.url"] = argocd_url
+    if grafana_url:
+        dotted_set(settings, "grafana.url", grafana_url)
+        configured["grafana.url"] = grafana_url
+    if prom_url:
+        dotted_set(settings, "prometheus.url", prom_url)
+        configured["prometheus.url"] = prom_url
+
+    if configured:
+        save_settings(settings)
+
+    table = Table(title="Configured Monitoring Service Targets")
+    table.add_column("Config Key", style="cyan")
+    table.add_column("Detected Target URL", style="green")
+
+    for k, v in configured.items():
+        table.add_row(k, v)
+
+    console.print(table)
 
 
 @app.command("teardown-stack")

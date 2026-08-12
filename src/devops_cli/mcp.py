@@ -215,7 +215,9 @@ def grafana_dashboards(query: str = "") -> str:
     """List Grafana dashboards, optionally filtered by search query."""
     if query:
         _validate_mcp_arg("query", query)
-        return _run_mcp_cmd(["uv", "run", "devops", "grafana", "search", "--query", query], timeout=30)
+        return _run_mcp_cmd(
+            ["uv", "run", "devops", "grafana", "search", "--query", query], timeout=30
+        )
     return _run_mcp_cmd(["uv", "run", "devops", "grafana", "dashboards", "list"], timeout=30)
 
 
