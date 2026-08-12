@@ -16,4 +16,5 @@ Return a single JSON block. The `recommendation` field must reflect aggregate se
 | Unresolved HIGH, MEDIUM, or LOW findings | REQUEST CHANGES |
 | No findings or positive observations | APPROVE |
 
-The `summary` field must be a concise one-paragraph assessment: overall code quality, top concerns, and required changes before merge. Maintain persona voice.
+The `summary` field must be a concise assessment: overall code quality, top concerns, required changes before merge, and 1-2 actionable suggestions for improving future interaction outcomes or review context. Maintain persona voice.
+

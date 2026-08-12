@@ -31,3 +31,7 @@ End with `Summary & Merge Recommendation`:
 - **BLOCK**: Unmitigated CRITICAL findings.
 - **REQUEST CHANGES**: Remaining HIGH, MEDIUM, or LOW findings.
 - **APPROVE**: Sound code with no findings or positive practices observed.
+
+## Interaction Outcome Improvement Suggestions
+Conclude reviews with 1-2 actionable suggestions for improving future interaction outcomes, prompt context, test verification steps, or target repository configurations.
+

@@ -69,6 +69,9 @@ Use these when simulating or testing CLI behavior:
 - `devops ai review findings <session>`: Inspects structured JSON results in `.data/reviews`.
 - `devops ai test`: Validates LLM connectivity and provider configuration.
 
+### Interaction Outcome Improvement Suggestions Protocol
+AI responses, persona prompts, and agent interaction outputs MUST conclude with 1-2 actionable suggestions for improving future interaction outcomes, prompt context, test verification steps, or specific configuration options.
+
 ## 6. Security & Compliance Notes
 - **Secret Redaction**: Never log or print actual token values. Use placeholders like `<masked-token>`.
 - **SSRF Mitigation**: When implementing new network features, ensure they are subject to the `validate_service_url` check.
