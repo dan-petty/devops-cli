@@ -1,23 +1,29 @@
-# Release Notes — devops-cli v0.1.4
+# Release Notes — devops-cli v0.1.5
 
 Workstation-native DevOps CLI for managing repositories, SSH keys, Kubernetes clusters, Kustomize, ArgoCD, Grafana, Prometheus, Docker, workspace files, and multi-persona AI code reviews.
 
 ---
 
-## 🚀 Highlights of v0.1.4
+## 🚀 Highlights of v0.1.5
 
-### 🤖 Default Enhanced AI Metadata Analysis
-- **`devops ai analyze`**: Enhanced analysis (pseudocode structural outlines, complexity scoring, UTC ISO timestamps) is now enabled by default across all analysis commands (`path`, `branch`, `pr`). Use `--no-enhanced` to opt out.
+### ☸️ Minikube Infrastructure & Target Service Auto-Configuration
+- **`devops k8s configure-urls`**: Auto-detects Minikube NodePort service endpoints (`argocd-server`, `kube-prometheus-grafana`, `kube-prometheus-kube-prome-prometheus`) and updates `argocd.url`, `grafana.url`, and `prometheus.url` in `config.yaml`.
+- **Automated `deploy-stack` Integration**: `devops k8s deploy-stack` automatically triggers service URL detection upon completing Helm release deployments.
 
-### ⚡ Incremental Analysis Caching & Force Update Flag
-- **`st_mtime` Caching**: Files whose modification timestamp is prior to their recorded `last_analyzed` ISO timestamp skip redundant LLM queries and reuse existing metadata.
-- **`devops ai analyze --update-all` (`-u`)**: Force full metadata regeneration regardless of `last_*` timestamps.
+### ⚡ FastMCP Server Tool Alignment
+- **Verified 18 FastMCP Tools**: Fixed CLI subcommand mappings in `src/devops_cli/mcp.py` for `repos_status`, `argo_list`, `argo_status`, `docker_stats`, and `workspace_list`. Verified end-to-end tool calls against live cluster endpoints.
 
-### 🔍 Submodule-Aware Dependency Extraction
-- **Python AST & Package Scanners**: Preserves full module and submodule imports (e.g. `pydantic.v2`, `rich.console`, `devops_cli.models.ai`) rather than stripping down to root package names.
+### 🛡️ 7-Gate CI Quality Gate
+- **Expanded Quality Gate**: Added `devops ci coverage` (`pytest-cov`) and `devops ci security` (`bandit`), expanding the automated CI check to 7 sequential gates (`test`, `coverage`, `lint`, `format`, `typecheck`, `audit`, `security`).
 
-### 🧹 Clean Pseudocode Outline Generation
-- **Zero Imports & Zero Canned Language**: Strictly excludes all import/from statements and package directives from pseudocode outlines (ensuring dependencies stay in their dedicated metadata field) and eliminates generic template phrases.
+### 🔒 Security Hardening & Python 3.14 Compatibility
+- **Python 3.14 Exception Syntax**: Refactored 19 occurrences of legacy `except Exception, Type:` syntax across 12 modules into standard parenthesized tuples `except (Exception, Type):`.
+- **Pydantic Model Overwrite Prevention**: Enhanced `dotted_set()` in `src/devops_cli/config/settings.py` to prevent primitive strings from overwriting top-level `BaseModel` section objects.
+- **OWASP LLM01 Prompt Injection Protection**: Documented XML boundary tag sanitization rationale (`&lt;/tag&gt;`) inside untrusted user code diffs.
+- **Review Finding Verification Pipeline**: Updated findings status (`VERIFIED`, `MITIGATED`) for automated review sessions and enabled JSONL dataset export via `devops ai review export-feedback`.
+
+### 🤖 AI Backend Model Visibility
+- **Active Model Display**: Every AI code review file request now explicitly displays the target LLM model backend and provider handling the prompt.
 
 ---
 

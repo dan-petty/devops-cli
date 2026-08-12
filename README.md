@@ -70,7 +70,8 @@ devops ci
 | | `devops ssh register` | Register SSH key and signing key with GitHub account |
 | | `devops ssh rotate` | Rotate SSH keys older than 90 days and update GitHub |
 | | `devops ssh audit` | Audit SSH key expiration dates and key file permissions |
-| **k8s** | `devops k8s deploy-stack` | Deploy ArgoCD, Prometheus, Grafana, OTEL to minikube |
+| **k8s** | `devops k8s deploy-stack` | Deploy ArgoCD, Prometheus, Grafana, OTEL to minikube and configure URLs |
+| | `devops k8s configure-urls` | Auto-detect Minikube monitoring stack NodePort URLs (ArgoCD, Grafana, Prometheus) |
 | | `devops k8s status` | Display pod status across infrastructure namespaces |
 | | `devops k8s switch-context <ctx>` | Switch active Kubernetes context and cluster namespace |
 | | `devops k8s rbac-audit` | Audit RBAC RoleBindings and ServiceAccounts for overprivileged access |
