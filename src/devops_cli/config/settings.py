@@ -235,7 +235,7 @@ def load_settings() -> Settings:
             continue
         try:
             dotted_set(settings, option_key, env_value)
-        except (AttributeError, ValueError):
+        except AttributeError, ValueError:
             # Ignore invalid or unknown env overrides and keep existing settings.
             continue
 
@@ -274,7 +274,7 @@ def _github_cli_token() -> str | None:
 
     try:
         result = run_subprocess(["gh", "auth", "token"], quiet=True, timeout=5.0)
-    except (FileNotFoundError, OSError, subprocess.SubprocessError):
+    except FileNotFoundError, OSError, subprocess.SubprocessError:
         return None
 
     if result.returncode != 0:
