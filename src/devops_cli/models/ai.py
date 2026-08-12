@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ChatMessage(BaseModel):
@@ -62,18 +62,19 @@ class FileAnalysisMeta(BaseModel):
     """Metadata attributes for an individual file in an analysis session."""
 
     path: str
-    size_bytes: int
-    line_count: int
-    char_count: int
-    language: str
-    primary_purpose: str
-    key_symbols: list[str]
-    dependencies: list[str]
+    size_bytes: int = 0
+    line_count: int = 0
+    char_count: int = 0
+    language: str = "text"
+    primary_purpose: str = ""
+    key_symbols: list[str] = Field(default_factory=list)
+    dependencies: list[str] = Field(default_factory=list)
     change_type: str = "existing"
     pseudocode: list[str] | None = None
     last_updated: str | None = None
     last_analyzed: str | None = None
     complexity_score: str | None = None
+    confidence_score: float = 0.9
 
 
 class ProjectAnalysisMeta(BaseModel):
@@ -92,6 +93,7 @@ class ProjectAnalysisMeta(BaseModel):
     dependencies: list[str]
     enhanced: bool = False
     last_analyzed: str | None = None
+    confidence_score: float = 0.9
 
 
 class AnalysisMetadata(BaseModel):

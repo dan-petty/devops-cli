@@ -6,7 +6,9 @@ from pathlib import Path
 
 from devops_cli.config.constants import (
     CONST_DEFAULT_AI_MAX_RETRIES,
+    CONST_REVIEW_OVERLAP_FACTOR,
     CONST_REVIEW_TIMEOUT_SECONDS,
+    CONST_REVIEW_WINDOW_SIZE_FACTOR,
     CONST_URL_OLLAMA_LOCALHOST,
 )
 
@@ -24,6 +26,8 @@ DEFAULT_PYTHON_VERSION = "3.14"
 # NOTE (Design Justification - AGENTS.md §4 & README.md): High default timeouts are intentional
 # to accommodate local LLM inference (CPU/GPU Ollama), corporate proxy delays, and minikube setup.
 DEFAULT_REVIEW_TIMEOUT_SECONDS: float = CONST_REVIEW_TIMEOUT_SECONDS  # 3600.0s (1 hour)
+DEFAULT_REVIEW_WINDOW_SIZE_FACTOR: float = CONST_REVIEW_WINDOW_SIZE_FACTOR  # 0.8
+DEFAULT_REVIEW_OVERLAP_FACTOR: float = CONST_REVIEW_OVERLAP_FACTOR  # 0.1
 DEFAULT_SUBPROCESS_TIMEOUT_SECONDS: float = 1800.0  # 30 minutes (kubectl, helm, minikube, git, gh)
 DEFAULT_HTTP_TIMEOUT_SECONDS: float = 3600.0  # 1 hour (API requests & downloads)
 DEFAULT_DNS_TIMEOUT_SECONDS: float = 15.0  # 15 seconds (socket DNS resolution)

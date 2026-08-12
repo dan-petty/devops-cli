@@ -87,33 +87,37 @@ def test_review_prompt_contains_full_diff_without_truncation() -> None:
     assert big_diff in prompt
 
 
-def test_paginate_blocks_keeps_small_blocks_on_one_page() -> None:
-    blocks = ["a" * 10, "b" * 10, "c" * 10]
+def test_diff_pages_keeps_small_files_on_separate_pages() -> None:
+    diff = "diff --git a/one.py b/one.py\n+line one\ndiff --git a/two.py b/two.py\n+line two\n"
 
-    pages = review._paginate_blocks(blocks, max_chars=1000)
+    pages = review._diff_pages(diff, max_chars=1000)
 
-    assert len(pages) == 1
-    assert all(block in pages[0] for block in blocks)
+    assert len(pages) == 2
+    assert "one.py" in pages[0]
+    assert "two.py" in pages[1]
 
 
-def test_paginate_blocks_splits_across_pages_without_dropping_content() -> None:
-    blocks = ["a" * 60, "b" * 60, "c" * 60]
+def test_paginate_file_diff_block_splits_across_windows_without_dropping_content() -> None:
+    preamble = "diff --git a/one.py b/one.py\n--- a/one.py\n+++ b/one.py\n@@ -1,10 +1,10 @@\n"
+    body = "".join(f"+line-{i:02d}\n" for i in range(20))
+    block = preamble + body
 
-    pages = review._paginate_blocks(blocks, max_chars=100)
+    windows = review._paginate_file_diff_block(block, max_chars=100)
+
+    assert len(windows) > 1
+    combined = "".join(windows)
+    assert "one.py" in combined
+    assert "line-00" in combined
+    assert "line-19" in combined
+
+
+def test_paginate_file_diff_block_hard_splits_an_oversized_single_block() -> None:
+    huge_block = "diff --git a/huge.py b/huge.py\n" + "".join(f"+line-{i}\n" for i in range(60))
+
+    pages = review._paginate_file_diff_block(huge_block, max_chars=100)
 
     assert len(pages) > 1
-    combined = "".join(pages)
-    assert all(block in combined for block in blocks)
-
-
-def test_paginate_blocks_hard_splits_an_oversized_single_block() -> None:
-    huge_block = "".join(f"line-{i}\n" for i in range(60))
-
-    pages = review._paginate_blocks([huge_block], max_chars=100)
-
-    assert len(pages) > 1
-    assert "".join(pages) == huge_block
-    assert all(page.endswith("\n") for page in pages)
+    assert "huge.py" in pages[0]
 
 
 def test_split_diff_into_file_blocks_separates_per_file() -> None:
@@ -159,12 +163,26 @@ def test_diff_pages_preserves_file_context_for_oversized_single_file() -> None:
 
 
 def test_collect_file_blocks_splits_large_file_with_part_headers(tmp_path: Path) -> None:
-    text = "".join(f"print({i})\\n" for i in range(120))
+    text = "".join(f"print({i})\n" for i in range(120))
     blocks = review._split_source_file_blocks(Path("big.py"), "py", text, max_chars=300)
 
     assert len(blocks) > 1
     assert all("### File: big.py (part " in block for block in blocks)
     assert all("```py" in block for block in blocks)
+
+
+def test_paginate_file_diff_block_rolling_window_overlap() -> None:
+    preamble = "diff --git a/big.py b/big.py\n--- a/big.py\n+++ b/big.py\n@@ -1,100 +1,100 @@\n"
+    lines = [f"+line {i:03d}\n" for i in range(100)]
+    block = preamble + "".join(lines)
+
+    windows = review._paginate_file_diff_block(
+        block, max_chars=500, window_size_factor=0.8, overlap_factor=0.1
+    )
+
+    assert len(windows) > 1
+    assert all("diff --git a/big.py b/big.py" in w for w in windows)
+    assert "line 000" in windows[0]
 
 
 def test_run_review_three_steps_combines_segments() -> None:

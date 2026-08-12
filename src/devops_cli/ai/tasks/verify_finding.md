@@ -19,7 +19,8 @@ Return ONLY a JSON array with one object per input finding:
     "verified": true,
     "mitigated": false,
     "severity": "HIGH",
-    "location": "path/to/file.ext:12-18"
+    "location": "path/to/file.ext:12-18",
+    "confidence_score": 0.95
   }
 ]
 ```

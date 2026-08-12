@@ -702,6 +702,7 @@ def _render_analysis_summary(payload: AnalysisMetadata, out_path: Path) -> None:
             MESSAGES.analyze.lbl_enhanced,
             MESSAGES.analyze.enhanced_enabled,
         )
+        table.add_row("Confidence Score:", f"{proj.confidence_score:.2f}")
     table.add_row(MESSAGES.analyze.lbl_saved_to, f"[link=file://{out_path}]{out_path}[/link]")
     console.print(table)
 

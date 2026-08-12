@@ -42,6 +42,7 @@ class Finding(BaseModel):
     invalidation_reason: str | None = None
     verified_by: str | None = None  # "llm" | "human"
     verified_at: str | None = None
+    confidence_score: float = 0.9
 
     @field_validator("severity", mode="before")
     @classmethod
@@ -55,6 +56,17 @@ class Finding(BaseModel):
         s = str(v).upper().strip()
         valid = {"UNVERIFIED", "VERIFIED", "INVALIDATED", "MITIGATED"}
         return s if s in valid else "UNVERIFIED"
+
+    @field_validator("confidence_score", mode="before")
+    @classmethod
+    def _normalize_confidence(cls, v: object) -> float:
+        if v is None:
+            return 0.9
+        try:
+            val = float(str(v))
+            return max(0.0, min(1.0, val))
+        except ValueError, TypeError:
+            return 0.9
 
 
 class SavedFinding(Finding):
@@ -74,12 +86,24 @@ class ReviewResult(BaseModel):
     positive_observations: list[str] = []
     recommendation: str = "REQUEST CHANGES"
     summary: str = ""
+    confidence_score: float = 0.9
 
     @field_validator("recommendation", mode="before")
     @classmethod
     def _normalize_recommendation(cls, v: object) -> str:
         s = str(v).strip()
         return _RECOMMENDATION_ALIASES.get(s.lower(), s.upper())
+
+    @field_validator("confidence_score", mode="before")
+    @classmethod
+    def _normalize_confidence(cls, v: object) -> float:
+        if v is None:
+            return 0.9
+        try:
+            val = float(str(v))
+            return max(0.0, min(1.0, val))
+        except ValueError, TypeError:
+            return 0.9
 
     @property
     def sorted_findings(self) -> list[Finding]:
@@ -103,6 +127,7 @@ class ReviewResult(BaseModel):
             (self.recommendation, other.recommendation),
             key=lambda r: rec_order.get(r, 99),
         )
+        merged_conf = round((self.confidence_score + other.confidence_score) / 2.0, 2)
         return ReviewResult(
             findings=self.findings + new_findings,
             positive_observations=list(
@@ -110,6 +135,7 @@ class ReviewResult(BaseModel):
             ),
             recommendation=recommendation,
             summary=self.summary or other.summary,
+            confidence_score=merged_conf,
         )
 
 

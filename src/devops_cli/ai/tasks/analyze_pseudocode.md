@@ -1,13 +1,13 @@
 Provide technical pseudocode representing key structure and logic (targeting 6-10 lines for complex files, down to 1 line for simple assets).
 
 CRITICAL REQUIREMENTS:
-- Output 1 to 10 lines of pseudocode steps, one per line.
+- Output 1 to 20 lines of pseudocode steps, one per line.
 - Focus strictly on technical logic, specific function/method calls, data structures, configuration keys, and exact operational steps.
 - Output should look like an absolutely minimalistic interpretation of the source file.
 - STRICTLY EXCLUDE ALL IMPORT STATEMENTS AND DEPENDENCIES (e.g. NEVER output lines starting with "import ", "from ... import ...", "require(...)", or "#include"). Imports and dependencies are strictly extracted into separate metadata fields.
 - Do not reference the filename in pseudocode.
 - Do not use explanatory or descriptive text.
-- Limit output to a subset of words(or abbr) used in the source document.
+- Limit output to a subset of abbreviated words used in the source document.
 
 EXAMPLE:
 ``` python
@@ -40,16 +40,16 @@ def parse_json_data(
 
 ``` pseudocode
 #PSEUDOCODE OUTPUT
-parse_json_data(b, c) -> Result[ParsedJSON, LexError]:
+p_j_d(b, c) -> Result[ParsedJSON, LexError]:
     b.drop_comments()
-    if b.curr().is_whitespace():
-        return error(unexpected_eof)
+    if b.curr().is_w():
+        r e(unexp_eof)
     if b.p_n().is_n() or b.p_n().is_l():
-        return parse_value(b, c).map(lambda)
+        r parse_v(b, c).m(l)
     elif b.curr() == T_O_B:
-        return parse_object(b,c)
+        r parse_o(b,c)
     elif b.curr() == T_O_BKT:
-        return parse_array(b,c)
+        r parse_a(b,c)
     else:
         raise LexicalError(INVALID_JSON_ERROR, c)
 ```

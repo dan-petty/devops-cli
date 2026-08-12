@@ -158,3 +158,65 @@ def test_review_stats_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     assert "Total Findings:  2" in res.output
     assert "VERIFIED" in res.output
     assert "INVALIDATED" in res.output
+
+
+def test_find_related_file_metas_matches_dependencies_and_symbols() -> None:
+    from devops_cli.commands.review import _find_related_file_metas
+    from devops_cli.models.ai import FileAnalysisMeta
+
+    finding = Finding(
+        title="Unvalidated Egress Request",
+        location="src/devops_cli/commands/review.py:100",
+        description="Call to validate_service_url without timeout.",
+        status="UNVERIFIED",
+    )
+    analysis_metas = {
+        "src/devops_cli/commands/review.py": FileAnalysisMeta(
+            path="src/devops_cli/commands/review.py",
+            dependencies=["devops_cli.http.client", "devops_cli.models.ai"],
+        ),
+        "src/devops_cli/http/client.py": FileAnalysisMeta(
+            path="src/devops_cli/http/client.py",
+            primary_purpose="Secure HTTP client with SSRF validation",
+            key_symbols=["validate_service_url", "safe_get"],
+            pseudocode=["validate_service_url(url)", "httpx.get(...)"],
+        ),
+    }
+
+    related = _find_related_file_metas(finding, "src/devops_cli/commands/review.py", analysis_metas)
+    assert len(related) == 1
+    assert related[0].path == "src/devops_cli/http/client.py"
+
+
+def test_build_validation_prompt_includes_related_file_analysis_metadata() -> None:
+    from devops_cli.commands.review import _build_validation_prompt
+    from devops_cli.models.ai import FileAnalysisMeta
+
+    finding = Finding(
+        title="Insecure Key Generation",
+        location="crypto/ssh.py:15",
+        description="Uses weak key size.",
+        status="UNVERIFIED",
+    )
+    analysis_metas = {
+        "crypto/ssh.py": FileAnalysisMeta(
+            path="crypto/ssh.py",
+            dependencies=["crypto.keyring"],
+        ),
+        "crypto/keyring.py": FileAnalysisMeta(
+            path="crypto/keyring.py",
+            primary_purpose="OS Keyring secret store and ED25519 helper",
+            key_symbols=["get_secret", "generate_ed25519_key"],
+            pseudocode=["generate_ed25519_key()", "keyring.set_password(...)"],
+        ),
+    }
+
+    prompt = _build_validation_prompt(
+        [finding],
+        ["### File: crypto/ssh.py\ncode\n"],
+        analysis_metas=analysis_metas,
+    )
+    assert "<untrusted_related_files>" in prompt
+    assert "crypto/keyring.py" in prompt
+    assert "generate_ed25519_key" in prompt
+    assert "Pseudocode Outline" in prompt
