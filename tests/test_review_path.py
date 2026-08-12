@@ -209,7 +209,7 @@ def test_run_review_three_steps_combines_segments() -> None:
         ["page-one", "page-two"],
         "title",
         persona,
-        ReviewClients(metadata=DummyClient(), analysis=DummyClient(), compose=DummyClient()),
+        ReviewClients(analysis=DummyClient(), compose=DummyClient()),
         agents_md="",
         build_prompt=lambda content, title: f"{title}:{content}",
     )
@@ -217,7 +217,7 @@ def test_run_review_three_steps_combines_segments() -> None:
     # 2 review (step 2) + 1 recompose (step 3) (metadata step 1 uses fast static extraction)
     assert len(calls) == 3
     assert result == "final recomposed review"
-    assert any("Review metadata for all 2 segment(s)" in c for c in calls)
+    assert any("Analysis metadata for review context" in c for c in calls)
     assert any("Per-segment review outputs" in c for c in calls)
 
 
@@ -241,7 +241,7 @@ def test_run_review_never_sends_empty_user_prompt() -> None:
         ["content-1", "content-2"],
         "title",
         persona,
-        ReviewClients(metadata=DummyClient(), analysis=DummyClient(), compose=DummyClient()),
+        ReviewClients(analysis=DummyClient(), compose=DummyClient()),
         agents_md="",
         build_prompt=lambda content, title: f"{title}\n{content}",
     )
@@ -264,7 +264,7 @@ def test_run_review_metadata_includes_filenames() -> None:
             enable_thinking: bool = True,
             **kwargs: object,
         ) -> str:
-            if "Review metadata for all" in user:
+            if "Analysis metadata for review context" in user:
                 review_calls.append(user)
             if "Per-segment review outputs" in user:
                 return "done"
@@ -280,15 +280,15 @@ def test_run_review_metadata_includes_filenames() -> None:
         pages,
         "title",
         persona,
-        ReviewClients(metadata=DummyClient(), analysis=DummyClient(), compose=DummyClient()),
+        ReviewClients(analysis=DummyClient(), compose=DummyClient()),
         agents_md="",
         build_prompt=lambda content, title: f"{title}\n{content}",
     )
 
     assert result == "done"
     assert len(review_calls) == 2
-    assert all("src/a.py" in c for c in review_calls)
-    assert all("src/b.py" in c for c in review_calls)
+    assert "src/a.py" in review_calls[0]
+    assert "src/b.py" in review_calls[1]
 
 
 def test_run_review_dry_run_skips_client_calls(
@@ -316,7 +316,7 @@ def test_run_review_dry_run_skips_client_calls(
         ["page-one", "page-two"],
         "title",
         persona,
-        ReviewClients(metadata=DummyClient(), analysis=DummyClient(), compose=DummyClient()),
+        ReviewClients(analysis=DummyClient(), compose=DummyClient()),
         agents_md="",
         build_prompt=lambda content, title: f"{title}:{content}",
     )
@@ -350,7 +350,7 @@ def test_run_review_single_segment_skips_recompose() -> None:
         ["only-page"],
         "title",
         persona,
-        ReviewClients(metadata=DummyClient(), analysis=DummyClient(), compose=DummyClient()),
+        ReviewClients(analysis=DummyClient(), compose=DummyClient()),
         agents_md="",
         build_prompt=lambda content, title: f"{title}:{content}",
     )
