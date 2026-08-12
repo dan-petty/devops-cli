@@ -17,4 +17,4 @@ def test_bundle_ollama_models(tmp_path: Path) -> None:
 
     data = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert data["models"] == ["qwen2.5-coder:7b"]
-    assert data["version"] == "0.1.3"
+    assert data["version"] == "0.1.4"

@@ -6,6 +6,14 @@ Chronological log of refactoring milestones, quality gates, and security enhance
 
 ## Log Entries
 
+### [2026-08-12] Release v0.1.4 Implementation & Completion
+- **Default AI Metadata Analysis**: Made `--enhanced` mode default across `devops ai analyze` subcommands (`path`, `branch`, `pr`), generating 6-10 line minimalist pseudocode structural outlines, complexity scores, and ISO `last_analyzed` timestamps. Added `--no-enhanced` flag for basic metadata opt-out.
+- **Incremental Analysis Caching**: Implemented `st_mtime` vs `last_analyzed` caching to skip redundant LLM calls on unchanged files, with `--update-all` (`-u`) flag to force full metadata regeneration.
+- **Submodule-Aware Dependency Scanner**: Preserved full module/submodule imports (`pydantic.v2`, `rich.console`, `devops_cli.models.ai`) in Python AST and package analysis.
+- **Clean Pseudocode Generation**: Eliminated generic boilerplate language and strictly excluded import statements and package directives from pseudocode output to ensure clean separation from extracted dependencies.
+- **Dry-Run & Helper Standardization**: Centralized Pydantic dry-run rendering in `dry_run/state.py`, git origin URL parsing in `core/repo.py`, and LLM client instantiation in `config/settings.py`.
+- **Quality Gate**: Executed `devops ci` — 215 passed, ruff lint clean, ruff format clean, strict mypy clean, uv audit clean.
+
 ### [2026-08-11] Release v0.1.3 Implementation & Completion
 - **Interactive Patch Staging**: Added `--interactive / -i` to `devops ai review apply-patch` for diff previews.
 - **Air-Gapped Model Bundler**: Added `devops ai bundle-models` command (`bundle_ollama_models`).

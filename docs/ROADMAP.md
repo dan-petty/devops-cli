@@ -40,11 +40,11 @@ High-density product roadmap for `devops-cli`.
 - [x] **Automated Code Patch Application Prep**: Staging suggested LLM code fixes (`devops ai review apply-patch`).
 - [x] **Expanded Subcommand Dry-Run Models**: Pydantic `CommandDryRunResult` models across `argo`, `grafana`, `prometheus`, `devcontainer`.
 
-### Phase 5: Autonomous Remediation & Air-Gapped Bundling (v0.1.3 - Completed)
-- [x] **Interactive Code Patch Application**: Interactive diff preview and staging for LLM code fixes (`devops ai review apply-patch --interactive`).
-- [x] **Air-Gapped Model Bundling**: Package local Ollama model weights for offline DevContainers (`devops ai bundle-models`).
-- [x] **Kubernetes RBAC Audit Policy**: RBAC security scanner for namespace role bindings (`devops k8s rbac-audit`).
-- [x] **SIEM Live Audit Streaming**: Live JSON audit trail streaming (`devops config audit-stream`).
+### Phase 6: Default AI Metadata Analysis & Submodule Scanners (v0.1.4 - Completed)
+- [x] **Default Enhanced Analysis**: Default `--enhanced` metadata generation (pseudocode outlines, complexity, ISO `last_analyzed` timestamps).
+- [x] **Incremental Analysis Caching**: Skip redundant LLM calls on unchanged files (`st_mtime <= last_analyzed`), with `--update-all` bypass flag.
+- [x] **Submodule-Aware Dependency Scanner**: Preserve full module/submodule imports (`pydantic.v2`, `rich.console`, `devops_cli.models.ai`).
+- [x] **Clean Pseudocode Generation**: Eliminate canned template language and strictly exclude import statements from pseudocode outlines.
 
 ---
 

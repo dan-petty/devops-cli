@@ -12,7 +12,7 @@ from devops_cli.config.constants import CONST_DATA_DIR
 class ModelBundleManifest(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    version: str = "0.1.3"
+    version: str = "0.1.4"
     models: list[str]
     created_at: str
     target_dir: str

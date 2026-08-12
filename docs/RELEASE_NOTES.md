@@ -1,22 +1,23 @@
-# Release Notes — devops-cli v0.1.3
+# Release Notes — devops-cli v0.1.4
 
 Workstation-native DevOps CLI for managing repositories, SSH keys, Kubernetes clusters, Kustomize, ArgoCD, Grafana, Prometheus, Docker, workspace files, and multi-persona AI code reviews.
 
 ---
 
-## 🚀 Highlights of v0.1.3
+## 🚀 Highlights of v0.1.4
 
-### 🛠️ Interactive Code Patch Application
-- **`devops ai review apply-patch --interactive`**: Render colored git diff previews using Rich console before staging LLM code fixes (`finding.fix`).
+### 🤖 Default Enhanced AI Metadata Analysis
+- **`devops ai analyze`**: Enhanced analysis (pseudocode structural outlines, complexity scoring, UTC ISO timestamps) is now enabled by default across all analysis commands (`path`, `branch`, `pr`). Use `--no-enhanced` to opt out.
 
-### 📦 Air-Gapped Local Model Bundling
-- **`devops ai bundle-models`**: Export and package local Ollama model weight manifests for air-gapped DevContainer deployment.
+### ⚡ Incremental Analysis Caching & Force Update Flag
+- **`st_mtime` Caching**: Files whose modification timestamp is prior to their recorded `last_analyzed` ISO timestamp skip redundant LLM queries and reuse existing metadata.
+- **`devops ai analyze --update-all` (`-u`)**: Force full metadata regeneration regardless of `last_*` timestamps.
 
-### 🛡️ Kubernetes RBAC Audit Policy Scanner
-- **`devops k8s rbac-audit`**: Audit RoleBindings and ServiceAccounts for overprivileged permissions (`*` verbs, cluster-admin bindings).
+### 🔍 Submodule-Aware Dependency Extraction
+- **Python AST & Package Scanners**: Preserves full module and submodule imports (e.g. `pydantic.v2`, `rich.console`, `devops_cli.models.ai`) rather than stripping down to root package names.
 
-### 📡 SIEM Live Audit Streamer
-- **`devops config audit-stream <dest>`**: Stream structured JSON audit records to Syslog or HTTP log collectors.
+### 🧹 Clean Pseudocode Outline Generation
+- **Zero Imports & Zero Canned Language**: Strictly excludes all import/from statements and package directives from pseudocode outlines (ensuring dependencies stay in their dedicated metadata field) and eliminates generic template phrases.
 
 ---
 
