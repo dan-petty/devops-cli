@@ -122,11 +122,14 @@ def test(
     verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Verbose output")] = False,
     k: Annotated[str | None, typer.Option("-k", help="Filter tests by keyword expression")] = None,
     x: Annotated[bool, typer.Option("-x", help="Stop after first failure")] = False,
+    numprocesses: Annotated[
+        str, typer.Option("-n", "--numprocesses", help="Number of parallel worker processes")
+    ] = "auto",
 ) -> None:
-    """Run the pytest test suite strictly under Python 3.14."""
+    """Run the pytest test suite in parallel leveraging all CPU cores."""
     if not _verify_python_314_environment():
         raise typer.Exit(1)
-    cmd = ["uv", "run", "pytest"]
+    cmd = ["uv", "run", "pytest", "-n", numprocesses]
     if verbose:
         cmd.append("-v")
     if k:
@@ -145,11 +148,22 @@ def coverage(
     html: Annotated[
         bool, typer.Option("--html", help="Generate HTML coverage report in htmlcov/")
     ] = False,
+    numprocesses: Annotated[
+        str, typer.Option("-n", "--numprocesses", help="Number of parallel worker processes")
+    ] = "auto",
 ) -> None:
-    """Run pytest with code coverage analysis over src/."""
+    """Run pytest with parallel code coverage analysis over src/."""
     if not _verify_python_314_environment():
         raise typer.Exit(1)
-    cmd = ["uv", "run", "pytest", "--cov=src", "--cov-report=term-missing"]
+    cmd = [
+        "uv",
+        "run",
+        "pytest",
+        "-n",
+        numprocesses,
+        "--cov=src",
+        "--cov-report=term-missing",
+    ]
     if html:
         cmd.append("--cov-report=html")
     if not _run(cmd):

@@ -61,3 +61,4 @@ strict = true
 asyncio_mode = "auto"
 testpaths = ["tests"]
 pythonpath = ["src"]
+addopts = "-n auto"

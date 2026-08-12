@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
-from concurrent.futures import ThreadPoolExecutor
-
 import pytest
 from typer.testing import CliRunner
 
