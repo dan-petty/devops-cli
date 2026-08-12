@@ -36,6 +36,8 @@ dev = [
     "ruff>=0.9",
     "mypy>=1.11",
     "types-PyYAML>=6",
+    "pytest-cov>=7.1.0",
+    "bandit>=1.9.4",
 ]
 
 [tool.hatch.build.targets.wheel]

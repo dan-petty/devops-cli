@@ -47,6 +47,11 @@ def _run_all_checks(*, lint_fix: bool, format_fix: bool) -> list[tuple[str, bool
     _section("pytest")
     checks.append(("test", _run(["uv", "run", "pytest"])))
 
+    _section("pytest coverage")
+    checks.append(
+        ("coverage", _run(["uv", "run", "pytest", "--cov=src", "--cov-report=term-missing"]))
+    )
+
     _section("ruff check")
     lint_cmd = ["uv", "run", "ruff", "check", "."]
     if lint_fix:
@@ -66,6 +71,9 @@ def _run_all_checks(*, lint_fix: bool, format_fix: bool) -> list[tuple[str, bool
     _section("uv audit")
     checks.append(("audit", _run(["uv", "audit"])))
 
+    _section("bandit security scan")
+    checks.append(("security", _run(["uv", "run", "bandit", "-r", "src", "-ll", "-s", "B608"])))
+
     return checks
 
 
@@ -80,7 +88,7 @@ def _print_summary(checks: list[tuple[str, bool]]) -> None:
 
 @app.callback(invoke_without_command=True)
 def all_checks(ctx: typer.Context) -> None:
-    """Run all checks in sequence: test, lint, format, typecheck, audit."""
+    """Run all checks in sequence: test, coverage, lint, format, typecheck, audit, security."""
     if ctx.invoked_subcommand is not None:
         return
 
@@ -108,6 +116,20 @@ def test(
         cmd.extend(["-k", k])
     if x:
         cmd.append("-x")
+    if not _run(cmd):
+        raise typer.Exit(1)
+
+
+@app.command()
+def coverage(
+    html: Annotated[
+        bool, typer.Option("--html", help="Generate HTML coverage report in htmlcov/")
+    ] = False,
+) -> None:
+    """Run pytest with code coverage analysis over src/."""
+    cmd = ["uv", "run", "pytest", "--cov=src", "--cov-report=term-missing"]
+    if html:
+        cmd.append("--cov-report=html")
     if not _run(cmd):
         raise typer.Exit(1)
 
@@ -148,6 +170,22 @@ def typecheck() -> None:
 def audit() -> None:
     """Run uv audit to check for known package vulnerabilities."""
     if not _run(["uv", "audit"]):
+        raise typer.Exit(1)
+
+
+@app.command()
+def security(
+    severity: Annotated[
+        str,
+        typer.Option("--severity", "-s", help="Minimum severity threshold (low, medium, high)"),
+    ] = "medium",
+) -> None:
+    """Run bandit static security vulnerability analysis over src/."""
+    level_flag = (
+        "-lll" if severity.lower() == "high" else ("-l" if severity.lower() == "low" else "-ll")
+    )
+    cmd = ["uv", "run", "bandit", "-r", "src", level_flag, "-s", "B608"]
+    if not _run(cmd):
         raise typer.Exit(1)
 
 
