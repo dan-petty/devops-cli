@@ -138,7 +138,7 @@ def repos_list() -> str:
 @mcp.tool()
 def repos_status() -> str:
     """Display uncommitted changes and branch drift across workspace repositories."""
-    return _run_mcp_cmd(["uv", "run", "devops", "repos", "status"], timeout=60)
+    return _run_mcp_cmd(["uv", "run", "devops", "branches", "list"], timeout=60)
 
 
 @mcp.tool()
@@ -167,10 +167,7 @@ def k8s_pods(namespace: str = "default") -> str:
     """List Kubernetes pod status for the specified namespace."""
     if namespace:
         _validate_mcp_arg("namespace", namespace)
-    cmd = ["uv", "run", "devops", "k8s", "pods"]
-    if namespace:
-        cmd.extend(["--namespace", namespace])
-    return _run_mcp_cmd(cmd, timeout=30)
+    return _run_mcp_cmd(["uv", "run", "devops", "k8s", "status"], timeout=30)
 
 
 @mcp.tool()
@@ -203,27 +200,27 @@ def k8s_teardown_stack() -> str:
 @mcp.tool()
 def argo_list() -> str:
     """List ArgoCD applications."""
-    return _run_mcp_cmd(["uv", "run", "devops", "argo", "list"], timeout=30)
+    return _run_mcp_cmd(["uv", "run", "devops", "argo", "cd", "apps", "list"], timeout=30)
 
 
 @mcp.tool()
-def argo_status(app: str) -> str:
+def argo_status(app: str = "argocd") -> str:
     """Check ArgoCD application health and sync status."""
     _validate_mcp_arg("app", app)
-    return _run_mcp_cmd(["uv", "run", "devops", "argo", "status", "--app", app], timeout=30)
+    return _run_mcp_cmd(["uv", "run", "devops", "argo", "cd", "apps", "status", app], timeout=30)
 
 
 @mcp.tool()
 def grafana_dashboards(query: str = "") -> str:
     """List Grafana dashboards, optionally filtered by search query."""
-    cmd = ["uv", "run", "devops", "grafana", "dashboards"]
     if query:
-        cmd.extend(["--query", query])
-    return _run_mcp_cmd(cmd, timeout=30)
+        _validate_mcp_arg("query", query)
+        return _run_mcp_cmd(["uv", "run", "devops", "grafana", "search", "--query", query], timeout=30)
+    return _run_mcp_cmd(["uv", "run", "devops", "grafana", "dashboards", "list"], timeout=30)
 
 
 @mcp.tool()
-def prometheus_query(promql: str) -> str:
+def prometheus_query(promql: str = "up") -> str:
     """Execute PromQL instant query against Prometheus endpoint."""
     _validate_mcp_arg("promql", promql)
     return _run_mcp_cmd(["uv", "run", "devops", "prometheus", "query", promql], timeout=30)
@@ -232,13 +229,13 @@ def prometheus_query(promql: str) -> str:
 @mcp.tool()
 def docker_stats() -> str:
     """List local Docker images and display container information."""
-    return _run_mcp_cmd(["uv", "run", "devops", "docker", "stats"], timeout=30)
+    return _run_mcp_cmd(["uv", "run", "devops", "docker", "images"], timeout=30)
 
 
 @mcp.tool()
 def workspace_list() -> str:
     """Show the active VS Code workspace file and configured repository directories."""
-    return _run_mcp_cmd(["uv", "run", "devops", "workspace", "list"], timeout=30)
+    return _run_mcp_cmd(["uv", "run", "devops", "repos", "list"], timeout=30)
 
 
 @mcp.tool()
