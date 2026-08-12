@@ -4,7 +4,52 @@ CRITICAL REQUIREMENTS:
 - Output 1 to 10 lines of pseudocode steps, one per line.
 - Focus strictly on technical logic, specific function/method calls, data structures, configuration keys, and exact operational steps.
 - Output should look like an absolutely minimalistic interpretation of the source file.
-- ABSOLUTELY NO generic boilerplate/canned phrases (e.g. NEVER output "Initialize environment", "Exit with script status code", "Supply environment configuration", "Apply format settings", "Load component dependencies", "Parse JSON schema", "Load asset contents").
 - STRICTLY EXCLUDE ALL IMPORT STATEMENTS AND DEPENDENCIES (e.g. NEVER output lines starting with "import ", "from ... import ...", "require(...)", or "#include"). Imports and dependencies are strictly extracted into separate metadata fields.
 - Do not reference the filename in pseudocode.
 - Do not use explanatory or descriptive text.
+- Limit output to a subset of words(or abbr) used in the source document.
+
+EXAMPLE:
+``` python
+#SOURCE
+def parse_json_data(
+    buffer: Buffer,
+    context: ParseContext,
+) -> Result[ParsedJSON, LexError]:
+    """
+    Parses a JSON object from a buffer.
+    """
+    buffer.drop_comments()
+    if buffer.current().is_whitespace():
+        return Err(LexError.unexpected_eof())
+    if buffer.peek_next().is_number() or buffer.peek_next().is_literal():
+        value_result = parse_value(buffer, context)
+        return value_result.map(
+            lambda v: ParsedJSON(JSONType.VALUE, [v], buffer.position())
+        )
+    elif buffer.current() == TOKEN_OPEN_BRACE:
+        return parse_object(buffer, context)
+    elif buffer.current() == TOKEN_OPEN_BRACKET:
+        return parse_array(buffer, context)
+    else:
+        raise LexicalError(
+            f"Invalid JSON value at position {buffer.position()}",
+            Context("JSON Parse", "BufferRead"),
+        )
+```
+
+``` pseudocode
+#PSEUDOCODE OUTPUT
+parse_json_data(b, c) -> Result[ParsedJSON, LexError]:
+    b.drop_comments()
+    if b.curr().is_whitespace():
+        return error(unexpected_eof)
+    if b.p_n().is_n() or b.p_n().is_l():
+        return parse_value(b, c).map(lambda)
+    elif b.curr() == T_O_B:
+        return parse_object(b,c)
+    elif b.curr() == T_O_BKT:
+        return parse_array(b,c)
+    else:
+        raise LexicalError(INVALID_JSON_ERROR, c)
+```

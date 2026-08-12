@@ -419,6 +419,43 @@ def _is_import_or_docstring_line(line_str: str) -> bool:
     return False
 
 
+def _extract_python_pseudocode_outline(content: str) -> list[str]:
+    """Extract AST signatures and key statements directly from Python source code."""
+    lines: list[str] = []
+    try:
+        tree = ast.parse(content)
+        for node in tree.body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                args = [a.arg for a in node.args.args if a.arg != "self"]
+                args_str = ", ".join(args[:3])
+                if len(node.args.args) > 3:
+                    args_str += ", ..."
+                ret = f" -> {ast.unparse(node.returns)}" if node.returns else ""
+                lines.append(f"{node.name}({args_str}){ret}:")
+                for stmt in node.body[:2]:
+                    if isinstance(
+                        stmt,
+                        (ast.If, ast.For, ast.While, ast.Return, ast.Raise, ast.Assign, ast.Expr),
+                    ):
+                        try:
+                            stmt_code = ast.unparse(stmt).splitlines()[0]
+                            lines.append(f"    {stmt_code[:60]}")
+                        except Exception:
+                            pass
+            elif isinstance(node, ast.ClassDef):
+                bases = [ast.unparse(b) for b in node.bases]
+                bases_str = f"({', '.join(bases)})" if bases else ""
+                lines.append(f"class {node.name}{bases_str}:")
+                for item in node.body[:2]:
+                    if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                        args = [a.arg for a in item.args.args if a.arg != "self"]
+                        lines.append(f"    def {item.name}({', '.join(args[:2])}):")
+    except Exception:
+        pass
+
+    return lines[:10]
+
+
 def _generate_pseudocode(
     rel_path: str,
     content: str,
@@ -433,9 +470,8 @@ def _generate_pseudocode(
             from devops_cli.models.ai import ChatMessage
 
             prompt = (
-                f"File path: '{rel_path}' ({lang})\n"
-                f"Purpose: {purpose}\n\n"
-                f"Content snippet:\n{content[:200000]}\n\n"
+                f"File: '{rel_path}' ({lang})\n\n"
+                f"Source code snippet:\n{content[:200000]}\n\n"
                 f"{ANALYZE_PSEUDOCODE_TASK_PROMPT}"
             )
             response = ai_client.chat_messages(
@@ -455,7 +491,13 @@ def _generate_pseudocode(
         except Exception:
             pass
 
-    # 1. JSON / YAML / TOML configuration files
+    # 1. Python source code outline via AST
+    if lang == "python" and content.strip():
+        py_outline = _extract_python_pseudocode_outline(content)
+        if py_outline:
+            return py_outline
+
+    # 2. JSON / YAML / TOML configuration files (direct key: val without canned prose)
     if lang in ("json", "yaml", "toml") and content.strip():
         try:
             if lang == "json":
@@ -466,17 +508,15 @@ def _generate_pseudocode(
                         val_str = json.dumps(v)
                         if len(val_str) > 60:
                             val_str = val_str[:57] + "..."
-                        out_steps.append(f"Configure '{k}': {val_str}")
+                        out_steps.append(f"{k}: {val_str}")
                     if out_steps:
                         return out_steps
                 elif isinstance(data, list) and data:
-                    return [
-                        f"Item [{i}]: {json.dumps(item)[:60]}" for i, item in enumerate(data[:8])
-                    ]
+                    return [json.dumps(item)[:60] for item in data[:8]]
         except Exception:
             pass
 
-    # 2. Shell scripts
+    # 3. Shell / bash scripts (actual command lines)
     if lang in ("shell", "bash") and content.strip():
         actual_cmds: list[str] = []
         for line in content.splitlines():
@@ -488,25 +528,25 @@ def _generate_pseudocode(
         if actual_cmds:
             return actual_cmds
 
-    # 3. Code files with symbols
+    # 4. Markdown / Documentation (header lines without "Section:" prefix)
+    if lang == "markdown" and content.strip():
+        headers = [
+            line.strip().lstrip("#").strip()
+            for line in content.splitlines()
+            if line.strip().startswith("#")
+        ][:8]
+        if headers:
+            return [h for h in headers if h]
+
+    # 5. Generic code files with symbols
     if symbols:
         main_syms = [s for s in symbols if not s.startswith("test_")][:8]
         if not main_syms:
             main_syms = symbols[:8]
         if main_syms:
-            return [f"Define entity {sym}" for sym in main_syms]
+            return [f"{sym}(...)" for sym in main_syms]
 
-    # 4. Markdown / Documentation
-    if lang == "markdown" and content.strip():
-        headers = [
-            line.strip().removeprefix("#").strip()
-            for line in content.splitlines()
-            if line.strip().startswith("#")
-        ][:8]
-        if headers:
-            return [f"Section: {h}" for h in headers if h]
-
-    # 5. Generic configuration or text files (.editorconfig, .gitignore, etc.)
+    # 6. Generic configuration or text files (.editorconfig, .gitignore, etc.)
     non_comment_lines: list[str] = []
     for line in content.splitlines():
         line_str = line.strip()
@@ -522,7 +562,8 @@ def _generate_pseudocode(
     if non_comment_lines:
         return non_comment_lines
 
-    return [f"Content payload: {content.strip()[:80]}"]
+    first_line = content.strip().splitlines()[0][:80] if content.strip() else ""
+    return [first_line] if first_line else []
 
 
 def analyze_single_file(

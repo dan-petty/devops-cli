@@ -41,8 +41,10 @@ def _load(path: Path) -> str:
 
 METADATA_SYSTEM_PROMPT: str = _load(_TASKS_DIR / "metadata.md")
 ANALYZE_PSEUDOCODE_SYSTEM_PROMPT: str = (
-    "You are a senior software architect. Output concise technical pseudocode steps "
-    "(target 6-10 lines for complex files, down to 1 line for trivial assets), one per line."
+    "You are a senior software architect. Output an ultra-minimalistic technical pseudocode "
+    "outline of the source file (target 6-10 lines for complex files, down to 1 line for simple "
+    "assets), using strictly words, symbols, and abbreviations from the source document itself. "
+    "NEVER use generic explanatory boilerplate or added English prose phrases."
 )
 ANALYZE_PSEUDOCODE_TASK_PROMPT: str = _load(_TASKS_DIR / "analyze_pseudocode.md")
 _TASK_REVIEW: str = _load(_TASKS_DIR / "review.md")
