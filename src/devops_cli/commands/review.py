@@ -1308,6 +1308,7 @@ def _run_review(
             )
             return (i, dry_seg.model_dump_json(indent=2))
         result_text = ""
+        res_backend: str | None = None
         for attempt in range(1, _MAX_SEGMENT_RETRIES + 2):
             seg_start = time.monotonic()
             proc_sec: float | None = None
@@ -1319,8 +1320,13 @@ def _run_review(
                 )
                 result_text = str(res_obj)
                 proc_sec = getattr(res_obj, "processing_seconds", None)
+                res_backend = getattr(res_obj, "backend_info", None) or getattr(
+                    clients.analysis, "backend_info", ""
+                )
             except (AIClientError, OSError) as exc:
                 seg_elapsed = time.monotonic() - seg_start
+                fail_info = getattr(clients.analysis, "backend_info", "")
+                fail_backend = f" [{fail_info}]" if fail_info else analysis_suffix
                 _log_event(
                     "exception",
                     segment_index=i,
@@ -1334,16 +1340,17 @@ def _run_review(
                 )
                 if attempt <= _MAX_SEGMENT_RETRIES:
                     rprint(
-                        f"[yellow]  ✗ {file_label} error in {seg_elapsed:.1f}s "
-                        f"(attempt {attempt}){analysis_suffix}, retrying...[/yellow]"
+                        f"[yellow]  ✗ {file_label} error in {seg_elapsed:.1f}s"
+                        f"{fail_backend} (attempt {attempt}), retrying...[/yellow]"
                     )
                     continue
                 rprint(
                     f"[yellow]  ✗ {file_label} failed in {seg_elapsed:.1f}s after "
-                    f"{_MAX_SEGMENT_RETRIES + 1} attempt(s); skipping.{analysis_suffix}[/yellow]"
+                    f"{_MAX_SEGMENT_RETRIES + 1} attempt(s); skipping.{fail_backend}[/yellow]"
                 )
                 break
             seg_elapsed = proc_sec if proc_sec is not None else (time.monotonic() - seg_start)
+            req_backend_str = f" [{res_backend}]" if res_backend else analysis_suffix
             if not result_text.strip():
                 empty_msg = (
                     f"LLM returned empty or whitespace-only response (len={len(result_text)}) "
@@ -1362,19 +1369,19 @@ def _run_review(
                 )
                 if attempt <= _MAX_SEGMENT_RETRIES:
                     rprint(
-                        f"[yellow]  ✗ {file_label} empty in {seg_elapsed:.1f}s "
-                        f"(attempt {attempt}){analysis_suffix}, retrying...[/yellow]"
+                        f"[yellow]  ✗ {file_label} empty in {seg_elapsed:.1f}s"
+                        f"{req_backend_str} (attempt {attempt}), retrying...[/yellow]"
                     )
                     continue
                 rprint(
                     f"[yellow]Warning: {file_label} still empty in {seg_elapsed:.1f}s "
-                    f"after {_MAX_SEGMENT_RETRIES + 1} attempt(s).{analysis_suffix}[/yellow]"
+                    f"after {_MAX_SEGMENT_RETRIES + 1} attempt(s).{req_backend_str}[/yellow]"
                 )
             else:
                 retry_note = f" (attempt {attempt})" if attempt > 1 else ""
                 rprint(
                     f"[dim]  ✓ {file_label} in {seg_elapsed:.1f}s"
-                    f"{analysis_suffix}{retry_note}[/dim]"
+                    f"{req_backend_str}{retry_note}[/dim]"
                 )
             break
         return (i, result_text)

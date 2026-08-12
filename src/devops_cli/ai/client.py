@@ -42,20 +42,23 @@ class AIClientError(RuntimeError):
 
 
 class LLMResponse(str):
-    """String response from LLM with optional execution timing metadata."""
+    """String response from LLM with optional execution timing and backend metadata."""
 
     processing_seconds: float | None
     wall_seconds: float
+    backend_info: str | None
 
     def __new__(
         cls,
         content: str,
         processing_seconds: float | None = None,
         wall_seconds: float = 0.0,
+        backend_info: str | None = None,
     ) -> LLMResponse:
         obj = super().__new__(cls, content)
         obj.processing_seconds = processing_seconds
         obj.wall_seconds = wall_seconds
+        obj.backend_info = backend_info
         return obj
 
 
@@ -221,17 +224,21 @@ class LLMClient:
             return self._ollama_messages(system, messages, enable_thinking=enable_thinking)
         if p == "claude":
             res_claude = self._claude_messages(system, messages)
+            b_info = getattr(res_claude, "backend_info", None) or f"claude ({self.backend_host})"
             return LLMResponse(
                 self._strip_think_blocks(res_claude),
                 processing_seconds=res_claude.processing_seconds,
                 wall_seconds=res_claude.wall_seconds,
+                backend_info=b_info,
             )
         if p in ("copilot", "openai"):
             res_openai = self._openai_compat_messages(system, messages)
+            b_info = getattr(res_openai, "backend_info", None) or f"{p} ({self.backend_host})"
             return LLMResponse(
                 self._strip_think_blocks(res_openai),
                 processing_seconds=res_openai.processing_seconds,
                 wall_seconds=res_openai.wall_seconds,
+                backend_info=b_info,
             )
         raise ValueError(f"Unknown provider: {p!r}. Choose: ollama, claude, copilot, openai")
 
@@ -534,7 +541,15 @@ class LLMClient:
             else:
                 proc_sec = None
 
-            return LLMResponse(text, processing_seconds=proc_sec, wall_seconds=wall_elapsed)
+            parsed = urlparse(base)
+            host_str = parsed.netloc or parsed.path or base
+            b_info = f"ollama ({host_str})"
+            return LLMResponse(
+                text,
+                processing_seconds=proc_sec,
+                wall_seconds=wall_elapsed,
+                backend_info=b_info,
+            )
 
     def _ollama_models(self) -> list[str]:
         candidates = self._get_ollama_urls_loop()
@@ -597,7 +612,13 @@ class LLMClient:
                 response.raise_for_status()
                 wall_elapsed = time.monotonic() - t0
                 text = str(self._read_limited_json(response)["content"][0]["text"])
-                return LLMResponse(text, processing_seconds=None, wall_seconds=wall_elapsed)
+                b_info = f"claude ({self.backend_host})"
+                return LLMResponse(
+                    text,
+                    processing_seconds=None,
+                    wall_seconds=wall_elapsed,
+                    backend_info=b_info,
+                )
         except (httpx2.ConnectError, httpx2.ConnectTimeout) as exc:
             raise self._connection_error(exc) from exc
         except httpx2.HTTPError as exc:
@@ -628,7 +649,13 @@ class LLMClient:
                 response.raise_for_status()
                 wall_elapsed = time.monotonic() - t0
                 text = str(self._read_limited_json(response)["choices"][0]["message"]["content"])
-                return LLMResponse(text, processing_seconds=None, wall_seconds=wall_elapsed)
+                b_info = f"{self.backend_type} ({self.backend_host})"
+                return LLMResponse(
+                    text,
+                    processing_seconds=None,
+                    wall_seconds=wall_elapsed,
+                    backend_info=b_info,
+                )
         except (httpx2.ConnectError, httpx2.ConnectTimeout) as exc:
             raise self._connection_error(exc) from exc
         except httpx2.HTTPError as exc:
