@@ -32,6 +32,8 @@ class SegmentMeta(BaseModel):
     char_count: int
     first_lines: list[str]
     last_lines: list[str]
+    pseudocode: list[str] | None = None
+    complexity: str | None = None
 
     @property
     def summary(self) -> str:

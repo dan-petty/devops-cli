@@ -704,6 +704,8 @@ def _build_segment_review_prompt(
             "symbols": s.key_symbols,
             "dependencies": s.dependencies,
             "types": s.change_types,
+            **({"pseudocode": s.pseudocode} if s.pseudocode else {}),
+            **({"complexity": s.complexity} if s.complexity else {}),
         }
         for s in metadata.segments
     }
@@ -717,7 +719,7 @@ def _build_segment_review_prompt(
     meta_json = _sanitize_prompt_boundary_tags(
         json.dumps(context_meta, indent=2, ensure_ascii=True)
     )
-    part_title = title if total == 1 else f"{title} \u2014 segment {index}/{total}"
+    part_title = title if total == 1 else f"{title} — segment {index}/{total}"
     format_section = _persona_format_section(persona)
     return (
         f"You are performing a code review as: {persona.title}.\n\n"
@@ -744,6 +746,8 @@ def _build_recompose_prompt(
             "symbols": s.key_symbols,
             "dependencies": s.dependencies,
             "types": s.change_types,
+            **({"pseudocode": s.pseudocode} if s.pseudocode else {}),
+            **({"complexity": s.complexity} if s.complexity else {}),
         }
         for s in metadata.segments
     }
@@ -1024,6 +1028,61 @@ def _persona_system_prompt(persona: PersonaDefinition, agents_md: str) -> str:
     )
 
 
+def _load_file_analysis_metas(
+    filenames: list[str], repo_root: Path | None = None
+) -> dict[str, Any]:
+    """Fetch existing analysis metadata from .data/analysis/ or analyze file on-the-fly."""
+    from devops_cli.commands.analyze import analyze_single_file
+    from devops_cli.core.repo import find_repo_root
+    from devops_cli.models.ai import AnalysisMetadata, FileAnalysisMeta
+
+    metas: dict[str, FileAnalysisMeta] = {}
+    if not filenames:
+        return metas
+
+    try:
+        repo = repo_root or find_repo_root(Path.cwd())
+    except Exception:
+        repo = None
+
+    if repo and repo.exists():
+        analysis_dir = repo / CONST_DATA_DIR / "analysis"
+        if analysis_dir.exists():
+            for json_file in analysis_dir.glob("*.json"):
+                try:
+                    payload_data = json.loads(json_file.read_text(encoding="utf-8"))
+                    payload = AnalysisMetadata.model_validate(payload_data)
+                    for fmeta in payload.files:
+                        if fmeta.path not in metas or (
+                            fmeta.pseudocode and not metas[fmeta.path].pseudocode
+                        ):
+                            metas[fmeta.path] = fmeta
+                except Exception:
+                    pass
+
+        for fn in filenames:
+            if fn not in metas:
+                file_path = repo / fn
+                if (
+                    file_path.exists()
+                    and file_path.is_file()
+                    and file_path.stat().st_size <= CONST_MAX_FILE_SIZE_BYTES
+                ):
+                    try:
+                        content = file_path.read_text(encoding="utf-8", errors="replace")
+                        metas[fn] = analyze_single_file(
+                            fn,
+                            content,
+                            file_path.stat().st_size,
+                            enhanced=True,
+                            repo_root=repo,
+                        )
+                    except Exception:
+                        pass
+
+    return metas
+
+
 def _build_review_metadata(
     pages: list[str],
     title: str,
@@ -1039,9 +1098,39 @@ def _build_review_metadata(
         filenames = _extract_segment_filenames(page)
         first_lines, last_lines = _extract_code_lines(page, context_lines)
 
-        primary_purpose = _extract_primary_purpose(filenames, page)
-        key_symbols = _extract_key_symbols(page)
-        dependencies = _extract_dependencies(page)
+        analysis_metas = _load_file_analysis_metas(filenames)
+
+        purposes: list[str] = []
+        syms: list[str] = []
+        deps: list[str] = []
+        pseudocode_steps: list[str] = []
+        complexities: list[str] = []
+
+        for fn in filenames:
+            if fn in analysis_metas:
+                fmeta = analysis_metas[fn]
+                if fmeta.primary_purpose and fmeta.primary_purpose not in purposes:
+                    purposes.append(fmeta.primary_purpose)
+                if fmeta.key_symbols:
+                    for s in fmeta.key_symbols:
+                        if s not in syms:
+                            syms.append(s)
+                if fmeta.dependencies:
+                    for d in fmeta.dependencies:
+                        if d not in deps:
+                            deps.append(d)
+                if fmeta.pseudocode:
+                    for step in fmeta.pseudocode:
+                        if step not in pseudocode_steps:
+                            pseudocode_steps.append(step)
+                if fmeta.complexity_score and fmeta.complexity_score not in complexities:
+                    complexities.append(fmeta.complexity_score)
+
+        primary_purpose = (
+            "; ".join(purposes) if purposes else _extract_primary_purpose(filenames, page)
+        )
+        key_symbols = syms[:15] if syms else _extract_key_symbols(page)
+        dependencies = deps[:15] if deps else _extract_dependencies(page)
         change_types = _extract_change_types(filenames)
 
         seg_elapsed = time.monotonic() - seg_start
@@ -1061,6 +1150,8 @@ def _build_review_metadata(
                 char_count=len(page),
                 first_lines=first_lines,
                 last_lines=last_lines,
+                pseudocode=pseudocode_steps[:10] if pseudocode_steps else None,
+                complexity=", ".join(complexities) if complexities else None,
             )
         )
     if not is_dry_run():
