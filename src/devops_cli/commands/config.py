@@ -39,7 +39,7 @@ console = Console()
 
 
 def _render_secret_store_error(key: str, exc: SecretStorageError) -> None:
-    from devops_cli.commands.review import _mask_secrets_in_content
+    from devops_cli.ai.review.sanitization import _mask_secrets_in_content
 
     env_var = env_var_for_option(key)
     masked_err = _mask_secrets_in_content(str(exc))

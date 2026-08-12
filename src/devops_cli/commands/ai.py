@@ -82,7 +82,7 @@ def _collect_project_context(repo: Path) -> str:
     if pyproject.exists():
         sections.append(f"## pyproject.toml\n```toml\n{pyproject.read_text()}\n```")
 
-    from devops_cli.commands.review import _sanitize_prompt_boundary_tags
+    from devops_cli.ai.review.sanitization import _sanitize_prompt_boundary_tags
 
     # README
     for name in ("README.md", "README.rst", "README.txt", "README"):
