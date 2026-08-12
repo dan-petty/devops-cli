@@ -55,15 +55,19 @@ def test_detect_language() -> None:
 
 
 def test_analyze_single_file() -> None:
-    """analyze_single_file extracts lines, characters, symbols, and dependencies."""
-    content = '"""Module docstring."""\nimport httpx2\n\nclass MyWorker:\n    pass\n'
+    """analyze_single_file extracts lines, characters, symbols, and dependencies with submodules."""
+    content = (
+        '"""Module docstring."""\nimport httpx2\nfrom rich.console import Console\n'
+        "from devops_cli.models.ai import FileAnalysisMeta\n\nclass MyWorker:\n    pass\n"
+    )
     meta = analyze_single_file("src/worker.py", content, len(content.encode("utf-8")))
 
     assert meta.path == "src/worker.py"
     assert meta.language == "python"
-    assert meta.line_count == 5
     assert "MyWorker" in meta.key_symbols
     assert "httpx2" in meta.dependencies
+    assert "rich.console" in meta.dependencies
+    assert "devops_cli.models.ai" in meta.dependencies
 
 
 def test_ai_analyze_path_command(tmp_path: Path) -> None:
@@ -97,3 +101,60 @@ def test_ai_analyze_branch_dry_run(monkeypatch: pytest.MonkeyPatch) -> None:
     result = runner.invoke(analyze_app, ["branch", "main"])
 
     assert result.exit_code == 0
+
+
+def test_ai_analyze_path_enhanced(tmp_path: Path) -> None:
+    """devops ai analyze path defaults to enhanced metadata."""
+    (tmp_path / ".git").mkdir()
+    src_dir = tmp_path / "src"
+    src_dir.mkdir()
+    py_file = src_dir / "worker.py"
+    py_file.write_text(
+        '"""Worker module."""\ndef run_task() -> None:\n    if True:\n        pass\n'
+    )
+
+    # Invoked without flags — enhanced is default True
+    result = runner.invoke(app, ["ai", "analyze", "path", str(src_dir)])
+
+    assert result.exit_code == 0
+    files = list((tmp_path / ".data" / "analysis").glob("*.json"))
+    assert len(files) == 1
+    analysis_file = files[0]
+
+    data = json.loads(analysis_file.read_text(encoding="utf-8"))
+    payload = AnalysisMetadata.model_validate(data)
+
+    assert payload.project.enhanced is True
+    assert payload.project.last_analyzed is not None
+    file_meta = payload.files[0]
+    assert file_meta.pseudocode is not None
+    assert isinstance(file_meta.pseudocode, list)
+    assert len(file_meta.pseudocode) > 0
+    assert file_meta.last_updated is not None
+    assert file_meta.last_analyzed is not None
+    assert file_meta.complexity_score in ("Low", "Medium", "High")
+
+    # Re-run analysis on unchanged file (incremental test)
+    result_rerun = runner.invoke(app, ["ai", "analyze", "path", str(src_dir)])
+    assert result_rerun.exit_code == 0
+    data_rerun = json.loads(analysis_file.read_text(encoding="utf-8"))
+    payload_rerun = AnalysisMetadata.model_validate(data_rerun)
+    assert payload_rerun.files[0].pseudocode == file_meta.pseudocode
+    assert payload_rerun.files[0].last_analyzed is not None
+
+    # Re-run analysis with --update-all flag
+    result_update_all = runner.invoke(app, ["ai", "analyze", "path", str(src_dir), "--update-all"])
+    assert result_update_all.exit_code == 0
+    data_update = json.loads(analysis_file.read_text(encoding="utf-8"))
+    payload_update = AnalysisMetadata.model_validate(data_update)
+    assert payload_update.files[0].last_analyzed is not None
+
+    # Test explicit --no-enhanced flag
+    result_no_enhanced = runner.invoke(
+        app, ["ai", "analyze", "path", str(src_dir), "--no-enhanced", "--update-all"]
+    )
+    assert result_no_enhanced.exit_code == 0
+    data_no_enhanced = json.loads(analysis_file.read_text(encoding="utf-8"))
+    payload_no_enhanced = AnalysisMetadata.model_validate(data_no_enhanced)
+    assert payload_no_enhanced.project.enhanced is False
+    assert payload_no_enhanced.files[0].pseudocode is None

@@ -68,6 +68,10 @@ class FileAnalysisMeta(BaseModel):
     key_symbols: list[str]
     dependencies: list[str]
     change_type: str = "existing"
+    pseudocode: list[str] | None = None
+    last_updated: str | None = None
+    last_analyzed: str | None = None
+    complexity_score: str | None = None
 
 
 class ProjectAnalysisMeta(BaseModel):
@@ -84,6 +88,8 @@ class ProjectAnalysisMeta(BaseModel):
     primary_purpose: str
     key_symbols: list[str]
     dependencies: list[str]
+    enhanced: bool = False
+    last_analyzed: str | None = None
 
 
 class AnalysisMetadata(BaseModel):

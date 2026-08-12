@@ -140,6 +140,39 @@ class K8sMessages(BaseModel):
     no_contexts_found: str = "No Kubernetes contexts found in Kubeconfig."
 
 
+class AnalyzeMessages(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    app_help: str = (
+        "Analyze codebases and create/update structured metadata files under .data/analysis/."
+    )
+    path_help: str = (
+        "Analyze a local directory path or single file and save metadata to .data/analysis/."
+    )
+    branch_help: str = (
+        "Analyze a git branch diff against base and save metadata to .data/analysis/."
+    )
+    pr_help: str = "Analyze a GitHub Pull Request and save metadata to .data/analysis/."
+    path_not_exists: str = "Path '{path}' does not exist."
+    git_branch_failed: str = "Could not determine active git branch."
+    github_token_required: str = (
+        "GitHub token required. Run: devops config set github.token <token>"
+    )
+    github_origin_failed: str = "Could not detect GitHub repository origin URL."
+    saved_metadata: str = "✓ Analysis metadata saved to [cyan]{path}[/cyan]"
+    would_save_metadata: str = (
+        "[yellow][dry-run][/yellow] Would write analysis metadata to: [cyan]{path}[/cyan]"
+    )
+    analysis_complete: str = "\n[bold green]Analysis Complete:[/bold green] [cyan]{title}[/cyan]"
+    lbl_target: str = "[bold]Target:[/bold]"
+    lbl_total_files: str = "[bold]Total Files:[/bold]"
+    lbl_total_lines: str = "[bold]Total Lines:[/bold]"
+    lbl_languages: str = "[bold]Languages:[/bold]"
+    lbl_enhanced: str = "[bold]Enhanced Metadata:[/bold]"
+    lbl_saved_to: str = "[bold]Saved To:[/bold]"
+    enhanced_enabled: str = "[green]Enabled (pseudocode, complexity, last_updated)[/green]"
+
+
 class LanguageCatalog(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -153,6 +186,7 @@ class LanguageCatalog(BaseModel):
     workspace: WorkspaceMessages = WorkspaceMessages()
     repos: RepoMessages = RepoMessages()
     k8s: K8sMessages = K8sMessages()
+    analyze: AnalyzeMessages = AnalyzeMessages()
 
 
 MESSAGES = LanguageCatalog()

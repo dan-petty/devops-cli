@@ -9,13 +9,17 @@ import mimetypes
 import re
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 import typer
 from rich import print as rprint
 from rich.console import Console
 from rich.table import Table
 
+from devops_cli.ai.personas import (
+    ANALYZE_PSEUDOCODE_SYSTEM_PROMPT,
+    ANALYZE_PSEUDOCODE_TASK_PROMPT,
+)
 from devops_cli.config.constants import (
     CONST_DATA_DIR,
     CONST_MAX_FILE_SIZE_BYTES,
@@ -23,10 +27,11 @@ from devops_cli.config.constants import (
 from devops_cli.core.cli import new_typer
 from devops_cli.core.repo import find_repo_root, list_repo_files
 from devops_cli.dry_run import is_dry_run
+from devops_cli.lang import MESSAGES
 from devops_cli.models.ai import AnalysisMetadata, FileAnalysisMeta, ProjectAnalysisMeta
 
 app = new_typer(
-    help="Analyze codebases and create/update structured metadata files under .data/analysis/.",
+    help=MESSAGES.analyze.app_help,
     no_args_is_help=True,
 )
 console = Console()
@@ -198,15 +203,17 @@ def _analyze_python_ast(content: str) -> tuple[str | None, list[str], list[str]]
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
-                pkg = alias.name.split(".")[0]
-                if pkg and pkg not in imports and pkg not in std_modules:
-                    imports.append(pkg)
+                mod_name = alias.name
+                root_pkg = mod_name.split(".")[0]
+                if root_pkg not in std_modules and mod_name not in imports:
+                    imports.append(mod_name)
         elif isinstance(node, ast.ImportFrom) and node.module:
-            pkg = node.module.split(".")[0]
-            if pkg and pkg not in imports and pkg not in std_modules:
-                imports.append(pkg)
+            mod_name = node.module
+            root_pkg = mod_name.split(".")[0]
+            if root_pkg not in std_modules and mod_name not in imports:
+                imports.append(mod_name)
 
-    return first_doc_sentence, symbols[:15], imports[:8]
+    return first_doc_sentence, symbols[:15], imports[:12]
 
 
 def _extract_file_symbols(content: str, lang: str) -> list[str]:
@@ -233,7 +240,7 @@ def _extract_file_symbols(content: str, lang: str) -> list[str]:
 
 
 def _extract_file_dependencies(content: str, lang: str) -> list[str]:
-    """Extract third-party package dependencies using AST for Python or import scanners."""
+    """Extract package dependencies with submodules using AST or import scanners."""
     if lang == "python":
         _, _, imports = _analyze_python_ast(content)
         if imports:
@@ -251,16 +258,31 @@ def _extract_file_dependencies(content: str, lang: str) -> list[str]:
             parts = line_str.split()
             if len(parts) >= 2:
                 raw_pkg = parts[1].strip("'\"`;,")
-                clean_pkg = raw_pkg.split("/")[0].removeprefix("@")
-                if clean_pkg and clean_pkg not in deps and not clean_pkg.startswith("."):
-                    deps.append(clean_pkg)
-    return deps[:8]
+                if raw_pkg and raw_pkg not in deps and not raw_pkg.startswith("."):
+                    deps.append(raw_pkg)
+    return deps[:12]
 
 
 def _extract_file_purpose(rel_path: str, content: str, lang: str, symbols: list[str]) -> str:
     """Infer an accurate, human-meaningful primary purpose description for a file."""
     filename = Path(rel_path).name.lower()
+    stem = Path(rel_path).stem
 
+    # 1. Standard configuration & workspace metadata files
+    if filename == "pyproject.toml":
+        return "Python package configuration, dependencies, and build settings"
+    if filename == ".gitignore":
+        return "Git repository version control exclusion rules"
+    if filename == ".editorconfig":
+        return "Editor formatting rules and file indentation settings"
+    if filename in ("dockerfile", "containerfile"):
+        return "Docker container image build instructions"
+    if filename == "makefile":
+        return "Build target rules and development automation commands"
+    if filename == ".python-version":
+        return "Pin local Python runtime version"
+
+    # 2. Python docstrings & Markdown titles
     if lang == "python" and content:
         doc_sentence, _, _ = _analyze_python_ast(content)
         if doc_sentence and len(doc_sentence) <= 140:
@@ -274,34 +296,233 @@ def _extract_file_purpose(rel_path: str, content: str, lang: str, symbols: list[
                 if title_text:
                     return f"Documentation guide: {title_text}"
 
+    # 3. Top-of-file header comments
     if content:
-        for line in content.splitlines()[:5]:
+        for line in content.splitlines()[:12]:
             line_str = line.strip()
-            if line_str.startswith(("#", "//", "<!--")):
-                comment_text = re.sub(r"^(?:#|//|<!--|\*)\s*", "", line_str).rstrip("-->").strip()
-                if comment_text and not comment_text.startswith("!") and len(comment_text) <= 120:
+            if line_str.startswith(("#", "//", "/*", "<!--")) and not line_str.startswith(
+                ("#!", "/*eslint")
+            ):
+                comment_text = (
+                    re.sub(r"^(?:#|//|/\*|<!--|\*)\s*", "", line_str).rstrip("-->*/").strip()
+                )
+                if (
+                    comment_text
+                    and not comment_text.startswith(("─", "═", "-", "=", "*", "!"))
+                    and len(set(comment_text)) > 2
+                    and len(comment_text) <= 140
+                ):
                     return comment_text
 
+    # 4. JSON / YAML structural schema inspection
+    if lang in ("json", "yaml", "toml") and content:
+        try:
+            if lang == "json":
+                data = json.loads(content)
+                if isinstance(data, dict) and data:
+                    keys = [str(k) for k in list(data.keys())[:5]]
+                    return f"Configuration asset with top-level keys: {', '.join(keys)}"
+        except Exception:
+            pass
+
+    # 5. Shell script command inspection
+    if lang in ("shell", "bash") and content:
+        cmds: list[str] = []
+        for line in content.splitlines():
+            line_str = line.strip()
+            if line_str and not line_str.startswith("#"):
+                parts = line_str.split()
+                if (
+                    parts
+                    and "=" not in parts[0]
+                    and parts[0]
+                    not in (
+                        "if",
+                        "then",
+                        "else",
+                        "fi",
+                        "for",
+                        "do",
+                        "done",
+                        "echo",
+                        "export",
+                        "set",
+                        "local",
+                    )
+                ):
+                    if parts[0] not in cmds:
+                        cmds.append(parts[0])
+                    if len(cmds) >= 4:
+                        break
+        if cmds:
+            return f"Automation script executing commands: {', '.join(cmds)}"
+
+    # 6. Symbol-based module purpose
     if symbols:
         main_syms = [s for s in symbols if not s.startswith("test_")][:3]
         if main_syms:
-            return f"Defines {', '.join(main_syms)} logic for {Path(rel_path).stem}"
+            return f"Defines {', '.join(main_syms)} logic for {stem}"
 
+    # 7. Path heuristic
     lower_path = rel_path.lower()
     if "test" in lower_path:
-        return f"Unit test suite for {Path(rel_path).stem}"
-    if filename == "pyproject.toml":
-        return "Python package configuration, dependencies, and build settings"
-    if filename == ".gitignore":
-        return "Git repository version control exclusion rules"
-    if filename == ".editorconfig":
-        return "Editor formatting rules and file indentation settings"
-    if filename in ("dockerfile", "containerfile"):
-        return "Docker container image build instructions"
-    if filename == "makefile":
-        return "Build target rules and development automation commands"
+        return f"Unit test suite for {stem}"
 
-    return f"Source module for {Path(rel_path).name} ({lang})"
+    return f"Source asset for {filename} ({lang})"
+
+
+def _calculate_complexity_score(content: str, line_count: int, symbols: list[str]) -> str:
+    """Calculate complexity rating: Low, Medium, High."""
+    branches = len(
+        re.findall(r"\b(if|elif|else|for|while|try|except|switch|case|catch)\b", content)
+    )
+    score = line_count + (branches * 5) + (len(symbols) * 3)
+    if score > 200:
+        return "High"
+    if score > 60:
+        return "Medium"
+    return "Low"
+
+
+def _get_last_updated(rel_path: str, repo_root: Path | None = None) -> str:
+    """Get ISO timestamp of when file was last updated via git log or stat mtime."""
+    if repo_root and repo_root.exists():
+        from devops_cli.core.process import run_subprocess
+
+        proc = run_subprocess(
+            ["git", "log", "-1", "--format=%cd", "--date=iso-strict", "--", rel_path],
+            cwd=repo_root,
+        )
+        proc_out = str(proc.stdout).strip()
+        if proc.returncode == 0 and proc_out:
+            return proc_out
+        file_abs = repo_root / rel_path
+        if file_abs.exists():
+            return datetime.fromtimestamp(file_abs.stat().st_mtime, UTC).isoformat()
+    return datetime.now(UTC).isoformat()
+
+
+def _is_import_or_docstring_line(line_str: str) -> bool:
+    """Detect import statements or raw docstrings to exclude from pseudocode."""
+    s = line_str.strip()
+    if not s:
+        return True
+    if s.startswith(('"""', "'''", 'r"""', "r'''", 'f"""', "f'''")):
+        return True
+    low_s = s.lower()
+    if (
+        low_s.startswith(("import ", "from ", "package "))
+        or "import " in low_s
+        or "require(" in low_s
+    ):
+        return True
+    return False
+
+
+def _generate_pseudocode(
+    rel_path: str,
+    content: str,
+    lang: str,
+    symbols: list[str],
+    purpose: str,
+    ai_client: Any | None = None,
+) -> list[str]:
+    """Generate a representative list of strings simplifying key elements and structure."""
+    if ai_client is not None and content.strip():
+        try:
+            from devops_cli.models.ai import ChatMessage
+
+            prompt = (
+                f"File path: '{rel_path}' ({lang})\n"
+                f"Purpose: {purpose}\n\n"
+                f"Content snippet:\n{content[:200000]}\n\n"
+                f"{ANALYZE_PSEUDOCODE_TASK_PROMPT}"
+            )
+            response = ai_client.chat_messages(
+                system_prompt=ANALYZE_PSEUDOCODE_SYSTEM_PROMPT,
+                messages=[ChatMessage(role="user", content=prompt)],
+            )
+            clean_res = str(response).strip()
+            if clean_res:
+                raw_steps = [
+                    re.sub(r"^\d+[\.\)]\s*|^[-*]\s*", "", line).strip()
+                    for line in clean_res.splitlines()
+                    if line.strip()
+                ]
+                filtered_steps = [s for s in raw_steps if s and not _is_import_or_docstring_line(s)]
+                if filtered_steps:
+                    return filtered_steps[:10]
+        except Exception:
+            pass
+
+    # 1. JSON / YAML / TOML configuration files
+    if lang in ("json", "yaml", "toml") and content.strip():
+        try:
+            if lang == "json":
+                data = json.loads(content)
+                if isinstance(data, dict) and data:
+                    out_steps: list[str] = []
+                    for k, v in list(data.items())[:8]:
+                        val_str = json.dumps(v)
+                        if len(val_str) > 60:
+                            val_str = val_str[:57] + "..."
+                        out_steps.append(f"Configure '{k}': {val_str}")
+                    if out_steps:
+                        return out_steps
+                elif isinstance(data, list) and data:
+                    return [
+                        f"Item [{i}]: {json.dumps(item)[:60]}" for i, item in enumerate(data[:8])
+                    ]
+        except Exception:
+            pass
+
+    # 2. Shell scripts
+    if lang in ("shell", "bash") and content.strip():
+        actual_cmds: list[str] = []
+        for line in content.splitlines():
+            line_str = line.strip()
+            if line_str and not line_str.startswith("#"):
+                actual_cmds.append(line_str[:80])
+                if len(actual_cmds) >= 8:
+                    break
+        if actual_cmds:
+            return actual_cmds
+
+    # 3. Code files with symbols
+    if symbols:
+        main_syms = [s for s in symbols if not s.startswith("test_")][:8]
+        if not main_syms:
+            main_syms = symbols[:8]
+        if main_syms:
+            return [f"Define entity {sym}" for sym in main_syms]
+
+    # 4. Markdown / Documentation
+    if lang == "markdown" and content.strip():
+        headers = [
+            line.strip().removeprefix("#").strip()
+            for line in content.splitlines()
+            if line.strip().startswith("#")
+        ][:8]
+        if headers:
+            return [f"Section: {h}" for h in headers if h]
+
+    # 5. Generic configuration or text files (.editorconfig, .gitignore, etc.)
+    non_comment_lines: list[str] = []
+    for line in content.splitlines():
+        line_str = line.strip()
+        if (
+            line_str
+            and not line_str.startswith(("#", "//", ";", "<!--"))
+            and not _is_import_or_docstring_line(line_str)
+        ):
+            non_comment_lines.append(line_str[:80])
+            if len(non_comment_lines) >= 8:
+                break
+
+    if non_comment_lines:
+        return non_comment_lines
+
+    return [f"Content payload: {content.strip()[:80]}"]
 
 
 def analyze_single_file(
@@ -309,6 +530,9 @@ def analyze_single_file(
     content: str,
     size_bytes: int,
     change_type: str = "existing",
+    enhanced: bool = True,
+    repo_root: Path | None = None,
+    ai_client: Any | None = None,
 ) -> FileAnalysisMeta:
     """Analyze a single file and construct a FileAnalysisMeta object."""
     line_count = len(content.splitlines()) if content else 0
@@ -317,6 +541,19 @@ def analyze_single_file(
     symbols = _extract_file_symbols(content, lang)
     purpose = _extract_file_purpose(rel_path, content, lang, symbols)
     deps = _extract_file_dependencies(content, lang)
+
+    pseudocode = None
+    last_updated = None
+    last_analyzed = None
+    complexity = None
+
+    if enhanced:
+        last_updated = _get_last_updated(rel_path, repo_root)
+        last_analyzed = datetime.now(UTC).isoformat()
+        complexity = _calculate_complexity_score(content, line_count, symbols)
+        pseudocode = _generate_pseudocode(
+            rel_path, content, lang, symbols, purpose, ai_client=ai_client
+        )
 
     return FileAnalysisMeta(
         path=rel_path,
@@ -328,6 +565,10 @@ def analyze_single_file(
         key_symbols=symbols,
         dependencies=deps,
         change_type=change_type,
+        pseudocode=pseudocode,
+        last_updated=last_updated,
+        last_analyzed=last_analyzed,
+        complexity_score=complexity,
     )
 
 
@@ -337,6 +578,7 @@ def save_analysis_metadata(
     title: str,
     files: list[FileAnalysisMeta],
     repo_root: Path,
+    enhanced: bool = True,
 ) -> Path:
     """Save or update analysis metadata file under .data/analysis/."""
     sanitized_ref = sanitize_reference(target_reference, repo_root)
@@ -388,19 +630,19 @@ def save_analysis_metadata(
         primary_purpose=project_purpose,
         key_symbols=all_symbols[:50],
         dependencies=all_deps[:15],
+        enhanced=enhanced,
+        last_analyzed=datetime.now(UTC).isoformat() if enhanced else None,
     )
 
     payload = AnalysisMetadata(project=proj_meta, files=files)
 
     if is_dry_run():
-        rprint(
-            f"[yellow][dry-run][/yellow] Would write analysis metadata to: [cyan]{out_file}[/cyan]"
-        )
+        rprint(MESSAGES.analyze.would_save_metadata.format(path=out_file))
         rprint("[yellow][dry-run][/yellow] AnalysisMetadata Pydantic model response:")
         console.print_json(payload.model_dump_json(indent=2))
     else:
         out_file.write_text(json.dumps(payload.model_dump(mode="json"), indent=2), encoding="utf-8")
-        rprint(f"[green]✓[/green] Analysis metadata saved to [cyan]{out_file}[/cyan]")
+        rprint(MESSAGES.analyze.saved_metadata.format(path=out_file))
 
     return out_file
 
@@ -408,13 +650,18 @@ def save_analysis_metadata(
 def _render_analysis_summary(payload: AnalysisMetadata, out_path: Path) -> None:
     """Render a Rich summary table of the analysis metadata."""
     proj = payload.project
-    console.print(f"\n[bold green]Analysis Complete:[/bold green] [cyan]{proj.title}[/cyan]")
+    console.print(MESSAGES.analyze.analysis_complete.format(title=proj.title))
     table = Table(show_header=False, box=None)
-    table.add_row("[bold]Target:[/bold]", f"{proj.target_type} ({proj.target_reference})")
-    table.add_row("[bold]Total Files:[/bold]", str(proj.total_files))
-    table.add_row("[bold]Total Lines:[/bold]", f"{proj.total_lines:,}")
-    table.add_row("[bold]Languages:[/bold]", ", ".join(proj.languages))
-    table.add_row("[bold]Saved To:[/bold]", f"[link=file://{out_path}]{out_path}[/link]")
+    table.add_row(MESSAGES.analyze.lbl_target, f"{proj.target_type} ({proj.target_reference})")
+    table.add_row(MESSAGES.analyze.lbl_total_files, str(proj.total_files))
+    table.add_row(MESSAGES.analyze.lbl_total_lines, f"{proj.total_lines:,}")
+    table.add_row(MESSAGES.analyze.lbl_languages, ", ".join(proj.languages))
+    if proj.enhanced:
+        table.add_row(
+            MESSAGES.analyze.lbl_enhanced,
+            MESSAGES.analyze.enhanced_enabled,
+        )
+    table.add_row(MESSAGES.analyze.lbl_saved_to, f"[link=file://{out_path}]{out_path}[/link]")
     console.print(table)
 
 
@@ -428,18 +675,58 @@ def analyze_path(
         str,
         typer.Option("--pattern", "-g", help="Glob pattern for files (default: all files)"),
     ] = "*",
+    enhanced: Annotated[
+        bool,
+        typer.Option(
+            "--enhanced/--no-enhanced",
+            "-e",
+            help="Generate AI-enhanced metadata (pseudocode, complexity, last_updated)",
+        ),
+    ] = True,
+    update_all: Annotated[
+        bool,
+        typer.Option(
+            "--update-all",
+            "-u",
+            help="Regenerate all enhanced metadata fields regardless of last_* timestamps",
+        ),
+    ] = False,
 ) -> None:
     """Analyze a local directory path or single file and save metadata to .data/analysis/."""
     repo = find_repo_root(target)
     target_abs = target.resolve() if target.is_absolute() else (repo / target).resolve()
 
     if not target_abs.exists():
-        rprint(f"[red]Path '{target}' does not exist.[/red]")
+        rprint(f"[red]{MESSAGES.analyze.path_not_exists.format(path=target)}[/red]")
         raise typer.Exit(1)
 
     collected_paths = list_repo_files(target_abs)
     if pattern and pattern != "*":
         collected_paths = [p for p in collected_paths if fnmatch.fnmatch(p.name, pattern)]
+
+    ai_client = None
+    if enhanced and not is_dry_run():
+        try:
+            from devops_cli.ai.client import LLMClient
+            from devops_cli.config.settings import get_ai_api_key, load_settings
+
+            settings = load_settings()
+            ai_client = LLMClient(settings.ai, api_key=get_ai_api_key(settings))
+        except Exception:
+            ai_client = None
+
+    ref_str = str(target.relative_to(repo)) if target_abs != repo else repo.name
+    sanitized_ref = sanitize_reference(ref_str, repo)
+    existing_file_metas: dict[str, FileAnalysisMeta] = {}
+    out_file_path = repo / CONST_DATA_DIR / "analysis" / f"path-{sanitized_ref}-metadata.json"
+
+    if enhanced and not update_all and out_file_path.exists():
+        try:
+            existing_data = json.loads(out_file_path.read_text(encoding="utf-8"))
+            existing_payload = AnalysisMetadata.model_validate(existing_data)
+            existing_file_metas = {f.path: f for f in existing_payload.files}
+        except Exception:
+            existing_file_metas = {}
 
     file_metas: list[FileAnalysisMeta] = []
     for p in collected_paths:
@@ -447,15 +734,37 @@ def analyze_path(
             continue
         try:
             rel_str = str(p.relative_to(repo)) if p.is_relative_to(repo) else str(p)
+            file_mtime = datetime.fromtimestamp(p.stat().st_mtime, UTC)
+
+            if enhanced and rel_str in existing_file_metas:
+                old_meta = existing_file_metas[rel_str]
+                if old_meta.last_analyzed and old_meta.pseudocode:
+                    try:
+                        analyzed_dt = datetime.fromisoformat(old_meta.last_analyzed)
+                        if file_mtime <= analyzed_dt:
+                            reused_meta = old_meta.model_copy(
+                                update={"last_analyzed": datetime.now(UTC).isoformat()}
+                            )
+                            file_metas.append(reused_meta)
+                            continue
+                    except Exception:
+                        pass
+
             content = p.read_text(encoding="utf-8", errors="replace")
-            meta = analyze_single_file(rel_str, content, p.stat().st_size)
+            meta = analyze_single_file(
+                rel_str,
+                content,
+                p.stat().st_size,
+                enhanced=enhanced,
+                repo_root=repo,
+                ai_client=ai_client,
+            )
             file_metas.append(meta)
         except Exception:
             continue
 
-    ref_str = str(target.relative_to(repo)) if target_abs != repo else repo.name
     title = f"{repo.name} path analysis: {ref_str}"
-    out_file = save_analysis_metadata("path", ref_str, title, file_metas, repo)
+    out_file = save_analysis_metadata("path", ref_str, title, file_metas, repo, enhanced=enhanced)
 
     if not is_dry_run():
         payload_data = json.loads(out_file.read_text(encoding="utf-8"))
@@ -468,6 +777,22 @@ def analyze_branch(
         str | None, typer.Argument(help="Branch to analyze (default: active branch)")
     ] = None,
     base: Annotated[str, typer.Option("--base", "-b", help="Base branch for diff")] = "main",
+    enhanced: Annotated[
+        bool,
+        typer.Option(
+            "--enhanced/--no-enhanced",
+            "-e",
+            help="Generate AI-enhanced metadata (pseudocode, complexity, last_updated)",
+        ),
+    ] = True,
+    update_all: Annotated[
+        bool,
+        typer.Option(
+            "--update-all",
+            "-u",
+            help="Regenerate all enhanced metadata fields regardless of last_* timestamps",
+        ),
+    ] = False,
 ) -> None:
     """Analyze a git branch diff against base and save metadata to .data/analysis/."""
     from devops_cli.core.process import run_subprocess
@@ -476,8 +801,31 @@ def analyze_branch(
     repo = find_repo_root()
     target_branch = branch or list_branches(repo).current
     if not target_branch:
-        rprint("[red]Could not determine active git branch.[/red]")
+        rprint(f"[red]{MESSAGES.analyze.git_branch_failed}[/red]")
         raise typer.Exit(1)
+
+    ai_client = None
+    if enhanced and not is_dry_run():
+        try:
+            from devops_cli.ai.client import LLMClient
+            from devops_cli.config.settings import get_ai_api_key, load_settings
+
+            settings = load_settings()
+            ai_client = LLMClient(settings.ai, api_key=get_ai_api_key(settings))
+        except Exception:
+            ai_client = None
+
+    sanitized_ref = sanitize_reference(target_branch, repo)
+    existing_file_metas: dict[str, FileAnalysisMeta] = {}
+    out_file_path = repo / CONST_DATA_DIR / "analysis" / f"branch-{sanitized_ref}-metadata.json"
+
+    if enhanced and not update_all and out_file_path.exists():
+        try:
+            existing_data = json.loads(out_file_path.read_text(encoding="utf-8"))
+            existing_payload = AnalysisMetadata.model_validate(existing_data)
+            existing_file_metas = {f.path: f for f in existing_payload.files}
+        except Exception:
+            existing_file_metas = {}
 
     # Get changed files from git diff
     proc = run_subprocess(["git", "diff", "--name-status", f"{base}...{target_branch}"], cwd=repo)
@@ -508,21 +856,47 @@ def analyze_branch(
                         key_symbols=[],
                         dependencies=[],
                         change_type="deleted",
+                        pseudocode=None,
+                        last_updated=None,
+                        complexity_score=None,
                     )
                 )
                 continue
 
             try:
+                file_mtime = datetime.fromtimestamp(file_path.stat().st_mtime, UTC)
+                if enhanced and rel_path in existing_file_metas:
+                    old_meta = existing_file_metas[rel_path]
+                    if old_meta.last_analyzed and old_meta.pseudocode:
+                        try:
+                            analyzed_dt = datetime.fromisoformat(old_meta.last_analyzed)
+                            if file_mtime <= analyzed_dt:
+                                reused_meta = old_meta.model_copy(
+                                    update={"last_analyzed": datetime.now(UTC).isoformat()}
+                                )
+                                file_metas.append(reused_meta)
+                                continue
+                        except Exception:
+                            pass
+
                 content = file_path.read_text(encoding="utf-8", errors="replace")
                 meta = analyze_single_file(
-                    rel_path, content, file_path.stat().st_size, change_type=change_type
+                    rel_path,
+                    content,
+                    file_path.stat().st_size,
+                    change_type=change_type,
+                    enhanced=enhanced,
+                    repo_root=repo,
+                    ai_client=ai_client,
                 )
                 file_metas.append(meta)
             except Exception:
                 continue
 
     title = f"{repo.name} branch analysis: {target_branch} vs {base}"
-    out_file = save_analysis_metadata("branch", target_branch, title, file_metas, repo)
+    out_file = save_analysis_metadata(
+        "branch", target_branch, title, file_metas, repo, enhanced=enhanced
+    )
 
     if not is_dry_run():
         payload_data = json.loads(out_file.read_text(encoding="utf-8"))
@@ -532,26 +906,51 @@ def analyze_branch(
 @app.command(name="pr")
 def analyze_pr(
     pr_number: Annotated[int, typer.Argument(help="GitHub PR number to analyze")],
+    enhanced: Annotated[
+        bool,
+        typer.Option(
+            "--enhanced/--no-enhanced",
+            "-e",
+            help="Generate AI-enhanced metadata (pseudocode, complexity, last_updated)",
+        ),
+    ] = True,
+    update_all: Annotated[
+        bool,
+        typer.Option(
+            "--update-all",
+            "-u",
+            help="Regenerate all enhanced metadata fields regardless of last_* timestamps",
+        ),
+    ] = False,
 ) -> None:
     """Analyze a GitHub Pull Request and save metadata to .data/analysis/."""
     from devops_cli.config.settings import get_github_token, load_settings
-    from devops_cli.core.process import run_subprocess
     from devops_cli.github.client import GitHubClient
 
     repo = find_repo_root()
     settings = load_settings()
     token = get_github_token(settings)
     if not token:
-        rprint("[red]GitHub token required. Run: devops config set github.token <token>[/red]")
+        rprint(f"[red]{MESSAGES.analyze.github_token_required}[/red]")
         raise typer.Exit(1)
 
-    proc = run_subprocess(["git", "remote", "get-url", "origin"], cwd=repo)
-    raw = proc.stdout.strip()
-    m = re.search(r"[:/]([a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+?)(?:\.git)?$", raw)
-    if not m:
-        rprint("[red]Could not detect GitHub repository origin URL.[/red]")
+    ai_client = None
+    if enhanced and not is_dry_run():
+        try:
+            from devops_cli.ai.client import LLMClient
+            from devops_cli.config.settings import get_ai_api_key, load_settings
+
+            settings = load_settings()
+            ai_client = LLMClient(settings.ai, api_key=get_ai_api_key(settings))
+        except Exception:
+            ai_client = None
+
+    from devops_cli.core.repo import get_repo_origin_name
+
+    repo_name = get_repo_origin_name(repo)
+    if not repo_name:
+        rprint(f"[red]{MESSAGES.analyze.github_origin_failed}[/red]")
         raise typer.Exit(1)
-    repo_name = m.group(1)
 
     gh_client = GitHubClient(token=token)
     pull = gh_client.get_pull(repo_name, pr_number)
@@ -567,7 +966,13 @@ def analyze_pr(
             try:
                 content = file_path.read_text(encoding="utf-8", errors="replace")
                 meta = analyze_single_file(
-                    path, content, file_path.stat().st_size, change_type=status
+                    path,
+                    content,
+                    file_path.stat().st_size,
+                    change_type=status,
+                    enhanced=enhanced,
+                    repo_root=repo,
+                    ai_client=ai_client,
                 )
                 file_metas.append(meta)
                 continue
@@ -585,12 +990,15 @@ def analyze_pr(
                 key_symbols=[],
                 dependencies=[],
                 change_type=status,
+                pseudocode=None,
+                last_updated=None,
+                complexity_score=None,
             )
         )
 
     title = f"{repo.name} PR #{pr_number} analysis: {pull.title}"
     ref_str = str(pr_number)
-    out_file = save_analysis_metadata("pr", ref_str, title, file_metas, repo)
+    out_file = save_analysis_metadata("pr", ref_str, title, file_metas, repo, enhanced=enhanced)
 
     if not is_dry_run():
         payload_data = json.loads(out_file.read_text(encoding="utf-8"))
