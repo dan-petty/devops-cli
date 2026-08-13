@@ -129,4 +129,3 @@ class ScratchpadBuffer(BaseModel):
             for note in entry.notes:
                 lines.append(f"  • {note}")
         return "\n".join(lines)
-

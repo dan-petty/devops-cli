@@ -1,75 +1,64 @@
 # Pending Features & Design Proposals — devops-cli
 
-Tracks active feature proposals, architectural spikes, and planned functionality.
+Tracks active feature proposals, architectural spikes, and planned functionality for upcoming milestones.
 
 ---
 
-## 1. Line-Level GitHub Pull Request Inline Comments
-- **Overview**: Map `Finding.location` (e.g. `src/config.py:72-85`) to GitHub PR diff Hunk position offsets via PyGithub/GraphQL to post findings directly inline on PR Files Changed views.
-- **Deduplication**: Prevent re-posting duplicate inline comments across re-runs on the same commit SHA.
+## 🎯 Active Proposals & Architectural Spikes (v0.1.8+)
+
+### 1. AI Agent Pipeline Tooling Research & Benchmark
+- **Overview**: Conduct architectural evaluation and benchmarking of open-source AI agent frameworks & orchestrators (LangChain/LangGraph, AutoGen, CrewAI, LlamaIndex, DSPy, Haystack).
+- **Goal**: Assess integration patterns with `devops-cli` Pydantic models, FastMCP tool registrations, and local LLM node failover mechanisms to enhance multi-agent pipeline orchestration.
+
+### 2. Observability & K8s Telemetry Stack (OpenTelemetry, Prometheus, Grafana, Jaeger & Minikube)
+- **Overview**: Native telemetry instrumentation for `devops-cli` commands, FastMCP server tools, and multi-agent persona pipelines.
+- **Components**:
+  1. OpenTelemetry distributed tracing across agent pipeline stages and FastMCP tool executions.
+  2. Prometheus metrics exporter for review latency, token usage, finding counts, and tool throughput.
+  3. Pre-configured Grafana telemetry dashboards.
+  4. Local Jaeger collector deployment via Minikube.
+
+### 3. Supply Chain Security & Container Provenance (Cosign)
+- **Overview**: Keyless image signing and signature verification (`devops docker sign|verify`) integrating Sigstore Cosign with OS Keyring.
+
+### 4. IaC FinOps & Cloud Cost Impact Analysis (Infracost)
+- **Overview**: Automated cloud cost estimation (`devops iac cost`) on Terraform diffs to enrich `pm` and `architect` persona review payloads.
+
+### 5. Automated IaC Static Security Policy Guard (Checkov)
+- **Overview**: Compliance and security policy scanner (`devops ci iac-security`) across Terraform, CloudFormation, Kubernetes manifests, and Dockerfiles.
 
 ---
 
-## 2. Human Invalidation Feedback Loop for Prompt Tuning
-- **Overview**: Export invalidated findings (`status="INVALIDATED"`) recorded via `devops review verify` into benchmark datasets (`devops review export-feedback`) to refine persona prompt instructions and few-shot examples.
+## ✅ Completed Features Summary
+
+| Feature / Capability | Version | Description |
+|---|---|---|
+| **DevContainer Lifecycle Engine** | `v0.1.7` | Native Python lifecycle commands (`devops devcontainer run-lifecycle`) replacing legacy shell scripts. |
+| **Enhanced AI Scratchpad Buffer** | `v0.1.7` | Structured `ScratchpadBuffer` maintaining multi-turn reasoning context across review stages. |
+| **Prompt Token & Latency Optimization** | `v0.1.7` | Compact JSON serialization and streamlined prompt schemas to minimize inference latency. |
+| **SecOps Static Security Engine** | `v0.1.6` | Integrated Aqua Trivy (`devops scan`), Red Hat Kube-linter, Derailed Popeye, and Pluto. |
+| **Minikube Endpoint Auto-Config** | `v0.1.5` | Automated NodePort detection (`devops k8s configure-urls`) updating `config.yaml`. |
+| **7-Gate CI Quality Gate** | `v0.1.5` | Sequential quality gate enforcing tests, coverage, lint, format, typecheck, audit, and security. |
+| **Default AI Metadata Analysis** | `v0.1.4` | Default `--enhanced` metadata generation, incremental caching, and submodule imports. |
+| **Interactive Patch Staging** | `v0.1.3` | Interactive unified diff rendering and confirmation before applying suggested LLM fixes. |
+| **Air-Gapped Ollama Model Bundler** | `v0.1.3` | Export and packaging of local Ollama model weight manifests for offline devcontainers. |
+| **Kubernetes RBAC Audit Policy** | `v0.1.3` | Overprivileged RoleBinding and ServiceAccount security audit scanner. |
+| **Multi-Cluster Kubeconfig Management** | `v0.1.2` | Context switching and cluster namespace controls (`devops k8s switch-context`). |
+| **SIEM Live Audit Streamer** | `v0.1.2` | Structured JSON audit trail logging and syslog/HTTP streaming. |
+| **Line-Level PR Inline Comments** | `v0.1.1` | Automated posting of persona findings directly to GitHub PR line hunks. |
+| **Human Invalidation Feedback Exporter** | `v0.1.1` | Exporting false-positive review datasets into JSONL for prompt tuning. |
+| **Custom Team Persona Overrides** | `v0.1.1` | Repository-level custom persona prompt definitions (`.devops/personas/<name>.md`). |
+| **Headless CI Ephemeral Auth** | `v0.1.1` | Memory secret storage fallback for DBus-less headless Linux CI environments. |
 
 ---
 
-## 3. Custom Team Persona Definitions
-- **Overview**: Support repository-level persona definitions under `.devops/personas/<name>.md`, dynamically loaded during `devops review path|branch|pr --persona <custom_name>`.
+## 📊 Upcoming Roadmap Prioritization & ROI Matrix
 
----
-
-## 4. Keyring Fallback & Headless Environment Auth
-- **Overview**: Provide `devops config auth-headless` to securely load session tokens into ephemeral memory for headless Linux CI runners lacking DBus / SecretService.
-
----
-
-## 5. Observability & K8s Telemetry Stack (OpenTelemetry, Prometheus, Grafana, Jaeger & Minikube)
-- **Overview**: Native telemetry instrumentation for `devops-cli` commands, FastMCP server tools, and multi-agent persona pipelines. Includes automated local Minikube cluster provisioning inside DevContainer for zero-dependency local testing of OpenTelemetry collector, Prometheus metrics, Grafana dashboards, and Jaeger distributed tracing.
-
----
-
-## 6. SecOps & K8s Security Integrations (Trivy, Kube-linter, Popeye, Pluto)
-- **Overview**: Integration of 4 open-source SRE/security static engines:
-  1. `devops scan [repo|image|iac]`: Aqua Trivy vulnerability & secret scanning with finding injection into `devsecops` persona reviews.
-  2. `devops k8s lint`: Red Hat Kube-linter static K8s manifest & Helm chart security analysis.
-  3. `devops k8s audit`: Derailed Popeye live Minikube/K8s cluster health sanitizer.
-  4. `devops k8s check-deprecated`: Fairwinds Pluto deprecated K8s API version scanner.
-
----
-
-## 7. DevContainer Shell Script Replacement Engine
-- **Overview**: Implement native CLI commands (`devops devcontainer run-lifecycle --post-create|--post-start`) to replace `.devcontainer/postCreate.sh` and `.devcontainer/postStart.sh` shell scripts with type-safe, cross-platform Python execution.
-
----
-
-## 8. Enhanced AI/LLM Scratchpad Utilization
-- **Overview**: Implement a structured reasoning scratchpad buffer (`ScratchpadBuffer`) to maintain intermediate chain-of-thought, persona analysis notes, and verification hypotheses across multi-turn agentic review pipelines. Prevents context degradation when processing large, multi-file code diffs.
-
----
-
-## 9. AI Agent Pipeline Tooling Research & Benchmark
-- **Overview**: Conduct architectural evaluation and benchmarking of open-source AI agent frameworks & orchestrators (e.g. LangChain/LangGraph, AutoGen, CrewAI, LlamaIndex, DSPy, Haystack). Assess integration patterns with `devops-cli` Pydantic models, FastMCP tool registrations, and local LLM node failover mechanisms.
-
----
-
-## 10. AI/LLM Prompt Token & Responsiveness Optimization
-- **Overview**: Compress system prompts, streamline context payloads, eliminate prompt redundancy, and tune prompt structure to reduce token usage and improve inference latency across local Ollama and remote LLM providers.
-
----
-
-## 11. Feature Prioritization & Implementation ROI
-
-| Feature Proposal | Priority Tier | Value | Effort | ROI & Sequencing |
-|---|---|---|---|---|
-| **1. SecOps & K8s Security (v0.1.6)** | **Completed** | High | Low | **High Impact**: Embeds Trivy, Kube-linter, Popeye & Pluto static analysis. |
-| **2. DevContainer Script Replacement (v0.1.7)** | **P1 (Highest)** | High | Medium | **High Impact**: Replaces shell scripts with cross-platform `devops devcontainer` lifecycle commands. |
-| **3. Enhanced AI Scratchpad Buffer (v0.1.7)** | **P1 (High)** | High | Medium | **High Impact**: Prevents LLM reasoning degradation across multi-turn agentic pipeline turns. |
-| **4. AI Prompt Token & Latency Optimization (v0.1.7)** | **P1 (High)** | High | Medium | **High Impact**: Reduces token overhead and improves local/remote LLM inference responsiveness. |
-| **5. AI Agent Framework Research (v0.1.7)** | **P1 (High)** | High | Medium | **High Impact**: Benchmarks open-source agentic frameworks (LangGraph, CrewAI, AutoGen, DSPy). |
-| **6. Line-Level PR Inline Comments** | **P1 (Highest)** | High | High | **High Impact**: Anchors persona findings directly to PR diff lines via PyGithub. |
-| **7. Invalidation Feedback Exporter** | **P1 (High)** | High | Medium | **High Impact**: Exports false-positive datasets for continuous prompt tuning. |
-| **8. Custom Team Persona Prompts** | **P2 (Medium)** | High | Medium | **Medium Impact**: Enables team-specific governance overlays (`.devops/personas/`). |
-| **9. Observability & K8s Telemetry** | **P2 (Medium)** | High | High | **High Impact**: Full OpenTelemetry, Prometheus, Grafana & Jaeger tracing via Minikube. |
-| **10. Headless Keyring Auth Fallback** | **P3 (Lower)** | Medium | Medium | **Niche Impact**: Unlocks headless CI runners without DBus. |
+| Feature Proposal | Target Release | Priority Tier | Value | Effort | ROI & Focus |
+|---|---|---|---|---|---|
+| **1. AI Agent Framework Research & Benchmark** | `v0.1.8` | **P1 (High)** | High | Medium | **High Impact**: Benchmarks open-source agentic orchestrators (LangGraph, CrewAI, AutoGen). |
+| **2. OpenTelemetry & Jaeger Tracing** | `v0.1.8` | **P1 (High)** | High | High | **High Impact**: End-to-end distributed tracing across multi-agent pipelines and FastMCP tools. |
+| **3. Prometheus & Grafana Telemetry** | `v0.1.8` | **P2 (Medium)** | High | Medium | **High Impact**: Real-time performance dashboards and CLI workload analytics. |
+| **4. Infracost IaC FinOps Engine** | `v0.1.9` | **P2 (Medium)** | High | Medium | **High Impact**: Cloud cost impact estimation in `pm` and `architect` persona reviews. |
+| **5. Cosign Image Signing & Provenance** | `v0.1.9` | **P2 (Medium)** | High | Low | **High Impact**: Supply chain image verification via OS Keyring. |
+| **6. Checkov Static IaC Security Policy** | `v0.1.9` | **P3 (Lower)** | Medium | Low | **Niche Impact**: Automated static compliance policies across Terraform and Dockerfiles. |

@@ -954,18 +954,18 @@ def _load_file_analysis_metas(
 
     top_root = find_top_level_repo_root(repo)
     analysis_dir = top_root / CONST_DATA_DIR / "analysis"
-    if analysis_dir.exists():
+    if analysis_dir.exists() and repo is not None:
         for json_file in analysis_dir.glob("*.json"):
-                try:
-                    payload_data = json.loads(json_file.read_text(encoding="utf-8"))
-                    payload = AnalysisMetadata.model_validate(payload_data)
-                    for fmeta in payload.files:
-                        if fmeta.path not in metas or (
-                            fmeta.pseudocode and not metas[fmeta.path].pseudocode
-                        ):
-                            metas[fmeta.path] = fmeta
-                except Exception:
-                    pass
+            try:
+                payload_data = json.loads(json_file.read_text(encoding="utf-8"))
+                payload = AnalysisMetadata.model_validate(payload_data)
+                for fmeta in payload.files:
+                    if fmeta.path not in metas or (
+                        fmeta.pseudocode and not metas[fmeta.path].pseudocode
+                    ):
+                        metas[fmeta.path] = fmeta
+            except Exception:
+                pass
 
         target_files = filenames if filenames is not None else list(metas.keys())
         any_updated = False

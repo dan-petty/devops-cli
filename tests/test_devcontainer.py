@@ -120,4 +120,3 @@ class TestDevcontainerCli:
         assert data["command"] == "devops devcontainer run-lifecycle"
         assert data["action"] == "run_lifecycle"
         assert data["dry_run"] is True
-

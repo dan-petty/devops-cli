@@ -6,6 +6,25 @@ Chronological log of refactoring milestones, quality gates, and security enhance
 
 ## Log Entries
 
+### [2026-08-13] Release v0.1.7 Implementation & Completion
+- **Native DevContainer Lifecycle Engine**: Implemented `devops devcontainer run-lifecycle` (`post_create_lifecycle`, `post_start_lifecycle`) in pure Python replacing legacy shell scripts (`postCreate.sh`, `postStart.sh`).
+- **Enhanced AI Scratchpad Buffer**: Integrated `ScratchpadBuffer` in multi-persona agentic review orchestrator to retain reasoning state across multi-turn diff reviews.
+- **Prompt Token & Latency Optimization**: Streamlined JSON schema serialization (`separators=(",", ":")`) and context packing to maximize inference responsiveness.
+- **Worker Error Resilience & Storage Standardization**: Hardened parallel review pipeline exception handling and centralized all metadata under `.data/`.
+- **Test Isolation & Dry-Run Fixtures**: Added autouse fixture `reset_dry_run_state` in `tests/conftest.py` ensuring clean dry-run environment isolation across xdist test workers.
+- **Quality Gate**: Executed `devops ci` — 269 passed, ruff lint clean, ruff format clean, strict mypy clean, bandit security clean, uv audit clean.
+
+### [2026-08-12] Release v0.1.6 SecOps & Security Integrations
+- **Aqua Trivy Static Scanner**: Added `devops scan [repo|image|iac]` and finding injection into `devsecops` persona review payloads.
+- **Red Hat Kube-linter Auditor**: Added `devops k8s lint` static manifest and Helm chart security analysis.
+- **Derailed Popeye Cluster Sanitizer**: Added `devops k8s audit` active cluster health scanner.
+- **Fairwinds Pluto API Checker**: Added `devops k8s check-deprecated` Kubernetes API deprecation scanner.
+
+### [2026-08-12] Release v0.1.5 Minikube Service Auto-Config & 7-Gate CI
+- **Minikube Endpoint Auto-Detection**: Implemented `devops k8s configure-urls` auto-detecting NodePort endpoints for ArgoCD, Grafana, and Prometheus.
+- **FastMCP Tool Alignment**: Verified and mapped 18 FastMCP tools across repository, Kubernetes, Docker, and workspace resources.
+- **7-Gate Quality Gate**: Expanded CI pipeline to 7 sequential gates (`test`, `coverage`, `lint`, `format`, `typecheck`, `audit`, `security`).
+
 ### [2026-08-12] Release v0.1.4 Implementation & Completion
 - **Default AI Metadata Analysis**: Made `--enhanced` mode default across `devops ai analyze` subcommands (`path`, `branch`, `pr`), generating 6-10 line minimalist pseudocode structural outlines, complexity scores, and ISO `last_analyzed` timestamps. Added `--no-enhanced` flag for basic metadata opt-out.
 - **Incremental Analysis Caching**: Implemented `st_mtime` vs `last_analyzed` caching to skip redundant LLM calls on unchanged files, with `--update-all` (`-u`) flag to force full metadata regeneration.

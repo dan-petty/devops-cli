@@ -92,11 +92,15 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 | | `devops ssh register` | Register SSH key and signing key with GitHub account |
 | | `devops ssh rotate` | Rotate SSH keys older than 90 days and update GitHub |
 | | `devops ssh audit` | Audit SSH key expiration dates and key file permissions |
+| **scan** | `devops scan [repo\|image\|iac] [<target>]` | Aqua Trivy static vulnerability, secret, and misconfiguration scanning |
 | **k8s** | `devops k8s deploy-stack` | Deploy ArgoCD, Prometheus, Grafana, OTEL to minikube and configure URLs |
 | | `devops k8s configure-urls` | Auto-detect Minikube monitoring stack NodePort URLs (ArgoCD, Grafana, Prometheus) |
 | | `devops k8s status` | Display pod status across infrastructure namespaces |
 | | `devops k8s switch-context <ctx>` | Switch active Kubernetes context and cluster namespace |
 | | `devops k8s rbac-audit` | Audit RBAC RoleBindings and ServiceAccounts for overprivileged access |
+| | `devops k8s lint [<path>]` | Red Hat Kube-linter static security analysis for manifests & Helm charts |
+| | `devops k8s audit` | Derailed Popeye cluster health and configuration sanitizer |
+| | `devops k8s check-deprecated` | Fairwinds Pluto deprecated/removed Kubernetes API version scanner |
 | | `devops k8s pods [--namespace <ns>]` | List pod status with RFC 1123 label filtering |
 | | `devops k8s logs <pod> --container <c>` | Stream container logs safely with bounded `--tail` |
 | | `devops k8s apply -f <file>` | Apply Kubernetes manifest via `kubectl` |
@@ -195,9 +199,12 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 ## Working Documentation
 
 - [AGENTS.md](AGENTS.md) — Single source of truth for AI agents.
+- [RELEASE_NOTES.md](docs/RELEASE_NOTES.md) — Version release notes and highlights.
+- [CHANGELOG.md](CHANGELOG.md) — Historical release and version changes.
 - [ROADMAP.md](docs/ROADMAP.md) — Vision, principles, and phased deliverables.
 - [PENDING_FEATURES.md](docs/PENDING_FEATURES.md) — Active proposals and feature specifications.
 - [KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md) — Operational edge cases and intentional design trade-offs.
+- [LOG.md](docs/LOG.md) — Active chronological development and refactoring log.
 
 ---
 

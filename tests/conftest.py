@@ -2,10 +2,19 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+
+@pytest.fixture(autouse=True)
+def reset_dry_run_state():
+    """Ensure dry-run environment variable is cleared before and after each test."""
+    os.environ.pop("DEVOPS_CLI_DRY_RUN", None)
+    yield
+    os.environ.pop("DEVOPS_CLI_DRY_RUN", None)
 
 
 @pytest.fixture

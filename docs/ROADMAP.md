@@ -59,18 +59,19 @@ High-density product roadmap for `devops-cli`.
 - [x] **Popeye K8s Cluster Sanitizer**: `devops k8s audit` command scanning active Minikube/K8s clusters for dead resources, over-allocated pods, and misconfigured probes.
 - [x] **Pluto Deprecated API Scanner**: `devops k8s check-deprecated` for detecting deprecated/removed Kubernetes API versions prior to cluster upgrades.
 
-### Phase 8: Observability, Scratchpad & AI Pipeline Architecture (v0.1.7 - In Progress)
+### Phase 8: Observability, Scratchpad & AI Pipeline Architecture (v0.1.7 - Completed)
 - [x] **DevContainer Shell Script Replacement Engine**: Native Python CLI commands (`devops devcontainer run-lifecycle --post-create|--post-start`) replacing `.devcontainer/postCreate.sh` and `.devcontainer/postStart.sh` shell scripts.
 - [x] **Enhanced AI/LLM Scratchpad Utilization**: Structured multi-turn reasoning scratchpad (`ScratchpadBuffer`) for agentic review personas and multi-agent pipeline handovers to prevent reasoning degradation on complex code diffs.
 - [x] **AI/LLM Prompt Token & Responsiveness Optimization**: Compress system prompts, streamline context payloads, eliminate prompt redundancy, and tune prompt structure to reduce token usage and improve inference latency across local Ollama and remote LLM providers.
+- [x] **Robust Worker Error Recovery**: Exception resilience in parallel review workers and top-level workspace `.data` directory persistence.
+
+### Phase 9: Telemetry, Agent Benchmarking & Supply Chain (v0.1.8 - Scheduled)
 - [ ] **AI Agent Pipeline Tooling Research & Benchmark**: Research and evaluate open-source AI agent frameworks & toolkits (LangChain/LangGraph, AutoGen, CrewAI, LlamaIndex, DSPy, Haystack) to enhance multi-agent pipeline orchestration in `devops-cli`.
 - [ ] **OpenTelemetry Tracing**: Instrument CLI commands, multi-agent pipeline turns, and FastMCP tools with OpenTelemetry span tracing.
 - [ ] **Prometheus Metrics Engine**: Export operational metrics (turn latency, LLM node throughput, finding counts, cache hit ratios) to Prometheus.
 - [ ] **Grafana Telemetry Dashboards**: Pre-built Grafana dashboards for real-time monitoring of CLI workload performance and review accuracy.
 - [ ] **Jaeger Distributed Tracing**: Jaeger collector and UI integration for end-to-end trace visualization of multi-persona agentic pipelines.
 - [ ] **DevContainer Minikube K8s Integration**: Automated local Minikube K8s cluster bootstrapping within DevContainer for zero-friction telemetry stack deployment.
-
-### Phase 9: Supply Chain, FinOps & Testing Integrations (v0.1.8 - Scheduled)
 - [ ] **Cosign Keyless Signature Verification**: Sigstore Cosign integration (`devops docker sign|verify`) using OS Keyring keys for container provenance and image signing.
 - [ ] **Infracost IaC FinOps Engine**: `devops iac cost` estimating cloud cost impacts on Terraform/K8s diffs to enrich `pm` and `architect` persona reviews.
 - [ ] **Checkov Static Policy Guard**: `devops ci iac-security` automated compliance policy checks across Terraform, CloudFormation, and Dockerfiles.
