@@ -131,6 +131,9 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 | | `devops branches sync` | Synchronize branch state across workspace repositories |
 | **devcontainer**| `devops devcontainer init` | Scaffold `.devcontainer/` setup from Jinja2 templates |
 | | `devops devcontainer up` | Launch Dev Container environment via VS Code CLI |
+| | `devops devcontainer post-create` | Execute DevContainer post-create setup tasks (history, shell completions, config prep) |
+| | `devops devcontainer post-start` | Execute DevContainer post-start tasks (SSH key permissions, git defaults, kubeconfig, MCP sync) |
+| | `devops devcontainer run-lifecycle` | Run specified DevContainer lifecycle hook tasks natively in Python (replacing shell scripts) |
 | **uv** | `devops uv sync` | Sync Python 3.14 virtual environment dependencies |
 | | `devops uv add <pkg>` | Add dependency to `pyproject.toml` and sync |
 | | `devops uv remove <pkg>` | Remove dependency from `pyproject.toml` and sync |

@@ -79,7 +79,7 @@
       "onAutoForward": "ignore"
     }
   },
-  "postCreateCommand": "bash .devcontainer/postCreate.sh && uv run devops devcontainer post-create",
+  "postCreateCommand": "uv run devops devcontainer post-create",
   "postStartCommand": "uv run devops devcontainer post-start",
   "customizations": {
     "vscode": {

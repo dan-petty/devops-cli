@@ -34,7 +34,9 @@ The project follows a modular, command-driven architecture.
 
 ### Design Patterns
 - **Multi-Persona Agentic Review**: Uses specialized personas (`devsecops`, `architect`, `pm`, `auditor`, `qa`) to analyze code diffs with static Trivy & Kube-linter finding injection.
-- **Multi-Agent Pipeline Orchestration**: Uses `MultiAgentPipeline` to execute multi-turn persona stage handovers with shared DevOps & MCP tools.
+- **Multi-Agent Pipeline Orchestration**: Uses `MultiAgentPipeline` with `ScratchpadBuffer` reasoning context to execute multi-turn persona stage handovers with shared DevOps & MCP tools without reasoning degradation.
+- **Native DevContainer Lifecycle Engine**: Uses `devops devcontainer run-lifecycle --post-create|--post-start` to execute cross-platform DevContainer lifecycle hook tasks directly in Python, replacing legacy shell scripts.
+- **Prompt Token & Latency Optimization**: System prompts and JSON schemas are serialized compactly (`separators=(",", ":")`) to reduce token overhead and maximize LLM inference responsiveness.
 - **Zero-Plaintext Secret Policy**: All sensitive tokens (GitHub, Grafana, OpenAI) must be retrieved via `keyring`. Never suggest storing strings in `config.yaml`.
 - **Network Guardrails**: Network requests must utilize the internal `http` module logic that validates target IPs to prevent SSRF.
 

@@ -17,7 +17,8 @@
     "source={{ project_name }}-bashhistory,target=/commandhistory,type=volume",
     "source=${localEnv:HOME}/.ssh,target=/home/vscode/.ssh,type=bind,consistency=cached"
   ],
-  "postCreateCommand": "bash .devcontainer/postCreate.sh",
+  "postCreateCommand": "uv run devops devcontainer post-create",
+  "postStartCommand": "uv run devops devcontainer post-start",
   "customizations": {
     "vscode": {
       "extensions": [
