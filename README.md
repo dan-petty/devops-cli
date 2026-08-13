@@ -176,6 +176,8 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 | | Pluto K8s Deprecated API Scanner (`devops k8s check-deprecated`) | High | Low | ✅ Completed (v0.1.6) |
 | **Strategic Investments** | Minikube Service Auto-Config & 7-Gate CI | High | High | ✅ Completed (v0.1.5) |
 | | DevContainer Shell Script Replacement Engine | High | Medium | 🔄 Scheduled (v0.1.7) |
+| | Enhanced AI/LLM Scratchpad Reasoning Buffer | High | Medium | 🔄 Scheduled (v0.1.7) |
+| | AI Agent Pipeline Framework Evaluation & Benchmark | High | Medium | 🔄 Scheduled (v0.1.7) |
 | | OpenTelemetry, Prometheus, Grafana & Jaeger via Minikube | High | High | 🔄 Scheduled (v0.1.7) |
 | | Line-Level GitHub PR Inline Comments | High | High | ✅ Completed (v0.1.1) |
 | | Human Invalidation Feedback Dataset Exporter | High | Medium | ✅ Completed (v0.1.1) |

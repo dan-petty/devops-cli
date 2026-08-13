@@ -59,8 +59,10 @@ High-density product roadmap for `devops-cli`.
 - [x] **Popeye K8s Cluster Sanitizer**: `devops k8s audit` command scanning active Minikube/K8s clusters for dead resources, over-allocated pods, and misconfigured probes.
 - [x] **Pluto Deprecated API Scanner**: `devops k8s check-deprecated` for detecting deprecated/removed Kubernetes API versions prior to cluster upgrades.
 
-### Phase 8: Observability & Kubernetes Infrastructure Telemetry (v0.1.7 - Scheduled)
+### Phase 8: Observability, Scratchpad & AI Pipeline Architecture (v0.1.7 - Scheduled)
 - [ ] **DevContainer Shell Script Replacement Engine**: Native Python CLI commands (`devops devcontainer run-lifecycle --post-create|--post-start`) replacing `.devcontainer/postCreate.sh` and `.devcontainer/postStart.sh` shell scripts.
+- [ ] **Enhanced AI/LLM Scratchpad Utilization**: Structured multi-turn reasoning scratchpad (`ScratchpadBuffer`) for agentic review personas and multi-agent pipeline handovers to prevent reasoning degradation on complex code diffs.
+- [ ] **AI Agent Pipeline Tooling Research & Benchmark**: Research and evaluate open-source AI agent frameworks & toolkits (LangChain/LangGraph, AutoGen, CrewAI, LlamaIndex, DSPy, Haystack) to enhance multi-agent pipeline orchestration in `devops-cli`.
 - [ ] **OpenTelemetry Tracing**: Instrument CLI commands, multi-agent pipeline turns, and FastMCP tools with OpenTelemetry span tracing.
 - [ ] **Prometheus Metrics Engine**: Export operational metrics (turn latency, LLM node throughput, finding counts, cache hit ratios) to Prometheus.
 - [ ] **Grafana Telemetry Dashboards**: Pre-built Grafana dashboards for real-time monitoring of CLI workload performance and review accuracy.
@@ -92,6 +94,8 @@ High-density product roadmap for `devops-cli`.
 | | Pluto K8s Deprecated API Scanner | High | Low | ✅ Completed (v0.1.6) |
 | **Strategic Investments** | Minikube Service Auto-Config & 7-Gate CI | High | High | ✅ Completed (v0.1.5) |
 | | DevContainer Shell Script Replacement Engine | High | Medium | 🔄 Scheduled (v0.1.7) |
+| | Enhanced AI/LLM Scratchpad Reasoning Buffer | High | Medium | 🔄 Scheduled (v0.1.7) |
+| | AI Agent Pipeline Framework Evaluation & Benchmark | High | Medium | 🔄 Scheduled (v0.1.7) |
 | | OpenTelemetry, Prometheus, Grafana & Jaeger via Minikube | High | High | 🔄 Scheduled (v0.1.7) |
 | | Cosign Container Signature Verification & Keyring Auth | High | Medium | 🔄 Scheduled (v0.1.8) |
 | | Infracost IaC Cloud Cost Estimation | High | Medium | 🔄 Scheduled (v0.1.8) |
