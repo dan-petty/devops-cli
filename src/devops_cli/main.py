@@ -44,6 +44,7 @@ _COMMAND_SPECS: Final[dict[str, tuple[str, str]]] = {
     "config": ("devops_cli.commands.config", "Manage devops-cli configuration."),
     "ci": ("devops_cli.commands.ci", "Run tests, linting, formatting, and type-checks."),
     "uv": ("devops_cli.commands.uv", "Run uv commands through devops."),
+    "scan": ("devops_cli.commands.scan", "Security, vulnerability, secret, and IaC scanner."),
     "ai": ("devops_cli.commands.ai", "Configure and test AI providers."),
     "review": ("devops_cli.commands.review", "AI-powered code reviews using expert personas."),
     "mcp": ("devops_cli.commands.mcp", "FastMCP server for Model Context Protocol integration."),

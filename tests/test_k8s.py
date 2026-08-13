@@ -99,6 +99,7 @@ def test_k8s_configure_urls_success(
     def fake_detect(service: str, ns: str) -> str | None:
         return f"http://192.168.49.2:{30000 + len(service)}"
 
+    set_dry_run(False)
     mock_detect.side_effect = fake_detect
     result = runner.invoke(app, ["configure-urls"])
     assert result.exit_code == 0

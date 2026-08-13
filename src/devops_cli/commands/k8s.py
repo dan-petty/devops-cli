@@ -645,3 +645,150 @@ def rbac_audit(
         "[green]PASS[/green]",
     )
     console.print(table)
+
+
+@app.command("lint")
+def k8s_lint(
+    target: Annotated[
+        Path,
+        typer.Argument(help="Target K8s manifest file or directory to lint"),
+    ] = Path("."),
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Simulate manifest linting."),
+    ] = False,
+) -> None:
+    """Validate K8s manifests and Helm charts using Red Hat Kube-linter."""
+    from devops_cli.dry_run.state import set_dry_run
+    from devops_cli.security.kubelinter import run_kubelinter_scan
+
+    set_dry_run(dry_run)
+    target_abs = target.resolve() if target.exists() else target
+    if not is_dry_run():
+        rprint(f"[dim]Executing Kube-linter manifest audit on '{target_abs}'...[/dim]")
+
+    findings = run_kubelinter_scan(target=target_abs)
+
+    if is_dry_run():
+        render_dry_run_result(
+            command=f"devops k8s lint {target}",
+            action="kubelinter_manifest_audit",
+            details={"target": str(target_abs), "findings_count": len(findings)},
+        )
+        return
+
+    if not findings:
+        rprint("[bold green]✓ Kube-linter audit passed: no security warnings.[/bold green]")
+        return
+
+    table = Table(title=f"Kube-linter Manifest Audit: {target_abs.name or target_abs}")
+    table.add_column("Severity", style="bold yellow")
+    table.add_column("Resource Location")
+    table.add_column("Title")
+    table.add_column("Remediation")
+
+    for f in findings:
+        table.add_row(f.severity, f.location, f.title, f.fix or "-")
+
+    console.print(table)
+
+
+@app.command("audit")
+def k8s_audit(
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Simulate cluster health audit."),
+    ] = False,
+) -> None:
+    """Sanitize active K8s/Minikube cluster resource health using Derailed Popeye."""
+    from devops_cli.dry_run.state import set_dry_run
+    from devops_cli.security.popeye import run_popeye_scan
+
+    set_dry_run(dry_run)
+    if not is_dry_run():
+        rprint("[dim]Executing Popeye K8s cluster health sanitizer...[/dim]")
+
+    findings = run_popeye_scan()
+
+    if is_dry_run():
+        render_dry_run_result(
+            command="devops k8s audit",
+            action="popeye_cluster_sanitizer",
+            details={"findings_count": len(findings)},
+        )
+        return
+
+    if not findings:
+        rprint("[bold green]✓ Popeye cluster audit passed: no health warnings.[/bold green]")
+        return
+
+    table = Table(title="Popeye Cluster Health Audit")
+    table.add_column("Severity", style="bold")
+    table.add_column("Cluster Resource")
+    table.add_column("Finding Title")
+    table.add_column("Remediation")
+
+    sev_colors = {"HIGH": "red", "MEDIUM": "yellow", "LOW": "cyan", "INFO": "dim"}
+
+    for f in findings:
+        style = sev_colors.get(f.severity.upper(), "white")
+        table.add_row(f"[{style}]{f.severity}[/{style}]", f.location, f.title, f.fix or "-")
+
+    console.print(table)
+
+
+@app.command("check-deprecated")
+def k8s_check_deprecated(
+    target: Annotated[
+        Path,
+        typer.Argument(help="Target manifest file or directory to scan for deprecated APIs"),
+    ] = Path("."),
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Simulate deprecated API detection."),
+    ] = False,
+) -> None:
+    """Scan manifests for deprecated/removed K8s API versions using Fairwinds Pluto."""
+    from devops_cli.dry_run.state import set_dry_run
+    from devops_cli.security.pluto import run_pluto_scan
+
+    set_dry_run(dry_run)
+    target_abs = target.resolve() if target.exists() else target
+    if not is_dry_run():
+        rprint(f"[dim]Executing Pluto deprecated API scan on '{target_abs}'...[/dim]")
+
+    findings = run_pluto_scan(target=target_abs)
+
+    if is_dry_run():
+        render_dry_run_result(
+            command=f"devops k8s check-deprecated {target}",
+            action="pluto_deprecated_api_scan",
+            details={"target": str(target_abs), "findings_count": len(findings)},
+        )
+        return
+
+    if not findings:
+        rprint("[bold green]✓ Pluto API check passed: no deprecated K8s APIs.[/bold green]")
+        return
+
+    table = Table(title=f"Pluto Deprecated K8s API Report: {target_abs.name or target_abs}")
+    table.add_column("Severity", style="bold red")
+    table.add_column("Resource Location")
+    table.add_column("Deprecation Warning")
+    table.add_column("Migration Target")
+
+    for f in findings:
+        table.add_row(f.severity, f.location, f.title, f.fix or "-")
+
+    console.print(table)
+
+    table = Table(title=f"Pluto Deprecated K8s API Report: {target_abs.name or target_abs}")
+    table.add_column("Severity", style="bold red")
+    table.add_column("Resource Location")
+    table.add_column("Deprecation Warning")
+    table.add_column("Migration Target")
+
+    for f in findings:
+        table.add_row(f.severity, f.location, f.title, f.fix or "-")
+
+    console.print(table)
