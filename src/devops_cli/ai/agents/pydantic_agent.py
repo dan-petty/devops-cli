@@ -105,30 +105,31 @@ class PydanticAgent[T]:
             self._tools[name] = agent_tool
 
     def _build_system_prompt_with_tools(self) -> str:
-        prompt_parts: list[str] = [self.system_prompt]
+        prompt_parts: list[str] = [self.system_prompt.strip()]
 
         if self._tools:
             tools_desc: list[str] = []
             for name, tool in self._tools.items():
-                tools_desc.append(f"- `{name}`: {tool.description} (params: {tool.parameters})")
+                params_str = json.dumps(tool.parameters, separators=(",", ":"))
+                desc = tool.description.replace("\n", " ")
+                tools_desc.append(f"- `{name}`: {desc} params={params_str}")
 
             tools_block = (
                 "## Available Tools\n"
-                "You have access to the following tools:\n"
+                "You have access to these tools:\n"
                 + "\n".join(tools_desc)
-                + "\n\nTo call a tool, respond with a JSON object in this format:\n"
-                '```json\n{\n  "tool": "tool_name",\n  "arguments": {"param": "value"}\n}\n```'
+                + "\n\nTo invoke a tool, output JSON:\n"
+                '```json\n{"tool": "tool_name", "arguments": {"param": "value"}}\n```'
             )
             prompt_parts.append(tools_block)
 
         if self.output_schema is not None:
             schema_getter = getattr(self.output_schema, "model_json_schema", None)
             if callable(schema_getter):
-                schema_json = json.dumps(schema_getter(), indent=2)
+                schema_json = json.dumps(schema_getter(), separators=(",", ":"))
                 json_block = (
                     "## Required Response Format\n"
-                    "You MUST return your response as a JSON object inside ```json ... ``` "
-                    "matching this JSON schema:\n"
+                    "Return response as JSON matching schema:\n"
                     f"```json\n{schema_json}\n```"
                 )
                 prompt_parts.append(json_block)
