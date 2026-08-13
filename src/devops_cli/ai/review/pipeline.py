@@ -346,42 +346,47 @@ class ReviewPipelineOrchestrator:
             )
 
             t_start = time.monotonic()
-            result = pipeline.run(prompt, max_turns_per_agent=1, enable_thinking=False)
-            elapsed_sec = time.monotonic() - t_start
             actual_servers: list[str] = []
-            for step in result.steps:
-                if step.backend_info and step.backend_info not in actual_servers:
-                    actual_servers.append(step.backend_info)
+            try:
+                result = pipeline.run(prompt, max_turns_per_agent=1, enable_thinking=False)
+                for step in result.steps:
+                    if step.backend_info and step.backend_info not in actual_servers:
+                        actual_servers.append(step.backend_info)
 
-                parsed: ReviewResult | None = None
-                if step.parsed_data and isinstance(step.parsed_data, ReviewResult):
-                    parsed = step.parsed_data
-                else:
-                    parsed = parse_review_result(step.content)
+                    parsed: ReviewResult | None = None
+                    if step.parsed_data and isinstance(step.parsed_data, ReviewResult):
+                        parsed = step.parsed_data
+                    else:
+                        parsed = parse_review_result(step.content)
 
-                if parsed and parsed.findings:
-                    for f in parsed.findings:
-                        saved = SavedFinding(
-                            **f.model_dump(),
-                            persona=step.agent_name,
-                            persona_title=step.agent_name,
-                        )
-                        file_findings.append(saved)
+                    if parsed and parsed.findings:
+                        for f in parsed.findings:
+                            saved = SavedFinding(
+                                **f.model_dump(),
+                                persona=step.agent_name,
+                                persona_title=step.agent_name,
+                            )
+                            file_findings.append(saved)
 
-            payload.findings = file_findings
-            payload.ai_scratchpad["stage"] = "reviewed"
-            payload.ai_scratchpad["persona_turn_count"] = len(result.steps)
+                payload.findings = file_findings
+                payload.ai_scratchpad["stage"] = "reviewed"
+                payload.ai_scratchpad["persona_turn_count"] = len(result.steps)
+            except Exception as exc:
+                payload.findings = []
+                payload.ai_scratchpad["stage"] = "failed"
+                payload.ai_scratchpad["error"] = str(exc)
 
             sanitized_name = _sanitize_filename(fpath) + ".json"
             json_target = self.files_dir / sanitized_name
             json_target.write_text(payload.model_dump_json(indent=2), encoding="utf-8")
 
+            elapsed_sec = time.monotonic() - t_start
             n_findings = len(file_findings)
             handled_by = ", ".join(actual_servers) if actual_servers else server_info
             try:
                 sec_val = float(elapsed_sec)
                 sec_str = f"{sec_val:.1f}s"
-            except TypeError, ValueError:
+            except (TypeError, ValueError):
                 sec_str = "0.0s"
             rprint(
                 f"[cyan][{idx}/{total_files}][/cyan] Reviewed [bold]{fpath}[/bold] "
