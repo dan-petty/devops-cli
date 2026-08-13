@@ -23,6 +23,7 @@ from pydantic import BaseModel, Field
 from devops_cli.ai.agents.pydantic_agent import AgentTool, PydanticAgent, ToolCall
 from devops_cli.ai.review_schema import extract_json_block
 from devops_cli.config.defaults import DEFAULT_AGENT_MAX_TURNS
+from devops_cli.models.ai import ScratchpadBuffer
 
 
 class PipelineStepResult(BaseModel):
@@ -44,6 +45,7 @@ class MultiAgentPipelineResult[T](BaseModel):
     steps: list[PipelineStepResult] = Field(default_factory=list)
     total_turns: int = 0
     all_tool_calls: list[ToolCall] = Field(default_factory=list)
+    scratchpad: ScratchpadBuffer = Field(default_factory=ScratchpadBuffer)
 
 
 class MultiAgentPipeline[T]:
@@ -55,9 +57,12 @@ class MultiAgentPipeline[T]:
         *,
         output_schema: type[T] | None = None,
         shared_tools: list[AgentTool | Callable[..., Any]] | None = None,
+        session_id: str = "pipeline-session",
     ) -> None:
         self.agents: list[PydanticAgent[Any]] = agents or []
         self.output_schema = output_schema
+        self.shared_tools = shared_tools or []
+        self.scratchpad = ScratchpadBuffer(session_id=session_id)
         self.shared_tools = shared_tools or []
         if self.shared_tools:
             for agent in self.agents:
@@ -114,7 +119,17 @@ class MultiAgentPipeline[T]:
             )
             steps.append(step)
 
-            accumulated_context += f"\n### Stage {idx} ({agent.name}) Output:\n{res.content}\n"
+            self.scratchpad.add_entry(
+                persona=agent.name,
+                stage=f"Stage {idx}",
+                hypothesis=res.content[:150].replace("\n", " ") + "...",
+                notes=[f"Executed {len(res.tool_calls)} tool calls in {res.turns} turns."],
+            )
+
+            accumulated_context += (
+                f"\n### Stage {idx} ({agent.name}) Output:\n{res.content}\n"
+                f"{self.scratchpad.render_context_summary()}\n"
+            )
 
         final_content = steps[-1].content if steps else ""
         parsed_data: T | None = None
@@ -133,4 +148,5 @@ class MultiAgentPipeline[T]:
             steps=steps,
             total_turns=total_turns,
             all_tool_calls=all_tool_calls,
+            scratchpad=self.scratchpad,
         )

@@ -116,6 +116,9 @@ def test_multi_agent_pipeline() -> None:
     assert res.steps[1].agent_name == "Architect"
     assert res.steps[1].content == "Architect report: SOLID patterns used."
     assert res.final_content == "Architect report: SOLID patterns used."
+    assert len(res.scratchpad.entries) == 2
+    assert res.scratchpad.entries[0].persona == "DevSecOps"
+    assert "Scratchpad Reasoning Context" in res.scratchpad.render_context_summary()
 
 
 def test_get_default_tools_includes_mcp() -> None:

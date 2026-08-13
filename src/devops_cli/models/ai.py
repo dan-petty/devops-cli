@@ -78,3 +78,55 @@ class MCPToolInfo(BaseModel):
 
     def __contains__(self, item: str) -> bool:
         return hasattr(self, item)
+
+
+class ScratchpadEntry(BaseModel):
+    """An individual structured reasoning record within an AI agent scratchpad."""
+
+    persona: str
+    stage: str
+    hypothesis: str = ""
+    notes: list[str] = Field(default_factory=list)
+    key_findings: list[str] = Field(default_factory=list)
+    timestamp: str = ""
+
+
+class ScratchpadBuffer(BaseModel):
+    """Structured multi-turn reasoning scratchpad buffer for agentic pipeline turns."""
+
+    session_id: str = "default-session"
+    entries: list[ScratchpadEntry] = Field(default_factory=list)
+
+    def add_entry(
+        self,
+        persona: str,
+        stage: str,
+        hypothesis: str = "",
+        notes: list[str] | None = None,
+        key_findings: list[str] | None = None,
+    ) -> ScratchpadEntry:
+        """Append a new reasoning entry to the scratchpad buffer."""
+        from datetime import UTC, datetime
+
+        entry = ScratchpadEntry(
+            persona=persona,
+            stage=stage,
+            hypothesis=hypothesis,
+            notes=notes or [],
+            key_findings=key_findings or [],
+            timestamp=datetime.now(UTC).isoformat(),
+        )
+        self.entries.append(entry)
+        return entry
+
+    def render_context_summary(self) -> str:
+        """Render a concise markdown summary of intermediate scratchpad reasoning."""
+        if not self.entries:
+            return ""
+        lines = ["### Scratchpad Reasoning Context"]
+        for entry in self.entries:
+            lines.append(f"- **[{entry.persona.upper()} | {entry.stage}]**: {entry.hypothesis}")
+            for note in entry.notes:
+                lines.append(f"  • {note}")
+        return "\n".join(lines)
+
