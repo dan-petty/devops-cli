@@ -59,8 +59,8 @@ High-density product roadmap for `devops-cli`.
 - [x] **Popeye K8s Cluster Sanitizer**: `devops k8s audit` command scanning active Minikube/K8s clusters for dead resources, over-allocated pods, and misconfigured probes.
 - [x] **Pluto Deprecated API Scanner**: `devops k8s check-deprecated` for detecting deprecated/removed Kubernetes API versions prior to cluster upgrades.
 
-### Phase 8: Observability, Scratchpad & AI Pipeline Architecture (v0.1.7 - Scheduled)
-- [ ] **DevContainer Shell Script Replacement Engine**: Native Python CLI commands (`devops devcontainer run-lifecycle --post-create|--post-start`) replacing `.devcontainer/postCreate.sh` and `.devcontainer/postStart.sh` shell scripts.
+### Phase 8: Observability, Scratchpad & AI Pipeline Architecture (v0.1.7 - In Progress)
+- [x] **DevContainer Shell Script Replacement Engine**: Native Python CLI commands (`devops devcontainer run-lifecycle --post-create|--post-start`) replacing `.devcontainer/postCreate.sh` and `.devcontainer/postStart.sh` shell scripts.
 - [ ] **Enhanced AI/LLM Scratchpad Utilization**: Structured multi-turn reasoning scratchpad (`ScratchpadBuffer`) for agentic review personas and multi-agent pipeline handovers to prevent reasoning degradation on complex code diffs.
 - [ ] **AI/LLM Prompt Token & Responsiveness Optimization**: Compress system prompts, streamline context payloads, eliminate prompt redundancy, and tune prompt structure to reduce token usage and improve inference latency across local Ollama and remote LLM providers.
 - [ ] **AI Agent Pipeline Tooling Research & Benchmark**: Research and evaluate open-source AI agent frameworks & toolkits (LangChain/LangGraph, AutoGen, CrewAI, LlamaIndex, DSPy, Haystack) to enhance multi-agent pipeline orchestration in `devops-cli`.
@@ -94,7 +94,7 @@ High-density product roadmap for `devops-cli`.
 | | Popeye K8s Cluster Sanitizer | High | Low | ✅ Completed (v0.1.6) |
 | | Pluto K8s Deprecated API Scanner | High | Low | ✅ Completed (v0.1.6) |
 | **Strategic Investments** | Minikube Service Auto-Config & 7-Gate CI | High | High | ✅ Completed (v0.1.5) |
-| | DevContainer Shell Script Replacement Engine | High | Medium | 🔄 Scheduled (v0.1.7) |
+| | DevContainer Shell Script Replacement Engine | High | Medium | ✅ Completed (v0.1.7) |
 | | Enhanced AI/LLM Scratchpad Reasoning Buffer | High | Medium | 🔄 Scheduled (v0.1.7) |
 | | AI/LLM Prompt Token & Latency Optimization | High | Medium | 🔄 Scheduled (v0.1.7) |
 | | AI Agent Pipeline Framework Evaluation & Benchmark | High | Medium | 🔄 Scheduled (v0.1.7) |

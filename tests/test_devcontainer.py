@@ -68,3 +68,58 @@ class TestDevcontainerCli:
 
         data = json.loads(dc_file.read_text(encoding="utf-8"))
         assert data["image"] == "mcr.microsoft.com/devcontainers/python:3.14"
+
+    def test_post_create_command_executes_successfully(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """devops devcontainer post-create must run post-create setup tasks."""
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        monkeypatch.setenv("HOME", str(fake_home))
+
+        result = runner.invoke(app, ["post-create", "--workspace", str(tmp_path)])
+        assert result.exit_code == 0
+        assert "post-create setup ready" in result.output
+        assert (fake_home / ".bash_history").exists()
+        assert (fake_home / ".gemini" / "config").exists()
+
+    def test_post_start_command_executes_successfully(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """devops devcontainer post-start must run post-start lifecycle tasks."""
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        monkeypatch.setenv("HOME", str(fake_home))
+
+        result = runner.invoke(app, ["post-start", "--workspace", str(tmp_path)])
+        assert result.exit_code == 0
+        assert "post-start lifecycle complete" in result.output
+        assert (fake_home / ".kube" / "config").exists()
+
+    def test_run_lifecycle_command_executes_hooks(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """devops devcontainer run-lifecycle --all must run all lifecycle hooks."""
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        monkeypatch.setenv("HOME", str(fake_home))
+
+        result = runner.invoke(app, ["run-lifecycle", "--all", "--workspace", str(tmp_path)])
+        assert result.exit_code == 0
+        assert "post-create setup ready" in result.output
+        assert "post-start lifecycle complete" in result.output
+
+    def test_run_lifecycle_dry_run_outputs_json(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """devops devcontainer run-lifecycle in dry-run mode renders dry-run JSON."""
+        monkeypatch.setenv("DEVOPS_CLI_DRY_RUN", "true")
+
+        result = runner.invoke(app, ["run-lifecycle", "--workspace", str(tmp_path)])
+        assert result.exit_code == 0
+        json_text = result.output[result.output.find("{") :]
+        data = json.loads(json_text)
+        assert data["command"] == "devops devcontainer run-lifecycle"
+        assert data["action"] == "run_lifecycle"
+        assert data["dry_run"] is True
+
