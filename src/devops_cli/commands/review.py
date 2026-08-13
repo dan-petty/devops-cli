@@ -940,7 +940,7 @@ def _load_file_analysis_metas(
     """Fetch analysis metadata from .data/analysis/ or run analyze on outdated/new files."""
     from devops_cli.ai.analyze.cache import save_analysis_metadata
     from devops_cli.ai.analyze.outlines import analyze_single_file
-    from devops_cli.core.repo import find_repo_root
+    from devops_cli.core.repo import find_repo_root, find_top_level_repo_root
     from devops_cli.models.ai import AnalysisMetadata
 
     metas: dict[str, FileAnalysisMeta] = {}
@@ -952,10 +952,10 @@ def _load_file_analysis_metas(
     except Exception:
         repo = None
 
-    if repo and repo.exists():
-        analysis_dir = repo / CONST_DATA_DIR / "analysis"
-        if analysis_dir.exists():
-            for json_file in analysis_dir.glob("*.json"):
+    top_root = find_top_level_repo_root(repo)
+    analysis_dir = top_root / CONST_DATA_DIR / "analysis"
+    if analysis_dir.exists():
+        for json_file in analysis_dir.glob("*.json"):
                 try:
                     payload_data = json.loads(json_file.read_text(encoding="utf-8"))
                     payload = AnalysisMetadata.model_validate(payload_data)

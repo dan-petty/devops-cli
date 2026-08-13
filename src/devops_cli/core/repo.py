@@ -49,6 +49,23 @@ def find_repo_root(start_path: Path | str | None = None) -> Path:
     return current
 
 
+def find_top_level_repo_root(start_path: Path | str | None = None) -> Path:
+    """Find the top-most workspace root directory containing .git or pyproject.toml."""
+    current = Path(start_path or Path.cwd()).resolve()
+    if current.is_file():
+        current = current.parent
+
+    candidates = [
+        p
+        for p in [current, *current.parents]
+        if (p / ".git").exists() or (p / "pyproject.toml").exists()
+    ]
+    if candidates:
+        return candidates[-1]
+
+    return current
+
+
 def read_gitignore_patterns(repo_root: Path) -> list[str]:
     """Dynamically read .gitignore patterns from the repository root at runtime."""
     gitignore_file = repo_root / ".gitignore"

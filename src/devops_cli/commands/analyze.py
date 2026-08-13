@@ -20,7 +20,7 @@ from devops_cli.config.constants import (
     CONST_MAX_FILE_SIZE_BYTES,
 )
 from devops_cli.core.cli import new_typer
-from devops_cli.core.repo import find_repo_root, list_repo_files
+from devops_cli.core.repo import find_repo_root, find_top_level_repo_root, list_repo_files
 from devops_cli.dry_run import is_dry_run
 from devops_cli.lang import MESSAGES
 from devops_cli.models.ai import AnalysisMetadata, FileAnalysisMeta
@@ -88,7 +88,8 @@ def analyze_path(
     ref_str = str(target.relative_to(repo)) if target_abs != repo else repo.name
     sanitized_ref = sanitize_reference(ref_str, repo)
     existing_file_metas: dict[str, FileAnalysisMeta] = {}
-    out_file_path = repo / CONST_DATA_DIR / "analysis" / f"path-{sanitized_ref}-metadata.json"
+    top_root = find_top_level_repo_root(repo)
+    out_file_path = top_root / CONST_DATA_DIR / "analysis" / f"path-{sanitized_ref}-metadata.json"
 
     if enhanced and not update_all and out_file_path.exists():
         try:
@@ -190,7 +191,8 @@ def analyze_branch(
 
     sanitized_ref = sanitize_reference(target_branch, repo)
     existing_file_metas: dict[str, FileAnalysisMeta] = {}
-    out_file_path = repo / CONST_DATA_DIR / "analysis" / f"branch-{sanitized_ref}-metadata.json"
+    top_root = find_top_level_repo_root(repo)
+    out_file_path = top_root / CONST_DATA_DIR / "analysis" / f"branch-{sanitized_ref}-metadata.json"
 
     if enhanced and not update_all and out_file_path.exists():
         try:
