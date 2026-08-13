@@ -21,8 +21,6 @@ from devops_cli.config.constants import (
     CONST_DEVCONTAINER_IMAGE_PREFIX,
     CONST_DEVCONTAINER_JSON_NAME,
     CONST_DEVCONTAINER_JSON_PATH,
-    CONST_DEVCONTAINER_POST_CREATE_NAME,
-    CONST_DEVCONTAINER_POST_CREATE_PATH,
 )
 from devops_cli.config.settings import load_settings
 from devops_cli.core.cli import new_typer, repo_label
@@ -90,15 +88,7 @@ def init(
         encoding="utf-8",
     )
 
-    sh_file = dc_dir / CONST_DEVCONTAINER_POST_CREATE_NAME
-    sh_file.write_text(
-        env.get_template("postCreate.sh.j2").render(python_version=python_version),
-        encoding="utf-8",
-    )
-    sh_file.chmod(0o755)
-
     rprint(f"[green]Created:[/green] {dc_file}")
-    rprint(f"[green]Created:[/green] {sh_file}")
 
     vscode_dir = repo_path / ".vscode"
     mcp_file = vscode_dir / "mcp.json"
@@ -155,15 +145,12 @@ def list_devcontainers(
     table = Table(title="Devcontainer Status")
     table.add_column("Repository", style="cyan")
     table.add_column(CONST_DEVCONTAINER_JSON_NAME)
-    table.add_column(CONST_DEVCONTAINER_POST_CREATE_NAME, justify="center")
 
     for repo_dir in iter_workspace_repos(root):
         dc_ok = (repo_dir / CONST_DEVCONTAINER_JSON_PATH).exists()
-        sh_ok = (repo_dir / CONST_DEVCONTAINER_POST_CREATE_PATH).exists()
         table.add_row(
             repo_label(repo_dir),
             "[green]✓ configured[/green]" if dc_ok else "[yellow]✗ missing[/yellow]",
-            "[green]✓[/green]" if sh_ok else "[dim]—[/dim]",
         )
 
     console.print(table)

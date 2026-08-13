@@ -26,16 +26,14 @@ class TestDevcontainerCli:
     def test_init_creates_devcontainer_and_mcp_files(
         self, runner: CliRunner, tmp_path: Path
     ) -> None:
-        """devops devcontainer init must scaffold devcontainer.json, postCreate.sh, and mcp.json."""
+        """devops devcontainer init must scaffold devcontainer.json and mcp.json."""
         result = runner.invoke(app, ["init", str(tmp_path), "--name", "test-project"])
         assert result.exit_code == 0
 
         dc_file = tmp_path / ".devcontainer" / "devcontainer.json"
-        sh_file = tmp_path / ".devcontainer" / "postCreate.sh"
         mcp_file = tmp_path / ".vscode" / "mcp.json"
 
         assert dc_file.exists()
-        assert sh_file.exists()
         assert mcp_file.exists()
 
         mcp_data = json.loads(mcp_file.read_text(encoding="utf-8"))
