@@ -54,16 +54,22 @@ Tracks active feature proposals, architectural spikes, and planned functionality
 
 ---
 
-## 10. Feature Prioritization & Implementation ROI
+## 10. AI/LLM Prompt Token & Responsiveness Optimization
+- **Overview**: Compress system prompts, streamline context payloads, eliminate prompt redundancy, and tune prompt structure to reduce token usage and improve inference latency across local Ollama and remote LLM providers.
+
+---
+
+## 11. Feature Prioritization & Implementation ROI
 
 | Feature Proposal | Priority Tier | Value | Effort | ROI & Sequencing |
 |---|---|---|---|---|
 | **1. SecOps & K8s Security (v0.1.6)** | **Completed** | High | Low | **High Impact**: Embeds Trivy, Kube-linter, Popeye & Pluto static analysis. |
 | **2. DevContainer Script Replacement (v0.1.7)** | **P1 (Highest)** | High | Medium | **High Impact**: Replaces shell scripts with cross-platform `devops devcontainer` lifecycle commands. |
 | **3. Enhanced AI Scratchpad Buffer (v0.1.7)** | **P1 (High)** | High | Medium | **High Impact**: Prevents LLM reasoning degradation across multi-turn agentic pipeline turns. |
-| **4. AI Agent Framework Research (v0.1.7)** | **P1 (High)** | High | Medium | **High Impact**: Benchmarks open-source agentic frameworks (LangGraph, CrewAI, AutoGen, DSPy). |
-| **5. Line-Level PR Inline Comments** | **P1 (Highest)** | High | High | **High Impact**: Anchors persona findings directly to PR diff lines via PyGithub. |
-| **6. Invalidation Feedback Exporter** | **P1 (High)** | High | Medium | **High Impact**: Exports false-positive datasets for continuous prompt tuning. |
-| **7. Custom Team Persona Prompts** | **P2 (Medium)** | High | Medium | **Medium Impact**: Enables team-specific governance overlays (`.devops/personas/`). |
-| **8. Observability & K8s Telemetry** | **P2 (Medium)** | High | High | **High Impact**: Full OpenTelemetry, Prometheus, Grafana & Jaeger tracing via Minikube. |
-| **9. Headless Keyring Auth Fallback** | **P3 (Lower)** | Medium | Medium | **Niche Impact**: Unlocks headless CI runners without DBus. |
+| **4. AI Prompt Token & Latency Optimization (v0.1.7)** | **P1 (High)** | High | Medium | **High Impact**: Reduces token overhead and improves local/remote LLM inference responsiveness. |
+| **5. AI Agent Framework Research (v0.1.7)** | **P1 (High)** | High | Medium | **High Impact**: Benchmarks open-source agentic frameworks (LangGraph, CrewAI, AutoGen, DSPy). |
+| **6. Line-Level PR Inline Comments** | **P1 (Highest)** | High | High | **High Impact**: Anchors persona findings directly to PR diff lines via PyGithub. |
+| **7. Invalidation Feedback Exporter** | **P1 (High)** | High | Medium | **High Impact**: Exports false-positive datasets for continuous prompt tuning. |
+| **8. Custom Team Persona Prompts** | **P2 (Medium)** | High | Medium | **Medium Impact**: Enables team-specific governance overlays (`.devops/personas/`). |
+| **9. Observability & K8s Telemetry** | **P2 (Medium)** | High | High | **High Impact**: Full OpenTelemetry, Prometheus, Grafana & Jaeger tracing via Minikube. |
+| **10. Headless Keyring Auth Fallback** | **P3 (Lower)** | Medium | Medium | **Niche Impact**: Unlocks headless CI runners without DBus. |
