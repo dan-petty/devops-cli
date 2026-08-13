@@ -93,8 +93,10 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 | | `devops ssh rotate` | Rotate SSH keys older than 90 days and update GitHub |
 | | `devops ssh audit` | Audit SSH key expiration dates and key file permissions |
 | **scan** | `devops scan [repo\|image\|iac] [<target>]` | Aqua Trivy static vulnerability, secret, and misconfiguration scanning |
-| **k8s** | `devops k8s deploy-stack` | Deploy ArgoCD, Prometheus, Grafana, OTEL to minikube and configure URLs |
-| | `devops k8s configure-urls` | Auto-detect Minikube monitoring stack NodePort URLs (ArgoCD, Grafana, Prometheus) |
+| **k8s** | `devops k8s deploy-stack [--stack infra\|llm\|all]` | Deploy infrastructure (ArgoCD, Prometheus, Grafana, OTEL) or LLM stack (Ollama, WebUI, Qdrant, Valkey) |
+| | `devops k8s teardown-stack [--stack infra\|llm\|all]` | Teardown Kubernetes stack and delete associated resources / namespaces |
+| | `devops k8s configure-urls [--stack infra\|llm\|all]` | Auto-detect Minikube stack NodePort URLs and update CLI configuration |
+| | `devops k8s port-forward [--stack infra\|llm\|all]` | Port-forward monitoring and LLM stack services to local host ports |
 | | `devops k8s status` | Display pod status across infrastructure namespaces |
 | | `devops k8s switch-context <ctx>` | Switch active Kubernetes context and cluster namespace |
 | | `devops k8s rbac-audit` | Audit RBAC RoleBindings and ServiceAccounts for overprivileged access |

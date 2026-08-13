@@ -1,0 +1,41 @@
+# Open-WebUI Helm values — minimal dev-mode configuration for minikube.
+# Chart: open-webui/open-webui
+# Repo:  https://open-webui.github.io/helm-charts
+
+image:
+  repository: ghcr.io/open-webui/open-webui
+  tag: main
+  pullPolicy: IfNotPresent
+
+ollama:
+  enabled: false # Connect to standalone Ollama deployment in the same namespace
+
+ollamaUrls:
+  - http://ollama.llm.svc.cluster.local:11434
+
+extraEnvVars:
+  - name: OLLAMA_BASE_URL
+    value: "http://ollama.llm.svc.cluster.local:11434"
+  - name: VECTOR_DB
+    value: "qdrant"
+  - name: QDRANT_URI
+    value: "http://qdrant.llm.svc.cluster.local:6333"
+  - name: WEBUI_AUTH
+    value: "false"
+
+service:
+  type: NodePort
+  port: 8080
+  nodePort: 30080
+
+persistence:
+  enabled: true
+  size: 5Gi
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    cpu: 2000m
+    memory: 2Gi

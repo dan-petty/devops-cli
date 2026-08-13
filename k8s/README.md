@@ -1,67 +1,90 @@
-# k8s/ — Local Kubernetes Infrastructure Stack
+# k8s/ — Local Kubernetes Infrastructure & LLM Stacks
 
-Kustomize + Helm-based configurations for deploying ArgoCD, Prometheus, Grafana,
-and OpenTelemetry Collector to the devcontainer's minikube cluster.
+Kustomize + Helm-based configurations for deploying infrastructure management (`infra`) and local AI/LLM (`llm`) stacks to the devcontainer's minikube cluster.
+
+## Stacks Overview
+
+| Stack | Components | Namespaces | Default Ports |
+| :--- | :--- | :--- | :--- |
+| **`infra`** *(Default)* | ArgoCD, Prometheus Stack (Prometheus + Grafana), OpenTelemetry Collector | `argocd`, `monitoring`, `otel` | `8080` (ArgoCD), `8030` (Grafana), `8090` (Prometheus) |
+| **`llm`** | Ollama, Open-WebUI, Qdrant Vector DB, Valkey Cache | `llm` | `11434` (Ollama), `3000` (WebUI), `6333` (Qdrant), `6379` (Valkey) |
+| **`all`** | All components from both stacks | `argocd`, `monitoring`, `otel`, `llm` | All ports above |
 
 ## Prerequisites
 
 - minikube running (`minikube status` or auto-started by postStart.sh)
 - kubectl and helm on PATH (installed by devcontainer features)
 
-## DevContainer Auto-Deployment
-
-When running inside the devcontainer environment, minikube autostart and infrastructure stack auto-deployment are enabled by default (`DEVOPS_MINIKUBE_AUTOSTART=true` and `DEVOPS_K8S_AUTO_DEPLOY=true`). On container startup, `.devcontainer/postStart.sh` automatically starts minikube and executes `devops k8s deploy-stack` to provision ArgoCD, Prometheus, Grafana, and OpenTelemetry Collector.
-
-
 ## Quick Start
 
 ```bash
-# Deploy everything in one command
+# Deploy default infrastructure stack (ArgoCD, Prometheus, Grafana, OTEL)
 devops k8s deploy-stack
 
-# Or deploy manually with kustomize
-kubectl apply -k k8s/
+# Deploy local LLM stack (Ollama, Open-WebUI, Qdrant, Valkey)
+devops k8s deploy-stack --stack llm
 
-# Then install Helm releases
-helm repo add argo https://argoproj.github.io/argo-helm
-helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
-helm repo add open-telemetry https://open-telemetry.github.io/opentelemetry-helm-charts
-helm repo update
-
-helm install argocd argo/argo-cd -n argocd -f k8s/argocd/values.yaml
-helm install kube-prometheus prometheus-community/kube-prometheus-stack \
-  -n monitoring -f k8s/monitoring/prometheus-values.yaml
-helm install otel-collector open-telemetry/opentelemetry-collector \
-  -n otel -f k8s/otel/values.yaml
+# Deploy all stacks simultaneously
+devops k8s deploy-stack --stack all
 ```
 
-## Accessing Services
+## Accessing Stack Services
 
+### Infrastructure Stack (`infra`)
 ```bash
 # ArgoCD UI
 minikube service argocd-server -n argocd --url
 
-# ArgoCD admin password
+# ArgoCD initial admin password
 kubectl -n argocd get secret argocd-initial-admin-secret \
   -o jsonpath="{.data.password}" | base64 -d; echo
 
-# Grafana UI (admin / admin)
+# Grafana UI
 minikube service kube-prometheus-grafana -n monitoring --url
 
 # Prometheus UI
-minikube service kube-prometheus-kube-prom-prometheus -n monitoring --url
+minikube service kube-prometheus-kube-prome-prometheus -n monitoring --url
+```
+
+### LLM Stack (`llm`)
+```bash
+# Ollama REST API
+minikube service ollama -n llm --url
+
+# Open-WebUI Web Interface
+minikube service open-webui -n llm --url
+
+# Qdrant Vector Database HTTP API
+minikube service qdrant -n llm --url
+
+# Valkey In-Memory Cache
+kubectl -n llm exec -it svc/valkey -- valkey-cli ping
+```
+
+## Port Forwarding & Automated Configuration
+
+```bash
+# Forward ports and automatically detect URLs
+devops k8s port-forward --stack infra
+devops k8s port-forward --stack llm
+devops k8s port-forward --stack all
+
+# Auto-detect URLs and persist to devops config
+devops k8s configure-urls --stack infra
+devops k8s configure-urls --stack llm
 ```
 
 ## Teardown
 
 ```bash
-devops k8s teardown-stack
+# Teardown infrastructure stack
+devops k8s teardown-stack --stack infra
 
-# Or manually
-helm uninstall otel-collector -n otel
-helm uninstall kube-prometheus -n monitoring
-helm uninstall argocd -n argocd
-kubectl delete -k k8s/
+# Teardown LLM stack
+devops k8s teardown-stack --stack llm
+
+# Teardown all stacks and namespaces
+devops k8s teardown-stack --stack all
 ```
 
 ## Directory Structure
@@ -69,7 +92,7 @@ kubectl delete -k k8s/
 ```
 k8s/
 ├── kustomization.yaml        # Root kustomize: applies namespaces
-├── namespaces.yaml           # Namespace definitions
+├── namespaces.yaml           # Namespace definitions (argocd, monitoring, otel, llm)
 ├── argocd/
 │   ├── kustomization.yaml    # Kustomize overlay for ArgoCD
 │   ├── namespace.yaml        # argocd namespace
@@ -82,23 +105,12 @@ k8s/
 │   ├── kustomization.yaml    # Kustomize overlay for OpenTelemetry
 │   ├── namespace.yaml        # otel namespace
 │   └── values.yaml           # Helm values for opentelemetry-collector
+├── llm/
+│   ├── kustomization.yaml    # Kustomize overlay for LLM stack base
+│   ├── namespace.yaml        # llm namespace
+│   ├── valkey.yaml           # Valkey Deployment + Service manifest
+│   ├── values-ollama.yaml    # Helm values for ollama/ollama
+│   ├── values-open-webui.yaml# Helm values for open-webui/open-webui
+│   └── values-qdrant.yaml    # Helm values for qdrant/qdrant
 └── README.md                 # This file
-```
-
-## Integration with devops-cli
-
-Once deployed, configure devops-cli to target the in-cluster services:
-
-```bash
-# ArgoCD
-devops config set argocd.url "$(minikube service argocd-server -n argocd --url)"
-
-# Grafana
-devops config set grafana.url "$(minikube service kube-prometheus-grafana -n monitoring --url)"
-
-# Prometheus
-devops config set prometheus.url "$(minikube service kube-prometheus-kube-prom-prometheus -n monitoring --url)"
-
-# Enable private network access (minikube uses internal IPs)
-export DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true
 ```

@@ -238,36 +238,91 @@ def logs(
         _run_cmd(cmd, check=True)
 
 
-# ── Helm chart definitions for deploy-stack ──────────────────────────────────
+# ── Helm chart and manifest definitions for deploy-stack / teardown-stack ────
+
+_HELM_REPOS_BY_STACK: dict[str, dict[str, str]] = {
+    "infra": {
+        "argo": "https://argoproj.github.io/argo-helm",
+        "prometheus-community": "https://prometheus-community.github.io/helm-charts",
+        "open-telemetry": "https://open-telemetry.github.io/opentelemetry-helm-charts",
+    },
+    "llm": {
+        "ollama": "https://otwld.github.io/ollama-helm/",
+        "open-webui": "https://open-webui.github.io/helm-charts",
+        "qdrant": "https://qdrant.github.io/qdrant-helm",
+    },
+}
 
 _HELM_REPOS: dict[str, str] = {
-    "argo": "https://argoproj.github.io/argo-helm",
-    "prometheus-community": "https://prometheus-community.github.io/helm-charts",
-    "open-telemetry": "https://open-telemetry.github.io/opentelemetry-helm-charts",
+    **_HELM_REPOS_BY_STACK["infra"],
+    **_HELM_REPOS_BY_STACK["llm"],
 }
 
 _K8S_DIR = Path(__file__).resolve().parents[3] / "k8s"
 
-_HELM_RELEASES: list[dict[str, str]] = [
-    {
-        "name": "argocd",
-        "chart": "argo/argo-cd",
-        "namespace": "argocd",
-        "values": str(_K8S_DIR / "argocd" / "values.yaml"),
-    },
-    {
-        "name": "kube-prometheus",
-        "chart": "prometheus-community/kube-prometheus-stack",
-        "namespace": "monitoring",
-        "values": str(_K8S_DIR / "monitoring" / "prometheus-values.yaml"),
-    },
-    {
-        "name": "otel-collector",
-        "chart": "open-telemetry/opentelemetry-collector",
-        "namespace": "otel",
-        "values": str(_K8S_DIR / "otel" / "values.yaml"),
-    },
-]
+_HELM_RELEASES_BY_STACK: dict[str, list[dict[str, str]]] = {
+    "infra": [
+        {
+            "name": "argocd",
+            "chart": "argo/argo-cd",
+            "namespace": "argocd",
+            "values": str(_K8S_DIR / "argocd" / "values.yaml"),
+        },
+        {
+            "name": "kube-prometheus",
+            "chart": "prometheus-community/kube-prometheus-stack",
+            "namespace": "monitoring",
+            "values": str(_K8S_DIR / "monitoring" / "prometheus-values.yaml"),
+        },
+        {
+            "name": "otel-collector",
+            "chart": "open-telemetry/opentelemetry-collector",
+            "namespace": "otel",
+            "values": str(_K8S_DIR / "otel" / "values.yaml"),
+        },
+    ],
+    "llm": [
+        {
+            "name": "ollama",
+            "chart": "ollama/ollama",
+            "namespace": "llm",
+            "values": str(_K8S_DIR / "llm" / "values-ollama.yaml"),
+        },
+        {
+            "name": "open-webui",
+            "chart": "open-webui/open-webui",
+            "namespace": "llm",
+            "values": str(_K8S_DIR / "llm" / "values-open-webui.yaml"),
+        },
+        {
+            "name": "qdrant",
+            "chart": "qdrant/qdrant",
+            "namespace": "llm",
+            "values": str(_K8S_DIR / "llm" / "values-qdrant.yaml"),
+        },
+    ],
+}
+
+_HELM_RELEASES: list[dict[str, str]] = _HELM_RELEASES_BY_STACK["infra"]
+
+_MANIFESTS_BY_STACK: dict[str, list[Path]] = {
+    "infra": [],
+    "llm": [
+        _K8S_DIR / "llm" / "valkey.yaml",
+    ],
+}
+
+VALID_STACKS: tuple[str, ...] = ("infra", "llm", "all")
+
+
+def _resolve_stacks(stack: str) -> list[str]:
+    s = stack.strip().lower()
+    if s == "all":
+        return ["infra", "llm"]
+    if s in _HELM_RELEASES_BY_STACK:
+        return [s]
+    rprint(f"[red]Invalid stack: {stack!r}. Supported stacks: {', '.join(VALID_STACKS)}[/red]")
+    raise typer.Exit(1)
 
 
 def _run_cmd(
@@ -304,14 +359,23 @@ def bootstrap(
     auto_start: Annotated[
         bool, typer.Option("--auto-start/--no-auto-start", help="Auto-start minikube if stopped")
     ] = True,
+    stack: Annotated[
+        str, typer.Option("--stack", "-s", help="Stack to deploy (infra, llm, all)")
+    ] = "infra",
 ) -> None:
-    """Bootstrap minikube Kubernetes cluster and deploy infrastructure stack."""
+    """Bootstrap minikube Kubernetes cluster and deploy infrastructure/LLM stack."""
+    selected_stacks = _resolve_stacks(stack)
     if is_dry_run():
         res = CommandDryRunResult(
             command="devops k8s bootstrap",
             target=str(k8s_dir),
             action="minikube_bootstrap",
-            details={"auto_start": auto_start, "k8s_dir": str(k8s_dir)},
+            details={
+                "auto_start": auto_start,
+                "k8s_dir": str(k8s_dir),
+                "stack": stack,
+                "stacks": selected_stacks,
+            },
         )
         rprint("[yellow][dry-run][/yellow] Command response:")
         console.print_json(res.model_dump_json(indent=2))
@@ -325,7 +389,7 @@ def bootstrap(
             rprint("[red]minikube is not running. Start with: minikube start --driver=docker[/red]")
             raise typer.Exit(1)
 
-    deploy_stack(k8s_dir=k8s_dir)
+    deploy_stack(k8s_dir=k8s_dir, stack=stack)
 
 
 @app.command("deploy-stack")
@@ -333,15 +397,31 @@ def deploy_stack(
     k8s_dir: Annotated[
         Path, typer.Option("--k8s-dir", help="Path to k8s/ config directory")
     ] = _K8S_DIR,
+    stack: Annotated[
+        str, typer.Option("--stack", "-s", help="Stack to deploy (infra, llm, all)")
+    ] = "infra",
 ) -> None:
-    """Deploy ArgoCD, Prometheus, Grafana, and OTEL Collector to minikube."""
+    """Deploy infrastructure or LLM stack (Ollama, WebUI, Qdrant, Valkey) to minikube."""
+    selected_stacks = _resolve_stacks(stack)
+
+    all_releases: list[dict[str, str]] = []
+    all_manifests: list[str] = []
+    for s_name in selected_stacks:
+        all_releases.extend(_HELM_RELEASES_BY_STACK.get(s_name, []))
+        all_manifests.extend([str(p) for p in _MANIFESTS_BY_STACK.get(s_name, [])])
+
     if is_dry_run():
-        releases = [r["name"] for r in _HELM_RELEASES]
         res = CommandDryRunResult(
             command="devops k8s deploy-stack",
             target=str(k8s_dir),
             action="deploy_k8s_stack",
-            details={"kustomize_dir": str(k8s_dir), "helm_releases": releases},
+            details={
+                "kustomize_dir": str(k8s_dir),
+                "stack": stack,
+                "stacks": selected_stacks,
+                "helm_releases": [r["name"] for r in all_releases],
+                "manifests": all_manifests,
+            },
         )
         rprint("[yellow][dry-run][/yellow] Command response:")
         console.print_json(res.model_dump_json(indent=2))
@@ -357,14 +437,24 @@ def deploy_stack(
     rprint("[bold]Applying namespaces...[/bold]")
     _run_cmd(["kubectl", "apply", "-k", str(k8s_dir)])
 
-    # 3. Add Helm repos
-    rprint("[bold]Adding Helm repositories...[/bold]")
-    for repo_name, repo_url in _HELM_REPOS.items():
-        _run_cmd(["helm", "repo", "add", repo_name, repo_url], check=False)
-    _run_cmd(["helm", "repo", "update"])
+    # 3. Add Helm repos for selected stacks
+    repos_to_add: dict[str, str] = {}
+    for s_name in selected_stacks:
+        repos_to_add.update(_HELM_REPOS_BY_STACK.get(s_name, {}))
 
-    # 4. Install Helm releases
-    for release in _HELM_RELEASES:
+    if repos_to_add:
+        rprint("[bold]Adding Helm repositories...[/bold]")
+        for repo_name, repo_url in repos_to_add.items():
+            _run_cmd(["helm", "repo", "add", repo_name, repo_url], check=False)
+        _run_cmd(["helm", "repo", "update"])
+
+    # 4. Install native manifests
+    for manifest_path in all_manifests:
+        rprint(f"[bold]Applying manifest {Path(manifest_path).name}...[/bold]")
+        _run_cmd(["kubectl", "apply", "-f", manifest_path], check=False)
+
+    # 5. Install Helm releases
+    for release in all_releases:
         rprint(f"[bold]Installing {release['name']}...[/bold]")
         result = _run_cmd(
             [
@@ -388,17 +478,23 @@ def deploy_stack(
         else:
             rprint(f"[green]✓ {release['name']} installed[/green]")
 
-    # 5. Auto-configure monitoring URLs & port forwarding
+    # 6. Auto-configure monitoring URLs & port forwarding
     rprint()
-    rprint("[bold green]Infrastructure stack deployed.[/bold green]")
+    rprint(f"[bold green]Kubernetes stack ({stack}) deployed.[/bold green]")
     rprint()
-    port_forward()
+    port_forward(stack=stack)
     rprint()
-    rprint(
-        "[dim]ArgoCD admin password: kubectl -n argocd get secret"
-        " argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d[/dim]"
-    )
-    rprint("[dim]Grafana credentials: set via grafana.token in 'devops config set'[/dim]")
+    if "infra" in selected_stacks:
+        rprint(
+            "[dim]ArgoCD admin password: kubectl -n argocd get secret"
+            " argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d[/dim]"
+        )
+        rprint("[dim]Grafana credentials: set via grafana.token in 'devops config set'[/dim]")
+    if "llm" in selected_stacks:
+        rprint("[dim]Ollama: http://localhost:11434 (minikube service ollama -n llm --url)[/dim]")
+        rprint("[dim]Open-WebUI: http://localhost:3000 (minikube service open-webui -n llm)[/dim]")
+        rprint("[dim]Qdrant Vector DB: http://localhost:6333 (HTTP) / :6334 (gRPC)[/dim]")
+        rprint("[dim]Valkey Cache: localhost:6379 (namespace: llm)[/dim]")
 
 
 def _detect_service_url(service: str, namespace: str) -> str | None:
@@ -474,17 +570,38 @@ def _resolve_accessible_url(
 
 
 @app.command("configure-urls")
-def configure_urls() -> None:
-    """Auto-detect Minikube monitoring stack URLs and update CLI config."""
+def configure_urls(
+    stack: Annotated[
+        str, typer.Option("--stack", "-s", help="Stack to configure URLs for (infra, llm, all)")
+    ] = "infra",
+) -> None:
+    """Auto-detect Minikube stack URLs and update CLI config."""
+    selected_stacks = _resolve_stacks(stack)
+
+    dry_run_details: dict[str, str] = {}
+    if "infra" in selected_stacks:
+        dry_run_details.update(
+            {
+                "argocd.url": "http://192.168.49.2:30080",
+                "grafana.url": "http://192.168.49.2:32047",
+                "prometheus.url": "http://192.168.49.2:30090",
+            }
+        )
+    if "llm" in selected_stacks:
+        dry_run_details.update(
+            {
+                "ai.ollama_urls": "http://192.168.49.2:31434",
+                "open_webui.url": "http://192.168.49.2:30080",
+                "qdrant.url": "http://192.168.49.2:30633",
+                "valkey.url": "tcp://192.168.49.2:30379",
+            }
+        )
+
     if is_dry_run():
         res = CommandDryRunResult(
             command="devops k8s configure-urls",
             action="configure_monitoring_urls",
-            details={
-                "argocd.url": "http://192.168.49.2:30080",
-                "grafana.url": "http://192.168.49.2:32047",
-                "prometheus.url": "http://192.168.49.2:30090",
-            },
+            details=dry_run_details,
         )
         rprint("[yellow][dry-run][/yellow] Command response:")
         console.print_json(res.model_dump_json(indent=2))
@@ -494,36 +611,60 @@ def configure_urls() -> None:
         rprint("[red]minikube is not running.[/red]")
         raise typer.Exit(1)
 
-    rprint("[bold]Detecting Minikube monitoring service URLs...[/bold]")
-
-    raw_argocd = _detect_service_url("argocd-server", "argocd")
-    raw_grafana = _detect_service_url("kube-prometheus-grafana", "monitoring")
-    raw_prom = _detect_service_url("kube-prometheus-kube-prome-prometheus", "monitoring")
-
-    argocd_url = _resolve_accessible_url(raw_argocd, preferred_localhost_ports=[8080])
-    grafana_url = _resolve_accessible_url(raw_grafana, preferred_localhost_ports=[8030, 8000, 3000])
-    prom_url = _resolve_accessible_url(raw_prom, preferred_localhost_ports=[8090, 9090])
+    rprint(f"[bold]Detecting Minikube {stack} service URLs...[/bold]")
 
     from devops_cli.config.settings import dotted_set, load_settings, save_settings
 
     settings = load_settings()
-
     configured: dict[str, str] = {}
-    if argocd_url:
-        dotted_set(settings, "argocd.url", argocd_url)
-        configured["argocd.url"] = argocd_url
-    if grafana_url:
-        dotted_set(settings, "grafana.url", grafana_url)
-        configured["grafana.url"] = grafana_url
-    if prom_url:
-        dotted_set(settings, "prometheus.url", prom_url)
-        configured["prometheus.url"] = prom_url
+
+    if "infra" in selected_stacks:
+        raw_argocd = _detect_service_url("argocd-server", "argocd")
+        raw_grafana = _detect_service_url("kube-prometheus-grafana", "monitoring")
+        raw_prom = _detect_service_url("kube-prometheus-kube-prome-prometheus", "monitoring")
+
+        argocd_url = _resolve_accessible_url(raw_argocd, preferred_localhost_ports=[8080])
+        grafana_url = _resolve_accessible_url(
+            raw_grafana, preferred_localhost_ports=[8030, 8000, 3000]
+        )
+        prom_url = _resolve_accessible_url(raw_prom, preferred_localhost_ports=[8090, 9090])
+
+        if argocd_url:
+            dotted_set(settings, "argocd.url", argocd_url)
+            configured["argocd.url"] = argocd_url
+        if grafana_url:
+            dotted_set(settings, "grafana.url", grafana_url)
+            configured["grafana.url"] = grafana_url
+        if prom_url:
+            dotted_set(settings, "prometheus.url", prom_url)
+            configured["prometheus.url"] = prom_url
+
+    if "llm" in selected_stacks:
+        raw_ollama = _detect_service_url("ollama", "llm")
+        raw_webui = _detect_service_url("open-webui", "llm")
+        raw_qdrant = _detect_service_url("qdrant", "llm")
+        raw_valkey = _detect_service_url("valkey", "llm")
+
+        ollama_url = _resolve_accessible_url(raw_ollama, preferred_localhost_ports=[11434])
+        webui_url = _resolve_accessible_url(raw_webui, preferred_localhost_ports=[3000, 8080])
+        qdrant_url = _resolve_accessible_url(raw_qdrant, preferred_localhost_ports=[6333])
+        valkey_url = _resolve_accessible_url(raw_valkey, preferred_localhost_ports=[6379])
+
+        if ollama_url:
+            settings.ai.ollama_urls = [ollama_url]
+            configured["ai.ollama_urls"] = ollama_url
+        if webui_url:
+            configured["open_webui.url"] = webui_url
+        if qdrant_url:
+            configured["qdrant.url"] = qdrant_url
+        if valkey_url:
+            configured["valkey.url"] = valkey_url
 
     if configured:
         save_settings(settings)
 
-    table = Table(title="Configured Monitoring Service Targets")
-    table.add_column("Config Key", style="cyan")
+    table = Table(title=f"Configured Service Targets ({stack})")
+    table.add_column("Config Key / Service", style="cyan")
     table.add_column("Detected Target URL", style="green")
 
     for k, v in configured.items():
@@ -534,6 +675,9 @@ def configure_urls() -> None:
 
 @app.command("port-forward")
 def port_forward(
+    stack: Annotated[
+        str, typer.Option("--stack", "-s", help="Stack services to port-forward (infra, llm, all)")
+    ] = "infra",
     argocd_port: Annotated[int, typer.Option("--argocd-port", help="Local port for ArgoCD")] = 8080,
     grafana_port: Annotated[
         int, typer.Option("--grafana-port", help="Local port for Grafana")
@@ -541,19 +685,46 @@ def port_forward(
     prometheus_port: Annotated[
         int, typer.Option("--prometheus-port", help="Local port for Prometheus")
     ] = 8090,
+    ollama_port: Annotated[
+        int, typer.Option("--ollama-port", help="Local port for Ollama")
+    ] = 11434,
+    open_webui_port: Annotated[
+        int, typer.Option("--open-webui-port", help="Local port for Open-WebUI")
+    ] = 3000,
+    qdrant_port: Annotated[
+        int, typer.Option("--qdrant-port", help="Local port for Qdrant HTTP")
+    ] = 6333,
+    valkey_port: Annotated[int, typer.Option("--valkey-port", help="Local port for Valkey")] = 6379,
 ) -> None:
-    """Port-forward k8s monitoring stack services to localhost 8xxx ports and update CLI config."""
+    """Port-forward k8s monitoring / LLM stack services to localhost ports and update CLI config."""
     import time
+
+    selected_stacks = _resolve_stacks(stack)
+
+    details: dict[str, str] = {}
+    if "infra" in selected_stacks:
+        details.update(
+            {
+                "argocd.url": f"http://localhost:{argocd_port}",
+                "grafana.url": f"http://localhost:{grafana_port}",
+                "prometheus.url": f"http://localhost:{prometheus_port}",
+            }
+        )
+    if "llm" in selected_stacks:
+        details.update(
+            {
+                "ollama.url": f"http://localhost:{ollama_port}",
+                "open_webui.url": f"http://localhost:{open_webui_port}",
+                "qdrant.url": f"http://localhost:{qdrant_port}",
+                "valkey.url": f"tcp://localhost:{valkey_port}",
+            }
+        )
 
     if is_dry_run():
         res = CommandDryRunResult(
             command="devops k8s port-forward",
             action="k8s_port_forward",
-            details={
-                "argocd.url": f"http://localhost:{argocd_port}",
-                "grafana.url": f"http://localhost:{grafana_port}",
-                "prometheus.url": f"http://localhost:{prometheus_port}",
-            },
+            details=details,
         )
         rprint("[yellow][dry-run][/yellow] Command response:")
         console.print_json(res.model_dump_json(indent=2))
@@ -563,13 +734,26 @@ def port_forward(
         rprint("[red]minikube is not running.[/red]")
         raise typer.Exit(1)
 
-    rprint("[bold cyan]Port-forwarding k8s services to localhost 8xxx ports...[/bold cyan]")
+    rprint(f"[bold cyan]Port-forwarding k8s {stack} services to localhost ports...[/bold cyan]")
 
-    services = [
-        ("argocd", "svc/argocd-server", argocd_port, 80),
-        ("monitoring", "svc/kube-prometheus-grafana", grafana_port, 80),
-        ("monitoring", "svc/kube-prometheus-kube-prome-prometheus", prometheus_port, 9090),
-    ]
+    services: list[tuple[str, str, int, int]] = []
+    if "infra" in selected_stacks:
+        services.extend(
+            [
+                ("argocd", "svc/argocd-server", argocd_port, 80),
+                ("monitoring", "svc/kube-prometheus-grafana", grafana_port, 80),
+                ("monitoring", "svc/kube-prometheus-kube-prome-prometheus", prometheus_port, 9090),
+            ]
+        )
+    if "llm" in selected_stacks:
+        services.extend(
+            [
+                ("llm", "svc/ollama", ollama_port, 11434),
+                ("llm", "svc/open-webui", open_webui_port, 8080),
+                ("llm", "svc/qdrant", qdrant_port, 6333),
+                ("llm", "svc/valkey", valkey_port, 6379),
+            ]
+        )
 
     for ns, svc, lport, rport in services:
         cmd = ["kubectl", "port-forward", "-n", ns, svc, f"{lport}:{rport}"]
@@ -577,7 +761,7 @@ def port_forward(
         rprint(f"[green]✓ Forwarding {svc} ({ns}) to http://localhost:{lport}[/green]")
 
     time.sleep(1.0)
-    configure_urls()
+    configure_urls(stack=stack)
 
 
 @app.command("teardown-stack")
@@ -585,15 +769,31 @@ def teardown_stack(
     k8s_dir: Annotated[
         Path, typer.Option("--k8s-dir", help="Path to k8s/ config directory")
     ] = _K8S_DIR,
+    stack: Annotated[
+        str, typer.Option("--stack", "-s", help="Stack to teardown (infra, llm, all)")
+    ] = "infra",
 ) -> None:
-    """Uninstall the k8s infrastructure stack and delete namespaces."""
+    """Uninstall the k8s infrastructure / LLM stack and delete namespaces."""
+    selected_stacks = _resolve_stacks(stack)
+
+    all_uninstalls: list[dict[str, str]] = []
+    all_manifest_deletes: list[str] = []
+    for s_name in reversed(selected_stacks):
+        all_uninstalls.extend(reversed(_HELM_RELEASES_BY_STACK.get(s_name, [])))
+        all_manifest_deletes.extend([str(p) for p in reversed(_MANIFESTS_BY_STACK.get(s_name, []))])
+
     if is_dry_run():
-        releases = [r["name"] for r in reversed(_HELM_RELEASES)]
         render_dry_run_result(
             command="devops k8s teardown-stack",
             target=str(k8s_dir),
             action="teardown_k8s_stack",
-            details={"kustomize_dir": str(k8s_dir), "helm_uninstalls": releases},
+            details={
+                "kustomize_dir": str(k8s_dir),
+                "stack": stack,
+                "stacks": selected_stacks,
+                "helm_uninstalls": [r["name"] for r in all_uninstalls],
+                "manifest_deletes": all_manifest_deletes,
+            },
         )
         return
 
@@ -601,19 +801,32 @@ def teardown_stack(
         rprint("[red]minikube is not running.[/red]")
         raise typer.Exit(1)
 
-    # Uninstall Helm releases in reverse order
-    for release in reversed(_HELM_RELEASES):
+    # 1. Delete manifests
+    for manifest_path in all_manifest_deletes:
+        rprint(f"[bold]Deleting manifest {Path(manifest_path).name}...[/bold]")
+        _run_cmd(["kubectl", "delete", "-f", manifest_path, "--ignore-not-found"], check=False)
+
+    # 2. Uninstall Helm releases in reverse order
+    for release in all_uninstalls:
         rprint(f"[bold]Uninstalling {release['name']}...[/bold]")
         _run_cmd(
             ["helm", "uninstall", release["name"], "--namespace", release["namespace"]],
             check=False,
         )
 
-    # Delete kustomize resources (namespaces)
-    rprint("[bold]Removing namespaces...[/bold]")
-    _run_cmd(["kubectl", "delete", "-k", str(k8s_dir), "--ignore-not-found"], check=False)
+    # 3. Clean up namespaces
+    if stack == "all":
+        rprint("[bold]Removing all stack namespaces...[/bold]")
+        _run_cmd(["kubectl", "delete", "-k", str(k8s_dir), "--ignore-not-found"], check=False)
+    elif stack == "infra":
+        rprint("[bold]Removing infra namespaces...[/bold]")
+        for ns in ["argocd", "monitoring", "otel"]:
+            _run_cmd(["kubectl", "delete", "namespace", ns, "--ignore-not-found"], check=False)
+    elif stack == "llm":
+        rprint("[bold]Removing llm namespace...[/bold]")
+        _run_cmd(["kubectl", "delete", "namespace", "llm", "--ignore-not-found"], check=False)
 
-    rprint("[green]✓ Infrastructure stack torn down.[/green]")
+    rprint(f"[green]✓ Kubernetes stack ({stack}) torn down.[/green]")
 
 
 @app.command("rbac-audit")

@@ -1,0 +1,35 @@
+# Qdrant Helm values — minimal dev-mode configuration for minikube.
+# Chart: qdrant/qdrant
+# Repo:  https://qdrant.github.io/qdrant-helm
+
+replicaCount: 1
+
+config:
+  telemetry_disabled: true
+  storage:
+    performance:
+      max_search_threads: 2
+
+service:
+  type: NodePort
+  ports:
+    http:
+      port: 6333
+      nodePort: 30633
+    grpc:
+      port: 6334
+      nodePort: 30634
+
+persistence:
+  enabled: true
+  size: 10Gi
+  accessModes:
+    - ReadWriteOnce
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    cpu: 2000m
+    memory: 2Gi

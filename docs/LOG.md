@@ -6,6 +6,12 @@ Chronological log of refactoring milestones, quality gates, and security enhance
 
 ## Log Entries
 
+### [2026-08-13] Kubernetes LLM Stack Expansion (`devops k8s *-stack`)
+- **LLM Stack Definition**: Added `llm` stack comprising Ollama local inference server (`values-ollama.yaml`), Open-WebUI interface (`values-open-webui.yaml`), Qdrant vector database (`values-qdrant.yaml`), and Valkey in-memory cache (`valkey.yaml`).
+- **Multi-Stack Orchestration**: Enhanced `devops k8s deploy-stack`, `devops k8s teardown-stack`, `devops k8s bootstrap`, `devops k8s port-forward`, and `devops k8s configure-urls` with `--stack [infra|llm|all]` option.
+- **FastMCP Tool Integration**: Updated FastMCP tools `k8s_deploy_stack` and `k8s_teardown_stack` to accept optional `stack: str = "infra"`.
+- **Test Coverage**: Added comprehensive test cases for LLM and multi-stack lifecycle, dry-run responses, and validation error handling in `tests/test_k8s.py`.
+
 ### [2026-08-13] Release v0.1.7 Implementation & Completion
 - **Native DevContainer Lifecycle Engine**: Implemented `devops devcontainer run-lifecycle` (`post_create_lifecycle`, `post_start_lifecycle`) in pure Python replacing legacy shell scripts (`postCreate.sh`, `postStart.sh`).
 - **Enhanced AI Scratchpad Buffer**: Integrated `ScratchpadBuffer` in multi-persona agentic review orchestrator to retain reasoning state across multi-turn diff reviews.

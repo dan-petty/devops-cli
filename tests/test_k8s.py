@@ -103,7 +103,7 @@ def test_k8s_configure_urls_success(
     mock_detect.side_effect = fake_detect
     result = runner.invoke(app, ["configure-urls"])
     assert result.exit_code == 0
-    assert "Configured Monitoring Service Targets" in result.output
+    assert "Configured Service Targets" in result.output
 
 
 @patch("devops_cli.commands.k8s._verify_url_reachability")
@@ -117,3 +117,78 @@ def test_resolve_accessible_url_fallback(mock_verify: MagicMock) -> None:
     mock_verify.side_effect = fake_verify
     res = _resolve_accessible_url("http://192.168.49.2:30080")
     assert res == "http://localhost:30080"
+
+
+def test_k8s_deploy_stack_llm_dry_run() -> None:
+    """k8s deploy-stack --stack llm must include Ollama, Open-WebUI, Qdrant, and Valkey."""
+    set_dry_run(True)
+    try:
+        result = runner.invoke(app, ["deploy-stack", "--stack", "llm"])
+        assert result.exit_code == 0
+        assert "ollama" in result.output
+        assert "open-webui" in result.output
+        assert "qdrant" in result.output
+        assert "valkey.yaml" in result.output
+    finally:
+        set_dry_run(False)
+
+
+def test_k8s_deploy_stack_all_dry_run() -> None:
+    """k8s deploy-stack --stack all must include both infra and llm components."""
+    set_dry_run(True)
+    try:
+        result = runner.invoke(app, ["deploy-stack", "--stack", "all"])
+        assert result.exit_code == 0
+        assert "argocd" in result.output
+        assert "kube-prometheus" in result.output
+        assert "ollama" in result.output
+        assert "valkey.yaml" in result.output
+    finally:
+        set_dry_run(False)
+
+
+def test_k8s_teardown_stack_llm_dry_run() -> None:
+    """k8s teardown-stack --stack llm must include LLM uninstalls and deletions."""
+    set_dry_run(True)
+    try:
+        result = runner.invoke(app, ["teardown-stack", "--stack", "llm"])
+        assert result.exit_code == 0
+        assert "ollama" in result.output
+        assert "valkey.yaml" in result.output
+    finally:
+        set_dry_run(False)
+
+
+def test_k8s_deploy_stack_invalid_stack() -> None:
+    """k8s deploy-stack with invalid stack option must exit code 1."""
+    set_dry_run(True)
+    try:
+        result = runner.invoke(app, ["deploy-stack", "--stack", "unknown-stack"])
+        assert result.exit_code == 1
+        assert "Invalid stack" in result.output
+    finally:
+        set_dry_run(False)
+
+
+def test_k8s_port_forward_llm_dry_run() -> None:
+    """k8s port-forward --stack llm must print LLM port forward targets."""
+    set_dry_run(True)
+    try:
+        result = runner.invoke(app, ["port-forward", "--stack", "llm"])
+        assert result.exit_code == 0
+        assert "ollama.url" in result.output
+        assert "valkey.url" in result.output
+    finally:
+        set_dry_run(False)
+
+
+def test_k8s_configure_urls_llm_dry_run() -> None:
+    """k8s configure-urls --stack llm must print LLM target URLs."""
+    set_dry_run(True)
+    try:
+        result = runner.invoke(app, ["configure-urls", "--stack", "llm"])
+        assert result.exit_code == 0
+        assert "ai.ollama_urls" in result.output
+        assert "valkey.url" in result.output
+    finally:
+        set_dry_run(False)

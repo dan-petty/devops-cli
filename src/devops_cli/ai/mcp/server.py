@@ -190,15 +190,21 @@ def k8s_bootstrap(auto_start: bool = True) -> str:
 
 
 @mcp.tool()
-def k8s_deploy_stack() -> str:
-    """Deploy ArgoCD, Prometheus, Grafana, and OTEL Collector to minikube."""
-    return _run_mcp_cmd(["uv", "run", "devops", "k8s", "deploy-stack"], timeout=360)
+def k8s_deploy_stack(stack: str = "infra") -> str:
+    """Deploy infrastructure or LLM stack (Ollama, WebUI, Qdrant, Valkey) to minikube."""
+    _validate_mcp_arg("stack", stack)
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "k8s", "deploy-stack", "--stack", stack], timeout=360
+    )
 
 
 @mcp.tool()
-def k8s_teardown_stack() -> str:
-    """Uninstall minikube infrastructure stack and delete namespaces."""
-    return _run_mcp_cmd(["uv", "run", "devops", "k8s", "teardown-stack"], timeout=180)
+def k8s_teardown_stack(stack: str = "infra") -> str:
+    """Uninstall minikube infrastructure or LLM stack and delete namespaces."""
+    _validate_mcp_arg("stack", stack)
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "k8s", "teardown-stack", "--stack", stack], timeout=180
+    )
 
 
 @mcp.tool()
