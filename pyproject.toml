@@ -62,3 +62,8 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 pythonpath = ["src"]
 addopts = "-n auto"
+
+[tool.coverage.run]
+data_file = ".data/.coverage"
+parallel = true
+

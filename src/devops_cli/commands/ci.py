@@ -44,7 +44,10 @@ def _verify_python_314_environment() -> bool:
 
 def _run(cmd: list[str], timeout: float = DEFAULT_SUBPROCESS_TIMEOUT_SECONDS) -> bool:
     """Run a CI check subprocess, printing stderr output on failure for diagnostics."""
-    result = subprocess.run(cmd, cwd=_ROOT, timeout=timeout, capture_output=False)
+    full_cmd = list(cmd)
+    if full_cmd and full_cmd[0] == "uv" and "--preview-features" not in full_cmd:
+        full_cmd[1:1] = ["--preview-features", "malware-check"]
+    result = subprocess.run(full_cmd, cwd=_ROOT, timeout=timeout, capture_output=False)
     return result.returncode == 0
 
 
@@ -52,8 +55,18 @@ def _section(title: str) -> None:
     console.print(Rule(f" {title} ", style="cyan"))
 
 
+def _clean_coverage_artifacts() -> None:
+    """Clean up residual temporary .coverage.* worker files from root workspace."""
+    for path in _ROOT.glob(".coverage*"):
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
 def _run_all_checks(*, lint_fix: bool, format_fix: bool) -> list[tuple[str, bool]]:
     checks: list[tuple[str, bool]] = []
+    _clean_coverage_artifacts()
 
     _section("python version check (3.14+)")
     checks.append(("python_version", _verify_python_314_environment()))
@@ -62,6 +75,7 @@ def _run_all_checks(*, lint_fix: bool, format_fix: bool) -> list[tuple[str, bool
     test_cov_ok = _run(
         ["uv", "run", "pytest", "-n", "auto", "--cov=src", "--cov-report=term-missing"]
     )
+    _clean_coverage_artifacts()
     checks.append(("test", test_cov_ok))
     checks.append(("coverage", test_cov_ok))
 

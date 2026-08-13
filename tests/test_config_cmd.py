@@ -77,7 +77,11 @@ def test_config_show_includes_allow_private_network_and_active_path(
 ) -> None:
     custom_cfg = tmp_path / "custom_config.yaml"
     custom_cfg.write_text(
-        "ai:\n  allow_private_network: true\n  ollama_urls:\n    - http://hog.lan:11434\n    - http://workhorse.lan:11435\n",
+        "ai:\n"
+        "  allow_private_network: true\n"
+        "  ollama_urls:\n"
+        "    - http://node1.example.test:11434\n"
+        "    - http://node2.example.test:11435\n",
         encoding="utf-8",
     )
     monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(custom_cfg))
@@ -86,7 +90,7 @@ def test_config_show_includes_allow_private_network_and_active_path(
     assert result.exit_code == 0
     assert "ai.allow_private_network" in result.stdout
     assert "ai.ollama_urls" in result.stdout
-    assert "http://hog.lan:11434, http://workhorse.lan:11435" in result.stdout
+    assert "http://node1.example.test:11434, http://node2.example.test:11435" in result.stdout
     assert "True" in result.stdout
     assert str(custom_cfg) in result.stdout
 

@@ -15,5 +15,5 @@ def test_stream_audit_records(tmp_path: Path) -> None:
         log_file=log_file,
     )
 
-    count = stream_audit_records("http://siem.lan:8080", log_file=log_file)
+    count = stream_audit_records("http://siem.example.test:8080", log_file=log_file)
     assert count == 1
