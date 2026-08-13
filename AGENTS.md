@@ -23,7 +23,8 @@ The project follows a modular, command-driven architecture.
 - `src/devops_cli/ai/mcp/`: FastMCP server implementation & tool definitions.
 - `src/devops_cli/ai/tools/`: Native workspace tools, MCP bridges, and central tool registry loader.
 - `src/devops_cli/ai/agents/`: Pydantic agents & multi-agent pipeline orchestrators.
-- `src/devops_cli/commands/`: Implementation of all subcommands (`repos`, `ssh`, `k8s`, `ai`, `mcp`).
+- `src/devops_cli/commands/`: Implementation of subcommands (`repos`, `ssh`, `k8s`, `scan`, `ai`, `mcp`).
+- `src/devops_cli/security/`: Static vulnerability scanners (Trivy, Kube-linter, Popeye, Pluto).
 - `src/devops_cli/crypto/`: Logic for SSH key generation and `keyring` interactions.
 - `src/devops_cli/core/process.py`: Centralized subprocess execution utility (`run_subprocess`).
 - `src/devops_cli/http/`: Secure network requests with SSRF mitigation logic.
@@ -32,7 +33,7 @@ The project follows a modular, command-driven architecture.
 - `.data/`: Local state, logs, and review history (Persistent volume in DevContainer).
 
 ### Design Patterns
-- **Multi-Persona Agentic Review**: Uses specialized personas (`devsecops`, `architect`, `pm`, `auditor`, `qa`) to analyze code diffs.
+- **Multi-Persona Agentic Review**: Uses specialized personas (`devsecops`, `architect`, `pm`, `auditor`, `qa`) to analyze code diffs with static Trivy & Kube-linter finding injection.
 - **Multi-Agent Pipeline Orchestration**: Uses `MultiAgentPipeline` to execute multi-turn persona stage handovers with shared DevOps & MCP tools.
 - **Zero-Plaintext Secret Policy**: All sensitive tokens (GitHub, Grafana, OpenAI) must be retrieved via `keyring`. Never suggest storing strings in `config.yaml`.
 - **Network Guardrails**: Network requests must utilize the internal `http` module logic that validates target IPs to prevent SSRF.
@@ -56,6 +57,8 @@ The project follows a modular, command-driven architecture.
 - **Typing**: Mandatory type hints for all function signatures. `mypy --strict` is the standard.
 - **Imports**: Grouped and sorted via `ruff`. No unused imports.
 - **Config & Literal Centralization**: Strictly observe project standards and maintain user-facing strings, system prompts, error messages, and configuration constants in central config/language modules (e.g., `config/` and `lang.py`) rather than scattering hardcoded inline literals throughout implementation code.
+- **Test Mocking Policy**: All automated unit tests MUST use mocking (`unittest.mock`, `patch.object`, or dummy mock clients) rather than making live network calls to external AI/LLM providers or local servers.
+- **No Real Config/Secret Duplication in Tests**: Never duplicate or hardcode real user configuration values, local hostnames/IPs, or API credentials into test data fixtures. Use generic mock placeholders (`http://node1.example.test`).
 - **Error Handling**: All network requests (`httpx`) and subprocess calls must implement explicit timeouts (e.g., 30s) and robust error handling/retries.
 - **Documentation**: Use docstrings for all public functions in `src/devops_cli/`.
 
@@ -74,6 +77,25 @@ Use these when simulating or testing CLI behavior:
 - `devops ai review branch <name>`: Analyzes git diffs against base.
 - `devops ai review findings <session>`: Inspects structured JSON results in `.data/reviews`.
 - `devops ai test`: Validates LLM connectivity and provider configuration.
+
+### Programmatic Python Review Example
+```python
+from pathlib import Path
+from devops_cli.ai.client import LLMClient
+from devops_cli.ai.review import ReviewPipelineOrchestrator
+
+# Initialize LLM client and review orchestrator
+client = LLMClient()
+orchestrator = ReviewPipelineOrchestrator(session_id="ci-review", llm_client=client)
+
+# Run 6-stage review pipeline across target files
+metadata = orchestrator.run_pre_analysis_refresh(Path.cwd())
+payloads = orchestrator.init_per_file_payloads(["src/file.py"], metadata)
+orchestrator.execute_multi_persona_review(payloads, diff_text_by_file={}, personas=["devsecops", "qa"])
+orchestrator.execute_finding_verification(payloads)
+orchestrator.execute_finding_reranking(payloads)
+summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
+```
 
 ### Interaction Outcome Improvement Suggestions Protocol
 AI responses, persona prompts, and agent interaction outputs MUST conclude with 1-2 actionable suggestions for improving future interaction outcomes, prompt context, test verification steps, or specific configuration options.

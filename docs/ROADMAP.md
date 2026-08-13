@@ -46,6 +46,35 @@ High-density product roadmap for `devops-cli`.
 - [x] **Submodule-Aware Dependency Scanner**: Preserve full module/submodule imports (`pydantic.v2`, `rich.console`, `devops_cli.models.ai`).
 - [x] **Clean Pseudocode Generation**: Eliminate canned template language and strictly exclude import statements from pseudocode outlines.
 
+### Phase 5: Minikube Service Auto-Config, FastMCP Alignment & 7-Gate CI (v0.1.5 - Completed)
+- [x] **Minikube Endpoint Auto-Detection**: `devops k8s configure-urls` auto-detecting NodePort endpoints for `argocd`, `grafana`, and `prometheus`.
+- [x] **FastMCP Server Alignment**: 18 FastMCP tools registered, verified, and mapped (`repos_status`, `argo_list`, `argo_status`, `docker_stats`, `workspace_list`).
+- [x] **7-Gate CI Quality Gate**: Unified CI pipeline enforcing 7 sequential gates (`test`, `coverage`, `lint`, `format`, `typecheck`, `audit`, `security`).
+- [x] **Python 3.14 Exception Standardization**: Refactored exception tuple syntax across all modules (`except (Err1, Err2):`).
+- [x] **Active Model Display**: Transparent model backend and provider visibility for all file review requests.
+
+### Phase 7: SecOps & K8s Security Integrations (v0.1.6 - Completed)
+- [x] **Trivy Vulnerability & Misconfiguration Engine**: Embed Aqua Trivy scanning (`devops scan [repo|image|iac]`) to inject static CVEs & secrets into `devsecops` persona review payloads.
+- [x] **Kube-linter Manifest Auditor**: Integrate Red Hat Kube-linter (`devops k8s lint`) to validate K8s YAML & Kustomize manifests against production security best practices.
+- [x] **Popeye K8s Cluster Sanitizer**: `devops k8s audit` command scanning active Minikube/K8s clusters for dead resources, over-allocated pods, and misconfigured probes.
+- [x] **Pluto Deprecated API Scanner**: `devops k8s check-deprecated` for detecting deprecated/removed Kubernetes API versions prior to cluster upgrades.
+
+### Phase 8: Observability & Kubernetes Infrastructure Telemetry (v0.1.7 - Scheduled)
+- [ ] **DevContainer Shell Script Replacement Engine**: Native Python CLI commands (`devops devcontainer run-lifecycle --post-create|--post-start`) replacing `.devcontainer/postCreate.sh` and `.devcontainer/postStart.sh` shell scripts.
+- [ ] **OpenTelemetry Tracing**: Instrument CLI commands, multi-agent pipeline turns, and FastMCP tools with OpenTelemetry span tracing.
+- [ ] **Prometheus Metrics Engine**: Export operational metrics (turn latency, LLM node throughput, finding counts, cache hit ratios) to Prometheus.
+- [ ] **Grafana Telemetry Dashboards**: Pre-built Grafana dashboards for real-time monitoring of CLI workload performance and review accuracy.
+- [ ] **Jaeger Distributed Tracing**: Jaeger collector and UI integration for end-to-end trace visualization of multi-persona agentic pipelines.
+- [ ] **DevContainer Minikube K8s Integration**: Automated local Minikube K8s cluster bootstrapping within DevContainer for zero-friction telemetry stack deployment.
+
+### Phase 9: Supply Chain, FinOps & Testing Integrations (v0.1.8 - Scheduled)
+- [ ] **Cosign Keyless Signature Verification**: Sigstore Cosign integration (`devops docker sign|verify`) using OS Keyring keys for container provenance and image signing.
+- [ ] **Infracost IaC FinOps Engine**: `devops iac cost` estimating cloud cost impacts on Terraform/K8s diffs to enrich `pm` and `architect` persona reviews.
+- [ ] **Checkov Static Policy Guard**: `devops ci iac-security` automated compliance policy checks across Terraform, CloudFormation, and Dockerfiles.
+- [ ] **Kyverno Admission Policy Validator**: `devops k8s validate-policy` for CLI validation of K8s Kyverno policies (`ClusterPolicy`).
+- [ ] **k6 Load & Performance Tester**: `devops test load` executing developer-centric smoke tests against K8s endpoints and LLM node endpoints.
+- [ ] **Dagger Programmable Pipeline Engine**: `devops pipeline run` for containerized, reproducible Python-driven pipeline execution.
+
 ---
 
 ## Value vs. Effort Prioritization Matrix
@@ -57,9 +86,22 @@ High-density product roadmap for `devops-cli`.
 | | Deterministic Static Segment Metadata (`SegmentMeta`) | High | Low | ✅ Completed |
 | | Prompt Isolation Guardrails & Tag Sanitization | High | Low | ✅ Completed |
 | | `devops config output` Env Var Spec Command | High | Low | ✅ Completed |
-| **Strategic Investments** | Line-Level GitHub PR Inline Comments | High | High | 🔄 Short-Term (Q3 2026) |
-| | Human Feedback Dataset Exporter | High | Medium | 🔄 Short-Term (Q3 2026) |
-| | Custom Team Persona Overrides (`.devops/personas/`) | High | Medium | 🔄 Short-Term (Q3 2026) |
-| **Fill-ins** | Non-Interactive GitHub CLI Timeout Config | Medium | Low | ℹ️ Mitigated via Env Var |
-| | Ephemeral Headless Keyring Auth | Medium | Medium | 🔄 Mid-Term (Q4 2026) |
+| | Trivy Vulnerability & Misconfig Scanner Integration | High | Low | ✅ Completed (v0.1.6) |
+| | Kube-linter K8s Manifest Auditor | High | Low | ✅ Completed (v0.1.6) |
+| | Popeye K8s Cluster Sanitizer | High | Low | ✅ Completed (v0.1.6) |
+| | Pluto K8s Deprecated API Scanner | High | Low | ✅ Completed (v0.1.6) |
+| **Strategic Investments** | Minikube Service Auto-Config & 7-Gate CI | High | High | ✅ Completed (v0.1.5) |
+| | DevContainer Shell Script Replacement Engine | High | Medium | 🔄 Scheduled (v0.1.7) |
+| | OpenTelemetry, Prometheus, Grafana & Jaeger via Minikube | High | High | 🔄 Scheduled (v0.1.7) |
+| | Cosign Container Signature Verification & Keyring Auth | High | Medium | 🔄 Scheduled (v0.1.8) |
+| | Infracost IaC Cloud Cost Estimation | High | Medium | 🔄 Scheduled (v0.1.8) |
+| | Line-Level GitHub PR Inline Comments | High | High | ✅ Completed (v0.1.1) |
+| | Human Feedback Dataset Exporter | High | Medium | ✅ Completed (v0.1.1) |
+| | Custom Team Persona Overrides (`.devops/personas/`) | High | Medium | ✅ Completed (v0.1.1) |
+| **Fill-ins** | Checkov IaC Static Policy Engine | Medium | Low | 🔄 Scheduled (v0.1.8) |
+| | Kyverno K8s Admission Policy Validator | Medium | Medium | 🔄 Scheduled (v0.1.8) |
+| | k6 Performance & Latency Smoke Tester | Medium | Medium | 🔄 Scheduled (v0.1.8) |
+| | Dagger Containerized Python Pipeline Engine | Medium | High | 🔄 Scheduled (v0.1.8) |
+| | Non-Interactive GitHub CLI Timeout Config | Medium | Low | ℹ️ Mitigated via Env Var |
+| | Ephemeral Headless Keyring Auth | Medium | Medium | ✅ Completed (v0.1.1) |
 | **De-prioritized** | Bare-Metal OS Installers | Low | High | ❌ Rejected (Devcontainer native) |

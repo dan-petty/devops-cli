@@ -14,6 +14,7 @@
 - **Finding Verification & Analytics**: Inspect findings (`devops ai review findings`), validate/invalidate entries (`devops ai review verify`), and compute persona accuracy metrics (`devops ai review stats`).
 - **Zero-Plaintext Secret Storage**: Sensitive tokens (`github.token`, `grafana.token`, `argocd.token`, `ai.api_key`) are stored exclusively in the OS Keyring via `keyring`.
 - **SSRF & Network Egress Safeguards**: Network targets (`validate_service_url`) block non-public IP connections unless `DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true` is explicitly set.
+- **SecOps & K8s Security Integrations (`v0.1.6`)**: Static vulnerability and secret scanning (`devops scan`), Kubernetes manifest security linter (`devops k8s lint`), cluster health sanitizer (`devops k8s audit`), and K8s deprecated API version scanner (`devops k8s check-deprecated`).
 - **Complete DevOps Automation**: Single entrypoint for managing repositories, SSH key rotation, Kubernetes clusters, ArgoCD applications, Grafana dashboards, Prometheus metrics, Docker resource pruning, workspace files, tool installation, and virtual environments.
 
 ---
@@ -36,6 +37,26 @@ devops config set ai.api_key "sk-ant-..."
 # 4. Verify LLM connectivity and run quality gate
 devops ai test
 devops ci
+```
+
+### Programmatic Python Usage Example
+
+```python
+from pathlib import Path
+from devops_cli.ai.client import LLMClient
+from devops_cli.ai.review import ReviewPipelineOrchestrator
+
+# Initialize unified LLM client and orchestrator
+client = LLMClient()
+orchestrator = ReviewPipelineOrchestrator(session_id="custom-session", llm_client=client)
+
+# Execute 6-stage review pipeline programmatically
+metadata = orchestrator.run_pre_analysis_refresh(Path.cwd())
+payloads = orchestrator.init_per_file_payloads(["src/file.py"], metadata)
+orchestrator.execute_multi_persona_review(payloads, diff_text_by_file={}, personas=["devsecops", "architect"])
+orchestrator.execute_finding_verification(payloads)
+orchestrator.execute_finding_reranking(payloads)
+summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 ```
 
 ---
@@ -149,11 +170,18 @@ devops ci
 | | Fast Deterministic Static Segment Metadata (`SegmentMeta`) | High | Low | ✅ Completed |
 | | Prompt Isolation Guardrails & Boundary Tag Sanitization | High | Low | ✅ Completed |
 | | `devops config output` Env Var Specification Command | High | Low | ✅ Completed |
-| **Strategic Investments** | Line-Level GitHub PR Inline Comments | High | High | 🔄 Short-Term (Q3 2026) |
-| | Human Invalidation Feedback Dataset Exporter | High | Medium | 🔄 Short-Term (Q3 2026) |
-| | Custom Team Persona Prompt Overrides (`.devops/personas/`) | High | Medium | 🔄 Short-Term (Q3 2026) |
+| | Trivy Vulnerability & Misconfig Engine (`devops scan`) | High | Low | ✅ Completed (v0.1.6) |
+| | Kube-linter Manifest Auditor (`devops k8s lint`) | High | Low | ✅ Completed (v0.1.6) |
+| | Popeye K8s Cluster Sanitizer (`devops k8s audit`) | High | Low | ✅ Completed (v0.1.6) |
+| | Pluto K8s Deprecated API Scanner (`devops k8s check-deprecated`) | High | Low | ✅ Completed (v0.1.6) |
+| **Strategic Investments** | Minikube Service Auto-Config & 7-Gate CI | High | High | ✅ Completed (v0.1.5) |
+| | DevContainer Shell Script Replacement Engine | High | Medium | 🔄 Scheduled (v0.1.7) |
+| | OpenTelemetry, Prometheus, Grafana & Jaeger via Minikube | High | High | 🔄 Scheduled (v0.1.7) |
+| | Line-Level GitHub PR Inline Comments | High | High | ✅ Completed (v0.1.1) |
+| | Human Invalidation Feedback Dataset Exporter | High | Medium | ✅ Completed (v0.1.1) |
+| | Custom Team Persona Prompt Overrides (`.devops/personas/`) | High | Medium | ✅ Completed (v0.1.1) |
 | **Fill-ins** | Non-Interactive GitHub CLI Timeout Config | Medium | Low | ℹ️ Mitigated via Env Var |
-| | Ephemeral Headless Keyring Fallback Auth | Medium | Medium | 🔄 Mid-Term (Q4 2026) |
+| | Ephemeral Headless Keyring Fallback Auth | Medium | Medium | ✅ Completed (v0.1.1) |
 | **De-prioritized** | Bare-Metal OS Installers | Low | High | ❌ Rejected (Devcontainer native) |
 
 ---
