@@ -12,17 +12,10 @@ config:
 
 service:
   type: NodePort
-  ports:
-    http:
-      port: 6333
-      nodePort: 30633
-    grpc:
-      port: 6334
-      nodePort: 30634
 
 persistence:
   enabled: true
-  size: 10Gi
+  size: 5Gi
   accessModes:
     - ReadWriteOnce
 

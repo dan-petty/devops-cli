@@ -4,11 +4,10 @@
 
 image:
   repository: ghcr.io/open-webui/open-webui
-  tag: main
-  pullPolicy: IfNotPresent
+  tag: "main"
 
 ollama:
-  enabled: false # Connect to standalone Ollama deployment in the same namespace
+  enabled: false
 
 ollamaUrls:
   - http://ollama.llm.svc.cluster.local:11434
@@ -26,7 +25,6 @@ extraEnvVars:
 service:
   type: NodePort
   port: 8080
-  nodePort: 30080
 
 persistence:
   enabled: true

@@ -469,7 +469,7 @@ def deploy_stack(
                 release["values"],
                 "--wait",
                 "--timeout",
-                "5m",
+                "10m",
             ],
             check=False,
         )
