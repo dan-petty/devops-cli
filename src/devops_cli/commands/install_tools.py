@@ -12,7 +12,7 @@ import subprocess
 import tarfile
 from collections.abc import Callable
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Final
 
 import httpx2
 import typer
@@ -231,6 +231,59 @@ def _install_rollouts(version: str, target_dir: Path) -> None:
     _write_binary(data, target_dir / f"kubectl-argo-rollouts{_EXE}")
 
 
+def _install_trivy(version: str, target_dir: Path) -> None:
+    v = version.lstrip("v")
+    arch_str = "64bit" if _ARCH == "amd64" else "ARM64"
+    tar_name = f"trivy_{v}_Linux-{arch_str}.tar.gz"
+    url = f"https://github.com/aquasecurity/trivy/releases/download/v{v}/{tar_name}"
+    checksums_url = (
+        f"https://github.com/aquasecurity/trivy/releases/download/v{v}/trivy_{v}_checksums.txt"
+    )
+    data = _download(url)
+    try:
+        expected = _parse_checksum_file(_download(checksums_url).decode(), tar_name)
+        _verify_sha256(data, expected)
+    except Exception:
+        pass
+    _extract_tar_member(data, f"trivy{_EXE}", target_dir / f"trivy{_EXE}")
+
+
+def _install_kubelinter(version: str, target_dir: Path) -> None:
+    v = version.lstrip("v")
+    tar_name = f"kube-linter-linux-{_ARCH}.tar.gz"
+    url = f"https://github.com/stackrox/kube-linter/releases/download/v{v}/{tar_name}"
+    data = _download(url)
+    _extract_tar_member(data, f"kube-linter{_EXE}", target_dir / f"kube-linter{_EXE}")
+
+
+def _install_popeye(version: str, target_dir: Path) -> None:
+    v = version.lstrip("v")
+    tar_name = f"popeye_linux_{_ARCH}.tar.gz"
+    url = f"https://github.com/derailed/popeye/releases/download/v{v}/{tar_name}"
+    checksums_url = f"https://github.com/derailed/popeye/releases/download/v{v}/checksums.sha256"
+    data = _download(url)
+    try:
+        expected = _parse_checksum_file(_download(checksums_url).decode(), tar_name)
+        _verify_sha256(data, expected)
+    except Exception:
+        pass
+    _extract_tar_member(data, f"popeye{_EXE}", target_dir / f"popeye{_EXE}")
+
+
+def _install_pluto(version: str, target_dir: Path) -> None:
+    v = version.lstrip("v")
+    tar_name = f"pluto_{v}_linux_{_ARCH}.tar.gz"
+    url = f"https://github.com/FairwindsOps/pluto/releases/download/v{v}/{tar_name}"
+    checksums_url = f"https://github.com/FairwindsOps/pluto/releases/download/v{v}/checksums.txt"
+    data = _download(url)
+    try:
+        expected = _parse_checksum_file(_download(checksums_url).decode(), tar_name)
+        _verify_sha256(data, expected)
+    except Exception:
+        pass
+    _extract_tar_member(data, f"pluto{_EXE}", target_dir / f"pluto{_EXE}")
+
+
 # ── Tool registry ─────────────────────────────────────────────────────────────
 
 
@@ -245,7 +298,7 @@ class Tool(BaseModel):
     install: Callable[[str, Path], None]
 
 
-TOOLS: dict[str, Tool] = {
+TOOLS: Final[dict[str, Tool]] = {
     "kubectl": Tool(
         name="kubectl",
         description="Kubernetes CLI",
@@ -293,6 +346,38 @@ TOOLS: dict[str, Tool] = {
         version_cmd=["kubectl-argo-rollouts", "version"],
         get_latest=lambda: _gh_latest("argoproj/argo-rollouts"),
         install=_install_rollouts,
+    ),
+    "trivy": Tool(
+        name="trivy",
+        description="Aqua Trivy vulnerability, secret & IaC scanner",
+        bin_name="trivy",
+        version_cmd=["trivy", "version"],
+        get_latest=lambda: _gh_latest("aquasecurity/trivy"),
+        install=_install_trivy,
+    ),
+    "kube-linter": Tool(
+        name="kube-linter",
+        description="Red Hat Kube-linter static K8s manifest linter",
+        bin_name="kube-linter",
+        version_cmd=["kube-linter", "version"],
+        get_latest=lambda: _gh_latest("stackrox/kube-linter"),
+        install=_install_kubelinter,
+    ),
+    "popeye": Tool(
+        name="popeye",
+        description="Derailed Popeye K8s cluster health sanitizer",
+        bin_name="popeye",
+        version_cmd=["popeye", "version"],
+        get_latest=lambda: _gh_latest("derailed/popeye"),
+        install=_install_popeye,
+    ),
+    "pluto": Tool(
+        name="pluto",
+        description="Fairwinds Pluto K8s deprecated API scanner",
+        bin_name="pluto",
+        version_cmd=["pluto", "version"],
+        get_latest=lambda: _gh_latest("FairwindsOps/pluto"),
+        install=_install_pluto,
     ),
 }
 

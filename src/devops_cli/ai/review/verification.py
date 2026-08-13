@@ -241,18 +241,20 @@ def _validate_segment_findings(
     client: Any,
     analysis_metas: dict[str, Any] | None = None,
     repo_root: Path | None = None,
-) -> tuple[ReviewResult, float | None]:
+) -> tuple[ReviewResult, float | None, str | None]:
     """Ask the LLM to verify each finding using enhanced analysis metadata of related files."""
     if not result.findings:
-        return result, None
+        return result, None, None
     prompt = _build_validation_prompt(
         result.findings, all_segments, analysis_metas=analysis_metas, repo_root=repo_root
     )
     proc_sec: float | None = None
+    b_info: str | None = None
     try:
         res_obj = client.chat(system=_VALIDATION_SYSTEM, user=prompt, enable_thinking=False)
         response = str(res_obj)
         proc_sec = getattr(res_obj, "processing_seconds", None)
+        b_info = getattr(res_obj, "backend_info", None)
         data = extract_json_block(response)
 
         if isinstance(data, dict):
@@ -286,10 +288,10 @@ def _validate_segment_findings(
                 if new_loc and new_loc != f.location:
                     updates["location"] = new_loc
                 validated.append(f.model_copy(update=updates))
-            return result.model_copy(update={"findings": validated}), proc_sec
+            return result.model_copy(update={"findings": validated}), proc_sec, b_info
     except Exception:
         pass
-    return result, proc_sec
+    return result, proc_sec, b_info
 
 
 def _merge_segment_results(results: list[ReviewResult | None]) -> ReviewResult | None:

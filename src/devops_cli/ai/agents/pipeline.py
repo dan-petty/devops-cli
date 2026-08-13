@@ -1,4 +1,17 @@
-"""Multi-agent sequential and parallel pipeline orchestrator."""
+"""Multi-agent sequential and parallel pipeline orchestrator.
+
+Example:
+    >>> from devops_cli.ai.agents.pipeline import MultiAgentPipeline
+    >>> from devops_cli.ai.agents.pydantic_agent import PydanticAgent
+    >>> from devops_cli.ai.client import LLMClient
+    >>>
+    >>> client = LLMClient()
+    >>> agent = PydanticAgent(
+    ...     client=client, name="DevSecOps", system_prompt="Review code security."
+    ... )
+    >>> pipeline = MultiAgentPipeline(agents=[agent])
+    >>> result = pipeline.run("Analyze authentication logic in src/auth.py")
+"""
 
 from __future__ import annotations
 
@@ -17,8 +30,10 @@ class PipelineStepResult(BaseModel):
 
     agent_name: str
     content: str
+    parsed_data: Any | None = None
     tool_calls: list[ToolCall] = Field(default_factory=list)
     passed_context: str = ""
+    backend_info: str | None = None
 
 
 class MultiAgentPipelineResult[T](BaseModel):
@@ -92,8 +107,10 @@ class MultiAgentPipeline[T]:
             step = PipelineStepResult(
                 agent_name=agent.name,
                 content=res.content,
+                parsed_data=res.data,
                 tool_calls=res.tool_calls,
                 passed_context=res.content,
+                backend_info=res.backend_info,
             )
             steps.append(step)
 

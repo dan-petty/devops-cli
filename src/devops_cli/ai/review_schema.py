@@ -171,12 +171,63 @@ def extract_json_block(text: str) -> Any:
     return None
 
 
+def _parse_markdown_review_findings(text: str) -> list[Finding]:
+    """Fallback parser to extract Finding objects from Markdown-formatted review text."""
+    findings: list[Finding] = []
+    blocks = re.split(r"\n(?=###?\s*Finding|\n\d+\.\s+|\n\*\*Location\*\*|\nLocation:)", text)
+    for block in blocks:
+        loc_m = re.search(r"(?:Location|File):\s*`?([^`\n]+)`?", block, re.IGNORECASE)
+        if not loc_m:
+            continue
+        loc = loc_m.group(1).strip()
+        sev_m = re.search(r"Severity:\s*\*?(CRITICAL|HIGH|MEDIUM|LOW)\*?", block, re.IGNORECASE)
+        sev = (
+            sev_m.group(1).upper()
+            if (sev_m and sev_m.group(1).upper() in ("CRITICAL", "HIGH", "MEDIUM", "LOW"))
+            else "MEDIUM"
+        )
+        title_m = re.search(
+            r"(?:###?\s*(?:Finding\s*\d*:?\s*)?|\d+\.\s+|\*\*Title\*\*:\s*)([^\n]+)", block
+        )
+        title = title_m.group(1).strip("* ") if title_m else f"Issue at {loc}"
+        desc_m = re.search(
+            r"(?:Description|Impact):\s*(.+?)(?=\n\s*(?:Fix|Verification|Severity|Location):|\Z)",
+            block,
+            re.DOTALL | re.IGNORECASE,
+        )
+        desc = desc_m.group(1).strip() if desc_m else block[:200]
+        fix_m = re.search(
+            r"(?:Fix|Remediation):\s*(.+?)(?=\n\s*(?:Verification|Severity|Location):|\Z)",
+            block,
+            re.DOTALL | re.IGNORECASE,
+        )
+        fix = fix_m.group(1).strip() if fix_m else ""
+
+        findings.append(
+            Finding(
+                severity=sev,
+                location=loc,
+                title=title,
+                description=desc,
+                fix=fix,
+                confidence_score=0.8,
+            )
+        )
+
+    return findings
+
+
 def parse_review_result(text: str) -> ReviewResult | None:
     """Parse LLM output into a ReviewResult. Returns None if parsing fails."""
     data = extract_json_block(text)
-    if not isinstance(data, dict):
-        return None
-    try:
-        return ReviewResult.model_validate(data)
-    except Exception:
-        return None
+    if isinstance(data, dict):
+        try:
+            return ReviewResult.model_validate(data)
+        except Exception:
+            pass
+
+    md_findings = _parse_markdown_review_findings(text)
+    if md_findings:
+        return ReviewResult(findings=md_findings, summary=text[:300])
+
+    return None

@@ -20,7 +20,10 @@ _ROOT = Path(__file__).resolve().parents[3]
 
 
 def _run(cmd: Sequence[str]) -> None:
-    result = subprocess.run(list(cmd), cwd=_ROOT, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS)
+    full_cmd = list(cmd)
+    if full_cmd and full_cmd[0] == "uv" and "--preview-features" not in full_cmd:
+        full_cmd[1:1] = ["--preview-features", "malware-check"]
+    result = subprocess.run(full_cmd, cwd=_ROOT, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS)
     if result.returncode != 0:
         raise typer.Exit(result.returncode)
 

@@ -7,7 +7,9 @@ import json
 import re
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
+
+from pydantic import BaseModel, Field
 
 from devops_cli.ai.analyze.scanner import (
     _extract_file_dependencies,
@@ -20,6 +22,156 @@ from devops_cli.ai.personas import (
     ANALYZE_PSEUDOCODE_TASK_PROMPT,
 )
 from devops_cli.models.ai import FileAnalysisMeta
+
+
+class EnhancedMetadataOutput(BaseModel):
+    """Pydantic model for validating AI-generated metadata extraction."""
+
+    primary_purpose: str = ""
+    key_symbols: list[str] = Field(default_factory=list)
+    dependencies: list[str] = Field(default_factory=list)
+    pseudocode: list[str] = Field(default_factory=list)
+    complexity_score: Literal["Low", "Medium", "High"] = "Low"
+    confidence_score: float = Field(default=0.85, ge=0.0, le=1.0)
+    quality_score: float = Field(default=0.85, ge=0.0, le=1.0)
+
+
+def _validate_enhanced_metadata(
+    data: Any,
+    has_content: bool,
+    static_symbols: list[str],
+) -> tuple[EnhancedMetadataOutput | None, str | None]:
+    """Validate extracted AI metadata payload; return (parsed_output, error_reason)."""
+    if not isinstance(data, dict):
+        return None, "Output must be a JSON object dictionary."
+
+    try:
+        parsed = EnhancedMetadataOutput.model_validate(data)
+    except Exception as exc:
+        return None, f"Schema validation error: {exc}"
+
+    if has_content and (not parsed.primary_purpose or len(parsed.primary_purpose.strip()) < 5):
+        return None, "primary_purpose is missing or too short."
+
+    if static_symbols and not isinstance(parsed.key_symbols, list):
+        return None, "key_symbols must be a list of strings."
+
+    if not (0.0 <= parsed.confidence_score <= 1.0):
+        return None, "confidence_score must be between 0.0 and 1.0."
+
+    if not (0.0 <= parsed.quality_score <= 1.0):
+        return None, "quality_score must be between 0.0 and 1.0."
+
+    return parsed, None
+
+
+def _enhance_file_metadata_with_ai(
+    rel_path: str,
+    content: str,
+    lang: str,
+    static_symbols: list[str],
+    ai_client: Any,
+    max_retries: int = 2,
+) -> EnhancedMetadataOutput | None:
+    """Request AI metadata enhancement with JSON schema validation and retry logic."""
+    from devops_cli.ai.personas import METADATA_SYSTEM_PROMPT
+    from devops_cli.ai.review_schema import extract_json_block
+    from devops_cli.models.ai import ChatMessage
+
+    prompt = (
+        f"Analyze File: '{rel_path}' ({lang})\n\n"
+        f"Source code excerpt:\n{content[:150000]}\n\n"
+        "Extract structured file metadata JSON strictly following system instructions."
+    )
+    messages = [ChatMessage(role="user", content=prompt)]
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            res_obj = ai_client.chat_messages(
+                system_prompt=METADATA_SYSTEM_PROMPT,
+                messages=messages,
+            )
+            raw_text = str(res_obj).strip()
+            data = extract_json_block(raw_text)
+            parsed, err = _validate_enhanced_metadata(data, bool(content.strip()), static_symbols)
+            if parsed:
+                return parsed
+
+            if attempt < max_retries and err:
+                messages.append(ChatMessage(role="assistant", content=raw_text))
+                messages.append(
+                    ChatMessage(
+                        role="user",
+                        content=(
+                            f"Metadata extraction validation failed: {err}\n"
+                            "Please re-analyze the code and output a valid JSON object "
+                            "matching the required schema."
+                        ),
+                    )
+                )
+        except Exception:
+            pass
+
+    return None
+
+
+def _calculate_file_confidence_score(
+    content: str,
+    purpose: str,
+    symbols: list[str],
+    deps: list[str],
+    pseudocode: list[str] | None,
+    ai_provided: bool = False,
+) -> float:
+    """Calculate dynamic confidence score based on metadata completeness and source context."""
+    if not content.strip():
+        return 0.50
+
+    base = 0.50
+    if purpose and len(purpose.strip()) > 10:
+        base += 0.15
+    if symbols:
+        base += 0.10
+    if deps:
+        base += 0.05
+    if pseudocode and len(pseudocode) >= 1:
+        base += 0.10
+    if ai_provided:
+        base += 0.05
+
+    return round(min(0.98, max(0.40, base)), 2)
+
+
+def _calculate_file_quality_score(
+    content: str,
+    line_count: int,
+    symbols: list[str],
+    purpose: str,
+    pseudocode: list[str] | None,
+) -> float:
+    """Calculate dynamic code quality score (0.0 to 1.0) based on design clarity and structure."""
+    if not content.strip():
+        return 0.50
+
+    score = 0.50
+    if any(
+        line.strip().startswith(('"""', "'''", "//", "#", "/*", "<!--"))
+        for line in content.splitlines()[:5]
+    ):
+        score += 0.15
+
+    if symbols:
+        score += 0.15
+
+    if pseudocode and len(pseudocode) >= 3:
+        score += 0.10
+
+    if 10 <= line_count <= 500:
+        score += 0.10
+    elif line_count > 1500:
+        score -= 0.10
+
+    return round(min(0.98, max(0.30, score)), 2)
 
 
 def _is_import_or_docstring_line(line: str) -> bool:
@@ -196,7 +348,7 @@ def _generate_pseudocode(
             return non_comment_lines
 
     first_line = content.strip().splitlines()[0][:80] if content.strip() else ""
-    return [first_line] if first_line else []
+    return [first_line] if first_line else [f"{Path(rel_path).name} structural entry point"]
 
 
 def analyze_single_file(
@@ -216,17 +368,57 @@ def analyze_single_file(
     purpose = _extract_file_purpose(rel_path, content, lang, symbols)
     deps = _extract_file_dependencies(content, lang)
 
-    pseudocode = None
-    last_updated = None
-    last_analyzed = None
-    complexity = None
+    last_updated = _get_last_updated(rel_path, repo_root) if enhanced else None
+    last_analyzed = datetime.now(UTC).isoformat() if enhanced else None
+    complexity = _calculate_complexity_score(content, line_count, symbols) if enhanced else None
 
-    if enhanced:
-        last_updated = _get_last_updated(rel_path, repo_root)
-        last_analyzed = datetime.now(UTC).isoformat()
-        complexity = _calculate_complexity_score(content, line_count, symbols)
-        pseudocode = _generate_pseudocode(
-            rel_path, content, lang, symbols, purpose, ai_client=ai_client
+    ai_enhanced: EnhancedMetadataOutput | None = None
+    if enhanced and ai_client is not None and content.strip():
+        ai_enhanced = _enhance_file_metadata_with_ai(
+            rel_path, content, lang, symbols, ai_client=ai_client
+        )
+
+    pseudocode: list[str] | None = None
+    confidence_score: float | None = None
+    quality_score: float | None = None
+
+    if ai_enhanced:
+        if ai_enhanced.primary_purpose and len(ai_enhanced.primary_purpose.strip()) > 5:
+            purpose = ai_enhanced.primary_purpose
+        if ai_enhanced.key_symbols:
+            for s in ai_enhanced.key_symbols:
+                if s and s not in symbols:
+                    symbols.append(s)
+        if ai_enhanced.dependencies:
+            for d in ai_enhanced.dependencies:
+                if d and d not in deps:
+                    deps.append(d)
+        if ai_enhanced.pseudocode:
+            pseudocode = ai_enhanced.pseudocode[:10]
+        else:
+            pseudocode = _generate_pseudocode(
+                rel_path, content, lang, symbols, purpose, ai_client=ai_client
+            )
+        complexity = ai_enhanced.complexity_score
+        confidence_score = ai_enhanced.confidence_score
+        quality_score = ai_enhanced.quality_score
+    else:
+        pseudocode = (
+            _generate_pseudocode(rel_path, content, lang, symbols, purpose, ai_client=ai_client)
+            if enhanced
+            else None
+        )
+        confidence_score = (
+            _calculate_file_confidence_score(
+                content, purpose, symbols, deps, pseudocode, ai_provided=False
+            )
+            if enhanced
+            else None
+        )
+        quality_score = (
+            _calculate_file_quality_score(content, line_count, symbols, purpose, pseudocode)
+            if enhanced
+            else None
         )
 
     return FileAnalysisMeta(
@@ -243,4 +435,6 @@ def analyze_single_file(
         last_updated=last_updated,
         last_analyzed=last_analyzed,
         complexity_score=complexity,
+        confidence_score=confidence_score,
+        quality_score=quality_score,
     )

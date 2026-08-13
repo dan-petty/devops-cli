@@ -9,7 +9,7 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 import typer
 from pydantic import BaseModel, ConfigDict
@@ -933,7 +933,9 @@ def _is_file_outdated_since_analysis(
 
 
 def _load_file_analysis_metas(
-    filenames: list[str] | None = None, repo_root: Path | None = None
+    filenames: list[str] | None = None,
+    repo_root: Path | None = None,
+    target_ref: str = "workspace",
 ) -> dict[str, Any]:
     """Fetch analysis metadata from .data/analysis/ or run analyze on outdated/new files."""
     from devops_cli.ai.analyze.cache import save_analysis_metadata
@@ -969,14 +971,30 @@ def _load_file_analysis_metas(
         any_updated = False
 
         for fn in target_files:
+            meta_entry = metas.get(fn)
+            if not meta_entry:
+                norm_fn = fn.replace("\\", "/").strip("./")
+                for k, v in metas.items():
+                    norm_k = k.replace("\\", "/").strip("./")
+                    if (
+                        norm_k == norm_fn
+                        or norm_k.endswith("/" + norm_fn)
+                        or norm_fn.endswith("/" + norm_k)
+                    ):
+                        meta_entry = v
+                        break
+
             file_path = repo / fn
+            if not file_path.exists() and meta_entry:
+                file_path = repo / meta_entry.path
+
             if (
                 file_path.exists()
                 and file_path.is_file()
                 and file_path.stat().st_size <= CONST_MAX_FILE_SIZE_BYTES
             ):
-                needs_analysis = fn not in metas or _is_file_outdated_since_analysis(
-                    file_path, fn, metas[fn], repo_root=repo
+                needs_analysis = not meta_entry or _is_file_outdated_since_analysis(
+                    file_path, fn, meta_entry, repo_root=repo
                 )
                 if needs_analysis:
                     try:
@@ -995,7 +1013,7 @@ def _load_file_analysis_metas(
         if any_updated and not is_dry_run():
             try:
                 save_analysis_metadata(
-                    "path", "default", "Codebase Analysis", list(metas.values()), repo
+                    "path", target_ref, "Codebase Analysis", list(metas.values()), repo
                 )
             except Exception:
                 pass
@@ -1297,7 +1315,7 @@ def _run_review(
                 rprint(f"[dim]  ✓ {file_label}: 0 finding(s) to verify[/dim]")
                 return (i, parsed)
             val_start = time.monotonic()
-            validated, proc_sec = _validate_segment_findings(
+            validated, proc_sec, _ = _validate_segment_findings(
                 parsed,
                 pages,
                 clients.analysis,
@@ -1750,8 +1768,13 @@ def _collect_file_blocks(root: Path, pattern: str) -> list[str]:
             text = p.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
+        file_label = (
+            p.relative_to(repo_root)
+            if repo_root is not None and p.is_relative_to(repo_root)
+            else rel
+        )
         suffix = rel.suffix.lstrip(".") or "text"
-        blocks.extend(_split_source_file_blocks(rel, suffix, text, _MAX_DIFF_CHARS))
+        blocks.extend(_split_source_file_blocks(file_label, suffix, text, _MAX_DIFF_CHARS))
     return blocks
 
 
@@ -1802,6 +1825,9 @@ def _execute_review_workflow(
     persona: Persona | None,
     summary_only: bool,
     clients: ReviewClients,
+    target_type: Literal["branch", "pr", "path"] = "path",
+    target_ref: str = ".",
+    target_dir: Path = Path("."),
 ) -> list[tuple[PersonaDefinition, ReviewResult | str]]:
     """Common 4-step review execution workflow for path, branch, and PR reviews."""
     if len(pages) > 1:
@@ -1812,7 +1838,15 @@ def _execute_review_workflow(
     orchestrator = ReviewPipelineOrchestrator(llm_client=clients.analysis)
 
     if not is_dry_run() and type(clients.analysis).__name__ == "LLMClient":
-        metadata_by_path = orchestrator.run_pre_analysis_refresh(Path.cwd())
+        server_info = orchestrator._get_server_info()
+        n_af = len(all_files)
+        rprint(
+            f"[bold cyan]Initializing review pipeline session '{orchestrator.session_id}' "
+            f"for {n_af} file(s) via {server_info}...[/bold cyan]"
+        )
+        metadata_by_path = orchestrator.run_pre_analysis_refresh(
+            target_dir=target_dir, target_type=target_type, target_ref=target_ref
+        )
         if all_files:
             payloads = orchestrator.init_per_file_payloads(all_files, metadata_by_path)
             diff_text_by_file = {
@@ -1825,7 +1859,10 @@ def _execute_review_workflow(
             )
             orchestrator.execute_finding_verification(payloads)
             orchestrator.execute_finding_reranking(payloads)
-            orchestrator.generate_consolidated_report(payloads)
+            _, report_md = orchestrator.generate_consolidated_report(payloads)
+
+            p_def = PERSONAS[persona or Persona.DEVSECOPS]
+            return [(p_def, report_md)]
 
     if summary_only:
         rprint(f"[dim]{MESSAGES.review.generating_metadata}[/dim]")
@@ -1937,10 +1974,16 @@ def _prepare_path_content(target: Path, pattern: str) -> tuple[list[str], str, s
             )
             rprint(f"[red]{err_size}[/red]")
             raise typer.Exit(0)
+        repo_root = _git_repo_root(target_resolved)
+        file_label = (
+            str(target_resolved.relative_to(repo_root))
+            if repo_root and target_resolved.is_relative_to(repo_root)
+            else target_resolved.name
+        )
         suffix = target_resolved.suffix.lstrip(".") or "text"
         content = target_resolved.read_text(encoding="utf-8", errors="replace")
-        blocks = [f"### File: {target_resolved.name}\n```{suffix}\n{content}\n```"]
-        title = str(target_resolved.name)
+        blocks = [f"### File: {file_label}\n```{suffix}\n{content}\n```"]
+        title = str(file_label)
     else:
         collecting_msg = MESSAGES.review.collecting_files.format(
             pattern=f"[cyan]{pattern}[/cyan]", target=f"[dim]{target_resolved}[/dim]"
@@ -2085,7 +2128,17 @@ def path(
     clients = _make_review_clients(settings)
     pages, title, agents_md = _prepare_path_content(target, pattern)
     _execute_review_workflow(
-        pages, title, _build_path_prompt, agents_md, all_personas, persona, summary, clients
+        pages,
+        title,
+        _build_path_prompt,
+        agents_md,
+        all_personas,
+        persona,
+        summary,
+        clients,
+        target_type="path",
+        target_ref=str(target),
+        target_dir=target,
     )
 
 
@@ -2131,7 +2184,17 @@ def branch(
     clients = _make_review_clients(settings)
     pages, title, agents_md = _prepare_branch_content(branch_name, base, repo_path)
     _execute_review_workflow(
-        pages, title, _build_prompt, agents_md, all_personas, persona, summary, clients
+        pages,
+        title,
+        _build_prompt,
+        agents_md,
+        all_personas,
+        persona,
+        summary,
+        clients,
+        target_type="branch",
+        target_ref=str(branch_name or "active"),
+        target_dir=repo_path,
     )
 
 
@@ -2183,7 +2246,17 @@ def pr(
     clients = _make_review_clients(settings)
     pages, title, agents_md, pull, repo_name = _prepare_pr_content(number, repo, token)
     reviews = _execute_review_workflow(
-        pages, title, _build_prompt, agents_md, all_personas, persona, summary, clients
+        pages,
+        title,
+        _build_prompt,
+        agents_md,
+        all_personas,
+        persona,
+        summary,
+        clients,
+        target_type="pr",
+        target_ref=str(number),
+        target_dir=Path.cwd(),
     )
 
     if post_comment and reviews:

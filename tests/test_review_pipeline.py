@@ -75,3 +75,46 @@ def test_review_pipeline_stages(tmp_path: Path, monkeypatch) -> None:
     assert "Code Review Report" in report_md
     assert (tmp_path / "reviews" / "test-session" / "findings.json").exists()
     assert (tmp_path / "reviews" / "test-session" / "review.md").exists()
+
+
+def test_get_server_info_formatting() -> None:
+    """Test server info formatting under different LLM client configurations."""
+    orchestrator = ReviewPipelineOrchestrator(session_id="test-info")
+
+    # None or basic client
+    info_default = orchestrator._get_server_info()
+    assert isinstance(info_default, str)
+    assert len(info_default) > 0
+
+    mock_client = MagicMock()
+    mock_client.backend_info = "ollama (localhost:11434)"
+    mock_config = MagicMock()
+    mock_config.model = "qwen2.5-coder:7b"
+    mock_client._config = mock_config
+    orchestrator.llm_client = mock_client
+
+    info_formatted = orchestrator._get_server_info()
+    assert info_formatted == "ollama (localhost:11434) [model: qwen2.5-coder:7b]"
+
+
+def test_init_per_file_payloads_path_matching(tmp_path: Path, monkeypatch) -> None:
+    """init_per_file_payloads matches metadata by exact and normalized suffix paths."""
+    monkeypatch.setattr("devops_cli.ai.review.pipeline.CONST_DATA_DIR", tmp_path)
+    orchestrator = ReviewPipelineOrchestrator(session_id="test-path-matching")
+
+    meta_full = FileAnalysisMeta(
+        path="src/devops_cli/ai/agents/__init__.py",
+        primary_purpose="Agents module init",
+        key_symbols=["PydanticAgent"],
+        dependencies=["pydantic"],
+        quality_score=0.9,
+    )
+    metadata_by_path = {"src/devops_cli/ai/agents/__init__.py": meta_full}
+
+    # Pass relative path suffix
+    payloads = orchestrator.init_per_file_payloads(["agents/__init__.py"], metadata_by_path)
+
+    assert len(payloads) == 1
+    assert payloads[0].metadata.primary_purpose == "Agents module init"
+    assert payloads[0].metadata.key_symbols == ["PydanticAgent"]
+    assert payloads[0].metadata.quality_score == 0.9

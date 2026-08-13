@@ -1,4 +1,17 @@
-"""Fully-functional Pydantic Agent with tools, reasoning/thinking, and streaming."""
+"""Fully-functional Pydantic Agent with tools, reasoning/thinking, and streaming.
+
+Example:
+    >>> from devops_cli.ai.agents.pydantic_agent import PydanticAgent
+    >>> from devops_cli.ai.client import LLMClient
+    >>>
+    >>> client = LLMClient()
+    >>> agent = PydanticAgent(
+    ...     client=client,
+    ...     name="Architect",
+    ...     system_prompt="Review system architecture and modular boundaries.",
+    ... )
+    >>> response = agent.run("Evaluate component dependencies in src/devops_cli/core/")
+"""
 
 from __future__ import annotations
 
@@ -45,6 +58,7 @@ class AgentResponse[T](BaseModel):
     data: T | None = None
     tool_calls: list[ToolCall] = Field(default_factory=list)
     turns: int = 1
+    backend_info: str | None = None
 
 
 class PydanticAgent[T]:
@@ -91,21 +105,35 @@ class PydanticAgent[T]:
             self._tools[name] = agent_tool
 
     def _build_system_prompt_with_tools(self) -> str:
-        if not self._tools:
-            return self.system_prompt
+        prompt_parts: list[str] = [self.system_prompt]
 
-        tools_desc: list[str] = []
-        for name, tool in self._tools.items():
-            tools_desc.append(f"- `{name}`: {tool.description} (params: {tool.parameters})")
+        if self._tools:
+            tools_desc: list[str] = []
+            for name, tool in self._tools.items():
+                tools_desc.append(f"- `{name}`: {tool.description} (params: {tool.parameters})")
 
-        tools_block = (
-            "## Available Tools\n"
-            "You have access to the following tools:\n"
-            + "\n".join(tools_desc)
-            + "\n\nTo call a tool, respond with a JSON object in this format:\n"
-            '```json\n{\n  "tool": "tool_name",\n  "arguments": {"param": "value"}\n}\n```'
-        )
-        return f"{self.system_prompt}\n\n{tools_block}"
+            tools_block = (
+                "## Available Tools\n"
+                "You have access to the following tools:\n"
+                + "\n".join(tools_desc)
+                + "\n\nTo call a tool, respond with a JSON object in this format:\n"
+                '```json\n{\n  "tool": "tool_name",\n  "arguments": {"param": "value"}\n}\n```'
+            )
+            prompt_parts.append(tools_block)
+
+        if self.output_schema is not None:
+            schema_getter = getattr(self.output_schema, "model_json_schema", None)
+            if callable(schema_getter):
+                schema_json = json.dumps(schema_getter(), indent=2)
+                json_block = (
+                    "## Required Response Format\n"
+                    "You MUST return your response as a JSON object inside ```json ... ``` "
+                    "matching this JSON schema:\n"
+                    f"```json\n{schema_json}\n```"
+                )
+                prompt_parts.append(json_block)
+
+        return "\n\n".join(prompt_parts)
 
     def run(
         self,
@@ -121,9 +149,9 @@ class PydanticAgent[T]:
         response_text = ""
 
         for turn in range(1, max_turns + 1):
-            response_text = self.client.chat_messages(
-                system, messages, enable_thinking=enable_thinking
-            )
+            res_obj = self.client.chat_messages(system, messages, enable_thinking=enable_thinking)
+            response_text = str(res_obj)
+            b_info = getattr(res_obj, "backend_info", None)
 
             if "```json" in response_text and '"tool"' in response_text:
                 try:
@@ -171,12 +199,14 @@ class PydanticAgent[T]:
                 data=parsed_data,
                 tool_calls=tool_calls,
                 turns=turn,
+                backend_info=b_info,
             )
 
         return AgentResponse[T](
             content=response_text,
             tool_calls=tool_calls,
             turns=max_turns,
+            backend_info=b_info if "b_info" in locals() else None,
         )
 
     def run_stream(

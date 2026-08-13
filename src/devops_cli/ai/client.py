@@ -498,7 +498,11 @@ class LLMClient:
                 httpx2.ConnectError,
                 httpx2.ConnectTimeout,
                 httpx2.ReadTimeout,
+                httpx2.WriteTimeout,
+                httpx2.PoolTimeout,
                 httpx2.TimeoutException,
+                httpx2.RequestError,
+                httpx2.TransportError,
                 OSError,
             ) as exc:
                 last_exc = exc
@@ -581,7 +585,11 @@ class LLMClient:
                 httpx2.ConnectError,
                 httpx2.ConnectTimeout,
                 httpx2.ReadTimeout,
+                httpx2.WriteTimeout,
+                httpx2.PoolTimeout,
                 httpx2.TimeoutException,
+                httpx2.RequestError,
+                httpx2.TransportError,
                 OSError,
             ) as exc:
                 last_exc = exc
@@ -707,7 +715,11 @@ class LLMClient:
                 httpx2.ConnectError,
                 httpx2.ConnectTimeout,
                 httpx2.ReadTimeout,
+                httpx2.WriteTimeout,
+                httpx2.PoolTimeout,
                 httpx2.TimeoutException,
+                httpx2.RequestError,
+                httpx2.TransportError,
                 OSError,
             ) as exc:
                 last_exc = exc

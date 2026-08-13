@@ -65,6 +65,12 @@ def save_analysis_metadata(
         f"Analysis session for {target_type} '{target_reference}' covering {total_files} file(s)."
     )
 
+    conf_scores = [f.confidence_score for f in files if f.confidence_score is not None]
+    proj_conf = round(sum(conf_scores) / len(conf_scores), 2) if conf_scores else None
+
+    qual_scores = [f.quality_score for f in files if f.quality_score is not None]
+    proj_qual = round(sum(qual_scores) / len(qual_scores), 2) if qual_scores else None
+
     proj_meta = ProjectAnalysisMeta(
         title=title,
         target_type=target_type,
@@ -79,6 +85,8 @@ def save_analysis_metadata(
         dependencies=all_deps[:15],
         enhanced=enhanced,
         last_analyzed=datetime.now(UTC).isoformat() if enhanced else None,
+        confidence_score=proj_conf,
+        quality_score=proj_qual,
     )
 
     payload = AnalysisMetadata(project=proj_meta, files=files)
@@ -110,6 +118,8 @@ def _render_analysis_summary(payload: AnalysisMetadata, out_path: Path) -> None:
         )
         conf_str = f"{proj.confidence_score:.2f}" if proj.confidence_score is not None else "N/A"
         table.add_row("Confidence Score:", conf_str)
+        qual_str = f"{proj.quality_score:.2f}" if proj.quality_score is not None else "N/A"
+        table.add_row("Quality Score:", qual_str)
     table.add_row(MESSAGES.analyze.lbl_saved_to, f"[link=file://{out_path}]{out_path}[/link]")
     console.print(table)
 

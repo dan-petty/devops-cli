@@ -37,6 +37,7 @@ class FileAnalysisMeta(BaseModel):
     last_analyzed: str | None = None
     complexity_score: str | None = None
     confidence_score: float | None = None
+    quality_score: float | None = None
 
 
 class ProjectAnalysisMeta(BaseModel):
@@ -56,6 +57,7 @@ class ProjectAnalysisMeta(BaseModel):
     enhanced: bool = False
     last_analyzed: str | None = None
     confidence_score: float | None = None
+    quality_score: float | None = None
 
 
 class AnalysisMetadata(BaseModel):

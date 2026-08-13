@@ -203,7 +203,10 @@ def test_run_review_three_steps_combines_segments() -> None:
                 return "final recomposed review"
             if "Be specific. Do not make recommendations." in user:
                 return "summary"
-            return "segment review"
+            return (
+                '{"findings":[],"positive_observations":[],"recommendation":"APPROVE",'
+                '"summary":"segment review"}'
+            )
 
     result = review._run_review(
         ["page-one", "page-two"],
@@ -235,7 +238,10 @@ def test_run_review_never_sends_empty_user_prompt() -> None:
             **kwargs: object,
         ) -> str:
             calls.append(user)
-            return "ok"
+            return (
+                '{"findings":[],"positive_observations":[],"recommendation":"APPROVE",'
+                '"summary":"ok"}'
+            )
 
     review._run_review(
         ["content-1", "content-2"],
@@ -264,13 +270,16 @@ def test_run_review_metadata_includes_filenames() -> None:
             enable_thinking: bool = True,
             **kwargs: object,
         ) -> str:
-            if "Analysis metadata for review context" in user:
+            if "Analysis metadata for review context" in user or "File:" in user:
                 review_calls.append(user)
             if "Per-segment review outputs" in user:
                 return "done"
             if "Be specific. Do not make recommendations." in user:
                 return "summary"
-            return "review"
+            return (
+                '{"findings":[],"positive_observations":[],"recommendation":"APPROVE",'
+                '"summary":"review"}'
+            )
 
     pages = [
         "diff --git a/src/a.py b/src/a.py\n@@ -1,1 +1,2 @@\n+x\n",
@@ -344,7 +353,10 @@ def test_run_review_single_segment_skips_recompose() -> None:
             calls.append(user)
             if "Be specific. Do not make recommendations." in user:
                 return "summary"
-            return "single segment review"
+            return (
+                '{"findings":[],"positive_observations":[],"recommendation":"APPROVE",'
+                '"summary":"single segment review"}'
+            )
 
     result = review._run_review(
         ["only-page"],
@@ -357,8 +369,8 @@ def test_run_review_single_segment_skips_recompose() -> None:
 
     # 1 review (step 2); step 1 uses fast static metadata extraction and step 3 (recompose) skipped
     assert len(calls) == 1
-    assert result == "single segment review"
-    assert "Per-segment review outputs" not in result
+    assert isinstance(result, review.ReviewResult)
+    assert result.summary == "single segment review"
 
 
 def test_review_client_uses_long_read_timeout_for_chat_requests(

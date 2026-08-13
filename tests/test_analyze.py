@@ -158,3 +158,62 @@ def test_ai_analyze_path_enhanced(tmp_path: Path) -> None:
     payload_no_enhanced = AnalysisMetadata.model_validate(data_no_enhanced)
     assert payload_no_enhanced.project.enhanced is False
     assert payload_no_enhanced.files[0].pseudocode is None
+
+
+def test_enhanced_metadata_validation() -> None:
+    """_validate_enhanced_metadata validates schemas, field types, and score ranges."""
+    from devops_cli.ai.analyze.outlines import _validate_enhanced_metadata
+
+    valid_dict = {
+        "primary_purpose": "Processes incoming worker payloads.",
+        "key_symbols": ["WorkerClass", "execute"],
+        "dependencies": ["httpx2"],
+        "pseudocode": ["execute(p): process(p)"],
+        "complexity_score": "Medium",
+        "confidence_score": 0.92,
+        "quality_score": 0.88,
+    }
+    parsed, err = _validate_enhanced_metadata(
+        valid_dict, has_content=True, static_symbols=["execute"]
+    )
+    assert err is None
+    assert parsed is not None
+    assert parsed.primary_purpose == "Processes incoming worker payloads."
+    assert parsed.confidence_score == 0.92
+    assert parsed.quality_score == 0.88
+
+    # Out of range score
+    invalid_score = dict(valid_dict, confidence_score=1.5)
+    parsed_inv, err_inv = _validate_enhanced_metadata(
+        invalid_score, has_content=True, static_symbols=[]
+    )
+    assert parsed_inv is None
+    assert "confidence_score" in str(err_inv)
+
+
+def test_ai_analyze_quality_and_confidence_scores(tmp_path: Path) -> None:
+    """ai analyze populates quality_score and dynamic confidence_score on metadata."""
+    (tmp_path / ".git").mkdir()
+    src_dir = tmp_path / "src"
+    src_dir.mkdir()
+    py_file = src_dir / "worker.py"
+    py_file.write_text('"""Worker module."""\ndef run_task() -> None:\n    pass\n')
+
+    result = runner.invoke(app, ["ai", "analyze", "path", str(src_dir)])
+    assert result.exit_code == 0
+
+    files = list((tmp_path / ".data" / "analysis").glob("*.json"))
+    assert len(files) == 1
+    data = json.loads(files[0].read_text(encoding="utf-8"))
+    payload = AnalysisMetadata.model_validate(data)
+
+    assert payload.project.confidence_score is not None
+    assert 0.0 <= payload.project.confidence_score <= 1.0
+    assert payload.project.quality_score is not None
+    assert 0.0 <= payload.project.quality_score <= 1.0
+
+    file_meta = payload.files[0]
+    assert file_meta.confidence_score is not None
+    assert 0.0 <= file_meta.confidence_score <= 1.0
+    assert file_meta.quality_score is not None
+    assert 0.0 <= file_meta.quality_score <= 1.0
