@@ -10,11 +10,11 @@ image:
 
 resources:
   requests:
-    cpu: 50m
-    memory: 64Mi
+    cpu: 100m
+    memory: 128Mi
   limits:
-    cpu: 200m
-    memory: 256Mi
+    cpu: 500m
+    memory: 512Mi
 
 # ── Collector pipeline configuration ─────────────────────────────────────────
 config:
@@ -33,8 +33,8 @@ config:
 
     memory_limiter:
       check_interval: 5s
-      limit_mib: 200
-      spike_limit_mib: 50
+      limit_mib: 400
+      spike_limit_mib: 100
 
   exporters:
     # Console/stdout exporter for local dev visibility

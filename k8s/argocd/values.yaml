@@ -9,6 +9,13 @@ global:
 # Single-replica, non-HA for local development
 controller:
   replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1024Mi
 
 server:
   replicas: 1
@@ -17,12 +24,33 @@ server:
   # Disable TLS on the server — minikube NodePort access
   extraArgs:
     - --insecure
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
 
 repoServer:
   replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1024Mi
 
 redis:
   enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
 
 # Disable components unnecessary for local dev
 dex:

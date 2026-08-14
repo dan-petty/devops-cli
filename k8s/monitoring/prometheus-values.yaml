@@ -13,11 +13,11 @@ prometheus:
 
     resources:
       requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: 500m
+        cpu: 200m
         memory: 512Mi
+      limits:
+        cpu: 1500m
+        memory: 1536Mi
 
     # Enable remote write receiver so OTEL Collector can push metrics
     enableRemoteWriteReceiver: true
@@ -38,11 +38,29 @@ grafana:
 
   resources:
     requests:
-      cpu: 50m
-      memory: 128Mi
-    limits:
-      cpu: 200m
+      cpu: 100m
       memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1024Mi
+
+  readinessProbe:
+    httpGet:
+      path: /api/health
+      port: 3000
+    initialDelaySeconds: 10
+    timeoutSeconds: 5
+    periodSeconds: 10
+    failureThreshold: 5
+
+  livenessProbe:
+    httpGet:
+      path: /api/health
+      port: 3000
+    initialDelaySeconds: 60
+    timeoutSeconds: 10
+    periodSeconds: 10
+    failureThreshold: 10
 
   # Auto-provision Prometheus as default datasource
   sidecar:
@@ -72,3 +90,10 @@ nodeExporter:
 # ── kube-state-metrics ────────────────────────────────────────────────────────
 kubeStateMetrics:
   enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
