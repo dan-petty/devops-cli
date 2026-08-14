@@ -284,6 +284,21 @@ def _install_pluto(version: str, target_dir: Path) -> None:
     _extract_tar_member(data, f"pluto{_EXE}", target_dir / f"pluto{_EXE}")
 
 
+def _install_k9s(version: str, target_dir: Path) -> None:
+    v = version if version.startswith("v") else f"v{version}"
+    os_cap = "Linux" if _OS == "linux" else ("Darwin" if _OS == "darwin" else "Windows")
+    tar_name = f"k9s_{os_cap}_{_ARCH}.tar.gz"
+    url = f"https://github.com/derailed/k9s/releases/download/{v}/{tar_name}"
+    checksums_url = f"https://github.com/derailed/k9s/releases/download/{v}/checksums.sha256"
+    data = _download(url)
+    try:
+        expected = _parse_checksum_file(_download(checksums_url).decode(), tar_name)
+        _verify_sha256(data, expected)
+    except Exception:
+        pass
+    _extract_tar_member(data, f"k9s{_EXE}", target_dir / f"k9s{_EXE}")
+
+
 # ── Tool registry ─────────────────────────────────────────────────────────────
 
 
@@ -378,6 +393,14 @@ TOOLS: Final[dict[str, Tool]] = {
         version_cmd=["pluto", "version"],
         get_latest=lambda: _gh_latest("FairwindsOps/pluto"),
         install=_install_pluto,
+    ),
+    "k9s": Tool(
+        name="k9s",
+        description="Derailed K9s Kubernetes CLI TUI dashboard",
+        bin_name="k9s",
+        version_cmd=["k9s", "version", "--short"],
+        get_latest=lambda: _gh_latest("derailed/k9s"),
+        install=_install_k9s,
     ),
 }
 

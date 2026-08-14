@@ -22,7 +22,8 @@
       "minikube": "latest"
     },
     "ghcr.io/devcontainers/features/copilot-cli:1": {},
-    "ghcr.io/devcontainers/features/github-cli:1": {}
+    "ghcr.io/devcontainers/features/github-cli:1": {},
+    "ghcr.io/devcontainers-contrib/features/k9s:1": {}
   },
   "mounts": [
     "source=global-devcontainer-tmp,target=/tmp,type=volume",
@@ -111,5 +112,9 @@
       }
     }
   },
-  "remoteUser": "vscode"
+  "remoteUser": "vscode",
+  "runArgs": [
+    "--gpus",
+    "all"
+  ]
 }

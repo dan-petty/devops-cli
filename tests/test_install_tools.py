@@ -17,7 +17,19 @@ from devops_cli.commands.install_tools import (
 
 
 def test_tool_registry_has_required_entries() -> None:
-    expected = {"kubectl", "kustomize", "helm", "argo", "argocd", "kubectl-argo-rollouts"}
+    expected = {
+        "kubectl",
+        "kustomize",
+        "helm",
+        "argo",
+        "argocd",
+        "kubectl-argo-rollouts",
+        "trivy",
+        "kube-linter",
+        "popeye",
+        "pluto",
+        "k9s",
+    }
     assert expected.issubset(set(TOOLS.keys()))
 
 
