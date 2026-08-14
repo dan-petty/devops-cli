@@ -22,6 +22,13 @@ extraEnvVars:
   - name: WEBUI_AUTH
     value: "false"
 
+websocket:
+  enabled: true
+  manager: redis
+  url: "redis://valkey.llm.svc.cluster.local:6379/0"
+  redis:
+    enabled: false
+
 service:
   type: NodePort
   port: 8080
