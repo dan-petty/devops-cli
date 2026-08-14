@@ -19,6 +19,12 @@ extraEnvVars:
     value: "qdrant"
   - name: QDRANT_URI
     value: "http://qdrant.llm.svc.cluster.local:6333"
+  - name: RAG_EMBEDDING_ENGINE
+    value: "ollama"
+  - name: RAG_OLLAMA_BASE_URL
+    value: "http://ollama.llm.svc.cluster.local:11434"
+  - name: RAG_EMBEDDING_MODEL
+    value: "nomic-embed-text"
   - name: WEBUI_AUTH
     value: "false"
 
