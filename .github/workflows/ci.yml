@@ -38,10 +38,11 @@ jobs:
         run: uv run mypy --python-version 3.14 --strict src
 
       - name: Documentation Freshness Check
-        run: uv run devops docs check
+        run: uv run python -m devops_cli.main docs check
 
       - name: Unit Tests & Code Coverage
-        run: uv run pytest --cov=src --cov-report=xml
+        run: uv run pytest -n auto --cov=src --cov-report=xml
 
       - name: Security Scan (Bandit)
         run: uv run bandit -r src/ -ll -ii
+
