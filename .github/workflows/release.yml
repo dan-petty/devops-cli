@@ -50,7 +50,7 @@ jobs:
         run: |
           VERSION=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")
           TAG="v${VERSION}"
-          HEAD_MSG="${{ github.event.head_commit.message }}"
+          HEAD_MSG="$(git log -1 --pretty=%B)"
 
           # Extract or format title following <feat|fix>(release)<!>: vx.x.x standard
           if echo "$HEAD_MSG" | grep -qE "(feat|fix)\(release\)!?:"; then
@@ -62,6 +62,7 @@ jobs:
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
           echo "tag=${TAG}" >> $GITHUB_OUTPUT
           echo "title=${TITLE}" >> $GITHUB_OUTPUT
+
 
       - name: Authoritative Release Verification
         run: uv run devops release check --allow-dirty
