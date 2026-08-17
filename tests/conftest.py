@@ -11,10 +11,12 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def reset_dry_run_state():
-    """Ensure dry-run environment variable is cleared before and after each test."""
+    """Ensure dry-run environment variable is cleared and terminal width is standardized."""
+    os.environ["COLUMNS"] = "250"
     os.environ.pop("DEVOPS_CLI_DRY_RUN", None)
     yield
     os.environ.pop("DEVOPS_CLI_DRY_RUN", None)
+
 
 
 @pytest.fixture

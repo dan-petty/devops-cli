@@ -18,7 +18,8 @@ from devops_cli.config.settings import AIConfig
 from devops_cli.main import app
 from devops_cli.models.ai import ChatMessage
 
-runner = CliRunner()
+runner = CliRunner(env={"COLUMNS": "250"})
+
 
 
 def test_review_path_help_includes_persona_option() -> None:
