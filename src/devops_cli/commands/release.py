@@ -467,7 +467,6 @@ def release_pr(
         )
 
 
-
 @app.command("check")
 def release_check(
     skip_ci: Annotated[
