@@ -55,7 +55,26 @@ devops ai test
 devops ci run
 ```
 
+### 📦 Reusable Dev Container Package (GHCR)
+
+Every release automatically builds and publishes a pre-packaged Dev Container image to the GitHub Container Registry (GHCR):
+
+```bash
+# Pull the pre-built Dev Container image directly:
+docker pull ghcr.io/dan-petty/devops-cli/devcontainer:latest
+```
+
+To use this pre-built image in any repository's `.devcontainer/devcontainer.json`:
+
+```json
+{
+  "name": "devops-workstation",
+  "image": "ghcr.io/dan-petty/devops-cli/devcontainer:latest"
+}
+```
+
 ### Programmatic Python Usage Example
+
 
 ```python
 from pathlib import Path
