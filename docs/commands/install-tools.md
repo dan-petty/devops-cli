@@ -16,6 +16,6 @@ devops install-tools status [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--target-dir`, `-d` | `path` | `/home/vscode/.local/bin` | - |
+| `--target-dir`, `-d` | `path` | `~/.local/bin` | - |
 
 ---

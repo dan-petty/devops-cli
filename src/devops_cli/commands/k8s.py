@@ -258,7 +258,8 @@ _HELM_REPOS: dict[str, str] = {
     **_HELM_REPOS_BY_STACK["llm"],
 }
 
-_K8S_DIR = Path(__file__).resolve().parents[3] / "k8s"
+_K8S_DIR = Path("k8s")
+
 
 _HELM_RELEASES_BY_STACK: dict[str, list[dict[str, str]]] = {
     "infra": [

@@ -126,7 +126,24 @@ class DocGenerator:
         default_val = getattr(param, "default", None)
         default_str: str | None = None
         if default_val is not None and not (kind == "flag" and default_val is False):
-            default_str = str(default_val)
+            if isinstance(default_val, Path):
+                try:
+                    rel_to_root = default_val.resolve().relative_to(self.root_dir.resolve())
+                    default_str = str(rel_to_root)
+                except ValueError, AttributeError:
+                    try:
+                        rel_to_home = default_val.resolve().relative_to(Path.home().resolve())
+                        default_str = f"~/{rel_to_home}"
+                    except ValueError, AttributeError:
+                        default_str = str(default_val)
+            else:
+                default_str = str(default_val)
+                home_str = str(Path.home().resolve())
+                root_str = str(self.root_dir.resolve())
+                if root_str and root_str in default_str:
+                    default_str = default_str.replace(root_str, ".").lstrip("./")
+                elif home_str and home_str in default_str:
+                    default_str = default_str.replace(home_str, "~")
 
         return ParamDoc(
             name=param.name or "",

@@ -100,7 +100,7 @@ devops k8s bootstrap [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--k8s-dir` | `path` | `/workspaces/devops-cli/k8s` | Path to k8s/ config directory |
+| `--k8s-dir` | `path` | `k8s` | Path to k8s/ config directory |
 | `--auto-start`, `--no-auto-start` | `boolean` | `True` | Auto-start minikube if stopped |
 | `--stack`, `-s` | `string` | `infra` | Stack to deploy (infra, llm, all) |
 
@@ -118,7 +118,7 @@ devops k8s deploy-stack [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--k8s-dir` | `path` | `/workspaces/devops-cli/k8s` | Path to k8s/ config directory |
+| `--k8s-dir` | `path` | `k8s` | Path to k8s/ config directory |
 | `--stack`, `-s` | `string` | `infra` | Stack to deploy (infra, llm, all) |
 
 ---
@@ -174,7 +174,7 @@ devops k8s teardown-stack [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--k8s-dir` | `path` | `/workspaces/devops-cli/k8s` | Path to k8s/ config directory |
+| `--k8s-dir` | `path` | `k8s` | Path to k8s/ config directory |
 | `--stack`, `-s` | `string` | `infra` | Stack to teardown (infra, llm, all) |
 
 ---
