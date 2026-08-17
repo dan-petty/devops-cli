@@ -63,10 +63,14 @@ Documentation is generated dynamically and asserted in CI:
   - Documentation: `docs/<name>`
   - Maintenance: `chore/<name>`
   - Releases: `release/v<version>`
+- **PR Base Branch Targeting (Release Branch First)**: All feature, bugfix, documentation, and maintenance pull requests MUST target the active release branch (`release/v<version>`, e.g., `--base release/v0.1.9`) rather than targeting `main` directly. Only release branches (`release/v<version>`) are permitted to target `main` when cutting an official release.
+- **No Autonomous Merging by Agents**: AI agents must NEVER merge Pull Requests (`gh pr merge`) autonomously. Agents must create or update topic branches, push commits, open or update the Pull Request, verify CI checks are passing, and leave the merge decision to the user / maintainers.
+- **Updating Existing PR Branches**: When revisions or additions are requested, push new commits directly to the existing topic branch (`git push origin <branch>`), which automatically updates the open PR.
 - **Conventional Commits**: PR titles and squashed commits must follow Conventional Commits standard (`feat(scope): ...`, `fix(scope): ...`, `docs(scope): ...`, `feat(release): vx.x.x`, etc.).
-- **Quality Gate Assertion**: Ensure local CI passes before creating PR:
+- **Quality Gate Assertion**: Ensure local CI passes before creating or updating PRs:
    ```bash
    uv run devops ci
    ```
-- **Squash Merging**: PRs are squash-merged into `main` using `gh pr merge <id> --squash`.
+- **Squash Merging**: Maintainers squash-merge approved PRs into the target branch using `gh pr merge <id> --squash`.
+
 
