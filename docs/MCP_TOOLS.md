@@ -30,6 +30,12 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`review_stats`](#review-stats) | View accuracy metrics and false-positive rates per reviewer persona. |
 | [`ssh_audit`](#ssh-audit) | Audit SSH key expiration dates and key file permissions. |
 | [`ssh_status`](#ssh-status) | Inspect age and rotation status of managed SSH keys in ~/.ssh. |
+| [`tf_apply`](#tf-apply) | Apply OpenTofu / Terraform Infrastructure-as-Code changes. |
+| [`tf_output`](#tf-output) | Retrieve OpenTofu / Terraform outputs from state. |
+| [`tf_plan`](#tf-plan) | Generate and inspect an OpenTofu / Terraform execution plan. |
+| [`tofu_apply`](#tofu-apply) | Apply OpenTofu Infrastructure-as-Code changes (alias for tf_apply). |
+| [`tofu_output`](#tofu-output) | Retrieve OpenTofu outputs from state (alias for tf_output). |
+| [`tofu_plan`](#tofu-plan) | Generate and inspect an OpenTofu execution plan (alias for tf_plan). |
 | [`verify_finding`](#verify-finding) | Validate or invalidate a finding and record human feedback. |
 | [`workspace_list`](#workspace-list) | Show the active VS Code workspace file and configured repository directories. |
 
@@ -241,6 +247,74 @@ Audit SSH key expiration dates and key file permissions.
 Inspect age and rotation status of managed SSH keys in ~/.ssh.
 
 *No parameters required.*
+
+### `tf_apply`
+
+Apply OpenTofu / Terraform Infrastructure-as-Code changes.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `directory` | `string` | No | `.` | - |
+| `var_file` | `string` | No | `` | - |
+| `auto_approve` | `boolean` | No | `True` | - |
+
+### `tf_output`
+
+Retrieve OpenTofu / Terraform outputs from state.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `directory` | `string` | No | `.` | - |
+| `json_format` | `boolean` | No | `True` | - |
+
+### `tf_plan`
+
+Generate and inspect an OpenTofu / Terraform execution plan.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `directory` | `string` | No | `.` | - |
+| `var_file` | `string` | No | `` | - |
+
+### `tofu_apply`
+
+Apply OpenTofu Infrastructure-as-Code changes (alias for tf_apply).
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `directory` | `string` | No | `.` | - |
+| `var_file` | `string` | No | `` | - |
+| `auto_approve` | `boolean` | No | `True` | - |
+
+### `tofu_output`
+
+Retrieve OpenTofu outputs from state (alias for tf_output).
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `directory` | `string` | No | `.` | - |
+| `json_format` | `boolean` | No | `True` | - |
+
+### `tofu_plan`
+
+Generate and inspect an OpenTofu execution plan (alias for tf_plan).
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `directory` | `string` | No | `.` | - |
+| `var_file` | `string` | No | `` | - |
 
 ### `verify_finding`
 
