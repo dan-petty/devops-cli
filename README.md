@@ -194,6 +194,24 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 |  | `devops release check [OPTIONS]` | Verify release readiness (version consistency, docs freshness, and CI quality gates). |
 |  | `devops release notes [OPTIONS]` | Print markdown release notes for a specified or current release version. |
 |  | `devops release tag [OPTIONS]` | Create release commit and annotated git tag. |
+| **tf** | `devops tf init [OPTIONS] <directory>` | Initialize an OpenTofu working directory. |
+|  | `devops tf plan [OPTIONS] <directory>` | Generate and show an OpenTofu execution plan. |
+|  | `devops tf apply [OPTIONS] <directory>` | Create or update OpenTofu infrastructure. |
+|  | `devops tf destroy [OPTIONS] <directory>` | Destroy OpenTofu-managed infrastructure. |
+|  | `devops tf output [OPTIONS] <directory>` | Read an output variable from the OpenTofu state. |
+|  | `devops tf validate [OPTIONS] <directory>` | Validate the OpenTofu configuration files in a directory. |
+|  | `devops tf fmt [OPTIONS] <directory>` | Rewrites OpenTofu configuration files to canonical format. |
+|  | `devops tf status <directory>` | Show OpenTofu directory state, initialization status, and provider plugins. |
+|  | `devops tf deploy-cloud [OPTIONS]` | Deploy cloud Kubernetes infrastructure for AWS, Azure, or GCP. |
+| **tofu** | `devops tofu init [OPTIONS] <directory>` | Initialize an OpenTofu working directory. |
+|  | `devops tofu plan [OPTIONS] <directory>` | Generate and show an OpenTofu execution plan. |
+|  | `devops tofu apply [OPTIONS] <directory>` | Create or update OpenTofu infrastructure. |
+|  | `devops tofu destroy [OPTIONS] <directory>` | Destroy OpenTofu-managed infrastructure. |
+|  | `devops tofu output [OPTIONS] <directory>` | Read an output variable from the OpenTofu state. |
+|  | `devops tofu validate [OPTIONS] <directory>` | Validate the OpenTofu configuration files in a directory. |
+|  | `devops tofu fmt [OPTIONS] <directory>` | Rewrites OpenTofu configuration files to canonical format. |
+|  | `devops tofu status <directory>` | Show OpenTofu directory state, initialization status, and provider plugins. |
+|  | `devops tofu deploy-cloud [OPTIONS]` | Deploy cloud Kubernetes infrastructure for AWS, Azure, or GCP. |
 <!-- COMMAND_MATRIX_END -->
 
 ---

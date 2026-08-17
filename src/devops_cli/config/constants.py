@@ -43,6 +43,16 @@ CONST_DEVCONTAINER_POST_CREATE_PATH = (
 )
 CONST_DEVCONTAINER_IMAGE_PREFIX = "mcr.microsoft.com/devcontainers/python:"
 
+# ── OpenTofu & Infrastructure ──────────────────────────────────────────────────
+CONST_TF_DIR_NAME = "tf"
+CONST_TF_DIR_PATH = Path(CONST_TF_DIR_NAME)
+CONST_TF_AWS_DIR = CONST_TF_DIR_PATH / "aws"
+CONST_TF_AZURE_DIR = CONST_TF_DIR_PATH / "azure"
+CONST_TF_GCP_DIR = CONST_TF_DIR_PATH / "gcp"
+CONST_TF_ENVIRONMENTS_DIR = CONST_TF_DIR_PATH / "environments"
+CONST_OPENTOFU_BINARIES: tuple[str, ...] = ("tofu", "terraform")
+
+
 # ── Git & Workspace ───────────────────────────────────────────────────────────
 CONST_GIT_DIR_NAME = ".git"
 CONST_GITIGNORE_DIRS = (
