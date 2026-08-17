@@ -230,6 +230,33 @@ class ReleaseMessages(BaseModel):
     )
 
 
+class TfMessages(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    init_header: str = "Initializing OpenTofu in [cyan]{path}[/cyan]..."
+    init_success: str = "✓ OpenTofu initialization successful."
+    plan_header: str = "Running OpenTofu plan for [cyan]{path}[/cyan]..."
+    plan_success: str = "✓ OpenTofu plan completed."
+    apply_header: str = "Applying OpenTofu configuration in [cyan]{path}[/cyan]..."
+    apply_success: str = "✓ OpenTofu apply completed successfully."
+    destroy_header: str = "Destroying OpenTofu resources in [cyan]{path}[/cyan]..."
+    destroy_success: str = "✓ OpenTofu destroy completed."
+    output_header: str = "Retrieving OpenTofu outputs from [cyan]{path}[/cyan]..."
+    validate_header: str = "Validating OpenTofu configuration in [cyan]{path}[/cyan]..."
+    validate_success: str = "✓ OpenTofu configuration is valid."
+    fmt_header: str = "Formatting OpenTofu files in [cyan]{path}[/cyan]..."
+    fmt_success: str = "✓ OpenTofu files formatted."
+    binary_not_found: str = (
+        "Neither 'tofu' nor 'terraform' was found in PATH. "
+        "Install OpenTofu or run 'devops install-tools'."
+    )
+    dir_not_found: str = "OpenTofu directory '{path}' does not exist."
+    deploy_cloud_header: str = (
+        "Deploying {provider} cloud infrastructure from [cyan]{path}[/cyan]..."
+    )
+    deploy_cloud_success: str = "✓ {provider} cloud infrastructure deployed successfully."
+
+
 class LanguageCatalog(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -246,6 +273,8 @@ class LanguageCatalog(BaseModel):
     analyze: AnalyzeMessages = AnalyzeMessages()
     docs: DocsMessages = DocsMessages()
     release: ReleaseMessages = ReleaseMessages()
+    tf: TfMessages = TfMessages()
+    tofu: TfMessages = TfMessages()
 
 
 MESSAGES = LanguageCatalog()
