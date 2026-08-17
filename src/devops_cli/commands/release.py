@@ -448,6 +448,14 @@ def release_pr(
         pr_cmd.extend(["--label", labels])
 
     pr_proc = run_subprocess(pr_cmd, cwd=repo_root)
+    if pr_proc.returncode != 0 and labels and "label" in (pr_proc.stderr or "").lower():
+        fallback_cmd = [
+            arg
+            for idx, arg in enumerate(pr_cmd)
+            if arg != "--label" and (idx == 0 or pr_cmd[idx - 1] != "--label")
+        ]
+        pr_proc = run_subprocess(fallback_cmd, cwd=repo_root)
+
     if pr_proc.returncode == 0:
         pr_url = str(pr_proc.stdout).strip()
         rprint(MESSAGES.release.pr_created.format(url=pr_url))
@@ -457,6 +465,7 @@ def release_pr(
         rprint(
             f"[dim]Branch '{branch_name}' is ready. You can manually open the PR on GitHub.[/dim]"
         )
+
 
 
 @app.command("check")
