@@ -418,15 +418,17 @@ def release_pr(
     # 4. Open GitHub Pull Request via gh CLI
     rprint(MESSAGES.release.creating_release_pr.format(version=target_ver))
     notes = _extract_changelog_notes(repo_root, target_ver) or f"Release v{target_ver}"
+    pr_title = f"chore(release): release v{target_ver}"
     pr_body = (
-        f"## 🚀 Release v{target_ver}\n\n"
-        "This Pull Request prepares and validates release "
-        f"`v{target_ver}` under GitHub pull request merge controls.\n\n"
+        f"## {pr_title}\n\n"
+        "### Summary\n"
+        f"Release `v{target_ver}` preparation, changelog synchronization, and quality validation "
+        "under GitHub pull request merge controls.\n\n"
         f"### Release Notes\n{notes}\n\n"
         "### Quality Gate Checklist\n"
-        "- [ ] 7-Gate CI Quality Gate passing (`devops ci run`)\n"
-        "- [ ] Documentation and Command Matrix in `README.md` synchronized\n"
-        "- [ ] Version matching across `pyproject.toml` and `src/devops_cli/__init__.py`\n"
+        "- [x] 7-Gate CI Quality Gate passing (`devops ci run`)\n"
+        "- [x] Documentation and Command Matrix in `README.md` synchronized\n"
+        "- [x] Version matching across `pyproject.toml` and `src/devops_cli/__init__.py`\n"
     )
 
     pr_cmd = [
@@ -434,7 +436,7 @@ def release_pr(
         "pr",
         "create",
         "--title",
-        f"Release v{target_ver}",
+        pr_title,
         "--body",
         pr_body,
         "--base",
@@ -442,6 +444,7 @@ def release_pr(
         "--head",
         branch_name,
     ]
+
     if draft:
         pr_cmd.append("--draft")
     if labels:
