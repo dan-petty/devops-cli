@@ -36,16 +36,15 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install uv
+      - name: Install uv and Python
         uses: astral-sh/setup-uv@v3
         with:
           enable-cache: true
-
-      - name: Set up Python 3.14
-        run: uv python install 3.14
+          python-version: "3.14"
 
       - name: Synchronize dependencies
         run: uv sync --all-groups --all-extras
+
 
 
       - name: Extract Target Version

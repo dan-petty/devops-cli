@@ -18,14 +18,12 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install uv
+      - name: Install uv and Python
         uses: astral-sh/setup-uv@v3
         with:
           enable-cache: true
           version: "latest"
-
-      - name: Set up Python 3.14
-        run: uv python install 3.14
+          python-version: "3.14"
 
       - name: Synchronize dependencies
         run: uv sync --all-groups --all-extras
@@ -40,12 +38,13 @@ jobs:
         run: uv run mypy --python-version 3.14 --strict src
 
       - name: Documentation Freshness Check
-        run: uv run python -m devops_cli.main docs check
+        run: uv run devops docs check
 
       - name: Unit Tests & Code Coverage
-        run: uv run pytest --cov=src --cov-report=xml
+        run: uv run pytest -v --cov=src --cov-report=xml
 
       - name: Security Scan (Bandit)
         run: uv run bandit -r src/ -ll -ii
+
 
 
