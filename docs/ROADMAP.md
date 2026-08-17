@@ -74,7 +74,10 @@ High-density product roadmap for `devops-cli`.
 - [x] **CI/CD Quality Gates & Release Automation**: Production-grade GitHub Actions workflows (`.github/workflows/ci.yml`, `.github/workflows/release.yml`).
 - [x] **Configuration & Constant Centralization**: Unified paths, timeouts, regex patterns, and user-facing messages in `config/` and `lang/en.py`.
 
-### Phase 10: Telemetry, Agent Benchmarking & Supply Chain (v0.1.9 - Scheduled)
+### Phase 10: OpenTofu Multi-Cloud IaC, Telemetry & Supply Chain (v0.1.9 - Active / In Progress)
+- [ ] **OpenTofu CLI Integration (`devops tofu` / `devops tf`)**: Native CLI commands for managing OpenTofu IaC lifecycle (`init`, `plan`, `apply`, `destroy`, `output`, `state`) with automated workspace discovery.
+- [ ] **Multi-Cloud Kubernetes Infrastructure Modules (`tf/`)**: Production OpenTofu manifests for provisioning Kubernetes clusters and VPC networking across AWS (EKS), Azure (AKS), and Google Cloud (GKE) tailored for deploying project `k8s/` resources.
+- [ ] **Multi-Cloud Kubeconfig Synchronization**: Automated synchronization between provisioned cloud cluster outputs and `devops k8s bootstrap` / `devops k8s deploy-stack`.
 - [ ] **AI Agent Pipeline Tooling Research & Benchmark**: Research and evaluate open-source AI agent frameworks & toolkits (LangChain/LangGraph, AutoGen, CrewAI, LlamaIndex, DSPy, Haystack) to enhance multi-agent pipeline orchestration in `devops-cli`.
 - [ ] **OpenTelemetry Tracing**: Instrument CLI commands, multi-agent pipeline turns, and FastMCP tools with OpenTelemetry span tracing.
 - [ ] **Prometheus Metrics Engine**: Export operational metrics (turn latency, LLM node throughput, finding counts, cache hit ratios) to Prometheus.
@@ -86,6 +89,7 @@ High-density product roadmap for `devops-cli`.
 - [ ] **Kyverno Admission Policy Validator**: `devops k8s validate-policy` for CLI validation of K8s Kyverno policies (`ClusterPolicy`).
 - [ ] **k6 Load & Performance Tester**: `devops test load` executing developer-centric smoke tests against K8s endpoints and LLM node endpoints.
 - [ ] **Dagger Programmable Pipeline Engine**: `devops pipeline run` for containerized, reproducible Python-driven pipeline execution.
+
 
 
 ---

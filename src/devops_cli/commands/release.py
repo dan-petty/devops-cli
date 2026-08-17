@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
@@ -615,6 +616,10 @@ def release_notes(
         str | None,
         typer.Option("--version", "-v", help="Release version to extract notes for"),
     ] = None,
+    raw: Annotated[
+        bool,
+        typer.Option("--raw", help="Output raw markdown text without formatting panel"),
+    ] = False,
     root: Annotated[
         Path | None,
         typer.Option("--root", "-r", help="Project repository root directory"),
@@ -631,6 +636,19 @@ def release_notes(
     if not notes:
         rprint(f"[yellow]{MESSAGES.release.notes_not_found.format(version=target_ver)}[/yellow]")
         raise typer.Exit(1)
+
+    if is_dry_run():
+        render_dry_run_result(
+            command="devops release notes",
+            action="extract_release_notes",
+            target=target_ver,
+            details={"version": target_ver, "raw": raw, "notes": notes},
+        )
+        return
+
+    if raw:
+        sys.stdout.write(notes + "\n")
+        return
 
     panel = Panel(
         notes,

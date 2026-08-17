@@ -191,4 +191,14 @@ Verify DevContainer lifecycle operations:
 uv run devops devcontainer run-lifecycle --all
 ```
 
+---
+
+## 8. Upcoming Version Roadmap
+
+### v0.1.9 — OpenTofu Multi-Cloud Infrastructure & Kubernetes Cloud Provisioning
+- **OpenTofu CLI Integration (`devops tofu` / `devops tf`)**: Infrastructure-as-Code command suite automating OpenTofu initialization, planning, applying, state inspection, and outputs.
+- **Multi-Cloud Cloud Resource Modules (`tf/`)**: Production OpenTofu manifests for provisioning Kubernetes clusters and cloud networking across AWS (EKS), Azure (AKS), and Google Cloud (GKE) tailored for deploying project `k8s/` resources.
+- **Automated Multi-Cloud Kubeconfig Synchronization**: Direct integration between cloud cluster provisioning outputs and `devops k8s bootstrap` / `devops k8s deploy-stack`.
+
+
 

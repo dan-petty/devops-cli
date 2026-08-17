@@ -2256,6 +2256,7 @@ devops release notes [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--version`, `-v` | `string` | - | Release version to extract notes for |
+| `--raw` | `boolean` | - | Output raw markdown text without formatting panel |
 | `--root`, `-r` | `path` | - | Project repository root directory |
 
 ### `devops release tag`
