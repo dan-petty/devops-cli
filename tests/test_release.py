@@ -164,6 +164,33 @@ def test_release_notes_command(sample_project_dir: Path) -> None:
     assert "Native DevContainer Lifecycle" in result.output
 
 
+def test_release_notes_raw_command(sample_project_dir: Path) -> None:
+    result = runner.invoke(
+        app,
+        ["notes", "--version", "0.1.7", "--raw", "--root", str(sample_project_dir)],
+    )
+    assert result.exit_code == 0
+    assert "### Added" in result.output
+    assert "Native DevContainer Lifecycle" in result.output
+    assert "╭" not in result.output
+
+
+def test_release_notes_dry_run(sample_project_dir: Path) -> None:
+    from devops_cli.dry_run import set_dry_run
+
+    set_dry_run(True)
+    try:
+        result = runner.invoke(
+            app,
+            ["notes", "--version", "0.1.7", "--raw", "--root", str(sample_project_dir)],
+        )
+        assert result.exit_code == 0
+        assert "extract_release_notes" in result.output
+        assert '"dry_run": true' in result.output
+    finally:
+        set_dry_run(False)
+
+
 def test_release_tag_command(sample_project_dir: Path) -> None:
     with patch("devops_cli.commands.release.run_subprocess") as mock_sub:
         mock_sub.return_value = subprocess.CompletedProcess(

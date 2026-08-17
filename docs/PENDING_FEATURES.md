@@ -4,13 +4,18 @@ Tracks active feature proposals, architectural spikes, and planned functionality
 
 ---
 
-## 🎯 Active Proposals & Architectural Spikes (v0.1.8+)
+## 🎯 Active Proposals & Architectural Spikes (v0.1.9+)
 
-### 1. AI Agent Pipeline Tooling Research & Benchmark
+### 1. OpenTofu Multi-Cloud Infrastructure & Kubernetes Cloud Provisioning
+- **Overview**: Native OpenTofu CLI integration (`devops tofu` / `devops tf`) paired with production multi-cloud IaC modules under `tf/` for AWS (EKS), Azure (AKS), and Google Cloud (GKE).
+- **Goal**: Provide automated, end-to-end cloud resource provisioning designed specifically to host project `k8s/` resources (ArgoCD, Prometheus, Grafana, OpenTelemetry, and LLM Inference engines) with direct kubeconfig context synchronization.
+
+### 2. AI Agent Pipeline Tooling Research & Benchmark
 - **Overview**: Conduct architectural evaluation and benchmarking of open-source AI agent frameworks & orchestrators (LangChain/LangGraph, AutoGen, CrewAI, LlamaIndex, DSPy, Haystack).
 - **Goal**: Assess integration patterns with `devops-cli` Pydantic models, FastMCP tool registrations, and local LLM node failover mechanisms to enhance multi-agent pipeline orchestration.
 
-### 2. Observability & K8s Telemetry Stack (OpenTelemetry, Prometheus, Grafana, Jaeger & Minikube)
+
+### 3. Observability & K8s Telemetry Stack (OpenTelemetry, Prometheus, Grafana, Jaeger & Minikube)
 - **Overview**: Native telemetry instrumentation for `devops-cli` commands, FastMCP server tools, and multi-agent persona pipelines.
 - **Components**:
   1. OpenTelemetry distributed tracing across agent pipeline stages and FastMCP tool executions.
@@ -18,13 +23,13 @@ Tracks active feature proposals, architectural spikes, and planned functionality
   3. Pre-configured Grafana telemetry dashboards.
   4. Local Jaeger collector deployment via Minikube.
 
-### 3. Supply Chain Security & Container Provenance (Cosign)
+### 4. Supply Chain Security & Container Provenance (Cosign)
 - **Overview**: Keyless image signing and signature verification (`devops docker sign|verify`) integrating Sigstore Cosign with OS Keyring.
 
-### 4. IaC FinOps & Cloud Cost Impact Analysis (Infracost)
+### 5. IaC FinOps & Cloud Cost Impact Analysis (Infracost)
 - **Overview**: Automated cloud cost estimation (`devops iac cost`) on Terraform diffs to enrich `pm` and `architect` persona review payloads.
 
-### 5. Automated IaC Static Security Policy Guard (Checkov)
+### 6. Automated IaC Static Security Policy Guard (Checkov)
 - **Overview**: Compliance and security policy scanner (`devops ci iac-security`) across Terraform, CloudFormation, Kubernetes manifests, and Dockerfiles.
 
 ---

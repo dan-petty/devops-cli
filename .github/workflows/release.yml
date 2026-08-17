@@ -70,8 +70,9 @@ jobs:
       - name: Extract Release Notes
         id: notes
         run: |
-          uv run devops release notes -v ${{ steps.ver.outputs.version }} > release_notes.txt
+          uv run devops release notes --raw -v ${{ steps.ver.outputs.version }} > release_notes.txt
           echo "notes_file=release_notes.txt" >> $GITHUB_OUTPUT
+
 
       - name: Create Git Tag (upon PR merge to main)
         if: github.ref == 'refs/heads/main'

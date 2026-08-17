@@ -1,0 +1,14 @@
+aws_region          = "us-west-2"
+cluster_name        = "devops-cli-eks"
+kubernetes_version  = "1.30"
+vpc_cidr            = "10.100.0.0/16"
+availability_zones  = ["us-west-2a", "us-west-2b", "us-west-2c"]
+node_instance_types = ["t3.xlarge"]
+node_desired_capacity = 3
+node_min_capacity   = 2
+node_max_capacity   = 5
+tags = {
+  Environment = "production"
+  ManagedBy   = "devops-cli-opentofu"
+  Project     = "devops-cli"
+}
