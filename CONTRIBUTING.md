@@ -54,15 +54,19 @@ Documentation is generated dynamically and asserted in CI:
 
 ---
 
-## 4. Submitting Pull Requests
+## 4. Submitting Pull Requests & Branch Management
+ 
+- **Protected `main` Branch**: Direct commits and pushes to `main` are strictly prohibited. All changes must be proposed via pull requests.
+- **Dedicated Topic Branches**:
+  - Features: `feat/<name>` or `feature/<name>`
+  - Bug Fixes: `fix/<name>`
+  - Documentation: `docs/<name>`
+  - Maintenance: `chore/<name>`
+  - Releases: `release/v<version>`
+- **Conventional Commits**: PR titles and squashed commits must follow Conventional Commits standard (`feat(scope): ...`, `fix(scope): ...`, `docs(scope): ...`, `feat(release): vx.x.x`, etc.).
+- **Quality Gate Assertion**: Ensure local CI passes before creating PR:
+   ```bash
+   uv run devops ci
+   ```
+- **Squash Merging**: PRs are squash-merged into `main` using `gh pr merge <id> --squash`.
 
-1. Create a dedicated branch: `git checkout -b feature/<feature-name>` or `git checkout -b fix/<bug-name>`.
-2. Ensure the full 7-gate CI validation suite passes locally:
-   ```bash
-   uv run devops ci run
-   ```
-3. Verify release status and documentation synchronization:
-   ```bash
-   uv run devops release status
-   ```
-4. Follow [`RELEASE_CYCLE.md`](./RELEASE_CYCLE.md) for version bumping and changelog maintenance.

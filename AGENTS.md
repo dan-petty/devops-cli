@@ -56,6 +56,18 @@ The project follows a modular, command-driven architecture.
 | **Docs Generate** | `devops docs generate --sync-readme` | Introspects CLI & syncs all markdown docs. |
 | **CI Quality Gate** | `devops ci` | Executes local quality gate (test, coverage, lint, format, typecheck, docs, audit, security). |
 
+### Branch Management & Main Branch Protection Policy
+- **Zero Direct Commits to `main`**: AI agents and developers must **NEVER** commit or push directly to the `main` branch under any circumstances. Direct pushes to `main` bypass CI/CD quality gates, disrupt branch tracking, and trigger automated release workflows unexpectedly.
+- **Branch Naming Conventions**: All work must be conducted on dedicated topic branches:
+  - Features: `feat/<description>` or `feature/<description>`
+  - Bug Fixes: `fix/<description>`
+  - Documentation: `docs/<description>`
+  - Maintenance & Chores: `chore/<description>` or `refactor/<description>`
+  - Release Orchestration: `release/v<version>` (managed via `devops release prepare` / `devops release pr`)
+- **Pull Request & Squash Merge Gate**: All changes merged into `main` MUST proceed through a GitHub Pull Request (`gh pr create`) and be squash-merged (`gh pr merge <id> --squash`).
+- **Conventional Commit Titles**: PR titles and squashed commits MUST follow Conventional Commits standard (`feat(scope): ...`, `fix(scope): ...`, `docs(scope): ...`, `feat(release): vx.x.x`, `fix(release): vx.x.x`, `feat(release)!: vx.x.x`).
+- **Quality Gate Assertion**: Ensure all local quality gates pass (`devops ci` or `uv run devops ci`) and all remote GitHub Actions CI checks are green before merging any PR into `main`.
+
 ### Code Conventions & Documentation Standards
 - **Style**: PEP 8 compliant; Line length strictly **100 characters** (per `ruff` config).
 - **Typing**: Mandatory type hints for all function signatures. `mypy --strict` is the standard.
@@ -66,6 +78,7 @@ The project follows a modular, command-driven architecture.
 - **No Real Config/Secret Duplication in Tests**: Never duplicate or hardcode real user configuration values, local hostnames/IPs, or API credentials into test data fixtures. Use generic mock placeholders (`http://node1.example.test`).
 - **Error Handling**: All network requests (`httpx`) and subprocess calls must implement explicit timeouts (e.g., 30s) and robust error handling/retries.
 - **Documentation**: Use docstrings for all public functions in `src/devops_cli/`.
+
 
 
 ## 5. AI Feature Commands & Personas
