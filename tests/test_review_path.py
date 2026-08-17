@@ -21,7 +21,6 @@ from devops_cli.models.ai import ChatMessage
 runner = CliRunner(env={"COLUMNS": "250"})
 
 
-
 def test_review_path_help_includes_persona_option() -> None:
     result = runner.invoke(app, ["review", "path", "--help"])
 

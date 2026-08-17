@@ -18,7 +18,6 @@ def reset_dry_run_state():
     os.environ.pop("DEVOPS_CLI_DRY_RUN", None)
 
 
-
 @pytest.fixture
 def tmp_ssh_dir(tmp_path: Path) -> Path:
     ssh_dir = tmp_path / ".ssh"
