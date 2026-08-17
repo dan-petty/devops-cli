@@ -13,8 +13,10 @@ MANIFEST
 
 # Virtual environment
 .venv/
+.venv_win/
 venv/
 env/
+
 
 # uv
 .uv/

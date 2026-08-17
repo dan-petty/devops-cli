@@ -66,19 +66,27 @@ High-density product roadmap for `devops-cli`.
 - [x] **AI/LLM Prompt Token & Responsiveness Optimization**: Compress system prompts, streamline context payloads, eliminate prompt redundancy, and tune prompt structure to reduce token usage and improve inference latency across local Ollama and remote LLM providers.
 - [x] **Robust Worker Error Recovery**: Exception resilience in parallel review workers and top-level workspace `.data` directory persistence.
 
-### Phase 9: Telemetry, Agent Benchmarking & Supply Chain (v0.1.8 - Scheduled)
+### Phase 9: Automated Release Suite, Docs Engine & SRE Elevation (v0.1.8 - Completed)
+- [x] **Automated Release Cycle Suite (`devops release`)**: Native release subcommands (`status`, `prepare`, `check`, `notes`, `tag`) automating semver bumping, changelog maintenance, and pre-release gates.
+- [x] **FastMCP Server Release Integration**: Added `release_status` MCP tool for AI agents to query version consistency, git tags, and documentation freshness.
+- [x] **Dynamic Documentation Engine (`devops docs`)**: Dynamic Typer/Click introspection system generating markdown reference manuals and synchronizing the `README.md` Command Matrix.
+- [x] **Principal SRE Architecture & Governance Blueprint**: Authored enterprise [`ARCHITECTURE.md`](../ARCHITECTURE.md), MIT [`LICENSE`](../LICENSE), enterprise [`SECURITY.md`](../SECURITY.md), and SRE [`CONTRIBUTING.md`](../CONTRIBUTING.md).
+- [x] **CI/CD Quality Gates & Release Automation**: Production-grade GitHub Actions workflows (`.github/workflows/ci.yml`, `.github/workflows/release.yml`).
+- [x] **Configuration & Constant Centralization**: Unified paths, timeouts, regex patterns, and user-facing messages in `config/` and `lang/en.py`.
+
+### Phase 10: Telemetry, Agent Benchmarking & Supply Chain (v0.1.9 - Scheduled)
 - [ ] **AI Agent Pipeline Tooling Research & Benchmark**: Research and evaluate open-source AI agent frameworks & toolkits (LangChain/LangGraph, AutoGen, CrewAI, LlamaIndex, DSPy, Haystack) to enhance multi-agent pipeline orchestration in `devops-cli`.
 - [ ] **OpenTelemetry Tracing**: Instrument CLI commands, multi-agent pipeline turns, and FastMCP tools with OpenTelemetry span tracing.
 - [ ] **Prometheus Metrics Engine**: Export operational metrics (turn latency, LLM node throughput, finding counts, cache hit ratios) to Prometheus.
 - [ ] **Grafana Telemetry Dashboards**: Pre-built Grafana dashboards for real-time monitoring of CLI workload performance and review accuracy.
 - [ ] **Jaeger Distributed Tracing**: Jaeger collector and UI integration for end-to-end trace visualization of multi-persona agentic pipelines.
-- [ ] **DevContainer Minikube K8s Integration**: Automated local Minikube K8s cluster bootstrapping within DevContainer for zero-friction telemetry stack deployment.
 - [ ] **Cosign Keyless Signature Verification**: Sigstore Cosign integration (`devops docker sign|verify`) using OS Keyring keys for container provenance and image signing.
 - [ ] **Infracost IaC FinOps Engine**: `devops iac cost` estimating cloud cost impacts on Terraform/K8s diffs to enrich `pm` and `architect` persona reviews.
 - [ ] **Checkov Static Policy Guard**: `devops ci iac-security` automated compliance policy checks across Terraform, CloudFormation, and Dockerfiles.
 - [ ] **Kyverno Admission Policy Validator**: `devops k8s validate-policy` for CLI validation of K8s Kyverno policies (`ClusterPolicy`).
 - [ ] **k6 Load & Performance Tester**: `devops test load` executing developer-centric smoke tests against K8s endpoints and LLM node endpoints.
 - [ ] **Dagger Programmable Pipeline Engine**: `devops pipeline run` for containerized, reproducible Python-driven pipeline execution.
+
 
 ---
 

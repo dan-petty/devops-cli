@@ -16,7 +16,7 @@ from devops_cli.ai.analyze.cache import _render_analysis_summary, save_analysis_
 from devops_cli.ai.analyze.outlines import analyze_single_file
 from devops_cli.ai.analyze.scanner import detect_language, sanitize_reference
 from devops_cli.config.constants import (
-    CONST_DATA_DIR,
+    CONST_ANALYSIS_DATA_DIR,
     CONST_MAX_FILE_SIZE_BYTES,
 )
 from devops_cli.core.cli import new_typer
@@ -89,7 +89,7 @@ def analyze_path(
     sanitized_ref = sanitize_reference(ref_str, repo)
     existing_file_metas: dict[str, FileAnalysisMeta] = {}
     top_root = find_top_level_repo_root(repo)
-    out_file_path = top_root / CONST_DATA_DIR / "analysis" / f"path-{sanitized_ref}-metadata.json"
+    out_file_path = top_root / CONST_ANALYSIS_DATA_DIR / f"path-{sanitized_ref}-metadata.json"
 
     if enhanced and not update_all and out_file_path.exists():
         try:
@@ -192,7 +192,7 @@ def analyze_branch(
     sanitized_ref = sanitize_reference(target_branch, repo)
     existing_file_metas: dict[str, FileAnalysisMeta] = {}
     top_root = find_top_level_repo_root(repo)
-    out_file_path = top_root / CONST_DATA_DIR / "analysis" / f"branch-{sanitized_ref}-metadata.json"
+    out_file_path = top_root / CONST_ANALYSIS_DATA_DIR / f"branch-{sanitized_ref}-metadata.json"
 
     if enhanced and not update_all and out_file_path.exists():
         try:

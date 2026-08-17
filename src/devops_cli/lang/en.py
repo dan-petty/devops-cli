@@ -173,6 +173,63 @@ class AnalyzeMessages(BaseModel):
     enhanced_enabled: str = "[green]Enabled (pseudocode, complexity, last_updated)[/green]"
 
 
+class DocsMessages(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    generating_docs: str = "Generating CLI and architecture documentation in {output_dir}..."
+    generated_file: str = "✓ Generated: {path}"
+    docs_up_to_date: str = "✓ All documentation files are up to date."
+    docs_outdated: str = (
+        "✗ Documentation is out of date: {path} has uncommitted changes or differs."
+    )
+    docs_missing: str = "✗ Missing documentation file: {path}"
+    check_failed: str = (
+        "Documentation check failed. Run 'devops docs generate' to refresh documentation."
+    )
+    synced_readme: str = "✓ Synchronized Command Matrix table in {path}"
+    unsupported_format: str = (
+        "Unsupported documentation format: {format}. Supported: markdown, json"
+    )
+
+
+class ReleaseMessages(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    status_header: str = "DevOps CLI Release Status"
+    current_version: str = "Current Version"
+    latest_tag: str = "Latest Git Tag"
+    working_tree: str = "Working Tree Clean"
+    preparing_release: str = "Preparing release version [cyan]{version}[/cyan]..."
+    updated_pyproject: str = "✓ Updated pyproject.toml to version [bold]{version}[/bold]"
+    updated_init: str = "✓ Updated src/devops_cli/__init__.py to version [bold]{version}[/bold]"
+    updated_changelog: str = (
+        "✓ Updated CHANGELOG.md with release header [bold][{version}] - {date}[/bold]"
+    )
+    invalid_version: str = (
+        "Invalid semantic version '{version}'. Expected format: X.Y.Z (e.g., 0.1.8)"
+    )
+    verification_passed: str = "✓ All release verification checks passed successfully."
+    verification_failed: str = "✗ Release verification failed: {reason}"
+    tag_created: str = "✓ Created git tag [bold]{tag}[/bold]"
+    tag_pushed: str = "✓ Pushed commit and tag [bold]{tag}[/bold] to origin"
+    notes_not_found: str = "No changelog entry found for version {version} in CHANGELOG.md"
+    dry_run_prepare: str = (
+        "[yellow][dry-run][/yellow] Would bump version to {version} and sync docs/README"
+    )
+    dry_run_tag: str = (
+        "[yellow][dry-run][/yellow] Would create git tag {tag} and commit release files"
+    )
+    creating_release_branch: str = "Creating release branch [cyan]{branch}[/cyan]..."
+    branch_created: str = "✓ Created and checked out release branch [bold]{branch}[/bold]"
+    creating_release_pr: str = "Opening release Pull Request for [cyan]v{version}[/cyan]..."
+    pr_created: str = "✓ Created Release Pull Request: [bold green]{url}[/bold green]"
+    pr_failed: str = "✗ Failed to create Release Pull Request: {error}"
+    dry_run_pr: str = (
+        "[yellow][dry-run][/yellow] Would create release branch {branch}, "
+        "commit release files, and open Pull Request for v{version}"
+    )
+
+
 class LanguageCatalog(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -187,6 +244,8 @@ class LanguageCatalog(BaseModel):
     repos: RepoMessages = RepoMessages()
     k8s: K8sMessages = K8sMessages()
     analyze: AnalyzeMessages = AnalyzeMessages()
+    docs: DocsMessages = DocsMessages()
+    release: ReleaseMessages = ReleaseMessages()
 
 
 MESSAGES = LanguageCatalog()

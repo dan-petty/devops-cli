@@ -39,7 +39,11 @@ from devops_cli.ai.review_schema import (
     SavedFinding,
     parse_review_result,
 )
-from devops_cli.config.constants import CONST_DATA_DIR, CONST_MAX_FILE_SIZE_BYTES
+from devops_cli.config.constants import (
+    CONST_DATA_DIR,
+    CONST_MAX_FILE_SIZE_BYTES,
+    CONST_REVIEWS_DATA_DIR,
+)
 from devops_cli.models.ai import FileAnalysisMeta
 
 logger = logging.getLogger(__name__)
@@ -50,7 +54,12 @@ class ReviewPipelineOrchestrator:
 
     def __init__(self, session_id: str | None = None, llm_client: LLMClient | None = None) -> None:
         self.session_id = session_id or datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
-        self.session_dir = CONST_DATA_DIR / "reviews" / self.session_id
+        base_dir = (
+            CONST_DATA_DIR / "reviews"
+            if CONST_DATA_DIR != CONST_REVIEWS_DATA_DIR.parent
+            else CONST_REVIEWS_DATA_DIR
+        )
+        self.session_dir = base_dir / self.session_id
         self.files_dir = self.session_dir / "files"
         self.session_dir.mkdir(parents=True, exist_ok=True)
         self.files_dir.mkdir(parents=True, exist_ok=True)

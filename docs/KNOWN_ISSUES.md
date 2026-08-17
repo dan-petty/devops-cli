@@ -30,6 +30,10 @@ Captures operational edge cases, intentional design trade-offs, and mitigations 
 - **Context**: `_ensure_known_host()` uses `ssh-keyscan` to automatically retrieve public SSH host keys during initial clone operations. Without pre-configured host fingerprints, initial trust-on-first-use occurs over the network.
 - **Mitigation**: Pre-populate `~/.ssh/known_hosts` with trusted host fingerprints (e.g. GitHub/GitLab public keys) on developer workstations or build images.
 
+### 7. AI Review False-Positive Detection & Invalidation Feedback Loop
+- **Context**: LLM review personas may occasionally hallucinate legacy syntax (e.g. Python 2 comma-separated exception handling), flag pre-submission secret redaction placeholders (`<masked-*>`, `[REDACTED]`, `${{ secrets.* }}`), or cite historical research/evidence notes (`evidence/`, `docs/LOG.md`) as live vulnerabilities.
+- **Mitigation**: Use `devops review verify --status INVALIDATED --reason "..."` to record verification feedback. Run `devops review export-feedback` to compile invalidation records into `.data/feedback_dataset.jsonl` for prompt benchmarking and tuning.
+
 ---
 
 ## Remediation Cost vs. Operational Impact Matrix
@@ -42,3 +46,4 @@ Captures operational edge cases, intentional design trade-offs, and mitigations 
 | **4. Optional SDK Dependencies** | Low (setup error) | Low | **Keep Env Guard**: `uv sync` ensures full SDK availability. |
 | **5. Local Workstation Design Policy** | Low (architectural trade-off) | Low | **Keep DevContainer Policy**: Workspace bounds secure file access; SSH mounts serve local model. |
 | **6. SSH Host Key Scanning (TOFU)** | Medium (network MITM on initial clone) | Low | **Pre-seed Known Hosts**: Pre-populate `known_hosts` for critical git hosts. |
+| **7. AI Review False-Positive Tuning** | Low (prompt noise on non-code assets) | Low | **Verification Feedback**: Use `devops review verify` and `export-feedback` to tune prompts. |

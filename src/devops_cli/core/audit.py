@@ -10,7 +10,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
-from devops_cli.config.constants import CONST_DATA_DIR
+from devops_cli.config.constants import CONST_AUDIT_LOG_PATH, CONST_DATA_DIR
 
 
 class AuditRecord(BaseModel):
@@ -66,7 +66,7 @@ def _resolve_audit_log_dest(log_file: Path | None) -> Path:
                 f"DEVOPS_CLI_AUDIT_LOG_DEST must be within {allowed_root}; got {candidate}"
             )
         return candidate
-    return CONST_DATA_DIR / "logs" / "audit.jsonl"
+    return CONST_AUDIT_LOG_PATH
 
 
 def stream_audit_records(destination_url: str, log_file: Path | None = None) -> int:
@@ -74,7 +74,8 @@ def stream_audit_records(destination_url: str, log_file: Path | None = None) -> 
 
     Returns streamed record count.
     """
-    dest = log_file or (CONST_DATA_DIR / "logs" / "audit.jsonl")
+    dest = log_file or CONST_AUDIT_LOG_PATH
+
     if not dest.exists():
         return 0
 

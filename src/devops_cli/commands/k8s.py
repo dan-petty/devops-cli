@@ -8,7 +8,6 @@ Functionality & Security:
 
 from __future__ import annotations
 
-import re
 import subprocess
 from pathlib import Path
 from typing import Annotated, Any
@@ -18,6 +17,7 @@ from rich import print as rprint
 from rich.console import Console
 from rich.table import Table
 
+from devops_cli.config.constants import CONST_K8S_LABEL_RE, CONST_K8S_SUBDOMAIN_RE
 from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import CommandDryRunResult, is_dry_run, render_dry_run_result
@@ -25,12 +25,12 @@ from devops_cli.dry_run import CommandDryRunResult, is_dry_run, render_dry_run_r
 app = new_typer(help="Kubernetes resource management.", no_args_is_help=True)
 console = Console()
 
-_K8S_LABEL_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
-_K8S_SUBDOMAIN_RE = re.compile(r"^[a-z0-9]([a-z0-9.\-]{0,251}[a-z0-9])?$")
+_K8S_LABEL_RE = CONST_K8S_LABEL_RE
+_K8S_SUBDOMAIN_RE = CONST_K8S_SUBDOMAIN_RE
 
 
 def _validate_k8s_identifier(value: str, label: str, *, namespace: bool = False) -> None:
-    pattern = _K8S_LABEL_RE if namespace else _K8S_SUBDOMAIN_RE
+    pattern = CONST_K8S_LABEL_RE if namespace else CONST_K8S_SUBDOMAIN_RE
     if not pattern.match(value):
         rprint(f"[red]Invalid {label}: {value!r}. Must be a valid RFC 1123 name.[/red]")
         raise typer.Exit(1)
@@ -384,9 +384,12 @@ def bootstrap(
     if not _minikube_running():
         if auto_start:
             rprint("[bold cyan]Starting minikube cluster...[/bold cyan]")
-            _run_cmd(["minikube", "start", "--driver=docker"], check=False)
+            _run_cmd(["minikube", "start", "--driver=docker", "--gpus=all"], check=False)
         else:
-            rprint("[red]minikube is not running. Start with: minikube start --driver=docker[/red]")
+            rprint(
+                "[red]minikube is not running."
+                " Start with: minikube start --driver=docker --gpus=all[/red]"
+            )
             raise typer.Exit(1)
 
     deploy_stack(k8s_dir=k8s_dir, stack=stack)

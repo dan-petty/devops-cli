@@ -42,11 +42,14 @@ from devops_cli.ai.review_schema import (
 )
 from devops_cli.config.constants import (
     CONST_AGENTS_MD_FILENAME,
+    CONST_ANALYSIS_DATA_DIR,
     CONST_DATA_DIR,
     CONST_GITIGNORE_DIRS,
+    CONST_LOGS_DATA_DIR,
     CONST_MAX_FILE_SIZE_BYTES,
     CONST_REVIEW_GENERATED_FILES,
     CONST_REVIEW_MAX_DIFF_CHARS,
+    CONST_REVIEWS_DATA_DIR,
 )
 from devops_cli.config.defaults import (
     DEFAULT_REVIEW_OVERLAP_FACTOR,
@@ -953,7 +956,7 @@ def _load_file_analysis_metas(
         repo = None
 
     top_root = find_top_level_repo_root(repo)
-    analysis_dir = top_root / CONST_DATA_DIR / "analysis"
+    analysis_dir = top_root / CONST_ANALYSIS_DATA_DIR
     if analysis_dir.exists() and repo is not None:
         for json_file in analysis_dir.glob("*.json"):
             try:
@@ -1077,8 +1080,9 @@ def _log_event(
         attempt,
         msg,
     )
-    log_dir = CONST_DATA_DIR / "logs"
+    log_dir = CONST_LOGS_DATA_DIR
     log_dir.mkdir(parents=True, exist_ok=True)
+
     ts = datetime.now().strftime("%y%m%d-%H%M%S-%f")
     filename = log_dir / f"{ts}-{event_type}-seg{segment_index}.json"
     safe_response = (
@@ -1403,11 +1407,18 @@ def _run_review(
         return _merge_segment_results(segment_results) or _fallback_join(non_empty)
 
 
+def _get_reviews_base_dir() -> Path:
+    """Return reviews directory, respecting monkeypatched CONST_DATA_DIR in test fixtures."""
+    if CONST_DATA_DIR != CONST_REVIEWS_DATA_DIR.parent:
+        return CONST_DATA_DIR / "reviews"
+    return CONST_REVIEWS_DATA_DIR
+
+
 def _review_session_dir(label: str) -> Path:
     """Create and return .data/reviews/<YYMMDD-HHMM>-<label>/ for this run."""
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     safe_label = label.replace("/", "-").replace(" ", "-")[:40]
-    session = CONST_DATA_DIR / "reviews" / f"{stamp}-{safe_label}"
+    session = _get_reviews_base_dir() / f"{stamp}-{safe_label}"
     session.mkdir(parents=True, exist_ok=True)
     return session
 
@@ -2279,7 +2290,7 @@ def pr(
 
 
 def _find_session_dir(session_arg: str | None) -> Path | None:
-    reviews_dir = CONST_DATA_DIR / "reviews"
+    reviews_dir = _get_reviews_base_dir()
     if not reviews_dir.exists():
         return None
     if session_arg:
@@ -2291,6 +2302,7 @@ def _find_session_dir(session_arg: str | None) -> Path | None:
         if matches:
             return sorted(matches)[-1]
         return None
+
     sessions = [d for d in reviews_dir.iterdir() if d.is_dir() and (d / "findings.json").exists()]
     return max(sessions, key=lambda p: p.stat().st_mtime) if sessions else None
 
@@ -2462,7 +2474,7 @@ def review_stats(
     ] = None,
 ) -> None:
     """Compute and display review accuracy statistics across saved sessions."""
-    r_dir = reviews_dir or (CONST_DATA_DIR / "reviews")
+    r_dir = reviews_dir or _get_reviews_base_dir()
     if not r_dir.exists():
         rprint("[yellow]No review directory found.[/yellow]")
         raise typer.Exit(0)
@@ -2544,7 +2556,7 @@ def export_feedback(
 
     count, out_path = export_invalidated_feedback(reviews_dir=reviews_dir, output_file=output)
     if count == 0:
-        target_dir = reviews_dir or (CONST_DATA_DIR / "reviews")
+        target_dir = reviews_dir or _get_reviews_base_dir()
         rprint(f"[yellow]No invalidated findings found to export under {target_dir}.[/yellow]")
     else:
         rprint(
@@ -2561,7 +2573,7 @@ def apply_patch(
     ] = False,
 ) -> None:
     """Apply suggested LLM code fix for a verified finding (v0.1.3)."""
-    reviews_dir = CONST_DATA_DIR / "reviews" / session
+    reviews_dir = _get_reviews_base_dir() / session
     findings_file = reviews_dir / "findings.json"
 
     if not findings_file.exists():

@@ -1,10 +1,27 @@
-# Release Notes — devops-cli v0.1.7
+# Release Notes — devops-cli v0.1.8
 
 Workstation-native DevOps CLI for managing repositories, SSH keys, Kubernetes clusters, Kustomize, ArgoCD, Grafana, Prometheus, Docker, workspace files, and multi-persona AI code reviews.
 
 ---
 
+## 🚀 Highlights of v0.1.8
+
+### 🔄 Automated Release Cycle Suite (`devops release`)
+- **Native Release Management**: Implemented `devops release status`, `devops release prepare`, `devops release check`, `devops release notes`, and `devops release tag` automating version bumping, changelog updates, docs synchronization, and pre-release quality validation.
+- **FastMCP Server Release Tools**: Added `release_status` MCP tool allowing autonomous AI agents to query version consistency, git tags, and documentation freshness directly over Model Context Protocol.
+
+### 📚 Dynamic Documentation Engine & Auto-Sync
+- **`devops docs` Engine**: Added dynamic Click/Typer introspection engine generating markdown reference manuals (`CLI_REFERENCE.md`, `MCP_TOOLS.md`, `ENV_VARS.md`) and synchronizing the `README.md` Command Matrix.
+- **Continuous Documentation Gate**: Integrated `devops docs check` directly into `devops ci run` ensuring stale documentation automatically fails CI validation.
+
+### 🏛️ System Architecture Blueprint & SRE Governance
+- **Enterprise Design Blueprint**: Published [`ARCHITECTURE.md`](../ARCHITECTURE.md) detailing multi-agent pipeline topology, FastMCP bridges, DevContainer lifecycle hooks, and SSRF security perimeters.
+- **Open-Source Governance & CI/CD**: Added standard MIT [`LICENSE`](../LICENSE), enterprise [`SECURITY.md`](../SECURITY.md), SRE [`CONTRIBUTING.md`](../CONTRIBUTING.md), and GitHub Actions CI/CD workflows (`.github/workflows/ci.yml`, `.github/workflows/release.yml`).
+
+---
+
 ## 🚀 Highlights of v0.1.7
+
 
 ### 🐍 Native DevContainer Lifecycle Engine
 - **`devops devcontainer run-lifecycle`**: Implemented type-safe, cross-platform Python lifecycle hooks (`--post-create`, `--post-start`, `--all`) replacing legacy shell scripts (`postCreate.sh`, `postStart.sh`).

@@ -4,7 +4,11 @@
 
 ollama:
   gpu:
+    # Set to true on clusters with NVIDIA Device Plugin (e.g. nvidia.com/gpu allocatable)
     enabled: false
+    type: nvidia
+    number: 1
+    nvidiaResource: "nvidia.com/gpu"
   models:
     pull: []
     run: []

@@ -8,12 +8,13 @@ from pathlib import Path
 from typing import Any
 
 from devops_cli.ai.review_schema import Finding
+from devops_cli.config.defaults import DEFAULT_TRIVY_TIMEOUT_SECONDS
 from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run.state import is_dry_run
 
 logger = logging.getLogger(__name__)
 
-CONST_TRIVY_TIMEOUT_SECONDS = 120.0
+CONST_TRIVY_TIMEOUT_SECONDS = DEFAULT_TRIVY_TIMEOUT_SECONDS
 
 
 def parse_trivy_json(data: dict[str, Any], target_path: str = "") -> list[Finding]:

@@ -48,7 +48,13 @@ _COMMAND_SPECS: Final[dict[str, tuple[str, str]]] = {
     "ai": ("devops_cli.commands.ai", "Configure and test AI providers."),
     "review": ("devops_cli.commands.review", "AI-powered code reviews using expert personas."),
     "mcp": ("devops_cli.commands.mcp", "FastMCP server for Model Context Protocol integration."),
+    "docs": ("devops_cli.commands.docs", "Generate and validate CLI and API documentation."),
+    "release": (
+        "devops_cli.commands.release",
+        "Manage release cycles, version bumping, changelogs, and release verification.",
+    ),
 }
+
 
 app = new_typer(
     name="devops",

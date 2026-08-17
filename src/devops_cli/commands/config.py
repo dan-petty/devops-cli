@@ -49,20 +49,30 @@ def _render_secret_store_error(key: str, exc: SecretStorageError) -> None:
 
 
 def _gh_auth_status() -> bool:
+    from devops_cli.config.defaults import DEFAULT_GH_AUTH_TIMEOUT_SECONDS
     from devops_cli.core.process import run_subprocess
 
     try:
-        result = run_subprocess(["gh", "auth", "status"], quiet=True, timeout=30.0)
+        result = run_subprocess(
+            ["gh", "auth", "status"],
+            quiet=True,
+            timeout=DEFAULT_GH_AUTH_TIMEOUT_SECONDS,
+        )
     except OSError, subprocess.SubprocessError:
         return False
     return result.returncode == 0
 
 
 def _gh_auth_token() -> str | None:
+    from devops_cli.config.defaults import DEFAULT_GH_AUTH_TIMEOUT_SECONDS
     from devops_cli.core.process import run_subprocess
 
     try:
-        result = run_subprocess(["gh", "auth", "token"], quiet=True, timeout=30.0)
+        result = run_subprocess(
+            ["gh", "auth", "token"],
+            quiet=True,
+            timeout=DEFAULT_GH_AUTH_TIMEOUT_SECONDS,
+        )
     except OSError, subprocess.SubprocessError:
         return None
     if result.returncode != 0:

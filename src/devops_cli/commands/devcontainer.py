@@ -22,6 +22,7 @@ from devops_cli.config.constants import (
     CONST_DEVCONTAINER_JSON_NAME,
     CONST_DEVCONTAINER_JSON_PATH,
 )
+from devops_cli.config.defaults import DEFAULT_PYTHON_VERSION
 from devops_cli.config.settings import load_settings
 from devops_cli.core.cli import new_typer, repo_label
 from devops_cli.core.process import run_subprocess
@@ -38,12 +39,12 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 def _project_python_version() -> str:
     pyproject = _PROJECT_ROOT / "pyproject.toml"
     if not pyproject.exists():
-        return "3.14"
+        return DEFAULT_PYTHON_VERSION
     with pyproject.open("rb") as file_handle:
         data = tomllib.load(file_handle)
     requires_python: str = str(data.get("project", {}).get("requires-python") or "")
     if not requires_python:
-        return "3.14"
+        return DEFAULT_PYTHON_VERSION
     match = re.search(r"^>=?\s*([\d.]+)", requires_python)
     if match:
         return match.group(1)
@@ -199,6 +200,34 @@ def _run_post_create_lifecycle(workspace_dir: Path, *, dry_run: bool = False) ->
             for addition in bashrc_additions:
                 file_handle.write(addition)
 
+    # Update ~/.zshrc
+    zshrc = Path.home() / ".zshrc"
+    zshrc_content = zshrc.read_text(encoding="utf-8") if zshrc.exists() else ""
+
+    zshrc_additions: list[str] = []
+    if f'export PATH="{workspace_dir}/.venv/bin' not in zshrc_content:
+        zshrc_additions.append(
+            "\n# ── Environment & PATH ───────────────────────────────────────────────────────\n"
+            f'export PATH="{workspace_dir}/.venv/bin:$HOME/.local/bin:$PATH"\n'
+            "export UV_MALWARE_CHECK=1\n"
+        )
+        actions.append("Added PATH variables to ~/.zshrc")
+
+    if "_DEVOPS_COMPLETE" not in zshrc_content:
+        zshrc_additions.append(
+            "\n# ── devops-cli shell completion & alias ──────────────────────────────────────\n"
+            "if command -v devops &>/dev/null; then\n"
+            '  eval "$(_DEVOPS_COMPLETE=source_zsh devops 2>/dev/null || true)"\n'
+            "  alias dot='devops'\n"
+            "fi\n"
+        )
+        actions.append("Added shell completion and dot alias to ~/.zshrc")
+
+    if zshrc_additions and not dry_run:
+        with zshrc.open("a", encoding="utf-8") as file_handle:
+            for addition in zshrc_additions:
+                file_handle.write(addition)
+
     # 2. Config directory prep
     gemini_cfg = Path.home() / ".gemini" / "config"
     if not dry_run:
@@ -291,7 +320,39 @@ def _run_post_start_lifecycle(workspace_dir: Path, *, dry_run: bool = False) -> 
     # 5. Minikube autostart & K8s deploy status evaluation
     auto_start = os.getenv("DEVOPS_MINIKUBE_AUTOSTART", "true").lower() in ("true", "1")
     if auto_start and shutil.which("minikube"):
-        actions.append("Evaluated Minikube autostart status")
+        res = run_subprocess(
+            ["minikube", "status", "--format", "{{.Host}}"],
+            check=False,
+            quiet=True,
+        )
+        is_running = res.returncode == 0 and "Running" in str(res.stdout)
+        if not is_running:
+            if not dry_run:
+                run_subprocess(
+                    ["minikube", "start", "--driver=docker", "--gpus=all"],
+                    check=False,
+                    quiet=True,
+                    timeout=300.0,
+                )
+            actions.append("Started Minikube cluster (--driver=docker --gpus=all)")
+        else:
+            actions.append("Minikube cluster is already running")
+
+    auto_deploy = os.getenv("DEVOPS_K8S_AUTO_DEPLOY", "false").lower() in ("true", "1")
+    if auto_deploy and shutil.which("minikube") and shutil.which("kubectl"):
+        stack = os.getenv("DEVOPS_K8S_STACK", "infra")
+        k8s_dir = workspace_dir / "k8s"
+        if k8s_dir.exists() and (k8s_dir / "kustomization.yaml").exists():
+            if not dry_run:
+                from devops_cli.commands.k8s import deploy_stack as k8s_deploy_stack
+
+                try:
+                    k8s_deploy_stack(k8s_dir=k8s_dir, stack=stack)
+                    actions.append(f"Auto-deployed Kubernetes stack ({stack})")
+                except Exception as exc:
+                    actions.append(f"Auto-deploy failed for stack ({stack}): {exc}")
+            else:
+                actions.append(f"Auto-deployed Kubernetes stack ({stack})")
 
     return actions
 

@@ -7,12 +7,13 @@ import logging
 from typing import Any
 
 from devops_cli.ai.review_schema import Finding
+from devops_cli.config.defaults import DEFAULT_POPEYE_TIMEOUT_SECONDS
 from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run.state import is_dry_run
 
 logger = logging.getLogger(__name__)
 
-CONST_POPEYE_TIMEOUT_SECONDS = 90.0
+CONST_POPEYE_TIMEOUT_SECONDS = DEFAULT_POPEYE_TIMEOUT_SECONDS
 
 
 def parse_popeye_json(data: dict[str, Any]) -> list[Finding]:

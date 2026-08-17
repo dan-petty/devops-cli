@@ -30,6 +30,7 @@ DEFAULT_AI_MODEL = "gemma4:26b"
 DEFAULT_OLLAMA_URLS: tuple[str, ...] = (CONST_URL_OLLAMA_LOCALHOST,)
 DEFAULT_AI_MAX_RETRIES: int = CONST_DEFAULT_AI_MAX_RETRIES
 DEFAULT_PYTHON_VERSION = "3.14"
+DEFAULT_BUNDLE_MODELS: tuple[str, ...] = ("qwen2.5-coder:7b", "llama3.1:8b")
 
 # ── Tool & Agent Defaults ─────────────────────────────────────────────────────
 DEFAULT_TOOL_READ_MAX_BYTES: int = CONST_DEFAULT_TOOL_READ_MAX_BYTES
@@ -41,6 +42,23 @@ DEFAULT_TOOL_BUFFER_CHUNK_SIZE: int = CONST_DEFAULT_TOOL_BUFFER_CHUNK_SIZE
 DEFAULT_AGENT_MAX_TURNS: int = CONST_DEFAULT_AGENT_MAX_TURNS
 DEFAULT_MCP_SERVER_PORT: int = CONST_DEFAULT_MCP_SERVER_PORT
 
+# ── Security Scanner & Scan Command Defaults ──────────────────────────────────
+DEFAULT_TRIVY_SEVERITIES = "UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL"
+DEFAULT_TRIVY_SCAN_TYPE = "fs"
+DEFAULT_TRIVY_TIMEOUT_SECONDS: float = 120.0
+DEFAULT_KUBELINTER_TIMEOUT_SECONDS: float = 60.0
+DEFAULT_POPEYE_TIMEOUT_SECONDS: float = 60.0
+DEFAULT_PLUTO_TIMEOUT_SECONDS: float = 60.0
+
+# ── FastMCP Server Tool Execution Timeouts ─────────────────────────────────────
+DEFAULT_MCP_TOOL_TIMEOUT_SECONDS: float = 300.0
+DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS: float = 60.0
+DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS: float = 30.0
+
+# ── Docker Defaults ───────────────────────────────────────────────────────────
+DEFAULT_DOCKER_TIMEOUT_SECONDS: float = 300.0
+
+# ── High Timeout Policies ─────────────────────────────────────────────────────
 # NOTE (Design Justification - AGENTS.md §4 & README.md): High default timeouts are intentional
 # to accommodate local LLM inference (CPU/GPU Ollama), corporate proxy delays, and minikube setup.
 DEFAULT_REVIEW_TIMEOUT_SECONDS: float = float(CONST_REVIEW_TIMEOUT_SECONDS)  # 1200.0s

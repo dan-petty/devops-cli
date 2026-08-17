@@ -8,7 +8,6 @@ Security & Input Validation:
 
 from __future__ import annotations
 
-import re
 import subprocess
 from pathlib import Path
 from typing import Annotated, Any
@@ -18,6 +17,7 @@ from rich import print as rprint
 from rich.console import Console
 from rich.table import Table
 
+from devops_cli.config.constants import CONST_K8S_LABEL_RE, CONST_K8S_SUBDOMAIN_RE
 from devops_cli.config.defaults import (
     DEFAULT_HTTP_LONG_TIMEOUT_SECONDS,
     DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS,
@@ -43,15 +43,14 @@ app.add_typer(rollouts_app, name="rollouts")
 cd_apps_app = new_typer(help="Manage ArgoCD applications.")
 cd_app.add_typer(cd_apps_app, name="apps")
 
-# RFC 1123 label (namespaces, simple names): lowercase alphanumeric + hyphen, max 63 chars
-_K8S_LABEL_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
-# RFC 1123 subdomain (resource names): may include dots, max 253 chars
-_K8S_SUBDOMAIN_RE = re.compile(r"^[a-z0-9]([a-z0-9.\-]{0,251}[a-z0-9])?$")
+# RFC 1123 label (namespaces, simple names) and subdomain (resource names) patterns
+_K8S_LABEL_RE = CONST_K8S_LABEL_RE
+_K8S_SUBDOMAIN_RE = CONST_K8S_SUBDOMAIN_RE
 
 
 def _validate_k8s_name(value: str, label: str, *, namespace: bool = False) -> None:
     """Raise typer.Exit if value is not a valid Kubernetes name."""
-    pattern = _K8S_LABEL_RE if namespace else _K8S_SUBDOMAIN_RE
+    pattern = CONST_K8S_LABEL_RE if namespace else CONST_K8S_SUBDOMAIN_RE
     if not pattern.match(value):
         rprint(f"[red]Invalid {label}: {value!r}. Must be a valid RFC 1123 name.[/red]")
         raise typer.Exit(1)

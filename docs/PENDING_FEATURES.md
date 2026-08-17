@@ -33,9 +33,14 @@ Tracks active feature proposals, architectural spikes, and planned functionality
 
 | Feature / Capability | Version | Description |
 |---|---|---|
+| **Automated Release Cycle Suite** | `v0.1.8` | Native `devops release` subcommands (`status`, `prepare`, `check`, `notes`, `tag`). |
+| **FastMCP Release Tools** | `v0.1.8` | `release_status` FastMCP tool for agentic version inspection. |
+| **Dynamic Documentation Engine** | `v0.1.8` | Click/Typer introspection engine with automated README Command Matrix sync. |
+| **SRE Architecture & Governance** | `v0.1.8` | `ARCHITECTURE.md`, `LICENSE`, `SECURITY.md`, and GitHub Actions CI/CD workflows. |
 | **DevContainer Lifecycle Engine** | `v0.1.7` | Native Python lifecycle commands (`devops devcontainer run-lifecycle`) replacing legacy shell scripts. |
 | **Enhanced AI Scratchpad Buffer** | `v0.1.7` | Structured `ScratchpadBuffer` maintaining multi-turn reasoning context across review stages. |
 | **Prompt Token & Latency Optimization** | `v0.1.7` | Compact JSON serialization and streamlined prompt schemas to minimize inference latency. |
+
 | **SecOps Static Security Engine** | `v0.1.6` | Integrated Aqua Trivy (`devops scan`), Red Hat Kube-linter, Derailed Popeye, and Pluto. |
 | **Minikube Endpoint Auto-Config** | `v0.1.5` | Automated NodePort detection (`devops k8s configure-urls`) updating `config.yaml`. |
 | **7-Gate CI Quality Gate** | `v0.1.5` | Sequential quality gate enforcing tests, coverage, lint, format, typecheck, audit, and security. |

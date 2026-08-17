@@ -11,6 +11,7 @@ from rich import print as rprint
 from rich.console import Console
 from rich.table import Table
 
+from devops_cli.config.defaults import DEFAULT_DOCKER_TIMEOUT_SECONDS
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import CommandDryRunResult, is_dry_run
 
@@ -23,7 +24,7 @@ def _client() -> Any:
         import docker  # type: ignore[import-untyped]
         from docker.errors import DockerException  # type: ignore[import-untyped]
 
-        return docker.from_env(timeout=300)
+        return docker.from_env(timeout=int(DEFAULT_DOCKER_TIMEOUT_SECONDS))
     except (ImportError, DockerException) as exc:
         rprint(f"[red]Cannot connect to Docker: {exc}[/red]")
         raise typer.Exit(1)

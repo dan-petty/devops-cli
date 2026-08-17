@@ -15,16 +15,17 @@ _VALIDATION_SYSTEM = (
     "Your job: verify whether each reported code finding is genuine, accurate, and unmitigated.\n"
     "Examine the provided code snippets and related file analysis metadata.\n"
     "For each finding, check:\n"
-    "1. Is the reported code present in the excerpt?\n"
-    "2. Is the issue genuine or a false positive?\n"
-    "3. Is the issue mitigated by error handling, type definitions, or related files?\n\n"
+    "1. Is the reported code present in the excerpt? If file/lines do not exist, mark false.\n"
+    "2. Is the issue genuine or a false positive (e.g. hallucinated syntax, secret placeholders)?\n"
+    "3. Is the finding on historical documentation/evidence rather than active code?\n"
+    "4. Is the issue mitigated by error handling, types, guardrails, or related files?\n\n"
     "Output MUST be a JSON array of objects with fields:\n"
     '  - "verified": boolean (true if genuine & unmitigated, false if false-positive/mitigated)\n'
     '  - "mitigated": boolean (true if a related file, pattern, or guardrail mitigates the risk)\n'
     '  - "location": string (file:lines)\n'
     '  - "severity": string (CRITICAL | HIGH | MEDIUM | LOW | INFO)\n'
     '  - "confidence_score": float from 0.0 to 1.0 (default null if unestimated)\n'
-    '  - "reason": string (brief justification)\n\n'
+    '  - "reason": string (brief justification including invalidation rationale)\n\n'
     "Output ONLY the JSON array inside a ```json ``` code block."
 )
 

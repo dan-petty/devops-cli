@@ -11,6 +11,7 @@ from rich import print as rprint
 from rich.console import Console
 from rich.table import Table
 
+from devops_cli.config.defaults import DEFAULT_TRIVY_SCAN_TYPE, DEFAULT_TRIVY_SEVERITIES
 from devops_cli.dry_run.models import CommandDryRunResult
 from devops_cli.dry_run.state import is_dry_run, set_dry_run
 from devops_cli.security.trivy import run_trivy_scan
@@ -33,11 +34,11 @@ def main(
     scan_type: Annotated[
         str,
         typer.Option("--type", "-t", help="Trivy scan mode: fs, image, iac, repo"),
-    ] = "fs",
+    ] = DEFAULT_TRIVY_SCAN_TYPE,
     severity: Annotated[
         str,
         typer.Option("--severity", "-s", help="Comma-separated severity levels to include"),
-    ] = "UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL",
+    ] = DEFAULT_TRIVY_SEVERITIES,
     dry_run: Annotated[
         bool,
         typer.Option("--dry-run", help="Simulate security scan execution."),

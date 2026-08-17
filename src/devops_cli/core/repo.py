@@ -6,34 +6,8 @@ import fnmatch
 import subprocess
 from pathlib import Path
 
-_BINARY_EXTENSIONS: set[str] = {
-    ".pyc",
-    ".pyo",
-    ".exe",
-    ".dll",
-    ".so",
-    ".dylib",
-    ".bin",
-    ".db",
-    ".sqlite",
-    ".png",
-    ".jpg",
-    ".jpeg",
-    ".gif",
-    ".ico",
-    ".woff",
-    ".woff2",
-    ".ttf",
-    ".eot",
-    ".pdf",
-    ".zip",
-    ".tar",
-    ".gz",
-    ".tgz",
-    ".7z",
-    ".rar",
-    ".log",
-}
+from devops_cli.config.constants import CONST_BINARY_EXTENSIONS
+from devops_cli.config.defaults import DEFAULT_SUBPROCESS_FAST_TIMEOUT_SECONDS
 
 
 def find_repo_root(start_path: Path | str | None = None) -> Path:
@@ -86,7 +60,7 @@ def read_gitignore_patterns(repo_root: Path) -> list[str]:
 
 def is_ignored_by_git(repo_root: Path, target_path: Path) -> bool:
     """Dynamically check if target_path is ignored by git or runtime .gitignore rules."""
-    if target_path.suffix.lower() in _BINARY_EXTENSIONS:
+    if target_path.suffix.lower() in CONST_BINARY_EXTENSIONS:
         return True
 
     rel_parts = (
@@ -109,7 +83,7 @@ def is_ignored_by_git(repo_root: Path, target_path: Path) -> bool:
                 ["git", "-C", str(repo_root), "check-ignore", "-q", "--", str(rel)],
                 capture_output=True,
                 check=False,
-                timeout=5,
+                timeout=DEFAULT_SUBPROCESS_FAST_TIMEOUT_SECONDS,
             )
             if res.returncode == 0:
                 return True
@@ -162,13 +136,19 @@ def list_repo_files(target_dir: Path) -> list[Path]:
                 rel_to_repo = resolved_target.relative_to(repo_root)
                 cmd.extend(["--", str(rel_to_repo)])
 
-            proc = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=10)
+            proc = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=DEFAULT_SUBPROCESS_FAST_TIMEOUT_SECONDS,
+            )
             files: list[Path] = []
             for line in proc.stdout.splitlines():
                 line_str = line.strip()
                 if line_str:
                     p = repo_root / line_str
-                    if p.is_file() and p.suffix.lower() not in _BINARY_EXTENSIONS:
+                    if p.is_file() and p.suffix.lower() not in CONST_BINARY_EXTENSIONS:
                         files.append(p)
             return sorted(files)
         except Exception:

@@ -12,7 +12,10 @@ from rich.console import Console
 from rich.rule import Rule
 from rich.table import Table
 
-from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
+from devops_cli.config.defaults import (
+    DEFAULT_PYTHON_VERSION,
+    DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
+)
 
 app = typer.Typer(help="Run tests, linting, formatting, and type-checks.")
 console = Console()
@@ -37,7 +40,10 @@ def _verify_python_314_environment() -> bool:
 
     if sys.version_info < (3, 14):  # noqa: UP036
         ver_str = sys.version.split()[0]
-        rprint(f"[red]Strict Python 3.14+ requirement failed. Current: {ver_str}[/red]")
+        rprint(
+            f"[red]Strict Python {DEFAULT_PYTHON_VERSION}+ requirement failed. "
+            f"Current: {ver_str}[/red]"
+        )
         return False
     return True
 
@@ -92,9 +98,22 @@ def _run_all_checks(*, lint_fix: bool, format_fix: bool) -> list[tuple[str, bool
     fmt_cmd.append(".")
     checks.append(("format", _run(fmt_cmd)))
 
-    _section("mypy (py314 strict)")
+    _section(f"mypy (py{DEFAULT_PYTHON_VERSION.replace('.', '')} strict)")
     checks.append(
-        ("typecheck", _run(["uv", "run", "mypy", "--python-version", "3.14", "--strict", "src"]))
+        (
+            "typecheck",
+            _run(
+                [
+                    "uv",
+                    "run",
+                    "mypy",
+                    "--python-version",
+                    DEFAULT_PYTHON_VERSION,
+                    "--strict",
+                    "src",
+                ]
+            ),
+        )
     )
 
     _section("uv audit")
@@ -102,6 +121,9 @@ def _run_all_checks(*, lint_fix: bool, format_fix: bool) -> list[tuple[str, bool
 
     _section("bandit security scan")
     checks.append(("security", _run(["uv", "run", "bandit", "-r", "src", "-ll", "-s", "B608"])))
+
+    _section("docs validation")
+    checks.append(("docs", _run(["uv", "run", "devops", "docs", "check"])))
 
     return checks
 
@@ -218,7 +240,17 @@ def typecheck() -> None:
     """Run mypy static type-checker strictly targeting Python 3.14 over src/."""
     if not _verify_python_314_environment():
         raise typer.Exit(1)
-    if not _run(["uv", "run", "mypy", "--python-version", "3.14", "--strict", "src"]):
+    if not _run(
+        [
+            "uv",
+            "run",
+            "mypy",
+            "--python-version",
+            DEFAULT_PYTHON_VERSION,
+            "--strict",
+            "src",
+        ]
+    ):
         raise typer.Exit(1)
 
 
@@ -246,6 +278,15 @@ def security(
     )
     cmd = ["uv", "run", "bandit", "-r", "src", level_flag, "-s", "B608"]
     if not _run(cmd):
+        raise typer.Exit(1)
+
+
+@app.command()
+def docs() -> None:
+    """Verify that documentation is up to date with CLI commands and configuration."""
+    if not _verify_python_314_environment():
+        raise typer.Exit(1)
+    if not _run(["uv", "run", "devops", "docs", "check"]):
         raise typer.Exit(1)
 
 

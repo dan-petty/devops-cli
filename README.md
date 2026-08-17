@@ -1,25 +1,41 @@
 # devops-cli — Workstation DevOps CLI & Multi-Persona AI Code Reviewer
 
+[![CI Quality Gate](https://github.com/your-org/devops-cli/actions/workflows/ci.yml/badge.svg)](.github/workflows/ci.yml)
 [![Python 3.14+](https://img.shields.io/badge/python-3.14%2B-blue.svg)](https://www.python.org/downloads/)
+[![Type Checked: Mypy Strict](https://img.shields.io/badge/mypy-strict-blue.svg)](https://mypy-lang.org/)
+[![Code Style: Ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
+[![FastMCP](https://img.shields.io/badge/FastMCP-Enabled-purple.svg)](docs/MCP_TOOLS.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![DevContainer Native](https://img.shields.io/badge/DevContainer-Native-green.svg)](.devcontainer/devcontainer.json)
 
-`devops-cli` is a workstation CLI for DevOps Engineers running inside VS Code Dev Containers. It integrates multi-repository infrastructure automation (Git, Kubernetes, Kustomize, ArgoCD, Grafana, Prometheus, Docker, SSH) with multi-persona **Agentic LLM code reviews**, OS keyring secret isolation, SSRF defenses, and human-in-the-loop finding verification.
+`devops-cli` is an enterprise-grade workstation CLI and agentic code analysis platform designed for Site Reliability Engineers and DevOps Practitioners running inside VS Code Dev Containers. It unifies multi-repository infrastructure management (Git, Kubernetes, Kustomize, ArgoCD, Grafana, Prometheus, Docker, SSH) with multi-persona **Agentic LLM code reviews**, OS Keyring secret isolation, active SSRF network guardrails, and automated release orchestration.
 
 ---
 
-## Key Capabilities
+## 🏛️ SRE Engineering Tenets & Architectural Highlights
 
-- **Multi-Persona AI Code Reviews (`devops ai review`)**: Paginated reviews across Git branches, GitHub Pull Requests, or local paths with domain-specialized AI personas (`devsecops`, `architect`, `pm`, `auditor`, `qa`).
-- **Finding Verification & Analytics**: Inspect findings (`devops ai review findings`), validate/invalidate entries (`devops ai review verify`), and compute persona accuracy metrics (`devops ai review stats`).
-- **Zero-Plaintext Secret Storage**: Sensitive tokens (`github.token`, `grafana.token`, `argocd.token`, `ai.api_key`) are stored exclusively in the OS Keyring via `keyring`.
-- **SSRF & Network Egress Safeguards**: Network targets (`validate_service_url`) block non-public IP connections unless `DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true` is explicitly set.
-- **SecOps & K8s Security Integrations (`v0.1.6`)**: Static vulnerability and secret scanning (`devops scan`), Kubernetes manifest security linter (`devops k8s lint`), cluster health sanitizer (`devops k8s audit`), and K8s deprecated API version scanner (`devops k8s check-deprecated`).
-- **Complete DevOps Automation**: Single entrypoint for managing repositories, SSH key rotation, Kubernetes clusters, ArgoCD applications, Grafana dashboards, Prometheus metrics, Docker resource pruning, workspace files, tool installation, and virtual environments.
+- 🔒 **Zero-Plaintext Secret Architecture**: Sensitive tokens (`github.token`, `grafana.token`, `argocd.token`, `ai.api_key`) are stored exclusively in the OS Keyring via Python `keyring`. Configuration files contain zero plaintext credentials.
+- 🛡️ **Active SSRF & Egress Guardrails**: Outbound API requests pass through strict IP validation (`validate_service_url`) blocking private subnets (RFC 1918), loopbacks, and cloud metadata endpoints by default.
+- 🤖 **Multi-Persona Agentic Code Review**: Paginated diff analysis across branches and PRs using specialized expert personas (`devsecops`, `architect`, `pm`, `auditor`, `qa`) backed by `ScratchpadBuffer` reasoning context and deterministic finding verification.
+- ⚙️ **Native DevContainer Lifecycle Engine**: Cross-platform Python lifecycle orchestration (`devops devcontainer run-lifecycle`) replaces legacy shell scripts for post-create and post-start hooks.
+- 🚀 **End-to-End Release Cycle Automation**: Native `devops release` subcommands suite (`status`, `prepare`, `check`, `notes`, `tag`) automating version bumping, changelogs, docs sync, and 7-gate CI validation.
+- 🔌 **FastMCP Server & Native Tool Bridge**: Over 25+ infrastructure and analysis tools exposed over Model Context Protocol for seamless integration into AI IDEs and autonomous subagents.
 
 ---
 
-## Quick Start & Dev Container Setup
+## 📚 Architectural & Governance Documentation
+
+- 📐 [**System Architecture & Technical Design (`ARCHITECTURE.md`)**](ARCHITECTURE.md) — Subsystem topologies, multi-agent sequence diagrams, and lifecycle hooks.
+- 🔄 [**Release Cycle & Versioning Guide (`RELEASE_CYCLE.md`)**](RELEASE_CYCLE.md) — Semantic versioning, quality gates, and release procedures.
+- 🛡️ [**Security Policy & Threat Model (`SECURITY.md`)**](SECURITY.md) — Vulnerability disclosure, SSRF protections, and OS Keyring encryption.
+- 🤝 [**Contributor Guidelines (`CONTRIBUTING.md`)**](CONTRIBUTING.md) — Standards, local development with `uv`, and PR workflows.
+- 📖 [**Consolidated CLI Reference (`docs/CLI_REFERENCE.md`)**](docs/CLI_REFERENCE.md) — Full subcommand reference.
+- 🌐 [**Environment Variables Guide (`docs/ENV_VARS.md`)**](docs/ENV_VARS.md) — System and environment settings.
+- ⚡ [**FastMCP Tools Specification (`docs/MCP_TOOLS.md`)**](docs/MCP_TOOLS.md) — Registered MCP tools.
+
+---
+
+## 🚀 Quick Start & Dev Container Setup
 
 ```bash
 # 1. Clone repository and open inside Dev Container
@@ -29,14 +45,14 @@ cd devops-cli
 # 2. Inside the Dev Container, sync Python 3.14 dependencies:
 uv sync
 
-# 3. Store credentials in the OS Keyring
+# 3. Store credentials securely in the OS Keyring
 devops config set github.token "ghp_your_personal_access_token"
 devops ai config --provider claude
 devops config set ai.api_key "sk-ant-..."
 
 # 4. Verify LLM connectivity and run quality gate
 devops ai test
-devops ci
+devops ci run
 ```
 
 ### Programmatic Python Usage Example
@@ -61,91 +77,124 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 
 ---
 
-## Complete Command Matrix
+## 📋 Complete Command Matrix
 
+
+<!-- COMMAND_MATRIX_START -->
 | Command Group | Subcommand / Usage | Purpose & Features |
 |---|---|---|
-| **ai** | `devops ai config --provider <p>` | Set LLM provider (`ollama`, `claude`, `copilot`, `openai`) |
-| | `devops ai test` | Verify LLM network connectivity and model list |
-| | `devops ai agents` | (Re)generate canonical `AGENTS.md` and pointer files |
-| | `devops ai review branch [<branch>]` | Review branch git diff against base using AI personas (alias: `devops review`) |
-| | `devops ai review pr <number> [--post]` | Review GitHub PR diff; optionally post summary as PR comment |
-| | `devops ai review path [<target>]` | Review local files respecting `.gitignore` exclusions |
-| | `devops ai review findings [<session>]` | Inspect structured review findings by verification status |
-| | `devops ai review verify <session> --index N` | Validate (`verified`) or invalidate (`invalidated`) finding |
-| | `devops ai review export-feedback` | Export invalidated findings into JSONL benchmark dataset for prompt tuning |
-| | `devops ai review apply-patch <session>` | Interactively stage suggested LLM code fixes (`finding.fix`) to workspace |
-| | `devops ai review stats` | View accuracy metrics and false-positive rates per persona |
-| | `devops ai pipeline [<prompt>]` | Run multi-agent Pydantic pipeline with shared DevOps & MCP tools |
-| | `devops ai bundle-models` | Package local Ollama model weight manifests for air-gapped DevContainers |
-| **config** | `devops config show` | Display current CLI configuration and active env var overrides |
-| | `devops config output` | Display specification for all 30 environment variables |
-| | `devops config auth-headless` | Load secret tokens into memory for headless DBus-less CI environments |
-| | `devops config audit-stream <dest>` | Stream stored JSON audit records to SIEM destination URL |
-| **repos** | `devops repos clone-org --org <org>` | Batch clone all repositories in a GitHub organization |
-| | `devops repos clone <url>` | Clone standalone repository into workspace |
-| | `devops repos list` | List local workspace repositories and active git branches |
-| | `devops repos sync [--all]` | Fetch and pull tracking branches across workspace repos |
-| | `devops repos status` | Display uncommitted changes and branch drift across workspace |
-| **ssh** | `devops ssh generate [--email <e>]` | Generate ED25519 keypair (`~/.ssh/id_ed25519-YYYYMMM[DD]`) |
-| | `devops ssh status` | Inspect age and rotation status of managed SSH keys |
-| | `devops ssh register` | Register SSH key and signing key with GitHub account |
-| | `devops ssh rotate` | Rotate SSH keys older than 90 days and update GitHub |
-| | `devops ssh audit` | Audit SSH key expiration dates and key file permissions |
-| **scan** | `devops scan [repo\|image\|iac] [<target>]` | Aqua Trivy static vulnerability, secret, and misconfiguration scanning |
-| **k8s** | `devops k8s deploy-stack [--stack infra\|llm\|all]` | Deploy infrastructure (ArgoCD, Prometheus, Grafana, OTEL) or LLM stack (Ollama, WebUI, Qdrant, Valkey) |
-| | `devops k8s teardown-stack [--stack infra\|llm\|all]` | Teardown Kubernetes stack and delete associated resources / namespaces |
-| | `devops k8s configure-urls [--stack infra\|llm\|all]` | Auto-detect Minikube stack NodePort URLs and update CLI configuration |
-| | `devops k8s port-forward [--stack infra\|llm\|all]` | Port-forward monitoring and LLM stack services to local host ports |
-| | `devops k8s status` | Display pod status across infrastructure namespaces |
-| | `devops k8s switch-context <ctx>` | Switch active Kubernetes context and cluster namespace |
-| | `devops k8s rbac-audit` | Audit RBAC RoleBindings and ServiceAccounts for overprivileged access |
-| | `devops k8s lint [<path>]` | Red Hat Kube-linter static security analysis for manifests & Helm charts |
-| | `devops k8s audit` | Derailed Popeye cluster health and configuration sanitizer |
-| | `devops k8s check-deprecated` | Fairwinds Pluto deprecated/removed Kubernetes API version scanner |
-| | `devops k8s pods [--namespace <ns>]` | List pod status with RFC 1123 label filtering |
-| | `devops k8s logs <pod> --container <c>` | Stream container logs safely with bounded `--tail` |
-| | `devops k8s apply -f <file>` | Apply Kubernetes manifest via `kubectl` |
-| **kustomize** | `devops kustomize build <dir>` | Build and validate Kustomize overlay manifests |
-| **argo** | `devops argo list` | List ArgoCD applications |
-| | `devops argo status --app <app>` | Check ArgoCD application health and sync status |
-| | `devops argo sync --app <app>` | Trigger ArgoCD application sync operation |
-| | `devops argo workflows list` | List active and historical Argo Workflows |
-| | `devops argo rollouts list` | List Argo Rollouts and deployment strategy status |
-| **grafana** | `devops grafana dashboards` | Search and list Grafana dashboards by tag or query |
-| | `devops grafana alerts` | List active Grafana alert rules and firing states |
-| | `devops grafana search --query <q>` | Search Grafana dashboards by query string |
-| **prometheus** | `devops prometheus query "<promql>"` | Execute PromQL instant query against Prometheus |
-| | `devops prometheus targets` | List Prometheus active scrape targets and health |
-| **docker** | `devops docker prune` | Prune dangling Docker containers, networks, and volumes |
-| | `devops docker clean` | Deep clean unused Docker images and build cache |
-| | `devops docker stats` | Display resource usage metrics for running containers |
-| **workspace** | `devops workspace generate` | Regenerate multi-root VS Code `.code-workspace` file |
-| | `devops workspace open` | Open multi-root workspace file in VS Code |
-| | `devops workspace add <dir>` | Add directory to workspace file with boundary checks |
-| | `devops workspace list` | List configured directories in active workspace file |
-| **install-tools**| `devops install-tools [tools...]` | Install verified DevOps binaries with SHA-256 checksums |
-| | `devops install-tools check` | Verify presence and versions of required CLI binaries |
-| **config** | `devops config show` | Display configuration settings with masked secret tokens |
-| | `devops config get <key>` | Get specific configuration value |
-| | `devops config set <key> <val>` | Set configuration setting or store secret in OS keyring |
-| | `devops config output [--export\|--json]`| Output environment variables available for configuration |
-| **ci** | `devops ci` | Run 7-check quality gate (test, coverage, lint, format, typecheck, audit, security) |
-| | `devops ci test\|coverage\|lint\|format\|typecheck\|audit\|security` | Execute individual CI quality checks |
-| **branches** | `devops branches list` | List local and remote tracking branches across repos |
-| | `devops branches prune` | Delete local tracking branches merged into main |
-| | `devops branches sync` | Synchronize branch state across workspace repositories |
-| **devcontainer**| `devops devcontainer init` | Scaffold `.devcontainer/` setup from Jinja2 templates |
-| | `devops devcontainer up` | Launch Dev Container environment via VS Code CLI |
-| | `devops devcontainer post-create` | Execute DevContainer post-create setup tasks (history, shell completions, config prep) |
-| | `devops devcontainer post-start` | Execute DevContainer post-start tasks (SSH key permissions, git defaults, kubeconfig, MCP sync) |
-| | `devops devcontainer run-lifecycle` | Run specified DevContainer lifecycle hook tasks natively in Python (replacing shell scripts) |
-| **uv** | `devops uv sync` | Sync Python 3.14 virtual environment dependencies |
-| | `devops uv add <pkg>` | Add dependency to `pyproject.toml` and sync |
-| | `devops uv remove <pkg>` | Remove dependency from `pyproject.toml` and sync |
-| | `devops uv python-install <ver>` | Install Python runtime version via `uv` |
-| **mcp** | `devops mcp serve [--transport stdio\|sse] [--port 8000]` | Launch FastMCP server exposing devops-cli tools to MCP clients |
-| | `devops mcp tools` | Print Rich table of all registered FastMCP tools and descriptions |
+| **repos** | `devops repos clone-org [OPTIONS] <org>` | Clone all repos from a GitHub org into repos/<org>/. |
+|  | `devops repos clone [OPTIONS] <url>` | Clone an individual repository into repos/_standalone/<name>/. |
+|  | `devops repos list [OPTIONS]` | List all cloned repositories. |
+|  | `devops repos update [OPTIONS]` | Fetch (and optionally pull) all tracking branches across repos. |
+|  | `devops repos sync [OPTIONS]` | Fetch (and optionally pull) all tracking branches across repos. |
+| **ssh** | `devops ssh generate [OPTIONS]` | Generate a new Ed25519 SSH key with today's date suffix. |
+|  | `devops ssh register [OPTIONS]` | SSH key generation, rotation, and GitHub registration. |
+|  | `devops ssh rotate [OPTIONS]` | Rotate keys older than rotation_days (default 90). |
+|  | `devops ssh list [OPTIONS]` | List all managed SSH keys with their age and rotation status. |
+|  | `devops ssh audit [OPTIONS]` | List all managed SSH keys with their age and rotation status. |
+|  | `devops ssh status [OPTIONS]` | Show the active SSH key and days until rotation. |
+| **branches** | `devops branches update [OPTIONS]` | Fetch and pull tracking branches across all repos. |
+|  | `devops branches sync [OPTIONS]` | Fetch and pull tracking branches across all repos. |
+|  | `devops branches jira [OPTIONS] <ticket_id>` | Create a feature branch for a Jira ticket: feature/PROJ-123[-slug]. |
+|  | `devops branches list [OPTIONS]` | List branches across all repos. |
+|  | `devops branches clean [OPTIONS]` | Delete local branches merged into main/master. |
+| **devcontainer** | `devops devcontainer init [OPTIONS] <repo_path>` | Scaffold .devcontainer/ in a repository using the standard template. |
+|  | `devops devcontainer update [OPTIONS] <repo_path>` | Update the Python image version in an existing devcontainer.json. |
+|  | `devops devcontainer list [OPTIONS]` | List repos with their devcontainer status. |
+|  | `devops devcontainer post-create [OPTIONS]` | Execute DevContainer post-create setup tasks (history, shell completions, config prep). |
+|  | `devops devcontainer post-start [OPTIONS]` | Execute DevContainer post-start tasks (SSH keys, git defaults, kubeconfig, MCP sync). |
+|  | `devops devcontainer run-lifecycle [OPTIONS]` | Run specified DevContainer lifecycle hook tasks natively in Python. |
+| **workspace** | `devops workspace add [OPTIONS] <repo_path>` | Add a folder to the VS Code workspace file. |
+|  | `devops workspace remove [OPTIONS] <repo_path>` | Remove a folder from the VS Code workspace file. |
+|  | `devops workspace generate [OPTIONS]` | Regenerate the workspace file from all repos in the repos directory. |
+|  | `devops workspace open [OPTIONS]` | Open the workspace in VS Code. |
+| **install-tools** | `devops install-tools status [OPTIONS]` | Show installation status and versions for all managed tools. |
+| **k8s** | `devops k8s contexts` | List kubeconfig contexts and mark the active one. |
+|  | `devops k8s switch-context <name>` | Switch active kubeconfig context. |
+|  | `devops k8s status` | Show node and pod summary for the current context. |
+|  | `devops k8s apply [OPTIONS] <path>` | Apply a Kubernetes manifest (delegates to kubectl). |
+|  | `devops k8s logs [OPTIONS] <pod>` | Stream pod logs (delegates to kubectl). |
+|  | `devops k8s bootstrap [OPTIONS]` | Bootstrap minikube Kubernetes cluster and deploy infrastructure/LLM stack. |
+|  | `devops k8s deploy-stack [OPTIONS]` | Deploy infrastructure or LLM stack (Ollama, WebUI, Qdrant, Valkey) to minikube. |
+|  | `devops k8s configure-urls [OPTIONS]` | Auto-detect Minikube stack URLs and update CLI config. |
+|  | `devops k8s port-forward [OPTIONS]` | Port-forward k8s monitoring / LLM stack services to localhost ports and update CLI config. |
+|  | `devops k8s teardown-stack [OPTIONS]` | Uninstall the k8s infrastructure / LLM stack and delete namespaces. |
+|  | `devops k8s rbac-audit [OPTIONS]` | Audit RBAC RoleBindings and ServiceAccounts for overprivileged access. |
+|  | `devops k8s lint [OPTIONS] <target>` | Validate K8s manifests and Helm charts using Red Hat Kube-linter. |
+|  | `devops k8s audit [OPTIONS]` | Sanitize active K8s/Minikube cluster resource health using Derailed Popeye. |
+|  | `devops k8s check-deprecated [OPTIONS] <target>` | Scan manifests for deprecated/removed K8s API versions using Fairwinds Pluto. |
+| **kustomize** | `devops kustomize build [OPTIONS] <path>` | Build kustomize overlays (delegates to kustomize build). |
+|  | `devops kustomize diff <path>` | Show a diff of pending changes (delegates to kubectl diff -k). |
+|  | `devops kustomize apply [OPTIONS] <path>` | Apply a kustomization (delegates to kubectl apply -k). |
+| **docker** | `devops docker images [OPTIONS]` | List local Docker images. |
+|  | `devops docker build [OPTIONS] <context>` | Build a Docker image. |
+|  | `devops docker push <image>` | Push a Docker image to a registry. |
+|  | `devops docker prune [OPTIONS]` | Remove unused containers, images, and networks. |
+| **grafana** | `devops grafana search [OPTIONS]` | Search Grafana dashboards and folders by query string. |
+|  | `devops grafana datasources` | List configured datasources. |
+|  | `devops grafana alerts` | List alert rules (Grafana 9+ unified alerting). |
+|  | `devops grafana dashboards COMMAND [ARGS]...` | Manage Grafana dashboards. |
+| **prometheus** | `devops prometheus query [OPTIONS] <expr>` | Execute an instant PromQL query. |
+|  | `devops prometheus query-range [OPTIONS] <expr>` | Execute a range PromQL query and summarise the result. |
+|  | `devops prometheus rules` | List Prometheus recording and alerting rules. |
+|  | `devops prometheus targets` | List active Prometheus scrape targets. |
+| **argo** | `devops argo cd COMMAND [ARGS]...` | ArgoCD application management. |
+|  | `devops argo workflows COMMAND [ARGS]...` | Argo Workflows management. |
+|  | `devops argo rollouts COMMAND [ARGS]...` | Argo Rollouts management. |
+| **config** | `devops config show` | Print all configuration values, masking secrets. |
+|  | `devops config get <key>` | Print a single configuration value. |
+|  | `devops config set <key> <value>` | Set a configuration value. Tokens are stored in the OS keyring. |
+|  | `devops config init` | Interactive first-time setup wizard. |
+|  | `devops config env-vars [OPTIONS]` | Output environment variables available for devops-cli configuration. |
+|  | `devops config env [OPTIONS]` | Output environment variables available for devops-cli configuration. |
+|  | `devops config output [OPTIONS]` | Output environment variables available for devops-cli configuration. |
+|  | `devops config auth-headless <key> <token>` | Load secret tokens into ephemeral memory for headless CI environments lacking DBus. |
+|  | `devops config audit-stream <destination>` | Stream stored audit records to SIEM destination URL. |
+| **ci** | `devops ci test [OPTIONS]` | Run the pytest test suite in parallel leveraging all CPU cores. |
+|  | `devops ci coverage [OPTIONS]` | Run pytest with parallel code coverage analysis over src/. |
+|  | `devops ci lint [OPTIONS]` | Run ruff linter strictly targeting Python 3.14 across the project. |
+|  | `devops ci format [OPTIONS]` | Check (or apply) code formatting with ruff format targeting Python 3.14. |
+|  | `devops ci typecheck` | Run mypy static type-checker strictly targeting Python 3.14 over src/. |
+|  | `devops ci audit` | Run uv audit to check for known package vulnerabilities. |
+|  | `devops ci security [OPTIONS]` | Run bandit static security vulnerability analysis over src/. |
+|  | `devops ci docs` | Verify that documentation is up to date with CLI commands and configuration. |
+|  | `devops ci run [OPTIONS]` | Run full CI and return a single pass/fail status. |
+| **uv** | `devops uv sync [OPTIONS]` | Sync project dependencies into the virtual environment. |
+|  | `devops uv lock [OPTIONS]` | Regenerate the uv lockfile. |
+|  | `devops uv python-install [OPTIONS]` | Install project Python version with uv. |
+|  | `devops uv run` | Run an arbitrary command using `uv run`. |
+| **scan** | `devops scan [OPTIONS] <target>` | Security, vulnerability, secret, and IaC scanner via Aqua Trivy. |
+| **ai** | `devops ai config [OPTIONS]` | Show or update AI provider configuration. |
+|  | `devops ai models` | List available models for the configured provider. |
+|  | `devops ai preload` | Preload configured model into VRAM across all configured Ollama servers. |
+|  | `devops ai test [OPTIONS]` | Send a test prompt to verify AI provider connectivity. |
+|  | `devops ai agents [OPTIONS]` | Generate LLM/Agent instruction files (AGENTS.md, CLAUDE.md, copilot-instructions.md). |
+|  | `devops ai chat [OPTIONS]` | Start an interactive chat with a Pydantic AI persona (tools, thinking, streaming). |
+|  | `devops ai bundle-models [OPTIONS]` | Bundle Ollama model metadata into tarball for air-gapped DevContainers. |
+|  | `devops ai pipeline [OPTIONS] <prompt>` | Run a multi-agent Pydantic pipeline with shared DevOps tools. |
+|  | `devops ai review COMMAND [ARGS]...` | AI-powered code reviews using expert personas (devsecops, architect, pm, auditor, qa). |
+|  | `devops ai analyze COMMAND [ARGS]...` | Analyze codebase metadata and create/update .data/analysis/*-metadata.json files. |
+| **review** | `devops review path [OPTIONS] <target>` | Review source files directly (no git required). |
+|  | `devops review branch [OPTIONS] <branch_name>` | Review a git branch diff with one or all AI personas. |
+|  | `devops review pr [OPTIONS] <number>` | Review a GitHub pull request with one or all AI personas. |
+|  | `devops review findings [OPTIONS]` | Inspect structured findings for a review session. |
+|  | `devops review verify [OPTIONS] <session>` | Validate or invalidate a review finding, persisting feedback reasons. |
+|  | `devops review stats [OPTIONS]` | Compute and display review accuracy statistics across saved sessions. |
+|  | `devops review export-feedback [OPTIONS]` | Export invalidated review findings into a JSONL benchmark dataset for prompt tuning. |
+|  | `devops review apply-patch [OPTIONS] <session>` | Apply suggested LLM code fix for a verified finding (v0.1.3). |
+| **mcp** | `devops mcp serve [OPTIONS]` | Launch FastMCP server to expose devops-cli tools to MCP clients. |
+|  | `devops mcp tools` | List all registered FastMCP tools and descriptions. |
+| **docs** | `devops docs generate [OPTIONS]` | Generate comprehensive Markdown or JSON documentation for all CLI commands and tools. |
+|  | `devops docs check [OPTIONS]` | Check that generated documentation and README.md are up to date with codebase. |
+|  | `devops docs sync-readme [OPTIONS]` | Synchronize the Complete Command Matrix table in README.md with live CLI commands. |
+| **release** | `devops release status [OPTIONS]` | Display current release status, versions, tags, changelog, and docs state. |
+|  | `devops release prepare [OPTIONS] <version>` | Bump version across pyproject.toml and source, update changelog, and sync docs. |
+|  | `devops release pr [OPTIONS]` | Create release branch, commit version bumps, and open a GitHub Release Pull Request. |
+|  | `devops release check [OPTIONS]` | Verify release readiness (version consistency, docs freshness, and CI quality gates). |
+|  | `devops release notes [OPTIONS]` | Print markdown release notes for a specified or current release version. |
+|  | `devops release tag [OPTIONS]` | Create release commit and annotated git tag. |
+<!-- COMMAND_MATRIX_END -->
 
 ---
 

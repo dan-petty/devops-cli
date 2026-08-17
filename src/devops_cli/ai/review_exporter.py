@@ -8,7 +8,10 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
-from devops_cli.config.constants import CONST_DATA_DIR
+from devops_cli.config.constants import (
+    CONST_FEEDBACK_DATASET_PATH,
+    CONST_REVIEWS_DATA_DIR,
+)
 
 
 class FeedbackRecord(BaseModel):
@@ -33,8 +36,8 @@ def export_invalidated_feedback(
 
     Returns (count, output_path).
     """
-    r_dir = reviews_dir or (CONST_DATA_DIR / "reviews")
-    out_path = output_file or (CONST_DATA_DIR / "feedback_dataset.jsonl")
+    r_dir = reviews_dir or CONST_REVIEWS_DATA_DIR
+    out_path = output_file or CONST_FEEDBACK_DATASET_PATH
 
     if not r_dir.exists():
         return 0, out_path

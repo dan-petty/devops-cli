@@ -11,6 +11,7 @@ from rich import print as rprint
 from rich.console import Console
 from rich.table import Table
 
+from devops_cli.config.constants import CONST_SSH_GRACE_DAYS
 from devops_cli.core.cli import new_typer
 
 app = new_typer(
@@ -18,8 +19,6 @@ app = new_typer(
     no_args_is_help=True,
 )
 console = Console()
-
-_GRACE_DAYS = 7
 
 
 def _date_suffix() -> str:
@@ -203,8 +202,8 @@ def rotate(
         rprint("[yellow]Cleaned up un-registered key files. Fix auth and re-run rotation.[/yellow]")
 
     rprint(
-        f"\n[dim]Old key {newest.name} remains active for {_GRACE_DAYS} grace days. "
-        f"Delete manually when ready: rm {newest} {newest}.pub[/dim]"
+        f"\n[dim]Old key {newest.name} remains active for {CONST_SSH_GRACE_DAYS} grace days. "
+        "Remove manually from GitHub when ready.[/dim]"
     )
 
 
@@ -244,8 +243,9 @@ def list_keys(
 
     for key in keys:
         age = key.age_days if key.age_days is not None else 0
-        if age > rotation_days + _GRACE_DAYS:
+        if age > rotation_days + CONST_SSH_GRACE_DAYS:
             status_text = "[red]overdue for deletion[/red]"
+
         elif age > rotation_days:
             status_text = "[yellow]grace period[/yellow]"
         elif age > rotation_days - 7:

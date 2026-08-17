@@ -52,17 +52,21 @@ The project follows a modular, command-driven architecture.
 | **Unit Testing** | `devops ci test` / `pytest` | Executes the full test suite. |
 | **Code Coverage** | `devops ci coverage [--html]` | Measures test coverage (`pytest-cov`). |
 | **Security Scan** | `devops ci security` | Static security scanner (`bandit`). |
-| **CI Quality Gate** | `devops ci` | Executes local quality gate (test, coverage, lint, format, typecheck, audit, security). |
+| **Docs Check** | `devops ci docs` / `devops docs check` | Validates freshness of docs & README matrix. |
+| **Docs Generate** | `devops docs generate --sync-readme` | Introspects CLI & syncs all markdown docs. |
+| **CI Quality Gate** | `devops ci` | Executes local quality gate (test, coverage, lint, format, typecheck, docs, audit, security). |
 
-### Code Conventions
+### Code Conventions & Documentation Standards
 - **Style**: PEP 8 compliant; Line length strictly **100 characters** (per `ruff` config).
 - **Typing**: Mandatory type hints for all function signatures. `mypy --strict` is the standard.
 - **Imports**: Grouped and sorted via `ruff`. No unused imports.
 - **Config & Literal Centralization**: Strictly observe project standards and maintain user-facing strings, system prompts, error messages, and configuration constants in central config/language modules (e.g., `config/` and `lang.py`) rather than scattering hardcoded inline literals throughout implementation code.
+- **Documentation Standards & Practices**: All CLI subcommands, parameters, options, flags, and environment variables MUST be documented. Never manually edit the Command Matrix in `README.md` or command reference pages in `docs/` with handwritten ad-hoc changes; always use `devops docs generate --sync-readme` and verify with `devops docs check`. Document changes in `CHANGELOG.md` following [Keep a Changelog](https://keepachangelog.com/). Follow [`RELEASE_CYCLE.md`](./RELEASE_CYCLE.md) for feature lifecycle and release orchestration.
 - **Test Mocking Policy**: All automated unit tests MUST use mocking (`unittest.mock`, `patch.object`, or dummy mock clients) rather than making live network calls to external AI/LLM providers or local servers.
 - **No Real Config/Secret Duplication in Tests**: Never duplicate or hardcode real user configuration values, local hostnames/IPs, or API credentials into test data fixtures. Use generic mock placeholders (`http://node1.example.test`).
 - **Error Handling**: All network requests (`httpx`) and subprocess calls must implement explicit timeouts (e.g., 30s) and robust error handling/retries.
 - **Documentation**: Use docstrings for all public functions in `src/devops_cli/`.
+
 
 ## 5. AI Feature Commands & Personas
 
