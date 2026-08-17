@@ -1,0 +1,84 @@
+# devops-cli project configuration template
+#
+# Copy this file to config.yaml to activate project-level overrides.
+#   cp config.example.yaml config.yaml
+#
+# Load order (last wins):
+#   1. ~/.config/devops-cli/config.yaml  — user-global settings
+#   2. config.yaml                       — this file, project-specific overrides
+#   3. Environment variables             — DEVOPS_CLI_* vars override both files
+#
+# Secrets (tokens, API keys) are NEVER stored here.
+# Set them via the keyring: devops config set <key> <value>
+
+# ── GitHub ────────────────────────────────────────────────────────────────────
+github:
+  # Default GitHub organisation used by `devops repos clone-org` when no org is given.
+  default_org: null
+
+# ── SSH key management ────────────────────────────────────────────────────────
+ssh:
+  # Directory where managed Ed25519 keys are stored (id_ed25519-YYYYMMMDD pattern).
+  key_dir: ~/.ssh
+  # Days after which a key is considered stale and rotation is suggested.
+  rotation_days: 90
+
+# ── Repository management ─────────────────────────────────────────────────────
+repos:
+  # Root directory for all cloned repositories (relative to project root).
+  base_dir: repos
+
+# ── VS Code workspace ─────────────────────────────────────────────────────────
+workspace:
+  # Path to the .code-workspace file managed by `devops workspace`.
+  file: .code-workspace
+
+# ── Grafana ───────────────────────────────────────────────────────────────────
+grafana:
+  # Grafana instance base URL.
+  # Example: https://grafana.example.com
+  url: null
+  # Token: devops config set grafana.token <value>
+
+# ── Prometheus ────────────────────────────────────────────────────────────────
+prometheus:
+  # Prometheus base URL.
+  # Example: https://prometheus.example.com
+  # Note: set DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true for cluster-internal URLs.
+  url: null
+
+# ── ArgoCD ────────────────────────────────────────────────────────────────────
+argocd:
+  # ArgoCD server base URL.
+  # Example: https://argocd.example.com
+  # Note: set DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true for cluster-internal URLs.
+  url: null
+  # Token: devops config set argocd.token <value>
+
+# ── AI / LLM ─────────────────────────────────────────────────────────────────
+ai:
+  # Provider to use for AI-powered commands (devops review, devops ai).
+  # Options: ollama | claude | copilot | openai
+  provider: ollama
+
+  # Model name for the selected provider.
+  # Ollama examples:  gemma4:26b, qwen2.5-coder:7b, qwen3.5:9b
+  # Claude examples:  claude-opus-4-5, claude-sonnet-4-5
+  # Copilot/OpenAI:   gpt-4o, gpt-4o-mini
+  model: gemma4:26b
+
+  # Ollama server URLs (list or comma-separated string).
+  # AI request loops automatically failover across configured servers if one is unreachable.
+  # Use DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true for remote/private IP hosts.
+  ollama_urls:
+    - http://localhost:11434
+
+  # Custom base URL for claude/openai-compatible providers (leave null for defaults).
+  api_base_url: null
+
+  # Allow connections to private/loopback/RFC-1918 addresses for AI, ArgoCD, and Grafana.
+  # Required when Ollama or cluster services run on a private network (e.g. 192.168.x.x).
+  # Equivalent to setting DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true in the environment.
+  allow_private_network: false
+
+  # API key: devops config set ai.api_key <value>

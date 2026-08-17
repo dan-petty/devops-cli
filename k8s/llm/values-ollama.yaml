@@ -1,0 +1,32 @@
+# Ollama Helm values — minimal dev-mode configuration for minikube.
+# Chart: ollama/ollama
+# Repo:  https://otwld.github.io/ollama-helm/
+
+ollama:
+  gpu:
+    # Set to true on clusters with NVIDIA Device Plugin (e.g. nvidia.com/gpu allocatable)
+    enabled: false
+    type: nvidia
+    number: 1
+    nvidiaResource: "nvidia.com/gpu"
+  models:
+    pull: []
+    run: []
+
+service:
+  type: NodePort
+  port: 11434
+
+persistentVolume:
+  enabled: true
+  size: 10Gi
+  accessModes:
+    - ReadWriteOnce
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    cpu: 2000m
+    memory: 4Gi

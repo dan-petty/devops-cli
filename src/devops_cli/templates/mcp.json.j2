@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "{{ project_name }}": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--with",
+        "fastmcp",
+        "devops",
+        "mcp",
+        "serve",
+        "--transport",
+        "stdio"
+      ],
+      "cwd": "${workspaceFolder}"
+    }
+  }
+}

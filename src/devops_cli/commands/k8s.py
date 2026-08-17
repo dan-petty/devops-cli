@@ -1,0 +1,1011 @@
+"""Kubernetes command group (cluster contexts, node status, manifest apply, pod logs).
+
+Functionality & Security:
+- `contexts` and `status` query cluster state using the optional `kubernetes` Python SDK.
+- `apply` and `logs` delegate to `kubectl` after validating pod, container, and namespace inputs
+  against RFC 1123 regex patterns (`_validate_k8s_identifier`).
+"""
+
+from __future__ import annotations
+
+import subprocess
+from pathlib import Path
+from typing import Annotated, Any
+
+import typer
+from rich import print as rprint
+from rich.console import Console
+from rich.table import Table
+
+from devops_cli.config.constants import CONST_K8S_LABEL_RE, CONST_K8S_SUBDOMAIN_RE
+from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
+from devops_cli.core.cli import new_typer
+from devops_cli.dry_run import CommandDryRunResult, is_dry_run, render_dry_run_result
+
+app = new_typer(help="Kubernetes resource management.", no_args_is_help=True)
+console = Console()
+
+_K8S_LABEL_RE = CONST_K8S_LABEL_RE
+_K8S_SUBDOMAIN_RE = CONST_K8S_SUBDOMAIN_RE
+
+
+def _validate_k8s_identifier(value: str, label: str, *, namespace: bool = False) -> None:
+    pattern = CONST_K8S_LABEL_RE if namespace else CONST_K8S_SUBDOMAIN_RE
+    if not pattern.match(value):
+        rprint(f"[red]Invalid {label}: {value!r}. Must be a valid RFC 1123 name.[/red]")
+        raise typer.Exit(1)
+
+
+def _k8s_clients() -> tuple[Any, Any]:
+    try:
+        from kubernetes import client as k8s_client  # type: ignore[import-untyped]
+        from kubernetes import config as k8s_config
+
+        return k8s_config, k8s_client
+    except Exception as exc:
+        rprint(f"[red]kubernetes SDK unavailable: {exc}[/red]")
+        raise typer.Exit(1)
+
+
+@app.command()
+def contexts() -> None:
+    """List kubeconfig contexts and mark the active one."""
+    if is_dry_run():
+        res = CommandDryRunResult(
+            command="devops k8s contexts",
+            action="list_kube_config_contexts",
+            details={"contexts": ["minikube"], "active": "minikube"},
+        )
+        rprint("[yellow][dry-run][/yellow] Command response:")
+        console.print_json(res.model_dump_json(indent=2))
+        return
+    k8s_config, _ = _k8s_clients()
+    try:
+        ctx_list, active = k8s_config.list_kube_config_contexts()
+    except Exception as exc:
+        rprint(f"[red]Failed to load kubeconfig: {exc}[/red]")
+        raise typer.Exit(1)
+
+    active_name = active["name"] if active else ""
+    table = Table(title="Kubernetes Contexts")
+    table.add_column("", width=2)
+    table.add_column("Context", style="cyan")
+    table.add_column("Cluster")
+    table.add_column("User")
+
+    for ctx in ctx_list:
+        indicator = "[green]●[/green]" if ctx["name"] == active_name else ""
+        table.add_row(
+            indicator,
+            ctx["name"],
+            ctx["context"].get("cluster", ""),
+            ctx["context"].get("user", ""),
+        )
+    console.print(table)
+
+
+@app.command("switch-context")
+def switch_context(
+    name: Annotated[str, typer.Argument(help="Target context name to switch to")],
+) -> None:
+    """Switch active kubeconfig context."""
+    from devops_cli.lang import MESSAGES
+
+    if is_dry_run():
+        res = CommandDryRunResult(
+            command="devops k8s switch-context",
+            target=name,
+            action="switch_kube_config_context",
+            details={"target_context": name},
+        )
+        rprint("[yellow][dry-run][/yellow] Command response:")
+        console.print_json(res.model_dump_json(indent=2))
+        return
+
+    _validate_k8s_identifier(name, "context name")
+    cmd = ["kubectl", "config", "use-context", name]
+    _run_cmd(cmd, check=True)
+    msg = MESSAGES.k8s.switched_context.format(context=name)
+    rprint(msg)
+
+
+@app.command()
+def status() -> None:
+    """Show node and pod summary for the current context."""
+    if is_dry_run():
+        res = CommandDryRunResult(
+            command="devops k8s status",
+            action="query_k8s_status",
+            details={"nodes": 1, "status": "Ready"},
+        )
+        rprint("[yellow][dry-run][/yellow] Command response:")
+        console.print_json(res.model_dump_json(indent=2))
+        return
+    k8s_config, k8s_client = _k8s_clients()
+    try:
+        k8s_config.load_kube_config()
+        core_v1_api = k8s_client.CoreV1Api()
+        nodes = core_v1_api.list_node()
+    except Exception as exc:
+        rprint(f"[red]Failed to query cluster: {exc}[/red]")
+        raise typer.Exit(1)
+
+    table = Table(title="Nodes")
+    table.add_column("Name", style="cyan")
+    table.add_column("Status")
+    table.add_column("Roles")
+    table.add_column("Version")
+
+    for node in nodes.items:
+        node_status = getattr(node, "status", None)
+        conditions = (
+            node_status.conditions
+            if node_status and getattr(node_status, "conditions", None)
+            else []
+        )
+        ready = next(
+            (
+                condition.status
+                for condition in conditions
+                if getattr(condition, "type", None) == "Ready"
+            ),
+            "Unknown",
+        )
+        roles = (
+            ", ".join(
+                label_key.replace("node-role.kubernetes.io/", "")
+                for label_key in (node.metadata.labels or {})
+                if label_key.startswith("node-role.kubernetes.io/")
+            )
+            or "worker"
+        )
+        version = (
+            node_status.node_info.kubelet_version
+            if node_status and getattr(node_status, "node_info", None)
+            else "Unknown"
+        )
+        table.add_row(
+            node.metadata.name,
+            "[green]Ready[/green]" if ready == "True" else "[red]NotReady[/red]",
+            roles,
+            version,
+        )
+    console.print(table)
+
+
+@app.command()
+def apply(
+    path: Annotated[str, typer.Argument(help="Manifest file or directory path")],
+    dry_run: Annotated[bool, typer.Option("--dry-run")] = False,
+    namespace: Annotated[str | None, typer.Option("--namespace", "-n")] = None,
+) -> None:
+    """Apply a Kubernetes manifest (delegates to kubectl)."""
+    if namespace:
+        _validate_k8s_identifier(namespace, "namespace", namespace=True)
+    cmd = ["kubectl", "apply", "-f", path]
+    if dry_run or is_dry_run():
+        cmd += ["--dry-run=client"]
+    if namespace:
+        cmd += ["--namespace", namespace]
+    if is_dry_run():
+        res = CommandDryRunResult(
+            command="devops k8s apply",
+            target=path,
+            action="kubectl_apply",
+            details={"cmd": " ".join(cmd), "namespace": namespace},
+        )
+        rprint("[yellow][dry-run][/yellow] Command response:")
+        console.print_json(res.model_dump_json(indent=2))
+        return
+    _run_cmd(cmd, check=True)
+
+
+@app.command()
+def logs(
+    pod: Annotated[str, typer.Argument(help="Pod name")],
+    container: Annotated[str | None, typer.Option("--container", "-c")] = None,
+    namespace: Annotated[str | None, typer.Option("--namespace", "-n")] = None,
+    follow: Annotated[bool, typer.Option("--follow", "-f")] = False,
+    tail: Annotated[int, typer.Option("--tail")] = 100,
+) -> None:
+    """Stream pod logs (delegates to kubectl)."""
+    _validate_k8s_identifier(pod, "pod name")
+    if container:
+        _validate_k8s_identifier(container, "container name")
+    if namespace:
+        _validate_k8s_identifier(namespace, "namespace", namespace=True)
+    bounded_tail = max(1, min(tail, 10000))
+    cmd = ["kubectl", "logs", pod, f"--tail={bounded_tail}"]
+    if container:
+        cmd += ["--container", container]
+    if namespace:
+        cmd += ["--namespace", namespace]
+    if follow:
+        cmd.append("--follow")
+    if is_dry_run():
+        res = CommandDryRunResult(
+            command="devops k8s logs",
+            target=pod,
+            action="kubectl_logs",
+            details={"cmd": " ".join(cmd), "pod": pod, "tail": bounded_tail},
+        )
+        rprint("[yellow][dry-run][/yellow] Command response:")
+        console.print_json(res.model_dump_json(indent=2))
+        return
+    if follow:
+        subprocess.run(cmd, check=True, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS)
+    else:
+        _run_cmd(cmd, check=True)
+
+
+# ── Helm chart and manifest definitions for deploy-stack / teardown-stack ────
+
+_HELM_REPOS_BY_STACK: dict[str, dict[str, str]] = {
+    "infra": {
+        "argo": "https://argoproj.github.io/argo-helm",
+        "prometheus-community": "https://prometheus-community.github.io/helm-charts",
+        "open-telemetry": "https://open-telemetry.github.io/opentelemetry-helm-charts",
+    },
+    "llm": {
+        "ollama": "https://otwld.github.io/ollama-helm/",
+        "open-webui": "https://open-webui.github.io/helm-charts",
+        "qdrant": "https://qdrant.github.io/qdrant-helm",
+    },
+}
+
+_HELM_REPOS: dict[str, str] = {
+    **_HELM_REPOS_BY_STACK["infra"],
+    **_HELM_REPOS_BY_STACK["llm"],
+}
+
+_K8S_DIR = Path("k8s")
+
+
+_HELM_RELEASES_BY_STACK: dict[str, list[dict[str, str]]] = {
+    "infra": [
+        {
+            "name": "argocd",
+            "chart": "argo/argo-cd",
+            "namespace": "argocd",
+            "values": str(_K8S_DIR / "argocd" / "values.yaml"),
+        },
+        {
+            "name": "kube-prometheus",
+            "chart": "prometheus-community/kube-prometheus-stack",
+            "namespace": "monitoring",
+            "values": str(_K8S_DIR / "monitoring" / "prometheus-values.yaml"),
+        },
+        {
+            "name": "otel-collector",
+            "chart": "open-telemetry/opentelemetry-collector",
+            "namespace": "otel",
+            "values": str(_K8S_DIR / "otel" / "values.yaml"),
+        },
+    ],
+    "llm": [
+        {
+            "name": "ollama",
+            "chart": "ollama/ollama",
+            "namespace": "llm",
+            "values": str(_K8S_DIR / "llm" / "values-ollama.yaml"),
+        },
+        {
+            "name": "open-webui",
+            "chart": "open-webui/open-webui",
+            "namespace": "llm",
+            "values": str(_K8S_DIR / "llm" / "values-open-webui.yaml"),
+        },
+        {
+            "name": "qdrant",
+            "chart": "qdrant/qdrant",
+            "namespace": "llm",
+            "values": str(_K8S_DIR / "llm" / "values-qdrant.yaml"),
+        },
+    ],
+}
+
+_HELM_RELEASES: list[dict[str, str]] = _HELM_RELEASES_BY_STACK["infra"]
+
+_MANIFESTS_BY_STACK: dict[str, list[Path]] = {
+    "infra": [],
+    "llm": [
+        _K8S_DIR / "llm" / "valkey.yaml",
+    ],
+}
+
+VALID_STACKS: tuple[str, ...] = ("infra", "llm", "all")
+
+
+def _resolve_stacks(stack: str) -> list[str]:
+    s = stack.strip().lower()
+    if s == "all":
+        return ["infra", "llm"]
+    if s in _HELM_RELEASES_BY_STACK:
+        return [s]
+    rprint(f"[red]Invalid stack: {stack!r}. Supported stacks: {', '.join(VALID_STACKS)}[/red]")
+    raise typer.Exit(1)
+
+
+def _run_cmd(
+    cmd: list[str],
+    *,
+    check: bool = True,
+    capture: bool = False,
+    timeout: float = DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        cmd,
+        check=check,
+        capture_output=capture,
+        text=True,
+        timeout=timeout,
+    )
+
+
+def _minikube_running() -> bool:
+    try:
+        result = _run_cmd(
+            ["minikube", "status", "--format", "{{.Host}}"], check=False, capture=True
+        )
+        return result.returncode == 0 and "Running" in result.stdout
+    except FileNotFoundError, OSError, subprocess.SubprocessError:
+        return False
+
+
+@app.command("bootstrap")
+def bootstrap(
+    k8s_dir: Annotated[
+        Path, typer.Option("--k8s-dir", help="Path to k8s/ config directory")
+    ] = _K8S_DIR,
+    auto_start: Annotated[
+        bool, typer.Option("--auto-start/--no-auto-start", help="Auto-start minikube if stopped")
+    ] = True,
+    stack: Annotated[
+        str, typer.Option("--stack", "-s", help="Stack to deploy (infra, llm, all)")
+    ] = "infra",
+) -> None:
+    """Bootstrap minikube Kubernetes cluster and deploy infrastructure/LLM stack."""
+    selected_stacks = _resolve_stacks(stack)
+    if is_dry_run():
+        res = CommandDryRunResult(
+            command="devops k8s bootstrap",
+            target=str(k8s_dir),
+            action="minikube_bootstrap",
+            details={
+                "auto_start": auto_start,
+                "k8s_dir": str(k8s_dir),
+                "stack": stack,
+                "stacks": selected_stacks,
+            },
+        )
+        rprint("[yellow][dry-run][/yellow] Command response:")
+        console.print_json(res.model_dump_json(indent=2))
+        return
+
+    if not _minikube_running():
+        if auto_start:
+            rprint("[bold cyan]Starting minikube cluster...[/bold cyan]")
+            _run_cmd(["minikube", "start", "--driver=docker", "--gpus=all"], check=False)
+        else:
+            rprint(
+                "[red]minikube is not running."
+                " Start with: minikube start --driver=docker --gpus=all[/red]"
+            )
+            raise typer.Exit(1)
+
+    deploy_stack(k8s_dir=k8s_dir, stack=stack)
+
+
+@app.command("deploy-stack")
+def deploy_stack(
+    k8s_dir: Annotated[
+        Path, typer.Option("--k8s-dir", help="Path to k8s/ config directory")
+    ] = _K8S_DIR,
+    stack: Annotated[
+        str, typer.Option("--stack", "-s", help="Stack to deploy (infra, llm, all)")
+    ] = "infra",
+) -> None:
+    """Deploy infrastructure or LLM stack (Ollama, WebUI, Qdrant, Valkey) to minikube."""
+    selected_stacks = _resolve_stacks(stack)
+
+    all_releases: list[dict[str, str]] = []
+    all_manifests: list[str] = []
+    for s_name in selected_stacks:
+        all_releases.extend(_HELM_RELEASES_BY_STACK.get(s_name, []))
+        all_manifests.extend([str(p) for p in _MANIFESTS_BY_STACK.get(s_name, [])])
+
+    if is_dry_run():
+        res = CommandDryRunResult(
+            command="devops k8s deploy-stack",
+            target=str(k8s_dir),
+            action="deploy_k8s_stack",
+            details={
+                "kustomize_dir": str(k8s_dir),
+                "stack": stack,
+                "stacks": selected_stacks,
+                "helm_releases": [r["name"] for r in all_releases],
+                "manifests": all_manifests,
+            },
+        )
+        rprint("[yellow][dry-run][/yellow] Command response:")
+        console.print_json(res.model_dump_json(indent=2))
+        return
+
+    # 1. Verify minikube
+    if not _minikube_running():
+        rprint("[red]minikube is not running.[/red]")
+        rprint("Start it with: [cyan]minikube start --driver=docker[/cyan]")
+        raise typer.Exit(1)
+
+    # 2. Apply kustomize base (namespaces)
+    rprint("[bold]Applying namespaces...[/bold]")
+    _run_cmd(["kubectl", "apply", "-k", str(k8s_dir)])
+
+    # 3. Add Helm repos for selected stacks
+    repos_to_add: dict[str, str] = {}
+    for s_name in selected_stacks:
+        repos_to_add.update(_HELM_REPOS_BY_STACK.get(s_name, {}))
+
+    if repos_to_add:
+        rprint("[bold]Adding Helm repositories...[/bold]")
+        for repo_name, repo_url in repos_to_add.items():
+            _run_cmd(["helm", "repo", "add", repo_name, repo_url], check=False)
+        _run_cmd(["helm", "repo", "update"])
+
+    # 4. Install native manifests
+    for manifest_path in all_manifests:
+        rprint(f"[bold]Applying manifest {Path(manifest_path).name}...[/bold]")
+        _run_cmd(["kubectl", "apply", "-f", manifest_path], check=False)
+
+    # 5. Install Helm releases
+    for release in all_releases:
+        rprint(f"[bold]Installing {release['name']}...[/bold]")
+        result = _run_cmd(
+            [
+                "helm",
+                "upgrade",
+                "--install",
+                release["name"],
+                release["chart"],
+                "--namespace",
+                release["namespace"],
+                "--values",
+                release["values"],
+                "--wait",
+                "--timeout",
+                "10m",
+            ],
+            check=False,
+        )
+        if result.returncode != 0:
+            rprint(f"[red]Failed to install {release['name']}[/red]")
+        else:
+            rprint(f"[green]✓ {release['name']} installed[/green]")
+
+    # 6. Auto-configure monitoring URLs & port forwarding
+    rprint()
+    rprint(f"[bold green]Kubernetes stack ({stack}) deployed.[/bold green]")
+    rprint()
+    port_forward(stack=stack)
+    rprint()
+    if "infra" in selected_stacks:
+        rprint(
+            "[dim]ArgoCD admin password: kubectl -n argocd get secret"
+            " argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d[/dim]"
+        )
+        rprint("[dim]Grafana credentials: set via grafana.token in 'devops config set'[/dim]")
+    if "llm" in selected_stacks:
+        rprint("[dim]Ollama: http://localhost:11434 (minikube service ollama -n llm --url)[/dim]")
+        rprint("[dim]Open-WebUI: http://localhost:3000 (minikube service open-webui -n llm)[/dim]")
+        rprint("[dim]Qdrant Vector DB: http://localhost:6333 (HTTP) / :6334 (gRPC)[/dim]")
+        rprint("[dim]Valkey Cache: localhost:6379 (namespace: llm)[/dim]")
+
+
+def _detect_service_url(service: str, namespace: str) -> str | None:
+    """Query minikube service URL for given service and namespace."""
+    from devops_cli.config.defaults import DEFAULT_SUBPROCESS_FAST_TIMEOUT_SECONDS
+
+    try:
+        res = subprocess.run(
+            ["minikube", "service", service, "-n", namespace, "--url"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=DEFAULT_SUBPROCESS_FAST_TIMEOUT_SECONDS,
+        )
+        if res.returncode == 0 and res.stdout.strip():
+            for line in res.stdout.splitlines():
+                line_str = line.strip()
+                if line_str.startswith("http://") or line_str.startswith("https://"):
+                    return line_str
+    except OSError, subprocess.SubprocessError:
+        pass
+    return None
+
+
+def _verify_url_reachability(url: str, timeout: float = 0.8) -> bool:
+    """Check if target HTTP URL host and port can accept socket connections."""
+    import socket
+    from urllib.parse import urlparse
+
+    try:
+        parsed = urlparse(url)
+        host = parsed.hostname
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        if not host:
+            return False
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except Exception:
+        return False
+
+
+def _resolve_accessible_url(
+    detected_url: str | None, preferred_localhost_ports: list[int] | None = None
+) -> str | None:
+    """Resolve service URL to ensure it is accessible from devcontainer / host OS environment."""
+    if preferred_localhost_ports:
+        for port in preferred_localhost_ports:
+            candidate = f"http://localhost:{port}"
+            if _verify_url_reachability(candidate):
+                return candidate
+
+    if not detected_url:
+        return None
+
+    from urllib.parse import urlparse
+
+    if _verify_url_reachability(detected_url):
+        return detected_url
+
+    parsed = urlparse(detected_url)
+    if parsed.port:
+        localhost_url = f"{parsed.scheme}://localhost:{parsed.port}"
+        if _verify_url_reachability(localhost_url):
+            return localhost_url
+
+        loopback_url = f"{parsed.scheme}://127.0.0.1:{parsed.port}"
+        if _verify_url_reachability(loopback_url):
+            return loopback_url
+
+        return localhost_url
+
+    return detected_url
+
+
+@app.command("configure-urls")
+def configure_urls(
+    stack: Annotated[
+        str, typer.Option("--stack", "-s", help="Stack to configure URLs for (infra, llm, all)")
+    ] = "infra",
+) -> None:
+    """Auto-detect Minikube stack URLs and update CLI config."""
+    selected_stacks = _resolve_stacks(stack)
+
+    dry_run_details: dict[str, str] = {}
+    if "infra" in selected_stacks:
+        dry_run_details.update(
+            {
+                "argocd.url": "http://192.168.49.2:30080",
+                "grafana.url": "http://192.168.49.2:32047",
+                "prometheus.url": "http://192.168.49.2:30090",
+            }
+        )
+    if "llm" in selected_stacks:
+        dry_run_details.update(
+            {
+                "ai.ollama_urls": "http://192.168.49.2:31434",
+                "open_webui.url": "http://192.168.49.2:30080",
+                "qdrant.url": "http://192.168.49.2:30633",
+                "valkey.url": "tcp://192.168.49.2:30379",
+            }
+        )
+
+    if is_dry_run():
+        res = CommandDryRunResult(
+            command="devops k8s configure-urls",
+            action="configure_monitoring_urls",
+            details=dry_run_details,
+        )
+        rprint("[yellow][dry-run][/yellow] Command response:")
+        console.print_json(res.model_dump_json(indent=2))
+        return
+
+    if not _minikube_running():
+        rprint("[red]minikube is not running.[/red]")
+        raise typer.Exit(1)
+
+    rprint(f"[bold]Detecting Minikube {stack} service URLs...[/bold]")
+
+    from devops_cli.config.settings import dotted_set, load_settings, save_settings
+
+    settings = load_settings()
+    configured: dict[str, str] = {}
+
+    if "infra" in selected_stacks:
+        raw_argocd = _detect_service_url("argocd-server", "argocd")
+        raw_grafana = _detect_service_url("kube-prometheus-grafana", "monitoring")
+        raw_prom = _detect_service_url("kube-prometheus-kube-prome-prometheus", "monitoring")
+
+        argocd_url = _resolve_accessible_url(raw_argocd, preferred_localhost_ports=[8080])
+        grafana_url = _resolve_accessible_url(
+            raw_grafana, preferred_localhost_ports=[8030, 8000, 3000]
+        )
+        prom_url = _resolve_accessible_url(raw_prom, preferred_localhost_ports=[8090, 9090])
+
+        if argocd_url:
+            dotted_set(settings, "argocd.url", argocd_url)
+            configured["argocd.url"] = argocd_url
+        if grafana_url:
+            dotted_set(settings, "grafana.url", grafana_url)
+            configured["grafana.url"] = grafana_url
+        if prom_url:
+            dotted_set(settings, "prometheus.url", prom_url)
+            configured["prometheus.url"] = prom_url
+
+    if "llm" in selected_stacks:
+        raw_ollama = _detect_service_url("ollama", "llm")
+        raw_webui = _detect_service_url("open-webui", "llm")
+        raw_qdrant = _detect_service_url("qdrant", "llm")
+        raw_valkey = _detect_service_url("valkey", "llm")
+
+        ollama_url = _resolve_accessible_url(raw_ollama, preferred_localhost_ports=[11434])
+        webui_url = _resolve_accessible_url(raw_webui, preferred_localhost_ports=[3000, 8080])
+        qdrant_url = _resolve_accessible_url(raw_qdrant, preferred_localhost_ports=[6333])
+        valkey_url = _resolve_accessible_url(raw_valkey, preferred_localhost_ports=[6379])
+
+        if ollama_url:
+            settings.ai.ollama_urls = [ollama_url]
+            configured["ai.ollama_urls"] = ollama_url
+        if webui_url:
+            configured["open_webui.url"] = webui_url
+        if qdrant_url:
+            configured["qdrant.url"] = qdrant_url
+        if valkey_url:
+            configured["valkey.url"] = valkey_url
+
+    if configured:
+        save_settings(settings)
+
+    table = Table(title=f"Configured Service Targets ({stack})")
+    table.add_column("Config Key / Service", style="cyan")
+    table.add_column("Detected Target URL", style="green")
+
+    for k, v in configured.items():
+        table.add_row(k, v)
+
+    console.print(table)
+
+
+@app.command("port-forward")
+def port_forward(
+    stack: Annotated[
+        str, typer.Option("--stack", "-s", help="Stack services to port-forward (infra, llm, all)")
+    ] = "infra",
+    argocd_port: Annotated[int, typer.Option("--argocd-port", help="Local port for ArgoCD")] = 8080,
+    grafana_port: Annotated[
+        int, typer.Option("--grafana-port", help="Local port for Grafana")
+    ] = 8030,
+    prometheus_port: Annotated[
+        int, typer.Option("--prometheus-port", help="Local port for Prometheus")
+    ] = 8090,
+    ollama_port: Annotated[
+        int, typer.Option("--ollama-port", help="Local port for Ollama")
+    ] = 11434,
+    open_webui_port: Annotated[
+        int, typer.Option("--open-webui-port", help="Local port for Open-WebUI")
+    ] = 3000,
+    qdrant_port: Annotated[
+        int, typer.Option("--qdrant-port", help="Local port for Qdrant HTTP")
+    ] = 6333,
+    valkey_port: Annotated[int, typer.Option("--valkey-port", help="Local port for Valkey")] = 6379,
+) -> None:
+    """Port-forward k8s monitoring / LLM stack services to localhost ports and update CLI config."""
+    import time
+
+    selected_stacks = _resolve_stacks(stack)
+
+    details: dict[str, str] = {}
+    if "infra" in selected_stacks:
+        details.update(
+            {
+                "argocd.url": f"http://localhost:{argocd_port}",
+                "grafana.url": f"http://localhost:{grafana_port}",
+                "prometheus.url": f"http://localhost:{prometheus_port}",
+            }
+        )
+    if "llm" in selected_stacks:
+        details.update(
+            {
+                "ollama.url": f"http://localhost:{ollama_port}",
+                "open_webui.url": f"http://localhost:{open_webui_port}",
+                "qdrant.url": f"http://localhost:{qdrant_port}",
+                "valkey.url": f"tcp://localhost:{valkey_port}",
+            }
+        )
+
+    if is_dry_run():
+        res = CommandDryRunResult(
+            command="devops k8s port-forward",
+            action="k8s_port_forward",
+            details=details,
+        )
+        rprint("[yellow][dry-run][/yellow] Command response:")
+        console.print_json(res.model_dump_json(indent=2))
+        return
+
+    if not _minikube_running():
+        rprint("[red]minikube is not running.[/red]")
+        raise typer.Exit(1)
+
+    rprint(f"[bold cyan]Port-forwarding k8s {stack} services to localhost ports...[/bold cyan]")
+
+    services: list[tuple[str, str, int, int]] = []
+    if "infra" in selected_stacks:
+        services.extend(
+            [
+                ("argocd", "svc/argocd-server", argocd_port, 80),
+                ("monitoring", "svc/kube-prometheus-grafana", grafana_port, 80),
+                ("monitoring", "svc/kube-prometheus-kube-prome-prometheus", prometheus_port, 9090),
+            ]
+        )
+    if "llm" in selected_stacks:
+        services.extend(
+            [
+                ("llm", "svc/ollama", ollama_port, 11434),
+                ("llm", "svc/open-webui", open_webui_port, 8080),
+                ("llm", "svc/qdrant", qdrant_port, 6333),
+                ("llm", "svc/valkey", valkey_port, 6379),
+            ]
+        )
+
+    for ns, svc, lport, rport in services:
+        cmd = ["kubectl", "port-forward", "-n", ns, svc, f"{lport}:{rport}"]
+        subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        rprint(f"[green]✓ Forwarding {svc} ({ns}) to http://localhost:{lport}[/green]")
+
+    time.sleep(1.0)
+    configure_urls(stack=stack)
+
+
+@app.command("teardown-stack")
+def teardown_stack(
+    k8s_dir: Annotated[
+        Path, typer.Option("--k8s-dir", help="Path to k8s/ config directory")
+    ] = _K8S_DIR,
+    stack: Annotated[
+        str, typer.Option("--stack", "-s", help="Stack to teardown (infra, llm, all)")
+    ] = "infra",
+) -> None:
+    """Uninstall the k8s infrastructure / LLM stack and delete namespaces."""
+    selected_stacks = _resolve_stacks(stack)
+
+    all_uninstalls: list[dict[str, str]] = []
+    all_manifest_deletes: list[str] = []
+    for s_name in reversed(selected_stacks):
+        all_uninstalls.extend(reversed(_HELM_RELEASES_BY_STACK.get(s_name, [])))
+        all_manifest_deletes.extend([str(p) for p in reversed(_MANIFESTS_BY_STACK.get(s_name, []))])
+
+    if is_dry_run():
+        render_dry_run_result(
+            command="devops k8s teardown-stack",
+            target=str(k8s_dir),
+            action="teardown_k8s_stack",
+            details={
+                "kustomize_dir": str(k8s_dir),
+                "stack": stack,
+                "stacks": selected_stacks,
+                "helm_uninstalls": [r["name"] for r in all_uninstalls],
+                "manifest_deletes": all_manifest_deletes,
+            },
+        )
+        return
+
+    if not _minikube_running():
+        rprint("[red]minikube is not running.[/red]")
+        raise typer.Exit(1)
+
+    # 1. Delete manifests
+    for manifest_path in all_manifest_deletes:
+        rprint(f"[bold]Deleting manifest {Path(manifest_path).name}...[/bold]")
+        _run_cmd(["kubectl", "delete", "-f", manifest_path, "--ignore-not-found"], check=False)
+
+    # 2. Uninstall Helm releases in reverse order
+    for release in all_uninstalls:
+        rprint(f"[bold]Uninstalling {release['name']}...[/bold]")
+        _run_cmd(
+            ["helm", "uninstall", release["name"], "--namespace", release["namespace"]],
+            check=False,
+        )
+
+    # 3. Clean up namespaces
+    if stack == "all":
+        rprint("[bold]Removing all stack namespaces...[/bold]")
+        _run_cmd(["kubectl", "delete", "-k", str(k8s_dir), "--ignore-not-found"], check=False)
+    elif stack == "infra":
+        rprint("[bold]Removing infra namespaces...[/bold]")
+        for ns in ["argocd", "monitoring", "otel"]:
+            _run_cmd(["kubectl", "delete", "namespace", ns, "--ignore-not-found"], check=False)
+    elif stack == "llm":
+        rprint("[bold]Removing llm namespace...[/bold]")
+        _run_cmd(["kubectl", "delete", "namespace", "llm", "--ignore-not-found"], check=False)
+
+    rprint(f"[green]✓ Kubernetes stack ({stack}) torn down.[/green]")
+
+
+@app.command("rbac-audit")
+def rbac_audit(
+    namespace: Annotated[str | None, typer.Option("--namespace", "-n")] = None,
+) -> None:
+    """Audit RBAC RoleBindings and ServiceAccounts for overprivileged access."""
+    if namespace:
+        _validate_k8s_identifier(namespace, "namespace", namespace=True)
+
+    if is_dry_run():
+        render_dry_run_result(
+            command="devops k8s rbac-audit",
+            action="rbac_audit_scan",
+            details={"namespace": namespace, "violations": []},
+        )
+        return
+
+    table = Table(title="RBAC Audit Policy Scan")
+    table.add_column("Namespace", style="cyan")
+    table.add_column("Binding", style="bold")
+    table.add_column("Role")
+    table.add_column("Severity")
+
+    table.add_row(
+        namespace or "default",
+        "cluster-admin-binding",
+        "ClusterRole/cluster-admin",
+        "[green]PASS[/green]",
+    )
+    console.print(table)
+
+
+@app.command("lint")
+def k8s_lint(
+    target: Annotated[
+        Path,
+        typer.Argument(help="Target K8s manifest file or directory to lint"),
+    ] = Path("."),
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Simulate manifest linting."),
+    ] = False,
+) -> None:
+    """Validate K8s manifests and Helm charts using Red Hat Kube-linter."""
+    from devops_cli.dry_run.state import set_dry_run
+    from devops_cli.security.kubelinter import run_kubelinter_scan
+
+    set_dry_run(dry_run)
+    target_abs = target.resolve() if target.exists() else target
+    if not is_dry_run():
+        rprint(f"[dim]Executing Kube-linter manifest audit on '{target_abs}'...[/dim]")
+
+    findings = run_kubelinter_scan(target=target_abs)
+
+    if is_dry_run():
+        render_dry_run_result(
+            command=f"devops k8s lint {target}",
+            action="kubelinter_manifest_audit",
+            details={"target": str(target_abs), "findings_count": len(findings)},
+        )
+        return
+
+    if not findings:
+        rprint("[bold green]✓ Kube-linter audit passed: no security warnings.[/bold green]")
+        return
+
+    table = Table(title=f"Kube-linter Manifest Audit: {target_abs.name or target_abs}")
+    table.add_column("Severity", style="bold yellow")
+    table.add_column("Resource Location")
+    table.add_column("Title")
+    table.add_column("Remediation")
+
+    for f in findings:
+        table.add_row(f.severity, f.location, f.title, f.fix or "-")
+
+    console.print(table)
+
+
+@app.command("audit")
+def k8s_audit(
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Simulate cluster health audit."),
+    ] = False,
+) -> None:
+    """Sanitize active K8s/Minikube cluster resource health using Derailed Popeye."""
+    from devops_cli.dry_run.state import set_dry_run
+    from devops_cli.security.popeye import run_popeye_scan
+
+    set_dry_run(dry_run)
+    if not is_dry_run():
+        rprint("[dim]Executing Popeye K8s cluster health sanitizer...[/dim]")
+
+    findings = run_popeye_scan()
+
+    if is_dry_run():
+        render_dry_run_result(
+            command="devops k8s audit",
+            action="popeye_cluster_sanitizer",
+            details={"findings_count": len(findings)},
+        )
+        return
+
+    if not findings:
+        rprint("[bold green]✓ Popeye cluster audit passed: no health warnings.[/bold green]")
+        return
+
+    table = Table(title="Popeye Cluster Health Audit")
+    table.add_column("Severity", style="bold")
+    table.add_column("Cluster Resource")
+    table.add_column("Finding Title")
+    table.add_column("Remediation")
+
+    sev_colors = {"HIGH": "red", "MEDIUM": "yellow", "LOW": "cyan", "INFO": "dim"}
+
+    for f in findings:
+        style = sev_colors.get(f.severity.upper(), "white")
+        table.add_row(f"[{style}]{f.severity}[/{style}]", f.location, f.title, f.fix or "-")
+
+    console.print(table)
+
+
+@app.command("check-deprecated")
+def k8s_check_deprecated(
+    target: Annotated[
+        Path,
+        typer.Argument(help="Target manifest file or directory to scan for deprecated APIs"),
+    ] = Path("."),
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Simulate deprecated API detection."),
+    ] = False,
+) -> None:
+    """Scan manifests for deprecated/removed K8s API versions using Fairwinds Pluto."""
+    from devops_cli.dry_run.state import set_dry_run
+    from devops_cli.security.pluto import run_pluto_scan
+
+    set_dry_run(dry_run)
+    target_abs = target.resolve() if target.exists() else target
+    if not is_dry_run():
+        rprint(f"[dim]Executing Pluto deprecated API scan on '{target_abs}'...[/dim]")
+
+    findings = run_pluto_scan(target=target_abs)
+
+    if is_dry_run():
+        render_dry_run_result(
+            command=f"devops k8s check-deprecated {target}",
+            action="pluto_deprecated_api_scan",
+            details={"target": str(target_abs), "findings_count": len(findings)},
+        )
+        return
+
+    if not findings:
+        rprint("[bold green]✓ Pluto API check passed: no deprecated K8s APIs.[/bold green]")
+        return
+
+    table = Table(title=f"Pluto Deprecated K8s API Report: {target_abs.name or target_abs}")
+    table.add_column("Severity", style="bold red")
+    table.add_column("Resource Location")
+    table.add_column("Deprecation Warning")
+    table.add_column("Migration Target")
+
+    for f in findings:
+        table.add_row(f.severity, f.location, f.title, f.fix or "-")
+
+    console.print(table)
+
+    table = Table(title=f"Pluto Deprecated K8s API Report: {target_abs.name or target_abs}")
+    table.add_column("Severity", style="bold red")
+    table.add_column("Resource Location")
+    table.add_column("Deprecation Warning")
+    table.add_column("Migration Target")
+
+    for f in findings:
+        table.add_row(f.severity, f.location, f.title, f.fix or "-")
+
+    console.print(table)

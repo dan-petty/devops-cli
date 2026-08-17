@@ -1,0 +1,102 @@
+name: Release Orchestration
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version to publish (e.g. 0.1.8)"
+        required: false
+
+jobs:
+  release:
+    name: Build & Publish Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: read
+
+    # Run on:
+    # 1. Annotated tag push (v*)
+    # 2. Push / Merge to main
+    # 3. Manual workflow dispatch
+    if: >-
+      startsWith(github.ref, 'refs/tags/v') ||
+      github.ref == 'refs/heads/main' ||
+      github.event_name == 'workflow_dispatch'
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          python-version: "3.14"
+
+      - name: Synchronize dependencies
+        run: uv sync --all-groups --all-extras
+
+      - name: Extract Target Version & Release Title
+        id: ver
+        run: |
+          VERSION=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")
+          TAG="v${VERSION}"
+          HEAD_MSG="${{ github.event.head_commit.message }}"
+
+          # Extract or format title following <feat|fix>(release)<!>: vx.x.x standard
+          if echo "$HEAD_MSG" | grep -qE "(feat|fix)\(release\)!?:"; then
+            TITLE=$(echo "$HEAD_MSG" | grep -oE "(feat|fix)\(release\)!?: v[0-9.]+" | head -n 1)
+          else
+            TITLE="feat(release): ${TAG}"
+          fi
+
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+          echo "title=${TITLE}" >> $GITHUB_OUTPUT
+
+      - name: Authoritative Release Verification
+        run: uv run devops release check --allow-dirty
+
+      - name: Extract Release Notes
+        id: notes
+        run: |
+          uv run devops release notes -v ${{ steps.ver.outputs.version }} > release_notes.txt
+          echo "notes_file=release_notes.txt" >> $GITHUB_OUTPUT
+
+      - name: Create Git Tag (upon PR merge to main)
+        if: github.ref == 'refs/heads/main'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          TAG="${{ steps.ver.outputs.tag }}"
+          TITLE="${{ steps.ver.outputs.title }}"
+          if ! git rev-parse "$TAG" >/dev/null 2>&1; then
+            git tag -a "$TAG" -m "$TITLE"
+            git push origin "$TAG"
+          else
+            echo "Tag $TAG already exists."
+          fi
+
+      - name: Create GitHub Release
+        run: |
+          TAG="${{ steps.ver.outputs.tag }}"
+          TITLE="${{ steps.ver.outputs.title }}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists, updating notes and title..."
+            gh release edit "$TAG" --title "$TITLE" --notes-file release_notes.txt
+          else
+            gh release create "$TAG" --title "$TITLE" --notes-file release_notes.txt
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+

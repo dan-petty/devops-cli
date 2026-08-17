@@ -1,0 +1,63 @@
+# ArgoCD Helm values — minimal dev-mode configuration for minikube.
+# Chart: argo/argo-cd
+# Repo:  https://argoproj.github.io/argo-helm
+
+global:
+  logging:
+    level: warn
+
+# Single-replica, non-HA for local development
+controller:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1024Mi
+
+server:
+  replicas: 1
+  service:
+    type: NodePort
+  # Disable TLS on the server — minikube NodePort access
+  extraArgs:
+    - --insecure
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+repoServer:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1024Mi
+
+redis:
+  enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+
+# Disable components unnecessary for local dev
+dex:
+  enabled: false
+
+notifications:
+  enabled: false
+
+applicationSet:
+  enabled: false
