@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import subprocess
 from pathlib import Path
 
@@ -18,14 +19,15 @@ from devops_cli.config.settings import AIConfig
 from devops_cli.main import app
 from devops_cli.models.ai import ChatMessage
 
-runner = CliRunner(env={"COLUMNS": "250"})
+runner = CliRunner(env={"COLUMNS": "250", "NO_COLOR": "1", "TERM": "dumb"})
 
 
 def test_review_path_help_includes_persona_option() -> None:
     result = runner.invoke(app, ["review", "path", "--help"])
 
     assert result.exit_code == 0
-    assert "--persona" in result.output
+    clean_output = re.sub(r"\x1b\[[0-9;]*[a-zA-Z]", "", result.output)
+    assert "--persona" in clean_output
 
 
 def test_load_agents_md_reads_repo_root_file(tmp_path: Path) -> None:
