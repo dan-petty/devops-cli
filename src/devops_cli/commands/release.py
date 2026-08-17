@@ -184,6 +184,17 @@ def _update_changelog_header(root: Path, new_version: str, release_date: str | N
     return False
 
 
+def _format_release_title(version: str, prefix: str = "feat", breaking: bool = False) -> str:
+    """Format release title with conventional commit: <feat|fix>(release)<!>: vx.x.x"""
+    clean_ver = version.lstrip("v").strip()
+
+    norm_prefix = prefix.lower().strip() if prefix else "feat"
+    if norm_prefix not in ("feat", "fix"):
+        norm_prefix = "feat"
+    bang = "!" if breaking else ""
+    return f"{norm_prefix}(release){bang}: v{clean_ver}"
+
+
 @app.command("status")
 def release_status(
     root: Annotated[
@@ -254,6 +265,22 @@ def release_prepare(
             help="Create release branch, commit changes, and open a GitHub Release PR",
         ),
     ] = False,
+    release_type: Annotated[
+        str,
+        typer.Option(
+            "--type",
+            "-t",
+            help="Conventional commit prefix (feat or fix)",
+        ),
+    ] = "feat",
+    breaking: Annotated[
+        bool,
+        typer.Option(
+            "--breaking",
+            "-b",
+            help="Flag release as containing breaking changes (!)",
+        ),
+    ] = False,
     root: Annotated[
         Path | None,
         typer.Option("--root", "-r", help="Project repository root directory"),
@@ -279,6 +306,8 @@ def release_prepare(
                 "sync_docs": sync_docs,
                 "update_changelog": update_changelog,
                 "create_pr": create_pr,
+                "release_type": release_type,
+                "breaking": breaking,
             },
         )
         if create_pr:
@@ -293,6 +322,8 @@ def release_prepare(
                     "draft": False,
                     "labels": "release",
                     "push": True,
+                    "release_type": release_type,
+                    "breaking": breaking,
                 },
             )
         return
@@ -324,7 +355,12 @@ def release_prepare(
     rprint(msg)
 
     if create_pr:
-        release_pr(version=clean_version, root=root)
+        release_pr(
+            version=clean_version,
+            release_type=release_type,
+            breaking=breaking,
+            root=root,
+        )
 
 
 @app.command("pr")
@@ -349,6 +385,22 @@ def release_pr(
         bool,
         typer.Option("--push/--no-push", help="Push release branch to origin"),
     ] = True,
+    release_type: Annotated[
+        str,
+        typer.Option(
+            "--type",
+            "-t",
+            help="Conventional commit prefix (feat or fix)",
+        ),
+    ] = "feat",
+    breaking: Annotated[
+        bool,
+        typer.Option(
+            "--breaking",
+            "-b",
+            help="Flag release as containing breaking changes (!)",
+        ),
+    ] = False,
     root: Annotated[
         Path | None,
         typer.Option("--root", "-r", help="Project repository root directory"),
@@ -363,6 +415,7 @@ def release_pr(
         raise typer.Exit(1)
 
     branch_name = f"release/v{target_ver}"
+    release_title = _format_release_title(target_ver, prefix=release_type, breaking=breaking)
 
     if is_dry_run():
         render_dry_run_result(
@@ -376,6 +429,9 @@ def release_pr(
                 "draft": draft,
                 "labels": labels,
                 "push": push,
+                "release_type": release_type,
+                "breaking": breaking,
+                "title": release_title,
             },
         )
         return
@@ -403,7 +459,7 @@ def release_pr(
         cwd=repo_root,
     )
     commit_proc = run_subprocess(
-        ["git", "commit", "-m", f"chore(release): bump version to v{target_ver}"],
+        ["git", "commit", "-m", release_title],
         cwd=repo_root,
     )
     if commit_proc.returncode != 0 and "nothing to commit" not in str(commit_proc.stdout):
@@ -418,7 +474,7 @@ def release_pr(
     # 4. Open GitHub Pull Request via gh CLI
     rprint(MESSAGES.release.creating_release_pr.format(version=target_ver))
     notes = _extract_changelog_notes(repo_root, target_ver) or f"Release v{target_ver}"
-    pr_title = f"chore(release): release v{target_ver}"
+    pr_title = release_title
     pr_body = (
         f"## {pr_title}\n\n"
         "### Summary\n"
@@ -594,6 +650,22 @@ def release_tag(
         bool,
         typer.Option("--push", "-p", help="Push release commit and git tag to origin"),
     ] = False,
+    release_type: Annotated[
+        str,
+        typer.Option(
+            "--type",
+            "-t",
+            help="Conventional commit prefix (feat or fix)",
+        ),
+    ] = "feat",
+    breaking: Annotated[
+        bool,
+        typer.Option(
+            "--breaking",
+            "-b",
+            help="Flag release as containing breaking changes (!)",
+        ),
+    ] = False,
     message: Annotated[
         str | None,
         typer.Option("--message", "-m", help="Custom tag annotation message"),
@@ -612,7 +684,8 @@ def release_tag(
         raise typer.Exit(1)
 
     tag_name = f"v{target_ver}"
-    tag_msg = message or f"Release {tag_name}"
+    release_title = _format_release_title(target_ver, prefix=release_type, breaking=breaking)
+    tag_msg = message or release_title
 
     if is_dry_run():
         render_dry_run_result(
@@ -624,6 +697,9 @@ def release_tag(
                 "tag": tag_name,
                 "message": tag_msg,
                 "push": push,
+                "release_type": release_type,
+                "breaking": breaking,
+                "title": release_title,
             },
         )
         return
@@ -642,7 +718,7 @@ def release_tag(
         cwd=repo_root,
     )
     run_subprocess(
-        ["git", "commit", "-m", f"chore(release): bump version to {tag_name}"],
+        ["git", "commit", "-m", release_title],
         cwd=repo_root,
     )
 

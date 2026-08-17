@@ -214,21 +214,35 @@ def test_release_pr_command(sample_project_dir: Path) -> None:
         assert "pull/42" in result.output
 
 
-def test_release_prepare_create_pr(sample_project_dir: Path) -> None:
-    with (
-        patch("devops_cli.commands.release.DocGenerator.write_all_docs"),
-        patch("devops_cli.commands.release.run_subprocess") as mock_sub,
-    ):
-        mock_sub.return_value = subprocess.CompletedProcess(
-            args=["gh", "pr", "create"],
-            returncode=0,
-            stdout="https://github.com/your-org/devops-cli/pull/43\n",
-            stderr="",
-        )
+def test_format_release_title() -> None:
+    from devops_cli.commands.release import _format_release_title
+
+    assert _format_release_title("0.1.8", prefix="feat") == "feat(release): v0.1.8"
+    assert _format_release_title("v0.1.8", prefix="fix") == "fix(release): v0.1.8"
+    assert _format_release_title("1.0.0", prefix="feat", breaking=True) == "feat(release)!: v1.0.0"
+    assert _format_release_title("1.0.1", prefix="fix", breaking=True) == "fix(release)!: v1.0.1"
+    assert _format_release_title("0.2.0", prefix="other") == "feat(release): v0.2.0"
+
+
+def test_release_pr_conventional_flags(sample_project_dir: Path) -> None:
+    from devops_cli.dry_run import set_dry_run
+
+    set_dry_run(True)
+    try:
         result = runner.invoke(
             app,
-            ["prepare", "0.1.8", "--create-pr", "--root", str(sample_project_dir)],
+            [
+                "pr",
+                "--version",
+                "0.1.8",
+                "--type",
+                "fix",
+                "--breaking",
+                "--root",
+                str(sample_project_dir),
+            ],
         )
         assert result.exit_code == 0
-        assert "Created Release Pull Request" in result.output
-        assert "pull/43" in result.output
+        assert "fix(release)!: v0.1.8" in result.output
+    finally:
+        set_dry_run(False)

@@ -41,6 +41,8 @@ devops release prepare [OPTIONS] <version>
 | `--sync-docs`, `--no-sync-docs` | `boolean` | `True` | Regenerate CLI reference docs and sync README matrix |
 | `--changelog`, `--no-changelog` | `boolean` | `True` | Ensure CHANGELOG.md contains release header with current date |
 | `--create-pr`, `-p` | `boolean` | - | Create release branch, commit changes, and open a GitHub Release PR |
+| `--type`, `-t` | `string` | `feat` | Conventional commit prefix (feat or fix) |
+| `--breaking`, `-b` | `boolean` | - | Flag release as containing breaking changes (!) |
 | `--root`, `-r` | `path` | - | Project repository root directory |
 
 ---
@@ -62,6 +64,8 @@ devops release pr [OPTIONS]
 | `--draft` | `boolean` | - | Create Pull Request as a draft |
 | `--labels`, `-l` | `string` | `release` | Comma-separated labels to attach to PR |
 | `--push`, `--no-push` | `boolean` | `True` | Push release branch to origin |
+| `--type`, `-t` | `string` | `feat` | Conventional commit prefix (feat or fix) |
+| `--breaking`, `-b` | `boolean` | - | Flag release as containing breaking changes (!) |
 | `--root`, `-r` | `path` | - | Project repository root directory |
 
 ---
@@ -115,6 +119,8 @@ devops release tag [OPTIONS]
 |---|---|---|---|
 | `--version`, `-v` | `string` | - | Release version (defaults to pyproject.toml) |
 | `--push`, `-p` | `boolean` | - | Push release commit and git tag to origin |
+| `--type`, `-t` | `string` | `feat` | Conventional commit prefix (feat or fix) |
+| `--breaking`, `-b` | `boolean` | - | Flag release as containing breaking changes (!) |
 | `--message`, `-m` | `string` | - | Custom tag annotation message |
 | `--root`, `-r` | `path` | - | Project repository root directory |
 
