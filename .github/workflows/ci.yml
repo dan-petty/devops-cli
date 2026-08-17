@@ -28,6 +28,9 @@ jobs:
       - name: Synchronize dependencies
         run: uv sync --all-groups --all-extras
 
+      - name: Initialize Workspace Directories
+        run: mkdir -p .data/reviews .data/analysis .data/logs
+
       - name: Linting (Ruff)
         run: uv run ruff check .
 
@@ -39,6 +42,7 @@ jobs:
 
       - name: Documentation Freshness Check
         run: uv run devops docs check
+
 
       - name: Unit Tests & Code Coverage
         run: uv run pytest -v --cov=src --cov-report=xml
