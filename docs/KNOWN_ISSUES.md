@@ -34,6 +34,10 @@ Captures operational edge cases, intentional design trade-offs, and mitigations 
 - **Context**: LLM review personas may occasionally hallucinate legacy syntax (e.g. Python 2 comma-separated exception handling), flag pre-submission secret redaction placeholders (`<masked-*>`, `[REDACTED]`, `${{ secrets.* }}`), or cite historical research/evidence notes (`evidence/`, `docs/LOG.md`) as live vulnerabilities.
 - **Mitigation**: Use `devops review verify --status INVALIDATED --reason "..."` to record verification feedback. Run `devops review export-feedback` to compile invalidation records into `.data/feedback_dataset.jsonl` for prompt benchmarking and tuning.
 
+### 8. Python 3 Multi-Exception Syntax & Pydantic Mutable Default Invariants
+- **Context**: In Python 3, multiple exceptions in an `except` clause must be enclosed in parentheses as a tuple (e.g., `except (Err1, Err2):`). Omitting parentheses (e.g., `except Err1, Err2:`) is legacy Python 2 syntax that binds the first exception instance to the second name rather than catching both. Additionally, Pydantic models must use `Field(default_factory=list|dict)` rather than mutable collections (`[]`, `{}`) for field defaults.
+- **Mitigation**: All multi-exception handlers across the codebase use explicit parenthesized tuples `except (Err1, Err2):`. Pydantic models enforce `Field(default_factory=...)`.
+
 ---
 
 ## Remediation Cost vs. Operational Impact Matrix
@@ -47,3 +51,5 @@ Captures operational edge cases, intentional design trade-offs, and mitigations 
 | **5. Local Workstation Design Policy** | Low (architectural trade-off) | Low | **Keep DevContainer Policy**: Workspace bounds secure file access; SSH mounts serve local model. |
 | **6. SSH Host Key Scanning (TOFU)** | Medium (network MITM on initial clone) | Low | **Pre-seed Known Hosts**: Pre-populate `known_hosts` for critical git hosts. |
 | **7. AI Review False-Positive Tuning** | Low (prompt noise on non-code assets) | Low | **Verification Feedback**: Use `devops review verify` and `export-feedback` to tune prompts. |
+| **8. Multi-Exception Syntax & Model Defaults** | High (runtime unhandled exception bug) | Low | **Enforce Standard**: Parenthesized tuples `except (A, B):` and `Field(default_factory=...)`. |
+

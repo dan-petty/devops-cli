@@ -75,6 +75,7 @@ def _gh_auth_token() -> str | None:
         )
     except OSError, subprocess.SubprocessError:
         return None
+
     if result.returncode != 0:
         return None
     token = result.stdout.strip()

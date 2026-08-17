@@ -37,8 +37,9 @@ class Finding(BaseModel):
     title: str = ""
     description: str = ""
     fix: str = ""
-    references: list[str] = []
+    references: list[str] = Field(default_factory=list)
     verified: bool = False
+
     mitigated: bool = False
     status: str = "UNVERIFIED"  # UNVERIFIED | VERIFIED | INVALIDATED | MITIGATED
     invalidation_reason: str | None = None
@@ -88,13 +89,13 @@ class FileReviewPayload(BaseModel):
 
 class ReviewSessionPayload(BaseModel):
     generated_at: str = ""
-    personas: list[str] = []
-    findings: list[SavedFinding] = []
+    personas: list[str] = Field(default_factory=list)
+    findings: list[SavedFinding] = Field(default_factory=list)
 
 
 class ReviewResult(BaseModel):
-    findings: list[Finding] = []
-    positive_observations: list[str] = []
+    findings: list[Finding] = Field(default_factory=list)
+    positive_observations: list[str] = Field(default_factory=list)
     recommendation: str = "REQUEST CHANGES"
     summary: str = ""
     confidence_score: float | None = None
