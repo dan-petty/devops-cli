@@ -23,17 +23,17 @@ The following matrix categorizes all project routine tasks by operational layer,
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **Inner Loop (Daily / Per Edit)** | Dependency Synchronization | Step 1 | `uv sync` | Synchronizes virtual environment with `uv.lock` | Clean exit; all dependencies resolved |
 | **Inner Loop (Daily / Per Edit)** | Constant & Config Centralization | Step 2 | Manual / Refactor | Centralize literals in `constants.py`, `defaults.py`, `lang/en.py` | No hardcoded string literals in command code |
-| **Inner Loop (Daily / Per Edit)** | Linting & Import Sorting | Step 3 | `uv run ruff check --fix .` | PEP 8 compliance, import grouping/sorting | `ruff check .` reports 0 errors |
-| **Inner Loop (Daily / Per Edit)** | Code Formatting | Step 4 | `uv run ruff format .` | 100-character line length enforcement | `ruff format --check .` passes |
-| **Inner Loop (Daily / Per Edit)** | Static Type Checking | Step 5 | `uv run mypy --strict src` | Strict type validation on Python 3.14+ | 0 type errors across all source files |
-| **Inner Loop (Daily / Per Edit)** | Parallel Unit Tests | Step 6 | `uv run pytest` | Parallel test execution (`--maxprocesses=4`) with mock isolation | All tests pass |
-| **Inner Loop (Daily / Per Edit)** | Docs & README Sync | Step 7 | `uv run devops docs generate --sync-readme` | CLI introspection & README Command Matrix update | `uv run devops docs check` passes |
+| **Inner Loop (Daily / Per Edit)** | Targeted Linting & Formatting | Step 3 | `uv run ruff check --fix <file>` | Fast focused linting on modified files | `ruff check` reports 0 errors |
+| **Inner Loop (Daily / Per Edit)** | Targeted Type Checking | Step 4 | `uv run mypy --strict <file>` | Strict type validation on modified modules | 0 type errors across modified files |
+| **Inner Loop (Daily / Per Edit)** | Targeted Unit Testing | Step 5 | `uv run pytest tests/test_<module>.py` | Fast isolated testing of active features/fixes | Targeted tests pass |
+| **Final Pre-Commit / Pre-PR** | Documentation & README Sync | Step 1 | `uv run devops docs generate --sync-readme` | CLI introspection & README Command Matrix update | `uv run devops docs check` passes |
+| **Final Pre-Commit / Pre-PR** | Full Parallel Test Suite | Step 2 | `uv run pytest` | Complete parallel test run (`--maxprocesses=4`) | All tests pass |
+| **Final Pre-Commit / Pre-PR** | Full CI Validation Suite | Step 3 | `uv run devops ci` | Runs full automated verification suite | All checks show `✓ pass` |
 | **Feature / PR Lifecycle** | Branch Creation | Step 1 | `git checkout -b <type>/<name> origin/release/vX.Y.Z` | Dedicated topic branch branching off active release branch | Clean branch tracking origin release branch |
-| **Feature / PR Lifecycle** | Local CI Validation | Step 2 | `uv run devops ci` | Runs full automated verification suite | All checks show `✓ pass` |
-| **Feature / PR Lifecycle** | PR Submission | Step 3 | `gh pr create --base release/vX.Y.Z` | Opens PR targeting active release branch | PR opened with Conventional Commit title |
-| **Feature / PR Lifecycle** | PR Iteration & Updates | Step 4 | `git push origin <branch>` | Pushes revisions directly to existing PR branch | Remote CI checks trigger and pass |
-| **Feature / PR Lifecycle** | AI Code Review | Step 5 | `devops ai review branch <name> --dry-run` | Multi-persona analysis (`devsecops`, `architect`, `qa`) | Findings inspected in `.data/reviews/` |
-| **Feature / PR Lifecycle** | Human Squash Merge | Step 6 | `gh pr merge <id> --squash` | Maintainer merges approved PR into release branch | PR merged and topic branch deleted |
+| **Feature / PR Lifecycle** | PR Submission | Step 2 | `gh pr create --base release/vX.Y.Z` | Opens PR targeting active release branch | PR opened with Conventional Commit title |
+| **Feature / PR Lifecycle** | PR Iteration & Updates | Step 3 | `git push origin <branch>` | Pushes revisions directly to existing PR branch | Remote CI checks trigger and pass |
+| **Feature / PR Lifecycle** | AI Code Review | Step 4 | `devops ai review branch <name> --dry-run` | Multi-persona analysis (`devsecops`, `architect`, `qa`) | Findings inspected in `.data/reviews/` |
+| **Feature / PR Lifecycle** | Human Squash Merge | Step 5 | `gh pr merge <id> --squash` | Maintainer merges approved PR into release branch | PR merged and topic branch deleted |
 | **Release Lifecycle** | Release Status Assessment | Step 1 | `uv run devops release status` | Checks version consistency, git tags, and docs state | Clean working tree and version clarity |
 | **Release Lifecycle** | Release Preparation | Step 2 | `uv run devops release prepare <version> --create-pr` | Bumps version, updates changelog, syncs docs, opens PR | Release PR opened targeting `main` |
 | **Release Lifecycle** | Authoritative Release Check | Step 3 | `uv run devops release check` | Validates git tree, version matching, CI validation | All checks green |
@@ -50,46 +50,58 @@ The following matrix categorizes all project routine tasks by operational layer,
 
 ## 3. Detailed Workflow Methodologies
 
-### Cadence A: Inner Loop (Local Development & Per-Commit)
+### Cadence A: Inner Loop (Iterative Feature Development)
 
-The Inner Development Loop is executed continuously while writing or modifying code.
+The Inner Development Loop is executed continuously while writing or modifying code. Run targeted tests and linters for immediate feedback; do NOT run the full test suite during this loop.
 
 ```mermaid
 flowchart TD
     A[Edit Code / Tests] --> B[uv sync]
-    B --> C[Centralize Literals / Config]
-    C --> D[ruff check --fix & ruff format]
-    D --> E[mypy --strict src]
-    E --> F[pytest -n auto --maxprocesses=4]
-    F --> G[devops docs generate --sync-readme]
-    G --> H[devops ci]
+    B --> C[Centralize Literals & Defaults]
+    C --> D[ruff check & format target files]
+    D --> E[mypy target files]
+    E --> F[pytest target test file]
 ```
 
 #### Step-by-Step Order:
 1. **Sync Dependencies (`uv sync`)**: Always ensure `.venv` is aligned with `uv.lock` before starting work.
-2. **Centralize Constants & Config**:
+2. **Centralize Constants, Config & Defaults**:
    - Put configuration options and environment variable schemas in [`src/devops_cli/config/settings.py`](file:///workspaces/devops-cli/src/devops_cli/config/settings.py).
    - Put constants, regexes, and protocol strings in [`src/devops_cli/config/constants.py`](file:///workspaces/devops-cli/src/devops_cli/config/constants.py).
    - Put timeouts and numeric defaults in [`src/devops_cli/config/defaults.py`](file:///workspaces/devops-cli/src/devops_cli/config/defaults.py).
    - Put user-facing messages, summaries, and error logs in [`src/devops_cli/lang/en.py`](file:///workspaces/devops-cli/src/devops_cli/lang/en.py).
-3. **Format & Lint**:
+3. **Format & Lint Target Files**:
    ```bash
-   uv run ruff check --fix .
-   uv run ruff format .
+   uv run ruff check --fix <modified_paths>
+   uv run ruff format <modified_paths>
    ```
-4. **Verify Static Types**:
+4. **Verify Static Types for Target Files**:
    ```bash
-   uv run mypy --strict src
+   uv run mypy --strict <modified_paths>
    ```
-5. **Run Parallel Unit Tests**:
+5. **Run Targeted Unit Tests**:
    ```bash
-   uv run pytest
+   uv run pytest tests/test_<feature>.py -k <test_name>
    ```
-   *Note*: The test runner is configured with `--maxprocesses=4` to optimize CPU utilization and prevent worker thrashing.
-6. **Regenerate Documentation & Check Freshness**:
+
+---
+
+### Cadence B: Final Pre-Commit / Pre-PR Validation Stage
+
+Executed at the final stage of work after all iterative feature modifications and targeted tests pass:
+
+1. **Regenerate Documentation & Check Freshness**:
    ```bash
    uv run devops docs generate --sync-readme
    uv run devops docs check
+   ```
+2. **Run Full Parallel Unit Test Suite**:
+   ```bash
+   uv run pytest
+   ```
+3. **Run Full Local CI Validation Suite**:
+   ```bash
+   uv run devops ci
    ```
 
 ---
