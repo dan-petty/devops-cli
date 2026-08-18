@@ -187,3 +187,96 @@ class TestDevcontainerCli:
         assert data["command"] == "devops devcontainer run-lifecycle"
         assert data["action"] == "run_lifecycle"
         assert data["dry_run"] is True
+
+    def test_validate_valid_devcontainer_manifest(self, runner: CliRunner, tmp_path: Path) -> None:
+        """devops devcontainer validate must succeed for valid devcontainer.json."""
+        dc_dir = tmp_path / ".devcontainer"
+        dc_dir.mkdir(parents=True)
+        manifest = {
+            "name": "test-repo",
+            "image": "python:3.14-trixie",
+            "features": {"ghcr.io/devcontainers/features/git:1": {}},
+            "mounts": ["source=tmp-vol,target=/tmp,type=volume"],
+            "forwardPorts": [8080],
+            "customizations": {"vscode": {"extensions": ["ms-python.python"]}},
+        }
+        (dc_dir / "devcontainer.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+        result = runner.invoke(app, ["validate", "--workspace", str(tmp_path)])
+        assert result.exit_code == 0
+        assert "DevContainer manifest is valid" in result.output
+        assert "test-repo" in result.output
+
+    def test_validate_with_comments_jsonc(self, runner: CliRunner, tmp_path: Path) -> None:
+        """devops devcontainer validate must handle JSONC manifests with comments."""
+        dc_dir = tmp_path / ".devcontainer"
+        dc_dir.mkdir(parents=True)
+        jsonc_content = """// Main devcontainer config
+{
+  /* Project metadata */
+  "name": "jsonc-project",
+  "image": "python:3.14", // Container base
+  "features": {}
+}
+"""
+        (dc_dir / "devcontainer.json").write_text(jsonc_content, encoding="utf-8")
+
+        result = runner.invoke(app, ["validate", "--workspace", str(tmp_path)])
+        assert result.exit_code == 0
+        assert "DevContainer manifest is valid" in result.output
+        assert "jsonc-project" in result.output
+
+    def test_validate_missing_manifest_fails(self, runner: CliRunner, tmp_path: Path) -> None:
+        """devops devcontainer validate must fail when devcontainer.json is missing."""
+        result = runner.invoke(app, ["validate", "--workspace", str(tmp_path)])
+        assert result.exit_code == 1
+        assert "manifest not found" in result.output.lower()
+
+    def test_validate_invalid_json_fails(self, runner: CliRunner, tmp_path: Path) -> None:
+        """devops devcontainer validate must fail when manifest has invalid JSON."""
+        dc_dir = tmp_path / ".devcontainer"
+        dc_dir.mkdir(parents=True)
+        (dc_dir / "devcontainer.json").write_text("{ unquoted_key: 123 ", encoding="utf-8")
+
+        result = runner.invoke(app, ["validate", "--workspace", str(tmp_path)])
+        assert result.exit_code == 1
+        assert "failed to parse devcontainer manifest json" in result.output.lower()
+
+    def test_validate_missing_required_fields_fails(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        """devops devcontainer validate must fail when required base image is missing."""
+        dc_dir = tmp_path / ".devcontainer"
+        dc_dir.mkdir(parents=True)
+        (dc_dir / "devcontainer.json").write_text('{"name": "no-image"}', encoding="utf-8")
+
+        result = runner.invoke(app, ["validate", "--workspace", str(tmp_path)])
+        assert result.exit_code == 1
+        assert "validation failed" in result.output.lower()
+        assert "specify a base container" in result.output.lower()
+
+    def test_validate_missing_build_dockerfile_fails(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        """devops devcontainer validate must fail if referenced Dockerfile does not exist."""
+        dc_dir = tmp_path / ".devcontainer"
+        dc_dir.mkdir(parents=True)
+        manifest = {
+            "name": "build-repo",
+            "build": {"dockerfile": "Dockerfile.nonexistent"},
+        }
+        (dc_dir / "devcontainer.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+        result = runner.invoke(app, ["validate", "--workspace", str(tmp_path)])
+        assert result.exit_code == 1
+        assert "does not exist" in result.output
+
+    def test_validate_dry_run_outputs_json(self, runner: CliRunner, tmp_path: Path) -> None:
+        """devops devcontainer validate --dry-run outputs structured JSON result."""
+        result = runner.invoke(app, ["validate", "--workspace", str(tmp_path), "--dry-run"])
+        assert result.exit_code == 0
+        json_text = result.output[result.output.find("{") :]
+        data = json.loads(json_text)
+        assert data["command"] == "devops devcontainer validate"
+        assert data["action"] == "validate_devcontainer_manifest"
+        assert data["dry_run"] is True

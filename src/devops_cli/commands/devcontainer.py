@@ -123,6 +123,135 @@ def update(
     rprint(f"[green]Updated image → python:{python_version}[/green]")
 
 
+def _strip_json_comments(text: str) -> str:
+    """Strip single-line and multi-line comments from JSON text (JSONC support)."""
+    text = re.sub(r"//.*", "", text)
+    text = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
+    return text
+
+
+def _validate_manifest_content(data: object, base_dir: Path) -> list[str]:
+    """Validate parsed DevContainer manifest dictionary structure and referenced paths."""
+    errors: list[str] = []
+    if not isinstance(data, dict):
+        return ["Manifest root must be a JSON object."]
+
+    name = data.get("name")
+    if not name or not isinstance(name, str) or not name.strip():
+        errors.append("Missing or empty required field: 'name'")
+
+    has_image = "image" in data and isinstance(data["image"], str) and bool(data["image"].strip())
+    has_build = "build" in data and (
+        isinstance(data["build"], dict) or isinstance(data["build"], str)
+    )
+    has_dockerfile = "dockerFile" in data and isinstance(data["dockerFile"], str)
+
+    if not (has_image or has_build or has_dockerfile):
+        errors.append(
+            "Manifest must specify a base container via 'image', 'build', or 'dockerFile'."
+        )
+
+    if has_build and isinstance(data["build"], dict):
+        build_dict = data["build"]
+        dockerfile = build_dict.get("dockerfile") or build_dict.get("dockerFile")
+        if dockerfile and isinstance(dockerfile, str):
+            dockerfile_path = (base_dir / dockerfile).resolve()
+            if not dockerfile_path.exists():
+                errors.append(f"Referenced build dockerfile does not exist: {dockerfile}")
+
+    if has_dockerfile and isinstance(data["dockerFile"], str):
+        df_path = (base_dir / data["dockerFile"]).resolve()
+        if not df_path.exists():
+            errors.append(f"Referenced dockerFile does not exist: {data['dockerFile']}")
+
+    if "features" in data and not isinstance(data["features"], dict):
+        errors.append("'features' must be a JSON object (mapping feature IDs to options).")
+
+    if "mounts" in data and not isinstance(data["mounts"], list):
+        errors.append("'mounts' must be a list of volume or bind mount definitions.")
+
+    if "forwardPorts" in data and not isinstance(data["forwardPorts"], list):
+        errors.append("'forwardPorts' must be a list of port numbers.")
+
+    if "customizations" in data and not isinstance(data["customizations"], dict):
+        errors.append("'customizations' must be a JSON object.")
+
+    return errors
+
+
+@app.command("validate")
+def validate(
+    workspace: Annotated[
+        Path,
+        typer.Option(
+            "--workspace", "-w", help="Path to workspace directory containing .devcontainer"
+        ),
+    ] = Path("."),
+    config_path: Annotated[
+        Path | None, typer.Option("--config", "-c", help="Direct path to devcontainer.json")
+    ] = None,
+    dry_run: Annotated[
+        bool, typer.Option("--dry-run", help="Simulate DevContainer manifest validation")
+    ] = False,
+) -> None:
+    """Validate .devcontainer/devcontainer.json manifest syntax and configuration schema."""
+    ws = workspace.resolve()
+    if config_path:
+        dc_file = config_path.resolve()
+    else:
+        candidates = [
+            ws / CONST_DEVCONTAINER_JSON_PATH,
+            ws / CONST_DEVCONTAINER_JSON_NAME,
+        ]
+        dc_file = next((c for c in candidates if c.exists()), candidates[0])
+
+    if dry_run or is_dry_run():
+        render_dry_run_result(
+            command="devops devcontainer validate",
+            action="validate_devcontainer_manifest",
+            details={
+                "workspace": str(ws),
+                "manifest_path": str(dc_file),
+                "exists": dc_file.exists(),
+            },
+        )
+        return
+
+    if not dc_file.exists():
+        rprint(f"[red]DevContainer manifest not found: {dc_file}[/red]")
+        raise typer.Exit(1)
+
+    try:
+        raw_text = dc_file.read_text(encoding="utf-8")
+        clean_text = _strip_json_comments(raw_text)
+        data = json.loads(clean_text)
+    except Exception as exc:
+        rprint(f"[red]Failed to parse DevContainer manifest JSON in {dc_file}: {exc}[/red]")
+        raise typer.Exit(1)
+
+    errors = _validate_manifest_content(data, dc_file.parent)
+    if errors:
+        rprint(f"[bold red]✗ DevContainer manifest validation failed for {dc_file}:[/bold red]")
+        for err in errors:
+            rprint(f"  [red]• {err}[/red]")
+        raise typer.Exit(1)
+
+    name = data.get("name", "unknown")
+    base = data.get("image") or (
+        data.get("build") if isinstance(data.get("build"), str) else "Dockerfile build"
+    )
+    n_features = len(data.get("features", {})) if isinstance(data.get("features"), dict) else 0
+    n_mounts = len(data.get("mounts", [])) if isinstance(data.get("mounts"), list) else 0
+    n_ports = len(data.get("forwardPorts", [])) if isinstance(data.get("forwardPorts"), list) else 0
+
+    rprint(f"[bold green]✓ DevContainer manifest is valid:[/bold green] [cyan]{dc_file}[/cyan]")
+    rprint(f"  [dim]Name:[/dim] [bold]{name}[/bold]")
+    rprint(f"  [dim]Base:[/dim] {base}")
+    rprint(f"  [dim]Features:[/dim] {n_features} configured")
+    rprint(f"  [dim]Mounts:[/dim] {n_mounts} configured")
+    rprint(f"  [dim]Forward Ports:[/dim] {n_ports} configured")
+
+
 @app.command("list")
 def list_devcontainers(
     base_dir: Annotated[Path | None, typer.Option("--base-dir", "-d")] = None,

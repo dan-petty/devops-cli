@@ -347,6 +347,22 @@ devops devcontainer update [OPTIONS] <repo_path>
 |---|---|---|---|
 | `--python` | `string` | `3.14` | - |
 
+### `devops devcontainer validate`
+
+**Validate .devcontainer/devcontainer.json manifest syntax and configuration schema.**
+
+```bash
+devops devcontainer validate [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--workspace`, `-w` | `path` | `.` | Path to workspace directory containing .devcontainer |
+| `--config`, `-c` | `path` | - | Direct path to devcontainer.json |
+| `--dry-run` | `boolean` | - | Simulate DevContainer manifest validation |
+
 ### `devops devcontainer list`
 
 **List repos with their devcontainer status.**

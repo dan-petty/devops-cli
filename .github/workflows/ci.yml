@@ -48,6 +48,9 @@ jobs:
       - name: Workflow Linting (actionlint)
         run: uv run actionlint
 
+      - name: DevContainer Manifest Smoke Test
+        run: uv run devops devcontainer validate --workspace .
+
       - name: Unit Tests & Code Coverage
         run: uv run pytest -v --cov=src --cov-report=xml
 

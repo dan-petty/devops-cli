@@ -111,6 +111,9 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: DevContainer Manifest Pre-Build Smoke Test
+        run: uv run devops devcontainer validate --workspace .
+
       - name: Build & Publish Reusable Dev Container Image
         uses: devcontainers/ci@v0.3
         with:
