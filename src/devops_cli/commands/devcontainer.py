@@ -6,7 +6,6 @@ import json
 import os
 import re
 import shutil
-import tomllib
 from pathlib import Path
 from typing import Annotated
 
@@ -22,7 +21,7 @@ from devops_cli.config.constants import (
     CONST_DEVCONTAINER_JSON_NAME,
     CONST_DEVCONTAINER_JSON_PATH,
 )
-from devops_cli.config.defaults import DEFAULT_PYTHON_VERSION
+from devops_cli.config.metadata import get_project_python_version
 from devops_cli.config.settings import load_settings
 from devops_cli.core.cli import new_typer, repo_label
 from devops_cli.core.process import run_subprocess
@@ -37,18 +36,7 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _project_python_version() -> str:
-    pyproject = _PROJECT_ROOT / "pyproject.toml"
-    if not pyproject.exists():
-        return DEFAULT_PYTHON_VERSION
-    with pyproject.open("rb") as file_handle:
-        data = tomllib.load(file_handle)
-    requires_python: str = str(data.get("project", {}).get("requires-python") or "")
-    if not requires_python:
-        return DEFAULT_PYTHON_VERSION
-    match = re.search(r"^>=?\s*([\d.]+)", requires_python)
-    if match:
-        return match.group(1)
-    return requires_python
+    return get_project_python_version()
 
 
 def _jinja_env() -> Environment:

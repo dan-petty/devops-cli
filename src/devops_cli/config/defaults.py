@@ -19,6 +19,7 @@ from devops_cli.config.constants import (
     CONST_REVIEW_WINDOW_SIZE_FACTOR,
     CONST_URL_OLLAMA_LOCALHOST,
 )
+from devops_cli.config.metadata import get_project_python_version
 
 # ── General Defaults ──────────────────────────────────────────────────────────
 DEFAULT_SSH_KEY_DIR = Path.home() / ".ssh"
@@ -29,7 +30,7 @@ DEFAULT_AI_PROVIDER = "ollama"
 DEFAULT_AI_MODEL = "gemma4:26b"
 DEFAULT_OLLAMA_URLS: tuple[str, ...] = (CONST_URL_OLLAMA_LOCALHOST,)
 DEFAULT_AI_MAX_RETRIES: int = CONST_DEFAULT_AI_MAX_RETRIES
-DEFAULT_PYTHON_VERSION = "3.14"
+DEFAULT_PYTHON_VERSION = get_project_python_version()
 DEFAULT_BUNDLE_MODELS: tuple[str, ...] = ("qwen2.5-coder:7b", "llama3.1:8b")
 
 # ── Tool & Agent Defaults ─────────────────────────────────────────────────────
