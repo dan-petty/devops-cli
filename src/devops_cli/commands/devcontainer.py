@@ -483,6 +483,22 @@ def _run_post_start_lifecycle(workspace_dir: Path, *, dry_run: bool = False) -> 
             else:
                 actions.append(f"Auto-deployed Kubernetes stack ({stack})")
 
+    # 6. Pre-commit Git hook installation
+    if (workspace_dir / ".pre-commit-config.yaml").exists() and (workspace_dir / ".git").exists():
+        if not dry_run:
+            res = run_subprocess(
+                ["uv", "run", "pre-commit", "install"],
+                cwd=workspace_dir,
+                check=False,
+                quiet=True,
+            )
+            if res.returncode == 0:
+                actions.append("Installed pre-commit Git hooks (uv run pre-commit install)")
+            else:
+                actions.append("Warning: Failed to install pre-commit Git hooks")
+        else:
+            actions.append("Installed pre-commit Git hooks (uv run pre-commit install)")
+
     return actions
 
 
