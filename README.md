@@ -1,6 +1,6 @@
 # devops-cli — Workstation DevOps CLI & Multi-Persona AI Code Reviewer
 
-[![CI Quality Gate](https://github.com/your-org/devops-cli/actions/workflows/ci.yml/badge.svg)](.github/workflows/ci.yml)
+[![CI Validation](https://github.com/your-org/devops-cli/actions/workflows/ci.yml/badge.svg)](.github/workflows/ci.yml)
 [![Python 3.14+](https://img.shields.io/badge/python-3.14%2B-blue.svg)](https://www.python.org/downloads/)
 [![Type Checked: Mypy Strict](https://img.shields.io/badge/mypy-strict-blue.svg)](https://mypy-lang.org/)
 [![Code Style: Ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
@@ -18,7 +18,7 @@
 - 🛡️ **Active SSRF & Egress Guardrails**: Outbound API requests pass through strict IP validation (`validate_service_url`) blocking private subnets (RFC 1918), loopbacks, and cloud metadata endpoints by default.
 - 🤖 **Multi-Persona Agentic Code Review**: Paginated diff analysis across branches and PRs using specialized expert personas (`devsecops`, `architect`, `pm`, `auditor`, `qa`) backed by `ScratchpadBuffer` reasoning context and deterministic finding verification.
 - ⚙️ **Native DevContainer Lifecycle Engine**: Cross-platform Python lifecycle orchestration (`devops devcontainer run-lifecycle`) replaces legacy shell scripts for post-create and post-start hooks.
-- 🚀 **End-to-End Release Cycle Automation**: Native `devops release` subcommands suite (`status`, `prepare`, `check`, `notes`, `tag`) automating version bumping, changelogs, docs sync, and 7-gate CI validation.
+- 🚀 **End-to-End Release Cycle Automation**: Native `devops release` subcommands suite (`status`, `prepare`, `check`, `notes`, `tag`) automating version bumping, changelogs, docs sync, and CI validation.
 - 🔌 **FastMCP Server & Native Tool Bridge**: Over 25+ infrastructure and analysis tools exposed over Model Context Protocol for seamless integration into AI IDEs and autonomous subagents.
 
 ---
@@ -26,9 +26,10 @@
 ## 📚 Architectural & Governance Documentation
 
 - 📐 [**System Architecture & Technical Design (`ARCHITECTURE.md`)**](ARCHITECTURE.md) — Subsystem topologies, multi-agent sequence diagrams, and lifecycle hooks.
-- 🔄 [**Release Cycle & Versioning Guide (`RELEASE_CYCLE.md`)**](RELEASE_CYCLE.md) — Semantic versioning, quality gates, and release procedures.
+- 🔄 [**Release Cycle & Versioning Guide (`RELEASE_CYCLE.md`)**](RELEASE_CYCLE.md) — Semantic versioning, validation checks, and release procedures.
 - 🛡️ [**Security Policy & Threat Model (`SECURITY.md`)**](SECURITY.md) — Vulnerability disclosure, SSRF protections, and OS Keyring encryption.
 - 🤝 [**Contributor Guidelines (`CONTRIBUTING.md`)**](CONTRIBUTING.md) — Standards, local development with `uv`, and PR workflows.
+- 📋 [**Routine Tasks, Order & Methodology Guide (`docs/ROUTINE_TASKS.md`)**](docs/ROUTINE_TASKS.md) — Operational task matrix, cadences, execution order, and troubleshooting protocols.
 - 📖 [**Consolidated CLI Reference (`docs/CLI_REFERENCE.md`)**](docs/CLI_REFERENCE.md) — Full subcommand reference.
 - 🌐 [**Environment Variables Guide (`docs/ENV_VARS.md`)**](docs/ENV_VARS.md) — System and environment settings.
 - ⚡ [**FastMCP Tools Specification (`docs/MCP_TOOLS.md`)**](docs/MCP_TOOLS.md) — Registered MCP tools.
@@ -50,7 +51,7 @@ devops config set github.token "ghp_your_personal_access_token"
 devops ai config --provider claude
 devops config set ai.api_key "sk-ant-..."
 
-# 4. Verify LLM connectivity and run quality gate
+# 4. Verify LLM connectivity and run CI validation
 devops ai test
 devops ci run
 ```
@@ -120,6 +121,7 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 |  | `devops branches clean [OPTIONS]` | Delete local branches merged into main/master. |
 | **devcontainer** | `devops devcontainer init [OPTIONS] <repo_path>` | Scaffold .devcontainer/ in a repository using the standard template. |
 |  | `devops devcontainer update [OPTIONS] <repo_path>` | Update the Python image version in an existing devcontainer.json. |
+|  | `devops devcontainer validate [OPTIONS]` | Validate .devcontainer/devcontainer.json manifest syntax and configuration schema. |
 |  | `devops devcontainer list [OPTIONS]` | List repos with their devcontainer status. |
 |  | `devops devcontainer post-create [OPTIONS]` | Execute DevContainer post-create setup tasks (history, shell completions, config prep). |
 |  | `devops devcontainer post-start [OPTIONS]` | Execute DevContainer post-start tasks (SSH keys, git defaults, kubeconfig, MCP sync). |
@@ -172,11 +174,12 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 |  | `devops config audit-stream <destination>` | Stream stored audit records to SIEM destination URL. |
 | **ci** | `devops ci test [OPTIONS]` | Run the pytest test suite in parallel leveraging all CPU cores. |
 |  | `devops ci coverage [OPTIONS]` | Run pytest with parallel code coverage analysis over src/. |
-|  | `devops ci lint [OPTIONS]` | Run ruff linter strictly targeting Python 3.14 across the project. |
-|  | `devops ci format [OPTIONS]` | Check (or apply) code formatting with ruff format targeting Python 3.14. |
+|  | `devops ci lint [OPTIONS]` | Run ruff linter across the project. |
+|  | `devops ci format [OPTIONS]` | Check (or apply) code formatting with ruff format. |
 |  | `devops ci typecheck` | Run mypy static type-checker strictly targeting Python 3.14 over src/. |
 |  | `devops ci audit` | Run uv audit to check for known package vulnerabilities. |
 |  | `devops ci security [OPTIONS]` | Run bandit static security vulnerability analysis over src/. |
+|  | `devops ci actionlint` | Run actionlint to validate GitHub Actions workflows for syntax and schema errors. |
 |  | `devops ci docs` | Verify that documentation is up to date with CLI commands and configuration. |
 |  | `devops ci run [OPTIONS]` | Run full CI and return a single pass/fail status. |
 | **uv** | `devops uv sync [OPTIONS]` | Sync project dependencies into the virtual environment. |
@@ -200,7 +203,7 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 |  | `devops review findings [OPTIONS]` | Inspect structured findings for a review session. |
 |  | `devops review verify [OPTIONS] <session>` | Validate or invalidate a review finding, persisting feedback reasons. |
 |  | `devops review stats [OPTIONS]` | Compute and display review accuracy statistics across saved sessions. |
-|  | `devops review export-feedback [OPTIONS]` | Export invalidated review findings into a JSONL benchmark dataset for prompt tuning. |
+|  | `devops review export-feedback [OPTIONS]` | Export review findings into a JSONL benchmark dataset for prompt tuning and fine-tuning. |
 |  | `devops review apply-patch [OPTIONS] <session>` | Apply suggested LLM code fix for a verified finding (v0.1.3). |
 | **mcp** | `devops mcp serve [OPTIONS]` | Launch FastMCP server to expose devops-cli tools to MCP clients. |
 |  | `devops mcp tools` | List all registered FastMCP tools and descriptions. |

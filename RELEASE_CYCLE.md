@@ -80,35 +80,41 @@ When adding or modifying subcommands, options, environment variables, or FastMCP
    ```bash
    uv run devops docs check
    ```
+## 3. Documentation Standards & Generation
 
-### Documentation Files Managed by Generator
-| Target Document | Description |
+The `devops-cli` maintains living, introspected documentation:
+
+| Document | Purpose |
 | :--- | :--- |
-| [`README.md`](file:///workspaces/devops-cli/README.md) | Complete Command Matrix synchronized between `<!-- COMMAND_MATRIX_START -->` and `<!-- COMMAND_MATRIX_END -->`. |
-| [`docs/CLI_REFERENCE.md`](file:///workspaces/devops-cli/docs/CLI_REFERENCE.md) | Consolidated reference for all CLI subcommands, options, and arguments. |
-| [`docs/ENV_VARS.md`](file:///workspaces/devops-cli/docs/ENV_VARS.md) | Environment variables, corresponding config options, and defaults. |
+| [`README.md`](file:///workspaces/devops-cli/README.md) | Project introduction, architecture overview, and command matrix. |
+| [`docs/CLI_REFERENCE.md`](file:///workspaces/devops-cli/docs/CLI_REFERENCE.md) | Complete reference of all subcommands, options, and parameters. |
+| [`docs/ENV_VARS.md`](file:///workspaces/devops-cli/docs/ENV_VARS.md) | Environment variables, defaults, types, and descriptions. |
 | [`docs/MCP_TOOLS.md`](file:///workspaces/devops-cli/docs/MCP_TOOLS.md) | FastMCP tools, input schemas, and execution parameters. |
 | `docs/commands/<group>.md` | Dedicated per-command-group reference manuals. |
 
 ---
 
-## 4. Quality Gate & CI Validation
+## 4. CI Validation Suite
 
-The `devops ci` quality gate is the authoritative validation gate. All checks must pass cleanly before any merge or release.
+The `devops ci` suite is the authoritative validation gate. All checks must pass cleanly before any merge or release. See [**`docs/ROUTINE_TASKS.md`**](docs/ROUTINE_TASKS.md) for the complete routine task order, frequency, and methodology.
 
 ```bash
-# Run full 7-gate CI validation suite
-uv run devops ci run
+# Run full CI validation suite
+uv run devops ci
 ```
 
-### The 7 Quality Gates
+### Core Validation Checks
 1. **Python Version Check**: Strictly enforces Python 3.14+ runtime.
-2. **Linting (`ruff check .`)**: Strict PEP 8 linting, import sorting, and unused symbol elimination.
-3. **Formatting (`ruff format --check .`)**: Enforces 100-character line length standards.
-4. **Type Checking (`mypy --strict src`)**: Full static type checking in strict mode.
-5. **Documentation Validation (`devops docs check`)**: Asserts all docs and README matrices are synchronized.
-6. **Unit Tests & Code Coverage (`pytest --cov=src`)**: Executes test suite with coverage thresholds.
-7. **Security Scan (`bandit`)**: Static vulnerability and code safety analysis.
+2. **Unit Tests (`pytest -n auto --maxprocesses=4`)**: Parallel unit test execution with full mock isolation.
+3. **Code Coverage (`pytest-cov`)**: Enforces branch and line coverage thresholds.
+4. **Linting (`ruff check .`)**: Strict PEP 8 linting, import sorting, and unused symbol elimination.
+5. **Formatting (`ruff format --check .`)**: Enforces 100-character line length standards.
+6. **Type Checking (`mypy --strict src`)**: Full static type checking in strict mode across all source files.
+7. **Dependency Audit (`uv audit`)**: Automated vulnerability scanning of lockfile packages against OSV.
+8. **Security Scan (`bandit`)**: Static vulnerability, subshell safety, and code analysis.
+9. **Workflow Linting (`actionlint`)**: Validates GitHub Actions workflow schemas and script syntax.
+10. **DevContainer Smoke Test (`devops devcontainer validate`)**: Smoke-tests DevContainer manifests prior to publication.
+11. **Documentation Validation (`devops docs check`)**: Asserts all CLI markdown docs and README matrices are synchronized.
 
 ---
 
@@ -119,17 +125,17 @@ The `devops-cli` provides native first-class subcommands to automate every stage
 | Subcommand | Description | Example |
 | :--- | :--- | :--- |
 | `devops release status` | Displays release version consistency, git tag, changelog state, and docs freshness. | `devops release status` |
-| `devops release prepare <ver>` | Bumps versions in `pyproject.toml` and `__init__.py`, updates `CHANGELOG.md`, and syncs docs/README. | `devops release prepare 0.1.8 [-p]` |
-| `devops release pr [-v <ver>]` | Creates a release branch (`release/vX.Y.Z`), commits bumps, and opens a GitHub Release PR. | `devops release pr -v 0.1.8` |
-| `devops release check` | Authoritative verification gate: asserts version matching, clean git tree, docs freshness, and 7-gate CI. | `devops release check` |
-| `devops release notes [-v <ver>]` | Extracts and renders formatted markdown release notes from `CHANGELOG.md`. | `devops release notes -v 0.1.8` |
-| `devops release tag [-v <ver>]` | Creates release commit and annotated git tag (used by CI release automation on `main`). | `devops release tag 0.1.8` |
+| `devops release prepare <ver>` | Bumps versions in `pyproject.toml` and `__init__.py`, updates `CHANGELOG.md`, and syncs docs/README. | `devops release prepare 0.1.10 [-p]` |
+| `devops release pr [-v <ver>]` | Creates a release branch (`release/vX.Y.Z`), commits bumps, and opens a GitHub Release PR. | `devops release pr -v 0.1.10` |
+| `devops release check` | Authoritative verification gate: asserts version matching, clean git tree, docs freshness, and CI validation. | `devops release check` |
+| `devops release notes [-v <ver>]` | Extracts and renders formatted markdown release notes from `CHANGELOG.md`. | `devops release notes -v 0.1.10` |
+| `devops release tag [-v <ver>]` | Creates release commit and annotated git tag (used by CI release automation on `main`). | `devops release tag 0.1.10` |
 
 ---
 
 ## 6. GitHub Pull Request Merge Controls & Release Orchestration
 
-Releases in `devops-cli` enforce **GitHub Pull Request Merge Controls** and Branch Protection rules on `main`. Direct manual pushes to `main` and direct developer tagging are prohibited; every release is gated behind peer review and automated CI quality checks.
+Releases in `devops-cli` enforce **GitHub Pull Request Merge Controls** and Branch Protection rules on `main`. Direct manual pushes to `main` and direct developer tagging are prohibited; every release is gated behind peer review and automated CI validation checks.
 
 ```mermaid
 sequenceDiagram
@@ -143,8 +149,8 @@ sequenceDiagram
 
     Dev->>CLI: devops release prepare X.Y.Z --create-pr
     CLI->>Git: Push branch release/vX.Y.Z & Open Release PR
-    Git->>CI: Trigger 7-Gate CI Quality Validation
-    CI-->>Git: All 7 quality gates passed (Green)
+    Git->>CI: Trigger CI Validation
+    CI-->>Git: All validation checks passed (Green)
     Dev->>Git: Peer Review & PR Approval
     Dev->>Main: Merge Pull Request into main
     Main->>Rel: Push to main triggers release.yml
@@ -205,6 +211,3 @@ uv run devops devcontainer run-lifecycle --all
 - **OpenTofu CLI Integration (`devops tofu` / `devops tf`)**: Infrastructure-as-Code command suite automating OpenTofu initialization, planning, applying, state inspection, and outputs.
 - **Multi-Cloud Cloud Resource Modules (`tf/`)**: Production OpenTofu manifests for provisioning Kubernetes clusters and cloud networking across AWS (EKS), Azure (AKS), and Google Cloud (GKE) tailored for deploying project `k8s/` resources.
 - **Automated Multi-Cloud Kubeconfig Synchronization**: Direct integration between cloud cluster provisioning outputs and `devops k8s bootstrap` / `devops k8s deploy-stack`.
-
-
-

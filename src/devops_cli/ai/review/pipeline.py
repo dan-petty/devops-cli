@@ -395,7 +395,7 @@ class ReviewPipelineOrchestrator:
             try:
                 sec_val = float(elapsed_sec)
                 sec_str = f"{sec_val:.1f}s"
-            except TypeError, ValueError:
+            except (TypeError, ValueError):
                 sec_str = "0.0s"
 
             rprint(
@@ -487,7 +487,7 @@ class ReviewPipelineOrchestrator:
             try:
                 sec_val = float(elapsed_sec)
                 sec_str = f"{sec_val:.1f}s"
-            except TypeError, ValueError:
+            except (TypeError, ValueError):
                 sec_str = "0.0s"
 
             rprint(

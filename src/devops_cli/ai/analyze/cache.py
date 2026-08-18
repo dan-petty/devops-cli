@@ -32,10 +32,12 @@ def save_analysis_metadata(
     """Save or update analysis metadata file under .data/analysis/."""
     sanitized_ref = sanitize_reference(target_reference, repo_root)
     top_root = find_top_level_repo_root(repo_root)
-    analysis_dir = top_root / CONST_ANALYSIS_DATA_DIR
+    analysis_dir = (top_root / CONST_ANALYSIS_DATA_DIR).resolve()
     if not is_dry_run():
         analysis_dir.mkdir(parents=True, exist_ok=True)
-    out_file = analysis_dir / f"{target_type}-{sanitized_ref}-metadata.json"
+    out_file = (analysis_dir / f"{target_type}-{sanitized_ref}-metadata.json").resolve()
+    if not str(out_file).startswith(str(analysis_dir)):
+        raise ValueError(f"Target metadata path escapes analysis directory: {out_file}")
 
     total_files = len(files)
     total_lines = sum(f.line_count for f in files)

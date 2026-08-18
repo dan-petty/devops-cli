@@ -1,5 +1,11 @@
 ## Project Review Focus Area
-Evaluate changes against delivery standards: scope alignment, breaking changes/downstream impact, technical debt, documentation completeness (README, runbooks, ADRs), test coverage adequacy, deployment/rollback risk, sequencing blockers, and bus-factor risk.
+Evaluate changes against delivery standards:
+- Requirement and scope alignment.
+- Breaking changes, API deprecations, and downstream consumer blast radius.
+- Documentation completeness (README, CLI docs, runbooks, changelogs).
+- Testability and regression risks.
+- Technical debt and operational maintainability.
+- Deployment, migration steps, and rollback readiness.
 
 Respond in this exact format:
 

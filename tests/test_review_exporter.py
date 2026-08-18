@@ -59,3 +59,55 @@ def test_export_invalidated_feedback_records(tmp_path: Path) -> None:
     assert record["persona"] == "devsecops"
     assert record["title"] == "SQL Injection Risk"
     assert record["invalidation_reason"] == "Query uses parameterized statement builder"
+
+
+def test_export_feedback_by_status_and_all(tmp_path: Path) -> None:
+    reviews_dir = tmp_path / "reviews"
+    session_dir = reviews_dir / "session-2"
+    session_dir.mkdir(parents=True)
+
+    findings_payload: dict[str, Any] = {
+        "session_id": "session-2",
+        "findings": [
+            {
+                "title": "Invalid Syntax",
+                "status": "INVALIDATED",
+                "persona": "devsecops",
+                "severity": "critical",
+                "location": "src/app.py:10",
+                "description": "Claims syntax error on valid tuple",
+                "invalidation_reason": "Valid Python 3 tuple exception",
+                "verified_at": "2026-08-11T20:00:00Z",
+                "verified_by": "human",
+            },
+            {
+                "title": "Missing Timeout",
+                "status": "VERIFIED",
+                "persona": "devsecops",
+                "severity": "medium",
+                "location": "src/http.py:25",
+                "description": "Network request lacks explicit timeout",
+                "confidence_score": 0.95,
+                "verified_at": "2026-08-11T20:05:00Z",
+                "verified_by": "llm",
+            },
+        ],
+    }
+    (session_dir / "findings.json").write_text(json.dumps(findings_payload), encoding="utf-8")
+
+    # Filter by VERIFIED
+    out_verified = tmp_path / "verified.jsonl"
+    count_v, _ = export_invalidated_feedback(
+        reviews_dir=reviews_dir, output_file=out_verified, status_filter="VERIFIED"
+    )
+    assert count_v == 1
+    v_lines = out_verified.read_text(encoding="utf-8").strip().splitlines()
+    assert len(v_lines) == 1
+    assert json.loads(v_lines[0])["status"] == "VERIFIED"
+
+    # Export ALL
+    out_all = tmp_path / "all.jsonl"
+    count_all, _ = export_invalidated_feedback(
+        reviews_dir=reviews_dir, output_file=out_all, status_filter=None
+    )
+    assert count_all == 2

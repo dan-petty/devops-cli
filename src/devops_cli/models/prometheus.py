@@ -70,7 +70,7 @@ class PrometheusQueryResult(BaseModel):
                         if isinstance(pair, list) and len(pair) == 2:
                             try:
                                 values.append((float(pair[0]), str(pair[1])))
-                            except ValueError, TypeError:
+                            except (ValueError, TypeError):
                                 continue
 
                 series.append(PrometheusSeries(labels=labels, values=values))

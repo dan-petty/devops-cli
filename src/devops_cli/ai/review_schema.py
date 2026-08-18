@@ -68,7 +68,7 @@ class Finding(BaseModel):
         try:
             val = float(str(v))
             return max(0.0, min(1.0, val))
-        except ValueError, TypeError:
+        except (ValueError, TypeError):
             return None
 
 
@@ -114,7 +114,7 @@ class ReviewResult(BaseModel):
         try:
             val = float(str(v))
             return max(0.0, min(1.0, val))
-        except ValueError, TypeError:
+        except (ValueError, TypeError):
             return None
 
     @property

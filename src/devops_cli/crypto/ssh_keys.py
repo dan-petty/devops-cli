@@ -50,11 +50,12 @@ def generate_ed25519_key(key_path: Path, comment: str = "") -> None:
         )
         .decode()
     )
-    clean_comment = re.sub(r"[\r\n\t]", " ", comment).strip()
+    clean_comment = re.sub(r"[\r\n\t\x00-\x1f]", " ", comment).strip()
     pub_line = f"{pub_raw} {clean_comment}".strip() + "\n"
     pub_path = key_path.with_name(f"{key_path.name}.pub")
-    pub_path.write_text(pub_line, encoding="utf-8")
-    pub_path.chmod(CONST_PERM_PUBLIC_KEY)
+    pub_fd = _os.open(pub_path, _os.O_WRONLY | _os.O_CREAT | _os.O_TRUNC, CONST_PERM_PUBLIC_KEY)
+    with _os.fdopen(pub_fd, "w", encoding="utf-8") as pub_fh:
+        pub_fh.write(pub_line)
 
 
 def parse_key_date(key_path: Path) -> date | None:

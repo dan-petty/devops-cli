@@ -65,6 +65,22 @@ def _validate_enhanced_metadata(
     return parsed, None
 
 
+def _mask_sensitive_data(text: str) -> str:
+    """Mask credentials and secrets before transmitting code to external LLM services."""
+    masked = re.sub(
+        r"(ghp_[A-Za-z0-9_]{36}|gho_[A-Za-z0-9_]{36}|github_pat_[A-Za-z0-9_]{82})",
+        "<github-token-masked>",
+        text,
+    )
+    masked = re.sub(r"(sk-[A-Za-z0-9_-]{20,})", "<ai-key-masked>", masked)
+    masked = re.sub(
+        r"-----BEGIN [A-Z ]+ PRIVATE KEY-----[\s\S]*?-----END [A-Z ]+ PRIVATE KEY-----",
+        "<private-key-masked>",
+        masked,
+    )
+    return masked
+
+
 def _enhance_file_metadata_with_ai(
     rel_path: str,
     content: str,
@@ -78,9 +94,10 @@ def _enhance_file_metadata_with_ai(
     from devops_cli.ai.review_schema import extract_json_block
     from devops_cli.models.ai import ChatMessage
 
+    sanitized_content = _mask_sensitive_data(content[:150000])
     prompt = (
         f"Analyze File: '{rel_path}' ({lang})\n\n"
-        f"Source code excerpt:\n{content[:150000]}\n\n"
+        f"Source code excerpt:\n{sanitized_content}\n\n"
         "Extract structured file metadata JSON strictly following system instructions."
     )
     messages = [ChatMessage(role="user", content=prompt)]
@@ -215,6 +232,10 @@ def _calculate_complexity_score(content: str, line_count: int, symbols: list[str
 def _get_last_updated(rel_path: str, repo_root: Path | None = None) -> str:
     """Get ISO timestamp of when file was last updated via git log or stat mtime."""
     if repo_root and repo_root.exists():
+        rel_path_obj = Path(rel_path)
+        if rel_path_obj.is_absolute() or ".." in rel_path_obj.parts:
+            return datetime.now(UTC).isoformat()
+
         from devops_cli.core.process import run_subprocess
 
         try:
@@ -229,8 +250,8 @@ def _get_last_updated(rel_path: str, repo_root: Path | None = None) -> str:
         except Exception:
             pass
 
-        full_p = repo_root / rel_path
-        if full_p.exists():
+        full_p = (repo_root / rel_path).resolve()
+        if str(full_p).startswith(str(repo_root.resolve())) and full_p.exists():
             try:
                 mtime = full_p.stat().st_mtime
                 return datetime.fromtimestamp(mtime, tz=UTC).isoformat()
@@ -246,7 +267,7 @@ def _extract_python_pseudocode_outline(content: str) -> list[str]:
     try:
         tree = ast.parse(content)
         for node in tree.body:
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
                 args = [a.arg for a in node.args.args if a.arg != "self"]
                 args_str = ", ".join(args[:3])
                 if len(node.args.args) > 3:
@@ -256,7 +277,13 @@ def _extract_python_pseudocode_outline(content: str) -> list[str]:
                 for stmt in node.body[:2]:
                     if isinstance(
                         stmt,
-                        (ast.If, ast.For, ast.While, ast.Return, ast.Raise, ast.Assign, ast.Expr),
+                        ast.If
+                        | ast.For
+                        | ast.While
+                        | ast.Return
+                        | ast.Raise
+                        | ast.Assign
+                        | ast.Expr,
                     ):
                         try:
                             stmt_code = ast.unparse(stmt).splitlines()[0]
@@ -268,7 +295,7 @@ def _extract_python_pseudocode_outline(content: str) -> list[str]:
                 bases_str = f"({', '.join(bases)})" if bases else ""
                 lines.append(f"class {node.name}{bases_str}:")
                 for item in node.body[:2]:
-                    if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    if isinstance(item, ast.FunctionDef | ast.AsyncFunctionDef):
                         args = [a.arg for a in item.args.args if a.arg != "self"]
                         lines.append(f"    def {item.name}({', '.join(args[:2])}):")
     except Exception:

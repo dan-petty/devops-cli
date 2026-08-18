@@ -92,7 +92,7 @@ def _reload_workspace(workspace_file: Path) -> None:
             check=False,
             timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
         )
-    except OSError, subprocess.SubprocessError:
+    except (OSError, subprocess.SubprocessError):
         from devops_cli.lang import MESSAGES
 
         rprint(f"[yellow]{MESSAGES.messages.vscode_cli_unavailable}[/yellow]")

@@ -23,16 +23,22 @@ class FeedbackRecord(BaseModel):
     severity: str
     location: str
     description: str
-    invalidation_reason: str
-    verified_at: str
-    verified_by: str
+    status: str = "INVALIDATED"
+    verified: bool = False
+    mitigated: bool = False
+    confidence_score: float | None = None
+    fix: str | None = None
+    invalidation_reason: str | None = None
+    verified_at: str = ""
+    verified_by: str = "human"
 
 
 def export_invalidated_feedback(
     reviews_dir: Path | None = None,
     output_file: Path | None = None,
+    status_filter: str | None = "INVALIDATED",
 ) -> tuple[int, Path]:
-    """Export all findings with status == "INVALIDATED" into a JSONL feedback dataset.
+    """Export findings matching status_filter (or all findings if None) into a JSONL dataset.
 
     Returns (count, output_path).
     """
@@ -50,7 +56,8 @@ def export_invalidated_feedback(
             data: dict[str, Any] = json.loads((s_dir / "findings.json").read_text(encoding="utf-8"))
             findings = data.get("findings", [])
             for f in findings:
-                if f.get("status") == "INVALIDATED":
+                f_status = str(f.get("status", "")).upper()
+                if status_filter is None or f_status == status_filter.upper():
                     record = FeedbackRecord(
                         session_id=data.get("session_id", s_dir.name),
                         persona=f.get("persona", "unknown"),
@@ -58,7 +65,12 @@ def export_invalidated_feedback(
                         severity=f.get("severity", "medium"),
                         location=f.get("location", ""),
                         description=f.get("description", ""),
-                        invalidation_reason=f.get("invalidation_reason", ""),
+                        status=f_status,
+                        verified=bool(f.get("verified", False)),
+                        mitigated=bool(f.get("mitigated", False)),
+                        confidence_score=f.get("confidence_score"),
+                        fix=f.get("fix"),
+                        invalidation_reason=f.get("invalidation_reason"),
                         verified_at=f.get("verified_at", ""),
                         verified_by=f.get("verified_by", "human"),
                     )

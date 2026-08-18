@@ -71,7 +71,7 @@ _EXT_LANG_FALLBACK: dict[str, str] = {
 
 
 def sanitize_reference(raw_ref: str, repo_root: Path | None = None) -> str:
-    """Sanitize and normalize a reference into a safe filename string."""
+    """Sanitize and normalize a reference into a safe filename string with max length."""
     cleaned = raw_ref.strip()
     if cleaned in ("", ".", "./"):
         cleaned = repo_root.name if repo_root else "root"
@@ -79,7 +79,30 @@ def sanitize_reference(raw_ref: str, repo_root: Path | None = None) -> str:
     cleaned = cleaned.replace("/", "-").replace("\\", "-")
     cleaned = re.sub(r"[^A-Za-z0-9_-]", "-", cleaned)
     cleaned = re.sub(r"-+", "-", cleaned).strip("-")
+    if len(cleaned) > 128:
+        cleaned = cleaned[:128].rstrip("-")
     return cleaned or "root"
+
+
+_VALID_MIME_SUBTYPES = {
+    "python",
+    "javascript",
+    "typescript",
+    "json",
+    "yaml",
+    "html",
+    "css",
+    "markdown",
+    "xml",
+    "sql",
+    "shell",
+    "c",
+    "cpp",
+    "go",
+    "rust",
+    "ruby",
+    "protobuf",
+}
 
 
 def detect_language(filepath: Path | str, content: str | None = None) -> str:
@@ -109,26 +132,7 @@ def detect_language(filepath: Path | str, content: str | None = None) -> str:
     if mime_type:
         _, sub = mime_type.split("/", 1)
         sub_clean = sub.removeprefix("x-").removeprefix("vnd.").split(".")[0].split("+")[0]
-        if sub_clean in (
-            "python",
-            "javascript",
-            "typescript",
-            "json",
-            "yaml",
-            "html",
-            "css",
-            "markdown",
-            "shell",
-            "c",
-            "cpp",
-            "go",
-            "rust",
-            "java",
-            "sql",
-            "xml",
-            "toml",
-            "ini",
-        ):
+        if sub_clean in _VALID_MIME_SUBTYPES:
             return sub_clean
 
     return _EXT_LANG_FALLBACK.get(ext, "plaintext")
@@ -149,7 +153,7 @@ def _analyze_python_ast(content: str) -> tuple[str | None, list[str], list[str]]
         if isinstance(stmt, ast.ClassDef):
             if stmt.name not in ("BaseModel", "ConfigDict", "Exception", "Any"):
                 symbols.append(stmt.name)
-        elif isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        elif isinstance(stmt, ast.FunctionDef | ast.AsyncFunctionDef):
             if not stmt.name.startswith("__"):
                 symbols.append(stmt.name)
         elif isinstance(stmt, ast.Assign):

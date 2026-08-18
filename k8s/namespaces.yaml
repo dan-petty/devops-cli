@@ -28,4 +28,3 @@ metadata:
   name: llm
   labels:
     app.kubernetes.io/part-of: devops-cli-stack
-

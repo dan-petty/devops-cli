@@ -348,7 +348,7 @@ def _minikube_running() -> bool:
             ["minikube", "status", "--format", "{{.Host}}"], check=False, capture=True
         )
         return result.returncode == 0 and "Running" in result.stdout
-    except FileNotFoundError, OSError, subprocess.SubprocessError:
+    except (FileNotFoundError, OSError, subprocess.SubprocessError):
         return False
 
 
@@ -518,7 +518,7 @@ def _detect_service_url(service: str, namespace: str) -> str | None:
                 line_str = line.strip()
                 if line_str.startswith("http://") or line_str.startswith("https://"):
                     return line_str
-    except OSError, subprocess.SubprocessError:
+    except (OSError, subprocess.SubprocessError):
         pass
     return None
 

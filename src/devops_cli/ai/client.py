@@ -211,7 +211,7 @@ class LLMClient:
                 data = json.loads(stripped)
                 if isinstance(data, dict) and ("error" in data or "error_code" in data):
                     return False
-            except json.JSONDecodeError, TypeError, ValueError:
+            except (json.JSONDecodeError, TypeError, ValueError):
                 pass
 
         if validator is not None:
