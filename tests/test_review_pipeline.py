@@ -118,3 +118,47 @@ def test_init_per_file_payloads_path_matching(tmp_path: Path, monkeypatch) -> No
     assert payloads[0].metadata.primary_purpose == "Agents module init"
     assert payloads[0].metadata.key_symbols == ["PydanticAgent"]
     assert payloads[0].metadata.quality_score == 0.9
+
+
+def test_validate_segment_findings_preserves_reason_and_confidence() -> None:
+    """_validate_segment_findings updates invalidation_reason and confidence_score."""
+    import json
+
+    from devops_cli.ai.review.verification import _validate_segment_findings
+    from devops_cli.ai.review_schema import Finding, ReviewResult
+
+    finding = Finding(
+        title="Sample Finding",
+        description="Sample Description",
+        severity="HIGH",
+        location="src/test.py:10-15",
+        verified=True,
+    )
+    result = ReviewResult(findings=[finding])
+
+    mock_client = MagicMock()
+    mock_client.chat.return_value = json.dumps(
+        [
+            {
+                "verified": False,
+                "mitigated": False,
+                "severity": "LOW",
+                "location": "src/test.py:10-15",
+                "confidence_score": 0.95,
+                "reason": "Speculative assertion on internal wrapper.",
+            }
+        ]
+    )
+
+    validated_result, _, _ = _validate_segment_findings(
+        result=result,
+        all_segments=["### File: src/test.py\n```python\nprint('hello')\n```"],
+        client=mock_client,
+    )
+
+    assert len(validated_result.findings) == 1
+    vf = validated_result.findings[0]
+    assert vf.verified is False
+    assert vf.status == "UNVERIFIED"
+    assert vf.invalidation_reason == "Speculative assertion on internal wrapper."
+    assert vf.confidence_score == 0.95

@@ -13,14 +13,16 @@ from devops_cli.ai.review_schema import _SEVERITY_RANK, Finding, ReviewResult, e
 _VALIDATION_SYSTEM = (
     "You are an expert finding verification system.\n"
     "Verify whether each reported finding is genuine, accurate, and unmitigated.\n"
-    "1. Is the code visible in the excerpt? If absent, mark false.\n"
-    "2. Is the finding genuine or a false positive (e.g. valid syntax, secret placeholders)?\n"
-    "3. Is the issue on historical documentation/evidence rather than active code?\n"
+    "1. Is the defect visible in the code excerpt? If absent or hallucinated, mark false.\n"
+    "2. Is the finding genuine or speculative/false-positive (e.g. valid syntax, "
+    "safe subprocess argument lists, secret placeholders)? If speculative, mark false.\n"
+    "3. Is the issue on historical documentation/evidence rather than active code? "
+    "If docs, mark false.\n"
     "4. Is the issue mitigated by error handling, type safety, guardrails, or related files?\n\n"
     "Output MUST be a JSON array of objects with fields:\n"
     '  - "verified": boolean (true if genuine & unmitigated, false if false-positive/mitigated)\n'
     '  - "mitigated": boolean (true if a related file or guardrail mitigates the risk)\n'
-    '  - "location": string (file:lines)\n'
+    '  - "location": string (clean single-line file:lines)\n'
     '  - "severity": string (CRITICAL | HIGH | MEDIUM | LOW | INFO)\n'
     '  - "confidence_score": float from 0.0 to 1.0 (or null)\n'
     '  - "reason": string (brief justification)\n\n'
@@ -280,6 +282,13 @@ def _validate_segment_findings(
                     "verified_by": "llm",
                     "verified_at": now_iso,
                 }
+                if "reason" in item and item["reason"]:
+                    updates["invalidation_reason"] = str(item["reason"])
+                if "confidence_score" in item and item["confidence_score"] is not None:
+                    try:
+                        updates["confidence_score"] = float(item["confidence_score"])
+                    except (ValueError, TypeError):
+                        pass
                 new_sev = str(item.get("severity", "")).upper().strip()
                 if new_sev and new_sev in _SEVERITY_RANK:
                     updates["severity"] = new_sev

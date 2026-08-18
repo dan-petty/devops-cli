@@ -74,6 +74,12 @@ def init(
         rprint(f"[yellow]devcontainer.json already exists: {dc_file}[/yellow]")
         raise typer.Exit(1)
 
+    if not re.match(r"^\d+\.\d+(\.\d+)?$", python_version):
+        rprint(
+            f"[red]Invalid Python version format '{python_version}'. Expected X.Y or X.Y.Z.[/red]"
+        )
+        raise typer.Exit(1)
+
     raw_name = project_name or repo_path.resolve().name
     # Strip characters unsafe in container names / shell contexts
     name = re.sub(r"[^a-zA-Z0-9._-]+", "_", raw_name)
@@ -154,17 +160,26 @@ def _validate_manifest_content(data: object, base_dir: Path) -> list[str]:
             "Manifest must specify a base container via 'image', 'build', or 'dockerFile'."
         )
 
+    resolved_base = base_dir.resolve()
     if has_build and isinstance(data["build"], dict):
         build_dict = data["build"]
         dockerfile = build_dict.get("dockerfile") or build_dict.get("dockerFile")
         if dockerfile and isinstance(dockerfile, str):
             dockerfile_path = (base_dir / dockerfile).resolve()
-            if not dockerfile_path.exists():
+            if not dockerfile_path.is_relative_to(resolved_base):
+                errors.append(
+                    f"Referenced build dockerfile is outside repository workspace: {dockerfile}"
+                )
+            elif not dockerfile_path.exists():
                 errors.append(f"Referenced build dockerfile does not exist: {dockerfile}")
 
     if has_dockerfile and isinstance(data["dockerFile"], str):
         df_path = (base_dir / data["dockerFile"]).resolve()
-        if not df_path.exists():
+        if not df_path.is_relative_to(resolved_base):
+            errors.append(
+                f"Referenced dockerFile is outside repository workspace: {data['dockerFile']}"
+            )
+        elif not df_path.exists():
             errors.append(f"Referenced dockerFile does not exist: {data['dockerFile']}")
 
     if "features" in data and not isinstance(data["features"], dict):
