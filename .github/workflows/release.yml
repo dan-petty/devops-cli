@@ -40,9 +40,10 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install uv and Python
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
+          version: "latest"
           python-version: "3.14"
 
       - name: Synchronize dependencies
