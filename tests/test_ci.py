@@ -203,3 +203,45 @@ def test_ci_all_checks_includes_audit_coverage_and_security(monkeypatch) -> None
     assert any("uv" in c and "audit" in c for c in called)
     assert any("bandit" in c for c in called)
     assert any("actionlint" in c for c in called)
+
+
+def test_ci_remote_status_with_pr(monkeypatch) -> None:
+    from unittest.mock import MagicMock
+
+    monkeypatch.setattr("shutil.which", lambda _: "/usr/bin/gh")
+    mock_run = MagicMock(returncode=0, stdout="✓ CI Checks passed", stderr="")
+    monkeypatch.setattr("devops_cli.commands.ci.run_subprocess", lambda *args, **kwargs: mock_run)
+
+    result = runner.invoke(app, ["remote", "status", "--pr", "13"])
+    assert result.exit_code == 0
+    assert "PR #13" in result.output
+
+
+def test_ci_remote_status_with_branch(monkeypatch) -> None:
+    from unittest.mock import MagicMock
+
+    monkeypatch.setattr("shutil.which", lambda _: "/usr/bin/gh")
+    mock_output = (
+        '[{"databaseId": 12345, "name": "CI Quality Gate", "status": "completed", '
+        '"conclusion": "success", "event": "push", "url": "https://github.com/...", '
+        '"updatedAt": "2026-08-18T15:00:00Z"}]'
+    )
+    mock_run = MagicMock(returncode=0, stdout=mock_output, stderr="")
+    monkeypatch.setattr("devops_cli.commands.ci.run_subprocess", lambda *args, **kwargs: mock_run)
+
+    result = runner.invoke(app, ["remote", "status", "--branch", "release/v0.1.12"])
+    assert result.exit_code == 0
+    assert "CI Quality Gate" in result.output
+    assert "12345" in result.output
+
+
+def test_ci_remote_logs(monkeypatch) -> None:
+    from unittest.mock import MagicMock
+
+    monkeypatch.setattr("shutil.which", lambda _: "/usr/bin/gh")
+    mock_run = MagicMock(returncode=0, stdout="Step failure log line", stderr="")
+    monkeypatch.setattr("devops_cli.commands.ci.run_subprocess", lambda *args, **kwargs: mock_run)
+
+    result = runner.invoke(app, ["remote", "logs", "--run-id", "12345"])
+    assert result.exit_code == 0
+    assert "12345" in result.output

@@ -8,6 +8,10 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 |---|---|
 | [`argo_list`](#argo-list) | List ArgoCD applications. |
 | [`argo_status`](#argo-status) | Check ArgoCD application health and sync status. |
+| [`branches_create`](#branches-create) | Create a topic branch following repository branching hierarchy and release targeting. |
+| [`branches_status`](#branches-status) | Show detailed branch status, tracking state, ahead/behind drift, and worktree status. |
+| [`ci_remote_logs`](#ci-remote-logs) | Fetch failure logs or full step logs for a remote GitHub Actions workflow run. |
+| [`ci_remote_status`](#ci-remote-status) | Check status of remote GitHub Actions CI workflow runs or PR checks. |
 | [`ci_run`](#ci-run) | Run devops-cli complete quality gate (pytest, ruff check, ruff format, mypy). |
 | [`config_output`](#config-output) | Output environment variables available for configuration (text or json). |
 | [`config_show`](#config-show) | Display configuration settings with masked secret tokens. |
@@ -18,8 +22,14 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`k8s_pods`](#k8s-pods) | List Kubernetes pod status for the specified namespace. |
 | [`k8s_status`](#k8s-status) | Display pod status across infrastructure namespaces. |
 | [`k8s_teardown_stack`](#k8s-teardown-stack) | Uninstall minikube infrastructure or LLM stack and delete namespaces. |
+| [`pr_checks`](#pr-checks) | Check CI quality gate checks and status on a pull request. |
+| [`pr_list`](#pr-list) | List GitHub pull requests with base targeting and review status. |
+| [`pr_view`](#pr-view) | View metadata and conversation details for a GitHub pull request. |
 | [`prometheus_query`](#prometheus-query) | Execute PromQL instant query against Prometheus endpoint. |
+| [`release_notes`](#release-notes) | Extract release notes from CHANGELOG.md for a specified release version. |
+| [`release_prepare`](#release-prepare) | Bump version across pyproject.toml and source, update changelog, and sync docs. |
 | [`release_status`](#release-status) | Check devops-cli release status, version consistency, tags, and docs state. |
+| [`repos_exec`](#repos-exec) | Execute a shell command across all discovered git repositories in repos/. |
 | [`repos_list`](#repos-list) | List local workspace repositories and active git branches. |
 | [`repos_status`](#repos-status) | Display uncommitted changes and branch drift across workspace repositories. |
 | [`repos_sync`](#repos-sync) | Fetch and pull tracking branches across workspace repositories. |
@@ -56,6 +66,50 @@ Check ArgoCD application health and sync status.
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `app` | `string` | No | `argocd` | - |
+
+### `branches_create`
+
+Create a topic branch following repository branching hierarchy and release targeting.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `name` | `string` | Yes | - | - |
+| `base` | `string` | No | `` | - |
+| `branch_type` | `string` | No | `feat` | - |
+
+### `branches_status`
+
+Show detailed branch status, tracking state, ahead/behind drift, and worktree status.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `directory` | `string` | No | `.` | - |
+
+### `ci_remote_logs`
+
+Fetch failure logs or full step logs for a remote GitHub Actions workflow run.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `run_id` | `string` | No | `` | - |
+| `failed_only` | `boolean` | No | `True` | - |
+
+### `ci_remote_status`
+
+Check status of remote GitHub Actions CI workflow runs or PR checks.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `branch` | `string` | No | `` | - |
+| `pr_number` | `integer` | No | `0` | - |
 
 ### `ci_run`
 
@@ -145,6 +199,39 @@ Uninstall minikube infrastructure or LLM stack and delete namespaces.
 |---|---|---|---|---|
 | `stack` | `string` | No | `infra` | - |
 
+### `pr_checks`
+
+Check CI quality gate checks and status on a pull request.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `number` | `integer` | Yes | - | - |
+| `repo` | `string` | No | `` | - |
+
+### `pr_list`
+
+List GitHub pull requests with base targeting and review status.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `repo` | `string` | No | `` | - |
+| `state` | `string` | No | `open` | - |
+
+### `pr_view`
+
+View metadata and conversation details for a GitHub pull request.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `number` | `integer` | Yes | - | - |
+| `repo` | `string` | No | `` | - |
+
 ### `prometheus_query`
 
 Execute PromQL instant query against Prometheus endpoint.
@@ -155,11 +242,44 @@ Execute PromQL instant query against Prometheus endpoint.
 |---|---|---|---|---|
 | `promql` | `string` | No | `up` | - |
 
+### `release_notes`
+
+Extract release notes from CHANGELOG.md for a specified release version.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `version` | `string` | No | `` | - |
+| `raw` | `boolean` | No | `True` | - |
+
+### `release_prepare`
+
+Bump version across pyproject.toml and source, update changelog, and sync docs.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `version` | `string` | Yes | - | - |
+| `create_pr` | `boolean` | No | `False` | - |
+
 ### `release_status`
 
 Check devops-cli release status, version consistency, tags, and docs state.
 
 *No parameters required.*
+
+### `repos_exec`
+
+Execute a shell command across all discovered git repositories in repos/.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `command` | `string` | Yes | - | - |
+| `base_dir` | `string` | No | `` | - |
 
 ### `repos_list`
 

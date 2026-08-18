@@ -111,6 +111,7 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 |  | `devops repos list [OPTIONS]` | List all cloned repositories. |
 |  | `devops repos update [OPTIONS]` | Fetch (and optionally pull) all tracking branches across repos. |
 |  | `devops repos sync [OPTIONS]` | Fetch (and optionally pull) all tracking branches across repos. |
+|  | `devops repos exec [OPTIONS] <command>` | Execute a shell command across all discovered repositories in repos/. |
 | **ssh** | `devops ssh generate [OPTIONS]` | Generate a new Ed25519 SSH key with today's date suffix. |
 |  | `devops ssh register [OPTIONS]` | SSH key generation, rotation, and GitHub registration. |
 |  | `devops ssh rotate [OPTIONS]` | Rotate keys older than rotation_days (default 90). |
@@ -121,6 +122,8 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 |  | `devops branches sync [OPTIONS]` | Fetch and pull tracking branches across all repos. |
 |  | `devops branches jira [OPTIONS] <ticket_id>` | Create a feature branch for a Jira ticket: feature/PROJ-123[-slug]. |
 |  | `devops branches list [OPTIONS]` | List branches across all repos. |
+|  | `devops branches create [OPTIONS] <name>` | Create a topic branch following repository branching standards. |
+|  | `devops branches status [OPTIONS]` | Show detailed branch status, tracking state, ahead/behind drift, and worktree status. |
 |  | `devops branches clean [OPTIONS]` | Delete local branches merged into main/master. |
 | **devcontainer** | `devops devcontainer init [OPTIONS] <repo_path>` | Scaffold .devcontainer/ in a repository using standard or published template. |
 |  | `devops devcontainer update [OPTIONS] <repo_path>` | Update the Python image version in an existing devcontainer.json. |
@@ -185,6 +188,7 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 |  | `devops ci actionlint` | Run actionlint to validate GitHub Actions workflows for syntax and schema errors. |
 |  | `devops ci docs` | Verify that documentation is up to date with CLI commands and configuration. |
 |  | `devops ci run [OPTIONS]` | Run full CI and return a single pass/fail status. |
+|  | `devops ci remote COMMAND [ARGS]...` | Inspect, monitor, and triage remote GitHub Actions CI workflows. |
 | **uv** | `devops uv sync [OPTIONS]` | Sync project dependencies into the virtual environment. |
 |  | `devops uv lock [OPTIONS]` | Regenerate the uv lockfile. |
 |  | `devops uv python-install [OPTIONS]` | Install project Python version with uv. |
@@ -219,6 +223,11 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 |  | `devops release check [OPTIONS]` | Verify release readiness (version consistency, docs freshness, and CI quality gates). |
 |  | `devops release notes [OPTIONS]` | Print markdown release notes for a specified or current release version. |
 |  | `devops release tag [OPTIONS]` | Create release commit and annotated git tag. |
+| **pr** | `devops pr list [OPTIONS]` | List pull requests with base targeting and review status. |
+|  | `devops pr view [OPTIONS] <number>` | View details of a pull request. |
+|  | `devops pr checks [OPTIONS] <number>` | Check remote CI quality gate status on a pull request. |
+|  | `devops pr edit [OPTIONS] <number>` | Edit pull request base branch, title, or body. |
+|  | `devops pr create [OPTIONS]` | Create a pull request with automatic release branch target validation. |
 | **tf** | `devops tf init [OPTIONS] <directory>` | Initialize an OpenTofu working directory. |
 |  | `devops tf plan [OPTIONS] <directory>` | Generate and show an OpenTofu execution plan. |
 |  | `devops tf apply [OPTIONS] <directory>` | Create or update OpenTofu infrastructure. |

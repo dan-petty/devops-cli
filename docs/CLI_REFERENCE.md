@@ -25,6 +25,7 @@ Complete command-line reference for `devops-cli`, automatically generated from C
 - [`devops mcp`](#devops-mcp) — FastMCP server for Model Context Protocol integration.
 - [`devops docs`](#devops-docs) — Generate and validate CLI and API documentation.
 - [`devops release`](#devops-release) — Manage release cycles, version bumping, changelogs, and release verification.
+- [`devops pr`](#devops-pr) — Manage GitHub pull requests and base branch targeting.
 - [`devops tf`](#devops-tf) — OpenTofu and Terraform Infrastructure-as-Code operations.
 - [`devops tofu`](#devops-tofu) — OpenTofu and Terraform Infrastructure-as-Code operations (alias for tf).
 
@@ -119,6 +120,27 @@ devops repos sync [OPTIONS]
 |---|---|---|---|
 | `--base-dir`, `-d` | `path` | - | - |
 | `--pull`, `--no-pull` | `boolean` | `True` | - |
+
+### `devops repos exec`
+
+**Execute a shell command across all discovered repositories in repos/.**
+
+```bash
+devops repos exec [OPTIONS] <command>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<command>` | `string` | Yes | Shell command string to execute in each repo |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--base-dir`, `-d` | `path` | - | - |
+| `--fail-fast`, `-f` | `boolean` | - | Stop execution on first failure |
 
 ---
 
@@ -284,6 +306,42 @@ devops branches list [OPTIONS]
 |---|---|---|---|
 | `--base-dir`, `-d` | `path` | - | - |
 | `--all`, `-a` | `boolean` | - | Include remote branches |
+
+### `devops branches create`
+
+**Create a topic branch following repository branching standards.**
+
+```bash
+devops branches create [OPTIONS] <name>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<name>` | `string` | Yes | Branch name or slug (e.g. mcp-tools-enhancement) |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--base`, `-b` | `string` | - | Base branch to fork from (defaults to active release branch) |
+| `--type`, `-t` | `string` | `feat` | Branch type prefix (feat, fix, docs, chore, refactor) |
+| `--repo`, `-r` | `path` | - | Target repo directory (default: cwd) |
+
+### `devops branches status`
+
+**Show detailed branch status, tracking state, ahead/behind drift, and worktree status.**
+
+```bash
+devops branches status [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-r` | `path` | - | Target repo directory (default: cwd) |
 
 ### `devops branches clean`
 
@@ -1466,6 +1524,63 @@ devops ci run [OPTIONS]
 |---|---|---|---|
 | `--fix`, `--no-fix` | `boolean` | `True` | Auto-fix lint/format before reporting status |
 
+### `devops ci remote`
+
+**Inspect, monitor, and triage remote GitHub Actions CI workflows.**
+
+```bash
+devops ci remote COMMAND [ARGS]...
+```
+
+#### `devops ci remote status`
+
+**Show status of remote GitHub Actions CI workflow runs or PR checks.**
+
+```bash
+devops ci remote status [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--branch`, `-b` | `string` | - | Target branch (defaults to current branch) |
+| `--pr`, `-p` | `integer` | - | Pull request number to inspect checks for |
+| `--limit`, `-n` | `integer` | `5` | Number of workflow runs to display |
+
+#### `devops ci remote logs`
+
+**Fetch and display logs from remote GitHub Actions workflow runs.**
+
+```bash
+devops ci remote logs [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--run-id`, `-r` | `string` | - | Workflow run ID to inspect |
+| `--job`, `-j` | `string` | - | Specific job ID to view logs for |
+| `--failed`, `--all` | `boolean` | `True` | Show only failed step logs or complete logs |
+
+#### `devops ci remote watch`
+
+**Watch remote CI checks until all runs reach completion.**
+
+```bash
+devops ci remote watch [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--pr`, `-p` | `integer` | - | Pull request number to watch |
+| `--branch`, `-b` | `string` | - | Branch name to watch |
+| `--interval`, `-i` | `float` | `10.0` | Polling interval in seconds |
+| `--timeout`, `-t` | `float` | `600.0` | Maximum watch timeout in seconds |
+
 ---
 
 ## devops uv
@@ -2310,6 +2425,111 @@ devops release tag [OPTIONS]
 | `--breaking`, `-b` | `boolean` | - | Flag release as containing breaking changes (!) |
 | `--message`, `-m` | `string` | - | Custom tag annotation message |
 | `--root`, `-r` | `path` | - | Project repository root directory |
+
+---
+
+## devops pr
+
+Manage GitHub pull requests and base branch targeting.
+
+Manage GitHub pull requests, base branch targeting, and review gates.
+
+### `devops pr list`
+
+**List pull requests with base targeting and review status.**
+
+```bash
+devops pr list [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--state`, `-s` | `string` | `open` | Filter by state (open, closed, merged, all) |
+| `--limit`, `-n` | `integer` | `10` | Maximum number of pull requests to display |
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format |
+
+### `devops pr view`
+
+**View details of a pull request.**
+
+```bash
+devops pr view [OPTIONS] <number>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<number>` | `integer` | Yes | Pull request number |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format |
+
+### `devops pr checks`
+
+**Check remote CI quality gate status on a pull request.**
+
+```bash
+devops pr checks [OPTIONS] <number>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<number>` | `integer` | Yes | Pull request number |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format |
+
+### `devops pr edit`
+
+**Edit pull request base branch, title, or body.**
+
+```bash
+devops pr edit [OPTIONS] <number>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<number>` | `integer` | Yes | Pull request number |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--base`, `-B` | `string` | - | Change the base branch for this pull request |
+| `--title`, `-t` | `string` | - | Set the new title |
+| `--body`, `-b` | `string` | - | Set the new body |
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format |
+
+### `devops pr create`
+
+**Create a pull request with automatic release branch target validation.**
+
+```bash
+devops pr create [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--title`, `-t` | `string` | - | Pull request title |
+| `--body`, `-b` | `string` | `` | Pull request body text |
+| `--base`, `-B` | `string` | - | Target base branch (defaults to active release branch) |
+| `--draft`, `-d` | `boolean` | - | Create pull request as draft |
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format |
 
 ---
 

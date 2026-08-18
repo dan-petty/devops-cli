@@ -389,6 +389,117 @@ def tofu_output(directory: str = ".", json_format: bool = True) -> str:
     return tf_output(directory=directory, json_format=json_format)
 
 
+@mcp.tool()
+def ci_remote_status(branch: str = "", pr_number: int = 0) -> str:
+    """Check status of remote GitHub Actions CI workflow runs or PR checks."""
+    cmd = ["uv", "run", "devops", "ci", "remote", "status"]
+    if pr_number > 0:
+        cmd.extend(["--pr", str(pr_number)])
+    elif branch:
+        _validate_mcp_arg("branch", branch)
+        cmd.extend(["--branch", branch])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def ci_remote_logs(run_id: str = "", failed_only: bool = True) -> str:
+    """Fetch failure logs or full step logs for a remote GitHub Actions workflow run."""
+    cmd = ["uv", "run", "devops", "ci", "remote", "logs"]
+    if run_id:
+        _validate_mcp_arg("run_id", run_id)
+        cmd.extend(["--run-id", run_id])
+    if failed_only:
+        cmd.append("--failed")
+    else:
+        cmd.append("--all")
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def pr_list(repo: str = "", state: str = "open") -> str:
+    """List GitHub pull requests with base targeting and review status."""
+    _validate_mcp_arg("state", state)
+    cmd = ["uv", "run", "devops", "pr", "list", "--state", state]
+    if repo:
+        _validate_mcp_arg("repo", repo)
+        cmd.extend(["--repo", repo])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def pr_view(number: int, repo: str = "") -> str:
+    """View metadata and conversation details for a GitHub pull request."""
+    cmd = ["uv", "run", "devops", "pr", "view", str(number)]
+    if repo:
+        _validate_mcp_arg("repo", repo)
+        cmd.extend(["--repo", repo])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def pr_checks(number: int, repo: str = "") -> str:
+    """Check CI quality gate checks and status on a pull request."""
+    cmd = ["uv", "run", "devops", "pr", "checks", str(number)]
+    if repo:
+        _validate_mcp_arg("repo", repo)
+        cmd.extend(["--repo", repo])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def branches_create(name: str, base: str = "", branch_type: str = "feat") -> str:
+    """Create a topic branch following repository branching hierarchy and release targeting."""
+    _validate_mcp_arg("name", name)
+    _validate_mcp_arg("branch_type", branch_type)
+    cmd = ["uv", "run", "devops", "branches", "create", name, "--type", branch_type]
+    if base:
+        _validate_mcp_arg("base", base)
+        cmd.extend(["--base", base])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def branches_status(directory: str = ".") -> str:
+    """Show detailed branch status, tracking state, ahead/behind drift, and worktree status."""
+    _validate_mcp_arg("directory", directory)
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "branches", "status", "--repo", directory],
+        timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.tool()
+def repos_exec(command: str, base_dir: str = "") -> str:
+    """Execute a shell command across all discovered git repositories in repos/."""
+    cmd = ["uv", "run", "devops", "repos", "exec", command]
+    if base_dir:
+        _validate_mcp_arg("base_dir", base_dir)
+        cmd.extend(["--base-dir", base_dir])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def release_prepare(version: str, create_pr: bool = False) -> str:
+    """Bump version across pyproject.toml and source, update changelog, and sync docs."""
+    _validate_mcp_arg("version", version)
+    cmd = ["uv", "run", "devops", "release", "prepare", version]
+    if create_pr:
+        cmd.append("--create-pr")
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def release_notes(version: str = "", raw: bool = True) -> str:
+    """Extract release notes from CHANGELOG.md for a specified release version."""
+    cmd = ["uv", "run", "devops", "release", "notes"]
+    if version:
+        _validate_mcp_arg("version", version)
+        cmd.extend(["--version", version])
+    if raw:
+        cmd.append("--raw")
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS)
+
+
 def list_mcp_tools() -> list[MCPToolInfo]:
     """Return a list of tool names and descriptions registered on the FastMCP server."""
     tools = asyncio.run(mcp.list_tools())

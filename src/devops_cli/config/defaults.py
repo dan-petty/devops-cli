@@ -58,10 +58,15 @@ DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS: float = 30.0
 
 # ── Docker Defaults ───────────────────────────────────────────────────────────
 DEFAULT_DOCKER_TIMEOUT_SECONDS: float = 300.0
+DEFAULT_REMOTE_CI_POLL_INTERVAL_SECONDS: float = 10.0
+DEFAULT_REMOTE_CI_TIMEOUT_SECONDS: float = 600.0
+DEFAULT_REPOS_EXEC_TIMEOUT_SECONDS: float = 120.0
 
 # ── High Timeout Policies ─────────────────────────────────────────────────────
 # NOTE (Design Justification - AGENTS.md §4 & README.md): High default timeouts are intentional
 # to accommodate local LLM inference (CPU/GPU Ollama), corporate proxy delays, and minikube setup.
+# ── Review Pipeline Defaults ──────────────────────────────────────────────────
+DEFAULT_REVIEW_CONTEXT_LINES: int = 2
 DEFAULT_REVIEW_TIMEOUT_SECONDS: float = float(CONST_REVIEW_TIMEOUT_SECONDS)  # 1200.0s
 DEFAULT_REVIEW_WINDOW_SIZE_FACTOR: float = CONST_REVIEW_WINDOW_SIZE_FACTOR  # 0.8
 DEFAULT_REVIEW_OVERLAP_FACTOR: float = CONST_REVIEW_OVERLAP_FACTOR  # 0.1
