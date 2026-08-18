@@ -94,21 +94,23 @@ When adding or modifying subcommands, options, environment variables, or FastMCP
 
 ## 4. Quality Gate & CI Validation
 
-The `devops ci` quality gate is the authoritative validation gate. All checks must pass cleanly before any merge or release.
+The `devops ci` quality gate is the authoritative validation gate. All checks must pass cleanly before any merge or release. See [**`docs/ROUTINE_TASKS.md`**](docs/ROUTINE_TASKS.md) for the complete routine task order, frequency, and methodology.
 
 ```bash
-# Run full 7-gate CI validation suite
-uv run devops ci run
+# Run full 9-gate CI validation suite
+uv run devops ci
 ```
 
-### The 7 Quality Gates
+### The 9 Quality Gates
 1. **Python Version Check**: Strictly enforces Python 3.14+ runtime.
-2. **Linting (`ruff check .`)**: Strict PEP 8 linting, import sorting, and unused symbol elimination.
-3. **Formatting (`ruff format --check .`)**: Enforces 100-character line length standards.
-4. **Type Checking (`mypy --strict src`)**: Full static type checking in strict mode.
-5. **Documentation Validation (`devops docs check`)**: Asserts all docs and README matrices are synchronized.
-6. **Unit Tests & Code Coverage (`pytest --cov=src`)**: Executes test suite with coverage thresholds.
-7. **Security Scan (`bandit`)**: Static vulnerability and code safety analysis.
+2. **Unit Tests (`pytest -n auto --maxprocesses=4`)**: Parallel unit test execution with full mock isolation.
+3. **Code Coverage (`pytest-cov`)**: Enforces branch and line coverage thresholds.
+4. **Linting (`ruff check .`)**: Strict PEP 8 linting, import sorting, and unused symbol elimination.
+5. **Formatting (`ruff format --check .`)**: Enforces 100-character line length standards.
+6. **Type Checking (`mypy --strict src`)**: Full static type checking in strict mode across all source files.
+7. **Dependency Audit (`uv audit`)**: Automated vulnerability scanning of lockfile packages against OSV.
+8. **Security Scan (`bandit`)**: Static vulnerability, subshell safety, and code analysis.
+9. **Documentation Validation (`devops docs check`)**: Asserts all CLI markdown docs and README matrices are synchronized.
 
 ---
 
