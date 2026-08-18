@@ -46,6 +46,27 @@ class TestDevcontainerCli:
         assert "test-project" in mcp_data["mcpServers"]
         assert mcp_data["mcpServers"]["test-project"]["command"] == "uv"
 
+    def test_init_with_published_flag(self, runner: CliRunner, tmp_path: Path) -> None:
+        """devops devcontainer init --published must use the published GHCR image."""
+        result = runner.invoke(app, ["init", str(tmp_path), "--name", "pub-proj", "--published"])
+        assert result.exit_code == 0
+
+        dc_file = tmp_path / ".devcontainer" / "devcontainer.json"
+        assert dc_file.exists()
+        dc_data = json.loads(dc_file.read_text(encoding="utf-8"))
+        assert "ghcr.io/dan-petty/devops-cli/devcontainer" in dc_data["image"]
+
+    def test_init_with_custom_image(self, runner: CliRunner, tmp_path: Path) -> None:
+        """devops devcontainer init --image must use the specified container image."""
+        custom_img = "custom.registry.io/org/custom-devcontainer:v1.0"
+        result = runner.invoke(app, ["init", str(tmp_path), "--image", custom_img])
+        assert result.exit_code == 0
+
+        dc_file = tmp_path / ".devcontainer" / "devcontainer.json"
+        assert dc_file.exists()
+        dc_data = json.loads(dc_file.read_text(encoding="utf-8"))
+        assert dc_data["image"] == custom_img
+
     def test_init_fails_if_devcontainer_json_exists(
         self, runner: CliRunner, tmp_path: Path
     ) -> None:

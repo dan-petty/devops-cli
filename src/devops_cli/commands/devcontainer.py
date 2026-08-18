@@ -64,10 +64,21 @@ def _jinja_env() -> Environment:
 @app.command()
 def init(
     repo_path: Annotated[Path, typer.Argument(help="Path to the repository")] = Path("."),
-    project_name: Annotated[str | None, typer.Option("--name", "-n")] = None,
-    python_version: Annotated[str, typer.Option("--python")] = _project_python_version(),
+    project_name: Annotated[str | None, typer.Option("--name", "-n", help="Project name")] = None,
+    python_version: Annotated[
+        str, typer.Option("--python", help="Python version for base template")
+    ] = _project_python_version(),
+    image: Annotated[str | None, typer.Option("--image", "-i", help="Base container image")] = None,
+    published: Annotated[
+        bool,
+        typer.Option(
+            "--published",
+            "-p",
+            help="Use published GHCR image (ghcr.io/dan-petty/devops-cli/devcontainer:latest)",
+        ),
+    ] = False,
 ) -> None:
-    """Scaffold .devcontainer/ in a repository using the standard template."""
+    """Scaffold .devcontainer/ in a repository using standard or published template."""
     dc_dir = repo_path / CONST_DEVCONTAINER_DIR_NAME
     dc_file = dc_dir / CONST_DEVCONTAINER_JSON_NAME
 
@@ -80,11 +91,15 @@ def init(
     name = re.sub(r"[^a-zA-Z0-9._-]+", "_", raw_name)
     dc_dir.mkdir(parents=True, exist_ok=True)
 
+    selected_image: str | None = image
+    if published and not selected_image:
+        selected_image = "ghcr.io/dan-petty/devops-cli/devcontainer:latest"
+
     env = _jinja_env()
 
     dc_file.write_text(
         env.get_template("devcontainer.json.j2").render(
-            project_name=name, python_version=python_version
+            project_name=name, python_version=python_version, image=selected_image
         ),
         encoding="utf-8",
     )

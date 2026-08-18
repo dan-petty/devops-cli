@@ -1,6 +1,10 @@
 {
   "name": "{{ project_name }}",
+  {% if image %}
+  "image": "{{ image }}",
+  {% else %}
   "image": "mcr.microsoft.com/devcontainers/python:{{ python_version }}",
+  {% endif %}
   "features": {
     "ghcr.io/devcontainers/features/git:1": {},
     "ghcr.io/devcontainers/features/docker-in-docker:2": {

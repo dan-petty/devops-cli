@@ -6,7 +6,7 @@ Manage devcontainer configurations.
 
 ## `devops devcontainer init`
 
-**Scaffold .devcontainer/ in a repository using the standard template.**
+**Scaffold .devcontainer/ in a repository using standard or published template.**
 
 ```bash
 devops devcontainer init [OPTIONS] <repo_path>
@@ -22,8 +22,10 @@ devops devcontainer init [OPTIONS] <repo_path>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--name`, `-n` | `string` | - | - |
-| `--python` | `string` | `3.14` | - |
+| `--name`, `-n` | `string` | - | Project name |
+| `--python` | `string` | `3.14` | Python version for base template |
+| `--image`, `-i` | `string` | - | Base container image |
+| `--published`, `-p` | `boolean` | - | Use published GHCR image (ghcr.io/dan-petty/devops-cli/devcontainer:latest) |
 
 ---
 
