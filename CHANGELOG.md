@@ -5,15 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.10] - Unreleased
+## [0.1.10] - 2026-08-18
 
 ### Added
 - **Routine Tasks, Order & Methodology Guide (`docs/ROUTINE_TASKS.md`)**: Comprehensive operational manual outlining inner development loops, PR lifecycles, release orchestrations, security audit schedules, and workspace synchronization with explicit sequence ordering, frequencies, and troubleshooting matrices.
-- **Codebase Modernization & Cleanup**: Streamlined developer and agent instruction documents (`AGENTS.md`, `CONTRIBUTING.md`, `RELEASE_CYCLE.md`), simplified branch protection and PR merge guidelines, and cleaned documentation artifacts.
-- **FastAPI Service Roadmap Integration**: Defined native async FastAPI REST and OpenAPI service engine (`devops serve`) in `docs/ROADMAP.md` for remote CLI execution, AI reviews, and webhook integrations.
-- **Parallel Test Execution & Worker Optimization**: Configured `--maxprocesses=4` for pytest-xdist in `pyproject.toml` and `devops ci`, reducing test suite execution time by ~4x.
+- **Strict Python 3.14 Environment Gate (`devops ci python-version`)**: Enforced standard Python 3.14+ runtime requirement across all CI quality checks and dev container configurations.
 - **Actionlint & Pre-Commit Hook Integration**: Integrated [actionlint](https://github.com/rhysd/actionlint) (`actionlint-py`) into `devops ci actionlint`, `.github/workflows/ci.yml` 10-gate quality pipeline, and root `.pre-commit-config.yaml` to detect GitHub Actions workflow schema discrepancies and parameter mismatches before triggering remote jobs.
 - **DevContainer Pre-Build Smoke Test & Manifest Validation**: Added `devops devcontainer validate` command with JSONC comment-stripping and schema/mount/feature validation, and integrated pre-build smoke testing into `.github/workflows/ci.yml` and `.github/workflows/release.yml` prior to GHCR container registry publishing.
+- **AI Review Feedback Dataset Exporter (`devops ai review export-feedback`)**: Added status-filtered JSONL dataset export (`--status INVALIDATED|VERIFIED|MITIGATED|ALL`) with rich finding metadata for prompt calibration, DPO alignment, and model fine-tuning.
+- **FastAPI Service Roadmap Integration**: Defined native async FastAPI REST and OpenAPI service engine (`devops serve`) in `docs/ROADMAP.md` for remote CLI execution, AI reviews, and webhook integrations.
+- **Parallel Test Execution & Worker Optimization**: Configured `--maxprocesses=4` for pytest-xdist in `pyproject.toml` and `devops ci`, reducing test suite execution time by ~4x.
+
+### Security & Hardening
+- **Path Traversal & Boundary Protection**: Enforced path containment checks across AI cache metadata (`cache.py`), outline timestamps (`outlines.py`), symlink tree walking (`repo.py`), and audit log destination paths (`audit.py`).
+- **Data Confidentiality & Masking**: Redacted sensitive tokens, GitHub PATs, and PEM private keys in outline analysis and multi-agent scratchpad reasoning context.
+- **SSH Key Permissions**: Implemented atomic creation of `.pub` files with restricted `0644` permissions and sanitized comment control characters.
+
+### Changed
+- **Codebase Modernization & Cleanup**: Streamlined developer and agent instruction documents (`AGENTS.md`, `CONTRIBUTING.md`, `RELEASE_CYCLE.md`), simplified branch protection and PR merge guidelines, and cleaned documentation artifacts.
 
 
 
