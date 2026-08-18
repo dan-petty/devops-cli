@@ -37,6 +37,7 @@ from devops_cli.ai.review_schema import (
     ReviewResult,
     ReviewSessionPayload,
     SavedFinding,
+    finding_sort_key,
     parse_review_result,
 )
 from devops_cli.config.constants import (
@@ -508,6 +509,7 @@ class ReviewPipelineOrchestrator:
         n_p = len(file_payloads)
         rprint(f"[dim]Stage 5/6: Re-ranking and validating findings for {n_p} file(s)...[/dim]")
         for payload in file_payloads:
+            payload.findings = sorted(payload.findings, key=finding_sort_key)
             valid_findings = [
                 f for f in payload.findings if f.status in ("VERIFIED", "UNVERIFIED", "MITIGATED")
             ]
@@ -536,6 +538,7 @@ class ReviewPipelineOrchestrator:
             for f in payload.findings:
                 if f.status != "INVALIDATED":
                     all_findings.append(f)
+        all_findings = sorted(all_findings, key=finding_sort_key)
 
         payload_out = ReviewSessionPayload(
             generated_at=datetime.now(UTC).isoformat(),
@@ -558,12 +561,13 @@ class ReviewPipelineOrchestrator:
         if not all_findings:
             lines.append("✅ **No critical issues found during review.**")
         else:
-            lines.append("| Severity | Location | Title | Status | Confidence |")
-            lines.append("|---|---|---|---|---|")
+            lines.append("| Severity | Exploitability | Location | Title | Status | Confidence |")
+            lines.append("|---|---|---|---|---|---|")
             for f in all_findings:
                 conf = f"{f.confidence_score:.2f}" if f.confidence_score is not None else "N/A"
                 lines.append(
-                    f"| **{f.severity}** | `{f.location}` | {f.title} | {f.status} | {conf} |"
+                    f"| **{f.severity}** | {f.exploitability} | `{f.location}` | {f.title} | "
+                    f"{f.status} | {conf} |"
                 )
 
             lines.append("")
@@ -572,6 +576,7 @@ class ReviewPipelineOrchestrator:
                 lines.append(f"### {idx}. [{f.severity}] {f.title}")
                 lines.append(f"- **Location**: `{f.location}`")
                 lines.append(f"- **Persona**: {f.persona_title}")
+                lines.append(f"- **Exploitability**: {f.exploitability}")
                 lines.append(f"- **Status**: {f.status}")
                 if f.confidence_score is not None:
                     lines.append(f"- **Confidence Score**: {f.confidence_score:.2f}")

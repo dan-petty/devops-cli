@@ -31,6 +31,7 @@ def _render_review_result(persona: PersonaDefinition, result: ReviewResult) -> N
     if findings:
         table = Table(show_header=True, header_style="bold dim", box=None, padding=(0, 1))
         table.add_column("Sev", no_wrap=True)
+        table.add_column("Exploit", style="magenta", no_wrap=True)
         table.add_column("Location", style="dim")
         table.add_column("Title")
         table.add_column("\u2713", no_wrap=True)
@@ -43,7 +44,13 @@ def _render_review_result(persona: PersonaDefinition, result: ReviewResult) -> N
                 if f.mitigated
                 else "[dim]?[/dim]"
             )
-            table.add_row(f"[{color}]{f.severity}[/{color}]", f.location, f.title, mark)
+            table.add_row(
+                f"[{color}]{f.severity}[/{color}]",
+                f.exploitability,
+                f.location,
+                f.title,
+                mark,
+            )
         console.print(table)
         console.print()
 
@@ -57,7 +64,8 @@ def _render_review_result(persona: PersonaDefinition, result: ReviewResult) -> N
                 else " [dim](unverified)[/dim]"
             )
             console.print(
-                f"[bold {color}]{idx}. {f.severity} \u2014 {f.title}[/bold {color}]{unverified}"
+                f"[bold {color}]{idx}. {f.severity} [{f.exploitability}] \u2014 "
+                f"{f.title}[/bold {color}]{unverified}"
             )
             console.print(f"[dim]Location:[/dim] {f.location}")
             if f.description:

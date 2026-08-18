@@ -411,3 +411,23 @@ class TestDevcontainerCli:
         assert data["command"] == "devops devcontainer validate"
         assert data["action"] == "validate_devcontainer_manifest"
         assert data["dry_run"] is True
+
+    def test_validate_outside_dockerfile_fails(self, runner: CliRunner, tmp_path: Path) -> None:
+        """devops devcontainer validate must fail if referenced Dockerfile is outside workspace."""
+        dc_dir = tmp_path / ".devcontainer"
+        dc_dir.mkdir(parents=True)
+        manifest = {
+            "name": "traversal-repo",
+            "build": {"dockerfile": "../../../etc/passwd"},
+        }
+        (dc_dir / "devcontainer.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+        result = runner.invoke(app, ["validate", "--workspace", str(tmp_path)])
+        assert result.exit_code == 1
+        assert "outside repository workspace" in result.output
+
+    def test_init_invalid_python_version_fails(self, runner: CliRunner, tmp_path: Path) -> None:
+        """devops devcontainer init must reject invalid python version formats."""
+        result = runner.invoke(app, ["init", str(tmp_path), "--python", "3.14-malformed;rm -rf /"])
+        assert result.exit_code == 1
+        assert "Invalid Python version format" in result.output

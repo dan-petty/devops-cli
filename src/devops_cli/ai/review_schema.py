@@ -18,6 +18,70 @@ _SEVERITY_RANK: dict[str, int] = {
     "INFO": 4,
 }
 
+_EXPLOITABILITY_RANK: dict[str, int] = {
+    "HIGH": 0,
+    "MEDIUM": 1,
+    "LOW": 2,
+    "NONE": 3,
+    "INFO": 4,
+}
+
+_EXPLOITABILITY_ALIASES: dict[str, str] = {
+    "critical": "HIGH",
+    "direct": "HIGH",
+    "poc": "HIGH",
+    "proof_of_concept": "HIGH",
+    "high": "HIGH",
+    "medium": "MEDIUM",
+    "moderate": "MEDIUM",
+    "indirect": "MEDIUM",
+    "low": "LOW",
+    "theoretical": "LOW",
+    "none": "NONE",
+    "unproven": "NONE",
+    "info": "NONE",
+}
+
+_STATUS_RANK: dict[str, int] = {
+    "VERIFIED": 0,
+    "UNVERIFIED": 1,
+    "MITIGATED": 2,
+    "INVALIDATED": 3,
+}
+
+
+def finding_sort_key(f: Finding) -> tuple[int, int, float, int, str, str]:
+    """Sort key prioritizing severity, exploitability, and verification status.
+
+    Multi-tier ranking order:
+    1. Severity: CRITICAL (0) -> HIGH (1) -> MEDIUM (2) -> LOW (3) -> INFO (4)
+    2. Exploitability: HIGH (0) -> MEDIUM (1) -> LOW (2) -> NONE (3)
+    3. Confidence Score: higher confidence first (e.g. 1.0 -> 0.0)
+    4. Verification Status: VERIFIED (0) -> UNVERIFIED (1) -> MITIGATED (2) -> INVALIDATED (3)
+    5. Location: alphabetical
+    6. Title: alphabetical
+    """
+    sev_rank = _SEVERITY_RANK.get(f.severity.upper() if f.severity else "", 99)
+    raw_exploit = f.exploitability.strip().lower() if f.exploitability else ""
+    exploit_norm = _EXPLOITABILITY_ALIASES.get(
+        raw_exploit, f.exploitability.upper() if f.exploitability else "MEDIUM"
+    )
+    exploit_rank = _EXPLOITABILITY_RANK.get(exploit_norm, 99)
+    conf = -(f.confidence_score if f.confidence_score is not None else 0.5)
+
+    st = f.status.upper() if f.status else ""
+    if not st:
+        if f.verified and not f.mitigated:
+            st = "VERIFIED"
+        elif f.mitigated:
+            st = "MITIGATED"
+        else:
+            st = "UNVERIFIED"
+    st_rank = _STATUS_RANK.get(st, 99)
+
+    return (sev_rank, exploit_rank, conf, st_rank, f.location.lower(), f.title.lower())
+
+
 _RECOMMENDATION_ALIASES: dict[str, str] = {
     "approve": "APPROVE",
     "request changes": "REQUEST CHANGES",
@@ -33,6 +97,7 @@ _RECOMMENDATION_ALIASES: dict[str, str] = {
 
 class Finding(BaseModel):
     severity: str = "MEDIUM"
+    exploitability: str = "MEDIUM"
     location: str = ""
     title: str = ""
     description: str = ""
@@ -52,6 +117,18 @@ class Finding(BaseModel):
     def _normalize_severity(cls, v: object) -> str:
         s = str(v).upper().strip()
         return s if s in _SEVERITY_RANK else "MEDIUM"
+
+    @field_validator("exploitability", mode="before")
+    @classmethod
+    def _normalize_exploitability(cls, v: object) -> str:
+        if v is None:
+            return "MEDIUM"
+        s = str(v).strip()
+        lowered = s.lower()
+        if lowered in _EXPLOITABILITY_ALIASES:
+            return _EXPLOITABILITY_ALIASES[lowered]
+        upper = s.upper()
+        return upper if upper in _EXPLOITABILITY_RANK else "MEDIUM"
 
     @field_validator("status", mode="before")
     @classmethod
@@ -86,11 +163,19 @@ class FileReviewPayload(BaseModel):
     ai_scratchpad: dict[str, Any] = Field(default_factory=dict)
     reportable: bool = True
 
+    @property
+    def sorted_findings(self) -> list[SavedFinding]:
+        return sorted(self.findings, key=finding_sort_key)
+
 
 class ReviewSessionPayload(BaseModel):
     generated_at: str = ""
     personas: list[str] = Field(default_factory=list)
     findings: list[SavedFinding] = Field(default_factory=list)
+
+    @property
+    def sorted_findings(self) -> list[SavedFinding]:
+        return sorted(self.findings, key=finding_sort_key)
 
 
 class ReviewResult(BaseModel):
@@ -119,10 +204,7 @@ class ReviewResult(BaseModel):
 
     @property
     def sorted_findings(self) -> list[Finding]:
-        return sorted(
-            self.findings,
-            key=lambda f: (_SEVERITY_RANK.get(f.severity, 99), not f.verified),
-        )
+        return sorted(self.findings, key=finding_sort_key)
 
     def merge(self, other: ReviewResult) -> ReviewResult:
         """Merge another ReviewResult, deduplicating findings by (title, location)."""

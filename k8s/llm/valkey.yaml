@@ -19,10 +19,20 @@ spec:
         app.kubernetes.io/name: valkey
         app.kubernetes.io/part-of: devops-cli-stack
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
       containers:
         - name: valkey
           image: valkey/valkey:8.0-alpine
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           command:
             - valkey-server
             - "--protected-mode"
@@ -65,11 +75,10 @@ metadata:
     app.kubernetes.io/name: valkey
     app.kubernetes.io/part-of: devops-cli-stack
 spec:
-  type: NodePort
+  type: ClusterIP
   selector:
     app.kubernetes.io/name: valkey
   ports:
     - name: valkey
       port: 6379
       targetPort: 6379
-      nodePort: 30379
