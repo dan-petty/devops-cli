@@ -65,6 +65,22 @@ def _validate_enhanced_metadata(
     return parsed, None
 
 
+def _mask_sensitive_data(text: str) -> str:
+    """Mask credentials and secrets before transmitting code to external LLM services."""
+    masked = re.sub(
+        r"(ghp_[A-Za-z0-9_]{36}|gho_[A-Za-z0-9_]{36}|github_pat_[A-Za-z0-9_]{82})",
+        "<github-token-masked>",
+        text,
+    )
+    masked = re.sub(r"(sk-[A-Za-z0-9_-]{20,})", "<ai-key-masked>", masked)
+    masked = re.sub(
+        r"-----BEGIN [A-Z ]+ PRIVATE KEY-----[\s\S]*?-----END [A-Z ]+ PRIVATE KEY-----",
+        "<private-key-masked>",
+        masked,
+    )
+    return masked
+
+
 def _enhance_file_metadata_with_ai(
     rel_path: str,
     content: str,
@@ -78,9 +94,10 @@ def _enhance_file_metadata_with_ai(
     from devops_cli.ai.review_schema import extract_json_block
     from devops_cli.models.ai import ChatMessage
 
+    sanitized_content = _mask_sensitive_data(content[:150000])
     prompt = (
         f"Analyze File: '{rel_path}' ({lang})\n\n"
-        f"Source code excerpt:\n{content[:150000]}\n\n"
+        f"Source code excerpt:\n{sanitized_content}\n\n"
         "Extract structured file metadata JSON strictly following system instructions."
     )
     messages = [ChatMessage(role="user", content=prompt)]
@@ -215,6 +232,10 @@ def _calculate_complexity_score(content: str, line_count: int, symbols: list[str
 def _get_last_updated(rel_path: str, repo_root: Path | None = None) -> str:
     """Get ISO timestamp of when file was last updated via git log or stat mtime."""
     if repo_root and repo_root.exists():
+        rel_path_obj = Path(rel_path)
+        if rel_path_obj.is_absolute() or ".." in rel_path_obj.parts:
+            return datetime.now(UTC).isoformat()
+
         from devops_cli.core.process import run_subprocess
 
         try:
@@ -229,8 +250,8 @@ def _get_last_updated(rel_path: str, repo_root: Path | None = None) -> str:
         except Exception:
             pass
 
-        full_p = repo_root / rel_path
-        if full_p.exists():
+        full_p = (repo_root / rel_path).resolve()
+        if str(full_p).startswith(str(repo_root.resolve())) and full_p.exists():
             try:
                 mtime = full_p.stat().st_mtime
                 return datetime.fromtimestamp(mtime, tz=UTC).isoformat()

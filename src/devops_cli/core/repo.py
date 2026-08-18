@@ -156,7 +156,15 @@ def list_repo_files(target_dir: Path) -> list[Path]:
 
     # 2. Directory walk with dynamic .gitignore rules fallback
     walked_files: list[Path] = []
+    repo_root_resolved = repo_root.resolve()
     for p in resolved_target.rglob("*"):
+        if p.is_symlink():
+            try:
+                resolved_p = p.resolve()
+                if not str(resolved_p).startswith(str(repo_root_resolved)):
+                    continue
+            except (OSError, RuntimeError):
+                continue
         if p.is_file() and not is_ignored_by_git(repo_root, p):
             walked_files.append(p)
     return sorted(walked_files)

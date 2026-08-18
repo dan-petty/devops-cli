@@ -203,7 +203,7 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 |  | `devops review findings [OPTIONS]` | Inspect structured findings for a review session. |
 |  | `devops review verify [OPTIONS] <session>` | Validate or invalidate a review finding, persisting feedback reasons. |
 |  | `devops review stats [OPTIONS]` | Compute and display review accuracy statistics across saved sessions. |
-|  | `devops review export-feedback [OPTIONS]` | Export invalidated review findings into a JSONL benchmark dataset for prompt tuning. |
+|  | `devops review export-feedback [OPTIONS]` | Export review findings into a JSONL benchmark dataset for prompt tuning and fine-tuning. |
 |  | `devops review apply-patch [OPTIONS] <session>` | Apply suggested LLM code fix for a verified finding (v0.1.3). |
 | **mcp** | `devops mcp serve [OPTIONS]` | Launch FastMCP server to expose devops-cli tools to MCP clients. |
 |  | `devops mcp tools` | List all registered FastMCP tools and descriptions. |

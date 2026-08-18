@@ -195,6 +195,22 @@ Executed weekly, prior to major releases, or when dependencies are updated.
 #### 4. SSRF Guardrails & OS Keyring Audit
 - **Methodology**: Outbound requests must pass through `validate_service_url()` to reject private IPs (RFC 1918), loopbacks, and cloud metadata IPs unless `DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true` is explicitly set.
 
+#### 5. AI Code Review Verification & Feedback Dataset Export
+- **Frequency**: After running AI code reviews or before PR approval.
+- **Methodology**:
+  1. Inspect structured review findings:
+     ```bash
+     devops ai review findings --session <session-id>
+     ```
+  2. Validate or invalidate findings with specific rationale:
+     ```bash
+     devops ai review verify <session-id> --index 1 --status INVALIDATED --reason "False positive on modern syntax"
+     ```
+  3. Export benchmark feedback datasets for prompt tuning, DPO alignment, and prompt regression testing:
+     ```bash
+     devops ai review export-feedback --status ALL --output .data/feedback.jsonl
+     ```
+
 ---
 
 ### Cadence E: Workspace & Infrastructure Synchronization

@@ -2550,18 +2550,27 @@ def export_feedback(
         Path | None,
         typer.Option("--reviews-dir", help="Directory containing review sessions"),
     ] = None,
+    status: Annotated[
+        str,
+        typer.Option(
+            "--status",
+            "-s",
+            help="Finding status to export: INVALIDATED, VERIFIED, MITIGATED, or ALL",
+        ),
+    ] = "INVALIDATED",
 ) -> None:
-    """Export invalidated review findings into a JSONL benchmark dataset for prompt tuning."""
+    """Export review findings into a JSONL benchmark dataset for prompt tuning and fine-tuning."""
     from devops_cli.ai.review_exporter import export_invalidated_feedback
 
-    count, out_path = export_invalidated_feedback(reviews_dir=reviews_dir, output_file=output)
+    status_filter = None if status.upper() == "ALL" else status.upper()
+    count, out_path = export_invalidated_feedback(
+        reviews_dir=reviews_dir, output_file=output, status_filter=status_filter
+    )
     if count == 0:
         target_dir = reviews_dir or _get_reviews_base_dir()
-        rprint(f"[yellow]No invalidated findings found to export under {target_dir}.[/yellow]")
+        rprint(f"[yellow]No {status} findings found to export under {target_dir}.[/yellow]")
     else:
-        rprint(
-            f"[green]✓ Exported {count} invalidated finding(s) → [bold]{out_path}[/bold][/green]"
-        )
+        rprint(f"[green]✓ Exported {count} {status} finding(s) → [bold]{out_path}[/bold][/green]")
 
 
 @app.command("apply-patch")

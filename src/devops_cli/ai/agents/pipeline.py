@@ -63,8 +63,11 @@ class MultiAgentPipeline[T]:
         self.output_schema = output_schema
         self.shared_tools = shared_tools or []
         self.scratchpad = ScratchpadBuffer(session_id=session_id)
-        self.shared_tools = shared_tools or []
         if self.shared_tools:
+            for tool in self.shared_tools:
+                if not (isinstance(tool, AgentTool) or callable(tool)):
+                    msg = f"Shared tool must be an AgentTool or callable, got {type(tool)}"
+                    raise TypeError(msg)
             for agent in self.agents:
                 for tool in self.shared_tools:
                     agent.add_tool(tool)
@@ -73,6 +76,9 @@ class MultiAgentPipeline[T]:
         """Append a PydanticAgent to the pipeline stage sequence."""
         if self.shared_tools:
             for tool in self.shared_tools:
+                if not (isinstance(tool, AgentTool) or callable(tool)):
+                    msg = f"Shared tool must be an AgentTool or callable, got {type(tool)}"
+                    raise TypeError(msg)
                 agent.add_tool(tool)
         self.agents.append(agent)
         return self
@@ -119,10 +125,13 @@ class MultiAgentPipeline[T]:
             )
             steps.append(step)
 
+            raw_hyp = res.content[:150].replace("\n", " ") + "..."
+            from devops_cli.ai.analyze.outlines import _mask_sensitive_data
+
             self.scratchpad.add_entry(
                 persona=agent.name,
                 stage=f"Stage {idx}",
-                hypothesis=res.content[:150].replace("\n", " ") + "...",
+                hypothesis=_mask_sensitive_data(raw_hyp),
                 notes=[f"Executed {len(res.tool_calls)} tool calls in {res.turns} turns."],
             )
 

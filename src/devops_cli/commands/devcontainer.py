@@ -6,10 +6,10 @@ import json
 import os
 import re
 import shutil
+import tomllib
 from pathlib import Path
 from typing import Annotated
 
-import tomllib
 import typer
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from rich import print as rprint

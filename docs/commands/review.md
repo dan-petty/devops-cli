@@ -147,7 +147,7 @@ devops review stats [OPTIONS]
 
 ## `devops review export-feedback`
 
-**Export invalidated review findings into a JSONL benchmark dataset for prompt tuning.**
+**Export review findings into a JSONL benchmark dataset for prompt tuning and fine-tuning.**
 
 ```bash
 devops review export-feedback [OPTIONS]
@@ -159,6 +159,7 @@ devops review export-feedback [OPTIONS]
 |---|---|---|---|
 | `--output`, `-o` | `path` | - | Output JSONL path for benchmark feedback dataset |
 | `--reviews-dir` | `path` | - | Directory containing review sessions |
+| `--status`, `-s` | `string` | `INVALIDATED` | Finding status to export: INVALIDATED, VERIFIED, MITIGATED, or ALL |
 
 ---
 
