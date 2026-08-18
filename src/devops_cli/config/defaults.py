@@ -58,6 +58,9 @@ DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS: float = 30.0
 
 # ── Docker Defaults ───────────────────────────────────────────────────────────
 DEFAULT_DOCKER_TIMEOUT_SECONDS: float = 300.0
+DEFAULT_REMOTE_CI_POLL_INTERVAL_SECONDS: float = 10.0
+DEFAULT_REMOTE_CI_TIMEOUT_SECONDS: float = 600.0
+DEFAULT_REPOS_EXEC_TIMEOUT_SECONDS: float = 120.0
 
 # ── High Timeout Policies ─────────────────────────────────────────────────────
 # NOTE (Design Justification - AGENTS.md §4 & README.md): High default timeouts are intentional

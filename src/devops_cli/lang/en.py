@@ -257,6 +257,34 @@ class TfMessages(BaseModel):
     deploy_cloud_success: str = "✓ {provider} cloud infrastructure deployed successfully."
 
 
+class RemoteCIMessages(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    no_runs_found: str = "No GitHub Actions workflow runs found."
+    no_checks_found: str = "No CI checks found for PR #{number}."
+    fetching_runs: str = "Fetching remote CI workflow runs..."
+    fetching_logs: str = "Fetching CI failure logs for run {run_id}..."
+    watching_ci: str = "Watching remote CI runs for PR #{number} (poll interval: {interval}s)..."
+    ci_passed: str = "✓ All remote CI checks passed successfully."
+    ci_failed: str = "✗ Remote CI checks failed or contains errors."
+
+
+class PRMessages(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    no_prs_found: str = "No pull requests found matching criteria."
+    pr_created: str = "✓ Pull request created: #{number} ({url})"
+    pr_updated: str = "✓ Pull request #{number} updated: {url}"
+    invalid_base_branch: str = (
+        "Invalid PR base branch '{base}'. Per repository governance, feature PRs must target an "
+        "active release branch (e.g. release/vX.Y.Z) rather than 'main'."
+    )
+    gh_cli_required: str = (
+        "GitHub CLI ('gh') is required for pull request operations. "
+        "Please install gh or ensure it is in PATH."
+    )
+
+
 class LanguageCatalog(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -275,6 +303,8 @@ class LanguageCatalog(BaseModel):
     release: ReleaseMessages = ReleaseMessages()
     tf: TfMessages = TfMessages()
     tofu: TfMessages = TfMessages()
+    remote_ci: RemoteCIMessages = RemoteCIMessages()
+    pr: PRMessages = PRMessages()
 
 
 MESSAGES = LanguageCatalog()

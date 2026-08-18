@@ -210,3 +210,27 @@ def test_repos_update_no_repos(tmp_path: Path) -> None:
 
     assert result.exit_code == 0
     assert "No repositories" in result.output
+
+
+def test_repos_exec_command(tmp_path: Path) -> None:
+    repos_dir = tmp_path / "repos"
+    group_dir = repos_dir / "group"
+    repo_dir = group_dir / "repo"
+    repo_dir.mkdir(parents=True)
+    (repo_dir / ".git").mkdir()
+
+    with (
+        patch("devops_cli.commands.repos.load_settings") as mock_load,
+        patch("devops_cli.commands.repos.run_subprocess") as mock_run,
+    ):
+        settings = MagicMock()
+        settings.repos.base_dir = repos_dir
+        mock_load.return_value = settings
+        mock_run.return_value = MagicMock(returncode=0, stdout="clean", stderr="")
+
+        result = runner.invoke(app, ["repos", "exec", "git status -s"])
+
+    assert result.exit_code == 0
+    assert "Execution Results" in result.output
+    assert "group/repo" in result.output
+    mock_run.assert_called_once()

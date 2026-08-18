@@ -51,3 +51,59 @@ def test_jira_id_validation(ticket_id: str, valid: bool) -> None:
 )
 def test_branch_name_generation(ticket_id: str, slug: str | None, expected: str) -> None:
     assert _make_branch(ticket_id, slug) == expected
+
+
+def test_branches_create_command(tmp_path) -> None:
+    from unittest.mock import MagicMock, patch
+
+    from typer.testing import CliRunner
+
+    from devops_cli.commands.branches import app
+
+    runner = CliRunner()
+    git_dir = tmp_path / ".git"
+    git_dir.mkdir()
+
+    with (
+        patch("devops_cli.commands.branches.fetch_all"),
+        patch("devops_cli.commands.branches.gitlib.Repo") as mock_repo_cls,
+    ):
+        mock_repo = MagicMock()
+        mock_repo.branches = []
+        mock_repo.remotes = []
+        mock_repo_cls.return_value = mock_repo
+
+        result = runner.invoke(app, ["create", "test-feature", "--repo", str(tmp_path)])
+        assert result.exit_code == 0
+        assert "Created and checked out" in result.output
+        mock_repo.git.checkout.assert_called_once()
+        args = mock_repo.git.checkout.call_args[0]
+        assert "-b" in args
+        assert "feat/test-feature" in args
+
+
+def test_branches_status_command(tmp_path) -> None:
+    from unittest.mock import MagicMock, patch
+
+    from typer.testing import CliRunner
+
+    from devops_cli.commands.branches import app
+
+    runner = CliRunner()
+    git_dir = tmp_path / ".git"
+    git_dir.mkdir()
+
+    with patch("devops_cli.commands.branches.gitlib.Repo") as mock_repo_cls:
+        mock_repo = MagicMock()
+        mock_repo.head.is_detached = False
+        mock_repo.active_branch.name = "feat/test"
+        mock_repo.active_branch.tracking_branch.return_value = None
+        mock_repo.is_dirty.return_value = False
+        mock_repo.untracked_files = []
+        mock_repo_cls.return_value = mock_repo
+
+        result = runner.invoke(app, ["status", "--repo", str(tmp_path)])
+        assert result.exit_code == 0
+        assert "Git Branch Status" in result.output
+        assert "feat/test" in result.output
+        assert "clean" in result.output

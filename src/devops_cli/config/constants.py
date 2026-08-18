@@ -187,3 +187,15 @@ CONST_DEFAULT_TOOL_MAX_SEARCH_MATCHES: int = 50
 CONST_DEFAULT_TOOL_BUFFER_CHUNK_SIZE: int = 65536
 CONST_DEFAULT_AGENT_MAX_TURNS: int = 5
 CONST_DEFAULT_MCP_SERVER_PORT: int = 8000
+
+# ── GitHub CLI & Pull Requests ────────────────────────────────────────────────
+CONST_GH_CLI = "gh"
+CONST_DEFAULT_PR_STATE = "open"
+CONST_BRANCH_PREFIXES: tuple[str, ...] = (
+    "feat/",
+    "fix/",
+    "docs/",
+    "chore/",
+    "refactor/",
+    "release/",
+)

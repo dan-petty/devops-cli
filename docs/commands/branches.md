@@ -76,6 +76,46 @@ devops branches list [OPTIONS]
 
 ---
 
+## `devops branches create`
+
+**Create a topic branch following repository branching standards.**
+
+```bash
+devops branches create [OPTIONS] <name>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<name>` | `string` | Yes | Branch name or slug (e.g. mcp-tools-enhancement) |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--base`, `-b` | `string` | - | Base branch to fork from (defaults to active release branch) |
+| `--type`, `-t` | `string` | `feat` | Branch type prefix (feat, fix, docs, chore, refactor) |
+| `--repo`, `-r` | `path` | - | Target repo directory (default: cwd) |
+
+---
+
+## `devops branches status`
+
+**Show detailed branch status, tracking state, ahead/behind drift, and worktree status.**
+
+```bash
+devops branches status [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-r` | `path` | - | Target repo directory (default: cwd) |
+
+---
+
 ## `devops branches clean`
 
 **Delete local branches merged into main/master.**
