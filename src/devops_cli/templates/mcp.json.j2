@@ -12,6 +12,9 @@
         "--transport",
         "stdio"
       ],
+      "env": {
+        "PATH": "${workspaceFolder}/.venv/bin:${env:HOME}/.local/bin:/usr/local/bin:/usr/bin:/bin"
+      },
       "cwd": "${workspaceFolder}"
     }
   }

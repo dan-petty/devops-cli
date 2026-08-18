@@ -8,6 +8,7 @@ Functionality & Security:
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Annotated, Any
@@ -385,13 +386,25 @@ def bootstrap(
     if not _minikube_running():
         if auto_start:
             rprint("[bold cyan]Starting minikube cluster...[/bold cyan]")
-            _run_cmd(["minikube", "start", "--driver=docker", "--gpus=all"], check=False)
+            has_gpu = shutil.which("nvidia-smi") is not None
+            started = False
+            if has_gpu:
+                start_res = _run_cmd(
+                    ["minikube", "start", "--driver=docker", "--gpus=all"], check=False
+                )
+                started = start_res.returncode == 0 and _minikube_running()
+            if not started:
+                start_res = _run_cmd(["minikube", "start", "--driver=docker"], check=False)
+                started = start_res.returncode == 0 and _minikube_running()
+            if not started:
+                rprint("[red]Failed to start minikube cluster.[/red]")
+                raise typer.Exit(1)
+            _run_cmd(["minikube", "update-context"], check=False)
         else:
-            rprint(
-                "[red]minikube is not running."
-                " Start with: minikube start --driver=docker --gpus=all[/red]"
-            )
+            rprint("[red]minikube is not running. Start with: minikube start --driver=docker[/red]")
             raise typer.Exit(1)
+    else:
+        _run_cmd(["minikube", "update-context"], check=False)
 
     deploy_stack(k8s_dir=k8s_dir, stack=stack)
 

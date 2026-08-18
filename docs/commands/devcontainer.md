@@ -98,6 +98,7 @@ devops devcontainer post-create [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--workspace`, `-w` | `path` | `.` | Path to workspace directory |
+| `--dry-run` | `boolean` | - | Simulate execution without modifying files |
 
 ---
 
@@ -114,6 +115,7 @@ devops devcontainer post-start [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--workspace`, `-w` | `path` | `.` | Path to workspace directory |
+| `--dry-run` | `boolean` | - | Simulate execution without modifying files |
 
 ---
 
@@ -133,5 +135,6 @@ devops devcontainer run-lifecycle [OPTIONS]
 | `--post-create` | `boolean` | - | Execute post-create setup tasks |
 | `--post-start` | `boolean` | - | Execute post-start lifecycle tasks |
 | `--all`, `-a` | `boolean` | - | Execute all DevContainer lifecycle tasks |
+| `--dry-run` | `boolean` | - | Simulate execution without modifying files |
 
 ---

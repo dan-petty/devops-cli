@@ -152,6 +152,88 @@ class TestDevcontainerCli:
         assert "Started Minikube cluster (--driver=docker --gpus=all)" in result.output
         assert any(c[:2] == ["minikube", "start"] for c in calls)
 
+    def test_post_start_minikube_falls_back_to_cpu_when_no_gpu(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """devops devcontainer post-start must fallback to CPU minikube if no GPU is found."""
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        monkeypatch.setenv("HOME", str(fake_home))
+        monkeypatch.setenv("DEVOPS_MINIKUBE_AUTOSTART", "true")
+        monkeypatch.setenv("DEVOPS_K8S_AUTO_DEPLOY", "false")
+
+        calls: list[list[str]] = []
+
+        def mock_run_subprocess(cmd: list[str], **kwargs: object) -> object:
+            calls.append(cmd)
+            import subprocess
+
+            if cmd[:2] == ["minikube", "status"]:
+                return subprocess.CompletedProcess(cmd, returncode=1, stdout="Stopped", stderr="")
+            return subprocess.CompletedProcess(cmd, returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr("devops_cli.commands.devcontainer.run_subprocess", mock_run_subprocess)
+        monkeypatch.setattr(
+            "shutil.which",
+            lambda prog: f"/usr/local/bin/{prog}" if prog != "nvidia-smi" else None,
+        )
+
+        result = runner.invoke(app, ["post-start", "--workspace", str(tmp_path)])
+        assert result.exit_code == 0
+        assert "Started Minikube cluster (--driver=docker)" in result.output
+        assert any(c == ["minikube", "start", "--driver=docker"] for c in calls)
+
+    def test_post_start_warns_when_docker_daemon_down(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """devops devcontainer post-start must warn if Docker daemon is not running."""
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        monkeypatch.setenv("HOME", str(fake_home))
+        monkeypatch.setenv("DEVOPS_MINIKUBE_AUTOSTART", "true")
+        monkeypatch.setenv("DEVOPS_K8S_AUTO_DEPLOY", "false")
+
+        def mock_run_subprocess(cmd: list[str], **kwargs: object) -> object:
+            import subprocess
+
+            if cmd[:2] == ["docker", "info"]:
+                return subprocess.CompletedProcess(cmd, returncode=1, stdout="", stderr="error")
+            return subprocess.CompletedProcess(cmd, returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr("devops_cli.commands.devcontainer.run_subprocess", mock_run_subprocess)
+        monkeypatch.setattr("shutil.which", lambda prog: f"/usr/local/bin/{prog}")
+
+        result = runner.invoke(app, ["post-start", "--workspace", str(tmp_path)])
+        assert result.exit_code == 0
+        assert "Docker daemon is not running" in result.output
+
+    def test_post_start_mcp_scaffolding_and_sync(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """devops devcontainer post-start must scaffold and sync MCP configuration."""
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        monkeypatch.setenv("HOME", str(fake_home))
+        monkeypatch.setenv("DEVOPS_MINIKUBE_AUTOSTART", "false")
+        monkeypatch.setenv("DEVOPS_K8S_AUTO_DEPLOY", "false")
+
+        # Create pyproject.toml and .agents directory
+        (tmp_path / "pyproject.toml").write_text('[project]\nname = "demo"\n', encoding="utf-8")
+        (tmp_path / ".agents").mkdir()
+
+        result = runner.invoke(app, ["post-start", "--workspace", str(tmp_path)])
+        assert result.exit_code == 0
+        assert (tmp_path / ".vscode" / "mcp.json").exists()
+        assert (fake_home / ".gemini" / "config" / "mcp_config.json").exists()
+        assert (tmp_path / ".agents" / "mcp_config.json").exists()
+
+        mcp_data = json.loads(
+            (fake_home / ".gemini" / "config" / "mcp_config.json").read_text(encoding="utf-8")
+        )
+        assert "mcpServers" in mcp_data
+        server_key = list(mcp_data["mcpServers"].keys())[0]
+        assert mcp_data["mcpServers"][server_key]["cwd"] == str(tmp_path)
+
     def test_post_start_skips_start_when_minikube_already_running(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
