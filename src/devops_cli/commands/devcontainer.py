@@ -385,6 +385,22 @@ def _run_post_create_lifecycle(workspace_dir: Path, *, dry_run: bool = False) ->
     if devops_cfg and not Path(devops_cfg).exists():
         actions.append(f"Warning: Specified DEVOPS_CLI_CONFIG file does not exist: {devops_cfg}")
 
+    # 3. Ensure system-wide PATH symlinks for uv / uvx
+    for binary_name in ("uv", "uvx"):
+        user_bin = Path.home() / ".local" / "bin" / binary_name
+        system_bin = Path("/usr/local/bin") / binary_name
+        if user_bin.exists() and not system_bin.exists():
+            if not dry_run:
+                try:
+                    system_bin.symlink_to(user_bin)
+                except OSError:
+                    run_subprocess(
+                        ["sudo", "-n", "ln", "-sf", str(user_bin), str(system_bin)],
+                        check=False,
+                        quiet=True,
+                    )
+            actions.append(f"Symlinked {binary_name} to {system_bin}")
+
     return actions
 
 

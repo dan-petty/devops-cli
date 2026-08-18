@@ -162,3 +162,109 @@ def test_validate_segment_findings_preserves_reason_and_confidence() -> None:
     assert vf.status == "UNVERIFIED"
     assert vf.invalidation_reason == "Speculative assertion on internal wrapper."
     assert vf.confidence_score == 0.95
+
+
+def test_finding_sort_key_multi_tier_ordering() -> None:
+    """Findings are sorted by severity, exploitability, and verification status."""
+    from devops_cli.ai.review_schema import Finding, ReviewResult
+
+    f_crit_low_unver = Finding(
+        title="Crit Low Unverified",
+        severity="CRITICAL",
+        exploitability="LOW",
+        status="UNVERIFIED",
+        location="a.py:1",
+    )
+    f_crit_high_ver = Finding(
+        title="Crit High Verified",
+        severity="CRITICAL",
+        exploitability="HIGH",
+        status="VERIFIED",
+        location="a.py:2",
+    )
+    f_crit_high_unver = Finding(
+        title="Crit High Unverified",
+        severity="CRITICAL",
+        exploitability="HIGH",
+        status="UNVERIFIED",
+        location="a.py:3",
+    )
+    f_high_high_ver = Finding(
+        title="High High Verified",
+        severity="HIGH",
+        exploitability="HIGH",
+        status="VERIFIED",
+        location="b.py:1",
+    )
+    f_med_high_ver = Finding(
+        title="Med High Verified",
+        severity="MEDIUM",
+        exploitability="HIGH",
+        status="VERIFIED",
+        location="c.py:1",
+    )
+    f_med_med_mit = Finding(
+        title="Med Med Mitigated",
+        severity="MEDIUM",
+        exploitability="MEDIUM",
+        status="MITIGATED",
+        location="c.py:2",
+    )
+    f_med_med_inval = Finding(
+        title="Med Med Invalidated",
+        severity="MEDIUM",
+        exploitability="MEDIUM",
+        status="INVALIDATED",
+        location="c.py:3",
+    )
+
+    review = ReviewResult(
+        findings=[
+            f_med_med_inval,
+            f_high_high_ver,
+            f_med_med_mit,
+            f_crit_low_unver,
+            f_crit_high_unver,
+            f_crit_high_ver,
+            f_med_high_ver,
+        ]
+    )
+
+    sorted_titles = [f.title for f in review.sorted_findings]
+    assert sorted_titles == [
+        "Crit High Verified",
+        "Crit High Unverified",
+        "Crit Low Unverified",
+        "High High Verified",
+        "Med High Verified",
+        "Med Med Mitigated",
+        "Med Med Invalidated",
+    ]
+
+
+def test_payload_sorted_findings_property() -> None:
+    """ReviewSessionPayload and FileReviewPayload expose sorted_findings."""
+    from devops_cli.ai.review_schema import FileReviewPayload, ReviewSessionPayload, SavedFinding
+
+    f1 = SavedFinding(
+        title="Issue 1",
+        severity="LOW",
+        exploitability="LOW",
+        status="VERIFIED",
+        location="x.py:1",
+    )
+    f2 = SavedFinding(
+        title="Issue 2",
+        severity="CRITICAL",
+        exploitability="HIGH",
+        status="VERIFIED",
+        location="x.py:2",
+    )
+
+    session_payload = ReviewSessionPayload(findings=[f1, f2])
+    assert session_payload.sorted_findings[0].title == "Issue 2"
+    assert session_payload.sorted_findings[1].title == "Issue 1"
+
+    file_payload = FileReviewPayload(file_path="x.py", findings=[f1, f2])
+    assert file_payload.sorted_findings[0].title == "Issue 2"
+    assert file_payload.sorted_findings[1].title == "Issue 1"

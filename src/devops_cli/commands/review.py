@@ -38,6 +38,7 @@ from devops_cli.ai.review_schema import (
     ReviewResult,
     ReviewSessionPayload,
     SavedFinding,
+    finding_sort_key,
     parse_review_result,
 )
 from devops_cli.config.constants import (
@@ -1447,6 +1448,7 @@ def _save_findings_json(
                     **f.model_dump(),
                 )
             )
+    findings = sorted(findings, key=finding_sort_key)
     payload = ReviewSessionPayload(
         generated_at=datetime.now().isoformat(),
         personas=[pd.name for pd, _ in completed],
@@ -2341,7 +2343,7 @@ def list_findings(
         raise typer.Exit(0)
 
     payload = ReviewSessionPayload.model_validate_json(findings_file.read_text(encoding="utf-8"))
-    findings = payload.findings
+    findings = payload.sorted_findings
 
     target_status = status_filter.upper() if status_filter else None
     if unverified:
@@ -2358,6 +2360,7 @@ def list_findings(
     table.add_column("#", justify="right", style="dim")
     table.add_column("Persona", style="cyan")
     table.add_column("Sev", style="bold")
+    table.add_column("Exploit", style="magenta")
     table.add_column("Conf", justify="right")
     table.add_column("Location", overflow="fold")
     table.add_column("Title", overflow="fold")
@@ -2384,6 +2387,7 @@ def list_findings(
             str(i),
             f.persona,
             f.severity,
+            f.exploitability,
             conf_str,
             f.location,
             f.title,
