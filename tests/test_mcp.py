@@ -57,11 +57,16 @@ class TestMcpServer:
             "argo_status",
             "grafana_dashboards",
             "prometheus_query",
-            "docker_stats",
             "workspace_list",
             "config_show",
             "config_output",
             "ci_run",
+            "tf_plan",
+            "tf_apply",
+            "tf_output",
+            "tofu_plan",
+            "tofu_apply",
+            "tofu_output",
         }
         assert expected.issubset(tool_names), f"Missing tools: {expected - tool_names}"
 
@@ -144,3 +149,54 @@ class TestMcpCli:
             mock_run.assert_called_once_with(
                 transport="sse", host="0.0.0.0", port=9090, allow_remote=False
             )
+
+
+# ── OpenTofu / Terraform MCP Tools ───────────────────────────────────────────
+
+
+class TestTfMcpTools:
+    """Tests for OpenTofu / Terraform FastMCP tools."""
+
+    def test_tf_plan_tool(self) -> None:
+        from devops_cli.ai.mcp.server import tf_plan
+
+        with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="Plan: 2 to add") as mock:
+            res = tf_plan(directory="tf/aws", var_file="tf/environments/aws.tfvars.example")
+            assert res == "Plan: 2 to add"
+            mock.assert_called_once()
+            args = mock.call_args[0][0]
+            assert "tf" in args
+            assert "plan" in args
+            assert "tf/aws" in args
+
+    def test_tf_apply_tool(self) -> None:
+        from devops_cli.ai.mcp.server import tf_apply
+
+        with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="Apply complete!") as mock:
+            res = tf_apply(directory="tf/aws", auto_approve=True)
+            assert res == "Apply complete!"
+            mock.assert_called_once()
+            args = mock.call_args[0][0]
+            assert "apply" in args
+            assert "--auto-approve" in args
+
+    def test_tf_output_tool(self) -> None:
+        from devops_cli.ai.mcp.server import tf_output
+
+        with patch(
+            "devops_cli.ai.mcp.server._run_mcp_cmd", return_value='{"cluster": "eks"}'
+        ) as mock:
+            res = tf_output(directory="tf/aws", json_format=True)
+            assert res == '{"cluster": "eks"}'
+            mock.assert_called_once()
+            args = mock.call_args[0][0]
+            assert "output" in args
+            assert "--json" in args
+
+    def test_tofu_aliases(self) -> None:
+        from devops_cli.ai.mcp.server import tofu_apply, tofu_output, tofu_plan
+
+        with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="ok"):
+            assert tofu_plan("tf/aws") == "ok"
+            assert tofu_apply("tf/aws") == "ok"
+            assert tofu_output("tf/aws") == "ok"

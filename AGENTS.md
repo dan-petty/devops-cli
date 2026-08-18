@@ -80,7 +80,9 @@ The project follows a modular, command-driven architecture.
 - **Test Mocking Policy**: All automated unit tests MUST use mocking (`unittest.mock`, `patch.object`, or dummy mock clients) rather than making live network calls to external AI/LLM providers or local servers.
 - **No Real Config/Secret Duplication in Tests**: Never duplicate or hardcode real user configuration values, local hostnames/IPs, or API credentials into test data fixtures. Use generic mock placeholders (`http://node1.example.test`).
 - **Error Handling**: All network requests (`httpx`) and subprocess calls must implement explicit timeouts (e.g., 30s) and robust error handling/retries.
+- **Exception Handling & Model Defaults**: Multi-exception clauses MUST use parenthesized tuples (e.g., `except (Err1, Err2):`). Pydantic models MUST use `Field(default_factory=...)` for mutable collection defaults.
 - **Documentation**: Use docstrings for all public functions in `src/devops_cli/`.
+
 
 
 

@@ -213,6 +213,7 @@ class LLMClient:
                     return False
             except json.JSONDecodeError, TypeError, ValueError:
                 pass
+
         if validator is not None:
             try:
                 return bool(validator(content))

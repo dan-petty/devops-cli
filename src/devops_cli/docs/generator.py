@@ -136,6 +136,7 @@ class DocGenerator:
                         default_str = f"~/{rel_to_home}"
                     except ValueError, AttributeError:
                         default_str = str(default_val)
+
             else:
                 default_str = str(default_val)
                 home_str = str(Path.home().resolve())

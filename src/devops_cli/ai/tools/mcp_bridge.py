@@ -24,4 +24,7 @@ def get_mcp_agent_tools() -> list[Any]:
         mcp_module.workspace_list,
         mcp_module.config_show,
         mcp_module.ci_run,
+        mcp_module.tf_plan,
+        mcp_module.tf_apply,
+        mcp_module.tf_output,
     ]
