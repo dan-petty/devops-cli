@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.11] - 2026-08-18
+
+### Added
+- **Git & GitHub Project Best Practice Guardrails (`AGENTS.md`, `CONTRIBUTING.md`)**: Comprehensive AI agent and developer operational guardrails for branch hierarchy (zero direct commits to `main`, base branch targeting `release/vX.Y.Z`, fresh topic branches), commit hygiene (Conventional Commits, atomicity, pre-commit validation, zero leaked secrets), and PR governance (no autonomous merging by agents, in-place topic branch updates, active CI monitoring, and issue linking).
+- **Automated DevContainer Pre-Commit Installation**: Integrated automated `uv run pre-commit install` into the container startup lifecycle hook (`devops devcontainer run-lifecycle --post-start`) and added `.gitattributes` to enforce consistent LF line endings.
+
+### Changed
+- **AI / LLM Prompt & Token Density Optimization**: Optimized persona domain prompts (`devsecops`, `architect`, `auditor`, `pm`, `qa`) and core review task prompts (`review.md`, `analyze_pseudocode.md`, `verify_finding.md`, `compose.md`, `metadata.md`, `chat.md`), eliminating cross-prompt rule duplication and reducing prompt token consumption.
+- **CI Workflow Optimization & Duplicate PR Check Elimination**: Refactored `.github/workflows/ci.yml` to restrict `push` triggers strictly to `main` while maintaining `pull_request` triggers on `main` and `release/**`, eliminating duplicate CI runs on pull requests, and added workflow concurrency management to cancel superseded in-flight builds.
+- **Evergreen Validation Nomenclature**: Standardized validation terminology across GitHub Actions workflows, CLI tooling, and documentation from numbered gates to evergreen `validate` / `Validation`.
+
 ## [0.1.10] - 2026-08-18
 
 ### Added
