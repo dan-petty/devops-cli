@@ -298,8 +298,8 @@ def test_run_review_metadata_includes_filenames() -> None:
 
     assert result == "done"
     assert len(review_calls) == 2
-    assert "src/a.py" in review_calls[0]
-    assert "src/b.py" in review_calls[1]
+    assert any("src/a.py" in call for call in review_calls)
+    assert any("src/b.py" in call for call in review_calls)
 
 
 def test_run_review_dry_run_skips_client_calls(

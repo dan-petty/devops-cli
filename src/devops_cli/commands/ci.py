@@ -79,8 +79,18 @@ def _run_all_checks(*, lint_fix: bool, format_fix: bool) -> list[tuple[str, bool
 
     _section("pytest & coverage")
     test_cov_ok = _run(
-        ["uv", "run", "pytest", "-n", "auto", "--cov=src", "--cov-report=term-missing"]
+        [
+            "uv",
+            "run",
+            "pytest",
+            "-n",
+            "auto",
+            "--maxprocesses=4",
+            "--cov=src",
+            "--cov-report=term-missing",
+        ]
     )
+
     _clean_coverage_artifacts()
     checks.append(("test", test_cov_ok))
     checks.append(("coverage", test_cov_ok))

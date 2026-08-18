@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "devops-cli"
-version = "0.1.9"
+version = "0.1.10"
 description = "DevOps CLI for managing repos, SSH keys, Kubernetes, and more"
 requires-python = ">=3.14"
 dependencies = [
@@ -61,7 +61,8 @@ strict = true
 asyncio_mode = "auto"
 testpaths = ["tests"]
 pythonpath = ["src"]
-addopts = "-n auto"
+addopts = "-n auto --maxprocesses=4"
+
 
 [tool.coverage.run]
 data_file = ".data/.coverage"
