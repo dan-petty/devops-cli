@@ -58,7 +58,7 @@ def _gh_auth_status() -> bool:
             quiet=True,
             timeout=DEFAULT_GH_AUTH_TIMEOUT_SECONDS,
         )
-    except OSError, subprocess.SubprocessError:
+    except (OSError, subprocess.SubprocessError):
         return False
     return result.returncode == 0
 
@@ -73,7 +73,7 @@ def _gh_auth_token() -> str | None:
             quiet=True,
             timeout=DEFAULT_GH_AUTH_TIMEOUT_SECONDS,
         )
-    except OSError, subprocess.SubprocessError:
+    except (OSError, subprocess.SubprocessError):
         return None
 
     if result.returncode != 0:

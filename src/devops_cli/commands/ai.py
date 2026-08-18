@@ -123,7 +123,7 @@ def _collect_project_context(repo: Path) -> str:
         )
         clean_tree = _sanitize_prompt_boundary_tags(tree.stdout.strip())
         sections.append(f"## File tree\n```\n{clean_tree}\n```")
-    except OSError, subprocess.SubprocessError:
+    except (OSError, subprocess.SubprocessError):
         pass
 
     # .editorconfig
@@ -604,7 +604,7 @@ def chat(
     while True:
         try:
             user_input = console.input("[bold cyan]You:[/bold cyan] ").strip()
-        except EOFError, KeyboardInterrupt:
+        except (EOFError, KeyboardInterrupt):
             from devops_cli.lang import MESSAGES
 
             rprint(f"\n[dim]{MESSAGES.messages.goodbye}[/dim]")

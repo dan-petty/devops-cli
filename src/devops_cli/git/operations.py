@@ -116,7 +116,7 @@ def pull_tracking(repo_dir: Path) -> None:
             tracking = repo.active_branch.tracking_branch()
             if tracking:
                 repo.remotes[tracking.remote_name].pull(repo.active_branch.name)
-    except gitlib.GitCommandError, IndexError:
+    except (gitlib.GitCommandError, IndexError):
         pass
 
 

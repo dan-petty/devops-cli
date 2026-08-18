@@ -1359,7 +1359,7 @@ devops ci coverage [OPTIONS]
 
 ### `devops ci lint`
 
-**Run ruff linter strictly targeting Python 3.14 across the project.**
+**Run ruff linter across the project.**
 
 ```bash
 devops ci lint [OPTIONS]
@@ -1373,7 +1373,7 @@ devops ci lint [OPTIONS]
 
 ### `devops ci format`
 
-**Check (or apply) code formatting with ruff format targeting Python 3.14.**
+**Check (or apply) code formatting with ruff format.**
 
 ```bash
 devops ci format [OPTIONS]
@@ -1414,6 +1414,14 @@ devops ci security [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--severity`, `-s` | `string` | `medium` | Minimum severity threshold (low, medium, high) |
+
+### `devops ci actionlint`
+
+**Run actionlint to validate GitHub Actions workflows for syntax and schema errors.**
+
+```bash
+devops ci actionlint
+```
 
 ### `devops ci docs`
 

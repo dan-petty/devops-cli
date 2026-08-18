@@ -12,7 +12,7 @@ This document provides structured context and operational instructions for AI co
 ## 2. Environment & Modernization Policy
 - **Modernization Intent**: This project intentionally tracks the bleeding edge of the Python ecosystem (e.g., Python 3.14, `httpx2`, `pydantic v2`). Do not suggest downgrading dependencies unless a critical regression is identified.
 - **Safety Net**: The `devops ci` command and GitHub Actions serve as the authoritative gate for all changes.
-- **Dependency Management**: Use `uv` for all Python environment operations. 
+- **Dependency Management**: Use `uv` for all Python environment operations.
   - Command: `uv sync` (to synchronize the lockfile).
 
 ## 3. Architecture & Project Structure

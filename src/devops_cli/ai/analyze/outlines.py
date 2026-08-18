@@ -246,7 +246,7 @@ def _extract_python_pseudocode_outline(content: str) -> list[str]:
     try:
         tree = ast.parse(content)
         for node in tree.body:
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
                 args = [a.arg for a in node.args.args if a.arg != "self"]
                 args_str = ", ".join(args[:3])
                 if len(node.args.args) > 3:
@@ -256,7 +256,13 @@ def _extract_python_pseudocode_outline(content: str) -> list[str]:
                 for stmt in node.body[:2]:
                     if isinstance(
                         stmt,
-                        (ast.If, ast.For, ast.While, ast.Return, ast.Raise, ast.Assign, ast.Expr),
+                        ast.If
+                        | ast.For
+                        | ast.While
+                        | ast.Return
+                        | ast.Raise
+                        | ast.Assign
+                        | ast.Expr,
                     ):
                         try:
                             stmt_code = ast.unparse(stmt).splitlines()[0]
@@ -268,7 +274,7 @@ def _extract_python_pseudocode_outline(content: str) -> list[str]:
                 bases_str = f"({', '.join(bases)})" if bases else ""
                 lines.append(f"class {node.name}{bases_str}:")
                 for item in node.body[:2]:
-                    if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    if isinstance(item, ast.FunctionDef | ast.AsyncFunctionDef):
                         args = [a.arg for a in item.args.args if a.arg != "self"]
                         lines.append(f"    def {item.name}({', '.join(args[:2])}):")
     except Exception:

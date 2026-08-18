@@ -9,7 +9,7 @@ on:
 
 jobs:
   quality-gate:
-    name: 7-Gate Quality Validation
+    name: 10-Gate Quality Validation
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -45,12 +45,11 @@ jobs:
       - name: Documentation Freshness Check
         run: uv run devops docs check
 
+      - name: Workflow Linting (actionlint)
+        run: uv run actionlint
 
       - name: Unit Tests & Code Coverage
         run: uv run pytest -v --cov=src --cov-report=xml
 
       - name: Security Scan (Bandit)
         run: uv run bandit -r src/ -ll -ii
-
-
-

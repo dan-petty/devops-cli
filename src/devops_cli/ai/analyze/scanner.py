@@ -149,7 +149,7 @@ def _analyze_python_ast(content: str) -> tuple[str | None, list[str], list[str]]
         if isinstance(stmt, ast.ClassDef):
             if stmt.name not in ("BaseModel", "ConfigDict", "Exception", "Any"):
                 symbols.append(stmt.name)
-        elif isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        elif isinstance(stmt, ast.FunctionDef | ast.AsyncFunctionDef):
             if not stmt.name.startswith("__"):
                 symbols.append(stmt.name)
         elif isinstance(stmt, ast.Assign):

@@ -76,7 +76,7 @@ When implementing features or fixing bugs, follow this exact sequence:
 ---
 
 ## 5. Submitting Pull Requests & Branch Management
- 
+
 - **Protected `main` Branch**: Direct commits and pushes to `main` are strictly prohibited. All changes must be proposed via pull requests.
 - **Dedicated Topic Branches**:
   - Features: `feat/<name>` or `feature/<name>`
@@ -95,6 +95,3 @@ When implementing features or fixing bugs, follow this exact sequence:
    uv run devops ci
    ```
 - **Squash Merging**: Maintainers squash-merge approved PRs into the target branch using `gh pr merge <id> --squash`.
-
-
-

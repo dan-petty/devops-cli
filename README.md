@@ -173,11 +173,12 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 |  | `devops config audit-stream <destination>` | Stream stored audit records to SIEM destination URL. |
 | **ci** | `devops ci test [OPTIONS]` | Run the pytest test suite in parallel leveraging all CPU cores. |
 |  | `devops ci coverage [OPTIONS]` | Run pytest with parallel code coverage analysis over src/. |
-|  | `devops ci lint [OPTIONS]` | Run ruff linter strictly targeting Python 3.14 across the project. |
-|  | `devops ci format [OPTIONS]` | Check (or apply) code formatting with ruff format targeting Python 3.14. |
+|  | `devops ci lint [OPTIONS]` | Run ruff linter across the project. |
+|  | `devops ci format [OPTIONS]` | Check (or apply) code formatting with ruff format. |
 |  | `devops ci typecheck` | Run mypy static type-checker strictly targeting Python 3.14 over src/. |
 |  | `devops ci audit` | Run uv audit to check for known package vulnerabilities. |
 |  | `devops ci security [OPTIONS]` | Run bandit static security vulnerability analysis over src/. |
+|  | `devops ci actionlint` | Run actionlint to validate GitHub Actions workflows for syntax and schema errors. |
 |  | `devops ci docs` | Verify that documentation is up to date with CLI commands and configuration. |
 |  | `devops ci run [OPTIONS]` | Run full CI and return a single pass/fail status. |
 | **uv** | `devops uv sync [OPTIONS]` | Sync project dependencies into the virtual environment. |

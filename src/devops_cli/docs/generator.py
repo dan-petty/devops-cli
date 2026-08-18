@@ -130,11 +130,11 @@ class DocGenerator:
                 try:
                     rel_to_root = default_val.resolve().relative_to(self.root_dir.resolve())
                     default_str = str(rel_to_root)
-                except ValueError, AttributeError:
+                except (ValueError, AttributeError):
                     try:
                         rel_to_home = default_val.resolve().relative_to(Path.home().resolve())
                         default_str = f"~/{rel_to_home}"
-                    except ValueError, AttributeError:
+                    except (ValueError, AttributeError):
                         default_str = str(default_val)
 
             else:

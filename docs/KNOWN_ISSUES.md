@@ -52,5 +52,3 @@ Captures operational edge cases, intentional design trade-offs, and mitigations 
 | **6. SSH Host Key Scanning (TOFU)** | Medium (network MITM on initial clone) | Low | **Pre-seed Known Hosts**: Pre-populate `known_hosts` for critical git hosts. |
 | **7. AI Review False-Positive Tuning** | Low (prompt noise on non-code assets) | Low | **Verification Feedback**: Use `devops ai review verify` and `export-feedback` to tune prompts. |
 | **8. Multi-Exception Syntax & Model Defaults** | High (runtime unhandled exception bug) | Low | **Enforce Standard**: Parenthesized tuples `except (A, B):` and `Field(default_factory=...)`. |
-
-

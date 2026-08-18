@@ -147,7 +147,7 @@ def _current_version(cmd: list[str]) -> str | None:
         )
         m = re.search(r"v?(\d+\.\d+[\.\d]*)", r.stdout + r.stderr)
         return f"v{m.group(1)}" if m else ("installed" if r.returncode == 0 else None)
-    except FileNotFoundError, subprocess.TimeoutExpired, OSError:
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
         return None
 
 

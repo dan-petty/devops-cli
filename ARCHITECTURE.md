@@ -121,7 +121,7 @@ Replacing fragile bash scripts (`postCreate.sh`, `postStart.sh`), `devops devcon
 ```mermaid
 flowchart TD
     DC_HOOK["DevContainer Lifecycle Trigger"] --> PY_ENGINE["devops devcontainer run-lifecycle"]
-    
+
     subgraph PostCreateTasks["Post-Create Stage"]
         T1["Persist Shell History (.data/zsh_history)"]
         T2["Generate Shell Autocompletions"]

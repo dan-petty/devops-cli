@@ -95,14 +95,14 @@ def _run_all_checks(*, lint_fix: bool, format_fix: bool) -> list[tuple[str, bool
     checks.append(("test", test_cov_ok))
     checks.append(("coverage", test_cov_ok))
 
-    _section("ruff check (py314)")
-    lint_cmd = ["uv", "run", "ruff", "check", "--target-version", "py314", "."]
+    _section("ruff check")
+    lint_cmd = ["uv", "run", "ruff", "check", "."]
     if lint_fix:
         lint_cmd.append("--fix")
     checks.append(("lint", _run(lint_cmd)))
 
-    _section("ruff format (py314)")
-    fmt_cmd = ["uv", "run", "ruff", "format", "--target-version", "py314"]
+    _section("ruff format")
+    fmt_cmd = ["uv", "run", "ruff", "format"]
     if not format_fix:
         fmt_cmd.append("--check")
     fmt_cmd.append(".")
@@ -131,6 +131,9 @@ def _run_all_checks(*, lint_fix: bool, format_fix: bool) -> list[tuple[str, bool
 
     _section("bandit security scan")
     checks.append(("security", _run(["uv", "run", "bandit", "-r", "src", "-ll", "-s", "B608"])))
+
+    _section("actionlint (github workflows)")
+    checks.append(("actionlint", _run(["uv", "run", "actionlint"])))
 
     _section("docs validation")
     checks.append(("docs", _run(["uv", "run", "devops", "docs", "check"])))
@@ -220,10 +223,10 @@ def coverage(
 def lint(
     fix: Annotated[bool, typer.Option("--fix", help="Auto-fix violations where possible")] = False,
 ) -> None:
-    """Run ruff linter strictly targeting Python 3.14 across the project."""
+    """Run ruff linter across the project."""
     if not _verify_python_314_environment():
         raise typer.Exit(1)
-    cmd = ["uv", "run", "ruff", "check", "--target-version", "py314", "."]
+    cmd = ["uv", "run", "ruff", "check", "."]
     if fix:
         cmd.append("--fix")
     if not _run(cmd):
@@ -234,10 +237,10 @@ def lint(
 def fmt(
     fix: Annotated[bool, typer.Option("--fix", help="Apply formatting changes in-place")] = False,
 ) -> None:
-    """Check (or apply) code formatting with ruff format targeting Python 3.14."""
+    """Check (or apply) code formatting with ruff format."""
     if not _verify_python_314_environment():
         raise typer.Exit(1)
-    cmd = ["uv", "run", "ruff", "format", "--target-version", "py314"]
+    cmd = ["uv", "run", "ruff", "format"]
     if not fix:
         cmd.append("--check")
     cmd.append(".")
@@ -288,6 +291,15 @@ def security(
     )
     cmd = ["uv", "run", "bandit", "-r", "src", level_flag, "-s", "B608"]
     if not _run(cmd):
+        raise typer.Exit(1)
+
+
+@app.command()
+def actionlint() -> None:
+    """Run actionlint to validate GitHub Actions workflows for syntax and schema errors."""
+    if not _verify_python_314_environment():
+        raise typer.Exit(1)
+    if not _run(["uv", "run", "actionlint"]):
         raise typer.Exit(1)
 
 

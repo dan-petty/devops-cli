@@ -39,13 +39,15 @@ dev = [
     "pytest-cov>=7.1.0",
     "pytest-xdist>=3.6.0",
     "bandit>=1.9.4",
+    "actionlint-py>=1.7.12",
+    "pre-commit>=4.0.0",
 ]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/devops_cli"]
 
 [tool.ruff]
-target-version = "py314"
+target-version = "py313"
 line-length = 100
 exclude = ["repos"]
 
@@ -67,4 +69,3 @@ addopts = "-n auto --maxprocesses=4"
 [tool.coverage.run]
 data_file = ".data/.coverage"
 parallel = true
-
