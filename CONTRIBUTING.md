@@ -85,11 +85,11 @@ When implementing features or fixing bugs, follow this exact sequence:
   - Maintenance: `chore/<name>`
   - Releases: `release/v<version>`
 - **PR Base Branch Targeting (Release Branch First)**: All feature, bugfix, documentation, and maintenance pull requests MUST target the active release branch (`release/v<version>`, e.g., `--base release/v0.1.10`) rather than targeting `main` directly. Only release branches (`release/v<version>`) are permitted to target `main` when cutting an official release.
+- **Git Hygiene & Pre-Commit Hooks**: Ensure `uv run pre-commit run --all-files` passes cleanly with clean LF line endings and no staged credentials/temporary logs before committing.
+- **Atomic Commits & Conventional Standards**: Group logically cohesive changes with Conventional Commits titles (`feat(scope): ...`, `fix(scope): ...`, `docs(scope): ...`, `feat(release): vx.x.x`). Never force push (`git push --force`) to shared branches.
 - **No Autonomous Merging by Agents**: AI agents must NEVER merge Pull Requests (`gh pr merge`) autonomously. Agents must create or update topic branches, push commits, open or update the Pull Request, verify CI checks are passing, and leave the merge decision to the user / maintainers.
-- **Updating Existing PR Branches**: When revisions or additions are requested, push new commits directly to the existing topic branch (`git push origin <branch>`), which automatically updates the open PR.
+- **Updating Existing PR Branches & Active Monitoring**: When revisions or additions are requested, push new commits directly to the existing topic branch (`git push origin <branch>`), which automatically updates the open PR. Monitor remote GitHub Actions status (`gh pr checks`) and immediately remediate any failures on the source branch.
 - **No Commits to Unrelated or Merged Branches**: Never push unrelated changes to an existing branch or continue committing to a branch after its PR has already been merged. Always create a new dedicated topic branch from the active release branch for distinct features, fixes, or chores.
-- **Conventional Commits**: PR titles and squashed commits must follow Conventional Commits standard (`feat(scope): ...`, `fix(scope): ...`, `docs(scope): ...`, `feat(release): vx.x.x`, etc.).
-
 - **Validation Assertion**: Ensure local CI passes before creating or updating PRs:
    ```bash
    uv run devops ci

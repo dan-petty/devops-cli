@@ -58,22 +58,24 @@ All routine development, security, and release operations follow strict order, f
 | **Docs Generate** | `devops docs generate --sync-readme` | Introspects CLI & syncs all markdown docs. |
 | **CI Validation Suite** | `devops ci` | Executes full local validation suite (version, test, coverage, lint, format, typecheck, audit, security, actionlint, docs). |
 
-### Branch Management, PR Targeting & Agent Non-Merge Policy
-- **Zero Direct Commits to `main`**: AI agents and developers must **NEVER** commit or push directly to the `main` branch under any circumstances. Direct pushes to `main` bypass CI/CD validation gates, disrupt branch tracking, and trigger automated release workflows unexpectedly.
-- **Branch Naming Conventions**: All work must be conducted on dedicated topic branches:
-  - Features: `feat/<description>` or `feature/<description>`
-  - Bug Fixes: `fix/<description>`
-  - Documentation: `docs/<description>`
-  - Maintenance & Chores: `chore/<description>` or `refactor/<description>`
-  - Release Orchestration: `release/v<version>` (managed via `devops release prepare` / `devops release pr`)
-- **PR Base Branch Targeting (Release Branch First)**: All feature, bugfix, documentation, and maintenance pull requests MUST target the active release branch (`release/v<version>`, e.g., `--base release/v0.1.10`) rather than targeting `main` directly. Only release branches (`release/v<version>`) are permitted to target `main` when cutting an official release.
-- **No Autonomous Merging by AI Agents**: AI agents must **NEVER** merge Pull Requests (`gh pr merge`) autonomously under any circumstances. Agents must create or update topic branches, push commits, open or update the Pull Request, verify CI checks are passing, and leave the merge decision and execution to the human user / repository maintainer.
-- **Updating Existing PR Branches**: When revisions, additions, or fixes are requested on an active PR, agents must push new commits directly to the existing topic branch (`git push origin <branch>`), which automatically updates the open PR without creating redundant PRs or merging.
-- **No Commits to Unrelated or Merged Branches**: AI agents must **NEVER** commit or push changes to an unrelated git branch or to a branch whose Pull Request has already been merged. When receiving new or distinct tasks, agents must first check git/PR status (`git fetch origin`, `gh pr view`, `gh pr list`). If the current branch is unrelated to the request or has already been merged into the base branch, agents MUST checkout a fresh dedicated topic branch from the active release branch (`git checkout -b <type>/<description> origin/release/v<version>`) and open a separate Pull Request.
-- **Conventional Commit Titles**: PR titles and commit messages MUST follow Conventional Commits standard (`feat(scope): ...`, `fix(scope): ...`, `docs(scope): ...`, `feat(release): vx.x.x`, `fix(release): vx.x.x`, `feat(release)!: vx.x.x`).
-
-- **Active PR Monitoring & Source Branch Remediation**: After opening or pushing updates to a Pull Request, AI agents MUST actively monitor remote GitHub Actions status (`gh pr checks <pr_number>` or `gh run list --branch <branch>`). If any remote check fails, agents MUST immediately inspect the failure logs (`gh run view <run_id> --log-failed`), diagnose the root cause, apply fixes directly on the pull request source/topic branch, commit with conventional prefixes (`fix(ci): ...`, `fix(scope): ...`), push changes (`git push origin <branch>`), and verify all checks pass green before concluding the task. Agents must never leave a PR with unmonitored or failing CI checks.
-- **Validation Assertion**: Ensure all local validation checks pass (`devops ci` or `uv run devops ci`) and all remote GitHub Actions CI checks are green before handing off to the user.
+### Git & GitHub Project Best Practice Guardrails
+- **Branch Hierarchy & Isolation**:
+  - **Zero Direct Commits to `main`**: AI agents and developers must **NEVER** commit or push directly to the `main` branch under any circumstances. Direct pushes to `main` bypass CI/CD validation gates, disrupt branch tracking, and trigger automated release workflows unexpectedly.
+  - **PR Base Branch Targeting (Release Branch First)**: All feature, bugfix, documentation, and maintenance pull requests MUST target the active release branch (`release/v<version>`, e.g., `--base release/v0.1.10`) rather than targeting `main` directly. Only release branches (`release/v<version>`) are permitted to target `main` when cutting an official release.
+  - **Dedicated Topic Branch Naming**: All work must be conducted on dedicated topic branches following standard prefixes (`feat/<description>`, `fix/<description>`, `docs/<description>`, `chore/<description>`, `refactor/<description>`, or `release/v<version>`).
+  - **Branch Freshness & Non-Contamination**: Always fetch upstream changes (`git fetch origin`) before creating branches. Never push unrelated changes to an existing branch, and never commit or push to a branch whose Pull Request has already been merged or closed. Always create a fresh topic branch branching off `origin/release/v<version>`.
+- **Commit Standards & Git Hygiene**:
+  - **Conventional Commits**: Commit messages and PR titles must adhere strictly to Conventional Commits format (`feat(scope): ...`, `fix(scope): ...`, `docs(scope): ...`, `chore(scope): ...`, `feat(release): vx.x.x`, `fix(release): vx.x.x`).
+  - **Commit Atomicity**: Keep commits focused and logically cohesive. Do not lump unrelated refactors, formatting fixes, and multiple distinct features into a single amorphous commit.
+  - **Pre-Commit Validation**: Ensure all pre-commit hooks pass cleanly before committing (`uv run pre-commit run --all-files`). Ensure clean LF (`\n`) line endings and zero trailing whitespace.
+  - **No Force Pushing on Shared Branches**: Never run `git push --force` or `--force-with-lease` on protected or shared branches (`main`, `release/*`).
+  - **Zero-Leaked Artifacts**: Never stage or commit credentials, `.env` files, temporary `.coverage*` files, `.data/logs`, or untracked binary scratch artifacts.
+- **GitHub Pull Request & Workflow Governance**:
+  - **No Autonomous Merging by AI Agents**: AI agents must **NEVER** execute `gh pr merge` autonomously under any circumstances. Agents must stage commits, open or update Pull Requests, verify remote CI checks pass, and leave all merge decisions and executions to the human repository maintainers.
+  - **Updating Existing PRs**: When revisions, additions, or reviewer fixes are requested on an active PR, push new commits directly to the existing topic branch (`git push origin <branch>`), which automatically updates the open PR without creating redundant PRs or merging.
+  - **Active PR Monitoring & Source Branch Remediation**: After opening or pushing updates to a Pull Request, AI agents MUST actively monitor remote GitHub Actions status (`gh pr checks <pr_number>` or `gh run list --branch <branch>`). If any remote check fails, agents MUST immediately inspect the failure logs (`gh run view <run_id> --log-failed`), diagnose the root cause, apply fixes directly on the pull request source/topic branch, commit with conventional prefixes (`fix(ci): ...`, `fix(scope): ...`), push changes (`git push origin <branch>`), and verify all checks pass green before concluding the task. Agents must never leave a PR with unmonitored or failing CI checks.
+  - **Local & Remote Validation Gate Assertion**: Ensure all local validation checks pass (`devops ci` or `uv run devops ci`) and all remote GitHub Actions CI checks are green before handing off to the user.
+  - **Issue Traceability & Linking**: When addressing reported GitHub issues or user requests, reference relevant issue numbers in PR descriptions (e.g., `fixes #<issue>`, `refs #<issue>`) for traceability across project boards.
 
 
 ### Code Conventions & Documentation Standards
