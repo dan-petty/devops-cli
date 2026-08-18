@@ -65,6 +65,8 @@ DEFAULT_REPOS_EXEC_TIMEOUT_SECONDS: float = 120.0
 # ── High Timeout Policies ─────────────────────────────────────────────────────
 # NOTE (Design Justification - AGENTS.md §4 & README.md): High default timeouts are intentional
 # to accommodate local LLM inference (CPU/GPU Ollama), corporate proxy delays, and minikube setup.
+# ── Review Pipeline Defaults ──────────────────────────────────────────────────
+DEFAULT_REVIEW_CONTEXT_LINES: int = 2
 DEFAULT_REVIEW_TIMEOUT_SECONDS: float = float(CONST_REVIEW_TIMEOUT_SECONDS)  # 1200.0s
 DEFAULT_REVIEW_WINDOW_SIZE_FACTOR: float = CONST_REVIEW_WINDOW_SIZE_FACTOR  # 0.8
 DEFAULT_REVIEW_OVERLAP_FACTOR: float = CONST_REVIEW_OVERLAP_FACTOR  # 0.1

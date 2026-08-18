@@ -52,6 +52,7 @@ from devops_cli.config.constants import (
     CONST_REVIEWS_DATA_DIR,
 )
 from devops_cli.config.defaults import (
+    DEFAULT_REVIEW_CONTEXT_LINES,
     DEFAULT_REVIEW_OVERLAP_FACTOR,
     DEFAULT_REVIEW_TIMEOUT_SECONDS,
     DEFAULT_REVIEW_WINDOW_SIZE_FACTOR,
@@ -190,8 +191,9 @@ def _llm_request_preview(client: Any, system: str, user: str) -> dict[str, Any]:
     }
 
 
-# TODO: Move to Settings
-_DEFAULT_CONTEXT_LINES = 2  # configurable: first/last N code lines captured per segment
+_DEFAULT_CONTEXT_LINES = (
+    DEFAULT_REVIEW_CONTEXT_LINES  # configurable: first/last N code lines captured per segment
+)
 
 
 def _extract_diff_filenames(segment: str) -> list[str]:

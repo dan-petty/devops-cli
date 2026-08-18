@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.12] - 2026-08-18
+
+### Added
+- **Remote CI Inspection & Monitoring (`devops ci remote status|logs|watch`)**: Terminal-based monitoring and failure log introspection for GitHub Actions workflow runs and check suites.
+- **GitHub Pull Request Governance (`devops pr list|view|checks|edit|create`)**: Comprehensive PR workflow management enforcing branch hierarchy and active release branch targeting (`release/vX.Y.Z`).
+- **Standardized Branch & Repo Lifecycle (`devops branches create|status`, `devops repos exec`)**: Standardized topic branch creation with release base discovery, workspace drift inspection, and multi-repo batch command execution across `repos/`.
+- **FastMCP SDLC & Release Automation Tools**: 10 new Model Context Protocol tools exposing remote CI checks, PR operations, branch workflows, repo execution, and release note extraction to AI agents.
+- **Minikube LLM & GPU Host Bridge (`k8s/llm/ollama-host-service.yaml`)**: Kubernetes Service and Endpoints bridge routing in-cluster LLM traffic directly to the host DevContainer NVIDIA CUDA GPU runtime for full hardware acceleration.
+
+### Changed
+- **Version Centralization & Review Configuration**: Upgraded package release version to `0.1.12` and centralized `DEFAULT_REVIEW_CONTEXT_LINES` in configuration defaults.
+
 ## [0.1.11] - 2026-08-18
 
 ### Added
