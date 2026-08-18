@@ -56,10 +56,10 @@ All routine development, security, and release operations follow strict order, f
 | **Security Scan** | `devops ci security` | Static security scanner (`bandit`). |
 | **Docs Check** | `devops ci docs` / `devops docs check` | Validates freshness of docs & README matrix. |
 | **Docs Generate** | `devops docs generate --sync-readme` | Introspects CLI & syncs all markdown docs. |
-| **CI Quality Gate** | `devops ci` | Executes 9-gate local quality gate (version, test, coverage, lint, format, typecheck, audit, security, docs). |
+| **CI Validation Suite** | `devops ci` | Executes full local validation suite (version, test, coverage, lint, format, typecheck, audit, security, actionlint, docs). |
 
 ### Branch Management, PR Targeting & Agent Non-Merge Policy
-- **Zero Direct Commits to `main`**: AI agents and developers must **NEVER** commit or push directly to the `main` branch under any circumstances. Direct pushes to `main` bypass CI/CD quality gates, disrupt branch tracking, and trigger automated release workflows unexpectedly.
+- **Zero Direct Commits to `main`**: AI agents and developers must **NEVER** commit or push directly to the `main` branch under any circumstances. Direct pushes to `main` bypass CI/CD validation gates, disrupt branch tracking, and trigger automated release workflows unexpectedly.
 - **Branch Naming Conventions**: All work must be conducted on dedicated topic branches:
   - Features: `feat/<description>` or `feature/<description>`
   - Bug Fixes: `fix/<description>`
@@ -73,7 +73,7 @@ All routine development, security, and release operations follow strict order, f
 - **Conventional Commit Titles**: PR titles and commit messages MUST follow Conventional Commits standard (`feat(scope): ...`, `fix(scope): ...`, `docs(scope): ...`, `feat(release): vx.x.x`, `fix(release): vx.x.x`, `feat(release)!: vx.x.x`).
 
 - **Active PR Monitoring & Source Branch Remediation**: After opening or pushing updates to a Pull Request, AI agents MUST actively monitor remote GitHub Actions status (`gh pr checks <pr_number>` or `gh run list --branch <branch>`). If any remote check fails, agents MUST immediately inspect the failure logs (`gh run view <run_id> --log-failed`), diagnose the root cause, apply fixes directly on the pull request source/topic branch, commit with conventional prefixes (`fix(ci): ...`, `fix(scope): ...`), push changes (`git push origin <branch>`), and verify all checks pass green before concluding the task. Agents must never leave a PR with unmonitored or failing CI checks.
-- **Quality Gate Assertion**: Ensure all local quality gates pass (`devops ci` or `uv run devops ci`) and all remote GitHub Actions CI checks are green before handing off to the user.
+- **Validation Assertion**: Ensure all local validation checks pass (`devops ci` or `uv run devops ci`) and all remote GitHub Actions CI checks are green before handing off to the user.
 
 
 ### Code Conventions & Documentation Standards

@@ -66,7 +66,7 @@ When implementing features or fixing bugs, follow this exact sequence:
 4. **Static Type Checking**: `uv run mypy --strict src`
 5. **Parallel Unit Testing**: `uv run pytest` (runs with `--maxprocesses=4`)
 6. **Documentation Synchronization**: `uv run devops docs generate --sync-readme && uv run devops docs check`
-7. **Full CI Quality Gate**: `uv run devops ci`
+7. **Full CI Validation Suite**: `uv run devops ci`
 
 ### Security & Maintenance Cadence (Weekly / Pre-Release)
 - **Dependency Audit**: `uv run devops ci audit` (or `uv audit`)
@@ -90,7 +90,7 @@ When implementing features or fixing bugs, follow this exact sequence:
 - **No Commits to Unrelated or Merged Branches**: Never push unrelated changes to an existing branch or continue committing to a branch after its PR has already been merged. Always create a new dedicated topic branch from the active release branch for distinct features, fixes, or chores.
 - **Conventional Commits**: PR titles and squashed commits must follow Conventional Commits standard (`feat(scope): ...`, `fix(scope): ...`, `docs(scope): ...`, `feat(release): vx.x.x`, etc.).
 
-- **Quality Gate Assertion**: Ensure local CI passes before creating or updating PRs:
+- **Validation Assertion**: Ensure local CI passes before creating or updating PRs:
    ```bash
    uv run devops ci
    ```

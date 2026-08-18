@@ -8,8 +8,8 @@ on:
   workflow_dispatch:
 
 jobs:
-  quality-gate:
-    name: 10-Gate Quality Validation
+  validate:
+    name: Validation
     runs-on: ubuntu-latest
     timeout-minutes: 30
 

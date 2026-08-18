@@ -9,7 +9,7 @@ This document serves as the authoritative operational manual for developers, mai
 All routine operations in `devops-cli` adhere to five core engineering tenets:
 1. **Deterministic Execution**: Workflows run through standardized CLI commands (`devops ci`, `devops release`, `devops docs`, `uv`) to guarantee reproducible outcomes across local DevContainers and GitHub Actions CI.
 2. **Zero-Plaintext Credentials**: All authentication tokens (GitHub, OpenAI, Claude, Grafana, ArgoCD) are stored exclusively in the OS Keyring via `devops config set` and retrieved programmatically via Python `keyring`.
-3. **Strict Quality Assurance Gates**: Changes must pass the 9-gate quality suite (`python_version`, `test`, `coverage`, `lint`, `format`, `typecheck`, `audit`, `security`, `docs`) before merging.
+3. **Strict Quality Assurance**: Changes must pass the automated CI validation suite (`python_version`, `test`, `coverage`, `lint`, `format`, `typecheck`, `audit`, `security`, `actionlint`, `docs`) before merging.
 4. **Target Branch Hierarchy & Non-Merge Policy**: Feature/bugfix PRs strictly target active release branches (`release/vX.Y.Z`). Direct pushes to `main` are blocked. AI agents stage commits and open/update PRs, while PR merge actions are strictly reserved for human maintainers.
 5. **Dynamic Documentation Freshness**: Command matrices, CLI reference guides, and FastMCP schemas are generated dynamically through code introspection (`devops docs generate`) and verified in CI (`devops docs check`).
 
@@ -26,17 +26,17 @@ The following matrix categorizes all project routine tasks by operational layer,
 | **Inner Loop (Daily / Per Edit)** | Linting & Import Sorting | Step 3 | `uv run ruff check --fix .` | PEP 8 compliance, import grouping/sorting | `ruff check .` reports 0 errors |
 | **Inner Loop (Daily / Per Edit)** | Code Formatting | Step 4 | `uv run ruff format .` | 100-character line length enforcement | `ruff format --check .` passes |
 | **Inner Loop (Daily / Per Edit)** | Static Type Checking | Step 5 | `uv run mypy --strict src` | Strict type validation on Python 3.14+ | 0 type errors across all source files |
-| **Inner Loop (Daily / Per Edit)** | Parallel Unit Tests | Step 6 | `uv run pytest` | Parallel test execution (`--maxprocesses=4`) with mock isolation | All tests pass (330+ items) |
+| **Inner Loop (Daily / Per Edit)** | Parallel Unit Tests | Step 6 | `uv run pytest` | Parallel test execution (`--maxprocesses=4`) with mock isolation | All tests pass |
 | **Inner Loop (Daily / Per Edit)** | Docs & README Sync | Step 7 | `uv run devops docs generate --sync-readme` | CLI introspection & README Command Matrix update | `uv run devops docs check` passes |
 | **Feature / PR Lifecycle** | Branch Creation | Step 1 | `git checkout -b <type>/<name> origin/release/vX.Y.Z` | Dedicated topic branch branching off active release branch | Clean branch tracking origin release branch |
-| **Feature / PR Lifecycle** | Local CI Quality Gate | Step 2 | `uv run devops ci` | Runs 9 automated verification checks | 9/9 checks show `✓ pass` |
+| **Feature / PR Lifecycle** | Local CI Validation | Step 2 | `uv run devops ci` | Runs full automated verification suite | All checks show `✓ pass` |
 | **Feature / PR Lifecycle** | PR Submission | Step 3 | `gh pr create --base release/vX.Y.Z` | Opens PR targeting active release branch | PR opened with Conventional Commit title |
 | **Feature / PR Lifecycle** | PR Iteration & Updates | Step 4 | `git push origin <branch>` | Pushes revisions directly to existing PR branch | Remote CI checks trigger and pass |
 | **Feature / PR Lifecycle** | AI Code Review | Step 5 | `devops ai review branch <name> --dry-run` | Multi-persona analysis (`devsecops`, `architect`, `qa`) | Findings inspected in `.data/reviews/` |
 | **Feature / PR Lifecycle** | Human Squash Merge | Step 6 | `gh pr merge <id> --squash` | Maintainer merges approved PR into release branch | PR merged and topic branch deleted |
 | **Release Lifecycle** | Release Status Assessment | Step 1 | `uv run devops release status` | Checks version consistency, git tags, and docs state | Clean working tree and version clarity |
 | **Release Lifecycle** | Release Preparation | Step 2 | `uv run devops release prepare <version> --create-pr` | Bumps version, updates changelog, syncs docs, opens PR | Release PR opened targeting `main` |
-| **Release Lifecycle** | Authoritative Release Check | Step 3 | `uv run devops release check` | Validates git tree, version matching, 9-gate CI | All checks green |
+| **Release Lifecycle** | Authoritative Release Check | Step 3 | `uv run devops release check` | Validates git tree, version matching, CI validation | All checks green |
 | **Release Lifecycle** | Maintainer Release PR Merge | Step 4 | `gh pr merge <id> --squash` | Human maintainer squash-merges release PR into `main` | Push event on `main` branch |
 | **Release Lifecycle** | Automated Tagging & Publish | Step 5 | Automated (`release.yml`) | Cuts annotated git tag `vX.Y.Z`, generates notes, publishes GH Release | GitHub Release published with assets |
 | **Security & Audits** | Dependency Security Audit | Weekly / Pre-Release | `uv run devops ci audit` (`uv audit`) | Scans installed packages for known vulnerabilities | 0 known vulnerabilities |
@@ -111,7 +111,7 @@ sequenceDiagram
     Dev->>Git: Code, Test, Format, devops ci
     Dev->>Hub: git push -u origin feat/my-feature
     Dev->>Hub: gh pr create --base release/vX.Y.Z
-    Hub->>CI: Trigger CI Quality Gate
+    Hub->>CI: Trigger CI Validation
     CI-->>Hub: CI Checks Pass (Green)
     Dev->>Hub: Push additional fixes if needed (git push)
     Maintainer->>Hub: Review & gh pr merge --squash
@@ -146,7 +146,7 @@ sequenceDiagram
     Maintainer->>CLI: devops release status
     Maintainer->>CLI: devops release prepare 0.1.10 --create-pr
     CLI->>Hub: Push branch release/v0.1.10 & Open PR (into main)
-    Hub->>Hub: CI Quality Gate verifies release
+    Hub->>Hub: CI Validation verifies release
     Maintainer->>Hub: Peer Review & Squash Merge into main
     Hub->>CI: Push to main triggers release.yml
     CI->>CI: devops release check
@@ -162,7 +162,7 @@ sequenceDiagram
    - Updates `CHANGELOG.md` converting `[Unreleased]` into the target version release block.
    - Regenerates docs and updates README Command Matrix.
    - Creates topic branch `release/v<version>`, commits bumps, and opens a GitHub PR targeting `main`.
-3. **Run Authoritative Release Gate**: Run `uv run devops release check` to verify tree cleanliness, version matching, and all 9 CI checks.
+3. **Run Authoritative Release Check**: Run `uv run devops release check` to verify tree cleanliness, version matching, and CI validation.
 4. **Human Maintainer Merge**: The maintainer reviews and squash-merges the Release PR into `main`.
 5. **Automated Publishing**: GitHub Actions (`release.yml`) cuts the git tag, extracts release notes with `devops release notes`, creates the GitHub Release, and publishes the pre-built DevContainer image to GHCR.
 6. **Post-Release DevContainer Validation**: Run `uv run devops devcontainer run-lifecycle --all` to verify container lifecycle tasks.
