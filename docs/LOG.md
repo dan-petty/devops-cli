@@ -102,6 +102,7 @@ Chronological log of refactoring milestones, quality gates, and security enhance
 
 ### [2026-08-10] DevSecOps Hardening & Fast Static Metadata Extraction
 - **Python 2 Remediation**: Fixed legacy `except Err1, Err2:` syntax across 7 files.
-- **Path Traversal Guards**: Enforced `_is_safe_workspace_path` across `read_file`, `list_files`, `devops review path`, and `devops workspace add`.
+- **Path Traversal Guards**: Enforced `_is_safe_workspace_path` across `read_file`, `list_files`, `devops ai review path`, and `devops workspace add`.
 - **Fast Metadata Extraction**: Replaced 34+ sequential LLM network calls with deterministic static analysis (`SegmentMeta`) upfront in <5ms.
 - **Quality Gate**: Executed `devops ci` — 136 passed, ruff lint clean, ruff format clean, strict mypy clean.
+

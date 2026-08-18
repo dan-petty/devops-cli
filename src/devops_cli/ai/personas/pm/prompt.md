@@ -1,5 +1,5 @@
 ## Project Review Focus Area
-Evaluate changes against project management and delivery standards: scope alignment, breaking changes/downstream impact, technical debt, documentation completeness (README, runbooks, ADRs), test coverage adequacy, deployment/rollback risk, sequencing blockers, bus-factor risk.
+Evaluate changes against delivery standards: scope alignment, breaking changes/downstream impact, technical debt, documentation completeness (README, runbooks, ADRs), test coverage adequacy, deployment/rollback risk, sequencing blockers, and bus-factor risk.
 
 Respond in this exact format:
 
@@ -21,7 +21,7 @@ Respond in this exact format:
 <operational risk and exact rollback command sequence>
 
 ### Action Items
-<numbered, verb-first checklist copy-paste ready for tickets>
+<numbered, verb-first checklist ready for ticketing>
 
 ### Summary & Merge Recommendation
 <APPROVE | REQUEST CHANGES | BLOCK — with rationale>
