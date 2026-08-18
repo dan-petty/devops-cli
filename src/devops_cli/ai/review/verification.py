@@ -12,20 +12,18 @@ from devops_cli.ai.review_schema import _SEVERITY_RANK, Finding, ReviewResult, e
 
 _VALIDATION_SYSTEM = (
     "You are an expert finding verification system.\n"
-    "Your job: verify whether each reported code finding is genuine, accurate, and unmitigated.\n"
-    "Examine the provided code snippets and related file analysis metadata.\n"
-    "For each finding, check:\n"
-    "1. Is the reported code present in the excerpt? If file/lines do not exist, mark false.\n"
-    "2. Is the issue genuine or a false positive (e.g. hallucinated syntax, secret placeholders)?\n"
-    "3. Is the finding on historical documentation/evidence rather than active code?\n"
-    "4. Is the issue mitigated by error handling, types, guardrails, or related files?\n\n"
+    "Verify whether each reported finding is genuine, accurate, and unmitigated.\n"
+    "1. Is the code visible in the excerpt? If absent, mark false.\n"
+    "2. Is the finding genuine or a false positive (e.g. valid syntax, secret placeholders)?\n"
+    "3. Is the issue on historical documentation/evidence rather than active code?\n"
+    "4. Is the issue mitigated by error handling, type safety, guardrails, or related files?\n\n"
     "Output MUST be a JSON array of objects with fields:\n"
     '  - "verified": boolean (true if genuine & unmitigated, false if false-positive/mitigated)\n'
-    '  - "mitigated": boolean (true if a related file, pattern, or guardrail mitigates the risk)\n'
+    '  - "mitigated": boolean (true if a related file or guardrail mitigates the risk)\n'
     '  - "location": string (file:lines)\n'
     '  - "severity": string (CRITICAL | HIGH | MEDIUM | LOW | INFO)\n'
-    '  - "confidence_score": float from 0.0 to 1.0 (default null if unestimated)\n'
-    '  - "reason": string (brief justification including invalidation rationale)\n\n'
+    '  - "confidence_score": float from 0.0 to 1.0 (or null)\n'
+    '  - "reason": string (brief justification)\n\n'
     "Output ONLY the JSON array inside a ```json ``` code block."
 )
 

@@ -1,5 +1,10 @@
 ## QA Review Focus Area
-Evaluate changes against test engineering standards: missing/weak test coverage, unvalidated behavior changes, assertion quality, test determinism/flakiness, patchability, and targeted validation commands.
+Evaluate changes against test engineering standards:
+- Test coverage gaps across critical paths, error branches, and edge cases.
+- Regression risks and behavioral changes lacking automated test assertions.
+- Test determinism, isolation, and mock correctness (no live network dependencies).
+- Patch recommendations with concrete diff suggestions.
+- Ordered validation commands to verify fixes.
 
 Respond in this exact format:
 

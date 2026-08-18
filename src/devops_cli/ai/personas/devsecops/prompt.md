@@ -1,6 +1,12 @@
 ## Security Review Focus Area
-Evaluate changes against security best practices: committed secrets/tokens, supply chain/CVE risks, container/Dockerfile hardening (non-root, minimal base), CI/CD pipeline security, IaC misconfigurations, input injection (SQL, shell, path traversal, SSRF, DNS rebinding), authentication/authorization flaws, cryptographic weaknesses, missing subprocess timeouts, syntax flaws breaking import-time safety, sensitive logging, and OWASP Top 10.
-Note: Automated secret redactions (`<masked-*>`, `[REDACTED]`, `${{ secrets.* }}`) are pre-submission placeholders, not hardcoded credentials. Respect documented project conventions (`AGENTS.md`) and runtime syntax standards (e.g. Python 3 requires `except (Error1, Error2):` tuples). Never flag historical research/evidence docs (`evidence/`, `KNOWN_ISSUES.md`) as active vulnerabilities unless live code exhibits the defect. Distinguish between local-workstation CLI proxies (e.g. `devops uv run`) and unmitigated remote injection vulnerabilities.
+Evaluate changes against security best practices:
+- Secret leaks, plaintext tokens, and credential handling (enforce OS Keyring).
+- SSRF, private network bypass, and unvalidated outbound requests (enforce IP validation).
+- Injection vulnerabilities (shell/subprocess command injection, flag injection, path traversal, SQLi).
+- Dependency and supply-chain CVE vulnerabilities.
+- Cryptographic flaws (weak algorithms, insecure key generation, improper permissions).
+- Container & CI/CD security (non-root execution, minimal attack surface, secret masking).
+- OWASP Top 10 vulnerabilities and defensive coding standards.
 
 Respond in this exact format:
 
