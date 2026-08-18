@@ -337,6 +337,58 @@ def release_status() -> str:
     )
 
 
+@mcp.tool()
+def tf_plan(directory: str = ".", var_file: str = "") -> str:
+    """Generate and inspect an OpenTofu / Terraform execution plan."""
+    _validate_mcp_arg("directory", directory)
+    cmd = ["uv", "run", "devops", "tf", "plan", directory]
+    if var_file:
+        _validate_mcp_arg("var_file", var_file)
+        cmd.extend(["--var-file", var_file])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def tf_apply(directory: str = ".", var_file: str = "", auto_approve: bool = True) -> str:
+    """Apply OpenTofu / Terraform Infrastructure-as-Code changes."""
+    _validate_mcp_arg("directory", directory)
+    cmd = ["uv", "run", "devops", "tf", "apply", directory]
+    if var_file:
+        _validate_mcp_arg("var_file", var_file)
+        cmd.extend(["--var-file", var_file])
+    if auto_approve:
+        cmd.append("--auto-approve")
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS * 2)
+
+
+@mcp.tool()
+def tf_output(directory: str = ".", json_format: bool = True) -> str:
+    """Retrieve OpenTofu / Terraform outputs from state."""
+    _validate_mcp_arg("directory", directory)
+    cmd = ["uv", "run", "devops", "tf", "output", directory]
+    if json_format:
+        cmd.append("--json")
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def tofu_plan(directory: str = ".", var_file: str = "") -> str:
+    """Generate and inspect an OpenTofu execution plan (alias for tf_plan)."""
+    return tf_plan(directory=directory, var_file=var_file)
+
+
+@mcp.tool()
+def tofu_apply(directory: str = ".", var_file: str = "", auto_approve: bool = True) -> str:
+    """Apply OpenTofu Infrastructure-as-Code changes (alias for tf_apply)."""
+    return tf_apply(directory=directory, var_file=var_file, auto_approve=auto_approve)
+
+
+@mcp.tool()
+def tofu_output(directory: str = ".", json_format: bool = True) -> str:
+    """Retrieve OpenTofu outputs from state (alias for tf_output)."""
+    return tf_output(directory=directory, json_format=json_format)
+
+
 def list_mcp_tools() -> list[MCPToolInfo]:
     """Return a list of tool names and descriptions registered on the FastMCP server."""
     tools = asyncio.run(mcp.list_tools())

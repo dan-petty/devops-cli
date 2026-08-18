@@ -56,7 +56,7 @@ The project follows a modular, command-driven architecture.
 | **Docs Generate** | `devops docs generate --sync-readme` | Introspects CLI & syncs all markdown docs. |
 | **CI Quality Gate** | `devops ci` | Executes local quality gate (test, coverage, lint, format, typecheck, docs, audit, security). |
 
-### Branch Management & Main Branch Protection Policy
+### Branch Management, PR Targeting & Agent Non-Merge Policy
 - **Zero Direct Commits to `main`**: AI agents and developers must **NEVER** commit or push directly to the `main` branch under any circumstances. Direct pushes to `main` bypass CI/CD quality gates, disrupt branch tracking, and trigger automated release workflows unexpectedly.
 - **Branch Naming Conventions**: All work must be conducted on dedicated topic branches:
   - Features: `feat/<description>` or `feature/<description>`
@@ -64,9 +64,14 @@ The project follows a modular, command-driven architecture.
   - Documentation: `docs/<description>`
   - Maintenance & Chores: `chore/<description>` or `refactor/<description>`
   - Release Orchestration: `release/v<version>` (managed via `devops release prepare` / `devops release pr`)
-- **Pull Request & Squash Merge Gate**: All changes merged into `main` MUST proceed through a GitHub Pull Request (`gh pr create`) and be squash-merged (`gh pr merge <id> --squash`).
-- **Conventional Commit Titles**: PR titles and squashed commits MUST follow Conventional Commits standard (`feat(scope): ...`, `fix(scope): ...`, `docs(scope): ...`, `feat(release): vx.x.x`, `fix(release): vx.x.x`, `feat(release)!: vx.x.x`).
-- **Quality Gate Assertion**: Ensure all local quality gates pass (`devops ci` or `uv run devops ci`) and all remote GitHub Actions CI checks are green before merging any PR into `main`.
+- **PR Base Branch Targeting (Release Branch First)**: All feature, bugfix, documentation, and maintenance pull requests MUST target the active release branch (`release/v<version>`, e.g., `--base release/v0.1.9`) rather than targeting `main` directly. Only release branches (`release/v<version>`) are permitted to target `main` when cutting an official release.
+- **No Autonomous Merging by AI Agents**: AI agents must **NEVER** merge Pull Requests (`gh pr merge`) autonomously under any circumstances. Agents must create or update topic branches, push commits, open or update the Pull Request, verify CI checks are passing, and leave the merge decision and execution to the human user / repository maintainer.
+- **Updating Existing PR Branches**: When revisions, additions, or fixes are requested on an active PR, agents must push new commits directly to the existing topic branch (`git push origin <branch>`), which automatically updates the open PR without creating redundant PRs or merging.
+- **No Commits to Unrelated or Merged Branches**: AI agents must **NEVER** commit or push changes to an unrelated git branch or to a branch whose Pull Request has already been merged. When receiving new or distinct tasks, agents must first check git/PR status (`git fetch origin`, `gh pr view`, `gh pr list`). If the current branch is unrelated to the request or has already been merged into the base branch, agents MUST checkout a fresh dedicated topic branch from the active release branch (`git checkout -b <type>/<description> origin/release/v<version>`) and open a separate Pull Request.
+- **Conventional Commit Titles**: PR titles and commit messages MUST follow Conventional Commits standard (`feat(scope): ...`, `fix(scope): ...`, `docs(scope): ...`, `feat(release): vx.x.x`, `fix(release): vx.x.x`, `feat(release)!: vx.x.x`).
+
+- **Quality Gate Assertion**: Ensure all local quality gates pass (`devops ci` or `uv run devops ci`) and all remote GitHub Actions CI checks are green before handing off to the user.
+
 
 ### Code Conventions & Documentation Standards
 - **Style**: PEP 8 compliant; Line length strictly **100 characters** (per `ruff` config).
@@ -77,7 +82,9 @@ The project follows a modular, command-driven architecture.
 - **Test Mocking Policy**: All automated unit tests MUST use mocking (`unittest.mock`, `patch.object`, or dummy mock clients) rather than making live network calls to external AI/LLM providers or local servers.
 - **No Real Config/Secret Duplication in Tests**: Never duplicate or hardcode real user configuration values, local hostnames/IPs, or API credentials into test data fixtures. Use generic mock placeholders (`http://node1.example.test`).
 - **Error Handling**: All network requests (`httpx`) and subprocess calls must implement explicit timeouts (e.g., 30s) and robust error handling/retries.
+- **Exception Handling & Model Defaults**: Multi-exception clauses MUST use parenthesized tuples (e.g., `except (Err1, Err2):`). Pydantic models MUST use `Field(default_factory=...)` for mutable collection defaults.
 - **Documentation**: Use docstrings for all public functions in `src/devops_cli/`.
+
 
 
 

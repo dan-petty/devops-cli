@@ -57,8 +57,9 @@ argocd:
 
 # ── AI / LLM ─────────────────────────────────────────────────────────────────
 ai:
-  # Provider to use for AI-powered commands (devops review, devops ai).
+  # Provider to use for AI-powered commands (devops ai, devops ai review).
   # Options: ollama | claude | copilot | openai
+
   provider: ollama
 
   # Model name for the selected provider.

@@ -32,7 +32,7 @@ flowchart LR
 ```
 
 ### Stage 1: Design & Branch Creation
-1. Create a dedicated feature branch from `main`:
+1. Create a dedicated feature branch from the active release branch (`release/v<version>`) or `main`:
    ```bash
    git checkout -b feature/<feature-name>
    # or
@@ -42,6 +42,11 @@ flowchart LR
    ```bash
    uv sync
    ```
+3. **PR Base Branch Targeting**: When opening Pull Requests, target the active release branch (`--base release/v<version>`). Only release branches target `main`.
+4. **Agent Non-Merge Rule**: Automated agents must update PR branches with new commits without autonomously merging. Merging is reserved for human maintainers.
+5. **No Commits to Merged/Unrelated Branches**: Never commit or push work to a topic branch that has already been merged or is unrelated to the current task. Always branch off fresh from the active release branch (`git checkout -b <type>/<name> origin/release/v<version>`).
+
+
 
 ### Stage 2: Code Implementation & Architectural Standards
 - **Modular Subcommand Pattern**: New CLI subcommands must be implemented under `src/devops_cli/commands/` and registered in `src/devops_cli/main.py` via `_COMMAND_SPECS`.
@@ -175,8 +180,9 @@ uv run devops release prepare X.Y.Z --create-pr
    - Bandit static security scanning
 2. Maintainers review the release diff, changelog, and documentation updates.
 
-### Step 4: Merge PR into `main`
-Merge the approved Release Pull Request into `main` via the GitHub Web UI or CLI (`gh pr merge --squash` or `gh pr merge --merge`).
+### Step 4: Merge PR into `main` (Maintainer Gate)
+Once all automated CI checks pass and reviews are complete, repository maintainers squash-merge the approved Release Pull Request into `main` via the GitHub Web UI or CLI (`gh pr merge --squash`). Automated AI agents do not perform merges autonomously.
+
 
 ### Step 5: Automated Release Publishing (GitHub Actions)
 Upon PR merge into `main`, [`.github/workflows/release.yml`](.github/workflows/release.yml) automatically:

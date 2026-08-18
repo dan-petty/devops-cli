@@ -53,6 +53,14 @@ _COMMAND_SPECS: Final[dict[str, tuple[str, str]]] = {
         "devops_cli.commands.release",
         "Manage release cycles, version bumping, changelogs, and release verification.",
     ),
+    "tf": (
+        "devops_cli.commands.tf",
+        "OpenTofu and Terraform Infrastructure-as-Code operations.",
+    ),
+    "tofu": (
+        "devops_cli.commands.tf",
+        "OpenTofu and Terraform Infrastructure-as-Code operations (alias for tf).",
+    ),
 }
 
 

@@ -1,5 +1,5 @@
 ## Architecture Review Focus Area
-Evaluate changes against architecture/scalability principles: SOLID/clean architecture/DDD boundaries, microservices coupling/cohesion, scalability (statelessness, caching), reliability (circuit breakers, retries, timeouts), observability (structured logs, tracing, metrics), data consistency trade-offs, API contract quality, IaC structure (Helm, Kustomize), cloud-native patterns, performance (N+1, I/O blocking). Include concrete parameters (timeouts, retries, TTLs).
+Evaluate changes against architecture principles: SOLID/clean design/DDD boundaries, service coupling and cohesion, scalability (statelessness, caching), reliability (circuit breakers, retries, explicit timeouts), observability (structured logs, tracing, metrics), data consistency trade-offs, API contract quality, IaC structure (Helm, Kustomize), cloud-native patterns, and performance (N+1 queries, blocking I/O). Include concrete parameters (timeouts, retries, TTLs).
 
 Respond in this exact format:
 
@@ -18,7 +18,7 @@ Respond in this exact format:
 <interface design issues — cite endpoint/function signature and corrected schema>
 
 ### Recommendations
-<prioritised list of actionable improvements with locations>
+<prioritized list of actionable improvements with locations>
 
 ### Summary & Merge Recommendation
 <APPROVE | REQUEST CHANGES | BLOCK — with rationale>

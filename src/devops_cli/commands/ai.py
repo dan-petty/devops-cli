@@ -67,8 +67,9 @@ The file MUST include:
 - Code conventions (line length, import style, HTTP library, secrets storage,
   config and language literal centralization, non-instructional design justification comments)
 - Architecture overview with key file paths
-- AI feature commands (`devops ai`, `devops review`) and persona names
+- AI feature commands (`devops ai`, `devops ai review`) and persona names
 - Security notes covering SSH keys, tokens, SSRF mitigations, accepted risks,
+
   and routine maintenance of all project documentation and references
 """
 

@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 
 class PrometheusSeries(BaseModel):
     """A single time-series result from a Prometheus query."""
 
-    labels: dict[str, str] = {}
+    labels: dict[str, str] = Field(default_factory=dict)
     value: str = ""  # instant query: single value string
-    values: list[tuple[float, str]] = []  # range query: list of (timestamp, value)
+    values: list[tuple[float, str]] = Field(default_factory=list)  # (timestamp, value)
 
     @property
     def label_str(self) -> str:
@@ -22,7 +22,7 @@ class PrometheusQueryResult(BaseModel):
     """Parsed response from /api/v1/query or /api/v1/query_range."""
 
     status: str
-    series: list[PrometheusSeries] = []
+    series: list[PrometheusSeries] = Field(default_factory=list)
     error: str = ""
 
     @field_validator("status", mode="before")
@@ -72,5 +72,6 @@ class PrometheusQueryResult(BaseModel):
                                 values.append((float(pair[0]), str(pair[1])))
                             except ValueError, TypeError:
                                 continue
+
                 series.append(PrometheusSeries(labels=labels, values=values))
         return cls(status=status, series=series, error=error)

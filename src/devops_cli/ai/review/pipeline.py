@@ -397,6 +397,7 @@ class ReviewPipelineOrchestrator:
                 sec_str = f"{sec_val:.1f}s"
             except TypeError, ValueError:
                 sec_str = "0.0s"
+
             rprint(
                 f"[cyan][{idx}/{total_files}][/cyan] Reviewed [bold]{fpath}[/bold] "
                 f"({n_findings} finding(s)) [dim]handled by {handled_by} {sec_str}[/dim]"
@@ -488,6 +489,7 @@ class ReviewPipelineOrchestrator:
                 sec_str = f"{sec_val:.1f}s"
             except TypeError, ValueError:
                 sec_str = "0.0s"
+
             rprint(
                 f"[cyan][{idx}/{total_files}][/cyan] Verified [bold]{fpath}[/bold] "
                 f"({valid_cnt}/{tot_u} valid) [dim]handled by {handled_by} {sec_str}[/dim]"

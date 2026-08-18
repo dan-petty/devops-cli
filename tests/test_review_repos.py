@@ -1,4 +1,4 @@
-"""Unit tests for running devops review commands in subdirectories and repos/ paths."""
+"""Unit tests for running devops ai review commands in subdirectories and repos/ paths."""
 
 from __future__ import annotations
 
@@ -59,7 +59,8 @@ class TestReviewReposSubdirectories:
     def test_review_path_summary_in_repos_directory(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """devops review path must collect files under repos/ even if git-ignored at parent."""
+        """devops ai review path must collect files under repos/ even if git-ignored at parent."""
+
         target_dir = tmp_path / "repos" / "sample-app"
         target_dir.mkdir(parents=True)
         (target_dir / "main.py").write_text("print('hello')", encoding="utf-8")
