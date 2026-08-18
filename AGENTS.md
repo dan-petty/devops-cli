@@ -78,6 +78,10 @@ All routine development, security, and release operations follow strict order, f
   - **Issue Traceability & Linking**: When addressing reported GitHub issues or user requests, reference relevant issue numbers in PR descriptions (e.g., `fixes #<issue>`, `refs #<issue>`) for traceability across project boards.
 
 
+### Targeted Testing & Progressive Validation Strategy
+- **Targeted Testing During Development**: When implementing features, bugfixes, or refactoring, AI agents and developers MUST execute targeted, isolated tests for the specific module under active development (e.g., `uv run pytest tests/test_feature.py -k <test_name>`, `uv run ruff check path/to/file.py`, `uv run mypy path/to/file.py`). Do NOT run the full test suite or exhaustive CI validation gates during iterative development loops.
+- **Full Test Suite & CI Validation at Final Stage Only**: Running the complete test suite (`pytest`, `devops ci test`) and full validation suites (`devops ci`, `uv run devops ci`) MUST be deferred until the final pre-commit / pre-handoff verification stage of work after all changes, targeted test passes, and documentation updates are complete.
+
 ### Code Conventions & Documentation Standards
 - **Style**: PEP 8 compliant; Line length strictly **100 characters** (per `ruff` config).
 - **Typing**: Mandatory type hints for all function signatures. `mypy --strict` is the standard.

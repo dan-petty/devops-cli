@@ -125,12 +125,17 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Set Image Repository Name
+        id: image_repo
+        run: |
+          echo "name=ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')/devcontainer" >> "$GITHUB_OUTPUT"
+
       - name: DevContainer Manifest Pre-Build Smoke Test
         run: uv run devops devcontainer validate --workspace .
 
       - name: Build & Publish Reusable Dev Container Image
         uses: devcontainers/ci@v0.3
         with:
-          imageName: ghcr.io/${{ github.repository }}/devcontainer
-          imageTag: ${{ steps.ver.outputs.version }},${{ steps.ver.outputs.tag }},latest
+          imageName: ${{ steps.image_repo.outputs.name }}
+          imageTag: ${{ steps.ver.outputs.tag }},latest
           push: "always"

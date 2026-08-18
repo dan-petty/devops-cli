@@ -58,15 +58,19 @@ Documentation is generated dynamically and asserted in CI:
 
 All project workflows follow a strict sequence of operations and cadences documented in detail in [**`docs/ROUTINE_TASKS.md`**](docs/ROUTINE_TASKS.md).
 
-### Inner Development Loop (Continuous / Per-Commit)
-When implementing features or fixing bugs, follow this exact sequence:
+### Inner Development Loop (Continuous / Iterative Feature Work)
+When implementing features or fixing bugs, follow this sequence:
 1. **Sync Dependencies**: `uv sync`
-2. **Centralize Literals**: Move user-facing strings to [`src/devops_cli/lang/en.py`](src/devops_cli/lang/en.py) and constants to [`src/devops_cli/config/`](src/devops_cli/config/).
-3. **Format & Lint**: `uv run ruff check --fix . && uv run ruff format .`
-4. **Static Type Checking**: `uv run mypy --strict src`
-5. **Parallel Unit Testing**: `uv run pytest` (runs with `--maxprocesses=4`)
-6. **Documentation Synchronization**: `uv run devops docs generate --sync-readme && uv run devops docs check`
-7. **Full CI Validation Suite**: `uv run devops ci`
+2. **Centralize Literals & Defaults**: Move user-facing strings to [`src/devops_cli/lang/en.py`](src/devops_cli/lang/en.py) and constants/defaults to [`src/devops_cli/config/`](src/devops_cli/config/).
+3. **Format & Lint Target Files**: `uv run ruff check --fix <target_paths> && uv run ruff format <target_paths>`
+4. **Static Type Checking**: `uv run mypy --strict <target_paths>`
+5. **Targeted Unit Testing**: Run targeted, isolated test files or methods under development (`uv run pytest tests/test_<feature>.py -k <test_name>`). *Do not run the full test suite during rapid iterative edit cycles.*
+
+### Final Pre-Commit / Pre-PR Validation Stage
+Execute full test and validation suites only at the final stage of work before committing and pushing:
+1. **Documentation Synchronization**: `uv run devops docs generate --sync-readme && uv run devops docs check`
+2. **Full Parallel Test Suite**: `uv run pytest` (runs with `--maxprocesses=4`)
+3. **Full CI Validation Suite**: `uv run devops ci`
 
 ### Security & Maintenance Cadence (Weekly / Pre-Release)
 - **Dependency Audit**: `uv run devops ci audit` (or `uv audit`)

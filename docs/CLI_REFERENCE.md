@@ -308,7 +308,7 @@ Manage devcontainer configurations.
 
 ### `devops devcontainer init`
 
-**Scaffold .devcontainer/ in a repository using the standard template.**
+**Scaffold .devcontainer/ in a repository using standard or published template.**
 
 ```bash
 devops devcontainer init [OPTIONS] <repo_path>
@@ -324,8 +324,10 @@ devops devcontainer init [OPTIONS] <repo_path>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--name`, `-n` | `string` | - | - |
-| `--python` | `string` | `3.14` | - |
+| `--name`, `-n` | `string` | - | Project name |
+| `--python` | `string` | `3.14` | Python version for base template |
+| `--image`, `-i` | `string` | - | Base container image |
+| `--published`, `-p` | `boolean` | - | Use published GHCR image (ghcr.io/dan-petty/devops-cli/devcontainer:latest) |
 
 ### `devops devcontainer update`
 
@@ -390,6 +392,7 @@ devops devcontainer post-create [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--workspace`, `-w` | `path` | `.` | Path to workspace directory |
+| `--dry-run` | `boolean` | - | Simulate execution without modifying files |
 
 ### `devops devcontainer post-start`
 
@@ -404,6 +407,7 @@ devops devcontainer post-start [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--workspace`, `-w` | `path` | `.` | Path to workspace directory |
+| `--dry-run` | `boolean` | - | Simulate execution without modifying files |
 
 ### `devops devcontainer run-lifecycle`
 
@@ -421,6 +425,7 @@ devops devcontainer run-lifecycle [OPTIONS]
 | `--post-create` | `boolean` | - | Execute post-create setup tasks |
 | `--post-start` | `boolean` | - | Execute post-start lifecycle tasks |
 | `--all`, `-a` | `boolean` | - | Execute all DevContainer lifecycle tasks |
+| `--dry-run` | `boolean` | - | Simulate execution without modifying files |
 
 ---
 

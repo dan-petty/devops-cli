@@ -46,6 +46,27 @@ class TestDevcontainerCli:
         assert "test-project" in mcp_data["mcpServers"]
         assert mcp_data["mcpServers"]["test-project"]["command"] == "uv"
 
+    def test_init_with_published_flag(self, runner: CliRunner, tmp_path: Path) -> None:
+        """devops devcontainer init --published must use the published GHCR image."""
+        result = runner.invoke(app, ["init", str(tmp_path), "--name", "pub-proj", "--published"])
+        assert result.exit_code == 0
+
+        dc_file = tmp_path / ".devcontainer" / "devcontainer.json"
+        assert dc_file.exists()
+        dc_data = json.loads(dc_file.read_text(encoding="utf-8"))
+        assert "ghcr.io/dan-petty/devops-cli/devcontainer" in dc_data["image"]
+
+    def test_init_with_custom_image(self, runner: CliRunner, tmp_path: Path) -> None:
+        """devops devcontainer init --image must use the specified container image."""
+        custom_img = "custom.registry.io/org/custom-devcontainer:v1.0"
+        result = runner.invoke(app, ["init", str(tmp_path), "--image", custom_img])
+        assert result.exit_code == 0
+
+        dc_file = tmp_path / ".devcontainer" / "devcontainer.json"
+        assert dc_file.exists()
+        dc_data = json.loads(dc_file.read_text(encoding="utf-8"))
+        assert dc_data["image"] == custom_img
+
     def test_init_fails_if_devcontainer_json_exists(
         self, runner: CliRunner, tmp_path: Path
     ) -> None:
@@ -130,6 +151,88 @@ class TestDevcontainerCli:
         assert result.exit_code == 0
         assert "Started Minikube cluster (--driver=docker --gpus=all)" in result.output
         assert any(c[:2] == ["minikube", "start"] for c in calls)
+
+    def test_post_start_minikube_falls_back_to_cpu_when_no_gpu(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """devops devcontainer post-start must fallback to CPU minikube if no GPU is found."""
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        monkeypatch.setenv("HOME", str(fake_home))
+        monkeypatch.setenv("DEVOPS_MINIKUBE_AUTOSTART", "true")
+        monkeypatch.setenv("DEVOPS_K8S_AUTO_DEPLOY", "false")
+
+        calls: list[list[str]] = []
+
+        def mock_run_subprocess(cmd: list[str], **kwargs: object) -> object:
+            calls.append(cmd)
+            import subprocess
+
+            if cmd[:2] == ["minikube", "status"]:
+                return subprocess.CompletedProcess(cmd, returncode=1, stdout="Stopped", stderr="")
+            return subprocess.CompletedProcess(cmd, returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr("devops_cli.commands.devcontainer.run_subprocess", mock_run_subprocess)
+        monkeypatch.setattr(
+            "shutil.which",
+            lambda prog: f"/usr/local/bin/{prog}" if prog != "nvidia-smi" else None,
+        )
+
+        result = runner.invoke(app, ["post-start", "--workspace", str(tmp_path)])
+        assert result.exit_code == 0
+        assert "Started Minikube cluster (--driver=docker)" in result.output
+        assert any(c == ["minikube", "start", "--driver=docker"] for c in calls)
+
+    def test_post_start_warns_when_docker_daemon_down(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """devops devcontainer post-start must warn if Docker daemon is not running."""
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        monkeypatch.setenv("HOME", str(fake_home))
+        monkeypatch.setenv("DEVOPS_MINIKUBE_AUTOSTART", "true")
+        monkeypatch.setenv("DEVOPS_K8S_AUTO_DEPLOY", "false")
+
+        def mock_run_subprocess(cmd: list[str], **kwargs: object) -> object:
+            import subprocess
+
+            if cmd[:2] == ["docker", "info"]:
+                return subprocess.CompletedProcess(cmd, returncode=1, stdout="", stderr="error")
+            return subprocess.CompletedProcess(cmd, returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr("devops_cli.commands.devcontainer.run_subprocess", mock_run_subprocess)
+        monkeypatch.setattr("shutil.which", lambda prog: f"/usr/local/bin/{prog}")
+
+        result = runner.invoke(app, ["post-start", "--workspace", str(tmp_path)])
+        assert result.exit_code == 0
+        assert "Docker daemon is not running" in result.output
+
+    def test_post_start_mcp_scaffolding_and_sync(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """devops devcontainer post-start must scaffold and sync MCP configuration."""
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        monkeypatch.setenv("HOME", str(fake_home))
+        monkeypatch.setenv("DEVOPS_MINIKUBE_AUTOSTART", "false")
+        monkeypatch.setenv("DEVOPS_K8S_AUTO_DEPLOY", "false")
+
+        # Create pyproject.toml and .agents directory
+        (tmp_path / "pyproject.toml").write_text('[project]\nname = "demo"\n', encoding="utf-8")
+        (tmp_path / ".agents").mkdir()
+
+        result = runner.invoke(app, ["post-start", "--workspace", str(tmp_path)])
+        assert result.exit_code == 0
+        assert (tmp_path / ".vscode" / "mcp.json").exists()
+        assert (fake_home / ".gemini" / "config" / "mcp_config.json").exists()
+        assert (tmp_path / ".agents" / "mcp_config.json").exists()
+
+        mcp_data = json.loads(
+            (fake_home / ".gemini" / "config" / "mcp_config.json").read_text(encoding="utf-8")
+        )
+        assert "mcpServers" in mcp_data
+        server_key = list(mcp_data["mcpServers"].keys())[0]
+        assert mcp_data["mcpServers"][server_key]["cwd"] == str(tmp_path)
 
     def test_post_start_skips_start_when_minikube_already_running(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

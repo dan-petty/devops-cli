@@ -56,13 +56,15 @@ def _get_pyproject_version(root: Path) -> str | None:
 
 
 def _get_init_version(root: Path) -> str | None:
-    """Read __version__ from src/devops_cli/__init__.py."""
+    """Read version from src/devops_cli/__init__.py or pyproject.toml."""
     init_file = root / "src" / "devops_cli" / "__init__.py"
     if not init_file.exists():
         return None
     content = init_file.read_text(encoding="utf-8")
     match = re.search(r'__version__\s*=\s*["\']([^"\']+)["\']', content)
-    return match.group(1) if match else None
+    if match:
+        return match.group(1)
+    return _get_pyproject_version(root)
 
 
 def _get_latest_git_tag(root: Path) -> str | None:
@@ -128,11 +130,14 @@ def _update_pyproject_version(root: Path, new_version: str) -> bool:
 
 
 def _update_init_version(root: Path, new_version: str) -> bool:
-    """Update __version__ in src/devops_cli/__init__.py."""
+    """Update __version__ in src/devops_cli/__init__.py if hardcoded, or return True."""
     init_file = root / "src" / "devops_cli" / "__init__.py"
     if not init_file.exists():
         return False
     content = init_file.read_text(encoding="utf-8")
+    if "__version__ = " not in content:
+        # Dynamically derived from pyproject.toml
+        return True
     new_content, count = re.subn(
         r'(__version__\s*=\s*["\'])[^"\']+(["\'])',
         rf"\g<1>{new_version}\g<2>",
@@ -142,7 +147,7 @@ def _update_init_version(root: Path, new_version: str) -> bool:
     if count > 0:
         init_file.write_text(new_content, encoding="utf-8")
         return True
-    return False
+    return True
 
 
 def _update_changelog_header(root: Path, new_version: str, release_date: str | None = None) -> bool:

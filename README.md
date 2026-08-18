@@ -74,6 +74,9 @@ To use this pre-built image in any repository's `.devcontainer/devcontainer.json
 }
 ```
 
+> [!TIP]
+> For advanced configuration, Dockerfile extensions, Codespaces setup, and CLI scaffolding, see the [**Complete Dev Container Usage Guide**](docs/DEVCONTAINER_USAGE.md).
+
 ### Programmatic Python Usage Example
 
 
@@ -119,7 +122,7 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 |  | `devops branches jira [OPTIONS] <ticket_id>` | Create a feature branch for a Jira ticket: feature/PROJ-123[-slug]. |
 |  | `devops branches list [OPTIONS]` | List branches across all repos. |
 |  | `devops branches clean [OPTIONS]` | Delete local branches merged into main/master. |
-| **devcontainer** | `devops devcontainer init [OPTIONS] <repo_path>` | Scaffold .devcontainer/ in a repository using the standard template. |
+| **devcontainer** | `devops devcontainer init [OPTIONS] <repo_path>` | Scaffold .devcontainer/ in a repository using standard or published template. |
 |  | `devops devcontainer update [OPTIONS] <repo_path>` | Update the Python image version in an existing devcontainer.json. |
 |  | `devops devcontainer validate [OPTIONS]` | Validate .devcontainer/devcontainer.json manifest syntax and configuration schema. |
 |  | `devops devcontainer list [OPTIONS]` | List repos with their devcontainer status. |

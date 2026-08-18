@@ -6,7 +6,6 @@ import json
 import os
 import re
 import shutil
-import tomllib
 from pathlib import Path
 from typing import Annotated
 
@@ -22,7 +21,7 @@ from devops_cli.config.constants import (
     CONST_DEVCONTAINER_JSON_NAME,
     CONST_DEVCONTAINER_JSON_PATH,
 )
-from devops_cli.config.defaults import DEFAULT_PYTHON_VERSION
+from devops_cli.config.metadata import get_project_python_version
 from devops_cli.config.settings import load_settings
 from devops_cli.core.cli import new_typer, repo_label
 from devops_cli.core.process import run_subprocess
@@ -37,18 +36,7 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _project_python_version() -> str:
-    pyproject = _PROJECT_ROOT / "pyproject.toml"
-    if not pyproject.exists():
-        return DEFAULT_PYTHON_VERSION
-    with pyproject.open("rb") as file_handle:
-        data = tomllib.load(file_handle)
-    requires_python: str = str(data.get("project", {}).get("requires-python") or "")
-    if not requires_python:
-        return DEFAULT_PYTHON_VERSION
-    match = re.search(r"^>=?\s*([\d.]+)", requires_python)
-    if match:
-        return match.group(1)
-    return requires_python
+    return get_project_python_version()
 
 
 def _jinja_env() -> Environment:
@@ -64,10 +52,21 @@ def _jinja_env() -> Environment:
 @app.command()
 def init(
     repo_path: Annotated[Path, typer.Argument(help="Path to the repository")] = Path("."),
-    project_name: Annotated[str | None, typer.Option("--name", "-n")] = None,
-    python_version: Annotated[str, typer.Option("--python")] = _project_python_version(),
+    project_name: Annotated[str | None, typer.Option("--name", "-n", help="Project name")] = None,
+    python_version: Annotated[
+        str, typer.Option("--python", help="Python version for base template")
+    ] = _project_python_version(),
+    image: Annotated[str | None, typer.Option("--image", "-i", help="Base container image")] = None,
+    published: Annotated[
+        bool,
+        typer.Option(
+            "--published",
+            "-p",
+            help="Use published GHCR image (ghcr.io/dan-petty/devops-cli/devcontainer:latest)",
+        ),
+    ] = False,
 ) -> None:
-    """Scaffold .devcontainer/ in a repository using the standard template."""
+    """Scaffold .devcontainer/ in a repository using standard or published template."""
     dc_dir = repo_path / CONST_DEVCONTAINER_DIR_NAME
     dc_file = dc_dir / CONST_DEVCONTAINER_JSON_NAME
 
@@ -80,11 +79,15 @@ def init(
     name = re.sub(r"[^a-zA-Z0-9._-]+", "_", raw_name)
     dc_dir.mkdir(parents=True, exist_ok=True)
 
+    selected_image: str | None = image
+    if published and not selected_image:
+        selected_image = "ghcr.io/dan-petty/devops-cli/devcontainer:latest"
+
     env = _jinja_env()
 
     dc_file.write_text(
         env.get_template("devcontainer.json.j2").render(
-            project_name=name, python_version=python_version
+            project_name=name, python_version=python_version, image=selected_image
         ),
         encoding="utf-8",
     )
@@ -437,51 +440,119 @@ def _run_post_start_lifecycle(workspace_dir: Path, *, dry_run: bool = False) -> 
 
     # 4. MCP configuration sync
     vscode_mcp = workspace_dir / ".vscode" / "mcp.json"
+    if not vscode_mcp.exists() and (workspace_dir / "pyproject.toml").exists():
+        vscode_dir = workspace_dir / ".vscode"
+        if not dry_run:
+            vscode_dir.mkdir(parents=True, exist_ok=True)
+            env = _jinja_env()
+            raw_name = workspace_dir.name
+            name = re.sub(r"[^a-zA-Z0-9._-]+", "_", raw_name)
+            vscode_mcp.write_text(
+                env.get_template("mcp.json.j2").render(project_name=name),
+                encoding="utf-8",
+            )
+        actions.append(f"Scaffolded MCP configuration at {vscode_mcp}")
+
     if vscode_mcp.exists():
         mcp_dest = Path.home() / ".gemini" / "config" / "mcp_config.json"
         if not dry_run:
             mcp_dest.parent.mkdir(parents=True, exist_ok=True)
             raw_text = vscode_mcp.read_text(encoding="utf-8")
-            synced_text = raw_text.replace("${workspaceFolder}", str(workspace_dir))
+            synced_text = raw_text.replace("${workspaceFolder}", str(workspace_dir)).replace(
+                "${env:HOME}", str(Path.home())
+            )
             mcp_dest.write_text(synced_text, encoding="utf-8")
         actions.append(f"Synced MCP configuration to {mcp_dest}")
 
+        agents_dir = workspace_dir / ".agents"
+        if agents_dir.exists():
+            agents_mcp_dest = agents_dir / "mcp_config.json"
+            if not dry_run:
+                raw_text = vscode_mcp.read_text(encoding="utf-8")
+                synced_text = raw_text.replace("${workspaceFolder}", str(workspace_dir)).replace(
+                    "${env:HOME}", str(Path.home())
+                )
+                agents_mcp_dest.write_text(synced_text, encoding="utf-8")
+            actions.append(f"Synced MCP configuration to {agents_mcp_dest}")
+
     # 5. Minikube autostart & K8s deploy status evaluation
     auto_start = os.getenv("DEVOPS_MINIKUBE_AUTOSTART", "true").lower() in ("true", "1")
+    minikube_healthy = False
     if auto_start and shutil.which("minikube"):
-        res = run_subprocess(
-            ["minikube", "status", "--format", "{{.Host}}"],
-            check=False,
-            quiet=True,
-        )
-        is_running = res.returncode == 0 and "Running" in str(res.stdout)
-        if not is_running:
-            if not dry_run:
-                run_subprocess(
-                    ["minikube", "start", "--driver=docker", "--gpus=all"],
-                    check=False,
-                    quiet=True,
-                    timeout=300.0,
-                )
-            actions.append("Started Minikube cluster (--driver=docker --gpus=all)")
+        docker_available = False
+        if shutil.which("docker"):
+            doc_res = run_subprocess(["docker", "info"], check=False, quiet=True)
+            docker_available = doc_res.returncode == 0
+
+        if not docker_available:
+            actions.append("Warning: Docker daemon is not running; skipping Minikube start")
         else:
-            actions.append("Minikube cluster is already running")
+            res = run_subprocess(
+                ["minikube", "status", "--format", "{{.Host}}"],
+                check=False,
+                quiet=True,
+            )
+            is_running = res.returncode == 0 and "Running" in str(res.stdout)
+            if not is_running:
+                has_gpu = shutil.which("nvidia-smi") is not None
+                started = False
+                if has_gpu:
+                    if not dry_run:
+                        start_res = run_subprocess(
+                            ["minikube", "start", "--driver=docker", "--gpus=all"],
+                            check=False,
+                            quiet=True,
+                            timeout=300.0,
+                        )
+                        started = start_res.returncode == 0
+                    else:
+                        started = True
+                    if started:
+                        actions.append("Started Minikube cluster (--driver=docker --gpus=all)")
+
+                if not started:
+                    if not dry_run:
+                        start_res = run_subprocess(
+                            ["minikube", "start", "--driver=docker"],
+                            check=False,
+                            quiet=True,
+                            timeout=300.0,
+                        )
+                        started = start_res.returncode == 0
+                    else:
+                        started = True
+                    if started:
+                        actions.append("Started Minikube cluster (--driver=docker)")
+                    else:
+                        actions.append("Warning: Failed to start Minikube cluster")
+
+                minikube_healthy = started
+                if started and not dry_run:
+                    run_subprocess(["minikube", "update-context"], check=False, quiet=True)
+            else:
+                if not dry_run:
+                    run_subprocess(["minikube", "update-context"], check=False, quiet=True)
+                actions.append("Minikube cluster is already running")
+                minikube_healthy = True
 
     auto_deploy = os.getenv("DEVOPS_K8S_AUTO_DEPLOY", "false").lower() in ("true", "1")
     if auto_deploy and shutil.which("minikube") and shutil.which("kubectl"):
-        stack = os.getenv("DEVOPS_K8S_STACK", "infra")
-        k8s_dir = workspace_dir / "k8s"
-        if k8s_dir.exists() and (k8s_dir / "kustomization.yaml").exists():
-            if not dry_run:
-                from devops_cli.commands.k8s import deploy_stack as k8s_deploy_stack
+        if minikube_healthy or dry_run:
+            stack = os.getenv("DEVOPS_K8S_STACK", "infra")
+            k8s_dir = workspace_dir / "k8s"
+            if k8s_dir.exists() and (k8s_dir / "kustomization.yaml").exists():
+                if not dry_run:
+                    from devops_cli.commands.k8s import deploy_stack as k8s_deploy_stack
 
-                try:
-                    k8s_deploy_stack(k8s_dir=k8s_dir, stack=stack)
+                    try:
+                        k8s_deploy_stack(k8s_dir=k8s_dir, stack=stack)
+                        actions.append(f"Auto-deployed Kubernetes stack ({stack})")
+                    except Exception as exc:
+                        actions.append(f"Auto-deploy failed for stack ({stack}): {exc}")
+                else:
                     actions.append(f"Auto-deployed Kubernetes stack ({stack})")
-                except Exception as exc:
-                    actions.append(f"Auto-deploy failed for stack ({stack}): {exc}")
-            else:
-                actions.append(f"Auto-deployed Kubernetes stack ({stack})")
+        else:
+            actions.append("Skipping Kubernetes auto-deploy: Minikube is not running")
 
     # 6. Pre-commit Git hook installation
     if (workspace_dir / ".pre-commit-config.yaml").exists() and (workspace_dir / ".git").exists():
@@ -507,10 +578,13 @@ def post_create(
     workspace: Annotated[
         Path, typer.Option("--workspace", "-w", help="Path to workspace directory")
     ] = Path("."),
+    dry_run: Annotated[
+        bool, typer.Option("--dry-run", help="Simulate execution without modifying files")
+    ] = False,
 ) -> None:
     """Execute DevContainer post-create setup tasks (history, shell completions, config prep)."""
     ws = workspace.resolve()
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops devcontainer post-create",
             action="post_create_lifecycle",
@@ -530,10 +604,13 @@ def post_start(
     workspace: Annotated[
         Path, typer.Option("--workspace", "-w", help="Path to workspace directory")
     ] = Path("."),
+    dry_run: Annotated[
+        bool, typer.Option("--dry-run", help="Simulate execution without modifying files")
+    ] = False,
 ) -> None:
     """Execute DevContainer post-start tasks (SSH keys, git defaults, kubeconfig, MCP sync)."""
     ws = workspace.resolve()
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops devcontainer post-start",
             action="post_start_lifecycle",
@@ -562,6 +639,9 @@ def run_lifecycle(
     all_flag: Annotated[
         bool, typer.Option("--all", "-a", help="Execute all DevContainer lifecycle tasks")
     ] = False,
+    dry_run: Annotated[
+        bool, typer.Option("--dry-run", help="Simulate execution without modifying files")
+    ] = False,
 ) -> None:
     """Run specified DevContainer lifecycle hook tasks natively in Python."""
     ws = workspace.resolve()
@@ -571,7 +651,7 @@ def run_lifecycle(
         do_create = True
         do_start = True
 
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops devcontainer run-lifecycle",
             action="run_lifecycle",
@@ -580,6 +660,6 @@ def run_lifecycle(
         return
 
     if do_create:
-        post_create(workspace=ws)
+        post_create(workspace=ws, dry_run=False)
     if do_start:
-        post_start(workspace=ws)
+        post_start(workspace=ws, dry_run=False)
