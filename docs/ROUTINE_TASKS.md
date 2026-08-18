@@ -125,6 +125,7 @@ sequenceDiagram
   - Chores/Refactors: `chore/<name>` or `refactor/<name>`
 - **Base Branch Targeting**: PRs must target the active release branch (`--base release/vX.Y.Z`). Only release branches target `main`.
 - **Agent Non-Merge Rule**: AI agents must push commits and create/update PRs, but never execute `gh pr merge`.
+- **Active PR Monitoring & Fix-on-Branch Protocol**: After opening or pushing updates to a PR, agents and developers must actively monitor remote GitHub Actions status (`gh pr checks <pr_number>` or `gh run list --branch <branch>`). If any check fails, immediately inspect failed logs (`gh run view <run_id> --log-failed`), apply remediation commits directly to the PR source branch, push to origin, and verify all checks pass green before closing out the task.
 - **No Commits to Merged Branches**: Once a PR is merged, create a fresh topic branch from `origin/release/vX.Y.Z` for the next task.
 - **Updating Open PRs**: When revisions are needed, push commits directly to the active topic branch. Do not open duplicate PRs.
 

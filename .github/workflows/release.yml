@@ -9,8 +9,12 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Release version to publish (e.g. 0.1.8)"
+        description: "Release version to publish (e.g. 0.1.10)"
         required: false
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   release:
@@ -21,7 +25,6 @@ jobs:
       contents: write
       packages: write
       pull-requests: read
-
 
     # Run on:
     # 1. Annotated tag push (v*)
@@ -52,7 +55,10 @@ jobs:
       - name: Extract Target Version & Release Title
         id: ver
         run: |
-          VERSION=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")
+          VERSION="${{ github.event.inputs.version }}"
+          if [ -z "$VERSION" ]; then
+            VERSION=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")
+          fi
           TAG="v${VERSION}"
           HEAD_MSG="$(git log -1 --pretty=%B)"
 
@@ -72,12 +78,16 @@ jobs:
       - name: Authoritative Release Verification
         run: uv run devops release check --allow-dirty
 
+      - name: Build Distribution Packages (Wheel & sdist)
+        run: |
+          uv build
+          cd dist && sha256sum -- * > SHA256SUMS.txt && cd -
+
       - name: Extract Release Notes
         id: notes
         run: |
           uv run devops release notes --raw -v "${{ steps.ver.outputs.version }}" > release_notes.txt
           echo "notes_file=release_notes.txt" >> "$GITHUB_OUTPUT"
-
 
       - name: Create Git Tag (upon PR merge to main)
         if: github.ref == 'refs/heads/main'
@@ -93,18 +103,20 @@ jobs:
             echo "Tag $TAG already exists."
           fi
 
-      - name: Create GitHub Release
-        run: |
-          TAG="${{ steps.ver.outputs.tag }}"
-          TITLE="${{ steps.ver.outputs.title }}"
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "Release $TAG already exists, updating notes and title..."
-            gh release edit "$TAG" --title "$TITLE" --notes-file release_notes.txt
-          else
-            gh release create "$TAG" --title "$TITLE" --notes-file release_notes.txt
-          fi
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          name: ${{ steps.ver.outputs.title }}
+          body_path: release_notes.txt
+          files: |
+            dist/*.whl
+            dist/*.tar.gz
+            dist/SHA256SUMS.txt
+          draft: false
+          prerelease: false
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Log in to GitHub Container Registry (GHCR)
         uses: docker/login-action@v3
