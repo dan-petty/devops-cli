@@ -1,4 +1,4 @@
-"""Tests for prompt injection guardrails and input boundary tags in devops review."""
+"""Tests for prompt injection guardrails and input boundary tags in devops ai review."""
 
 from __future__ import annotations
 
