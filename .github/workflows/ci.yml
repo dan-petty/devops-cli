@@ -2,10 +2,14 @@ name: CI Quality Gate
 
 on:
   push:
-    branches: [main, "release/**"]
+    branches: [main]
   pull_request:
     branches: [main, "release/**"]
   workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   validate:
