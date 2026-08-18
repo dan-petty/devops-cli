@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sys
+
 from typer.testing import CliRunner
 
 from devops_cli.commands.ci import app
@@ -79,6 +81,104 @@ def test_ci_actionlint_command(monkeypatch) -> None:
     result = runner.invoke(app, ["actionlint"])
     assert result.exit_code == 0
     assert any("actionlint" in c for c in called)
+
+
+def test_ci_lint_command(monkeypatch) -> None:
+    called = []
+
+    def mock_run(cmd, *args, **kwargs):
+        called.append(cmd)
+
+        class Res:
+            returncode = 0
+
+        return Res()
+
+    monkeypatch.setattr("subprocess.run", mock_run)
+
+    result = runner.invoke(app, ["lint", "--fix"])
+    assert result.exit_code == 0
+    assert any("ruff" in c and "check" in c and "--fix" in c for c in called)
+
+
+def test_ci_format_command(monkeypatch) -> None:
+    called = []
+
+    def mock_run(cmd, *args, **kwargs):
+        called.append(cmd)
+
+        class Res:
+            returncode = 0
+
+        return Res()
+
+    monkeypatch.setattr("subprocess.run", mock_run)
+
+    result = runner.invoke(app, ["format"])
+    assert result.exit_code == 0
+    assert any("ruff" in c and "format" in c and "--check" in c for c in called)
+
+
+def test_ci_typecheck_command(monkeypatch) -> None:
+    called = []
+
+    def mock_run(cmd, *args, **kwargs):
+        called.append(cmd)
+
+        class Res:
+            returncode = 0
+
+        return Res()
+
+    monkeypatch.setattr("subprocess.run", mock_run)
+
+    result = runner.invoke(app, ["typecheck"])
+    assert result.exit_code == 0
+    assert any("mypy" in c and "--python-version" in c and "3.14" in c for c in called)
+
+
+def test_ci_test_command(monkeypatch) -> None:
+    called = []
+
+    def mock_run(cmd, *args, **kwargs):
+        called.append(cmd)
+
+        class Res:
+            returncode = 0
+
+        return Res()
+
+    monkeypatch.setattr("subprocess.run", mock_run)
+
+    result = runner.invoke(app, ["test", "-v", "-k", "unit"])
+    assert result.exit_code == 0
+    assert any("pytest" in c and "-v" in c and "-k" in c for c in called)
+
+
+def test_ci_docs_command(monkeypatch) -> None:
+    called = []
+
+    def mock_run(cmd, *args, **kwargs):
+        called.append(cmd)
+
+        class Res:
+            returncode = 0
+
+        return Res()
+
+    monkeypatch.setattr("subprocess.run", mock_run)
+
+    result = runner.invoke(app, ["docs"])
+    assert result.exit_code == 0
+    assert any("devops" in c and "docs" in c and "check" in c for c in called)
+
+
+def test_ci_python_version_check_failure(monkeypatch) -> None:
+    monkeypatch.setattr(sys, "version_info", (3, 12, 0))
+
+    result = runner.invoke(app, ["typecheck"])
+    assert result.exit_code == 1
+    assert "Strict Python 3.14+ requirement failed" in result.output
 
 
 def test_ci_all_checks_includes_audit_coverage_and_security(monkeypatch) -> None:
