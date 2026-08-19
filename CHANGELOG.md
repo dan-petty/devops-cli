@@ -5,17 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.12] - 2026-08-18
+## [0.1.12] - 2026-08-19
 
 ### Added
-- **Remote CI Inspection & Monitoring (`devops ci remote status|logs|watch`)**: Terminal-based monitoring and failure log introspection for GitHub Actions workflow runs and check suites.
-- **GitHub Pull Request Governance (`devops pr list|view|checks|edit|create`)**: Comprehensive PR workflow management enforcing branch hierarchy and active release branch targeting (`release/vX.Y.Z`).
-- **Standardized Branch & Repo Lifecycle (`devops branches create|status`, `devops repos exec`)**: Standardized topic branch creation with release base discovery, workspace drift inspection, and multi-repo batch command execution across `repos/`.
-- **FastMCP SDLC & Release Automation Tools**: 10 new Model Context Protocol tools exposing remote CI checks, PR operations, branch workflows, repo execution, and release note extraction to AI agents.
-- **Minikube LLM & GPU Host Bridge (`k8s/llm/ollama-host-service.yaml`)**: Kubernetes Service and Endpoints bridge routing in-cluster LLM traffic directly to the host DevContainer NVIDIA CUDA GPU runtime for full hardware acceleration.
-
-### Changed
-- **Version Centralization & Review Configuration**: Upgraded package release version to `0.1.12` and centralized `DEFAULT_REVIEW_CONTEXT_LINES` in configuration defaults.
+- **Universal Retrieval-Augmented Generation (RAG) Architecture (`devops ai rag`, `devops_cli.ai.rag`)**:
+  - Polyglot syntax-aware AST chunker for Python, Go, Rust, TypeScript, JavaScript, Java, C/C++, Terraform/HCL, SQL, and Kubernetes YAML manifests.
+  - Hierarchical technical documentation chunker preserving Markdown, AsciiDoc, and RST heading depth with breadcrumb hierarchy tracking.
+  - Multi-project workspace autodetection (`Cargo.toml`, `go.mod`, `package.json`, `pyproject.toml`) and faceted semantic filtering (`--project`, `--language`, `--category`).
+  - Native Qdrant vector database integration and Ollama dense embeddings generation (`all-minilm`).
+- **Structural Metadata Extraction Engine (`src/devops_cli/ai/rag/metadata.py`)**:
+  - Polyglot dependency and import parsing across 8+ programming languages.
+  - Automated security sensitivity classification tagging code chunks into `crypto`, `network`, `auth`, `secrets`, `db`, `fs`, and `iam`.
+  - Document frontmatter metadata parser extracting YAML/TOML metadata and heading hierarchy metrics.
+- **Multi-Signal Search Re-Ranking Engine (`src/devops_cli/ai/rag/reranker.py`)**:
+  - Hybrid scoring fusion engine combining dense vector cosine similarity (0.60), lexical token overlap (0.25), exact symbol match bonuses (+0.15), query intent classification (+0.10 for docs/code), and security alignment (+0.10).
+  - Attached transparent `rerank_score` and individual `rank_factors` to every retrieved chunk.
+- **Universal AI Subcommand RAG Integration**:
+  - `devops ai chat`: Per-turn conversational semantic retrieval (`--rag/--no-rag`).
+  - `devops ai pipeline`: Seeds multi-agent review and reasoning pipelines with relevant codebase context.
+  - `devops ai agents`: Retrieves architectural context and CLI conventions when generating canonical agent instructions.
+  - `devops ai analyze`: Injects related architectural context during metadata analysis and pseudocode extraction.
+  - `devops ai review`: Injects re-ranked cross-file context with symbol and security tags into multi-persona code reviews.
+- **End-to-End OpenTelemetry Tracing & Observability Stack**:
+  - Integrated OpenTelemetry trace lifecycle spans across LLM dispatches, pipeline stages, and CLI operations (`devops_cli.telemetry`).
+  - Jaeger Query UI and OTLP collector deployment manifests (`k8s/otel/jaeger.yaml`).
+  - Customized Grafana dashboards for AI inference latency, token metrics, and Kubernetes cluster health (`k8s/monitoring/dashboards/`).
+- **DevContainer Background Git Daemon**:
+  - Native automated background Git daemon with `--export-all` across `/workspaces/devops-cli/k8s` and `/workspaces/devops-cli/repos` during container post-start lifecycle.
+- **GitHub PR Governance & Remote CI Inspection (`devops pr`)**:
+  - Pull request lifecycle management (`create`, `status`, `checks`, `view`, `diff`) with automated release branch base targeting and CI check monitoring.
 
 ## [0.1.11] - 2026-08-18
 
@@ -25,15 +43,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Automated DevContainer Pre-Commit Installation**: Integrated automated `uv run pre-commit install` into the container startup lifecycle hook (`devops devcontainer run-lifecycle --post-start`) and added `.gitattributes` to enforce consistent LF line endings.
 
 ### Changed
-- **Enhanced Finding Verification & Continuous Self-Improvement Loop**: Calibrated finding verification directives (`verify_finding.md`, `verification.py`, `devsecops/prompt.md`) to strictly reject speculative assumptions without visible code flaws, preserve structured invalidation reasons and confidence scores into `findings.json`, and streamline feedback dataset export (`devops ai review export-feedback`) for prompt calibration.
 - **Single Source of Truth Project Metadata Architecture**: Centralized metadata loading in `src/devops_cli/config/metadata.py` dynamically reading package version, description, and Python requirements directly from `pyproject.toml` and standard package distribution metadata (`importlib.metadata`), eliminating hardcoded version and configuration duplication across commands and defaults.
 - **AI / LLM Prompt & Token Density Optimization**: Optimized persona domain prompts (`devsecops`, `architect`, `auditor`, `pm`, `qa`) and core review task prompts (`review.md`, `analyze_pseudocode.md`, `verify_finding.md`, `compose.md`, `metadata.md`, `chat.md`), eliminating cross-prompt rule duplication and reducing prompt token consumption.
 - **CI Workflow Optimization & Duplicate PR Check Elimination**: Refactored `.github/workflows/ci.yml` to restrict `push` triggers strictly to `main` while maintaining `pull_request` triggers on `main` and `release/**`, eliminating duplicate CI runs on pull requests, and added workflow concurrency management to cancel superseded in-flight builds.
 - **Evergreen Validation Nomenclature**: Standardized validation terminology across GitHub Actions workflows, CLI tooling, and documentation from numbered gates to evergreen `validate` / `Validation`.
 
 ### Fixed
-- **DevContainer Manifest Path Traversal Guard & Input Validation**: Added workspace containment checks in `devops devcontainer validate` preventing traversal outside the repository and enforced semantic version validation on `--python` in `devops devcontainer init`.
-- **Kubernetes Stack Hardening & Namespace Isolation**: Added explicit `namespace: argocd` in `k8s/argocd/kustomization.yaml`, hardened Valkey deployment with non-root `securityContext` (`runAsNonRoot: true`, capabilities drop), switched in-cluster cache service to `ClusterIP`, and pinned immutable image tag (`v0.5.11`) in `k8s/llm/values-open-webui.yaml`.
 - **DevContainer MCP & Minikube Initialization Resilience**: Enhanced `devops devcontainer post-start` to automatically scaffold and sync `.vscode/mcp.json` with explicit `env: { PATH: ... }` to `~/.gemini/config/mcp_config.json` and `.agents/mcp_config.json`. Hardened Minikube initialization with GPU detection (`nvidia-smi`), automatic fallback to CPU driver (`--driver=docker`), Docker daemon readiness verification, and automatic `minikube update-context` kubeconfig synchronization.
 - **DevContainer GHCR Image Publishing Resilience**: Hardened `.github/workflows/release.yml` with lowercase GHCR repository naming and streamlined tag publication (`vX.Y.Z,latest`) to prevent 403 / `unknown blob` upload errors.
 

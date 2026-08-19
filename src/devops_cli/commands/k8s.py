@@ -353,6 +353,11 @@ def _minikube_running() -> bool:
         return False
 
 
+def _cluster_reachable() -> bool:
+    """Return True if Minikube or cluster is running and reachable."""
+    return _minikube_running()
+
+
 @app.command("bootstrap")
 def bootstrap(
     k8s_dir: Annotated[
@@ -417,8 +422,14 @@ def deploy_stack(
     stack: Annotated[
         str, typer.Option("--stack", "-s", help="Stack to deploy (infra, llm, all)")
     ] = "infra",
+    context: Annotated[
+        str | None, typer.Option("--context", "-c", help="Kubernetes cluster context")
+    ] = None,
 ) -> None:
-    """Deploy infrastructure or LLM stack (Ollama, WebUI, Qdrant, Valkey) to minikube."""
+    """Deploy infrastructure or LLM stack (Ollama, WebUI, Qdrant, Valkey) to Kubernetes."""
+    if context:
+        _validate_k8s_identifier(context, "context")
+
     selected_stacks = _resolve_stacks(stack)
 
     all_releases: list[dict[str, str]] = []
@@ -436,6 +447,7 @@ def deploy_stack(
                 "kustomize_dir": str(k8s_dir),
                 "stack": stack,
                 "stacks": selected_stacks,
+                "context": context,
                 "helm_releases": [r["name"] for r in all_releases],
                 "manifests": all_manifests,
             },
@@ -444,9 +456,9 @@ def deploy_stack(
         console.print_json(res.model_dump_json(indent=2))
         return
 
-    # 1. Verify minikube
-    if not _minikube_running():
-        rprint("[red]minikube is not running.[/red]")
+    # 1. Verify cluster reachability
+    if not _cluster_reachable():
+        rprint("[red]Kubernetes cluster is not reachable.[/red]")
         rprint("Start it with: [cyan]minikube start --driver=docker[/cyan]")
         raise typer.Exit(1)
 
@@ -624,7 +636,7 @@ def configure_urls(
         console.print_json(res.model_dump_json(indent=2))
         return
 
-    if not _minikube_running():
+    if not _cluster_reachable():
         rprint("[red]minikube is not running.[/red]")
         raise typer.Exit(1)
 

@@ -5,11 +5,10 @@
 ollama:
   gpu:
     # Set to true on clusters with NVIDIA Device Plugin (e.g. nvidia.com/gpu allocatable)
-    enabled: true
+    enabled: false
     type: nvidia
     number: 1
     nvidiaResource: "nvidia.com/gpu"
-
   models:
     pull: []
     run: []
@@ -28,6 +27,4 @@ resources:
   requests:
     cpu: 250m
     memory: 512Mi
-  limits:
-    cpu: 2000m
-    memory: 4Gi
+  limits: {}

@@ -33,6 +33,7 @@
     "DEVOPS_CLI_CONFIG": "${containerWorkspaceFolder}/config.yaml",
     "DEVOPS_MINIKUBE_AUTOSTART": "true",
     "DEVOPS_K8S_AUTO_DEPLOY": "true",
+    "DEVOPS_GIT_DAEMON_AUTOSTART": "true",
     "UV_MALWARE_CHECK": "1"
   },
   "forwardPorts": [
@@ -43,7 +44,8 @@
     9090,
     4317,
     4318,
-    11434
+    11434,
+    9418
   ],
   "portsAttributes": {
     "8080": {
@@ -76,6 +78,10 @@
     },
     "11434": {
       "label": "Ollama LLM Engine",
+      "onAutoForward": "ignore"
+    },
+    "9418": {
+      "label": "Git Daemon",
       "onAutoForward": "ignore"
     }
   },

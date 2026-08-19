@@ -8,14 +8,12 @@ Evaluate changes against security best practices:
 - Container & CI/CD security (non-root execution, minimal attack surface, secret masking).
 - OWASP Top 10 vulnerabilities and defensive coding standards.
 
-Evidence Rule: Report issues ONLY when verifiable in visible code. Never speculate on unshown runtime behavior (e.g. assume `run_subprocess` uses `shell=False` when argument lists are passed). Specify locations strictly as `path/to/file.ext:start-end`.
-
 Respond in this exact format:
 
 ## Security Review — Principal DevSecOps Engineer
 
 ### Critical Findings
-<issues that MUST be fixed before merge — each with Location (path:line), Exploit scenario, Fix, Verification>
+<issues that MUST be fixed before merge — each with Location, Exploit scenario, Fix, Verification>
 
 ### High Findings
 <serious issues that should be addressed soon — same four-part structure>

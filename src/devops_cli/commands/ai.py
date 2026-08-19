@@ -14,6 +14,7 @@ from rich.table import Table
 
 from devops_cli.ai.personas import PERSONAS, Persona
 from devops_cli.commands.analyze import app as analyze_app
+from devops_cli.commands.rag import app as rag_app
 from devops_cli.commands.review import app as review_app
 from devops_cli.config.constants import (
     CONST_AGENTS_MD_FILENAME,
@@ -40,6 +41,11 @@ app.add_typer(
     analyze_app,
     name="analyze",
     help="Analyze codebase metadata and create/update .data/analysis/*-metadata.json files.",
+)
+app.add_typer(
+    rag_app,
+    name="rag",
+    help="Manage RAG vector embeddings, indexing, and semantic code search (Qdrant).",
 )
 console = Console()
 
@@ -72,6 +78,41 @@ The file MUST include:
 
   and routine maintenance of all project documentation and references
 """
+
+
+def _try_retrieve_rag_context(query: str, top_k: int = 3) -> str | None:
+    """Attempt to retrieve relevant semantic context from RAG vector store."""
+    try:
+        from devops_cli.ai.rag.embeddings import EmbeddingsEngine
+        from devops_cli.ai.rag.qdrant import QdrantClient
+        from devops_cli.ai.rag.retriever import SemanticRetriever
+        from devops_cli.config.settings import get_ai_api_key, load_settings
+
+        settings = load_settings()
+        if not settings.ai.rag.enabled:
+            return None
+
+        qdrant = QdrantClient(
+            base_url=settings.qdrant.url or "http://localhost:6333",
+            allow_private_network=settings.ai.allow_private_network,
+        )
+        if not qdrant.is_alive():
+            return None
+
+        embedder = EmbeddingsEngine(ai_config=settings.ai, api_key=get_ai_api_key(settings))
+        retriever = SemanticRetriever(
+            qdrant=qdrant,
+            embedder=embedder,
+            code_collection=f"{settings.qdrant.collection_prefix}_code",
+            docs_collection=f"{settings.qdrant.collection_prefix}_docs",
+            default_top_k=top_k,
+        )
+        ctx = retriever.retrieve_context(query, top_k=top_k)
+        if ctx.has_results:
+            return ctx.formatted_text
+    except Exception:
+        pass
+    return None
 
 
 def _collect_project_context(repo: Path) -> str:
@@ -141,6 +182,13 @@ def _collect_project_context(repo: Path) -> str:
     dc = repo / CONST_DEVCONTAINER_JSON_PATH
     if dc.exists():
         sections.append(f"## {CONST_DEVCONTAINER_JSON_PATH}\n```json\n{dc.read_text()}\n```")
+
+    # Semantic RAG Architecture Context
+    rag_ctx = _try_retrieve_rag_context(
+        f"{repo.name} architecture CLI commands conventions", top_k=4
+    )
+    if rag_ctx:
+        sections.append(f"## Indexed Architecture & Subsystem Context\n{rag_ctx}")
 
     return "\n\n".join(sections)
 
@@ -556,6 +604,9 @@ def chat(
             readable=True,
         ),
     ] = None,
+    rag: Annotated[
+        bool, typer.Option("--rag/--no-rag", help="Retrieve relevant semantic RAG context")
+    ] = True,
     stream: Annotated[
         bool, typer.Option("--stream/--no-stream", help="Stream response tokens")
     ] = True,
@@ -566,7 +617,7 @@ def chat(
         bool, typer.Option("--thinking/--no-thinking", help="Enable model reasoning/thinking")
     ] = True,
 ) -> None:
-    """Start an interactive chat with a Pydantic AI persona (tools, thinking, streaming)."""
+    """Start an interactive chat with a Pydantic AI persona (tools, thinking, streaming, RAG)."""
     import sys
 
     from devops_cli.ai.agents import PydanticAgent
@@ -616,7 +667,13 @@ def chat(
             rprint("[dim]Goodbye.[/dim]")
             break
 
-        history.append(ChatMessage(role="user", content=user_input))
+        effective_prompt = user_input
+        if rag:
+            rag_snippet = _try_retrieve_rag_context(user_input, top_k=3)
+            if rag_snippet:
+                effective_prompt = f"{rag_snippet}\n\nUser Question: {user_input}"
+
+        history.append(ChatMessage(role="user", content=effective_prompt))
         try:
             rprint(f"\n[green]{persona_def.title}:[/green] ", end="")
             sys.stdout.flush()
@@ -637,7 +694,7 @@ def chat(
                 reply = processor.clean_content
                 rprint("\n")
             else:
-                agent_res = agent.run(user_input, enable_thinking=thinking)
+                agent_res = agent.run(effective_prompt, enable_thinking=thinking)
                 from devops_cli.ai.thinking import strip_think_blocks
 
                 reply = strip_think_blocks(agent_res.content)
@@ -685,12 +742,15 @@ def pipeline(
         int,
         typer.Option("--max-turns", help="Maximum tool turns per agent stage"),
     ] = 5,
+    rag: Annotated[
+        bool, typer.Option("--rag/--no-rag", help="Retrieve relevant semantic RAG context")
+    ] = True,
     thinking: Annotated[
         bool,
         typer.Option("--thinking/--no-thinking", help="Enable reasoning/thinking per agent"),
     ] = True,
 ) -> None:
-    """Run a multi-agent Pydantic pipeline with shared DevOps tools."""
+    """Run a multi-agent Pydantic pipeline with shared DevOps tools and RAG context."""
     from devops_cli.ai.agents import MultiAgentPipeline, PydanticAgent
     from devops_cli.ai.client import LLMClient
     from devops_cli.ai.tools import get_default_tools
@@ -714,6 +774,7 @@ def pipeline(
                 "personas": [p.value for p in valid_personas],
                 "prompt": prompt,
                 "max_turns": max_turns,
+                "rag": rag,
             },
         )
         rprint("[yellow][dry-run][/yellow] Command response:")
@@ -747,8 +808,14 @@ def pipeline(
     )
     rprint(f"[bold]Initial Prompt:[/bold] {prompt}\n")
 
+    effective_prompt = prompt
+    if rag:
+        rag_ctx = _try_retrieve_rag_context(prompt, top_k=5)
+        if rag_ctx:
+            effective_prompt = f"{rag_ctx}\n\nPipeline Goal: {prompt}"
+
     result = pipeline_engine.run(
-        prompt,
+        effective_prompt,
         max_turns_per_agent=max_turns,
         enable_thinking=thinking,
     )

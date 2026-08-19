@@ -99,26 +99,3 @@ devops repos sync [OPTIONS]
 | `--pull`, `--no-pull` | `boolean` | `True` | - |
 
 ---
-
-## `devops repos exec`
-
-**Execute a shell command across all discovered repositories in repos/.**
-
-```bash
-devops repos exec [OPTIONS] <command>
-```
-
-**Arguments:**
-
-| Argument | Type | Required | Description |
-|---|---|---|---|
-| `<command>` | `string` | Yes | Shell command string to execute in each repo |
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--base-dir`, `-d` | `path` | - | - |
-| `--fail-fast`, `-f` | `boolean` | - | Stop execution on first failure |
-
----

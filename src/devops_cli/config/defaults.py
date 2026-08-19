@@ -33,6 +33,21 @@ DEFAULT_AI_MAX_RETRIES: int = CONST_DEFAULT_AI_MAX_RETRIES
 DEFAULT_PYTHON_VERSION = get_project_python_version()
 DEFAULT_BUNDLE_MODELS: tuple[str, ...] = ("qwen2.5-coder:7b", "llama3.1:8b")
 
+# ── RAG & Vector Store Defaults ───────────────────────────────────────────────
+DEFAULT_QDRANT_URL = "http://localhost:6333"
+DEFAULT_RAG_COLLECTION = "devops_code"
+DEFAULT_RAG_DOCS_COLLECTION = "devops_docs"
+DEFAULT_RAG_EMBEDDING_MODEL = "all-minilm"
+DEFAULT_RAG_TOP_K: int = 5
+DEFAULT_RAG_SCORE_THRESHOLD: float = 0.35
+DEFAULT_RAG_CHUNK_SIZE: int = 500
+DEFAULT_RAG_CHUNK_OVERLAP: int = 50
+DEFAULT_RAG_CACHE_DIR = Path(".data/rag")
+
+# ── Tracing & Telemetry Defaults ──────────────────────────────────────────────
+DEFAULT_JAEGER_URL = "http://localhost:16686"
+DEFAULT_OTEL_ENDPOINT = "http://localhost:4318"
+
 # ── Tool & Agent Defaults ─────────────────────────────────────────────────────
 DEFAULT_TOOL_READ_MAX_BYTES: int = CONST_DEFAULT_TOOL_READ_MAX_BYTES
 DEFAULT_TOOL_MAX_BYTES_LIMIT: int = CONST_DEFAULT_TOOL_MAX_BYTES_LIMIT
@@ -58,15 +73,10 @@ DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS: float = 30.0
 
 # ── Docker Defaults ───────────────────────────────────────────────────────────
 DEFAULT_DOCKER_TIMEOUT_SECONDS: float = 300.0
-DEFAULT_REMOTE_CI_POLL_INTERVAL_SECONDS: float = 10.0
-DEFAULT_REMOTE_CI_TIMEOUT_SECONDS: float = 600.0
-DEFAULT_REPOS_EXEC_TIMEOUT_SECONDS: float = 120.0
 
 # ── High Timeout Policies ─────────────────────────────────────────────────────
 # NOTE (Design Justification - AGENTS.md §4 & README.md): High default timeouts are intentional
 # to accommodate local LLM inference (CPU/GPU Ollama), corporate proxy delays, and minikube setup.
-# ── Review Pipeline Defaults ──────────────────────────────────────────────────
-DEFAULT_REVIEW_CONTEXT_LINES: int = 2
 DEFAULT_REVIEW_TIMEOUT_SECONDS: float = float(CONST_REVIEW_TIMEOUT_SECONDS)  # 1200.0s
 DEFAULT_REVIEW_WINDOW_SIZE_FACTOR: float = CONST_REVIEW_WINDOW_SIZE_FACTOR  # 0.8
 DEFAULT_REVIEW_OVERLAP_FACTOR: float = CONST_REVIEW_OVERLAP_FACTOR  # 0.1

@@ -37,7 +37,6 @@ from devops_cli.ai.review_schema import (
     ReviewResult,
     ReviewSessionPayload,
     SavedFinding,
-    finding_sort_key,
     parse_review_result,
 )
 from devops_cli.config.constants import (
@@ -349,9 +348,40 @@ class ReviewPipelineOrchestrator:
                 pipeline.add_agent(agent)
 
             symbols = ", ".join(payload.metadata.key_symbols if payload.metadata else [])
+            rag_context_str = ""
+            try:
+                from devops_cli.ai.rag.embeddings import EmbeddingsEngine
+                from devops_cli.ai.rag.qdrant import QdrantClient
+                from devops_cli.ai.rag.retriever import SemanticRetriever
+                from devops_cli.config.settings import get_ai_api_key, load_settings
+
+                st = load_settings()
+                if st.ai.rag.enabled:
+                    q_client = QdrantClient(
+                        base_url=st.qdrant.url or "http://localhost:6333",
+                        allow_private_network=st.ai.allow_private_network,
+                    )
+                    if q_client.is_alive():
+                        emb_engine = EmbeddingsEngine(ai_config=st.ai, api_key=get_ai_api_key(st))
+                        retriever = SemanticRetriever(
+                            qdrant=q_client,
+                            embedder=emb_engine,
+                            code_collection=f"{st.qdrant.collection_prefix}_code",
+                            docs_collection=f"{st.qdrant.collection_prefix}_docs",
+                            default_top_k=3,
+                        )
+                        ctx = retriever.retrieve_context(f"{fpath} {symbols}")
+                        if ctx.has_results:
+                            rag_context_str = (
+                                f"\n\nCross-File Architecture & Context:\n{ctx.formatted_text}"
+                            )
+            except Exception:
+                pass
+
             prompt = (
                 f"Review File: {fpath}\n"
-                f"Key Symbols: {symbols}\n\n"
+                f"Key Symbols: {symbols}"
+                f"{rag_context_str}\n\n"
                 f"Code Content / Diff:\n{content_or_diff}"
             )
 
@@ -509,7 +539,6 @@ class ReviewPipelineOrchestrator:
         n_p = len(file_payloads)
         rprint(f"[dim]Stage 5/6: Re-ranking and validating findings for {n_p} file(s)...[/dim]")
         for payload in file_payloads:
-            payload.findings = sorted(payload.findings, key=finding_sort_key)
             valid_findings = [
                 f for f in payload.findings if f.status in ("VERIFIED", "UNVERIFIED", "MITIGATED")
             ]
@@ -538,7 +567,6 @@ class ReviewPipelineOrchestrator:
             for f in payload.findings:
                 if f.status != "INVALIDATED":
                     all_findings.append(f)
-        all_findings = sorted(all_findings, key=finding_sort_key)
 
         payload_out = ReviewSessionPayload(
             generated_at=datetime.now(UTC).isoformat(),
@@ -561,13 +589,12 @@ class ReviewPipelineOrchestrator:
         if not all_findings:
             lines.append("✅ **No critical issues found during review.**")
         else:
-            lines.append("| Severity | Exploitability | Location | Title | Status | Confidence |")
-            lines.append("|---|---|---|---|---|---|")
+            lines.append("| Severity | Location | Title | Status | Confidence |")
+            lines.append("|---|---|---|---|---|")
             for f in all_findings:
                 conf = f"{f.confidence_score:.2f}" if f.confidence_score is not None else "N/A"
                 lines.append(
-                    f"| **{f.severity}** | {f.exploitability} | `{f.location}` | {f.title} | "
-                    f"{f.status} | {conf} |"
+                    f"| **{f.severity}** | `{f.location}` | {f.title} | {f.status} | {conf} |"
                 )
 
             lines.append("")
@@ -576,7 +603,6 @@ class ReviewPipelineOrchestrator:
                 lines.append(f"### {idx}. [{f.severity}] {f.title}")
                 lines.append(f"- **Location**: `{f.location}`")
                 lines.append(f"- **Persona**: {f.persona_title}")
-                lines.append(f"- **Exploitability**: {f.exploitability}")
                 lines.append(f"- **Status**: {f.status}")
                 if f.confidence_score is not None:
                     lines.append(f"- **Confidence Score**: {f.confidence_score:.2f}")

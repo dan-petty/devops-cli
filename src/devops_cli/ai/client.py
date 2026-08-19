@@ -33,6 +33,7 @@ from devops_cli.config.defaults import DEFAULT_HTTP_TIMEOUT_SECONDS
 from devops_cli.config.settings import AIConfig
 from devops_cli.http.client import request_timeout
 from devops_cli.models.ai import ChatMessage
+from devops_cli.telemetry import record_metric, trace_span
 
 MAX_STREAM_BYTES = 50 * 1024 * 1024  # 50MB maximum streamed response size
 
@@ -209,8 +210,15 @@ class LLMClient:
         if stripped.startswith("{") and stripped.endswith("}"):
             try:
                 data = json.loads(stripped)
-                if isinstance(data, dict) and ("error" in data or "error_code" in data):
-                    return False
+                if isinstance(data, dict):
+                    err_val = data.get("error")
+                    err_code = data.get("error_code")
+                    if (
+                        isinstance(err_val, str | dict)
+                        and bool(err_val)
+                        and str(err_val).lower() not in ("none", "null", "no error", "0", "")
+                    ) or (err_code is not None and bool(err_code)):
+                        return False
             except (json.JSONDecodeError, TypeError, ValueError):
                 pass
 
@@ -229,27 +237,46 @@ class LLMClient:
         enable_thinking: bool = True,
     ) -> LLMResponse:
         p = self._config.provider
-        if p == "ollama":
-            return self._ollama_messages(system, messages, enable_thinking=enable_thinking)
-        if p == "claude":
-            res_claude = self._claude_messages(system, messages)
-            b_info = getattr(res_claude, "backend_info", None) or f"claude ({self.backend_host})"
-            return LLMResponse(
-                self._strip_think_blocks(res_claude),
-                processing_seconds=res_claude.processing_seconds,
-                wall_seconds=res_claude.wall_seconds,
-                backend_info=b_info,
-            )
-        if p in ("copilot", "openai"):
-            res_openai = self._openai_compat_messages(system, messages)
-            b_info = getattr(res_openai, "backend_info", None) or f"{p} ({self.backend_host})"
-            return LLMResponse(
-                self._strip_think_blocks(res_openai),
-                processing_seconds=res_openai.processing_seconds,
-                wall_seconds=res_openai.wall_seconds,
-                backend_info=b_info,
-            )
-        raise ValueError(f"Unknown provider: {p!r}. Choose: ollama, claude, copilot, openai")
+        start = time.perf_counter()
+        with trace_span(
+            "ai.llm.dispatch",
+            {"provider": p, "model": self._config.model},
+        ):
+            if p == "ollama":
+                res = self._ollama_messages(system, messages, enable_thinking=enable_thinking)
+            elif p == "claude":
+                res_claude = self._claude_messages(system, messages)
+                b_info = (
+                    getattr(res_claude, "backend_info", None) or f"claude ({self.backend_host})"
+                )
+                res = LLMResponse(
+                    self._strip_think_blocks(res_claude),
+                    processing_seconds=res_claude.processing_seconds,
+                    wall_seconds=res_claude.wall_seconds,
+                    backend_info=b_info,
+                )
+            elif p in ("copilot", "openai"):
+                res_openai = self._openai_compat_messages(system, messages)
+                b_info = getattr(res_openai, "backend_info", None) or f"{p} ({self.backend_host})"
+                res = LLMResponse(
+                    self._strip_think_blocks(res_openai),
+                    processing_seconds=res_openai.processing_seconds,
+                    wall_seconds=res_openai.wall_seconds,
+                    backend_info=b_info,
+                )
+            else:
+                raise ValueError(
+                    f"Unknown provider: {p!r}. Choose: ollama, claude, copilot, openai"
+                )
+
+        duration = time.perf_counter() - start
+        record_metric(
+            "devops_cli_llm_inference_seconds",
+            duration,
+            unit="s",
+            attributes={"provider": p, "model": self._config.model},
+        )
+        return res
 
     def chat(
         self,

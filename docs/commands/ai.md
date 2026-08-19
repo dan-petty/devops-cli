@@ -81,7 +81,7 @@ devops ai agents [OPTIONS]
 
 ## `devops ai chat`
 
-**Start an interactive chat with a Pydantic AI persona (tools, thinking, streaming).**
+**Start an interactive chat with a Pydantic AI persona (tools, thinking, streaming, RAG).**
 
 ```bash
 devops ai chat [OPTIONS]
@@ -93,6 +93,7 @@ devops ai chat [OPTIONS]
 |---|---|---|---|
 | `--persona`, `-p` | `string` | `architect` | Persona to chat with: devsecops, architect, pm, auditor, qa |
 | `--context`, `-c` | `path` | - | Optional file to inject as background context (e.g. AGENTS.md) |
+| `--rag`, `--no-rag` | `boolean` | `True` | Retrieve relevant semantic RAG context |
 | `--stream`, `--no-stream` | `boolean` | `True` | Stream response tokens |
 | `--tools`, `--no-tools` | `boolean` | `True` | Enable DevOps agent tools |
 | `--thinking`, `--no-thinking` | `boolean` | `True` | Enable model reasoning/thinking |
@@ -117,7 +118,7 @@ devops ai bundle-models [OPTIONS]
 
 ## `devops ai pipeline`
 
-**Run a multi-agent Pydantic pipeline with shared DevOps tools.**
+**Run a multi-agent Pydantic pipeline with shared DevOps tools and RAG context.**
 
 ```bash
 devops ai pipeline [OPTIONS] <prompt>
@@ -135,6 +136,7 @@ devops ai pipeline [OPTIONS] <prompt>
 |---|---|---|---|
 | `--personas`, `-p` | `string` | `devsecops,architect,qa` | Comma-separated persona pipeline sequence (e.g. devsecops,architect,qa) |
 | `--max-turns` | `integer` | `5` | Maximum tool turns per agent stage |
+| `--rag`, `--no-rag` | `boolean` | `True` | Retrieve relevant semantic RAG context |
 | `--thinking`, `--no-thinking` | `boolean` | `True` | Enable reasoning/thinking per agent |
 
 ---
@@ -387,5 +389,86 @@ devops ai analyze pr [OPTIONS] <pr_number>
 |---|---|---|---|
 | `--enhanced`, `-e`, `--no-enhanced` | `boolean` | `True` | Generate AI-enhanced metadata (pseudocode, complexity, last_updated) |
 | `--update-all`, `-u` | `boolean` | - | Regenerate all enhanced metadata fields regardless of last_* timestamps |
+
+---
+
+## `devops ai rag`
+
+**Manage RAG vector embeddings, indexing, and semantic code search (Qdrant).**
+
+```bash
+devops ai rag COMMAND [ARGS]...
+```
+
+### `devops ai rag index`
+
+**Scan and index workspace code and documentation into Qdrant vector database.**
+
+```bash
+devops ai rag index [OPTIONS] <path>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<path>` | `path` | No | Directory or file to index into vector store |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--project`, `-p` | `string` | - | Project / repository name override |
+| `--force`, `-f` | `boolean` | - | Re-index all files ignoring content hash cache |
+| `--collection`, `-c` | `string` | - | Target collection override |
+
+### `devops ai rag query`
+
+**Perform semantic search across indexed workspace code and documentation.**
+
+```bash
+devops ai rag query [OPTIONS] <query>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<query>` | `string` | Yes | Semantic search query string |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--project`, `-p` | `string` | - | Filter results to a specific project |
+| `--language`, `-l` | `string` | - | Filter by programming language |
+| `--category` | `string` | - | Filter by category (code, docs, iac, config) |
+| `--top-k`, `-k` | `integer` | `5` | Number of results to retrieve |
+| `--min-score`, `-s` | `float` | `0.35` | Minimum cosine similarity threshold |
+| `--collection`, `-c` | `string` | - | Search only a specific collection |
+| `--file`, `-f` | `string` | - | Filter results to a specific file |
+
+### `devops ai rag status`
+
+**Display status of vector database collections and embedding configurations.**
+
+```bash
+devops ai rag status
+```
+
+### `devops ai rag clear`
+
+**Clear vector index collections from Qdrant.**
+
+```bash
+devops ai rag clear [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--collection`, `-c` | `string` | - | Specific collection to delete (default: all) |
+| `--force`, `-f` | `boolean` | - | Bypass confirmation prompt |
 
 ---

@@ -121,27 +121,6 @@ devops repos sync [OPTIONS]
 | `--base-dir`, `-d` | `path` | - | - |
 | `--pull`, `--no-pull` | `boolean` | `True` | - |
 
-### `devops repos exec`
-
-**Execute a shell command across all discovered repositories in repos/.**
-
-```bash
-devops repos exec [OPTIONS] <command>
-```
-
-**Arguments:**
-
-| Argument | Type | Required | Description |
-|---|---|---|---|
-| `<command>` | `string` | Yes | Shell command string to execute in each repo |
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--base-dir`, `-d` | `path` | - | - |
-| `--fail-fast`, `-f` | `boolean` | - | Stop execution on first failure |
-
 ---
 
 ## devops ssh
@@ -306,42 +285,6 @@ devops branches list [OPTIONS]
 |---|---|---|---|
 | `--base-dir`, `-d` | `path` | - | - |
 | `--all`, `-a` | `boolean` | - | Include remote branches |
-
-### `devops branches create`
-
-**Create a topic branch following repository branching standards.**
-
-```bash
-devops branches create [OPTIONS] <name>
-```
-
-**Arguments:**
-
-| Argument | Type | Required | Description |
-|---|---|---|---|
-| `<name>` | `string` | Yes | Branch name or slug (e.g. mcp-tools-enhancement) |
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--base`, `-b` | `string` | - | Base branch to fork from (defaults to active release branch) |
-| `--type`, `-t` | `string` | `feat` | Branch type prefix (feat, fix, docs, chore, refactor) |
-| `--repo`, `-r` | `path` | - | Target repo directory (default: cwd) |
-
-### `devops branches status`
-
-**Show detailed branch status, tracking state, ahead/behind drift, and worktree status.**
-
-```bash
-devops branches status [OPTIONS]
-```
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--repo`, `-r` | `path` | - | Target repo directory (default: cwd) |
 
 ### `devops branches clean`
 
@@ -680,7 +623,7 @@ devops k8s bootstrap [OPTIONS]
 
 ### `devops k8s deploy-stack`
 
-**Deploy infrastructure or LLM stack (Ollama, WebUI, Qdrant, Valkey) to minikube.**
+**Deploy infrastructure or LLM stack (Ollama, WebUI, Qdrant, Valkey) to Kubernetes.**
 
 ```bash
 devops k8s deploy-stack [OPTIONS]
@@ -692,6 +635,7 @@ devops k8s deploy-stack [OPTIONS]
 |---|---|---|---|
 | `--k8s-dir` | `path` | `k8s` | Path to k8s/ config directory |
 | `--stack`, `-s` | `string` | `infra` | Stack to deploy (infra, llm, all) |
+| `--context`, `-c` | `string` | - | Kubernetes cluster context |
 
 ### `devops k8s configure-urls`
 
@@ -1036,6 +980,20 @@ devops grafana dashboards import [OPTIONS] <file>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--folder-id` | `integer` | `0` | - |
+
+#### `devops grafana dashboards sync`
+
+**Sync all bundled/local dashboards to Grafana.**
+
+```bash
+devops grafana dashboards sync [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dir`, `-d` | `path` | - | Directory containing dashboard JSON files |
 
 ---
 
@@ -1524,63 +1482,6 @@ devops ci run [OPTIONS]
 |---|---|---|---|
 | `--fix`, `--no-fix` | `boolean` | `True` | Auto-fix lint/format before reporting status |
 
-### `devops ci remote`
-
-**Inspect, monitor, and triage remote GitHub Actions CI workflows.**
-
-```bash
-devops ci remote COMMAND [ARGS]...
-```
-
-#### `devops ci remote status`
-
-**Show status of remote GitHub Actions CI workflow runs or PR checks.**
-
-```bash
-devops ci remote status [OPTIONS]
-```
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--branch`, `-b` | `string` | - | Target branch (defaults to current branch) |
-| `--pr`, `-p` | `integer` | - | Pull request number to inspect checks for |
-| `--limit`, `-n` | `integer` | `5` | Number of workflow runs to display |
-
-#### `devops ci remote logs`
-
-**Fetch and display logs from remote GitHub Actions workflow runs.**
-
-```bash
-devops ci remote logs [OPTIONS]
-```
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--run-id`, `-r` | `string` | - | Workflow run ID to inspect |
-| `--job`, `-j` | `string` | - | Specific job ID to view logs for |
-| `--failed`, `--all` | `boolean` | `True` | Show only failed step logs or complete logs |
-
-#### `devops ci remote watch`
-
-**Watch remote CI checks until all runs reach completion.**
-
-```bash
-devops ci remote watch [OPTIONS]
-```
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--pr`, `-p` | `integer` | - | Pull request number to watch |
-| `--branch`, `-b` | `string` | - | Branch name to watch |
-| `--interval`, `-i` | `float` | `10.0` | Polling interval in seconds |
-| `--timeout`, `-t` | `float` | `600.0` | Maximum watch timeout in seconds |
-
 ---
 
 ## devops uv
@@ -1750,7 +1651,7 @@ devops ai agents [OPTIONS]
 
 ### `devops ai chat`
 
-**Start an interactive chat with a Pydantic AI persona (tools, thinking, streaming).**
+**Start an interactive chat with a Pydantic AI persona (tools, thinking, streaming, RAG).**
 
 ```bash
 devops ai chat [OPTIONS]
@@ -1762,6 +1663,7 @@ devops ai chat [OPTIONS]
 |---|---|---|---|
 | `--persona`, `-p` | `string` | `architect` | Persona to chat with: devsecops, architect, pm, auditor, qa |
 | `--context`, `-c` | `path` | - | Optional file to inject as background context (e.g. AGENTS.md) |
+| `--rag`, `--no-rag` | `boolean` | `True` | Retrieve relevant semantic RAG context |
 | `--stream`, `--no-stream` | `boolean` | `True` | Stream response tokens |
 | `--tools`, `--no-tools` | `boolean` | `True` | Enable DevOps agent tools |
 | `--thinking`, `--no-thinking` | `boolean` | `True` | Enable model reasoning/thinking |
@@ -1782,7 +1684,7 @@ devops ai bundle-models [OPTIONS]
 
 ### `devops ai pipeline`
 
-**Run a multi-agent Pydantic pipeline with shared DevOps tools.**
+**Run a multi-agent Pydantic pipeline with shared DevOps tools and RAG context.**
 
 ```bash
 devops ai pipeline [OPTIONS] <prompt>
@@ -1800,6 +1702,7 @@ devops ai pipeline [OPTIONS] <prompt>
 |---|---|---|---|
 | `--personas`, `-p` | `string` | `devsecops,architect,qa` | Comma-separated persona pipeline sequence (e.g. devsecops,architect,qa) |
 | `--max-turns` | `integer` | `5` | Maximum tool turns per agent stage |
+| `--rag`, `--no-rag` | `boolean` | `True` | Retrieve relevant semantic RAG context |
 | `--thinking`, `--no-thinking` | `boolean` | `True` | Enable reasoning/thinking per agent |
 
 ### `devops ai review`
@@ -2048,6 +1951,85 @@ devops ai analyze pr [OPTIONS] <pr_number>
 |---|---|---|---|
 | `--enhanced`, `-e`, `--no-enhanced` | `boolean` | `True` | Generate AI-enhanced metadata (pseudocode, complexity, last_updated) |
 | `--update-all`, `-u` | `boolean` | - | Regenerate all enhanced metadata fields regardless of last_* timestamps |
+
+### `devops ai rag`
+
+**Manage RAG vector embeddings, indexing, and semantic code search (Qdrant).**
+
+```bash
+devops ai rag COMMAND [ARGS]...
+```
+
+#### `devops ai rag index`
+
+**Scan and index workspace code and documentation into Qdrant vector database.**
+
+```bash
+devops ai rag index [OPTIONS] <path>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<path>` | `path` | No | Directory or file to index into vector store |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--project`, `-p` | `string` | - | Project / repository name override |
+| `--force`, `-f` | `boolean` | - | Re-index all files ignoring content hash cache |
+| `--collection`, `-c` | `string` | - | Target collection override |
+
+#### `devops ai rag query`
+
+**Perform semantic search across indexed workspace code and documentation.**
+
+```bash
+devops ai rag query [OPTIONS] <query>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<query>` | `string` | Yes | Semantic search query string |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--project`, `-p` | `string` | - | Filter results to a specific project |
+| `--language`, `-l` | `string` | - | Filter by programming language |
+| `--category` | `string` | - | Filter by category (code, docs, iac, config) |
+| `--top-k`, `-k` | `integer` | `5` | Number of results to retrieve |
+| `--min-score`, `-s` | `float` | `0.35` | Minimum cosine similarity threshold |
+| `--collection`, `-c` | `string` | - | Search only a specific collection |
+| `--file`, `-f` | `string` | - | Filter results to a specific file |
+
+#### `devops ai rag status`
+
+**Display status of vector database collections and embedding configurations.**
+
+```bash
+devops ai rag status
+```
+
+#### `devops ai rag clear`
+
+**Clear vector index collections from Qdrant.**
+
+```bash
+devops ai rag clear [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--collection`, `-c` | `string` | - | Specific collection to delete (default: all) |
+| `--force`, `-f` | `boolean` | - | Bypass confirmation prompt |
 
 ---
 

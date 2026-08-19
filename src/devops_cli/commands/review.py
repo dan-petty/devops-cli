@@ -38,7 +38,6 @@ from devops_cli.ai.review_schema import (
     ReviewResult,
     ReviewSessionPayload,
     SavedFinding,
-    finding_sort_key,
     parse_review_result,
 )
 from devops_cli.config.constants import (
@@ -53,7 +52,6 @@ from devops_cli.config.constants import (
     CONST_REVIEWS_DATA_DIR,
 )
 from devops_cli.config.defaults import (
-    DEFAULT_REVIEW_CONTEXT_LINES,
     DEFAULT_REVIEW_OVERLAP_FACTOR,
     DEFAULT_REVIEW_TIMEOUT_SECONDS,
     DEFAULT_REVIEW_WINDOW_SIZE_FACTOR,
@@ -192,9 +190,8 @@ def _llm_request_preview(client: Any, system: str, user: str) -> dict[str, Any]:
     }
 
 
-_DEFAULT_CONTEXT_LINES = (
-    DEFAULT_REVIEW_CONTEXT_LINES  # configurable: first/last N code lines captured per segment
-)
+# TODO: Move to Settings
+_DEFAULT_CONTEXT_LINES = 2  # configurable: first/last N code lines captured per segment
 
 
 def _extract_diff_filenames(segment: str) -> list[str]:
@@ -1450,7 +1447,6 @@ def _save_findings_json(
                     **f.model_dump(),
                 )
             )
-    findings = sorted(findings, key=finding_sort_key)
     payload = ReviewSessionPayload(
         generated_at=datetime.now().isoformat(),
         personas=[pd.name for pd, _ in completed],
@@ -2345,7 +2341,7 @@ def list_findings(
         raise typer.Exit(0)
 
     payload = ReviewSessionPayload.model_validate_json(findings_file.read_text(encoding="utf-8"))
-    findings = payload.sorted_findings
+    findings = payload.findings
 
     target_status = status_filter.upper() if status_filter else None
     if unverified:
@@ -2362,7 +2358,6 @@ def list_findings(
     table.add_column("#", justify="right", style="dim")
     table.add_column("Persona", style="cyan")
     table.add_column("Sev", style="bold")
-    table.add_column("Exploit", style="magenta")
     table.add_column("Conf", justify="right")
     table.add_column("Location", overflow="fold")
     table.add_column("Title", overflow="fold")
@@ -2389,7 +2384,6 @@ def list_findings(
             str(i),
             f.persona,
             f.severity,
-            f.exploitability,
             conf_str,
             f.location,
             f.title,

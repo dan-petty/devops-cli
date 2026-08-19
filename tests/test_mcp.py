@@ -61,16 +61,6 @@ class TestMcpServer:
             "config_show",
             "config_output",
             "ci_run",
-            "ci_remote_status",
-            "ci_remote_logs",
-            "pr_list",
-            "pr_view",
-            "pr_checks",
-            "branches_create",
-            "branches_status",
-            "repos_exec",
-            "release_prepare",
-            "release_notes",
             "tf_plan",
             "tf_apply",
             "tf_output",
@@ -210,79 +200,3 @@ class TestTfMcpTools:
             assert tofu_plan("tf/aws") == "ok"
             assert tofu_apply("tf/aws") == "ok"
             assert tofu_output("tf/aws") == "ok"
-
-
-# ── SDLC & PR MCP Tools ───────────────────────────────────────────────────────
-
-
-class TestSdlcMcpTools:
-    """Tests for Remote CI, PR, Branches, Repos Exec, and Release FastMCP tools."""
-
-    def test_ci_remote_status_tool(self) -> None:
-        from devops_cli.ai.mcp.server import ci_remote_status
-
-        with patch(
-            "devops_cli.ai.mcp.server._run_mcp_cmd", return_value="all checks passed"
-        ) as mock:
-            res = ci_remote_status(branch="feat/test", pr_number=14)
-            assert res == "all checks passed"
-            mock.assert_called_once()
-            args = mock.call_args[0][0]
-            assert "ci" in args
-            assert "remote" in args
-            assert "status" in args
-            assert "--pr" in args
-            assert "14" in args
-
-    def test_ci_remote_logs_tool(self) -> None:
-        from devops_cli.ai.mcp.server import ci_remote_logs
-
-        with patch(
-            "devops_cli.ai.mcp.server._run_mcp_cmd", return_value="error log snippet"
-        ) as mock:
-            res = ci_remote_logs(run_id="12345", failed_only=True)
-            assert res == "error log snippet"
-            mock.assert_called_once()
-            args = mock.call_args[0][0]
-            assert "logs" in args
-            assert "--run-id" in args
-            assert "12345" in args
-            assert "--failed" in args
-
-    def test_pr_tools(self) -> None:
-        from devops_cli.ai.mcp.server import pr_checks, pr_list, pr_view
-
-        with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="pr result") as mock:
-            assert pr_list(state="open", repo="owner/repo") == "pr result"
-            assert pr_view(number=13, repo="owner/repo") == "pr result"
-            assert pr_checks(number=13, repo="owner/repo") == "pr result"
-            assert mock.call_count == 3
-
-    def test_branches_tools(self) -> None:
-        from devops_cli.ai.mcp.server import branches_create, branches_status
-
-        with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="branch created") as mock:
-            res = branches_create("new-feature", base="release/v0.1.12", branch_type="feat")
-            assert res == "branch created"
-            assert branches_status(".") == "branch created"
-            assert mock.call_count == 2
-
-    def test_repos_exec_tool(self) -> None:
-        from devops_cli.ai.mcp.server import repos_exec
-
-        with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="exec result") as mock:
-            res = repos_exec("git status -s", base_dir="repos")
-            assert res == "exec result"
-            mock.assert_called_once()
-            args = mock.call_args[0][0]
-            assert "repos" in args
-            assert "exec" in args
-            assert "git status -s" in args
-
-    def test_release_tools(self) -> None:
-        from devops_cli.ai.mcp.server import release_notes, release_prepare
-
-        with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="release result") as mock:
-            assert release_prepare("0.1.12", create_pr=True) == "release result"
-            assert release_notes("0.1.12", raw=True) == "release result"
-            assert mock.call_count == 2

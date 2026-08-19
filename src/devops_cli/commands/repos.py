@@ -22,7 +22,6 @@ from devops_cli.config.constants import (
     CONST_VSCODE_WORKSPACE_FILE,
 )
 from devops_cli.core.cli import new_typer, repo_label
-from devops_cli.core.process import run_subprocess
 from devops_cli.git.operations import (
     clone_repo,
     fetch_all,
@@ -286,69 +285,3 @@ def update(
             rprint(f"  [red]✗[/red] {label}: {exc}")
 
     _sync_and_reload_workspace(root, settings.workspace.file)
-
-
-@app.command("exec")
-def exec_cmd(
-    command: Annotated[str, typer.Argument(help="Shell command string to execute in each repo")],
-    base_dir: Annotated[Path | None, typer.Option("--base-dir", "-d")] = None,
-    fail_fast: Annotated[
-        bool, typer.Option("--fail-fast", "-f", help="Stop execution on first failure")
-    ] = False,
-) -> None:
-    """Execute a shell command across all discovered repositories in repos/."""
-    from devops_cli.config.defaults import DEFAULT_REPOS_EXEC_TIMEOUT_SECONDS
-    from devops_cli.dry_run import CommandDryRunResult, is_dry_run
-
-    if is_dry_run():
-        dry_run_res = CommandDryRunResult(
-            command="devops repos exec",
-            action="execute_across_repositories",
-            details={"command": command, "fail_fast": fail_fast},
-        )
-        rprint("[yellow][dry-run][/yellow] Command response:")
-        console.print_json(dry_run_res.model_dump_json(indent=2))
-        return
-
-    settings = load_settings()
-    root = (base_dir or settings.repos.base_dir).resolve()
-    repos_list = list(iter_workspace_repos(root))
-    if not repos_list:
-        rprint(f"[yellow]No repositories found under {root}.[/yellow]")
-        raise typer.Exit(0)
-
-    table = Table(
-        title=f"Execution Results: '{command}' across {len(repos_list)} repo(s)",
-        title_style="bold",
-    )
-    table.add_column("Repository", style="cyan")
-    table.add_column("Status")
-    table.add_column("Output Preview", overflow="fold")
-
-    any_failed = False
-    for repo_dir in repos_list:
-        label = repo_label(repo_dir)
-        res = run_subprocess(
-            ["sh", "-c", command],
-            cwd=repo_dir,
-            check=False,
-            timeout=DEFAULT_REPOS_EXEC_TIMEOUT_SECONDS,
-        )
-        out = (res.stdout + ("\n" + res.stderr if res.stderr else "")).strip()
-        first_line = out.splitlines()[0] if out else "(no output)"
-        if len(first_line) > 80:
-            first_line = first_line[:77] + "..."
-
-        if res.returncode == 0:
-            status_str = "[green]✓ 0[/green]"
-        else:
-            status_str = f"[red]✗ {res.returncode}[/red]"
-            any_failed = True
-
-        table.add_row(label, status_str, first_line)
-        if any_failed and fail_fast:
-            break
-
-    console.print(table)
-    if any_failed:
-        raise typer.Exit(1)

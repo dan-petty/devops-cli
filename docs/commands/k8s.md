@@ -108,7 +108,7 @@ devops k8s bootstrap [OPTIONS]
 
 ## `devops k8s deploy-stack`
 
-**Deploy infrastructure or LLM stack (Ollama, WebUI, Qdrant, Valkey) to minikube.**
+**Deploy infrastructure or LLM stack (Ollama, WebUI, Qdrant, Valkey) to Kubernetes.**
 
 ```bash
 devops k8s deploy-stack [OPTIONS]
@@ -120,6 +120,7 @@ devops k8s deploy-stack [OPTIONS]
 |---|---|---|---|
 | `--k8s-dir` | `path` | `k8s` | Path to k8s/ config directory |
 | `--stack`, `-s` | `string` | `infra` | Stack to deploy (infra, llm, all) |
+| `--context`, `-c` | `string` | - | Kubernetes cluster context |
 
 ---
 

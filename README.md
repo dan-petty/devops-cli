@@ -111,7 +111,6 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 |  | `devops repos list [OPTIONS]` | List all cloned repositories. |
 |  | `devops repos update [OPTIONS]` | Fetch (and optionally pull) all tracking branches across repos. |
 |  | `devops repos sync [OPTIONS]` | Fetch (and optionally pull) all tracking branches across repos. |
-|  | `devops repos exec [OPTIONS] <command>` | Execute a shell command across all discovered repositories in repos/. |
 | **ssh** | `devops ssh generate [OPTIONS]` | Generate a new Ed25519 SSH key with today's date suffix. |
 |  | `devops ssh register [OPTIONS]` | SSH key generation, rotation, and GitHub registration. |
 |  | `devops ssh rotate [OPTIONS]` | Rotate keys older than rotation_days (default 90). |
@@ -122,8 +121,6 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 |  | `devops branches sync [OPTIONS]` | Fetch and pull tracking branches across all repos. |
 |  | `devops branches jira [OPTIONS] <ticket_id>` | Create a feature branch for a Jira ticket: feature/PROJ-123[-slug]. |
 |  | `devops branches list [OPTIONS]` | List branches across all repos. |
-|  | `devops branches create [OPTIONS] <name>` | Create a topic branch following repository branching standards. |
-|  | `devops branches status [OPTIONS]` | Show detailed branch status, tracking state, ahead/behind drift, and worktree status. |
 |  | `devops branches clean [OPTIONS]` | Delete local branches merged into main/master. |
 | **devcontainer** | `devops devcontainer init [OPTIONS] <repo_path>` | Scaffold .devcontainer/ in a repository using standard or published template. |
 |  | `devops devcontainer update [OPTIONS] <repo_path>` | Update the Python image version in an existing devcontainer.json. |
@@ -143,7 +140,7 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 |  | `devops k8s apply [OPTIONS] <path>` | Apply a Kubernetes manifest (delegates to kubectl). |
 |  | `devops k8s logs [OPTIONS] <pod>` | Stream pod logs (delegates to kubectl). |
 |  | `devops k8s bootstrap [OPTIONS]` | Bootstrap minikube Kubernetes cluster and deploy infrastructure/LLM stack. |
-|  | `devops k8s deploy-stack [OPTIONS]` | Deploy infrastructure or LLM stack (Ollama, WebUI, Qdrant, Valkey) to minikube. |
+|  | `devops k8s deploy-stack [OPTIONS]` | Deploy infrastructure or LLM stack (Ollama, WebUI, Qdrant, Valkey) to Kubernetes. |
 |  | `devops k8s configure-urls [OPTIONS]` | Auto-detect Minikube stack URLs and update CLI config. |
 |  | `devops k8s port-forward [OPTIONS]` | Port-forward k8s monitoring / LLM stack services to localhost ports and update CLI config. |
 |  | `devops k8s teardown-stack [OPTIONS]` | Uninstall the k8s infrastructure / LLM stack and delete namespaces. |
@@ -188,7 +185,6 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 |  | `devops ci actionlint` | Run actionlint to validate GitHub Actions workflows for syntax and schema errors. |
 |  | `devops ci docs` | Verify that documentation is up to date with CLI commands and configuration. |
 |  | `devops ci run [OPTIONS]` | Run full CI and return a single pass/fail status. |
-|  | `devops ci remote COMMAND [ARGS]...` | Inspect, monitor, and triage remote GitHub Actions CI workflows. |
 | **uv** | `devops uv sync [OPTIONS]` | Sync project dependencies into the virtual environment. |
 |  | `devops uv lock [OPTIONS]` | Regenerate the uv lockfile. |
 |  | `devops uv python-install [OPTIONS]` | Install project Python version with uv. |
@@ -199,11 +195,12 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 |  | `devops ai preload` | Preload configured model into VRAM across all configured Ollama servers. |
 |  | `devops ai test [OPTIONS]` | Send a test prompt to verify AI provider connectivity. |
 |  | `devops ai agents [OPTIONS]` | Generate LLM/Agent instruction files (AGENTS.md, CLAUDE.md, copilot-instructions.md). |
-|  | `devops ai chat [OPTIONS]` | Start an interactive chat with a Pydantic AI persona (tools, thinking, streaming). |
+|  | `devops ai chat [OPTIONS]` | Start an interactive chat with a Pydantic AI persona (tools, thinking, streaming, RAG). |
 |  | `devops ai bundle-models [OPTIONS]` | Bundle Ollama model metadata into tarball for air-gapped DevContainers. |
-|  | `devops ai pipeline [OPTIONS] <prompt>` | Run a multi-agent Pydantic pipeline with shared DevOps tools. |
+|  | `devops ai pipeline [OPTIONS] <prompt>` | Run a multi-agent Pydantic pipeline with shared DevOps tools and RAG context. |
 |  | `devops ai review COMMAND [ARGS]...` | AI-powered code reviews using expert personas (devsecops, architect, pm, auditor, qa). |
 |  | `devops ai analyze COMMAND [ARGS]...` | Analyze codebase metadata and create/update .data/analysis/*-metadata.json files. |
+|  | `devops ai rag COMMAND [ARGS]...` | Manage RAG vector embeddings, indexing, and semantic code search (Qdrant). |
 | **review** | `devops review path [OPTIONS] <target>` | Review source files directly (no git required). |
 |  | `devops review branch [OPTIONS] <branch_name>` | Review a git branch diff with one or all AI personas. |
 |  | `devops review pr [OPTIONS] <number>` | Review a GitHub pull request with one or all AI personas. |

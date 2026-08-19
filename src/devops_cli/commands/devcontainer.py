@@ -74,12 +74,6 @@ def init(
         rprint(f"[yellow]devcontainer.json already exists: {dc_file}[/yellow]")
         raise typer.Exit(1)
 
-    if not re.match(r"^\d+\.\d+(\.\d+)?$", python_version):
-        rprint(
-            f"[red]Invalid Python version format '{python_version}'. Expected X.Y or X.Y.Z.[/red]"
-        )
-        raise typer.Exit(1)
-
     raw_name = project_name or repo_path.resolve().name
     # Strip characters unsafe in container names / shell contexts
     name = re.sub(r"[^a-zA-Z0-9._-]+", "_", raw_name)
@@ -160,26 +154,17 @@ def _validate_manifest_content(data: object, base_dir: Path) -> list[str]:
             "Manifest must specify a base container via 'image', 'build', or 'dockerFile'."
         )
 
-    resolved_base = base_dir.resolve()
     if has_build and isinstance(data["build"], dict):
         build_dict = data["build"]
         dockerfile = build_dict.get("dockerfile") or build_dict.get("dockerFile")
         if dockerfile and isinstance(dockerfile, str):
             dockerfile_path = (base_dir / dockerfile).resolve()
-            if not dockerfile_path.is_relative_to(resolved_base):
-                errors.append(
-                    f"Referenced build dockerfile is outside repository workspace: {dockerfile}"
-                )
-            elif not dockerfile_path.exists():
+            if not dockerfile_path.exists():
                 errors.append(f"Referenced build dockerfile does not exist: {dockerfile}")
 
     if has_dockerfile and isinstance(data["dockerFile"], str):
         df_path = (base_dir / data["dockerFile"]).resolve()
-        if not df_path.is_relative_to(resolved_base):
-            errors.append(
-                f"Referenced dockerFile is outside repository workspace: {data['dockerFile']}"
-            )
-        elif not df_path.exists():
+        if not df_path.exists():
             errors.append(f"Referenced dockerFile does not exist: {data['dockerFile']}")
 
     if "features" in data and not isinstance(data["features"], dict):
@@ -385,22 +370,6 @@ def _run_post_create_lifecycle(workspace_dir: Path, *, dry_run: bool = False) ->
     if devops_cfg and not Path(devops_cfg).exists():
         actions.append(f"Warning: Specified DEVOPS_CLI_CONFIG file does not exist: {devops_cfg}")
 
-    # 3. Ensure system-wide PATH symlinks for uv / uvx
-    for binary_name in ("uv", "uvx"):
-        user_bin = Path.home() / ".local" / "bin" / binary_name
-        system_bin = Path("/usr/local/bin") / binary_name
-        if user_bin.exists() and not system_bin.exists():
-            if not dry_run:
-                try:
-                    system_bin.symlink_to(user_bin)
-                except OSError:
-                    run_subprocess(
-                        ["sudo", "-n", "ln", "-sf", str(user_bin), str(system_bin)],
-                        check=False,
-                        quiet=True,
-                    )
-            actions.append(f"Symlinked {binary_name} to {system_bin}")
-
     return actions
 
 
@@ -485,15 +454,18 @@ def _run_post_start_lifecycle(workspace_dir: Path, *, dry_run: bool = False) -> 
         actions.append(f"Scaffolded MCP configuration at {vscode_mcp}")
 
     if vscode_mcp.exists():
-        mcp_dest = Path.home() / ".gemini" / "config" / "mcp_config.json"
-        if not dry_run:
-            mcp_dest.parent.mkdir(parents=True, exist_ok=True)
-            raw_text = vscode_mcp.read_text(encoding="utf-8")
-            synced_text = raw_text.replace("${workspaceFolder}", str(workspace_dir)).replace(
-                "${env:HOME}", str(Path.home())
-            )
-            mcp_dest.write_text(synced_text, encoding="utf-8")
-        actions.append(f"Synced MCP configuration to {mcp_dest}")
+        for mcp_dest in (
+            Path.home() / ".gemini" / "config" / "mcp_config.json",
+            Path.home() / ".gemini" / "antigravity-ide" / "mcp_config.json",
+        ):
+            if not dry_run:
+                mcp_dest.parent.mkdir(parents=True, exist_ok=True)
+                raw_text = vscode_mcp.read_text(encoding="utf-8")
+                synced_text = raw_text.replace("${workspaceFolder}", str(workspace_dir)).replace(
+                    "${env:HOME}", str(Path.home())
+                )
+                mcp_dest.write_text(synced_text, encoding="utf-8")
+            actions.append(f"Synced MCP configuration to {mcp_dest}")
 
         agents_dir = workspace_dir / ".agents"
         if agents_dir.exists():
@@ -600,6 +572,82 @@ def _run_post_start_lifecycle(workspace_dir: Path, *, dry_run: bool = False) -> 
                 actions.append("Warning: Failed to install pre-commit Git hooks")
         else:
             actions.append("Installed pre-commit Git hooks (uv run pre-commit install)")
+
+    # 7. Git daemon background service
+    auto_git_daemon = os.getenv("DEVOPS_GIT_DAEMON_AUTOSTART", "true").lower() in ("true", "1")
+    if auto_git_daemon:
+        actions.extend(_start_git_daemon(workspace_dir, dry_run=dry_run))
+
+    return actions
+
+
+def _git_daemon_pid_file() -> Path:
+    """Return platform-safe path to git daemon pid file."""
+    import tempfile
+
+    return Path(tempfile.gettempdir()) / "git-daemon.pid"
+
+
+def _is_git_daemon_running() -> bool:
+    """Check if git daemon is running via pidfile or port 9418 socket check."""
+    pid_file = _git_daemon_pid_file()
+    if pid_file.exists():
+        try:
+            pid = int(pid_file.read_text(encoding="utf-8").strip())
+            os.kill(pid, 0)
+            return True
+        except (OSError, ValueError):
+            pass
+    import socket
+
+    try:
+        with socket.create_connection(("127.0.0.1", 9418), timeout=0.2):
+            return True
+    except OSError:
+        pass
+    return False
+
+
+def _start_git_daemon(workspace_dir: Path, *, dry_run: bool = False) -> list[str]:
+    """Ensure background git daemon is running serving workspace repositories."""
+    actions: list[str] = []
+    if _is_git_daemon_running():
+        actions.append("Git daemon is already running on port 9418")
+        return actions
+
+    if not shutil.which("git"):
+        return actions
+
+    raw_paths = os.getenv("DEVOPS_GIT_DAEMON_PATHS")
+    if raw_paths:
+        export_dirs = [Path(p.strip()) for p in raw_paths.split(",") if p.strip()]
+    else:
+        export_dirs = [workspace_dir / "k8s", workspace_dir / "repos"]
+
+    for d in export_dirs:
+        if not dry_run:
+            d.mkdir(parents=True, exist_ok=True)
+
+    pid_file = _git_daemon_pid_file()
+    cmd = [
+        "git",
+        "daemon",
+        "--reuseaddr",
+        "--detach",
+        f"--pid-file={pid_file}",
+        "--export-all",
+        *[str(d) for d in export_dirs],
+    ]
+
+    paths_str = ", ".join(str(d) for d in export_dirs)
+    if not dry_run:
+        res = run_subprocess(cmd, check=False, quiet=True)
+        if res.returncode == 0:
+            actions.append(f"Started background Git daemon on port 9418 ({paths_str})")
+        else:
+            actions.append(f"Failed to start Git daemon (exit {res.returncode}): {res.stderr}")
+    else:
+        actions.append(f"Started background Git daemon on port 9418 ({paths_str})")
 
     return actions
 

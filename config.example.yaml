@@ -55,11 +55,29 @@ argocd:
   url: null
   # Token: devops config set argocd.token <value>
 
+# ── Qdrant Vector Store ───────────────────────────────────────────────────────
+qdrant:
+  # Qdrant server base URL for Retrieval-Augmented Generation (RAG).
+  # Example: http://localhost:6333 or http://hog.lan:31744
+  url: http://localhost:6333
+  collection_prefix: devops
+
+# ── Jaeger Tracing ────────────────────────────────────────────────────────────
+jaeger:
+  # Jaeger Query UI base URL for viewing OpenTelemetry traces.
+  # Example: http://localhost:16686 or http://hog.lan:31686
+  url: http://localhost:16686
+
+# ── Telemetry ─────────────────────────────────────────────────────────────────
+telemetry:
+  # OpenTelemetry OTLP collector endpoint for devops-cli traces & metrics.
+  enabled: true
+  endpoint: http://localhost:4318
+
 # ── AI / LLM ─────────────────────────────────────────────────────────────────
 ai:
   # Provider to use for AI-powered commands (devops ai, devops ai review).
   # Options: ollama | claude | copilot | openai
-
   provider: ollama
 
   # Model name for the selected provider.
@@ -81,5 +99,12 @@ ai:
   # Required when Ollama or cluster services run on a private network (e.g. 192.168.x.x).
   # Equivalent to setting DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true in the environment.
   allow_private_network: false
+
+  # RAG (Retrieval-Augmented Generation) settings
+  rag:
+    enabled: true
+    embedding_model: all-minilm
+    top_k: 5
+    score_threshold: 0.35
 
   # API key: devops config set ai.api_key <value>

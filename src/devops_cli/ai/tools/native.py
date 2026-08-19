@@ -170,3 +170,48 @@ def run_security_scan() -> str:
         ["bandit", "-r", "src", "-q"],
         fallback_msg="No high/medium security issues detected by bandit.",
     )
+
+
+def rag_search(
+    query: str,
+    top_k: int = 5,
+    project: str | None = None,
+    language: str | None = None,
+    category: str | None = None,
+) -> str:
+    """Perform semantic vector retrieval over indexed workspace code, polyglot repos, and docs."""
+    try:
+        from devops_cli.ai.rag.embeddings import EmbeddingsEngine
+        from devops_cli.ai.rag.qdrant import QdrantClient
+        from devops_cli.ai.rag.retriever import SemanticRetriever
+        from devops_cli.config.settings import get_ai_api_key, load_settings
+
+        settings = load_settings()
+        qdrant_url = settings.qdrant.url or "http://localhost:6333"
+        prefix = settings.qdrant.collection_prefix or "devops"
+        qdrant = QdrantClient(
+            base_url=qdrant_url, allow_private_network=settings.ai.allow_private_network
+        )
+        if not qdrant.is_alive():
+            return f"RAG vector database unavailable at {qdrant_url}. Fallback: use search_code."
+
+        embedder = EmbeddingsEngine(ai_config=settings.ai, api_key=get_ai_api_key(settings))
+        retriever = SemanticRetriever(
+            qdrant=qdrant,
+            embedder=embedder,
+            code_collection=f"{prefix}_code",
+            docs_collection=f"{prefix}_docs",
+            default_top_k=top_k,
+        )
+        context = retriever.retrieve_context(
+            query,
+            top_k=top_k,
+            project=project,
+            language=language,
+            category=category,
+        )
+        if not context.results:
+            return f"No semantic matches found in vector store for: {query}"
+        return context.formatted_text
+    except Exception as exc:
+        return f"RAG search error: {exc}"

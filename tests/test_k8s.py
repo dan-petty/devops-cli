@@ -89,14 +89,16 @@ def test_k8s_configure_urls_dry_run() -> None:
 
 
 @patch("devops_cli.commands.k8s._detect_service_url")
+@patch("devops_cli.commands.k8s._cluster_reachable", return_value=True)
 @patch("devops_cli.commands.k8s._minikube_running", return_value=True)
 def test_k8s_configure_urls_success(
     mock_running: MagicMock,
+    mock_cluster: MagicMock,
     mock_detect: MagicMock,
 ) -> None:
     """k8s configure-urls must query service URLs and update configuration."""
 
-    def fake_detect(service: str, ns: str) -> str | None:
+    def fake_detect(service: str, ns: str, context: str | None = None) -> str | None:
         return f"http://192.168.49.2:{30000 + len(service)}"
 
     set_dry_run(False)
@@ -104,6 +106,17 @@ def test_k8s_configure_urls_success(
     result = runner.invoke(app, ["configure-urls"])
     assert result.exit_code == 0
     assert "Configured Service Targets" in result.output
+
+
+@patch("devops_cli.commands.k8s._cluster_reachable", return_value=False)
+def test_k8s_deploy_stack_fails_when_cluster_unreachable(
+    mock_cluster: MagicMock,
+) -> None:
+    """k8s deploy-stack must fail gracefully when cluster is unreachable."""
+    set_dry_run(False)
+    result = runner.invoke(app, ["deploy-stack", "--context", "homelab-k3s"])
+    assert result.exit_code == 1
+    assert "Kubernetes cluster is not reachable" in result.output
 
 
 @patch("devops_cli.commands.k8s._verify_url_reachability")
