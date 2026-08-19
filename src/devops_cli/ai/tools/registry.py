@@ -14,6 +14,11 @@ from devops_cli.ai.tools.native import (
     rag_search,
     read_file,
     run_security_scan,
+    scan_bandit,
+    scan_kubelinter,
+    scan_pluto,
+    scan_popeye,
+    scan_trivy,
     search_code,
 )
 
@@ -29,6 +34,11 @@ def get_default_tools() -> list[Any]:
         rag_search,
         k8s_pods,
         argo_apps,
+        scan_trivy,
+        scan_kubelinter,
+        scan_pluto,
+        scan_bandit,
+        scan_popeye,
         run_security_scan,
     ]
     return native + get_mcp_agent_tools()

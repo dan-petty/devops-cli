@@ -194,11 +194,14 @@ class ReviewPipelineOrchestrator:
 
         static_findings_by_file: dict[str, list[SavedFinding]] = {}
         try:
+            from devops_cli.security.bandit import run_bandit_scan
             from devops_cli.security.kubelinter import run_kubelinter_scan
+            from devops_cli.security.pluto import run_pluto_scan
             from devops_cli.security.trivy import run_trivy_scan
 
             for fpath in file_paths:
                 p_obj = Path(fpath)
+                # 1. Kube-linter & Pluto scan for K8s manifests
                 if fpath.endswith((".yaml", ".yml")):
                     kl_findings = run_kubelinter_scan(p_obj)
                     if kl_findings:
@@ -211,6 +214,34 @@ class ReviewPipelineOrchestrator:
                             for f in kl_findings
                         ]
                         static_findings_by_file.setdefault(fpath, []).extend(sf_list)
+
+                    pluto_findings = run_pluto_scan(p_obj)
+                    if pluto_findings:
+                        sf_list = [
+                            SavedFinding(
+                                **f.model_dump(),
+                                persona="devsecops",
+                                persona_title="Principal DevSecOps Engineer",
+                            )
+                            for f in pluto_findings
+                        ]
+                        static_findings_by_file.setdefault(fpath, []).extend(sf_list)
+
+                # 2. Bandit static security scanner for Python files
+                if fpath.endswith(".py"):
+                    bandit_findings = run_bandit_scan(p_obj)
+                    if bandit_findings:
+                        sf_list = [
+                            SavedFinding(
+                                **f.model_dump(),
+                                persona="devsecops",
+                                persona_title="Principal DevSecOps Engineer",
+                            )
+                            for f in bandit_findings
+                        ]
+                        static_findings_by_file.setdefault(fpath, []).extend(sf_list)
+
+                # 3. Aqua Trivy scan across all targets
                 t_findings = run_trivy_scan(p_obj, scan_type="fs")
                 if t_findings:
                     sf_list = [

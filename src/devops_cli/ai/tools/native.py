@@ -164,12 +164,78 @@ def argo_apps() -> str:
     )
 
 
-def run_security_scan() -> str:
-    """Perform static security analysis scan on workspace."""
+def scan_trivy(
+    target: str = ".",
+    scan_type: str = "fs",
+    severity: str = "UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL",
+) -> str:
+    """Run Aqua Trivy vulnerability, secret, misconfiguration, and IaC scanner."""
+    target_path = Path(target).resolve()
+    if not _is_safe_workspace_path(target_path):
+        return f"Access Denied: {target} is outside workspace."
     return _run_tool_cmd(
-        ["bandit", "-r", "src", "-q"],
-        fallback_msg="No high/medium security issues detected by bandit.",
+        ["trivy", scan_type, "--severity", severity, str(target_path)],
+        fallback_msg="No vulnerabilities, secrets, or flaws found by Trivy.",
+        max_chars=DEFAULT_TOOL_DIFF_MAX_CHARS,
     )
+
+
+def scan_kubelinter(target: str = ".") -> str:
+    """Run Red Hat Kube-linter static security and best-practice analysis on K8s manifests."""
+    target_path = Path(target).resolve()
+    if not _is_safe_workspace_path(target_path):
+        return f"Access Denied: {target} is outside workspace."
+    return _run_tool_cmd(
+        ["kube-linter", "lint", str(target_path)],
+        fallback_msg="No K8s manifest lint errors detected by Kube-linter.",
+        max_chars=DEFAULT_TOOL_DIFF_MAX_CHARS,
+    )
+
+
+def scan_pluto(target: str = ".") -> str:
+    """Run Fairwinds Pluto to detect deprecated and removed Kubernetes API versions."""
+    target_path = Path(target).resolve()
+    if not _is_safe_workspace_path(target_path):
+        return f"Access Denied: {target} is outside workspace."
+    cmd = (
+        ["pluto", "detect-files", "-f", str(target_path)]
+        if target_path.is_file()
+        else ["pluto", "detect-files", "-d", str(target_path)]
+    )
+    return _run_tool_cmd(
+        cmd,
+        fallback_msg="No deprecated Kubernetes APIs detected by Pluto.",
+        max_chars=DEFAULT_TOOL_DIFF_MAX_CHARS,
+    )
+
+
+def scan_bandit(target: str = "src") -> str:
+    """Run PyCQA Bandit static security vulnerability analysis on Python source files."""
+    target_path = Path(target).resolve()
+    if not _is_safe_workspace_path(target_path):
+        return f"Access Denied: {target} is outside workspace."
+    return _run_tool_cmd(
+        ["bandit", "-r", str(target_path), "-ll", "-s", "B608", "-q"],
+        fallback_msg="No high/medium security issues detected by Bandit.",
+        max_chars=DEFAULT_TOOL_DIFF_MAX_CHARS,
+    )
+
+
+def scan_popeye(namespace: str = "") -> str:
+    """Run Popeye Kubernetes cluster and namespace resource sanitizer."""
+    cmd = ["popeye"]
+    if namespace:
+        cmd.extend(["-n", namespace])
+    return _run_tool_cmd(
+        cmd,
+        fallback_msg="Popeye cluster sanitize check passed.",
+        max_chars=DEFAULT_TOOL_DIFF_MAX_CHARS,
+    )
+
+
+def run_security_scan(target: str = "src") -> str:
+    """Perform static security analysis scan on Python workspace files (alias for scan_bandit)."""
+    return scan_bandit(target=target)
 
 
 def rag_search(
