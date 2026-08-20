@@ -111,6 +111,11 @@ def is_file_reference(target: str, source_file: str = "") -> bool:
         ):
             return True
 
+    suffix = Path(target_clean).suffix.lower().lstrip(".")
+    if suffix in _VALID_TLDS:
+        # Standard TLDs (e.g. .org, .ai, .com, .net, .io, .dev) are domain suffixes, not files
+        return False
+
     # Standard library mimetypes check
     mime, _ = mimetypes.guess_type(target_clean)
     if mime is not None and mime not in (
@@ -120,8 +125,7 @@ def is_file_reference(target: str, source_file: str = "") -> bool:
     ):
         return True
 
-    suffix = Path(target_clean).suffix.lower()
-    if suffix in mimetypes.types_map and suffix not in (".com", ".sh"):
+    if f".{suffix}" in mimetypes.types_map and suffix not in ("com", "sh"):
         return True
 
     return False
@@ -202,6 +206,173 @@ _CODE_PROPERTY_SUFFIXES = {
 }
 
 
+# Standard IANA Top-Level Domains (gTLDs and ccTLDs)
+_VALID_TLDS = {
+    "com",
+    "org",
+    "net",
+    "edu",
+    "gov",
+    "mil",
+    "int",
+    "arpa",
+    "io",
+    "dev",
+    "app",
+    "ai",
+    "co",
+    "me",
+    "info",
+    "biz",
+    "cloud",
+    "tech",
+    "online",
+    "site",
+    "store",
+    "xyz",
+    "top",
+    "pro",
+    "club",
+    "vip",
+    "space",
+    "live",
+    "world",
+    "link",
+    "host",
+    "network",
+    "zone",
+    "digital",
+    "agency",
+    "global",
+    "systems",
+    "group",
+    "today",
+    "company",
+    "email",
+    "solutions",
+    "services",
+    "center",
+    "directory",
+    "media",
+    "press",
+    "news",
+    "design",
+    "run",
+    "security",
+    "page",
+    "law",
+    "bank",
+    "finance",
+    "health",
+    "tv",
+    "cc",
+    "fm",
+    "am",
+    # Country code TLDs (ccTLDs)
+    "ca",
+    "uk",
+    "de",
+    "fr",
+    "jp",
+    "cn",
+    "au",
+    "eu",
+    "in",
+    "br",
+    "ru",
+    "nl",
+    "ch",
+    "se",
+    "no",
+    "fi",
+    "es",
+    "it",
+    "nz",
+    "sg",
+    "kr",
+    "hk",
+    "tw",
+    "za",
+    "mx",
+    "be",
+    "at",
+    "dk",
+    "ie",
+    "pl",
+    "cz",
+    "il",
+    "gr",
+    "pt",
+    "ro",
+    "hu",
+    "ua",
+    "cl",
+    "ar",
+    "is",
+    "ee",
+    "lv",
+    "lt",
+    "bg",
+    "hr",
+    "sk",
+    "si",
+    "lu",
+    "mt",
+    "cy",
+    "ae",
+    "sa",
+    "eg",
+    "ng",
+    "ke",
+    "vn",
+    "th",
+    "id",
+    "my",
+    "ph",
+    "pk",
+    "bd",
+    "tr",
+    "ir",
+    "iq",
+    "kz",
+    "uz",
+    "by",
+    "az",
+    "ge",
+    "md",
+    "kg",
+    "tj",
+    "tm",
+    "mn",
+}
+
+# Code file extensions where bare domain extraction requires string/comment context
+_CODE_FILE_EXTENSIONS = {
+    ".py",
+    ".ts",
+    ".js",
+    ".go",
+    ".rs",
+    ".java",
+    ".c",
+    ".cpp",
+    ".h",
+    ".cs",
+    ".rb",
+    ".php",
+    ".sh",
+    ".bash",
+    ".zsh",
+    ".scala",
+    ".kt",
+    ".swift",
+}
+
+_STRING_OR_COMMENT_REGEX = re.compile(
+    r"""(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|#[^\r\n]*|//[^\r\n]*|/\*[\s\S]*?\*/)"""
+)
+
+
 def is_network_domain(target: str, source_file: str = "") -> bool:
     """Validate whether target string is a legitimate public network domain using urllib
     and ipaddress.
@@ -214,8 +385,21 @@ def is_network_domain(target: str, source_file: str = "") -> bool:
     if not hostname or "." not in hostname:
         return False
 
-    suffix = hostname.rsplit(".", 1)[-1].lower()
-    if suffix in _CODE_PROPERTY_SUFFIXES:
+    # Ensure hostname conforms to domain name formatting (letters, digits, hyphens, dots)
+    if not re.fullmatch(r"[a-zA-Z0-9.-]+", hostname):
+        return False
+
+    parts = hostname.split(".")
+    if any(not p or p.startswith("-") or p.endswith("-") for p in parts):
+        return False
+
+    tld = parts[-1].lower()
+    # Must end in a recognized top-level domain
+    if tld not in _VALID_TLDS:
+        return False
+
+    # Reject code property identifiers or reserved tokens
+    if any(p.lower() in _CODE_PROPERTY_SUFFIXES for p in parts):
         return False
 
     # Check against RFC reserved and excluded domains
@@ -239,9 +423,11 @@ def extract_network_references(content: str, source_file: str = "") -> list[Netw
     """Extract external IPs, URLs, and public domains from documentation or source code."""
     results: list[NetworkReference] = []
     seen: set[str] = set()
+    src_suffix = Path(source_file).suffix.lower() if source_file else ""
+    is_code_file = src_suffix in _CODE_FILE_EXTENSIONS
 
-    # 1. Extract URLs
     for line_idx, line in enumerate(content.splitlines(), 1):
+        # 1. Extract URLs
         for match in _URL_REGEX.finditer(line):
             url = match.group(0).rstrip(".,;)>]\"'")
             if url not in seen:
@@ -269,24 +455,33 @@ def extract_network_references(content: str, source_file: str = "") -> list[Netw
                     )
                 )
 
-        # 3. Extract External Domains using standard library validation
-        for match in _DOMAIN_REGEX.finditer(line):
-            domain = match.group(0).lower().rstrip(".,;)>]\"'")
-            if (
-                domain not in seen
-                and "/" not in line[max(0, match.start() - 1) : match.end() + 1]
-                and "\\" not in line[max(0, match.start() - 1) : match.end() + 1]
-                and is_network_domain(domain, source_file=source_file)
-            ):
-                seen.add(domain)
-                results.append(
-                    NetworkReference(
-                        target=domain,
-                        reference_type="domain",
-                        source_file=source_file,
-                        line_number=line_idx,
+        # 3. Extract External Domains
+        # In code files, only search inside string literals or comments to prevent
+        # matching Python method calls, attribute chains, and imports as domains
+        target_texts: list[str] = []
+        if is_code_file:
+            target_texts = [m.group(0) for m in _STRING_OR_COMMENT_REGEX.finditer(line)]
+        else:
+            target_texts = [line]
+
+        for text_segment in target_texts:
+            for match in _DOMAIN_REGEX.finditer(text_segment):
+                domain = match.group(0).lower().rstrip(".,;)>]\"'")
+                if (
+                    domain not in seen
+                    and "/" not in text_segment[max(0, match.start() - 1) : match.end() + 1]
+                    and "\\" not in text_segment[max(0, match.start() - 1) : match.end() + 1]
+                    and is_network_domain(domain, source_file=source_file)
+                ):
+                    seen.add(domain)
+                    results.append(
+                        NetworkReference(
+                            target=domain,
+                            reference_type="domain",
+                            source_file=source_file,
+                            line_number=line_idx,
+                        )
                     )
-                )
 
     return results
 

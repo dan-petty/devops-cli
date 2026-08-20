@@ -116,6 +116,86 @@ def test_extract_network_references_gitignore_filtering() -> None:
     assert len(refs) == 0
 
 
+def test_extract_network_references_python_code_token_filtering() -> None:
+    """Ensure Python function calls, method chains, imports, and variables are not matched."""
+    python_code = """
+    import logging
+    from unittest.mock import MagicMock
+    import pytest
+    import typer
+
+    logger = logging.getLogger(__name__)
+
+    class Client:
+        def __init__(self):
+            self.settings = {"url": "https://api.example-service.com"}
+            self.sdk = MagicMock()
+            self.authenticated = False
+
+        def get_data(self):
+            logger.debug("fetching")
+            res = self.sdk.get.sites()
+            data = res.get("items")
+            endpoint = "https://custom-cloud.io/v1/metrics"
+            domain_literal = "metrics.internal-monitoring.net"
+            return data
+
+    def test_func():
+        with pytest.raises(ValueError):
+            runner.invoke(app, ["serve"])
+    """
+    refs = extract_network_references(python_code, "src/service/client.py")
+    targets = {r.target for r in refs}
+
+    # Should find legitimate URLs and quoted string domain literals
+    assert "https://api.example-service.com" in targets
+    assert "https://custom-cloud.io/v1/metrics" in targets
+    assert "metrics.internal-monitoring.net" in targets
+
+    # Must NOT match Python code tokens, functions, methods, or attributes
+    assert "logging.getlogger" not in targets
+    assert "self.settings" not in targets
+    assert "self.sdk" not in targets
+    assert "self.authenticated" not in targets
+    assert "logger.debug" not in targets
+    assert "self.sdk.get.sites" not in targets
+    assert "res.get" not in targets
+    assert "pytest.raises" not in targets
+    assert "runner.invoke" not in targets
+    assert "unittest.mock" not in targets
+
+
+def test_extract_network_references_toml_table_filtering() -> None:
+    """Ensure TOML table headers like tool.ruff, tool.pytest are not treated as domains."""
+    toml_content = """
+    [project]
+    name = "demo-pkg"
+    homepage = "https://custom-vendor.org"
+    server_domain = "api.custom-vendor.org"
+
+    [tool.ruff]
+    line-length = 100
+
+    [tool.ruff.lint]
+    select = ["E", "F"]
+
+    [tool.pytest.ini_options]
+    testpaths = ["tests"]
+
+    [tool.mypy]
+    strict = true
+    """
+    refs = extract_network_references(toml_content, "pyproject.toml")
+    targets = {r.target for r in refs}
+
+    assert "https://custom-vendor.org" in targets
+    assert "api.custom-vendor.org" in targets
+    assert "tool.ruff" not in targets
+    assert "tool.ruff.lint" not in targets
+    assert "tool.pytest" not in targets
+    assert "tool.mypy" not in targets
+
+
 @patch("httpx.Client.post")
 def test_osv_client(mock_post: MagicMock) -> None:
     mock_resp = MagicMock()
