@@ -40,6 +40,7 @@ from devops_cli.ai.review_schema import (
     consolidate_duplicate_findings,
     parse_review_result,
 )
+from devops_cli.ai.thinking import extract_think_blocks
 from devops_cli.config.constants import (
     CONST_DATA_DIR,
     CONST_MAX_FILE_SIZE_BYTES,
@@ -470,12 +471,19 @@ class ReviewPipelineOrchestrator:
 
             from devops_cli.ai.personas import Persona
 
+            persona_lookup: dict[str, tuple[str, str]] = {}
             for p_key in active_personas:
                 try:
                     persona_enum = Persona(p_key) if isinstance(p_key, str) else p_key
+                    p_val = (
+                        persona_enum.value if hasattr(persona_enum, "value") else str(persona_enum)
+                    )
                 except ValueError:
                     persona_enum = Persona.DEVSECOPS
+                    p_val = "devsecops"
                 p_def = PERSONAS[persona_enum]
+                persona_lookup[p_def.title] = (p_val, p_def.title)
+                persona_lookup[p_val] = (p_val, p_def.title)
                 sys_prompt = (
                     f"You are {p_def.title}.\n{p_def.system_prompt}\n\n"
                     "CRITICAL: Examine code carefully for flaws and security vulnerabilities.\n"
@@ -532,9 +540,23 @@ class ReviewPipelineOrchestrator:
             actual_servers: list[str] = []
             try:
                 result = pipeline.run(prompt, max_turns_per_agent=1, enable_thinking=False)
+                thoughts_list: list[str] = payload.ai_scratchpad.setdefault("thoughts", [])
                 for step in result.steps:
                     if step.backend_info and step.backend_info not in actual_servers:
                         actual_servers.append(step.backend_info)
+
+                    # Extract thinking blocks from step
+                    if step.thoughts:
+                        for t in step.thoughts:
+                            t_clean = t.strip()
+                            if t_clean and t_clean not in thoughts_list:
+                                thoughts_list.append(f"[{step.agent_name}] {t_clean}")
+                    elif step.content:
+                        thinks, _ = extract_think_blocks(step.content)
+                        for t in thinks:
+                            t_clean = t.strip()
+                            if t_clean and t_clean not in thoughts_list:
+                                thoughts_list.append(f"[{step.agent_name}] {t_clean}")
 
                     parsed: ReviewResult | None = None
                     if step.parsed_data and isinstance(step.parsed_data, ReviewResult):
@@ -542,12 +564,23 @@ class ReviewPipelineOrchestrator:
                     else:
                         parsed = parse_review_result(step.content)
 
+                    p_val, p_title = persona_lookup.get(
+                        step.agent_name,
+                        (step.agent_name.lower().replace(" ", "_"), step.agent_name),
+                    )
+
+                    rec_str = parsed.recommendation if parsed else "REVIEW"
+                    n_findings_step = len(parsed.findings) if parsed else 0
+                    thoughts_list.append(
+                        f"[{p_title}] Evaluated {fpath}: {rec_str} ({n_findings_step} finding(s))"
+                    )
+
                     if parsed and parsed.findings:
                         for f in parsed.findings:
                             saved = SavedFinding(
                                 **f.model_dump(),
-                                persona=step.agent_name,
-                                persona_title=step.agent_name,
+                                persona=p_val,
+                                persona_title=p_title,
                             )
                             file_findings.append(saved)
 
@@ -558,6 +591,9 @@ class ReviewPipelineOrchestrator:
                 payload.findings = []
                 payload.ai_scratchpad["stage"] = "failed"
                 payload.ai_scratchpad["error"] = str(exc)
+                payload.ai_scratchpad.setdefault("thoughts", []).append(
+                    f"Review failed for {fpath}: {exc}"
+                )
 
             sanitized_name = _sanitize_filename(fpath) + ".json"
             json_target = self.files_dir / sanitized_name
@@ -653,6 +689,15 @@ class ReviewPipelineOrchestrator:
                 orig.verified_at = datetime.now(UTC).isoformat()
                 updated_saved.append(orig)
 
+            valid_cnt = sum(1 for f in updated_saved if f.status in ("VERIFIED", "MITIGATED"))
+            tot_u = len(updated_saved)
+
+            thoughts_list = payload.ai_scratchpad.setdefault("thoughts", [])
+            thoughts_list.append(
+                f"[Stage 4 Verification] Verified {tot_u} finding(s) for {payload.file_path}: "
+                f"{valid_cnt} confirmed/mitigated, {tot_u - valid_cnt} invalidated/unverified"
+            )
+
             payload.findings = updated_saved
             payload.ai_scratchpad["stage"] = "verified"
 
@@ -660,8 +705,6 @@ class ReviewPipelineOrchestrator:
             json_target = self.files_dir / sanitized_name
             json_target.write_text(payload.model_dump_json(indent=2), encoding="utf-8")
 
-            valid_cnt = sum(1 for f in updated_saved if f.status in ("VERIFIED", "MITIGATED"))
-            tot_u = len(updated_saved)
             handled_by = actual_backend or server_info
             try:
                 sec_val = float(elapsed_sec)
@@ -696,6 +739,12 @@ class ReviewPipelineOrchestrator:
                 payload.reportable = f.status != "INVALIDATED" and f.reportable
             payload.ai_scratchpad["stage"] = "reranked"
             payload.ai_scratchpad["reportable_count"] = len(valid_findings)
+
+            thoughts_list = payload.ai_scratchpad.setdefault("thoughts", [])
+            thoughts_list.append(
+                f"[Stage 5 Re-ranking] Identified {len(valid_findings)} reportable finding(s) "
+                f"from {len(payload.findings)} total candidate(s)"
+            )
 
             sanitized_name = _sanitize_filename(payload.file_path) + ".json"
             json_target = self.files_dir / sanitized_name

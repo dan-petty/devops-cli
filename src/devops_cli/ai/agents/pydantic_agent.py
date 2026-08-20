@@ -24,6 +24,7 @@ from pydantic import BaseModel, Field
 
 from devops_cli.ai.client import LLMClient
 from devops_cli.ai.review_schema import extract_json_block
+from devops_cli.ai.thinking import extract_think_blocks
 from devops_cli.config.defaults import DEFAULT_AGENT_MAX_TURNS
 from devops_cli.models.ai import ChatMessage
 
@@ -57,6 +58,7 @@ class AgentResponse[T](BaseModel):
     content: str
     data: T | None = None
     tool_calls: list[ToolCall] = Field(default_factory=list)
+    thoughts: list[str] = Field(default_factory=list)
     turns: int = 1
     backend_info: str | None = None
 
@@ -191,19 +193,28 @@ class PydanticAgent[T]:
                 except Exception:
                     pass
 
+            thoughts: list[str] = []
+            thinks, clean_response = extract_think_blocks(response_text)
+            if thinks:
+                thoughts.extend(thinks)
+            raw_think = getattr(res_obj, "thinking", "")
+            if raw_think and str(raw_think).strip() and str(raw_think).strip() not in thoughts:
+                thoughts.append(str(raw_think).strip())
+
             parsed_data: T | None = None
             if self.output_schema is not None:
                 try:
-                    json_data = extract_json_block(response_text)
+                    json_data = extract_json_block(clean_response or response_text)
                     if isinstance(json_data, dict):
                         parsed_data = self.output_schema.model_validate(json_data)  # type: ignore[attr-defined]
                 except Exception:
                     pass
 
             return AgentResponse[T](
-                content=response_text,
+                content=clean_response or response_text,
                 data=parsed_data,
                 tool_calls=tool_calls,
+                thoughts=thoughts,
                 turns=turn,
                 backend_info=b_info,
             )
@@ -211,6 +222,7 @@ class PydanticAgent[T]:
         return AgentResponse[T](
             content=response_text,
             tool_calls=tool_calls,
+            thoughts=[],
             turns=max_turns,
             backend_info=b_info if "b_info" in locals() else None,
         )

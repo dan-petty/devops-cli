@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -413,3 +413,101 @@ def test_criteria_based_verification_and_reportability(
     assert data_out["findings"][0]["reportable"] is True
     assert "Verification Criteria" in report_md
     assert "Hardcoded credentials" not in report_md
+
+
+def test_persona_and_persona_title_distinctness(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify that multi-persona reviews populate distinct short persona slug and full title."""
+    monkeypatch.setattr("devops_cli.config.constants.CONST_DATA_DIR", tmp_path / ".data")
+    monkeypatch.setattr(
+        "devops_cli.config.constants.CONST_REVIEWS_DATA_DIR", tmp_path / ".data" / "reviews"
+    )
+
+    mock_client = MagicMock()
+    # Mock pipeline result step
+    step_mock = MagicMock()
+    step_mock.backend_info = "mock-ollama"
+    step_mock.agent_name = "NIST/PCI/SOC Auditor"
+    step_mock.parsed_data = None
+    step_mock.content = (
+        '{"recommendation": "REQUEST CHANGES", "summary": "Audit issues", "findings": ['
+        '{"severity": "LOW", "location": "task.yml:10", "title": "Missing validation", '
+        '"description": "Fields lack validation", "fix": "Add validation", '
+        '"confidence_score": 0.8, "verification_criteria": ["Missing block"], '
+        '"invalidation_criteria": ["Block present"]}]}'
+    )
+
+    pipeline_result_mock = MagicMock()
+    pipeline_result_mock.steps = [step_mock]
+
+    with patch(
+        "devops_cli.ai.agents.pipeline.MultiAgentPipeline.run",
+        return_value=pipeline_result_mock,
+    ):
+        orchestrator = ReviewPipelineOrchestrator(session_id="persona-test", llm_client=mock_client)
+        payload = FileReviewPayload(file_path="task.yml")
+        orchestrator.execute_multi_persona_review(
+            [payload],
+            diff_text_by_file={"task.yml": "diff content"},
+            personas=["auditor"],
+        )
+
+        assert len(payload.findings) == 1
+        finding = payload.findings[0]
+        assert finding.persona == "auditor"
+        assert finding.persona_title == "NIST/PCI/SOC Auditor"
+        assert finding.persona != finding.persona_title
+        assert "thoughts" in payload.ai_scratchpad
+        assert len(payload.ai_scratchpad["thoughts"]) > 0
+
+
+def test_ai_scratchpad_thoughts_collection_across_stages(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify that thoughts and LLM reasoning are accumulated into ai_scratchpad.thoughts."""
+    monkeypatch.setattr("devops_cli.config.constants.CONST_DATA_DIR", tmp_path / ".data")
+    monkeypatch.setattr(
+        "devops_cli.config.constants.CONST_REVIEWS_DATA_DIR", tmp_path / ".data" / "reviews"
+    )
+
+    mock_client = MagicMock()
+    step_mock = MagicMock()
+    step_mock.backend_info = "mock-ollama"
+    step_mock.agent_name = "Principal DevSecOps Engineer"
+    step_mock.parsed_data = None
+    step_mock.thoughts = ["Analyzing potential command injection vector in auth handler"]
+    step_mock.content = (
+        "<think>Found unescaped user input passed to subshell</think>"
+        '{"recommendation": "REQUEST CHANGES", "summary": "Security flaw", "findings": ['
+        '{"severity": "HIGH", "location": "auth.py:12", "title": "Command injection", '
+        '"description": "Unescaped input", "fix": "Use shlex.quote", '
+        '"confidence_score": 0.9, "verification_criteria": ["os.system call with raw var"], '
+        '"invalidation_criteria": ["Input sanitized"]}]}'
+    )
+
+    pipeline_result_mock = MagicMock()
+    pipeline_result_mock.steps = [step_mock]
+
+    with patch(
+        "devops_cli.ai.agents.pipeline.MultiAgentPipeline.run",
+        return_value=pipeline_result_mock,
+    ):
+        orchestrator = ReviewPipelineOrchestrator(
+            session_id="thoughts-test", llm_client=mock_client
+        )
+        payload = FileReviewPayload(file_path="src/auth.py")
+        orchestrator.execute_multi_persona_review(
+            [payload],
+            diff_text_by_file={"src/auth.py": "diff"},
+            personas=["devsecops"],
+        )
+
+        thoughts = payload.ai_scratchpad.get("thoughts", [])
+        assert any("Analyzing potential command injection" in t for t in thoughts)
+        assert any("Evaluated src/auth.py" in t for t in thoughts)
+
+        # Stage 5 reranking appends stage thoughts
+        orchestrator.execute_finding_reranking([payload])
+        reranked_thoughts = payload.ai_scratchpad.get("thoughts", [])
+        assert any("[Stage 5 Re-ranking]" in t for t in reranked_thoughts)

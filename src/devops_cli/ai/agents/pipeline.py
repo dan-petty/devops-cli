@@ -34,6 +34,7 @@ class PipelineStepResult(BaseModel):
     content: str
     parsed_data: Any | None = None
     tool_calls: list[ToolCall] = Field(default_factory=list)
+    thoughts: list[str] = Field(default_factory=list)
     passed_context: str = ""
     backend_info: str | None = None
 
@@ -125,6 +126,7 @@ class MultiAgentPipeline[T]:
                 content=res.content,
                 parsed_data=res.data,
                 tool_calls=res.tool_calls,
+                thoughts=res.thoughts,
                 passed_context=res.content,
                 backend_info=res.backend_info,
             )
