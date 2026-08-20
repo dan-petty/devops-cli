@@ -318,3 +318,21 @@ def test_consolidate_duplicate_findings_across_personas(tmp_path: Path, monkeypa
     # Check report_md rendering
     assert "Insecure subprocess execution" in report_md
     assert "Security Engineer, Compliance Auditor" in report_md
+
+
+def test_normalize_unicode_text_in_findings() -> None:
+    """Findings must sanitize non-standard Unicode hyphens, spaces, and smart quotes."""
+    from devops_cli.ai.review_schema import Finding, normalize_unicode_text
+
+    raw_text = "NIST SP 800\u201153 Rev\u202f5 SI\u20112 and SOC\u202f2 Type\u202fII"
+    normalized = normalize_unicode_text(raw_text)
+    assert normalized == "NIST SP 800-53 Rev 5 SI-2 and SOC 2 Type II"
+
+    finding = Finding(
+        title="Title with \u2018smart quotes\u2019 and non\u2011breaking hyphen",
+        description="Description with narrow\u202fno\u202fbreak\u202fspaces",
+        references=["NIST SP 800\u201153 Rev\u202f5 SI\u20112"],
+    )
+    assert finding.title == "Title with 'smart quotes' and non-breaking hyphen"
+    assert finding.description == "Description with narrow no break spaces"
+    assert finding.references == ["NIST SP 800-53 Rev 5 SI-2"]

@@ -31,6 +31,42 @@ _RECOMMENDATION_ALIASES: dict[str, str] = {
 }
 
 
+_UNICODE_REPLACEMENTS: dict[str, str] = {
+    "\u202f": " ",  # narrow no-break space
+    "\u00a0": " ",  # no-break space
+    "\u200b": "",  # zero-width space
+    "\u2009": " ",  # thin space
+    "\u200a": " ",  # hair space
+    "\u2002": " ",  # en space
+    "\u2003": " ",  # em space
+    "\u3000": " ",  # ideographic space
+    "\ufeff": "",  # zero-width no-break space / BOM
+    "\u2011": "-",  # non-breaking hyphen
+    "\u2010": "-",  # hyphen
+    "\u2012": "-",  # figure dash
+    "\u2013": "-",  # en dash
+    "\u2014": "-",  # em dash
+    "\u2018": "'",  # left single quote
+    "\u2019": "'",  # right single quote
+    "\u201c": '"',  # left double quote
+    "\u201d": '"',  # right double quote
+    "\u201a": "'",  # single low-9 quote
+    "\u201e": '"',  # double low-9 quote
+    "\u2032": "'",  # prime
+    "\u2033": '"',  # double prime
+    "\u2026": "...",  # ellipsis
+}
+
+
+def normalize_unicode_text(text: str) -> str:
+    """Normalize non-standard Unicode spaces, hyphens, and quotes to standard ASCII."""
+    if not text:
+        return ""
+    for old, new in _UNICODE_REPLACEMENTS.items():
+        text = text.replace(old, new)
+    return text
+
+
 class Finding(BaseModel):
     severity: str = "MEDIUM"
     location: str = ""
@@ -46,6 +82,20 @@ class Finding(BaseModel):
     verified_by: str | None = None  # "llm" | "human"
     verified_at: str | None = None
     confidence_score: float | None = None
+
+    @field_validator("title", "location", "description", "fix", mode="before")
+    @classmethod
+    def _clean_text_fields(cls, v: object) -> str:
+        return normalize_unicode_text(str(v)).strip()
+
+    @field_validator("references", mode="before")
+    @classmethod
+    def _clean_references(cls, v: object) -> list[str]:
+        if isinstance(v, list):
+            return [normalize_unicode_text(str(r)).strip() for r in v if str(r).strip()]
+        if isinstance(v, str) and v.strip():
+            return [normalize_unicode_text(v).strip()]
+        return []
 
     @field_validator("severity", mode="before")
     @classmethod
@@ -247,6 +297,18 @@ class ReviewResult(BaseModel):
     recommendation: str = "REQUEST CHANGES"
     summary: str = ""
     confidence_score: float | None = None
+
+    @field_validator("summary", mode="before")
+    @classmethod
+    def _clean_summary(cls, v: object) -> str:
+        return normalize_unicode_text(str(v)).strip()
+
+    @field_validator("positive_observations", mode="before")
+    @classmethod
+    def _clean_positive_observations(cls, v: object) -> list[str]:
+        if isinstance(v, list):
+            return [normalize_unicode_text(str(r)).strip() for r in v if str(r).strip()]
+        return []
 
     @field_validator("recommendation", mode="before")
     @classmethod
