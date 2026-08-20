@@ -37,6 +37,7 @@ from devops_cli.ai.review_schema import (
     ReviewResult,
     ReviewSessionPayload,
     SavedFinding,
+    consolidate_duplicate_findings,
     parse_review_result,
 )
 from devops_cli.config.constants import (
@@ -598,6 +599,8 @@ class ReviewPipelineOrchestrator:
             for f in payload.findings:
                 if f.status != "INVALIDATED":
                     all_findings.append(f)
+
+        all_findings = consolidate_duplicate_findings(all_findings)
 
         payload_out = ReviewSessionPayload(
             generated_at=datetime.now(UTC).isoformat(),

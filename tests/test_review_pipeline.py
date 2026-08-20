@@ -160,3 +160,161 @@ def test_deterministic_pre_verification_template_placeholder(tmp_path: Path) -> 
     assert result.verified is False
     assert result.mitigated is True
     assert result.status == "MITIGATED"
+
+
+def test_consolidated_report_findings_sorted_by_severity_and_confidence(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Findings in report_md and findings.json must be sorted by severity and confidence."""
+    from devops_cli.ai.review_schema import FileReviewPayload, SavedFinding
+
+    monkeypatch.setattr("devops_cli.ai.review.pipeline.CONST_DATA_DIR", tmp_path)
+    orchestrator = ReviewPipelineOrchestrator(session_id="sort-test-session")
+
+    f_low = SavedFinding(
+        severity="LOW",
+        title="Low Finding High Confidence",
+        location="src/low.py:1",
+        confidence_score=0.99,
+        verified=True,
+    )
+    f_med_high_conf = SavedFinding(
+        severity="MEDIUM",
+        title="Medium Finding High Confidence",
+        location="src/med1.py:1",
+        confidence_score=0.95,
+        verified=True,
+    )
+    f_med_low_conf = SavedFinding(
+        severity="MEDIUM",
+        title="Medium Finding Low Confidence",
+        location="src/med2.py:1",
+        confidence_score=0.70,
+        verified=True,
+    )
+    f_crit_low_conf = SavedFinding(
+        severity="CRITICAL",
+        title="Critical Finding Lower Confidence",
+        location="src/crit2.py:1",
+        confidence_score=0.85,
+        verified=True,
+    )
+    f_crit_high_conf = SavedFinding(
+        severity="CRITICAL",
+        title="Critical Finding Higher Confidence",
+        location="src/crit1.py:1",
+        confidence_score=0.98,
+        verified=True,
+    )
+    f_high = SavedFinding(
+        severity="HIGH",
+        title="High Finding",
+        location="src/high.py:1",
+        confidence_score=0.90,
+        verified=True,
+    )
+
+    payload = FileReviewPayload(
+        file_path="src/dummy.py",
+        findings=[
+            f_low,
+            f_med_low_conf,
+            f_crit_low_conf,
+            f_med_high_conf,
+            f_crit_high_conf,
+            f_high,
+        ],
+    )
+
+    data_out, report_md = orchestrator.generate_consolidated_report([payload])
+
+    sorted_titles = [f["title"] for f in data_out["findings"]]
+    expected_titles = [
+        "Critical Finding Higher Confidence",
+        "Critical Finding Lower Confidence",
+        "High Finding",
+        "Medium Finding High Confidence",
+        "Medium Finding Low Confidence",
+        "Low Finding High Confidence",
+    ]
+    assert sorted_titles == expected_titles
+
+    # Verify report_md ordering
+    crit1_idx = report_md.index("Critical Finding Higher Confidence")
+    crit2_idx = report_md.index("Critical Finding Lower Confidence")
+    high_idx = report_md.index("High Finding")
+    med1_idx = report_md.index("Medium Finding High Confidence")
+    med2_idx = report_md.index("Medium Finding Low Confidence")
+    low_idx = report_md.index("Low Finding High Confidence")
+
+    assert crit1_idx < crit2_idx < high_idx < med1_idx < med2_idx < low_idx
+
+
+def test_consolidate_duplicate_findings_across_personas(tmp_path: Path, monkeypatch) -> None:
+    """Duplicate findings across personas should be merged, retaining highest severity."""
+    from devops_cli.ai.review_schema import FileReviewPayload, SavedFinding
+
+    monkeypatch.setattr("devops_cli.ai.review.pipeline.CONST_DATA_DIR", tmp_path)
+    orchestrator = ReviewPipelineOrchestrator(session_id="dedup-test-session")
+
+    # devsecops reports High severity finding
+    f_secops = SavedFinding(
+        severity="HIGH",
+        title="Insecure subprocess execution",
+        location="src/k8s.py:42-50",
+        confidence_score=0.90,
+        description="Subprocess invocation without sanitization",
+        fix="Use run_subprocess with check=True",
+        persona="devsecops",
+        persona_title="Security Engineer",
+        verified=True,
+    )
+
+    # auditor reports Medium severity finding for overlapping lines with similar title
+    f_auditor = SavedFinding(
+        severity="MEDIUM",
+        title="Insecure subprocess execution call",
+        location="src/k8s.py:45",
+        confidence_score=0.85,
+        description="Subprocess call lacks execution audit logging",
+        fix="Add audit logging wrapper",
+        persona="auditor",
+        persona_title="Compliance Auditor",
+        verified=False,
+    )
+
+    # qa reports distinct finding in another function
+    f_qa = SavedFinding(
+        severity="LOW",
+        title="Missing unit test edge case",
+        location="src/k8s.py:120",
+        confidence_score=0.95,
+        description="Timeout error case is uncovered",
+        fix="Add test_timeout unit test",
+        persona="qa",
+        persona_title="QA Engineer",
+        verified=True,
+    )
+
+    payload = FileReviewPayload(
+        file_path="src/k8s.py",
+        findings=[f_secops, f_auditor, f_qa],
+    )
+
+    data_out, report_md = orchestrator.generate_consolidated_report([payload])
+
+    # 3 raw findings should be consolidated into 2 unique findings
+    findings = data_out["findings"]
+    assert len(findings) == 2
+
+    # The merged finding should take highest severity (HIGH) and merged personas
+    merged_finding = next(f for f in findings if "subprocess" in f["title"].lower())
+    assert merged_finding["severity"] == "HIGH"
+    assert merged_finding["confidence_score"] == 0.90
+    assert "devsecops" in merged_finding["persona"]
+    assert "auditor" in merged_finding["persona"]
+    assert merged_finding["verified"] is True
+
+    # Check report_md rendering
+    assert "Insecure subprocess execution" in report_md
+    assert "Security Engineer, Compliance Auditor" in report_md

@@ -38,6 +38,7 @@ from devops_cli.ai.review_schema import (
     ReviewResult,
     ReviewSessionPayload,
     SavedFinding,
+    consolidate_duplicate_findings,
     parse_review_result,
 )
 from devops_cli.config.constants import (
@@ -1447,6 +1448,7 @@ def _save_findings_json(
                     **f.model_dump(),
                 )
             )
+    findings = consolidate_duplicate_findings(findings)
     payload = ReviewSessionPayload(
         generated_at=datetime.now().isoformat(),
         personas=[pd.name for pd, _ in completed],

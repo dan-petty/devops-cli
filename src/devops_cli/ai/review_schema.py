@@ -72,6 +72,150 @@ class Finding(BaseModel):
             return None
 
 
+def _parse_location(location: str) -> tuple[str, int | None, int | None]:
+    """Extract normalized (filepath, start_line, end_line) from a location string."""
+    loc = location.strip()
+    if ":" not in loc:
+        return loc.lower(), None, None
+    parts = loc.rsplit(":", 1)
+    file_path = parts[0].strip().lower()
+    line_part = parts[1].strip()
+    if "-" in line_part:
+        subparts = line_part.split("-", 1)
+        try:
+            return file_path, int(subparts[0]), int(subparts[1])
+        except ValueError:
+            return file_path, None, None
+    try:
+        line_num = int(line_part)
+        return file_path, line_num, line_num
+    except ValueError:
+        return file_path, None, None
+
+
+def _are_findings_duplicate(f1: Finding, f2: Finding) -> bool:
+    """Determine if two findings describe the same underlying issue across personas or segments."""
+    loc1 = f1.location.strip().lower()
+    loc2 = f2.location.strip().lower()
+    t1 = f1.title.strip().lower()
+    t2 = f2.title.strip().lower()
+
+    # 1. Exact location & matching title
+    if loc1 and loc1 == loc2:
+        if t1 == t2 or t1 in t2 or t2 in t1:
+            return True
+        w1 = set(re.findall(r"\w+", t1))
+        w2 = set(re.findall(r"\w+", t2))
+        if w1 and w2 and len(w1 & w2) / min(len(w1), len(w2)) >= 0.5:
+            return True
+
+    # 2. Line range overlap in same file
+    file1, s1, e1 = _parse_location(f1.location)
+    file2, s2, e2 = _parse_location(f2.location)
+    if file1 and file1 == file2:
+        if t1 == t2:
+            return True
+        if s1 is not None and e1 is not None and s2 is not None and e2 is not None:
+            if max(s1, s2) <= min(e1, e2) + 2:
+                w1 = set(re.findall(r"\w+", t1))
+                w2 = set(re.findall(r"\w+", t2))
+                if w1 and w2 and len(w1 & w2) / min(len(w1), len(w2)) >= 0.4:
+                    return True
+
+    return False
+
+
+def _merge_two_findings[F: Finding](base: F, other: F) -> F:
+    """Merge duplicate finding `other` into `base`, taking highest severity and confidence."""
+    sev1 = base.severity.upper().strip()
+    sev2 = other.severity.upper().strip()
+    best_sev = sev1 if _SEVERITY_RANK.get(sev1, 99) <= _SEVERITY_RANK.get(sev2, 99) else sev2
+
+    c1 = base.confidence_score
+    c2 = other.confidence_score
+    best_conf: float | None = None
+    if c1 is not None and c2 is not None:
+        best_conf = max(c1, c2)
+    elif c1 is not None:
+        best_conf = c1
+    else:
+        best_conf = c2
+
+    status_order = {"VERIFIED": 0, "UNVERIFIED": 1, "MITIGATED": 2, "INVALIDATED": 3}
+    best_status = (
+        base.status
+        if status_order.get(base.status, 99) <= status_order.get(other.status, 99)
+        else other.status
+    )
+    verified = base.verified or other.verified
+    mitigated = (base.mitigated or other.mitigated) if not verified else False
+
+    desc = (
+        base.description if len(base.description) >= len(other.description) else other.description
+    )
+    fix = base.fix if len(base.fix) >= len(other.fix) else other.fix
+    refs = list(dict.fromkeys(base.references + other.references))
+
+    updates: dict[str, Any] = {
+        "severity": best_sev,
+        "confidence_score": best_conf,
+        "status": best_status,
+        "verified": verified,
+        "mitigated": mitigated,
+        "description": desc,
+        "fix": fix,
+        "references": refs,
+    }
+
+    if isinstance(base, SavedFinding) and isinstance(other, SavedFinding):
+        personas: list[str] = [p.strip() for p in base.persona.split(",") if p.strip()]
+        for p in other.persona.split(","):
+            p_clean = p.strip()
+            if p_clean and p_clean not in personas:
+                personas.append(p_clean)
+        updates["persona"] = ", ".join(personas)
+
+        titles: list[str] = [t.strip() for t in base.persona_title.split(",") if t.strip()]
+        for t in other.persona_title.split(","):
+            t_clean = t.strip()
+            if t_clean and t_clean not in titles:
+                titles.append(t_clean)
+        updates["persona_title"] = ", ".join(titles)
+
+    return base.model_copy(update=updates)
+
+
+def consolidate_duplicate_findings[F: Finding](findings: list[F]) -> list[F]:
+    """Consolidate duplicate findings across personas, merging metadata and scores."""
+    if not findings:
+        return []
+
+    consolidated: list[F] = []
+    for f in findings:
+        matched = False
+        for idx, existing in enumerate(consolidated):
+            if _are_findings_duplicate(existing, f):
+                consolidated[idx] = _merge_two_findings(existing, f)
+                matched = True
+                break
+        if not matched:
+            consolidated.append(f)
+
+    return sort_findings(consolidated)
+
+
+def sort_findings[F: Finding](findings: list[F]) -> list[F]:
+    """Sort findings by severity rank, then confidence score descending, then verified."""
+    return sorted(
+        findings,
+        key=lambda f: (
+            _SEVERITY_RANK.get(f.severity.upper().strip(), 99),
+            -(f.confidence_score if f.confidence_score is not None else -1.0),
+            not f.verified,
+        ),
+    )
+
+
 class SavedFinding(Finding):
     persona: str = ""
     persona_title: str = ""
@@ -91,6 +235,10 @@ class ReviewSessionPayload(BaseModel):
     generated_at: str = ""
     personas: list[str] = Field(default_factory=list)
     findings: list[SavedFinding] = Field(default_factory=list)
+
+    @property
+    def sorted_findings(self) -> list[SavedFinding]:
+        return consolidate_duplicate_findings(self.findings)
 
 
 class ReviewResult(BaseModel):
@@ -119,21 +267,11 @@ class ReviewResult(BaseModel):
 
     @property
     def sorted_findings(self) -> list[Finding]:
-        return sorted(
-            self.findings,
-            key=lambda f: (_SEVERITY_RANK.get(f.severity, 99), not f.verified),
-        )
+        return consolidate_duplicate_findings(self.findings)
 
     def merge(self, other: ReviewResult) -> ReviewResult:
-        """Merge another ReviewResult, deduplicating findings by (title, location)."""
-        seen: set[tuple[str, str]] = {(f.title.lower(), f.location.lower()) for f in self.findings}
-        new_findings: list[Finding] = []
-        for f in other.findings:
-            key = (f.title.lower(), f.location.lower())
-            if key not in seen:
-                seen.add(key)
-                new_findings.append(f)
-
+        """Merge another ReviewResult, deduplicating and consolidating findings."""
+        merged_findings = consolidate_duplicate_findings(self.findings + other.findings)
         rec_order = {"BLOCK": 0, "REQUEST CHANGES": 1, "APPROVE": 2}
         recommendation = min(
             (self.recommendation, other.recommendation),
@@ -143,7 +281,7 @@ class ReviewResult(BaseModel):
         c2 = other.confidence_score if other.confidence_score is not None else 0.8
         merged_conf = round((c1 + c2) / 2.0, 2)
         return ReviewResult(
-            findings=self.findings + new_findings,
+            findings=merged_findings,
             positive_observations=list(
                 dict.fromkeys(self.positive_observations + other.positive_observations)
             ),
