@@ -148,6 +148,6 @@
   "remoteUser": "vscode",
   "runArgs": [
     "--gpus",
-    "driver=nvidia,count=1"
+    "all"
   ]
 }

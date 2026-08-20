@@ -31,6 +31,8 @@ spec:
               value: "0.0.0.0:11434"
             - name: OLLAMA_MODELS
               value: "/root/.ollama/models"
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: "all"
             - name: NVIDIA_DRIVER_CAPABILITIES
               value: "compute,utility"
           ports:
@@ -42,9 +44,8 @@ spec:
             requests:
               cpu: 2500m
               memory: 5Gi
-              nvidia.com/gpu: "1"
             limits:
-              nvidia.com/gpu: "1"
+              memory: 32Gi
           volumeMounts:
             - name: ollama-data
               mountPath: /root/.ollama
