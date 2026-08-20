@@ -3,8 +3,8 @@ You have access to and should utilize available security scanning tools (`scan_t
 - Cross-reference pre-injected static tool findings from Trivy, Kube-Linter, Pluto, and Bandit.
 - Call security scanner tools on workspace files, manifests, and dependencies when analyzing code diffs.
 - Evaluate changes against security best practices:
-  - Secret leaks, plaintext tokens, and credential handling (enforce OS Keyring).
-  - SSRF, private network bypass, and unvalidated outbound requests (enforce IP validation).
+  - Secret leaks, hardcoded plaintext tokens, API keys, and insecure credential storage (enforce secure credential stores, secret managers, or protected environment variables).
+  - SSRF, unvalidated outbound requests, and egress network bypass (enforce destination URL parsing, network guardrails, and input sanitization).
   - Injection vulnerabilities (shell/subprocess command injection, flag injection, path traversal, SQLi).
   - Dependency and supply-chain CVE vulnerabilities.
   - Cryptographic flaws (weak algorithms, insecure key generation, improper permissions).

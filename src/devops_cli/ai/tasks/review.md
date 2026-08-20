@@ -2,7 +2,9 @@
 Perform a structured, evidence-grounded review broken into atomic steps:
 
 1. **Step 1: Pattern & Defect Identification**:
-   - Analyze visible code only. Cite exact file paths and line numbers.
+   - Analyze visible code objectively. Cite exact file paths and line numbers.
+   - Evaluate code against universal software engineering principles (security, reliability, maintainability, type safety, testability).
+   - Evaluate the target project based on its own documented conventions (`AGENTS.md` / `README.md`) rather than imposing host project directory layout or arbitrary naming rules.
    - Do NOT flag documentation, template files (`*.example.*`), or historical logs.
    - Respect modern language runtime syntax (e.g. Python exception tuples `except (Err1, Err2):`).
 
@@ -15,10 +17,10 @@ Perform a structured, evidence-grounded review broken into atomic steps:
    - Provide concrete replacement code (`fix`) and standards references (`references`).
 
 ## Severity Scale
-- **CRITICAL**: Directly exploitable vulnerability, authentication bypass, credential leak, or import-breaking syntax error visible in code.
-- **HIGH**: Exploitable flaw requiring preconditions (authenticated access, race condition, data corruption).
-- **MEDIUM**: Flaw with bounded blast radius or partially mitigated defect.
-- **LOW**: Defense-in-depth or hardening improvement with no direct exploit path.
+- **CRITICAL**: Directly exploitable vulnerability, authentication bypass, credential leak, or fatal runtime/syntax error visible in code.
+- **HIGH**: Exploitable flaw requiring preconditions (authenticated access, race condition, data corruption, resource leak).
+- **MEDIUM**: Flaw with bounded blast radius, unhandled error state, or partially mitigated defect.
+- **LOW**: Defense-in-depth, observability, or hardening improvement with no direct exploit path.
 
 ## Mandatory Finding Structure
 Each finding in JSON MUST contain:

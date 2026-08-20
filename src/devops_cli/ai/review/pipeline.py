@@ -560,6 +560,18 @@ class ReviewPipelineOrchestrator:
             from devops_cli.ai.personas import Persona
 
             persona_lookup: dict[str, tuple[str, str]] = {}
+            target_agents_path = self.target_dir / "AGENTS.md"
+            target_conventions = ""
+            if target_agents_path.exists() and target_agents_path.is_file():
+                try:
+                    c_text = target_agents_path.read_text(encoding="utf-8", errors="replace")[:3000]
+                    target_conventions = (
+                        f"\n\nTarget Repository Conventions ({target_agents_path.name}):\n"
+                        f"{c_text}\n"
+                    )
+                except Exception:
+                    pass
+
             for p_key in active_personas:
                 try:
                     persona_enum = Persona(p_key) if isinstance(p_key, str) else p_key
@@ -575,8 +587,12 @@ class ReviewPipelineOrchestrator:
                 sys_prompt = (
                     f"You are {p_def.title}.\n{p_def.system_prompt}\n\n"
                     "CRITICAL: Examine code carefully for flaws and security vulnerabilities.\n"
+                    "Evaluate code objectively according to its target runtime and architecture "
+                    "without enforcing host project layout.\n"
+                    f"{target_conventions}"
                     "Report all findings in 'findings' JSON array with severity, location, title, "
-                    "description, fix, verification, and confidence_score."
+                    "description, fix, verification_criteria, invalidation_criteria, and "
+                    "confidence_score."
                 )
                 agent = PydanticAgent[ReviewResult](
                     client=self.llm_client,
