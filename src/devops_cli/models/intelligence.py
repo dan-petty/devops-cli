@@ -10,6 +10,8 @@ class DependencySpec(BaseModel):
     version_range: str = "*"
     ecosystem: str = "PyPI"  # PyPI | npm | crates.io | Go
     source_file: str = ""
+    security_status: str = "✓ Clean"
+    vulnerabilities: list[VulnerabilityRecord] = Field(default_factory=list)
 
 
 class VulnerabilityRecord(BaseModel):
@@ -28,6 +30,8 @@ class NetworkReference(BaseModel):
     reference_type: str = "domain"  # ip | domain | url
     source_file: str = ""
     line_number: int | None = None
+    security_status: str = "✓ Safe"
+    reputation: NetworkReputationRecord | None = None
 
 
 class NetworkReputationRecord(BaseModel):

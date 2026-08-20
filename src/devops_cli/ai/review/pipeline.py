@@ -318,6 +318,12 @@ class ReviewPipelineOrchestrator:
                 else:
                     vulns = dep_cache[d_key]
 
+                if vulns:
+                    dep.vulnerabilities = vulns
+                    dep.security_status = f"⚠️ {len(vulns)} Known Vuln(s)"
+                else:
+                    dep.security_status = "✓ Clean"
+
                 for v in vulns:
                     initial_findings.append(
                         SavedFinding(
@@ -352,6 +358,14 @@ class ReviewPipelineOrchestrator:
                     net_cache[net.target] = rep
                 else:
                     rep = net_cache[net.target]
+
+                net.reputation = rep
+                if rep.is_malicious:
+                    net.security_status = f"⚠️ Flagged ({rep.reputation_summary})"
+                elif rep.ports:
+                    net.security_status = f"✓ Safe (Ports: {', '.join(map(str, rep.ports[:3]))})"
+                else:
+                    net.security_status = "✓ Safe / Low Risk"
 
                 if rep.is_malicious:
                     initial_findings.append(
@@ -805,13 +819,14 @@ class ReviewPipelineOrchestrator:
         if not all_findings:
             lines.append("✅ **No critical issues found during review.**")
         else:
-            lines.append("| Severity | Location | Title | Status | Confidence |")
+            lines.append("| Severity | Location | Title | Status | Persona |")
             lines.append("|---|---|---|---|---|")
             for f in all_findings:
-                conf = f"{f.confidence_score:.2f}" if f.confidence_score is not None else "N/A"
-                lines.append(
-                    f"| **{f.severity}** | `{f.location}` | {f.title} | {f.status} | {conf} |"
+                row = (
+                    f"| **{f.severity}** | `{f.location}` | {f.title} | "
+                    f"{f.status} | {f.persona_title} |"
                 )
+                lines.append(row)
 
             lines.append("")
             lines.append("## Detailed Findings")
@@ -820,16 +835,6 @@ class ReviewPipelineOrchestrator:
                 lines.append(f"- **Location**: `{f.location}`")
                 lines.append(f"- **Persona**: {f.persona_title}")
                 lines.append(f"- **Status**: {f.status}")
-                if f.confidence_score is not None:
-                    lines.append(f"- **Confidence Score**: {f.confidence_score:.2f}")
-                if f.verification_criteria:
-                    lines.append(
-                        f"- **Verification Criteria**: {'; '.join(f.verification_criteria)}"
-                    )
-                if f.invalidation_criteria:
-                    lines.append(
-                        f"- **Invalidation Criteria**: {'; '.join(f.invalidation_criteria)}"
-                    )
                 lines.append(f"- **Description**: {f.description}")
                 if f.fix:
                     lines.append(f"- **Fix Recommendation**:\n```\n{f.fix}\n```")
@@ -837,28 +842,73 @@ class ReviewPipelineOrchestrator:
 
         if all_deps:
             lines.append("## External Dependencies (OSV.dev & NVD)")
-            lines.append("| Dependency | Version Range | Ecosystem | Source File |")
-            lines.append("|---|---|---|---|")
+            lines.append(
+                "| Dependency | Version Range | Ecosystem | Security Status | Source File |"
+            )
+            lines.append("|---|---|---|---|---|")
             for dep in all_deps:
                 lines.append(
                     f"| `{dep.name}` | `{dep.version_range}` | {dep.ecosystem} | "
-                    f"`{dep.source_file}` |"
+                    f"{dep.security_status} | `{dep.source_file}` |"
                 )
             lines.append("")
 
         if all_nets:
             lines.append("## External Network References (Shodan InternetDB & Cloudflare Radar)")
-            lines.append("| Target | Type | Source File | Line |")
-            lines.append("|---|---|---|---|")
+            lines.append("| Target | Type | Security Status | Source File | Line |")
+            lines.append("|---|---|---|---|---|")
             for net in all_nets:
                 l_str = str(net.line_number) if net.line_number else "—"
                 lines.append(
-                    f"| `{net.target}` | {net.reference_type} | `{net.source_file}` | {l_str} |"
+                    f"| `{net.target}` | {net.reference_type} | {net.security_status} | "
+                    f"`{net.source_file}` | {l_str} |"
                 )
             lines.append("")
 
         report_md = "\n".join(lines)
         (self.session_dir / "review.md").write_text(report_md, encoding="utf-8")
+
+        from rich.console import Console
+        from rich.table import Table
+
+        console = Console()
+        if all_deps:
+            dep_tbl = Table(title="External Dependencies Security Audit (OSV.dev & NVD)")
+            dep_tbl.add_column("Dependency", style="bold cyan")
+            dep_tbl.add_column("Version Range")
+            dep_tbl.add_column("Ecosystem")
+            dep_tbl.add_column("Security Status")
+            dep_tbl.add_column("Source File", style="dim")
+            for d in all_deps:
+                color = "red" if "⚠️" in d.security_status else "green"
+                dep_tbl.add_row(
+                    d.name,
+                    d.version_range,
+                    d.ecosystem,
+                    f"[{color}]{d.security_status}[/{color}]",
+                    d.source_file,
+                )
+            console.print(dep_tbl)
+
+        if all_nets:
+            net_tbl = Table(
+                title="External Network References Security Audit (Shodan & Cloudflare Radar)"
+            )
+            net_tbl.add_column("Target", style="bold cyan")
+            net_tbl.add_column("Type")
+            net_tbl.add_column("Security Status")
+            net_tbl.add_column("Source File", style="dim")
+            net_tbl.add_column("Line", justify="right")
+            for n in all_nets:
+                color = "red" if "⚠️" in n.security_status else "green"
+                net_tbl.add_row(
+                    n.target,
+                    n.reference_type,
+                    f"[{color}]{n.security_status}[/{color}]",
+                    n.source_file,
+                    str(n.line_number or "—"),
+                )
+            console.print(net_tbl)
 
         rprint(
             f"[green]✓ Consolidated review completed for session {self.session_id}[/green] "

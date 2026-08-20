@@ -411,7 +411,10 @@ def test_criteria_based_verification_and_reportability(
     assert len(data_out["findings"]) == 1
     assert data_out["findings"][0]["title"] == "Unchecked array access"
     assert data_out["findings"][0]["reportable"] is True
-    assert "Verification Criteria" in report_md
+    assert data_out["findings"][0]["status"] == "VERIFIED"
+    assert len(data_out["findings"][0]["verification_criteria"]) == 2
+    assert "- **Status**: VERIFIED" in report_md
+    assert "Unchecked array access" in report_md
     assert "Hardcoded credentials" not in report_md
 
 
@@ -511,3 +514,75 @@ def test_ai_scratchpad_thoughts_collection_across_stages(
         orchestrator.execute_finding_reranking([payload])
         reranked_thoughts = payload.ai_scratchpad.get("thoughts", [])
         assert any("[Stage 5 Re-ranking]" in t for t in reranked_thoughts)
+
+
+def test_generate_consolidated_report_with_intelligence_tables(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify that dependencies and network references with security status are
+    rendered in review report.
+    """
+    monkeypatch.setattr("devops_cli.config.constants.CONST_DATA_DIR", tmp_path / ".data")
+    monkeypatch.setattr(
+        "devops_cli.config.constants.CONST_REVIEWS_DATA_DIR", tmp_path / ".data" / "reviews"
+    )
+
+    from devops_cli.models.intelligence import DependencySpec, NetworkReference
+
+    orchestrator = ReviewPipelineOrchestrator(
+        session_id="intel-tables-test", llm_client=MagicMock()
+    )
+    payload = FileReviewPayload(
+        file_path="src/main.py",
+        findings=[],
+        external_dependencies=[
+            DependencySpec(
+                name="pydantic",
+                version_range=">=2.10.0",
+                ecosystem="PyPI",
+                source_file="requirements.txt",
+                security_status="✓ Clean (0 CVEs)",
+            ),
+            DependencySpec(
+                name="vulnerable-pkg",
+                version_range="1.0.0",
+                ecosystem="PyPI",
+                source_file="requirements.txt",
+                security_status="⚠️ 1 Known Vuln(s)",
+            ),
+        ],
+        network_references=[
+            NetworkReference(
+                target="api.example-corp.com",
+                reference_type="domain",
+                source_file="src/main.py",
+                line_number=15,
+                security_status="✓ Safe / Low Risk",
+            ),
+            NetworkReference(
+                target="93.184.216.34",
+                reference_type="ip",
+                source_file="src/main.py",
+                line_number=20,
+                security_status="✓ Safe (Ports: 80, 443)",
+            ),
+        ],
+    )
+
+    data_out, report_md = orchestrator.generate_consolidated_report([payload])
+
+    assert "## External Dependencies (OSV.dev & NVD)" in report_md
+    assert "| `pydantic` | `>=2.10.0` | PyPI | ✓ Clean (0 CVEs) | `requirements.txt` |" in report_md
+    assert (
+        "| `vulnerable-pkg` | `1.0.0` | PyPI | ⚠️ 1 Known Vuln(s) | `requirements.txt` |"
+        in report_md
+    )
+
+    assert "## External Network References (Shodan InternetDB & Cloudflare Radar)" in report_md
+    assert (
+        "| `api.example-corp.com` | domain | ✓ Safe / Low Risk | `src/main.py` | 15 |" in report_md
+    )
+    assert "| `93.184.216.34` | ip | ✓ Safe (Ports: 80, 443) | `src/main.py` | 20 |" in report_md
+
+    assert len(data_out["external_dependencies"]) == 2
+    assert len(data_out["network_references"]) == 2
