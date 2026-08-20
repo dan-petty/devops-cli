@@ -85,13 +85,35 @@ def test_extract_network_references() -> None:
     Private internal IP: 192.168.1.100 (should be skipped)
     Test host: test.example.com (should be skipped)
     External endpoint: https://auth.vendor-service.io/oauth/token
+    Bare domain reference: prod-infra.custom-cloud.io
+    File reference: main.py, coverage.xml, dmypy.json, config.yaml (should all be skipped)
     """
     refs = extract_network_references(doc, "docs/deploy.md")
     targets = {r.target for r in refs}
     assert "https://api.prod.example-corp.com/v1" in targets
     assert "93.184.216.34" in targets
+    assert "prod-infra.custom-cloud.io" in targets
     assert "192.168.1.100" not in targets
     assert "https://auth.vendor-service.io/oauth/token" in targets
+    assert "main.py" not in targets
+    assert "coverage.xml" not in targets
+    assert "dmypy.json" not in targets
+    assert "config.yaml" not in targets
+
+
+def test_extract_network_references_gitignore_filtering() -> None:
+    gitignore_content = """
+    .venv/
+    dmypy.json
+    coverage.xml
+    thumbs.db
+    config.example.yaml
+    config.yaml
+    *.pyc
+    *.log
+    """
+    refs = extract_network_references(gitignore_content, ".gitignore")
+    assert len(refs) == 0
 
 
 @patch("httpx.Client.post")

@@ -52,6 +52,214 @@ _EXCLUDED_DOMAINS = {
     "cloudflare.com",
 }
 
+_COMMON_FILE_EXTENSIONS: set[str] = {
+    "json",
+    "xml",
+    "db",
+    "yaml",
+    "yml",
+    "py",
+    "pyc",
+    "pyo",
+    "pyd",
+    "md",
+    "markdown",
+    "tar",
+    "gz",
+    "tgz",
+    "bz2",
+    "xz",
+    "zip",
+    "7z",
+    "rar",
+    "lock",
+    "toml",
+    "log",
+    "txt",
+    "cfg",
+    "ini",
+    "sh",
+    "bash",
+    "zsh",
+    "ts",
+    "js",
+    "jsx",
+    "tsx",
+    "mjs",
+    "cjs",
+    "html",
+    "htm",
+    "css",
+    "scss",
+    "sass",
+    "less",
+    "png",
+    "jpg",
+    "jpeg",
+    "gif",
+    "svg",
+    "ico",
+    "webp",
+    "go",
+    "rs",
+    "java",
+    "c",
+    "cpp",
+    "cc",
+    "cxx",
+    "h",
+    "hpp",
+    "hxx",
+    "mod",
+    "sum",
+    "env",
+    "bak",
+    "tmp",
+    "temp",
+    "out",
+    "csv",
+    "tsv",
+    "bin",
+    "exe",
+    "dll",
+    "so",
+    "dylib",
+    "whl",
+    "egg",
+    "pdf",
+    "rst",
+    "dockerfile",
+    "containerfile",
+    "sql",
+    "sqlite",
+    "sqlite3",
+    "proto",
+    "graphql",
+    "gql",
+    "tf",
+    "tfvars",
+    "hcl",
+    "kunit",
+    "patch",
+    "diff",
+    "spec",
+    "service",
+    "socket",
+    "target",
+    "timer",
+    "conf",
+    "properties",
+    "envrc",
+    "editorconfig",
+    "gitignore",
+    "gitattributes",
+    "gitmodules",
+    "coverage",
+    "cache",
+    "wasm",
+    "map",
+    "dist",
+    "build",
+    "node_modules",
+    "vendor",
+}
+
+_VALID_INTERNET_TLDS: set[str] = {
+    "com",
+    "org",
+    "net",
+    "edu",
+    "gov",
+    "mil",
+    "int",
+    "arpa",
+    "io",
+    "dev",
+    "ai",
+    "app",
+    "co",
+    "cloud",
+    "tech",
+    "info",
+    "biz",
+    "me",
+    "us",
+    "uk",
+    "ca",
+    "de",
+    "fr",
+    "eu",
+    "jp",
+    "cn",
+    "in",
+    "br",
+    "ru",
+    "nl",
+    "se",
+    "no",
+    "fi",
+    "es",
+    "it",
+    "ch",
+    "at",
+    "dk",
+    "nz",
+    "mx",
+    "ar",
+    "za",
+    "sg",
+    "hk",
+    "kr",
+    "tw",
+    "site",
+    "xyz",
+    "online",
+    "store",
+    "top",
+    "pro",
+    "club",
+    "space",
+    "live",
+    "link",
+    "agency",
+    "digital",
+    "network",
+    "zone",
+    "world",
+    "today",
+    "email",
+    "group",
+    "team",
+    "media",
+    "press",
+    "studio",
+    "design",
+    "expert",
+    "guide",
+    "tips",
+    "support",
+    "center",
+    "directory",
+    "academy",
+    "community",
+    "solutions",
+    "systems",
+    "technology",
+    "consulting",
+    "management",
+    "services",
+    "global",
+    "security",
+    "infra",
+    "pub",
+    "cc",
+    "tv",
+    "to",
+    "is",
+    "fm",
+    "am",
+}
+
 __all__ = [
     "DependencySpec",
     "NetworkReference",
@@ -118,25 +326,38 @@ def extract_network_references(content: str, source_file: str = "") -> list[Netw
                 )
 
         # 3. Extract External Domains
-        for match in _DOMAIN_REGEX.finditer(line):
-            domain = match.group(0).lower().rstrip(".,;)>]\"'")
-            if (
-                domain not in seen
-                and domain not in _EXCLUDED_DOMAINS
-                and not any(domain.endswith("." + exc) for exc in _EXCLUDED_DOMAINS)
-                and not domain.endswith(".local")
-                and not domain.endswith(".test")
-                and not domain.endswith(".example")
-            ):
-                seen.add(domain)
-                results.append(
-                    NetworkReference(
-                        target=domain,
-                        reference_type="domain",
-                        source_file=source_file,
-                        line_number=line_idx,
+        # Skip bare domain extraction in ignore and lock files where lines are file paths/packages
+        source_name = Path(source_file).name.lower()
+        is_ignore_or_lock = (
+            source_name.endswith("ignore")
+            or source_name.endswith(".lock")
+            or source_name in ("package-lock.json", "cargo.lock", "poetry.lock")
+        )
+        if not is_ignore_or_lock:
+            for match in _DOMAIN_REGEX.finditer(line):
+                domain = match.group(0).lower().rstrip(".,;)>]\"'")
+                tld = domain.rsplit(".", 1)[-1]
+                if (
+                    domain not in seen
+                    and tld in _VALID_INTERNET_TLDS
+                    and tld not in _COMMON_FILE_EXTENSIONS
+                    and domain not in _EXCLUDED_DOMAINS
+                    and not any(domain.endswith("." + exc) for exc in _EXCLUDED_DOMAINS)
+                    and not domain.endswith(".local")
+                    and not domain.endswith(".test")
+                    and not domain.endswith(".example")
+                    and "/" not in line[max(0, match.start() - 1) : match.end() + 1]
+                    and "\\" not in line[max(0, match.start() - 1) : match.end() + 1]
+                ):
+                    seen.add(domain)
+                    results.append(
+                        NetworkReference(
+                            target=domain,
+                            reference_type="domain",
+                            source_file=source_file,
+                            line_number=line_idx,
+                        )
                     )
-                )
 
     return results
 
