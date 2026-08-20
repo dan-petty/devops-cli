@@ -144,3 +144,17 @@ def load_cached_analysis(repo_root: Path = Path(".")) -> AnalysisMetadata | None
         return AnalysisMetadata.model_validate_json(data)
     except Exception:
         return None
+
+
+def _load_file_analysis_metas(
+    files: list[str] | None = None,
+    repo_root: Path | None = None,
+) -> dict[str, FileAnalysisMeta]:
+    """Load cached FileAnalysisMeta map for specified files or latest cached analysis."""
+    cached = load_cached_analysis(repo_root or Path.cwd())
+    if not cached:
+        return {}
+    file_map = {f.path: f for f in cached.files}
+    if files is None:
+        return file_map
+    return {fn: file_map[fn] for fn in files if fn in file_map}

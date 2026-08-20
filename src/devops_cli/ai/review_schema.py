@@ -9,6 +9,12 @@ from typing import Any
 from pydantic import BaseModel, Field, field_validator
 
 from devops_cli.models.ai import FileAnalysisMeta
+from devops_cli.models.intelligence import (
+    DependencySpec,
+    NetworkReference,
+    NetworkReputationRecord,
+    VulnerabilityRecord,
+)
 
 _SEVERITY_RANK: dict[str, int] = {
     "CRITICAL": 0,
@@ -74,6 +80,11 @@ class Finding(BaseModel):
     description: str = ""
     fix: str = ""
     references: list[str] = Field(default_factory=list)
+    verification_criteria: list[str] = Field(default_factory=list)
+    invalidation_criteria: list[str] = Field(default_factory=list)
+    verified_criteria_matched: list[str] = Field(default_factory=list)
+    invalidated_criteria_matched: list[str] = Field(default_factory=list)
+    reportable: bool = True
     verified: bool = False
 
     mitigated: bool = False
@@ -88,7 +99,14 @@ class Finding(BaseModel):
     def _clean_text_fields(cls, v: object) -> str:
         return normalize_unicode_text(str(v)).strip()
 
-    @field_validator("references", mode="before")
+    @field_validator(
+        "references",
+        "verification_criteria",
+        "invalidation_criteria",
+        "verified_criteria_matched",
+        "invalidated_criteria_matched",
+        mode="before",
+    )
     @classmethod
     def _clean_references(cls, v: object) -> list[str]:
         if isinstance(v, list):
@@ -205,6 +223,19 @@ def _merge_two_findings[F: Finding](base: F, other: F) -> F:
     )
     fix = base.fix if len(base.fix) >= len(other.fix) else other.fix
     refs = list(dict.fromkeys(base.references + other.references))
+    ver_crit = list(dict.fromkeys(base.verification_criteria + other.verification_criteria))
+    inv_crit = list(dict.fromkeys(base.invalidation_criteria + other.invalidation_criteria))
+    ver_match = list(
+        dict.fromkeys(base.verified_criteria_matched + other.verified_criteria_matched)
+    )
+    inv_match = list(
+        dict.fromkeys(base.invalidated_criteria_matched + other.invalidated_criteria_matched)
+    )
+    reportable = (
+        base.reportable and other.reportable
+        if (not verified and (base.mitigated or other.mitigated))
+        else (base.reportable or other.reportable)
+    )
 
     updates: dict[str, Any] = {
         "severity": best_sev,
@@ -215,6 +246,11 @@ def _merge_two_findings[F: Finding](base: F, other: F) -> F:
         "description": desc,
         "fix": fix,
         "references": refs,
+        "verification_criteria": ver_crit,
+        "invalidation_criteria": inv_crit,
+        "verified_criteria_matched": ver_match,
+        "invalidated_criteria_matched": inv_match,
+        "reportable": reportable,
     }
 
     if isinstance(base, SavedFinding) and isinstance(other, SavedFinding):
@@ -255,10 +291,11 @@ def consolidate_duplicate_findings[F: Finding](findings: list[F]) -> list[F]:
 
 
 def sort_findings[F: Finding](findings: list[F]) -> list[F]:
-    """Sort findings by severity rank, then confidence score descending, then verified."""
+    """Sort findings by reportability, severity rank, confidence score descending, then verified."""
     return sorted(
         findings,
         key=lambda f: (
+            not f.reportable,
             _SEVERITY_RANK.get(f.severity.upper().strip(), 99),
             -(f.confidence_score if f.confidence_score is not None else -1.0),
             not f.verified,
@@ -278,6 +315,8 @@ class FileReviewPayload(BaseModel):
     linked_files: list[FileAnalysisMeta] = Field(default_factory=list)
     findings: list[SavedFinding] = Field(default_factory=list)
     ai_scratchpad: dict[str, Any] = Field(default_factory=dict)
+    external_dependencies: list[DependencySpec] = Field(default_factory=list)
+    network_references: list[NetworkReference] = Field(default_factory=list)
     reportable: bool = True
 
 
@@ -285,6 +324,10 @@ class ReviewSessionPayload(BaseModel):
     generated_at: str = ""
     personas: list[str] = Field(default_factory=list)
     findings: list[SavedFinding] = Field(default_factory=list)
+    external_dependencies: list[DependencySpec] = Field(default_factory=list)
+    dependency_vulnerabilities: list[VulnerabilityRecord] = Field(default_factory=list)
+    network_references: list[NetworkReference] = Field(default_factory=list)
+    network_reputations: list[NetworkReputationRecord] = Field(default_factory=list)
 
     @property
     def sorted_findings(self) -> list[SavedFinding]:

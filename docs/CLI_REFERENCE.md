@@ -2040,6 +2040,8 @@ devops ai rag clear [OPTIONS]
 
 AI-powered code reviews using expert personas.
 
+AI Code Review across branches, paths, and pull requests.
+
 ### `devops review path`
 
 **Review source files directly (no git required).**

@@ -46,6 +46,18 @@ from devops_cli.config.constants import (
     CONST_REVIEWS_DATA_DIR,
 )
 from devops_cli.models.ai import FileAnalysisMeta
+from devops_cli.security.intelligence import (
+    CloudflareRadarClient,
+    DependencySpec,
+    NetworkReference,
+    NetworkReputationRecord,
+    NVDClient,
+    OSVClient,
+    ShodanInternetDBClient,
+    VulnerabilityRecord,
+    extract_dependencies_from_text,
+    extract_network_references,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -257,6 +269,14 @@ class ReviewPipelineOrchestrator:
         except Exception:
             pass
 
+        osv_client = OSVClient()
+        nvd_client = NVDClient()
+        shodan_client = ShodanInternetDBClient()
+        radar_client = CloudflareRadarClient()
+
+        dep_cache: dict[tuple[str, str, str], list[VulnerabilityRecord]] = {}
+        net_cache: dict[str, NetworkReputationRecord] = {}
+
         for fpath in file_paths:
             fmeta = self._find_matching_metadata(fpath, metadata_by_path) or FileAnalysisMeta(
                 path=fpath
@@ -271,22 +291,113 @@ class ReviewPipelineOrchestrator:
                 if sym_match or dep_match:
                     linked.append(other_meta)
 
+            file_deps: list[DependencySpec] = []
+            file_nets: list[NetworkReference] = []
+            p_target = Path(fpath)
+            if p_target.exists() and p_target.is_file():
+                try:
+                    f_content = p_target.read_text(encoding="utf-8", errors="replace")
+                    file_deps = extract_dependencies_from_text(f_content, fpath)
+                    file_nets = extract_network_references(f_content, fpath)
+                except Exception:
+                    pass
+
+            initial_findings = list(static_findings_by_file.get(fpath, []))
+
+            # Check dependencies against OSV and NVD
+            for dep in file_deps:
+                d_key = (dep.name, dep.version_range, dep.ecosystem)
+                if d_key not in dep_cache:
+                    vulns = osv_client.check_vulnerability(
+                        dep.name, dep.version_range, dep.ecosystem
+                    )
+                    if not vulns and dep.name:
+                        vulns = nvd_client.search_cve(dep.name)
+                    dep_cache[d_key] = vulns
+                else:
+                    vulns = dep_cache[d_key]
+
+                for v in vulns:
+                    initial_findings.append(
+                        SavedFinding(
+                            severity=v.severity,
+                            location=f"{fpath}:1",
+                            title=f"Vulnerable Dependency: {dep.name} ({v.id})",
+                            description=(
+                                f"Dependency '{dep.name}' ({dep.version_range}) is affected by "
+                                f"{v.id}: {v.summary}"
+                            ),
+                            fix=f"Upgrade '{dep.name}' to a patched release.",
+                            references=[v.details_url] if v.details_url else [],
+                            verification_criteria=[f"Package '{dep.name}' declared in {fpath}"],
+                            invalidation_criteria=["Dependency upgraded or patched in lockfile"],
+                            verified_criteria_matched=[f"Package '{dep.name}' declared in {fpath}"],
+                            status="VERIFIED",
+                            verified=True,
+                            reportable=True,
+                            confidence_score=0.95,
+                            persona="devsecops",
+                            persona_title="Principal DevSecOps Engineer",
+                        )
+                    )
+
+            # Check network references against Shodan InternetDB & Radar
+            for net in file_nets:
+                if net.target not in net_cache:
+                    if net.reference_type == "ip":
+                        rep = shodan_client.check_ip(net.target)
+                    else:
+                        rep = radar_client.check_domain(net.target)
+                    net_cache[net.target] = rep
+                else:
+                    rep = net_cache[net.target]
+
+                if rep.is_malicious:
+                    initial_findings.append(
+                        SavedFinding(
+                            severity="HIGH",
+                            location=f"{fpath}:{net.line_number or 1}",
+                            title=f"Suspicious / Vulnerable Network Reference: {net.target}",
+                            description=(
+                                f"External host '{net.target}' flagged by {rep.source}: "
+                                f"{rep.reputation_summary}"
+                            ),
+                            fix=f"Sanitize or remove external host reference '{net.target}'.",
+                            references=[f"https://internetdb.shodan.io/{rep.ip}"] if rep.ip else [],
+                            verification_criteria=[f"Host '{net.target}' referenced in {fpath}"],
+                            invalidation_criteria=["Internal test fixture or isolated sandbox"],
+                            verified_criteria_matched=[
+                                f"Host '{net.target}' referenced in {fpath}"
+                            ],
+                            status="VERIFIED",
+                            verified=True,
+                            reportable=True,
+                            confidence_score=0.90,
+                            persona="devsecops",
+                            persona_title="Principal DevSecOps Engineer",
+                        )
+                    )
+
             sanitized_name = _sanitize_filename(fpath) + ".json"
             json_file = self.files_dir / sanitized_name
-            initial_findings = static_findings_by_file.get(fpath, [])
 
             payload = FileReviewPayload(
                 file_path=fpath,
                 metadata=fmeta,
                 linked_files=linked,
                 findings=initial_findings,
+                external_dependencies=file_deps,
+                network_references=file_nets,
                 ai_scratchpad={
                     "initialized_at": datetime.now(UTC).isoformat(),
                     "stage": "initialized",
                     "thoughts": [
                         f"Tracking findings for {fpath}",
                         *(
-                            [f"Injected {len(initial_findings)} static security scan finding(s)"]
+                            [
+                                f"Injected {len(initial_findings)} static scan / "
+                                "threat intel finding(s)"
+                            ]
                             if initial_findings
                             else []
                         ),
@@ -531,8 +642,13 @@ class ReviewPipelineOrchestrator:
                 orig.status = v.status
                 orig.verified = v.verified
                 orig.mitigated = v.mitigated
+                orig.reportable = v.reportable
                 orig.invalidation_reason = v.invalidation_reason
                 orig.confidence_score = v.confidence_score
+                orig.verification_criteria = v.verification_criteria
+                orig.invalidation_criteria = v.invalidation_criteria
+                orig.verified_criteria_matched = v.verified_criteria_matched
+                orig.invalidated_criteria_matched = v.invalidated_criteria_matched
                 orig.verified_by = "llm"
                 orig.verified_at = datetime.now(UTC).isoformat()
                 updated_saved.append(orig)
@@ -572,10 +688,12 @@ class ReviewPipelineOrchestrator:
         rprint(f"[dim]Stage 5/6: Re-ranking and validating findings for {n_p} file(s)...[/dim]")
         for payload in file_payloads:
             valid_findings = [
-                f for f in payload.findings if f.status in ("VERIFIED", "UNVERIFIED", "MITIGATED")
+                f
+                for f in payload.findings
+                if f.reportable and f.status in ("VERIFIED", "UNVERIFIED", "MITIGATED")
             ]
             for f in payload.findings:
-                payload.reportable = f.status != "INVALIDATED"
+                payload.reportable = f.status != "INVALIDATED" and f.reportable
             payload.ai_scratchpad["stage"] = "reranked"
             payload.ai_scratchpad["reportable_count"] = len(valid_findings)
 
@@ -584,7 +702,8 @@ class ReviewPipelineOrchestrator:
             json_target.write_text(payload.model_dump_json(indent=2), encoding="utf-8")
 
         total_reportable = sum(
-            len([f for f in p.findings if f.status != "INVALIDATED"]) for p in file_payloads
+            len([f for f in p.findings if f.reportable and f.status != "INVALIDATED"])
+            for p in file_payloads
         )
         rprint(f"[dim]  ✓ Re-ranked: {total_reportable} reportable finding(s) identified[/dim]")
 
@@ -597,15 +716,29 @@ class ReviewPipelineOrchestrator:
         all_findings: list[SavedFinding] = []
         for payload in file_payloads:
             for f in payload.findings:
-                if f.status != "INVALIDATED":
+                if f.status != "INVALIDATED" and f.reportable:
                     all_findings.append(f)
 
         all_findings = consolidate_duplicate_findings(all_findings)
+
+        all_deps: list[DependencySpec] = []
+        all_nets: list[NetworkReference] = []
+        for payload in file_payloads:
+            for d in payload.external_dependencies:
+                if not any(
+                    x.name == d.name and x.version_range == d.version_range for x in all_deps
+                ):
+                    all_deps.append(d)
+            for n in payload.network_references:
+                if not any(x.target == n.target for x in all_nets):
+                    all_nets.append(n)
 
         payload_out = ReviewSessionPayload(
             generated_at=datetime.now(UTC).isoformat(),
             personas=["devsecops", "architect", "qa"],
             findings=all_findings,
+            external_dependencies=all_deps,
+            network_references=all_nets,
         )
 
         findings_json_path = self.session_dir / "findings.json"
@@ -640,10 +773,40 @@ class ReviewPipelineOrchestrator:
                 lines.append(f"- **Status**: {f.status}")
                 if f.confidence_score is not None:
                     lines.append(f"- **Confidence Score**: {f.confidence_score:.2f}")
+                if f.verification_criteria:
+                    lines.append(
+                        f"- **Verification Criteria**: {'; '.join(f.verification_criteria)}"
+                    )
+                if f.invalidation_criteria:
+                    lines.append(
+                        f"- **Invalidation Criteria**: {'; '.join(f.invalidation_criteria)}"
+                    )
                 lines.append(f"- **Description**: {f.description}")
                 if f.fix:
                     lines.append(f"- **Fix Recommendation**:\n```\n{f.fix}\n```")
                 lines.append("")
+
+        if all_deps:
+            lines.append("## External Dependencies (OSV.dev & NVD)")
+            lines.append("| Dependency | Version Range | Ecosystem | Source File |")
+            lines.append("|---|---|---|---|")
+            for dep in all_deps:
+                lines.append(
+                    f"| `{dep.name}` | `{dep.version_range}` | {dep.ecosystem} | "
+                    f"`{dep.source_file}` |"
+                )
+            lines.append("")
+
+        if all_nets:
+            lines.append("## External Network References (Shodan InternetDB & Cloudflare Radar)")
+            lines.append("| Target | Type | Source File | Line |")
+            lines.append("|---|---|---|---|")
+            for net in all_nets:
+                l_str = str(net.line_number) if net.line_number else "—"
+                lines.append(
+                    f"| `{net.target}` | {net.reference_type} | `{net.source_file}` | {l_str} |"
+                )
+            lines.append("")
 
         report_md = "\n".join(lines)
         (self.session_dir / "review.md").write_text(report_md, encoding="utf-8")

@@ -44,6 +44,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Native automated background Git daemon with `--export-all` across `/workspaces/devops-cli/k8s` and `/workspaces/devops-cli/repos` during container post-start lifecycle.
 - **GitHub PR Governance & Remote CI Inspection (`devops pr`)**:
   - Pull request lifecycle management (`create`, `status`, `checks`, `view`, `diff`) with automated release branch base targeting and CI check monitoring.
+- **AI Review Subsystem Modularization & Decoupling**:
+  - Refactored monolithic `commands/review.py` into cohesive domain modules under `src/devops_cli/ai/review/` (`runner.py`, `chunker.py`, `patching.py`, `exporter.py`, `verification.py`, `pipeline.py`).
+- **Atomic AI Tasks, Finding Verification/Invalidation Criteria & Reportability Scoring**:
+  - Decomposed AI review tasks into discrete, single-responsibility micro-steps to prevent prompt degradation.
+  - Added explicit `verification_criteria` and `invalidation_criteria` to `Finding` data models.
+  - Implemented criterion-based verification, deterministic confidence scoring, and `reportable: bool` assessment in review pipelines.
+- **External Dependency Vulnerability Scanning & Network Reputation Auditing (`devops_cli.security.intelligence`)**:
+  - Automated dependency extraction across Python (`pyproject.toml`, `requirements.txt`), JavaScript/TypeScript (`package.json`), Rust (`Cargo.toml`), and Go (`go.mod`) with live OSV.dev and NVD (NIST) vulnerability CVE lookups.
+  - Automated extraction of external network references (public IPs, FQDNs, URLs in docs and source code) with Shodan InternetDB port/vulnerability and Cloudflare Radar threat reputation auditing.
+  - Added formatted dependency and network intelligence tables to Markdown review reports and structured findings JSON payloads.
 
 ### Changed
 - **Review Prompt & Verification Rule Hardening**:

@@ -11,18 +11,24 @@ from devops_cli.ai.review.sanitization import _sanitize_prompt_boundary_tags
 from devops_cli.ai.review_schema import _SEVERITY_RANK, Finding, ReviewResult, extract_json_block
 
 _VALIDATION_SYSTEM = (
-    "You are an expert finding verification system.\n"
-    "Verify whether each reported finding is genuine, accurate, and unmitigated.\n"
-    "1. Is the code visible in the excerpt? If absent, mark false.\n"
-    "2. Is the finding genuine or a false positive (e.g. valid syntax, secret placeholders)?\n"
-    "3. Is the issue on historical documentation/evidence rather than active code?\n"
+    "You are an expert code review verification and validation system.\n"
+    "Verify whether each reported finding is genuine, accurate, and reportable "
+    "by testing its criteria:\n"
+    "1. Test 'verification_criteria': Observable conditions proving the defect in visible code.\n"
+    "2. Test 'invalidation_criteria': Conditions, mitigations, or context disproving the defect.\n"
+    "3. Is the code visible in the excerpt? If absent, mark false.\n"
     "4. Is the issue mitigated by error handling, type safety, guardrails, or related files?\n\n"
     "Output MUST be a JSON array of objects with fields:\n"
     '  - "verified": boolean (true if genuine & unmitigated, false if false-positive/mitigated)\n'
     '  - "mitigated": boolean (true if a related file or guardrail mitigates the risk)\n'
+    '  - "status": string ("VERIFIED" | "INVALIDATED" | "MITIGATED" | "UNVERIFIED")\n'
+    '  - "reportable": boolean (true if finding should be reported, '
+    "false if invalidated/mitigated)\n"
     '  - "location": string (file:lines)\n'
     '  - "severity": string (CRITICAL | HIGH | MEDIUM | LOW | INFO)\n'
-    '  - "confidence_score": float from 0.0 to 1.0 (or null)\n'
+    '  - "confidence_score": float from 0.0 to 1.0\n'
+    '  - "verified_criteria_matched": list of strings (criteria confirmed present)\n'
+    '  - "invalidated_criteria_matched": list of strings (invalidation criteria confirmed)\n'
     '  - "reason": string (brief justification)\n\n'
     "Output ONLY the JSON array inside a ```json ``` code block."
 )
@@ -335,13 +341,46 @@ def _validate_segment_findings(
                 if not isinstance(item, dict):
                     validated.append(f)
                     continue
+                ver_matched = [str(x) for x in item.get("verified_criteria_matched", []) if str(x)]
+                inv_matched = [
+                    str(x) for x in item.get("invalidated_criteria_matched", []) if str(x)
+                ]
                 is_v = bool(item.get("verified", True))
                 is_m = bool(item.get("mitigated", False))
-                status_val = "MITIGATED" if is_m else ("VERIFIED" if is_v else "UNVERIFIED")
+                is_rep = bool(item.get("reportable", is_v and not is_m and not inv_matched))
+
+                if inv_matched:
+                    is_v = False
+                    is_m = True
+                    status_val = "INVALIDATED"
+                    is_rep = False
+                elif is_m:
+                    status_val = "MITIGATED"
+                    is_rep = False
+                elif is_v:
+                    status_val = "VERIFIED"
+                else:
+                    status_val = "UNVERIFIED"
+
+                conf_val = item.get("confidence_score")
+                if conf_val is not None:
+                    try:
+                        conf: float | None = max(0.0, min(1.0, float(conf_val)))
+                    except (ValueError, TypeError):
+                        conf = f.confidence_score or 0.8
+                elif f.verification_criteria:
+                    conf = round(len(ver_matched) / max(1, len(f.verification_criteria)), 2)
+                else:
+                    conf = 0.9 if is_v else 0.4
+
                 updates: dict[str, object] = {
                     "verified": is_v,
                     "mitigated": is_m,
                     "status": status_val,
+                    "reportable": is_rep,
+                    "confidence_score": conf,
+                    "verified_criteria_matched": ver_matched,
+                    "invalidated_criteria_matched": inv_matched,
                     "verified_by": "llm",
                     "verified_at": now_iso,
                 }

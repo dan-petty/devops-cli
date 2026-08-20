@@ -5,7 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import pytest
+
 from devops_cli.ai.review import ReviewPipelineOrchestrator
+from devops_cli.ai.review_schema import FileReviewPayload, SavedFinding
 from devops_cli.models.ai import FileAnalysisMeta
 
 
@@ -336,3 +339,77 @@ def test_normalize_unicode_text_in_findings() -> None:
     assert finding.title == "Title with 'smart quotes' and non-breaking hyphen"
     assert finding.description == "Description with narrow no break spaces"
     assert finding.references == ["NIST SP 800-53 Rev 5 SI-2"]
+
+
+def test_criteria_based_verification_and_reportability(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Findings define verification and invalidation criteria that determine
+    reportability and confidence.
+    """
+    monkeypatch.setattr("devops_cli.config.constants.CONST_DATA_DIR", tmp_path / ".data")
+    monkeypatch.setattr(
+        "devops_cli.config.constants.CONST_REVIEWS_DATA_DIR", tmp_path / ".data" / "reviews"
+    )
+
+    orchestrator = ReviewPipelineOrchestrator(session_id="criteria-test", llm_client=MagicMock())
+
+    f_reportable = SavedFinding(
+        severity="HIGH",
+        location="src/main.rs:10-20",
+        title="Unchecked array access",
+        description="Array indexing without bounds check",
+        fix="Use .get() with error handling",
+        verification_criteria=[
+            "Indexing using raw integer slice",
+            "Zero length check preceding indexing",
+        ],
+        invalidation_criteria=["Bounds check present upstream", "Bounded fixed-size array"],
+        verified_criteria_matched=[
+            "Indexing using raw integer slice",
+            "Zero length check preceding indexing",
+        ],
+        invalidated_criteria_matched=[],
+        status="VERIFIED",
+        verified=True,
+        reportable=True,
+        confidence_score=1.0,
+        persona="qa",
+        persona_title="Senior Test Engineer",
+    )
+
+    f_invalidated = SavedFinding(
+        severity="MEDIUM",
+        location="src/config.rs:5-10",
+        title="Hardcoded credentials",
+        description="Potential secret leak in config file",
+        fix="Use environment variable or keyring",
+        verification_criteria=["Plaintext secret key in active production code"],
+        invalidation_criteria=[
+            "Example template placeholder (.example.yaml)",
+            "Masked marker <masked-*>",
+        ],
+        verified_criteria_matched=[],
+        invalidated_criteria_matched=["Example template placeholder (.example.yaml)"],
+        status="INVALIDATED",
+        verified=False,
+        reportable=False,
+        confidence_score=0.0,
+        persona="devsecops",
+        persona_title="Principal DevSecOps Engineer",
+    )
+
+    payload = FileReviewPayload(
+        file_path="src/main.rs",
+        findings=[f_reportable, f_invalidated],
+    )
+
+    orchestrator.execute_finding_reranking([payload])
+    data_out, report_md = orchestrator.generate_consolidated_report([payload])
+
+    # Only the reportable verified finding should be in the report
+    assert len(data_out["findings"]) == 1
+    assert data_out["findings"][0]["title"] == "Unchecked array access"
+    assert data_out["findings"][0]["reportable"] is True
+    assert "Verification Criteria" in report_md
+    assert "Hardcoded credentials" not in report_md
