@@ -13,6 +13,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Hierarchical technical documentation chunker preserving Markdown, AsciiDoc, and RST heading depth with breadcrumb hierarchy tracking.
   - Multi-project workspace autodetection (`Cargo.toml`, `go.mod`, `package.json`, `pyproject.toml`) and faceted semantic filtering (`--project`, `--language`, `--category`).
   - Native Qdrant vector database integration and Ollama dense embeddings generation (`all-minilm`).
+- **Official `qdrant-client` SDK Adoption & Modernization**:
+  - Replaced manual HTTP REST JSON calls with the official `qdrant-client` Python SDK with connection pooling, typed models, batch upserts, and payload filtering.
+- **Hierarchical Configuration Modernization (`pydantic-settings`)**:
+  - Upgraded `Settings` to inherit from `pydantic_settings.BaseSettings` with `SettingsConfigDict` supporting automatic environment variable binding (`DEVOPS_CLI_*`), schema validation, and secret masking while preserving OS Keyring security.
+- **Multi-Context & Remote Cluster Kubernetes Support (`devops k8s`)**:
+  - Added dynamic cluster reachability verification (`_cluster_reachable`) supporting remote k3s, EKS, and GKE cluster contexts via `kubectl cluster-info`.
+  - Added `--context` (`-c`) option support across `deploy-stack`, `teardown-stack`, `port-forward`, and `configure-urls`.
+  - Added automated iterative pre-existing Helm resource adoption (`_adopt_helm_resource_if_conflict`).
+- **Multi-GPU Native Ollama DaemonSet Deployment**:
+  - Integrated `k8s/llm/ollama-daemonset.yaml` with multi-GPU access (`NVIDIA_VISIBLE_DEVICES: "all"`), `runtimeClassName: nvidia`, hostPort 11434, and shared NFS model cache.
 - **Structural Metadata Extraction Engine (`src/devops_cli/ai/rag/metadata.py`)**:
   - Polyglot dependency and import parsing across 8+ programming languages.
   - Automated security sensitivity classification tagging code chunks into `crypto`, `network`, `auth`, `secrets`, `db`, `fs`, and `iam`.
