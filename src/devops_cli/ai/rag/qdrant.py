@@ -1,11 +1,13 @@
-"""High-reliability HTTP client for Qdrant Vector Database."""
+"""High-reliability client for Qdrant Vector Database using official qdrant-client SDK."""
 
 from __future__ import annotations
 
 import logging
+import uuid
 from typing import Any
 
-import httpx2
+from qdrant_client import QdrantClient as NativeQdrantClient
+from qdrant_client.http import models as qmodels
 
 from devops_cli.config.defaults import DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS
 from devops_cli.http.validation import validate_service_url
@@ -14,11 +16,11 @@ logger = logging.getLogger(__name__)
 
 
 class QdrantClientError(RuntimeError):
-    """Raised when an interaction with the Qdrant REST API fails."""
+    """Raised when an interaction with Qdrant fails."""
 
 
 class QdrantClient:
-    """Client for Qdrant vector database using secure httpx2 transport."""
+    """Client for Qdrant vector database using official Qdrant Python SDK."""
 
     def __init__(
         self,
@@ -33,64 +35,58 @@ class QdrantClient:
         self.allow_private_network = allow_private_network
         self.timeout = min(timeout, 30.0)
 
-    def _get_headers(self) -> dict[str, str]:
-        headers = {"Content-Type": "application/json"}
-        if self.api_key:
-            headers["api-key"] = self.api_key
-        return headers
+        # Validate URL for SSRF protection
+        validate_service_url(self.base_url, "Qdrant", allow=self.allow_private_network)
 
-    def _validate_url(self, endpoint: str) -> str:
-        url = f"{self.base_url}{endpoint}"
-        validate_service_url(url, "Qdrant", allow=self.allow_private_network)
-        return url
+        self._client: NativeQdrantClient | None = None
+
+    def _get_client(self) -> NativeQdrantClient:
+        if self._client is None:
+            self._client = NativeQdrantClient(
+                url=self.base_url,
+                api_key=self.api_key,
+                timeout=int(self.timeout),
+            )
+        return self._client
 
     def is_alive(self) -> bool:
         """Check if Qdrant server is reachable and responsive."""
         try:
-            url = self._validate_url("/readyz")
-            with httpx2.Client(timeout=2.0) as client:
-                res = client.get(url, headers=self._get_headers())
-                return res.status_code == 200
+            client = self._get_client()
+            client.get_collections()
+            return True
         except Exception:
-            try:
-                url = self._validate_url("/collections")
-                with httpx2.Client(timeout=2.0) as client:
-                    res = client.get(url, headers=self._get_headers())
-                    return res.status_code == 200
-            except Exception:
-                return False
+            return False
 
     def list_collections(self) -> list[str]:
         """List all collection names in the Qdrant instance."""
-        url = self._validate_url("/collections")
         try:
-            with httpx2.Client(timeout=self.timeout) as client:
-                res = client.get(url, headers=self._get_headers())
-                if res.status_code != 200:
-                    raise QdrantClientError(
-                        f"Failed to list collections: HTTP {res.status_code} {res.text}"
-                    )
-                data = res.json()
-                collections = data.get("result", {}).get("collections", [])
-                return [c.get("name", "") for c in collections if c.get("name")]
+            client = self._get_client()
+            res = client.get_collections()
+            return [c.name for c in res.collections]
         except Exception as exc:
-            logger.debug("Failed to list Qdrant collections from %s: %s", url, exc)
+            logger.debug("Failed to list Qdrant collections from %s: %s", self.base_url, exc)
             raise QdrantClientError(f"Error connecting to Qdrant: {exc}") from exc
 
     def get_collection_info(self, name: str) -> dict[str, Any]:
         """Fetch metadata, vectors count, and status for a collection."""
-        url = self._validate_url(f"/collections/{name}")
         try:
-            with httpx2.Client(timeout=self.timeout) as client:
-                res = client.get(url, headers=self._get_headers())
-                if res.status_code == 404:
-                    return {}
-                if res.status_code != 200:
-                    raise QdrantClientError(
-                        f"Failed to get collection info for '{name}': HTTP {res.status_code}"
-                    )
-                return res.json().get("result", {})  # type: ignore[no-any-return]
+            client = self._get_client()
+            info = client.get_collection(collection_name=name)
+            points_count = info.points_count or 0
+            vectors_count = getattr(info, "indexed_vectors_count", None) or points_count
+            status_val = (
+                str(info.status.value) if hasattr(info.status, "value") else str(info.status)
+            )
+            return {
+                "status": status_val,
+                "points_count": points_count,
+                "vectors_count": vectors_count,
+            }
         except Exception as exc:
+            err_str = str(exc)
+            if "not found" in err_str.lower() or "404" in err_str:
+                return {}
             logger.debug("Failed to get Qdrant collection %s info: %s", name, exc)
             raise QdrantClientError(f"Error fetching collection info: {exc}") from exc
 
@@ -105,33 +101,27 @@ class QdrantClient:
         if info:
             return True
 
-        url = self._validate_url(f"/collections/{name}")
-        payload = {
-            "vectors": {
-                "size": vector_size,
-                "distance": distance,
-            }
-        }
+        dist_enum = getattr(qmodels.Distance, distance.upper(), qmodels.Distance.COSINE)
         try:
-            with httpx2.Client(timeout=self.timeout) as client:
-                res = client.put(url, headers=self._get_headers(), json=payload)
-                if res.status_code not in (200, 201):
-                    raise QdrantClientError(
-                        f"Failed to create collection '{name}': HTTP {res.status_code} {res.text}"
-                    )
-                return True
+            client = self._get_client()
+            client.create_collection(
+                collection_name=name,
+                vectors_config=qmodels.VectorParams(size=vector_size, distance=dist_enum),
+            )
+            return True
         except Exception as exc:
             logger.error("Error creating collection %s in Qdrant: %s", name, exc)
             raise QdrantClientError(f"Error creating collection '{name}': {exc}") from exc
 
     def delete_collection(self, name: str) -> bool:
         """Delete a collection from Qdrant."""
-        url = self._validate_url(f"/collections/{name}")
         try:
-            with httpx2.Client(timeout=self.timeout) as client:
-                res = client.delete(url, headers=self._get_headers())
-                return res.status_code in (200, 404)
+            client = self._get_client()
+            return bool(client.delete_collection(collection_name=name))
         except Exception as exc:
+            err_str = str(exc)
+            if "not found" in err_str.lower() or "404" in err_str:
+                return True
             logger.error("Error deleting collection %s in Qdrant: %s", name, exc)
             raise QdrantClientError(f"Error deleting collection '{name}': {exc}") from exc
 
@@ -146,20 +136,39 @@ class QdrantClient:
         if not points:
             return 0
 
-        url = self._validate_url(f"/collections/{name}/points?wait=true")
+        client = self._get_client()
         total_upserted = 0
 
         for i in range(0, len(points), batch_size):
             batch = points[i : i + batch_size]
-            payload = {"points": batch}
+            point_structs: list[qmodels.PointStruct] = []
+            for p in batch:
+                p_id = p.get("id")
+                point_id: int | str
+                if isinstance(p_id, int):
+                    point_id = p_id
+                elif isinstance(p_id, str):
+                    try:
+                        uuid.UUID(p_id)
+                        point_id = p_id
+                    except ValueError:
+                        point_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, p_id))
+                else:
+                    point_id = str(uuid.uuid4())
+                point_structs.append(
+                    qmodels.PointStruct(
+                        id=point_id,
+                        vector=p["vector"],
+                        payload=p.get("payload", {}),
+                    )
+                )
             try:
-                with httpx2.Client(timeout=self.timeout) as client:
-                    res = client.put(url, headers=self._get_headers(), json=payload)
-                    if res.status_code not in (200, 201):
-                        raise QdrantClientError(
-                            f"Upsert points failed: HTTP {res.status_code} {res.text}"
-                        )
-                    total_upserted += len(batch)
+                client.upsert(
+                    collection_name=name,
+                    points=point_structs,
+                    wait=True,
+                )
+                total_upserted += len(batch)
             except Exception as exc:
                 logger.error("Error during Qdrant batch upsert: %s", exc)
                 raise QdrantClientError(f"Error upserting points into '{name}': {exc}") from exc
@@ -176,52 +185,61 @@ class QdrantClient:
         filter_payload: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         """Search nearest vector points in the specified collection."""
-        url = self._validate_url(f"/collections/{name}/points/search")
-        payload: dict[str, Any] = {
-            "vector": query_vector,
-            "limit": limit,
-            "with_payload": True,
-        }
-        if score_threshold is not None:
-            payload["score_threshold"] = score_threshold
-
+        client = self._get_client()
+        query_filter = None
         if filter_payload:
-            must_conditions = []
+            conditions: list[qmodels.Condition] = []
             for key, val in filter_payload.items():
-                must_conditions.append({"key": key, "match": {"value": val}})
-            payload["filter"] = {"must": must_conditions}
+                conditions.append(
+                    qmodels.FieldCondition(
+                        key=key,
+                        match=qmodels.MatchValue(value=val),
+                    )
+                )
+            query_filter = qmodels.Filter(must=conditions)
 
         try:
-            with httpx2.Client(timeout=self.timeout) as client:
-                res = client.post(url, headers=self._get_headers(), json=payload)
-                if res.status_code == 404:
-                    return []
-                if res.status_code != 200:
-                    raise QdrantClientError(
-                        f"Search failed in '{name}': HTTP {res.status_code} {res.text}"
-                    )
-                return res.json().get("result", [])  # type: ignore[no-any-return]
+            res = client.query_points(
+                collection_name=name,
+                query=query_vector,
+                limit=limit,
+                score_threshold=score_threshold,
+                query_filter=query_filter,
+                with_payload=True,
+            )
+            return [
+                {
+                    "id": hit.id,
+                    "score": hit.score,
+                    "payload": hit.payload or {},
+                }
+                for hit in res.points
+            ]
         except Exception as exc:
+            err_str = str(exc)
+            if "not found" in err_str.lower() or "404" in err_str:
+                return []
             logger.debug("Error searching collection %s: %s", name, exc)
             raise QdrantClientError(f"Search failed in '{name}': {exc}") from exc
 
     def delete_points_by_file(self, name: str, file_path: str) -> bool:
         """Delete all indexed chunks belonging to a given file path."""
-        url = self._validate_url(f"/collections/{name}/points/delete?wait=true")
-        payload = {
-            "filter": {
-                "must": [
-                    {
-                        "key": "file_path",
-                        "match": {"value": file_path},
-                    }
-                ]
-            }
-        }
+        client = self._get_client()
+        file_filter = qmodels.Filter(
+            must=[
+                qmodels.FieldCondition(
+                    key="file_path",
+                    match=qmodels.MatchValue(value=file_path),
+                )
+            ]
+        )
         try:
-            with httpx2.Client(timeout=self.timeout) as client:
-                res = client.post(url, headers=self._get_headers(), json=payload)
-                return res.status_code == 200
+            client.delete(
+                collection_name=name,
+                points_selector=qmodels.FilterSelector(filter=file_filter),
+                wait=True,
+            )
+            return True
         except Exception as exc:
             logger.debug("Failed to delete points by file for %s: %s", file_path, exc)
             return False

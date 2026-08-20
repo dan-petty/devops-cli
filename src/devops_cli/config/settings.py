@@ -10,6 +10,7 @@ from typing import Any
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from devops_cli.config import options as opt
 from devops_cli.config.constants import (
@@ -182,8 +183,13 @@ class AIConfig(BaseModel):
         return self.model_copy(update=updates) if updates else self
 
 
-class Settings(BaseModel):
-    model_config = ConfigDict(frozen=False)
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_prefix="DEVOPS_CLI_",
+        env_nested_delimiter="__",
+        extra="ignore",
+        frozen=False,
+    )
     github: GitHubConfig = GitHubConfig()
     ssh: SSHConfig = SSHConfig()
     repos: ReposConfig = ReposConfig()
