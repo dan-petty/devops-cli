@@ -248,7 +248,6 @@ _HELM_REPOS_BY_STACK: dict[str, dict[str, str]] = {
         "open-telemetry": "https://open-telemetry.github.io/opentelemetry-helm-charts",
     },
     "llm": {
-        "ollama": "https://otwld.github.io/ollama-helm/",
         "open-webui": "https://open-webui.github.io/helm-charts",
         "qdrant": "https://qdrant.github.io/qdrant-helm",
     },
@@ -285,12 +284,6 @@ _HELM_RELEASES_BY_STACK: dict[str, list[dict[str, str]]] = {
     ],
     "llm": [
         {
-            "name": "ollama",
-            "chart": "ollama/ollama",
-            "namespace": "llm",
-            "values": str(_K8S_DIR / "llm" / "values-ollama.yaml"),
-        },
-        {
             "name": "open-webui",
             "chart": "open-webui/open-webui",
             "namespace": "llm",
@@ -311,6 +304,7 @@ _MANIFESTS_BY_STACK: dict[str, list[Path]] = {
     "infra": [],
     "llm": [
         _K8S_DIR / "llm" / "valkey.yaml",
+        _K8S_DIR / "llm" / "ollama-daemonset.yaml",
     ],
 }
 
