@@ -21,6 +21,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from devops_cli.ai.agents.pydantic_agent import AgentTool, PydanticAgent, ToolCall
+from devops_cli.ai.analyze.outlines import _mask_sensitive_data
 from devops_cli.ai.review_schema import extract_json_block
 from devops_cli.config.defaults import DEFAULT_AGENT_MAX_TURNS
 from devops_cli.models.ai import ScratchpadBuffer
@@ -91,6 +92,10 @@ class MultiAgentPipeline[T]:
         enable_thinking: bool = True,
     ) -> MultiAgentPipelineResult[T]:
         """Run the multi-agent pipeline sequentially, passing accumulated context forward."""
+        if max_turns_per_agent <= 0:
+            msg = f"max_turns_per_agent must be a positive integer, got {max_turns_per_agent}"
+            raise ValueError(msg)
+
         steps: list[PipelineStepResult] = []
         all_tool_calls: list[ToolCall] = []
         total_turns = 0
@@ -126,7 +131,6 @@ class MultiAgentPipeline[T]:
             steps.append(step)
 
             raw_hyp = res.content[:150].replace("\n", " ") + "..."
-            from devops_cli.ai.analyze.outlines import _mask_sensitive_data
 
             self.scratchpad.add_entry(
                 persona=agent.name,

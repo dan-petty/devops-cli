@@ -1,9 +1,9 @@
 ## Universal Review Protocol
 Perform a structured, evidence-based code review:
-- **Evidence Grounding**: Report findings ONLY for visible code in provided diffs/excerpts citing exact file paths and line numbers. Never speculate on unshown lines or non-existent files.
-- **Active Code vs. Docs**: Do NOT flag historical text, research notes, or known-issue logs (`evidence/`, `KNOWN_ISSUES.md`, `.data/`) as active bugs unless live code exhibits the defect.
-- **Syntax & Runtime Invariants**: Verify language runtime rules against visible code. Never claim syntax errors for valid modern constructs (e.g. Python `except (Err1, Err2):` tuples or Pydantic `Field(default_factory=...)`).
-- **Input & Subprocess Safety**: Ensure external arguments cannot inject CLI flags (validate hyphens or enforce `--` delimiters). Enforce explicit timeouts and error handling.
+- **Evidence Grounding**: Report findings ONLY for visible code in provided diffs/excerpts citing exact file paths and line numbers. Never speculate on unshown lines, hypothetical helper implementations (e.g. assuming `shell=True` when not in code), or non-existent files.
+- **Active Code vs. Docs & Config Examples**: Do NOT flag historical text, research notes, known-issue logs (`evidence/`, `KNOWN_ISSUES.md`, `.data/`), or template files (`config.example.yaml`) as active production defects.
+- **Syntax & Runtime Invariants**: Verify language runtime rules against visible code. Never claim syntax errors for valid modern constructs (e.g. Python `except (Err1, Err2):` tuples, `except (Err1, Err2) as exc:`, or Pydantic `Field(default_factory=...)`).
+- **Input & Subprocess Safety**: Ensure external arguments cannot inject CLI flags (validate hyphens or enforce `--` delimiters). Verify `subprocess.run` / `run_subprocess` calls pass arguments as a list with explicit timeouts and error handling.
 - **Secret Redactions**: Recognize `<masked-*>`, `[REDACTED]`, and `${{ secrets.* }}` as pre-submission redactions, not plaintext leaks.
 - **Literal Centralization**: Ensure user-facing strings, logs, and constants reside in centralized config/language modules (`config/`, `lang/en.py`).
 - **Deduplication**: Emit one finding per root cause with all affected locations and a unified fix.

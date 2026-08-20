@@ -1,8 +1,6 @@
 """MCP submodule for devops-cli FastMCP server integration."""
 
 from devops_cli.ai.mcp.server import (
-    _run_mcp_cmd,
-    _validate_mcp_arg,
     argo_list,
     argo_status,
     ci_run,
@@ -34,8 +32,6 @@ from devops_cli.ai.mcp.server import (
 )
 
 __all__ = [
-    "_run_mcp_cmd",
-    "_validate_mcp_arg",
     "argo_list",
     "argo_status",
     "ci_run",

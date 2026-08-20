@@ -111,7 +111,12 @@ class PydanticAgent[T]:
             tools_desc: list[str] = []
             for name, tool in self._tools.items():
                 params_str = json.dumps(tool.parameters, separators=(",", ":"))
-                desc = tool.description.replace("\n", " ")
+                # Sanitize description: strip non-printable characters and bound length
+                desc = "".join(
+                    c for c in tool.description.replace("\n", " ") if 32 <= ord(c) <= 126
+                )
+                if len(desc) > 300:
+                    desc = desc[:297] + "..."
                 tools_desc.append(f"- `{name}`: {desc} params={params_str}")
 
             tools_block = (

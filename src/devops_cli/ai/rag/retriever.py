@@ -57,14 +57,17 @@ class SemanticRetriever:
         rerank: bool = True,
     ) -> list[SearchResult]:
         """Execute semantic search across vector collections with faceted filters and re-ranking."""
-        k = top_k or self.default_top_k
+        k = max(1, min(top_k if top_k is not None else self.default_top_k, 100))
         fetch_limit = max(k * 3, 10) if rerank else k
-        threshold = score_threshold if score_threshold is not None else self.default_score_threshold
+        raw_threshold = (
+            score_threshold if score_threshold is not None else self.default_score_threshold
+        )
+        threshold = max(0.0, min(raw_threshold, 1.0)) if raw_threshold is not None else None
         start = time.perf_counter()
 
         with trace_span(
             "ai.rag.search",
-            {"query": query[:100], "top_k": k, "project": project or "all"},
+            {"query_length": len(query), "top_k": k, "project": project or "all"},
         ):
             try:
                 query_vec = self.embedder.embed_query(query)

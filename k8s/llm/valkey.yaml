@@ -36,8 +36,6 @@ spec:
                 - ALL
           command:
             - valkey-server
-            - "--protected-mode"
-            - "no"
             - "--save"
             - ""
             - "--appendonly"
@@ -76,11 +74,10 @@ metadata:
     app.kubernetes.io/name: valkey
     app.kubernetes.io/part-of: devops-cli-stack
 spec:
-  type: NodePort
+  type: ClusterIP
   selector:
     app.kubernetes.io/name: valkey
   ports:
     - name: valkey
       port: 6379
       targetPort: 6379
-      nodePort: 30379
