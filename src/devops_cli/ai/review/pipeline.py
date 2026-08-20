@@ -52,7 +52,6 @@ from devops_cli.security.intelligence import (
     DependencySpec,
     NetworkReference,
     NetworkReputationRecord,
-    NVDClient,
     OSVClient,
     ShodanInternetDBClient,
     VulnerabilityRecord,
@@ -271,13 +270,66 @@ class ReviewPipelineOrchestrator:
             pass
 
         osv_client = OSVClient()
-        nvd_client = NVDClient()
         shodan_client = ShodanInternetDBClient()
         radar_client = CloudflareRadarClient()
 
+        # 1. Parse dependencies and network references across target files
+        raw_file_data: dict[str, tuple[list[DependencySpec], list[NetworkReference]]] = {}
+        all_unique_deps: set[tuple[str, str, str]] = set()
+        all_unique_nets: set[tuple[str, str]] = set()
+
+        for fpath in file_paths:
+            file_deps: list[DependencySpec] = []
+            file_nets: list[NetworkReference] = []
+            p_target = Path(fpath)
+            if p_target.exists() and p_target.is_file():
+                try:
+                    f_content = p_target.read_text(encoding="utf-8", errors="replace")
+                    file_deps = extract_dependencies_from_text(f_content, fpath)
+                    file_nets = extract_network_references(f_content, fpath)
+                except Exception:
+                    pass
+            raw_file_data[fpath] = (file_deps, file_nets)
+            for d in file_deps:
+                all_unique_deps.add((d.name, d.version_range, d.ecosystem))
+            for n in file_nets:
+                all_unique_nets.add((n.target, n.reference_type))
+
+        # 2. Concurrently pre-fetch unique dependency vulnerabilities and network reputations
         dep_cache: dict[tuple[str, str, str], list[VulnerabilityRecord]] = {}
         net_cache: dict[str, NetworkReputationRecord] = {}
 
+        def _fetch_dep(
+            d_key: tuple[str, str, str],
+        ) -> tuple[tuple[str, str, str], list[VulnerabilityRecord]]:
+            name, ver, eco = d_key
+            try:
+                vulns = osv_client.check_vulnerability(name, ver, eco)
+                return d_key, vulns
+            except Exception:
+                return d_key, []
+
+        def _fetch_net(n_key: tuple[str, str]) -> tuple[str, NetworkReputationRecord]:
+            target, rtype = n_key
+            try:
+                if rtype == "ip":
+                    rep = shodan_client.check_ip(target)
+                else:
+                    rep = radar_client.check_domain(target)
+                return target, rep
+            except Exception:
+                return target, NetworkReputationRecord(target=target, ip="")
+
+        if all_unique_deps or all_unique_nets:
+            with ThreadPoolExecutor(max_workers=8) as executor:
+                if all_unique_deps:
+                    for d_key, vulns in executor.map(_fetch_dep, list(all_unique_deps)):
+                        dep_cache[d_key] = vulns
+                if all_unique_nets:
+                    for target, rep in executor.map(_fetch_net, list(all_unique_nets)):
+                        net_cache[target] = rep
+
+        # 3. Assemble FileReviewPayload objects
         for fpath in file_paths:
             fmeta = self._find_matching_metadata(fpath, metadata_by_path) or FileAnalysisMeta(
                 path=fpath
@@ -292,32 +344,13 @@ class ReviewPipelineOrchestrator:
                 if sym_match or dep_match:
                     linked.append(other_meta)
 
-            file_deps: list[DependencySpec] = []
-            file_nets: list[NetworkReference] = []
-            p_target = Path(fpath)
-            if p_target.exists() and p_target.is_file():
-                try:
-                    f_content = p_target.read_text(encoding="utf-8", errors="replace")
-                    file_deps = extract_dependencies_from_text(f_content, fpath)
-                    file_nets = extract_network_references(f_content, fpath)
-                except Exception:
-                    pass
-
+            file_deps, file_nets = raw_file_data.get(fpath, ([], []))
             initial_findings = list(static_findings_by_file.get(fpath, []))
 
-            # Check dependencies against OSV and NVD
+            # Apply audited dependency results
             for dep in file_deps:
                 d_key = (dep.name, dep.version_range, dep.ecosystem)
-                if d_key not in dep_cache:
-                    vulns = osv_client.check_vulnerability(
-                        dep.name, dep.version_range, dep.ecosystem
-                    )
-                    if not vulns and dep.name:
-                        vulns = nvd_client.search_cve(dep.name)
-                    dep_cache[d_key] = vulns
-                else:
-                    vulns = dep_cache[d_key]
-
+                vulns = dep_cache.get(d_key, [])
                 if vulns:
                     dep.vulnerabilities = vulns
                     dep.security_status = f"⚠️ {len(vulns)} Known Vuln(s)"
@@ -348,17 +381,9 @@ class ReviewPipelineOrchestrator:
                         )
                     )
 
-            # Check network references against Shodan InternetDB & Radar
+            # Apply audited network reference results
             for net in file_nets:
-                if net.target not in net_cache:
-                    if net.reference_type == "ip":
-                        rep = shodan_client.check_ip(net.target)
-                    else:
-                        rep = radar_client.check_domain(net.target)
-                    net_cache[net.target] = rep
-                else:
-                    rep = net_cache[net.target]
-
+                rep = net_cache.get(net.target, NetworkReputationRecord(target=net.target, ip=""))
                 net.reputation = rep
                 if rep.is_malicious:
                     net.security_status = f"⚠️ Flagged ({rep.reputation_summary})"

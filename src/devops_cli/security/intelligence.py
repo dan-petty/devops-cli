@@ -324,7 +324,7 @@ class OSVClient:
 
     BASE_URL = "https://api.osv.dev/v1/query"
 
-    def __init__(self, timeout: float = 10.0) -> None:
+    def __init__(self, timeout: float = 3.0) -> None:
         self.timeout = timeout
 
     def check_vulnerability(
@@ -375,7 +375,7 @@ class NVDClient:
 
     BASE_URL = "https://services.nvd.nist.gov/rest/json/cves/2.0"
 
-    def __init__(self, timeout: float = 10.0) -> None:
+    def __init__(self, timeout: float = 2.0) -> None:
         self.timeout = timeout
 
     def search_cve(self, keyword: str) -> list[VulnerabilityRecord]:
@@ -417,7 +417,7 @@ class ShodanInternetDBClient:
 
     BASE_URL = "https://internetdb.shodan.io"
 
-    def __init__(self, timeout: float = 8.0) -> None:
+    def __init__(self, timeout: float = 3.0) -> None:
         self.timeout = timeout
 
     def check_ip(self, ip: str) -> NetworkReputationRecord:
@@ -456,7 +456,7 @@ class CloudflareRadarClient:
 
     BASE_URL = "https://radar.cloudflare.com/api/v1/intel"
 
-    def __init__(self, timeout: float = 8.0) -> None:
+    def __init__(self, timeout: float = 3.0) -> None:
         self.timeout = timeout
 
     def check_domain(self, domain_or_url: str) -> NetworkReputationRecord:
