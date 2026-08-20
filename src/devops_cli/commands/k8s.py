@@ -953,7 +953,16 @@ def port_forward(
 
     ctx_args = ["--context", context] if context else []
     for ns, svc, lport, rport in services:
-        cmd = ["kubectl", "port-forward", "-n", ns, svc, f"{lport}:{rport}"] + ctx_args
+        cmd = [
+            "kubectl",
+            "port-forward",
+            "--address",
+            "0.0.0.0",
+            "-n",
+            ns,
+            svc,
+            f"{lport}:{rport}",
+        ] + ctx_args
         subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         rprint(f"[green]✓ Forwarding {svc} ({ns}) to http://localhost:{lport}[/green]")
 

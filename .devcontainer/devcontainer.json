@@ -40,7 +40,10 @@
     8080,
     8030,
     8090,
+    16686,
     3000,
+    6333,
+    6379,
     9090,
     4317,
     4318,
@@ -59,6 +62,18 @@
     "8090": {
       "label": "Prometheus Metrics",
       "onAutoForward": "notify"
+    },
+    "16686": {
+      "label": "Jaeger Query UI",
+      "onAutoForward": "notify"
+    },
+    "6333": {
+      "label": "Qdrant Vector DB",
+      "onAutoForward": "notify"
+    },
+    "6379": {
+      "label": "Valkey Cache",
+      "onAutoForward": "ignore"
     },
     "3000": {
       "label": "Grafana Fallback",
