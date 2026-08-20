@@ -426,6 +426,64 @@ def bootstrap(
     deploy_stack(k8s_dir=k8s_dir, stack=stack)
 
 
+def _adopt_helm_resource_if_conflict(
+    error_output: str, release_name: str, namespace: str, context: str | None = None
+) -> bool:
+    """If Helm failed due to pre-existing unmanaged resources, annotate and label them to adopt."""
+    if (
+        "invalid ownership metadata" not in error_output
+        and "cannot be imported" not in error_output
+    ):
+        return False
+
+    import re
+
+    # Match pattern e.g. Service "ollama" in namespace "llm" exists
+    matches = re.findall(r'([A-Za-z0-9_-]+)\s+"([^"]+)"\s+in namespace\s+"([^"]+)"', error_output)
+    if not matches:
+        return False
+
+    ctx_args = ["--context", context] if context else []
+    adopted_any = False
+    for kind_raw, name, ns in matches:
+        kind = kind_raw.lower()
+        adopt_msg = (
+            f"[yellow]Adopting pre-existing {kind}/{name} for release '{release_name}'...[/yellow]"
+        )
+        rprint(adopt_msg)
+        _run_cmd(
+            [
+                "kubectl",
+                "annotate",
+                kind,
+                name,
+                "-n",
+                ns,
+                f"meta.helm.sh/release-name={release_name}",
+                f"meta.helm.sh/release-namespace={ns}",
+                "--overwrite",
+            ]
+            + ctx_args,
+            check=False,
+        )
+        _run_cmd(
+            [
+                "kubectl",
+                "label",
+                kind,
+                name,
+                "-n",
+                ns,
+                "app.kubernetes.io/managed-by=Helm",
+                "--overwrite",
+            ]
+            + ctx_args,
+            check=False,
+        )
+        adopted_any = True
+    return adopted_any
+
+
 @app.command("deploy-stack")
 def deploy_stack(
     k8s_dir: Annotated[
@@ -501,7 +559,7 @@ def deploy_stack(
     # 5. Install Helm releases
     for release in all_releases:
         rprint(f"[bold]Installing {release['name']}...[/bold]")
-        result = _run_cmd(
+        helm_cmd = (
             [
                 "helm",
                 "upgrade",
@@ -518,9 +576,23 @@ def deploy_stack(
                 "--wait",
                 "--timeout",
                 "10m",
-            ],
-            check=False,
+            ]
         )
+        result = _run_cmd(helm_cmd, check=False, capture=True)
+        # If conflict occurs on pre-existing unmanaged resources, adopt and retry up to 5 times
+        for _ in range(5):
+            if result.returncode == 0:
+                break
+            err_msg = (result.stderr or "") + " " + (result.stdout or "")
+            if not _adopt_helm_resource_if_conflict(
+                err_msg,
+                release["name"],
+                release["namespace"],
+                context=context,
+            ):
+                break
+            result = _run_cmd(helm_cmd, check=False, capture=True)
+
         if result.returncode != 0:
             rprint(f"[red]Failed to install {release['name']}[/red]")
         else:

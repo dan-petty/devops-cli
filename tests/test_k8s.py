@@ -205,3 +205,18 @@ def test_k8s_configure_urls_llm_dry_run() -> None:
         assert "valkey.url" in result.output
     finally:
         set_dry_run(False)
+
+
+@patch("devops_cli.commands.k8s._run_cmd")
+def test_adopt_helm_resource_if_conflict(mock_run: MagicMock) -> None:
+    """_adopt_helm_resource_if_conflict annotates and labels pre-existing K8s resources."""
+    from devops_cli.commands.k8s import _adopt_helm_resource_if_conflict
+
+    err = (
+        'Error: unable to continue with install: Service "ollama" in namespace "llm" exists '
+        "and cannot be imported into the current release: invalid ownership metadata; "
+        'label validation error: missing key "app.kubernetes.io/managed-by": must be set to "Helm"'
+    )
+    res = _adopt_helm_resource_if_conflict(err, "ollama", "llm", context="homelab-k3s")
+    assert res is True
+    assert mock_run.call_count == 2
