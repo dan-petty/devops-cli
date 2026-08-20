@@ -212,60 +212,88 @@ class ReviewPipelineOrchestrator:
             from devops_cli.security.pluto import run_pluto_scan
             from devops_cli.security.trivy import run_trivy_scan
 
-            for fpath in file_paths:
+            def _scan_file_static(fpath: str) -> tuple[str, list[SavedFinding]]:
                 p_obj = Path(fpath)
+                if not p_obj.exists():
+                    for candidate in (Path.cwd() / fpath, Path(fpath)):
+                        if candidate.exists():
+                            p_obj = candidate
+                            break
+
+                if not p_obj.exists() or not p_obj.is_file():
+                    return fpath, []
+
+                findings: list[SavedFinding] = []
                 # 1. Kube-linter & Pluto scan for K8s manifests
                 if fpath.endswith((".yaml", ".yml")):
                     kl_findings = run_kubelinter_scan(p_obj)
                     if kl_findings:
-                        sf_list = [
-                            SavedFinding(
-                                **f.model_dump(),
-                                persona="devsecops",
-                                persona_title="Principal DevSecOps Engineer",
-                            )
-                            for f in kl_findings
-                        ]
-                        static_findings_by_file.setdefault(fpath, []).extend(sf_list)
+                        findings.extend(
+                            [
+                                SavedFinding(
+                                    **f.model_dump(),
+                                    persona="devsecops",
+                                    persona_title="Principal DevSecOps Engineer",
+                                )
+                                for f in kl_findings
+                            ]
+                        )
 
                     pluto_findings = run_pluto_scan(p_obj)
                     if pluto_findings:
-                        sf_list = [
-                            SavedFinding(
-                                **f.model_dump(),
-                                persona="devsecops",
-                                persona_title="Principal DevSecOps Engineer",
-                            )
-                            for f in pluto_findings
-                        ]
-                        static_findings_by_file.setdefault(fpath, []).extend(sf_list)
+                        findings.extend(
+                            [
+                                SavedFinding(
+                                    **f.model_dump(),
+                                    persona="devsecops",
+                                    persona_title="Principal DevSecOps Engineer",
+                                )
+                                for f in pluto_findings
+                            ]
+                        )
 
                 # 2. Bandit static security scanner for Python files
                 if fpath.endswith(".py"):
                     bandit_findings = run_bandit_scan(p_obj)
                     if bandit_findings:
-                        sf_list = [
-                            SavedFinding(
-                                **f.model_dump(),
-                                persona="devsecops",
-                                persona_title="Principal DevSecOps Engineer",
-                            )
-                            for f in bandit_findings
-                        ]
-                        static_findings_by_file.setdefault(fpath, []).extend(sf_list)
-
-                # 3. Aqua Trivy scan across all targets
-                t_findings = run_trivy_scan(p_obj, scan_type="fs")
-                if t_findings:
-                    sf_list = [
-                        SavedFinding(
-                            **f.model_dump(),
-                            persona="devsecops",
-                            persona_title="Principal DevSecOps Engineer",
+                        findings.extend(
+                            [
+                                SavedFinding(
+                                    **f.model_dump(),
+                                    persona="devsecops",
+                                    persona_title="Principal DevSecOps Engineer",
+                                )
+                                for f in bandit_findings
+                            ]
                         )
-                        for f in t_findings
-                    ]
-                    static_findings_by_file.setdefault(fpath, []).extend(sf_list)
+
+                # 3. Aqua Trivy scan for Dockerfiles and lockfiles
+                if p_obj.name.lower() in (
+                    "dockerfile",
+                    "containerfile",
+                ) or p_obj.name.lower().endswith((".lock", ".lockb")):
+                    t_findings = run_trivy_scan(
+                        p_obj,
+                        scan_type="config" if "docker" in p_obj.name.lower() else "fs",
+                    )
+                    if t_findings:
+                        findings.extend(
+                            [
+                                SavedFinding(
+                                    **f.model_dump(),
+                                    persona="devsecops",
+                                    persona_title="Principal DevSecOps Engineer",
+                                )
+                                for f in t_findings
+                            ]
+                        )
+
+                return fpath, findings
+
+            with ThreadPoolExecutor(max_workers=8) as executor:
+                for fpath, f_findings in executor.map(_scan_file_static, file_paths):
+                    if f_findings:
+                        static_findings_by_file.setdefault(fpath, []).extend(f_findings)
         except Exception:
             pass
 

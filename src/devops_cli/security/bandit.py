@@ -70,19 +70,35 @@ def run_bandit_scan(
             )
         ]
 
-    target_abs = target.resolve() if target.exists() else Path.cwd().resolve()
+    if not target.exists():
+        return []
+
+    target_abs = target.resolve()
     level_flag = "-ll" if severity_level.lower() == "medium" else "-lll"
 
-    cmd = [
-        "bandit",
-        "-r",
-        str(target_abs),
-        level_flag,
-        "-s",
-        "B608",
-        "-f",
-        "json",
-    ]
+    if target_abs.is_file():
+        cmd = [
+            "bandit",
+            str(target_abs),
+            level_flag,
+            "-s",
+            "B608",
+            "-f",
+            "json",
+        ]
+    else:
+        cmd = [
+            "bandit",
+            "-r",
+            str(target_abs),
+            "--exclude",
+            f"{target_abs}/.venv,{target_abs}/venv,{target_abs}/node_modules,{target_abs}/.data",
+            level_flag,
+            "-s",
+            "B608",
+            "-f",
+            "json",
+        ]
 
     try:
         proc = run_subprocess(cmd, timeout=CONST_BANDIT_TIMEOUT_SECONDS, check=False)

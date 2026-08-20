@@ -127,6 +127,81 @@ def is_file_reference(target: str, source_file: str = "") -> bool:
     return False
 
 
+# Common code property extensions, file formats, and config terms to ignore
+_CODE_PROPERTY_SUFFIXES = {
+    "py",
+    "ts",
+    "js",
+    "json",
+    "yaml",
+    "yml",
+    "toml",
+    "md",
+    "txt",
+    "rs",
+    "go",
+    "sh",
+    "c",
+    "h",
+    "cpp",
+    "lock",
+    "cfg",
+    "ini",
+    "conf",
+    "token",
+    "key",
+    "secret",
+    "password",
+    "auth",
+    "session",
+    "client",
+    "server",
+    "model",
+    "type",
+    "name",
+    "id",
+    "status",
+    "data",
+    "value",
+    "item",
+    "list",
+    "dict",
+    "set",
+    "obj",
+    "path",
+    "file",
+    "url",
+    "src",
+    "dest",
+    "arg",
+    "param",
+    "flag",
+    "opt",
+    "env",
+    "var",
+    "res",
+    "req",
+    "count",
+    "total",
+    "size",
+    "time",
+    "date",
+    "version",
+    "target",
+    "level",
+    "tag",
+    "port",
+    "stdout",
+    "stderr",
+    "stdin",
+    "exception",
+    "error",
+    "log",
+    "text",
+    "lines",
+}
+
+
 def is_network_domain(target: str, source_file: str = "") -> bool:
     """Validate whether target string is a legitimate public network domain using urllib
     and ipaddress.
@@ -137,6 +212,10 @@ def is_network_domain(target: str, source_file: str = "") -> bool:
     parsed = urlsplit(f"//{target}")
     hostname = parsed.hostname
     if not hostname or "." not in hostname:
+        return False
+
+    suffix = hostname.rsplit(".", 1)[-1].lower()
+    if suffix in _CODE_PROPERTY_SUFFIXES:
         return False
 
     # Check against RFC reserved and excluded domains
@@ -236,6 +315,28 @@ def extract_dependencies_from_text(content: str, file_name: str) -> list[Depende
                     )
                 )
 
+    elif name_lower == "pyproject.toml":
+        try:
+            import tomllib
+
+            data = tomllib.loads(content)
+            proj_deps = data.get("project", {}).get("dependencies", [])
+            for dep_str in proj_deps:
+                parts = re.split(r"([=><~^!]+.*)", dep_str, maxsplit=1)
+                pkg_name = parts[0].strip()
+                version_spec = parts[1].strip() if len(parts) > 1 else "*"
+                if pkg_name:
+                    deps.append(
+                        DependencySpec(
+                            name=pkg_name,
+                            version_range=version_spec,
+                            ecosystem="PyPI",
+                            source_file=file_name,
+                        )
+                    )
+        except Exception:
+            pass
+
     elif name_lower == "package.json":
         try:
             data = json.loads(content)
@@ -324,8 +425,9 @@ class OSVClient:
 
     BASE_URL = "https://api.osv.dev/v1/query"
 
-    def __init__(self, timeout: float = 3.0) -> None:
+    def __init__(self, timeout: float = 1.5) -> None:
         self.timeout = timeout
+        self._client = httpx.Client(timeout=self.timeout)
 
     def check_vulnerability(
         self, package: str, version: str | None = None, ecosystem: str = "PyPI"
@@ -338,35 +440,34 @@ class OSVClient:
                 payload["version"] = clean_ver
 
         try:
-            with httpx.Client(timeout=self.timeout) as client:
-                res = client.post(self.BASE_URL, json=payload)
-                if res.status_code != 200:
-                    return []
-                data = res.json()
-                vulns = data.get("vulns", [])
-                results: list[VulnerabilityRecord] = []
-                for v in vulns:
-                    vid = v.get("id", "UNKNOWN")
-                    summary = v.get("summary", "") or v.get("details", "")[:120]
-                    sev = "HIGH"
-                    if "severity" in v and isinstance(v["severity"], list):
-                        for s in v["severity"]:
-                            if s.get("type") == "CVSS_V3":
-                                sev = "CRITICAL" if "CVSS:3" in s.get("score", "") else "HIGH"
-                    results.append(
-                        VulnerabilityRecord(
-                            id=vid,
-                            summary=summary,
-                            severity=sev,
-                            package=package,
-                            affected_version_range=version or "*",
-                            source="OSV",
-                            details_url=f"https://osv.dev/vulnerability/{vid}",
-                        )
+            res = self._client.post(self.BASE_URL, json=payload)
+            if res.status_code != 200:
+                return []
+            data = res.json()
+            vulns = data.get("vulns", [])
+            results: list[VulnerabilityRecord] = []
+            for v in vulns:
+                vid = v.get("id", "UNKNOWN")
+                summary = v.get("summary", "") or v.get("details", "")[:120]
+                sev = "HIGH"
+                if "severity" in v and isinstance(v["severity"], list):
+                    for s in v["severity"]:
+                        if s.get("type") == "CVSS_V3":
+                            sev = "CRITICAL" if "CVSS:3" in s.get("score", "") else "HIGH"
+                results.append(
+                    VulnerabilityRecord(
+                        id=vid,
+                        summary=summary,
+                        severity=sev,
+                        package=package,
+                        affected_version_range=version or "*",
+                        source="OSV",
+                        details_url=f"https://osv.dev/vulnerability/{vid}",
                     )
-                return results
+                )
+            return results
         except Exception as exc:
-            logger.debug(f"OSV lookup failed for {package}: {exc}")
+            logger.debug("OSV lookup failed for %s: %s", package, exc)
             return []
 
 
@@ -375,40 +476,40 @@ class NVDClient:
 
     BASE_URL = "https://services.nvd.nist.gov/rest/json/cves/2.0"
 
-    def __init__(self, timeout: float = 2.0) -> None:
+    def __init__(self, timeout: float = 1.5) -> None:
         self.timeout = timeout
+        self._client = httpx.Client(timeout=self.timeout)
 
     def search_cve(self, keyword: str) -> list[VulnerabilityRecord]:
         try:
             params: dict[str, str | int] = {"keywordSearch": keyword, "resultsPerPage": 3}
-            with httpx.Client(timeout=self.timeout) as client:
-                res = client.get(self.BASE_URL, params=params)
-                if res.status_code != 200:
-                    return []
-                data = res.json()
-                vulns = data.get("vulnerabilities", [])
-                results: list[VulnerabilityRecord] = []
-                for v in vulns:
-                    cve = v.get("cve", {})
-                    cid = cve.get("id", "UNKNOWN")
-                    desc = ""
-                    for d in cve.get("descriptions", []):
-                        if d.get("lang") == "en":
-                            desc = d.get("value", "")[:120]
-                            break
-                    results.append(
-                        VulnerabilityRecord(
-                            id=cid,
-                            summary=desc,
-                            severity="HIGH",
-                            package=keyword,
-                            source="NVD",
-                            details_url=f"https://nvd.nist.gov/vuln/detail/{cid}",
-                        )
+            res = self._client.get(self.BASE_URL, params=params)
+            if res.status_code != 200:
+                return []
+            data = res.json()
+            vulns = data.get("vulnerabilities", [])
+            results: list[VulnerabilityRecord] = []
+            for v in vulns:
+                cve = v.get("cve", {})
+                cid = cve.get("id", "UNKNOWN")
+                desc = ""
+                for d in cve.get("descriptions", []):
+                    if d.get("lang") == "en":
+                        desc = d.get("value", "")[:120]
+                        break
+                results.append(
+                    VulnerabilityRecord(
+                        id=cid,
+                        summary=desc,
+                        severity="HIGH",
+                        package=keyword,
+                        source="NVD",
+                        details_url=f"https://nvd.nist.gov/vuln/detail/{cid}",
                     )
-                return results
+                )
+            return results
         except Exception as exc:
-            logger.debug(f"NVD lookup failed for {keyword}: {exc}")
+            logger.debug("NVD lookup failed for %s: %s", keyword, exc)
             return []
 
 
@@ -417,8 +518,9 @@ class ShodanInternetDBClient:
 
     BASE_URL = "https://internetdb.shodan.io"
 
-    def __init__(self, timeout: float = 3.0) -> None:
+    def __init__(self, timeout: float = 1.5) -> None:
         self.timeout = timeout
+        self._client = httpx.Client(timeout=self.timeout)
 
     def check_ip(self, ip: str) -> NetworkReputationRecord:
         record = NetworkReputationRecord(target=ip, ip=ip, source="Shodan InternetDB")
@@ -426,26 +528,25 @@ class ShodanInternetDBClient:
             return record
 
         try:
-            with httpx.Client(timeout=self.timeout) as client:
-                res = client.get(f"{self.BASE_URL}/{ip}")
-                if res.status_code == 200:
-                    data = res.json()
-                    record.ports = data.get("ports", [])
-                    record.cves = data.get("vulns", [])
-                    record.tags = data.get("tags", [])
-                    record.hostnames = data.get("hostnames", [])
-                    if record.cves:
-                        record.is_malicious = True
-                        record.reputation_score = 0.85
-                        record.reputation_summary = (
-                            f"Vulnerable host with {len(record.cves)} active CVE(s)"
-                        )
-                    elif record.ports:
-                        record.reputation_summary = f"Open ports detected: {record.ports}"
-                elif res.status_code == 404:
-                    record.reputation_summary = "Clean / No open ports detected in InternetDB"
+            res = self._client.get(f"{self.BASE_URL}/{ip}")
+            if res.status_code == 200:
+                data = res.json()
+                record.ports = data.get("ports", [])
+                record.cves = data.get("vulns", [])
+                record.tags = data.get("tags", [])
+                record.hostnames = data.get("hostnames", [])
+                if record.cves:
+                    record.is_malicious = True
+                    record.reputation_score = 0.85
+                    record.reputation_summary = (
+                        f"Vulnerable host with {len(record.cves)} active CVE(s)"
+                    )
+                elif record.ports:
+                    record.reputation_summary = f"Open ports detected: {record.ports}"
+            elif res.status_code == 404:
+                record.reputation_summary = "Clean / No open ports detected in InternetDB"
         except Exception as exc:
-            logger.debug(f"Shodan InternetDB lookup failed for {ip}: {exc}")
+            logger.debug("Shodan InternetDB lookup failed for %s: %s", ip, exc)
             record.reputation_summary = "Unchecked / Lookup timeout"
 
         return record
@@ -456,31 +557,28 @@ class CloudflareRadarClient:
 
     BASE_URL = "https://radar.cloudflare.com/api/v1/intel"
 
-    def __init__(self, timeout: float = 3.0) -> None:
+    def __init__(self, timeout: float = 1.5) -> None:
         self.timeout = timeout
+        self._client = httpx.Client(timeout=self.timeout)
 
     def check_domain(self, domain_or_url: str) -> NetworkReputationRecord:
-        # Extract host if full URL
         target = domain_or_url
         if "://" in target:
             target = urlparse(target).hostname or target
 
         record = NetworkReputationRecord(target=domain_or_url, ip="", source="Cloudflare Radar")
-        # Mock / public radar resolver endpoint
         try:
-            with httpx.Client(timeout=self.timeout) as client:
-                # Cloudflare Radar public endpoint
-                res = client.get(f"{self.BASE_URL}/domain/{target}")
-                if res.status_code == 200:
-                    data = res.json()
-                    categories = data.get("result", {}).get("categories", [])
-                    if categories:
-                        record.tags = [c.get("name", "") for c in categories if c.get("name")]
-                    record.reputation_summary = f"Categorized domain: {', '.join(record.tags[:3])}"
-                else:
-                    record.reputation_summary = "Domain verified in public DNS registry"
+            res = self._client.get(f"{self.BASE_URL}/domain/{target}")
+            if res.status_code == 200:
+                data = res.json()
+                categories = data.get("result", {}).get("categories", [])
+                if categories:
+                    record.tags = [c.get("name", "") for c in categories if c.get("name")]
+                record.reputation_summary = f"Categorized domain: {', '.join(record.tags[:3])}"
+            else:
+                record.reputation_summary = "Domain verified in public DNS registry"
         except Exception as exc:
-            logger.debug(f"Cloudflare Radar lookup failed for {target}: {exc}")
+            logger.debug("Cloudflare Radar lookup failed for %s: %s", target, exc)
             record.reputation_summary = "Verified domain reference"
 
         return record
