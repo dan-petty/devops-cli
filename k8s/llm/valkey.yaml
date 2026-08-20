@@ -19,10 +19,21 @@ spec:
         app.kubernetes.io/name: valkey
         app.kubernetes.io/part-of: devops-cli-stack
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
       containers:
         - name: valkey
           image: valkey/valkey:8.0-alpine
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop:
+                - ALL
           command:
             - valkey-server
             - "--protected-mode"

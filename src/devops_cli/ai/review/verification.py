@@ -234,6 +234,59 @@ def _build_validation_prompt(
     )
 
 
+def _deterministic_pre_verification(finding: Finding, repo_root: Path | None = None) -> Finding:
+    """Apply deterministic static rules to prevent common hallucinations and false positives."""
+    import ast
+
+    loc_file = finding.location.split(":")[0].strip()
+    root = repo_root or Path.cwd()
+    file_path = root / loc_file if not Path(loc_file).is_absolute() else Path(loc_file)
+
+    title_lower = finding.title.lower()
+    desc_lower = finding.description.lower()
+
+    # 1. Deterministic Python Syntax Verification
+    if loc_file.endswith(".py") and any(
+        kw in title_lower or kw in desc_lower
+        for kw in ("syntax error", "syntaxerror", "invalid syntax", "malformed except")
+    ):
+        if file_path.exists() and file_path.is_file():
+            try:
+                code_content = file_path.read_text(encoding="utf-8", errors="replace")
+                ast.parse(code_content)
+                # AST parsed cleanly - the reported syntax error is a hallucination
+                return finding.model_copy(
+                    update={
+                        "verified": False,
+                        "mitigated": False,
+                        "status": "INVALIDATED",
+                        "invalidation_reason": "Syntax validation passed cleanly via ast.parse",
+                    }
+                )
+            except SyntaxError:
+                pass
+
+    # 2. Template / Example Configuration Placeholder Mitigation
+    is_example_file = any(
+        loc_file.endswith(sfx) or sfx in loc_file
+        for sfx in (".example.", "example.yaml", "example.json", ".env.example", "template.")
+    )
+    if is_example_file and any(
+        kw in title_lower or kw in desc_lower
+        for kw in ("secret", "token", "password", "key", "credential")
+    ):
+        return finding.model_copy(
+            update={
+                "verified": False,
+                "mitigated": True,
+                "status": "MITIGATED",
+                "invalidation_reason": "Placeholder in example configuration template",
+            }
+        )
+
+    return finding
+
+
 def _validate_segment_findings(
     result: ReviewResult,
     all_segments: list[str],
@@ -244,6 +297,13 @@ def _validate_segment_findings(
     """Ask the LLM to verify each finding using enhanced analysis metadata of related files."""
     if not result.findings:
         return result, None, None
+
+    # Apply deterministic static rules first
+    pre_validated_findings = [
+        _deterministic_pre_verification(f, repo_root=repo_root) for f in result.findings
+    ]
+    result = result.model_copy(update={"findings": pre_validated_findings})
+
     prompt = _build_validation_prompt(
         result.findings, all_segments, analysis_metas=analysis_metas, repo_root=repo_root
     )
@@ -266,6 +326,11 @@ def _validate_segment_findings(
             validated: list[Finding] = []
             now_iso = datetime.now().isoformat()
             for idx, f in enumerate(result.findings):
+                # If deterministically invalidated, preserve its status
+                if f.status == "INVALIDATED":
+                    validated.append(f)
+                    continue
+
                 item = data[idx] if idx < len(data) else None
                 if not isinstance(item, dict):
                     validated.append(f)

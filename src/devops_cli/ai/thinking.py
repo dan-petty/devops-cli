@@ -77,7 +77,9 @@ class ThinkingStreamProcessor:
             self.on_think_chunk(chunk)
         elif self.show_thinking:
             if self.console:
-                self.console.print(f"[dim italic]{chunk}[/dim italic]", end="")
+                from rich.markup import escape
+
+                self.console.print(f"[dim italic]{escape(chunk)}[/dim italic]", end="")
             else:
                 sys.stdout.write(chunk)
                 sys.stdout.flush()
@@ -103,7 +105,9 @@ class ThinkingStreamProcessor:
             self.on_content_chunk(chunk)
         else:
             if self.console:
-                self.console.print(chunk, end="")
+                from rich.markup import escape
+
+                self.console.print(escape(chunk), end="")
             else:
                 sys.stdout.write(chunk)
                 sys.stdout.flush()

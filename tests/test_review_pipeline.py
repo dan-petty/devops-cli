@@ -118,3 +118,45 @@ def test_init_per_file_payloads_path_matching(tmp_path: Path, monkeypatch) -> No
     assert payloads[0].metadata.primary_purpose == "Agents module init"
     assert payloads[0].metadata.key_symbols == ["PydanticAgent"]
     assert payloads[0].metadata.quality_score == 0.9
+
+
+def test_deterministic_pre_verification_syntax_hallucination(tmp_path: Path) -> None:
+    """_deterministic_pre_verification invalidates false syntax errors on valid python files."""
+    from devops_cli.ai.review.verification import _deterministic_pre_verification
+    from devops_cli.ai.review_schema import Finding
+
+    valid_py = tmp_path / "valid.py"
+    valid_py.write_text(
+        "def test():\n    try:\n        pass\n    except (OSError, ValueError):\n        pass\n",
+        encoding="utf-8",
+    )
+
+    finding = Finding(
+        severity="CRITICAL",
+        location="valid.py:1-5",
+        title="Syntax error in except clause",
+        description="Except clause uses invalid syntax",
+        fix="Use tuple",
+    )
+    result = _deterministic_pre_verification(finding, repo_root=tmp_path)
+    assert result.verified is False
+    assert result.status == "INVALIDATED"
+    assert "Syntax validation passed" in str(result.invalidation_reason)
+
+
+def test_deterministic_pre_verification_template_placeholder(tmp_path: Path) -> None:
+    """_deterministic_pre_verification marks example secret templates as mitigated."""
+    from devops_cli.ai.review.verification import _deterministic_pre_verification
+    from devops_cli.ai.review_schema import Finding
+
+    finding = Finding(
+        severity="HIGH",
+        location="config.example.yaml:12",
+        title="Plaintext secret token detected",
+        description="YOUR_TOKEN placeholder in config.example.yaml",
+        fix="Use keyring",
+    )
+    result = _deterministic_pre_verification(finding, repo_root=tmp_path)
+    assert result.verified is False
+    assert result.mitigated is True
+    assert result.status == "MITIGATED"

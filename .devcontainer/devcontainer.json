@@ -27,7 +27,7 @@
   "mounts": [
     "source=global-devcontainer-tmp,target=/tmp,type=volume",
     "source=global-devcontainer-home,target=/home/vscode,type=volume",
-    "source=${localEnv:USERPROFILE}/.ssh,target=/home/vscode/.ssh,type=bind,consistency=cached"
+    "source=${localEnv:USERPROFILE}/.ssh,target=/home/vscode/.ssh,type=bind,consistency=cached,readonly"
   ],
   "containerEnv": {
     "DEVOPS_CLI_CONFIG": "${containerWorkspaceFolder}/config.yaml",
