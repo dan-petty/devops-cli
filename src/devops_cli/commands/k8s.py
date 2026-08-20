@@ -301,7 +301,9 @@ _HELM_RELEASES_BY_STACK: dict[str, list[dict[str, str]]] = {
 _HELM_RELEASES: list[dict[str, str]] = _HELM_RELEASES_BY_STACK["infra"]
 
 _MANIFESTS_BY_STACK: dict[str, list[Path]] = {
-    "infra": [],
+    "infra": [
+        _K8S_DIR / "otel" / "jaeger.yaml",
+    ],
     "llm": [
         _K8S_DIR / "llm" / "valkey.yaml",
         _K8S_DIR / "llm" / "ollama-daemonset.yaml",
@@ -604,6 +606,8 @@ def deploy_stack(
             " argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d[/dim]"
         )
         rprint("[dim]Grafana credentials: set via grafana.token in 'devops config set'[/dim]")
+        rprint("[dim]Jaeger Query UI: http://localhost:16686 (namespace: otel)[/dim]")
+        rprint("[dim]Jaeger OTLP Traces: localhost:4317 (gRPC) / localhost:4318 (HTTP)[/dim]")
     if "llm" in selected_stacks:
         rprint("[dim]Ollama: http://localhost:11434 (namespace: llm)[/dim]")
         rprint("[dim]Open-WebUI: http://localhost:3000 (minikube service open-webui -n llm)[/dim]")
@@ -758,6 +762,7 @@ def configure_urls(
                 "argocd.url": "http://192.168.49.2:30080",
                 "grafana.url": "http://192.168.49.2:32047",
                 "prometheus.url": "http://192.168.49.2:30090",
+                "jaeger.url": "http://192.168.49.2:30686",
             }
         )
     if "llm" in selected_stacks:
@@ -797,12 +802,14 @@ def configure_urls(
         raw_prom = _detect_service_url(
             "kube-prometheus-kube-prome-prometheus", "monitoring", context=context
         )
+        raw_jaeger = _detect_service_url("jaeger", "otel", context=context)
 
         argocd_url = _resolve_accessible_url(raw_argocd, preferred_localhost_ports=[8080])
         grafana_url = _resolve_accessible_url(
             raw_grafana, preferred_localhost_ports=[8030, 8000, 3000]
         )
         prom_url = _resolve_accessible_url(raw_prom, preferred_localhost_ports=[8090, 9090])
+        jaeger_url = _resolve_accessible_url(raw_jaeger, preferred_localhost_ports=[16686])
 
         if argocd_url:
             dotted_set(settings, "argocd.url", argocd_url)
@@ -813,6 +820,9 @@ def configure_urls(
         if prom_url:
             dotted_set(settings, "prometheus.url", prom_url)
             configured["prometheus.url"] = prom_url
+        if jaeger_url:
+            dotted_set(settings, "jaeger.url", jaeger_url)
+            configured["jaeger.url"] = jaeger_url
 
     if "llm" in selected_stacks:
         raw_ollama = _detect_service_url("ollama", "llm", context=context)
@@ -863,6 +873,9 @@ def port_forward(
     prometheus_port: Annotated[
         int, typer.Option("--prometheus-port", help="Local port for Prometheus")
     ] = 8090,
+    jaeger_port: Annotated[
+        int, typer.Option("--jaeger-port", help="Local port for Jaeger Query UI")
+    ] = 16686,
     ollama_port: Annotated[
         int, typer.Option("--ollama-port", help="Local port for Ollama")
     ] = 11434,
@@ -889,6 +902,7 @@ def port_forward(
                 "argocd.url": f"http://localhost:{argocd_port}",
                 "grafana.url": f"http://localhost:{grafana_port}",
                 "prometheus.url": f"http://localhost:{prometheus_port}",
+                "jaeger.url": f"http://localhost:{jaeger_port}",
             }
         )
     if "llm" in selected_stacks:
@@ -924,6 +938,7 @@ def port_forward(
                 ("argocd", "svc/argocd-server", argocd_port, 80),
                 ("monitoring", "svc/kube-prometheus-grafana", grafana_port, 80),
                 ("monitoring", "svc/kube-prometheus-kube-prome-prometheus", prometheus_port, 9090),
+                ("otel", "svc/jaeger", jaeger_port, 16686),
             ]
         )
     if "llm" in selected_stacks:
