@@ -1347,7 +1347,7 @@ def _execute_review_workflow(
         rprint(f"[dim]{spans_msg}[/dim]")
 
     all_files = sorted(list({fn for page in pages for fn in _extract_segment_filenames(page)}))
-    orchestrator = ReviewPipelineOrchestrator(llm_client=clients.analysis)
+    orchestrator = ReviewPipelineOrchestrator(llm_client=clients.analysis, target_dir=target_dir)
 
     if not is_dry_run() and type(clients.analysis).__name__ == "LLMClient":
         server_info = orchestrator._get_server_info()
@@ -1362,7 +1362,9 @@ def _execute_review_workflow(
             target_ref=target_ref,
         )
         if all_files:
-            payloads = orchestrator.init_per_file_payloads(all_files, metadata_by_path)
+            payloads = orchestrator.init_per_file_payloads(
+                all_files, metadata_by_path, target_dir=target_dir
+            )
             diff_text_by_file = {
                 f: "\n".join([page for page in pages if f in page]) for f in all_files
             }

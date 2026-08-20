@@ -70,7 +70,7 @@ def test_pipeline_stage2_multi_scanner_aggregation(
     mock_trivy.return_value = [
         Finding(
             severity="CRITICAL",
-            location="src/main.py:cve-1",
+            location="Dockerfile:cve-1",
             title="[CVE-2026-1001] OpenSSL Vulnerability",
             description="Buffer overflow in crypto",
             fix="Upgrade OpenSSL",
@@ -110,20 +110,24 @@ def test_pipeline_stage2_multi_scanner_aggregation(
 
     orchestrator = ReviewPipelineOrchestrator(session_id="test-sec-tools")
     payloads = orchestrator.init_per_file_payloads(
-        file_paths=["src/main.py", "k8s/app.yaml"],
+        file_paths=["Dockerfile", "src/main.py", "k8s/app.yaml"],
         metadata_by_path={},
     )
 
-    assert len(payloads) == 2
+    assert len(payloads) == 3
+    docker_payload = next(p for p in payloads if p.file_path == "Dockerfile")
     py_payload = next(p for p in payloads if p.file_path == "src/main.py")
     yaml_payload = next(p for p in payloads if p.file_path == "k8s/app.yaml")
 
-    # Python payload has Trivy + Bandit
+    # Docker payload has Trivy
+    docker_titles = [f.title for f in docker_payload.findings]
+    assert any("CVE-2026-1001" in t for t in docker_titles)
+
+    # Python payload has Bandit
     py_titles = [f.title for f in py_payload.findings]
-    assert any("CVE-2026-1001" in t for t in py_titles)
     assert any("B602" in t for t in py_titles)
 
-    # YAML payload has Trivy + Kube-linter + Pluto
+    # YAML payload has Kube-linter + Pluto
     yaml_titles = [f.title for f in yaml_payload.findings]
     assert any("no-read-only-root-fs" in t for t in yaml_titles)
     assert any("Removed API" in t for t in yaml_titles)

@@ -65,7 +65,12 @@ logger = logging.getLogger(__name__)
 class ReviewPipelineOrchestrator:
     """Orchestrates 6-stage multi-agent code reviews with per-file payloads and AI scratchpads."""
 
-    def __init__(self, session_id: str | None = None, llm_client: LLMClient | None = None) -> None:
+    def __init__(
+        self,
+        session_id: str | None = None,
+        llm_client: LLMClient | None = None,
+        target_dir: Path = Path("."),
+    ) -> None:
         self.session_id = session_id or datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
         base_dir = (
             CONST_DATA_DIR / "reviews"
@@ -77,6 +82,23 @@ class ReviewPipelineOrchestrator:
         self.session_dir.mkdir(parents=True, exist_ok=True)
         self.files_dir.mkdir(parents=True, exist_ok=True)
         self.llm_client = llm_client or LLMClient()
+        self.target_dir = target_dir
+
+    def _resolve_file_path(self, fpath: str) -> Path:
+        """Resolve fpath to an existing filesystem Path, prioritizing target_dir."""
+        p_fpath = Path(fpath)
+        if p_fpath.is_absolute() and p_fpath.exists():
+            return p_fpath
+
+        candidates = [
+            self.target_dir.resolve() / fpath,
+            Path.cwd().resolve() / fpath,
+            p_fpath,
+        ]
+        for c in candidates:
+            if c.exists() and c.is_file():
+                return c
+        return candidates[0]
 
     def _get_server_info(self) -> str:
         """Return formatted string describing target AI/LLM provider, host, and model."""
@@ -111,6 +133,7 @@ class ReviewPipelineOrchestrator:
         if is_dry_run():
             return {}
 
+        self.target_dir = target_dir
         repo = find_repo_root(target_dir)
         target_abs = (
             target_dir.resolve() if target_dir.is_absolute() else (repo / target_dir).resolve()
@@ -198,9 +221,15 @@ class ReviewPipelineOrchestrator:
 
     # ── Stage 2: Per-File Review Session JSON Initialization ──────────────────
     def init_per_file_payloads(
-        self, file_paths: list[str], metadata_by_path: dict[str, FileAnalysisMeta]
+        self,
+        file_paths: list[str],
+        metadata_by_path: dict[str, FileAnalysisMeta],
+        target_dir: Path | None = None,
     ) -> list[FileReviewPayload]:
         """Initialize per-file JSON payloads under session files directory."""
+        if target_dir is not None:
+            self.target_dir = target_dir
+
         n_paths = len(file_paths)
         rprint(f"[dim]Stage 2/6: Initializing payload tracking for {n_paths} file(s)...[/dim]")
         payloads: list[FileReviewPayload] = []
@@ -213,17 +242,10 @@ class ReviewPipelineOrchestrator:
             from devops_cli.security.trivy import run_trivy_scan
 
             def _scan_file_static(fpath: str) -> tuple[str, list[SavedFinding]]:
-                p_obj = Path(fpath)
-                if not p_obj.exists():
-                    for candidate in (Path.cwd() / fpath, Path(fpath)):
-                        if candidate.exists():
-                            p_obj = candidate
-                            break
-
-                if not p_obj.exists() or not p_obj.is_file():
-                    return fpath, []
-
+                p_obj = self._resolve_file_path(fpath)
+                p_name = Path(fpath).name.lower()
                 findings: list[SavedFinding] = []
+
                 # 1. Kube-linter & Pluto scan for K8s manifests
                 if fpath.endswith((".yaml", ".yml")):
                     kl_findings = run_kubelinter_scan(p_obj)
@@ -268,13 +290,12 @@ class ReviewPipelineOrchestrator:
                         )
 
                 # 3. Aqua Trivy scan for Dockerfiles and lockfiles
-                if p_obj.name.lower() in (
-                    "dockerfile",
-                    "containerfile",
-                ) or p_obj.name.lower().endswith((".lock", ".lockb")):
+                if p_name in ("dockerfile", "containerfile") or p_name.endswith(
+                    (".lock", ".lockb")
+                ):
                     t_findings = run_trivy_scan(
                         p_obj,
-                        scan_type="config" if "docker" in p_obj.name.lower() else "fs",
+                        scan_type="config" if "docker" in p_name else "fs",
                     )
                     if t_findings:
                         findings.extend(
@@ -309,7 +330,7 @@ class ReviewPipelineOrchestrator:
         for fpath in file_paths:
             file_deps: list[DependencySpec] = []
             file_nets: list[NetworkReference] = []
-            p_target = Path(fpath)
+            p_target = self._resolve_file_path(fpath)
             if p_target.exists() and p_target.is_file():
                 try:
                     f_content = p_target.read_text(encoding="utf-8", errors="replace")
@@ -709,9 +730,9 @@ class ReviewPipelineOrchestrator:
         def _verify_single_file(arg: tuple[int, FileReviewPayload]) -> None:
             idx, payload = arg
             fpath = payload.file_path
-            target_file = Path(fpath)
+            target_file = self._resolve_file_path(fpath)
             file_code = ""
-            if target_file.exists():
+            if target_file.exists() and target_file.is_file():
                 try:
                     file_code = target_file.read_text(encoding="utf-8", errors="replace")
                 except Exception:
@@ -719,8 +740,8 @@ class ReviewPipelineOrchestrator:
 
             linked_snippets: list[str] = []
             for lmeta in payload.linked_files:
-                lpath = Path(lmeta.path)
-                if lpath.exists():
+                lpath = self._resolve_file_path(lmeta.path)
+                if lpath.exists() and lpath.is_file():
                     try:
                         snippet = lpath.read_text(encoding="utf-8", errors="replace")[:2000]
                         linked_snippets.append(f"Linked File ({lmeta.path}):\n{snippet}")
