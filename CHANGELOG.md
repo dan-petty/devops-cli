@@ -45,6 +45,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **GitHub PR Governance & Remote CI Inspection (`devops pr`)**:
   - Pull request lifecycle management (`create`, `status`, `checks`, `view`, `diff`) with automated release branch base targeting and CI check monitoring.
 
+### Changed
+- **Review Prompt & Verification Rule Hardening**:
+  - Refined `src/devops_cli/ai/tasks/review.md` and `src/devops_cli/ai/tasks/verify_finding.md` to prevent speculative vulnerability reports on hypothetical helper behavior and eliminate false-positive syntax error hallucinations on standard Python 3 tuple exception handlers (`except (Err1, Err2):`).
+  - Streamlined feedback dataset exporter (`devops ai review export-feedback`) to export complete review findings into `.data/feedback.jsonl` for continuous improvement benchmarks.
+
+### Security
+- **Path Traversal & Injection Defenses**:
+  - Added strict path traversal defenses in `load_custom_repo_persona` (`src/devops_cli/ai/personas/__init__.py`).
+  - Added tool description sanitization in `PydanticAgent` prompt construction (`src/devops_cli/ai/agents/pydantic_agent.py`) to prevent indirect prompt injection.
+  - Added semantic version regex validation in `devops install-tools` binary downloads.
+  - Added label format validation in `devops release prepare` before GitHub CLI invocation.
+  - Switched Valkey deployment in `k8s/llm/valkey.yaml` from NodePort to `ClusterIP` and removed `--protected-mode no`.
+
+### Fixed
+- **API Boundary & Pipeline Invariants**:
+  - Removed internal helper functions `_run_mcp_cmd` and `_validate_mcp_arg` from public `__all__` in `src/devops_cli/ai/mcp/__init__.py`.
+  - Added positive integer validation for `max_turns_per_agent` and hoisted imports in `MultiAgentPipeline` (`src/devops_cli/ai/agents/pipeline.py`).
+  - Added bounds enforcement on `top_k` and `score_threshold` and query masking in telemetry traces (`src/devops_cli/ai/rag/retriever.py`).
+
 ## [0.1.11] - 2026-08-18
 
 ### Added
