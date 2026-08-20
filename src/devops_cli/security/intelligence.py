@@ -7,10 +7,11 @@ from __future__ import annotations
 import ipaddress
 import json
 import logging
+import mimetypes
 import re
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlsplit
 
 import httpx
 
@@ -23,19 +24,28 @@ from devops_cli.models.intelligence import (
 
 logger = logging.getLogger(__name__)
 
+# Ensure standard MIME types are initialized from system/python registry
+mimetypes.init()
+
 # Regular expressions for network reference extraction
 _IP_REGEX = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
 _URL_REGEX = re.compile(r"https?://(?:[a-zA-Z0-9-]+\.)+[a-zA-Z0-9-]+(?::\d+)?(?:/[^\s\"'<>()]*)?")
 _DOMAIN_REGEX = re.compile(r"\b(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}\b")
 
-_EXCLUDED_DOMAINS = {
+# Standard RFC 2606 and RFC 6761 reserved domain suffixes and public infra endpoints
+_RESERVED_DOMAINS = {
     "example.com",
     "example.org",
     "example.net",
-    "example.test",
     "localhost",
     "local",
+    "test",
+    "example",
+    "invalid",
     "internal",
+}
+
+_EXCLUDED_DOMAINS = {
     "schema.org",
     "w3.org",
     "json-schema.org",
@@ -52,219 +62,13 @@ _EXCLUDED_DOMAINS = {
     "cloudflare.com",
 }
 
-_COMMON_FILE_EXTENSIONS: set[str] = {
-    "json",
-    "xml",
-    "db",
-    "yaml",
-    "yml",
-    "py",
-    "pyc",
-    "pyo",
-    "pyd",
-    "md",
-    "markdown",
-    "tar",
-    "gz",
-    "tgz",
-    "bz2",
-    "xz",
-    "zip",
-    "7z",
-    "rar",
-    "lock",
-    "toml",
-    "log",
-    "txt",
-    "cfg",
-    "ini",
-    "sh",
-    "bash",
-    "zsh",
-    "ts",
-    "js",
-    "jsx",
-    "tsx",
-    "mjs",
-    "cjs",
-    "html",
-    "htm",
-    "css",
-    "scss",
-    "sass",
-    "less",
-    "png",
-    "jpg",
-    "jpeg",
-    "gif",
-    "svg",
-    "ico",
-    "webp",
-    "go",
-    "rs",
-    "java",
-    "c",
-    "cpp",
-    "cc",
-    "cxx",
-    "h",
-    "hpp",
-    "hxx",
-    "mod",
-    "sum",
-    "env",
-    "bak",
-    "tmp",
-    "temp",
-    "out",
-    "csv",
-    "tsv",
-    "bin",
-    "exe",
-    "dll",
-    "so",
-    "dylib",
-    "whl",
-    "egg",
-    "pdf",
-    "rst",
-    "dockerfile",
-    "containerfile",
-    "sql",
-    "sqlite",
-    "sqlite3",
-    "proto",
-    "graphql",
-    "gql",
-    "tf",
-    "tfvars",
-    "hcl",
-    "kunit",
-    "patch",
-    "diff",
-    "spec",
-    "service",
-    "socket",
-    "target",
-    "timer",
-    "conf",
-    "properties",
-    "envrc",
-    "editorconfig",
-    "gitignore",
-    "gitattributes",
-    "gitmodules",
-    "coverage",
-    "cache",
-    "wasm",
-    "map",
-    "dist",
-    "build",
-    "node_modules",
-    "vendor",
-}
-
-_VALID_INTERNET_TLDS: set[str] = {
-    "com",
-    "org",
-    "net",
-    "edu",
-    "gov",
-    "mil",
-    "int",
-    "arpa",
-    "io",
-    "dev",
-    "ai",
-    "app",
-    "co",
-    "cloud",
-    "tech",
-    "info",
-    "biz",
-    "me",
-    "us",
-    "uk",
-    "ca",
-    "de",
-    "fr",
-    "eu",
-    "jp",
-    "cn",
-    "in",
-    "br",
-    "ru",
-    "nl",
-    "se",
-    "no",
-    "fi",
-    "es",
-    "it",
-    "ch",
-    "at",
-    "dk",
-    "nz",
-    "mx",
-    "ar",
-    "za",
-    "sg",
-    "hk",
-    "kr",
-    "tw",
-    "site",
-    "xyz",
-    "online",
-    "store",
-    "top",
-    "pro",
-    "club",
-    "space",
-    "live",
-    "link",
-    "agency",
-    "digital",
-    "network",
-    "zone",
-    "world",
-    "today",
-    "email",
-    "group",
-    "team",
-    "media",
-    "press",
-    "studio",
-    "design",
-    "expert",
-    "guide",
-    "tips",
-    "support",
-    "center",
-    "directory",
-    "academy",
-    "community",
-    "solutions",
-    "systems",
-    "technology",
-    "consulting",
-    "management",
-    "services",
-    "global",
-    "security",
-    "infra",
-    "pub",
-    "cc",
-    "tv",
-    "to",
-    "is",
-    "fm",
-    "am",
-}
-
 __all__ = [
     "DependencySpec",
     "NetworkReference",
     "NetworkReputationRecord",
     "VulnerabilityRecord",
+    "is_file_reference",
+    "is_network_domain",
     "is_public_ip",
     "extract_network_references",
     "extract_dependencies_from_text",
@@ -276,19 +80,80 @@ __all__ = [
 
 
 def is_public_ip(ip_str: str) -> bool:
-    """Check whether an IP string is a valid public, routable IP address."""
+    """Check whether an IP string is a valid public, globally routable IP address."""
     try:
         ip = ipaddress.ip_address(ip_str.strip())
-        return not (
-            ip.is_private
-            or ip.is_loopback
-            or ip.is_link_local
-            or ip.is_multicast
-            or ip.is_reserved
-            or ip.is_unspecified
-        )
+        return ip.is_global
     except ValueError:
         return False
+
+
+def is_file_reference(target: str, source_file: str = "") -> bool:
+    """Check if target string represents a local file path, manifest item, or standard
+    file format.
+    """
+    target_clean = target.strip()
+    if "/" in target_clean or "\\" in target_clean:
+        return True
+
+    # Check local filesystem existence
+    if Path(target_clean).exists() or (Path.cwd() / target_clean).exists():
+        return True
+
+    # Ignore and lock files context check
+    if source_file:
+        src_name = Path(source_file).name.lower()
+        if (
+            src_name.endswith("ignore")
+            or src_name.endswith(".lock")
+            or src_name.endswith(".txt")
+            or src_name in ("package-lock.json", "cargo.lock", "poetry.lock")
+        ):
+            return True
+
+    # Standard library mimetypes check
+    mime, _ = mimetypes.guess_type(target_clean)
+    if mime is not None and mime not in (
+        "application/x-msdos-program",
+        "application/x-msdownload",
+        "application/x-sh",
+    ):
+        return True
+
+    suffix = Path(target_clean).suffix.lower()
+    if suffix in mimetypes.types_map and suffix not in (".com", ".sh"):
+        return True
+
+    return False
+
+
+def is_network_domain(target: str, source_file: str = "") -> bool:
+    """Validate whether target string is a legitimate public network domain using urllib
+    and ipaddress.
+    """
+    if is_file_reference(target, source_file=source_file):
+        return False
+
+    parsed = urlsplit(f"//{target}")
+    hostname = parsed.hostname
+    if not hostname or "." not in hostname:
+        return False
+
+    # Check against RFC reserved and excluded domains
+    if (
+        hostname in _RESERVED_DOMAINS
+        or hostname in _EXCLUDED_DOMAINS
+        or any(hostname.endswith("." + exc) for exc in _RESERVED_DOMAINS | _EXCLUDED_DOMAINS)
+    ):
+        return False
+
+    try:
+        ip = ipaddress.ip_address(hostname)
+        return ip.is_global
+    except ValueError:
+        pass
+
+    return True
 
 
 def extract_network_references(content: str, source_file: str = "") -> list[NetworkReference]:
@@ -325,39 +190,24 @@ def extract_network_references(content: str, source_file: str = "") -> list[Netw
                     )
                 )
 
-        # 3. Extract External Domains
-        # Skip bare domain extraction in ignore and lock files where lines are file paths/packages
-        source_name = Path(source_file).name.lower()
-        is_ignore_or_lock = (
-            source_name.endswith("ignore")
-            or source_name.endswith(".lock")
-            or source_name in ("package-lock.json", "cargo.lock", "poetry.lock")
-        )
-        if not is_ignore_or_lock:
-            for match in _DOMAIN_REGEX.finditer(line):
-                domain = match.group(0).lower().rstrip(".,;)>]\"'")
-                tld = domain.rsplit(".", 1)[-1]
-                if (
-                    domain not in seen
-                    and tld in _VALID_INTERNET_TLDS
-                    and tld not in _COMMON_FILE_EXTENSIONS
-                    and domain not in _EXCLUDED_DOMAINS
-                    and not any(domain.endswith("." + exc) for exc in _EXCLUDED_DOMAINS)
-                    and not domain.endswith(".local")
-                    and not domain.endswith(".test")
-                    and not domain.endswith(".example")
-                    and "/" not in line[max(0, match.start() - 1) : match.end() + 1]
-                    and "\\" not in line[max(0, match.start() - 1) : match.end() + 1]
-                ):
-                    seen.add(domain)
-                    results.append(
-                        NetworkReference(
-                            target=domain,
-                            reference_type="domain",
-                            source_file=source_file,
-                            line_number=line_idx,
-                        )
+        # 3. Extract External Domains using standard library validation
+        for match in _DOMAIN_REGEX.finditer(line):
+            domain = match.group(0).lower().rstrip(".,;)>]\"'")
+            if (
+                domain not in seen
+                and "/" not in line[max(0, match.start() - 1) : match.end() + 1]
+                and "\\" not in line[max(0, match.start() - 1) : match.end() + 1]
+                and is_network_domain(domain, source_file=source_file)
+            ):
+                seen.add(domain)
+                results.append(
+                    NetworkReference(
+                        target=domain,
+                        reference_type="domain",
+                        source_file=source_file,
+                        line_number=line_idx,
                     )
+                )
 
     return results
 
