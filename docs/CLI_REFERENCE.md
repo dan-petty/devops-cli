@@ -639,7 +639,7 @@ devops k8s deploy-stack [OPTIONS]
 
 ### `devops k8s configure-urls`
 
-**Auto-detect Minikube stack URLs and update CLI config.**
+**Auto-detect Kubernetes stack URLs and update CLI config.**
 
 ```bash
 devops k8s configure-urls [OPTIONS]
@@ -650,6 +650,7 @@ devops k8s configure-urls [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--stack`, `-s` | `string` | `infra` | Stack to configure URLs for (infra, llm, all) |
+| `--context`, `-c` | `string` | - | Kubernetes cluster context |
 
 ### `devops k8s port-forward`
 
@@ -664,6 +665,7 @@ devops k8s port-forward [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--stack`, `-s` | `string` | `infra` | Stack services to port-forward (infra, llm, all) |
+| `--context`, `-c` | `string` | - | Kubernetes cluster context |
 | `--argocd-port` | `integer` | `8080` | Local port for ArgoCD |
 | `--grafana-port` | `integer` | `8030` | Local port for Grafana |
 | `--prometheus-port` | `integer` | `8090` | Local port for Prometheus |
@@ -686,6 +688,7 @@ devops k8s teardown-stack [OPTIONS]
 |---|---|---|---|
 | `--k8s-dir` | `path` | `k8s` | Path to k8s/ config directory |
 | `--stack`, `-s` | `string` | `infra` | Stack to teardown (infra, llm, all) |
+| `--context`, `-c` | `string` | - | Kubernetes cluster context |
 
 ### `devops k8s rbac-audit`
 

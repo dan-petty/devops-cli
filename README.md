@@ -141,7 +141,7 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 |  | `devops k8s logs [OPTIONS] <pod>` | Stream pod logs (delegates to kubectl). |
 |  | `devops k8s bootstrap [OPTIONS]` | Bootstrap minikube Kubernetes cluster and deploy infrastructure/LLM stack. |
 |  | `devops k8s deploy-stack [OPTIONS]` | Deploy infrastructure or LLM stack (Ollama, WebUI, Qdrant, Valkey) to Kubernetes. |
-|  | `devops k8s configure-urls [OPTIONS]` | Auto-detect Minikube stack URLs and update CLI config. |
+|  | `devops k8s configure-urls [OPTIONS]` | Auto-detect Kubernetes stack URLs and update CLI config. |
 |  | `devops k8s port-forward [OPTIONS]` | Port-forward k8s monitoring / LLM stack services to localhost ports and update CLI config. |
 |  | `devops k8s teardown-stack [OPTIONS]` | Uninstall the k8s infrastructure / LLM stack and delete namespaces. |
 |  | `devops k8s rbac-audit [OPTIONS]` | Audit RBAC RoleBindings and ServiceAccounts for overprivileged access. |
