@@ -22,6 +22,7 @@ from typing import Any, TypeVar
 
 from pydantic import BaseModel, Field
 
+from devops_cli.ai.agents.memory import AgentMemory
 from devops_cli.ai.client import LLMClient
 from devops_cli.ai.review_schema import extract_json_block
 from devops_cli.ai.thinking import extract_think_blocks
@@ -64,7 +65,7 @@ class AgentResponse[T](BaseModel):
 
 
 class PydanticAgent[T]:
-    """Agent built on Pydantic models supporting tools, reasoning, and streaming."""
+    """Agent built on Pydantic models supporting tools, memory, reasoning, and streaming."""
 
     def __init__(
         self,
@@ -74,11 +75,13 @@ class PydanticAgent[T]:
         name: str = "Assistant",
         output_schema: type[T] | None = None,
         tools: list[AgentTool | Callable[..., Any]] | None = None,
+        memory: AgentMemory | None = None,
     ) -> None:
         self.client = client
         self.system_prompt = system_prompt
         self.name = name
         self.output_schema = output_schema
+        self.memory: AgentMemory = memory or AgentMemory(session_id=name)
         self._tools: dict[str, AgentTool] = {}
         if tools:
             for tool in tools:
@@ -108,6 +111,9 @@ class PydanticAgent[T]:
 
     def _build_system_prompt_with_tools(self) -> str:
         prompt_parts: list[str] = [self.system_prompt.strip()]
+
+        if self.memory and self.memory.summary:
+            prompt_parts.append(f"## Prior Interaction & Memory Summary\n{self.memory.summary}")
 
         if self._tools:
             tools_desc: list[str] = []
@@ -151,6 +157,9 @@ class PydanticAgent[T]:
         enable_thinking: bool = True,
     ) -> AgentResponse[T]:
         """Execute the agent tool loop until completion or max_turns is reached."""
+        self.memory.add_interaction("user", user_prompt)
+        self.memory.auto_summarize_if_needed(llm_client=self.client)
+
         system = self._build_system_prompt_with_tools()
         messages: list[ChatMessage] = [ChatMessage(role="user", content=user_prompt)]
         tool_calls: list[ToolCall] = []
@@ -210,14 +219,21 @@ class PydanticAgent[T]:
                 except Exception:
                     pass
 
+            final_output = clean_response or response_text
+            self.memory.add_interaction("assistant", final_output)
+            self.memory.auto_summarize_if_needed(llm_client=self.client)
+
             return AgentResponse[T](
-                content=clean_response or response_text,
+                content=final_output,
                 data=parsed_data,
                 tool_calls=tool_calls,
                 thoughts=thoughts,
                 turns=turn,
                 backend_info=b_info,
             )
+
+        self.memory.add_interaction("assistant", response_text)
+        self.memory.auto_summarize_if_needed(llm_client=self.client)
 
         return AgentResponse[T](
             content=response_text,

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -95,6 +95,10 @@ class ScratchpadBuffer(BaseModel):
     """Structured multi-turn reasoning scratchpad buffer for agentic pipeline turns."""
 
     session_id: str = "default-session"
+    max_entries: int = 10
+    max_chars: int = 4000
+    keep_recent: int = 3
+    summary: str = ""
     entries: list[ScratchpadEntry] = Field(default_factory=list)
 
     def add_entry(
@@ -117,13 +121,58 @@ class ScratchpadBuffer(BaseModel):
             timestamp=datetime.now(UTC).isoformat(),
         )
         self.entries.append(entry)
+        self.auto_summarize_if_needed()
         return entry
+
+    @property
+    def total_chars(self) -> int:
+        """Total character length across all scratchpad hypotheses, notes, and findings."""
+        return sum(
+            len(e.hypothesis) + sum(len(n) for n in e.notes) + sum(len(k) for k in e.key_findings)
+            for e in self.entries
+        )
+
+    def should_summarize(self) -> bool:
+        """Return True if entry count or total character threshold is exceeded."""
+        return len(self.entries) > self.max_entries or self.total_chars > self.max_chars
+
+    def auto_summarize_if_needed(self, llm_client: Any | None = None) -> bool:
+        """Automatically compress older scratchpad entries into a summary if size
+        limits are reached.
+        """
+        if not self.should_summarize() or len(self.entries) <= self.keep_recent:
+            return False
+
+        cutoff = len(self.entries) - self.keep_recent
+        to_summarize = self.entries[:cutoff]
+        to_keep = self.entries[cutoff:]
+
+        bullets: list[str] = []
+        if self.summary:
+            bullets.append(self.summary)
+        for e in to_summarize:
+            n_str = (", ".join(e.notes))[:80] if e.notes else ""
+            h_str = e.hypothesis[:100]
+            entry_line = f"[{e.persona.upper()}/{e.stage}] {h_str}"
+            if n_str:
+                entry_line += f" ({n_str})"
+            bullets.append(entry_line)
+
+        new_summary = " -> ".join(bullets)
+        if len(new_summary) > self.max_chars // 2:
+            new_summary = new_summary[: (self.max_chars // 2) - 3] + "..."
+
+        self.summary = new_summary
+        self.entries = to_keep
+        return True
 
     def render_context_summary(self) -> str:
         """Render a concise markdown summary of intermediate scratchpad reasoning."""
-        if not self.entries:
+        if not self.entries and not self.summary:
             return ""
-        lines = ["### Scratchpad Reasoning Context"]
+        lines: list[str] = ["### Scratchpad Reasoning Context"]
+        if self.summary:
+            lines.append(f"- **[ACCUMULATED SUMMARY]**: {self.summary}")
         for entry in self.entries:
             lines.append(f"- **[{entry.persona.upper()} | {entry.stage}]**: {entry.hypothesis}")
             for note in entry.notes:

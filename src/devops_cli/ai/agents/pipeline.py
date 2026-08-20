@@ -20,6 +20,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from devops_cli.ai.agents.memory import AgentMemory
 from devops_cli.ai.agents.pydantic_agent import AgentTool, PydanticAgent, ToolCall
 from devops_cli.ai.analyze.outlines import _mask_sensitive_data
 from devops_cli.ai.review_schema import extract_json_block
@@ -48,10 +49,11 @@ class MultiAgentPipelineResult[T](BaseModel):
     total_turns: int = 0
     all_tool_calls: list[ToolCall] = Field(default_factory=list)
     scratchpad: ScratchpadBuffer = Field(default_factory=ScratchpadBuffer)
+    memory: AgentMemory = Field(default_factory=AgentMemory)
 
 
 class MultiAgentPipeline[T]:
-    """Orchestrates multi-agent stage pipelines with shared tools and handovers."""
+    """Orchestrates multi-agent stage pipelines with shared tools, memory, and handovers."""
 
     def __init__(
         self,
@@ -60,11 +62,13 @@ class MultiAgentPipeline[T]:
         output_schema: type[T] | None = None,
         shared_tools: list[AgentTool | Callable[..., Any]] | None = None,
         session_id: str = "pipeline-session",
+        memory: AgentMemory | None = None,
     ) -> None:
         self.agents: list[PydanticAgent[Any]] = agents or []
         self.output_schema = output_schema
         self.shared_tools = shared_tools or []
         self.scratchpad = ScratchpadBuffer(session_id=session_id)
+        self.memory: AgentMemory = memory or AgentMemory(session_id=session_id)
         if self.shared_tools:
             for tool in self.shared_tools:
                 if not (isinstance(tool, AgentTool) or callable(tool)):
@@ -102,6 +106,9 @@ class MultiAgentPipeline[T]:
         total_turns = 0
         accumulated_context = ""
 
+        self.memory.add_interaction("user", initial_prompt)
+        self.memory.auto_summarize_if_needed()
+
         for idx, agent in enumerate(self.agents, 1):
             prompt = initial_prompt
             if accumulated_context:
@@ -131,6 +138,9 @@ class MultiAgentPipeline[T]:
                 backend_info=res.backend_info,
             )
             steps.append(step)
+
+            self.memory.add_interaction(agent.name, res.content)
+            self.memory.auto_summarize_if_needed()
 
             raw_hyp = res.content[:150].replace("\n", " ") + "..."
 
@@ -164,4 +174,5 @@ class MultiAgentPipeline[T]:
             total_turns=total_turns,
             all_tool_calls=all_tool_calls,
             scratchpad=self.scratchpad,
+            memory=self.memory,
         )

@@ -26,7 +26,6 @@ from devops_cli.config.env import env_var_for_option
 from devops_cli.config.options import AI_API_KEY
 from devops_cli.config.settings import SecretStorageError, dotted_set
 from devops_cli.core.cli import new_typer
-from devops_cli.models.ai import ChatMessage
 
 app = new_typer(
     help="Configure, test, chat, analyze, and review codebases (Ollama, Claude, Copilot).",
@@ -651,7 +650,6 @@ def chat(
     )
     rprint("[dim]Type your message and press Enter. Ctrl+C or [bold]exit[/bold] to quit.[/dim]\n")
 
-    history: list[ChatMessage] = []
     while True:
         try:
             user_input = console.input("[bold cyan]You:[/bold cyan] ").strip()
@@ -673,7 +671,10 @@ def chat(
             if rag_snippet:
                 effective_prompt = f"{rag_snippet}\n\nUser Question: {user_input}"
 
-        history.append(ChatMessage(role="user", content=effective_prompt))
+        agent.memory.add_interaction("user", effective_prompt)
+        if agent.memory.auto_summarize_if_needed(llm_client=client):
+            rprint("[dim]⚡ Long conversation memory consolidated into context summary.[/dim]")
+
         try:
             rprint(f"\n[green]{persona_def.title}:[/green] ", end="")
             sys.stdout.flush()
@@ -686,8 +687,9 @@ def chat(
                     console=console,
                 )
                 system_with_tools = agent._build_system_prompt_with_tools()
+                messages = agent.memory.to_chat_messages()
                 for chunk in client.chat_messages_stream(
-                    system_with_tools, history, enable_thinking=thinking
+                    system_with_tools, messages, enable_thinking=thinking
                 ):
                     processor.feed(chunk)
                 processor.flush()
@@ -702,10 +704,13 @@ def chat(
 
         except Exception as exc:
             rprint(f"\n[red]Error: {exc}[/red]\n")
-            history.pop()  # don't add failed turn to history
+            if agent.memory.entries:
+                agent.memory.entries.pop()  # don't add failed turn to history
             continue
 
-        history.append(ChatMessage(role="assistant", content=reply))
+        agent.memory.add_interaction("assistant", reply)
+        if agent.memory.auto_summarize_if_needed(llm_client=client):
+            rprint("[dim]⚡ Long conversation memory consolidated into context summary.[/dim]")
 
 
 @app.command("bundle-models")
