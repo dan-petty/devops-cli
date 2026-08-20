@@ -34,6 +34,7 @@ def test_rag_query_dry_run(runner: CliRunner) -> None:
 def test_rag_status_command(runner: CliRunner, monkeypatch: pytest.MonkeyPatch) -> None:
     from devops_cli.ai.rag.qdrant import QdrantClient
 
+    monkeypatch.setenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", "true")
     monkeypatch.setattr(QdrantClient, "is_alive", lambda self: True)
     monkeypatch.setattr(QdrantClient, "list_collections", lambda self: ["devops_code"])
     monkeypatch.setattr(
@@ -52,6 +53,7 @@ def test_rag_status_command(runner: CliRunner, monkeypatch: pytest.MonkeyPatch) 
 def test_rag_clear_command(runner: CliRunner, monkeypatch: pytest.MonkeyPatch) -> None:
     from devops_cli.ai.rag.qdrant import QdrantClient
 
+    monkeypatch.setenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", "true")
     monkeypatch.setattr(QdrantClient, "is_alive", lambda self: True)
     deleted: list[str] = []
     monkeypatch.setattr(
