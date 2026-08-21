@@ -48,6 +48,7 @@ class LLMResponse(str):
     processing_seconds: float | None
     wall_seconds: float
     backend_info: str | None
+    thinking: str | None
 
     def __new__(
         cls,
@@ -55,11 +56,13 @@ class LLMResponse(str):
         processing_seconds: float | None = None,
         wall_seconds: float = 0.0,
         backend_info: str | None = None,
+        thinking: str | None = None,
     ) -> LLMResponse:
         obj = super().__new__(cls, content)
         obj.processing_seconds = processing_seconds
         obj.wall_seconds = wall_seconds
         obj.backend_info = backend_info
+        obj.thinking = thinking
         return obj
 
 
@@ -204,12 +207,15 @@ class LLMClient:
         validator: Callable[[str], bool] | None = None,
     ) -> bool:
         """Quick and effective validation of AI response content."""
-        if not isinstance(content, str) or not content.strip():
+        if not isinstance(content, str):
             return False
-        stripped = content.strip()
-        if stripped.startswith("{") and stripped.endswith("}"):
+        raw_str = content.strip()
+        thinking_val = getattr(content, "thinking", None)
+        if not raw_str and not (thinking_val and str(thinking_val).strip()):
+            return False
+        if raw_str.startswith("{") and raw_str.endswith("}"):
             try:
-                data = json.loads(stripped)
+                data = json.loads(raw_str)
                 if isinstance(data, dict):
                     err_val = data.get("error")
                     err_code = data.get("error_code")
@@ -249,20 +255,32 @@ class LLMClient:
                 b_info = (
                     getattr(res_claude, "backend_info", None) or f"claude ({self.backend_host})"
                 )
+                text_claude = (
+                    str(res_claude)
+                    if enable_thinking
+                    else self._strip_think_blocks(str(res_claude))
+                )
                 res = LLMResponse(
-                    self._strip_think_blocks(res_claude),
+                    text_claude,
                     processing_seconds=res_claude.processing_seconds,
                     wall_seconds=res_claude.wall_seconds,
                     backend_info=b_info,
+                    thinking=getattr(res_claude, "thinking", None),
                 )
             elif p in ("copilot", "openai"):
                 res_openai = self._openai_compat_messages(system, messages)
                 b_info = getattr(res_openai, "backend_info", None) or f"{p} ({self.backend_host})"
+                text_openai = (
+                    str(res_openai)
+                    if enable_thinking
+                    else self._strip_think_blocks(str(res_openai))
+                )
                 res = LLMResponse(
-                    self._strip_think_blocks(res_openai),
+                    text_openai,
                     processing_seconds=res_openai.processing_seconds,
                     wall_seconds=res_openai.wall_seconds,
                     backend_info=b_info,
+                    thinking=getattr(res_openai, "thinking", None),
                 )
             else:
                 raise ValueError(
@@ -568,7 +586,13 @@ class LLMClient:
 
             msg = raw_res.get("message", {})
             content = str(msg.get("content", ""))
-            text = content if "thinking" in msg else self._strip_think_blocks(content)
+            raw_thinking = msg.get("thinking")
+            thinking_str = str(raw_thinking) if raw_thinking is not None else None
+
+            if thinking_str and not content:
+                content = f"<think>\n{thinking_str}\n</think>"
+
+            text = content if think else self._strip_think_blocks(content)
 
             prompt_eval_ns = int(raw_res.get("prompt_eval_duration") or 0)
             eval_ns = int(raw_res.get("eval_duration") or 0)
@@ -589,6 +613,7 @@ class LLMClient:
                 processing_seconds=proc_sec,
                 wall_seconds=wall_elapsed,
                 backend_info=b_info,
+                thinking=thinking_str,
             )
 
     def _ollama_models(self) -> list[str]:
