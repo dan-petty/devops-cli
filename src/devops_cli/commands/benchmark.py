@@ -31,6 +31,14 @@ def run_benchmark(
             help="Comma-separated candidate models (e.g. 'qwen2.5:0.5b,llama3.1:8b@http://gpu2:11434')",
         ),
     ] = None,
+    servers: Annotated[
+        str | None,
+        typer.Option(
+            "--servers",
+            "--ollama-urls",
+            help="Comma-separated Ollama server URLs for concurrent execution (e.g. 'http://node1:11434,http://node2:11434')",
+        ),
+    ] = None,
     provider: Annotated[
         str | None,
         typer.Option("--provider", "-p", help="AI provider (ollama, claude, copilot, openai)"),
@@ -76,6 +84,9 @@ def run_benchmark(
     else:
         model_list = [settings.ai.model]
 
+    # Parse servers list
+    server_list = [s.strip() for s in servers.split(",") if s.strip()] if servers else None
+
     # Parse task filters
     cat_filters = [c.strip() for c in tasks_filter.split(",")] if tasks_filter else None
     task_list = get_benchmark_tasks(cat_filters)
@@ -92,6 +103,7 @@ def run_benchmark(
         provider=provider,
         is_dry_run=dry_run,
         concurrency=concurrency,
+        servers=server_list,
     )
 
     report = runner.execute()
