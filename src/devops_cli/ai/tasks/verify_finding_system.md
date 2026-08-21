@@ -7,7 +7,7 @@ Verify whether each reported finding is genuine, accurate, and reportable by tes
 
 Output MUST be a JSON array of objects with fields:
   - "verified": boolean (true if genuine, false if false-positive)
-  - "mitigated": boolean (true if a related file or guardrail mitigates the risk)
+  - "mitigated": boolean (true if a related file or guardrail mitigates the risk, reducing severity or preventing impact)
   - "invalidated": boolean (true if a related file or guardrail invalidates the finding)
   - "status": string ("VERIFIED" | "INVALIDATED" | "MITIGATED" | "UNVERIFIED")
   - "reportable": boolean (true if finding should be reported, false if invalidated/mitigated)

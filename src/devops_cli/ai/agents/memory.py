@@ -30,27 +30,13 @@ _DEFAULT_KEEP_RECENT = 3
 _TASKS_DIR = Path(__file__).resolve().parent.parent / "tasks"
 
 
-def _load_task_prompt(filename: str, fallback: str) -> str:
+def _load_task_prompt(filename: str) -> str:
     path = _TASKS_DIR / filename
-    if path.exists():
-        return path.read_text(encoding="utf-8").strip()
-    return fallback
+    return path.read_text(encoding="utf-8").strip() if path.exists() else ""
 
 
-_SUMMARY_SYSTEM_PROMPT = _load_task_prompt(
-    "summarize_memory_system.md", "You are an expert conversational summarizer."
-)
-_SUMMARY_PROMPT = _load_task_prompt(
-    "summarize_memory.md",
-    (
-        "You are a memory consolidation engine. Condense the following interaction "
-        "history into a concise, highly factual summary (under 200 words) preserving "
-        "all user goals, key technical decisions, file paths, and tool actions.\n\n"
-        "Existing Summary:\n{existing_summary}\n\n"
-        "New Interactions to Incorporate:\n{interactions}\n\n"
-        "Respond ONLY with the consolidated summary text."
-    ),
-)
+_SUMMARY_SYSTEM_PROMPT = _load_task_prompt("summarize_memory_system.md")
+_SUMMARY_PROMPT = _load_task_prompt("summarize_memory.md")
 
 
 class MemoryEntry(BaseModel):

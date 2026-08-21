@@ -61,22 +61,13 @@ _AGENT_FILES: dict[str, str] = {
 _TASKS_DIR = Path(__file__).resolve().parent.parent / "ai" / "tasks"
 
 
-def _load_task_prompt(filename: str, fallback: str) -> str:
+def _load_task_prompt(filename: str) -> str:
     path = _TASKS_DIR / filename
-    if path.exists():
-        return path.read_text(encoding="utf-8").strip()
-    return fallback
+    return path.read_text(encoding="utf-8").strip() if path.exists() else ""
 
 
 # Task-specific addendum appended to the architect persona when generating AGENTS.md
-_AGENTS_TASK_ADDENDUM = "\n" + _load_task_prompt(
-    "generate_agents.md",
-    (
-        "Your current task is to write the `AGENTS.md` file — structured, best-practice\n"
-        "guidance and principles for AI coding agents (GitHub Copilot, Claude, Cursor).\n"
-        "The output will be read by AI assistants to understand this project."
-    ),
-)
+_AGENTS_TASK_ADDENDUM = "\n" + _load_task_prompt("generate_agents.md")
 
 
 def _try_retrieve_rag_context(query: str, top_k: int = 3) -> str | None:
@@ -443,7 +434,7 @@ def test(
         f"model: [cyan]{settings.ai.model}[/cyan]..."
     )
     try:
-        test_sys_prompt = _load_task_prompt("test_assistant.md", "You are a helpful assistant.")
+        test_sys_prompt = _load_task_prompt("test_assistant.md")
         reply = client.chat(system=test_sys_prompt, user=prompt)
         rprint(MESSAGES.ai.test_success.format(reply=reply.strip()))
     except Exception as exc:

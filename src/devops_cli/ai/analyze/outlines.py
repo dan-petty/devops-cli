@@ -23,6 +23,16 @@ from devops_cli.ai.personas import (
 )
 from devops_cli.models.ai import FileAnalysisMeta
 
+_TASKS_DIR = Path(__file__).resolve().parent.parent / "tasks"
+
+
+def _load_task_prompt(filename: str) -> str:
+    path = _TASKS_DIR / filename
+    return path.read_text(encoding="utf-8").strip() if path.exists() else ""
+
+
+_METADATA_RETRY_TEMPLATE = _load_task_prompt("metadata_retry_feedback.md")
+
 
 class EnhancedMetadataOutput(BaseModel):
     """Pydantic model for validating AI-generated metadata extraction."""
@@ -150,11 +160,7 @@ def _enhance_file_metadata_with_ai(
                 messages.append(
                     ChatMessage(
                         role="user",
-                        content=(
-                            f"Metadata extraction validation failed: {err}\n"
-                            "Please re-analyze the code and output a valid JSON object "
-                            "matching the required schema."
-                        ),
+                        content=_METADATA_RETRY_TEMPLATE.format(err=err),
                     )
                 )
         except Exception:

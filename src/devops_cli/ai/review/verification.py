@@ -13,34 +13,12 @@ from devops_cli.ai.review_schema import _SEVERITY_RANK, Finding, ReviewResult, e
 _TASKS_DIR = Path(__file__).resolve().parent.parent / "tasks"
 
 
-def _load_verification_system_prompt() -> str:
-    path = _TASKS_DIR / "verify_finding_system.md"
-    if path.exists():
-        return path.read_text(encoding="utf-8").strip()
-    return (
-        "You are an expert code review verification and validation system.\n"
-        "Verify whether each reported finding is genuine, accurate, and reportable "
-        "by testing its criteria:\n"
-        "1. Test 'verification_criteria': Observable conditions proving the defect.\n"
-        "2. Test 'invalidation_criteria': Conditions/context disproving the defect.\n"
-        "3. Is the code visible in the excerpt? If absent, mark false.\n"
-        "4. Is the issue mitigated by error handling, typing, or related files?\n\n"
-        "Output MUST be a JSON array of objects with fields:\n"
-        '  - "verified": boolean (true if genuine & unmitigated)\n'
-        '  - "mitigated": boolean (true if guardrail mitigates the risk)\n'
-        '  - "status": string ("VERIFIED" | "INVALIDATED" | "MITIGATED" | "UNVERIFIED")\n'
-        '  - "reportable": boolean (true if finding should be reported)\n'
-        '  - "location": string (file:lines)\n'
-        '  - "severity": string (CRITICAL | HIGH | MEDIUM | LOW | INFO)\n'
-        '  - "confidence_score": float from 0.0 to 1.0\n'
-        '  - "verified_criteria_matched": list of strings\n'
-        '  - "invalidated_criteria_matched": list of strings\n'
-        '  - "reason": string (brief justification)\n\n'
-        "Output ONLY the JSON array inside a ```json ``` code block."
-    )
+def _load_task_prompt(filename: str) -> str:
+    path = _TASKS_DIR / filename
+    return path.read_text(encoding="utf-8").strip() if path.exists() else ""
 
 
-_VALIDATION_SYSTEM = _load_verification_system_prompt()
+_VALIDATION_SYSTEM = _load_task_prompt("verify_finding_system.md")
 
 
 def _extract_location_context(segment: str, location: str, context_lines: int = 12) -> str:

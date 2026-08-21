@@ -64,24 +64,12 @@ logger = logging.getLogger(__name__)
 _TASKS_DIR = Path(__file__).resolve().parent.parent / "tasks"
 
 
-def _load_task_prompt(filename: str, fallback: str) -> str:
+def _load_task_prompt(filename: str) -> str:
     path = _TASKS_DIR / filename
-    if path.exists():
-        return path.read_text(encoding="utf-8").strip()
-    return fallback
+    return path.read_text(encoding="utf-8").strip() if path.exists() else ""
 
 
-_REVIEW_PIPELINE_EVAL = _load_task_prompt(
-    "review_pipeline_eval.md",
-    (
-        "CRITICAL: Examine code carefully for flaws and security vulnerabilities.\n"
-        "Evaluate code objectively according to its target runtime and architecture "
-        "without enforcing host project layout.\n"
-        "Report all findings in 'findings' JSON array with severity, location, title, "
-        "description, fix, verification_criteria, invalidation_criteria, and "
-        "confidence_score."
-    ),
-)
+_REVIEW_PIPELINE_EVAL = _load_task_prompt("review_pipeline_eval.md")
 
 
 class ReviewPipelineOrchestrator:
