@@ -169,6 +169,37 @@ def extract_tool_invocations(
                 ExtractedToolCall(tool_name=fn_name, arguments=parsed_args, raw_syntax=m.group(0))
             )
 
+    # 3. Intent call extraction: "We need to call tool scan_osv", "We'll invoke scan_osv"
+    if not calls and known:
+        intent_pattern = r"(?:call|invoke|use|run|execute)\s+(?:tool\s+)?`?([a-zA-Z0-9_]+)`?"
+        for m in re.finditer(intent_pattern, text, re.IGNORECASE):
+            candidate_tool = m.group(1).strip()
+            if candidate_tool in known and not any(c.tool_name == candidate_tool for c in calls):
+                inferred_args: dict[str, Any] = {}
+                pkg_match = re.search(
+                    r"(?:package|for|pkg)?\s*`?([a-zA-Z0-9_\-\.]+)(?:>=|==|<=|~=|>|<)?([0-9\.]*)?`?",
+                    text,
+                    re.IGNORECASE,
+                )
+                if pkg_match and pkg_match.group(1) not in (
+                    "tool",
+                    "that",
+                    "this",
+                    "the",
+                    candidate_tool,
+                ):
+                    inferred_args["package_name"] = pkg_match.group(1).strip()
+                    if pkg_match.group(2):
+                        inferred_args["version"] = pkg_match.group(2).strip()
+
+                calls.append(
+                    ExtractedToolCall(
+                        tool_name=candidate_tool,
+                        arguments=inferred_args,
+                        raw_syntax=m.group(0),
+                    )
+                )
+
     return calls
 
 

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import inspect
 import json
+import re
 from collections.abc import Callable, Generator
 from typing import Any, TypeVar
 
@@ -127,10 +128,13 @@ class PydanticAgent[T]:
 
             tools_block = (
                 "## Available Tools\n"
-                "You have access to these tools:\n"
-                + "\n".join(tools_desc)
-                + "\n\nTo invoke a tool, output JSON:\n"
-                '```json\n{"tool": "tool_name", "arguments": {"param": "value"}}\n```'
+                "You have access to these tools:\n" + "\n".join(tools_desc) + "\n\n"
+                "## Tool Execution Rules (CRITICAL):\n"
+                "1. When you need to run a tool, you MUST output ONLY the JSON code block:\n"
+                '```json\n{"tool": "tool_name", "arguments": {"param": "value"}}\n```\n'
+                "2. Do NOT output text or statements like 'We need to call tool...' in reply.\n"
+                "3. Output ONLY the JSON block so the tool executes immediately.\n"
+                "4. After tool execution, you will receive its output in the next turn."
             )
             prompt_parts.append(tools_block)
 
@@ -191,6 +195,7 @@ class PydanticAgent[T]:
 
             # Process extracted tool calls
             if fixed.tool_calls:
+                executed_any = False
                 for tc_info in fixed.tool_calls:
                     tool_name = tc_info.tool_name
                     args = tc_info.arguments
@@ -201,6 +206,7 @@ class PydanticAgent[T]:
                             tool_result = f"Tool execution error for {tool_name}: {exc}"
                         tc = ToolCall(tool_name=tool_name, arguments=args, result=tool_result)
                         tool_calls.append(tc)
+                        executed_any = True
 
                         if on_tool_call:
                             on_tool_call(tool_name, args, tool_result)
@@ -215,10 +221,41 @@ class PydanticAgent[T]:
                                 ),
                             )
                         )
-                if tool_calls:
+                if executed_any:
                     continue
 
             final_output = fixed.content.strip()
+
+            # Check if output or thoughts expressed intent to use a known tool
+            detected_tool: str | None = None
+            if self._tools and turn < max_turns:
+                search_text = f"{final_output}\n{' '.join(all_thoughts)}"
+                for t_name in self._tools:
+                    escaped_name = re.escape(t_name)
+                    tool_intent_pattern = (
+                        rf"\b(?:call|invoke|use|run|execute)\s+(?:tool\s+)?`?{escaped_name}`?\b"
+                    )
+                    if re.search(tool_intent_pattern, search_text, re.IGNORECASE):
+                        detected_tool = t_name
+                        break
+
+            if detected_tool and turn < max_turns:
+                tool_obj = self._tools[detected_tool]
+                example_args = {k: "..." for k in tool_obj.parameters}
+                example_json = json.dumps(
+                    {"tool": detected_tool, "arguments": example_args}, separators=(",", ":")
+                )
+                messages.append(ChatMessage(role="assistant", content=response_text))
+                messages.append(
+                    ChatMessage(
+                        role="user",
+                        content=(
+                            f"Execute tool '{detected_tool}' now. Output ONLY:\n"
+                            f"```json\n{example_json}\n```"
+                        ),
+                    )
+                )
+                continue
 
             # If final_output is still empty and turn < max_turns, request synthesis turn
             if not final_output and all_thoughts and turn < max_turns:
