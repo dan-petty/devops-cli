@@ -111,7 +111,7 @@ def test_benchmark_runner_dry_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     models = ["model-a", "model-b"]
     tasks = get_benchmark_tasks(["security"])
 
-    b_runner = BenchmarkRunner(models=models, tasks=tasks)
+    b_runner = BenchmarkRunner(models=models, tasks=tasks, servers=["http://localhost:11434"])
     report = b_runner.execute()
 
     assert report.is_dry_run is True
@@ -144,7 +144,9 @@ def test_benchmark_runner_mock_evaluation() -> None:
     ]
 
     tasks = [BENCHMARK_TASKS[0]]
-    b_runner = BenchmarkRunner(models=["mock-model"], tasks=tasks)
+    b_runner = BenchmarkRunner(
+        models=["mock-model"], tasks=tasks, servers=["http://localhost:11434"]
+    )
 
     with patch.object(b_runner, "_client_for_model", return_value=mock_client):
         report = b_runner.execute()
@@ -164,6 +166,8 @@ def test_benchmark_cli_command(tmp_path: Path) -> None:
             "benchmark",
             "--models",
             "model-1@http://server1:11434,model-2@http://server2:11434",
+            "--servers",
+            "http://localhost:11434",
             "--tasks",
             "security",
             "--concurrency",
@@ -184,7 +188,13 @@ def test_benchmark_runner_concurrent_execution() -> None:
     """Verify concurrent execution across models with custom endpoint overrides."""
     tasks = [BENCHMARK_TASKS[0]]
     models = ["model-a@http://server-a:11434", "model-b@http://server-b:11434"]
-    b_runner = BenchmarkRunner(models=models, tasks=tasks, is_dry_run=True, concurrency=2)
+    b_runner = BenchmarkRunner(
+        models=models,
+        tasks=tasks,
+        is_dry_run=True,
+        concurrency=2,
+        servers=["http://server-a:11434", "http://server-b:11434"],
+    )
 
     # Test client configuration for parsed endpoints
     client_a = b_runner._client_for_model("model-a@http://server-a:11434")
@@ -193,8 +203,10 @@ def test_benchmark_runner_concurrent_execution() -> None:
 
     report = b_runner.execute()
     assert report.is_dry_run is True
-    assert len(report.responses) == 2
-    assert len(report.peer_grades) == 4
+    # 2 models * 1 task * 2 servers = 4 responses
+    assert len(report.responses) == 4
+    # 2 evaluator models * 2 candidate models * 1 task * 2 servers = 8 peer grades
+    assert len(report.peer_grades) == 8
     assert len(report.leaderboard) == 2
 
 

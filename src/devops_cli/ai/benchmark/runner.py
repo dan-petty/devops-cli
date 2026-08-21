@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import queue
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -91,12 +90,18 @@ class BenchmarkRunner:
         api_key = get_ai_api_key(self.settings)
         return LLMClient(cfg, api_key=api_key)
 
-    def _simulate_response(self, task: BenchmarkTask, model: str) -> TaskResponse:
+    def _simulate_response(
+        self,
+        task: BenchmarkTask,
+        model: str,
+        server_url: str | None = None,
+    ) -> TaskResponse:
         """Simulate realistic model response in dry-run mode."""
         return TaskResponse(
             task_id=task.id,
             model=model,
             provider=self.provider,
+            server=server_url or "",
             response=(
                 f"[Simulated Response from {model} for {task.id}]\n\n"
                 f"Reference Solution Summary:\n{task.expected_solution}"
@@ -109,6 +114,7 @@ class BenchmarkRunner:
         task: BenchmarkTask,
         candidate_model: str,
         evaluator_model: str,
+        server_url: str | None = None,
     ) -> PeerGrade:
         """Simulate realistic peer grading in dry-run mode."""
         # Add slight variation per model for deterministic yet differentiated mock results
@@ -124,6 +130,7 @@ class BenchmarkRunner:
             task_id=task.id,
             candidate_model=candidate_model,
             evaluator_model=evaluator_model,
+            server=server_url or "",
             accuracy_score=acc,
             security_score=sec,
             completeness_score=comp,
@@ -153,7 +160,7 @@ class BenchmarkRunner:
 
         for task in self.tasks:
             if dry_run:
-                resp = self._simulate_response(task, model_name)
+                resp = self._simulate_response(task, model_name, server_url=server_url)
                 results.append(resp)
                 with self._print_lock:
                     rprint(
@@ -177,6 +184,7 @@ class BenchmarkRunner:
                         task_id=task.id,
                         model=model_name,
                         provider=self.provider,
+                        server=server_url or "",
                         response=res_text,
                         duration_seconds=round(duration, 2),
                     )
@@ -196,6 +204,7 @@ class BenchmarkRunner:
                         task_id=task.id,
                         model=model_name,
                         provider=self.provider,
+                        server=server_url or "",
                         response=f"Error generating response: {exc}",
                         duration_seconds=round(duration, 2),
                     )
@@ -208,6 +217,22 @@ class BenchmarkRunner:
                         f"[yellow]{duration:.1f}s[/yellow] (failed)"
                     )
         return results
+
+    def _run_server_generation(
+        self,
+        server_url: str | None,
+        dry_run: bool,
+    ) -> list[TaskResponse]:
+        """Execute all benchmark models and tasks sequentially on a dedicated worker server."""
+        server_resps: list[TaskResponse] = []
+        for model_name in self.models:
+            resps = self._run_model_generation(
+                model_name=model_name,
+                dry_run=dry_run,
+                server_url=server_url,
+            )
+            server_resps.extend(resps)
+        return server_resps
 
     def _run_evaluator_grading(
         self,
@@ -236,7 +261,9 @@ class BenchmarkRunner:
                     continue
 
                 if dry_run:
-                    grade = self._simulate_peer_grade(task, candidate_model, evaluator_model)
+                    grade = self._simulate_peer_grade(
+                        task, candidate_model, evaluator_model, server_url=server_url
+                    )
                     grades.append(grade)
                     with self._print_lock:
                         rprint(
@@ -250,6 +277,7 @@ class BenchmarkRunner:
 
                 t0 = time.monotonic()
                 grade = self._evaluate_response(task, c_resp, evaluator_model, client=client)
+                grade.server = server_url or ""
                 grade_dur = time.monotonic() - t0
                 grades.append(grade)
                 with self._print_lock:
@@ -261,6 +289,24 @@ class BenchmarkRunner:
                         f"[yellow]{grade_dur:.1f}s[/yellow] → [bold]{grade.percentage:.1f}%[/bold]"
                     )
         return grades
+
+    def _run_server_grading(
+        self,
+        server_url: str | None,
+        resp_map: dict[tuple[str, str], TaskResponse],
+        dry_run: bool,
+    ) -> list[PeerGrade]:
+        """Execute peer grading across all judges sequentially on a dedicated worker server."""
+        server_grades: list[PeerGrade] = []
+        for evaluator_model in self.models:
+            grades = self._run_evaluator_grading(
+                evaluator_model=evaluator_model,
+                resp_map=resp_map,
+                dry_run=dry_run,
+                server_url=server_url,
+            )
+            server_grades.extend(grades)
+        return server_grades
 
     def execute(self) -> BenchmarkReport:
         """Run complete benchmark workflow across all tasks and candidate models."""
@@ -276,80 +322,69 @@ class BenchmarkRunner:
         rprint(
             f"[bold cyan]Starting AI Benchmark Suite[/bold cyan] "
             f"([green]{len(self.models)}[/green] models, [green]{len(self.tasks)}[/green] tasks, "
-            f"[yellow]{num_servers}[/yellow] server(s), "
             f"[yellow]{num_workers}[/yellow] concurrent server worker(s))"
         )
 
-        # ── Step 1: Generate Model Responses ─────────────────────────────────
+        # ── Step 1: Generate Model Responses across all workers ───────────────
         rprint(
-            f"[dim]Step 1/2: Generating candidate responses grouped by model across servers "
-            f"(workers={num_workers})...[/dim]"
+            f"[dim]Step 1/2: Generating candidate responses on all workers "
+            f"(simultaneous across {num_workers} servers)...[/dim]"
         )
-        model_queue: queue.Queue[str] = queue.Queue()
-        for m in self.models:
-            model_queue.put(m)
-
-        def _worker_generate(server_url: str | None) -> list[TaskResponse]:
-            worker_res: list[TaskResponse] = []
-            while True:
-                try:
-                    m = model_queue.get_nowait()
-                except queue.Empty:
-                    break
-                try:
-                    worker_res.extend(self._run_model_generation(m, dry_run, server_url))
-                finally:
-                    model_queue.task_done()
-            return worker_res
+        server_responses: dict[str, list[TaskResponse]] = {}
 
         if num_workers > 1:
             with ThreadPoolExecutor(max_workers=num_workers) as executor:
-                futures = [
-                    executor.submit(_worker_generate, self.servers[i]) for i in range(num_workers)
-                ]
-                for f in as_completed(futures):
-                    responses.extend(f.result())
+                future_to_server = {
+                    executor.submit(
+                        self._run_server_generation,
+                        self.servers[i],
+                        dry_run,
+                    ): self.servers[i]
+                    for i in range(num_workers)
+                }
+                for f in as_completed(future_to_server):
+                    s_url = future_to_server[f]
+                    resps = f.result()
+                    server_responses[s_url] = resps
+                    responses.extend(resps)
         else:
-            s_url = self.servers[0] if self.servers else None
-            responses.extend(_worker_generate(s_url))
+            s_url = self.servers[0] if self.servers else "default"
+            resps = self._run_server_generation(self.servers[0] if self.servers else None, dry_run)
+            server_responses[s_url] = resps
+            responses.extend(resps)
 
-        # ── Step 2: Peer Grading Matrix ──────────────────────────────────────
+        # ── Step 2: Peer Grading Matrix across all workers ────────────────────
         rprint(
-            f"\n[dim]Step 2/2: Cross-model blind peer grading across servers "
-            f"(workers={num_workers})...[/dim]"
+            f"\n[dim]Step 2/2: Cross-model blind peer grading on all workers "
+            f"(simultaneous across {num_workers} servers)...[/dim]"
         )
-        resp_map = {(r.task_id, r.model): r for r in responses}
-
-        judge_queue: queue.Queue[str] = queue.Queue()
-        for m in self.models:
-            judge_queue.put(m)
-
-        def _worker_grade(server_url: str | None) -> list[PeerGrade]:
-            worker_grades: list[PeerGrade] = []
-            while True:
-                try:
-                    m = judge_queue.get_nowait()
-                except queue.Empty:
-                    break
-                try:
-                    worker_grades.extend(
-                        self._run_evaluator_grading(m, resp_map, dry_run, server_url)
-                    )
-                finally:
-                    judge_queue.task_done()
-            return worker_grades
 
         if num_workers > 1:
             with ThreadPoolExecutor(max_workers=num_workers) as grade_executor:
                 grade_futures = [
-                    grade_executor.submit(_worker_grade, self.servers[i])
+                    grade_executor.submit(
+                        self._run_server_grading,
+                        self.servers[i],
+                        {
+                            (r.task_id, r.model): r
+                            for r in server_responses.get(self.servers[i], responses)
+                        },
+                        dry_run,
+                    )
                     for i in range(num_workers)
                 ]
                 for gf in as_completed(grade_futures):
                     peer_grades.extend(gf.result())
         else:
-            s_url = self.servers[0] if self.servers else None
-            peer_grades.extend(_worker_grade(s_url))
+            s_url = self.servers[0] if self.servers else "default"
+            resp_map = {(r.task_id, r.model): r for r in server_responses.get(s_url, responses)}
+            peer_grades.extend(
+                self._run_server_grading(
+                    self.servers[0] if self.servers else None,
+                    resp_map,
+                    dry_run,
+                )
+            )
 
         # ── Step 3: Compute Leaderboard Aggregates ────────────────────────────
         leaderboard = self._compute_leaderboard(responses, peer_grades)

@@ -30,6 +30,7 @@ class TaskResponse(BaseModel):
     task_id: str
     model: str
     provider: str
+    server: str = ""
     response: str
     duration_seconds: float = Field(default=0.0, ge=0.0)
     timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
@@ -41,6 +42,7 @@ class PeerGrade(BaseModel):
     task_id: str
     candidate_model: str
     evaluator_model: str
+    server: str = ""
     accuracy_score: float = Field(default=0.0, ge=0.0, le=10.0)
     security_score: float = Field(default=0.0, ge=0.0, le=10.0)
     completeness_score: float = Field(default=0.0, ge=0.0, le=10.0)
