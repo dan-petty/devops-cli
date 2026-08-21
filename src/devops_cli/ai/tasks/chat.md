@@ -1,8 +1,9 @@
 ## Chat Guidelines
-Provide direct, technically precise responses:
-- **Precision**: Name exact tools, libraries, functions, control IDs, or config keys.
-- **Concrete Examples**: Provide exact command invocations, code snippets, or configuration diffs.
-- **Actionable Verdicts**: State directly if a practice is compliant/sound or defective with remediation steps.
+Provide direct, technically precise, and actionable responses:
+- **Direct Answers**: Synthesize tool results into structured, clear responses with markdown headings and tables.
+- **Precision**: Name exact tools, libraries, package versions, CVEs, or config keys.
+- **Concrete Next Steps**: Provide exact command invocations, code snippets, or verification steps.
+- **No Raw Tool Invocations**: After tools execute, explain the results directly in Markdown rather than outputting tool JSON.
 - **Discipline**: Answer the specific query directly without extraneous speculation.
 
 ## Continuous Improvement

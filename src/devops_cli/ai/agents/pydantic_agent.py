@@ -130,11 +130,12 @@ class PydanticAgent[T]:
                 "## Available Tools\n"
                 "You have access to these tools:\n" + "\n".join(tools_desc) + "\n\n"
                 "## Tool Execution Rules (CRITICAL):\n"
-                "1. When you need to run a tool, you MUST output ONLY the JSON code block:\n"
+                "1. When you need data or actions from a tool, output ONLY the JSON code block:\n"
                 '```json\n{"tool": "tool_name", "arguments": {"param": "value"}}\n```\n'
-                "2. Do NOT output text or statements like 'We need to call tool...' in reply.\n"
-                "3. Output ONLY the JSON block so the tool executes immediately.\n"
-                "4. After tool execution, you will receive its output in the next turn."
+                "2. Do NOT output conversational promises like 'We need to call...' in reply.\n"
+                "3. After tool execution, you will receive the tool result in the next turn.\n"
+                "4. ONCE YOU RECEIVE THE TOOL RESULT, YOU MUST PROVIDE YOUR FULL NATURAL LANGUAGE "
+                "RESPONSE TO THE USER. DO NOT REPEAT THE TOOL CALL."
             )
             prompt_parts.append(tools_block)
 
@@ -196,6 +197,7 @@ class PydanticAgent[T]:
             # Process extracted tool calls
             if fixed.tool_calls:
                 executed_any = False
+                already_called = False
                 for tc_info in fixed.tool_calls:
                     tool_name = tc_info.tool_name
                     args = tc_info.arguments
@@ -207,6 +209,20 @@ class PydanticAgent[T]:
                             if valid_params
                             else args
                         )
+
+                        # Prevent infinite tool repetition loops
+                        prior = next(
+                            (
+                                prev
+                                for prev in tool_calls
+                                if prev.tool_name == tool_name and prev.arguments == clean_args
+                            ),
+                            None,
+                        )
+                        if prior is not None:
+                            already_called = True
+                            continue
+
                         try:
                             tool_result = tool_obj.execute(**clean_args)
                         except Exception as exc:
@@ -225,12 +241,24 @@ class PydanticAgent[T]:
                                 content=(
                                     f"Tool '{tool_name}' output:\n"
                                     f"{json.dumps(tool_result, default=str)}\n\n"
-                                    "If another tool is needed, output ONLY its JSON block. "
-                                    "Otherwise, provide your direct final response to the user."
+                                    "Provide your complete response, analysis, and recommendations "
+                                    "to the user based on these tool results."
                                 ),
                             )
                         )
                 if executed_any:
+                    continue
+                if already_called and turn < max_turns:
+                    messages.append(ChatMessage(role="assistant", content=response_text))
+                    messages.append(
+                        ChatMessage(
+                            role="user",
+                            content=(
+                                "The requested tool has already executed. Do NOT output tool JSON. "
+                                "Provide your direct, complete response to the user now."
+                            ),
+                        )
+                    )
                     continue
 
             final_output = fixed.content.strip()
@@ -266,17 +294,26 @@ class PydanticAgent[T]:
                 )
                 continue
 
-            # If final_output is empty or contains internal scratchpad deliberation
-            is_deliberation = not final_output or final_output.lower().startswith(
-                (
-                    "the tool returned",
-                    "we need to interpret",
-                    "we need to decide",
-                    "we should double-check",
-                    "let's search",
-                    "we need to scan",
-                    "let's recall",
-                    "not sure. we need",
+            # If final_output is raw tool JSON or contains internal scratchpad deliberation
+            is_tool_json = (
+                final_output.startswith('{"tool"')
+                or final_output.startswith('```json\n{"tool"')
+                or ('"tool":' in final_output and '"arguments":' in final_output)
+            )
+            is_deliberation = (
+                not final_output
+                or is_tool_json
+                or final_output.lower().startswith(
+                    (
+                        "the tool returned",
+                        "we need to interpret",
+                        "we need to decide",
+                        "we should double-check",
+                        "let's search",
+                        "we need to scan",
+                        "let's recall",
+                        "not sure. we need",
+                    )
                 )
             )
 
@@ -284,7 +321,8 @@ class PydanticAgent[T]:
                 messages.append(ChatMessage(role="assistant", content=response_text))
                 if tool_calls:
                     prompt_msg = (
-                        "Provide your direct final response to the user based on the tool results."
+                        "Provide your direct final response to the user based on the tool results. "
+                        "Do NOT output JSON tool blocks."
                     )
                 else:
                     prompt_msg = (
@@ -293,9 +331,15 @@ class PydanticAgent[T]:
                 messages.append(ChatMessage(role="user", content=prompt_msg))
                 continue
 
-            # Fallback if still empty after max turns
-            if not final_output and all_thoughts:
-                final_output = all_thoughts[-1]
+            # Fallback if still empty or raw tool JSON after max turns
+            if not final_output or ('"tool":' in final_output and '"arguments":' in final_output):
+                if tool_calls:
+                    last_tc = tool_calls[-1]
+                    final_output = (
+                        f"**Tool Execution Completed (`{last_tc.tool_name}`):**\n\n{last_tc.result}"
+                    )
+                elif all_thoughts:
+                    final_output = all_thoughts[-1]
 
             self.memory.add_interaction("assistant", final_output)
             self.memory.auto_summarize_if_needed(llm_client=self.client)
