@@ -1713,7 +1713,7 @@ devops ai pipeline [OPTIONS] <prompt>
 
 ### `devops ai review`
 
-**AI-powered code reviews using expert personas (devsecops, architect, pm, auditor, qa).**
+**AI-powered multi-persona code review system.**
 
 ```bash
 devops ai review COMMAND [ARGS]...
@@ -1887,7 +1887,7 @@ devops ai review apply-patch [OPTIONS] <session>
 
 ### `devops ai analyze`
 
-**Analyze codebase metadata and create/update .data/analysis/*-metadata.json files.**
+**Analyze codebase metadata and generate structural outlines.**
 
 ```bash
 devops ai analyze COMMAND [ARGS]...
@@ -1960,7 +1960,7 @@ devops ai analyze pr [OPTIONS] <pr_number>
 
 ### `devops ai rag`
 
-**Manage RAG vector embeddings, indexing, and semantic code search (Qdrant).**
+**Manage RAG vector embeddings, indexing, and semantic search (Qdrant).**
 
 ```bash
 devops ai rag COMMAND [ARGS]...

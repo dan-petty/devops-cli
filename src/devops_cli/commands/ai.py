@@ -26,25 +26,26 @@ from devops_cli.config.env import env_var_for_option
 from devops_cli.config.options import AI_API_KEY
 from devops_cli.config.settings import SecretStorageError, dotted_set
 from devops_cli.core.cli import new_typer
+from devops_cli.lang import HELP
 
 app = new_typer(
-    help="Configure, test, chat, analyze, and review codebases (Ollama, Claude, Copilot).",
+    help=HELP.ai.app,
     no_args_is_help=True,
 )
 app.add_typer(
     review_app,
     name="review",
-    help="AI-powered code reviews using expert personas (devsecops, architect, pm, auditor, qa).",
+    help=HELP.ai.review,
 )
 app.add_typer(
     analyze_app,
     name="analyze",
-    help="Analyze codebase metadata and create/update .data/analysis/*-metadata.json files.",
+    help=HELP.ai.analyze,
 )
 app.add_typer(
     rag_app,
     name="rag",
-    help="Manage RAG vector embeddings, indexing, and semantic code search (Qdrant).",
+    help=HELP.ai.rag,
 )
 console = Console()
 

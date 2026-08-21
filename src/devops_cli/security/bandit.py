@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from devops_cli.ai.review_schema import Finding
+from devops_cli.config.commands import BIN_BANDIT
 from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run.state import is_dry_run
@@ -78,7 +79,7 @@ def run_bandit_scan(
 
     if target_abs.is_file():
         cmd = [
-            "bandit",
+            BIN_BANDIT,
             str(target_abs),
             level_flag,
             "-s",
@@ -88,7 +89,7 @@ def run_bandit_scan(
         ]
     else:
         cmd = [
-            "bandit",
+            BIN_BANDIT,
             "-r",
             str(target_abs),
             "--exclude",

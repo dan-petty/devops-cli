@@ -7,6 +7,7 @@ import logging
 from typing import Any
 
 from devops_cli.ai.review_schema import Finding
+from devops_cli.config.commands import build_popeye_cmd
 from devops_cli.config.defaults import DEFAULT_POPEYE_TIMEOUT_SECONDS
 from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run.state import is_dry_run
@@ -62,7 +63,7 @@ def run_popeye_scan() -> list[Finding]:
             )
         ]
 
-    cmd = ["popeye", "-o", "json"]
+    cmd = build_popeye_cmd()
 
     try:
         proc = run_subprocess(cmd, timeout=CONST_POPEYE_TIMEOUT_SECONDS)

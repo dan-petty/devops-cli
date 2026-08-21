@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from devops_cli.ai.review_schema import Finding
+from devops_cli.config.commands import build_trivy_scan_cmd
 from devops_cli.config.defaults import DEFAULT_TRIVY_TIMEOUT_SECONDS
 from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run.state import is_dry_run
@@ -112,15 +113,7 @@ def run_trivy_scan(
             )
         ]
 
-    cmd = [
-        "trivy",
-        scan_type,
-        "--format",
-        "json",
-        "--severity",
-        severity,
-        str(target),
-    ]
+    cmd = build_trivy_scan_cmd(target, scan_type=scan_type, severity=severity)
 
     try:
         proc = run_subprocess(cmd, timeout=CONST_TRIVY_TIMEOUT_SECONDS)

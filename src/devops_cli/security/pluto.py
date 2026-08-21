@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from devops_cli.ai.review_schema import Finding
+from devops_cli.config.commands import BIN_PLUTO
 from devops_cli.config.defaults import DEFAULT_PLUTO_TIMEOUT_SECONDS
 from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run.state import is_dry_run
@@ -67,9 +68,9 @@ def run_pluto_scan(target: Path = Path(".")) -> list[Finding]:
 
     target_abs = target.resolve() if target.exists() else Path.cwd().resolve()
     cmd = (
-        ["pluto", "detect-files", "-f", str(target_abs), "-o", "json"]
+        [BIN_PLUTO, "detect-files", "-f", str(target_abs), "-o", "json"]
         if target_abs.is_file()
-        else ["pluto", "detect-files", "-d", str(target_abs), "-o", "json"]
+        else [BIN_PLUTO, "detect-files", "-d", str(target_abs), "-o", "json"]
     )
 
     try:

@@ -9,6 +9,10 @@ from typing import Annotated
 import rich
 import typer
 
+from devops_cli.config.commands import (
+    build_kubectl_cmd,
+    build_kustomize_build_cmd,
+)
 from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.core.cli import new_typer
 
@@ -32,7 +36,7 @@ def build(
 ) -> None:
     """Build kustomize overlays (delegates to kustomize build)."""
     target = _validate_path(path)
-    cmd = ["kustomize", "build", str(target)]
+    cmd = build_kustomize_build_cmd(target)
     if output:
         cmd += ["--output", output]
     subprocess.run(cmd, check=True, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS)
@@ -44,10 +48,8 @@ def diff(
 ) -> None:
     """Show a diff of pending changes (delegates to kubectl diff -k)."""
     target = _validate_path(path)
-    # kubectl diff returns exit code 1 when diffs exist; don't treat that as error
-    subprocess.run(
-        ["kubectl", "diff", "-k", str(target)], timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
-    )
+    cmd = build_kubectl_cmd(["diff", "-k", str(target)])
+    subprocess.run(cmd, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS)
 
 
 @app.command()
@@ -62,9 +64,10 @@ def apply(
         from devops_cli.commands.k8s import _validate_k8s_identifier
 
         _validate_k8s_identifier(namespace, "namespace", namespace=True)
-    cmd = ["kubectl", "apply", "-k", str(target)]
+    k_args = ["apply", "-k", str(target)]
     if dry_run:
-        cmd += ["--dry-run=client"]
+        k_args.append("--dry-run=client")
     if namespace:
-        cmd += ["--namespace", namespace]
+        k_args.extend(["--namespace", namespace])
+    cmd = build_kubectl_cmd(k_args)
     subprocess.run(cmd, check=True, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS)
