@@ -24,6 +24,7 @@ from devops_cli.models.benchmark import (
     BenchmarkTask,
     ModelBenchmarkSummary,
     PeerGrade,
+    ServerBenchmarkSummary,
     TaskResponse,
 )
 
@@ -412,6 +413,7 @@ class BenchmarkRunner:
 
         # ── Step 3: Compute Leaderboard Aggregates ────────────────────────────
         leaderboard = self._compute_leaderboard(responses, peer_grades)
+        server_benchmarks = self._compute_server_summaries(responses, peer_grades)
 
         report = BenchmarkReport(
             session_id=self.session_id,
@@ -420,6 +422,7 @@ class BenchmarkRunner:
             responses=responses,
             peer_grades=peer_grades,
             leaderboard=leaderboard,
+            server_benchmarks=server_benchmarks,
             is_dry_run=dry_run,
         )
 
@@ -731,6 +734,85 @@ class BenchmarkRunner:
         summaries.sort(key=lambda s: s.peer_only_percentage, reverse=True)
         return summaries
 
+    def _compute_server_summaries(
+        self,
+        responses: list[TaskResponse],
+        peer_grades: list[PeerGrade],
+    ) -> list[ServerBenchmarkSummary]:
+        """Aggregate per-server execution duration, model latency, and judge scoring bias."""
+        server_keys: set[str] = set()
+        for r in responses:
+            if r.server:
+                server_keys.add(r.server)
+        for g in peer_grades:
+            if g.server:
+                server_keys.add(g.server)
+
+        if not server_keys and self.servers:
+            server_keys.update(self.servers)
+        if not server_keys:
+            server_keys.add("default")
+
+        valid_grades = [
+            g
+            for g in peer_grades
+            if g.percentage > 0.0
+            or any([g.accuracy_score > 0, g.security_score > 0, g.completeness_score > 0])
+        ]
+        global_avg_score = (
+            sum(g.percentage for g in valid_grades) / len(valid_grades) if valid_grades else 0.0
+        )
+
+        summaries: list[ServerBenchmarkSummary] = []
+
+        for s_url in sorted(server_keys):
+            s_responses = [
+                r for r in responses if (r.server == s_url or (not r.server and s_url == "default"))
+            ]
+            s_grades = [
+                g
+                for g in valid_grades
+                if (g.server == s_url or (not g.server and s_url == "default"))
+            ]
+
+            gen_avg = (
+                sum(r.duration_seconds for r in s_responses) / len(s_responses)
+                if s_responses
+                else 0.0
+            )
+            total_dur = sum(r.duration_seconds for r in s_responses)
+
+            m_latencies: dict[str, float] = {}
+            for m in self.models:
+                m_resps = [r for r in s_responses if r.model == m]
+                if m_resps:
+                    m_latencies[m] = round(
+                        sum(r.duration_seconds for r in m_resps) / len(m_resps), 1
+                    )
+
+            avg_score = sum(g.percentage for g in s_grades) / len(s_grades) if s_grades else 0.0
+            server_bias = (
+                round(avg_score - global_avg_score, 2)
+                if (s_grades and global_avg_score > 0)
+                else 0.0
+            )
+
+            summaries.append(
+                ServerBenchmarkSummary(
+                    server=s_url,
+                    generation_duration_avg=round(gen_avg, 2),
+                    total_duration_seconds=round(total_dur, 2),
+                    tasks_generated_count=len(s_responses),
+                    evaluations_performed_count=len(s_grades),
+                    avg_score_awarded=round(avg_score, 1),
+                    server_score_bias=server_bias,
+                    model_latencies=m_latencies,
+                )
+            )
+
+        summaries.sort(key=lambda s: s.generation_duration_avg)
+        return summaries
+
     def _save_report(self, report: BenchmarkReport) -> Path:
         """Persist structured benchmark report to JSON artifact."""
         out_dir = CONST_DATA_DIR / "benchmarks"
@@ -812,6 +894,41 @@ class BenchmarkRunner:
             console.print()
             console.print(cat_table)
 
+        if report.server_benchmarks:
+            server_table = Table(
+                title=f"Ollama Server Hardware & Node Performance (Session {report.session_id})",
+                header_style="bold green",
+            )
+            server_table.add_column("Server / Worker Node", style="cyan")
+            server_table.add_column("Avg Latency", justify="right", style="bold yellow")
+            server_table.add_column("Total Time", justify="right", style="dim")
+            server_table.add_column("Tasks", justify="right", style="dim")
+            server_table.add_column("Avg Score Given", justify="right", style="magenta")
+            server_table.add_column("Server Bias", justify="right")
+            server_table.add_column("Per-Model Latency Breakdown", style="dim")
+
+            for s in report.server_benchmarks:
+                bias_str = (
+                    f"+{s.server_score_bias:.1f}%"
+                    if s.server_score_bias > 0
+                    else f"{s.server_score_bias:.1f}%"
+                )
+                lat_breakdown = ", ".join(
+                    f"{m.split(':')[0]}: {dur}s" for m, dur in s.model_latencies.items()
+                )
+                server_table.add_row(
+                    s.server,
+                    f"{s.generation_duration_avg:.1f}s",
+                    f"{s.total_duration_seconds:.1f}s",
+                    str(s.tasks_generated_count),
+                    f"{s.avg_score_awarded:.1f}%",
+                    bias_str,
+                    lat_breakdown or "-",
+                )
+
+            console.print()
+            console.print(server_table)
+
         rprint(f"\n[dim]✓ Detailed benchmark report saved → [/dim][cyan]{report_path}[/cyan]\n")
 
     def to_markdown(self, report: BenchmarkReport) -> str:
@@ -864,5 +981,27 @@ class BenchmarkRunner:
             for m in report.leaderboard:
                 cat_vals = " | ".join(f"{m.category_scores.get(c, 0.0):.1f}%" for c in categories)
                 lines.append(f"| `{m.model}` | {cat_vals} |")
+
+        if report.server_benchmarks:
+            lines.append("\n## Server Performance & Score Bias\n")
+            lines.append(
+                "| Server / Worker | Avg Latency | Total Time | Tasks | "
+                "Avg Score Given | Server Bias | Per-Model Latencies |"
+            )
+            lines.append("| :--- | :---: | :---: | :---: | :---: | :---: | :--- |")
+            for s in report.server_benchmarks:
+                bias_str = (
+                    f"+{s.server_score_bias:.1f}%"
+                    if s.server_score_bias > 0
+                    else f"{s.server_score_bias:.1f}%"
+                )
+                lat_breakdown = ", ".join(
+                    f"{m.split(':')[0]}: {dur}s" for m, dur in s.model_latencies.items()
+                )
+                lines.append(
+                    f"| `{s.server}` | {s.generation_duration_avg:.1f}s | "
+                    f"{s.total_duration_seconds:.1f}s | {s.tasks_generated_count} | "
+                    f"{s.avg_score_awarded:.1f}% | {bias_str} | {lat_breakdown or '-'} |"
+                )
 
         return "\n".join(lines)

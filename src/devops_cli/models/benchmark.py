@@ -99,6 +99,26 @@ class ModelBenchmarkSummary(BaseModel):
     )
 
 
+class ServerBenchmarkSummary(BaseModel):
+    """Aggregated performance, latency, and scoring metrics for an Ollama backend server."""
+
+    server: str
+    generation_duration_avg: float = Field(default=0.0, ge=0.0)
+    evaluation_duration_avg: float = Field(default=0.0, ge=0.0)
+    total_duration_seconds: float = Field(default=0.0, ge=0.0)
+    tasks_generated_count: int = Field(default=0, ge=0)
+    evaluations_performed_count: int = Field(default=0, ge=0)
+    avg_score_awarded: float = Field(default=0.0, ge=0.0, le=100.0)
+    server_score_bias: float = Field(
+        default=0.0,
+        description="Average difference between scores given on this server vs overall consensus",
+    )
+    model_latencies: dict[str, float] = Field(
+        default_factory=dict,
+        description="Average generation duration per model on this server",
+    )
+
+
 class BenchmarkReport(BaseModel):
     """Complete execution payload and leaderboards for a benchmark run."""
 
@@ -109,4 +129,5 @@ class BenchmarkReport(BaseModel):
     responses: list[TaskResponse] = Field(default_factory=list)
     peer_grades: list[PeerGrade] = Field(default_factory=list)
     leaderboard: list[ModelBenchmarkSummary] = Field(default_factory=list)
+    server_benchmarks: list[ServerBenchmarkSummary] = Field(default_factory=list)
     is_dry_run: bool = False
