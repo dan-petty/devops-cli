@@ -202,6 +202,7 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 |  | `devops ai review COMMAND [ARGS]...` | AI-powered multi-persona code review system. |
 |  | `devops ai analyze COMMAND [ARGS]...` | Analyze codebase metadata and generate structural outlines. |
 |  | `devops ai rag COMMAND [ARGS]...` | Manage RAG vector embeddings, indexing, and semantic search (Qdrant). |
+|  | `devops ai benchmark [OPTIONS]` | Benchmark, evaluate, and peer-grade candidate AI models across engineering tasks. |
 | **review** | `devops review path [OPTIONS] <target>` | Review source files directly (no git required). |
 |  | `devops review branch [OPTIONS] <branch_name>` | Review a git branch diff with one or all AI personas. |
 |  | `devops review pr [OPTIONS] <number>` | Review a GitHub pull request with one or all AI personas. |

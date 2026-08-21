@@ -14,6 +14,7 @@ from rich.table import Table
 
 from devops_cli.ai.personas import PERSONAS, Persona
 from devops_cli.commands.analyze import app as analyze_app
+from devops_cli.commands.benchmark import app as benchmark_app
 from devops_cli.commands.rag import app as rag_app
 from devops_cli.commands.review import app as review_app
 from devops_cli.config.constants import (
@@ -46,6 +47,11 @@ app.add_typer(
     rag_app,
     name="rag",
     help=HELP.ai.rag,
+)
+app.add_typer(
+    benchmark_app,
+    name="benchmark",
+    help=HELP.ai.benchmark,
 )
 console = Console()
 

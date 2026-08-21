@@ -47,6 +47,10 @@ def test_language_catalogs_integrity() -> None:
     assert "Target path" in ERRORS.git.outside_boundary
     assert "Repository root" in HELP.options.repo
     assert "Ed25519" in HELP.ssh.app
+    assert "Workspace file" in ERRORS.workspace.file_too_large
+    assert "Python version" in ERRORS.uv.no_version_provided
+    assert "Working tree clean." in MESSAGES.tools.working_tree_clean
+    assert "Access Denied" in ERRORS.tools.access_denied_outside_workspace
 
 
 def test_command_builders() -> None:

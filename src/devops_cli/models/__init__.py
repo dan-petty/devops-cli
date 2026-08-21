@@ -16,7 +16,14 @@ from devops_cli.models.ai import (
     MCPToolInfo,
     ProjectAnalysisMeta,
 )
-from devops_cli.models.argo import ArgoCDApp
+from devops_cli.models.benchmark import (
+    BenchmarkCategory,
+    BenchmarkReport,
+    BenchmarkTask,
+    ModelBenchmarkSummary,
+    PeerGrade,
+    TaskResponse,
+)
 from devops_cli.models.git import BranchListing
 from devops_cli.models.github import SSHKeyInfo
 from devops_cli.models.grafana import GrafanaAlertRule, GrafanaDashboard, GrafanaDatasource
@@ -26,6 +33,9 @@ from devops_cli.models.ssh import ManagedSSHKey
 __all__ = [
     "AnalysisMetadata",
     "ArgoCDApp",
+    "BenchmarkCategory",
+    "BenchmarkReport",
+    "BenchmarkTask",
     "BranchListing",
     "ChatMessage",
     "CommandDryRunResult",
@@ -35,8 +45,11 @@ __all__ = [
     "GrafanaDatasource",
     "MCPToolInfo",
     "ManagedSSHKey",
+    "ModelBenchmarkSummary",
+    "PeerGrade",
     "ProjectAnalysisMeta",
     "PrometheusQueryResult",
     "PrometheusSeries",
     "SSHKeyInfo",
+    "TaskResponse",
 ]

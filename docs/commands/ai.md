@@ -473,3 +473,24 @@ devops ai rag clear [OPTIONS]
 | `--force`, `-f` | `boolean` | - | Bypass confirmation prompt |
 
 ---
+
+## `devops ai benchmark`
+
+**Benchmark, evaluate, and peer-grade candidate AI models across engineering tasks.**
+
+```bash
+devops ai benchmark [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--models`, `-m` | `string` | - | Comma-separated candidate models (e.g. 'qwen2.5-coder:7b,mistral:latest') |
+| `--provider`, `-p` | `string` | - | AI provider (ollama, claude, copilot, openai) |
+| `--tasks`, `-t` | `string` | - | Filter specific task categories or IDs (e.g. 'security,kubernetes') |
+| `--output`, `-o` | `path` | - | Destination JSON report filepath |
+| `--format`, `-f` | `string` | `table` | Output format: table, json, markdown |
+| `--dry-run` | `boolean` | - | Simulate benchmark without sending remote LLM requests |
+
+---

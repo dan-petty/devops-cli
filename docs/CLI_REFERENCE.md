@@ -434,6 +434,8 @@ devops devcontainer run-lifecycle [OPTIONS]
 
 Manage VS Code workspace files.
 
+Manage multi-root VS Code workspace files (.code-workspace).
+
 ### `devops workspace add`
 
 **Add a folder to the VS Code workspace file.**
@@ -466,7 +468,7 @@ devops workspace remove [OPTIONS] <repo_path>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<repo_path>` | `path` | Yes | Folder path to remove |
+| `<repo_path>` | `path` | Yes | Remove a repository folder from the VS Code workspace file. |
 
 **Options:**
 
@@ -2036,6 +2038,25 @@ devops ai rag clear [OPTIONS]
 |---|---|---|---|
 | `--collection`, `-c` | `string` | - | Specific collection to delete (default: all) |
 | `--force`, `-f` | `boolean` | - | Bypass confirmation prompt |
+
+### `devops ai benchmark`
+
+**Benchmark, evaluate, and peer-grade candidate AI models across engineering tasks.**
+
+```bash
+devops ai benchmark [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--models`, `-m` | `string` | - | Comma-separated candidate models (e.g. 'qwen2.5-coder:7b,mistral:latest') |
+| `--provider`, `-p` | `string` | - | AI provider (ollama, claude, copilot, openai) |
+| `--tasks`, `-t` | `string` | - | Filter specific task categories or IDs (e.g. 'security,kubernetes') |
+| `--output`, `-o` | `path` | - | Destination JSON report filepath |
+| `--format`, `-f` | `string` | `table` | Output format: table, json, markdown |
+| `--dry-run` | `boolean` | - | Simulate benchmark without sending remote LLM requests |
 
 ---
 

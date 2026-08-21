@@ -38,7 +38,7 @@ devops workspace remove [OPTIONS] <repo_path>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<repo_path>` | `path` | Yes | Folder path to remove |
+| `<repo_path>` | `path` | Yes | Remove a repository folder from the VS Code workspace file. |
 
 **Options:**
 

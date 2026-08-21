@@ -54,11 +54,42 @@ class SSHErrorMessages(BaseModel):
     failed_to_register_key: str = "Failed to register key on GitHub: {error}"
 
 
+class WorkspaceErrorMessages(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    file_too_large: str = "Workspace file too large to load: {ws_file}. Using defaults."
+    malformed: str = "Malformed workspace file structure: {ws_file}. Using defaults."
+    corrupted: str = "Corrupted workspace file: {ws_file}. Using defaults."
+    outside_roots: str = "Error: Cannot add path '{path}' outside allowed workspace roots."
+    already_present: str = "Already in workspace: {path}"
+    not_present: str = "Not found in workspace: {path}"
+    repos_not_found: str = "Repos directory not found: {path}"
+    file_not_found: str = "Workspace file not found: {ws_file}"
+
+
+class UVErrorMessages(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    no_version_provided: str = "No Python version provided and .python-version is missing."
+    invalid_version_format: str = "Invalid Python version format: {version}"
+    missing_command: str = "Missing command. Example: devops uv run -- pytest -q"
+
+
+class KustomizeErrorMessages(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    path_not_exists: str = "Path '{path}' does not exist."
+
+
 class ToolErrorMessages(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     download_failed: str = "Error downloading {name} from {url}: {exc}"
     tool_binary_not_found: str = "Required tool binary '{name}' was not found in PATH."
+    access_denied_outside_workspace: str = "Access Denied: {path} is outside workspace."
+    file_not_found: str = "File not found: {path}"
+    error_reading_file: str = "Error reading file: {exc}"
+    tool_execution_failed: str = "{tool} execution failed: {exc}"
 
 
 class ErrorCatalog(BaseModel):
@@ -69,6 +100,9 @@ class ErrorCatalog(BaseModel):
     config: ConfigErrorMessages = ConfigErrorMessages()
     k8s: K8sErrorMessages = K8sErrorMessages()
     ssh: SSHErrorMessages = SSHErrorMessages()
+    workspace: WorkspaceErrorMessages = WorkspaceErrorMessages()
+    uv: UVErrorMessages = UVErrorMessages()
+    kustomize: KustomizeErrorMessages = KustomizeErrorMessages()
     tools: ToolErrorMessages = ToolErrorMessages()
 
 

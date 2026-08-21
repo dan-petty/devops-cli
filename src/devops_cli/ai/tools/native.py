@@ -16,6 +16,7 @@ from devops_cli.config.defaults import (
     DEFAULT_TOOL_READ_MAX_BYTES,
 )
 from devops_cli.core.process import run_subprocess
+from devops_cli.lang import ERRORS, MESSAGES
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +47,7 @@ def _run_tool_cmd(
             return output or fallback_msg
         except (OSError, subprocess.SubprocessError) as exc:
             logger.warning("Tool command %s failed: %s", cmd[0], exc)
-            return f"{cmd[0]} execution failed: {exc}"
+            return ERRORS.tools.tool_execution_failed.format(tool=cmd[0], exc=exc)
 
     try:
         import asyncio
@@ -90,9 +91,9 @@ def read_file(path: str, max_bytes: int = DEFAULT_TOOL_READ_MAX_BYTES) -> str:
     file_path = Path(path).resolve()
     if not _is_safe_workspace_path(file_path):
         logger.warning("Access denied attempting to read path outside workspace: %s", path)
-        return f"Access Denied: {path} is outside workspace."
+        return ERRORS.tools.access_denied_outside_workspace.format(path=path)
     if not file_path.exists() or not file_path.is_file():
-        return f"File not found: {path}"
+        return ERRORS.tools.file_not_found.format(path=path)
     try:
         file_size = file_path.stat().st_size
         bytes_to_read = min(file_size, max_bytes + 1)
@@ -107,19 +108,19 @@ def read_file(path: str, max_bytes: int = DEFAULT_TOOL_READ_MAX_BYTES) -> str:
         return raw.decode("utf-8", errors="replace")
     except (OSError, UnicodeDecodeError) as exc:
         logger.warning("Error reading file %s: %s", path, exc)
-        return f"Error reading file: {exc}"
+        return ERRORS.tools.error_reading_file.format(exc=exc)
 
 
 def git_status() -> str:
     """Return current git status summary."""
-    return _run_tool_cmd(["git", "status", "-s"], fallback_msg="Working tree clean.")
+    return _run_tool_cmd(["git", "status", "-s"], fallback_msg=MESSAGES.tools.working_tree_clean)
 
 
 def git_diff() -> str:
     """Return current unstaged git diff up to 4000 characters."""
     return _run_tool_cmd(
         ["git", "diff"],
-        fallback_msg="No unstaged changes.",
+        fallback_msg=MESSAGES.tools.no_unstaged_changes,
         max_chars=DEFAULT_TOOL_DIFF_MAX_CHARS,
     )
 
@@ -152,7 +153,7 @@ def k8s_pods(namespace: str = "default") -> str:
     """Query pods in a Kubernetes namespace."""
     return _run_tool_cmd(
         ["kubectl", "get", "pods", "-n", namespace],
-        fallback_msg=f"No pods found in namespace {namespace}.",
+        fallback_msg=MESSAGES.tools.no_pods_in_namespace.format(namespace=namespace),
     )
 
 
@@ -160,7 +161,7 @@ def argo_apps() -> str:
     """Query ArgoCD applications in minikube/k8s cluster."""
     return _run_tool_cmd(
         ["kubectl", "get", "applications", "-A"],
-        fallback_msg="No ArgoCD applications found.",
+        fallback_msg=MESSAGES.tools.no_argo_apps,
     )
 
 
@@ -172,10 +173,10 @@ def scan_trivy(
     """Run Aqua Trivy vulnerability, secret, misconfiguration, and IaC scanner."""
     target_path = Path(target).resolve()
     if not _is_safe_workspace_path(target_path):
-        return f"Access Denied: {target} is outside workspace."
+        return ERRORS.tools.access_denied_outside_workspace.format(path=target)
     res = _run_tool_cmd(
         ["trivy", scan_type, "--severity", severity, str(target_path)],
-        fallback_msg="No vulnerabilities, secrets, or flaws found by Trivy.",
+        fallback_msg=MESSAGES.tools.no_trivy_flaws,
         max_chars=DEFAULT_TOOL_DIFF_MAX_CHARS,
     )
     if "No such file or directory: 'trivy'" in res:

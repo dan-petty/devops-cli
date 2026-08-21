@@ -12,8 +12,9 @@ from rich import print as rprint
 
 from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.core.cli import new_typer
+from devops_cli.lang import ERRORS, HELP
 
-app = new_typer(help="uv dependency management proxies.", no_args_is_help=True)
+app = new_typer(help=HELP.uv.app, no_args_is_help=True)
 
 # Repo root: src/devops_cli/commands/uv.py -> parents[3]
 _ROOT = Path(__file__).resolve().parents[3]
@@ -73,13 +74,13 @@ def python_install(
         )
 
     if not version:
-        rprint("[red]No Python version provided and .python-version is missing.[/red]")
+        rprint(f"[red]{ERRORS.uv.no_version_provided}[/red]")
         raise typer.Exit(1)
 
     import re
 
     if not re.match(r"^\d+(\.\d+)*[a-zA-Z0-9._-]*$", version):
-        rprint(f"[red]Invalid Python version format: {version}[/red]")
+        rprint(f"[red]{ERRORS.uv.invalid_version_format.format(version=version)}[/red]")
         raise typer.Exit(1)
 
     _run(["uv", "python", "install", version])
@@ -95,7 +96,7 @@ def run(ctx: typer.Context) -> None:
       devops uv run -- pytest -q
     """
     if not ctx.args:
-        rprint("[red]Missing command. Example: devops uv run -- pytest -q[/red]")
+        rprint(f"[red]{ERRORS.uv.missing_command}[/red]")
         raise typer.Exit(1)
 
     _run(["uv", "run", *ctx.args])
