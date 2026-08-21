@@ -116,8 +116,8 @@ def test_benchmark_runner_dry_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
 
     assert report.is_dry_run is True
     assert len(report.responses) == len(models) * len(tasks)
-    # With 2 models, each model is evaluated by 1 peer
-    assert len(report.peer_grades) == len(models) * len(tasks)
+    # Each model evaluates all candidate models including itself
+    assert len(report.peer_grades) == len(models) * len(models) * len(tasks)
     assert len(report.leaderboard) == len(models)
     assert report.leaderboard[0].overall_percentage > 0.0
 

@@ -103,7 +103,7 @@ class BenchmarkRunner:
             percentage=pct,
             strengths=["Technically accurate", "Follows security best practices"],
             weaknesses=["Could include more edge-case tests"],
-            feedback=f"Strong submission by {candidate_model} evaluated by {evaluator_model}.",
+            feedback=f"Candidate submission evaluated by {evaluator_model}.",
         )
 
     def execute(self) -> BenchmarkReport:
@@ -161,17 +161,13 @@ class BenchmarkRunner:
                     )
 
         # ── Step 2: Peer Grading Matrix (Grouped by Evaluator Model) ──────────
-        rprint("\n[dim]Step 2/2: Cross-model peer grading grouped by evaluator model...[/dim]")
+        rprint("\n[dim]Step 2/2: Cross-model blind peer grading (all models evaluated)...[/dim]")
         resp_map = {(r.task_id, r.model): r for r in responses}
 
         for evaluator_model in self.models:
             rprint(f"[bold]Evaluator judge:[/bold] [cyan]{evaluator_model}[/cyan]")
             for task in self.tasks:
                 for candidate_model in self.models:
-                    # If multiple models, skip self-grading; if single model, allow self-grading
-                    if candidate_model == evaluator_model and len(self.models) > 1:
-                        continue
-
                     c_resp = resp_map.get((task.id, candidate_model))
                     if not c_resp:
                         continue
@@ -224,7 +220,10 @@ class BenchmarkRunner:
         err_msg = ""
         try:
             res = client.chat(
-                system="You are an expert AI peer evaluation judge. Return valid JSON only.",
+                system=(
+                    "You are an expert AI peer evaluation judge reviewing an anonymous "
+                    "candidate response against reference criteria. Return valid JSON only."
+                ),
                 user=prompt_text,
             )
             data = extract_json_block(res)
