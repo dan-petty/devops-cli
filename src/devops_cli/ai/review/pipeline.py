@@ -61,6 +61,28 @@ from devops_cli.security.intelligence import (
 
 logger = logging.getLogger(__name__)
 
+_TASKS_DIR = Path(__file__).resolve().parent.parent / "tasks"
+
+
+def _load_task_prompt(filename: str, fallback: str) -> str:
+    path = _TASKS_DIR / filename
+    if path.exists():
+        return path.read_text(encoding="utf-8").strip()
+    return fallback
+
+
+_REVIEW_PIPELINE_EVAL = _load_task_prompt(
+    "review_pipeline_eval.md",
+    (
+        "CRITICAL: Examine code carefully for flaws and security vulnerabilities.\n"
+        "Evaluate code objectively according to its target runtime and architecture "
+        "without enforcing host project layout.\n"
+        "Report all findings in 'findings' JSON array with severity, location, title, "
+        "description, fix, verification_criteria, invalidation_criteria, and "
+        "confidence_score."
+    ),
+)
+
 
 class ReviewPipelineOrchestrator:
     """Orchestrates 6-stage multi-agent code reviews with per-file payloads and AI scratchpads."""
@@ -586,13 +608,8 @@ class ReviewPipelineOrchestrator:
                 persona_lookup[p_val] = (p_val, p_def.title)
                 sys_prompt = (
                     f"You are {p_def.title}.\n{p_def.system_prompt}\n\n"
-                    "CRITICAL: Examine code carefully for flaws and security vulnerabilities.\n"
-                    "Evaluate code objectively according to its target runtime and architecture "
-                    "without enforcing host project layout.\n"
+                    f"{_REVIEW_PIPELINE_EVAL}\n"
                     f"{target_conventions}"
-                    "Report all findings in 'findings' JSON array with severity, location, title, "
-                    "description, fix, verification_criteria, invalidation_criteria, and "
-                    "confidence_score."
                 )
                 agent = PydanticAgent[ReviewResult](
                     client=self.llm_client,

@@ -19,6 +19,7 @@ import inspect
 import json
 import re
 from collections.abc import Callable, Generator
+from pathlib import Path
 from typing import Any, TypeVar
 
 from pydantic import BaseModel, Field
@@ -27,6 +28,29 @@ from devops_cli.ai.agents.memory import AgentMemory
 from devops_cli.ai.client import LLMClient
 from devops_cli.config.defaults import DEFAULT_AGENT_MAX_TURNS
 from devops_cli.models.ai import ChatMessage
+
+_TASKS_DIR = Path(__file__).resolve().parent.parent / "tasks"
+
+
+def _load_tool_protocol() -> str:
+    path = _TASKS_DIR / "tool_execution_protocol.md"
+    if path.exists():
+        return path.read_text(encoding="utf-8").strip()
+    return (
+        "## Available Tools\n"
+        "You have access to these tools:\n"
+        "{tools_desc}\n\n"
+        "## Tool Execution Rules (CRITICAL):\n"
+        "1. When you need data or actions from a tool, output ONLY the JSON code block:\n"
+        '```json\n{{"tool": "tool_name", "arguments": {{"param": "value"}}}}\n```\n'
+        "2. Do NOT output conversational promises like 'We need to call...' in reply.\n"
+        "3. After tool execution, you will receive the tool result in the next turn.\n"
+        "4. ONCE YOU RECEIVE THE TOOL RESULT, YOU MUST PROVIDE YOUR FULL NATURAL LANGUAGE "
+        "RESPONSE TO THE USER. DO NOT REPEAT THE TOOL CALL."
+    )
+
+
+_TOOL_PROTOCOL_TEMPLATE = _load_tool_protocol()
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -126,17 +150,7 @@ class PydanticAgent[T]:
                     desc = desc[:297] + "..."
                 tools_desc.append(f"- `{name}`: {desc} params={params_str}")
 
-            tools_block = (
-                "## Available Tools\n"
-                "You have access to these tools:\n" + "\n".join(tools_desc) + "\n\n"
-                "## Tool Execution Rules (CRITICAL):\n"
-                "1. When you need data or actions from a tool, output ONLY the JSON code block:\n"
-                '```json\n{"tool": "tool_name", "arguments": {"param": "value"}}\n```\n'
-                "2. Do NOT output conversational promises like 'We need to call...' in reply.\n"
-                "3. After tool execution, you will receive the tool result in the next turn.\n"
-                "4. ONCE YOU RECEIVE THE TOOL RESULT, YOU MUST PROVIDE YOUR FULL NATURAL LANGUAGE "
-                "RESPONSE TO THE USER. DO NOT REPEAT THE TOOL CALL."
-            )
+            tools_block = _TOOL_PROTOCOL_TEMPLATE.format(tools_desc="\n".join(tools_desc))
             prompt_parts.append(tools_block)
 
         if self.output_schema is not None:
