@@ -20,26 +20,24 @@ Your task is to evaluate and score a candidate response to a DevOps/DevSecOps en
 </candidate_response>
 
 ## Evaluation Instructions
-1. Objectively evaluate the candidate response across four dimensions (each on a scale of 0.0 to 10.0):
-   - **accuracy_score** (0–10): Technical correctness, adherence to engineering standards, absence of hallucinations.
-   - **security_score** (0–10): Identification of vulnerabilities, zero-trust safety principles, avoidance of insecure patterns.
-   - **completeness_score** (0–10): Full coverage of all prompt requirements, edge cases, and expected deliverables.
-   - **clarity_score** (0–10): Explanatory reasoning, clean code structure, and actionable formatting.
-2. Calculate total_score (sum of 4 dimensions, max 40.0) and percentage (0.0 to 100.0).
-3. Provide key strengths, weaknesses, and a concise constructive justification.
+1. Rigorously inspect the candidate response and assign objective numerical scores for each dimension (0.0 to 10.0):
+   - **accuracy_score** (0.0–10.0): Technical correctness, absence of bugs or hallucinations.
+   - **security_score** (0.0–10.0): Identification of vulnerabilities, zero-trust safety principles, avoidance of insecure patterns.
+   - **completeness_score** (0.0–10.0): Full coverage of all prompt requirements, edge cases, and expected deliverables.
+   - **clarity_score** (0.0–10.0): Explanatory reasoning, clean structure, actionable code.
+2. Differentiate between high-quality, flawed, incomplete, or incorrect submissions.
+3. Provide concrete strengths, weaknesses, and a constructive justification.
 
-## Output Format
-Respond ONLY with a valid JSON block enclosed in ```json ```:
+## Output Schema
+Respond ONLY with a valid JSON object matching this schema. You MUST determine and calculate the numeric values based entirely on your evaluation of the response above:
 ```json
 {
-  "accuracy_score": 9.0,
-  "security_score": 9.0,
-  "completeness_score": 8.5,
-  "clarity_score": 9.5,
-  "total_score": 36.0,
-  "percentage": 90.0,
-  "strengths": ["Clear explanation", "Safe regex validation"],
-  "weaknesses": ["Missed IPv6 edge case"],
-  "feedback": "Concise justification of the score."
+  "accuracy_score": 0.0,
+  "security_score": 0.0,
+  "completeness_score": 0.0,
+  "clarity_score": 0.0,
+  "strengths": ["string"],
+  "weaknesses": ["string"],
+  "feedback": "string"
 }
 ```

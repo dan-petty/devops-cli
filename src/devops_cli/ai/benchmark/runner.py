@@ -228,23 +228,37 @@ class BenchmarkRunner:
             )
             data = extract_json_block(res)
             if isinstance(data, dict):
-                acc = float(data.get("accuracy_score", 7.0))
-                sec = float(data.get("security_score", 7.0))
-                comp = float(data.get("completeness_score", 7.0))
-                clar = float(data.get("clarity_score", 7.0))
-                total = float(data.get("total_score", acc + sec + comp + clar))
-                pct = float(data.get("percentage", (total / 40.0) * 100.0))
+                import re
+
+                def _parse_score(val: object, default: float = 5.0) -> float:
+                    try:
+                        if isinstance(val, int | float):
+                            return float(val)
+                        if isinstance(val, str):
+                            m = re.search(r"[-+]?\d*\.?\d+", val)
+                            if m:
+                                return float(m.group())
+                    except Exception:
+                        pass
+                    return default
+
+                acc = round(min(10.0, max(0.0, _parse_score(data.get("accuracy_score")))), 1)
+                sec = round(min(10.0, max(0.0, _parse_score(data.get("security_score")))), 1)
+                comp = round(min(10.0, max(0.0, _parse_score(data.get("completeness_score")))), 1)
+                clar = round(min(10.0, max(0.0, _parse_score(data.get("clarity_score")))), 1)
+                total = round(acc + sec + comp + clar, 1)
+                pct = round((total / 40.0) * 100.0, 1)
 
                 return PeerGrade(
                     task_id=task.id,
                     candidate_model=response.model,
                     evaluator_model=evaluator_model,
-                    accuracy_score=round(min(10.0, max(0.0, acc)), 1),
-                    security_score=round(min(10.0, max(0.0, sec)), 1),
-                    completeness_score=round(min(10.0, max(0.0, comp)), 1),
-                    clarity_score=round(min(10.0, max(0.0, clar)), 1),
-                    total_score=round(min(40.0, max(0.0, total)), 1),
-                    percentage=round(min(100.0, max(0.0, pct)), 1),
+                    accuracy_score=acc,
+                    security_score=sec,
+                    completeness_score=comp,
+                    clarity_score=clar,
+                    total_score=total,
+                    percentage=pct,
                     strengths=list(data.get("strengths", [])),
                     weaknesses=list(data.get("weaknesses", [])),
                     feedback=str(data.get("feedback", "")),
@@ -253,17 +267,17 @@ class BenchmarkRunner:
             err_msg = str(exc)
             logger.warning("Peer evaluation failed: %s", exc)
 
-        # Fallback default score on parse error
+        # Fallback default score on parse error (neutral 5.0 per dimension)
         return PeerGrade(
             task_id=task.id,
             candidate_model=response.model,
             evaluator_model=evaluator_model,
-            accuracy_score=7.0,
-            security_score=7.0,
-            completeness_score=7.0,
-            clarity_score=7.0,
-            total_score=28.0,
-            percentage=70.0,
+            accuracy_score=5.0,
+            security_score=5.0,
+            completeness_score=5.0,
+            clarity_score=5.0,
+            total_score=20.0,
+            percentage=50.0,
             feedback=f"Evaluation default due to parsing error: {err_msg}",
         )
 
