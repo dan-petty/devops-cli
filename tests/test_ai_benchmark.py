@@ -281,9 +281,91 @@ def test_benchmark_filtering_invalid_defaults_and_judge_weighting() -> None:
     expert_sum = next(m for m in leaderboard if m.model == "expert-model")
     weak_sum = next(m for m in leaderboard if m.model == "weak-model")
 
-    # Expert model has higher judge weight than weak model
-    assert expert_sum.judge_weight > weak_sum.judge_weight
+    # Expert model has higher judge weight than weak model (1.0 vs 0.01)
+    assert expert_sum.judge_weight == 1.0
+    assert weak_sum.judge_weight == 0.01
     # Weak model's 0.0 evaluation was discarded as invalid
     assert weak_sum.valid_evaluations_count == 1
     assert weak_sum.overall_percentage == 40.0
     assert expert_sum.valid_evaluations_count == 2
+
+
+def test_benchmark_scaled_judge_weights_and_self_assessment_incorporation() -> None:
+    """Verify that bad models giving bad scores to good models are mitigated."""
+    tasks = [BENCHMARK_TASKS[0]]
+    models = ["top-model", "bad-model"]
+    b_runner = BenchmarkRunner(models=models, tasks=tasks)
+
+    responses = [
+        TaskResponse(
+            task_id=tasks[0].id, model="top-model", provider="ollama", response="Top code"
+        ),
+        TaskResponse(
+            task_id=tasks[0].id, model="bad-model", provider="ollama", response="Bad code"
+        ),
+    ]
+
+    grades = [
+        # Top model grades itself 90%
+        PeerGrade(
+            task_id=tasks[0].id,
+            candidate_model="top-model",
+            evaluator_model="top-model",
+            accuracy_score=9.0,
+            security_score=9.0,
+            completeness_score=9.0,
+            clarity_score=9.0,
+            total_score=36.0,
+            percentage=90.0,
+        ),
+        # Bad model grades top model unfairly low (40%)
+        PeerGrade(
+            task_id=tasks[0].id,
+            candidate_model="top-model",
+            evaluator_model="bad-model",
+            accuracy_score=4.0,
+            security_score=4.0,
+            completeness_score=4.0,
+            clarity_score=4.0,
+            total_score=16.0,
+            percentage=40.0,
+        ),
+        # Top model grades bad model 30%
+        PeerGrade(
+            task_id=tasks[0].id,
+            candidate_model="bad-model",
+            evaluator_model="top-model",
+            accuracy_score=3.0,
+            security_score=3.0,
+            completeness_score=3.0,
+            clarity_score=3.0,
+            total_score=12.0,
+            percentage=30.0,
+        ),
+        # Bad model grades itself unfairly high (95%)
+        PeerGrade(
+            task_id=tasks[0].id,
+            candidate_model="bad-model",
+            evaluator_model="bad-model",
+            accuracy_score=9.5,
+            security_score=9.5,
+            completeness_score=9.5,
+            clarity_score=9.5,
+            total_score=38.0,
+            percentage=95.0,
+        ),
+    ]
+
+    leaderboard = b_runner._compute_leaderboard(responses, grades)
+    top_sum = next(m for m in leaderboard if m.model == "top-model")
+    bad_sum = next(m for m in leaderboard if m.model == "bad-model")
+
+    # Top model has full weight (1.0), bad model has almost no weight (0.01)
+    assert top_sum.judge_weight == 1.0
+    assert bad_sum.judge_weight == 0.01
+
+    # Top model's score stays high (~89.5%) despite bad model giving it 40%
+    assert top_sum.overall_percentage >= 89.0
+
+    # Bad model's score stays low (~30.6%) despite giving itself 95%
+    assert bad_sum.overall_percentage <= 31.0

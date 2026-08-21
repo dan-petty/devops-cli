@@ -553,7 +553,7 @@ class BenchmarkRunner:
             )
         ]
 
-        # Phase 1: Compute peer competence (excluding self-grading) to determine judge weights
+        # Phase 1: Compute peer competence baseline to determine judge weights
         raw_competence: dict[str, float] = {}
         for model in self.models:
             m_peer_received = [
@@ -575,13 +575,22 @@ class BenchmarkRunner:
             else:
                 raw_competence[model] = 0.0
 
-        # Judge weights: proportional to model peer competence (scaled to [0.05, 1.0])
-        max_comp = max(raw_competence.values()) if raw_competence else 0.0
+        # Judge weights: Top model gets full weight (1.00), worst model gets almost no weight (0.01)
         judge_weights: dict[str, float] = {}
-        for model, comp in raw_competence.items():
-            if max_comp > 0:
-                judge_weights[model] = round(max(0.05, comp / 100.0), 3)
-            else:
+        if len(self.models) > 1 and raw_competence:
+            max_comp = max(raw_competence.values())
+            min_comp = min(raw_competence.values())
+            comp_span = max_comp - min_comp
+            for model, comp in raw_competence.items():
+                if comp_span > 0.0:
+                    rel_score = (comp - min_comp) / comp_span
+                    # Quadratic scaling: worst model -> 0.01, top model -> 1.00
+                    w = 0.01 + 0.99 * (rel_score**2)
+                    judge_weights[model] = round(w, 3)
+                else:
+                    judge_weights[model] = 1.0
+        else:
+            for model in self.models:
                 judge_weights[model] = 1.0
 
         # Phase 2: Compute judge strictness/leniency calibration offsets (active for >= 3 judges)
@@ -600,13 +609,13 @@ class BenchmarkRunner:
             for m in self.models:
                 judge_offsets[m] = 0.0
 
-        # Phase 3: Compute debiased peer-only metrics for each candidate model
+        # Phase 3: Compute weighted metrics incorporating self-assessment with judge weights
         summaries: list[ModelBenchmarkSummary] = []
 
         for model in self.models:
             m_valid_grades = [g for g in valid_grades if g.candidate_model == model]
             m_peer_grades = [g for g in m_valid_grades if g.evaluator_model != model]
-            evals_to_score = m_peer_grades if m_peer_grades else m_valid_grades
+            evals_to_score = m_valid_grades
             m_resps = [r for r in responses if r.model == model]
 
             avg_dur = sum(r.duration_seconds for r in m_resps) / len(m_resps) if m_resps else 0.0
@@ -651,6 +660,26 @@ class BenchmarkRunner:
                 )
             else:
                 weighted_pct = 0.0
+
+            # Compute pure peer-only percentage (excluding self-assessment)
+            if m_peer_grades:
+                total_peer_w = sum(
+                    judge_weights.get(g.evaluator_model, 1.0) * task_weight_map.get(g.task_id, 1.0)
+                    for g in m_peer_grades
+                )
+                peer_pct = (
+                    sum(
+                        g.percentage
+                        * judge_weights.get(g.evaluator_model, 1.0)
+                        * task_weight_map.get(g.task_id, 1.0)
+                        for g in m_peer_grades
+                    )
+                    / total_peer_w
+                    if total_peer_w > 0
+                    else 0.0
+                )
+            else:
+                peer_pct = weighted_pct
 
             # Compute self-preference bias
             m_self_grades = [g for g in m_valid_grades if g.evaluator_model == model]
@@ -715,7 +744,7 @@ class BenchmarkRunner:
                     model=model,
                     provider=self.provider,
                     overall_percentage=round(weighted_pct, 1),
-                    peer_only_percentage=round(weighted_pct, 1),
+                    peer_only_percentage=round(peer_pct, 1),
                     self_preference_bias=self_bias,
                     accuracy_avg=round(acc_avg, 1),
                     security_avg=round(sec_avg, 1),
