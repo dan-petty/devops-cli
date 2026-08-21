@@ -264,18 +264,34 @@ class PydanticAgent[T]:
                 )
                 continue
 
-            # If final_output is still empty and turn < max_turns, request synthesis turn
-            if not final_output and all_thoughts and turn < max_turns:
-                messages.append(ChatMessage(role="assistant", content=response_text))
-                messages.append(
-                    ChatMessage(
-                        role="user",
-                        content="Provide your direct final response based on your reasoning.",
-                    )
+            # If final_output is empty or contains internal scratchpad deliberation
+            is_deliberation = not final_output or final_output.lower().startswith(
+                (
+                    "the tool returned",
+                    "we need to interpret",
+                    "we need to decide",
+                    "we should double-check",
+                    "let's search",
+                    "we need to scan",
+                    "let's recall",
+                    "not sure. we need",
                 )
+            )
+
+            if is_deliberation and turn < max_turns:
+                messages.append(ChatMessage(role="assistant", content=response_text))
+                if tool_calls:
+                    prompt_msg = (
+                        "Provide your direct final response to the user based on the tool results."
+                    )
+                else:
+                    prompt_msg = (
+                        "Provide your direct final response to the user based on your reasoning."
+                    )
+                messages.append(ChatMessage(role="user", content=prompt_msg))
                 continue
 
-            # Fallback if still empty: use recovered thought content
+            # Fallback if still empty after max turns
             if not final_output and all_thoughts:
                 final_output = all_thoughts[-1]
 

@@ -215,13 +215,13 @@ def fix_llm_response[T = Any](
                     was_repaired = True
                     repair_notes.append(f"extracted_tool_call_from_thinking:{tc.tool_name}")
 
-    # Content Recovery Heuristic: If clean_text is empty, recover answer from thinking
+    # Content Recovery Heuristic: Only recover if explicit user-facing conclusion/answer exists
     final_content = clean_text
     if not final_content.strip() and thoughts:
         combined_th = "\n\n".join(thoughts)
-        # 1. Look for conclusion paragraphs or direct answers inside thinking
         concl_pattern = (
-            r"(?:Conclusion|Summary|Answer|Response|Result|In summary|To summarize)[:\n]\s*"
+            r"(?:###?\s*(?:Conclusion|Summary|Findings|Report|Analysis)|"
+            r"(?:Conclusion|Answer|Summary|Final Response):)\s*\n*"
             r"([\s\S]+)$"
         )
         concl_match = re.search(concl_pattern, combined_th, re.IGNORECASE)
@@ -229,30 +229,6 @@ def fix_llm_response[T = Any](
             final_content = concl_match.group(1).strip()
             was_repaired = True
             repair_notes.append("recovered_conclusion_from_thinking")
-        else:
-            # 2. Extract the last markdown paragraph or readable text block from thoughts
-            paragraphs = [p.strip() for p in combined_th.split("\n\n") if p.strip()]
-            non_meta_paragraphs = [
-                p
-                for p in paragraphs
-                if not p.lower().startswith(
-                    (
-                        "we need to",
-                        "let's check",
-                        "let's invoke",
-                        "i will run",
-                        "function signature",
-                    )
-                )
-            ]
-            if non_meta_paragraphs:
-                final_content = non_meta_paragraphs[-1]
-                was_repaired = True
-                repair_notes.append("recovered_last_paragraph_from_thinking")
-            elif paragraphs:
-                final_content = paragraphs[-1]
-                was_repaired = True
-                repair_notes.append("recovered_thinking_paragraph")
 
     # Structured JSON & Pydantic model parsing
     json_data = repair_json_string(final_content or norm_text)
