@@ -115,5 +115,7 @@ def run_benchmark(
 
     if format_type.lower() == "json":
         print(report.model_dump_json(indent=2))
+    elif format_type.lower() == "markdown":
+        print(runner.to_markdown(report))
     else:
         runner.render_results(report)

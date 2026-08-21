@@ -767,4 +767,78 @@ class BenchmarkRunner:
         report_path = CONST_DATA_DIR / "benchmarks" / f"{report.session_id}-benchmark.json"
         console.print()
         console.print(table)
+
+        if len(report.tasks_run) > 1:
+            categories = sorted({t.category for t in report.tasks_run})
+            cat_table = Table(
+                title=f"Domain Category Breakdown (Session {report.session_id})",
+                header_style="bold cyan",
+            )
+            cat_table.add_column("Model", style="cyan")
+            for cat in categories:
+                cat_table.add_column(cat.capitalize(), justify="right")
+
+            for m in report.leaderboard:
+                row = [m.model]
+                for cat in categories:
+                    score = m.category_scores.get(cat, 0.0)
+                    row.append(f"{score:.1f}%")
+                cat_table.add_row(*row)
+
+            console.print()
+            console.print(cat_table)
+
         rprint(f"\n[dim]✓ Detailed benchmark report saved → [/dim][cyan]{report_path}[/cyan]\n")
+
+    def to_markdown(self, report: BenchmarkReport) -> str:
+        """Generate a clean GitHub-flavored Markdown benchmark report."""
+        table_hdr = (
+            "| Rank | Model | Score | Peer | Accuracy | Security | "
+            "Complete | Clarity | Judge Wt | Latency | Self-Bias |"
+        )
+        table_sep = (
+            "| :---: | :--- | :---: | :---: | :---: | :---: | "
+            ":---: | :---: | :---: | :---: | :---: |"
+        )
+
+        lines: list[str] = [
+            f"# AI Benchmark Report (Session `{report.session_id}`)\n",
+            f"- **Timestamp**: `{report.timestamp.strftime('%Y-%m-%d %H:%M:%S UTC')}`",
+            f"- **Models**: {', '.join(f'`{m}`' for m in report.models_evaluated)}",
+            f"- **Tasks**: {len(report.tasks_run)}",
+            f"- **Workers**: {len(self.servers)}\n",
+            "## Leaderboard\n",
+            table_hdr,
+            table_sep,
+        ]
+
+        for idx, m in enumerate(report.leaderboard, start=1):
+            rank_badge = (
+                "🥇" if idx == 1 else ("🥈" if idx == 2 else ("🥉" if idx == 3 else f"#{idx}"))
+            )
+            self_bias_str = (
+                f"+{m.self_preference_bias:.1f}%"
+                if m.self_preference_bias > 0
+                else f"{m.self_preference_bias:.1f}%"
+            )
+            row = (
+                f"| {rank_badge} | `{m.model}` | **{m.overall_percentage:.1f}%** | "
+                f"{m.peer_only_percentage:.1f}% | {m.accuracy_avg:.1f}/10 | "
+                f"{m.security_avg:.1f}/10 | {m.completeness_avg:.1f}/10 | "
+                f"{m.clarity_avg:.1f}/10 | {m.judge_weight:.2f} | "
+                f"{m.average_duration_seconds:.1f}s | {self_bias_str} |"
+            )
+            lines.append(row)
+
+        if len(report.tasks_run) > 1:
+            lines.append("\n## Domain Category Breakdown\n")
+            categories = sorted({t.category for t in report.tasks_run})
+            cat_headers = " | ".join(c.capitalize() for c in categories)
+            lines.append(f"| Model | {cat_headers} |")
+            lines.append(f"| :--- | {' | '.join(':---:' for _ in categories)} |")
+
+            for m in report.leaderboard:
+                cat_vals = " | ".join(f"{m.category_scores.get(c, 0.0):.1f}%" for c in categories)
+                lines.append(f"| `{m.model}` | {cat_vals} |")
+
+        return "\n".join(lines)
