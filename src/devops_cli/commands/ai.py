@@ -671,15 +671,13 @@ def chat(
             if rag_snippet:
                 effective_prompt = f"{rag_snippet}\n\nUser Question: {user_input}"
 
-        agent.memory.add_interaction("user", effective_prompt)
-        if agent.memory.auto_summarize_if_needed(llm_client=client):
-            rprint("[dim]⚡ Long conversation memory consolidated into context summary.[/dim]")
-
         try:
             rprint(f"\n[green]{persona_def.title}:[/green] ", end="")
             sys.stdout.flush()
 
-            if stream:
+            from devops_cli.ai.thinking import strip_think_blocks
+
+            if stream and not tools:
                 from devops_cli.ai.thinking import ThinkingStreamProcessor
 
                 processor = ThinkingStreamProcessor(
@@ -694,10 +692,46 @@ def chat(
                     processor.feed(chunk)
                 processor.flush()
                 reply = processor.clean_content
-                rprint("\n")
+                if not reply.strip() and processor.thinking_content:
+                    # Model put all output in thinking tags; retrieve summary
+                    agent_res = agent.run(effective_prompt, enable_thinking=thinking)
+                    reply = strip_think_blocks(agent_res.content)
+                    if reply.strip():
+                        rprint(f"{reply.strip()}\n")
+                else:
+                    rprint("\n")
+                    agent.memory.add_interaction("assistant", reply)
             else:
-                agent_res = agent.run(effective_prompt, enable_thinking=thinking)
-                from devops_cli.ai.thinking import strip_think_blocks
+
+                def _print_thought(th: str) -> None:
+                    if thinking:
+                        from rich.markup import escape
+
+                        rprint(
+                            f"\n[dim cyan]💭 Thinking...[/dim cyan]\n"
+                            f"[dim italic]{escape(th)}[/dim italic]\n"
+                            f"[dim cyan]✓ Thought complete[/dim cyan]\n"
+                        )
+
+                def _print_tool(t_name: str, t_args: dict[str, Any], t_res: Any) -> None:
+                    args_str = ", ".join(f"{k}={v!r}" for k, v in t_args.items())
+                    if len(args_str) > 60:
+                        args_str = args_str[:57] + "..."
+                    tool_msg = (
+                        f"\n[dim yellow]🔧 Tool: [bold]{t_name}[/bold]({args_str})[/dim yellow]"
+                    )
+                    rprint(tool_msg)
+                    res_str = str(t_res).strip()
+                    if len(res_str) > 200:
+                        res_str = res_str[:197] + "..."
+                    rprint(f"[dim green]✓ Result: {res_str}[/dim green]\n")
+
+                agent_res = agent.run(
+                    effective_prompt,
+                    enable_thinking=thinking,
+                    on_thought=_print_thought if thinking else None,
+                    on_tool_call=_print_tool,
+                )
 
                 reply = strip_think_blocks(agent_res.content)
                 rprint(f"{reply.strip()}\n")
@@ -708,7 +742,6 @@ def chat(
                 agent.memory.entries.pop()  # don't add failed turn to history
             continue
 
-        agent.memory.add_interaction("assistant", reply)
         if agent.memory.auto_summarize_if_needed(llm_client=client):
             rprint("[dim]⚡ Long conversation memory consolidated into context summary.[/dim]")
 

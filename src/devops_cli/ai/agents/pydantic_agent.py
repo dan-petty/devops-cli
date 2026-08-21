@@ -155,71 +155,94 @@ class PydanticAgent[T]:
         *,
         max_turns: int = DEFAULT_AGENT_MAX_TURNS,
         enable_thinking: bool = True,
+        on_tool_call: Callable[[str, dict[str, Any], Any], None] | None = None,
+        on_thought: Callable[[str], None] | None = None,
     ) -> AgentResponse[T]:
         """Execute the agent tool loop until completion or max_turns is reached."""
         self.memory.add_interaction("user", user_prompt)
         self.memory.auto_summarize_if_needed(llm_client=self.client)
 
         system = self._build_system_prompt_with_tools()
-        messages: list[ChatMessage] = [ChatMessage(role="user", content=user_prompt)]
+        messages: list[ChatMessage] = self.memory.to_chat_messages()
+        if not messages or messages[-1].content != user_prompt:
+            messages.append(ChatMessage(role="user", content=user_prompt))
+
         tool_calls: list[ToolCall] = []
         response_text = ""
+        all_thoughts: list[str] = []
 
         for turn in range(1, max_turns + 1):
             res_obj = self.client.chat_messages(system, messages, enable_thinking=enable_thinking)
             response_text = str(res_obj)
             b_info = getattr(res_obj, "backend_info", None)
 
-            if "```json" in response_text and '"tool"' in response_text:
-                try:
-                    json_data = extract_json_block(response_text)
-                    if isinstance(json_data, dict) and "tool" in json_data:
-                        tool_name = str(json_data["tool"])
-                        args: dict[str, Any] = (
-                            json_data["arguments"]
-                            if isinstance(json_data.get("arguments"), dict)
-                            else {}
-                        )
-                        if tool_name in self._tools:
-                            try:
-                                tool_result = self._tools[tool_name].execute(**args)
-                            except Exception as exc:
-                                tool_result = f"Tool execution error for {tool_name}: {exc}"
-                            tc = ToolCall(tool_name=tool_name, arguments=args, result=tool_result)
-                            tool_calls.append(tc)
-
-                            messages.append(ChatMessage(role="assistant", content=response_text))
-                            messages.append(
-                                ChatMessage(
-                                    role="user",
-                                    content=(
-                                        f"Tool '{tool_name}' output:\n"
-                                        f"{json.dumps(tool_result, default=str)}"
-                                    ),
-                                )
-                            )
-                            continue
-                except Exception:
-                    pass
-
-            thoughts: list[str] = []
+            # Extract thoughts
             thinks, clean_response = extract_think_blocks(response_text)
             if thinks:
-                thoughts.extend(thinks)
+                for t in thinks:
+                    if t and t not in all_thoughts:
+                        all_thoughts.append(t)
+                        if on_thought:
+                            on_thought(t)
             raw_think = getattr(res_obj, "thinking", "")
-            if raw_think and str(raw_think).strip() and str(raw_think).strip() not in thoughts:
-                thoughts.append(str(raw_think).strip())
+            if raw_think and str(raw_think).strip() and str(raw_think).strip() not in all_thoughts:
+                all_thoughts.append(str(raw_think).strip())
+                if on_thought:
+                    on_thought(str(raw_think).strip())
+
+            # Check if there is a tool call in clean_response or response_text
+            json_candidate = clean_response if clean_response else response_text
+            json_data = extract_json_block(json_candidate)
+            if isinstance(json_data, dict) and "tool" in json_data:
+                tool_name = str(json_data["tool"])
+                args: dict[str, Any] = (
+                    json_data["arguments"] if isinstance(json_data.get("arguments"), dict) else {}
+                )
+                if tool_name in self._tools:
+                    try:
+                        tool_result = self._tools[tool_name].execute(**args)
+                    except Exception as exc:
+                        tool_result = f"Tool execution error for {tool_name}: {exc}"
+                    tc = ToolCall(tool_name=tool_name, arguments=args, result=tool_result)
+                    tool_calls.append(tc)
+
+                    if on_tool_call:
+                        on_tool_call(tool_name, args, tool_result)
+
+                    messages.append(ChatMessage(role="assistant", content=response_text))
+                    messages.append(
+                        ChatMessage(
+                            role="user",
+                            content=(
+                                f"Tool '{tool_name}' output:\n"
+                                f"{json.dumps(tool_result, default=str)}"
+                            ),
+                        )
+                    )
+                    continue
+
+            final_output = clean_response.strip() if clean_response else response_text.strip()
+
+            # If final_output is empty but thoughts exist, synthesize final response
+            if not final_output and all_thoughts and turn < max_turns:
+                messages.append(ChatMessage(role="assistant", content=response_text))
+                messages.append(
+                    ChatMessage(
+                        role="user",
+                        content="Provide your direct final response based on your reasoning.",
+                    )
+                )
+                continue
 
             parsed_data: T | None = None
             if self.output_schema is not None:
                 try:
-                    json_data = extract_json_block(clean_response or response_text)
-                    if isinstance(json_data, dict):
-                        parsed_data = self.output_schema.model_validate(json_data)  # type: ignore[attr-defined]
+                    schema_json = extract_json_block(final_output)
+                    if isinstance(schema_json, dict):
+                        parsed_data = self.output_schema.model_validate(schema_json)  # type: ignore[attr-defined]
                 except Exception:
                     pass
 
-            final_output = clean_response or response_text
             self.memory.add_interaction("assistant", final_output)
             self.memory.auto_summarize_if_needed(llm_client=self.client)
 
@@ -227,7 +250,7 @@ class PydanticAgent[T]:
                 content=final_output,
                 data=parsed_data,
                 tool_calls=tool_calls,
-                thoughts=thoughts,
+                thoughts=all_thoughts,
                 turns=turn,
                 backend_info=b_info,
             )
@@ -238,7 +261,7 @@ class PydanticAgent[T]:
         return AgentResponse[T](
             content=response_text,
             tool_calls=tool_calls,
-            thoughts=[],
+            thoughts=all_thoughts,
             turns=max_turns,
             backend_info=b_info if "b_info" in locals() else None,
         )
