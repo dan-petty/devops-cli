@@ -54,6 +54,17 @@ class BenchmarkRunner:
         concurrency: int = 4,
         servers: list[str] | None = None,
     ) -> None:
+        """Initialize the AI benchmark runner.
+
+        Args:
+            models: List of candidate model identifier strings to evaluate.
+            tasks: Benchmark evaluation tasks to execute across candidate models.
+            settings: Runtime CLI configuration settings.
+            provider: LLM provider name (e.g. 'ollama', 'openai', 'claude').
+            is_dry_run: Override for dry-run simulation mode.
+            concurrency: Number of parallel server workers to run simultaneously.
+            servers: List of Ollama backend server endpoints for distributed worker execution.
+        """
         self.models = models or ["qwen2.5-coder:7b"]
         self.tasks = tasks
         self.settings = settings or load_settings()

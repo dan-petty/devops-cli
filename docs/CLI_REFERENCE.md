@@ -2051,9 +2051,11 @@ devops ai benchmark [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--models`, `-m` | `string` | - | Comma-separated candidate models (e.g. 'qwen2.5-coder:7b,mistral:latest') |
+| `--models`, `-m` | `string` | - | Comma-separated candidate models (e.g. 'qwen2.5:0.5b,llama3.1:8b@http://gpu2:11434') |
+| `--servers`, `--ollama-urls` | `string` | - | Comma-separated Ollama server URLs for concurrent execution (e.g. 'http://node1:11434,http://node2:11434') |
 | `--provider`, `-p` | `string` | - | AI provider (ollama, claude, copilot, openai) |
 | `--tasks`, `-t` | `string` | - | Filter specific task categories or IDs (e.g. 'security,kubernetes') |
+| `--concurrency`, `-c` | `integer` | `4` | Number of concurrent model server workers (default: automatic per model count) |
 | `--output`, `-o` | `path` | - | Destination JSON report filepath |
 | `--format`, `-f` | `string` | `table` | Output format: table, json, markdown |
 | `--dry-run` | `boolean` | - | Simulate benchmark without sending remote LLM requests |
