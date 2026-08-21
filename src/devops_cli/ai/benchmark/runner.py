@@ -119,16 +119,18 @@ class BenchmarkRunner:
             f"([green]{len(self.models)}[/green] models, [green]{len(self.tasks)}[/green] tasks)"
         )
 
-        # ── Step 1: Generate Model Responses ─────────────────────────────────
-        rprint("[dim]Step 1/2: Generating candidate responses across models...[/dim]")
-        for task in self.tasks:
-            for model_name in self.models:
+        # ── Step 1: Generate Model Responses (Grouped by Model) ──────────────
+        rprint("[dim]Step 1/2: Generating candidate responses grouped by model...[/dim]")
+        for model_name in self.models:
+            rprint(f"[bold]Evaluating model:[/bold] [cyan]{model_name}[/cyan]")
+            client = self._client_for_model(model_name) if not dry_run else None
+            for task in self.tasks:
                 if dry_run:
                     resp = self._simulate_response(task, model_name)
                     responses.append(resp)
                     continue
 
-                client = self._client_for_model(model_name)
+                assert client is not None
                 t0 = time.monotonic()
                 try:
                     res_text = client.chat(
@@ -145,7 +147,7 @@ class BenchmarkRunner:
                             duration_seconds=round(duration, 2),
                         )
                     )
-                    rprint(f"  ✓ {model_name} completed [cyan]{task.id}[/cyan] in {duration:.1f}s")
+                    rprint(f"  ✓ completed [cyan]{task.id}[/cyan] in {duration:.1f}s")
                 except Exception as exc:
                     logger.warning("Model %s failed on task %s: %s", model_name, task.id, exc)
                     responses.append(
@@ -158,20 +160,22 @@ class BenchmarkRunner:
                         )
                     )
 
-        # ── Step 2: Peer Grading Matrix ──────────────────────────────────────
-        rprint("\n[dim]Step 2/2: Cross-model peer grading and evaluation...[/dim]")
+        # ── Step 2: Peer Grading Matrix (Grouped by Evaluator Model) ──────────
+        rprint("\n[dim]Step 2/2: Cross-model peer grading grouped by evaluator model...[/dim]")
         resp_map = {(r.task_id, r.model): r for r in responses}
 
-        for task in self.tasks:
-            for candidate_model in self.models:
-                c_resp = resp_map.get((task.id, candidate_model))
-                if not c_resp:
-                    continue
+        for evaluator_model in self.models:
+            rprint(f"[bold]Evaluator judge:[/bold] [cyan]{evaluator_model}[/cyan]")
+            for task in self.tasks:
+                for candidate_model in self.models:
+                    # If multiple models, skip self-grading; if single model, allow self-grading
+                    if candidate_model == evaluator_model and len(self.models) > 1:
+                        continue
 
-                # Evaluators: if multiple models, all others grade; if single model, self-grade
-                evaluators = [m for m in self.models if m != candidate_model] or [candidate_model]
+                    c_resp = resp_map.get((task.id, candidate_model))
+                    if not c_resp:
+                        continue
 
-                for evaluator_model in evaluators:
                     if dry_run:
                         grade = self._simulate_peer_grade(task, candidate_model, evaluator_model)
                         peer_grades.append(grade)
@@ -180,9 +184,8 @@ class BenchmarkRunner:
                     grade = self._evaluate_response(task, c_resp, evaluator_model)
                     peer_grades.append(grade)
                     rprint(
-                        f"  ✓ [cyan]{evaluator_model}[/cyan] graded "
-                        f"[yellow]{candidate_model}[/yellow] on [dim]{task.id}[/dim] → "
-                        f"[bold]{grade.percentage:.1f}%[/bold]"
+                        f"  ✓ graded [yellow]{candidate_model}[/yellow] "
+                        f"on [dim]{task.id}[/dim] → [bold]{grade.percentage:.1f}%[/bold]"
                     )
 
         # ── Step 3: Compute Leaderboard Aggregates ────────────────────────────
