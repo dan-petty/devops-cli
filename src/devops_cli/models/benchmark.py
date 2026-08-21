@@ -85,6 +85,16 @@ class ModelBenchmarkSummary(BaseModel):
         ge=0,
         description="Count of valid non-default evaluations included in scoring",
     )
+    peer_only_percentage: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=100.0,
+        description="Score computed purely from external peer evaluations (excluding self)",
+    )
+    self_preference_bias: float = Field(
+        default=0.0,
+        description="Average difference between self-assigned score and peer-assigned score",
+    )
 
 
 class BenchmarkReport(BaseModel):

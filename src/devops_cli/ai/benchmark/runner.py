@@ -385,12 +385,27 @@ class BenchmarkRunner:
                         pass
                     return default
 
-                acc = round(min(10.0, max(0.0, _parse_score(data.get("accuracy_score"), 0.0))), 1)
-                sec = round(min(10.0, max(0.0, _parse_score(data.get("security_score"), 0.0))), 1)
-                comp = round(
-                    min(10.0, max(0.0, _parse_score(data.get("completeness_score"), 0.0))), 1
-                )
-                clar = round(min(10.0, max(0.0, _parse_score(data.get("clarity_score"), 0.0))), 1)
+                raw_acc = _parse_score(data.get("accuracy_score"), 0.0)
+                raw_sec = _parse_score(data.get("security_score"), 0.0)
+                raw_comp = _parse_score(data.get("completeness_score"), 0.0)
+                raw_clar = _parse_score(data.get("clarity_score"), 0.0)
+
+                # Auto-detect if model scored on a 0.0 to 1.0 probability/ratio scale
+                if (
+                    0.0 < raw_acc <= 1.0
+                    and 0.0 < raw_sec <= 1.0
+                    and 0.0 < raw_comp <= 1.0
+                    and 0.0 < raw_clar <= 1.0
+                ):
+                    raw_acc *= 10.0
+                    raw_sec *= 10.0
+                    raw_comp *= 10.0
+                    raw_clar *= 10.0
+
+                acc = round(min(10.0, max(0.0, raw_acc)), 1)
+                sec = round(min(10.0, max(0.0, raw_sec)), 1)
+                comp = round(min(10.0, max(0.0, raw_comp)), 1)
+                clar = round(min(10.0, max(0.0, raw_clar)), 1)
                 total = round(acc + sec + comp + clar, 1)
                 pct = round((total / 40.0) * 100.0, 1)
 
@@ -521,6 +536,36 @@ class BenchmarkRunner:
             else:
                 weighted_pct = 0.0
 
+            # Compute peer-only score (excluding self-grading)
+            m_peer_grades = [g for g in m_valid_grades if g.evaluator_model != model]
+            if m_peer_grades:
+                total_peer_w = sum(
+                    judge_weights.get(g.evaluator_model, 1.0) * task_weight_map.get(g.task_id, 1.0)
+                    for g in m_peer_grades
+                )
+                peer_pct = (
+                    sum(
+                        g.percentage
+                        * judge_weights.get(g.evaluator_model, 1.0)
+                        * task_weight_map.get(g.task_id, 1.0)
+                        for g in m_peer_grades
+                    )
+                    / total_peer_w
+                    if total_peer_w > 0
+                    else 0.0
+                )
+            else:
+                peer_pct = weighted_pct
+
+            # Compute self-preference bias
+            m_self_grades = [g for g in m_valid_grades if g.evaluator_model == model]
+            if m_self_grades and m_peer_grades:
+                self_avg = sum(g.percentage for g in m_self_grades) / len(m_self_grades)
+                peer_avg = sum(g.percentage for g in m_peer_grades) / len(m_peer_grades)
+                self_bias = round(self_avg - peer_avg, 1)
+            else:
+                self_bias = 0.0
+
             if total_judge_weight > 0:
                 acc_avg = (
                     sum(
@@ -585,6 +630,8 @@ class BenchmarkRunner:
                     model=model,
                     provider=self.provider,
                     overall_percentage=round(weighted_pct, 1),
+                    peer_only_percentage=round(peer_pct, 1),
+                    self_preference_bias=self_bias,
                     accuracy_avg=round(acc_avg, 1),
                     security_avg=round(sec_avg, 1),
                     completeness_avg=round(comp_avg, 1),
@@ -597,7 +644,7 @@ class BenchmarkRunner:
                 )
             )
 
-        summaries.sort(key=lambda s: s.overall_percentage, reverse=True)
+        summaries.sort(key=lambda s: s.peer_only_percentage, reverse=True)
         return summaries
 
     def _save_report(self, report: BenchmarkReport) -> Path:
@@ -618,13 +665,15 @@ class BenchmarkRunner:
         table.add_column("Rank", justify="center", style="bold")
         table.add_column("Model", style="cyan")
         table.add_column("Score", justify="right", style="bold green")
+        table.add_column("Peer Score", justify="right", style="green")
         table.add_column("Accuracy", justify="right")
         table.add_column("Security", justify="right")
         table.add_column("Complete", justify="right")
         table.add_column("Clarity", justify="right")
         table.add_column("Judge Wt", justify="right", style="magenta")
-        table.add_column("Avg Latency", justify="right", style="dim")
-        table.add_column("Judge Bias", justify="right", style="dim")
+        table.add_column("Latency", justify="right", style="dim")
+        table.add_column("Bias (Judge)", justify="right", style="dim")
+        table.add_column("Self-Bias", justify="right", style="yellow")
 
         for idx, m in enumerate(report.leaderboard, start=1):
             rank_badge = (
@@ -635,17 +684,24 @@ class BenchmarkRunner:
                 if m.grading_strictness_index > 0
                 else f"{m.grading_strictness_index:.1f}%"
             )
+            self_bias_str = (
+                f"+{m.self_preference_bias:.1f}%"
+                if m.self_preference_bias > 0
+                else f"{m.self_preference_bias:.1f}%"
+            )
             table.add_row(
                 rank_badge,
                 m.model,
                 f"{m.overall_percentage:.1f}%",
+                f"{m.peer_only_percentage:.1f}%",
                 f"{m.accuracy_avg:.1f}/10",
                 f"{m.security_avg:.1f}/10",
                 f"{m.completeness_avg:.1f}/10",
                 f"{m.clarity_avg:.1f}/10",
                 f"{m.judge_weight:.2f}",
-                f"{m.average_duration_seconds:.2f}s",
+                f"{m.average_duration_seconds:.1f}s",
                 bias_str,
+                self_bias_str,
             )
 
         report_path = CONST_DATA_DIR / "benchmarks" / f"{report.session_id}-benchmark.json"
