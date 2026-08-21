@@ -937,11 +937,21 @@ class BenchmarkRunner:
             )
             server_table.add_column("Server / Worker Node", style="cyan")
             server_table.add_column("Avg Latency", justify="right", style="bold yellow")
+            server_table.add_column("Speed Factor", justify="right", style="magenta")
             server_table.add_column("Total Time", justify="right", style="dim")
             server_table.add_column("Tasks", justify="right", style="dim")
             server_table.add_column("Avg Score Given", justify="right", style="magenta")
             server_table.add_column("Server Bias", justify="right")
             server_table.add_column("Per-Model Latency Breakdown", style="dim")
+
+            fastest_latency = min(
+                (
+                    s.generation_duration_avg
+                    for s in report.server_benchmarks
+                    if s.generation_duration_avg > 0
+                ),
+                default=0.0,
+            )
 
             for s in report.server_benchmarks:
                 bias_str = (
@@ -952,9 +962,18 @@ class BenchmarkRunner:
                 lat_breakdown = ", ".join(
                     f"{m.split(':')[0]}: {dur}s" for m, dur in s.model_latencies.items()
                 )
+                if len(report.server_benchmarks) > 1 and fastest_latency > 0:
+                    if s.generation_duration_avg == fastest_latency:
+                        speed_str = "[bold green]1.00x (fastest)[/bold green]"
+                    else:
+                        speed_str = f"{s.generation_duration_avg / fastest_latency:.2f}x slower"
+                else:
+                    speed_str = "1.00x"
+
                 server_table.add_row(
                     s.server,
                     f"{s.generation_duration_avg:.1f}s",
+                    speed_str,
                     f"{s.total_duration_seconds:.1f}s",
                     str(s.tasks_generated_count),
                     f"{s.avg_score_awarded:.1f}%",
@@ -1021,10 +1040,18 @@ class BenchmarkRunner:
         if report.server_benchmarks:
             lines.append("\n## Server Performance & Score Bias\n")
             lines.append(
-                "| Server / Worker | Avg Latency | Total Time | Tasks | "
+                "| Server / Worker | Avg Latency | Speed Factor | Total Time | Tasks | "
                 "Avg Score Given | Server Bias | Per-Model Latencies |"
             )
-            lines.append("| :--- | :---: | :---: | :---: | :---: | :---: | :--- |")
+            lines.append("| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :--- |")
+            fastest_lat = min(
+                (
+                    s.generation_duration_avg
+                    for s in report.server_benchmarks
+                    if s.generation_duration_avg > 0
+                ),
+                default=0.0,
+            )
             for s in report.server_benchmarks:
                 bias_str = (
                     f"+{s.server_score_bias:.1f}%"
@@ -1034,8 +1061,17 @@ class BenchmarkRunner:
                 lat_breakdown = ", ".join(
                     f"{m.split(':')[0]}: {dur}s" for m, dur in s.model_latencies.items()
                 )
+                if len(report.server_benchmarks) > 1 and fastest_lat > 0:
+                    speed_str = (
+                        "1.00x (fastest)"
+                        if s.generation_duration_avg == fastest_lat
+                        else f"{s.generation_duration_avg / fastest_lat:.2f}x slower"
+                    )
+                else:
+                    speed_str = "1.00x"
+
                 lines.append(
-                    f"| `{s.server}` | {s.generation_duration_avg:.1f}s | "
+                    f"| `{s.server}` | {s.generation_duration_avg:.1f}s | {speed_str} | "
                     f"{s.total_duration_seconds:.1f}s | {s.tasks_generated_count} | "
                     f"{s.avg_score_awarded:.1f}% | {bias_str} | {lat_breakdown or '-'} |"
                 )
