@@ -200,16 +200,23 @@ class PydanticAgent[T]:
                     tool_name = tc_info.tool_name
                     args = tc_info.arguments
                     if tool_name in self._tools:
+                        tool_obj = self._tools[tool_name]
+                        valid_params = set(tool_obj.parameters.keys())
+                        clean_args = (
+                            {k: v for k, v in args.items() if k in valid_params}
+                            if valid_params
+                            else args
+                        )
                         try:
-                            tool_result = self._tools[tool_name].execute(**args)
+                            tool_result = tool_obj.execute(**clean_args)
                         except Exception as exc:
                             tool_result = f"Tool execution error for {tool_name}: {exc}"
-                        tc = ToolCall(tool_name=tool_name, arguments=args, result=tool_result)
+                        tc = ToolCall(tool_name=tool_name, arguments=clean_args, result=tool_result)
                         tool_calls.append(tc)
                         executed_any = True
 
                         if on_tool_call:
-                            on_tool_call(tool_name, args, tool_result)
+                            on_tool_call(tool_name, clean_args, tool_result)
 
                         messages.append(ChatMessage(role="assistant", content=response_text))
                         messages.append(
@@ -241,7 +248,7 @@ class PydanticAgent[T]:
 
             if detected_tool and turn < max_turns:
                 tool_obj = self._tools[detected_tool]
-                example_args = {k: "..." for k in tool_obj.parameters}
+                example_args = {k: f"<{k}>" for k in tool_obj.parameters}
                 example_json = json.dumps(
                     {"tool": detected_tool, "arguments": example_args}, separators=(",", ":")
                 )
@@ -250,7 +257,7 @@ class PydanticAgent[T]:
                     ChatMessage(
                         role="user",
                         content=(
-                            f"Execute tool '{detected_tool}' now. Output ONLY:\n"
+                            f"Invoke tool '{detected_tool}' now. Output ONLY JSON:\n"
                             f"```json\n{example_json}\n```"
                         ),
                     )
