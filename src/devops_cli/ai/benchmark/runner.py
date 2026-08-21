@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import queue
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -269,62 +270,86 @@ class BenchmarkRunner:
         responses: list[TaskResponse] = []
         peer_grades: list[PeerGrade] = []
 
-        workers = min(self.concurrency, max(len(self.models), len(self.servers)))
+        num_servers = len(self.servers) if self.servers else 1
+        num_workers = min(self.concurrency, num_servers)
+
         rprint(
             f"[bold cyan]Starting AI Benchmark Suite[/bold cyan] "
             f"([green]{len(self.models)}[/green] models, [green]{len(self.tasks)}[/green] tasks, "
-            f"[yellow]{len(self.servers)}[/yellow] server(s), "
-            f"[yellow]{workers}[/yellow] concurrent worker(s))"
+            f"[yellow]{num_servers}[/yellow] server(s), "
+            f"[yellow]{num_workers}[/yellow] concurrent server worker(s))"
         )
 
         # ── Step 1: Generate Model Responses ─────────────────────────────────
         rprint(
             f"[dim]Step 1/2: Generating candidate responses grouped by model across servers "
-            f"(concurrency={workers})...[/dim]"
+            f"(workers={num_workers})...[/dim]"
         )
-        if workers > 1:
-            with ThreadPoolExecutor(max_workers=workers) as executor:
+        model_queue: queue.Queue[str] = queue.Queue()
+        for m in self.models:
+            model_queue.put(m)
+
+        def _worker_generate(server_url: str | None) -> list[TaskResponse]:
+            worker_res: list[TaskResponse] = []
+            while True:
+                try:
+                    m = model_queue.get_nowait()
+                except queue.Empty:
+                    break
+                try:
+                    worker_res.extend(self._run_model_generation(m, dry_run, server_url))
+                finally:
+                    model_queue.task_done()
+            return worker_res
+
+        if num_workers > 1:
+            with ThreadPoolExecutor(max_workers=num_workers) as executor:
                 futures = [
-                    executor.submit(
-                        self._run_model_generation,
-                        m,
-                        dry_run,
-                        self.servers[idx % len(self.servers)] if self.servers else None,
-                    )
-                    for idx, m in enumerate(self.models)
+                    executor.submit(_worker_generate, self.servers[i]) for i in range(num_workers)
                 ]
                 for f in as_completed(futures):
                     responses.extend(f.result())
         else:
-            for idx, m in enumerate(self.models):
-                s_url = self.servers[idx % len(self.servers)] if self.servers else None
-                responses.extend(self._run_model_generation(m, dry_run, s_url))
+            s_url = self.servers[0] if self.servers else None
+            responses.extend(_worker_generate(s_url))
 
         # ── Step 2: Peer Grading Matrix ──────────────────────────────────────
         rprint(
             f"\n[dim]Step 2/2: Cross-model blind peer grading across servers "
-            f"(concurrency={workers})...[/dim]"
+            f"(workers={num_workers})...[/dim]"
         )
         resp_map = {(r.task_id, r.model): r for r in responses}
 
-        if workers > 1:
-            with ThreadPoolExecutor(max_workers=workers) as grade_executor:
-                grade_futures = [
-                    grade_executor.submit(
-                        self._run_evaluator_grading,
-                        m,
-                        resp_map,
-                        dry_run,
-                        self.servers[idx % len(self.servers)] if self.servers else None,
+        judge_queue: queue.Queue[str] = queue.Queue()
+        for m in self.models:
+            judge_queue.put(m)
+
+        def _worker_grade(server_url: str | None) -> list[PeerGrade]:
+            worker_grades: list[PeerGrade] = []
+            while True:
+                try:
+                    m = judge_queue.get_nowait()
+                except queue.Empty:
+                    break
+                try:
+                    worker_grades.extend(
+                        self._run_evaluator_grading(m, resp_map, dry_run, server_url)
                     )
-                    for idx, m in enumerate(self.models)
+                finally:
+                    judge_queue.task_done()
+            return worker_grades
+
+        if num_workers > 1:
+            with ThreadPoolExecutor(max_workers=num_workers) as grade_executor:
+                grade_futures = [
+                    grade_executor.submit(_worker_grade, self.servers[i])
+                    for i in range(num_workers)
                 ]
                 for gf in as_completed(grade_futures):
                     peer_grades.extend(gf.result())
         else:
-            for idx, m in enumerate(self.models):
-                s_url = self.servers[idx % len(self.servers)] if self.servers else None
-                peer_grades.extend(self._run_evaluator_grading(m, resp_map, dry_run, s_url))
+            s_url = self.servers[0] if self.servers else None
+            peer_grades.extend(_worker_grade(s_url))
 
         # ── Step 3: Compute Leaderboard Aggregates ────────────────────────────
         leaderboard = self._compute_leaderboard(responses, peer_grades)
