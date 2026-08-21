@@ -189,6 +189,31 @@ def test_preload_models(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "http://localhost:11435/api/generate" in requested
 
 
+def test_preload_models_non_blocking(monkeypatch: pytest.MonkeyPatch) -> None:
+    import threading
+
+    cfg = AIConfig(
+        provider="ollama",
+        model="gemma4:26b",
+        ollama_urls=["http://localhost:11434"],
+    )
+    client = LLMClient(cfg)
+    completed_event = threading.Event()
+    callback_results: dict[str, bool] = {}
+
+    def fake_post(_self: object, url: str, **kwargs: object) -> httpx2.Response:
+        return httpx2.Response(200, json={"status": "success"}, request=httpx2.Request("POST", url))
+
+    def on_done(res: dict[str, bool]) -> None:
+        callback_results.update(res)
+        completed_event.set()
+
+    monkeypatch.setattr("httpx2.Client.post", fake_post)
+    client.prewarm_async(on_complete=on_done)
+    assert completed_event.wait(timeout=2.0)
+    assert callback_results == {"http://localhost:11434": True}
+
+
 def test_llm_response_processing_time(monkeypatch: pytest.MonkeyPatch) -> None:
     cfg = AIConfig(provider="ollama", ollama_urls=["http://localhost:11434"])
     client = LLMClient(cfg)

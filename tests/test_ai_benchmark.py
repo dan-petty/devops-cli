@@ -163,9 +163,11 @@ def test_benchmark_cli_command(tmp_path: Path) -> None:
         [
             "benchmark",
             "--models",
-            "model-1,model-2",
+            "model-1@http://server1:11434,model-2@http://server2:11434",
             "--tasks",
             "security",
+            "--concurrency",
+            "2",
             "--output",
             str(out_file),
             "--dry-run",
@@ -176,3 +178,21 @@ def test_benchmark_cli_command(tmp_path: Path) -> None:
     assert out_file.exists()
     report_data = json.loads(out_file.read_text(encoding="utf-8"))
     assert "leaderboard" in report_data
+
+
+def test_benchmark_runner_concurrent_execution() -> None:
+    """Verify concurrent execution across models with custom endpoint overrides."""
+    tasks = [BENCHMARK_TASKS[0]]
+    models = ["model-a@http://server-a:11434", "model-b@http://server-b:11434"]
+    b_runner = BenchmarkRunner(models=models, tasks=tasks, is_dry_run=True, concurrency=2)
+
+    # Test client configuration for parsed endpoints
+    client_a = b_runner._client_for_model("model-a@http://server-a:11434")
+    assert client_a._config.model == "model-a"
+    assert client_a._config.ollama_urls == ["http://server-a:11434"]
+
+    report = b_runner.execute()
+    assert report.is_dry_run is True
+    assert len(report.responses) == 2
+    assert len(report.peer_grades) == 4
+    assert len(report.leaderboard) == 2

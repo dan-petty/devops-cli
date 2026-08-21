@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import logging
 import os
 import socket
 import threading
@@ -36,6 +37,7 @@ from devops_cli.models.ai import ChatMessage
 from devops_cli.telemetry import record_metric, trace_span
 
 MAX_STREAM_BYTES = 50 * 1024 * 1024  # 50MB maximum streamed response size
+logger = logging.getLogger(__name__)
 
 
 class AIClientError(RuntimeError):
@@ -58,7 +60,7 @@ class LLMResponse(str):
         backend_info: str | None = None,
         thinking: str | None = None,
     ) -> LLMResponse:
-        obj = super().__new__(cls, content)
+        obj = str.__new__(cls, content)
         obj.processing_seconds = processing_seconds
         obj.wall_seconds = wall_seconds
         obj.backend_info = backend_info
@@ -67,7 +69,7 @@ class LLMResponse(str):
 
 
 class LLMClient:
-    """Unified chat-completion client across AI providers."""
+    """Unified client for interacting with AI models across different providers."""
 
     _ALLOW_PRIVATE_NETWORK_ENV = "DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK"
     _active_ollama_requests: dict[str, int] = {}
@@ -92,6 +94,7 @@ class LLMClient:
         config: AIConfig | None = None,
         api_key: str | None = None,
         *,
+        custom_endpoint: str | None = None,
         request_timeout_seconds: float | None = None,
     ) -> None:
         if config is None:
@@ -104,9 +107,10 @@ class LLMClient:
 
         self._config = config
         self._api_key = api_key or ""
+        self._custom_endpoint = custom_endpoint
         self._request_timeout_seconds = request_timeout_seconds
-        self._ollama_thinking_supported: bool | None = None  # None = unknown
-        self._ollama_url_index: int = 0
+        self._ollama_thinking_supported: bool | None = None
+        self._ollama_url_index = 0
         self._ollama_url_lock = threading.Lock()
 
     def _connection_error(self, exc: Exception) -> AIClientError:
@@ -154,7 +158,7 @@ class LLMClient:
                 base_url = CONST_URL_OPENAI_API_BASE
         if base_url:
             parsed = urlparse(base_url)
-            return parsed.netloc or parsed.path or base_url
+            return str(parsed.netloc or parsed.path or base_url)
         return "unknown"
 
     @property
@@ -167,39 +171,71 @@ class LLMClient:
         """Remove <think>...</think> chain-of-thought blocks emitted by thinking models."""
         return strip_think_blocks(text)
 
-    def preload_models(self) -> dict[str, bool]:
-        """Preload configured model into VRAM across all configured Ollama servers concurrently."""
+    def preload_models(
+        self,
+        blocking: bool = True,
+        on_complete: Callable[[dict[str, bool]], None] | None = None,
+    ) -> dict[str, bool]:
+        """Preload model into VRAM across all configured Ollama servers concurrently.
+
+        When blocking=False, prewarming runs in a background thread without blocking.
+        """
         if self._config.provider != "ollama":
             return {}
         all_urls = self._config.get_ollama_urls
         if not all_urls:
             return {}
 
-        results: dict[str, bool] = {}
+        def _do_preload() -> dict[str, bool]:
+            results: dict[str, bool] = {}
 
-        def _preload_single(url: str) -> tuple[str, bool]:
-            try:
-                base = self._validate_base_url(
-                    url,
-                    purpose="Ollama",
-                    allow_loopback_for_local_tooling=True,
-                )
-                with httpx2.Client(timeout=60.0) as http_client:
-                    res = http_client.post(
-                        f"{base}/api/generate",
-                        json={"model": self._config.model, "keep_alive": "1h"},
+            def _preload_single(url: str) -> tuple[str, bool]:
+                try:
+                    base = self._validate_base_url(
+                        url,
+                        purpose="Ollama",
+                        allow_loopback_for_local_tooling=True,
                     )
-                    return (url, res.status_code == 200)
-            except Exception:
-                return (url, False)
+                    with httpx2.Client(timeout=60.0) as http_client:
+                        res = http_client.post(
+                            f"{base}/api/generate",
+                            json={"model": self._config.model, "keep_alive": "1h"},
+                        )
+                        return (url, res.status_code == 200)
+                except Exception:
+                    return (url, False)
 
-        with ThreadPoolExecutor(max_workers=max(len(all_urls), 1)) as executor:
-            futures = [executor.submit(_preload_single, url) for url in all_urls]
-            for future in as_completed(futures):
-                url, ok = future.result()
-                results[url] = ok
+            with ThreadPoolExecutor(max_workers=max(len(all_urls), 1)) as executor:
+                futures = [executor.submit(_preload_single, url) for url in all_urls]
+                for future in as_completed(futures):
+                    url, ok = future.result()
+                    results[url] = ok
 
-        return results
+            if on_complete is not None:
+                try:
+                    on_complete(results)
+                except Exception as exc:
+                    logger.debug("Preload on_complete callback failed: %s", exc)
+
+            return results
+
+        if not blocking:
+            thread = threading.Thread(
+                target=_do_preload,
+                name=f"ollama-prewarm-{self._config.model}",
+                daemon=True,
+            )
+            thread.start()
+            return {}
+
+        return _do_preload()
+
+    def prewarm_async(
+        self,
+        on_complete: Callable[[dict[str, bool]], None] | None = None,
+    ) -> None:
+        """Non-blocking helper to prewarm model in a background daemon thread."""
+        self.preload_models(blocking=False, on_complete=on_complete)
 
     @staticmethod
     def _validate_response_text(

@@ -772,15 +772,11 @@ def _run_persona_loop(
         ollama_urls = getattr(config, "get_ollama_urls", [])
         if ollama_urls:
             n = len(ollama_urls)
-            rprint(f"[dim]Warming up model '{model_name}' across {n} Ollama node(s)...[/dim]")
-            preload_results = clients.analysis.preload_models()
-            for url, ok in preload_results.items():
-                status = (
-                    "[dim green]✓ ready[/dim green]"
-                    if ok
-                    else "[dim yellow]✗ offline/skipped[/dim yellow]"
-                )
-                rprint(f"[dim]  {url}: {status}[/dim]")
+            rprint(
+                f"[dim]Warming up model '{model_name}' in background across "
+                f"{n} Ollama node(s)...[/dim]"
+            )
+            clients.analysis.preload_models(blocking=False)
 
     analysis_info = getattr(clients.analysis, "backend_info", "")
     analysis_suffix = f" [{analysis_info}]" if analysis_info else ""

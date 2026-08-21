@@ -28,7 +28,7 @@ def run_benchmark(
         typer.Option(
             "--models",
             "-m",
-            help="Comma-separated candidate models (e.g. 'qwen2.5-coder:7b,mistral:latest')",
+            help="Comma-separated candidate models (e.g. 'qwen2.5:0.5b,llama3.1:8b@http://gpu2:11434')",
         ),
     ] = None,
     provider: Annotated[
@@ -43,6 +43,14 @@ def run_benchmark(
             help="Filter specific task categories or IDs (e.g. 'security,kubernetes')",
         ),
     ] = None,
+    concurrency: Annotated[
+        int,
+        typer.Option(
+            "--concurrency",
+            "-c",
+            help="Number of concurrent model server workers (default: automatic per model count)",
+        ),
+    ] = 4,
     output: Annotated[
         Path | None,
         typer.Option("--output", "-o", help="Destination JSON report filepath"),
@@ -83,6 +91,7 @@ def run_benchmark(
         settings=settings,
         provider=provider,
         is_dry_run=dry_run,
+        concurrency=concurrency,
     )
 
     report = runner.execute()

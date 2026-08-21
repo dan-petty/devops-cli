@@ -583,15 +583,11 @@ def chat(
         ollama_urls = client._config.get_ollama_urls
         if ollama_urls:
             n_nodes = len(ollama_urls)
-            rprint(f"[dim]Prewarming model '{settings.ai.model}' across {n_nodes} node(s)...[/dim]")
-            preload_results = client.preload_models()
-            for url, ok in preload_results.items():
-                status = (
-                    "[dim green]✓ ready[/dim green]"
-                    if ok
-                    else "[dim yellow]✗ offline/skipped[/dim yellow]"
-                )
-                rprint(f"[dim]  {url}: {status}[/dim]")
+            rprint(
+                f"[dim]Prewarming model '{settings.ai.model}' in background across "
+                f"{n_nodes} node(s)...[/dim]"
+            )
+            client.preload_models(blocking=False)
 
     agent_tools = get_persona_tools(persona) if tools else []
     agent: PydanticAgent[Any] = PydanticAgent(

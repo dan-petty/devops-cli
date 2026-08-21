@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import logging
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from rich import print as rprint
 from rich.console import Console
@@ -48,6 +51,7 @@ class BenchmarkRunner:
         settings: Settings | None = None,
         provider: str | None = None,
         is_dry_run: bool | None = None,
+        concurrency: int = 1,
     ) -> None:
         self.models = models or ["qwen2.5-coder:7b"]
         self.tasks = tasks
@@ -55,10 +59,32 @@ class BenchmarkRunner:
         self.provider = provider or self.settings.ai.provider
         self.session_id = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
         self._is_dry_run_override = is_dry_run
+        self.concurrency = max(1, concurrency)
+        self._print_lock = threading.Lock()
 
     def _client_for_model(self, model_name: str) -> LLMClient:
-        """Instantiate an LLMClient for a given model override."""
-        cfg = self.settings.ai.model_copy(update={"model": model_name})
+        """Instantiate an LLMClient for a given model override and optional server endpoint."""
+        endpoint = None
+        clean_model = model_name
+        if "@" in model_name:
+            clean_model, _, endpoint = model_name.partition("@")
+
+        updates: dict[str, Any] = {"model": clean_model}
+        if endpoint:
+            updates["ollama_urls"] = [endpoint]
+            updates["api_base_url"] = endpoint
+        elif self.settings.ai.ollama_urls:
+            # Round-robin across configured Ollama endpoints if multiple are configured
+            try:
+                m_idx = self.models.index(model_name)
+                assigned_url = self.settings.ai.ollama_urls[
+                    m_idx % len(self.settings.ai.ollama_urls)
+                ]
+                updates["ollama_urls"] = [assigned_url]
+            except Exception:
+                pass
+
+        cfg = self.settings.ai.model_copy(update=updates)
         api_key = get_ai_api_key(self.settings)
         return LLMClient(cfg, api_key=api_key)
 
@@ -106,6 +132,88 @@ class BenchmarkRunner:
             feedback=f"Candidate submission evaluated by {evaluator_model}.",
         )
 
+    def _run_model_generation(
+        self,
+        model_name: str,
+        dry_run: bool,
+    ) -> list[TaskResponse]:
+        """Execute all benchmark tasks on a specific candidate model sequentially."""
+        results: list[TaskResponse] = []
+        with self._print_lock:
+            rprint(f"[bold]Evaluating model:[/bold] [cyan]{model_name}[/cyan]")
+
+        client = self._client_for_model(model_name) if not dry_run else None
+        for task in self.tasks:
+            if dry_run:
+                resp = self._simulate_response(task, model_name)
+                results.append(resp)
+                continue
+
+            assert client is not None
+            t0 = time.monotonic()
+            try:
+                res_text = client.chat(
+                    system="You are an expert DevOps and DevSecOps staff engineer.",
+                    user=task.prompt,
+                )
+                duration = time.monotonic() - t0
+                results.append(
+                    TaskResponse(
+                        task_id=task.id,
+                        model=model_name,
+                        provider=self.provider,
+                        response=res_text,
+                        duration_seconds=round(duration, 2),
+                    )
+                )
+                with self._print_lock:
+                    rprint(
+                        f"  ✓ [{model_name}] completed [cyan]{task.id}[/cyan] in {duration:.1f}s"
+                    )
+            except Exception as exc:
+                logger.warning("Model %s failed on task %s: %s", model_name, task.id, exc)
+                results.append(
+                    TaskResponse(
+                        task_id=task.id,
+                        model=model_name,
+                        provider=self.provider,
+                        response=f"Error generating response: {exc}",
+                        duration_seconds=round(time.monotonic() - t0, 2),
+                    )
+                )
+        return results
+
+    def _run_evaluator_grading(
+        self,
+        evaluator_model: str,
+        resp_map: dict[tuple[str, str], TaskResponse],
+        dry_run: bool,
+    ) -> list[PeerGrade]:
+        """Execute all blind peer evaluations using a specific evaluator model sequentially."""
+        grades: list[PeerGrade] = []
+        with self._print_lock:
+            rprint(f"[bold]Evaluator judge:[/bold] [cyan]{evaluator_model}[/cyan]")
+
+        for task in self.tasks:
+            for candidate_model in self.models:
+                c_resp = resp_map.get((task.id, candidate_model))
+                if not c_resp:
+                    continue
+
+                if dry_run:
+                    grade = self._simulate_peer_grade(task, candidate_model, evaluator_model)
+                    grades.append(grade)
+                    continue
+
+                grade = self._evaluate_response(task, c_resp, evaluator_model)
+                grades.append(grade)
+                with self._print_lock:
+                    rprint(
+                        f"  ✓ [{evaluator_model}] graded [yellow]{candidate_model}[/yellow] "
+                        f"on [dim]{task.id}[/dim] → [bold]{grade.percentage:.1f}%[/bold]"
+                    )
+        return grades
+
     def execute(self) -> BenchmarkReport:
         """Run complete benchmark workflow across all tasks and candidate models."""
         dry_run = (
@@ -114,75 +222,44 @@ class BenchmarkRunner:
         responses: list[TaskResponse] = []
         peer_grades: list[PeerGrade] = []
 
+        workers = min(self.concurrency, len(self.models))
         rprint(
             f"[bold cyan]Starting AI Benchmark Suite[/bold cyan] "
-            f"([green]{len(self.models)}[/green] models, [green]{len(self.tasks)}[/green] tasks)"
+            f"([green]{len(self.models)}[/green] models, [green]{len(self.tasks)}[/green] tasks, "
+            f"[yellow]{workers}[/yellow] concurrent server workers)"
         )
 
-        # ── Step 1: Generate Model Responses (Grouped by Model) ──────────────
-        rprint("[dim]Step 1/2: Generating candidate responses grouped by model...[/dim]")
-        for model_name in self.models:
-            rprint(f"[bold]Evaluating model:[/bold] [cyan]{model_name}[/cyan]")
-            client = self._client_for_model(model_name) if not dry_run else None
-            for task in self.tasks:
-                if dry_run:
-                    resp = self._simulate_response(task, model_name)
-                    responses.append(resp)
-                    continue
+        # ── Step 1: Generate Model Responses ─────────────────────────────────
+        rprint(
+            f"[dim]Step 1/2: Generating candidate responses across models "
+            f"(concurrency={workers})...[/dim]"
+        )
+        if workers > 1:
+            with ThreadPoolExecutor(max_workers=workers) as executor:
+                futures = [
+                    executor.submit(self._run_model_generation, m, dry_run) for m in self.models
+                ]
+                for f in as_completed(futures):
+                    responses.extend(f.result())
+        else:
+            for m in self.models:
+                responses.extend(self._run_model_generation(m, dry_run))
 
-                assert client is not None
-                t0 = time.monotonic()
-                try:
-                    res_text = client.chat(
-                        system="You are an expert DevOps and DevSecOps staff engineer.",
-                        user=task.prompt,
-                    )
-                    duration = time.monotonic() - t0
-                    responses.append(
-                        TaskResponse(
-                            task_id=task.id,
-                            model=model_name,
-                            provider=self.provider,
-                            response=res_text,
-                            duration_seconds=round(duration, 2),
-                        )
-                    )
-                    rprint(f"  ✓ completed [cyan]{task.id}[/cyan] in {duration:.1f}s")
-                except Exception as exc:
-                    logger.warning("Model %s failed on task %s: %s", model_name, task.id, exc)
-                    responses.append(
-                        TaskResponse(
-                            task_id=task.id,
-                            model=model_name,
-                            provider=self.provider,
-                            response=f"Error generating response: {exc}",
-                            duration_seconds=round(time.monotonic() - t0, 2),
-                        )
-                    )
-
-        # ── Step 2: Peer Grading Matrix (Grouped by Evaluator Model) ──────────
-        rprint("\n[dim]Step 2/2: Cross-model blind peer grading (all models evaluated)...[/dim]")
+        # ── Step 2: Peer Grading Matrix ──────────────────────────────────────
+        rprint(f"\n[dim]Step 2/2: Cross-model blind peer grading (concurrency={workers})...[/dim]")
         resp_map = {(r.task_id, r.model): r for r in responses}
 
-        for evaluator_model in self.models:
-            rprint(f"[bold]Evaluator judge:[/bold] [cyan]{evaluator_model}[/cyan]")
-            for task in self.tasks:
-                for candidate_model in self.models:
-                    c_resp = resp_map.get((task.id, candidate_model))
-                    if not c_resp:
-                        continue
-
-                    if dry_run:
-                        grade = self._simulate_peer_grade(task, candidate_model, evaluator_model)
-                        peer_grades.append(grade)
-                        continue
-
-                    grade = self._evaluate_response(task, c_resp, evaluator_model)
-                    peer_grades.append(grade)
-                    rprint(
-                        f"  ✓ graded [yellow]{candidate_model}[/yellow] "
-                        f"on [dim]{task.id}[/dim] → [bold]{grade.percentage:.1f}%[/bold]"
-                    )
+        if workers > 1:
+            with ThreadPoolExecutor(max_workers=workers) as grade_executor:
+                grade_futures = [
+                    grade_executor.submit(self._run_evaluator_grading, m, resp_map, dry_run)
+                    for m in self.models
+                ]
+                for gf in as_completed(grade_futures):
+                    peer_grades.extend(gf.result())
+        else:
+            for m in self.models:
+                peer_grades.extend(self._run_evaluator_grading(m, resp_map, dry_run))
 
         # ── Step 3: Compute Leaderboard Aggregates ────────────────────────────
         leaderboard = self._compute_leaderboard(responses, peer_grades)
