@@ -27,3 +27,11 @@ def test_load_custom_repo_persona_exists(tmp_path: Path) -> None:
     assert custom_prompt in persona_def.system_prompt
     assert custom_prompt in persona_def.chat_prompt
     assert custom_prompt in persona_def.compose_prompt
+
+
+def test_load_custom_repo_persona_traversal(tmp_path: Path) -> None:
+    # Path traversal attempts should be rejected safely
+    result = load_custom_repo_persona(tmp_path, "../../etc/passwd")
+    assert result is None
+    result2 = load_custom_repo_persona(tmp_path, "sub/dir")
+    assert result2 is None

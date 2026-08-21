@@ -13,7 +13,16 @@ def strip_think_blocks(text: str) -> str:
     """Remove <think>...</think> chain-of-thought blocks from complete text."""
     if not text:
         return ""
-    return re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+    clean = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+    if not clean and "<think>" in text:
+        inner = re.findall(r"<think>(.*?)(?:</think>|$)", text, flags=re.DOTALL)
+        if inner:
+            for candidate in reversed(inner):
+                cand_strip = str(candidate).strip()
+                if "{" in cand_strip and "}" in cand_strip:
+                    return str(cand_strip)
+            return str(inner[-1]).strip()
+    return clean
 
 
 def extract_think_blocks(text: str) -> tuple[list[str], str]:
@@ -68,7 +77,9 @@ class ThinkingStreamProcessor:
             self.on_think_chunk(chunk)
         elif self.show_thinking:
             if self.console:
-                self.console.print(f"[dim italic]{chunk}[/dim italic]", end="")
+                from rich.markup import escape
+
+                self.console.print(f"[dim italic]{escape(chunk)}[/dim italic]", end="")
             else:
                 sys.stdout.write(chunk)
                 sys.stdout.flush()
@@ -94,7 +105,9 @@ class ThinkingStreamProcessor:
             self.on_content_chunk(chunk)
         else:
             if self.console:
-                self.console.print(chunk, end="")
+                from rich.markup import escape
+
+                self.console.print(escape(chunk), end="")
             else:
                 sys.stdout.write(chunk)
                 sys.stdout.flush()

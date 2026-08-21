@@ -6,7 +6,13 @@ Chronological log of refactoring milestones, quality gates, and security enhance
 
 ## Log Entries
 
-### [2026-08-17] Release v0.1.8 Implementation & Principal SRE Portfolio Elevation
+### [2026-08-20] Release v0.1.12 Enhancements & Open Source Modernization
+- **Official `qdrant-client` SDK Adoption**: Replaced handcrafted HTTP REST calls with the official `qdrant-client` SDK for vector database operations, enabling connection pooling, typed vector search (`query_points`), and batch upserts.
+- **Hierarchical Configuration with `pydantic-settings`**: Migrated `Settings` to inherit from `pydantic_settings.BaseSettings` with `SettingsConfigDict(env_prefix="DEVOPS_CLI_", env_nested_delimiter="__")`.
+- **Multi-Context & Remote Cluster Kubernetes Support (`devops k8s`)**: Added dynamic cluster reachability verification (`_cluster_reachable`) supporting remote k3s, EKS, and GKE cluster contexts via `kubectl cluster-info`, with `--context` (`-c`) support across all lifecycle commands and automatic iterative pre-existing Helm resource adoption (`_adopt_helm_resource_if_conflict`).
+- **Multi-GPU Native Ollama DaemonSet Deployment**: Consolidated the LLM stack to deploy `k8s/llm/ollama-daemonset.yaml` directly as a native manifest with `NVIDIA_VISIBLE_DEVICES: "all"`, `runtimeClassName: nvidia`, hostPort 11434, and shared NFS model cache.
+- **Code Review Finding Remediation & Prompt Hardening**: Remediated findings from session `20260820-011920` (path traversal defenses, tool description sanitization against prompt injection, version & label regex validations, telemetry query masking), hardened review prompts against syntax hallucinations, and exported 1,842 benchmark findings to `.data/feedback.jsonl`.
+- **Quality Gate**: Verified full test suite (419 unit tests passed), ruff lint clean, ruff format clean, strict mypy clean (109 source files), bandit security scan clean.
 - **Automated Release Cycle Suite (`devops release`)**: Implemented complete release subcommands suite (`status`, `prepare`, `check`, `notes`, `tag`) automating version bumping across `pyproject.toml` and `__init__.py`, updating `CHANGELOG.md`, and executing authoritative release verification.
 - **FastMCP Server Release Integration**: Added `release_status` MCP tool enabling AI agents to inspect version consistency, git tags, and documentation freshness over Model Context Protocol.
 - **Automated Documentation Introspection Engine (`devops docs`)**: Built dynamic Typer/Click introspection system generating markdown reference manuals (`CLI_REFERENCE.md`, `MCP_TOOLS.md`, `ENV_VARS.md`) and syncing the `README.md` Complete Command Matrix (`devops docs generate --sync-readme`, `devops docs check`).

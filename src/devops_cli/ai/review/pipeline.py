@@ -37,14 +37,27 @@ from devops_cli.ai.review_schema import (
     ReviewResult,
     ReviewSessionPayload,
     SavedFinding,
+    consolidate_duplicate_findings,
     parse_review_result,
 )
+from devops_cli.ai.thinking import extract_think_blocks
 from devops_cli.config.constants import (
     CONST_DATA_DIR,
     CONST_MAX_FILE_SIZE_BYTES,
     CONST_REVIEWS_DATA_DIR,
 )
 from devops_cli.models.ai import FileAnalysisMeta
+from devops_cli.security.intelligence import (
+    CloudflareRadarClient,
+    DependencySpec,
+    NetworkReference,
+    NetworkReputationRecord,
+    OSVClient,
+    ShodanInternetDBClient,
+    VulnerabilityRecord,
+    extract_dependencies_from_text,
+    extract_network_references,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +65,12 @@ logger = logging.getLogger(__name__)
 class ReviewPipelineOrchestrator:
     """Orchestrates 6-stage multi-agent code reviews with per-file payloads and AI scratchpads."""
 
-    def __init__(self, session_id: str | None = None, llm_client: LLMClient | None = None) -> None:
+    def __init__(
+        self,
+        session_id: str | None = None,
+        llm_client: LLMClient | None = None,
+        target_dir: Path = Path("."),
+    ) -> None:
         self.session_id = session_id or datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
         base_dir = (
             CONST_DATA_DIR / "reviews"
@@ -64,6 +82,23 @@ class ReviewPipelineOrchestrator:
         self.session_dir.mkdir(parents=True, exist_ok=True)
         self.files_dir.mkdir(parents=True, exist_ok=True)
         self.llm_client = llm_client or LLMClient()
+        self.target_dir = target_dir
+
+    def _resolve_file_path(self, fpath: str) -> Path:
+        """Resolve fpath to an existing filesystem Path, prioritizing target_dir."""
+        p_fpath = Path(fpath)
+        if p_fpath.is_absolute() and p_fpath.exists():
+            return p_fpath
+
+        candidates = [
+            self.target_dir.resolve() / fpath,
+            Path.cwd().resolve() / fpath,
+            p_fpath,
+        ]
+        for c in candidates:
+            if c.exists() and c.is_file():
+                return c
+        return candidates[0]
 
     def _get_server_info(self) -> str:
         """Return formatted string describing target AI/LLM provider, host, and model."""
@@ -98,6 +133,7 @@ class ReviewPipelineOrchestrator:
         if is_dry_run():
             return {}
 
+        self.target_dir = target_dir
         repo = find_repo_root(target_dir)
         target_abs = (
             target_dir.resolve() if target_dir.is_absolute() else (repo / target_dir).resolve()
@@ -185,46 +221,164 @@ class ReviewPipelineOrchestrator:
 
     # ── Stage 2: Per-File Review Session JSON Initialization ──────────────────
     def init_per_file_payloads(
-        self, file_paths: list[str], metadata_by_path: dict[str, FileAnalysisMeta]
+        self,
+        file_paths: list[str],
+        metadata_by_path: dict[str, FileAnalysisMeta],
+        target_dir: Path | None = None,
     ) -> list[FileReviewPayload]:
         """Initialize per-file JSON payloads under session files directory."""
+        if target_dir is not None:
+            self.target_dir = target_dir
+
         n_paths = len(file_paths)
         rprint(f"[dim]Stage 2/6: Initializing payload tracking for {n_paths} file(s)...[/dim]")
         payloads: list[FileReviewPayload] = []
 
         static_findings_by_file: dict[str, list[SavedFinding]] = {}
         try:
+            from devops_cli.security.bandit import run_bandit_scan
             from devops_cli.security.kubelinter import run_kubelinter_scan
+            from devops_cli.security.pluto import run_pluto_scan
             from devops_cli.security.trivy import run_trivy_scan
 
-            for fpath in file_paths:
-                p_obj = Path(fpath)
+            def _scan_file_static(fpath: str) -> tuple[str, list[SavedFinding]]:
+                p_obj = self._resolve_file_path(fpath)
+                p_name = Path(fpath).name.lower()
+                findings: list[SavedFinding] = []
+
+                # 1. Kube-linter & Pluto scan for K8s manifests
                 if fpath.endswith((".yaml", ".yml")):
                     kl_findings = run_kubelinter_scan(p_obj)
                     if kl_findings:
-                        sf_list = [
-                            SavedFinding(
-                                **f.model_dump(),
-                                persona="devsecops",
-                                persona_title="Principal DevSecOps Engineer",
-                            )
-                            for f in kl_findings
-                        ]
-                        static_findings_by_file.setdefault(fpath, []).extend(sf_list)
-                t_findings = run_trivy_scan(p_obj, scan_type="fs")
-                if t_findings:
-                    sf_list = [
-                        SavedFinding(
-                            **f.model_dump(),
-                            persona="devsecops",
-                            persona_title="Principal DevSecOps Engineer",
+                        findings.extend(
+                            [
+                                SavedFinding(
+                                    **f.model_dump(),
+                                    persona="devsecops",
+                                    persona_title="Principal DevSecOps Engineer",
+                                )
+                                for f in kl_findings
+                            ]
                         )
-                        for f in t_findings
-                    ]
-                    static_findings_by_file.setdefault(fpath, []).extend(sf_list)
+
+                    pluto_findings = run_pluto_scan(p_obj)
+                    if pluto_findings:
+                        findings.extend(
+                            [
+                                SavedFinding(
+                                    **f.model_dump(),
+                                    persona="devsecops",
+                                    persona_title="Principal DevSecOps Engineer",
+                                )
+                                for f in pluto_findings
+                            ]
+                        )
+
+                # 2. Bandit static security scanner for Python files
+                if fpath.endswith(".py"):
+                    bandit_findings = run_bandit_scan(p_obj)
+                    if bandit_findings:
+                        findings.extend(
+                            [
+                                SavedFinding(
+                                    **f.model_dump(),
+                                    persona="devsecops",
+                                    persona_title="Principal DevSecOps Engineer",
+                                )
+                                for f in bandit_findings
+                            ]
+                        )
+
+                # 3. Aqua Trivy scan for Dockerfiles and lockfiles
+                if p_name in ("dockerfile", "containerfile") or p_name.endswith(
+                    (".lock", ".lockb")
+                ):
+                    t_findings = run_trivy_scan(
+                        p_obj,
+                        scan_type="config" if "docker" in p_name else "fs",
+                    )
+                    if t_findings:
+                        findings.extend(
+                            [
+                                SavedFinding(
+                                    **f.model_dump(),
+                                    persona="devsecops",
+                                    persona_title="Principal DevSecOps Engineer",
+                                )
+                                for f in t_findings
+                            ]
+                        )
+
+                return fpath, findings
+
+            with ThreadPoolExecutor(max_workers=8) as executor:
+                for fpath, f_findings in executor.map(_scan_file_static, file_paths):
+                    if f_findings:
+                        static_findings_by_file.setdefault(fpath, []).extend(f_findings)
         except Exception:
             pass
 
+        osv_client = OSVClient()
+        shodan_client = ShodanInternetDBClient()
+        radar_client = CloudflareRadarClient()
+
+        # 1. Parse dependencies and network references across target files
+        raw_file_data: dict[str, tuple[list[DependencySpec], list[NetworkReference]]] = {}
+        all_unique_deps: set[tuple[str, str, str]] = set()
+        all_unique_nets: set[tuple[str, str]] = set()
+
+        for fpath in file_paths:
+            file_deps: list[DependencySpec] = []
+            file_nets: list[NetworkReference] = []
+            p_target = self._resolve_file_path(fpath)
+            if p_target.exists() and p_target.is_file():
+                try:
+                    f_content = p_target.read_text(encoding="utf-8", errors="replace")
+                    file_deps = extract_dependencies_from_text(f_content, fpath)
+                    file_nets = extract_network_references(f_content, fpath)
+                except Exception:
+                    pass
+            raw_file_data[fpath] = (file_deps, file_nets)
+            for d in file_deps:
+                all_unique_deps.add((d.name, d.version_range, d.ecosystem))
+            for n in file_nets:
+                all_unique_nets.add((n.target, n.reference_type))
+
+        # 2. Concurrently pre-fetch unique dependency vulnerabilities and network reputations
+        dep_cache: dict[tuple[str, str, str], list[VulnerabilityRecord]] = {}
+        net_cache: dict[str, NetworkReputationRecord] = {}
+
+        def _fetch_dep(
+            d_key: tuple[str, str, str],
+        ) -> tuple[tuple[str, str, str], list[VulnerabilityRecord]]:
+            name, ver, eco = d_key
+            try:
+                vulns = osv_client.check_vulnerability(name, ver, eco)
+                return d_key, vulns
+            except Exception:
+                return d_key, []
+
+        def _fetch_net(n_key: tuple[str, str]) -> tuple[str, NetworkReputationRecord]:
+            target, rtype = n_key
+            try:
+                if rtype == "ip":
+                    rep = shodan_client.check_ip(target)
+                else:
+                    rep = radar_client.check_domain(target)
+                return target, rep
+            except Exception:
+                return target, NetworkReputationRecord(target=target, ip="")
+
+        if all_unique_deps or all_unique_nets:
+            with ThreadPoolExecutor(max_workers=8) as executor:
+                if all_unique_deps:
+                    for d_key, vulns in executor.map(_fetch_dep, list(all_unique_deps)):
+                        dep_cache[d_key] = vulns
+                if all_unique_nets:
+                    for target, rep in executor.map(_fetch_net, list(all_unique_nets)):
+                        net_cache[target] = rep
+
+        # 3. Assemble FileReviewPayload objects
         for fpath in file_paths:
             fmeta = self._find_matching_metadata(fpath, metadata_by_path) or FileAnalysisMeta(
                 path=fpath
@@ -239,22 +393,100 @@ class ReviewPipelineOrchestrator:
                 if sym_match or dep_match:
                     linked.append(other_meta)
 
+            file_deps, file_nets = raw_file_data.get(fpath, ([], []))
+            initial_findings = list(static_findings_by_file.get(fpath, []))
+
+            # Apply audited dependency results
+            for dep in file_deps:
+                d_key = (dep.name, dep.version_range, dep.ecosystem)
+                vulns = dep_cache.get(d_key, [])
+                if vulns:
+                    dep.vulnerabilities = vulns
+                    dep.security_status = f"⚠️ {len(vulns)} Known Vuln(s)"
+                else:
+                    dep.security_status = "✓ Clean"
+
+                for v in vulns:
+                    initial_findings.append(
+                        SavedFinding(
+                            severity=v.severity,
+                            location=f"{fpath}:1",
+                            title=f"Vulnerable Dependency: {dep.name} ({v.id})",
+                            description=(
+                                f"Dependency '{dep.name}' ({dep.version_range}) is affected by "
+                                f"{v.id}: {v.summary}"
+                            ),
+                            fix=f"Upgrade '{dep.name}' to a patched release.",
+                            references=[v.details_url] if v.details_url else [],
+                            verification_criteria=[f"Package '{dep.name}' declared in {fpath}"],
+                            invalidation_criteria=["Dependency upgraded or patched in lockfile"],
+                            verified_criteria_matched=[f"Package '{dep.name}' declared in {fpath}"],
+                            status="VERIFIED",
+                            verified=True,
+                            reportable=True,
+                            confidence_score=0.95,
+                            persona="devsecops",
+                            persona_title="Principal DevSecOps Engineer",
+                        )
+                    )
+
+            # Apply audited network reference results
+            for net in file_nets:
+                rep = net_cache.get(net.target, NetworkReputationRecord(target=net.target, ip=""))
+                net.reputation = rep
+                if rep.is_malicious:
+                    net.security_status = f"⚠️ Flagged ({rep.reputation_summary})"
+                elif rep.ports:
+                    net.security_status = f"✓ Safe (Ports: {', '.join(map(str, rep.ports[:3]))})"
+                else:
+                    net.security_status = "✓ Safe / Low Risk"
+
+                if rep.is_malicious:
+                    initial_findings.append(
+                        SavedFinding(
+                            severity="HIGH",
+                            location=f"{fpath}:{net.line_number or 1}",
+                            title=f"Suspicious / Vulnerable Network Reference: {net.target}",
+                            description=(
+                                f"External host '{net.target}' flagged by {rep.source}: "
+                                f"{rep.reputation_summary}"
+                            ),
+                            fix=f"Sanitize or remove external host reference '{net.target}'.",
+                            references=[f"https://internetdb.shodan.io/{rep.ip}"] if rep.ip else [],
+                            verification_criteria=[f"Host '{net.target}' referenced in {fpath}"],
+                            invalidation_criteria=["Internal test fixture or isolated sandbox"],
+                            verified_criteria_matched=[
+                                f"Host '{net.target}' referenced in {fpath}"
+                            ],
+                            status="VERIFIED",
+                            verified=True,
+                            reportable=True,
+                            confidence_score=0.90,
+                            persona="devsecops",
+                            persona_title="Principal DevSecOps Engineer",
+                        )
+                    )
+
             sanitized_name = _sanitize_filename(fpath) + ".json"
             json_file = self.files_dir / sanitized_name
-            initial_findings = static_findings_by_file.get(fpath, [])
 
             payload = FileReviewPayload(
                 file_path=fpath,
                 metadata=fmeta,
                 linked_files=linked,
                 findings=initial_findings,
+                external_dependencies=file_deps,
+                network_references=file_nets,
                 ai_scratchpad={
                     "initialized_at": datetime.now(UTC).isoformat(),
                     "stage": "initialized",
                     "thoughts": [
                         f"Tracking findings for {fpath}",
                         *(
-                            [f"Injected {len(initial_findings)} static security scan finding(s)"]
+                            [
+                                f"Injected {len(initial_findings)} static scan / "
+                                "threat intel finding(s)"
+                            ]
                             if initial_findings
                             else []
                         ),
@@ -327,17 +559,40 @@ class ReviewPipelineOrchestrator:
 
             from devops_cli.ai.personas import Persona
 
+            persona_lookup: dict[str, tuple[str, str]] = {}
+            target_agents_path = self.target_dir / "AGENTS.md"
+            target_conventions = ""
+            if target_agents_path.exists() and target_agents_path.is_file():
+                try:
+                    c_text = target_agents_path.read_text(encoding="utf-8", errors="replace")[:3000]
+                    target_conventions = (
+                        f"\n\nTarget Repository Conventions ({target_agents_path.name}):\n"
+                        f"{c_text}\n"
+                    )
+                except Exception:
+                    pass
+
             for p_key in active_personas:
                 try:
                     persona_enum = Persona(p_key) if isinstance(p_key, str) else p_key
+                    p_val = (
+                        persona_enum.value if hasattr(persona_enum, "value") else str(persona_enum)
+                    )
                 except ValueError:
                     persona_enum = Persona.DEVSECOPS
+                    p_val = "devsecops"
                 p_def = PERSONAS[persona_enum]
+                persona_lookup[p_def.title] = (p_val, p_def.title)
+                persona_lookup[p_val] = (p_val, p_def.title)
                 sys_prompt = (
                     f"You are {p_def.title}.\n{p_def.system_prompt}\n\n"
                     "CRITICAL: Examine code carefully for flaws and security vulnerabilities.\n"
+                    "Evaluate code objectively according to its target runtime and architecture "
+                    "without enforcing host project layout.\n"
+                    f"{target_conventions}"
                     "Report all findings in 'findings' JSON array with severity, location, title, "
-                    "description, fix, verification, and confidence_score."
+                    "description, fix, verification_criteria, invalidation_criteria, and "
+                    "confidence_score."
                 )
                 agent = PydanticAgent[ReviewResult](
                     client=self.llm_client,
@@ -348,9 +603,40 @@ class ReviewPipelineOrchestrator:
                 pipeline.add_agent(agent)
 
             symbols = ", ".join(payload.metadata.key_symbols if payload.metadata else [])
+            rag_context_str = ""
+            try:
+                from devops_cli.ai.rag.embeddings import EmbeddingsEngine
+                from devops_cli.ai.rag.qdrant import QdrantClient
+                from devops_cli.ai.rag.retriever import SemanticRetriever
+                from devops_cli.config.settings import get_ai_api_key, load_settings
+
+                st = load_settings()
+                if st.ai.rag.enabled:
+                    q_client = QdrantClient(
+                        base_url=st.qdrant.url or "http://localhost:6333",
+                        allow_private_network=st.ai.allow_private_network,
+                    )
+                    if q_client.is_alive():
+                        emb_engine = EmbeddingsEngine(ai_config=st.ai, api_key=get_ai_api_key(st))
+                        retriever = SemanticRetriever(
+                            qdrant=q_client,
+                            embedder=emb_engine,
+                            code_collection=f"{st.qdrant.collection_prefix}_code",
+                            docs_collection=f"{st.qdrant.collection_prefix}_docs",
+                            default_top_k=3,
+                        )
+                        ctx = retriever.retrieve_context(f"{fpath} {symbols}")
+                        if ctx.has_results:
+                            rag_context_str = (
+                                f"\n\nCross-File Architecture & Context:\n{ctx.formatted_text}"
+                            )
+            except Exception:
+                pass
+
             prompt = (
                 f"Review File: {fpath}\n"
-                f"Key Symbols: {symbols}\n\n"
+                f"Key Symbols: {symbols}"
+                f"{rag_context_str}\n\n"
                 f"Code Content / Diff:\n{content_or_diff}"
             )
 
@@ -358,9 +644,23 @@ class ReviewPipelineOrchestrator:
             actual_servers: list[str] = []
             try:
                 result = pipeline.run(prompt, max_turns_per_agent=1, enable_thinking=False)
+                thoughts_list: list[str] = payload.ai_scratchpad.setdefault("thoughts", [])
                 for step in result.steps:
                     if step.backend_info and step.backend_info not in actual_servers:
                         actual_servers.append(step.backend_info)
+
+                    # Extract thinking blocks from step
+                    if step.thoughts:
+                        for t in step.thoughts:
+                            t_clean = t.strip()
+                            if t_clean and t_clean not in thoughts_list:
+                                thoughts_list.append(f"[{step.agent_name}] {t_clean}")
+                    elif step.content:
+                        thinks, _ = extract_think_blocks(step.content)
+                        for t in thinks:
+                            t_clean = t.strip()
+                            if t_clean and t_clean not in thoughts_list:
+                                thoughts_list.append(f"[{step.agent_name}] {t_clean}")
 
                     parsed: ReviewResult | None = None
                     if step.parsed_data and isinstance(step.parsed_data, ReviewResult):
@@ -368,12 +668,23 @@ class ReviewPipelineOrchestrator:
                     else:
                         parsed = parse_review_result(step.content)
 
+                    p_val, p_title = persona_lookup.get(
+                        step.agent_name,
+                        (step.agent_name.lower().replace(" ", "_"), step.agent_name),
+                    )
+
+                    rec_str = parsed.recommendation if parsed else "REVIEW"
+                    n_findings_step = len(parsed.findings) if parsed else 0
+                    thoughts_list.append(
+                        f"[{p_title}] Evaluated {fpath}: {rec_str} ({n_findings_step} finding(s))"
+                    )
+
                     if parsed and parsed.findings:
                         for f in parsed.findings:
                             saved = SavedFinding(
                                 **f.model_dump(),
-                                persona=step.agent_name,
-                                persona_title=step.agent_name,
+                                persona=p_val,
+                                persona_title=p_title,
                             )
                             file_findings.append(saved)
 
@@ -384,6 +695,9 @@ class ReviewPipelineOrchestrator:
                 payload.findings = []
                 payload.ai_scratchpad["stage"] = "failed"
                 payload.ai_scratchpad["error"] = str(exc)
+                payload.ai_scratchpad.setdefault("thoughts", []).append(
+                    f"Review failed for {fpath}: {exc}"
+                )
 
             sanitized_name = _sanitize_filename(fpath) + ".json"
             json_target = self.files_dir / sanitized_name
@@ -432,9 +746,9 @@ class ReviewPipelineOrchestrator:
         def _verify_single_file(arg: tuple[int, FileReviewPayload]) -> None:
             idx, payload = arg
             fpath = payload.file_path
-            target_file = Path(fpath)
+            target_file = self._resolve_file_path(fpath)
             file_code = ""
-            if target_file.exists():
+            if target_file.exists() and target_file.is_file():
                 try:
                     file_code = target_file.read_text(encoding="utf-8", errors="replace")
                 except Exception:
@@ -442,8 +756,8 @@ class ReviewPipelineOrchestrator:
 
             linked_snippets: list[str] = []
             for lmeta in payload.linked_files:
-                lpath = Path(lmeta.path)
-                if lpath.exists():
+                lpath = self._resolve_file_path(lmeta.path)
+                if lpath.exists() and lpath.is_file():
                     try:
                         snippet = lpath.read_text(encoding="utf-8", errors="replace")[:2000]
                         linked_snippets.append(f"Linked File ({lmeta.path}):\n{snippet}")
@@ -468,11 +782,25 @@ class ReviewPipelineOrchestrator:
                 orig.status = v.status
                 orig.verified = v.verified
                 orig.mitigated = v.mitigated
+                orig.reportable = v.reportable
                 orig.invalidation_reason = v.invalidation_reason
                 orig.confidence_score = v.confidence_score
+                orig.verification_criteria = v.verification_criteria
+                orig.invalidation_criteria = v.invalidation_criteria
+                orig.verified_criteria_matched = v.verified_criteria_matched
+                orig.invalidated_criteria_matched = v.invalidated_criteria_matched
                 orig.verified_by = "llm"
                 orig.verified_at = datetime.now(UTC).isoformat()
                 updated_saved.append(orig)
+
+            valid_cnt = sum(1 for f in updated_saved if f.status in ("VERIFIED", "MITIGATED"))
+            tot_u = len(updated_saved)
+
+            thoughts_list = payload.ai_scratchpad.setdefault("thoughts", [])
+            thoughts_list.append(
+                f"[Stage 4 Verification] Verified {tot_u} finding(s) for {payload.file_path}: "
+                f"{valid_cnt} confirmed/mitigated, {tot_u - valid_cnt} invalidated/unverified"
+            )
 
             payload.findings = updated_saved
             payload.ai_scratchpad["stage"] = "verified"
@@ -481,8 +809,6 @@ class ReviewPipelineOrchestrator:
             json_target = self.files_dir / sanitized_name
             json_target.write_text(payload.model_dump_json(indent=2), encoding="utf-8")
 
-            valid_cnt = sum(1 for f in updated_saved if f.status in ("VERIFIED", "MITIGATED"))
-            tot_u = len(updated_saved)
             handled_by = actual_backend or server_info
             try:
                 sec_val = float(elapsed_sec)
@@ -509,19 +835,28 @@ class ReviewPipelineOrchestrator:
         rprint(f"[dim]Stage 5/6: Re-ranking and validating findings for {n_p} file(s)...[/dim]")
         for payload in file_payloads:
             valid_findings = [
-                f for f in payload.findings if f.status in ("VERIFIED", "UNVERIFIED", "MITIGATED")
+                f
+                for f in payload.findings
+                if f.reportable and f.status in ("VERIFIED", "UNVERIFIED", "MITIGATED")
             ]
             for f in payload.findings:
-                payload.reportable = f.status != "INVALIDATED"
+                payload.reportable = f.status != "INVALIDATED" and f.reportable
             payload.ai_scratchpad["stage"] = "reranked"
             payload.ai_scratchpad["reportable_count"] = len(valid_findings)
+
+            thoughts_list = payload.ai_scratchpad.setdefault("thoughts", [])
+            thoughts_list.append(
+                f"[Stage 5 Re-ranking] Identified {len(valid_findings)} reportable finding(s) "
+                f"from {len(payload.findings)} total candidate(s)"
+            )
 
             sanitized_name = _sanitize_filename(payload.file_path) + ".json"
             json_target = self.files_dir / sanitized_name
             json_target.write_text(payload.model_dump_json(indent=2), encoding="utf-8")
 
         total_reportable = sum(
-            len([f for f in p.findings if f.status != "INVALIDATED"]) for p in file_payloads
+            len([f for f in p.findings if f.reportable and f.status != "INVALIDATED"])
+            for p in file_payloads
         )
         rprint(f"[dim]  ✓ Re-ranked: {total_reportable} reportable finding(s) identified[/dim]")
 
@@ -534,13 +869,29 @@ class ReviewPipelineOrchestrator:
         all_findings: list[SavedFinding] = []
         for payload in file_payloads:
             for f in payload.findings:
-                if f.status != "INVALIDATED":
+                if f.status != "INVALIDATED" and f.reportable:
                     all_findings.append(f)
+
+        all_findings = consolidate_duplicate_findings(all_findings)
+
+        all_deps: list[DependencySpec] = []
+        all_nets: list[NetworkReference] = []
+        for payload in file_payloads:
+            for d in payload.external_dependencies:
+                if not any(
+                    x.name == d.name and x.version_range == d.version_range for x in all_deps
+                ):
+                    all_deps.append(d)
+            for n in payload.network_references:
+                if not any(x.target == n.target for x in all_nets):
+                    all_nets.append(n)
 
         payload_out = ReviewSessionPayload(
             generated_at=datetime.now(UTC).isoformat(),
             personas=["devsecops", "architect", "qa"],
             findings=all_findings,
+            external_dependencies=all_deps,
+            network_references=all_nets,
         )
 
         findings_json_path = self.session_dir / "findings.json"
@@ -558,13 +909,14 @@ class ReviewPipelineOrchestrator:
         if not all_findings:
             lines.append("✅ **No critical issues found during review.**")
         else:
-            lines.append("| Severity | Location | Title | Status | Confidence |")
+            lines.append("| Severity | Location | Title | Status | Persona |")
             lines.append("|---|---|---|---|---|")
             for f in all_findings:
-                conf = f"{f.confidence_score:.2f}" if f.confidence_score is not None else "N/A"
-                lines.append(
-                    f"| **{f.severity}** | `{f.location}` | {f.title} | {f.status} | {conf} |"
+                row = (
+                    f"| **{f.severity}** | `{f.location}` | {f.title} | "
+                    f"{f.status} | {f.persona_title} |"
                 )
+                lines.append(row)
 
             lines.append("")
             lines.append("## Detailed Findings")
@@ -573,15 +925,80 @@ class ReviewPipelineOrchestrator:
                 lines.append(f"- **Location**: `{f.location}`")
                 lines.append(f"- **Persona**: {f.persona_title}")
                 lines.append(f"- **Status**: {f.status}")
-                if f.confidence_score is not None:
-                    lines.append(f"- **Confidence Score**: {f.confidence_score:.2f}")
                 lines.append(f"- **Description**: {f.description}")
                 if f.fix:
                     lines.append(f"- **Fix Recommendation**:\n```\n{f.fix}\n```")
                 lines.append("")
 
+        if all_deps:
+            lines.append("## External Dependencies (OSV.dev & NVD)")
+            lines.append(
+                "| Dependency | Version Range | Ecosystem | Security Status | Source File |"
+            )
+            lines.append("|---|---|---|---|---|")
+            for dep in all_deps:
+                lines.append(
+                    f"| `{dep.name}` | `{dep.version_range}` | {dep.ecosystem} | "
+                    f"{dep.security_status} | `{dep.source_file}` |"
+                )
+            lines.append("")
+
+        if all_nets:
+            lines.append("## External Network References (Shodan InternetDB & Cloudflare Radar)")
+            lines.append("| Target | Type | Security Status | Source File | Line |")
+            lines.append("|---|---|---|---|---|")
+            for net in all_nets:
+                l_str = str(net.line_number) if net.line_number else "—"
+                lines.append(
+                    f"| `{net.target}` | {net.reference_type} | {net.security_status} | "
+                    f"`{net.source_file}` | {l_str} |"
+                )
+            lines.append("")
+
         report_md = "\n".join(lines)
         (self.session_dir / "review.md").write_text(report_md, encoding="utf-8")
+
+        from rich.console import Console
+        from rich.table import Table
+
+        console = Console()
+        if all_deps:
+            dep_tbl = Table(title="External Dependencies Security Audit (OSV.dev & NVD)")
+            dep_tbl.add_column("Dependency", style="bold cyan")
+            dep_tbl.add_column("Version Range")
+            dep_tbl.add_column("Ecosystem")
+            dep_tbl.add_column("Security Status")
+            dep_tbl.add_column("Source File", style="dim")
+            for d in all_deps:
+                color = "red" if "⚠️" in d.security_status else "green"
+                dep_tbl.add_row(
+                    d.name,
+                    d.version_range,
+                    d.ecosystem,
+                    f"[{color}]{d.security_status}[/{color}]",
+                    d.source_file,
+                )
+            console.print(dep_tbl)
+
+        if all_nets:
+            net_tbl = Table(
+                title="External Network References Security Audit (Shodan & Cloudflare Radar)"
+            )
+            net_tbl.add_column("Target", style="bold cyan")
+            net_tbl.add_column("Type")
+            net_tbl.add_column("Security Status")
+            net_tbl.add_column("Source File", style="dim")
+            net_tbl.add_column("Line", justify="right")
+            for n in all_nets:
+                color = "red" if "⚠️" in n.security_status else "green"
+                net_tbl.add_row(
+                    n.target,
+                    n.reference_type,
+                    f"[{color}]{n.security_status}[/{color}]",
+                    n.source_file,
+                    str(n.line_number or "—"),
+                )
+            console.print(net_tbl)
 
         rprint(
             f"[green]✓ Consolidated review completed for session {self.session_id}[/green] "

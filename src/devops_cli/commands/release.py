@@ -510,7 +510,12 @@ def release_pr(
     if draft:
         pr_cmd.append("--draft")
     if labels:
-        pr_cmd.extend(["--label", labels])
+        cleaned_labels = [lbl.strip() for lbl in labels.split(",") if lbl.strip()]
+        for lbl in cleaned_labels:
+            if not re.match(r"^[a-zA-Z0-9_\- /.:]+$", lbl):
+                rprint(f"[red]Error: Invalid label '{lbl}'.[/red]")
+                raise typer.Exit(1)
+            pr_cmd.extend(["--label", lbl])
 
     pr_proc = run_subprocess(pr_cmd, cwd=repo_root)
     if pr_proc.returncode != 0 and labels and "label" in (pr_proc.stderr or "").lower():

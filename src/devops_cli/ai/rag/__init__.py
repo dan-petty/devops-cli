@@ -1,0 +1,24 @@
+"""Retrieval-Augmented Generation (RAG) module for devops-cli."""
+
+from __future__ import annotations
+
+from devops_cli.ai.rag.chunker import SemanticChunker
+from devops_cli.ai.rag.embeddings import EmbeddingsEngine, EmbeddingsError
+from devops_cli.ai.rag.indexer import WorkspaceIndexer
+from devops_cli.ai.rag.models import CodeChunk, IndexStats, RAGContext, SearchResult
+from devops_cli.ai.rag.qdrant import QdrantClient, QdrantClientError
+from devops_cli.ai.rag.retriever import SemanticRetriever
+
+__all__ = [
+    "CodeChunk",
+    "EmbeddingsEngine",
+    "EmbeddingsError",
+    "IndexStats",
+    "QdrantClient",
+    "QdrantClientError",
+    "RAGContext",
+    "SearchResult",
+    "SemanticChunker",
+    "SemanticRetriever",
+    "WorkspaceIndexer",
+]

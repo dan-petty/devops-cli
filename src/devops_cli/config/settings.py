@@ -10,6 +10,7 @@ from typing import Any
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from devops_cli.config import options as opt
 from devops_cli.config.constants import (
@@ -31,7 +32,15 @@ from devops_cli.config.defaults import (
     DEFAULT_AI_MAX_RETRIES,
     DEFAULT_AI_MODEL,
     DEFAULT_AI_PROVIDER,
+    DEFAULT_JAEGER_URL,
     DEFAULT_OLLAMA_URLS,
+    DEFAULT_OTEL_ENDPOINT,
+    DEFAULT_QDRANT_URL,
+    DEFAULT_RAG_CHUNK_OVERLAP,
+    DEFAULT_RAG_CHUNK_SIZE,
+    DEFAULT_RAG_EMBEDDING_MODEL,
+    DEFAULT_RAG_SCORE_THRESHOLD,
+    DEFAULT_RAG_TOP_K,
     DEFAULT_REPOS_BASE_DIR,
     DEFAULT_SSH_KEY_DIR,
     DEFAULT_SSH_ROTATION_DAYS,
@@ -91,6 +100,33 @@ class ArgoCDConfig(BaseModel):
     url: str | None = None
 
 
+class QdrantConfig(BaseModel):
+    model_config = ConfigDict(frozen=False)
+    url: str | None = DEFAULT_QDRANT_URL
+    collection_prefix: str = "devops"
+
+
+class JaegerConfig(BaseModel):
+    model_config = ConfigDict(frozen=False)
+    url: str | None = DEFAULT_JAEGER_URL
+
+
+class TelemetryConfig(BaseModel):
+    model_config = ConfigDict(frozen=False)
+    enabled: bool = True
+    endpoint: str = DEFAULT_OTEL_ENDPOINT
+
+
+class AIRAGConfig(BaseModel):
+    model_config = ConfigDict(frozen=False)
+    enabled: bool = True
+    embedding_model: str = DEFAULT_RAG_EMBEDDING_MODEL
+    top_k: int = DEFAULT_RAG_TOP_K
+    score_threshold: float = DEFAULT_RAG_SCORE_THRESHOLD
+    chunk_size: int = DEFAULT_RAG_CHUNK_SIZE
+    chunk_overlap: int = DEFAULT_RAG_CHUNK_OVERLAP
+
+
 class AITaskOverride(BaseModel):
     """Per-task model/server override; unset fields fall back to the parent AIConfig."""
 
@@ -119,6 +155,7 @@ class AIConfig(BaseModel):
     allow_private_network: bool = False
     max_retries: int = DEFAULT_AI_MAX_RETRIES
     tasks: AITasksConfig = AITasksConfig()
+    rag: AIRAGConfig = AIRAGConfig()
 
     @property
     def get_ollama_urls(self) -> list[str]:
@@ -146,8 +183,13 @@ class AIConfig(BaseModel):
         return self.model_copy(update=updates) if updates else self
 
 
-class Settings(BaseModel):
-    model_config = ConfigDict(frozen=False)
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_prefix="DEVOPS_CLI_",
+        env_nested_delimiter="__",
+        extra="ignore",
+        frozen=False,
+    )
     github: GitHubConfig = GitHubConfig()
     ssh: SSHConfig = SSHConfig()
     repos: ReposConfig = ReposConfig()
@@ -155,6 +197,9 @@ class Settings(BaseModel):
     grafana: GrafanaConfig = GrafanaConfig()
     prometheus: PrometheusConfig = PrometheusConfig()
     argocd: ArgoCDConfig = ArgoCDConfig()
+    qdrant: QdrantConfig = QdrantConfig()
+    jaeger: JaegerConfig = JaegerConfig()
+    telemetry: TelemetryConfig = TelemetryConfig()
     ai: AIConfig = AIConfig()
 
 

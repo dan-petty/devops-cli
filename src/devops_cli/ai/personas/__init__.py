@@ -112,17 +112,23 @@ class _PersonaRegistry(Mapping[Persona, PersonaDefinition]):
 PERSONAS: Mapping[Persona, PersonaDefinition] = _PersonaRegistry()
 
 
-# TODO (v0.1.1 Feature): Implement repository-level custom team persona overrides
-# loaded from .devops/personas/<name>.md under target repositories.
 def load_custom_repo_persona(repo_path: Path, persona_name: str) -> PersonaDefinition | None:
     """Load a custom team persona prompt defined in .devops/personas/<name>.md under *repo_path*."""
-    custom_file = repo_path / ".devops" / "personas" / f"{persona_name}.md"
-    if not custom_file.exists():
+    safe_name = Path(persona_name).name
+    if not safe_name or safe_name != persona_name:
+        return None
+    custom_dir = (repo_path / ".devops" / "personas").resolve()
+    custom_file = (custom_dir / f"{safe_name}.md").resolve()
+    try:
+        custom_file.relative_to(custom_dir)
+    except ValueError:
+        return None
+    if not custom_file.is_file():
         return None
     content = _load(custom_file)
     return PersonaDefinition(
-        name=persona_name,
-        title=f"Custom Persona ({persona_name.title()})",
+        name=safe_name,
+        title=f"Custom Persona ({safe_name.title()})",
         system_prompt=content + "\n\n" + _TASK_REVIEW,
         chat_prompt=content + "\n\n" + _TASK_CHAT,
         compose_prompt=content + "\n\n" + _TASK_COMPOSE,

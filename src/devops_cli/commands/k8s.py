@@ -248,7 +248,6 @@ _HELM_REPOS_BY_STACK: dict[str, dict[str, str]] = {
         "open-telemetry": "https://open-telemetry.github.io/opentelemetry-helm-charts",
     },
     "llm": {
-        "ollama": "https://otwld.github.io/ollama-helm/",
         "open-webui": "https://open-webui.github.io/helm-charts",
         "qdrant": "https://qdrant.github.io/qdrant-helm",
     },
@@ -285,12 +284,6 @@ _HELM_RELEASES_BY_STACK: dict[str, list[dict[str, str]]] = {
     ],
     "llm": [
         {
-            "name": "ollama",
-            "chart": "ollama/ollama",
-            "namespace": "llm",
-            "values": str(_K8S_DIR / "llm" / "values-ollama.yaml"),
-        },
-        {
             "name": "open-webui",
             "chart": "open-webui/open-webui",
             "namespace": "llm",
@@ -308,9 +301,12 @@ _HELM_RELEASES_BY_STACK: dict[str, list[dict[str, str]]] = {
 _HELM_RELEASES: list[dict[str, str]] = _HELM_RELEASES_BY_STACK["infra"]
 
 _MANIFESTS_BY_STACK: dict[str, list[Path]] = {
-    "infra": [],
+    "infra": [
+        _K8S_DIR / "otel" / "jaeger.yaml",
+    ],
     "llm": [
         _K8S_DIR / "llm" / "valkey.yaml",
+        _K8S_DIR / "llm" / "ollama-daemonset.yaml",
     ],
 }
 
@@ -351,6 +347,23 @@ def _minikube_running() -> bool:
         return result.returncode == 0 and "Running" in result.stdout
     except (FileNotFoundError, OSError, subprocess.SubprocessError):
         return False
+
+
+def _cluster_reachable(context: str | None = None) -> bool:
+    """Return True if the target Kubernetes cluster (or Minikube) is reachable."""
+    cmd = ["kubectl", "cluster-info", "--request-timeout=5s"]
+    if context:
+        cmd.extend(["--context", context])
+    try:
+        res = _run_cmd(cmd, check=False, capture=True)
+        if res.returncode == 0:
+            return True
+    except (FileNotFoundError, OSError, subprocess.SubprocessError):
+        pass
+
+    if not context or context == "minikube":
+        return _minikube_running()
+    return False
 
 
 @app.command("bootstrap")
@@ -409,6 +422,64 @@ def bootstrap(
     deploy_stack(k8s_dir=k8s_dir, stack=stack)
 
 
+def _adopt_helm_resource_if_conflict(
+    error_output: str, release_name: str, namespace: str, context: str | None = None
+) -> bool:
+    """If Helm failed due to pre-existing unmanaged resources, annotate and label them to adopt."""
+    if (
+        "invalid ownership metadata" not in error_output
+        and "cannot be imported" not in error_output
+    ):
+        return False
+
+    import re
+
+    # Match pattern e.g. Service "ollama" in namespace "llm" exists
+    matches = re.findall(r'([A-Za-z0-9_-]+)\s+"([^"]+)"\s+in namespace\s+"([^"]+)"', error_output)
+    if not matches:
+        return False
+
+    ctx_args = ["--context", context] if context else []
+    adopted_any = False
+    for kind_raw, name, ns in matches:
+        kind = kind_raw.lower()
+        adopt_msg = (
+            f"[yellow]Adopting pre-existing {kind}/{name} for release '{release_name}'...[/yellow]"
+        )
+        rprint(adopt_msg)
+        _run_cmd(
+            [
+                "kubectl",
+                "annotate",
+                kind,
+                name,
+                "-n",
+                ns,
+                f"meta.helm.sh/release-name={release_name}",
+                f"meta.helm.sh/release-namespace={ns}",
+                "--overwrite",
+            ]
+            + ctx_args,
+            check=False,
+        )
+        _run_cmd(
+            [
+                "kubectl",
+                "label",
+                kind,
+                name,
+                "-n",
+                ns,
+                "app.kubernetes.io/managed-by=Helm",
+                "--overwrite",
+            ]
+            + ctx_args,
+            check=False,
+        )
+        adopted_any = True
+    return adopted_any
+
+
 @app.command("deploy-stack")
 def deploy_stack(
     k8s_dir: Annotated[
@@ -417,8 +488,14 @@ def deploy_stack(
     stack: Annotated[
         str, typer.Option("--stack", "-s", help="Stack to deploy (infra, llm, all)")
     ] = "infra",
+    context: Annotated[
+        str | None, typer.Option("--context", "-c", help="Kubernetes cluster context")
+    ] = None,
 ) -> None:
-    """Deploy infrastructure or LLM stack (Ollama, WebUI, Qdrant, Valkey) to minikube."""
+    """Deploy infrastructure or LLM stack (Ollama, WebUI, Qdrant, Valkey) to Kubernetes."""
+    if context:
+        _validate_k8s_identifier(context, "context")
+
     selected_stacks = _resolve_stacks(stack)
 
     all_releases: list[dict[str, str]] = []
@@ -436,6 +513,7 @@ def deploy_stack(
                 "kustomize_dir": str(k8s_dir),
                 "stack": stack,
                 "stacks": selected_stacks,
+                "context": context,
                 "helm_releases": [r["name"] for r in all_releases],
                 "manifests": all_manifests,
             },
@@ -444,15 +522,19 @@ def deploy_stack(
         console.print_json(res.model_dump_json(indent=2))
         return
 
-    # 1. Verify minikube
-    if not _minikube_running():
-        rprint("[red]minikube is not running.[/red]")
-        rprint("Start it with: [cyan]minikube start --driver=docker[/cyan]")
+    # 1. Verify cluster reachability
+    if not _cluster_reachable(context=context):
+        rprint("[red]Kubernetes cluster is not reachable.[/red]")
+        if not context or context == "minikube":
+            rprint("Start it with: [cyan]minikube start --driver=docker[/cyan]")
         raise typer.Exit(1)
+
+    kubectl_ctx = ["--context", context] if context else []
+    helm_ctx = ["--kube-context", context] if context else []
 
     # 2. Apply kustomize base (namespaces)
     rprint("[bold]Applying namespaces...[/bold]")
-    _run_cmd(["kubectl", "apply", "-k", str(k8s_dir)])
+    _run_cmd(["kubectl", "apply", "-k", str(k8s_dir)] + kubectl_ctx)
 
     # 3. Add Helm repos for selected stacks
     repos_to_add: dict[str, str] = {}
@@ -468,12 +550,12 @@ def deploy_stack(
     # 4. Install native manifests
     for manifest_path in all_manifests:
         rprint(f"[bold]Applying manifest {Path(manifest_path).name}...[/bold]")
-        _run_cmd(["kubectl", "apply", "-f", manifest_path], check=False)
+        _run_cmd(["kubectl", "apply", "-f", manifest_path] + kubectl_ctx, check=False)
 
     # 5. Install Helm releases
     for release in all_releases:
         rprint(f"[bold]Installing {release['name']}...[/bold]")
-        result = _run_cmd(
+        helm_cmd = (
             [
                 "helm",
                 "upgrade",
@@ -484,12 +566,29 @@ def deploy_stack(
                 release["namespace"],
                 "--values",
                 release["values"],
+            ]
+            + helm_ctx
+            + [
                 "--wait",
                 "--timeout",
                 "10m",
-            ],
-            check=False,
+            ]
         )
+        result = _run_cmd(helm_cmd, check=False, capture=True)
+        # If conflict occurs on pre-existing unmanaged resources, adopt and retry up to 5 times
+        for _ in range(5):
+            if result.returncode == 0:
+                break
+            err_msg = (result.stderr or "") + " " + (result.stdout or "")
+            if not _adopt_helm_resource_if_conflict(
+                err_msg,
+                release["name"],
+                release["namespace"],
+                context=context,
+            ):
+                break
+            result = _run_cmd(helm_cmd, check=False, capture=True)
+
         if result.returncode != 0:
             rprint(f"[red]Failed to install {release['name']}[/red]")
         else:
@@ -499,7 +598,7 @@ def deploy_stack(
     rprint()
     rprint(f"[bold green]Kubernetes stack ({stack}) deployed.[/bold green]")
     rprint()
-    port_forward(stack=stack)
+    port_forward(stack=stack, context=context)
     rprint()
     if "infra" in selected_stacks:
         rprint(
@@ -507,32 +606,87 @@ def deploy_stack(
             " argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d[/dim]"
         )
         rprint("[dim]Grafana credentials: set via grafana.token in 'devops config set'[/dim]")
+        rprint("[dim]Jaeger Query UI: http://localhost:16686 (namespace: otel)[/dim]")
+        rprint("[dim]Jaeger OTLP Traces: localhost:4317 (gRPC) / localhost:4318 (HTTP)[/dim]")
     if "llm" in selected_stacks:
-        rprint("[dim]Ollama: http://localhost:11434 (minikube service ollama -n llm --url)[/dim]")
+        rprint("[dim]Ollama: http://localhost:11434 (namespace: llm)[/dim]")
         rprint("[dim]Open-WebUI: http://localhost:3000 (minikube service open-webui -n llm)[/dim]")
         rprint("[dim]Qdrant Vector DB: http://localhost:6333 (HTTP) / :6334 (gRPC)[/dim]")
         rprint("[dim]Valkey Cache: localhost:6379 (namespace: llm)[/dim]")
 
 
-def _detect_service_url(service: str, namespace: str) -> str | None:
-    """Query minikube service URL for given service and namespace."""
+def _detect_service_url(service: str, namespace: str, context: str | None = None) -> str | None:
+    """Query service URL via minikube service or kubectl nodePort/cluster info."""
     from devops_cli.config.defaults import DEFAULT_SUBPROCESS_FAST_TIMEOUT_SECONDS
 
+    # 1. Try minikube service if context is not explicit non-minikube
+    if not context or context == "minikube":
+        try:
+            res = subprocess.run(
+                ["minikube", "service", service, "-n", namespace, "--url"],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=DEFAULT_SUBPROCESS_FAST_TIMEOUT_SECONDS,
+            )
+            if res.returncode == 0 and res.stdout.strip():
+                for line in res.stdout.splitlines():
+                    line_str = line.strip()
+                    if line_str.startswith("http://") or line_str.startswith("https://"):
+                        return line_str
+        except (OSError, subprocess.SubprocessError):
+            pass
+
+    # 2. Generic K8s nodePort or loadBalancer detection via kubectl
     try:
-        res = subprocess.run(
-            ["minikube", "service", service, "-n", namespace, "--url"],
+        ctx_args = ["--context", context] if context else []
+        svc_res = subprocess.run(
+            ["kubectl", "get", "svc", service, "-n", namespace, "-o", "json"] + ctx_args,
             capture_output=True,
             text=True,
             check=False,
             timeout=DEFAULT_SUBPROCESS_FAST_TIMEOUT_SECONDS,
         )
-        if res.returncode == 0 and res.stdout.strip():
-            for line in res.stdout.splitlines():
-                line_str = line.strip()
-                if line_str.startswith("http://") or line_str.startswith("https://"):
-                    return line_str
-    except (OSError, subprocess.SubprocessError):
+        if svc_res.returncode == 0 and svc_res.stdout.strip():
+            import json
+
+            svc_data = json.loads(svc_res.stdout)
+            spec = svc_data.get("spec", {})
+            ports = spec.get("ports", [])
+            node_port = ports[0].get("nodePort") if ports else None
+            port_num = ports[0].get("port") if ports else None
+
+            # Check LoadBalancer ingress IP
+            ingress = svc_data.get("status", {}).get("loadBalancer", {}).get("ingress", [])
+            if ingress:
+                lb_host = ingress[0].get("ip") or ingress[0].get("hostname")
+                if lb_host and port_num:
+                    return f"http://{lb_host}:{port_num}"
+
+            # Check NodePort
+            if node_port:
+                nodes_res = subprocess.run(
+                    ["kubectl", "get", "nodes", "-o", "json"] + ctx_args,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    timeout=DEFAULT_SUBPROCESS_FAST_TIMEOUT_SECONDS,
+                )
+                if nodes_res.returncode == 0 and nodes_res.stdout.strip():
+                    nodes_data = json.loads(nodes_res.stdout)
+                    for item in nodes_data.get("items", []):
+                        addrs = item.get("status", {}).get("addresses", [])
+                        node_ip = None
+                        for addr in addrs:
+                            if addr.get("type") in ("ExternalIP", "InternalIP", "Hostname"):
+                                node_ip = addr.get("address")
+                                if node_ip:
+                                    break
+                        if node_ip:
+                            return f"http://{node_ip}:{node_port}"
+    except Exception:
         pass
+
     return None
 
 
@@ -591,8 +745,14 @@ def configure_urls(
     stack: Annotated[
         str, typer.Option("--stack", "-s", help="Stack to configure URLs for (infra, llm, all)")
     ] = "infra",
+    context: Annotated[
+        str | None, typer.Option("--context", "-c", help="Kubernetes cluster context")
+    ] = None,
 ) -> None:
-    """Auto-detect Minikube stack URLs and update CLI config."""
+    """Auto-detect Kubernetes stack URLs and update CLI config."""
+    if context:
+        _validate_k8s_identifier(context, "context")
+
     selected_stacks = _resolve_stacks(stack)
 
     dry_run_details: dict[str, str] = {}
@@ -602,6 +762,7 @@ def configure_urls(
                 "argocd.url": "http://192.168.49.2:30080",
                 "grafana.url": "http://192.168.49.2:32047",
                 "prometheus.url": "http://192.168.49.2:30090",
+                "jaeger.url": "http://192.168.49.2:30686",
             }
         )
     if "llm" in selected_stacks:
@@ -624,11 +785,11 @@ def configure_urls(
         console.print_json(res.model_dump_json(indent=2))
         return
 
-    if not _minikube_running():
-        rprint("[red]minikube is not running.[/red]")
+    if not _cluster_reachable(context=context):
+        rprint("[red]Kubernetes cluster is not reachable.[/red]")
         raise typer.Exit(1)
 
-    rprint(f"[bold]Detecting Minikube {stack} service URLs...[/bold]")
+    rprint(f"[bold]Detecting {stack} service URLs (context: {context or 'active'})...[/bold]")
 
     from devops_cli.config.settings import dotted_set, load_settings, save_settings
 
@@ -636,15 +797,19 @@ def configure_urls(
     configured: dict[str, str] = {}
 
     if "infra" in selected_stacks:
-        raw_argocd = _detect_service_url("argocd-server", "argocd")
-        raw_grafana = _detect_service_url("kube-prometheus-grafana", "monitoring")
-        raw_prom = _detect_service_url("kube-prometheus-kube-prome-prometheus", "monitoring")
+        raw_argocd = _detect_service_url("argocd-server", "argocd", context=context)
+        raw_grafana = _detect_service_url("kube-prometheus-grafana", "monitoring", context=context)
+        raw_prom = _detect_service_url(
+            "kube-prometheus-kube-prome-prometheus", "monitoring", context=context
+        )
+        raw_jaeger = _detect_service_url("jaeger", "otel", context=context)
 
         argocd_url = _resolve_accessible_url(raw_argocd, preferred_localhost_ports=[8080])
         grafana_url = _resolve_accessible_url(
             raw_grafana, preferred_localhost_ports=[8030, 8000, 3000]
         )
         prom_url = _resolve_accessible_url(raw_prom, preferred_localhost_ports=[8090, 9090])
+        jaeger_url = _resolve_accessible_url(raw_jaeger, preferred_localhost_ports=[16686])
 
         if argocd_url:
             dotted_set(settings, "argocd.url", argocd_url)
@@ -655,12 +820,15 @@ def configure_urls(
         if prom_url:
             dotted_set(settings, "prometheus.url", prom_url)
             configured["prometheus.url"] = prom_url
+        if jaeger_url:
+            dotted_set(settings, "jaeger.url", jaeger_url)
+            configured["jaeger.url"] = jaeger_url
 
     if "llm" in selected_stacks:
-        raw_ollama = _detect_service_url("ollama", "llm")
-        raw_webui = _detect_service_url("open-webui", "llm")
-        raw_qdrant = _detect_service_url("qdrant", "llm")
-        raw_valkey = _detect_service_url("valkey", "llm")
+        raw_ollama = _detect_service_url("ollama", "llm", context=context)
+        raw_webui = _detect_service_url("open-webui", "llm", context=context)
+        raw_qdrant = _detect_service_url("qdrant", "llm", context=context)
+        raw_valkey = _detect_service_url("valkey", "llm", context=context)
 
         ollama_url = _resolve_accessible_url(raw_ollama, preferred_localhost_ports=[11434])
         webui_url = _resolve_accessible_url(raw_webui, preferred_localhost_ports=[3000, 8080])
@@ -695,6 +863,9 @@ def port_forward(
     stack: Annotated[
         str, typer.Option("--stack", "-s", help="Stack services to port-forward (infra, llm, all)")
     ] = "infra",
+    context: Annotated[
+        str | None, typer.Option("--context", "-c", help="Kubernetes cluster context")
+    ] = None,
     argocd_port: Annotated[int, typer.Option("--argocd-port", help="Local port for ArgoCD")] = 8080,
     grafana_port: Annotated[
         int, typer.Option("--grafana-port", help="Local port for Grafana")
@@ -702,6 +873,9 @@ def port_forward(
     prometheus_port: Annotated[
         int, typer.Option("--prometheus-port", help="Local port for Prometheus")
     ] = 8090,
+    jaeger_port: Annotated[
+        int, typer.Option("--jaeger-port", help="Local port for Jaeger Query UI")
+    ] = 16686,
     ollama_port: Annotated[
         int, typer.Option("--ollama-port", help="Local port for Ollama")
     ] = 11434,
@@ -712,9 +886,15 @@ def port_forward(
         int, typer.Option("--qdrant-port", help="Local port for Qdrant HTTP")
     ] = 6333,
     valkey_port: Annotated[int, typer.Option("--valkey-port", help="Local port for Valkey")] = 6379,
+    address: Annotated[
+        str, typer.Option("--address", help="Local address to bind for port-forwarding")
+    ] = "127.0.0.1",
 ) -> None:
     """Port-forward k8s monitoring / LLM stack services to localhost ports and update CLI config."""
     import time
+
+    if context:
+        _validate_k8s_identifier(context, "context")
 
     selected_stacks = _resolve_stacks(stack)
 
@@ -725,6 +905,7 @@ def port_forward(
                 "argocd.url": f"http://localhost:{argocd_port}",
                 "grafana.url": f"http://localhost:{grafana_port}",
                 "prometheus.url": f"http://localhost:{prometheus_port}",
+                "jaeger.url": f"http://localhost:{jaeger_port}",
             }
         )
     if "llm" in selected_stacks:
@@ -747,8 +928,8 @@ def port_forward(
         console.print_json(res.model_dump_json(indent=2))
         return
 
-    if not _minikube_running():
-        rprint("[red]minikube is not running.[/red]")
+    if not _cluster_reachable(context=context):
+        rprint("[red]Kubernetes cluster is not reachable.[/red]")
         raise typer.Exit(1)
 
     rprint(f"[bold cyan]Port-forwarding k8s {stack} services to localhost ports...[/bold cyan]")
@@ -760,6 +941,7 @@ def port_forward(
                 ("argocd", "svc/argocd-server", argocd_port, 80),
                 ("monitoring", "svc/kube-prometheus-grafana", grafana_port, 80),
                 ("monitoring", "svc/kube-prometheus-kube-prome-prometheus", prometheus_port, 9090),
+                ("otel", "svc/jaeger", jaeger_port, 16686),
             ]
         )
     if "llm" in selected_stacks:
@@ -772,13 +954,23 @@ def port_forward(
             ]
         )
 
+    ctx_args = ["--context", context] if context else []
     for ns, svc, lport, rport in services:
-        cmd = ["kubectl", "port-forward", "-n", ns, svc, f"{lport}:{rport}"]
+        cmd = [
+            "kubectl",
+            "port-forward",
+            "--address",
+            address,
+            "-n",
+            ns,
+            svc,
+            f"{lport}:{rport}",
+        ] + ctx_args
         subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        rprint(f"[green]✓ Forwarding {svc} ({ns}) to http://localhost:{lport}[/green]")
+        rprint(f"[green]✓ Forwarding {svc} ({ns}) to http://{address}:{lport}[/green]")
 
     time.sleep(1.0)
-    configure_urls(stack=stack)
+    configure_urls(stack=stack, context=context)
 
 
 @app.command("teardown-stack")
@@ -789,8 +981,14 @@ def teardown_stack(
     stack: Annotated[
         str, typer.Option("--stack", "-s", help="Stack to teardown (infra, llm, all)")
     ] = "infra",
+    context: Annotated[
+        str | None, typer.Option("--context", "-c", help="Kubernetes cluster context")
+    ] = None,
 ) -> None:
     """Uninstall the k8s infrastructure / LLM stack and delete namespaces."""
+    if context:
+        _validate_k8s_identifier(context, "context")
+
     selected_stacks = _resolve_stacks(stack)
 
     all_uninstalls: list[dict[str, str]] = []
@@ -808,40 +1006,56 @@ def teardown_stack(
                 "kustomize_dir": str(k8s_dir),
                 "stack": stack,
                 "stacks": selected_stacks,
+                "context": context,
                 "helm_uninstalls": [r["name"] for r in all_uninstalls],
                 "manifest_deletes": all_manifest_deletes,
             },
         )
         return
 
-    if not _minikube_running():
-        rprint("[red]minikube is not running.[/red]")
+    if not _cluster_reachable(context=context):
+        rprint("[red]Kubernetes cluster is not reachable.[/red]")
         raise typer.Exit(1)
+
+    kubectl_ctx = ["--context", context] if context else []
+    helm_ctx = ["--kube-context", context] if context else []
 
     # 1. Delete manifests
     for manifest_path in all_manifest_deletes:
         rprint(f"[bold]Deleting manifest {Path(manifest_path).name}...[/bold]")
-        _run_cmd(["kubectl", "delete", "-f", manifest_path, "--ignore-not-found"], check=False)
+        _run_cmd(
+            ["kubectl", "delete", "-f", manifest_path, "--ignore-not-found"] + kubectl_ctx,
+            check=False,
+        )
 
     # 2. Uninstall Helm releases in reverse order
     for release in all_uninstalls:
         rprint(f"[bold]Uninstalling {release['name']}...[/bold]")
         _run_cmd(
-            ["helm", "uninstall", release["name"], "--namespace", release["namespace"]],
+            ["helm", "uninstall", release["name"], "--namespace", release["namespace"]] + helm_ctx,
             check=False,
         )
 
     # 3. Clean up namespaces
     if stack == "all":
         rprint("[bold]Removing all stack namespaces...[/bold]")
-        _run_cmd(["kubectl", "delete", "-k", str(k8s_dir), "--ignore-not-found"], check=False)
+        _run_cmd(
+            ["kubectl", "delete", "-k", str(k8s_dir), "--ignore-not-found"] + kubectl_ctx,
+            check=False,
+        )
     elif stack == "infra":
         rprint("[bold]Removing infra namespaces...[/bold]")
         for ns in ["argocd", "monitoring", "otel"]:
-            _run_cmd(["kubectl", "delete", "namespace", ns, "--ignore-not-found"], check=False)
+            _run_cmd(
+                ["kubectl", "delete", "namespace", ns, "--ignore-not-found"] + kubectl_ctx,
+                check=False,
+            )
     elif stack == "llm":
         rprint("[bold]Removing llm namespace...[/bold]")
-        _run_cmd(["kubectl", "delete", "namespace", "llm", "--ignore-not-found"], check=False)
+        _run_cmd(
+            ["kubectl", "delete", "namespace", "llm", "--ignore-not-found"] + kubectl_ctx,
+            check=False,
+        )
 
     rprint(f"[green]✓ Kubernetes stack ({stack}) torn down.[/green]")
 

@@ -454,15 +454,18 @@ def _run_post_start_lifecycle(workspace_dir: Path, *, dry_run: bool = False) -> 
         actions.append(f"Scaffolded MCP configuration at {vscode_mcp}")
 
     if vscode_mcp.exists():
-        mcp_dest = Path.home() / ".gemini" / "config" / "mcp_config.json"
-        if not dry_run:
-            mcp_dest.parent.mkdir(parents=True, exist_ok=True)
-            raw_text = vscode_mcp.read_text(encoding="utf-8")
-            synced_text = raw_text.replace("${workspaceFolder}", str(workspace_dir)).replace(
-                "${env:HOME}", str(Path.home())
-            )
-            mcp_dest.write_text(synced_text, encoding="utf-8")
-        actions.append(f"Synced MCP configuration to {mcp_dest}")
+        for mcp_dest in (
+            Path.home() / ".gemini" / "config" / "mcp_config.json",
+            Path.home() / ".gemini" / "antigravity-ide" / "mcp_config.json",
+        ):
+            if not dry_run:
+                mcp_dest.parent.mkdir(parents=True, exist_ok=True)
+                raw_text = vscode_mcp.read_text(encoding="utf-8")
+                synced_text = raw_text.replace("${workspaceFolder}", str(workspace_dir)).replace(
+                    "${env:HOME}", str(Path.home())
+                )
+                mcp_dest.write_text(synced_text, encoding="utf-8")
+            actions.append(f"Synced MCP configuration to {mcp_dest}")
 
         agents_dir = workspace_dir / ".agents"
         if agents_dir.exists():
@@ -569,6 +572,82 @@ def _run_post_start_lifecycle(workspace_dir: Path, *, dry_run: bool = False) -> 
                 actions.append("Warning: Failed to install pre-commit Git hooks")
         else:
             actions.append("Installed pre-commit Git hooks (uv run pre-commit install)")
+
+    # 7. Git daemon background service
+    auto_git_daemon = os.getenv("DEVOPS_GIT_DAEMON_AUTOSTART", "true").lower() in ("true", "1")
+    if auto_git_daemon:
+        actions.extend(_start_git_daemon(workspace_dir, dry_run=dry_run))
+
+    return actions
+
+
+def _git_daemon_pid_file() -> Path:
+    """Return platform-safe path to git daemon pid file."""
+    import tempfile
+
+    return Path(tempfile.gettempdir()) / "git-daemon.pid"
+
+
+def _is_git_daemon_running() -> bool:
+    """Check if git daemon is running via pidfile or port 9418 socket check."""
+    pid_file = _git_daemon_pid_file()
+    if pid_file.exists():
+        try:
+            pid = int(pid_file.read_text(encoding="utf-8").strip())
+            os.kill(pid, 0)
+            return True
+        except (OSError, ValueError):
+            pass
+    import socket
+
+    try:
+        with socket.create_connection(("127.0.0.1", 9418), timeout=0.2):
+            return True
+    except OSError:
+        pass
+    return False
+
+
+def _start_git_daemon(workspace_dir: Path, *, dry_run: bool = False) -> list[str]:
+    """Ensure background git daemon is running serving workspace repositories."""
+    actions: list[str] = []
+    if _is_git_daemon_running():
+        actions.append("Git daemon is already running on port 9418")
+        return actions
+
+    if not shutil.which("git"):
+        return actions
+
+    raw_paths = os.getenv("DEVOPS_GIT_DAEMON_PATHS")
+    if raw_paths:
+        export_dirs = [Path(p.strip()) for p in raw_paths.split(",") if p.strip()]
+    else:
+        export_dirs = [workspace_dir / "k8s", workspace_dir / "repos"]
+
+    for d in export_dirs:
+        if not dry_run:
+            d.mkdir(parents=True, exist_ok=True)
+
+    pid_file = _git_daemon_pid_file()
+    cmd = [
+        "git",
+        "daemon",
+        "--reuseaddr",
+        "--detach",
+        f"--pid-file={pid_file}",
+        "--export-all",
+        *[str(d) for d in export_dirs],
+    ]
+
+    paths_str = ", ".join(str(d) for d in export_dirs)
+    if not dry_run:
+        res = run_subprocess(cmd, check=False, quiet=True)
+        if res.returncode == 0:
+            actions.append(f"Started background Git daemon on port 9418 ({paths_str})")
+        else:
+            actions.append(f"Failed to start Git daemon (exit {res.returncode}): {res.stderr}")
+    else:
+        actions.append(f"Started background Git daemon on port 9418 ({paths_str})")
 
     return actions
 

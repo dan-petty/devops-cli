@@ -1,5 +1,4 @@
-"""Agents submodule for devops-cli Pydantic agents and pipelines."""
-
+from devops_cli.ai.agents.memory import AgentMemory, MemoryEntry
 from devops_cli.ai.agents.pipeline import (
     MultiAgentPipeline,
     MultiAgentPipelineResult,
@@ -13,8 +12,10 @@ from devops_cli.ai.agents.pydantic_agent import (
 )
 
 __all__ = [
+    "AgentMemory",
     "AgentResponse",
     "AgentTool",
+    "MemoryEntry",
     "MultiAgentPipeline",
     "MultiAgentPipelineResult",
     "PipelineStepResult",

@@ -164,9 +164,212 @@ def argo_apps() -> str:
     )
 
 
-def run_security_scan() -> str:
-    """Perform static security analysis scan on workspace."""
+def scan_trivy(
+    target: str = ".",
+    scan_type: str = "fs",
+    severity: str = "UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL",
+) -> str:
+    """Run Aqua Trivy vulnerability, secret, misconfiguration, and IaC scanner."""
+    target_path = Path(target).resolve()
+    if not _is_safe_workspace_path(target_path):
+        return f"Access Denied: {target} is outside workspace."
+    res = _run_tool_cmd(
+        ["trivy", scan_type, "--severity", severity, str(target_path)],
+        fallback_msg="No vulnerabilities, secrets, or flaws found by Trivy.",
+        max_chars=DEFAULT_TOOL_DIFF_MAX_CHARS,
+    )
+    if "No such file or directory: 'trivy'" in res:
+        return (
+            "Trivy CLI is not installed in the environment. "
+            "For Python dependency vulnerability auditing, use scan_uv_audit or scan_osv."
+        )
+    return res
+
+
+def scan_uv_audit(directory: str = ".", requirements_file: str = "") -> str:
+    """Run uv / pip-audit to check workspace Python dependencies for known CVEs."""
+    target_path = Path(directory).resolve()
+    if not _is_safe_workspace_path(target_path):
+        return f"Access Denied: {directory} is outside workspace."
+    cmd = ["uvx", "pip-audit"]
+    if requirements_file:
+        req_path = Path(requirements_file).resolve()
+        if not _is_safe_workspace_path(req_path):
+            return f"Access Denied: {requirements_file} is outside workspace."
+        cmd.extend(["-r", str(req_path)])
     return _run_tool_cmd(
-        ["bandit", "-r", "src", "-q"],
-        fallback_msg="No high/medium security issues detected by bandit.",
+        cmd,
+        fallback_msg="No known dependency vulnerabilities found by uv/pip-audit.",
+        max_chars=DEFAULT_TOOL_DIFF_MAX_CHARS,
+    )
+
+
+def audit_dependencies(directory: str = ".", requirements_file: str = "") -> str:
+    """Audit Python package dependencies for vulnerabilities (alias for scan_uv_audit)."""
+    return scan_uv_audit(directory=directory, requirements_file=requirements_file)
+
+
+def scan_kubelinter(target: str = ".") -> str:
+    """Run Red Hat Kube-linter static security and best-practice analysis on K8s manifests."""
+    target_path = Path(target).resolve()
+    if not _is_safe_workspace_path(target_path):
+        return f"Access Denied: {target} is outside workspace."
+    return _run_tool_cmd(
+        ["kube-linter", "lint", str(target_path)],
+        fallback_msg="No K8s manifest lint errors detected by Kube-linter.",
+        max_chars=DEFAULT_TOOL_DIFF_MAX_CHARS,
+    )
+
+
+def scan_pluto(target: str = ".") -> str:
+    """Run Fairwinds Pluto to detect deprecated and removed Kubernetes API versions."""
+    target_path = Path(target).resolve()
+    if not _is_safe_workspace_path(target_path):
+        return f"Access Denied: {target} is outside workspace."
+    cmd = (
+        ["pluto", "detect-files", "-f", str(target_path)]
+        if target_path.is_file()
+        else ["pluto", "detect-files", "-d", str(target_path)]
+    )
+    return _run_tool_cmd(
+        cmd,
+        fallback_msg="No deprecated Kubernetes APIs detected by Pluto.",
+        max_chars=DEFAULT_TOOL_DIFF_MAX_CHARS,
+    )
+
+
+def scan_bandit(target: str = "src") -> str:
+    """Run PyCQA Bandit static security vulnerability analysis on Python source files."""
+    target_path = Path(target).resolve()
+    if not _is_safe_workspace_path(target_path):
+        return f"Access Denied: {target} is outside workspace."
+    return _run_tool_cmd(
+        ["bandit", "-r", str(target_path), "-ll", "-s", "B608", "-q"],
+        fallback_msg="No high/medium security issues detected by Bandit.",
+        max_chars=DEFAULT_TOOL_DIFF_MAX_CHARS,
+    )
+
+
+def scan_popeye(namespace: str = "") -> str:
+    """Run Popeye Kubernetes cluster and namespace resource sanitizer."""
+    cmd = ["popeye"]
+    if namespace:
+        cmd.extend(["-n", namespace])
+    return _run_tool_cmd(
+        cmd,
+        fallback_msg="Popeye cluster sanitize check passed.",
+        max_chars=DEFAULT_TOOL_DIFF_MAX_CHARS,
+    )
+
+
+def run_security_scan(target: str = "src") -> str:
+    """Perform static security analysis scan on Python workspace files (alias for scan_bandit)."""
+    return scan_bandit(target=target)
+
+
+def rag_search(
+    query: str,
+    top_k: int = 5,
+    project: str | None = None,
+    language: str | None = None,
+    category: str | None = None,
+) -> str:
+    """Perform semantic vector retrieval over indexed workspace code, polyglot repos, and docs."""
+    try:
+        from devops_cli.ai.rag.embeddings import EmbeddingsEngine
+        from devops_cli.ai.rag.qdrant import QdrantClient
+        from devops_cli.ai.rag.retriever import SemanticRetriever
+        from devops_cli.config.settings import get_ai_api_key, load_settings
+
+        settings = load_settings()
+        qdrant_url = settings.qdrant.url or "http://localhost:6333"
+        prefix = settings.qdrant.collection_prefix or "devops"
+        qdrant = QdrantClient(
+            base_url=qdrant_url, allow_private_network=settings.ai.allow_private_network
+        )
+        if not qdrant.is_alive():
+            return f"RAG vector database unavailable at {qdrant_url}. Fallback: use search_code."
+
+        embedder = EmbeddingsEngine(ai_config=settings.ai, api_key=get_ai_api_key(settings))
+        retriever = SemanticRetriever(
+            qdrant=qdrant,
+            embedder=embedder,
+            code_collection=f"{prefix}_code",
+            docs_collection=f"{prefix}_docs",
+            default_top_k=top_k,
+        )
+        context = retriever.retrieve_context(
+            query,
+            top_k=top_k,
+            project=project,
+            language=language,
+            category=category,
+        )
+        if not context.results:
+            return f"No semantic matches found in vector store for: {query}"
+        return context.formatted_text
+    except Exception as exc:
+        return f"RAG search error: {exc}"
+
+
+def scan_osv(package_name: str, version: str = "", ecosystem: str = "PyPI") -> str:
+    """Query OSV.dev and NVD vulnerability databases for known package security flaws."""
+    try:
+        from devops_cli.security.intelligence import OSVClient
+
+        client = OSVClient()
+        vulns = client.check_vulnerability(package_name, version=version, ecosystem=ecosystem)
+        if not vulns:
+            return f"No known vulnerabilities found in OSV/NVD for {package_name} ({ecosystem})."
+        lines = [f"Found {len(vulns)} vulnerability record(s) for {package_name}:"]
+        for v in vulns:
+            lines.append(f"- [{v.id}] Severity: {v.severity} | Fixed: {v.fixed_version or 'None'}")
+            if v.summary:
+                lines.append(f"  Summary: {v.summary[:150]}")
+        return "\n".join(lines)
+    except Exception as exc:
+        return f"OSV vulnerability query error: {exc}"
+
+
+def check_threat_intel(target: str) -> str:
+    """Check IP or domain threat intelligence via Shodan InternetDB or Cloudflare Radar."""
+    try:
+        from devops_cli.security.intelligence import (
+            CloudflareRadarClient,
+            ShodanInternetDBClient,
+            is_public_ip,
+        )
+
+        if is_public_ip(target):
+            shodan = ShodanInternetDBClient()
+            rep = shodan.check_ip(target)
+            ports = ", ".join(str(p) for p in rep.ports) or "None detected"
+            vulns = ", ".join(rep.cves) or "None detected"
+            return (
+                f"Shodan Intelligence for IP {target}:\n"
+                f"- Hostnames: {', '.join(rep.hostnames) or 'None'}\n"
+                f"- Open Ports: {ports}\n"
+                f"- Known CVEs: {vulns}\n"
+                f"- Reputation Summary: {rep.reputation_summary}"
+            )
+        else:
+            radar = CloudflareRadarClient()
+            rep = radar.check_domain(target)
+            return (
+                f"Cloudflare Radar Intelligence for Domain {target}:\n"
+                f"- Threat Categories: {', '.join(rep.tags) or 'General'}\n"
+                f"- Reputation Summary: {rep.reputation_summary}"
+            )
+    except Exception as exc:
+        return f"Threat intelligence check error: {exc}"
+
+
+def k8s_jaeger_status() -> str:
+    """Query Jaeger distributed tracing service status and connection endpoints."""
+    return (
+        "Jaeger Distributed Tracing Endpoints:\n"
+        "- Query UI: http://localhost:16686 (port-forward svc/jaeger -n otel 16686:16686)\n"
+        "- OTLP gRPC Receiver: localhost:4317\n"
+        "- OTLP HTTP Receiver: http://localhost:4318/v1/traces\n"
+        "- Health: http://localhost:14269"
     )

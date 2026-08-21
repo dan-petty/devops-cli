@@ -208,21 +208,25 @@ Executed weekly, prior to major releases, or when dependencies are updated.
 #### 4. SSRF Guardrails & OS Keyring Audit
 - **Methodology**: Outbound requests must pass through `validate_service_url()` to reject private IPs (RFC 1918), loopbacks, and cloud metadata IPs unless `DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true` is explicitly set.
 
-#### 5. AI Code Review Verification & Feedback Dataset Export
+#### 5. AI Code Review Verification, Feedback Export & Self-Improvement Loop
 - **Frequency**: After running AI code reviews or before PR approval.
 - **Methodology**:
-  1. Inspect structured review findings:
+  1. Inspect structured review findings across sessions:
      ```bash
      devops ai review findings --session <session-id>
      ```
-  2. Validate or invalidate findings with specific rationale:
+  2. Perform deterministic AST verification and human verification:
+     - The verification pipeline automatically executes deterministic syntax assertions (`ast.parse`) and template placeholder mitigations.
+     - Reviewers and agents verify or invalidate remaining findings with specific rationale:
      ```bash
-     devops ai review verify <session-id> --index 1 --status INVALIDATED --reason "False positive on modern syntax"
+     devops ai review verify <session-id> --index 1 --status INVALIDATED --reason "False positive on valid exception tuple"
      ```
-  3. Export benchmark feedback datasets for prompt tuning, DPO alignment, and prompt regression testing:
+  3. Export benchmark feedback datasets for prompt tuning, DPO alignment, and model calibration:
      ```bash
      devops ai review export-feedback --status ALL --output .data/feedback.jsonl
      ```
+  4. Continuous Self-Improvement Loop:
+     - Regularly analyze exported feedback in `.data/feedback.jsonl` to identify recurring false positives and refine persona domain prompts (`devsecops`, `architect`, `auditor`, `pm`, `qa`) and verification directives (`verify_finding.md`).
 
 ---
 

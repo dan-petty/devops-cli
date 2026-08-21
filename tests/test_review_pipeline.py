@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 from devops_cli.ai.review import ReviewPipelineOrchestrator
+from devops_cli.ai.review_schema import FileReviewPayload, SavedFinding
 from devops_cli.models.ai import FileAnalysisMeta
 
 
@@ -118,3 +121,468 @@ def test_init_per_file_payloads_path_matching(tmp_path: Path, monkeypatch) -> No
     assert payloads[0].metadata.primary_purpose == "Agents module init"
     assert payloads[0].metadata.key_symbols == ["PydanticAgent"]
     assert payloads[0].metadata.quality_score == 0.9
+
+
+def test_deterministic_pre_verification_syntax_hallucination(tmp_path: Path) -> None:
+    """_deterministic_pre_verification invalidates false syntax errors on valid python files."""
+    from devops_cli.ai.review.verification import _deterministic_pre_verification
+    from devops_cli.ai.review_schema import Finding
+
+    valid_py = tmp_path / "valid.py"
+    valid_py.write_text(
+        "def test():\n    try:\n        pass\n    except (OSError, ValueError):\n        pass\n",
+        encoding="utf-8",
+    )
+
+    finding = Finding(
+        severity="CRITICAL",
+        location="valid.py:1-5",
+        title="Syntax error in except clause",
+        description="Except clause uses invalid syntax",
+        fix="Use tuple",
+    )
+    result = _deterministic_pre_verification(finding, repo_root=tmp_path)
+    assert result.verified is False
+    assert result.status == "INVALIDATED"
+    assert "Syntax validation passed" in str(result.invalidation_reason)
+
+
+def test_deterministic_pre_verification_template_placeholder(tmp_path: Path) -> None:
+    """_deterministic_pre_verification marks example secret templates as mitigated."""
+    from devops_cli.ai.review.verification import _deterministic_pre_verification
+    from devops_cli.ai.review_schema import Finding
+
+    finding = Finding(
+        severity="HIGH",
+        location="config.example.yaml:12",
+        title="Plaintext secret token detected",
+        description="YOUR_TOKEN placeholder in config.example.yaml",
+        fix="Use keyring",
+    )
+    result = _deterministic_pre_verification(finding, repo_root=tmp_path)
+    assert result.verified is False
+    assert result.mitigated is True
+    assert result.status == "MITIGATED"
+
+
+def test_consolidated_report_findings_sorted_by_severity_and_confidence(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Findings in report_md and findings.json must be sorted by severity and confidence."""
+    from devops_cli.ai.review_schema import FileReviewPayload, SavedFinding
+
+    monkeypatch.setattr("devops_cli.ai.review.pipeline.CONST_DATA_DIR", tmp_path)
+    orchestrator = ReviewPipelineOrchestrator(session_id="sort-test-session")
+
+    f_low = SavedFinding(
+        severity="LOW",
+        title="Low Finding High Confidence",
+        location="src/low.py:1",
+        confidence_score=0.99,
+        verified=True,
+    )
+    f_med_high_conf = SavedFinding(
+        severity="MEDIUM",
+        title="Medium Finding High Confidence",
+        location="src/med1.py:1",
+        confidence_score=0.95,
+        verified=True,
+    )
+    f_med_low_conf = SavedFinding(
+        severity="MEDIUM",
+        title="Medium Finding Low Confidence",
+        location="src/med2.py:1",
+        confidence_score=0.70,
+        verified=True,
+    )
+    f_crit_low_conf = SavedFinding(
+        severity="CRITICAL",
+        title="Critical Finding Lower Confidence",
+        location="src/crit2.py:1",
+        confidence_score=0.85,
+        verified=True,
+    )
+    f_crit_high_conf = SavedFinding(
+        severity="CRITICAL",
+        title="Critical Finding Higher Confidence",
+        location="src/crit1.py:1",
+        confidence_score=0.98,
+        verified=True,
+    )
+    f_high = SavedFinding(
+        severity="HIGH",
+        title="High Finding",
+        location="src/high.py:1",
+        confidence_score=0.90,
+        verified=True,
+    )
+
+    payload = FileReviewPayload(
+        file_path="src/dummy.py",
+        findings=[
+            f_low,
+            f_med_low_conf,
+            f_crit_low_conf,
+            f_med_high_conf,
+            f_crit_high_conf,
+            f_high,
+        ],
+    )
+
+    data_out, report_md = orchestrator.generate_consolidated_report([payload])
+
+    sorted_titles = [f["title"] for f in data_out["findings"]]
+    expected_titles = [
+        "Critical Finding Higher Confidence",
+        "Critical Finding Lower Confidence",
+        "High Finding",
+        "Medium Finding High Confidence",
+        "Medium Finding Low Confidence",
+        "Low Finding High Confidence",
+    ]
+    assert sorted_titles == expected_titles
+
+    # Verify report_md ordering
+    crit1_idx = report_md.index("Critical Finding Higher Confidence")
+    crit2_idx = report_md.index("Critical Finding Lower Confidence")
+    high_idx = report_md.index("High Finding")
+    med1_idx = report_md.index("Medium Finding High Confidence")
+    med2_idx = report_md.index("Medium Finding Low Confidence")
+    low_idx = report_md.index("Low Finding High Confidence")
+
+    assert crit1_idx < crit2_idx < high_idx < med1_idx < med2_idx < low_idx
+
+
+def test_consolidate_duplicate_findings_across_personas(tmp_path: Path, monkeypatch) -> None:
+    """Duplicate findings across personas should be merged, retaining highest severity."""
+    from devops_cli.ai.review_schema import FileReviewPayload, SavedFinding
+
+    monkeypatch.setattr("devops_cli.ai.review.pipeline.CONST_DATA_DIR", tmp_path)
+    orchestrator = ReviewPipelineOrchestrator(session_id="dedup-test-session")
+
+    # devsecops reports High severity finding
+    f_secops = SavedFinding(
+        severity="HIGH",
+        title="Insecure subprocess execution",
+        location="src/k8s.py:42-50",
+        confidence_score=0.90,
+        description="Subprocess invocation without sanitization",
+        fix="Use run_subprocess with check=True",
+        persona="devsecops",
+        persona_title="Security Engineer",
+        verified=True,
+    )
+
+    # auditor reports Medium severity finding for overlapping lines with similar title
+    f_auditor = SavedFinding(
+        severity="MEDIUM",
+        title="Insecure subprocess execution call",
+        location="src/k8s.py:45",
+        confidence_score=0.85,
+        description="Subprocess call lacks execution audit logging",
+        fix="Add audit logging wrapper",
+        persona="auditor",
+        persona_title="Compliance Auditor",
+        verified=False,
+    )
+
+    # qa reports distinct finding in another function
+    f_qa = SavedFinding(
+        severity="LOW",
+        title="Missing unit test edge case",
+        location="src/k8s.py:120",
+        confidence_score=0.95,
+        description="Timeout error case is uncovered",
+        fix="Add test_timeout unit test",
+        persona="qa",
+        persona_title="QA Engineer",
+        verified=True,
+    )
+
+    payload = FileReviewPayload(
+        file_path="src/k8s.py",
+        findings=[f_secops, f_auditor, f_qa],
+    )
+
+    data_out, report_md = orchestrator.generate_consolidated_report([payload])
+
+    # 3 raw findings should be consolidated into 2 unique findings
+    findings = data_out["findings"]
+    assert len(findings) == 2
+
+    # The merged finding should take highest severity (HIGH) and merged personas
+    merged_finding = next(f for f in findings if "subprocess" in f["title"].lower())
+    assert merged_finding["severity"] == "HIGH"
+    assert merged_finding["confidence_score"] == 0.90
+    assert "devsecops" in merged_finding["persona"]
+    assert "auditor" in merged_finding["persona"]
+    assert merged_finding["verified"] is True
+
+    # Check report_md rendering
+    assert "Insecure subprocess execution" in report_md
+    assert "Security Engineer, Compliance Auditor" in report_md
+
+
+def test_normalize_unicode_text_in_findings() -> None:
+    """Findings must sanitize non-standard Unicode hyphens, spaces, and smart quotes."""
+    from devops_cli.ai.review_schema import Finding, normalize_unicode_text
+
+    raw_text = "NIST SP 800\u201153 Rev\u202f5 SI\u20112 and SOC\u202f2 Type\u202fII"
+    normalized = normalize_unicode_text(raw_text)
+    assert normalized == "NIST SP 800-53 Rev 5 SI-2 and SOC 2 Type II"
+
+    finding = Finding(
+        title="Title with \u2018smart quotes\u2019 and non\u2011breaking hyphen",
+        description="Description with narrow\u202fno\u202fbreak\u202fspaces",
+        references=["NIST SP 800\u201153 Rev\u202f5 SI\u20112"],
+    )
+    assert finding.title == "Title with 'smart quotes' and non-breaking hyphen"
+    assert finding.description == "Description with narrow no break spaces"
+    assert finding.references == ["NIST SP 800-53 Rev 5 SI-2"]
+
+
+def test_criteria_based_verification_and_reportability(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Findings define verification and invalidation criteria that determine
+    reportability and confidence.
+    """
+    monkeypatch.setattr("devops_cli.config.constants.CONST_DATA_DIR", tmp_path / ".data")
+    monkeypatch.setattr(
+        "devops_cli.config.constants.CONST_REVIEWS_DATA_DIR", tmp_path / ".data" / "reviews"
+    )
+
+    orchestrator = ReviewPipelineOrchestrator(session_id="criteria-test", llm_client=MagicMock())
+
+    f_reportable = SavedFinding(
+        severity="HIGH",
+        location="src/main.rs:10-20",
+        title="Unchecked array access",
+        description="Array indexing without bounds check",
+        fix="Use .get() with error handling",
+        verification_criteria=[
+            "Indexing using raw integer slice",
+            "Zero length check preceding indexing",
+        ],
+        invalidation_criteria=["Bounds check present upstream", "Bounded fixed-size array"],
+        verified_criteria_matched=[
+            "Indexing using raw integer slice",
+            "Zero length check preceding indexing",
+        ],
+        invalidated_criteria_matched=[],
+        status="VERIFIED",
+        verified=True,
+        reportable=True,
+        confidence_score=1.0,
+        persona="qa",
+        persona_title="Senior Test Engineer",
+    )
+
+    f_invalidated = SavedFinding(
+        severity="MEDIUM",
+        location="src/config.rs:5-10",
+        title="Hardcoded credentials",
+        description="Potential secret leak in config file",
+        fix="Use environment variable or keyring",
+        verification_criteria=["Plaintext secret key in active production code"],
+        invalidation_criteria=[
+            "Example template placeholder (.example.yaml)",
+            "Masked marker <masked-*>",
+        ],
+        verified_criteria_matched=[],
+        invalidated_criteria_matched=["Example template placeholder (.example.yaml)"],
+        status="INVALIDATED",
+        verified=False,
+        reportable=False,
+        confidence_score=0.0,
+        persona="devsecops",
+        persona_title="Principal DevSecOps Engineer",
+    )
+
+    payload = FileReviewPayload(
+        file_path="src/main.rs",
+        findings=[f_reportable, f_invalidated],
+    )
+
+    orchestrator.execute_finding_reranking([payload])
+    data_out, report_md = orchestrator.generate_consolidated_report([payload])
+
+    # Only the reportable verified finding should be in the report
+    assert len(data_out["findings"]) == 1
+    assert data_out["findings"][0]["title"] == "Unchecked array access"
+    assert data_out["findings"][0]["reportable"] is True
+    assert data_out["findings"][0]["status"] == "VERIFIED"
+    assert len(data_out["findings"][0]["verification_criteria"]) == 2
+    assert "- **Status**: VERIFIED" in report_md
+    assert "Unchecked array access" in report_md
+    assert "Hardcoded credentials" not in report_md
+
+
+def test_persona_and_persona_title_distinctness(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify that multi-persona reviews populate distinct short persona slug and full title."""
+    monkeypatch.setattr("devops_cli.config.constants.CONST_DATA_DIR", tmp_path / ".data")
+    monkeypatch.setattr(
+        "devops_cli.config.constants.CONST_REVIEWS_DATA_DIR", tmp_path / ".data" / "reviews"
+    )
+
+    mock_client = MagicMock()
+    # Mock pipeline result step
+    step_mock = MagicMock()
+    step_mock.backend_info = "mock-ollama"
+    step_mock.agent_name = "NIST/PCI/SOC Auditor"
+    step_mock.parsed_data = None
+    step_mock.content = (
+        '{"recommendation": "REQUEST CHANGES", "summary": "Audit issues", "findings": ['
+        '{"severity": "LOW", "location": "task.yml:10", "title": "Missing validation", '
+        '"description": "Fields lack validation", "fix": "Add validation", '
+        '"confidence_score": 0.8, "verification_criteria": ["Missing block"], '
+        '"invalidation_criteria": ["Block present"]}]}'
+    )
+
+    pipeline_result_mock = MagicMock()
+    pipeline_result_mock.steps = [step_mock]
+
+    with patch(
+        "devops_cli.ai.agents.pipeline.MultiAgentPipeline.run",
+        return_value=pipeline_result_mock,
+    ):
+        orchestrator = ReviewPipelineOrchestrator(session_id="persona-test", llm_client=mock_client)
+        payload = FileReviewPayload(file_path="task.yml")
+        orchestrator.execute_multi_persona_review(
+            [payload],
+            diff_text_by_file={"task.yml": "diff content"},
+            personas=["auditor"],
+        )
+
+        assert len(payload.findings) == 1
+        finding = payload.findings[0]
+        assert finding.persona == "auditor"
+        assert finding.persona_title == "NIST/PCI/SOC Auditor"
+        assert finding.persona != finding.persona_title
+        assert "thoughts" in payload.ai_scratchpad
+        assert len(payload.ai_scratchpad["thoughts"]) > 0
+
+
+def test_ai_scratchpad_thoughts_collection_across_stages(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify that thoughts and LLM reasoning are accumulated into ai_scratchpad.thoughts."""
+    monkeypatch.setattr("devops_cli.config.constants.CONST_DATA_DIR", tmp_path / ".data")
+    monkeypatch.setattr(
+        "devops_cli.config.constants.CONST_REVIEWS_DATA_DIR", tmp_path / ".data" / "reviews"
+    )
+
+    mock_client = MagicMock()
+    step_mock = MagicMock()
+    step_mock.backend_info = "mock-ollama"
+    step_mock.agent_name = "Principal DevSecOps Engineer"
+    step_mock.parsed_data = None
+    step_mock.thoughts = ["Analyzing potential command injection vector in auth handler"]
+    step_mock.content = (
+        "<think>Found unescaped user input passed to subshell</think>"
+        '{"recommendation": "REQUEST CHANGES", "summary": "Security flaw", "findings": ['
+        '{"severity": "HIGH", "location": "auth.py:12", "title": "Command injection", '
+        '"description": "Unescaped input", "fix": "Use shlex.quote", '
+        '"confidence_score": 0.9, "verification_criteria": ["os.system call with raw var"], '
+        '"invalidation_criteria": ["Input sanitized"]}]}'
+    )
+
+    pipeline_result_mock = MagicMock()
+    pipeline_result_mock.steps = [step_mock]
+
+    with patch(
+        "devops_cli.ai.agents.pipeline.MultiAgentPipeline.run",
+        return_value=pipeline_result_mock,
+    ):
+        orchestrator = ReviewPipelineOrchestrator(
+            session_id="thoughts-test", llm_client=mock_client
+        )
+        payload = FileReviewPayload(file_path="src/auth.py")
+        orchestrator.execute_multi_persona_review(
+            [payload],
+            diff_text_by_file={"src/auth.py": "diff"},
+            personas=["devsecops"],
+        )
+
+        thoughts = payload.ai_scratchpad.get("thoughts", [])
+        assert any("Analyzing potential command injection" in t for t in thoughts)
+        assert any("Evaluated src/auth.py" in t for t in thoughts)
+
+        # Stage 5 reranking appends stage thoughts
+        orchestrator.execute_finding_reranking([payload])
+        reranked_thoughts = payload.ai_scratchpad.get("thoughts", [])
+        assert any("[Stage 5 Re-ranking]" in t for t in reranked_thoughts)
+
+
+def test_generate_consolidated_report_with_intelligence_tables(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify that dependencies and network references with security status are
+    rendered in review report.
+    """
+    monkeypatch.setattr("devops_cli.config.constants.CONST_DATA_DIR", tmp_path / ".data")
+    monkeypatch.setattr(
+        "devops_cli.config.constants.CONST_REVIEWS_DATA_DIR", tmp_path / ".data" / "reviews"
+    )
+
+    from devops_cli.models.intelligence import DependencySpec, NetworkReference
+
+    orchestrator = ReviewPipelineOrchestrator(
+        session_id="intel-tables-test", llm_client=MagicMock()
+    )
+    payload = FileReviewPayload(
+        file_path="src/main.py",
+        findings=[],
+        external_dependencies=[
+            DependencySpec(
+                name="pydantic",
+                version_range=">=2.10.0",
+                ecosystem="PyPI",
+                source_file="requirements.txt",
+                security_status="✓ Clean (0 CVEs)",
+            ),
+            DependencySpec(
+                name="vulnerable-pkg",
+                version_range="1.0.0",
+                ecosystem="PyPI",
+                source_file="requirements.txt",
+                security_status="⚠️ 1 Known Vuln(s)",
+            ),
+        ],
+        network_references=[
+            NetworkReference(
+                target="api.example-corp.com",
+                reference_type="domain",
+                source_file="src/main.py",
+                line_number=15,
+                security_status="✓ Safe / Low Risk",
+            ),
+            NetworkReference(
+                target="93.184.216.34",
+                reference_type="ip",
+                source_file="src/main.py",
+                line_number=20,
+                security_status="✓ Safe (Ports: 80, 443)",
+            ),
+        ],
+    )
+
+    data_out, report_md = orchestrator.generate_consolidated_report([payload])
+
+    assert "## External Dependencies (OSV.dev & NVD)" in report_md
+    assert "| `pydantic` | `>=2.10.0` | PyPI | ✓ Clean (0 CVEs) | `requirements.txt` |" in report_md
+    assert (
+        "| `vulnerable-pkg` | `1.0.0` | PyPI | ⚠️ 1 Known Vuln(s) | `requirements.txt` |"
+        in report_md
+    )
+
+    assert "## External Network References (Shodan InternetDB & Cloudflare Radar)" in report_md
+    assert (
+        "| `api.example-corp.com` | domain | ✓ Safe / Low Risk | `src/main.py` | 15 |" in report_md
+    )
+    assert "| `93.184.216.34` | ip | ✓ Safe (Ports: 80, 443) | `src/main.py` | 20 |" in report_md
+
+    assert len(data_out["external_dependencies"]) == 2
+    assert len(data_out["network_references"]) == 2

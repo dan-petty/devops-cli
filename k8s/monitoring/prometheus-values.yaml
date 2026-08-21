@@ -15,12 +15,17 @@ prometheus:
       requests:
         cpu: 200m
         memory: 512Mi
-      limits:
-        cpu: 1500m
-        memory: 1536Mi
 
     # Enable remote write receiver so OTEL Collector can push metrics
     enableRemoteWriteReceiver: true
+
+    additionalScrapeConfigs:
+      - job_name: qdrant
+        static_configs:
+          - targets: ["qdrant.llm.svc.cluster.local:6333"]
+      - job_name: otel-collector
+        static_configs:
+          - targets: ["otel-collector-opentelemetry-collector.otel.svc.cluster.local:8888"]
 
   service:
     type: NodePort
@@ -39,10 +44,19 @@ grafana:
   resources:
     requests:
       cpu: 100m
-      memory: 256Mi
-    limits:
-      cpu: 1000m
-      memory: 1024Mi
+      memory: 512Mi
+
+  additionalDataSources:
+    - name: Jaeger
+      type: jaeger
+      access: proxy
+      url: http://jaeger.otel.svc.cluster.local:16686
+      isDefault: false
+      jsonData:
+        tracesToLogs:
+          datasourceUid: prometheus
+        nodeGraph:
+          enabled: true
 
   readinessProbe:
     httpGet:
@@ -94,6 +108,3 @@ kubeStateMetrics:
     requests:
       cpu: 50m
       memory: 64Mi
-    limits:
-      cpu: 250m
-      memory: 256Mi

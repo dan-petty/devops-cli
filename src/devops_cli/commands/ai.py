@@ -14,6 +14,7 @@ from rich.table import Table
 
 from devops_cli.ai.personas import PERSONAS, Persona
 from devops_cli.commands.analyze import app as analyze_app
+from devops_cli.commands.rag import app as rag_app
 from devops_cli.commands.review import app as review_app
 from devops_cli.config.constants import (
     CONST_AGENTS_MD_FILENAME,
@@ -25,7 +26,6 @@ from devops_cli.config.env import env_var_for_option
 from devops_cli.config.options import AI_API_KEY
 from devops_cli.config.settings import SecretStorageError, dotted_set
 from devops_cli.core.cli import new_typer
-from devops_cli.models.ai import ChatMessage
 
 app = new_typer(
     help="Configure, test, chat, analyze, and review codebases (Ollama, Claude, Copilot).",
@@ -40,6 +40,11 @@ app.add_typer(
     analyze_app,
     name="analyze",
     help="Analyze codebase metadata and create/update .data/analysis/*-metadata.json files.",
+)
+app.add_typer(
+    rag_app,
+    name="rag",
+    help="Manage RAG vector embeddings, indexing, and semantic code search (Qdrant).",
 )
 console = Console()
 
@@ -72,6 +77,41 @@ The file MUST include:
 
   and routine maintenance of all project documentation and references
 """
+
+
+def _try_retrieve_rag_context(query: str, top_k: int = 3) -> str | None:
+    """Attempt to retrieve relevant semantic context from RAG vector store."""
+    try:
+        from devops_cli.ai.rag.embeddings import EmbeddingsEngine
+        from devops_cli.ai.rag.qdrant import QdrantClient
+        from devops_cli.ai.rag.retriever import SemanticRetriever
+        from devops_cli.config.settings import get_ai_api_key, load_settings
+
+        settings = load_settings()
+        if not settings.ai.rag.enabled:
+            return None
+
+        qdrant = QdrantClient(
+            base_url=settings.qdrant.url or "http://localhost:6333",
+            allow_private_network=settings.ai.allow_private_network,
+        )
+        if not qdrant.is_alive():
+            return None
+
+        embedder = EmbeddingsEngine(ai_config=settings.ai, api_key=get_ai_api_key(settings))
+        retriever = SemanticRetriever(
+            qdrant=qdrant,
+            embedder=embedder,
+            code_collection=f"{settings.qdrant.collection_prefix}_code",
+            docs_collection=f"{settings.qdrant.collection_prefix}_docs",
+            default_top_k=top_k,
+        )
+        ctx = retriever.retrieve_context(query, top_k=top_k)
+        if ctx.has_results:
+            return ctx.formatted_text
+    except Exception:
+        pass
+    return None
 
 
 def _collect_project_context(repo: Path) -> str:
@@ -141,6 +181,13 @@ def _collect_project_context(repo: Path) -> str:
     dc = repo / CONST_DEVCONTAINER_JSON_PATH
     if dc.exists():
         sections.append(f"## {CONST_DEVCONTAINER_JSON_PATH}\n```json\n{dc.read_text()}\n```")
+
+    # Semantic RAG Architecture Context
+    rag_ctx = _try_retrieve_rag_context(
+        f"{repo.name} architecture CLI commands conventions", top_k=4
+    )
+    if rag_ctx:
+        sections.append(f"## Indexed Architecture & Subsystem Context\n{rag_ctx}")
 
     return "\n\n".join(sections)
 
@@ -556,6 +603,9 @@ def chat(
             readable=True,
         ),
     ] = None,
+    rag: Annotated[
+        bool, typer.Option("--rag/--no-rag", help="Retrieve relevant semantic RAG context")
+    ] = True,
     stream: Annotated[
         bool, typer.Option("--stream/--no-stream", help="Stream response tokens")
     ] = True,
@@ -565,13 +615,16 @@ def chat(
     thinking: Annotated[
         bool, typer.Option("--thinking/--no-thinking", help="Enable model reasoning/thinking")
     ] = True,
+    prewarm: Annotated[
+        bool, typer.Option("--prewarm/--no-prewarm", help="Prewarm the model before starting chat")
+    ] = True,
 ) -> None:
-    """Start an interactive chat with a Pydantic AI persona (tools, thinking, streaming)."""
+    """Start an interactive chat with a Pydantic AI persona (tools, thinking, streaming, RAG)."""
     import sys
 
     from devops_cli.ai.agents import PydanticAgent
     from devops_cli.ai.client import LLMClient
-    from devops_cli.ai.tools import get_default_tools
+    from devops_cli.ai.tools import get_persona_tools
     from devops_cli.config.settings import get_ai_api_key, load_settings
 
     if persona not in _PERSONA_NAMES:
@@ -586,7 +639,21 @@ def chat(
     settings = load_settings()
     client = LLMClient(settings.ai.for_task("chat"), api_key=get_ai_api_key(settings))
 
-    agent_tools = get_default_tools() if tools else []
+    if prewarm and client._config.provider == "ollama":
+        ollama_urls = client._config.get_ollama_urls
+        if ollama_urls:
+            n_nodes = len(ollama_urls)
+            rprint(f"[dim]Prewarming model '{settings.ai.model}' across {n_nodes} node(s)...[/dim]")
+            preload_results = client.preload_models()
+            for url, ok in preload_results.items():
+                status = (
+                    "[dim green]✓ ready[/dim green]"
+                    if ok
+                    else "[dim yellow]✗ offline/skipped[/dim yellow]"
+                )
+                rprint(f"[dim]  {url}: {status}[/dim]")
+
+    agent_tools = get_persona_tools(persona) if tools else []
     agent: PydanticAgent[Any] = PydanticAgent(
         client=client, system_prompt=system, tools=agent_tools
     )
@@ -600,7 +667,6 @@ def chat(
     )
     rprint("[dim]Type your message and press Enter. Ctrl+C or [bold]exit[/bold] to quit.[/dim]\n")
 
-    history: list[ChatMessage] = []
     while True:
         try:
             user_input = console.input("[bold cyan]You:[/bold cyan] ").strip()
@@ -616,12 +682,19 @@ def chat(
             rprint("[dim]Goodbye.[/dim]")
             break
 
-        history.append(ChatMessage(role="user", content=user_input))
+        effective_prompt = user_input
+        if rag:
+            rag_snippet = _try_retrieve_rag_context(user_input, top_k=3)
+            if rag_snippet:
+                effective_prompt = f"{rag_snippet}\n\nUser Question: {user_input}"
+
         try:
             rprint(f"\n[green]{persona_def.title}:[/green] ", end="")
             sys.stdout.flush()
 
-            if stream:
+            from devops_cli.ai.thinking import strip_think_blocks
+
+            if stream and not tools:
                 from devops_cli.ai.thinking import ThinkingStreamProcessor
 
                 processor = ThinkingStreamProcessor(
@@ -629,26 +702,65 @@ def chat(
                     console=console,
                 )
                 system_with_tools = agent._build_system_prompt_with_tools()
+                messages = agent.memory.to_chat_messages()
                 for chunk in client.chat_messages_stream(
-                    system_with_tools, history, enable_thinking=thinking
+                    system_with_tools, messages, enable_thinking=thinking
                 ):
                     processor.feed(chunk)
                 processor.flush()
                 reply = processor.clean_content
-                rprint("\n")
+                if not reply.strip() and processor.thinking_content:
+                    # Model put all output in thinking tags; retrieve summary
+                    agent_res = agent.run(effective_prompt, enable_thinking=thinking)
+                    reply = strip_think_blocks(agent_res.content)
+                    if reply.strip():
+                        rprint(f"{reply.strip()}\n")
+                else:
+                    rprint("\n")
+                    agent.memory.add_interaction("assistant", reply)
             else:
-                agent_res = agent.run(user_input, enable_thinking=thinking)
-                from devops_cli.ai.thinking import strip_think_blocks
+
+                def _print_thought(th: str) -> None:
+                    if thinking:
+                        from rich.markup import escape
+
+                        rprint(
+                            f"\n[dim cyan]💭 Thinking...[/dim cyan]\n"
+                            f"[dim italic]{escape(th)}[/dim italic]\n"
+                            f"[dim cyan]✓ Thought complete[/dim cyan]\n"
+                        )
+
+                def _print_tool(t_name: str, t_args: dict[str, Any], t_res: Any) -> None:
+                    args_str = ", ".join(f"{k}={v!r}" for k, v in t_args.items())
+                    if len(args_str) > 60:
+                        args_str = args_str[:57] + "..."
+                    tool_msg = (
+                        f"\n[dim yellow]🔧 Tool: [bold]{t_name}[/bold]({args_str})[/dim yellow]"
+                    )
+                    rprint(tool_msg)
+                    res_str = str(t_res).strip()
+                    if len(res_str) > 200:
+                        res_str = res_str[:197] + "..."
+                    rprint(f"[dim green]✓ Result: {res_str}[/dim green]\n")
+
+                agent_res = agent.run(
+                    effective_prompt,
+                    enable_thinking=thinking,
+                    on_thought=_print_thought if thinking else None,
+                    on_tool_call=_print_tool,
+                )
 
                 reply = strip_think_blocks(agent_res.content)
                 rprint(f"{reply.strip()}\n")
 
         except Exception as exc:
             rprint(f"\n[red]Error: {exc}[/red]\n")
-            history.pop()  # don't add failed turn to history
+            if agent.memory.entries:
+                agent.memory.entries.pop()  # don't add failed turn to history
             continue
 
-        history.append(ChatMessage(role="assistant", content=reply))
+        if agent.memory.auto_summarize_if_needed(llm_client=client):
+            rprint("[dim]⚡ Long conversation memory consolidated into context summary.[/dim]")
 
 
 @app.command("bundle-models")
@@ -685,15 +797,19 @@ def pipeline(
         int,
         typer.Option("--max-turns", help="Maximum tool turns per agent stage"),
     ] = 5,
+    rag: Annotated[
+        bool, typer.Option("--rag/--no-rag", help="Retrieve relevant semantic RAG context")
+    ] = True,
     thinking: Annotated[
         bool,
         typer.Option("--thinking/--no-thinking", help="Enable reasoning/thinking per agent"),
     ] = True,
 ) -> None:
-    """Run a multi-agent Pydantic pipeline with shared DevOps tools."""
-    from devops_cli.ai.agents import MultiAgentPipeline, PydanticAgent
+    """Run a multi-agent Pydantic pipeline with shared DevOps tools and RAG context."""
+    from devops_cli.ai.agents import PydanticAgent
+    from devops_cli.ai.agents.pipeline import MultiAgentPipeline
     from devops_cli.ai.client import LLMClient
-    from devops_cli.ai.tools import get_default_tools
+    from devops_cli.ai.tools import get_default_tools, get_persona_tools
     from devops_cli.config.settings import get_ai_api_key, load_settings
     from devops_cli.dry_run import CommandDryRunResult, is_dry_run
 
@@ -714,6 +830,7 @@ def pipeline(
                 "personas": [p.value for p in valid_personas],
                 "prompt": prompt,
                 "max_turns": max_turns,
+                "rag": rag,
             },
         )
         rprint("[yellow][dry-run][/yellow] Command response:")
@@ -730,11 +847,12 @@ def pipeline(
 
     for p in valid_personas:
         p_def = PERSONAS[p]
+        stage_tools = get_persona_tools(p)
         agent: PydanticAgent[Any] = PydanticAgent(
             client=client,
             system_prompt=p_def.system_prompt,
             name=p_def.title,
-            tools=agent_tools,
+            tools=stage_tools,
         )
         pipeline_engine.add_agent(agent)
 
@@ -747,8 +865,14 @@ def pipeline(
     )
     rprint(f"[bold]Initial Prompt:[/bold] {prompt}\n")
 
+    effective_prompt = prompt
+    if rag:
+        rag_ctx = _try_retrieve_rag_context(prompt, top_k=5)
+        if rag_ctx:
+            effective_prompt = f"{rag_ctx}\n\nPipeline Goal: {prompt}"
+
     result = pipeline_engine.run(
-        prompt,
+        effective_prompt,
         max_turns_per_agent=max_turns,
         enable_thinking=thinking,
     )

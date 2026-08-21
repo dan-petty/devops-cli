@@ -5,6 +5,91 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.12] - 2026-08-20
+
+### Added
+- **Universal Retrieval-Augmented Generation (RAG) Architecture (`devops ai rag`, `devops_cli.ai.rag`)**:
+  - Polyglot syntax-aware AST chunker for Python, Go, Rust, TypeScript, JavaScript, Java, C/C++, Terraform/HCL, SQL, and Kubernetes YAML manifests.
+  - Hierarchical technical documentation chunker preserving Markdown, AsciiDoc, and RST heading depth with breadcrumb hierarchy tracking.
+  - Multi-project workspace autodetection (`Cargo.toml`, `go.mod`, `package.json`, `pyproject.toml`) and faceted semantic filtering (`--project`, `--language`, `--category`).
+  - Native Qdrant vector database integration and Ollama dense embeddings generation (`all-minilm`).
+- **Official `qdrant-client` SDK Adoption & Modernization**:
+  - Replaced manual HTTP REST JSON calls with the official `qdrant-client` Python SDK with connection pooling, typed models, batch upserts, and payload filtering.
+- **Hierarchical Configuration Modernization (`pydantic-settings`)**:
+  - Upgraded `Settings` to inherit from `pydantic_settings.BaseSettings` with `SettingsConfigDict` supporting automatic environment variable binding (`DEVOPS_CLI_*`), schema validation, and secret masking while preserving OS Keyring security.
+- **Multi-Context & Remote Cluster Kubernetes Support (`devops k8s`)**:
+  - Added dynamic cluster reachability verification (`_cluster_reachable`) supporting remote k3s, EKS, and GKE cluster contexts via `kubectl cluster-info`.
+  - Added `--context` (`-c`) option support across `deploy-stack`, `teardown-stack`, `port-forward`, and `configure-urls`.
+  - Added automated iterative pre-existing Helm resource adoption (`_adopt_helm_resource_if_conflict`).
+- **Multi-GPU Native Ollama DaemonSet Deployment**:
+  - Integrated `k8s/llm/ollama-daemonset.yaml` with multi-GPU access (`NVIDIA_VISIBLE_DEVICES: "all"`), `runtimeClassName: nvidia`, hostPort 11434, and shared NFS model cache.
+- **Structural Metadata Extraction Engine (`src/devops_cli/ai/rag/metadata.py`)**:
+  - Polyglot dependency and import parsing across 8+ programming languages.
+  - Automated security sensitivity classification tagging code chunks into `crypto`, `network`, `auth`, `secrets`, `db`, `fs`, and `iam`.
+  - Document frontmatter metadata parser extracting YAML/TOML metadata and heading hierarchy metrics.
+- **Multi-Signal Search Re-Ranking Engine (`src/devops_cli/ai/rag/reranker.py`)**:
+  - Hybrid scoring fusion engine combining dense vector cosine similarity (0.60), lexical token overlap (0.25), exact symbol match bonuses (+0.15), query intent classification (+0.10 for docs/code), and security alignment (+0.10).
+  - Attached transparent `rerank_score` and individual `rank_factors` to every retrieved chunk.
+- **Universal AI Subcommand RAG Integration**:
+  - `devops ai chat`: Per-turn conversational semantic retrieval (`--rag/--no-rag`).
+  - `devops ai pipeline`: Seeds multi-agent review and reasoning pipelines with relevant codebase context.
+  - `devops ai agents`: Retrieves architectural context and CLI conventions when generating canonical agent instructions.
+  - `devops ai analyze`: Injects related architectural context during metadata analysis and pseudocode extraction.
+  - `devops ai review`: Injects re-ranked cross-file context with symbol and security tags into multi-persona code reviews.
+- **End-to-End OpenTelemetry Tracing & Observability Stack**:
+  - Integrated OpenTelemetry trace lifecycle spans across LLM dispatches, pipeline stages, and CLI operations (`devops_cli.telemetry`).
+  - Jaeger Query UI and OTLP collector deployment manifests (`k8s/otel/jaeger.yaml`).
+  - Customized Grafana dashboards for AI inference latency, token metrics, and Kubernetes cluster health (`k8s/monitoring/dashboards/`).
+- **DevContainer Background Git Daemon**:
+  - Native automated background Git daemon with `--export-all` across `/workspaces/devops-cli/k8s` and `/workspaces/devops-cli/repos` during container post-start lifecycle.
+- **GitHub PR Governance & Remote CI Inspection (`devops pr`)**:
+  - Pull request lifecycle management (`create`, `status`, `checks`, `view`, `diff`) with automated release branch base targeting and CI check monitoring.
+- **AI Review Subsystem Modularization & Decoupling**:
+  - Refactored monolithic `commands/review.py` into cohesive domain modules under `src/devops_cli/ai/review/` (`runner.py`, `chunker.py`, `patching.py`, `exporter.py`, `verification.py`, `pipeline.py`).
+- **Atomic AI Tasks, Finding Verification/Invalidation Criteria & Reportability Scoring**:
+  - Decomposed AI review tasks into discrete, single-responsibility micro-steps to prevent prompt degradation.
+  - Added explicit `verification_criteria` and `invalidation_criteria` to `Finding` data models.
+  - Implemented criterion-based verification, deterministic confidence scoring, and `reportable: bool` assessment in review pipelines.
+- **External Dependency Vulnerability Scanning & Network Reputation Auditing (`devops_cli.security.intelligence`)**:
+  - Automated dependency extraction across Python (`pyproject.toml`, `requirements.txt`), JavaScript/TypeScript (`package.json`), Rust (`Cargo.toml`), and Go (`go.mod`) with live OSV.dev and NVD (NIST) vulnerability CVE lookups.
+  - Automated extraction of external network references (public IPs, FQDNs, URLs in docs and source code) with Shodan InternetDB port/vulnerability and Cloudflare Radar threat reputation auditing.
+  - Added formatted dependency and network intelligence tables to Markdown review reports and structured findings JSON payloads.
+- **Universal AI Agent Memory & Automatic Summarization Engine (`devops_cli.ai.agents.memory`)**:
+  - Incorporated structured `AgentMemory` with `MemoryEntry` tracking across all `PydanticAgent` instances, `MultiAgentPipeline` execution stages, and `devops ai chat` sessions.
+  - Implemented automatic size-triggered context summarization (`auto_summarize_if_needed`) when interaction histories exceed message count or character limits, preserving critical technical decisions while consolidating older context.
+- **Universal AI/LLM Response Fixer & JSON Recovery (`devops_cli.ai.fixer`)**:
+  - Integrated `json-repair` library for resilient recovery and structural parsing of corrupted, truncated, or markdown-wrapped JSON payloads across all LLM inference streams.
+  - Implemented thought-scratchpad filtering and dedicated natural language synthesis turns to guarantee clean user-facing outputs without leaked reasoning scratchpads.
+- **Native Dependency Audit Tool (`scan_uv_audit`, `audit_dependencies`)**:
+  - Integrated `uvx pip-audit` tools in native CLI tool registry (`devops_cli.ai.tools.native`) and FastMCP server (`devops_cli.ai.mcp.server`) for auditing Python dependencies in `pyproject.toml`, `uv.lock`, and `requirements.txt`.
+- **Parallel Multi-Node LLM Prewarming (`devops ai chat --prewarm`)**:
+  - Added parallel model prewarming and VRAM memory pinning (`keep_alive: "1h"`) across all configured Ollama cluster nodes at chat startup.
+- **Architectural Separation of Constants and Defaults (`devops_cli.config`)**:
+  - Decoupled immutable system invariants (`CONST_*` in `config/constants.py`) from configurable optional parameter defaults (`DEFAULT_*` in `config/defaults.py`).
+  - Removed all `DEFAULT` prefixes and substrings from `CONST_` symbol definitions across the entire codebase.
+
+### Changed
+- **AI Agent Tool Execution & Anti-Repetition Loop Guardrails**:
+  - Enforced parameter validation against tool schemas to eliminate stop-word argument hallucination.
+  - Added duplicate tool call detection and autonomous natural language report synthesis in `PydanticAgent`.
+- **Review Prompt & Verification Rule Hardening**:
+  - Refined `src/devops_cli/ai/tasks/review.md` and `src/devops_cli/ai/tasks/verify_finding.md` to prevent speculative vulnerability reports on hypothetical helper behavior and eliminate false-positive syntax error hallucinations on standard Python 3 tuple exception handlers (`except (Err1, Err2):`).
+  - Streamlined feedback dataset exporter (`devops ai review export-feedback`) to export complete review findings into `.data/feedback.jsonl` for continuous improvement benchmarks.
+
+### Security
+- **Path Traversal & Injection Defenses**:
+  - Added strict path traversal defenses in `load_custom_repo_persona` (`src/devops_cli/ai/personas/__init__.py`).
+  - Added tool description sanitization in `PydanticAgent` prompt construction (`src/devops_cli/ai/agents/pydantic_agent.py`) to prevent indirect prompt injection.
+  - Added semantic version regex validation in `devops install-tools` binary downloads.
+  - Added label format validation in `devops release prepare` before GitHub CLI invocation.
+  - Switched Valkey deployment in `k8s/llm/valkey.yaml` from NodePort to `ClusterIP` and removed `--protected-mode no`.
+
+### Fixed
+- **API Boundary & Pipeline Invariants**:
+  - Removed internal helper functions `_run_mcp_cmd` and `_validate_mcp_arg` from public `__all__` in `src/devops_cli/ai/mcp/__init__.py`.
+  - Added positive integer validation for `max_turns_per_agent` and hoisted imports in `MultiAgentPipeline` (`src/devops_cli/ai/agents/pipeline.py`).
+  - Added bounds enforcement on `top_k` and `score_threshold` and query masking in telemetry traces (`src/devops_cli/ai/rag/retriever.py`).
+
 ## [0.1.11] - 2026-08-18
 
 ### Added

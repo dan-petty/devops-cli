@@ -18,22 +18,39 @@ This document provides structured context and operational instructions for AI co
 ## 3. Architecture & Project Structure
 The project follows a modular, command-driven architecture.
 
-### Key File Paths
+### Key File Paths & Responsibilities
 - `src/devops_cli/main.py`: CLI Entry point (Click/Typer implementation).
 - `src/devops_cli/ai/mcp/`: FastMCP server implementation & tool definitions.
 - `src/devops_cli/ai/tools/`: Native workspace tools, MCP bridges, and central tool registry loader.
 - `src/devops_cli/ai/agents/`: Pydantic agents & multi-agent pipeline orchestrators.
-- `src/devops_cli/commands/`: Implementation of subcommands (`repos`, `ssh`, `k8s`, `scan`, `ai`, `mcp`).
-- `src/devops_cli/security/`: Static vulnerability scanners (Trivy, Kube-linter, Popeye, Pluto).
+- `src/devops_cli/ai/review/`: Multi-agent code review pipeline stages, verification, chunking, and reporting.
+- `src/devops_cli/commands/`: Implementation of subcommands (`repos`, `ssh`, `k8s`, `scan`, `ai`, `mcp`, `docs`).
+- `src/devops_cli/security/`: Static vulnerability scanners (Trivy, Kube-linter, Bandit, Pluto) & threat intelligence (OSV, NVD, Shodan, Radar).
 - `src/devops_cli/crypto/`: Logic for SSH key generation and `keyring` interactions.
 - `src/devops_cli/core/process.py`: Centralized subprocess execution utility (`run_subprocess`).
 - `src/devops_cli/http/`: Secure network requests with SSRF mitigation logic.
 - `tests/`: Comprehensive test suite (unit, integration, security).
-- `k8s/`: Kubernetes manifests and Kustomize overlays.
-- `.data/`: Local state, logs, and review history (Persistent volume in DevContainer).
+- `k8s/`: Kubernetes manifests, Helm charts, and Kustomize overlays.
+- `.data/`: Local state, cache, logs, and review history (Persistent volume in DevContainer).
+- `repos/`: Cloned target workspace repositories analyzed by `devops ai` commands.
+
+### Naming Conventions Matrix
+| Artifact / Symbol Type | Casing Convention | Example |
+| :--- | :--- | :--- |
+| **CLI Commands & Subcommands** | `kebab-case` | `deploy-stack`, `configure-urls`, `review-path` |
+| **CLI Flags & Options** | `kebab-case` (`--flag-name`) | `--jaeger-port`, `--auto-forward`, `--summary-only` |
+| **Python Modules & Files** | `snake_case` | `intelligence.py`, `pipeline.py`, `review_schema.py` |
+| **Python Classes & Types** | `PascalCase` | `ReviewPipelineOrchestrator`, `SavedFinding`, `StrEnum` |
+| **Pydantic Model Fields & JSON** | `snake_case` | `confidence_score`, `security_status`, `external_dependencies` |
+| **Functions & Methods** | `snake_case` | `init_per_file_payloads()`, `run_bandit_scan()` |
+| **Constants & Globals** | `CONST_UPPER_SNAKE` / `_UPPER_SNAKE` | `CONST_DATA_DIR`, `_CODE_PROPERTY_SUFFIXES` |
+| **Environment Variables** | `UPPER_SNAKE_CASE` | `DEVOPS_CLI_AI_MODEL`, `DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK` |
+| **Test Files & Suites** | `tests/test_<feature>.py` | `tests/test_k8s_jaeger.py`, `tests/test_security_intelligence.py` |
+| **Git Topic Branches** | `<type>/<description>` | `feat/jaeger-tracing`, `fix/target-path-collision` |
 
 ### Design Patterns
 - **Multi-Persona Agentic Review**: Uses specialized personas (`devsecops`, `architect`, `pm`, `auditor`, `qa`) to analyze code diffs with static Trivy & Kube-linter finding injection.
+- **Target Repository Isolation**: All review stages strictly resolve files against `target_dir` first (`_resolve_file_path`) to prevent collisions between target files and host project files (`pyproject.toml`, `README.md`, `Dockerfile`).
 - **Multi-Agent Pipeline Orchestration**: Uses `MultiAgentPipeline` with `ScratchpadBuffer` reasoning context to execute multi-turn persona stage handovers with shared DevOps & MCP tools without reasoning degradation.
 - **Native DevContainer Lifecycle Engine**: Uses `devops devcontainer run-lifecycle --post-create|--post-start` to execute cross-platform DevContainer lifecycle hook tasks directly in Python, replacing legacy shell scripts.
 - **Prompt Token & Latency Optimization**: System prompts and JSON schemas are serialized compactly (`separators=(",", ":")`) to reduce token overhead and maximize LLM inference responsiveness.
@@ -144,6 +161,7 @@ AI responses, persona prompts, and agent interaction outputs MUST conclude with 
 ## 7. Target Repository Scope & Boundary Policy
 - **Target Repository Execution**: The tools under `src/` (`devops ai review`, `devops ai analyze`, `devops ai agents`, etc.) are designed to be executed by developers and engineers on **any cloned repository under the `repos/` directory or local workspace target**, not exclusively on the `devops-cli` project itself.
 - **Target-Agnostic Heuristics**: All AI reviewer persona prompts, static analysis heuristics, task templates, and code review rules MUST remain target-agnostic and generic. They must evaluate target repos based on their own documented conventions (`AGENTS.md` / `README.md`) rather than coupling to `devops-cli` internal filenames.
+- **Strict Target Isolation & Path Resolution**: When analyzing or reviewing target repositories, all file reading, dependency parsing, static security scans, and verification lookups must resolve paths via target-relative resolution (`_resolve_file_path`) and strictly prioritize `target_dir` over current working directory defaults. Never assume `pyproject.toml`, `README.md`, `Dockerfile`, or `.env` in the working directory belong to the target repository.
 
 ## 8. Feedback, Verification & Self-Improvement Loop
 - **`devops ai` Usage Guardrail**: Avoid running `devops ai [review|analyze]` commands as this could interfere with active sessions on the backend. Use the `--dry-run` flag to test the command without affecting active sessions.

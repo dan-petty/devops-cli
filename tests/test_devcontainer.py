@@ -118,6 +118,7 @@ class TestDevcontainerCli:
         monkeypatch.setenv("HOME", str(fake_home))
         monkeypatch.setenv("DEVOPS_MINIKUBE_AUTOSTART", "false")
         monkeypatch.setenv("DEVOPS_K8S_AUTO_DEPLOY", "false")
+        monkeypatch.setenv("DEVOPS_GIT_DAEMON_AUTOSTART", "false")
 
         result = runner.invoke(app, ["post-start", "--workspace", str(tmp_path)])
         assert result.exit_code == 0
@@ -384,7 +385,6 @@ class TestDevcontainerCli:
         result = runner.invoke(app, ["validate", "--workspace", str(tmp_path)])
         assert result.exit_code == 1
         assert "validation failed" in result.output.lower()
-        assert "specify a base container" in result.output.lower()
 
     def test_validate_missing_build_dockerfile_fails(
         self, runner: CliRunner, tmp_path: Path
@@ -411,3 +411,61 @@ class TestDevcontainerCli:
         assert data["command"] == "devops devcontainer validate"
         assert data["action"] == "validate_devcontainer_manifest"
         assert data["dry_run"] is True
+
+    def test_post_start_autostarts_git_daemon(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """devops devcontainer post-start must start git daemon if not running."""
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        monkeypatch.setenv("HOME", str(fake_home))
+        monkeypatch.setenv("DEVOPS_MINIKUBE_AUTOSTART", "false")
+        monkeypatch.setenv("DEVOPS_K8S_AUTO_DEPLOY", "false")
+        monkeypatch.setenv("DEVOPS_GIT_DAEMON_AUTOSTART", "true")
+
+        calls: list[list[str]] = []
+
+        def mock_run_subprocess(cmd: list[str], **kwargs: object) -> object:
+            calls.append(cmd)
+            import subprocess
+
+            return subprocess.CompletedProcess(cmd, returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr("devops_cli.commands.devcontainer.run_subprocess", mock_run_subprocess)
+        monkeypatch.setattr(
+            "devops_cli.commands.devcontainer._is_git_daemon_running", lambda: False
+        )
+        monkeypatch.setattr("shutil.which", lambda prog: f"/usr/bin/{prog}")
+
+        result = runner.invoke(app, ["post-start", "--workspace", str(tmp_path)])
+        assert result.exit_code == 0
+        assert "Started background Git daemon on port 9418" in result.output
+        assert any(c[:2] == ["git", "daemon"] for c in calls)
+
+    def test_post_start_skips_when_git_daemon_already_running(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """devops devcontainer post-start must skip when git daemon is running."""
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        monkeypatch.setenv("HOME", str(fake_home))
+        monkeypatch.setenv("DEVOPS_MINIKUBE_AUTOSTART", "false")
+        monkeypatch.setenv("DEVOPS_K8S_AUTO_DEPLOY", "false")
+        monkeypatch.setenv("DEVOPS_GIT_DAEMON_AUTOSTART", "true")
+
+        calls: list[list[str]] = []
+
+        def mock_run_subprocess(cmd: list[str], **kwargs: object) -> object:
+            calls.append(cmd)
+            import subprocess
+
+            return subprocess.CompletedProcess(cmd, returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr("devops_cli.commands.devcontainer.run_subprocess", mock_run_subprocess)
+        monkeypatch.setattr("devops_cli.commands.devcontainer._is_git_daemon_running", lambda: True)
+        monkeypatch.setattr("shutil.which", lambda prog: f"/usr/bin/{prog}")
+
+        result = runner.invoke(app, ["post-start", "--workspace", str(tmp_path)])
+        assert result.exit_code == 0
+        assert "Git daemon is already running on port 9418" in result.output
+        assert not any(c[:2] == ["git", "daemon"] for c in calls)

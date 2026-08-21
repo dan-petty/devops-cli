@@ -166,6 +166,63 @@ def dashboards_import(
     rprint(f"[green]Imported:[/green] {response.json().get('slug', 'unknown')}")
 
 
+@dashboards_app.command("sync")
+def dashboards_sync(
+    dir_path: Annotated[
+        Path | None,
+        typer.Option("--dir", "-d", help="Directory containing dashboard JSON files"),
+    ] = None,
+) -> None:
+    """Sync all bundled/local dashboards to Grafana."""
+    search_dir = dir_path or Path("k8s/monitoring/dashboards")
+    if not search_dir.exists():
+        rprint(f"[yellow]Dashboard directory '{search_dir}' not found.[/yellow]")
+        raise typer.Exit(1)
+
+    json_files = sorted(search_dir.glob("*.json"))
+    if not json_files:
+        rprint(f"[yellow]No dashboard JSON files found in '{search_dir}'.[/yellow]")
+        return
+
+    if is_dry_run():
+        render_dry_run_result(
+            command="devops grafana dashboards sync",
+            target=str(search_dir),
+            action="sync_dashboards",
+            details={"files": [f.name for f in json_files]},
+        )
+        return
+
+    settings = load_settings()
+    base, headers = _client_args(settings)
+
+    success_count = 0
+    with httpx2.Client() as http_client:
+        for dash_file in json_files:
+            try:
+                raw = json.loads(dash_file.read_text(encoding="utf-8"))
+                dashboard = raw.get("dashboard", raw)
+                title = dashboard.get("title", dash_file.stem)
+                response = http_client.post(
+                    f"{base}/api/dashboards/db",
+                    headers=headers,
+                    json={"dashboard": dashboard, "overwrite": True},
+                    timeout=DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS,
+                )
+                response.raise_for_status()
+                rprint(
+                    f"[green]✓ Synced dashboard:[/green] [bold]{title}[/bold] ({dash_file.name})"
+                )
+                success_count += 1
+            except Exception as exc:
+                rprint(f"[red]✗ Failed to sync '{dash_file.name}': {exc}[/red]")
+
+    rprint(
+        f"[green]✓ Dashboard sync completed: "
+        f"{success_count}/{len(json_files)} synced successfully.[/green]"
+    )
+
+
 # ── search & datasources ───────────────────────────────────────────────────────
 
 

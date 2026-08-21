@@ -17,13 +17,14 @@ from __future__ import annotations
 
 import inspect
 import json
+import re
 from collections.abc import Callable, Generator
 from typing import Any, TypeVar
 
 from pydantic import BaseModel, Field
 
+from devops_cli.ai.agents.memory import AgentMemory
 from devops_cli.ai.client import LLMClient
-from devops_cli.ai.review_schema import extract_json_block
 from devops_cli.config.defaults import DEFAULT_AGENT_MAX_TURNS
 from devops_cli.models.ai import ChatMessage
 
@@ -57,12 +58,13 @@ class AgentResponse[T](BaseModel):
     content: str
     data: T | None = None
     tool_calls: list[ToolCall] = Field(default_factory=list)
+    thoughts: list[str] = Field(default_factory=list)
     turns: int = 1
     backend_info: str | None = None
 
 
 class PydanticAgent[T]:
-    """Agent built on Pydantic models supporting tools, reasoning, and streaming."""
+    """Agent built on Pydantic models supporting tools, memory, reasoning, and streaming."""
 
     def __init__(
         self,
@@ -72,11 +74,13 @@ class PydanticAgent[T]:
         name: str = "Assistant",
         output_schema: type[T] | None = None,
         tools: list[AgentTool | Callable[..., Any]] | None = None,
+        memory: AgentMemory | None = None,
     ) -> None:
         self.client = client
         self.system_prompt = system_prompt
         self.name = name
         self.output_schema = output_schema
+        self.memory: AgentMemory = memory or AgentMemory(session_id=name)
         self._tools: dict[str, AgentTool] = {}
         if tools:
             for tool in tools:
@@ -107,19 +111,31 @@ class PydanticAgent[T]:
     def _build_system_prompt_with_tools(self) -> str:
         prompt_parts: list[str] = [self.system_prompt.strip()]
 
+        if self.memory and self.memory.summary:
+            prompt_parts.append(f"## Prior Interaction & Memory Summary\n{self.memory.summary}")
+
         if self._tools:
             tools_desc: list[str] = []
             for name, tool in self._tools.items():
                 params_str = json.dumps(tool.parameters, separators=(",", ":"))
-                desc = tool.description.replace("\n", " ")
+                # Sanitize description: strip non-printable characters and bound length
+                desc = "".join(
+                    c for c in tool.description.replace("\n", " ") if 32 <= ord(c) <= 126
+                )
+                if len(desc) > 300:
+                    desc = desc[:297] + "..."
                 tools_desc.append(f"- `{name}`: {desc} params={params_str}")
 
             tools_block = (
                 "## Available Tools\n"
-                "You have access to these tools:\n"
-                + "\n".join(tools_desc)
-                + "\n\nTo invoke a tool, output JSON:\n"
-                '```json\n{"tool": "tool_name", "arguments": {"param": "value"}}\n```'
+                "You have access to these tools:\n" + "\n".join(tools_desc) + "\n\n"
+                "## Tool Execution Rules (CRITICAL):\n"
+                "1. When you need data or actions from a tool, output ONLY the JSON code block:\n"
+                '```json\n{"tool": "tool_name", "arguments": {"param": "value"}}\n```\n'
+                "2. Do NOT output conversational promises like 'We need to call...' in reply.\n"
+                "3. After tool execution, you will receive the tool result in the next turn.\n"
+                "4. ONCE YOU RECEIVE THE TOOL RESULT, YOU MUST PROVIDE YOUR FULL NATURAL LANGUAGE "
+                "RESPONSE TO THE USER. DO NOT REPEAT THE TOOL CALL."
             )
             prompt_parts.append(tools_block)
 
@@ -142,70 +158,208 @@ class PydanticAgent[T]:
         *,
         max_turns: int = DEFAULT_AGENT_MAX_TURNS,
         enable_thinking: bool = True,
+        on_tool_call: Callable[[str, dict[str, Any], Any], None] | None = None,
+        on_thought: Callable[[str], None] | None = None,
     ) -> AgentResponse[T]:
         """Execute the agent tool loop until completion or max_turns is reached."""
+        self.memory.add_interaction("user", user_prompt)
+        self.memory.auto_summarize_if_needed(llm_client=self.client)
+
         system = self._build_system_prompt_with_tools()
-        messages: list[ChatMessage] = [ChatMessage(role="user", content=user_prompt)]
+        messages: list[ChatMessage] = self.memory.to_chat_messages()
+        if not messages or messages[-1].content != user_prompt:
+            messages.append(ChatMessage(role="user", content=user_prompt))
+
         tool_calls: list[ToolCall] = []
         response_text = ""
+        all_thoughts: list[str] = []
 
         for turn in range(1, max_turns + 1):
             res_obj = self.client.chat_messages(system, messages, enable_thinking=enable_thinking)
             response_text = str(res_obj)
             b_info = getattr(res_obj, "backend_info", None)
 
-            if "```json" in response_text and '"tool"' in response_text:
-                try:
-                    json_data = extract_json_block(response_text)
-                    if isinstance(json_data, dict) and "tool" in json_data:
-                        tool_name = str(json_data["tool"])
-                        args: dict[str, Any] = (
-                            json_data["arguments"]
-                            if isinstance(json_data.get("arguments"), dict)
-                            else {}
+            from devops_cli.ai.fixer import fix_llm_response
+
+            fixed = fix_llm_response(
+                response_text,
+                schema=self.output_schema,
+                available_tools=set(self._tools.keys()),
+            )
+
+            # Broadcast thoughts
+            for t in fixed.thoughts:
+                if t and t not in all_thoughts:
+                    all_thoughts.append(t)
+                    if on_thought:
+                        on_thought(t)
+
+            # Process extracted tool calls
+            if fixed.tool_calls:
+                executed_any = False
+                already_called = False
+                for tc_info in fixed.tool_calls:
+                    tool_name = tc_info.tool_name
+                    args = tc_info.arguments
+                    if tool_name in self._tools:
+                        tool_obj = self._tools[tool_name]
+                        valid_params = set(tool_obj.parameters.keys())
+                        clean_args = (
+                            {k: v for k, v in args.items() if k in valid_params}
+                            if valid_params
+                            else args
                         )
-                        if tool_name in self._tools:
-                            try:
-                                tool_result = self._tools[tool_name].execute(**args)
-                            except Exception as exc:
-                                tool_result = f"Tool execution error for {tool_name}: {exc}"
-                            tc = ToolCall(tool_name=tool_name, arguments=args, result=tool_result)
-                            tool_calls.append(tc)
 
-                            messages.append(ChatMessage(role="assistant", content=response_text))
-                            messages.append(
-                                ChatMessage(
-                                    role="user",
-                                    content=(
-                                        f"Tool '{tool_name}' output:\n"
-                                        f"{json.dumps(tool_result, default=str)}"
-                                    ),
-                                )
-                            )
+                        # Prevent infinite tool repetition loops
+                        prior = next(
+                            (
+                                prev
+                                for prev in tool_calls
+                                if prev.tool_name == tool_name and prev.arguments == clean_args
+                            ),
+                            None,
+                        )
+                        if prior is not None:
+                            already_called = True
                             continue
-                except Exception:
-                    pass
 
-            parsed_data: T | None = None
-            if self.output_schema is not None:
-                try:
-                    json_data = extract_json_block(response_text)
-                    if isinstance(json_data, dict):
-                        parsed_data = self.output_schema.model_validate(json_data)  # type: ignore[attr-defined]
-                except Exception:
-                    pass
+                        try:
+                            tool_result = tool_obj.execute(**clean_args)
+                        except Exception as exc:
+                            tool_result = f"Tool execution error for {tool_name}: {exc}"
+                        tc = ToolCall(tool_name=tool_name, arguments=clean_args, result=tool_result)
+                        tool_calls.append(tc)
+                        executed_any = True
+
+                        if on_tool_call:
+                            on_tool_call(tool_name, clean_args, tool_result)
+
+                        messages.append(ChatMessage(role="assistant", content=response_text))
+                        messages.append(
+                            ChatMessage(
+                                role="user",
+                                content=(
+                                    f"Tool '{tool_name}' output:\n"
+                                    f"{json.dumps(tool_result, default=str)}\n\n"
+                                    "Provide your complete response, analysis, and recommendations "
+                                    "to the user based on these tool results."
+                                ),
+                            )
+                        )
+                if executed_any:
+                    continue
+                if already_called and turn < max_turns:
+                    messages.append(ChatMessage(role="assistant", content=response_text))
+                    messages.append(
+                        ChatMessage(
+                            role="user",
+                            content=(
+                                "The requested tool has already executed. Do NOT output tool JSON. "
+                                "Provide your direct, complete response to the user now."
+                            ),
+                        )
+                    )
+                    continue
+
+            final_output = fixed.content.strip()
+
+            # Check if output or thoughts expressed intent to use a known tool
+            detected_tool: str | None = None
+            if self._tools and turn < max_turns:
+                search_text = f"{final_output}\n{' '.join(all_thoughts)}"
+                for t_name in self._tools:
+                    escaped_name = re.escape(t_name)
+                    tool_intent_pattern = (
+                        rf"\b(?:call|invoke|use|run|execute)\s+(?:tool\s+)?`?{escaped_name}`?\b"
+                    )
+                    if re.search(tool_intent_pattern, search_text, re.IGNORECASE):
+                        detected_tool = t_name
+                        break
+
+            if detected_tool and turn < max_turns:
+                tool_obj = self._tools[detected_tool]
+                example_args = {k: f"<{k}>" for k in tool_obj.parameters}
+                example_json = json.dumps(
+                    {"tool": detected_tool, "arguments": example_args}, separators=(",", ":")
+                )
+                messages.append(ChatMessage(role="assistant", content=response_text))
+                messages.append(
+                    ChatMessage(
+                        role="user",
+                        content=(
+                            f"Invoke tool '{detected_tool}' now. Output ONLY JSON:\n"
+                            f"```json\n{example_json}\n```"
+                        ),
+                    )
+                )
+                continue
+
+            # If final_output is raw tool JSON or contains internal scratchpad deliberation
+            is_tool_json = (
+                final_output.startswith('{"tool"')
+                or final_output.startswith('```json\n{"tool"')
+                or ('"tool":' in final_output and '"arguments":' in final_output)
+            )
+            is_deliberation = (
+                not final_output
+                or is_tool_json
+                or final_output.lower().startswith(
+                    (
+                        "the tool returned",
+                        "we need to interpret",
+                        "we need to decide",
+                        "we should double-check",
+                        "let's search",
+                        "we need to scan",
+                        "let's recall",
+                        "not sure. we need",
+                    )
+                )
+            )
+
+            if is_deliberation and turn < max_turns:
+                messages.append(ChatMessage(role="assistant", content=response_text))
+                if tool_calls:
+                    prompt_msg = (
+                        "Provide your direct final response to the user based on the tool results. "
+                        "Do NOT output JSON tool blocks."
+                    )
+                else:
+                    prompt_msg = (
+                        "Provide your direct final response to the user based on your reasoning."
+                    )
+                messages.append(ChatMessage(role="user", content=prompt_msg))
+                continue
+
+            # Fallback if still empty or raw tool JSON after max turns
+            if not final_output or ('"tool":' in final_output and '"arguments":' in final_output):
+                if tool_calls:
+                    last_tc = tool_calls[-1]
+                    final_output = (
+                        f"**Tool Execution Completed (`{last_tc.tool_name}`):**\n\n{last_tc.result}"
+                    )
+                elif all_thoughts:
+                    final_output = all_thoughts[-1]
+
+            self.memory.add_interaction("assistant", final_output)
+            self.memory.auto_summarize_if_needed(llm_client=self.client)
 
             return AgentResponse[T](
-                content=response_text,
-                data=parsed_data,
+                content=final_output,
+                data=fixed.parsed_model,
                 tool_calls=tool_calls,
+                thoughts=all_thoughts,
                 turns=turn,
                 backend_info=b_info,
             )
 
+        self.memory.add_interaction("assistant", response_text)
+        self.memory.auto_summarize_if_needed(llm_client=self.client)
+
         return AgentResponse[T](
             content=response_text,
             tool_calls=tool_calls,
+            thoughts=all_thoughts,
             turns=max_turns,
             backend_info=b_info if "b_info" in locals() else None,
         )

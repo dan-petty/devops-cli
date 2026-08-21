@@ -25,6 +25,7 @@ Complete command-line reference for `devops-cli`, automatically generated from C
 - [`devops mcp`](#devops-mcp) — FastMCP server for Model Context Protocol integration.
 - [`devops docs`](#devops-docs) — Generate and validate CLI and API documentation.
 - [`devops release`](#devops-release) — Manage release cycles, version bumping, changelogs, and release verification.
+- [`devops pr`](#devops-pr) — Manage GitHub pull requests and base branch targeting.
 - [`devops tf`](#devops-tf) — OpenTofu and Terraform Infrastructure-as-Code operations.
 - [`devops tofu`](#devops-tofu) — OpenTofu and Terraform Infrastructure-as-Code operations (alias for tf).
 
@@ -622,7 +623,7 @@ devops k8s bootstrap [OPTIONS]
 
 ### `devops k8s deploy-stack`
 
-**Deploy infrastructure or LLM stack (Ollama, WebUI, Qdrant, Valkey) to minikube.**
+**Deploy infrastructure or LLM stack (Ollama, WebUI, Qdrant, Valkey) to Kubernetes.**
 
 ```bash
 devops k8s deploy-stack [OPTIONS]
@@ -634,10 +635,11 @@ devops k8s deploy-stack [OPTIONS]
 |---|---|---|---|
 | `--k8s-dir` | `path` | `k8s` | Path to k8s/ config directory |
 | `--stack`, `-s` | `string` | `infra` | Stack to deploy (infra, llm, all) |
+| `--context`, `-c` | `string` | - | Kubernetes cluster context |
 
 ### `devops k8s configure-urls`
 
-**Auto-detect Minikube stack URLs and update CLI config.**
+**Auto-detect Kubernetes stack URLs and update CLI config.**
 
 ```bash
 devops k8s configure-urls [OPTIONS]
@@ -648,6 +650,7 @@ devops k8s configure-urls [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--stack`, `-s` | `string` | `infra` | Stack to configure URLs for (infra, llm, all) |
+| `--context`, `-c` | `string` | - | Kubernetes cluster context |
 
 ### `devops k8s port-forward`
 
@@ -662,13 +665,16 @@ devops k8s port-forward [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--stack`, `-s` | `string` | `infra` | Stack services to port-forward (infra, llm, all) |
+| `--context`, `-c` | `string` | - | Kubernetes cluster context |
 | `--argocd-port` | `integer` | `8080` | Local port for ArgoCD |
 | `--grafana-port` | `integer` | `8030` | Local port for Grafana |
 | `--prometheus-port` | `integer` | `8090` | Local port for Prometheus |
+| `--jaeger-port` | `integer` | `16686` | Local port for Jaeger Query UI |
 | `--ollama-port` | `integer` | `11434` | Local port for Ollama |
 | `--open-webui-port` | `integer` | `3000` | Local port for Open-WebUI |
 | `--qdrant-port` | `integer` | `6333` | Local port for Qdrant HTTP |
 | `--valkey-port` | `integer` | `6379` | Local port for Valkey |
+| `--address` | `string` | `127.0.0.1` | Local address to bind for port-forwarding |
 
 ### `devops k8s teardown-stack`
 
@@ -684,6 +690,7 @@ devops k8s teardown-stack [OPTIONS]
 |---|---|---|---|
 | `--k8s-dir` | `path` | `k8s` | Path to k8s/ config directory |
 | `--stack`, `-s` | `string` | `infra` | Stack to teardown (infra, llm, all) |
+| `--context`, `-c` | `string` | - | Kubernetes cluster context |
 
 ### `devops k8s rbac-audit`
 
@@ -978,6 +985,20 @@ devops grafana dashboards import [OPTIONS] <file>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--folder-id` | `integer` | `0` | - |
+
+#### `devops grafana dashboards sync`
+
+**Sync all bundled/local dashboards to Grafana.**
+
+```bash
+devops grafana dashboards sync [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dir`, `-d` | `path` | - | Directory containing dashboard JSON files |
 
 ---
 
@@ -1635,7 +1656,7 @@ devops ai agents [OPTIONS]
 
 ### `devops ai chat`
 
-**Start an interactive chat with a Pydantic AI persona (tools, thinking, streaming).**
+**Start an interactive chat with a Pydantic AI persona (tools, thinking, streaming, RAG).**
 
 ```bash
 devops ai chat [OPTIONS]
@@ -1647,9 +1668,11 @@ devops ai chat [OPTIONS]
 |---|---|---|---|
 | `--persona`, `-p` | `string` | `architect` | Persona to chat with: devsecops, architect, pm, auditor, qa |
 | `--context`, `-c` | `path` | - | Optional file to inject as background context (e.g. AGENTS.md) |
+| `--rag`, `--no-rag` | `boolean` | `True` | Retrieve relevant semantic RAG context |
 | `--stream`, `--no-stream` | `boolean` | `True` | Stream response tokens |
 | `--tools`, `--no-tools` | `boolean` | `True` | Enable DevOps agent tools |
 | `--thinking`, `--no-thinking` | `boolean` | `True` | Enable model reasoning/thinking |
+| `--prewarm`, `--no-prewarm` | `boolean` | `True` | Prewarm the model before starting chat |
 
 ### `devops ai bundle-models`
 
@@ -1667,7 +1690,7 @@ devops ai bundle-models [OPTIONS]
 
 ### `devops ai pipeline`
 
-**Run a multi-agent Pydantic pipeline with shared DevOps tools.**
+**Run a multi-agent Pydantic pipeline with shared DevOps tools and RAG context.**
 
 ```bash
 devops ai pipeline [OPTIONS] <prompt>
@@ -1685,6 +1708,7 @@ devops ai pipeline [OPTIONS] <prompt>
 |---|---|---|---|
 | `--personas`, `-p` | `string` | `devsecops,architect,qa` | Comma-separated persona pipeline sequence (e.g. devsecops,architect,qa) |
 | `--max-turns` | `integer` | `5` | Maximum tool turns per agent stage |
+| `--rag`, `--no-rag` | `boolean` | `True` | Retrieve relevant semantic RAG context |
 | `--thinking`, `--no-thinking` | `boolean` | `True` | Enable reasoning/thinking per agent |
 
 ### `devops ai review`
@@ -1934,11 +1958,92 @@ devops ai analyze pr [OPTIONS] <pr_number>
 | `--enhanced`, `-e`, `--no-enhanced` | `boolean` | `True` | Generate AI-enhanced metadata (pseudocode, complexity, last_updated) |
 | `--update-all`, `-u` | `boolean` | - | Regenerate all enhanced metadata fields regardless of last_* timestamps |
 
+### `devops ai rag`
+
+**Manage RAG vector embeddings, indexing, and semantic code search (Qdrant).**
+
+```bash
+devops ai rag COMMAND [ARGS]...
+```
+
+#### `devops ai rag index`
+
+**Scan and index workspace code and documentation into Qdrant vector database.**
+
+```bash
+devops ai rag index [OPTIONS] <path>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<path>` | `path` | No | Directory or file to index into vector store |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--project`, `-p` | `string` | - | Project / repository name override |
+| `--force`, `-f` | `boolean` | - | Re-index all files ignoring content hash cache |
+| `--collection`, `-c` | `string` | - | Target collection override |
+
+#### `devops ai rag query`
+
+**Perform semantic search across indexed workspace code and documentation.**
+
+```bash
+devops ai rag query [OPTIONS] <query>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<query>` | `string` | Yes | Semantic search query string |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--project`, `-p` | `string` | - | Filter results to a specific project |
+| `--language`, `-l` | `string` | - | Filter by programming language |
+| `--category` | `string` | - | Filter by category (code, docs, iac, config) |
+| `--top-k`, `-k` | `integer` | `5` | Number of results to retrieve |
+| `--min-score`, `-s` | `float` | `0.35` | Minimum cosine similarity threshold |
+| `--collection`, `-c` | `string` | - | Search only a specific collection |
+| `--file`, `-f` | `string` | - | Filter results to a specific file |
+
+#### `devops ai rag status`
+
+**Display status of vector database collections and embedding configurations.**
+
+```bash
+devops ai rag status
+```
+
+#### `devops ai rag clear`
+
+**Clear vector index collections from Qdrant.**
+
+```bash
+devops ai rag clear [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--collection`, `-c` | `string` | - | Specific collection to delete (default: all) |
+| `--force`, `-f` | `boolean` | - | Bypass confirmation prompt |
+
 ---
 
 ## devops review
 
 AI-powered code reviews using expert personas.
+
+AI Code Review across branches, paths, and pull requests.
 
 ### `devops review path`
 
@@ -2310,6 +2415,111 @@ devops release tag [OPTIONS]
 | `--breaking`, `-b` | `boolean` | - | Flag release as containing breaking changes (!) |
 | `--message`, `-m` | `string` | - | Custom tag annotation message |
 | `--root`, `-r` | `path` | - | Project repository root directory |
+
+---
+
+## devops pr
+
+Manage GitHub pull requests and base branch targeting.
+
+Manage GitHub pull requests, base branch targeting, and review gates.
+
+### `devops pr list`
+
+**List pull requests with base targeting and review status.**
+
+```bash
+devops pr list [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--state`, `-s` | `string` | `open` | Filter by state (open, closed, merged, all) |
+| `--limit`, `-n` | `integer` | `10` | Maximum number of pull requests to display |
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format |
+
+### `devops pr view`
+
+**View details of a pull request.**
+
+```bash
+devops pr view [OPTIONS] <number>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<number>` | `integer` | Yes | Pull request number |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format |
+
+### `devops pr checks`
+
+**Check remote CI quality gate status on a pull request.**
+
+```bash
+devops pr checks [OPTIONS] <number>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<number>` | `integer` | Yes | Pull request number |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format |
+
+### `devops pr edit`
+
+**Edit pull request base branch, title, or body.**
+
+```bash
+devops pr edit [OPTIONS] <number>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<number>` | `integer` | Yes | Pull request number |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--base`, `-B` | `string` | - | Change the base branch for this pull request |
+| `--title`, `-t` | `string` | - | Set the new title |
+| `--body`, `-b` | `string` | - | Set the new body |
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format |
+
+### `devops pr create`
+
+**Create a pull request with automatic release branch target validation.**
+
+```bash
+devops pr create [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--title`, `-t` | `string` | - | Pull request title |
+| `--body`, `-b` | `string` | `` | Pull request body text |
+| `--base`, `-B` | `string` | - | Target base branch (defaults to active release branch) |
+| `--draft`, `-d` | `boolean` | - | Create pull request as draft |
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format |
 
 ---
 

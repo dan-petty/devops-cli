@@ -96,4 +96,18 @@ devops grafana dashboards import [OPTIONS] <file>
 |---|---|---|---|
 | `--folder-id` | `integer` | `0` | - |
 
+### `devops grafana dashboards sync`
+
+**Sync all bundled/local dashboards to Grafana.**
+
+```bash
+devops grafana dashboards sync [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dir`, `-d` | `path` | - | Directory containing dashboard JSON files |
+
 ---

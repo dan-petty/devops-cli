@@ -30,6 +30,7 @@
 - 🛡️ [**Security Policy & Threat Model (`SECURITY.md`)**](SECURITY.md) — Vulnerability disclosure, SSRF protections, and OS Keyring encryption.
 - 🤝 [**Contributor Guidelines (`CONTRIBUTING.md`)**](CONTRIBUTING.md) — Standards, local development with `uv`, and PR workflows.
 - 📋 [**Routine Tasks, Order & Methodology Guide (`docs/ROUTINE_TASKS.md`)**](docs/ROUTINE_TASKS.md) — Operational task matrix, cadences, execution order, and troubleshooting protocols.
+- 💡 [**Tool Cheatsheets & Command Translation (`docs/cheatsheets/README.md`)**](docs/cheatsheets/README.md) — Side-by-side comparison of standard DevOps tools (`git`, `kubectl`, `helm`, `docker`, `terraform`, `trivy`, `prometheus`, `grafana`, `ollama`) vs `devops-cli`.
 - 📖 [**Consolidated CLI Reference (`docs/CLI_REFERENCE.md`)**](docs/CLI_REFERENCE.md) — Full subcommand reference.
 - 🌐 [**Environment Variables Guide (`docs/ENV_VARS.md`)**](docs/ENV_VARS.md) — System and environment settings.
 - ⚡ [**FastMCP Tools Specification (`docs/MCP_TOOLS.md`)**](docs/MCP_TOOLS.md) — Registered MCP tools.
@@ -140,8 +141,8 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 |  | `devops k8s apply [OPTIONS] <path>` | Apply a Kubernetes manifest (delegates to kubectl). |
 |  | `devops k8s logs [OPTIONS] <pod>` | Stream pod logs (delegates to kubectl). |
 |  | `devops k8s bootstrap [OPTIONS]` | Bootstrap minikube Kubernetes cluster and deploy infrastructure/LLM stack. |
-|  | `devops k8s deploy-stack [OPTIONS]` | Deploy infrastructure or LLM stack (Ollama, WebUI, Qdrant, Valkey) to minikube. |
-|  | `devops k8s configure-urls [OPTIONS]` | Auto-detect Minikube stack URLs and update CLI config. |
+|  | `devops k8s deploy-stack [OPTIONS]` | Deploy infrastructure or LLM stack (Ollama, WebUI, Qdrant, Valkey) to Kubernetes. |
+|  | `devops k8s configure-urls [OPTIONS]` | Auto-detect Kubernetes stack URLs and update CLI config. |
 |  | `devops k8s port-forward [OPTIONS]` | Port-forward k8s monitoring / LLM stack services to localhost ports and update CLI config. |
 |  | `devops k8s teardown-stack [OPTIONS]` | Uninstall the k8s infrastructure / LLM stack and delete namespaces. |
 |  | `devops k8s rbac-audit [OPTIONS]` | Audit RBAC RoleBindings and ServiceAccounts for overprivileged access. |
@@ -195,11 +196,12 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 |  | `devops ai preload` | Preload configured model into VRAM across all configured Ollama servers. |
 |  | `devops ai test [OPTIONS]` | Send a test prompt to verify AI provider connectivity. |
 |  | `devops ai agents [OPTIONS]` | Generate LLM/Agent instruction files (AGENTS.md, CLAUDE.md, copilot-instructions.md). |
-|  | `devops ai chat [OPTIONS]` | Start an interactive chat with a Pydantic AI persona (tools, thinking, streaming). |
+|  | `devops ai chat [OPTIONS]` | Start an interactive chat with a Pydantic AI persona (tools, thinking, streaming, RAG). |
 |  | `devops ai bundle-models [OPTIONS]` | Bundle Ollama model metadata into tarball for air-gapped DevContainers. |
-|  | `devops ai pipeline [OPTIONS] <prompt>` | Run a multi-agent Pydantic pipeline with shared DevOps tools. |
+|  | `devops ai pipeline [OPTIONS] <prompt>` | Run a multi-agent Pydantic pipeline with shared DevOps tools and RAG context. |
 |  | `devops ai review COMMAND [ARGS]...` | AI-powered code reviews using expert personas (devsecops, architect, pm, auditor, qa). |
 |  | `devops ai analyze COMMAND [ARGS]...` | Analyze codebase metadata and create/update .data/analysis/*-metadata.json files. |
+|  | `devops ai rag COMMAND [ARGS]...` | Manage RAG vector embeddings, indexing, and semantic code search (Qdrant). |
 | **review** | `devops review path [OPTIONS] <target>` | Review source files directly (no git required). |
 |  | `devops review branch [OPTIONS] <branch_name>` | Review a git branch diff with one or all AI personas. |
 |  | `devops review pr [OPTIONS] <number>` | Review a GitHub pull request with one or all AI personas. |
@@ -219,6 +221,11 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 |  | `devops release check [OPTIONS]` | Verify release readiness (version consistency, docs freshness, and CI quality gates). |
 |  | `devops release notes [OPTIONS]` | Print markdown release notes for a specified or current release version. |
 |  | `devops release tag [OPTIONS]` | Create release commit and annotated git tag. |
+| **pr** | `devops pr list [OPTIONS]` | List pull requests with base targeting and review status. |
+|  | `devops pr view [OPTIONS] <number>` | View details of a pull request. |
+|  | `devops pr checks [OPTIONS] <number>` | Check remote CI quality gate status on a pull request. |
+|  | `devops pr edit [OPTIONS] <number>` | Edit pull request base branch, title, or body. |
+|  | `devops pr create [OPTIONS]` | Create a pull request with automatic release branch target validation. |
 | **tf** | `devops tf init [OPTIONS] <directory>` | Initialize an OpenTofu working directory. |
 |  | `devops tf plan [OPTIONS] <directory>` | Generate and show an OpenTofu execution plan. |
 |  | `devops tf apply [OPTIONS] <directory>` | Create or update OpenTofu infrastructure. |

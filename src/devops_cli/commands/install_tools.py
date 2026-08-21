@@ -163,6 +163,18 @@ def _install_kubectl(version: str, target_dir: Path) -> None:
     _write_binary(data, target_dir / f"kubectl{_EXE}")
 
 
+_VERSION_REGEX: Final[re.Pattern[str]] = re.compile(r"^v?\d+(\.\d+)*(-[a-zA-Z0-9_.]+)?$")
+
+
+def _validate_version_str(version: str, tool_name: str = "tool") -> str:
+    """Validate that version string matches semantic version pattern."""
+    v = version.strip()
+    if not _VERSION_REGEX.match(v):
+        msg = f"Invalid {tool_name} version string: {version!r}"
+        raise ValueError(msg)
+    return v.lstrip("v")
+
+
 def _latest_kubectl() -> str:
     with httpx2.Client(follow_redirects=True) as c:
         r = c.get(
@@ -174,7 +186,7 @@ def _latest_kubectl() -> str:
 
 
 def _install_kustomize(version: str, target_dir: Path) -> None:
-    v = version.lstrip("v")
+    v = _validate_version_str(version, "kustomize")
     tar_name = f"kustomize_v{v}_{_OS}_{_ARCH}.tar.gz"
     url = f"{CONST_URL_GITHUB_KUSTOMIZE_RELEASES_BASE}/kustomize%2Fv{v}/{tar_name}"
     checksums_url = f"{CONST_URL_GITHUB_KUSTOMIZE_RELEASES_BASE}/kustomize%2Fv{v}/checksums.txt"
@@ -185,7 +197,7 @@ def _install_kustomize(version: str, target_dir: Path) -> None:
 
 
 def _install_helm(version: str, target_dir: Path) -> None:
-    v = version.lstrip("v")
+    v = _validate_version_str(version, "helm")
     tar_name = f"helm-v{v}-{_OS}-{_ARCH}.tar.gz"
     url = f"{CONST_URL_HELM_DOWNLOAD_BASE}/{tar_name}"
     data = _download(url)
@@ -196,7 +208,7 @@ def _install_helm(version: str, target_dir: Path) -> None:
 
 
 def _install_argo(version: str, target_dir: Path) -> None:
-    v = version.lstrip("v")
+    v = _validate_version_str(version, "argo")
     gz_name = f"argo-{_OS}-{_ARCH}.gz"
     url = f"{CONST_URL_GITHUB_ARGO_WORKFLOWS_RELEASES_BASE}/v{v}/{gz_name}"
     data = _download(url)
@@ -206,7 +218,7 @@ def _install_argo(version: str, target_dir: Path) -> None:
 
 
 def _install_argocd(version: str, target_dir: Path) -> None:
-    v = version.lstrip("v")
+    v = _validate_version_str(version, "argocd")
     bin_name = f"argocd-{_OS}-{_ARCH}{_EXE}"
     url = f"{CONST_URL_GITHUB_ARGOCD_RELEASES_BASE}/v{v}/{bin_name}"
     data = _download(url)
@@ -219,7 +231,7 @@ def _install_argocd(version: str, target_dir: Path) -> None:
 
 
 def _install_rollouts(version: str, target_dir: Path) -> None:
-    v = version.lstrip("v")
+    v = _validate_version_str(version, "rollouts")
     bin_name = f"kubectl-argo-rollouts-{_OS}-{_ARCH}{_EXE}"
     url = f"{CONST_URL_GITHUB_ARGO_ROLLOUTS_RELEASES_BASE}/v{v}/{bin_name}"
     data = _download(url)
@@ -232,7 +244,7 @@ def _install_rollouts(version: str, target_dir: Path) -> None:
 
 
 def _install_trivy(version: str, target_dir: Path) -> None:
-    v = version.lstrip("v")
+    v = _validate_version_str(version, "trivy")
     arch_str = "64bit" if _ARCH == "amd64" else "ARM64"
     tar_name = f"trivy_{v}_Linux-{arch_str}.tar.gz"
     url = f"https://github.com/aquasecurity/trivy/releases/download/v{v}/{tar_name}"

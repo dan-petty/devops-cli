@@ -108,7 +108,7 @@ devops k8s bootstrap [OPTIONS]
 
 ## `devops k8s deploy-stack`
 
-**Deploy infrastructure or LLM stack (Ollama, WebUI, Qdrant, Valkey) to minikube.**
+**Deploy infrastructure or LLM stack (Ollama, WebUI, Qdrant, Valkey) to Kubernetes.**
 
 ```bash
 devops k8s deploy-stack [OPTIONS]
@@ -120,12 +120,13 @@ devops k8s deploy-stack [OPTIONS]
 |---|---|---|---|
 | `--k8s-dir` | `path` | `k8s` | Path to k8s/ config directory |
 | `--stack`, `-s` | `string` | `infra` | Stack to deploy (infra, llm, all) |
+| `--context`, `-c` | `string` | - | Kubernetes cluster context |
 
 ---
 
 ## `devops k8s configure-urls`
 
-**Auto-detect Minikube stack URLs and update CLI config.**
+**Auto-detect Kubernetes stack URLs and update CLI config.**
 
 ```bash
 devops k8s configure-urls [OPTIONS]
@@ -136,6 +137,7 @@ devops k8s configure-urls [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--stack`, `-s` | `string` | `infra` | Stack to configure URLs for (infra, llm, all) |
+| `--context`, `-c` | `string` | - | Kubernetes cluster context |
 
 ---
 
@@ -152,13 +154,16 @@ devops k8s port-forward [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--stack`, `-s` | `string` | `infra` | Stack services to port-forward (infra, llm, all) |
+| `--context`, `-c` | `string` | - | Kubernetes cluster context |
 | `--argocd-port` | `integer` | `8080` | Local port for ArgoCD |
 | `--grafana-port` | `integer` | `8030` | Local port for Grafana |
 | `--prometheus-port` | `integer` | `8090` | Local port for Prometheus |
+| `--jaeger-port` | `integer` | `16686` | Local port for Jaeger Query UI |
 | `--ollama-port` | `integer` | `11434` | Local port for Ollama |
 | `--open-webui-port` | `integer` | `3000` | Local port for Open-WebUI |
 | `--qdrant-port` | `integer` | `6333` | Local port for Qdrant HTTP |
 | `--valkey-port` | `integer` | `6379` | Local port for Valkey |
+| `--address` | `string` | `127.0.0.1` | Local address to bind for port-forwarding |
 
 ---
 
@@ -176,6 +181,7 @@ devops k8s teardown-stack [OPTIONS]
 |---|---|---|---|
 | `--k8s-dir` | `path` | `k8s` | Path to k8s/ config directory |
 | `--stack`, `-s` | `string` | `infra` | Stack to teardown (infra, llm, all) |
+| `--context`, `-c` | `string` | - | Kubernetes cluster context |
 
 ---
 

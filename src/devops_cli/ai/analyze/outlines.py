@@ -95,9 +95,40 @@ def _enhance_file_metadata_with_ai(
     from devops_cli.models.ai import ChatMessage
 
     sanitized_content = _mask_sensitive_data(content[:150000])
+    rag_context = ""
+    try:
+        from devops_cli.ai.rag.embeddings import EmbeddingsEngine
+        from devops_cli.ai.rag.qdrant import QdrantClient
+        from devops_cli.ai.rag.retriever import SemanticRetriever
+        from devops_cli.config.settings import get_ai_api_key, load_settings
+
+        settings = load_settings()
+        if settings.ai.rag.enabled:
+            qdrant = QdrantClient(
+                base_url=settings.qdrant.url or "http://localhost:6333",
+                allow_private_network=settings.ai.allow_private_network,
+            )
+            if qdrant.is_alive():
+                embedder = EmbeddingsEngine(ai_config=settings.ai, api_key=get_ai_api_key(settings))
+                retriever = SemanticRetriever(
+                    qdrant=qdrant,
+                    embedder=embedder,
+                    code_collection=f"{settings.qdrant.collection_prefix}_code",
+                    docs_collection=f"{settings.qdrant.collection_prefix}_docs",
+                    default_top_k=2,
+                )
+                ctx = retriever.retrieve_context(
+                    f"{rel_path} {' '.join(static_symbols[:5])}", top_k=2
+                )
+                if ctx.has_results:
+                    rag_context = f"\n\nRelated Architectural Context:\n{ctx.formatted_text}\n"
+    except Exception:
+        pass
+
     prompt = (
         f"Analyze File: '{rel_path}' ({lang})\n\n"
-        f"Source code excerpt:\n{sanitized_content}\n\n"
+        f"Source code excerpt:\n{sanitized_content}\n"
+        f"{rag_context}\n"
         "Extract structured file metadata JSON strictly following system instructions."
     )
     messages = [ChatMessage(role="user", content=prompt)]

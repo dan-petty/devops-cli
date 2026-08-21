@@ -219,21 +219,29 @@ def k8s_bootstrap(auto_start: bool = True) -> str:
 
 
 @mcp.tool()
-def k8s_deploy_stack(stack: str = "infra") -> str:
-    """Deploy infrastructure or LLM stack (Ollama, WebUI, Qdrant, Valkey) to minikube."""
+def k8s_deploy_stack(stack: str = "infra", context: str | None = None) -> str:
+    """Deploy infrastructure or LLM stack (Ollama, WebUI, Qdrant, Valkey) to Kubernetes cluster."""
     _validate_mcp_arg("stack", stack)
+    cmd = ["uv", "run", "devops", "k8s", "deploy-stack", "--stack", stack]
+    if context:
+        _validate_mcp_arg("context", context)
+        cmd.extend(["--context", context])
     return _run_mcp_cmd(
-        ["uv", "run", "devops", "k8s", "deploy-stack", "--stack", stack],
+        cmd,
         timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS + 60,
     )
 
 
 @mcp.tool()
-def k8s_teardown_stack(stack: str = "infra") -> str:
-    """Uninstall minikube infrastructure or LLM stack and delete namespaces."""
+def k8s_teardown_stack(stack: str = "infra", context: str | None = None) -> str:
+    """Uninstall Kubernetes infrastructure or LLM stack and delete namespaces."""
     _validate_mcp_arg("stack", stack)
+    cmd = ["uv", "run", "devops", "k8s", "teardown-stack", "--stack", stack]
+    if context:
+        _validate_mcp_arg("context", context)
+        cmd.extend(["--context", context])
     return _run_mcp_cmd(
-        ["uv", "run", "devops", "k8s", "teardown-stack", "--stack", stack],
+        cmd,
         timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS * 3,
     )
 
@@ -387,6 +395,111 @@ def tofu_apply(directory: str = ".", var_file: str = "", auto_approve: bool = Tr
 def tofu_output(directory: str = ".", json_format: bool = True) -> str:
     """Retrieve OpenTofu outputs from state (alias for tf_output)."""
     return tf_output(directory=directory, json_format=json_format)
+
+
+@mcp.tool()
+def rag_search(
+    query: str,
+    top_k: int = 5,
+    min_score: float = 0.35,
+    project: str | None = None,
+    language: str | None = None,
+    category: str | None = None,
+) -> str:
+    """Perform semantic vector search across indexed workspace codebase and architecture docs."""
+    _validate_mcp_arg("query", query)
+    cmd = [
+        "uv",
+        "run",
+        "devops",
+        "ai",
+        "rag",
+        "query",
+        query,
+        "--top-k",
+        str(top_k),
+        "--min-score",
+        str(min_score),
+    ]
+    if project:
+        cmd.extend(["--project", project])
+    if language:
+        cmd.extend(["--language", language])
+    if category:
+        cmd.extend(["--category", category])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def rag_index(path: str = ".", project: str | None = None, force: bool = False) -> str:
+    """Index workspace files into Qdrant vector database for semantic retrieval."""
+    _validate_mcp_arg("path", path)
+    cmd = ["uv", "run", "devops", "ai", "rag", "index", path]
+    if project:
+        cmd.extend(["--project", project])
+    if force:
+        cmd.append("--force")
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def k8s_jaeger_info() -> str:
+    """Retrieve Jaeger distributed tracing Query UI URL and OTLP trace endpoints."""
+    return (
+        "Jaeger Tracing Endpoints:\n"
+        "- Query UI: http://localhost:16686\n"
+        "- OTLP gRPC: localhost:4317\n"
+        "- OTLP HTTP: http://localhost:4318/v1/traces"
+    )
+
+
+@mcp.tool()
+def security_intel_package(package_name: str, version: str = "", ecosystem: str = "PyPI") -> str:
+    """Query OSV.dev and NVD vulnerability databases for package CVE intelligence."""
+    _validate_mcp_arg("package_name", package_name)
+    if version:
+        _validate_mcp_arg("version", version)
+    if ecosystem:
+        _validate_mcp_arg("ecosystem", ecosystem)
+    from devops_cli.ai.tools.native import scan_osv
+
+    return scan_osv(package_name=package_name, version=version, ecosystem=ecosystem)
+
+
+@mcp.tool()
+def security_intel_network(target: str) -> str:
+    """Check IP or domain threat intelligence via Shodan and Cloudflare Radar."""
+    _validate_mcp_arg("target", target)
+    from devops_cli.ai.tools.native import check_threat_intel
+
+    return check_threat_intel(target=target)
+
+
+@mcp.tool()
+def scan_uv_audit(directory: str = ".", requirements_file: str = "") -> str:
+    """Run uv dependency audit / pip-audit to check workspace Python dependencies for known CVEs."""
+    _validate_mcp_arg("directory", directory)
+    if requirements_file:
+        _validate_mcp_arg("requirements_file", requirements_file)
+    from devops_cli.ai.tools.native import scan_uv_audit as _native_uv_audit
+
+    return _native_uv_audit(directory=directory, requirements_file=requirements_file)
+
+
+@mcp.tool()
+def audit_dependencies(directory: str = ".", requirements_file: str = "") -> str:
+    """Audit Python package dependencies for known vulnerabilities (alias for scan_uv_audit)."""
+    return scan_uv_audit(directory=directory, requirements_file=requirements_file)
+
+
+@mcp.tool()
+def review_export_feedback(status: str = "ALL", output_path: str = "") -> str:
+    """Export review findings into JSONL feedback dataset for LLM alignment."""
+    cmd = ["uv", "run", "devops", "review", "export-feedback", "--status", status]
+    if output_path:
+        _validate_mcp_arg("output_path", output_path)
+        cmd.extend(["--output", output_path])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
 def list_mcp_tools() -> list[MCPToolInfo]:

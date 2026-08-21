@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from rich.console import Console
 from rich.markdown import Markdown
+from rich.markup import escape
 from rich.panel import Panel
 from rich.table import Table
 
@@ -24,7 +25,7 @@ def _render_review_result(persona: PersonaDefinition, result: ReviewResult) -> N
     }
     rec_color_map = {"APPROVE": "green", "REQUEST CHANGES": "yellow", "BLOCK": "red"}
     rec_color = rec_color_map.get(result.recommendation, "white")
-    console.print(f"[bold {rec_color}]\u25b6 {result.recommendation}[/bold {rec_color}]")
+    console.print(f"[bold {rec_color}]\u25b6 {escape(result.recommendation)}[/bold {rec_color}]")
     console.print()
 
     findings = result.sorted_findings
@@ -43,7 +44,12 @@ def _render_review_result(persona: PersonaDefinition, result: ReviewResult) -> N
                 if f.mitigated
                 else "[dim]?[/dim]"
             )
-            table.add_row(f"[{color}]{f.severity}[/{color}]", f.location, f.title, mark)
+            table.add_row(
+                f"[{color}]{escape(f.severity)}[/{color}]",
+                escape(f.location),
+                escape(f.title),
+                mark,
+            )
         console.print(table)
         console.print()
 
@@ -56,10 +62,9 @@ def _render_review_result(persona: PersonaDefinition, result: ReviewResult) -> N
                 if f.mitigated
                 else " [dim](unverified)[/dim]"
             )
-            console.print(
-                f"[bold {color}]{idx}. {f.severity} \u2014 {f.title}[/bold {color}]{unverified}"
-            )
-            console.print(f"[dim]Location:[/dim] {f.location}")
+            sev_title = f"{idx}. {escape(f.severity)} — {escape(f.title)}"
+            console.print(f"[bold {color}]{sev_title}[/bold {color}]{unverified}")
+            console.print(f"[dim]Location:[/dim] {escape(f.location)}")
             if f.description:
                 console.print(Markdown(f.description))
             if f.fix:
@@ -72,7 +77,7 @@ def _render_review_result(persona: PersonaDefinition, result: ReviewResult) -> N
     if result.positive_observations:
         console.print("[bold green]Positive Observations[/bold green]")
         for obs in result.positive_observations:
-            console.print(f"  [green]\u2713[/green] {obs}")
+            console.print(f"  [green]\u2713[/green] {escape(obs)}")
         console.print()
 
     if result.summary:
@@ -85,7 +90,7 @@ def _render_review_raw(persona: PersonaDefinition, raw: str) -> None:
     console.print(
         Panel(
             Markdown(raw),
-            title=f"[bold cyan]{persona.title}[/bold cyan]",
+            title=f"[bold cyan]{escape(persona.title)}[/bold cyan]",
             border_style="cyan",
         )
     )

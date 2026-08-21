@@ -8,26 +8,34 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 |---|---|
 | [`argo_list`](#argo-list) | List ArgoCD applications. |
 | [`argo_status`](#argo-status) | Check ArgoCD application health and sync status. |
+| [`audit_dependencies`](#audit-dependencies) | Audit Python package dependencies for known vulnerabilities (alias for scan_uv_audit). |
 | [`ci_run`](#ci-run) | Run devops-cli complete quality gate (pytest, ruff check, ruff format, mypy). |
 | [`config_output`](#config-output) | Output environment variables available for configuration (text or json). |
 | [`config_show`](#config-show) | Display configuration settings with masked secret tokens. |
 | [`docker_stats`](#docker-stats) | List local Docker images and display container information. |
 | [`grafana_dashboards`](#grafana-dashboards) | List Grafana dashboards, optionally filtered by search query. |
 | [`k8s_bootstrap`](#k8s-bootstrap) | Bootstrap minikube Kubernetes cluster and deploy infrastructure stack. |
-| [`k8s_deploy_stack`](#k8s-deploy-stack) | Deploy infrastructure or LLM stack (Ollama, WebUI, Qdrant, Valkey) to minikube. |
+| [`k8s_deploy_stack`](#k8s-deploy-stack) | Deploy infrastructure or LLM stack (Ollama, WebUI, Qdrant, Valkey) to Kubernetes cluster. |
+| [`k8s_jaeger_info`](#k8s-jaeger-info) | Retrieve Jaeger distributed tracing Query UI URL and OTLP trace endpoints. |
 | [`k8s_pods`](#k8s-pods) | List Kubernetes pod status for the specified namespace. |
 | [`k8s_status`](#k8s-status) | Display pod status across infrastructure namespaces. |
-| [`k8s_teardown_stack`](#k8s-teardown-stack) | Uninstall minikube infrastructure or LLM stack and delete namespaces. |
+| [`k8s_teardown_stack`](#k8s-teardown-stack) | Uninstall Kubernetes infrastructure or LLM stack and delete namespaces. |
 | [`prometheus_query`](#prometheus-query) | Execute PromQL instant query against Prometheus endpoint. |
+| [`rag_index`](#rag-index) | Index workspace files into Qdrant vector database for semantic retrieval. |
+| [`rag_search`](#rag-search) | Perform semantic vector search across indexed workspace codebase and architecture docs. |
 | [`release_status`](#release-status) | Check devops-cli release status, version consistency, tags, and docs state. |
 | [`repos_list`](#repos-list) | List local workspace repositories and active git branches. |
 | [`repos_status`](#repos-status) | Display uncommitted changes and branch drift across workspace repositories. |
 | [`repos_sync`](#repos-sync) | Fetch and pull tracking branches across workspace repositories. |
 | [`review_branch`](#review-branch) | Run an AI code review on git branch diff against base branch. |
+| [`review_export_feedback`](#review-export-feedback) | Export review findings into JSONL feedback dataset for LLM alignment. |
 | [`review_findings`](#review-findings) | Inspect structured review findings for a session by verification status. |
 | [`review_path`](#review-path) | Run an AI code review on local files matching pattern using specified persona. |
 | [`review_pr`](#review-pr) | Fetch GitHub PR diff and review using specified persona; optionally post comment. |
 | [`review_stats`](#review-stats) | View accuracy metrics and false-positive rates per reviewer persona. |
+| [`scan_uv_audit`](#scan-uv-audit) | Run uv dependency audit / pip-audit to check workspace Python dependencies for known CVEs. |
+| [`security_intel_network`](#security-intel-network) | Check IP or domain threat intelligence via Shodan and Cloudflare Radar. |
+| [`security_intel_package`](#security-intel-package) | Query OSV.dev and NVD vulnerability databases for package CVE intelligence. |
 | [`ssh_audit`](#ssh-audit) | Audit SSH key expiration dates and key file permissions. |
 | [`ssh_status`](#ssh-status) | Inspect age and rotation status of managed SSH keys in ~/.ssh. |
 | [`tf_apply`](#tf-apply) | Apply OpenTofu / Terraform Infrastructure-as-Code changes. |
@@ -56,6 +64,17 @@ Check ArgoCD application health and sync status.
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `app` | `string` | No | `argocd` | - |
+
+### `audit_dependencies`
+
+Audit Python package dependencies for known vulnerabilities (alias for scan_uv_audit).
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `directory` | `string` | No | `.` | - |
+| `requirements_file` | `string` | No | `` | - |
 
 ### `ci_run`
 
@@ -111,13 +130,20 @@ Bootstrap minikube Kubernetes cluster and deploy infrastructure stack.
 
 ### `k8s_deploy_stack`
 
-Deploy infrastructure or LLM stack (Ollama, WebUI, Qdrant, Valkey) to minikube.
+Deploy infrastructure or LLM stack (Ollama, WebUI, Qdrant, Valkey) to Kubernetes cluster.
 
 **Parameters:**
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `stack` | `string` | No | `infra` | - |
+| `context` | `string` | No | - | - |
+
+### `k8s_jaeger_info`
+
+Retrieve Jaeger distributed tracing Query UI URL and OTLP trace endpoints.
+
+*No parameters required.*
 
 ### `k8s_pods`
 
@@ -137,13 +163,14 @@ Display pod status across infrastructure namespaces.
 
 ### `k8s_teardown_stack`
 
-Uninstall minikube infrastructure or LLM stack and delete namespaces.
+Uninstall Kubernetes infrastructure or LLM stack and delete namespaces.
 
 **Parameters:**
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `stack` | `string` | No | `infra` | - |
+| `context` | `string` | No | - | - |
 
 ### `prometheus_query`
 
@@ -154,6 +181,33 @@ Execute PromQL instant query against Prometheus endpoint.
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `promql` | `string` | No | `up` | - |
+
+### `rag_index`
+
+Index workspace files into Qdrant vector database for semantic retrieval.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `path` | `string` | No | `.` | - |
+| `project` | `string` | No | - | - |
+| `force` | `boolean` | No | `False` | - |
+
+### `rag_search`
+
+Perform semantic vector search across indexed workspace codebase and architecture docs.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `query` | `string` | Yes | - | - |
+| `top_k` | `integer` | No | `5` | - |
+| `min_score` | `number` | No | `0.35` | - |
+| `project` | `string` | No | - | - |
+| `language` | `string` | No | - | - |
+| `category` | `string` | No | - | - |
 
 ### `release_status`
 
@@ -195,6 +249,17 @@ Run an AI code review on git branch diff against base branch.
 | `base` | `string` | No | `main` | - |
 | `persona` | `string` | No | `devsecops` | - |
 
+### `review_export_feedback`
+
+Export review findings into JSONL feedback dataset for LLM alignment.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `status` | `string` | No | `ALL` | - |
+| `output_path` | `string` | No | `` | - |
+
 ### `review_findings`
 
 Inspect structured review findings for a session by verification status.
@@ -235,6 +300,39 @@ Fetch GitHub PR diff and review using specified persona; optionally post comment
 View accuracy metrics and false-positive rates per reviewer persona.
 
 *No parameters required.*
+
+### `scan_uv_audit`
+
+Run uv dependency audit / pip-audit to check workspace Python dependencies for known CVEs.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `directory` | `string` | No | `.` | - |
+| `requirements_file` | `string` | No | `` | - |
+
+### `security_intel_network`
+
+Check IP or domain threat intelligence via Shodan and Cloudflare Radar.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `target` | `string` | Yes | - | - |
+
+### `security_intel_package`
+
+Query OSV.dev and NVD vulnerability databases for package CVE intelligence.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `package_name` | `string` | Yes | - | - |
+| `version` | `string` | No | `` | - |
+| `ecosystem` | `string` | No | `PyPI` | - |
 
 ### `ssh_audit`
 
