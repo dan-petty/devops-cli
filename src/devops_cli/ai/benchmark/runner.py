@@ -139,14 +139,25 @@ class BenchmarkRunner:
     ) -> list[TaskResponse]:
         """Execute all benchmark tasks on a specific candidate model sequentially."""
         results: list[TaskResponse] = []
-        with self._print_lock:
-            rprint(f"[bold]Evaluating model:[/bold] [cyan]{model_name}[/cyan]")
-
         client = self._client_for_model(model_name) if not dry_run else None
+        backend = client.backend_info if client else self.provider
+
+        with self._print_lock:
+            rprint(
+                f"[bold]Evaluating model:[/bold] [cyan]{model_name}[/cyan] [dim]({backend})[/dim]"
+            )
+
         for task in self.tasks:
             if dry_run:
                 resp = self._simulate_response(task, model_name)
                 results.append(resp)
+                with self._print_lock:
+                    rprint(
+                        f"  ✓ task=[cyan]{task.id}[/cyan] | "
+                        f"model=[bold]{model_name}[/bold] | "
+                        f"backend=[dim]{backend}[/dim] | "
+                        f"[yellow]0.8s[/yellow]"
+                    )
                 continue
 
             assert client is not None
@@ -168,9 +179,13 @@ class BenchmarkRunner:
                 )
                 with self._print_lock:
                     rprint(
-                        f"  ✓ [{model_name}] completed [cyan]{task.id}[/cyan] in {duration:.1f}s"
+                        f"  ✓ task=[cyan]{task.id}[/cyan] | "
+                        f"model=[bold]{model_name}[/bold] | "
+                        f"backend=[dim]{backend}[/dim] | "
+                        f"[yellow]{duration:.1f}s[/yellow]"
                     )
             except Exception as exc:
+                duration = time.monotonic() - t0
                 logger.warning("Model %s failed on task %s: %s", model_name, task.id, exc)
                 results.append(
                     TaskResponse(
@@ -178,9 +193,16 @@ class BenchmarkRunner:
                         model=model_name,
                         provider=self.provider,
                         response=f"Error generating response: {exc}",
-                        duration_seconds=round(time.monotonic() - t0, 2),
+                        duration_seconds=round(duration, 2),
                     )
                 )
+                with self._print_lock:
+                    rprint(
+                        f"  ✗ task=[cyan]{task.id}[/cyan] | "
+                        f"model=[bold]{model_name}[/bold] | "
+                        f"backend=[dim]{backend}[/dim] | "
+                        f"[yellow]{duration:.1f}s[/yellow] (failed)"
+                    )
         return results
 
     def _run_evaluator_grading(
@@ -191,8 +213,14 @@ class BenchmarkRunner:
     ) -> list[PeerGrade]:
         """Execute all blind peer evaluations using a specific evaluator model sequentially."""
         grades: list[PeerGrade] = []
+        client = self._client_for_model(evaluator_model) if not dry_run else None
+        backend = client.backend_info if client else self.provider
+
         with self._print_lock:
-            rprint(f"[bold]Evaluator judge:[/bold] [cyan]{evaluator_model}[/cyan]")
+            rprint(
+                f"[bold]Evaluator judge:[/bold] [cyan]{evaluator_model}[/cyan] "
+                f"[dim]({backend})[/dim]"
+            )
 
         for task in self.tasks:
             for candidate_model in self.models:
@@ -203,14 +231,27 @@ class BenchmarkRunner:
                 if dry_run:
                     grade = self._simulate_peer_grade(task, candidate_model, evaluator_model)
                     grades.append(grade)
+                    with self._print_lock:
+                        rprint(
+                            f"  ✓ task=[cyan]{task.id}[/cyan] | "
+                            f"judge=[bold]{evaluator_model}[/bold] | "
+                            f"candidate=[dim]{candidate_model}[/dim] | "
+                            f"backend=[dim]{backend}[/dim] | "
+                            f"[yellow]0.4s[/yellow] → [bold]{grade.percentage:.1f}%[/bold]"
+                        )
                     continue
 
+                t0 = time.monotonic()
                 grade = self._evaluate_response(task, c_resp, evaluator_model)
+                grade_dur = time.monotonic() - t0
                 grades.append(grade)
                 with self._print_lock:
                     rprint(
-                        f"  ✓ [{evaluator_model}] graded [yellow]{candidate_model}[/yellow] "
-                        f"on [dim]{task.id}[/dim] → [bold]{grade.percentage:.1f}%[/bold]"
+                        f"  ✓ task=[cyan]{task.id}[/cyan] | "
+                        f"judge=[bold]{evaluator_model}[/bold] | "
+                        f"candidate=[dim]{candidate_model}[/dim] | "
+                        f"backend=[dim]{backend}[/dim] | "
+                        f"[yellow]{grade_dur:.1f}s[/yellow] → [bold]{grade.percentage:.1f}%[/bold]"
                     )
         return grades
 
