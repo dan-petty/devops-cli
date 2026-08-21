@@ -674,6 +674,7 @@ devops k8s port-forward [OPTIONS]
 | `--open-webui-port` | `integer` | `3000` | Local port for Open-WebUI |
 | `--qdrant-port` | `integer` | `6333` | Local port for Qdrant HTTP |
 | `--valkey-port` | `integer` | `6379` | Local port for Valkey |
+| `--address` | `string` | `127.0.0.1` | Local address to bind for port-forwarding |
 
 ### `devops k8s teardown-stack`
 

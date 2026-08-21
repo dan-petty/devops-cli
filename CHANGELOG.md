@@ -57,9 +57,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Universal AI Agent Memory & Automatic Summarization Engine (`devops_cli.ai.agents.memory`)**:
   - Incorporated structured `AgentMemory` with `MemoryEntry` tracking across all `PydanticAgent` instances, `MultiAgentPipeline` execution stages, and `devops ai chat` sessions.
   - Implemented automatic size-triggered context summarization (`auto_summarize_if_needed`) when interaction histories exceed message count or character limits, preserving critical technical decisions while consolidating older context.
-  - Enhanced `ScratchpadBuffer` with automatic size-triggered reasoning consolidation to prevent context window overflow during multi-turn agent handovers.
+- **Universal AI/LLM Response Fixer & JSON Recovery (`devops_cli.ai.fixer`)**:
+  - Integrated `json-repair` library for resilient recovery and structural parsing of corrupted, truncated, or markdown-wrapped JSON payloads across all LLM inference streams.
+  - Implemented thought-scratchpad filtering and dedicated natural language synthesis turns to guarantee clean user-facing outputs without leaked reasoning scratchpads.
+- **Native Dependency Audit Tool (`scan_uv_audit`, `audit_dependencies`)**:
+  - Integrated `uvx pip-audit` tools in native CLI tool registry (`devops_cli.ai.tools.native`) and FastMCP server (`devops_cli.ai.mcp.server`) for auditing Python dependencies in `pyproject.toml`, `uv.lock`, and `requirements.txt`.
+- **Parallel Multi-Node LLM Prewarming (`devops ai chat --prewarm`)**:
+  - Added parallel model prewarming and VRAM memory pinning (`keep_alive: "1h"`) across all configured Ollama cluster nodes at chat startup.
+- **Architectural Separation of Constants and Defaults (`devops_cli.config`)**:
+  - Decoupled immutable system invariants (`CONST_*` in `config/constants.py`) from configurable optional parameter defaults (`DEFAULT_*` in `config/defaults.py`).
+  - Removed all `DEFAULT` prefixes and substrings from `CONST_` symbol definitions across the entire codebase.
 
 ### Changed
+- **AI Agent Tool Execution & Anti-Repetition Loop Guardrails**:
+  - Enforced parameter validation against tool schemas to eliminate stop-word argument hallucination.
+  - Added duplicate tool call detection and autonomous natural language report synthesis in `PydanticAgent`.
 - **Review Prompt & Verification Rule Hardening**:
   - Refined `src/devops_cli/ai/tasks/review.md` and `src/devops_cli/ai/tasks/verify_finding.md` to prevent speculative vulnerability reports on hypothetical helper behavior and eliminate false-positive syntax error hallucinations on standard Python 3 tuple exception handlers (`except (Err1, Err2):`).
   - Streamlined feedback dataset exporter (`devops ai review export-feedback`) to export complete review findings into `.data/feedback.jsonl` for continuous improvement benchmarks.

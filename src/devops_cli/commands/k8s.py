@@ -886,6 +886,9 @@ def port_forward(
         int, typer.Option("--qdrant-port", help="Local port for Qdrant HTTP")
     ] = 6333,
     valkey_port: Annotated[int, typer.Option("--valkey-port", help="Local port for Valkey")] = 6379,
+    address: Annotated[
+        str, typer.Option("--address", help="Local address to bind for port-forwarding")
+    ] = "127.0.0.1",
 ) -> None:
     """Port-forward k8s monitoring / LLM stack services to localhost ports and update CLI config."""
     import time
@@ -957,14 +960,14 @@ def port_forward(
             "kubectl",
             "port-forward",
             "--address",
-            "0.0.0.0",
+            address,
             "-n",
             ns,
             svc,
             f"{lport}:{rport}",
         ] + ctx_args
         subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        rprint(f"[green]✓ Forwarding {svc} ({ns}) to http://localhost:{lport}[/green]")
+        rprint(f"[green]✓ Forwarding {svc} ({ns}) to http://{address}:{lport}[/green]")
 
     time.sleep(1.0)
     configure_urls(stack=stack, context=context)
