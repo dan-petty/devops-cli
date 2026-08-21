@@ -173,11 +173,40 @@ def scan_trivy(
     target_path = Path(target).resolve()
     if not _is_safe_workspace_path(target_path):
         return f"Access Denied: {target} is outside workspace."
-    return _run_tool_cmd(
+    res = _run_tool_cmd(
         ["trivy", scan_type, "--severity", severity, str(target_path)],
         fallback_msg="No vulnerabilities, secrets, or flaws found by Trivy.",
         max_chars=DEFAULT_TOOL_DIFF_MAX_CHARS,
     )
+    if "No such file or directory: 'trivy'" in res:
+        return (
+            "Trivy CLI is not installed in the environment. "
+            "For Python dependency vulnerability auditing, use scan_uv_audit or scan_osv."
+        )
+    return res
+
+
+def scan_uv_audit(directory: str = ".", requirements_file: str = "") -> str:
+    """Run uv / pip-audit to check workspace Python dependencies for known CVEs."""
+    target_path = Path(directory).resolve()
+    if not _is_safe_workspace_path(target_path):
+        return f"Access Denied: {directory} is outside workspace."
+    cmd = ["uvx", "pip-audit"]
+    if requirements_file:
+        req_path = Path(requirements_file).resolve()
+        if not _is_safe_workspace_path(req_path):
+            return f"Access Denied: {requirements_file} is outside workspace."
+        cmd.extend(["-r", str(req_path)])
+    return _run_tool_cmd(
+        cmd,
+        fallback_msg="No known dependency vulnerabilities found by uv/pip-audit.",
+        max_chars=DEFAULT_TOOL_DIFF_MAX_CHARS,
+    )
+
+
+def audit_dependencies(directory: str = ".", requirements_file: str = "") -> str:
+    """Audit Python package dependencies for vulnerabilities (alias for scan_uv_audit)."""
+    return scan_uv_audit(directory=directory, requirements_file=requirements_file)
 
 
 def scan_kubelinter(target: str = ".") -> str:

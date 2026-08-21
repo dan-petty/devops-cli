@@ -476,6 +476,23 @@ def security_intel_network(target: str) -> str:
 
 
 @mcp.tool()
+def scan_uv_audit(directory: str = ".", requirements_file: str = "") -> str:
+    """Run uv dependency audit / pip-audit to check workspace Python dependencies for known CVEs."""
+    _validate_mcp_arg("directory", directory)
+    if requirements_file:
+        _validate_mcp_arg("requirements_file", requirements_file)
+    from devops_cli.ai.tools.native import scan_uv_audit as _native_uv_audit
+
+    return _native_uv_audit(directory=directory, requirements_file=requirements_file)
+
+
+@mcp.tool()
+def audit_dependencies(directory: str = ".", requirements_file: str = "") -> str:
+    """Audit Python package dependencies for known vulnerabilities (alias for scan_uv_audit)."""
+    return scan_uv_audit(directory=directory, requirements_file=requirements_file)
+
+
+@mcp.tool()
 def review_export_feedback(status: str = "ALL", output_path: str = "") -> str:
     """Export review findings into JSONL feedback dataset for LLM alignment."""
     cmd = ["uv", "run", "devops", "review", "export-feedback", "--status", status]

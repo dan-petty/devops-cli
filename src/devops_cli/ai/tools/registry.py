@@ -8,6 +8,7 @@ from devops_cli.ai.personas import Persona
 from devops_cli.ai.tools.mcp_bridge import get_mcp_agent_tools
 from devops_cli.ai.tools.native import (
     argo_apps,
+    audit_dependencies,
     check_threat_intel,
     git_diff,
     git_status,
@@ -23,6 +24,7 @@ from devops_cli.ai.tools.native import (
     scan_pluto,
     scan_popeye,
     scan_trivy,
+    scan_uv_audit,
     search_code,
 )
 
@@ -40,6 +42,8 @@ def get_default_tools() -> list[Any]:
         k8s_jaeger_status,
         argo_apps,
         scan_trivy,
+        scan_uv_audit,
+        audit_dependencies,
         scan_kubelinter,
         scan_pluto,
         scan_bandit,
@@ -63,6 +67,8 @@ def get_persona_tools(persona: str | Persona) -> list[Any]:
             list_files,
             git_diff,
             rag_search,
+            scan_uv_audit,
+            audit_dependencies,
             scan_trivy,
             scan_kubelinter,
             scan_pluto,

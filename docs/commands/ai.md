@@ -97,6 +97,7 @@ devops ai chat [OPTIONS]
 | `--stream`, `--no-stream` | `boolean` | `True` | Stream response tokens |
 | `--tools`, `--no-tools` | `boolean` | `True` | Enable DevOps agent tools |
 | `--thinking`, `--no-thinking` | `boolean` | `True` | Enable model reasoning/thinking |
+| `--prewarm`, `--no-prewarm` | `boolean` | `True` | Prewarm the model before starting chat |
 
 ---
 

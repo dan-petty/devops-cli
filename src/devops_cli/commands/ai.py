@@ -615,6 +615,9 @@ def chat(
     thinking: Annotated[
         bool, typer.Option("--thinking/--no-thinking", help="Enable model reasoning/thinking")
     ] = True,
+    prewarm: Annotated[
+        bool, typer.Option("--prewarm/--no-prewarm", help="Prewarm the model before starting chat")
+    ] = True,
 ) -> None:
     """Start an interactive chat with a Pydantic AI persona (tools, thinking, streaming, RAG)."""
     import sys
@@ -635,6 +638,20 @@ def chat(
 
     settings = load_settings()
     client = LLMClient(settings.ai.for_task("chat"), api_key=get_ai_api_key(settings))
+
+    if prewarm and client._config.provider == "ollama":
+        ollama_urls = client._config.get_ollama_urls
+        if ollama_urls:
+            n_nodes = len(ollama_urls)
+            rprint(f"[dim]Prewarming model '{settings.ai.model}' across {n_nodes} node(s)...[/dim]")
+            preload_results = client.preload_models()
+            for url, ok in preload_results.items():
+                status = (
+                    "[dim green]✓ ready[/dim green]"
+                    if ok
+                    else "[dim yellow]✗ offline/skipped[/dim yellow]"
+                )
+                rprint(f"[dim]  {url}: {status}[/dim]")
 
     agent_tools = get_persona_tools(persona) if tools else []
     agent: PydanticAgent[Any] = PydanticAgent(

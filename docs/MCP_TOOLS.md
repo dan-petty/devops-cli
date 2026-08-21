@@ -8,6 +8,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 |---|---|
 | [`argo_list`](#argo-list) | List ArgoCD applications. |
 | [`argo_status`](#argo-status) | Check ArgoCD application health and sync status. |
+| [`audit_dependencies`](#audit-dependencies) | Audit Python package dependencies for known vulnerabilities (alias for scan_uv_audit). |
 | [`ci_run`](#ci-run) | Run devops-cli complete quality gate (pytest, ruff check, ruff format, mypy). |
 | [`config_output`](#config-output) | Output environment variables available for configuration (text or json). |
 | [`config_show`](#config-show) | Display configuration settings with masked secret tokens. |
@@ -32,6 +33,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`review_path`](#review-path) | Run an AI code review on local files matching pattern using specified persona. |
 | [`review_pr`](#review-pr) | Fetch GitHub PR diff and review using specified persona; optionally post comment. |
 | [`review_stats`](#review-stats) | View accuracy metrics and false-positive rates per reviewer persona. |
+| [`scan_uv_audit`](#scan-uv-audit) | Run uv dependency audit / pip-audit to check workspace Python dependencies for known CVEs. |
 | [`security_intel_network`](#security-intel-network) | Check IP or domain threat intelligence via Shodan and Cloudflare Radar. |
 | [`security_intel_package`](#security-intel-package) | Query OSV.dev and NVD vulnerability databases for package CVE intelligence. |
 | [`ssh_audit`](#ssh-audit) | Audit SSH key expiration dates and key file permissions. |
@@ -62,6 +64,17 @@ Check ArgoCD application health and sync status.
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `app` | `string` | No | `argocd` | - |
+
+### `audit_dependencies`
+
+Audit Python package dependencies for known vulnerabilities (alias for scan_uv_audit).
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `directory` | `string` | No | `.` | - |
+| `requirements_file` | `string` | No | `` | - |
 
 ### `ci_run`
 
@@ -287,6 +300,17 @@ Fetch GitHub PR diff and review using specified persona; optionally post comment
 View accuracy metrics and false-positive rates per reviewer persona.
 
 *No parameters required.*
+
+### `scan_uv_audit`
+
+Run uv dependency audit / pip-audit to check workspace Python dependencies for known CVEs.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `directory` | `string` | No | `.` | - |
+| `requirements_file` | `string` | No | `` | - |
 
 ### `security_intel_network`
 

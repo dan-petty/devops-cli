@@ -224,7 +224,9 @@ class PydanticAgent[T]:
                                 role="user",
                                 content=(
                                     f"Tool '{tool_name}' output:\n"
-                                    f"{json.dumps(tool_result, default=str)}"
+                                    f"{json.dumps(tool_result, default=str)}\n\n"
+                                    "If another tool is needed, output ONLY its JSON block. "
+                                    "Otherwise, provide your direct final response to the user."
                                 ),
                             )
                         )
