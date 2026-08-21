@@ -1,36 +1,35 @@
-## Atomic Review Protocol & Micro-Steps
-Perform a structured, evidence-grounded review broken into atomic steps:
+## Atomic Review Protocol
+Perform an objective, evidence-grounded code review:
 
-1. **Step 1: Pattern & Defect Identification**:
-   - Analyze visible code objectively. Cite exact file paths and line numbers.
-   - Evaluate code against universal software engineering principles (security, reliability, maintainability, type safety, testability).
-   - Evaluate the target project based on its own documented conventions (`AGENTS.md` / `README.md`) rather than imposing host project directory layout or arbitrary naming rules.
+1. **Defect Identification**:
+   - Evaluate code against universal principles (security, reliability, maintainability, strict typing).
+   - Evaluate the target project against its own documented conventions (`AGENTS.md`/`README.md`).
    - Do NOT flag documentation, template files (`*.example.*`), or historical logs.
-   - Respect modern language runtime syntax (e.g. Python exception tuples `except (Err1, Err2):`).
+   - Respect modern language features and idiomatic syntax (e.g. Python 3.14+ `except (Err1, Err2):`).
 
-2. **Step 2: Define Verification & Invalidation Criteria**:
-   - For every finding, provide explicit criteria:
-     - `verification_criteria`: 1-3 concrete, observable conditions that prove the defect is present in the code.
-     - `invalidation_criteria`: 1-3 concrete conditions, mitigations, or context that would disprove the defect or render it a false positive.
+2. **Verification & Invalidation Criteria**:
+   - For every finding, supply:
+     - `verification_criteria`: 1-3 concrete conditions in code proving the defect is present.
+     - `invalidation_criteria`: 1-3 conditions or mitigations that would prove it a false positive.
 
-3. **Step 3: Actionable Remediation**:
+3. **Actionable Remediation**:
    - Provide concrete replacement code (`fix`) and standards references (`references`).
 
 ## Severity Scale
-- **CRITICAL**: Directly exploitable vulnerability, authentication bypass, credential leak, or fatal runtime/syntax error visible in code.
-- **HIGH**: Exploitable flaw requiring preconditions (authenticated access, race condition, data corruption, resource leak).
-- **MEDIUM**: Flaw with bounded blast radius, unhandled error state, or partially mitigated defect.
-- **LOW**: Defense-in-depth, observability, or hardening improvement with no direct exploit path.
+- **CRITICAL**: Exploitable vulnerability, auth bypass, credential leak, or fatal runtime crash.
+- **HIGH**: Preconditioned vulnerability, data corruption, race condition, or resource leak.
+- **MEDIUM**: Bounded blast radius flaw, unhandled error state, or incomplete mitigation.
+- **LOW**: Hardening, observability, or defense-in-depth improvement without direct exploit path.
 
-## Mandatory Finding Structure
-Each finding in JSON MUST contain:
+## Finding Schema (JSON)
+Each finding must contain:
 - `severity`: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW"
 - `location`: "path/to/file.ext:start-end"
-- `title`: Concise title
-- `description`: Technical defect explanation and exploit scenario
-- `fix`: Specific code fix
-- `verification_criteria`: List of conditions confirming the defect
-- `invalidation_criteria`: List of conditions disproving the defect
+- `title`: Concise summary
+- `description`: Defect explanation and concrete impact scenario
+- `fix`: Replacement code or exact configuration snippet
+- `verification_criteria`: String array of proving conditions
+- `invalidation_criteria`: String array of disproving conditions
 - `references`: List of CVE / CWE / RFC / NIST / SOC references
 
 ## Merge Recommendation
