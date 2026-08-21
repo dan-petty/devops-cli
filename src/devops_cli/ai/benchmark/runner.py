@@ -319,10 +319,12 @@ class BenchmarkRunner:
                         pass
                     return default
 
-                acc = round(min(10.0, max(0.0, _parse_score(data.get("accuracy_score")))), 1)
-                sec = round(min(10.0, max(0.0, _parse_score(data.get("security_score")))), 1)
-                comp = round(min(10.0, max(0.0, _parse_score(data.get("completeness_score")))), 1)
-                clar = round(min(10.0, max(0.0, _parse_score(data.get("clarity_score")))), 1)
+                acc = round(min(10.0, max(0.0, _parse_score(data.get("accuracy_score"), 0.0))), 1)
+                sec = round(min(10.0, max(0.0, _parse_score(data.get("security_score"), 0.0))), 1)
+                comp = round(
+                    min(10.0, max(0.0, _parse_score(data.get("completeness_score"), 0.0))), 1
+                )
+                clar = round(min(10.0, max(0.0, _parse_score(data.get("clarity_score"), 0.0))), 1)
                 total = round(acc + sec + comp + clar, 1)
                 pct = round((total / 40.0) * 100.0, 1)
 
@@ -344,17 +346,17 @@ class BenchmarkRunner:
             err_msg = str(exc)
             logger.warning("Peer evaluation failed: %s", exc)
 
-        # Fallback default score on parse error (neutral 5.0 per dimension)
+        # Fallback default score on parse error (0.0 default; discarded as invalid during scoring)
         return PeerGrade(
             task_id=task.id,
             candidate_model=response.model,
             evaluator_model=evaluator_model,
-            accuracy_score=5.0,
-            security_score=5.0,
-            completeness_score=5.0,
-            clarity_score=5.0,
-            total_score=20.0,
-            percentage=50.0,
+            accuracy_score=0.0,
+            security_score=0.0,
+            completeness_score=0.0,
+            clarity_score=0.0,
+            total_score=0.0,
+            percentage=0.0,
             feedback=f"Evaluation default due to parsing error: {err_msg}",
         )
 
@@ -363,53 +365,153 @@ class BenchmarkRunner:
         responses: list[TaskResponse],
         grades: list[PeerGrade],
     ) -> list[ModelBenchmarkSummary]:
-        """Aggregate peer grades into comprehensive per-model metrics."""
+        """Aggregate peer grades into per-model metrics.
+
+        Filters out invalid default evaluations and weights judge influence by model competence.
+        """
         task_cat_map = {t.id: t.category for t in self.tasks}
         task_weight_map = {t.id: t.weight for t in self.tasks}
+
+        # Discard invalid / default evaluations (where all scores or total_score is 0.0)
+        valid_grades = [
+            g
+            for g in grades
+            if g.total_score > 0.0
+            and (
+                g.accuracy_score > 0.0
+                or g.security_score > 0.0
+                or g.completeness_score > 0.0
+                or g.clarity_score > 0.0
+            )
+        ]
+
+        # Phase 1: Compute baseline raw performance for each model to determine its judge weight
+        raw_competence: dict[str, float] = {}
+        for model in self.models:
+            m_valid_received = [g for g in valid_grades if g.candidate_model == model]
+            if m_valid_received:
+                total_w = sum(task_weight_map.get(g.task_id, 1.0) for g in m_valid_received)
+                raw_pct = (
+                    sum(
+                        g.percentage * task_weight_map.get(g.task_id, 1.0) for g in m_valid_received
+                    )
+                    / total_w
+                    if total_w > 0
+                    else 0.0
+                )
+                raw_competence[model] = raw_pct
+            else:
+                raw_competence[model] = 0.0
+
+        # Judge weights: proportional to model overall competence (scaled to [0.05, 1.0])
+        max_comp = max(raw_competence.values()) if raw_competence else 0.0
+        judge_weights: dict[str, float] = {}
+        for model, comp in raw_competence.items():
+            if max_comp > 0:
+                judge_weights[model] = round(max(0.05, comp / 100.0), 3)
+            else:
+                judge_weights[model] = 1.0
+
+        # Phase 2: Compute weighted metrics for each candidate model
         summaries: list[ModelBenchmarkSummary] = []
 
         for model in self.models:
-            m_grades = [g for g in grades if g.candidate_model == model]
+            m_valid_grades = [g for g in valid_grades if g.candidate_model == model]
             m_resps = [r for r in responses if r.model == model]
 
             avg_dur = sum(r.duration_seconds for r in m_resps) / len(m_resps) if m_resps else 0.0
 
-            if not m_grades:
+            if not m_valid_grades:
                 summaries.append(
                     ModelBenchmarkSummary(
                         model=model,
                         provider=self.provider,
                         average_duration_seconds=round(avg_dur, 2),
+                        judge_weight=judge_weights.get(model, 1.0),
+                        valid_evaluations_count=0,
                     )
                 )
                 continue
 
-            acc_avg = sum(g.accuracy_score for g in m_grades) / len(m_grades)
-            sec_avg = sum(g.security_score for g in m_grades) / len(m_grades)
-            comp_avg = sum(g.completeness_score for g in m_grades) / len(m_grades)
-            clar_avg = sum(g.clarity_score for g in m_grades) / len(m_grades)
-
-            # Weighted overall percentage
-            total_w = sum(task_weight_map.get(g.task_id, 1.0) for g in m_grades)
-            weighted_pct = (
-                sum(g.percentage * task_weight_map.get(g.task_id, 1.0) for g in m_grades) / total_w
-                if total_w > 0
-                else 0.0
+            # Weight each evaluation by: Judge_Weight(evaluator) * Task_Weight(task)
+            total_eval_weight = sum(
+                judge_weights.get(g.evaluator_model, 1.0) * task_weight_map.get(g.task_id, 1.0)
+                for g in m_valid_grades
+            )
+            total_judge_weight = sum(
+                judge_weights.get(g.evaluator_model, 1.0) for g in m_valid_grades
             )
 
-            # Category scores
-            cat_scores: dict[str, list[float]] = {}
-            for g in m_grades:
+            if total_eval_weight > 0:
+                weighted_pct = (
+                    sum(
+                        g.percentage
+                        * judge_weights.get(g.evaluator_model, 1.0)
+                        * task_weight_map.get(g.task_id, 1.0)
+                        for g in m_valid_grades
+                    )
+                    / total_eval_weight
+                )
+            else:
+                weighted_pct = 0.0
+
+            if total_judge_weight > 0:
+                acc_avg = (
+                    sum(
+                        g.accuracy_score * judge_weights.get(g.evaluator_model, 1.0)
+                        for g in m_valid_grades
+                    )
+                    / total_judge_weight
+                )
+                sec_avg = (
+                    sum(
+                        g.security_score * judge_weights.get(g.evaluator_model, 1.0)
+                        for g in m_valid_grades
+                    )
+                    / total_judge_weight
+                )
+                comp_avg = (
+                    sum(
+                        g.completeness_score * judge_weights.get(g.evaluator_model, 1.0)
+                        for g in m_valid_grades
+                    )
+                    / total_judge_weight
+                )
+                clar_avg = (
+                    sum(
+                        g.clarity_score * judge_weights.get(g.evaluator_model, 1.0)
+                        for g in m_valid_grades
+                    )
+                    / total_judge_weight
+                )
+            else:
+                acc_avg = sec_avg = comp_avg = clar_avg = 0.0
+
+            # Category scores (weighted by judge weight)
+            cat_totals: dict[str, float] = {}
+            cat_weights: dict[str, float] = {}
+            for g in m_valid_grades:
                 cat = task_cat_map.get(g.task_id, "general")
-                cat_scores.setdefault(cat, []).append(g.percentage)
-            cat_avg = {cat: round(sum(vals) / len(vals), 1) for cat, vals in cat_scores.items()}
+                jw = judge_weights.get(g.evaluator_model, 1.0)
+                cat_totals[cat] = cat_totals.get(cat, 0.0) + (g.percentage * jw)
+                cat_weights[cat] = cat_weights.get(cat, 0.0) + jw
+
+            cat_avg = {
+                cat: round(cat_totals[cat] / cat_weights[cat], 1)
+                for cat in cat_totals
+                if cat_weights[cat] > 0
+            }
 
             # Grading strictness index: how this model grades others vs general consensus
-            given_grades = [g for g in grades if g.evaluator_model == model]
+            given_grades = [g for g in valid_grades if g.evaluator_model == model]
             strictness = 0.0
             if given_grades:
                 avg_given = sum(g.percentage for g in given_grades) / len(given_grades)
-                all_avg = sum(g.percentage for g in grades) / len(grades) if grades else 75.0
+                all_avg = (
+                    sum(g.percentage for g in valid_grades) / len(valid_grades)
+                    if valid_grades
+                    else 75.0
+                )
                 strictness = round(avg_given - all_avg, 2)
 
             summaries.append(
@@ -424,6 +526,8 @@ class BenchmarkRunner:
                     category_scores=cat_avg,
                     average_duration_seconds=round(avg_dur, 2),
                     grading_strictness_index=strictness,
+                    judge_weight=judge_weights.get(model, 1.0),
+                    valid_evaluations_count=len(m_valid_grades),
                 )
             )
 
@@ -452,6 +556,7 @@ class BenchmarkRunner:
         table.add_column("Security", justify="right")
         table.add_column("Complete", justify="right")
         table.add_column("Clarity", justify="right")
+        table.add_column("Judge Wt", justify="right", style="magenta")
         table.add_column("Avg Latency", justify="right", style="dim")
         table.add_column("Judge Bias", justify="right", style="dim")
 
@@ -472,6 +577,7 @@ class BenchmarkRunner:
                 f"{m.security_avg:.1f}/10",
                 f"{m.completeness_avg:.1f}/10",
                 f"{m.clarity_avg:.1f}/10",
+                f"{m.judge_weight:.2f}",
                 f"{m.average_duration_seconds:.2f}s",
                 bias_str,
             )

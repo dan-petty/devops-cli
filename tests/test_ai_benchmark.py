@@ -196,3 +196,82 @@ def test_benchmark_runner_concurrent_execution() -> None:
     assert len(report.responses) == 2
     assert len(report.peer_grades) == 4
     assert len(report.leaderboard) == 2
+
+
+def test_benchmark_filtering_invalid_defaults_and_judge_weighting() -> None:
+    """Verify that 0-default evaluations are discarded and judge weighting applies."""
+    tasks = [BENCHMARK_TASKS[0]]
+    models = ["expert-model", "weak-model"]
+    b_runner = BenchmarkRunner(models=models, tasks=tasks)
+
+    responses = [
+        TaskResponse(
+            task_id=tasks[0].id, model="expert-model", provider="ollama", response="Expert answer"
+        ),
+        TaskResponse(
+            task_id=tasks[0].id, model="weak-model", provider="ollama", response="Weak answer"
+        ),
+    ]
+
+    grades = [
+        # Expert model gets high score from weak judge (80%) and high score from expert judge (90%)
+        PeerGrade(
+            task_id=tasks[0].id,
+            candidate_model="expert-model",
+            evaluator_model="expert-model",
+            accuracy_score=9.0,
+            security_score=9.0,
+            completeness_score=9.0,
+            clarity_score=9.0,
+            total_score=36.0,
+            percentage=90.0,
+        ),
+        PeerGrade(
+            task_id=tasks[0].id,
+            candidate_model="expert-model",
+            evaluator_model="weak-model",
+            accuracy_score=8.0,
+            security_score=8.0,
+            completeness_score=8.0,
+            clarity_score=8.0,
+            total_score=32.0,
+            percentage=80.0,
+        ),
+        # Weak model gets 40% from expert judge
+        PeerGrade(
+            task_id=tasks[0].id,
+            candidate_model="weak-model",
+            evaluator_model="expert-model",
+            accuracy_score=4.0,
+            security_score=4.0,
+            completeness_score=4.0,
+            clarity_score=4.0,
+            total_score=16.0,
+            percentage=40.0,
+        ),
+        # Weak model gets an invalid 0.0 default evaluation (e.g. parse error) from weak judge
+        PeerGrade(
+            task_id=tasks[0].id,
+            candidate_model="weak-model",
+            evaluator_model="weak-model",
+            accuracy_score=0.0,
+            security_score=0.0,
+            completeness_score=0.0,
+            clarity_score=0.0,
+            total_score=0.0,
+            percentage=0.0,
+            feedback="Evaluation default due to parsing error",
+        ),
+    ]
+
+    leaderboard = b_runner._compute_leaderboard(responses, grades)
+    assert len(leaderboard) == 2
+    expert_sum = next(m for m in leaderboard if m.model == "expert-model")
+    weak_sum = next(m for m in leaderboard if m.model == "weak-model")
+
+    # Expert model has higher judge weight than weak model
+    assert expert_sum.judge_weight > weak_sum.judge_weight
+    # Weak model's 0.0 evaluation was discarded as invalid
+    assert weak_sum.valid_evaluations_count == 1
+    assert weak_sum.overall_percentage == 40.0
+    assert expert_sum.valid_evaluations_count == 2

@@ -71,6 +71,20 @@ class ModelBenchmarkSummary(BaseModel):
             "(positive = lenient, negative = strict)"
         ),
     )
+    judge_weight: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Weight of this model when judging other models "
+            "(proportional to its overall competence)"
+        ),
+    )
+    valid_evaluations_count: int = Field(
+        default=0,
+        ge=0,
+        description="Count of valid non-default evaluations included in scoring",
+    )
 
 
 class BenchmarkReport(BaseModel):
