@@ -15,6 +15,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`grafana_dashboards`](#grafana-dashboards) | List Grafana dashboards, optionally filtered by search query. |
 | [`k8s_bootstrap`](#k8s-bootstrap) | Bootstrap minikube Kubernetes cluster and deploy infrastructure stack. |
 | [`k8s_deploy_stack`](#k8s-deploy-stack) | Deploy infrastructure or LLM stack (Ollama, WebUI, Qdrant, Valkey) to Kubernetes cluster. |
+| [`k8s_jaeger_info`](#k8s-jaeger-info) | Retrieve Jaeger distributed tracing Query UI URL and OTLP trace endpoints. |
 | [`k8s_pods`](#k8s-pods) | List Kubernetes pod status for the specified namespace. |
 | [`k8s_status`](#k8s-status) | Display pod status across infrastructure namespaces. |
 | [`k8s_teardown_stack`](#k8s-teardown-stack) | Uninstall Kubernetes infrastructure or LLM stack and delete namespaces. |
@@ -26,10 +27,13 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`repos_status`](#repos-status) | Display uncommitted changes and branch drift across workspace repositories. |
 | [`repos_sync`](#repos-sync) | Fetch and pull tracking branches across workspace repositories. |
 | [`review_branch`](#review-branch) | Run an AI code review on git branch diff against base branch. |
+| [`review_export_feedback`](#review-export-feedback) | Export review findings into JSONL feedback dataset for LLM alignment. |
 | [`review_findings`](#review-findings) | Inspect structured review findings for a session by verification status. |
 | [`review_path`](#review-path) | Run an AI code review on local files matching pattern using specified persona. |
 | [`review_pr`](#review-pr) | Fetch GitHub PR diff and review using specified persona; optionally post comment. |
 | [`review_stats`](#review-stats) | View accuracy metrics and false-positive rates per reviewer persona. |
+| [`security_intel_network`](#security-intel-network) | Check IP or domain threat intelligence via Shodan and Cloudflare Radar. |
+| [`security_intel_package`](#security-intel-package) | Query OSV.dev and NVD vulnerability databases for package CVE intelligence. |
 | [`ssh_audit`](#ssh-audit) | Audit SSH key expiration dates and key file permissions. |
 | [`ssh_status`](#ssh-status) | Inspect age and rotation status of managed SSH keys in ~/.ssh. |
 | [`tf_apply`](#tf-apply) | Apply OpenTofu / Terraform Infrastructure-as-Code changes. |
@@ -121,6 +125,12 @@ Deploy infrastructure or LLM stack (Ollama, WebUI, Qdrant, Valkey) to Kubernetes
 |---|---|---|---|---|
 | `stack` | `string` | No | `infra` | - |
 | `context` | `string` | No | - | - |
+
+### `k8s_jaeger_info`
+
+Retrieve Jaeger distributed tracing Query UI URL and OTLP trace endpoints.
+
+*No parameters required.*
 
 ### `k8s_pods`
 
@@ -226,6 +236,17 @@ Run an AI code review on git branch diff against base branch.
 | `base` | `string` | No | `main` | - |
 | `persona` | `string` | No | `devsecops` | - |
 
+### `review_export_feedback`
+
+Export review findings into JSONL feedback dataset for LLM alignment.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `status` | `string` | No | `ALL` | - |
+| `output_path` | `string` | No | `` | - |
+
 ### `review_findings`
 
 Inspect structured review findings for a session by verification status.
@@ -266,6 +287,28 @@ Fetch GitHub PR diff and review using specified persona; optionally post comment
 View accuracy metrics and false-positive rates per reviewer persona.
 
 *No parameters required.*
+
+### `security_intel_network`
+
+Check IP or domain threat intelligence via Shodan and Cloudflare Radar.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `target` | `string` | Yes | - | - |
+
+### `security_intel_package`
+
+Query OSV.dev and NVD vulnerability databases for package CVE intelligence.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `package_name` | `string` | Yes | - | - |
+| `version` | `string` | No | `` | - |
+| `ecosystem` | `string` | No | `PyPI` | - |
 
 ### `ssh_audit`
 

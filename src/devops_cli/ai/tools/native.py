@@ -281,3 +281,66 @@ def rag_search(
         return context.formatted_text
     except Exception as exc:
         return f"RAG search error: {exc}"
+
+
+def scan_osv(package_name: str, version: str = "", ecosystem: str = "PyPI") -> str:
+    """Query OSV.dev and NVD vulnerability databases for known package security flaws."""
+    try:
+        from devops_cli.security.intelligence import OSVClient
+
+        client = OSVClient()
+        vulns = client.check_vulnerability(package_name, version=version, ecosystem=ecosystem)
+        if not vulns:
+            return f"No known vulnerabilities found in OSV/NVD for {package_name} ({ecosystem})."
+        lines = [f"Found {len(vulns)} vulnerability record(s) for {package_name}:"]
+        for v in vulns:
+            lines.append(f"- [{v.id}] Severity: {v.severity} | Fixed: {v.fixed_version or 'None'}")
+            if v.summary:
+                lines.append(f"  Summary: {v.summary[:150]}")
+        return "\n".join(lines)
+    except Exception as exc:
+        return f"OSV vulnerability query error: {exc}"
+
+
+def check_threat_intel(target: str) -> str:
+    """Check IP or domain threat intelligence via Shodan InternetDB or Cloudflare Radar."""
+    try:
+        from devops_cli.security.intelligence import (
+            CloudflareRadarClient,
+            ShodanInternetDBClient,
+            is_public_ip,
+        )
+
+        if is_public_ip(target):
+            shodan = ShodanInternetDBClient()
+            rep = shodan.check_ip(target)
+            ports = ", ".join(str(p) for p in rep.ports) or "None detected"
+            vulns = ", ".join(rep.cves) or "None detected"
+            return (
+                f"Shodan Intelligence for IP {target}:\n"
+                f"- Hostnames: {', '.join(rep.hostnames) or 'None'}\n"
+                f"- Open Ports: {ports}\n"
+                f"- Known CVEs: {vulns}\n"
+                f"- Reputation Summary: {rep.reputation_summary}"
+            )
+        else:
+            radar = CloudflareRadarClient()
+            rep = radar.check_domain(target)
+            return (
+                f"Cloudflare Radar Intelligence for Domain {target}:\n"
+                f"- Threat Categories: {', '.join(rep.tags) or 'General'}\n"
+                f"- Reputation Summary: {rep.reputation_summary}"
+            )
+    except Exception as exc:
+        return f"Threat intelligence check error: {exc}"
+
+
+def k8s_jaeger_status() -> str:
+    """Query Jaeger distributed tracing service status and connection endpoints."""
+    return (
+        "Jaeger Distributed Tracing Endpoints:\n"
+        "- Query UI: http://localhost:16686 (port-forward svc/jaeger -n otel 16686:16686)\n"
+        "- OTLP gRPC Receiver: localhost:4317\n"
+        "- OTLP HTTP Receiver: http://localhost:4318/v1/traces\n"
+        "- Health: http://localhost:14269"
+    )

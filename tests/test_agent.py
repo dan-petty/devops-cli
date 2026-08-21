@@ -127,9 +127,37 @@ def test_get_default_tools_includes_mcp() -> None:
     mcp_tools = get_mcp_agent_tools()
     all_tools = get_default_tools()
 
-    assert len(mcp_tools) >= 10
-    assert len(all_tools) >= len(mcp_tools) + 8
+    assert len(mcp_tools) >= 20
+    assert len(all_tools) >= len(mcp_tools) + 10
     tool_names = [t.__name__ for t in all_tools]
     assert "repos_list" in tool_names
     assert "k8s_status" in tool_names
+    assert "k8s_jaeger_status" in tool_names
+    assert "scan_osv" in tool_names
+    assert "check_threat_intel" in tool_names
     assert "ci_run" in tool_names
+
+
+def test_get_persona_tools_selection() -> None:
+    from devops_cli.ai.personas import Persona
+    from devops_cli.ai.tools import get_persona_tools
+
+    sec_tools = [t.__name__ for t in get_persona_tools(Persona.DEVSECOPS)]
+    assert "scan_trivy" in sec_tools
+    assert "scan_osv" in sec_tools
+    assert "check_threat_intel" in sec_tools
+    assert "scan_bandit" in sec_tools
+
+    arch_tools = [t.__name__ for t in get_persona_tools(Persona.ARCHITECT)]
+    assert "tf_plan" in arch_tools
+    assert "k8s_jaeger_status" in arch_tools
+    assert "k8s_pods" in arch_tools
+    assert "argo_apps" in arch_tools
+
+    qa_tools = [t.__name__ for t in get_persona_tools(Persona.QA)]
+    assert "ci_run" in qa_tools
+    assert "git_diff" in qa_tools
+
+    pm_tools = [t.__name__ for t in get_persona_tools(Persona.PM)]
+    assert "repos_list" in pm_tools
+    assert "repos_status" in pm_tools

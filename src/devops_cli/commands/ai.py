@@ -621,7 +621,7 @@ def chat(
 
     from devops_cli.ai.agents import PydanticAgent
     from devops_cli.ai.client import LLMClient
-    from devops_cli.ai.tools import get_default_tools
+    from devops_cli.ai.tools import get_persona_tools
     from devops_cli.config.settings import get_ai_api_key, load_settings
 
     if persona not in _PERSONA_NAMES:
@@ -636,7 +636,7 @@ def chat(
     settings = load_settings()
     client = LLMClient(settings.ai.for_task("chat"), api_key=get_ai_api_key(settings))
 
-    agent_tools = get_default_tools() if tools else []
+    agent_tools = get_persona_tools(persona) if tools else []
     agent: PydanticAgent[Any] = PydanticAgent(
         client=client, system_prompt=system, tools=agent_tools
     )
@@ -756,9 +756,10 @@ def pipeline(
     ] = True,
 ) -> None:
     """Run a multi-agent Pydantic pipeline with shared DevOps tools and RAG context."""
-    from devops_cli.ai.agents import MultiAgentPipeline, PydanticAgent
+    from devops_cli.ai.agents import PydanticAgent
+    from devops_cli.ai.agents.pipeline import MultiAgentPipeline
     from devops_cli.ai.client import LLMClient
-    from devops_cli.ai.tools import get_default_tools
+    from devops_cli.ai.tools import get_default_tools, get_persona_tools
     from devops_cli.config.settings import get_ai_api_key, load_settings
     from devops_cli.dry_run import CommandDryRunResult, is_dry_run
 
@@ -796,11 +797,12 @@ def pipeline(
 
     for p in valid_personas:
         p_def = PERSONAS[p]
+        stage_tools = get_persona_tools(p)
         agent: PydanticAgent[Any] = PydanticAgent(
             client=client,
             system_prompt=p_def.system_prompt,
             name=p_def.title,
-            tools=agent_tools,
+            tools=stage_tools,
         )
         pipeline_engine.add_agent(agent)
 
