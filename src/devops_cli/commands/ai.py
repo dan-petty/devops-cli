@@ -60,22 +60,18 @@ _AGENT_FILES: dict[str, str] = {
 
 # Task-specific addendum appended to the architect persona when generating AGENTS.md
 _AGENTS_TASK_ADDENDUM = """\
-\nYour current task is to write the `AGENTS.md` file — precise, structured
-instructions for AI coding agents (GitHub Copilot, Claude, Codex). The output
-will be read by AI assistants to understand this project and assist developers.
+\nYour current task is to write the `AGENTS.md` file — structured, best-practice
+guidance and engineering principles for AI coding agents (GitHub Copilot, Claude, Cursor).
+The output will be read by AI assistants to understand this project and assist developers.
 
-The file MUST include:
-- Project purpose, language, entry point, virtual environment
-- An "Environment & Modernization Policy" section (latest Python/images/deps is
-  intentional; `devops ci` is the safety net)
-- Exact build/test/lint/format/typecheck commands
-- Code conventions (line length, import style, HTTP library, secrets storage,
-  config and language literal centralization, non-instructional design justification comments)
-- Architecture overview with key file paths
-- AI feature commands (`devops ai`, `devops ai review`) and persona names
-- Security notes covering SSH keys, tokens, SSRF mitigations, accepted risks,
-
-  and routine maintenance of all project documentation and references
+The file MUST focus on engineering best practices:
+- Project purpose, language runtime (Python 3.14+), and virtual environment management
+- Progressive verification strategy (targeted tests during iteration, full CI before handoff)
+- Core architectural best practices (modularity, separation of concerns, SOLID design)
+- Modern Python standards (strict typing, standard library/open-source tools)
+- Security principles (OS keyring secrets, SSRF mitigation, subprocess safety)
+- Target-agnostic review guidelines (evaluate target workspaces by standard principles)
+- Git hygiene (topic branches, PR targeting, conventional commits, remote CI monitoring)
 """
 
 
@@ -238,107 +234,48 @@ def _template_content(target_file: str, context_summary: dict[str, str]) -> str:
     entry_point = context_summary.get("entry_point", "")
 
     return f"""\
-# {name} — Agent Instructions
+# {name} — Agent Instructions & Engineering Best Practices
 
 > **Canonical source.** This file is the single source of truth for AI coding agent
 > instructions in this repo. [CLAUDE.md](./CLAUDE.md) and
 > [.github/copilot-instructions.md](./.github/copilot-instructions.md) are thin pointers
-> to this file, kept only because their tools look for those specific filenames. Edit
-> this file (or regenerate via `devops ai agents`), not the pointer files.
+> to this file.
 
-## Project
+## 1. Project Overview
 **{name}** — {description}
 
 - Language: Python {python_version}
 - Entry point: `{entry_point}`
 - Virtual environment: `.venv/` (managed by `uv`)
 
-## Environment & Modernization Policy
-- This project is built to run **only inside the provided dev container** on a local
-  DevOps Engineer's workstation — it is not intended for bare-metal installs, shared
-  servers, or as a base image for other services.
-- Tracking the **latest Python release, latest container base images, and latest
-  dependency versions** is intentional, not an oversight. The dev container is rebuilt
-  routinely, so staying current avoids accumulating upgrade debt and reduces exposure
-  to unpatched legacy CVEs.
-- This is safe specifically because of the test/lint/format/typecheck suite: `devops ci`
-  is the guardrail that catches breakage from modernization before it merges. Treat a
-  failing `devops ci` after a version bump as a signal to fix the break, not to pin
-  backwards.
-- When bumping Python, base images, or dependencies: update the version, run
-  `devops ci`, and resolve any failures it surfaces before merging.
+## 2. Core Engineering Philosophy & Best Practices
+- **Progressive Testing**: Run targeted, isolated unit tests during active loops;
+  defer full CI test suites to the final pre-handoff milestone.
+- **Architectural Flexibility**: Prioritize clean abstractions, SOLID principles, and
+  separation of concerns. Prefer idiomatic, standard library and established tools.
+- **Modern Python Standards**: Strict typing (`mypy --strict`), modern syntax
+  (`from __future__ import annotations`, type unions `A | B`), and Pydantic models.
+- **Zero-Trust Security**: Never commit plaintext secrets or tokens. Use OS Keyring
+  (`keyring`). Enforce SSRF mitigations on network I/O and bounded subprocess timeouts.
+- **Target-Agnostic Reviews**: When reviewing target workspaces, evaluate code against
+  standard software engineering and security principles (OWASP, CIS, SOLID).
 
-## Build & Test Commands
+## 3. Build & Test Commands
 ```bash
-uv sync                        # install / sync dependencies
-devops ci                      # run all checks (test + lint + format + typecheck)
-devops ci test [-v] [-k expr]  # pytest
+uv sync                        # synchronize dependencies
+devops ci                      # run full CI quality gate
+devops ci test [-v] [-k expr]  # pytest unit test suite
 devops ci lint [--fix]         # ruff check
 devops ci format [--fix]       # ruff format
-devops ci typecheck            # mypy (strict)
+devops ci typecheck            # mypy strict static typechecking
+devops docs generate --sync-readme  # synchronize CLI documentation and README matrix
 ```
 
-## Code Conventions
-- Python 3.14+, strict mypy, ruff (E/F/I/N/W/UP rules), 100-char line limit
-- 4-space indent for Python; 2-space for JSON/YAML/TOML/shell
-- LF line endings, trim trailing whitespace, final newline
-- Type annotations on all public functions; `from __future__ import annotations`
-- Import `Callable` from `collections.abc`, not `typing`
-- Use `httpx2` (not `httpx`) for HTTP — `import httpx2`
-- Secrets stored in OS keyring via `keyring`; never in config files or env vars
-- Automatically add non-instructional, reference-backed design justification comments
-  (`# NOTE (Design Justification - <REF>): ...`) for all invalidated findings or
-  intentional design trade-offs directly above target code constructs. Routinely update all
-  documentation (`AGENTS.md`, `README.md`, `CLAUDE.md`, `.github/copilot-instructions.md`)
-  whenever code, architecture, or prompt conventions evolve.
-
-## Architecture
-```
-src/devops_cli/
-  main.py              # Typer app entrypoint and command group registration
-  mcp.py               # FastMCP server for LLM tools & DevOps automation
-  ai/                  # Unified LLM client, reviewer personas, prompt tasks, agent tools
-  commands/            # CLI subcommands (ai, argo, config, k8s, repos, review, ssh, etc.)
-  config/              # Pydantic Settings, keyring integration, env vars, defaults
-  core/                # Shared CLI utilities, repo path resolution, dry-run state
-  crypto/              # Ed25519 SSH key pair generation, rotation, and validation
-  git/                 # Git operations, cloning, branch detection, known_hosts
-  github/              # PyGithub & httpx2 wrapper, SSH key registration
-  http/                # Egress network validation and SSRF mitigation guards
-  lang/                # i18n string catalog (en.py) and Pydantic message schemas
-  models/              # Pydantic domain models for AI, K8s, Argo, Grafana, GitHub
-  templates/           # Jinja2 templates for devcontainer scaffolding
-tests/                 # pytest unit test suite (169+ tests passing)
-```
-
-## AI Features (`devops ai`, `devops ai review`)
-- `devops ai config --provider <ollama|claude|copilot|openai>`
-- `devops ai test` — verify LLM connectivity
-- `devops ai agents` — (re)generate this file and siblings
-- `devops ai review branch [<branch>] [--base main] [--persona <p>] [--all]`
-  (alias: `devops review branch`)
-- `devops ai review pr <number> [--post]` — review GitHub PRs; optionally post as comment
-- `devops ai review path [<target>] [--pattern <glob>] [--persona <p>] [--all]`
-  (alias: `devops review path`)
-- Personas: `devsecops` · `architect` · `pm` · `auditor` · `qa`
-- All `devops ai review` commands load this file (AGENTS.md) from the target repo and
-  inject it into the reviewer's system prompt, so findings must defer to conventions
-  and policies documented here rather than flag them as issues.
-
-## Security Notes
-- SSH private keys: `~/.ssh/id_ed25519-<YYYYMMM>` pattern; rotated every 90 days
-- GitHub / Grafana / ArgoCD tokens stored in OS keyring only
-- All HTTP clients use `httpx2` with explicit timeouts
-- No credentials in config YAML or source files
-- `devops_cli.ai.client.LLMClient` validates Ollama/Claude/OpenAI-compatible base URLs
-  and refuses private/loopback/link-local targets unless
-  `DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true` is set — this mitigates SSRF via
-  attacker- or config-controlled endpoints; do not flag this as unmitigated SSRF risk
-- `.devcontainer/devcontainer.json` bind-mounts the host's `~/.ssh` into the container
-  by design — this CLI's core purpose includes generating, rotating, and registering
-  SSH keys, which requires direct access to the real key material. This is an accepted,
-  intentional risk of the local-workstation-only usage model; do not recommend SSH
-  agent forwarding as a required fix
+## 4. Git & Workflow Hygiene
+- **Branch Hierarchy**: Topic branches (`feat/*`, `fix/*`, `refactor/*`, `docs/*`)
+  target the active release branch (`release/v*`).
+- **Conventional Commits**: Format commit messages cleanly (`feat(scope): ...`, `fix(scope): ...`).
+- **Zero Direct Commits to `main`**: Maintain PR governance and monitor remote CI checks.
 """
 
 
