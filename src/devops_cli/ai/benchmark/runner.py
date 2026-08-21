@@ -1002,4 +1002,58 @@ class BenchmarkRunner:
                     f"{s.avg_score_awarded:.1f}% | {bias_str} | {lat_breakdown or '-'} |"
                 )
 
+        if report.peer_grades:
+            lines.append("\n## Model Strengths & Improvement Areas (Peer Feedback)\n")
+            for m in report.leaderboard:
+                lines.append(
+                    f"### `{m.model}` ({m.overall_percentage:.1f}% Score | "
+                    f"{m.average_duration_seconds:.1f}s Latency)\n"
+                )
+                m_grades = [
+                    g
+                    for g in report.peer_grades
+                    if g.candidate_model == m.model and g.evaluator_model != m.model
+                ]
+                if not m_grades:
+                    m_grades = [g for g in report.peer_grades if g.candidate_model == m.model]
+
+                all_s: list[str] = []
+                all_w: list[str] = []
+                for g in m_grades:
+                    all_s.extend(g.strengths)
+                    all_w.extend(g.weaknesses)
+
+                top_s: list[str] = []
+                seen_s: set[str] = set()
+                for str_item in all_s:
+                    if str_item and str_item not in seen_s:
+                        seen_s.add(str_item)
+                        top_s.append(str_item)
+                        if len(top_s) >= 3:
+                            break
+
+                top_w: list[str] = []
+                seen_w: set[str] = set()
+                for w_item in all_w:
+                    if w_item and w_item not in seen_w:
+                        seen_w.add(w_item)
+                        top_w.append(w_item)
+                        if len(top_w) >= 3:
+                            break
+
+                lines.append("**Key Strengths:**")
+                if top_s:
+                    for str_item in top_s:
+                        lines.append(f"- {str_item}")
+                else:
+                    lines.append("- Baseline responses provided.")
+
+                lines.append("\n**Key Improvement Areas:**")
+                if top_w:
+                    for w_item in top_w:
+                        lines.append(f"- {w_item}")
+                else:
+                    lines.append("- No major deficiencies noted.")
+                lines.append("")
+
         return "\n".join(lines)
