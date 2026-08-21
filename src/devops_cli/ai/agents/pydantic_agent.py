@@ -24,8 +24,6 @@ from pydantic import BaseModel, Field
 
 from devops_cli.ai.agents.memory import AgentMemory
 from devops_cli.ai.client import LLMClient
-from devops_cli.ai.review_schema import extract_json_block
-from devops_cli.ai.thinking import extract_think_blocks
 from devops_cli.config.defaults import DEFAULT_AGENT_MAX_TURNS
 from devops_cli.models.ai import ChatMessage
 
@@ -176,54 +174,53 @@ class PydanticAgent[T]:
             response_text = str(res_obj)
             b_info = getattr(res_obj, "backend_info", None)
 
-            # Extract thoughts
-            thinks, clean_response = extract_think_blocks(response_text)
-            if thinks:
-                for t in thinks:
-                    if t and t not in all_thoughts:
-                        all_thoughts.append(t)
-                        if on_thought:
-                            on_thought(t)
-            raw_think = getattr(res_obj, "thinking", "")
-            if raw_think and str(raw_think).strip() and str(raw_think).strip() not in all_thoughts:
-                all_thoughts.append(str(raw_think).strip())
-                if on_thought:
-                    on_thought(str(raw_think).strip())
+            from devops_cli.ai.fixer import fix_llm_response
 
-            # Check if there is a tool call in clean_response or response_text
-            json_candidate = clean_response if clean_response else response_text
-            json_data = extract_json_block(json_candidate)
-            if isinstance(json_data, dict) and "tool" in json_data:
-                tool_name = str(json_data["tool"])
-                args: dict[str, Any] = (
-                    json_data["arguments"] if isinstance(json_data.get("arguments"), dict) else {}
-                )
-                if tool_name in self._tools:
-                    try:
-                        tool_result = self._tools[tool_name].execute(**args)
-                    except Exception as exc:
-                        tool_result = f"Tool execution error for {tool_name}: {exc}"
-                    tc = ToolCall(tool_name=tool_name, arguments=args, result=tool_result)
-                    tool_calls.append(tc)
+            fixed = fix_llm_response(
+                response_text,
+                schema=self.output_schema,
+                available_tools=set(self._tools.keys()),
+            )
 
-                    if on_tool_call:
-                        on_tool_call(tool_name, args, tool_result)
+            # Broadcast thoughts
+            for t in fixed.thoughts:
+                if t and t not in all_thoughts:
+                    all_thoughts.append(t)
+                    if on_thought:
+                        on_thought(t)
 
-                    messages.append(ChatMessage(role="assistant", content=response_text))
-                    messages.append(
-                        ChatMessage(
-                            role="user",
-                            content=(
-                                f"Tool '{tool_name}' output:\n"
-                                f"{json.dumps(tool_result, default=str)}"
-                            ),
+            # Process extracted tool calls
+            if fixed.tool_calls:
+                for tc_info in fixed.tool_calls:
+                    tool_name = tc_info.tool_name
+                    args = tc_info.arguments
+                    if tool_name in self._tools:
+                        try:
+                            tool_result = self._tools[tool_name].execute(**args)
+                        except Exception as exc:
+                            tool_result = f"Tool execution error for {tool_name}: {exc}"
+                        tc = ToolCall(tool_name=tool_name, arguments=args, result=tool_result)
+                        tool_calls.append(tc)
+
+                        if on_tool_call:
+                            on_tool_call(tool_name, args, tool_result)
+
+                        messages.append(ChatMessage(role="assistant", content=response_text))
+                        messages.append(
+                            ChatMessage(
+                                role="user",
+                                content=(
+                                    f"Tool '{tool_name}' output:\n"
+                                    f"{json.dumps(tool_result, default=str)}"
+                                ),
+                            )
                         )
-                    )
+                if tool_calls:
                     continue
 
-            final_output = clean_response.strip() if clean_response else response_text.strip()
+            final_output = fixed.content.strip()
 
-            # If final_output is empty but thoughts exist, synthesize final response
+            # If final_output is still empty and turn < max_turns, request synthesis turn
             if not final_output and all_thoughts and turn < max_turns:
                 messages.append(ChatMessage(role="assistant", content=response_text))
                 messages.append(
@@ -234,21 +231,16 @@ class PydanticAgent[T]:
                 )
                 continue
 
-            parsed_data: T | None = None
-            if self.output_schema is not None:
-                try:
-                    schema_json = extract_json_block(final_output)
-                    if isinstance(schema_json, dict):
-                        parsed_data = self.output_schema.model_validate(schema_json)  # type: ignore[attr-defined]
-                except Exception:
-                    pass
+            # Fallback if still empty: use recovered thought content
+            if not final_output and all_thoughts:
+                final_output = all_thoughts[-1]
 
             self.memory.add_interaction("assistant", final_output)
             self.memory.auto_summarize_if_needed(llm_client=self.client)
 
             return AgentResponse[T](
                 content=final_output,
-                data=parsed_data,
+                data=fixed.parsed_model,
                 tool_calls=tool_calls,
                 thoughts=all_thoughts,
                 turns=turn,

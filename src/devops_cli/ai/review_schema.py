@@ -466,7 +466,13 @@ def parse_review_result(text: str) -> ReviewResult | None:
     if not text or not text.strip():
         return None
 
-    data = extract_json_block(text)
+    from devops_cli.ai.fixer import fix_llm_response
+
+    fixed = fix_llm_response(text, schema=ReviewResult)
+    if fixed.parsed_model is not None and isinstance(fixed.parsed_model, ReviewResult):
+        return fixed.parsed_model
+
+    data = fixed.json_data or extract_json_block(text)
     if isinstance(data, list):
         parsed_findings: list[Finding] = []
         for item in data:
@@ -475,19 +481,21 @@ def parse_review_result(text: str) -> ReviewResult | None:
                     parsed_findings.append(Finding.model_validate(item))
                 except Exception:
                     pass
-        return ReviewResult(
-            findings=parsed_findings,
-            recommendation="APPROVE" if not parsed_findings else "REQUEST CHANGES",
-            summary=f"Extracted {len(parsed_findings)} finding(s)",
-        )
+        if parsed_findings:
+            return ReviewResult(
+                findings=parsed_findings,
+                recommendation="APPROVE" if not parsed_findings else "REQUEST CHANGES",
+                summary=f"Extracted {len(parsed_findings)} finding(s)",
+            )
     elif isinstance(data, dict):
         try:
             return ReviewResult.model_validate(data)
         except Exception:
             pass
 
-    md_findings = _parse_markdown_review_findings(text)
+    target_text = fixed.content or text
+    md_findings = _parse_markdown_review_findings(target_text)
     if md_findings:
-        return ReviewResult(findings=md_findings, summary=text[:300])
+        return ReviewResult(findings=md_findings, summary=target_text[:300])
 
     return None
