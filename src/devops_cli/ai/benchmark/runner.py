@@ -553,17 +553,21 @@ class BenchmarkRunner:
             )
         ]
 
-        # Phase 1: Compute baseline raw performance for each model to determine its judge weight
+        # Phase 1: Compute peer competence (excluding self-grading) to determine judge weights
         raw_competence: dict[str, float] = {}
         for model in self.models:
-            m_valid_received = [g for g in valid_grades if g.candidate_model == model]
-            if m_valid_received:
-                total_w = sum(task_weight_map.get(g.task_id, 1.0) for g in m_valid_received)
+            m_peer_received = [
+                g for g in valid_grades if g.candidate_model == model and g.evaluator_model != model
+            ]
+            evals = (
+                m_peer_received
+                if m_peer_received
+                else [g for g in valid_grades if g.candidate_model == model]
+            )
+            if evals:
+                total_w = sum(task_weight_map.get(g.task_id, 1.0) for g in evals)
                 raw_pct = (
-                    sum(
-                        g.percentage * task_weight_map.get(g.task_id, 1.0) for g in m_valid_received
-                    )
-                    / total_w
+                    sum(g.percentage * task_weight_map.get(g.task_id, 1.0) for g in evals) / total_w
                     if total_w > 0
                     else 0.0
                 )
@@ -571,7 +575,7 @@ class BenchmarkRunner:
             else:
                 raw_competence[model] = 0.0
 
-        # Judge weights: proportional to model overall competence (scaled to [0.05, 1.0])
+        # Judge weights: proportional to model peer competence (scaled to [0.05, 1.0])
         max_comp = max(raw_competence.values()) if raw_competence else 0.0
         judge_weights: dict[str, float] = {}
         for model, comp in raw_competence.items():
@@ -580,16 +584,34 @@ class BenchmarkRunner:
             else:
                 judge_weights[model] = 1.0
 
-        # Phase 2: Compute weighted metrics for each candidate model
+        # Phase 2: Compute judge strictness/leniency calibration offsets (active for >= 3 judges)
+        judge_offsets: dict[str, float] = {}
+        if len(self.models) >= 3 and valid_grades:
+            all_eval_avg = sum(g.percentage for g in valid_grades) / len(valid_grades)
+            for m in self.models:
+                m_given = [g for g in valid_grades if g.evaluator_model == m]
+                if m_given:
+                    judge_offsets[m] = (
+                        sum(g.percentage for g in m_given) / len(m_given)
+                    ) - all_eval_avg
+                else:
+                    judge_offsets[m] = 0.0
+        else:
+            for m in self.models:
+                judge_offsets[m] = 0.0
+
+        # Phase 3: Compute debiased peer-only metrics for each candidate model
         summaries: list[ModelBenchmarkSummary] = []
 
         for model in self.models:
             m_valid_grades = [g for g in valid_grades if g.candidate_model == model]
+            m_peer_grades = [g for g in m_valid_grades if g.evaluator_model != model]
+            evals_to_score = m_peer_grades if m_peer_grades else m_valid_grades
             m_resps = [r for r in responses if r.model == model]
 
             avg_dur = sum(r.duration_seconds for r in m_resps) / len(m_resps) if m_resps else 0.0
 
-            if not m_valid_grades:
+            if not evals_to_score:
                 summaries.append(
                     ModelBenchmarkSummary(
                         model=model,
@@ -604,45 +626,31 @@ class BenchmarkRunner:
             # Weight each evaluation by: Judge_Weight(evaluator) * Task_Weight(task)
             total_eval_weight = sum(
                 judge_weights.get(g.evaluator_model, 1.0) * task_weight_map.get(g.task_id, 1.0)
-                for g in m_valid_grades
+                for g in evals_to_score
             )
             total_judge_weight = sum(
-                judge_weights.get(g.evaluator_model, 1.0) for g in m_valid_grades
+                judge_weights.get(g.evaluator_model, 1.0) for g in evals_to_score
             )
 
             if total_eval_weight > 0:
+                # Calibrate grade against judge leniency offset (damping=0.5)
                 weighted_pct = (
                     sum(
-                        g.percentage
+                        max(
+                            0.0,
+                            min(
+                                100.0,
+                                g.percentage - (judge_offsets.get(g.evaluator_model, 0.0) * 0.5),
+                            ),
+                        )
                         * judge_weights.get(g.evaluator_model, 1.0)
                         * task_weight_map.get(g.task_id, 1.0)
-                        for g in m_valid_grades
+                        for g in evals_to_score
                     )
                     / total_eval_weight
                 )
             else:
                 weighted_pct = 0.0
-
-            # Compute peer-only score (excluding self-grading)
-            m_peer_grades = [g for g in m_valid_grades if g.evaluator_model != model]
-            if m_peer_grades:
-                total_peer_w = sum(
-                    judge_weights.get(g.evaluator_model, 1.0) * task_weight_map.get(g.task_id, 1.0)
-                    for g in m_peer_grades
-                )
-                peer_pct = (
-                    sum(
-                        g.percentage
-                        * judge_weights.get(g.evaluator_model, 1.0)
-                        * task_weight_map.get(g.task_id, 1.0)
-                        for g in m_peer_grades
-                    )
-                    / total_peer_w
-                    if total_peer_w > 0
-                    else 0.0
-                )
-            else:
-                peer_pct = weighted_pct
 
             # Compute self-preference bias
             m_self_grades = [g for g in m_valid_grades if g.evaluator_model == model]
@@ -657,28 +665,28 @@ class BenchmarkRunner:
                 acc_avg = (
                     sum(
                         g.accuracy_score * judge_weights.get(g.evaluator_model, 1.0)
-                        for g in m_valid_grades
+                        for g in evals_to_score
                     )
                     / total_judge_weight
                 )
                 sec_avg = (
                     sum(
                         g.security_score * judge_weights.get(g.evaluator_model, 1.0)
-                        for g in m_valid_grades
+                        for g in evals_to_score
                     )
                     / total_judge_weight
                 )
                 comp_avg = (
                     sum(
                         g.completeness_score * judge_weights.get(g.evaluator_model, 1.0)
-                        for g in m_valid_grades
+                        for g in evals_to_score
                     )
                     / total_judge_weight
                 )
                 clar_avg = (
                     sum(
                         g.clarity_score * judge_weights.get(g.evaluator_model, 1.0)
-                        for g in m_valid_grades
+                        for g in evals_to_score
                     )
                     / total_judge_weight
                 )
@@ -688,7 +696,7 @@ class BenchmarkRunner:
             # Category scores (weighted by judge weight)
             cat_totals: dict[str, float] = {}
             cat_weights: dict[str, float] = {}
-            for g in m_valid_grades:
+            for g in evals_to_score:
                 cat = task_cat_map.get(g.task_id, "general")
                 jw = judge_weights.get(g.evaluator_model, 1.0)
                 cat_totals[cat] = cat_totals.get(cat, 0.0) + (g.percentage * jw)
@@ -700,24 +708,14 @@ class BenchmarkRunner:
                 if cat_weights[cat] > 0
             }
 
-            # Grading strictness index: how this model grades others vs general consensus
-            given_grades = [g for g in valid_grades if g.evaluator_model == model]
-            strictness = 0.0
-            if given_grades:
-                avg_given = sum(g.percentage for g in given_grades) / len(given_grades)
-                all_avg = (
-                    sum(g.percentage for g in valid_grades) / len(valid_grades)
-                    if valid_grades
-                    else 75.0
-                )
-                strictness = round(avg_given - all_avg, 2)
+            strictness = round(judge_offsets.get(model, 0.0), 2)
 
             summaries.append(
                 ModelBenchmarkSummary(
                     model=model,
                     provider=self.provider,
                     overall_percentage=round(weighted_pct, 1),
-                    peer_only_percentage=round(peer_pct, 1),
+                    peer_only_percentage=round(weighted_pct, 1),
                     self_preference_bias=self_bias,
                     accuracy_avg=round(acc_avg, 1),
                     security_avg=round(sec_avg, 1),
@@ -731,7 +729,7 @@ class BenchmarkRunner:
                 )
             )
 
-        summaries.sort(key=lambda s: s.peer_only_percentage, reverse=True)
+        summaries.sort(key=lambda s: s.overall_percentage, reverse=True)
         return summaries
 
     def _compute_server_summaries(
