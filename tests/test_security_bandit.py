@@ -69,7 +69,9 @@ def test_run_bandit_scan_mocked(mock_proc: MagicMock, tmp_path: Path) -> None:
         ]
     }
     mock_proc.return_value = MagicMock(stdout=json.dumps(fake_output), returncode=0)
-    findings = run_bandit_scan(tmp_path / "app.py")
+    app_file = tmp_path / "app.py"
+    app_file.write_text("import tempfile\n")
+    findings = run_bandit_scan(app_file)
     assert len(findings) == 1
     assert findings[0].severity == "MEDIUM"
     assert "B108" in findings[0].title
