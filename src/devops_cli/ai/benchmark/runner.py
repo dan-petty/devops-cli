@@ -877,11 +877,14 @@ class BenchmarkRunner:
                 if m.grading_strictness_index > 0
                 else f"{m.grading_strictness_index:.1f}%"
             )
-            self_bias_str = (
-                f"+{m.self_preference_bias:.1f}%"
-                if m.self_preference_bias > 0
-                else f"{m.self_preference_bias:.1f}%"
-            )
+            if m.self_preference_bias < -5.0:
+                self_bias_str = f"[green]{m.self_preference_bias:.1f}%[/green] (strict)"
+            elif m.self_preference_bias > 15.0:
+                self_bias_str = f"[red]+{m.self_preference_bias:.1f}%[/red] (inflated)"
+            elif m.self_preference_bias > 0:
+                self_bias_str = f"+{m.self_preference_bias:.1f}%"
+            else:
+                self_bias_str = f"{m.self_preference_bias:.1f}%"
             table.add_row(
                 rank_badge,
                 m.model,
