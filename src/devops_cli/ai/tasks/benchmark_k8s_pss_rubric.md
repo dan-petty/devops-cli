@@ -1,0 +1,4 @@
+- Accuracy (0-10): Valid Kubernetes YAML syntax and schema adherence.
+- Security (0-10): Meets all Restricted PSS constraints (drop ALL capabilities, readOnlyRootFilesystem, runAsNonRoot, seccomp RuntimeDefault, allowPrivilegeEscalation false).
+- Completeness (0-10): Probes, resource constraints, emptyDir mounts included.
+- Clarity (0-10): Clear structure and YAML formatting.

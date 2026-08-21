@@ -1,0 +1,4 @@
+- Accuracy (0-10): Proper Pydantic v2 idioms (model_validator, ConfigDict, Field).
+- Security (0-10): Port boundary enforcement, robust type safety, zero silent failures.
+- Completeness (0-10): Immutability, validators, modern union types.
+- Clarity (0-10): Idiomatic, readable code.
