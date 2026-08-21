@@ -890,10 +890,10 @@ class BenchmarkRunner:
                 m.model,
                 f"{m.overall_percentage:.1f}%",
                 f"{m.peer_only_percentage:.1f}%",
-                f"{m.accuracy_avg:.1f}/10",
-                f"{m.security_avg:.1f}/10",
-                f"{m.completeness_avg:.1f}/10",
-                f"{m.clarity_avg:.1f}/10",
+                f"{m.accuracy_avg * 10.0:.1f}%",
+                f"{m.security_avg * 10.0:.1f}%",
+                f"{m.completeness_avg * 10.0:.1f}%",
+                f"{m.clarity_avg * 10.0:.1f}%",
                 f"{m.judge_weight:.2f}",
                 f"{m.average_duration_seconds:.1f}s",
                 bias_str,
@@ -994,9 +994,9 @@ class BenchmarkRunner:
             )
             row = (
                 f"| {rank_badge} | `{m.model}` | **{m.overall_percentage:.1f}%** | "
-                f"{m.peer_only_percentage:.1f}% | {m.accuracy_avg:.1f}/10 | "
-                f"{m.security_avg:.1f}/10 | {m.completeness_avg:.1f}/10 | "
-                f"{m.clarity_avg:.1f}/10 | {m.judge_weight:.2f} | "
+                f"{m.peer_only_percentage:.1f}% | {m.accuracy_avg * 10.0:.1f}% | "
+                f"{m.security_avg * 10.0:.1f}% | {m.completeness_avg * 10.0:.1f}% | "
+                f"{m.clarity_avg * 10.0:.1f}% | {m.judge_weight:.2f} | "
                 f"{m.average_duration_seconds:.1f}s | {self_bias_str} |"
             )
             lines.append(row)
