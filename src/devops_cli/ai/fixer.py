@@ -11,6 +11,7 @@ import json
 import re
 from typing import Any
 
+import json_repair
 from pydantic import BaseModel, Field
 
 _UNICODE_MAP: dict[str, str] = {
@@ -42,91 +43,33 @@ def normalize_raw_llm_text(text: str) -> str:
 
 
 def repair_json_string(text: str) -> Any:
-    """Extract and repair valid or partially-malformed JSON from text."""
+    """Extract and repair valid or partially-malformed JSON from text using json-repair."""
     if not text or not text.strip():
         return None
 
     cleaned = normalize_raw_llm_text(text).strip()
 
-    # 1. Try markdown code block extraction
-    for pattern in (r"```json\s*([\s\S]*?)```", r"```\s*([\s\S]*?)```"):
+    # 1. First pass: use standard json_repair to parse JSON, objects, lists, or markdown fences
+    try:
+        data = json_repair.loads(cleaned)
+        if data != "" and data is not None:
+            return data
+    except Exception:
+        pass
+
+    # 2. If surrounded by markdown fences, extract and repair candidate block
+    for pattern in (r"```(?:json)?\s*([\s\S]*?)```",):
         m = re.search(pattern, cleaned, re.DOTALL)
         if m:
             candidate = m.group(1).strip()
-            res = _try_parse_json_candidate(candidate)
-            if res is not None:
-                return res
-
-    # 2. Try raw JSON extraction
-    res = _try_parse_json_candidate(cleaned)
-    if res is not None:
-        return res
-
-    # 3. Try scanning from each open brace/bracket
-    decoder = json.JSONDecoder()
-    for m in re.finditer(r"[\{\[]", cleaned):
-        start_idx = m.start()
-        sub = cleaned[start_idx:]
-        try:
-            obj, _ = decoder.raw_decode(sub)
-            return obj
-        except json.JSONDecodeError:
-            repaired = _heal_json_heuristics(sub)
             try:
-                obj, _ = decoder.raw_decode(repaired)
-                return obj
+                data = json_repair.loads(candidate)
+                if data != "" and data is not None:
+                    return data
             except Exception:
-                continue
+                pass
 
     return None
-
-
-def _try_parse_json_candidate(candidate: str) -> Any:
-    """Attempt direct and heuristic JSON parsing on a string candidate."""
-    if not candidate:
-        return None
-    try:
-        return json.loads(candidate)
-    except json.JSONDecodeError:
-        pass
-
-    healed = _heal_json_heuristics(candidate)
-    try:
-        return json.loads(healed)
-    except Exception:
-        return None
-
-
-def _heal_json_heuristics(raw: str) -> str:
-    """Apply heuristic transformations to fix common LLM JSON syntax errors."""
-    text = raw.strip()
-
-    # Replace Python literals
-    text = re.sub(r"\bTrue\b", "true", text)
-    text = re.sub(r"\bFalse\b", "false", text)
-    text = re.sub(r"\bNone\b", "null", text)
-
-    # Convert single-quoted keys and string values to double quotes
-    text = re.sub(r"'(?P<key>[a-zA-Z0-9_\-\.]+)'\s*:", r'"\g<key>":', text)
-    text = re.sub(r":\s*'(?P<val>[^'\n]*)'", r': "\g<val>"', text)
-
-    # Strip trailing commas at end of text
-    text = re.sub(r",\s*$", "", text)
-    text = re.sub(r",\s*([\}\]])", r"\1", text)
-
-    # Auto-close unbalanced braces / brackets
-    open_braces = text.count("{") - text.count("}")
-    open_brackets = text.count("[") - text.count("]")
-
-    if open_brackets > 0:
-        text += "]" * open_brackets
-    if open_braces > 0:
-        text += "}" * open_braces
-
-    # Clean any trailing commas before newly closed braces
-    text = re.sub(r",\s*([\}\]])", r"\1", text)
-
-    return text
 
 
 class ExtractedToolCall(BaseModel):

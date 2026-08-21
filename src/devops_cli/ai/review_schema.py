@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import re
 from typing import Any
 
@@ -397,21 +396,28 @@ class ReviewResult(BaseModel):
 
 
 def extract_json_block(text: str) -> Any:
-    """Extract the first parseable JSON object or array from text."""
-    for pattern in (r"```json\s*([\s\S]*?)```", r"```\s*([\s\S]*?)```"):
+    """Extract and repair the first parseable JSON object or array from text using json-repair."""
+    if not text or not text.strip():
+        return None
+
+    import json_repair
+
+    try:
+        data = json_repair.loads(text)
+        if data != "" and data is not None:
+            return data
+    except Exception:
+        pass
+
+    for pattern in (r"```(?:json)?\s*([\s\S]*?)```",):
         m = re.search(pattern, text, re.DOTALL)
         if m:
             try:
-                return json.loads(m.group(1))
-            except json.JSONDecodeError:
+                data = json_repair.loads(m.group(1))
+                if data != "" and data is not None:
+                    return data
+            except Exception:
                 pass
-    decoder = json.JSONDecoder()
-    for m in re.finditer(r"[\{\[]", text):
-        try:
-            obj, _ = decoder.raw_decode(text, idx=m.start())
-            return obj
-        except json.JSONDecodeError:
-            continue
     return None
 
 
