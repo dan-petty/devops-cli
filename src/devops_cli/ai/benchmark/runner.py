@@ -183,6 +183,12 @@ class BenchmarkRunner:
                 continue
 
             assert client is not None
+            with self._print_lock:
+                rprint(
+                    f"  ⏳ task=[cyan]{task.id}[/cyan] | "
+                    f"model=[bold]{model_name}[/bold] | "
+                    f"backend=[dim]{backend}[/dim] [dim](generating...)[/dim]"
+                )
             t0 = time.monotonic()
             try:
                 res_text = client.chat(
@@ -286,6 +292,13 @@ class BenchmarkRunner:
                         )
                     continue
 
+                with self._print_lock:
+                    rprint(
+                        f"  ⏳ task=[cyan]{task.id}[/cyan] | "
+                        f"judge=[bold]{evaluator_model}[/bold] | "
+                        f"candidate=[dim]{candidate_model}[/dim] | "
+                        f"backend=[dim]{backend}[/dim] [dim](grading...)[/dim]"
+                    )
                 t0 = time.monotonic()
                 grade = self._evaluate_response(task, c_resp, evaluator_model, client=client)
                 grade.server = server_url or ""
