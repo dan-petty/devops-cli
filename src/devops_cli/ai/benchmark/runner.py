@@ -737,7 +737,13 @@ class BenchmarkRunner:
                 if cat_weights[cat] > 0
             }
 
-            strictness = round(judge_offsets.get(model, 0.0), 2)
+            # Calculate judge strictness/leniency index vs overall consensus
+            m_given = [g for g in valid_grades if g.evaluator_model == model]
+            if m_given and valid_grades:
+                all_avg = sum(g.percentage for g in valid_grades) / len(valid_grades)
+                strictness = round((sum(g.percentage for g in m_given) / len(m_given)) - all_avg, 1)
+            else:
+                strictness = 0.0
 
             summaries.append(
                 ModelBenchmarkSummary(
