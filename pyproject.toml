@@ -26,6 +26,7 @@ dependencies = [
     "qdrant-client>=1.11.0",
     "pydantic-settings>=2.4.0",
     "json-repair>=0.63.3",
+    "tldextract>=5.3.2",
 ]
 
 [project.scripts]

@@ -11,9 +11,10 @@ import mimetypes
 import re
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse, urlsplit
+from urllib.parse import urlparse
 
 import httpx
+import tldextract
 
 from devops_cli.models.intelligence import (
     DependencySpec,
@@ -88,6 +89,70 @@ def is_public_ip(ip_str: str) -> bool:
         return False
 
 
+_KNOWN_FILE_EXTENSIONS = {
+    "in",
+    "out",
+    "lock",
+    "env",
+    "example",
+    "sample",
+    "template",
+    "spec",
+    "test",
+    "log",
+    "tmp",
+    "bak",
+    "py",
+    "ts",
+    "js",
+    "json",
+    "yaml",
+    "yml",
+    "toml",
+    "md",
+    "rst",
+    "txt",
+    "sh",
+    "bash",
+    "zsh",
+    "c",
+    "h",
+    "cpp",
+    "go",
+    "rs",
+    "java",
+    "html",
+    "css",
+    "xml",
+    "csv",
+    "tsv",
+    "svg",
+    "png",
+    "jpg",
+    "jpeg",
+    "gif",
+    "ico",
+    "woff",
+    "woff2",
+    "ttf",
+    "eot",
+    "pdf",
+    "zip",
+    "tar",
+    "gz",
+    "tgz",
+    "tf",
+    "tfvars",
+    "hcl",
+    "proto",
+    "sql",
+    "graphql",
+    "gql",
+    "dockerfile",
+    "containerfile",
+}
+
+
 def is_file_reference(target: str, source_file: str = "") -> bool:
     """Check if target string represents a local file path, manifest item, or standard
     file format.
@@ -112,8 +177,12 @@ def is_file_reference(target: str, source_file: str = "") -> bool:
             return True
 
     suffix = Path(target_clean).suffix.lower().lstrip(".")
-    if suffix in _VALID_TLDS:
-        # Standard TLDs (e.g. .org, .ai, .com, .net, .io, .dev) are domain suffixes, not files
+    if suffix in _KNOWN_FILE_EXTENSIONS:
+        return True
+
+    # If the target has a valid public suffix domain, it is a domain, not a file
+    ext = _TLD_EXTRACTOR(target_clean)
+    if ext.domain and ext.suffix and ext.suffix.lower() not in _KNOWN_FILE_EXTENSIONS:
         return False
 
     # Standard library mimetypes check
@@ -125,228 +194,81 @@ def is_file_reference(target: str, source_file: str = "") -> bool:
     ):
         return True
 
-    if f".{suffix}" in mimetypes.types_map and suffix not in ("com", "sh"):
+    if f".{suffix}" in mimetypes.types_map and suffix not in ("com", "sh", "org", "net"):
         return True
 
     return False
 
 
-# Common code property extensions, file formats, and config terms to ignore
+# Common code methods, properties, and config keywords that collide with TLDs
 _CODE_PROPERTY_SUFFIXES = {
-    "py",
-    "ts",
-    "js",
-    "json",
-    "yaml",
-    "yml",
-    "toml",
-    "md",
-    "txt",
-    "rs",
-    "go",
-    "sh",
-    "c",
-    "h",
-    "cpp",
-    "lock",
-    "cfg",
-    "ini",
-    "conf",
-    "token",
-    "key",
-    "secret",
-    "password",
-    "auth",
-    "session",
-    "client",
-    "server",
-    "model",
-    "type",
-    "name",
-    "id",
-    "status",
-    "data",
-    "value",
-    "item",
-    "list",
-    "dict",
-    "set",
-    "obj",
-    "path",
-    "file",
-    "url",
-    "src",
-    "dest",
-    "arg",
-    "param",
-    "flag",
-    "opt",
-    "env",
-    "var",
-    "res",
-    "req",
-    "count",
-    "total",
-    "size",
-    "time",
-    "date",
-    "version",
-    "target",
-    "level",
-    "tag",
-    "port",
-    "stdout",
-    "stderr",
-    "stdin",
-    "exception",
-    "error",
-    "log",
-    "text",
-    "lines",
-}
-
-
-# Standard IANA Top-Level Domains (gTLDs and ccTLDs)
-_VALID_TLDS = {
-    "com",
-    "org",
-    "net",
-    "edu",
-    "gov",
-    "mil",
-    "int",
-    "arpa",
-    "io",
-    "dev",
-    "app",
-    "ai",
-    "co",
-    "me",
-    "info",
-    "biz",
-    "cloud",
-    "tech",
-    "online",
-    "site",
-    "store",
-    "xyz",
-    "top",
-    "pro",
-    "club",
-    "vip",
-    "space",
-    "live",
-    "world",
-    "link",
-    "host",
-    "network",
-    "zone",
-    "digital",
-    "agency",
-    "global",
-    "systems",
-    "group",
-    "today",
-    "company",
-    "email",
-    "solutions",
-    "services",
-    "center",
-    "directory",
-    "media",
-    "press",
-    "news",
-    "design",
     "run",
-    "security",
-    "page",
-    "law",
-    "bank",
-    "finance",
-    "health",
-    "tv",
-    "cc",
-    "fm",
-    "am",
-    # Country code TLDs (ccTLDs)
-    "ca",
-    "uk",
-    "de",
-    "fr",
-    "jp",
-    "cn",
-    "au",
-    "eu",
+    "group",
+    "host",
+    "email",
     "in",
-    "br",
-    "ru",
-    "nl",
-    "ch",
-    "se",
-    "no",
-    "fi",
-    "es",
-    "it",
-    "nz",
-    "sg",
-    "kr",
-    "hk",
-    "tw",
-    "za",
-    "mx",
-    "be",
-    "at",
-    "dk",
-    "ie",
-    "pl",
-    "cz",
-    "il",
-    "gr",
-    "pt",
-    "ro",
-    "hu",
-    "ua",
-    "cl",
-    "ar",
-    "is",
-    "ee",
-    "lv",
-    "lt",
-    "bg",
-    "hr",
-    "sk",
-    "si",
-    "lu",
-    "mt",
-    "cy",
-    "ae",
-    "sa",
-    "eg",
-    "ng",
-    "ke",
-    "vn",
-    "th",
-    "id",
-    "my",
-    "ph",
-    "pk",
-    "bd",
-    "tr",
-    "ir",
-    "iq",
-    "kz",
-    "uz",
-    "by",
-    "az",
-    "ge",
-    "md",
-    "kg",
-    "tj",
-    "tm",
-    "mn",
+    "out",
+    "get",
+    "set",
+    "main",
+    "init",
+    "start",
+    "stop",
+    "test",
+    "mock",
+    "patch",
+    "runner",
+    "pipeline",
+    "agent",
+    "agents",
+    "command",
+    "commands",
+    "submodule",
+    "module",
+    "package",
+    "class",
+    "func",
+    "function",
+    "attr",
+    "method",
+    "coverage",
+    "table",
+    "record",
+    "parser",
+    "validator",
+    "handler",
+    "manager",
 }
 
-# Code file extensions where bare domain extraction requires string/comment context
+# Local variable, module, and runtime keywords that never start public domain hostnames
+_LOCAL_VARIABLE_PREFIXES = {
+    "self",
+    "cls",
+    "this",
+    "m",
+    "re",
+    "os",
+    "sys",
+    "subprocess",
+    "commands",
+    "tool",
+    "coverage",
+    "user",
+    "config",
+    "git",
+    "pytest",
+    "unittest",
+    "requirements",
+    "temp",
+    "args",
+    "kwargs",
+    "params",
+}
+
+_TLD_EXTRACTOR = tldextract.TLDExtract(cache_dir=None)
+
+# Programming language source code extensions where bare domain extraction
+# requires string/comment context
 _CODE_FILE_EXTENSIONS = {
     ".py",
     ".ts",
@@ -374,44 +296,51 @@ _STRING_OR_COMMENT_REGEX = re.compile(
 
 
 def is_network_domain(target: str, source_file: str = "") -> bool:
-    """Validate whether target string is a legitimate public network domain using urllib
-    and ipaddress.
+    """Validate whether target string is a legitimate public network domain using tldextract,
+    urllib, and ipaddress.
     """
     if is_file_reference(target, source_file=source_file):
         return False
 
-    parsed = urlsplit(f"//{target}")
-    hostname = parsed.hostname
-    if not hostname or "." not in hostname:
+    if "/" in target or "\\" in target or ":" in target or "_" in target or " " in target:
         return False
 
-    # Ensure hostname conforms to domain name formatting (letters, digits, hyphens, dots)
-    if not re.fullmatch(r"[a-zA-Z0-9.-]+", hostname):
+    ext = _TLD_EXTRACTOR(target)
+    if not ext.domain or not ext.suffix:
         return False
 
-    parts = hostname.split(".")
-    if any(not p or p.startswith("-") or p.endswith("-") for p in parts):
+    suffix = ext.suffix.lower()
+    domain = ext.domain.lower()
+    fqdn = ext.fqdn.lower()
+    registered = f"{domain}.{suffix}"
+
+    # Reject code method / property suffix collisions (e.g. .run, .group, .host, .email, .in)
+    if suffix in _CODE_PROPERTY_SUFFIXES:
         return False
 
-    tld = parts[-1].lower()
-    # Must end in a recognized top-level domain
-    if tld not in _VALID_TLDS:
+    # Reject local variable prefixes on subdomain or domain
+    subdomain_parts = [p.lower() for p in ext.subdomain.split(".") if p]
+    if subdomain_parts and subdomain_parts[0] in _LOCAL_VARIABLE_PREFIXES:
+        return False
+    if not subdomain_parts and domain in _LOCAL_VARIABLE_PREFIXES:
         return False
 
-    # Reject code property identifiers or reserved tokens
-    if any(p.lower() in _CODE_PROPERTY_SUFFIXES for p in parts):
+    # Multi-segment code paths (e.g. commands.workspace.subprocess.run or ai.agents.pipeline)
+    if subdomain_parts and any(p in _LOCAL_VARIABLE_PREFIXES for p in subdomain_parts):
         return False
 
     # Check against RFC reserved and excluded domains
     if (
-        hostname in _RESERVED_DOMAINS
-        or hostname in _EXCLUDED_DOMAINS
-        or any(hostname.endswith("." + exc) for exc in _RESERVED_DOMAINS | _EXCLUDED_DOMAINS)
+        registered in _RESERVED_DOMAINS
+        or registered in _EXCLUDED_DOMAINS
+        or fqdn in _RESERVED_DOMAINS
+        or fqdn in _EXCLUDED_DOMAINS
+        or any(fqdn.endswith("." + exc) for exc in _RESERVED_DOMAINS | _EXCLUDED_DOMAINS)
     ):
         return False
 
     try:
-        ip = ipaddress.ip_address(hostname)
+        ip = ipaddress.ip_address(fqdn)
         return ip.is_global
     except ValueError:
         pass
@@ -427,6 +356,12 @@ def extract_network_references(content: str, source_file: str = "") -> list[Netw
     is_code_file = src_suffix in _CODE_FILE_EXTENSIONS
 
     for line_idx, line in enumerate(content.splitlines(), 1):
+        stripped_line = line.strip()
+
+        # Skip TOML section headers, e.g. [tool.coverage.run]
+        if stripped_line.startswith("[") and stripped_line.endswith("]"):
+            continue
+
         # 1. Extract URLs
         for match in _URL_REGEX.finditer(line):
             url = match.group(0).rstrip(".,;)>]\"'")
@@ -456,8 +391,7 @@ def extract_network_references(content: str, source_file: str = "") -> list[Netw
                 )
 
         # 3. Extract External Domains
-        # In code files, only search inside string literals or comments to prevent
-        # matching Python method calls, attribute chains, and imports as domains
+        # In code and config files, only search inside string literals or comments
         target_texts: list[str] = []
         if is_code_file:
             target_texts = [m.group(0) for m in _STRING_OR_COMMENT_REGEX.finditer(line)]
@@ -466,6 +400,10 @@ def extract_network_references(content: str, source_file: str = "") -> list[Netw
 
         for text_segment in target_texts:
             for match in _DOMAIN_REGEX.finditer(text_segment):
+                # Disregard function / method calls followed immediately by parentheses
+                if match.end() < len(text_segment) and text_segment[match.end()] == "(":
+                    continue
+
                 domain = match.group(0).lower().rstrip(".,;)>]\"'")
                 if (
                     domain not in seen

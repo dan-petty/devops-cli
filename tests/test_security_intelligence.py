@@ -196,6 +196,51 @@ def test_extract_network_references_toml_table_filtering() -> None:
     assert "tool.mypy" not in targets
 
 
+def test_extract_network_references_code_false_positives_filtering() -> None:
+    """Ensure programming code, git config keys, pip-tools files, and mock paths are not domains."""
+    workflow_yaml = """
+    name: Release
+    jobs:
+      release:
+        runs-on: ubuntu-latest
+        steps:
+          - name: Setup git
+            run: |
+              git config user.name "github-actions"
+              git config user.email "action@github.com"
+          - name: Login to GHCR
+            run: |
+              echo ${{ secrets.TOKEN }} | docker login ghcr.io -u ${{ github.actor }}
+    """
+    refs_yaml = extract_network_references(workflow_yaml, ".github/workflows/release.yml")
+    targets_yaml = {r.target for r in refs_yaml}
+    assert "user.email" not in targets_yaml
+    assert "user.name" not in targets_yaml
+    assert "ghcr.io" in targets_yaml
+
+    py_content = """
+    # Mocking patch
+    @patch("devops_cli.commands.workspace.subprocess.run")
+    @patch("devops_cli.ai.agents.pipeline.multiagentpipeline.run")
+    def test_run():
+        m = re.match(r"^test", "test")
+        val = m.group(0)
+        from devops_cli.commands.ai import app
+        self.host = "localhost"
+        domain = "prod-infra.custom-cloud.io"
+        file_ref = "requirements.in"
+    """
+    refs_py = extract_network_references(py_content, "tests/test_mock.py")
+    targets_py = {r.target for r in refs_py}
+    assert "devops_cli.commands.workspace.subprocess.run" not in targets_py
+    assert "devops_cli.ai.agents.pipeline.multiagentpipeline.run" not in targets_py
+    assert "m.group" not in targets_py
+    assert "commands.ai" not in targets_py
+    assert "self.host" not in targets_py
+    assert "requirements.in" not in targets_py
+    assert "prod-infra.custom-cloud.io" in targets_py
+
+
 @patch("httpx.Client.post")
 def test_osv_client(mock_post: MagicMock) -> None:
     mock_resp = MagicMock()
