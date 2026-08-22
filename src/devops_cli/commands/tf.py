@@ -23,6 +23,7 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.core.cli import new_typer
 from devops_cli.core.repo import find_top_level_repo_root
+from devops_cli.core.validation import validate_dir
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
 from devops_cli.lang import MESSAGES
 
@@ -48,11 +49,7 @@ def _resolve_tf_binary() -> str:
 
 def _validate_dir(path: Path) -> Path:
     """Ensure the target directory exists and is a directory."""
-    resolved = path.resolve()
-    if not resolved.exists() or not resolved.is_dir():
-        rprint(f"[red]{MESSAGES.tf.dir_not_found.format(path=str(path))}[/red]")
-        raise typer.Exit(1)
-    return resolved
+    return validate_dir(path, must_exist=True)
 
 
 def _get_cloud_dir(cloud_provider: str, repo_root: Path) -> Path:

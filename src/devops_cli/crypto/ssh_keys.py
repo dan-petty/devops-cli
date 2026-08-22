@@ -15,6 +15,7 @@ from cryptography.hazmat.primitives.serialization import (
 )
 
 from devops_cli.config.constants import CONST_PERM_PRIVATE_KEY, CONST_PERM_PUBLIC_KEY
+from devops_cli.core.validation import validate_safe_key_path
 from devops_cli.models.ssh import ManagedSSHKey
 
 # Matches id_ed25519-2024JAN15 or id_ed25519-2024JAN
@@ -27,8 +28,7 @@ def generate_ed25519_key(key_path: Path, comment: str = "") -> None:
     Private key is written to *key_path* (mode 0600).
     Public key is written to *key_path*.pub (mode 0644).
     """
-    if ".." in str(key_path) or not key_path.name.strip():
-        raise ValueError(f"Invalid SSH key path: {key_path}")
+    key_path = validate_safe_key_path(key_path)
 
     private_key = Ed25519PrivateKey.generate()
 

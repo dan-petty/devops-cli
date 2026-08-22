@@ -18,23 +18,17 @@ from rich import print as rprint
 from rich.console import Console
 from rich.table import Table
 
-from devops_cli.config.constants import CONST_K8S_LABEL_RE, CONST_K8S_SUBDOMAIN_RE
 from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.core.cli import new_typer
+from devops_cli.core.validation import validate_k8s_name
 from devops_cli.dry_run import CommandDryRunResult, is_dry_run, render_dry_run_result
 
 app = new_typer(help="Kubernetes resource management.", no_args_is_help=True)
 console = Console()
 
-_K8S_LABEL_RE = CONST_K8S_LABEL_RE
-_K8S_SUBDOMAIN_RE = CONST_K8S_SUBDOMAIN_RE
-
 
 def _validate_k8s_identifier(value: str, label: str, *, namespace: bool = False) -> None:
-    pattern = CONST_K8S_LABEL_RE if namespace else CONST_K8S_SUBDOMAIN_RE
-    if not pattern.match(value):
-        rprint(f"[red]Invalid {label}: {value!r}. Must be a valid RFC 1123 name.[/red]")
-        raise typer.Exit(1)
+    validate_k8s_name(value, label, namespace=namespace)
 
 
 def _k8s_clients() -> tuple[Any, Any]:

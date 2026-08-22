@@ -6,7 +6,6 @@ import subprocess
 from pathlib import Path
 from typing import Annotated
 
-import rich
 import typer
 
 from devops_cli.config.commands import (
@@ -15,16 +14,13 @@ from devops_cli.config.commands import (
 )
 from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.core.cli import new_typer
+from devops_cli.core.validation import validate_path
 
 app = new_typer(help="Kustomize build and apply operations.", no_args_is_help=True)
 
 
 def _validate_path(path: Path) -> Path:
-    resolved = path.resolve()
-    if not resolved.exists():
-        rich.print(f"[red]Path '{path}' does not exist.[/red]")
-        raise typer.Exit(1)
-    return resolved
+    return validate_path(path, must_exist=True)
 
 
 @app.command()

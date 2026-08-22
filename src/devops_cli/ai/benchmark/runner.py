@@ -82,7 +82,7 @@ class BenchmarkRunner:
         server_url: str | None = None,
     ) -> LLMClient:
         """Instantiate an LLMClient for a given model override and server endpoint."""
-        from urllib.parse import urlparse
+        from devops_cli.core.validation import validate_url
 
         endpoint = server_url
         clean_model = model_name
@@ -97,15 +97,9 @@ class BenchmarkRunner:
 
         updates: dict[str, Any] = {"model": clean_model}
         if endpoint:
-            parsed = urlparse(endpoint)
-            if parsed.scheme not in ("http", "https"):
-                raise ValueError(
-                    f"Invalid server URL scheme '{parsed.scheme}': must be http or https"
-                )
-            if not parsed.hostname:
-                raise ValueError(f"Server URL '{endpoint}' missing valid hostname")
-            updates["ollama_urls"] = [endpoint]
-            updates["api_base_url"] = endpoint
+            clean_endpoint = validate_url(endpoint, "benchmark server", allow_private=True)
+            updates["ollama_urls"] = [clean_endpoint]
+            updates["api_base_url"] = clean_endpoint
 
         cfg = self.settings.ai.model_copy(update=updates)
         api_key = get_ai_api_key(self.settings)

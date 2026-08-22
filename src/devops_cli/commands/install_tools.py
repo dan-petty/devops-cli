@@ -37,6 +37,7 @@ from devops_cli.config.defaults import (
     DEFAULT_SUBPROCESS_FAST_TIMEOUT_SECONDS,
 )
 from devops_cli.core.cli import new_typer
+from devops_cli.core.validation import validate_version_str
 
 app = new_typer(help="Install and manage DevOps tool binaries.", no_args_is_help=True)
 console = Console()
@@ -163,16 +164,9 @@ def _install_kubectl(version: str, target_dir: Path) -> None:
     _write_binary(data, target_dir / f"kubectl{_EXE}")
 
 
-_VERSION_REGEX: Final[re.Pattern[str]] = re.compile(r"^v?\d+(\.\d+)*(-[a-zA-Z0-9_.]+)?$")
-
-
 def _validate_version_str(version: str, tool_name: str = "tool") -> str:
     """Validate that version string matches semantic version pattern."""
-    v = version.strip()
-    if not _VERSION_REGEX.match(v):
-        msg = f"Invalid {tool_name} version string: {version!r}"
-        raise ValueError(msg)
-    return v.lstrip("v")
+    return validate_version_str(version, tool_name)
 
 
 def _latest_kubectl() -> str:
