@@ -143,6 +143,60 @@ class SemanticRetriever:
         )
         return final_results
 
+    def filter_and_validate_results(
+        self,
+        results: list[SearchResult],
+        *,
+        max_chars: int = 15000,
+        max_per_file: int = 4,
+    ) -> list[SearchResult]:
+        """Deduplicate overlapping chunks, enforce file limits, and bound context size."""
+        if not results:
+            return []
+
+        filtered: list[SearchResult] = []
+        file_counts: dict[str, int] = {}
+        covered_ranges: dict[str, list[tuple[int, int]]] = {}
+        current_chars = 0
+
+        for res in results:
+            chunk = res.chunk
+            if not chunk.file_path or not chunk.content:
+                continue
+
+            # Limit chunks per individual file
+            fpath = chunk.file_path
+            count = file_counts.get(fpath, 0)
+            if count >= max_per_file:
+                continue
+
+            # Check line span overlap with existing chunks from the same file
+            ranges = covered_ranges.setdefault(fpath, [])
+            c_start, c_end = chunk.start_line, chunk.end_line
+            overlap = False
+            for r_start, r_end in ranges:
+                # If overlap exceeds 50% of the smaller chunk, skip redundant duplicate
+                overlap_len = max(0, min(c_end, r_end) - max(c_start, r_start) + 1)
+                chunk_len = max(1, c_end - c_start + 1)
+                if overlap_len / chunk_len > 0.5:
+                    overlap = True
+                    break
+
+            if overlap:
+                continue
+
+            chunk_chars = len(chunk.content)
+            if current_chars + chunk_chars > max_chars and filtered:
+                # Exceeded total character budget
+                break
+
+            ranges.append((c_start, c_end))
+            file_counts[fpath] = count + 1
+            current_chars += chunk_chars
+            filtered.append(res)
+
+        return filtered
+
     def retrieve_context(
         self,
         query: str,
@@ -154,8 +208,9 @@ class SemanticRetriever:
         language: str | None = None,
         category: str | None = None,
         rerank: bool = True,
+        max_chars: int = 15000,
     ) -> RAGContext:
-        """Search and format results into a structured prompt context block."""
+        """Search and format results into a validated, structured prompt context block."""
         results = self.search(
             query,
             top_k=top_k,
@@ -167,10 +222,12 @@ class SemanticRetriever:
             rerank=rerank,
         )
 
+        valid_results = self.filter_and_validate_results(results, max_chars=max_chars)
+
         formatted_parts: list[str] = []
-        if results:
+        if valid_results:
             formatted_parts.append("<rag_context>")
-            for idx, res in enumerate(results, 1):
+            for idx, res in enumerate(valid_results, 1):
                 chunk = res.chunk
                 display_score = (
                     f"{res.rerank_score:.3f}"
@@ -198,7 +255,7 @@ class SemanticRetriever:
         formatted_text = "\n\n".join(formatted_parts)
         return RAGContext(
             query=query,
-            results=results,
+            results=valid_results,
             formatted_text=formatted_text,
         )
 
