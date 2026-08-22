@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from devops_cli.models.ai import FileAnalysisMeta
 from devops_cli.models.intelligence import (
@@ -92,6 +92,76 @@ class Finding(BaseModel):
     verified_by: str | None = None  # "llm" | "human"
     verified_at: str | None = None
     confidence_score: float | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _pre_validate_finding(cls, data: Any) -> Any:
+        if isinstance(data, str):
+            text = normalize_unicode_text(data).strip()
+            if not text or text.lower() in (
+                "none",
+                "n/a",
+                "no findings",
+                "no issues",
+                "clean",
+                "pass",
+                "compliant",
+                "approved",
+            ):
+                return {"title": "", "description": ""}
+            return {"title": text[:120], "description": text}
+        if isinstance(data, dict):
+            d = dict(data)
+            # Map alternative field names produced by varied LLM personas
+            if not d.get("title"):
+                d["title"] = (
+                    d.get("issue")
+                    or d.get("problem")
+                    or d.get("name")
+                    or d.get("summary")
+                    or d.get("heading")
+                    or d.get("finding")
+                    or ""
+                )
+            if not d.get("description"):
+                d["description"] = (
+                    d.get("details")
+                    or d.get("detail")
+                    or d.get("impact")
+                    or d.get("explanation")
+                    or d.get("message")
+                    or d.get("body")
+                    or ""
+                )
+            if not d.get("location"):
+                d["location"] = (
+                    d.get("file")
+                    or d.get("path")
+                    or d.get("target")
+                    or d.get("line")
+                    or d.get("lines")
+                    or ""
+                )
+            if not d.get("fix"):
+                d["fix"] = (
+                    d.get("remediation")
+                    or d.get("recommendation")
+                    or d.get("suggested_fix")
+                    or d.get("solution")
+                    or d.get("patch")
+                    or ""
+                )
+            if not d.get("verification_criteria") and d.get("verification"):
+                d["verification_criteria"] = d.get("verification")
+            if not d.get("invalidation_criteria") and d.get("invalidation"):
+                d["invalidation_criteria"] = d.get("invalidation")
+            return d
+        return data
+
+    @property
+    def is_empty(self) -> bool:
+        """Check if finding is completely blank without actionable title or description."""
+        return not self.title.strip() and not self.description.strip()
 
     @field_validator("title", "location", "description", "fix", mode="before")
     @classmethod
@@ -318,6 +388,11 @@ class FileReviewPayload(BaseModel):
     network_references: list[NetworkReference] = Field(default_factory=list)
     reportable: bool = True
 
+    @field_validator("findings", mode="after")
+    @classmethod
+    def _filter_valid_findings(cls, v: list[SavedFinding]) -> list[SavedFinding]:
+        return [f for f in v if not f.is_empty]
+
 
 class ReviewSessionPayload(BaseModel):
     generated_at: str = ""
@@ -327,6 +402,11 @@ class ReviewSessionPayload(BaseModel):
     dependency_vulnerabilities: list[VulnerabilityRecord] = Field(default_factory=list)
     network_references: list[NetworkReference] = Field(default_factory=list)
     network_reputations: list[NetworkReputationRecord] = Field(default_factory=list)
+
+    @field_validator("findings", mode="after")
+    @classmethod
+    def _filter_valid_findings(cls, v: list[SavedFinding]) -> list[SavedFinding]:
+        return [f for f in v if not f.is_empty]
 
     @property
     def sorted_findings(self) -> list[SavedFinding]:
@@ -339,6 +419,17 @@ class ReviewResult(BaseModel):
     recommendation: str = "REQUEST CHANGES"
     summary: str = ""
     confidence_score: float | None = None
+
+    @field_validator("findings", mode="after")
+    @classmethod
+    def _filter_valid_findings(cls, v: list[Finding]) -> list[Finding]:
+        return [f for f in v if not f.is_empty]
+
+    @model_validator(mode="after")
+    def _sync_recommendation(self) -> ReviewResult:
+        if not self.findings and self.recommendation == "REQUEST CHANGES":
+            self.recommendation = "APPROVE"
+        return self
 
     @field_validator("summary", mode="before")
     @classmethod

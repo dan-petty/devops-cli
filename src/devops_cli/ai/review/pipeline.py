@@ -686,6 +686,8 @@ class ReviewPipelineOrchestrator:
 
                     if parsed and parsed.findings:
                         for f in parsed.findings:
+                            if f.is_empty:
+                                continue
                             saved = SavedFinding(
                                 **f.model_dump(),
                                 persona=p_val,
