@@ -21,17 +21,10 @@ from devops_cli.ai.personas import (
     ANALYZE_PSEUDOCODE_SYSTEM_PROMPT,
     ANALYZE_PSEUDOCODE_TASK_PROMPT,
 )
+from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.models.ai import FileAnalysisMeta
 
-_TASKS_DIR = Path(__file__).resolve().parent.parent / "tasks"
-
-
-def _load_task_prompt(filename: str) -> str:
-    path = _TASKS_DIR / filename
-    return path.read_text(encoding="utf-8").strip() if path.exists() else ""
-
-
-_METADATA_RETRY_TEMPLATE = _load_task_prompt("metadata_retry_feedback.md")
+_METADATA_RETRY_TEMPLATE = load_task_prompt("metadata_retry_feedback.md")
 
 
 class EnhancedMetadataOutput(BaseModel):

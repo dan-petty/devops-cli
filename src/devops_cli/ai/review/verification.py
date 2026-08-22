@@ -9,16 +9,9 @@ from typing import Any
 
 from devops_cli.ai.review.sanitization import _sanitize_prompt_boundary_tags
 from devops_cli.ai.review_schema import _SEVERITY_RANK, Finding, ReviewResult, extract_json_block
+from devops_cli.ai.task_loader import load_task_prompt
 
-_TASKS_DIR = Path(__file__).resolve().parent.parent / "tasks"
-
-
-def _load_task_prompt(filename: str) -> str:
-    path = _TASKS_DIR / filename
-    return path.read_text(encoding="utf-8").strip() if path.exists() else ""
-
-
-_VALIDATION_SYSTEM = _load_task_prompt("verify_finding_system.md")
+_VALIDATION_SYSTEM = load_task_prompt("verify_finding_system.md")
 
 
 def _extract_location_context(segment: str, location: str, context_lines: int = 12) -> str:
@@ -224,10 +217,10 @@ def _build_validation_prompt(
                 )
                 for f in findings[:4]:
                     f_query = f"{f.title} {f.description[:100]}"
-                    ctx = retriever.retrieve_context(f_query, top_k=2)
-                    if ctx.has_results:
+                    rag_ctx = retriever.retrieve_context(f_query, top_k=2)
+                    if rag_ctx.has_results:
                         rag_verification_blocks.append(
-                            f"### Context for Finding {f.title}:\n{ctx.formatted_text}"
+                            f"### Context for Finding {f.title}:\n{rag_ctx.formatted_text}"
                         )
     except Exception:
         pass

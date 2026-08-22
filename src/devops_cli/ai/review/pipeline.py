@@ -40,6 +40,7 @@ from devops_cli.ai.review_schema import (
     consolidate_duplicate_findings,
     parse_review_result,
 )
+from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.ai.thinking import extract_think_blocks
 from devops_cli.config.constants import (
     CONST_DATA_DIR,
@@ -66,15 +67,7 @@ from devops_cli.telemetry import trace_span
 
 logger = logging.getLogger(__name__)
 
-_TASKS_DIR = Path(__file__).resolve().parent.parent / "tasks"
-
-
-def _load_task_prompt(filename: str) -> str:
-    path = _TASKS_DIR / filename
-    return path.read_text(encoding="utf-8").strip() if path.exists() else ""
-
-
-_REVIEW_PIPELINE_EVAL = _load_task_prompt("review_pipeline_eval.md")
+_REVIEW_PIPELINE_EVAL = load_task_prompt("review_pipeline_eval.md")
 
 
 class ReviewPipelineOrchestrator:

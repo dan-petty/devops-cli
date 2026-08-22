@@ -41,6 +41,7 @@ from devops_cli.ai.review_schema import (
     consolidate_duplicate_findings,
     parse_review_result,
 )
+from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.constants import (
     CONST_AGENTS_MD_FILENAME,
     CONST_DATA_DIR,
@@ -60,22 +61,14 @@ from devops_cli.models.ai import FileAnalysisMeta
 logger = logging.getLogger(__name__)
 console = Console()
 
-_TASKS_DIR = Path(__file__).resolve().parent.parent / "tasks"
-
-
-def _load_task_prompt(filename: str) -> str:
-    path = _TASKS_DIR / filename
-    return path.read_text(encoding="utf-8").strip() if path.exists() else ""
-
-
 _MAX_DIFF_CHARS = CONST_REVIEW_MAX_DIFF_CHARS
 _MAX_SEGMENT_RETRIES = 2
 _DEFAULT_CONTEXT_LINES = 2
 
-_PAGINATED_REVIEW_PROTOCOL = _load_task_prompt("paginated_review_protocol.md")
-_REVIEW_OUTPUT_INSTRUCTION = "\n" + _load_task_prompt("review_output_instruction.md")
-_GUARDRAILS_PROMPT = "\n\n" + _load_task_prompt("guardrails_isolation.md")
-_PATH_REVIEW_PROMPT_TEMPLATE = _load_task_prompt("path_review_prompt.md")
+_PAGINATED_REVIEW_PROTOCOL = load_task_prompt("paginated_review_protocol.md")
+_REVIEW_OUTPUT_INSTRUCTION = "\n" + load_task_prompt("review_output_instruction.md")
+_GUARDRAILS_PROMPT = "\n\n" + load_task_prompt("guardrails_isolation.md")
+_PATH_REVIEW_PROMPT_TEMPLATE = load_task_prompt("path_review_prompt.md")
 
 
 class ReviewClients(BaseModel):

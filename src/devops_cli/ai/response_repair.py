@@ -9,39 +9,15 @@ from __future__ import annotations
 
 import json
 import re
-import unicodedata
 from typing import Any
 
 import json_repair
 from pydantic import BaseModel, Field
 
-_TRANSLATE_TABLE = str.maketrans(
-    {
-        "\u200b": "",
-        "\ufeff": "",
-        "\u201c": '"',
-        "\u201d": '"',
-        "\u2018": "'",
-        "\u2019": "'",
-        "\u2011": "-",
-        "\u2010": "-",
-        "\u2012": "-",
-        "\u2013": "-",
-        "\u2014": "-",
-        "\u201a": "'",
-        "\u201e": '"',
-        "\u2032": "'",
-        "\u2033": '"',
-    }
-)
+from devops_cli.ai.review_schema import normalize_unicode_text
 
-
-def normalize_raw_llm_text(text: str) -> str:
-    """Normalize unicode spaces, smart quotes, zero-width characters, and control codes."""
-    if not text:
-        return ""
-    normalized = unicodedata.normalize("NFKC", text)
-    return normalized.translate(_TRANSLATE_TABLE)
+# Public alias preserved for backward compatibility (exported from ai/__init__.py)
+normalize_raw_llm_text = normalize_unicode_text
 
 
 def repair_json_string(text: str) -> Any:

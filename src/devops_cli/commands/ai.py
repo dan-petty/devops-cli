@@ -13,6 +13,7 @@ from rich.rule import Rule
 from rich.table import Table
 
 from devops_cli.ai.personas import PERSONAS, Persona
+from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.commands.analyze import app as analyze_app
 from devops_cli.commands.benchmark import app as benchmark_app
 from devops_cli.commands.rag import app as rag_app
@@ -65,16 +66,8 @@ _AGENT_FILES: dict[str, str] = {
     ".github/copilot-instructions.md": "Pointer stub redirecting GitHub Copilot to AGENTS.md",
 }
 
-_TASKS_DIR = Path(__file__).resolve().parent.parent / "ai" / "tasks"
-
-
-def _load_task_prompt(filename: str) -> str:
-    path = _TASKS_DIR / filename
-    return path.read_text(encoding="utf-8").strip() if path.exists() else ""
-
-
 # Task-specific addendum appended to the architect persona when generating AGENTS.md
-_AGENTS_TASK_ADDENDUM = "\n" + _load_task_prompt("generate_agents.md")
+_AGENTS_TASK_ADDENDUM = "\n" + load_task_prompt("generate_agents.md")
 
 
 def _try_retrieve_rag_context(
@@ -472,7 +465,7 @@ def test(
     from devops_cli.config.settings import get_ai_api_key, load_settings
 
     settings = load_settings()
-    test_sys_prompt = _load_task_prompt("test_assistant.md")
+    test_sys_prompt = load_task_prompt("test_assistant.md")
 
     if settings.ai.provider == "ollama":
         urls = [url] if url else settings.ai.get_ollama_urls

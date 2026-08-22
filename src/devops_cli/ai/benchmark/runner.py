@@ -16,6 +16,7 @@ from rich.table import Table
 
 from devops_cli.ai.client import LLMClient
 from devops_cli.ai.review_schema import extract_json_block
+from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.constants import CONST_DATA_DIR
 from devops_cli.config.settings import Settings, get_ai_api_key, load_settings
 from devops_cli.dry_run.state import is_dry_run
@@ -31,15 +32,7 @@ from devops_cli.models.benchmark import (
 logger = logging.getLogger(__name__)
 console = Console()
 
-_TASKS_DIR = Path(__file__).resolve().parent.parent / "tasks"
-
-
-def _load_task_prompt(filename: str) -> str:
-    path = _TASKS_DIR / filename
-    return path.read_text(encoding="utf-8").strip() if path.exists() else ""
-
-
-_GRADER_PROMPT_TEMPLATE = _load_task_prompt("benchmark_peer_grader.md")
+_GRADER_PROMPT_TEMPLATE = load_task_prompt("benchmark_peer_grader.md")
 
 
 class BenchmarkRunner:

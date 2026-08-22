@@ -19,32 +19,22 @@ import inspect
 import json
 import re
 from collections.abc import Callable, Generator
-from pathlib import Path
 from typing import Any, TypeVar
 
 from pydantic import BaseModel, Field
 
 from devops_cli.ai.agents.memory import AgentMemory
 from devops_cli.ai.client import LLMClient
+from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.defaults import DEFAULT_AGENT_MAX_TURNS
 from devops_cli.models.ai import ChatMessage
 
-_TASKS_DIR = Path(__file__).resolve().parent.parent / "tasks"
-
-
-def _load_task_prompt(filename: str) -> str:
-    path = _TASKS_DIR / filename
-    return path.read_text(encoding="utf-8").strip() if path.exists() else ""
-
-
-_TOOL_PROTOCOL_TEMPLATE = _load_task_prompt("tool_execution_protocol.md")
-_TOOL_FEEDBACK_TEMPLATE = _load_task_prompt("agent_tool_feedback.md")
-_TOOL_ALREADY_CALLED_PROMPT = _load_task_prompt("agent_tool_already_called.md")
-_INVOKE_TOOL_REQUEST_TEMPLATE = _load_task_prompt("agent_invoke_tool_request.md")
-_DIRECT_RESPONSE_FROM_TOOLS_PROMPT = _load_task_prompt("agent_direct_response_from_tools.md")
-_DIRECT_RESPONSE_FROM_REASONING_PROMPT = _load_task_prompt(
-    "agent_direct_response_from_reasoning.md"
-)
+_TOOL_PROTOCOL_TEMPLATE = load_task_prompt("tool_execution_protocol.md")
+_TOOL_FEEDBACK_TEMPLATE = load_task_prompt("agent_tool_feedback.md")
+_TOOL_ALREADY_CALLED_PROMPT = load_task_prompt("agent_tool_already_called.md")
+_INVOKE_TOOL_REQUEST_TEMPLATE = load_task_prompt("agent_invoke_tool_request.md")
+_DIRECT_RESPONSE_FROM_TOOLS_PROMPT = load_task_prompt("agent_direct_response_from_tools.md")
+_DIRECT_RESPONSE_FROM_REASONING_PROMPT = load_task_prompt("agent_direct_response_from_reasoning.md")
 
 T = TypeVar("T", bound=BaseModel)
 

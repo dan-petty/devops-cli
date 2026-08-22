@@ -14,11 +14,11 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
 
+from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.models.ai import ChatMessage
 
 logger = logging.getLogger(__name__)
@@ -27,16 +27,8 @@ _DEFAULT_MAX_ENTRIES = 8
 _DEFAULT_MAX_CHARS = 4000
 _DEFAULT_KEEP_RECENT = 3
 
-_TASKS_DIR = Path(__file__).resolve().parent.parent / "tasks"
-
-
-def _load_task_prompt(filename: str) -> str:
-    path = _TASKS_DIR / filename
-    return path.read_text(encoding="utf-8").strip() if path.exists() else ""
-
-
-_SUMMARY_SYSTEM_PROMPT = _load_task_prompt("summarize_memory_system.md")
-_SUMMARY_PROMPT = _load_task_prompt("summarize_memory.md")
+_SUMMARY_SYSTEM_PROMPT = load_task_prompt("summarize_memory_system.md")
+_SUMMARY_PROMPT = load_task_prompt("summarize_memory.md")
 
 
 class MemoryEntry(BaseModel):

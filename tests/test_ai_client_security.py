@@ -159,6 +159,12 @@ def test_ollama_multiserver_failover(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr("httpx2.Client.post", fake_post)
 
+    def mock_rr(cls: type[LLMClient], n: int) -> int:
+        LLMClient._global_ollama_url_index = 1
+        return 0
+
+    monkeypatch.setattr(LLMClient, "_load_and_increment_rr_index", classmethod(mock_rr))
+
     reply = client._ollama_messages("sys", [ChatMessage(role="user", content="hi")])
     assert reply == "Hello from server 2"
     assert requested_urls == [
