@@ -46,6 +46,11 @@ All work follows a progressive verification strategy to optimize developer feedb
 ## 4. Code Quality & Architectural Best Practices
 
 - **Separation of Concerns**: Separate configuration, domain logic, data models, network I/O, and user interface layers. Avoid monolithic modules and overly complex, deeply nested code blocks.
+- **Purpose-Driven, Functional Naming & Structural Clarity**:
+  - Always use file names, folder structures, classes, functions, and variable names that directly and unambiguously indicate the concrete purpose and function of the code they contain.
+  - Avoid abstract, vague, or purely conceptual names (e.g. `intelligence.py`, `manager.py`, `misc.py`, `common.py`, `helpers.py`, `data.py`) in favor of concrete, operational descriptors (e.g. `reference_extractor.py`, `vulnerability_lookup.py`, `ssh_key_generator.py`).
+  - Variables, parameters, and data structures must express domain intent clearly, avoiding vague single-letter identifiers or arbitrary abbreviations.
+  - Group files into directories reflecting functional domain boundaries and cohesive subsystems rather than generic technical buckets.
 - **Config & Defaults Separation**: Distinguish immutable invariant constants (system paths, protocol regexes, static identifiers) from configurable defaults (timeouts, model names, retry limits, server ports).
 - **Strict Typing & Modern Idioms**:
   - Enforce complete type annotations on all function signatures (`mypy --strict`).

@@ -4,6 +4,7 @@ Perform an objective, evidence-grounded code review:
 1. **Defect Identification & Self-Improvement**:
    - Evaluate code against universal principles (security, reliability, maintainability, strict typing).
    - Evaluate the target project against its own documented conventions (`AGENTS.md`/`README.md`).
+   - Enforce purpose-driven, functional naming: file/folder names, classes, functions, and variables must clearly describe the concrete function and purpose of the code they contain.
    - Do NOT flag documentation, test assertions/fixtures, template files (`*.example.*`), or historical logs.
    - Respect modern language features and idiomatic syntax (e.g. Python 3.14+ `except (Err1, Err2):`).
    - If no actionable defects are identified, return an empty `findings` array and `APPROVE`.
