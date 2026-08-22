@@ -199,6 +199,46 @@ def _build_validation_prompt(
             + "\n</untrusted_related_files>\n\n"
         )
 
+    # Augment validation with semantic RAG search across indexed codebase
+    rag_verification_blocks: list[str] = []
+    try:
+        from devops_cli.ai.rag.embeddings import EmbeddingsEngine
+        from devops_cli.ai.rag.qdrant import QdrantClient
+        from devops_cli.ai.rag.retriever import SemanticRetriever
+        from devops_cli.config.settings import get_ai_api_key, load_settings
+
+        st = load_settings()
+        if st.ai.rag.enabled:
+            q_client = QdrantClient(
+                base_url=st.qdrant.url or "http://localhost:6333",
+                allow_private_network=st.ai.allow_private_network,
+            )
+            if q_client.is_alive():
+                emb_engine = EmbeddingsEngine(ai_config=st.ai, api_key=get_ai_api_key(st))
+                retriever = SemanticRetriever(
+                    qdrant=q_client,
+                    embedder=emb_engine,
+                    code_collection=f"{st.qdrant.collection_prefix}_code",
+                    docs_collection=f"{st.qdrant.collection_prefix}_docs",
+                    default_top_k=2,
+                )
+                for f in findings[:4]:
+                    f_query = f"{f.title} {f.description[:100]}"
+                    ctx = retriever.retrieve_context(f_query, top_k=2)
+                    if ctx.has_results:
+                        rag_verification_blocks.append(
+                            f"### Context for Finding {f.title}:\n{ctx.formatted_text}"
+                        )
+    except Exception:
+        pass
+
+    if rag_verification_blocks:
+        related_section += (
+            "\n\nCross-File RAG Context:\n<untrusted_rag_context>\n"
+            + "\n\n".join(rag_verification_blocks)
+            + "\n</untrusted_rag_context>\n\n"
+        )
+
     findings_json = _sanitize_prompt_boundary_tags(
         json.dumps(
             [

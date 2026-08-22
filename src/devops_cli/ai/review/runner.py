@@ -620,8 +620,10 @@ def _run_review(
 
     if total > 1 and not is_dry_run():
         config = getattr(clients.analysis, "_config", None)
-        ollama_urls = getattr(config, "get_ollama_urls", ["http://localhost:11434"])
-        max_par = getattr(config, "ollama_max_parallel", 2)
+        raw_urls = getattr(config, "get_ollama_urls", None)
+        ollama_urls = raw_urls if isinstance(raw_urls, list) else ["http://localhost:11434"]
+        raw_par = getattr(config, "ollama_max_parallel", None)
+        max_par = int(raw_par) if isinstance(raw_par, int) else 2
         workers = min(total, max(len(ollama_urls) * max_par, 1))
         with ThreadPoolExecutor(max_workers=workers) as executor:
             futures = [executor.submit(_review_segment, i, page) for i, page in enumerate(pages, 1)]
@@ -682,8 +684,10 @@ def _run_review(
 
         if total > 1:
             config = getattr(clients.analysis, "_config", None)
-            ollama_urls = getattr(config, "get_ollama_urls", ["http://localhost:11434"])
-            max_par = getattr(config, "ollama_max_parallel", 2)
+            raw_urls = getattr(config, "get_ollama_urls", None)
+            ollama_urls = raw_urls if isinstance(raw_urls, list) else ["http://localhost:11434"]
+            raw_par = getattr(config, "ollama_max_parallel", None)
+            max_par = int(raw_par) if isinstance(raw_par, int) else 2
             workers = min(total, max(len(ollama_urls) * max_par, 1))
             val_items = list(enumerate(zip(pages, segment_results), 1))
             with ThreadPoolExecutor(max_workers=workers) as val_executor:
@@ -818,8 +822,10 @@ def _run_persona_loop(
 
         if len(personas) > 1 and not is_dry_run():
             config = getattr(clients.analysis, "_config", None)
-            ollama_urls = getattr(config, "get_ollama_urls", ["http://localhost:11434"])
-            max_par = getattr(config, "ollama_max_parallel", 2)
+            raw_urls = getattr(config, "get_ollama_urls", None)
+            ollama_urls = raw_urls if isinstance(raw_urls, list) else ["http://localhost:11434"]
+            raw_par = getattr(config, "ollama_max_parallel", None)
+            max_par = int(raw_par) if isinstance(raw_par, int) else 2
             workers = min(len(personas), max(len(ollama_urls) * max_par, 1))
             with ThreadPoolExecutor(max_workers=workers) as executor:
                 future_map = {executor.submit(_execute_persona, pd): pd for pd in personas}

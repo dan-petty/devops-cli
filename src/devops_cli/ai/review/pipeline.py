@@ -178,12 +178,10 @@ class ReviewPipelineOrchestrator:
         file_metas: list[FileAnalysisMeta] = []
 
         config = getattr(self.llm_client, "_config", None)
-        ollama_urls = (
-            getattr(config, "get_ollama_urls", ["http://localhost:11434"])
-            if config
-            else ["http://localhost:11434"]
-        )
-        max_par = getattr(config, "ollama_max_parallel", 2) if config else 2
+        raw_urls = getattr(config, "get_ollama_urls", None)
+        ollama_urls = raw_urls if isinstance(raw_urls, list) else ["http://localhost:11434"]
+        raw_par = getattr(config, "ollama_max_parallel", None)
+        max_par = int(raw_par) if isinstance(raw_par, int) else 2
         batch_capacity = max(1, len(ollama_urls) * max_par)
 
         paths_to_analyze: list[tuple[Path, str]] = []
@@ -577,12 +575,10 @@ class ReviewPipelineOrchestrator:
         )
 
         config = getattr(self.llm_client, "_config", None)
-        ollama_urls = (
-            getattr(config, "get_ollama_urls", ["http://localhost:11434"])
-            if config
-            else ["http://localhost:11434"]
-        )
-        max_par = getattr(config, "ollama_max_parallel", 2) if config else 2
+        raw_urls = getattr(config, "get_ollama_urls", None)
+        ollama_urls = raw_urls if isinstance(raw_urls, list) else ["http://localhost:11434"]
+        raw_par = getattr(config, "ollama_max_parallel", None)
+        max_par = int(raw_par) if isinstance(raw_par, int) else 2
         batch_capacity = max(1, len(ollama_urls) * max_par)
         n_workers = min(total_files, batch_capacity) if total_files > 0 else 1
 
@@ -786,12 +782,10 @@ class ReviewPipelineOrchestrator:
             return
 
         config = getattr(self.llm_client, "_config", None)
-        ollama_urls = (
-            getattr(config, "get_ollama_urls", ["http://localhost:11434"])
-            if config
-            else ["http://localhost:11434"]
-        )
-        max_par = getattr(config, "ollama_max_parallel", 2) if config else 2
+        raw_urls = getattr(config, "get_ollama_urls", None)
+        ollama_urls = raw_urls if isinstance(raw_urls, list) else ["http://localhost:11434"]
+        raw_par = getattr(config, "ollama_max_parallel", None)
+        max_par = int(raw_par) if isinstance(raw_par, int) else 2
         batch_capacity = max(1, len(ollama_urls) * max_par)
         n_workers = min(len(payloads_with_findings), batch_capacity)
 

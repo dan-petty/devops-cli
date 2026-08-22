@@ -576,6 +576,7 @@ class LLMClient:
         if n == 0:
             return [(0, "http://localhost:11434")]
         start = self._load_and_increment_rr_index(n)
+        self._ollama_url_index = LLMClient._global_ollama_url_index
         candidate_urls = [all_urls[(start + i) % n] for i in range(n)]
         indexed_urls = list(enumerate(candidate_urls))
 

@@ -201,3 +201,42 @@ class SemanticRetriever:
             results=results,
             formatted_text=formatted_text,
         )
+
+    def retrieve_context_for_persona(
+        self,
+        query: str,
+        persona: str,
+        *,
+        top_k: int | None = None,
+        score_threshold: float | None = None,
+        project: str | None = None,
+        language: str | None = None,
+    ) -> RAGContext:
+        """Retrieve semantic RAG context tailored to a specific review or chat persona."""
+        persona_lower = persona.lower()
+        expanded_query = query
+        category: str | None = None
+
+        if "sec" in persona_lower:
+            expanded_query = f"{query} security auth secrets token validation permissions"
+            category = "code"
+        elif "arch" in persona_lower:
+            expanded_query = f"{query} architecture design patterns interfaces abstractions"
+        elif "qa" in persona_lower or "test" in persona_lower:
+            expanded_query = f"{query} tests fixtures mocks assertions coverage"
+            category = "code"
+        elif "pm" in persona_lower or "product" in persona_lower:
+            expanded_query = f"{query} requirements api specification contract docs"
+            category = "docs"
+        elif "audit" in persona_lower:
+            expanded_query = f"{query} compliance logging error handling telemetry reliability"
+
+        return self.retrieve_context(
+            expanded_query,
+            top_k=top_k,
+            score_threshold=score_threshold,
+            project=project,
+            language=language,
+            category=category,
+            rerank=True,
+        )

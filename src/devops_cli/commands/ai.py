@@ -77,7 +77,14 @@ def _load_task_prompt(filename: str) -> str:
 _AGENTS_TASK_ADDENDUM = "\n" + _load_task_prompt("generate_agents.md")
 
 
-def _try_retrieve_rag_context(query: str, top_k: int = 3) -> str | None:
+def _try_retrieve_rag_context(
+    query: str,
+    *,
+    persona: str | None = None,
+    category: str | None = None,
+    project: str | None = None,
+    top_k: int = 3,
+) -> str | None:
     """Attempt to retrieve relevant semantic context from RAG vector store."""
     try:
         from devops_cli.ai.rag.embeddings import EmbeddingsEngine
@@ -104,7 +111,12 @@ def _try_retrieve_rag_context(query: str, top_k: int = 3) -> str | None:
             docs_collection=f"{settings.qdrant.collection_prefix}_docs",
             default_top_k=top_k,
         )
-        ctx = retriever.retrieve_context(query, top_k=top_k)
+        if persona:
+            ctx = retriever.retrieve_context_for_persona(
+                query, persona=persona, top_k=top_k, project=project
+            )
+        else:
+            ctx = retriever.retrieve_context(query, top_k=top_k, category=category, project=project)
         if ctx.has_results:
             return ctx.formatted_text
     except Exception:
@@ -688,7 +700,7 @@ def chat(
 
         effective_prompt = user_input
         if rag:
-            rag_snippet = _try_retrieve_rag_context(user_input, top_k=3)
+            rag_snippet = _try_retrieve_rag_context(user_input, persona=persona, top_k=3)
             if rag_snippet:
                 effective_prompt = f"{rag_snippet}\n\nUser Question: {user_input}"
 
