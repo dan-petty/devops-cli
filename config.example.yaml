@@ -103,7 +103,7 @@ ai:
   # RAG (Retrieval-Augmented Generation) settings
   rag:
     enabled: true
-    embedding_model: all-minilm
+    embedding_model: qwen3-embedding:0.6b
     top_k: 5
     score_threshold: 0.35
 

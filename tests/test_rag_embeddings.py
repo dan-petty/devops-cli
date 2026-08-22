@@ -14,7 +14,7 @@ def test_deterministic_fallback_embeddings() -> None:
     engine = EmbeddingsEngine(ai_cfg)
     embs = engine.embed_texts(["hello world", "test query"])
     assert len(embs) == 2
-    assert len(embs[0]) == 384
+    assert len(embs[0]) == 1024
     # Ensure cosine normalization (~1.0 magnitude)
     norm = sum(v * v for v in embs[0]) ** 0.5
     assert 0.99 <= norm <= 1.01

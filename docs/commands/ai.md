@@ -421,7 +421,7 @@ devops ai rag index [OPTIONS] <path>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--project`, `-p` | `string` | - | Project / repository name override |
-| `--force`, `-f` | `boolean` | - | Re-index all files ignoring content hash cache |
+| `--force`, `--force-reindex`, `-f` | `boolean` | - | Re-index all files ignoring content hash cache |
 | `--collection`, `-c` | `string` | - | Target collection override |
 
 ### `devops ai rag query`
@@ -457,6 +457,21 @@ devops ai rag query [OPTIONS] <query>
 ```bash
 devops ai rag status
 ```
+
+### `devops ai rag reset`
+
+**Alias for clear — clear vector index collections and reset local cache.**
+
+```bash
+devops ai rag reset [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--collection`, `-c` | `string` | - | Specific collection to delete (default: all) |
+| `--force`, `-f` | `boolean` | - | Bypass confirmation prompt |
 
 ### `devops ai rag clear`
 

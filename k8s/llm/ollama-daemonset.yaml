@@ -34,9 +34,11 @@ spec:
             - name: OLLAMA_CONTEXT_LENGTH
               value: "64000"
             - name: OLLAMA_MAX_LOADED_MODELS
-              value: "2"
+              value: "4"
             - name: OLLAMA_NUM_PARALLEL
-              value: "2"
+              value: "8"
+            - name: OLLAMA_MAX_TRANSFER_STREAMS
+              value: "64"
             - name: OLLAMA_KV_CACHE_TYPE
               # value: "q8_0"
               value: "q4_0"

@@ -325,6 +325,9 @@ def status_cmd() -> None:
 
 
 @app.command("clear")
+@app.command(
+    "reset", help="Alias for clear — clear vector index collections and reset local cache."
+)
 def clear_cmd(
     collection: Annotated[
         str | None,

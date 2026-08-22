@@ -210,6 +210,7 @@ class WorkspaceIndexer:
         """Incrementally index workspace files into Qdrant."""
         files = self.collect_files(root_dir)
         cache = {} if force else self._load_cache()
+        file_hashes: dict[str, str] = {}
 
         all_chunks: list[CodeChunk] = []
         files_to_embed: list[Path] = []
@@ -225,6 +226,7 @@ class WorkspaceIndexer:
                 content_hash = SemanticChunker._hash_content(content)
                 rel_path = str(file_path.relative_to(root_dir))
                 cache_key = f"{proj_name}:{rel_path}"
+                file_hashes[cache_key] = content_hash
             except Exception:
                 continue
 
@@ -232,7 +234,6 @@ class WorkspaceIndexer:
                 continue
 
             files_to_embed.append(file_path)
-            cache[cache_key] = content_hash
             file_chunks = self.chunker.chunk_file(
                 file_path, relative_to=root_dir, project_name=proj_name
             )
@@ -267,6 +268,8 @@ class WorkspaceIndexer:
                 code_chunks,
                 progress_title="Indexing code chunks",
                 progress_callback=progress_callback,
+                cache=cache,
+                file_hashes=file_hashes,
             )
 
         if doc_chunks:
@@ -276,6 +279,8 @@ class WorkspaceIndexer:
                 doc_chunks,
                 progress_title="Indexing doc chunks",
                 progress_callback=progress_callback,
+                cache=cache,
+                file_hashes=file_hashes,
             )
 
         self._save_cache(cache)
@@ -297,11 +302,22 @@ class WorkspaceIndexer:
         batch_size: int = 32,
         progress_title: str = "Indexing",
         progress_callback: Callable[[str, int, int], None] | None = None,
+        cache: dict[str, str] | None = None,
+        file_hashes: dict[str, str] | None = None,
     ) -> None:
-        """Embed text and upsert points in batches into Qdrant."""
+        """Embed text and upsert points in batches into Qdrant, saving incremental cache."""
         total = len(chunks)
-        for i in range(0, total, batch_size):
-            batch = chunks[i : i + batch_size]
+        ai_cfg = getattr(self.embedder, "ai_config", None)
+        urls = (
+            getattr(ai_cfg, "get_ollama_urls", ["http://localhost:11434"])
+            if ai_cfg
+            else ["http://localhost:11434"]
+        )
+        max_par = getattr(ai_cfg, "ollama_max_parallel", 2) if ai_cfg else 2
+        effective_batch_size = max(batch_size, min(256, len(urls) * max_par * 32))
+
+        for i in range(0, total, effective_batch_size):
+            batch = chunks[i : i + effective_batch_size]
             texts = [c.content for c in batch]
             embeddings = self.embedder.embed_texts(texts)
 
@@ -324,8 +340,17 @@ class WorkspaceIndexer:
                 points.append({"id": chunk.id, "vector": vec, "payload": payload})
 
             self.qdrant.upsert_points(collection_name, points)
+
+            # Persist incremental progress to cache
+            if cache is not None and file_hashes is not None:
+                for c in batch:
+                    ckey = f"{c.project_name}:{c.file_path}"
+                    if ckey in file_hashes:
+                        cache[ckey] = file_hashes[ckey]
+                self._save_cache(cache)
+
             if progress_callback:
-                progress_callback(progress_title, min(i + batch_size, total), total)
+                progress_callback(progress_title, min(i + len(batch), total), total)
 
     def get_stats(self) -> list[IndexStats]:
         """Fetch index stats from Qdrant and local cache."""

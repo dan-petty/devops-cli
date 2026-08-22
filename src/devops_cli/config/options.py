@@ -36,6 +36,12 @@ AI_TASK_COMPOSE_PROVIDER = "ai.tasks.compose.provider"
 AI_TASK_COMPOSE_MODEL = "ai.tasks.compose.model"
 AI_TASK_COMPOSE_OLLAMA_URLS = "ai.tasks.compose.ollama_urls"
 
+# RAG & Semantic Retrieval settings
+AI_RAG_ENABLED = "ai.rag.enabled"
+AI_RAG_EMBEDDING_MODEL = "ai.rag.embedding_model"
+AI_RAG_TOP_K = "ai.rag.top_k"
+AI_RAG_SCORE_THRESHOLD = "ai.rag.score_threshold"
+
 # v0.1.1 Feature Flags
 FEATURE_PR_INLINE_COMMENTS = "features.pr_inline_comments"
 FEATURE_CUSTOM_PERSONAS = "features.custom_personas"
@@ -73,6 +79,10 @@ CONFIG_OPTIONS: tuple[str, ...] = (
     AI_TASK_COMPOSE_PROVIDER,
     AI_TASK_COMPOSE_MODEL,
     AI_TASK_COMPOSE_OLLAMA_URLS,
+    AI_RAG_ENABLED,
+    AI_RAG_EMBEDDING_MODEL,
+    AI_RAG_TOP_K,
+    AI_RAG_SCORE_THRESHOLD,
 )
 
 SECRET_CONFIG_OPTIONS: frozenset[str] = frozenset(

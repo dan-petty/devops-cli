@@ -177,6 +177,16 @@ class ReviewPipelineOrchestrator:
         updated_any = False
         file_metas: list[FileAnalysisMeta] = []
 
+        config = getattr(self.llm_client, "_config", None)
+        ollama_urls = (
+            getattr(config, "get_ollama_urls", ["http://localhost:11434"])
+            if config
+            else ["http://localhost:11434"]
+        )
+        max_par = getattr(config, "ollama_max_parallel", 2) if config else 2
+        batch_capacity = max(1, len(ollama_urls) * max_par)
+
+        paths_to_analyze: list[tuple[Path, str]] = []
         for p in collected_paths:
             if p.stat().st_size > CONST_MAX_FILE_SIZE_BYTES:
                 continue
@@ -198,20 +208,35 @@ class ReviewPipelineOrchestrator:
                         except Exception:
                             pass
 
-                content = p.read_text(encoding="utf-8", errors="replace")
-                meta = analyze_single_file(
-                    rel_str,
-                    content,
-                    p.stat().st_size,
-                    enhanced=True,
-                    repo_root=repo,
-                    ai_client=self.llm_client,
-                )
-                file_metas.append(meta)
-                metadata_by_path[rel_str] = meta
-                updated_any = True
+                paths_to_analyze.append((p, rel_str))
             except Exception:
                 continue
+
+        if paths_to_analyze:
+
+            def _analyze_path(item: tuple[Path, str]) -> FileAnalysisMeta | None:
+                path_obj, rel_path = item
+                try:
+                    content = path_obj.read_text(encoding="utf-8", errors="replace")
+                    return analyze_single_file(
+                        rel_path,
+                        content,
+                        path_obj.stat().st_size,
+                        enhanced=True,
+                        repo_root=repo,
+                        ai_client=self.llm_client,
+                    )
+                except Exception:
+                    return None
+
+            with ThreadPoolExecutor(
+                max_workers=min(len(paths_to_analyze), batch_capacity)
+            ) as executor:
+                for meta in executor.map(_analyze_path, paths_to_analyze):
+                    if meta is not None:
+                        file_metas.append(meta)
+                        metadata_by_path[meta.path] = meta
+                        updated_any = True
 
         if file_metas:
             title = f"{repo.name} pre-analysis: {target_ref}"
@@ -552,8 +577,14 @@ class ReviewPipelineOrchestrator:
         )
 
         config = getattr(self.llm_client, "_config", None)
-        ollama_urls = getattr(config, "get_ollama_urls", []) if config else []
-        n_workers = min(total_files, max(len(ollama_urls) * 2, 4)) if total_files > 0 else 1
+        ollama_urls = (
+            getattr(config, "get_ollama_urls", ["http://localhost:11434"])
+            if config
+            else ["http://localhost:11434"]
+        )
+        max_par = getattr(config, "ollama_max_parallel", 2) if config else 2
+        batch_capacity = max(1, len(ollama_urls) * max_par)
+        n_workers = min(total_files, batch_capacity) if total_files > 0 else 1
 
         def _review_single_file(arg: tuple[int, FileReviewPayload]) -> None:
             idx, payload = arg
@@ -755,8 +786,14 @@ class ReviewPipelineOrchestrator:
             return
 
         config = getattr(self.llm_client, "_config", None)
-        ollama_urls = getattr(config, "get_ollama_urls", []) if config else []
-        n_workers = min(len(payloads_with_findings), max(len(ollama_urls) * 2, 4))
+        ollama_urls = (
+            getattr(config, "get_ollama_urls", ["http://localhost:11434"])
+            if config
+            else ["http://localhost:11434"]
+        )
+        max_par = getattr(config, "ollama_max_parallel", 2) if config else 2
+        batch_capacity = max(1, len(ollama_urls) * max_par)
+        n_workers = min(len(payloads_with_findings), batch_capacity)
 
         def _verify_single_file(arg: tuple[int, FileReviewPayload]) -> None:
             idx, payload = arg
