@@ -239,13 +239,38 @@ class WorkspaceIndexer:
             )
             all_chunks.extend(file_chunks)
 
+        # Identify and purge files that were deleted from disk since last index
+        removed_files_count = 0
+        if not force:
+            current_keys = set(file_hashes.keys())
+            deleted_keys = [k for k in cache if k not in current_keys]
+            for dkey in deleted_keys:
+                _, _, d_rel_path = dkey.partition(":")
+                if d_rel_path:
+                    self.qdrant.delete_points_by_file(self.code_collection, d_rel_path)
+                    self.qdrant.delete_points_by_file(self.docs_collection, d_rel_path)
+                    removed_files_count += 1
+                del cache[dkey]
+            if deleted_keys:
+                self._save_cache(cache)
+
         if not all_chunks:
             return {
                 "indexed_files": 0,
                 "total_chunks": 0,
+                "removed_files": removed_files_count,
                 "skipped_files": len(files),
                 "collections": [self.code_collection, self.docs_collection],
             }
+
+        # Purge obsolete vectors for files that are being re-indexed
+        for fpath in files_to_embed:
+            try:
+                rel_fpath = str(fpath.relative_to(root_dir))
+                self.qdrant.delete_points_by_file(self.code_collection, rel_fpath)
+                self.qdrant.delete_points_by_file(self.docs_collection, rel_fpath)
+            except Exception:
+                pass
 
         # Separate code vs doc chunks
         code_chunks: list[CodeChunk] = []
@@ -290,6 +315,7 @@ class WorkspaceIndexer:
             "total_chunks": len(all_chunks),
             "code_chunks": len(code_chunks),
             "doc_chunks": len(doc_chunks),
+            "removed_files": removed_files_count,
             "skipped_files": len(files) - len(files_to_embed),
             "collections": [self.code_collection, self.docs_collection],
         }

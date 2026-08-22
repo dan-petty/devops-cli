@@ -144,10 +144,16 @@ def index_cmd(
             progress_callback=_on_progress,
         )
 
+    removed_msg = (
+        f", removed [yellow]{results['removed_files']}[/yellow] outdated file(s)"
+        if results.get("removed_files")
+        else ""
+    )
     rprint(
         f"\n[bold green]✓ Indexing complete![/bold green] "
         f"Indexed [cyan]{results['indexed_files']}[/cyan] file(s), "
-        f"upserted [cyan]{results['total_chunks']}[/cyan] chunk(s) "
+        f"upserted [cyan]{results['total_chunks']}[/cyan] chunk(s)"
+        f"{removed_msg} "
         f"(skipped {results['skipped_files']} unchanged files)."
     )
 
