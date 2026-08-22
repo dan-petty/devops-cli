@@ -13,6 +13,8 @@ from devops_cli.commands.k8s import app as k8s_app
 from devops_cli.commands.mcp import app as mcp_app
 from devops_cli.commands.repos import app as repos_app
 from devops_cli.commands.ssh import app as ssh_app
+from devops_cli.commands.telemetry import app as telemetry_app
+from devops_cli.commands.tls import app as tls_app
 from devops_cli.main import app as main_app
 
 COMMAND_SPECS = [
@@ -24,6 +26,8 @@ COMMAND_SPECS = [
     (main_app, ["--dry-run", "k8s", "port-forward"]),
     (main_app, ["--dry-run", "argo", "list"]),
     (main_app, ["--dry-run", "argo", "status"]),
+    (main_app, ["--dry-run", "tls", "homelab"]),
+    (main_app, ["--dry-run", "telemetry", "status"]),
     (ai_app, ["--help"]),
     (ai_app, ["config", "--help"]),
     (ai_app, ["test", "--help"]),
@@ -36,6 +40,13 @@ COMMAND_SPECS = [
     (ssh_app, ["--help"]),
     (ssh_app, ["status", "--help"]),
     (ssh_app, ["audit", "--help"]),
+    (tls_app, ["--help"]),
+    (tls_app, ["ca", "--help"]),
+    (tls_app, ["cert", "--help"]),
+    (tls_app, ["homelab", "--help"]),
+    (telemetry_app, ["--help"]),
+    (telemetry_app, ["status", "--help"]),
+    (telemetry_app, ["test", "--help"]),
     (k8s_app, ["--help"]),
     (k8s_app, ["port-forward", "--help"]),
     (argo_app, ["--help"]),

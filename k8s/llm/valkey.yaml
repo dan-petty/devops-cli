@@ -30,7 +30,7 @@ spec:
           imagePullPolicy: IfNotPresent
           securityContext:
             allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: false
+            readOnlyRootFilesystem: true
             capabilities:
               drop:
                 - ALL
@@ -40,6 +40,13 @@ spec:
             - ""
             - "--appendonly"
             - "no"
+            - "--dir"
+            - "/data"
+          volumeMounts:
+            - name: valkey-data
+              mountPath: /data
+            - name: valkey-tmp
+              mountPath: /tmp
           ports:
             - name: valkey
               containerPort: 6379
@@ -64,6 +71,11 @@ spec:
                 - ping
             initialDelaySeconds: 5
             periodSeconds: 5
+      volumes:
+        - name: valkey-data
+          emptyDir: {}
+        - name: valkey-tmp
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service

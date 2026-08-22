@@ -28,6 +28,10 @@ Complete command-line reference for `devops-cli`, automatically generated from C
 - [`devops pr`](#devops-pr) — Manage GitHub pull requests and base branch targeting.
 - [`devops tf`](#devops-tf) — OpenTofu and Terraform Infrastructure-as-Code operations.
 - [`devops tofu`](#devops-tofu) — OpenTofu and Terraform Infrastructure-as-Code operations (alias for tf).
+- [`devops tls`](#devops-tls) — X.509 TLS certificate generation, inspection, verification, and Kubernetes secrets.
+- [`devops cert`](#devops-cert) — TLS certificate generation and management (alias for tls).
+- [`devops telemetry`](#devops-telemetry) — OpenTelemetry observability, tracing, and metrics management.
+- [`devops otel`](#devops-otel) — OpenTelemetry observability and tracing (alias for telemetry).
 
 ---
 
@@ -762,6 +766,47 @@ devops k8s check-deprecated [OPTIONS] <target>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--dry-run` | `boolean` | - | Simulate deprecated API detection. |
+
+### `devops k8s create-tls-secret`
+
+**Create or update a kubernetes.io/tls secret from certificate and private key files.**
+
+```bash
+devops k8s create-tls-secret [OPTIONS] <secret_name>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<secret_name>` | `string` | Yes | Name of the Kubernetes TLS secret to create or update |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--namespace`, `-n` | `string` | `default` | Target Kubernetes namespace |
+| `--cert` | `path` | `~/.config/devops-cli/tls/tls.crt` | Path to TLS certificate file (.crt or .pem) |
+| `--key` | `path` | `~/.config/devops-cli/tls/tls.key` | Path to TLS private key file (.key or .pem) |
+| `--context`, `-c` | `string` | - | Kubernetes cluster context |
+
+### `devops k8s enable-tls`
+
+**Generate Homelab certificates and apply TLS secrets across Kubernetes cluster namespaces.**
+
+```bash
+devops k8s enable-tls [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--context`, `-c` | `string` | - | Kubernetes cluster context |
+| `--tls-dir` | `path` | `~/.config/devops-cli/tls` | Directory with generated TLS certificates |
+| `--secret-name` | `string` | `homelab-tls` | TLS secret name across namespaces |
+| `--stack`, `-s` | `string` | `all` | Stack to deploy TLS secrets into (infra, llm, all) |
+| `--overwrite`, `-f` | `boolean` | - | Regenerate certs if missing |
 
 ---
 
@@ -2072,6 +2117,7 @@ devops ai benchmark [OPTIONS]
 | `--models`, `-m` | `string` | - | Comma-separated candidate models (e.g. 'qwen2.5:0.5b,llama3.1:8b@http://gpu2:11434') |
 | `--servers`, `--ollama-urls` | `string` | - | Comma-separated Ollama server URLs for concurrent execution (e.g. 'http://node1:11434,http://node2:11434') |
 | `--provider`, `-p` | `string` | - | AI provider (ollama, claude, copilot, openai) |
+| `--type`, `--mode` | `string` | `auto` | Benchmark mode: 'auto', 'chat', 'embedding' (default: auto) |
 | `--tasks`, `-t` | `string` | - | Filter specific task categories or IDs (e.g. 'security,kubernetes') |
 | `--concurrency`, `-c` | `integer` | `4` | Number of concurrent model server workers (default: automatic per model count) |
 | `--output`, `-o` | `path` | - | Destination JSON report filepath |
@@ -2931,5 +2977,315 @@ devops tofu deploy-cloud [OPTIONS]
 | `--provider`, `-p` | `string` | - | Target cloud provider: aws, azure, or gcp |
 | `--auto-approve` | `boolean` | - | Automatically approve apply without prompt |
 | `--var-file`, `-v` | `path` | - | Path to custom tfvars file |
+
+---
+
+## devops tls
+
+X.509 TLS certificate generation, inspection, verification, and Kubernetes secrets.
+
+### `devops tls ca`
+
+**Generate a self-signed Root Certificate Authority (CA) key pair.**
+
+```bash
+devops tls ca [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--output-dir`, `-o` | `path` | `~/.config/devops-cli/tls` | Directory to save CA certificate and key |
+| `--common-name`, `-cn` | `string` | `Homelab DevOps Root CA` | Common Name for the Root CA |
+| `--organization`, `-org` | `string` | `Homelab DevOps` | Organization name |
+| `--country`, `-c` | `string` | `US` | 2-letter country code |
+| `--validity-days`, `-d` | `integer` | `3650` | Validity period in days |
+| `--key-size`, `-k` | `integer` | `2048` | RSA key size in bits (2048 or 4096) |
+| `--overwrite`, `-f` | `boolean` | - | Overwrite existing CA certificate and key |
+
+### `devops tls cert`
+
+**Generate an X.509 TLS certificate signed by local CA or self-signed.**
+
+```bash
+devops tls cert [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--common-name`, `-cn` | `string` | `localhost` | Primary Common Name or domain |
+| `--san`, `-s` | `string` | - | Subject Alternative Names (DNS names or IP addresses) |
+| `--ca-cert` | `path` | - | Path to signing CA certificate (ca.crt) |
+| `--ca-key` | `path` | - | Path to signing CA private key (ca.key) |
+| `--output-dir`, `-o` | `path` | `~/.config/devops-cli/tls` | Directory to save certificate and key |
+| `--validity-days`, `-d` | `integer` | `365` | Validity period in days |
+| `--key-size`, `-k` | `integer` | `2048` | RSA key size in bits (2048 or 4096) |
+| `--organization`, `-org` | `string` | `Homelab DevOps` | Organization name |
+| `--overwrite`, `-f` | `boolean` | - | Overwrite existing files |
+
+### `devops tls homelab`
+
+**Generate complete Homelab TLS bundle (Root CA, Wildcard + Stack Services Cert).**
+
+```bash
+devops tls homelab [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--output-dir`, `-o` | `path` | `~/.config/devops-cli/tls` | Directory to save certificates |
+| `--domain`, `-d` | `string` | - | Additional custom domains to include in SANs |
+| `--ip`, `-i` | `string` | - | Additional custom IP addresses to include in SANs |
+| `--overwrite`, `-f` | `boolean` | - | Regenerate all existing certificates |
+
+### `devops tls inspect`
+
+**Inspect and display metadata of an X.509 certificate.**
+
+```bash
+devops tls inspect <cert_path>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<cert_path>` | `path` | Yes | Path to X.509 certificate file (.crt or .pem) |
+
+### `devops tls verify`
+
+**Verify an X.509 certificate cryptographic chain against a CA certificate.**
+
+```bash
+devops tls verify [OPTIONS] <cert_path>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<cert_path>` | `path` | Yes | Path to leaf certificate file (.crt or .pem) |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--ca-cert`, `-ca` | `path` | `~/.config/devops-cli/tls/ca.crt` | Path to Root CA certificate file (ca.crt) |
+
+### `devops tls enable-k8s`
+
+**Generate and apply TLS secrets (kubernetes.io/tls) across Kubernetes namespaces.**
+
+```bash
+devops tls enable-k8s [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--context`, `-c` | `string` | - | Kubernetes cluster context (e.g. minikube, default) |
+| `--tls-dir` | `path` | `~/.config/devops-cli/tls` | Directory with generated TLS certificates |
+| `--secret-name` | `string` | `homelab-tls` | Kubernetes TLS secret name to create |
+| `--namespace`, `-n` | `string` | - | Target namespaces to deploy TLS secret into |
+| `--overwrite`, `-f` | `boolean` | - | Regenerate certs if missing |
+
+---
+
+## devops cert
+
+TLS certificate generation and management (alias for tls).
+
+X.509 TLS certificate generation, inspection, verification, and Kubernetes secrets.
+
+### `devops cert ca`
+
+**Generate a self-signed Root Certificate Authority (CA) key pair.**
+
+```bash
+devops cert ca [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--output-dir`, `-o` | `path` | `~/.config/devops-cli/tls` | Directory to save CA certificate and key |
+| `--common-name`, `-cn` | `string` | `Homelab DevOps Root CA` | Common Name for the Root CA |
+| `--organization`, `-org` | `string` | `Homelab DevOps` | Organization name |
+| `--country`, `-c` | `string` | `US` | 2-letter country code |
+| `--validity-days`, `-d` | `integer` | `3650` | Validity period in days |
+| `--key-size`, `-k` | `integer` | `2048` | RSA key size in bits (2048 or 4096) |
+| `--overwrite`, `-f` | `boolean` | - | Overwrite existing CA certificate and key |
+
+### `devops cert cert`
+
+**Generate an X.509 TLS certificate signed by local CA or self-signed.**
+
+```bash
+devops cert cert [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--common-name`, `-cn` | `string` | `localhost` | Primary Common Name or domain |
+| `--san`, `-s` | `string` | - | Subject Alternative Names (DNS names or IP addresses) |
+| `--ca-cert` | `path` | - | Path to signing CA certificate (ca.crt) |
+| `--ca-key` | `path` | - | Path to signing CA private key (ca.key) |
+| `--output-dir`, `-o` | `path` | `~/.config/devops-cli/tls` | Directory to save certificate and key |
+| `--validity-days`, `-d` | `integer` | `365` | Validity period in days |
+| `--key-size`, `-k` | `integer` | `2048` | RSA key size in bits (2048 or 4096) |
+| `--organization`, `-org` | `string` | `Homelab DevOps` | Organization name |
+| `--overwrite`, `-f` | `boolean` | - | Overwrite existing files |
+
+### `devops cert homelab`
+
+**Generate complete Homelab TLS bundle (Root CA, Wildcard + Stack Services Cert).**
+
+```bash
+devops cert homelab [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--output-dir`, `-o` | `path` | `~/.config/devops-cli/tls` | Directory to save certificates |
+| `--domain`, `-d` | `string` | - | Additional custom domains to include in SANs |
+| `--ip`, `-i` | `string` | - | Additional custom IP addresses to include in SANs |
+| `--overwrite`, `-f` | `boolean` | - | Regenerate all existing certificates |
+
+### `devops cert inspect`
+
+**Inspect and display metadata of an X.509 certificate.**
+
+```bash
+devops cert inspect <cert_path>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<cert_path>` | `path` | Yes | Path to X.509 certificate file (.crt or .pem) |
+
+### `devops cert verify`
+
+**Verify an X.509 certificate cryptographic chain against a CA certificate.**
+
+```bash
+devops cert verify [OPTIONS] <cert_path>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<cert_path>` | `path` | Yes | Path to leaf certificate file (.crt or .pem) |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--ca-cert`, `-ca` | `path` | `~/.config/devops-cli/tls/ca.crt` | Path to Root CA certificate file (ca.crt) |
+
+### `devops cert enable-k8s`
+
+**Generate and apply TLS secrets (kubernetes.io/tls) across Kubernetes namespaces.**
+
+```bash
+devops cert enable-k8s [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--context`, `-c` | `string` | - | Kubernetes cluster context (e.g. minikube, default) |
+| `--tls-dir` | `path` | `~/.config/devops-cli/tls` | Directory with generated TLS certificates |
+| `--secret-name` | `string` | `homelab-tls` | Kubernetes TLS secret name to create |
+| `--namespace`, `-n` | `string` | - | Target namespaces to deploy TLS secret into |
+| `--overwrite`, `-f` | `boolean` | - | Regenerate certs if missing |
+
+---
+
+## devops telemetry
+
+OpenTelemetry observability, tracing, and metrics management.
+
+### `devops telemetry status`
+
+**Display OpenTelemetry collector endpoint, Jaeger UI URL, and connection health.**
+
+```bash
+devops telemetry status
+```
+
+### `devops telemetry test`
+
+**Emit a test OpenTelemetry trace span and metric to the configured collector.**
+
+```bash
+devops telemetry test [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--name`, `-n` | `string` | `devops-cli.manual_test` | Name for test span |
+
+### `devops telemetry open-ui`
+
+**Print and show the Jaeger Query UI endpoint for inspecting traces.**
+
+```bash
+devops telemetry open-ui
+```
+
+---
+
+## devops otel
+
+OpenTelemetry observability and tracing (alias for telemetry).
+
+OpenTelemetry observability, tracing, and metrics management.
+
+### `devops otel status`
+
+**Display OpenTelemetry collector endpoint, Jaeger UI URL, and connection health.**
+
+```bash
+devops otel status
+```
+
+### `devops otel test`
+
+**Emit a test OpenTelemetry trace span and metric to the configured collector.**
+
+```bash
+devops otel test [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--name`, `-n` | `string` | `devops-cli.manual_test` | Name for test span |
+
+### `devops otel open-ui`
+
+**Print and show the Jaeger Query UI endpoint for inspecting traces.**
+
+```bash
+devops otel open-ui
+```
 
 ---

@@ -33,6 +33,15 @@ CONST_MODELS_DATA_DIR = CONST_DATA_DIR / CONST_MODELS_DIR_NAME
 CONST_AUDIT_LOG_PATH = CONST_LOGS_DATA_DIR / CONST_AUDIT_LOG_NAME
 CONST_FEEDBACK_DATASET_PATH = CONST_DATA_DIR / CONST_FEEDBACK_DATASET_NAME
 
+# ── TLS & Cryptographic Certificates ──────────────────────────────────────────
+CONST_TLS_DIR_NAME = "tls"
+CONST_TLS_DATA_DIR = CONST_DATA_DIR / CONST_TLS_DIR_NAME
+CONST_CA_CERT_NAME = "ca.crt"
+CONST_CA_KEY_NAME = "ca.key"
+CONST_SERVER_CERT_NAME = "tls.crt"
+CONST_SERVER_KEY_NAME = "tls.key"
+CONST_FULLCHAIN_CERT_NAME = "fullchain.crt"
+
 # ── DevContainer ──────────────────────────────────────────────────────────────
 CONST_DEVCONTAINER_DIR_NAME = ".devcontainer"
 CONST_DEVCONTAINER_JSON_NAME = "devcontainer.json"

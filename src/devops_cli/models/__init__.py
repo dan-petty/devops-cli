@@ -29,6 +29,13 @@ from devops_cli.models.github import SSHKeyInfo
 from devops_cli.models.grafana import GrafanaAlertRule, GrafanaDashboard, GrafanaDatasource
 from devops_cli.models.prometheus import PrometheusQueryResult, PrometheusSeries
 from devops_cli.models.ssh import ManagedSSHKey
+from devops_cli.models.tls import (
+    CAGenerationRequest,
+    CertGenerationRequest,
+    CertificateInfo,
+    KubernetesTLSSecretResult,
+    TLSEnablementSummary,
+)
 from devops_cli.models.vulnerability import (
     DependencySpec,
     NetworkReference,
@@ -43,6 +50,9 @@ __all__ = [
     "BenchmarkReport",
     "BenchmarkTask",
     "BranchListing",
+    "CAGenerationRequest",
+    "CertGenerationRequest",
+    "CertificateInfo",
     "ChatMessage",
     "CommandDryRunResult",
     "DependencySpec",
@@ -50,6 +60,7 @@ __all__ = [
     "GrafanaAlertRule",
     "GrafanaDashboard",
     "GrafanaDatasource",
+    "KubernetesTLSSecretResult",
     "MCPToolInfo",
     "ManagedSSHKey",
     "ModelBenchmarkSummary",
@@ -60,6 +71,7 @@ __all__ = [
     "PrometheusQueryResult",
     "PrometheusSeries",
     "SSHKeyInfo",
+    "TLSEnablementSummary",
     "TaskResponse",
     "VulnerabilityRecord",
 ]

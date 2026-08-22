@@ -36,7 +36,7 @@ from devops_cli.config.defaults import DEFAULT_HTTP_TIMEOUT_SECONDS
 from devops_cli.config.settings import AIConfig
 from devops_cli.http.client import request_timeout
 from devops_cli.models.ai import ChatMessage
-from devops_cli.telemetry import record_metric, trace_span
+from devops_cli.telemetry import inject_trace_context, record_metric, trace_span
 
 MAX_STREAM_BYTES = 50 * 1024 * 1024  # 50MB maximum streamed response size
 logger = logging.getLogger(__name__)
@@ -661,7 +661,8 @@ class LLMClient:
             }
             if think:
                 payload["think"] = True
-            response = http_client.post(f"{base}/api/chat", json=payload)
+            headers = inject_trace_context({"Content-Type": "application/json"})
+            response = http_client.post(f"{base}/api/chat", json=payload, headers=headers)
             response.raise_for_status()
             if think and self._ollama_thinking_supported is None:
                 self._ollama_thinking_supported = True
@@ -749,13 +750,16 @@ class LLMClient:
         t0 = time.monotonic()
         try:
             with httpx2.Client(timeout=self._request_timeout()) as http_client:
-                response = http_client.post(
-                    f"{base}/v1/messages",
-                    headers={
+                headers = inject_trace_context(
+                    {
                         "x-api-key": self._api_key,
                         "anthropic-version": "2023-06-01",
                         "content-type": "application/json",
-                    },
+                    }
+                )
+                response = http_client.post(
+                    f"{base}/v1/messages",
+                    headers=headers,
                     json={
                         "model": self._config.model,
                         "max_tokens": 8192,
@@ -786,12 +790,15 @@ class LLMClient:
         t0 = time.monotonic()
         try:
             with httpx2.Client(timeout=self._request_timeout()) as http_client:
-                response = http_client.post(
-                    f"{self._api_base()}/chat/completions",
-                    headers={
+                headers = inject_trace_context(
+                    {
                         "Authorization": f"Bearer {self._api_key}",
                         "Content-Type": "application/json",
-                    },
+                    }
+                )
+                response = http_client.post(
+                    f"{self._api_base()}/chat/completions",
+                    headers=headers,
                     json={
                         "model": self._config.model,
                         "messages": [

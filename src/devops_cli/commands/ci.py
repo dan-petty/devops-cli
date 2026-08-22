@@ -16,6 +16,7 @@ from devops_cli.config.defaults import (
     DEFAULT_PYTHON_VERSION,
     DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
 )
+from devops_cli.telemetry import record_metric, trace_span
 
 app = typer.Typer(help="Run tests, linting, formatting, and type-checks.")
 console = Console()
@@ -74,45 +75,58 @@ def _run_all_checks(*, lint_fix: bool, format_fix: bool) -> list[tuple[str, bool
     checks: list[tuple[str, bool]] = []
     _clean_coverage_artifacts()
 
-    _section("python version check (3.14+)")
-    checks.append(("python_version", _verify_python_314_environment()))
+    with trace_span("ci.run_pipeline", attributes={"lint_fix": lint_fix, "format_fix": format_fix}):
+        _section("python version check (3.14+)")
+        with trace_span("ci.step.python_version"):
+            py_ok = _verify_python_314_environment()
+            checks.append(("python_version", py_ok))
+            record_metric(
+                "ci.step_pass",
+                1.0 if py_ok else 0.0,
+                attributes={"step": "python_version"},
+            )
 
-    _section("pytest & coverage")
-    test_cov_ok = _run(
-        [
-            "uv",
-            "run",
-            "pytest",
-            "-n",
-            "auto",
-            "--maxprocesses=4",
-            "--cov=src",
-            "--cov-report=term-missing",
-        ]
-    )
+        _section("pytest & coverage")
+        with trace_span("ci.step.test_and_coverage"):
+            test_cov_ok = _run(
+                [
+                    "uv",
+                    "run",
+                    "pytest",
+                    "-n",
+                    "auto",
+                    "--maxprocesses=4",
+                    "--cov=src",
+                    "--cov-report=term-missing",
+                ]
+            )
+            _clean_coverage_artifacts()
+            checks.append(("test", test_cov_ok))
+            checks.append(("coverage", test_cov_ok))
+            record_metric("ci.step_pass", 1.0 if test_cov_ok else 0.0, attributes={"step": "test"})
 
-    _clean_coverage_artifacts()
-    checks.append(("test", test_cov_ok))
-    checks.append(("coverage", test_cov_ok))
+        _section("ruff check")
+        with trace_span("ci.step.lint"):
+            lint_cmd = ["uv", "run", "ruff", "check", "."]
+            if lint_fix:
+                lint_cmd.append("--fix")
+            lint_ok = _run(lint_cmd)
+            checks.append(("lint", lint_ok))
+            record_metric("ci.step_pass", 1.0 if lint_ok else 0.0, attributes={"step": "lint"})
 
-    _section("ruff check")
-    lint_cmd = ["uv", "run", "ruff", "check", "."]
-    if lint_fix:
-        lint_cmd.append("--fix")
-    checks.append(("lint", _run(lint_cmd)))
+        _section("ruff format")
+        with trace_span("ci.step.format"):
+            fmt_cmd = ["uv", "run", "ruff", "format"]
+            if not format_fix:
+                fmt_cmd.append("--check")
+            fmt_cmd.append(".")
+            fmt_ok = _run(fmt_cmd)
+            checks.append(("format", fmt_ok))
+            record_metric("ci.step_pass", 1.0 if fmt_ok else 0.0, attributes={"step": "format"})
 
-    _section("ruff format")
-    fmt_cmd = ["uv", "run", "ruff", "format"]
-    if not format_fix:
-        fmt_cmd.append("--check")
-    fmt_cmd.append(".")
-    checks.append(("format", _run(fmt_cmd)))
-
-    _section(f"mypy (py{DEFAULT_PYTHON_VERSION.replace('.', '')} strict)")
-    checks.append(
-        (
-            "typecheck",
-            _run(
+        _section(f"mypy (py{DEFAULT_PYTHON_VERSION.replace('.', '')} strict)")
+        with trace_span("ci.step.typecheck"):
+            mypy_ok = _run(
                 [
                     "uv",
                     "run",
@@ -122,21 +136,33 @@ def _run_all_checks(*, lint_fix: bool, format_fix: bool) -> list[tuple[str, bool
                     "--strict",
                     "src",
                 ]
-            ),
-        )
-    )
+            )
+            checks.append(("typecheck", mypy_ok))
+            record_metric("ci.step_pass", 1.0 if mypy_ok else 0.0, attributes={"step": "typecheck"})
 
-    _section("uv audit")
-    checks.append(("audit", _run(["uv", "audit"])))
+        _section("uv audit")
+        with trace_span("ci.step.audit"):
+            audit_ok = _run(["uv", "audit"])
+            checks.append(("audit", audit_ok))
+            record_metric("ci.step_pass", 1.0 if audit_ok else 0.0, attributes={"step": "audit"})
 
-    _section("bandit security scan")
-    checks.append(("security", _run(["uv", "run", "bandit", "-r", "src", "-ll", "-s", "B608"])))
+        _section("bandit security scan")
+        with trace_span("ci.step.security"):
+            sec_ok = _run(["uv", "run", "bandit", "-r", "src", "-ll", "-s", "B608"])
+            checks.append(("security", sec_ok))
+            record_metric("ci.step_pass", 1.0 if sec_ok else 0.0, attributes={"step": "security"})
 
-    _section("actionlint (github workflows)")
-    checks.append(("actionlint", _run(["uv", "run", "actionlint"])))
+        _section("actionlint (github workflows)")
+        with trace_span("ci.step.actionlint"):
+            act_ok = _run(["uv", "run", "actionlint"])
+            checks.append(("actionlint", act_ok))
+            record_metric("ci.step_pass", 1.0 if act_ok else 0.0, attributes={"step": "actionlint"})
 
-    _section("docs validation")
-    checks.append(("docs", _run(["uv", "run", "devops", "docs", "check"])))
+        _section("docs validation")
+        with trace_span("ci.step.docs"):
+            docs_ok = _run(["uv", "run", "devops", "docs", "check"])
+            checks.append(("docs", docs_ok))
+            record_metric("ci.step_pass", 1.0 if docs_ok else 0.0, attributes={"step": "docs"})
 
     return checks
 

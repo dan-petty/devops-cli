@@ -69,6 +69,41 @@ logger = logging.getLogger(__name__)
 
 _REVIEW_PIPELINE_EVAL = load_task_prompt("review_pipeline_eval.md")
 
+_UNIVERSAL_MODULES: set[str] = {
+    "__future__",
+    "typing",
+    "pathlib",
+    "os",
+    "sys",
+    "re",
+    "json",
+    "logging",
+    "time",
+    "subprocess",
+    "asyncio",
+    "datetime",
+    "unittest",
+    "pytest",
+    "abc",
+    "collections",
+    "collections.abc",
+    "math",
+    "shutil",
+    "tempfile",
+    "io",
+    "copy",
+    "functools",
+    "itertools",
+    "enum",
+    "dataclasses",
+    "contextlib",
+    "threading",
+    "traceback",
+    "pydantic",
+    "rich",
+    "typer",
+}
+
 
 class ReviewPipelineOrchestrator:
     """Orchestrates 6-stage multi-agent code reviews with per-file payloads and AI scratchpads."""
@@ -417,15 +452,30 @@ class ReviewPipelineOrchestrator:
             fmeta = self._find_matching_metadata(fpath, metadata_by_path) or FileAnalysisMeta(
                 path=fpath
             )
-            linked: list[FileAnalysisMeta] = []
+            meaningful_fmeta_deps = {
+                d for d in fmeta.dependencies if d and d not in _UNIVERSAL_MODULES
+            }
+            meaningful_fmeta_syms = {s for s in fmeta.key_symbols if s}
 
+            linked: list[FileAnalysisMeta] = []
             for other_path, other_meta in metadata_by_path.items():
                 if other_path == fpath:
                     continue
-                sym_match = any(sym in other_meta.key_symbols for sym in fmeta.key_symbols if sym)
-                dep_match = any(dep in other_meta.dependencies for dep in fmeta.dependencies if dep)
-                if sym_match or dep_match:
+                sym_match = any(sym in other_meta.key_symbols for sym in meaningful_fmeta_syms)
+                dep_match = any(
+                    dep in other_meta.dependencies
+                    for dep in meaningful_fmeta_deps
+                    if dep not in _UNIVERSAL_MODULES
+                )
+                import_match = any(
+                    dep.replace(".", "/") in other_path
+                    or other_path.replace(".py", "").replace("/", ".") in dep
+                    for dep in meaningful_fmeta_deps
+                )
+                if sym_match or dep_match or import_match:
                     linked.append(other_meta)
+                    if len(linked) >= 10:
+                        break
 
             file_deps, file_nets = raw_file_data.get(fpath, ([], []))
             initial_findings = list(static_findings_by_file.get(fpath, []))

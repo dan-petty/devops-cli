@@ -69,3 +69,7 @@ All work follows a progressive verification strategy to optimize developer feedb
 - **Target Path Resolution & Isolation**: All file reading, AST analysis, security scanning, and dependency lookups on target projects must resolve paths relative to the target root directory (`target_dir`) to prevent host-workspace file collisions.
 - **Pure Markdown Prompt Tasks & Zero Inline LLM Prompts**: All LLM system prompts, task instructions, guardrails, evaluation rubrics, benchmark prompts, and reference criteria must reside in dedicated Markdown files (`.md`) under `src/devops_cli/ai/tasks/`. Never declare multi-line prompt text strings or evaluation criteria inline in Python code.
 - **Actionable AI Feedback**: Conclude agent analyses and interactive reviews with concrete next steps, actionable code remediation snippets, or verification instructions.
+- **Closed-Loop Review & Self-Improvement Cycle**:
+  - **Deduplication & Calibration**: Calibrate confidence scores and test explicit verification/invalidation criteria to eliminate phantom alerts.
+  - **Self-Healing & Patch Application**: Review findings should provide drop-in remediations verifiable by unit tests and automated CI gates.
+  - **Continuous Knowledge Feedback**: Synthesize recurrent patterns into repository architecture guidelines and targeted test fixtures.

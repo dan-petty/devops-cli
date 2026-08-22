@@ -8,6 +8,7 @@ from typing import Annotated
 import typer
 from rich import print as rprint
 
+from devops_cli.ai.benchmark.embedding_runner import EmbeddingBenchmarkRunner
 from devops_cli.ai.benchmark.runner import BenchmarkRunner
 from devops_cli.ai.benchmark.tasks import get_benchmark_tasks
 from devops_cli.config.settings import load_settings
@@ -18,6 +19,23 @@ app = new_typer(
     help=HELP.ai.benchmark,
     no_args_is_help=False,
 )
+
+_EMBEDDING_MODEL_HINTS = {
+    "embed",
+    "embedding",
+    "nomic",
+    "minilm",
+    "bge",
+    "gte",
+    "e5",
+    "sentence-transformer",
+    "text-embedding",
+}
+
+
+def _is_embedding_model(model_name: str) -> bool:
+    m = model_name.lower()
+    return any(hint in m for hint in _EMBEDDING_MODEL_HINTS)
 
 
 @app.callback(invoke_without_command=True)
@@ -43,6 +61,14 @@ def run_benchmark(
         str | None,
         typer.Option("--provider", "-p", help="AI provider (ollama, claude, copilot, openai)"),
     ] = None,
+    benchmark_type: Annotated[
+        str,
+        typer.Option(
+            "--type",
+            "--mode",
+            help="Benchmark mode: 'auto', 'chat', 'embedding' (default: auto)",
+        ),
+    ] = "auto",
     tasks_filter: Annotated[
         str | None,
         typer.Option(
@@ -84,10 +110,47 @@ def run_benchmark(
     else:
         model_list = [settings.ai.model]
 
-    # Parse servers list
-    server_list = [s.strip() for s in servers.split(",") if s.strip()] if servers else None
+    # Bound concurrency safely
+    safe_concurrency = max(1, min(concurrency, 32))
 
-    # Parse task filters
+    # Parse and validate servers list
+    server_list: list[str] | None = None
+    if servers:
+        from devops_cli.core.validation import validate_service_url
+
+        server_list = []
+        for s in servers.split(","):
+            clean_s = s.strip()
+            if clean_s:
+                validate_service_url(clean_s, "Ollama Server", allow=True)
+                server_list.append(clean_s)
+
+    # Check if embedding benchmark mode should be activated
+    is_embedding = benchmark_type.lower() in ("embed", "embedding", "embeddings") or (
+        benchmark_type.lower() == "auto" and any(_is_embedding_model(m) for m in model_list)
+    )
+
+    if is_embedding:
+        embed_runner = EmbeddingBenchmarkRunner(
+            models=model_list,
+            settings=settings,
+            provider=provider,
+            is_dry_run=dry_run,
+            concurrency=safe_concurrency,
+            servers=server_list,
+        )
+        embed_report = embed_runner.run()
+
+        if output:
+            resolved_output = output.resolve()
+            resolved_output.parent.mkdir(parents=True, exist_ok=True)
+            resolved_output.write_text(embed_report.model_dump_json(indent=2), encoding="utf-8")
+            rprint(f"[green]✓ Exported custom report to {resolved_output}[/green]")
+
+        embed_runner.print_report(embed_report, format_type=format_type)
+        return
+
+    # Parse task filters for LLM Chat benchmark
     cat_filters = [c.strip() for c in tasks_filter.split(",")] if tasks_filter else None
     task_list = get_benchmark_tasks(cat_filters)
 
@@ -102,16 +165,17 @@ def run_benchmark(
         settings=settings,
         provider=provider,
         is_dry_run=dry_run,
-        concurrency=concurrency,
+        concurrency=safe_concurrency,
         servers=server_list,
     )
 
     report = runner.execute()
 
     if output:
-        output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_text(report.model_dump_json(indent=2), encoding="utf-8")
-        rprint(f"[green]✓ Exported custom report to {output}[/green]")
+        resolved_output = output.resolve()
+        resolved_output.parent.mkdir(parents=True, exist_ok=True)
+        resolved_output.write_text(report.model_dump_json(indent=2), encoding="utf-8")
+        rprint(f"[green]✓ Exported custom report to {resolved_output}[/green]")
 
     if format_type.lower() == "json":
         print(report.model_dump_json(indent=2))

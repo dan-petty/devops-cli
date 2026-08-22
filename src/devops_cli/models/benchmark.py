@@ -131,3 +131,31 @@ class BenchmarkReport(BaseModel):
     leaderboard: list[ModelBenchmarkSummary] = Field(default_factory=list)
     server_benchmarks: list[ServerBenchmarkSummary] = Field(default_factory=list)
     is_dry_run: bool = False
+
+
+class EmbeddingBenchmarkResult(BaseModel):
+    """Evaluation metrics and benchmark performance for an embedding model."""
+
+    model: str
+    server: str = ""
+    dimension: int = Field(default=0, ge=0)
+    recall_at_1: float = Field(default=0.0, ge=0.0, le=100.0)
+    recall_at_3: float = Field(default=0.0, ge=0.0, le=100.0)
+    mrr: float = Field(default=0.0, ge=0.0, le=1.0)
+    mean_cosine_margin: float = Field(default=0.0)
+    latency_ms_p50: float = Field(default=0.0, ge=0.0)
+    latency_ms_p95: float = Field(default=0.0, ge=0.0)
+    throughput_items_per_sec: float = Field(default=0.0, ge=0.0)
+    throughput_chars_per_sec: float = Field(default=0.0, ge=0.0)
+    overall_score: float = Field(default=0.0, ge=0.0, le=100.0)
+    is_normalized: bool = True
+    category_accuracies: dict[str, float] = Field(default_factory=dict)
+
+
+class EmbeddingBenchmarkReport(BaseModel):
+    """Consolidated benchmark report for multiple embedding models."""
+
+    session_id: str
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    models: list[EmbeddingBenchmarkResult] = Field(default_factory=list)
+    is_dry_run: bool = False

@@ -149,6 +149,8 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 |  | `devops k8s lint [OPTIONS] <target>` | Validate K8s manifests and Helm charts using Red Hat Kube-linter. |
 |  | `devops k8s audit [OPTIONS]` | Sanitize active K8s/Minikube cluster resource health using Derailed Popeye. |
 |  | `devops k8s check-deprecated [OPTIONS] <target>` | Scan manifests for deprecated/removed K8s API versions using Fairwinds Pluto. |
+|  | `devops k8s create-tls-secret [OPTIONS] <secret_name>` | Create or update a kubernetes.io/tls secret from certificate and private key files. |
+|  | `devops k8s enable-tls [OPTIONS]` | Generate Homelab certificates and apply TLS secrets across Kubernetes cluster namespaces. |
 | **kustomize** | `devops kustomize build [OPTIONS] <path>` | Build kustomize overlays (delegates to kustomize build). |
 |  | `devops kustomize diff <path>` | Show a diff of pending changes (delegates to kubectl diff -k). |
 |  | `devops kustomize apply [OPTIONS] <path>` | Apply a kustomization (delegates to kubectl apply -k). |
@@ -245,6 +247,24 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 |  | `devops tofu fmt [OPTIONS] <directory>` | Rewrites OpenTofu configuration files to canonical format. |
 |  | `devops tofu status <directory>` | Show OpenTofu directory state, initialization status, and provider plugins. |
 |  | `devops tofu deploy-cloud [OPTIONS]` | Deploy cloud Kubernetes infrastructure for AWS, Azure, or GCP. |
+| **tls** | `devops tls ca [OPTIONS]` | Generate a self-signed Root Certificate Authority (CA) key pair. |
+|  | `devops tls cert [OPTIONS]` | Generate an X.509 TLS certificate signed by local CA or self-signed. |
+|  | `devops tls homelab [OPTIONS]` | Generate complete Homelab TLS bundle (Root CA, Wildcard + Stack Services Cert). |
+|  | `devops tls inspect <cert_path>` | Inspect and display metadata of an X.509 certificate. |
+|  | `devops tls verify [OPTIONS] <cert_path>` | Verify an X.509 certificate cryptographic chain against a CA certificate. |
+|  | `devops tls enable-k8s [OPTIONS]` | Generate and apply TLS secrets (kubernetes.io/tls) across Kubernetes namespaces. |
+| **cert** | `devops cert ca [OPTIONS]` | Generate a self-signed Root Certificate Authority (CA) key pair. |
+|  | `devops cert cert [OPTIONS]` | Generate an X.509 TLS certificate signed by local CA or self-signed. |
+|  | `devops cert homelab [OPTIONS]` | Generate complete Homelab TLS bundle (Root CA, Wildcard + Stack Services Cert). |
+|  | `devops cert inspect <cert_path>` | Inspect and display metadata of an X.509 certificate. |
+|  | `devops cert verify [OPTIONS] <cert_path>` | Verify an X.509 certificate cryptographic chain against a CA certificate. |
+|  | `devops cert enable-k8s [OPTIONS]` | Generate and apply TLS secrets (kubernetes.io/tls) across Kubernetes namespaces. |
+| **telemetry** | `devops telemetry status` | Display OpenTelemetry collector endpoint, Jaeger UI URL, and connection health. |
+|  | `devops telemetry test [OPTIONS]` | Emit a test OpenTelemetry trace span and metric to the configured collector. |
+|  | `devops telemetry open-ui` | Print and show the Jaeger Query UI endpoint for inspecting traces. |
+| **otel** | `devops otel status` | Display OpenTelemetry collector endpoint, Jaeger UI URL, and connection health. |
+|  | `devops otel test [OPTIONS]` | Emit a test OpenTelemetry trace span and metric to the configured collector. |
+|  | `devops otel open-ui` | Print and show the Jaeger Query UI endpoint for inspecting traces. |
 <!-- COMMAND_MATRIX_END -->
 
 ---

@@ -5,12 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.13] - 2026-08-21
+## [0.1.13] - 2026-08-22
 
 ### Added
-- **Next Version Development Cycle Initialized**:
-  - Incremented version to `0.1.13` across `pyproject.toml` and `src/devops_cli/__init__.py`.
-  - Initialized release branch `release/v0.1.13` tracking `origin/main`.
+- **Embedding Model Benchmark Suite (`devops ai benchmark --type embedding`, `devops_cli.ai.benchmark`)**:
+  - Dedicated vector embedding benchmark engine (`EmbeddingBenchmarkRunner`, `EmbeddingBenchmarkResult`, `EmbeddingBenchmarkReport`) evaluating dense vector embedding models (`qwen3-embedding`, `nomic-embed-text`, `all-minilm`, `bge-*`, `text-embedding-3-*`).
+  - Automatic model classification and CLI routing in `devops ai benchmark` when embedding models are provided.
+  - Evaluation corpus of 15 domain-specific query-passage pairs across 5 DevOps domains (Security, Kubernetes, Architecture, CI/CD, Infrastructure) and 10 distractor passages.
+  - Evaluates semantic retrieval quality (Recall@1, Recall@3, Mean Reciprocal Rank (MRR), and Cosine Margin), single-query latency (p50/p95 ms), batch throughput (items/sec and chars/sec), and vector health ($L_2$ norm and dimension verification).
+  - Rich interactive terminal leaderboard tables, JSON export to `.data/benchmarks/`, and Markdown summary rendering.
+- **Local & Homelab TLS Certificate Management (`devops tls`, `devops cert`, `devops_cli.crypto`)**:
+  - X.509 Certificate Authority and TLS server/client certificate generation using `cryptography.x509`.
+  - Subject Alternative Name (SAN) auto-generation supporting IP addresses, hostnames, localhost, homelab `.lan` / `.local` domains, and Kubernetes service FQDNs.
+  - Automated Kubernetes TLS secret provisioning (`devops tls inject-k8s-secret`, `devops k8s enable-tls`) and cert-manager ClusterIssuer integration for homelab/k3s/minikube environments.
+- **Universal OpenTelemetry Integration (`devops telemetry`, `devops otel`, `devops_cli.telemetry`)**:
+  - End-to-end telemetry configuration, status inspection, and OTLP trace export across all CLI operations and AI multi-agent pipelines.
+  - Jaeger Query UI and OTLP collector deployment configurations in `k8s/otel/jaeger.yaml`.
+
+### Changed
+- **Standard Library & PEP 508 Code Hygiene Refactoring (`devops_cli.security.reference_extractor`)**:
+  - Eliminated ad-hoc keyword lists and custom regex string splitting in favor of standard libraries (`ast`, `tokenize`, `packaging.requirements.Requirement`, `tomllib`, `json`, `yaml`, `urllib.parse`, `ipaddress`, `mimetypes`, `tldextract`).
+  - Implemented PEP 508 requirement parsing for PyPI dependencies, PEP 621 `pyproject.toml` dependencies, optional dependency groups, and PEP 735 dependency groups.
+  - Implemented AST string literal and comment tokenization for Python source code to eliminate false-positive domain matches on function calls, attributes, and variables.
+  - Implemented RFC 2606 reserved domain exclusions (`.example`, `.test`, `.invalid`, `.localhost`) and strict public IP routability checks via `ipaddress.ip_address.is_global`.
+- **Review Pipeline Linked File Context Optimization (`devops_cli.ai.review.pipeline`)**:
+  - Added universal standard library filtering (`_UNIVERSAL_MODULES`) to prevent connecting all repository files via universal imports like `typing` or `pathlib`.
+  - Bounded linked dependency files context to the top 10 relevant modules.
+- **AI Review Tasks & Finding Verification Prompt Hardening**:
+  - Hardened `src/devops_cli/ai/tasks/review.md` and `verify_finding.md` to prevent false positive detections and enforce actionable verification criteria.
+
 
 ## [0.1.12] - 2026-08-20
 

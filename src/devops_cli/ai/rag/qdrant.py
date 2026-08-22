@@ -11,6 +11,7 @@ from qdrant_client.http import models as qmodels
 
 from devops_cli.config.defaults import DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS
 from devops_cli.http.validation import validate_service_url
+from devops_cli.telemetry import record_metric, trace_span
 
 logger = logging.getLogger(__name__)
 
@@ -185,42 +186,45 @@ class QdrantClient:
         filter_payload: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         """Search nearest vector points in the specified collection."""
-        client = self._get_client()
-        query_filter = None
-        if filter_payload:
-            conditions: list[qmodels.Condition] = []
-            for key, val in filter_payload.items():
-                conditions.append(
-                    qmodels.FieldCondition(
-                        key=key,
-                        match=qmodels.MatchValue(value=val),
+        with trace_span("qdrant.search_points", attributes={"collection": name, "limit": limit}):
+            client = self._get_client()
+            query_filter = None
+            if filter_payload:
+                conditions: list[qmodels.Condition] = []
+                for key, val in filter_payload.items():
+                    conditions.append(
+                        qmodels.FieldCondition(
+                            key=key,
+                            match=qmodels.MatchValue(value=val),
+                        )
                     )
-                )
-            query_filter = qmodels.Filter(must=conditions)
+                query_filter = qmodels.Filter(must=conditions)
 
-        try:
-            res = client.query_points(
-                collection_name=name,
-                query=query_vector,
-                limit=limit,
-                score_threshold=score_threshold,
-                query_filter=query_filter,
-                with_payload=True,
-            )
-            return [
-                {
-                    "id": hit.id,
-                    "score": hit.score,
-                    "payload": hit.payload or {},
-                }
-                for hit in res.points
-            ]
-        except Exception as exc:
-            err_str = str(exc)
-            if "not found" in err_str.lower() or "404" in err_str:
-                return []
-            logger.debug("Error searching collection %s: %s", name, exc)
-            raise QdrantClientError(f"Search failed in '{name}': {exc}") from exc
+            try:
+                res = client.query_points(
+                    collection_name=name,
+                    query=query_vector,
+                    limit=limit,
+                    score_threshold=score_threshold,
+                    query_filter=query_filter,
+                    with_payload=True,
+                )
+                hits = [
+                    {
+                        "id": hit.id,
+                        "score": hit.score,
+                        "payload": hit.payload or {},
+                    }
+                    for hit in res.points
+                ]
+                record_metric("qdrant.search_hits_count", float(len(hits)), unit="1")
+                return hits
+            except Exception as exc:
+                err_str = str(exc)
+                if "not found" in err_str.lower() or "404" in err_str:
+                    return []
+                logger.debug("Error searching collection %s: %s", name, exc)
+                raise QdrantClientError(f"Search failed in '{name}': {exc}") from exc
 
     def delete_points_by_file(self, name: str, file_path: str) -> bool:
         """Delete all indexed chunks belonging to a given file path."""

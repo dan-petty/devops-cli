@@ -70,3 +70,47 @@ def test_global_trace_helpers(monkeypatch: pytest.MonkeyPatch) -> None:
         record_metric("helper_metric", 42.0)
 
     assert len(sent_payloads) == 2
+
+
+def test_inject_and_extract_trace_context() -> None:
+    client = OTelTelemetryClient(enabled=True)
+    headers = client.inject_trace_context({"existing": "header"})
+    assert "existing" in headers
+    assert "traceparent" in headers
+    assert headers["traceparent"].startswith("00-")
+
+    trace_id, span_id = client.extract_trace_context(headers)
+    assert trace_id is not None
+    assert span_id is not None
+    assert len(trace_id) == 32
+    assert len(span_id) == 16
+
+
+def test_traced_decorator(monkeypatch: pytest.MonkeyPatch) -> None:
+    from devops_cli.telemetry.tracer import traced
+
+    client = get_tracer()
+    sent_payloads: list[tuple[str, dict]] = []
+    monkeypatch.setattr(client, "_send_payload", lambda path, p: sent_payloads.append((path, p)))
+
+    @traced(name="decorated_func", attributes={"module": "test"})
+    def my_function(x: int) -> int:
+        return x * 2
+
+    res = my_function(5)
+    assert res == 10
+    span_name = sent_payloads[0][1]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["name"]
+    assert span_name == "decorated_func"
+
+
+def test_test_connection_mock(monkeypatch: pytest.MonkeyPatch) -> None:
+    from unittest.mock import MagicMock
+
+    client = OTelTelemetryClient(enabled=True)
+    mock_post = MagicMock(return_value=MagicMock(status_code=200, text="OK"))
+    monkeypatch.setattr("httpx2.Client.post", mock_post)
+
+    ok, msg, latency = client.test_connection(timeout=1.0)
+    assert ok is True
+    assert "HTTP 200 OK" in msg
+    assert latency >= 0

@@ -162,6 +162,10 @@ def query_range(
         response.raise_for_status()
 
     result = PrometheusQueryResult.from_range_response(_read_json(response))
+    if result.status != "success":
+        rprint(f"[red]Query failed: {result.error or 'unknown'}[/red]")
+        raise typer.Exit(1)
+
     total_points = sum(len(s.values) for s in result.series)
     rprint(f"[bold]{expr[:80]}[/bold]")
     rprint(f"{len(result.series)} series, {total_points} total data points (step={step})")

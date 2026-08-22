@@ -502,6 +502,145 @@ def review_export_feedback(status: str = "ALL", output_path: str = "") -> str:
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
+@mcp.tool()
+def tls_generate_ca(
+    output_dir: str = "",
+    common_name: str = "Homelab Root CA",
+    validity_days: int = 3650,
+) -> str:
+    """Generate an X.509 Root CA key pair for local or homelab infrastructure."""
+    cmd = [
+        "uv",
+        "run",
+        "devops",
+        "tls",
+        "ca",
+        "--common-name",
+        common_name,
+        "--validity-days",
+        str(validity_days),
+    ]
+    if output_dir:
+        _validate_mcp_arg("output_dir", output_dir)
+        cmd.extend(["--output-dir", output_dir])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def tls_generate_cert(
+    common_name: str = "localhost",
+    sans: str = "localhost,127.0.0.1,*.homelab.local",
+    output_dir: str = "",
+    validity_days: int = 365,
+) -> str:
+    """Generate an X.509 TLS certificate with Subject Alternative Names signed by local CA."""
+    _validate_mcp_arg("common_name", common_name)
+    cmd = [
+        "uv",
+        "run",
+        "devops",
+        "tls",
+        "cert",
+        "--common-name",
+        common_name,
+        "--validity-days",
+        str(validity_days),
+    ]
+    if output_dir:
+        _validate_mcp_arg("output_dir", output_dir)
+        cmd.extend(["--output-dir", output_dir])
+    for s in sans.split(","):
+        cleaned = s.strip()
+        if cleaned:
+            _validate_mcp_arg("san", cleaned)
+            cmd.extend(["--san", cleaned])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def tls_inspect_cert(cert_path: str) -> str:
+    """Inspect and display metadata, validity, SANs, and expiration of a TLS certificate."""
+    _validate_mcp_arg("cert_path", cert_path)
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "tls", "inspect", cert_path],
+        timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.tool()
+def k8s_create_tls_secret(
+    secret_name: str,
+    namespace: str = "default",
+    cert_path: str = "",
+    key_path: str = "",
+) -> str:
+    """Create or update a kubernetes.io/tls secret in a target namespace."""
+    _validate_mcp_arg("secret_name", secret_name)
+    _validate_mcp_arg("namespace", namespace)
+    cmd = [
+        "uv",
+        "run",
+        "devops",
+        "k8s",
+        "create-tls-secret",
+        secret_name,
+        "--namespace",
+        namespace,
+    ]
+    if cert_path:
+        _validate_mcp_arg("cert_path", cert_path)
+        cmd.extend(["--cert", cert_path])
+    if key_path:
+        _validate_mcp_arg("key_path", key_path)
+        cmd.extend(["--key", key_path])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def k8s_enable_tls(
+    stack: str = "all",
+    secret_name: str = "homelab-tls",
+    context: str = "",
+) -> str:
+    """Apply TLS secrets across Kubernetes cluster namespaces (argocd, monitoring, llm, otel)."""
+    _validate_mcp_arg("stack", stack)
+    _validate_mcp_arg("secret_name", secret_name)
+    cmd = [
+        "uv",
+        "run",
+        "devops",
+        "k8s",
+        "enable-tls",
+        "--stack",
+        stack,
+        "--secret-name",
+        secret_name,
+    ]
+    if context:
+        _validate_mcp_arg("context", context)
+        cmd.extend(["--context", context])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def telemetry_status() -> str:
+    """Check OpenTelemetry collector connectivity, Jaeger UI URL, and active telemetry settings."""
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "telemetry", "status"],
+        timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.tool()
+def telemetry_test_span(name: str = "mcp_test_span") -> str:
+    """Emit a test OpenTelemetry trace span and metric to verify collector pipeline health."""
+    _validate_mcp_arg("name", name)
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "telemetry", "test", "--name", name],
+        timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+    )
+
+
 def list_mcp_tools() -> list[MCPToolInfo]:
     """Return a list of tool names and descriptions registered on the FastMCP server."""
     tools = asyncio.run(mcp.list_tools())

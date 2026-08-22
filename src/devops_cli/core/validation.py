@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ipaddress
 import os
+import re
 import socket
 from pathlib import Path
 from urllib.parse import urlparse
@@ -152,3 +153,11 @@ def validate_version_str(version: str, tool_name: str = "tool") -> str:
     except (InvalidVersion, ValueError) as exc:
         raise ValueError(f"Invalid {tool_name} version string: {version!r}") from exc
     return clean_version.lstrip("v")
+
+
+def validate_session_id(session_id: str) -> str:
+    """Validate that a review session ID conforms to safe alphanumeric identifier format."""
+    clean_id = session_id.strip()
+    if not clean_id or not re.match(r"^[A-Za-z0-9_-]+$", clean_id) or ".." in clean_id:
+        raise ValueError(f"Invalid review session identifier: {session_id!r}")
+    return clean_id

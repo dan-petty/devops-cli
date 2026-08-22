@@ -65,6 +65,22 @@ _COMMAND_SPECS: Final[dict[str, tuple[str, str]]] = {
         "devops_cli.commands.tf",
         "OpenTofu and Terraform Infrastructure-as-Code operations (alias for tf).",
     ),
+    "tls": (
+        "devops_cli.commands.tls",
+        "X.509 TLS certificate generation, inspection, verification, and Kubernetes secrets.",
+    ),
+    "cert": (
+        "devops_cli.commands.tls",
+        "TLS certificate generation and management (alias for tls).",
+    ),
+    "telemetry": (
+        "devops_cli.commands.telemetry",
+        "OpenTelemetry observability, tracing, and metrics management.",
+    ),
+    "otel": (
+        "devops_cli.commands.telemetry",
+        "OpenTelemetry observability and tracing (alias for telemetry).",
+    ),
 }
 
 

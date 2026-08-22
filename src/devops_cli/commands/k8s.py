@@ -18,10 +18,19 @@ from rich import print as rprint
 from rich.console import Console
 from rich.table import Table
 
-from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
+from devops_cli.config.constants import (
+    CONST_SERVER_CERT_NAME,
+    CONST_SERVER_KEY_NAME,
+)
+from devops_cli.config.defaults import (
+    DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
+    DEFAULT_TLS_DIR,
+)
 from devops_cli.core.cli import new_typer
 from devops_cli.core.validation import validate_k8s_name
+from devops_cli.crypto.tls_certificates import generate_homelab_tls_bundle
 from devops_cli.dry_run import CommandDryRunResult, is_dry_run, render_dry_run_result
+from devops_cli.models.tls import KubernetesTLSSecretResult
 
 app = new_typer(help="Kubernetes resource management.", no_args_is_help=True)
 console = Console()
@@ -1235,5 +1244,209 @@ def k8s_check_deprecated(
 
     for f in findings:
         table.add_row(f.severity, f.location, f.title, f.fix or "-")
+
+    console.print(table)
+
+
+@app.command("create-tls-secret")
+def create_tls_secret(
+    secret_name: Annotated[
+        str,
+        typer.Argument(help="Name of the Kubernetes TLS secret to create or update"),
+    ],
+    namespace: Annotated[
+        str,
+        typer.Option("--namespace", "-n", help="Target Kubernetes namespace"),
+    ] = "default",
+    cert_path: Annotated[
+        Path,
+        typer.Option("--cert", help="Path to TLS certificate file (.crt or .pem)"),
+    ] = DEFAULT_TLS_DIR / CONST_SERVER_CERT_NAME,
+    key_path: Annotated[
+        Path,
+        typer.Option("--key", help="Path to TLS private key file (.key or .pem)"),
+    ] = DEFAULT_TLS_DIR / CONST_SERVER_KEY_NAME,
+    context: Annotated[
+        str | None,
+        typer.Option("--context", "-c", help="Kubernetes cluster context"),
+    ] = None,
+) -> None:
+    """Create or update a kubernetes.io/tls secret from certificate and private key files."""
+    if context:
+        _validate_k8s_identifier(context, "context")
+    _validate_k8s_identifier(namespace, "namespace", namespace=True)
+    _validate_k8s_identifier(secret_name, "secret_name")
+
+    if is_dry_run():
+        res = CommandDryRunResult(
+            command="devops k8s create-tls-secret",
+            target=secret_name,
+            action="create_k8s_tls_secret",
+            details={
+                "secret_name": secret_name,
+                "namespace": namespace,
+                "cert_path": str(cert_path),
+                "key_path": str(key_path),
+                "context": context,
+            },
+        )
+        rprint("[yellow][dry-run][/yellow] Command response:")
+        console.print_json(res.model_dump_json(indent=2))
+        return
+
+    if not cert_path.exists():
+        rprint(f"[red]Error: Certificate file not found: {cert_path}[/red]")
+        raise typer.Exit(1)
+    if not key_path.exists():
+        rprint(f"[red]Error: Key file not found: {key_path}[/red]")
+        raise typer.Exit(1)
+
+    kubectl_ctx = ["--context", context] if context else []
+
+    # Ensure namespace exists
+    ns_check = _run_cmd(["kubectl", "get", "namespace", namespace] + kubectl_ctx, check=False)
+    if ns_check.returncode != 0:
+        _run_cmd(["kubectl", "create", "namespace", namespace] + kubectl_ctx, check=True)
+
+    # Delete existing secret to allow clean recreation
+    _run_cmd(
+        ["kubectl", "delete", "secret", secret_name, "-n", namespace] + kubectl_ctx,
+        check=False,
+    )
+
+    create_cmd = [
+        "kubectl",
+        "create",
+        "secret",
+        "tls",
+        secret_name,
+        f"--cert={cert_path}",
+        f"--key={key_path}",
+        "-n",
+        namespace,
+    ] + kubectl_ctx
+
+    rc = _run_cmd(create_cmd, check=False)
+    if rc.returncode == 0:
+        rprint(
+            f"[bold green]✓ Created TLS secret[/bold green] [cyan]{secret_name}[/cyan] "
+            f"in namespace [magenta]{namespace}[/magenta]"
+        )
+    else:
+        rprint(f"[red]Failed to create TLS secret {secret_name} in namespace {namespace}[/red]")
+        raise typer.Exit(1)
+
+
+@app.command("enable-tls")
+def enable_tls_stack(
+    context: Annotated[
+        str | None,
+        typer.Option("--context", "-c", help="Kubernetes cluster context"),
+    ] = None,
+    tls_dir: Annotated[
+        Path,
+        typer.Option("--tls-dir", help="Directory with generated TLS certificates"),
+    ] = DEFAULT_TLS_DIR,
+    secret_name: Annotated[
+        str,
+        typer.Option("--secret-name", help="TLS secret name across namespaces"),
+    ] = "homelab-tls",
+    stack: Annotated[
+        str,
+        typer.Option("--stack", "-s", help="Stack to deploy TLS secrets into (infra, llm, all)"),
+    ] = "all",
+    overwrite: Annotated[
+        bool,
+        typer.Option("--overwrite", "-f", help="Regenerate certs if missing"),
+    ] = False,
+) -> None:
+    """Generate Homelab certificates and apply TLS secrets across Kubernetes cluster namespaces."""
+    if context:
+        _validate_k8s_identifier(context, "context")
+
+    selected_stacks = _resolve_stacks(stack)
+
+    # Resolve target namespaces based on selected stacks
+    namespaces_to_target: list[str] = ["default"]
+    if "infra" in selected_stacks:
+        namespaces_to_target.extend(["argocd", "monitoring", "otel"])
+    if "llm" in selected_stacks:
+        namespaces_to_target.extend(["llm"])
+
+    target_namespaces = list(dict.fromkeys(namespaces_to_target))
+
+    cert_path = tls_dir / CONST_SERVER_CERT_NAME
+    key_path = tls_dir / CONST_SERVER_KEY_NAME
+
+    if is_dry_run():
+        res = CommandDryRunResult(
+            command="devops k8s enable-tls",
+            target=stack,
+            action="enable_k8s_tls_stack",
+            details={
+                "stack": stack,
+                "stacks": selected_stacks,
+                "secret_name": secret_name,
+                "namespaces": target_namespaces,
+                "cert_path": str(cert_path),
+                "key_path": str(key_path),
+                "context": context,
+            },
+        )
+        rprint("[yellow][dry-run][/yellow] Command response:")
+        console.print_json(res.model_dump_json(indent=2))
+        return
+
+    # Generate certificates bundle if needed
+    if not cert_path.exists() or not key_path.exists() or overwrite:
+        rprint("[bold]Generating Homelab TLS certificate bundle...[/bold]")
+        generate_homelab_tls_bundle(output_dir=tls_dir, overwrite=overwrite)
+
+    kubectl_ctx = ["--context", context] if context else []
+    results: list[KubernetesTLSSecretResult] = []
+
+    rprint(
+        f"[bold]Applying TLS secret '[cyan]{secret_name}[/cyan]' "
+        f"across {len(target_namespaces)} namespace(s)...[/bold]"
+    )
+    for ns in target_namespaces:
+        ns_check = _run_cmd(["kubectl", "get", "namespace", ns] + kubectl_ctx, check=False)
+        if ns_check.returncode != 0:
+            _run_cmd(["kubectl", "create", "namespace", ns] + kubectl_ctx, check=False)
+
+        _run_cmd(["kubectl", "delete", "secret", secret_name, "-n", ns] + kubectl_ctx, check=False)
+
+        create_cmd = [
+            "kubectl",
+            "create",
+            "secret",
+            "tls",
+            secret_name,
+            f"--cert={cert_path}",
+            f"--key={key_path}",
+            "-n",
+            ns,
+        ] + kubectl_ctx
+
+        rc = _run_cmd(create_cmd, check=False)
+        results.append(
+            KubernetesTLSSecretResult(
+                secret_name=secret_name,
+                namespace=ns,
+                created=(rc.returncode == 0),
+                cert_path=str(cert_path),
+                key_path=str(key_path),
+                error=None if rc.returncode == 0 else "Failed to create secret via kubectl",
+            )
+        )
+
+    table = Table(title="Kubernetes TLS Secret Deployment", title_style="bold blue")
+    table.add_column("Namespace", style="cyan")
+    table.add_column("Secret Name", style="white")
+    table.add_column("Status", style="bold")
+
+    for r in results:
+        status_str = "[green]✓ Created[/green]" if r.created else f"[red]✗ Failed: {r.error}[/red]"
+        table.add_row(r.namespace, r.secret_name, status_str)
 
     console.print(table)

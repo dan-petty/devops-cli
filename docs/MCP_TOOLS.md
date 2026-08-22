@@ -15,7 +15,9 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`docker_stats`](#docker-stats) | List local Docker images and display container information. |
 | [`grafana_dashboards`](#grafana-dashboards) | List Grafana dashboards, optionally filtered by search query. |
 | [`k8s_bootstrap`](#k8s-bootstrap) | Bootstrap minikube Kubernetes cluster and deploy infrastructure stack. |
+| [`k8s_create_tls_secret`](#k8s-create-tls-secret) | Create or update a kubernetes.io/tls secret in a target namespace. |
 | [`k8s_deploy_stack`](#k8s-deploy-stack) | Deploy infrastructure or LLM stack (Ollama, WebUI, Qdrant, Valkey) to Kubernetes cluster. |
+| [`k8s_enable_tls`](#k8s-enable-tls) | Apply TLS secrets across Kubernetes cluster namespaces (argocd, monitoring, llm, otel). |
 | [`k8s_jaeger_info`](#k8s-jaeger-info) | Retrieve Jaeger distributed tracing Query UI URL and OTLP trace endpoints. |
 | [`k8s_pods`](#k8s-pods) | List Kubernetes pod status for the specified namespace. |
 | [`k8s_status`](#k8s-status) | Display pod status across infrastructure namespaces. |
@@ -38,9 +40,14 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`security_intel_package`](#security-intel-package) | Query OSV.dev and NVD vulnerability databases for package CVE intelligence. |
 | [`ssh_audit`](#ssh-audit) | Audit SSH key expiration dates and key file permissions. |
 | [`ssh_status`](#ssh-status) | Inspect age and rotation status of managed SSH keys in ~/.ssh. |
+| [`telemetry_status`](#telemetry-status) | Check OpenTelemetry collector connectivity, Jaeger UI URL, and active telemetry settings. |
+| [`telemetry_test_span`](#telemetry-test-span) | Emit a test OpenTelemetry trace span and metric to verify collector pipeline health. |
 | [`tf_apply`](#tf-apply) | Apply OpenTofu / Terraform Infrastructure-as-Code changes. |
 | [`tf_output`](#tf-output) | Retrieve OpenTofu / Terraform outputs from state. |
 | [`tf_plan`](#tf-plan) | Generate and inspect an OpenTofu / Terraform execution plan. |
+| [`tls_generate_ca`](#tls-generate-ca) | Generate an X.509 Root CA key pair for local or homelab infrastructure. |
+| [`tls_generate_cert`](#tls-generate-cert) | Generate an X.509 TLS certificate with Subject Alternative Names signed by local CA. |
+| [`tls_inspect_cert`](#tls-inspect-cert) | Inspect and display metadata, validity, SANs, and expiration of a TLS certificate. |
 | [`tofu_apply`](#tofu-apply) | Apply OpenTofu Infrastructure-as-Code changes (alias for tf_apply). |
 | [`tofu_output`](#tofu-output) | Retrieve OpenTofu outputs from state (alias for tf_output). |
 | [`tofu_plan`](#tofu-plan) | Generate and inspect an OpenTofu execution plan (alias for tf_plan). |
@@ -128,6 +135,19 @@ Bootstrap minikube Kubernetes cluster and deploy infrastructure stack.
 |---|---|---|---|---|
 | `auto_start` | `boolean` | No | `True` | - |
 
+### `k8s_create_tls_secret`
+
+Create or update a kubernetes.io/tls secret in a target namespace.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `secret_name` | `string` | Yes | - | - |
+| `namespace` | `string` | No | `default` | - |
+| `cert_path` | `string` | No | `` | - |
+| `key_path` | `string` | No | `` | - |
+
 ### `k8s_deploy_stack`
 
 Deploy infrastructure or LLM stack (Ollama, WebUI, Qdrant, Valkey) to Kubernetes cluster.
@@ -138,6 +158,18 @@ Deploy infrastructure or LLM stack (Ollama, WebUI, Qdrant, Valkey) to Kubernetes
 |---|---|---|---|---|
 | `stack` | `string` | No | `infra` | - |
 | `context` | `string` | No | - | - |
+
+### `k8s_enable_tls`
+
+Apply TLS secrets across Kubernetes cluster namespaces (argocd, monitoring, llm, otel).
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `stack` | `string` | No | `all` | - |
+| `secret_name` | `string` | No | `homelab-tls` | - |
+| `context` | `string` | No | `` | - |
 
 ### `k8s_jaeger_info`
 
@@ -346,6 +378,22 @@ Inspect age and rotation status of managed SSH keys in ~/.ssh.
 
 *No parameters required.*
 
+### `telemetry_status`
+
+Check OpenTelemetry collector connectivity, Jaeger UI URL, and active telemetry settings.
+
+*No parameters required.*
+
+### `telemetry_test_span`
+
+Emit a test OpenTelemetry trace span and metric to verify collector pipeline health.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `name` | `string` | No | `mcp_test_span` | - |
+
 ### `tf_apply`
 
 Apply OpenTofu / Terraform Infrastructure-as-Code changes.
@@ -379,6 +427,41 @@ Generate and inspect an OpenTofu / Terraform execution plan.
 |---|---|---|---|---|
 | `directory` | `string` | No | `.` | - |
 | `var_file` | `string` | No | `` | - |
+
+### `tls_generate_ca`
+
+Generate an X.509 Root CA key pair for local or homelab infrastructure.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `output_dir` | `string` | No | `` | - |
+| `common_name` | `string` | No | `Homelab Root CA` | - |
+| `validity_days` | `integer` | No | `3650` | - |
+
+### `tls_generate_cert`
+
+Generate an X.509 TLS certificate with Subject Alternative Names signed by local CA.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `common_name` | `string` | No | `localhost` | - |
+| `sans` | `string` | No | `localhost,127.0.0.1,*.homelab.local` | - |
+| `output_dir` | `string` | No | `` | - |
+| `validity_days` | `integer` | No | `365` | - |
+
+### `tls_inspect_cert`
+
+Inspect and display metadata, validity, SANs, and expiration of a TLS certificate.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `cert_path` | `string` | Yes | - | - |
 
 ### `tofu_apply`
 

@@ -5,9 +5,11 @@ from __future__ import annotations
 from pathlib import Path
 
 from devops_cli.config.constants import (
+    CONST_CONFIG_DIR,
     CONST_REVIEW_OVERLAP_FACTOR,
     CONST_REVIEW_TIMEOUT_SECONDS,
     CONST_REVIEW_WINDOW_SIZE_FACTOR,
+    CONST_TLS_DIR_NAME,
     CONST_URL_OLLAMA_LOCALHOST,
 )
 from devops_cli.config.metadata import get_project_python_version
@@ -25,6 +27,33 @@ DEFAULT_AI_MAX_RETRIES: int = 2
 DEFAULT_PYTHON_VERSION = get_project_python_version()
 DEFAULT_BUNDLE_MODELS: tuple[str, ...] = ("qwen2.5-coder:7b", "llama3.1:8b")
 DEFAULT_PR_STATE = "open"
+
+# ── TLS & Cryptographic Defaults ──────────────────────────────────────────────
+DEFAULT_TLS_DIR = CONST_CONFIG_DIR / CONST_TLS_DIR_NAME
+DEFAULT_CA_VALIDITY_DAYS: int = 3650  # 10 years for Root CA
+DEFAULT_TLS_VALIDITY_DAYS: int = 365  # 1 year for Server/Client Certs
+DEFAULT_TLS_KEY_SIZE: int = 2048
+DEFAULT_TLS_ORGANIZATION: str = "Homelab DevOps"
+DEFAULT_TLS_COUNTRY: str = "US"
+DEFAULT_HOMELAB_DOMAINS: tuple[str, ...] = (
+    "*.homelab.local",
+    "homelab.local",
+    "*.local",
+    "localhost",
+    "argocd.homelab.local",
+    "grafana.homelab.local",
+    "prometheus.homelab.local",
+    "ollama.homelab.local",
+    "open-webui.homelab.local",
+    "qdrant.homelab.local",
+    "jaeger.homelab.local",
+    "otel.homelab.local",
+)
+DEFAULT_HOMELAB_IPS: tuple[str, ...] = (
+    "127.0.0.1",
+    "::1",
+    "192.168.49.2",  # Minikube standard node IP
+)
 
 # ── RAG & Vector Store Defaults ───────────────────────────────────────────────
 DEFAULT_QDRANT_URL = "http://localhost:6333"

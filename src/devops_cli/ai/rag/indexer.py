@@ -18,6 +18,7 @@ from devops_cli.config.defaults import (
     DEFAULT_RAG_COLLECTION,
     DEFAULT_RAG_DOCS_COLLECTION,
 )
+from devops_cli.telemetry import record_metric, trace_span
 
 logger = logging.getLogger(__name__)
 
@@ -208,9 +209,13 @@ class WorkspaceIndexer:
         progress_callback: Callable[[str, int, int], None] | None = None,
     ) -> dict[str, Any]:
         """Incrementally index workspace files into Qdrant."""
-        files = self.collect_files(root_dir)
-        cache = {} if force else self._load_cache()
-        file_hashes: dict[str, str] = {}
+        with trace_span(
+            "rag.index_workspace",
+            attributes={"root_dir": str(root_dir), "force": force},
+        ):
+            files = self.collect_files(root_dir)
+            cache = {} if force else self._load_cache()
+            file_hashes: dict[str, str] = {}
 
         all_chunks: list[CodeChunk] = []
         files_to_embed: list[Path] = []
@@ -309,6 +314,8 @@ class WorkspaceIndexer:
             )
 
         self._save_cache(cache)
+        record_metric("rag.indexed_chunks_count", float(len(all_chunks)), unit="1")
+        record_metric("rag.indexed_files_count", float(len(files_to_embed)), unit="1")
 
         return {
             "indexed_files": len(files_to_embed),
