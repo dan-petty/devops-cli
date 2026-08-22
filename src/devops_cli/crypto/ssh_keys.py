@@ -27,6 +27,9 @@ def generate_ed25519_key(key_path: Path, comment: str = "") -> None:
     Private key is written to *key_path* (mode 0600).
     Public key is written to *key_path*.pub (mode 0644).
     """
+    if ".." in str(key_path) or not key_path.name.strip():
+        raise ValueError(f"Invalid SSH key path: {key_path}")
+
     private_key = Ed25519PrivateKey.generate()
 
     private_bytes = private_key.private_bytes(
@@ -78,7 +81,7 @@ def get_key_age_days(key_path: Path) -> int:
     key_date = parse_key_date(key_path)
     if key_date is None:
         raise ValueError(f"Cannot parse date from key name: {key_path.name}")
-    return (date.today() - key_date).days
+    return max(0, (date.today() - key_date).days)
 
 
 def find_newest_key(key_dir: Path) -> Path | None:

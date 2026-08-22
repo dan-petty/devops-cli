@@ -36,7 +36,9 @@ alertmanager:
 
 # ── Grafana ───────────────────────────────────────────────────────────────────
 grafana:
-  adminPassword: admin
+  # Provide admin password via Kubernetes Secret or Helm --set-string in production
+  # e.g., adminPasswordFromSecret: grafana-admin-secret
+  adminPassword: ""
 
   service:
     type: NodePort

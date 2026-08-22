@@ -48,6 +48,10 @@ def record_audit_event(
         details=details or {},
     )
 
+    if not dest.exists():
+        fd = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        os.close(fd)
+
     with dest.open("a", encoding="utf-8") as f:
         f.write(record.model_dump_json() + "\n")
 

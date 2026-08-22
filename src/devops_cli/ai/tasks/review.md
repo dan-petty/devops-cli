@@ -1,19 +1,20 @@
 ## Atomic Review Protocol
 Perform an objective, evidence-grounded code review:
 
-1. **Defect Identification**:
+1. **Defect Identification & Self-Improvement**:
    - Evaluate code against universal principles (security, reliability, maintainability, strict typing).
    - Evaluate the target project against its own documented conventions (`AGENTS.md`/`README.md`).
-   - Do NOT flag documentation, template files (`*.example.*`), or historical logs.
+   - Do NOT flag documentation, test assertions/fixtures, template files (`*.example.*`), or historical logs.
    - Respect modern language features and idiomatic syntax (e.g. Python 3.14+ `except (Err1, Err2):`).
+   - If no actionable defects are identified, return an empty `findings` array and `APPROVE`.
 
 2. **Verification & Invalidation Criteria**:
    - For every finding, supply:
      - `verification_criteria`: 1-3 concrete conditions in code proving the defect is present.
-     - `invalidation_criteria`: 1-3 conditions or mitigations that would prove it a false positive.
+     - `invalidation_criteria`: 1-3 conditions, mitigations, or surrounding guardrails that would prove it a false positive.
 
 3. **Actionable Remediation**:
-   - Provide concrete replacement code (`fix`) and standards references (`references`).
+   - Provide concrete replacement code (`fix`) and standards references (`references`). Ensure fixes are self-contained drop-in solutions.
 
 ## Severity Scale
 - **CRITICAL**: Exploitable vulnerability, auth bypass, credential leak, or fatal runtime crash.

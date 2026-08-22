@@ -82,6 +82,8 @@ class BenchmarkRunner:
         server_url: str | None = None,
     ) -> LLMClient:
         """Instantiate an LLMClient for a given model override and server endpoint."""
+        from urllib.parse import urlparse
+
         endpoint = server_url
         clean_model = model_name
         if "@" in model_name:
@@ -95,6 +97,13 @@ class BenchmarkRunner:
 
         updates: dict[str, Any] = {"model": clean_model}
         if endpoint:
+            parsed = urlparse(endpoint)
+            if parsed.scheme not in ("http", "https"):
+                raise ValueError(
+                    f"Invalid server URL scheme '{parsed.scheme}': must be http or https"
+                )
+            if not parsed.hostname:
+                raise ValueError(f"Server URL '{endpoint}' missing valid hostname")
             updates["ollama_urls"] = [endpoint]
             updates["api_base_url"] = endpoint
 
