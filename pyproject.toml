@@ -73,3 +73,6 @@ addopts = "-n auto --maxprocesses=4"
 [tool.coverage.run]
 data_file = ".data/.coverage"
 parallel = true
+
+[tool.uv]
+preview-features = ["malware-check"]
