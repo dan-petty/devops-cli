@@ -8,7 +8,7 @@ from typing import Any
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from devops_cli.models.ai import FileAnalysisMeta
-from devops_cli.models.intelligence import (
+from devops_cli.models.vulnerability import (
     DependencySpec,
     NetworkReference,
     NetworkReputationRecord,

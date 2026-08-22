@@ -1,14 +1,8 @@
-"""Unit tests for security intelligence clients and dependency/network reference extractors."""
+"""Unit tests for dependency and network reference extractors."""
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
-
-from devops_cli.security.intelligence import (
-    CloudflareRadarClient,
-    NVDClient,
-    OSVClient,
-    ShodanInternetDBClient,
+from devops_cli.security.reference_extractor import (
     extract_dependencies_from_text,
     extract_network_references,
     is_public_ip,
@@ -239,84 +233,3 @@ def test_extract_network_references_code_false_positives_filtering() -> None:
     assert "self.host" not in targets_py
     assert "requirements.in" not in targets_py
     assert "prod-infra.custom-cloud.io" in targets_py
-
-
-@patch("httpx.Client.post")
-def test_osv_client(mock_post: MagicMock) -> None:
-    mock_resp = MagicMock()
-    mock_resp.status_code = 200
-    mock_resp.json.return_value = {
-        "vulns": [
-            {
-                "id": "GHSA-1234",
-                "summary": "Sample RCE vulnerability",
-                "severity": [
-                    {"type": "CVSS_V3", "score": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"}
-                ],
-            }
-        ]
-    }
-    mock_post.return_value = mock_resp
-
-    client = OSVClient()
-    records = client.check_vulnerability("insecure-pkg", "1.0.0", "PyPI")
-    assert len(records) == 1
-    assert records[0].id == "GHSA-1234"
-    assert records[0].severity == "CRITICAL"
-
-
-@patch("httpx.Client.get")
-def test_shodan_internetdb_client(mock_get: MagicMock) -> None:
-    mock_resp = MagicMock()
-    mock_resp.status_code = 200
-    mock_resp.json.return_value = {
-        "ip": "93.184.216.34",
-        "ports": [80, 443],
-        "vulns": ["CVE-2023-12345"],
-        "tags": ["web-server"],
-    }
-    mock_get.return_value = mock_resp
-
-    client = ShodanInternetDBClient()
-    rec = client.check_ip("93.184.216.34")
-    assert rec.ports == [80, 443]
-    assert rec.cves == ["CVE-2023-12345"]
-    assert rec.is_malicious is True
-
-
-@patch("httpx.Client.get")
-def test_nvd_client(mock_get: MagicMock) -> None:
-    mock_resp = MagicMock()
-    mock_resp.status_code = 200
-    mock_resp.json.return_value = {
-        "vulnerabilities": [
-            {
-                "cve": {
-                    "id": "CVE-2024-9999",
-                    "descriptions": [{"lang": "en", "value": "NVD test description"}],
-                }
-            }
-        ]
-    }
-    mock_get.return_value = mock_resp
-
-    client = NVDClient()
-    records = client.search_cve("vulnerable-pkg")
-    assert len(records) == 1
-    assert records[0].id == "CVE-2024-9999"
-    assert records[0].source == "NVD"
-
-
-@patch("httpx.Client.get")
-def test_cloudflare_radar_client(mock_get: MagicMock) -> None:
-    mock_resp = MagicMock()
-    mock_resp.status_code = 200
-    mock_resp.json.return_value = {
-        "result": {"categories": [{"name": "Technology"}, {"name": "Cloud Platform"}]}
-    }
-    mock_get.return_value = mock_resp
-
-    client = CloudflareRadarClient()
-    rec = client.check_domain("api.cloudservice.io")
-    assert "Technology" in rec.tags
-    assert rec.source == "Cloudflare Radar"

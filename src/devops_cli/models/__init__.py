@@ -29,6 +29,12 @@ from devops_cli.models.github import SSHKeyInfo
 from devops_cli.models.grafana import GrafanaAlertRule, GrafanaDashboard, GrafanaDatasource
 from devops_cli.models.prometheus import PrometheusQueryResult, PrometheusSeries
 from devops_cli.models.ssh import ManagedSSHKey
+from devops_cli.models.vulnerability import (
+    DependencySpec,
+    NetworkReference,
+    NetworkReputationRecord,
+    VulnerabilityRecord,
+)
 
 __all__ = [
     "AnalysisMetadata",
@@ -39,6 +45,7 @@ __all__ = [
     "BranchListing",
     "ChatMessage",
     "CommandDryRunResult",
+    "DependencySpec",
     "FileAnalysisMeta",
     "GrafanaAlertRule",
     "GrafanaDashboard",
@@ -46,10 +53,13 @@ __all__ = [
     "MCPToolInfo",
     "ManagedSSHKey",
     "ModelBenchmarkSummary",
+    "NetworkReference",
+    "NetworkReputationRecord",
     "PeerGrade",
     "ProjectAnalysisMeta",
     "PrometheusQueryResult",
     "PrometheusSeries",
     "SSHKeyInfo",
     "TaskResponse",
+    "VulnerabilityRecord",
 ]

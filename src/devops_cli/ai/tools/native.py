@@ -316,7 +316,7 @@ def rag_search(
 def scan_osv(package_name: str, version: str = "", ecosystem: str = "PyPI") -> str:
     """Query OSV.dev and NVD vulnerability databases for known package security flaws."""
     try:
-        from devops_cli.security.intelligence import OSVClient
+        from devops_cli.security.vulnerability_lookup import OSVClient
 
         client = OSVClient()
         vulns = client.check_vulnerability(package_name, version=version, ecosystem=ecosystem)
@@ -335,10 +335,10 @@ def scan_osv(package_name: str, version: str = "", ecosystem: str = "PyPI") -> s
 def check_threat_intel(target: str) -> str:
     """Check IP or domain threat intelligence via Shodan InternetDB or Cloudflare Radar."""
     try:
-        from devops_cli.security.intelligence import (
+        from devops_cli.security.reference_extractor import is_public_ip
+        from devops_cli.security.vulnerability_lookup import (
             CloudflareRadarClient,
             ShodanInternetDBClient,
-            is_public_ip,
         )
 
         if is_public_ip(target):

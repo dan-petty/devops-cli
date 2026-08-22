@@ -47,16 +47,20 @@ from devops_cli.config.constants import (
     CONST_REVIEWS_DATA_DIR,
 )
 from devops_cli.models.ai import FileAnalysisMeta
-from devops_cli.security.intelligence import (
-    CloudflareRadarClient,
+from devops_cli.models.vulnerability import (
     DependencySpec,
     NetworkReference,
     NetworkReputationRecord,
-    OSVClient,
-    ShodanInternetDBClient,
     VulnerabilityRecord,
+)
+from devops_cli.security.reference_extractor import (
     extract_dependencies_from_text,
     extract_network_references,
+)
+from devops_cli.security.vulnerability_lookup import (
+    CloudflareRadarClient,
+    OSVClient,
+    ShodanInternetDBClient,
 )
 
 logger = logging.getLogger(__name__)

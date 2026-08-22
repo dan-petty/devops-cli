@@ -527,7 +527,7 @@ def test_generate_consolidated_report_with_intelligence_tables(
         "devops_cli.config.constants.CONST_REVIEWS_DATA_DIR", tmp_path / ".data" / "reviews"
     )
 
-    from devops_cli.models.intelligence import DependencySpec, NetworkReference
+    from devops_cli.models.vulnerability import DependencySpec, NetworkReference
 
     orchestrator = ReviewPipelineOrchestrator(
         session_id="intel-tables-test", llm_client=MagicMock()
