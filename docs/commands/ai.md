@@ -48,7 +48,7 @@ devops ai preload
 
 ## `devops ai test`
 
-**Send a test prompt to verify AI provider connectivity.**
+**Send a test prompt to verify AI provider connectivity across configured servers.**
 
 ```bash
 devops ai test [OPTIONS]
@@ -59,6 +59,7 @@ devops ai test [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--prompt`, `-p` | `string` | `Reply with exactly one word: OK` | Test prompt to send to the provider |
+| `--url`, `-u` | `string` | - | Specific Ollama server URL to test |
 
 ---
 
@@ -421,7 +422,7 @@ devops ai rag index [OPTIONS] <path>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--project`, `-p` | `string` | - | Project / repository name override |
-| `--force`, `--force-reindex`, `-f` | `boolean` | - | Re-index all files ignoring content hash cache |
+| `--force`, `-f` | `boolean` | - | Re-index all files ignoring content hash cache |
 | `--collection`, `-c` | `string` | - | Target collection override |
 
 ### `devops ai rag query`

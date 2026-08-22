@@ -448,24 +448,72 @@ def test(
         str,
         typer.Option("--prompt", "-p", help="Test prompt to send to the provider"),
     ] = "Reply with exactly one word: OK",
+    url: Annotated[
+        str | None,
+        typer.Option("--url", "-u", help="Specific Ollama server URL to test"),
+    ] = None,
 ) -> None:
-    """Send a test prompt to verify AI provider connectivity."""
+    """Send a test prompt to verify AI provider connectivity across configured servers."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
     from devops_cli.ai.client import LLMClient
     from devops_cli.config.settings import get_ai_api_key, load_settings
-    from devops_cli.lang import MESSAGES
 
     settings = load_settings()
+    test_sys_prompt = _load_task_prompt("test_assistant.md")
+
+    if settings.ai.provider == "ollama":
+        urls = [url] if url else settings.ai.get_ollama_urls
+        if len(urls) > 1:
+            rprint(
+                f"Testing Ollama servers ({len(urls)}) | model: [cyan]{settings.ai.model}[/cyan]..."
+            )
+
+            def _test_single(u: str) -> tuple[str, bool, str, str]:
+                sub_cfg = settings.ai.model_copy(update={"ollama_urls": [u]})
+                sub_client = LLMClient(sub_cfg, api_key=get_ai_api_key(settings))
+                try:
+                    resp = sub_client.chat(system=test_sys_prompt, user=prompt)
+                    wall_sec = (
+                        f"{resp.wall_seconds:.2f}s"
+                        if getattr(resp, "wall_seconds", None) is not None
+                        else "0.0s"
+                    )
+                    return (u, True, str(resp).strip(), wall_sec)
+                except Exception as exc:
+                    return (u, False, str(exc), "0.0s")
+
+            all_passed = True
+            with ThreadPoolExecutor(max_workers=len(urls)) as executor:
+                futures = {executor.submit(_test_single, u): u for u in urls}
+                for f in as_completed(futures):
+                    u, ok, ans, wall = f.result()
+                    if ok:
+                        rprint(f"  [cyan]{u}[/cyan]: [green]✓ {ans}[/green] [dim]({wall})[/dim]")
+                    else:
+                        all_passed = False
+                        rprint(f"  [cyan]{u}[/cyan]: [red]✗ failed: {ans}[/red]")
+
+            if not all_passed:
+                raise typer.Exit(1)
+            return
+
     client = LLMClient(settings.ai, api_key=get_ai_api_key(settings))
     rprint(
         f"Testing provider: [cyan]{client.backend_info}[/cyan] | "
         f"model: [cyan]{settings.ai.model}[/cyan]..."
     )
     try:
-        test_sys_prompt = _load_task_prompt("test_assistant.md")
-        reply = client.chat(system=test_sys_prompt, user=prompt)
-        rprint(MESSAGES.ai.test_success.format(reply=reply.strip()))
+        resp = client.chat(system=test_sys_prompt, user=prompt)
+        handled = getattr(resp, "backend_info", None) or client.backend_info
+        wall_sec = (
+            f" in {resp.wall_seconds:.1f}s"
+            if getattr(resp, "wall_seconds", None) is not None
+            else ""
+        )
+        rprint(f"[green]✓ {str(resp).strip()}[/green] [dim](handled by {handled}{wall_sec})[/dim]")
     except Exception as exc:
-        rprint(MESSAGES.ai.test_failed.format(exc=exc))
+        rprint(f"[red]✗ AI provider test failed: {exc}[/red]")
         raise typer.Exit(1)
 
 

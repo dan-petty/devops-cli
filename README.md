@@ -194,7 +194,7 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 | **ai** | `devops ai config [OPTIONS]` | Show or update AI provider configuration. |
 |  | `devops ai models` | List available models for the configured provider. |
 |  | `devops ai preload` | Preload configured model into VRAM across all configured Ollama servers. |
-|  | `devops ai test [OPTIONS]` | Send a test prompt to verify AI provider connectivity. |
+|  | `devops ai test [OPTIONS]` | Send a test prompt to verify AI provider connectivity across configured servers. |
 |  | `devops ai agents [OPTIONS]` | Generate LLM/Agent instruction files (AGENTS.md, CLAUDE.md, copilot-instructions.md). |
 |  | `devops ai chat [OPTIONS]` | Start an interactive chat with a Pydantic AI persona (tools, thinking, streaming, RAG). |
 |  | `devops ai bundle-models [OPTIONS]` | Bundle Ollama model metadata into tarball for air-gapped DevContainers. |

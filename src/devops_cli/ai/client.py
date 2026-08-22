@@ -14,11 +14,13 @@ import json
 import logging
 import os
 import socket
+import tempfile
 import threading
 import time
 from collections.abc import Callable, Generator
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
@@ -76,6 +78,30 @@ class LLMClient:
     _ollama_active_lock = threading.Lock()
     _ollama_semaphores: dict[str, threading.Semaphore] = {}
     _ollama_sem_lock = threading.Lock()
+    _global_ollama_url_index: int = 0
+    _global_ollama_url_lock = threading.Lock()
+
+    @classmethod
+    def _load_and_increment_rr_index(cls, n: int) -> int:
+        """Atomically fetch and increment the round-robin server index across runs."""
+        if n <= 1:
+            return 0
+        uid = os.getuid() if hasattr(os, "getuid") else 0
+        state_file = Path(tempfile.gettempdir()) / f"devops_cli_ollama_rr_{uid}"
+        with cls._global_ollama_url_lock:
+            idx = cls._global_ollama_url_index
+            try:
+                if state_file.exists():
+                    idx = int(state_file.read_text(encoding="utf-8").strip())
+            except Exception:
+                pass
+            next_idx = (idx + 1) % n
+            cls._global_ollama_url_index = next_idx
+            try:
+                state_file.write_text(str(next_idx), encoding="utf-8")
+            except Exception:
+                pass
+            return idx % n
 
     @classmethod
     def _get_ollama_semaphore(cls, url: str, max_parallel: int) -> threading.Semaphore:
@@ -549,10 +575,9 @@ class LLMClient:
         n = len(all_urls)
         if n == 0:
             return [(0, "http://localhost:11434")]
-        with self._ollama_url_lock:
-            start = self._ollama_url_index % n
-            self._ollama_url_index = (start + 1) % n
-            indexed_urls = [((start + i) % n, all_urls[(start + i) % n]) for i in range(n)]
+        start = self._load_and_increment_rr_index(n)
+        candidate_urls = [all_urls[(start + i) % n] for i in range(n)]
+        indexed_urls = list(enumerate(candidate_urls))
 
         max_par = getattr(self._config, "ollama_max_parallel", 2)
         with LLMClient._ollama_active_lock:
