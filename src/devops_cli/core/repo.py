@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import fnmatch
 import subprocess
 from pathlib import Path
 
@@ -90,26 +89,20 @@ def is_ignored_by_git(repo_root: Path, target_path: Path) -> bool:
         except Exception:
             pass
 
-    # 2. Dynamic runtime fallback: match against dynamically loaded .gitignore rules
+    # 2. Dynamic runtime fallback: match against dynamically loaded .gitignore rules using pathspec
     patterns = read_gitignore_patterns(repo_root)
     if not patterns:
         return False
+
+    import pathspec
 
     rel_str = (
         str(target_path.relative_to(repo_root))
         if target_path.is_relative_to(repo_root)
         else target_path.name
     )
-    for pat in patterns:
-        clean_pat = pat.rstrip("/")
-        clean_pat = clean_pat.removeprefix("/")
-        if fnmatch.fnmatch(rel_str, clean_pat) or fnmatch.fnmatch(target_path.name, clean_pat):
-            return True
-        for part in rel_parts:
-            if fnmatch.fnmatch(part, clean_pat):
-                return True
-
-    return False
+    spec = pathspec.PathSpec.from_lines("gitwildmatch", patterns)
+    return bool(spec.match_file(rel_str))
 
 
 def list_repo_files(target_dir: Path) -> list[Path]:

@@ -314,6 +314,13 @@ def config(
         str | None,
         typer.Option("--ollama-urls", help="Ollama server base URLs (comma-separated)"),
     ] = None,
+    ollama_max_parallel: Annotated[
+        int | None,
+        typer.Option(
+            "--ollama-max-parallel",
+            help="Maximum number of simultaneous requests allowed per Ollama server node",
+        ),
+    ] = None,
     api_base_url: Annotated[
         str | None,
         typer.Option("--api-base-url", help="Override API base URL for any provider"),
@@ -336,7 +343,17 @@ def config(
 
     settings = load_settings()
 
-    if not any([provider, model, ollama_urls, api_base_url, api_key, max_retries is not None]):
+    if not any(
+        [
+            provider,
+            model,
+            ollama_urls,
+            ollama_max_parallel is not None,
+            api_base_url,
+            api_key,
+            max_retries is not None,
+        ]
+    ):
         ai = settings.ai
         current_key = get_ai_api_key(settings)
         table = Table(title="AI Configuration")
@@ -345,6 +362,7 @@ def config(
         table.add_row("provider", ai.provider)
         table.add_row("model", ai.model)
         table.add_row("ollama_urls", ", ".join(ai.get_ollama_urls))
+        table.add_row("ollama_max_parallel", str(ai.ollama_max_parallel))
         table.add_row("api_base_url", ai.api_base_url or "(default)")
         key_display = "[green]***set***[/green]" if current_key else "[dim](not set)[/dim]"
         table.add_row("api_key", key_display)
@@ -361,6 +379,8 @@ def config(
         settings.ai.model = model
     if ollama_urls:
         settings.ai.ollama_urls = [u.strip() for u in ollama_urls.split(",") if u.strip()]
+    if ollama_max_parallel is not None:
+        settings.ai.ollama_max_parallel = max(1, ollama_max_parallel)
     if api_base_url:
         settings.ai.api_base_url = api_base_url
     if max_retries is not None:

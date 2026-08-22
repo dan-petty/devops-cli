@@ -63,13 +63,36 @@ _UNICODE_REPLACEMENTS: dict[str, str] = {
 }
 
 
+_TRANSLATE_TABLE = str.maketrans(
+    {
+        "\u200b": "",
+        "\ufeff": "",
+        "\u2011": "-",
+        "\u2010": "-",
+        "\u2012": "-",
+        "\u2013": "-",
+        "\u2014": "-",
+        "\u2018": "'",
+        "\u2019": "'",
+        "\u201c": '"',
+        "\u201d": '"',
+        "\u201a": "'",
+        "\u201e": '"',
+        "\u2032": "'",
+        "\u2033": '"',
+        "\u2026": "...",
+    }
+)
+
+
 def normalize_unicode_text(text: str) -> str:
     """Normalize non-standard Unicode spaces, hyphens, and quotes to standard ASCII."""
     if not text:
         return ""
-    for old, new in _UNICODE_REPLACEMENTS.items():
-        text = text.replace(old, new)
-    return text
+    import unicodedata
+
+    normalized = unicodedata.normalize("NFKC", text)
+    return normalized.translate(_TRANSLATE_TABLE)
 
 
 class Finding(BaseModel):

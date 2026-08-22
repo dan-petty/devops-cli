@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import ipaddress
 import os
-import re
 import socket
 from pathlib import Path
 from urllib.parse import urlparse
@@ -20,7 +19,6 @@ from devops_cli.config.defaults import DEFAULT_DNS_TIMEOUT_SECONDS
 from devops_cli.lang import MESSAGES
 
 _ALLOW_PRIVATE_NETWORK_ENV = "DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK"
-_VERSION_REGEX = re.compile(r"^v?\d+(\.\d+)*(-[a-zA-Z0-9_.]+)?$")
 
 
 def is_non_public_ip(addr: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
@@ -143,9 +141,14 @@ def validate_k8s_name(value: str, label: str = "resource", *, namespace: bool = 
 
 
 def validate_version_str(version: str, tool_name: str = "tool") -> str:
-    """Validate that a version string matches semantic version pattern."""
-    v = version.strip()
-    if not _VERSION_REGEX.match(v):
-        msg = f"Invalid {tool_name} version string: {version!r}"
-        raise ValueError(msg)
-    return v.lstrip("v")
+    """Validate that a version string matches standard PEP 440 / SemVer pattern."""
+    clean_version = version.strip()
+    if not clean_version:
+        raise ValueError(f"Invalid {tool_name} version string: {version!r}")
+    try:
+        from packaging.version import InvalidVersion, Version
+
+        Version(clean_version.lstrip("v"))
+    except (InvalidVersion, ValueError) as exc:
+        raise ValueError(f"Invalid {tool_name} version string: {version!r}") from exc
+    return clean_version.lstrip("v")

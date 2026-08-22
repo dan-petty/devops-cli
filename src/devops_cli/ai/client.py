@@ -74,20 +74,37 @@ class LLMClient:
     _ALLOW_PRIVATE_NETWORK_ENV = "DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK"
     _active_ollama_requests: dict[str, int] = {}
     _ollama_active_lock = threading.Lock()
+    _ollama_semaphores: dict[str, threading.Semaphore] = {}
+    _ollama_sem_lock = threading.Lock()
+
+    @classmethod
+    def _get_ollama_semaphore(cls, url: str, max_parallel: int) -> threading.Semaphore:
+        with cls._ollama_sem_lock:
+            if (
+                url not in cls._ollama_semaphores
+                or getattr(cls._ollama_semaphores[url], "_max_parallel", None) != max_parallel
+            ):
+                sem = threading.Semaphore(max(1, max_parallel))
+                setattr(sem, "_max_parallel", max_parallel)
+                cls._ollama_semaphores[url] = sem
+            return cls._ollama_semaphores[url]
 
     @classmethod
     @contextmanager
-    def _track_ollama_url(cls, url: str) -> Generator[None]:
-        """Track active in-flight requests per Ollama server node."""
-        with cls._ollama_active_lock:
-            cls._active_ollama_requests[url] = cls._active_ollama_requests.get(url, 0) + 1
+    def _track_ollama_url(cls, url: str, max_parallel: int = 2) -> Generator[None]:
+        """Acquire concurrency slot and track active in-flight requests per Ollama server node."""
+        sem = cls._get_ollama_semaphore(url, max_parallel)
+        sem.acquire()
         try:
+            with cls._ollama_active_lock:
+                cls._active_ollama_requests[url] = cls._active_ollama_requests.get(url, 0) + 1
             yield
         finally:
             with cls._ollama_active_lock:
                 cls._active_ollama_requests[url] = max(
                     0, cls._active_ollama_requests.get(url, 0) - 1
                 )
+            sem.release()
 
     def __init__(
         self,
@@ -537,10 +554,15 @@ class LLMClient:
             self._ollama_url_index = (start + 1) % n
             indexed_urls = [((start + i) % n, all_urls[(start + i) % n]) for i in range(n)]
 
+        max_par = getattr(self._config, "ollama_max_parallel", 2)
         with LLMClient._ollama_active_lock:
             sorted_candidates = sorted(
                 indexed_urls,
-                key=lambda item: (LLMClient._active_ollama_requests.get(item[1], 0), item[0]),
+                key=lambda item: (
+                    1 if LLMClient._active_ollama_requests.get(item[1], 0) >= max_par else 0,
+                    LLMClient._active_ollama_requests.get(item[1], 0),
+                    item[0],
+                ),
             )
 
         return [(idx, url) for idx, url in sorted_candidates]
@@ -549,6 +571,7 @@ class LLMClient:
         self, system: str, messages: list[ChatMessage], *, enable_thinking: bool = True
     ) -> LLMResponse:
         candidates = self._get_ollama_urls_loop()
+        max_par = getattr(self._config, "ollama_max_parallel", 2)
         last_exc: Exception | None = None
 
         for idx, candidate_url in candidates:
@@ -560,7 +583,7 @@ class LLMClient:
                 )
                 use_thinking = enable_thinking and self._ollama_thinking_supported is not False
                 try:
-                    with self._track_ollama_url(candidate_url):
+                    with self._track_ollama_url(candidate_url, max_parallel=max_par):
                         res = self._ollama_request(base, system, messages, use_thinking)
                         return res
                 except httpx2.HTTPStatusError as exc:
@@ -569,7 +592,7 @@ class LLMClient:
                         and "does not support thinking" in exc.response.text
                     ):
                         self._ollama_thinking_supported = False
-                        with self._track_ollama_url(candidate_url):
+                        with self._track_ollama_url(candidate_url, max_parallel=max_par):
                             res = self._ollama_request(base, system, messages, think=False)
                             return res
                     msg_text = exc.response.text[:300].strip() or "(empty)"
@@ -772,6 +795,7 @@ class LLMClient:
         self, system: str, messages: list[ChatMessage], *, enable_thinking: bool = True
     ) -> Generator[str]:
         candidates = self._get_ollama_urls_loop()
+        max_par = getattr(self._config, "ollama_max_parallel", 2)
         last_exc: Exception | None = None
 
         for idx, candidate_url in candidates:
@@ -783,18 +807,22 @@ class LLMClient:
                 )
                 use_thinking = enable_thinking and self._ollama_thinking_supported is not False
                 try:
-                    yield from self._ollama_stream_request(
-                        base, system, messages, think=use_thinking
-                    )
-                    return
+                    with self._track_ollama_url(candidate_url, max_parallel=max_par):
+                        yield from self._ollama_stream_request(
+                            base, system, messages, think=use_thinking
+                        )
+                        return
                 except httpx2.HTTPStatusError as exc:
                     if (
                         exc.response.status_code == 400
                         and "does not support thinking" in exc.response.text
                     ):
                         self._ollama_thinking_supported = False
-                        yield from self._ollama_stream_request(base, system, messages, think=False)
-                        return
+                        with self._track_ollama_url(candidate_url, max_parallel=max_par):
+                            yield from self._ollama_stream_request(
+                                base, system, messages, think=False
+                            )
+                            return
                     body = exc.response.text[:300].strip()
                     msg_text = body or "(empty)"
                     raise AIClientError(

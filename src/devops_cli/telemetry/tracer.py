@@ -176,8 +176,30 @@ def get_tracer() -> OTelTelemetryClient:
     """Return the global singleton OTelTelemetryClient instance."""
     global _GLOBAL_TRACER
     if _GLOBAL_TRACER is None:
-        endpoint = os.getenv("DEVOPS_OTEL_ENDPOINT", "http://localhost:4318")
-        enabled = os.getenv("DEVOPS_TELEMETRY_ENABLED", "true").lower() in ("true", "1")
+        from devops_cli.config.settings import load_settings
+
+        try:
+            settings = load_settings()
+            telemetry_cfg = getattr(settings, "telemetry", None) or getattr(settings, "otel", None)
+            cfg_endpoint = (
+                telemetry_cfg.endpoint
+                if telemetry_cfg and hasattr(telemetry_cfg, "endpoint")
+                else None
+            )
+            cfg_enabled = (
+                telemetry_cfg.enabled
+                if telemetry_cfg and hasattr(telemetry_cfg, "enabled")
+                else True
+            )
+        except Exception:
+            cfg_endpoint = None
+            cfg_enabled = True
+
+        endpoint = os.getenv("DEVOPS_OTEL_ENDPOINT") or cfg_endpoint or "http://localhost:4318"
+        env_enabled = os.getenv("DEVOPS_TELEMETRY_ENABLED")
+        enabled = (
+            (env_enabled.lower() in ("true", "1")) if env_enabled is not None else bool(cfg_enabled)
+        )
         _GLOBAL_TRACER = OTelTelemetryClient(endpoint=endpoint, enabled=enabled)
     return _GLOBAL_TRACER
 

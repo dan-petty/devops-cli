@@ -7,54 +7,9 @@ import hashlib
 import re
 from pathlib import Path
 
+from devops_cli.ai.analyze.scanner import detect_language
 from devops_cli.ai.rag.metadata import extract_code_metadata, extract_doc_metadata
 from devops_cli.ai.rag.models import CodeChunk
-
-_LANGUAGE_MAP: dict[str, str] = {
-    ".py": "python",
-    ".go": "go",
-    ".rs": "rust",
-    ".ts": "typescript",
-    ".tsx": "typescript",
-    ".js": "javascript",
-    ".jsx": "javascript",
-    ".mjs": "javascript",
-    ".cjs": "javascript",
-    ".java": "java",
-    ".kt": "kotlin",
-    ".kts": "kotlin",
-    ".cs": "csharp",
-    ".cpp": "cpp",
-    ".cc": "cpp",
-    ".cxx": "cpp",
-    ".c": "c",
-    ".h": "c",
-    ".hpp": "cpp",
-    ".rb": "ruby",
-    ".php": "php",
-    ".swift": "swift",
-    ".scala": "scala",
-    ".sh": "shell",
-    ".bash": "shell",
-    ".zsh": "shell",
-    ".fish": "shell",
-    ".ps1": "powershell",
-    ".lua": "lua",
-    ".sql": "sql",
-    ".tf": "terraform",
-    ".hcl": "hcl",
-    ".yaml": "yaml",
-    ".yml": "yaml",
-    ".json": "json",
-    ".toml": "toml",
-    ".md": "markdown",
-    ".markdown": "markdown",
-    ".rst": "rst",
-    ".adoc": "asciidoc",
-    ".asciidoc": "asciidoc",
-    ".org": "org",
-    ".txt": "text",
-}
 
 _DOC_EXTENSIONS = {".md", ".markdown", ".rst", ".adoc", ".asciidoc", ".org", ".txt"}
 _IAC_EXTENSIONS = {".tf", ".hcl", ".tfvars"}
@@ -86,7 +41,7 @@ class SemanticChunker:
 
         rel_path = str(file_path.relative_to(relative_to)) if relative_to else str(file_path)
         suffix = file_path.suffix.lower()
-        language = _LANGUAGE_MAP.get(suffix, suffix.lstrip(".") or "text")
+        language = detect_language(file_path, content)
 
         # Determine semantic category
         if suffix in _DOC_EXTENSIONS or "doc" in rel_path.lower():

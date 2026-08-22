@@ -16,6 +16,7 @@ ARGOCD_TOKEN = "argocd.token"
 AI_PROVIDER = "ai.provider"
 AI_MODEL = "ai.model"
 AI_OLLAMA_URLS = "ai.ollama_urls"
+AI_OLLAMA_MAX_PARALLEL = "ai.ollama_max_parallel"
 AI_API_BASE_URL = "ai.api_base_url"
 AI_API_KEY = "ai.api_key"
 AI_ALLOW_PRIVATE_NETWORK = "ai.allow_private_network"
@@ -55,6 +56,7 @@ CONFIG_OPTIONS: tuple[str, ...] = (
     AI_PROVIDER,
     AI_MODEL,
     AI_OLLAMA_URLS,
+    AI_OLLAMA_MAX_PARALLEL,
     AI_API_BASE_URL,
     AI_API_KEY,
     AI_ALLOW_PRIVATE_NETWORK,

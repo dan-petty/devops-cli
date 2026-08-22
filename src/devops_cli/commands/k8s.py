@@ -817,6 +817,8 @@ def configure_urls(
         if jaeger_url:
             dotted_set(settings, "jaeger.url", jaeger_url)
             configured["jaeger.url"] = jaeger_url
+            dotted_set(settings, "otel.endpoint", "http://localhost:4318")
+            configured["otel.endpoint"] = "http://localhost:4318"
 
     if "llm" in selected_stacks:
         raw_ollama = _detect_service_url("ollama", "llm", context=context)
@@ -870,6 +872,9 @@ def port_forward(
     jaeger_port: Annotated[
         int, typer.Option("--jaeger-port", help="Local port for Jaeger Query UI")
     ] = 16686,
+    otel_port: Annotated[
+        int, typer.Option("--otel-port", help="Local port for OpenTelemetry OTLP Traces (HTTP)")
+    ] = 4318,
     ollama_port: Annotated[
         int, typer.Option("--ollama-port", help="Local port for Ollama")
     ] = 11434,
@@ -900,6 +905,7 @@ def port_forward(
                 "grafana.url": f"http://localhost:{grafana_port}",
                 "prometheus.url": f"http://localhost:{prometheus_port}",
                 "jaeger.url": f"http://localhost:{jaeger_port}",
+                "otel.endpoint": f"http://localhost:{otel_port}",
             }
         )
     if "llm" in selected_stacks:
@@ -936,6 +942,7 @@ def port_forward(
                 ("monitoring", "svc/kube-prometheus-grafana", grafana_port, 80),
                 ("monitoring", "svc/kube-prometheus-kube-prome-prometheus", prometheus_port, 9090),
                 ("otel", "svc/jaeger", jaeger_port, 16686),
+                ("otel", "svc/jaeger", otel_port, 4318),
             ]
         )
     if "llm" in selected_stacks:

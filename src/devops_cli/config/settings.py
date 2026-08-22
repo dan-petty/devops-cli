@@ -33,6 +33,7 @@ from devops_cli.config.defaults import (
     DEFAULT_AI_MODEL,
     DEFAULT_AI_PROVIDER,
     DEFAULT_JAEGER_URL,
+    DEFAULT_OLLAMA_MAX_PARALLEL,
     DEFAULT_OLLAMA_URLS,
     DEFAULT_OTEL_ENDPOINT,
     DEFAULT_QDRANT_URL,
@@ -134,6 +135,7 @@ class AITaskOverride(BaseModel):
     provider: str | None = None
     model: str | None = None
     ollama_urls: list[str] | None = None
+    ollama_max_parallel: int | None = None
     api_base_url: str | None = None
     max_retries: int | None = None
 
@@ -151,6 +153,7 @@ class AIConfig(BaseModel):
     provider: str = DEFAULT_AI_PROVIDER  # ollama | claude | copilot | openai
     model: str = DEFAULT_AI_MODEL
     ollama_urls: list[str] = Field(default_factory=lambda: list(DEFAULT_OLLAMA_URLS))
+    ollama_max_parallel: int = DEFAULT_OLLAMA_MAX_PARALLEL
     api_base_url: str | None = None
     allow_private_network: bool = False
     max_retries: int = DEFAULT_AI_MAX_RETRIES
@@ -175,6 +178,7 @@ class AIConfig(BaseModel):
                 "provider": override.provider,
                 "model": override.model,
                 "ollama_urls": override.ollama_urls,
+                "ollama_max_parallel": override.ollama_max_parallel,
                 "api_base_url": override.api_base_url,
                 "max_retries": override.max_retries,
             }.items()
@@ -353,7 +357,8 @@ def get_llm_client(task: str | None = None) -> Any:
 
 def dotted_get(settings: Settings, key: str) -> Any:
     """Get a config value by dotted key, e.g. 'github.default_org'."""
-    return operator.attrgetter(key)(settings)
+    normalized_key = "telemetry." + key[5:] if key.startswith("otel.") else key
+    return operator.attrgetter(normalized_key)(settings)
 
 
 def dotted_set(settings: Settings, key: str, value: str) -> None:
@@ -361,7 +366,8 @@ def dotted_set(settings: Settings, key: str, value: str) -> None:
     if key in _SECRET_FIELDS:
         _keyring_set(_KEYRING_KEYS[key], value)
         return
-    parts = key.split(".", 1)
+    normalized_key = "telemetry." + key[5:] if key.startswith("otel.") else key
+    parts = normalized_key.split(".", 1)
     if len(parts) == 1:
         target = getattr(settings, parts[0], None)
         if isinstance(target, BaseModel):

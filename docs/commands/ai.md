@@ -19,6 +19,7 @@ devops ai config [OPTIONS]
 | `--provider`, `-p` | `string` | - | Provider: ollama, claude, copilot, openai |
 | `--model`, `-m` | `string` | - | Model name, e.g. gemma4:26b, claude-opus-4-5 |
 | `--ollama-urls` | `string` | - | Ollama server base URLs (comma-separated) |
+| `--ollama-max-parallel` | `integer` | - | Maximum number of simultaneous requests allowed per Ollama server node |
 | `--api-base-url` | `string` | - | Override API base URL for any provider |
 | `--api-key` | `string` | - | API key — stored in OS keyring, not config file |
 | `--max-retries` | `integer` | - | Maximum retry count for AI requests upon failure |

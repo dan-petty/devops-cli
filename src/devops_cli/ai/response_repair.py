@@ -9,37 +9,39 @@ from __future__ import annotations
 
 import json
 import re
+import unicodedata
 from typing import Any
 
 import json_repair
 from pydantic import BaseModel, Field
 
-_UNICODE_MAP: dict[str, str] = {
-    "\u202f": " ",
-    "\u00a0": " ",
-    "\u200b": "",
-    "\u2009": " ",
-    "\u200a": " ",
-    "\u2002": " ",
-    "\u2003": " ",
-    "\u3000": " ",
-    "\ufeff": "",
-    "\u2011": "-",
-    "\u201c": '"',
-    "\u201d": '"',
-    "\u2018": "'",
-    "\u2019": "'",
-}
+_TRANSLATE_TABLE = str.maketrans(
+    {
+        "\u200b": "",
+        "\ufeff": "",
+        "\u201c": '"',
+        "\u201d": '"',
+        "\u2018": "'",
+        "\u2019": "'",
+        "\u2011": "-",
+        "\u2010": "-",
+        "\u2012": "-",
+        "\u2013": "-",
+        "\u2014": "-",
+        "\u201a": "'",
+        "\u201e": '"',
+        "\u2032": "'",
+        "\u2033": '"',
+    }
+)
 
 
 def normalize_raw_llm_text(text: str) -> str:
     """Normalize unicode spaces, smart quotes, zero-width characters, and control codes."""
     if not text:
         return ""
-    for char, replacement in _UNICODE_MAP.items():
-        if char in text:
-            text = text.replace(char, replacement)
-    return text
+    normalized = unicodedata.normalize("NFKC", text)
+    return normalized.translate(_TRANSLATE_TABLE)
 
 
 def repair_json_string(text: str) -> Any:

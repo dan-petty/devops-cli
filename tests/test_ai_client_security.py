@@ -235,3 +235,45 @@ def test_llm_response_processing_time(monkeypatch: pytest.MonkeyPatch) -> None:
     assert isinstance(res, str)
     assert res == "Done"
     assert res.processing_seconds == 10.0
+
+
+def test_ollama_max_parallel_concurrency_slots(monkeypatch: pytest.MonkeyPatch) -> None:
+    import threading
+    import time
+    from concurrent.futures import ThreadPoolExecutor
+
+    cfg = AIConfig(
+        provider="ollama",
+        ollama_urls=["http://localhost:11434"],
+        ollama_max_parallel=2,
+    )
+    client = LLMClient(cfg)
+    concurrent_active = 0
+    max_observed_concurrent = 0
+    lock = threading.Lock()
+
+    def fake_post(_self: object, url: str, **kwargs: object) -> httpx2.Response:
+        if "api/chat" in url:
+            nonlocal concurrent_active, max_observed_concurrent
+            with lock:
+                concurrent_active += 1
+                if concurrent_active > max_observed_concurrent:
+                    max_observed_concurrent = concurrent_active
+            time.sleep(0.05)
+            with lock:
+                concurrent_active -= 1
+        return httpx2.Response(
+            200,
+            json={"message": {"role": "assistant", "content": "Parallel reply"}},
+            request=httpx2.Request("POST", url),
+        )
+
+    monkeypatch.setattr("httpx2.Client.post", fake_post)
+
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        futures = [executor.submit(client.chat, "sys", f"user {i}") for i in range(5)]
+        results = [f.result() for f in futures]
+
+    assert len(results) == 5
+    assert all(r == "Parallel reply" for r in results)
+    assert max_observed_concurrent <= 2

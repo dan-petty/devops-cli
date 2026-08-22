@@ -27,6 +27,8 @@ dependencies = [
     "pydantic-settings>=2.4.0",
     "json-repair>=0.63.3",
     "tldextract>=5.3.2",
+    "pathspec>=0.12.1",
+    "packaging>=24.0",
 ]
 
 [project.scripts]

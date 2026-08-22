@@ -33,8 +33,13 @@ spec:
               value: "/root/.ollama/models"
             - name: OLLAMA_CONTEXT_LENGTH
               value: "64000"
+            - name: OLLAMA_MAX_LOADED_MODELS
+              value: "2"
+            - name: OLLAMA_NUM_PARALLEL
+              value: "2"
             - name: OLLAMA_KV_CACHE_TYPE
-              value: "q8_0"
+              # value: "q8_0"
+              value: "q4_0"
             - name: OLLAMA_NO_CLOUD
               value: "1"
             - name: NVIDIA_VISIBLE_DEVICES

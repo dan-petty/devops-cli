@@ -45,7 +45,7 @@ config:
 
     # Prometheus remote write to in-cluster Prometheus
     prometheusremotewrite:
-      endpoint: http://kube-prometheus-kube-prom-prometheus.monitoring.svc:9090/api/v1/write
+      endpoint: http://kube-prometheus-kube-prome-prometheus.monitoring.svc.cluster.local:9090/api/v1/write
 
   service:
     pipelines:
@@ -69,6 +69,8 @@ service:
   type: NodePort
 
 ports:
+  metrics:
+    enabled: true
   otlp:
     enabled: true
   otlp-http:

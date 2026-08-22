@@ -62,6 +62,7 @@ from devops_cli.security.vulnerability_lookup import (
     OSVClient,
     ShodanInternetDBClient,
 )
+from devops_cli.telemetry import trace_span
 
 logger = logging.getLogger(__name__)
 
@@ -148,17 +149,20 @@ class ReviewPipelineOrchestrator:
             return {}
 
         self.target_dir = target_dir
-        repo = find_repo_root(target_dir)
-        target_abs = (
-            target_dir.resolve() if target_dir.is_absolute() else (repo / target_dir).resolve()
-        )
-        rprint(f"[dim]Stage 1/6: Scanning pre-analysis metadata for '{target_ref}'...[/dim]")
+        with trace_span(
+            "review.pre_analysis", attributes={"target_ref": target_ref, "target_type": target_type}
+        ):
+            repo = find_repo_root(target_dir)
+            target_abs = (
+                target_dir.resolve() if target_dir.is_absolute() else (repo / target_dir).resolve()
+            )
+            rprint(f"[dim]Stage 1/6: Scanning pre-analysis metadata for '{target_ref}'...[/dim]")
 
-        existing_file_metas: dict[str, FileAnalysisMeta] = {}
-        cached_meta = load_cached_analysis(repo)
-        if cached_meta and not force_refresh:
-            for fmeta in cached_meta.files:
-                existing_file_metas[fmeta.path] = fmeta
+            existing_file_metas: dict[str, FileAnalysisMeta] = {}
+            cached_meta = load_cached_analysis(repo)
+            if cached_meta and not force_refresh:
+                for fmeta in cached_meta.files:
+                    existing_file_metas[fmeta.path] = fmeta
 
         collected_paths: list[Path] = []
         if target_abs.exists():
@@ -876,12 +880,13 @@ class ReviewPipelineOrchestrator:
         self, file_payloads: list[FileReviewPayload]
     ) -> tuple[dict[str, Any], str]:
         """Generate consolidated findings.json and client-facing Markdown report."""
-        rprint(f"[dim]Stage 6/6: Generating report for session '{self.session_id}'...[/dim]")
-        all_findings: list[SavedFinding] = []
-        for payload in file_payloads:
-            for f in payload.findings:
-                if f.status != "INVALIDATED" and f.reportable:
-                    all_findings.append(f)
+        with trace_span("review.generate_report", attributes={"session_id": self.session_id}):
+            rprint(f"[dim]Stage 6/6: Generating report for session '{self.session_id}'...[/dim]")
+            all_findings: list[SavedFinding] = []
+            for payload in file_payloads:
+                for f in payload.findings:
+                    if f.status != "INVALIDATED" and f.reportable:
+                        all_findings.append(f)
 
         all_findings = consolidate_duplicate_findings(all_findings)
 
