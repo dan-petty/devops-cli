@@ -57,6 +57,7 @@ from devops_cli.config.settings import Settings, get_ai_api_key, load_settings
 from devops_cli.core.process import run_subprocess as _run_subprocess
 from devops_cli.dry_run import is_dry_run
 from devops_cli.models.ai import FileAnalysisMeta
+from devops_cli.telemetry import trace_span
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -1332,33 +1333,43 @@ def _execute_review_workflow(
     if not is_dry_run() and type(clients.analysis).__name__ == "LLMClient":
         server_info = orchestrator._get_server_info()
         n_af = len(all_files)
-        rprint(
-            f"[bold cyan]Initializing review pipeline session '{orchestrator.session_id}' "
-            f"for {n_af} file(s) via {server_info}...[/bold cyan]"
-        )
-        metadata_by_path = orchestrator.run_pre_analysis_refresh(
-            target_dir=target_dir,
-            target_type=target_type,
-            target_ref=target_ref,
-        )
-        if all_files:
-            payloads = orchestrator.init_per_file_payloads(
-                all_files, metadata_by_path, target_dir=target_dir
+        all_p = ["devsecops", "architect", "qa", "auditor", "pm"]
+        active_p = [persona.value] if persona else (all_p if all_personas else ["devsecops"])
+        with trace_span(
+            "review.session",
+            attributes={
+                "session_id": orchestrator.session_id,
+                "target_type": target_type,
+                "target_ref": target_ref,
+                "file_count": n_af,
+                "personas": ", ".join(active_p),
+            },
+        ):
+            rprint(
+                f"[bold cyan]Initializing review pipeline session '{orchestrator.session_id}' "
+                f"for {n_af} file(s) via {server_info}...[/bold cyan]"
             )
-            diff_text_by_file = {
-                f: "\n".join([page for page in pages if f in page]) for f in all_files
-            }
-            all_p = ["devsecops", "architect", "qa", "auditor", "pm"]
-            active_p = [persona.value] if persona else (all_p if all_personas else ["devsecops"])
-            orchestrator.execute_multi_persona_review(
-                payloads, diff_text_by_file=diff_text_by_file, personas=active_p
+            metadata_by_path = orchestrator.run_pre_analysis_refresh(
+                target_dir=target_dir,
+                target_type=target_type,
+                target_ref=target_ref,
             )
-            orchestrator.execute_finding_verification(payloads)
-            orchestrator.execute_finding_reranking(payloads)
-            _, report_md = orchestrator.generate_consolidated_report(payloads)
+            if all_files:
+                payloads = orchestrator.init_per_file_payloads(
+                    all_files, metadata_by_path, target_dir=target_dir
+                )
+                diff_text_by_file = {
+                    f: "\n".join([page for page in pages if f in page]) for f in all_files
+                }
+                orchestrator.execute_multi_persona_review(
+                    payloads, diff_text_by_file=diff_text_by_file, personas=active_p
+                )
+                orchestrator.execute_finding_verification(payloads)
+                orchestrator.execute_finding_reranking(payloads)
+                _, report_md = orchestrator.generate_consolidated_report(payloads)
 
-            p_def = PERSONAS[persona or Persona.DEVSECOPS]
-            return [(p_def, report_md)]
+                p_def = PERSONAS[persona or Persona.DEVSECOPS]
+                return [(p_def, report_md)]
 
     if summary_only:
         rprint(f"[dim]{MESSAGES.review.generating_metadata}[/dim]")

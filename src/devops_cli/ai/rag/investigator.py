@@ -49,11 +49,17 @@ def investigate_rag_context(
     if not st.ai.rag.enabled:
         return None
 
+    max_query_len = 2048
+    is_truncated = len(clean_query) > max_query_len
+    search_query = clean_query[:max_query_len] if is_truncated else clean_query
+
     t0 = time.perf_counter()
     with trace_span(
         "ai.rag.investigation",
         {
             "query_length": len(clean_query),
+            "search_query_length": len(search_query),
+            "query_truncated": is_truncated,
             "persona": persona or "none",
             "project": project or "all",
         },
@@ -86,7 +92,7 @@ def investigate_rag_context(
 
             if persona:
                 ctx = retriever.retrieve_context_for_persona(
-                    clean_query,
+                    search_query,
                     persona=persona,
                     top_k=top_k,
                     score_threshold=score_threshold,
@@ -95,7 +101,7 @@ def investigate_rag_context(
                 )
             else:
                 ctx = retriever.retrieve_context(
-                    clean_query,
+                    search_query,
                     top_k=top_k,
                     score_threshold=score_threshold,
                     project=project,

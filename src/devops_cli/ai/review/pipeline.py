@@ -178,7 +178,8 @@ class ReviewPipelineOrchestrator:
 
         self.target_dir = target_dir
         with trace_span(
-            "review.pre_analysis", attributes={"target_ref": target_ref, "target_type": target_type}
+            "review.stage_1_pre_analysis",
+            attributes={"target_ref": target_ref, "target_type": target_type},
         ):
             repo = find_repo_root(target_dir)
             target_abs = (
@@ -192,86 +193,88 @@ class ReviewPipelineOrchestrator:
                 for fmeta in cached_meta.files:
                     existing_file_metas[fmeta.path] = fmeta
 
-        collected_paths: list[Path] = []
-        if target_abs.exists():
-            if target_abs.is_file():
-                collected_paths = [target_abs]
+            collected_paths: list[Path] = []
+            if target_abs.exists():
+                if target_abs.is_file():
+                    collected_paths = [target_abs]
+                else:
+                    collected_paths = list_repo_files(target_abs)
             else:
-                collected_paths = list_repo_files(target_abs)
-        else:
-            collected_paths = list_repo_files(repo)
+                collected_paths = list_repo_files(repo)
 
-        metadata_by_path: dict[str, FileAnalysisMeta] = {}
-        updated_any = False
-        file_metas: list[FileAnalysisMeta] = []
+            metadata_by_path: dict[str, FileAnalysisMeta] = {}
+            updated_any = False
+            file_metas: list[FileAnalysisMeta] = []
 
-        config = getattr(self.llm_client, "_config", None)
-        raw_urls = getattr(config, "get_ollama_urls", None)
-        ollama_urls = raw_urls if isinstance(raw_urls, list) else ["http://localhost:11434"]
-        raw_par = getattr(config, "ollama_max_parallel", None)
-        max_par = int(raw_par) if isinstance(raw_par, int) else 2
-        batch_capacity = max(1, len(ollama_urls) * max_par)
+            config = getattr(self.llm_client, "_config", None)
+            raw_urls = getattr(config, "get_ollama_urls", None)
+            ollama_urls = raw_urls if isinstance(raw_urls, list) else ["http://localhost:11434"]
+            raw_par = getattr(config, "ollama_max_parallel", None)
+            max_par = int(raw_par) if isinstance(raw_par, int) else 2
+            batch_capacity = max(1, len(ollama_urls) * max_par)
 
-        paths_to_analyze: list[tuple[Path, str]] = []
-        for p in collected_paths:
-            if p.stat().st_size > CONST_MAX_FILE_SIZE_BYTES:
-                continue
-            rel_str = str(p.relative_to(repo)) if p.is_relative_to(repo) else str(p)
-            try:
-                file_mtime = datetime.fromtimestamp(p.stat().st_mtime, UTC)
-                if not force_refresh and rel_str in existing_file_metas:
-                    old_meta = existing_file_metas[rel_str]
-                    if old_meta.last_analyzed and old_meta.pseudocode:
-                        try:
-                            analyzed_dt = datetime.fromisoformat(old_meta.last_analyzed)
-                            if file_mtime <= analyzed_dt:
-                                reused_meta = old_meta.model_copy(
-                                    update={"last_analyzed": datetime.now(UTC).isoformat()}
-                                )
-                                file_metas.append(reused_meta)
-                                metadata_by_path[rel_str] = reused_meta
-                                continue
-                        except Exception:
-                            pass
-
-                paths_to_analyze.append((p, rel_str))
-            except Exception:
-                continue
-
-        if paths_to_analyze:
-
-            def _analyze_path(item: tuple[Path, str]) -> FileAnalysisMeta | None:
-                path_obj, rel_path = item
+            paths_to_analyze: list[tuple[Path, str]] = []
+            for p in collected_paths:
+                if p.stat().st_size > CONST_MAX_FILE_SIZE_BYTES:
+                    continue
+                rel_str = str(p.relative_to(repo)) if p.is_relative_to(repo) else str(p)
                 try:
-                    content = path_obj.read_text(encoding="utf-8", errors="replace")
-                    return analyze_single_file(
-                        rel_path,
-                        content,
-                        path_obj.stat().st_size,
-                        enhanced=True,
-                        repo_root=repo,
-                        ai_client=self.llm_client,
-                    )
+                    file_mtime = datetime.fromtimestamp(p.stat().st_mtime, UTC)
+                    if not force_refresh and rel_str in existing_file_metas:
+                        old_meta = existing_file_metas[rel_str]
+                        if old_meta.last_analyzed and old_meta.pseudocode:
+                            try:
+                                analyzed_dt = datetime.fromisoformat(old_meta.last_analyzed)
+                                if file_mtime <= analyzed_dt:
+                                    reused_meta = old_meta.model_copy(
+                                        update={"last_analyzed": datetime.now(UTC).isoformat()}
+                                    )
+                                    file_metas.append(reused_meta)
+                                    metadata_by_path[rel_str] = reused_meta
+                                    continue
+                            except Exception:
+                                pass
+
+                    paths_to_analyze.append((p, rel_str))
                 except Exception:
-                    return None
+                    continue
 
-            with ThreadPoolExecutor(
-                max_workers=min(len(paths_to_analyze), batch_capacity)
-            ) as executor:
-                for meta in executor.map(_analyze_path, paths_to_analyze):
-                    if meta is not None:
-                        file_metas.append(meta)
-                        metadata_by_path[meta.path] = meta
-                        updated_any = True
+            if paths_to_analyze:
 
-        if file_metas:
-            title = f"{repo.name} pre-analysis: {target_ref}"
-            save_analysis_metadata(target_type, target_ref, title, file_metas, repo, enhanced=True)
+                def _analyze_path(item: tuple[Path, str]) -> FileAnalysisMeta | None:
+                    path_obj, rel_path = item
+                    try:
+                        content = path_obj.read_text(encoding="utf-8", errors="replace")
+                        return analyze_single_file(
+                            rel_path,
+                            content,
+                            path_obj.stat().st_size,
+                            enhanced=True,
+                            repo_root=repo,
+                            ai_client=self.llm_client,
+                        )
+                    except Exception:
+                        return None
 
-        n_meta = len(metadata_by_path)
-        status_msg = "refreshed with AI metadata" if updated_any else "up to date"
-        rprint(f"[dim]  ✓ Pre-analysis metadata {status_msg} for {n_meta} file(s)[/dim]")
-        return metadata_by_path
+                with ThreadPoolExecutor(
+                    max_workers=min(len(paths_to_analyze), batch_capacity)
+                ) as executor:
+                    for meta in executor.map(_analyze_path, paths_to_analyze):
+                        if meta is not None:
+                            file_metas.append(meta)
+                            metadata_by_path[meta.path] = meta
+                            updated_any = True
+
+            if file_metas:
+                title = f"{repo.name} pre-analysis: {target_ref}"
+                save_analysis_metadata(
+                    target_type, target_ref, title, file_metas, repo, enhanced=True
+                )
+
+            n_meta = len(metadata_by_path)
+            status_msg = "refreshed with AI metadata" if updated_any else "up to date"
+            rprint(f"[dim]  ✓ Pre-analysis metadata {status_msg} for {n_meta} file(s)[/dim]")
+            return metadata_by_path
 
     def _find_matching_metadata(
         self, fpath: str, metadata_by_path: dict[str, FileAnalysisMeta]
@@ -300,317 +303,374 @@ class ReviewPipelineOrchestrator:
             self.target_dir = target_dir
 
         n_paths = len(file_paths)
-        rprint(f"[dim]Stage 2/6: Initializing payload tracking for {n_paths} file(s)...[/dim]")
-        payloads: list[FileReviewPayload] = []
+        with trace_span("review.stage_2_init_payloads", attributes={"file_count": n_paths}):
+            rprint(f"[dim]Stage 2/6: Initializing payload tracking for {n_paths} file(s)...[/dim]")
+            payloads: list[FileReviewPayload] = []
 
-        # Step 2a: Static security tool batch scanning
-        static_findings_by_file: dict[str, list[SavedFinding]] = {}
-        all_static_findings: list[SavedFinding] = []
-        try:
-            from devops_cli.security.bandit import run_bandit_scan
-            from devops_cli.security.kubelinter import run_kubelinter_scan
-            from devops_cli.security.pluto import run_pluto_scan
-            from devops_cli.security.trivy import run_trivy_scan
+            # Step 2a: Static security tool batch scanning
+            static_findings_by_file: dict[str, list[SavedFinding]] = {}
+            all_static_findings: list[SavedFinding] = []
+            try:
+                from devops_cli.security.bandit import run_bandit_scan
+                from devops_cli.security.kubelinter import run_kubelinter_scan
+                from devops_cli.security.pluto import run_pluto_scan
+                from devops_cli.security.trivy import run_trivy_scan
+
+                rprint(
+                    "  [cyan]• Running static security analyzers "
+                    "(Bandit, Kube-linter, Pluto, Trivy)...[/cyan]"
+                )
+
+                with trace_span(
+                    "security.static_scanners", attributes={"file_count": n_paths}
+                ) as sc_span:
+                    # 1. Batch Bandit scan for all Python files in target scope
+                    py_paths = [self._resolve_file_path(f) for f in file_paths if f.endswith(".py")]
+                    if py_paths:
+                        b_findings = run_bandit_scan(py_paths)
+                        all_static_findings.extend(
+                            SavedFinding(
+                                **f.model_dump(),
+                                persona="devsecops",
+                                persona_title="Principal DevSecOps Engineer",
+                            )
+                            for f in b_findings
+                        )
+
+                    # 2. Pluto & Kube-linter scan for Kubernetes manifests
+                    yaml_paths = [
+                        self._resolve_file_path(f)
+                        for f in file_paths
+                        if f.endswith((".yaml", ".yml"))
+                    ]
+                    for yp in yaml_paths:
+                        kl_findings = run_kubelinter_scan(yp)
+                        if kl_findings:
+                            all_static_findings.extend(
+                                SavedFinding(
+                                    **f.model_dump(),
+                                    persona="devsecops",
+                                    persona_title="Principal DevSecOps Engineer",
+                                )
+                                for f in kl_findings
+                            )
+                        pluto_findings = run_pluto_scan(yp)
+                        if pluto_findings:
+                            all_static_findings.extend(
+                                SavedFinding(
+                                    **f.model_dump(),
+                                    persona="devsecops",
+                                    persona_title="Principal DevSecOps Engineer",
+                                )
+                                for f in pluto_findings
+                            )
+
+                    # 3. Aqua Trivy scan for Dockerfiles and lockfiles
+                    docker_lock_paths = [
+                        self._resolve_file_path(f)
+                        for f in file_paths
+                        if Path(f).name.lower() in ("dockerfile", "containerfile")
+                        or f.endswith((".lock", ".lockb"))
+                    ]
+                    for dp in docker_lock_paths:
+                        t_findings = run_trivy_scan(
+                            dp,
+                            scan_type="config" if "docker" in dp.name.lower() else "fs",
+                        )
+                        if t_findings:
+                            all_static_findings.extend(
+                                SavedFinding(
+                                    **f.model_dump(),
+                                    persona="devsecops",
+                                    persona_title="Principal DevSecOps Engineer",
+                                )
+                                for f in t_findings
+                            )
+
+                    for sf in all_static_findings:
+                        loc_path = sf.location.split(":")[0].strip()
+                        matched_fpath = next(
+                            (
+                                fp
+                                for fp in file_paths
+                                if fp == loc_path or loc_path.endswith(fp) or fp.endswith(loc_path)
+                            ),
+                            None,
+                        )
+                        if matched_fpath:
+                            static_findings_by_file.setdefault(matched_fpath, []).append(sf)
+
+                    sc_span.set_attributes(
+                        {
+                            "findings_count": len(all_static_findings),
+                            "python_files": len(py_paths),
+                            "yaml_files": len(yaml_paths),
+                            "docker_files": len(docker_lock_paths),
+                        }
+                    )
+
+                rprint(
+                    f"    [dim]✓ Static analyzers completed "
+                    f"({len(all_static_findings)} finding(s) detected)[/dim]"
+                )
+            except Exception as exc:
+                logger.debug("Static security scanning failed or skipped: %s", exc)
+
+            osv_client = OSVClient()
+            shodan_client = ShodanInternetDBClient()
+            radar_client = CloudflareRadarClient()
+
+            # Step 2b: Parse dependencies and network references across target files
+            rprint(
+                f"  [cyan]• Extracting dependencies and network references across "
+                f"{n_paths} file(s)...[/cyan]"
+            )
+            raw_file_data: dict[str, tuple[list[DependencySpec], list[NetworkReference]]] = {}
+            all_unique_deps: set[tuple[str, str, str]] = set()
+            all_unique_nets: set[tuple[str, str]] = set()
+
+            with trace_span(
+                "security.extract_references", attributes={"file_count": n_paths}
+            ) as ref_span:
+                for fpath in file_paths:
+                    file_deps: list[DependencySpec] = []
+                    file_nets: list[NetworkReference] = []
+                    p_target = self._resolve_file_path(fpath)
+                    if p_target.exists() and p_target.is_file():
+                        try:
+                            f_content = p_target.read_text(encoding="utf-8", errors="replace")
+                            file_deps = extract_dependencies_from_text(f_content, fpath)
+                            file_nets = extract_network_references(f_content, fpath)
+                        except Exception:
+                            pass
+                    raw_file_data[fpath] = (file_deps, file_nets)
+                    for d in file_deps:
+                        all_unique_deps.add((d.name, d.version_range, d.ecosystem))
+                    for n in file_nets:
+                        all_unique_nets.add((n.target, n.reference_type))
+
+                ref_span.set_attributes(
+                    {
+                        "unique_deps_count": len(all_unique_deps),
+                        "unique_nets_count": len(all_unique_nets),
+                    }
+                )
 
             rprint(
-                "  [cyan]• Running static security analyzers "
-                "(Bandit, Kube-linter, Pluto, Trivy)...[/cyan]"
+                f"    [dim]✓ Extracted {len(all_unique_deps)} unique dependency(ies) and "
+                f"{len(all_unique_nets)} network target(s)[/dim]"
             )
 
-            # 1. Batch Bandit scan for all Python files in target scope
-            py_paths = [self._resolve_file_path(f) for f in file_paths if f.endswith(".py")]
-            if py_paths:
-                b_findings = run_bandit_scan(py_paths)
-                all_static_findings.extend(
-                    SavedFinding(
-                        **f.model_dump(),
-                        persona="devsecops",
-                        persona_title="Principal DevSecOps Engineer",
-                    )
-                    for f in b_findings
-                )
+            # Step 2c: Concurrently pre-fetch unique dependency vulnerabilities & reputations
+            dep_cache: dict[tuple[str, str, str], list[VulnerabilityRecord]] = {}
+            net_cache: dict[str, NetworkReputationRecord] = {}
 
-            # 2. Pluto & Kube-linter scan for Kubernetes manifests
-            yaml_paths = [
-                self._resolve_file_path(f) for f in file_paths if f.endswith((".yaml", ".yml"))
-            ]
-            for yp in yaml_paths:
-                kl_findings = run_kubelinter_scan(yp)
-                if kl_findings:
-                    all_static_findings.extend(
-                        SavedFinding(
-                            **f.model_dump(),
-                            persona="devsecops",
-                            persona_title="Principal DevSecOps Engineer",
-                        )
-                        for f in kl_findings
-                    )
-                pluto_findings = run_pluto_scan(yp)
-                if pluto_findings:
-                    all_static_findings.extend(
-                        SavedFinding(
-                            **f.model_dump(),
-                            persona="devsecops",
-                            persona_title="Principal DevSecOps Engineer",
-                        )
-                        for f in pluto_findings
-                    )
-
-            # 3. Aqua Trivy scan for Dockerfiles and lockfiles
-            docker_lock_paths = [
-                self._resolve_file_path(f)
-                for f in file_paths
-                if Path(f).name.lower() in ("dockerfile", "containerfile")
-                or f.endswith((".lock", ".lockb"))
-            ]
-            for dp in docker_lock_paths:
-                t_findings = run_trivy_scan(
-                    dp,
-                    scan_type="config" if "docker" in dp.name.lower() else "fs",
-                )
-                if t_findings:
-                    all_static_findings.extend(
-                        SavedFinding(
-                            **f.model_dump(),
-                            persona="devsecops",
-                            persona_title="Principal DevSecOps Engineer",
-                        )
-                        for f in t_findings
-                    )
-
-            for sf in all_static_findings:
-                loc_path = sf.location.split(":")[0].strip()
-                matched_fpath = next(
-                    (
-                        fp
-                        for fp in file_paths
-                        if fp == loc_path or loc_path.endswith(fp) or fp.endswith(loc_path)
-                    ),
-                    None,
-                )
-                if matched_fpath:
-                    static_findings_by_file.setdefault(matched_fpath, []).append(sf)
-            rprint(
-                f"    [dim]✓ Static analyzers completed "
-                f"({len(all_static_findings)} finding(s) detected)[/dim]"
-            )
-        except Exception as exc:
-            logger.debug("Static security scanning failed or skipped: %s", exc)
-
-        osv_client = OSVClient()
-        shodan_client = ShodanInternetDBClient()
-        radar_client = CloudflareRadarClient()
-
-        # Step 2b: Parse dependencies and network references across target files
-        rprint(
-            f"  [cyan]• Extracting dependencies and network references across "
-            f"{n_paths} file(s)...[/cyan]"
-        )
-        raw_file_data: dict[str, tuple[list[DependencySpec], list[NetworkReference]]] = {}
-        all_unique_deps: set[tuple[str, str, str]] = set()
-        all_unique_nets: set[tuple[str, str]] = set()
-
-        for fpath in file_paths:
-            file_deps: list[DependencySpec] = []
-            file_nets: list[NetworkReference] = []
-            p_target = self._resolve_file_path(fpath)
-            if p_target.exists() and p_target.is_file():
+            def _fetch_dep(
+                d_key: tuple[str, str, str],
+            ) -> tuple[tuple[str, str, str], list[VulnerabilityRecord]]:
+                name, ver, eco = d_key
                 try:
-                    f_content = p_target.read_text(encoding="utf-8", errors="replace")
-                    file_deps = extract_dependencies_from_text(f_content, fpath)
-                    file_nets = extract_network_references(f_content, fpath)
+                    vulns = osv_client.check_vulnerability(name, ver, eco)
+                    return d_key, vulns
                 except Exception:
-                    pass
-            raw_file_data[fpath] = (file_deps, file_nets)
-            for d in file_deps:
-                all_unique_deps.add((d.name, d.version_range, d.ecosystem))
-            for n in file_nets:
-                all_unique_nets.add((n.target, n.reference_type))
+                    return d_key, []
 
-        rprint(
-            f"    [dim]✓ Extracted {len(all_unique_deps)} unique dependency(ies) and "
-            f"{len(all_unique_nets)} network target(s)[/dim]"
-        )
+            def _fetch_net(n_key: tuple[str, str]) -> tuple[str, NetworkReputationRecord]:
+                target, rtype = n_key
+                try:
+                    if rtype == "ip":
+                        rep = shodan_client.check_ip(target)
+                    else:
+                        rep = radar_client.check_domain(target)
+                    return target, rep
+                except Exception:
+                    return target, NetworkReputationRecord(target=target, ip="")
 
-        # Step 2c: Concurrently pre-fetch unique dependency vulnerabilities and network reputations
-        dep_cache: dict[tuple[str, str, str], list[VulnerabilityRecord]] = {}
-        net_cache: dict[str, NetworkReputationRecord] = {}
+            if all_unique_deps or all_unique_nets:
+                rprint(
+                    "  [cyan]• Querying vulnerability databases & threat intelligence "
+                    "(OSV, Shodan, Cloudflare)...[/cyan]"
+                )
+                with trace_span(
+                    "security.vulnerability_lookups",
+                    attributes={
+                        "deps_count": len(all_unique_deps),
+                        "nets_count": len(all_unique_nets),
+                    },
+                ):
+                    with ThreadPoolExecutor(max_workers=8) as executor:
+                        if all_unique_deps:
+                            for d_key, vulns in executor.map(_fetch_dep, list(all_unique_deps)):
+                                dep_cache[d_key] = vulns
+                        if all_unique_nets:
+                            for target, rep in executor.map(_fetch_net, list(all_unique_nets)):
+                                net_cache[target] = rep
+                rprint("    [dim]✓ Completed vulnerability and threat reputation lookups[/dim]")
 
-        def _fetch_dep(
-            d_key: tuple[str, str, str],
-        ) -> tuple[tuple[str, str, str], list[VulnerabilityRecord]]:
-            name, ver, eco = d_key
-            try:
-                vulns = osv_client.check_vulnerability(name, ver, eco)
-                return d_key, vulns
-            except Exception:
-                return d_key, []
-
-        def _fetch_net(n_key: tuple[str, str]) -> tuple[str, NetworkReputationRecord]:
-            target, rtype = n_key
-            try:
-                if rtype == "ip":
-                    rep = shodan_client.check_ip(target)
-                else:
-                    rep = radar_client.check_domain(target)
-                return target, rep
-            except Exception:
-                return target, NetworkReputationRecord(target=target, ip="")
-
-        if all_unique_deps or all_unique_nets:
+            # Step 2d: Assemble FileReviewPayload objects
             rprint(
-                "  [cyan]• Querying vulnerability databases & threat intelligence "
-                "(OSV, Shodan, Cloudflare)...[/cyan]"
+                f"  [cyan]• Assembling payload tracking files & linking dependency graphs "
+                f"for {n_paths} file(s)...[/cyan]"
             )
-            with ThreadPoolExecutor(max_workers=8) as executor:
-                if all_unique_deps:
-                    for d_key, vulns in executor.map(_fetch_dep, list(all_unique_deps)):
-                        dep_cache[d_key] = vulns
-                if all_unique_nets:
-                    for target, rep in executor.map(_fetch_net, list(all_unique_nets)):
-                        net_cache[target] = rep
-            rprint("    [dim]✓ Completed vulnerability and threat reputation lookups[/dim]")
+            with trace_span("review.assemble_payloads", attributes={"file_count": n_paths}):
+                for fpath in file_paths:
+                    fmeta = self._find_matching_metadata(
+                        fpath, metadata_by_path
+                    ) or FileAnalysisMeta(path=fpath)
+                    meaningful_fmeta_deps = {
+                        d for d in fmeta.dependencies if d and d not in _UNIVERSAL_MODULES
+                    }
+                    meaningful_fmeta_syms = {s for s in fmeta.key_symbols if s}
 
-        # Step 2d: Assemble FileReviewPayload objects
-        rprint(
-            f"  [cyan]• Assembling payload tracking files & linking dependency graphs "
-            f"for {n_paths} file(s)...[/cyan]"
-        )
-        for fpath in file_paths:
-            fmeta = self._find_matching_metadata(fpath, metadata_by_path) or FileAnalysisMeta(
-                path=fpath
-            )
-            meaningful_fmeta_deps = {
-                d for d in fmeta.dependencies if d and d not in _UNIVERSAL_MODULES
-            }
-            meaningful_fmeta_syms = {s for s in fmeta.key_symbols if s}
-
-            linked: list[FileAnalysisMeta] = []
-            for other_path, other_meta in metadata_by_path.items():
-                if other_path == fpath:
-                    continue
-                sym_match = any(sym in other_meta.key_symbols for sym in meaningful_fmeta_syms)
-                dep_match = any(
-                    dep in other_meta.dependencies
-                    for dep in meaningful_fmeta_deps
-                    if dep not in _UNIVERSAL_MODULES
-                )
-                import_match = any(
-                    dep.replace(".", "/") in other_path
-                    or other_path.replace(".py", "").replace("/", ".") in dep
-                    for dep in meaningful_fmeta_deps
-                )
-                if sym_match or dep_match or import_match:
-                    linked.append(other_meta)
-                    if len(linked) >= 10:
-                        break
-
-            file_deps, file_nets = raw_file_data.get(fpath, ([], []))
-            initial_findings = list(static_findings_by_file.get(fpath, []))
-
-            # Apply audited dependency results
-            for dep in file_deps:
-                d_key = (dep.name, dep.version_range, dep.ecosystem)
-                vulns = dep_cache.get(d_key, [])
-                if vulns:
-                    dep.vulnerabilities = vulns
-                    dep.security_status = f"⚠️ {len(vulns)} Known Vuln(s)"
-                else:
-                    dep.security_status = "✓ Clean"
-
-                for v in vulns:
-                    initial_findings.append(
-                        SavedFinding(
-                            severity=v.severity,
-                            location=f"{fpath}:1",
-                            title=f"Vulnerable Dependency: {dep.name} ({v.id})",
-                            description=(
-                                f"Dependency '{dep.name}' ({dep.version_range}) is affected by "
-                                f"{v.id}: {v.summary}"
-                            ),
-                            fix=f"Upgrade '{dep.name}' to a patched release.",
-                            references=[v.details_url] if v.details_url else [],
-                            verification_criteria=[f"Package '{dep.name}' declared in {fpath}"],
-                            invalidation_criteria=["Dependency upgraded or patched in lockfile"],
-                            verified_criteria_matched=[f"Package '{dep.name}' declared in {fpath}"],
-                            status="VERIFIED",
-                            verified=True,
-                            reportable=True,
-                            confidence_score=0.95,
-                            persona="devsecops",
-                            persona_title="Principal DevSecOps Engineer",
+                    linked: list[FileAnalysisMeta] = []
+                    for other_path, other_meta in metadata_by_path.items():
+                        if other_path == fpath:
+                            continue
+                        sym_match = any(
+                            sym in other_meta.key_symbols for sym in meaningful_fmeta_syms
                         )
-                    )
+                        dep_match = any(
+                            dep in other_meta.dependencies
+                            for dep in meaningful_fmeta_deps
+                            if dep not in _UNIVERSAL_MODULES
+                        )
+                        import_match = any(
+                            dep.replace(".", "/") in other_path
+                            or other_path.replace(".py", "").replace("/", ".") in dep
+                            for dep in meaningful_fmeta_deps
+                        )
+                        if sym_match or dep_match or import_match:
+                            linked.append(other_meta)
+                            if len(linked) >= 10:
+                                break
 
-            # Apply audited network reference results
-            for net in file_nets:
-                rep = net_cache.get(net.target, NetworkReputationRecord(target=net.target, ip=""))
-                net.reputation = rep
-                if rep.is_malicious:
-                    net.security_status = f"⚠️ Flagged ({rep.reputation_summary})"
-                elif rep.ports:
-                    net.security_status = f"✓ Safe (Ports: {', '.join(map(str, rep.ports[:3]))})"
-                else:
-                    net.security_status = "✓ Safe / Low Risk"
+                    file_deps, file_nets = raw_file_data.get(fpath, ([], []))
+                    initial_findings = list(static_findings_by_file.get(fpath, []))
 
-                if rep.is_malicious:
-                    initial_findings.append(
-                        SavedFinding(
-                            severity="HIGH",
-                            location=f"{fpath}:{net.line_number or 1}",
-                            title=f"Suspicious / Vulnerable Network Reference: {net.target}",
-                            description=(
-                                f"External host '{net.target}' flagged by {rep.source}: "
-                                f"{rep.reputation_summary}"
-                            ),
-                            fix=f"Sanitize or remove external host reference '{net.target}'.",
-                            references=[f"https://internetdb.shodan.io/{rep.ip}"] if rep.ip else [],
-                            verification_criteria=[f"Host '{net.target}' referenced in {fpath}"],
-                            invalidation_criteria=["Internal test fixture or isolated sandbox"],
-                            verified_criteria_matched=[
-                                f"Host '{net.target}' referenced in {fpath}"
+                    # Apply audited dependency results
+                    for dep in file_deps:
+                        d_key = (dep.name, dep.version_range, dep.ecosystem)
+                        vulns = dep_cache.get(d_key, [])
+                        if vulns:
+                            dep.vulnerabilities = vulns
+                            dep.security_status = f"⚠️ {len(vulns)} Known Vuln(s)"
+                        else:
+                            dep.security_status = "✓ Clean"
+
+                        for v in vulns:
+                            initial_findings.append(
+                                SavedFinding(
+                                    severity=v.severity,
+                                    location=f"{fpath}:1",
+                                    title=f"Vulnerable Dependency: {dep.name} ({v.id})",
+                                    description=(
+                                        f"Dependency '{dep.name}' ({dep.version_range}) is "
+                                        f"affected by {v.id}: {v.summary}"
+                                    ),
+                                    fix=f"Upgrade '{dep.name}' to a patched release.",
+                                    references=[v.details_url] if v.details_url else [],
+                                    verification_criteria=[
+                                        f"Package '{dep.name}' declared in {fpath}"
+                                    ],
+                                    invalidation_criteria=[
+                                        "Dependency upgraded or patched in lockfile"
+                                    ],
+                                    verified_criteria_matched=[
+                                        f"Package '{dep.name}' declared in {fpath}"
+                                    ],
+                                    status="VERIFIED",
+                                    verified=True,
+                                    reportable=True,
+                                    confidence_score=0.95,
+                                    persona="devsecops",
+                                    persona_title="Principal DevSecOps Engineer",
+                                )
+                            )
+
+                    # Apply audited network reference results
+                    for net in file_nets:
+                        rep = net_cache.get(
+                            net.target, NetworkReputationRecord(target=net.target, ip="")
+                        )
+                        net.reputation = rep
+                        if rep.is_malicious:
+                            net.security_status = f"⚠️ Flagged ({rep.reputation_summary})"
+                        elif rep.ports:
+                            net.security_status = (
+                                f"✓ Safe (Ports: {', '.join(map(str, rep.ports[:3]))})"
+                            )
+                        else:
+                            net.security_status = "✓ Safe / Low Risk"
+
+                        if rep.is_malicious:
+                            ref_urls = [f"https://internetdb.shodan.io/{rep.ip}"] if rep.ip else []
+                            initial_findings.append(
+                                SavedFinding(
+                                    severity="HIGH",
+                                    location=f"{fpath}:{net.line_number or 1}",
+                                    title=(
+                                        f"Suspicious / Vulnerable Network Reference: {net.target}"
+                                    ),
+                                    description=(
+                                        f"External host '{net.target}' flagged by {rep.source}: "
+                                        f"{rep.reputation_summary}"
+                                    ),
+                                    fix=(
+                                        f"Sanitize or remove external host reference '{net.target}'"
+                                    ),
+                                    references=ref_urls,
+                                    verification_criteria=[
+                                        f"Host '{net.target}' referenced in {fpath}"
+                                    ],
+                                    invalidation_criteria=[
+                                        "Internal test fixture or isolated sandbox"
+                                    ],
+                                    verified_criteria_matched=[
+                                        f"Host '{net.target}' referenced in {fpath}"
+                                    ],
+                                    status="VERIFIED",
+                                    verified=True,
+                                    reportable=True,
+                                    confidence_score=0.90,
+                                    persona="devsecops",
+                                    persona_title="Principal DevSecOps Engineer",
+                                )
+                            )
+
+                    sanitized_name = _sanitize_filename(fpath) + ".json"
+                    json_file = self.files_dir / sanitized_name
+
+                    payload = FileReviewPayload(
+                        file_path=fpath,
+                        metadata=fmeta,
+                        linked_files=linked,
+                        findings=initial_findings,
+                        external_dependencies=file_deps,
+                        network_references=file_nets,
+                        ai_scratchpad={
+                            "initialized_at": datetime.now(UTC).isoformat(),
+                            "stage": "initialized",
+                            "thoughts": [
+                                f"Tracking findings for {fpath}",
+                                *(
+                                    [
+                                        f"Injected {len(initial_findings)} static scan / "
+                                        "threat intel finding(s)"
+                                    ]
+                                    if initial_findings
+                                    else []
+                                ),
                             ],
-                            status="VERIFIED",
-                            verified=True,
-                            reportable=True,
-                            confidence_score=0.90,
-                            persona="devsecops",
-                            persona_title="Principal DevSecOps Engineer",
-                        )
+                        },
                     )
 
-            sanitized_name = _sanitize_filename(fpath) + ".json"
-            json_file = self.files_dir / sanitized_name
+                    json_file.write_text(payload.model_dump_json(indent=2), encoding="utf-8")
+                    payloads.append(payload)
 
-            payload = FileReviewPayload(
-                file_path=fpath,
-                metadata=fmeta,
-                linked_files=linked,
-                findings=initial_findings,
-                external_dependencies=file_deps,
-                network_references=file_nets,
-                ai_scratchpad={
-                    "initialized_at": datetime.now(UTC).isoformat(),
-                    "stage": "initialized",
-                    "thoughts": [
-                        f"Tracking findings for {fpath}",
-                        *(
-                            [
-                                f"Injected {len(initial_findings)} static scan / "
-                                "threat intel finding(s)"
-                            ]
-                            if initial_findings
-                            else []
-                        ),
-                    ],
-                },
+            rprint(
+                f"[dim]  ✓ Initialized {len(payloads)} file review payload tracking file(s)[/dim]"
             )
-
-            json_file.write_text(payload.model_dump_json(indent=2), encoding="utf-8")
-            payloads.append(payload)
-
-        rprint(f"[dim]  ✓ Initialized {len(payloads)} file review payload tracking file(s)[/dim]")
-        return payloads
+            return payloads
 
     # ── Stage 3: Multi-Persona Code Content Review ─────────────────────────────
     def execute_multi_persona_review(

@@ -53,6 +53,11 @@ class LLMResponse(str):
     wall_seconds: float
     backend_info: str | None
     thinking: str | None
+    prompt_tokens: int | None
+    completion_tokens: int | None
+    total_tokens: int | None
+    eval_duration_ms: float | None
+    prompt_eval_duration_ms: float | None
 
     def __new__(
         cls,
@@ -61,12 +66,22 @@ class LLMResponse(str):
         wall_seconds: float = 0.0,
         backend_info: str | None = None,
         thinking: str | None = None,
+        prompt_tokens: int | None = None,
+        completion_tokens: int | None = None,
+        total_tokens: int | None = None,
+        eval_duration_ms: float | None = None,
+        prompt_eval_duration_ms: float | None = None,
     ) -> LLMResponse:
         obj = str.__new__(cls, content)
         obj.processing_seconds = processing_seconds
         obj.wall_seconds = wall_seconds
         obj.backend_info = backend_info
         obj.thinking = thinking
+        obj.prompt_tokens = prompt_tokens
+        obj.completion_tokens = completion_tokens
+        obj.total_tokens = total_tokens
+        obj.eval_duration_ms = eval_duration_ms
+        obj.prompt_eval_duration_ms = prompt_eval_duration_ms
         return obj
 
 
@@ -326,44 +341,31 @@ class LLMClient:
         with trace_span(
             "ai.llm.dispatch",
             {"provider": p, "model": self._config.model},
-        ):
+        ) as span_handle:
             if p == "ollama":
                 res = self._ollama_messages(system, messages, enable_thinking=enable_thinking)
             elif p == "claude":
-                res_claude = self._claude_messages(system, messages)
-                b_info = (
-                    getattr(res_claude, "backend_info", None) or f"claude ({self.backend_host})"
-                )
-                text_claude = (
-                    str(res_claude)
-                    if enable_thinking
-                    else self._strip_think_blocks(str(res_claude))
-                )
-                res = LLMResponse(
-                    text_claude,
-                    processing_seconds=res_claude.processing_seconds,
-                    wall_seconds=res_claude.wall_seconds,
-                    backend_info=b_info,
-                    thinking=getattr(res_claude, "thinking", None),
-                )
+                res = self._claude_messages(system, messages)
             elif p in ("copilot", "openai"):
-                res_openai = self._openai_compat_messages(system, messages)
-                b_info = getattr(res_openai, "backend_info", None) or f"{p} ({self.backend_host})"
-                text_openai = (
-                    str(res_openai)
-                    if enable_thinking
-                    else self._strip_think_blocks(str(res_openai))
-                )
-                res = LLMResponse(
-                    text_openai,
-                    processing_seconds=res_openai.processing_seconds,
-                    wall_seconds=res_openai.wall_seconds,
-                    backend_info=b_info,
-                    thinking=getattr(res_openai, "thinking", None),
-                )
+                res = self._openai_compat_messages(system, messages)
             else:
                 raise ValueError(
                     f"Unknown provider: {p!r}. Choose: ollama, claude, copilot, openai"
+                )
+
+            if res.backend_info:
+                span_handle.set_attribute("gen_ai.server.address", res.backend_info)
+            if res.prompt_tokens is not None:
+                span_handle.set_attribute("gen_ai.usage.prompt_tokens", res.prompt_tokens)
+            if res.completion_tokens is not None:
+                span_handle.set_attribute("gen_ai.usage.completion_tokens", res.completion_tokens)
+            if res.total_tokens is not None:
+                span_handle.set_attribute("gen_ai.usage.total_tokens", res.total_tokens)
+            if res.eval_duration_ms is not None:
+                span_handle.set_attribute("llm.eval_duration_ms", res.eval_duration_ms)
+            if res.prompt_eval_duration_ms is not None:
+                span_handle.set_attribute(
+                    "llm.prompt_eval_duration_ms", res.prompt_eval_duration_ms
                 )
 
         duration = time.perf_counter() - start
@@ -691,6 +693,16 @@ class LLMClient:
             else:
                 proc_sec = None
 
+            prompt_tokens = raw_res.get("prompt_eval_count")
+            completion_tokens = raw_res.get("eval_count")
+            total_tokens = (
+                (prompt_tokens + completion_tokens)
+                if prompt_tokens is not None and completion_tokens is not None
+                else None
+            )
+            eval_dur_ms = (eval_ns / 1_000_000.0) if eval_ns else None
+            prompt_eval_dur_ms = (prompt_eval_ns / 1_000_000.0) if prompt_eval_ns else None
+
             parsed = urlparse(base)
             host_str = parsed.netloc or parsed.path or base
             b_info = f"ollama ({host_str})"
@@ -700,6 +712,11 @@ class LLMClient:
                 wall_seconds=wall_elapsed,
                 backend_info=b_info,
                 thinking=thinking_str,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                total_tokens=total_tokens,
+                eval_duration_ms=eval_dur_ms,
+                prompt_eval_duration_ms=prompt_eval_dur_ms,
             )
 
     def _ollama_models(self) -> list[str]:
@@ -769,13 +786,25 @@ class LLMClient:
                 )
                 response.raise_for_status()
                 wall_elapsed = time.monotonic() - t0
-                text = str(self._read_limited_json(response)["content"][0]["text"])
+                raw_json = self._read_limited_json(response)
+                text = str(raw_json["content"][0]["text"])
+                usage = raw_json.get("usage", {})
+                prompt_tokens = usage.get("input_tokens")
+                completion_tokens = usage.get("output_tokens")
+                total_tokens = (
+                    (prompt_tokens + completion_tokens)
+                    if prompt_tokens is not None and completion_tokens is not None
+                    else None
+                )
                 b_info = f"claude ({self.backend_host})"
                 return LLMResponse(
                     text,
                     processing_seconds=None,
                     wall_seconds=wall_elapsed,
                     backend_info=b_info,
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                    total_tokens=total_tokens,
                 )
         except (httpx2.ConnectError, httpx2.ConnectTimeout) as exc:
             raise self._connection_error(exc) from exc
@@ -809,13 +838,21 @@ class LLMClient:
                 )
                 response.raise_for_status()
                 wall_elapsed = time.monotonic() - t0
-                text = str(self._read_limited_json(response)["choices"][0]["message"]["content"])
+                raw_json = self._read_limited_json(response)
+                text = str(raw_json["choices"][0]["message"]["content"])
+                usage = raw_json.get("usage", {})
+                prompt_tokens = usage.get("prompt_tokens")
+                completion_tokens = usage.get("completion_tokens")
+                total_tokens = usage.get("total_tokens")
                 b_info = f"{self.backend_type} ({self.backend_host})"
                 return LLMResponse(
                     text,
                     processing_seconds=None,
                     wall_seconds=wall_elapsed,
                     backend_info=b_info,
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                    total_tokens=total_tokens,
                 )
         except (httpx2.ConnectError, httpx2.ConnectTimeout) as exc:
             raise self._connection_error(exc) from exc

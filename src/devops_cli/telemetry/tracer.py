@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import atexit
 import contextlib
 import functools
 import logging
 import os
+import platform
 import secrets
+import threading
 import time
 from collections.abc import Callable, Generator
 from typing import Any, TypeVar
@@ -26,6 +29,26 @@ def _generate_span_id() -> str:
     return secrets.token_hex(8)
 
 
+class SpanHandle(str):
+    """Handle yielded by trace_span allowing dynamic attribute updates while behaving as
+    span_id string."""
+
+    _attributes: dict[str, Any]
+
+    def __new__(cls, span_id: str, attributes: dict[str, Any] | None = None) -> SpanHandle:
+        obj = str.__new__(cls, span_id)
+        obj._attributes = attributes if attributes is not None else {}
+        return obj
+
+    def set_attribute(self, key: str, value: Any) -> None:
+        """Set or update a single attribute on the active span."""
+        self._attributes[key] = value
+
+    def set_attributes(self, mapping: dict[str, Any]) -> None:
+        """Set or update multiple attributes on the active span."""
+        self._attributes.update(mapping)
+
+
 class OTelTelemetryClient:
     """Emits OpenTelemetry traces and metrics via OTLP HTTP/JSON."""
 
@@ -34,13 +57,38 @@ class OTelTelemetryClient:
         endpoint: str = "http://localhost:4318",
         *,
         service_name: str = "devops-cli",
+        service_version: str | None = None,
         enabled: bool = True,
     ) -> None:
         self.endpoint = endpoint.rstrip("/")
         self.service_name = service_name
+        self.service_version = service_version or self._detect_version()
+        self.host_name = platform.node() or "localhost"
+        self.os_type = platform.system().lower() or "linux"
         self.enabled = enabled
         self._current_trace_id: str | None = None
         self._current_span_id: str | None = None
+        self._http_client: httpx2.Client | None = None
+        self._client_lock = threading.Lock()
+
+    @staticmethod
+    def _detect_version() -> str:
+        try:
+            from devops_cli import __version__
+
+            return __version__
+        except Exception:
+            return "0.1.0"
+
+    def _get_resource_attributes(self) -> list[dict[str, Any]]:
+        """Return standardized OpenTelemetry resource attributes."""
+        return [
+            {"key": "service.name", "value": {"stringValue": self.service_name}},
+            {"key": "service.version", "value": {"stringValue": self.service_version}},
+            {"key": "host.name", "value": {"stringValue": self.host_name}},
+            {"key": "os.type", "value": {"stringValue": self.os_type}},
+            {"key": "process.pid", "value": {"stringValue": str(os.getpid())}},
+        ]
 
     @property
     def current_trace_id(self) -> str | None:
@@ -91,9 +139,7 @@ class OTelTelemetryClient:
             "resourceMetrics": [
                 {
                     "resource": {
-                        "attributes": [
-                            {"key": "service.name", "value": {"stringValue": self.service_name}}
-                        ]
+                        "attributes": self._get_resource_attributes(),
                     },
                     "scopeMetrics": [
                         {
@@ -136,10 +182,10 @@ class OTelTelemetryClient:
         self,
         name: str,
         attributes: dict[str, Any] | None = None,
-    ) -> Generator[str]:
+    ) -> Generator[SpanHandle]:
         """Context manager to measure and emit a trace span."""
         if not self.enabled:
-            yield ""
+            yield SpanHandle("", {})
             return
 
         trace_id = self._current_trace_id or _generate_trace_id()
@@ -152,11 +198,12 @@ class OTelTelemetryClient:
         self._current_span_id = span_id
 
         attrs = dict(attributes or {})
+        handle = SpanHandle(span_id, attrs)
         status_code = "STATUS_CODE_OK"
         error_msg = ""
 
         try:
-            yield span_id
+            yield handle
         except Exception as exc:
             status_code = "STATUS_CODE_ERROR"
             error_msg = str(exc)
@@ -187,12 +234,7 @@ class OTelTelemetryClient:
                 "resourceSpans": [
                     {
                         "resource": {
-                            "attributes": [
-                                {
-                                    "key": "service.name",
-                                    "value": {"stringValue": self.service_name},
-                                }
-                            ]
+                            "attributes": self._get_resource_attributes(),
                         },
                         "scopeSpans": [
                             {
@@ -252,14 +294,33 @@ class OTelTelemetryClient:
             elapsed_ms = (time.perf_counter() - start) * 1000
             return False, str(exc), elapsed_ms
 
+    def _get_http_client(self) -> httpx2.Client:
+        """Get or initialize thread-safe pooled HTTP client."""
+        with self._client_lock:
+            if self._http_client is None or getattr(self._http_client, "is_closed", False):
+                self._http_client = httpx2.Client(timeout=1.0)
+            return self._http_client
+
     def _send_payload(self, path: str, payload: dict[str, Any]) -> None:
-        """Send payload over HTTP with short timeout."""
+        """Send payload over HTTP with pooled connection."""
+        if not self.enabled:
+            return
         try:
             url = f"{self.endpoint}{path}"
-            with httpx2.Client(timeout=0.5) as client:
-                client.post(url, json=payload)
+            client = self._get_http_client()
+            client.post(url, json=payload)
         except Exception as exc:
             logger.debug("OTel payload send failed to %s%s: %s", self.endpoint, path, exc)
+
+    def shutdown(self) -> None:
+        """Cleanly close pooled HTTP transport."""
+        with self._client_lock:
+            if self._http_client is not None and not getattr(self._http_client, "is_closed", False):
+                try:
+                    self._http_client.close()
+                except Exception:
+                    pass
+                self._http_client = None
 
 
 _GLOBAL_TRACER: OTelTelemetryClient | None = None
@@ -307,11 +368,11 @@ def reset_tracer() -> None:
 def trace_span(
     name: str,
     attributes: dict[str, Any] | None = None,
-) -> Generator[str]:
+) -> Generator[SpanHandle]:
     """Convenience context manager for tracing a block of execution."""
     tracer = get_tracer()
-    with tracer.span(name, attributes=attributes) as span_id:
-        yield span_id
+    with tracer.span(name, attributes=attributes) as handle:
+        yield handle
 
 
 def record_metric(
@@ -346,3 +407,13 @@ def traced(
         return wrapper  # type: ignore[return-value]
 
     return decorator
+
+
+def shutdown_tracer() -> None:
+    """Flush and shut down global tracer instance."""
+    global _GLOBAL_TRACER
+    if _GLOBAL_TRACER is not None:
+        _GLOBAL_TRACER.shutdown()
+
+
+atexit.register(shutdown_tracer)
