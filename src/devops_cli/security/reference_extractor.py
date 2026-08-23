@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import functools
 import io
 import ipaddress
 import json
@@ -80,6 +81,7 @@ __all__ = [
 ]
 
 
+@functools.lru_cache(maxsize=4096)
 def is_public_ip(ip_str: str) -> bool:
     """Check whether an IP string is a valid public, globally routable IP address."""
     try:
@@ -97,42 +99,59 @@ def is_public_ip(ip_str: str) -> bool:
         return False
 
 
+@functools.lru_cache(maxsize=4096)
 def is_file_reference(target: str, source_file: str = "") -> bool:
-    """Check if target string represents an existing file on disk or standard file path."""
+    """Check if target string represents an existing file on disk or filesystem path."""
     clean = target.strip().rstrip(".,;)>]\"'")
     if "/" in clean or "\\" in clean or clean.startswith("."):
         return True
 
+    target_path = Path(clean)
+
     # 1. Direct or cwd-relative filesystem existence
-    if Path(clean).is_file() or (Path.cwd() / clean).is_file():
+    if target_path.is_file() or (Path.cwd() / target_path).is_file():
         return True
 
     # 2. Source file relative existence
     if source_file:
         src = Path(source_file)
-        if (src.parent / clean).is_file():
+        if (src.parent / target_path).is_file():
             return True
-        src_name = src.name.lower()
-        if (
-            src_name.endswith("ignore")
-            or src_name.endswith(".lock")
-            or src_name in ("package-lock.json", "cargo.lock", "poetry.lock")
-        ):
-            return True
+        if src.parent.is_dir():
+            for sibling in src.parent.iterdir():
+                if sibling.is_dir() and not sibling.name.startswith("."):
+                    if (sibling / target_path).is_file():
+                        return True
 
-    # 3. Check if target matches an actual file in the workspace directory tree
-    if any(Path.cwd().glob(f"**/{clean}")):
-        return True
+    # 3. Dynamic search across immediate top-level project directories
+    for top_dir in Path.cwd().iterdir():
+        if top_dir.is_dir() and not top_dir.name.startswith("."):
+            if (top_dir / target_path).is_file():
+                return True
+            for sub_dir in top_dir.iterdir():
+                if sub_dir.is_dir() and not sub_dir.name.startswith("."):
+                    if (sub_dir / target_path).is_file():
+                        return True
 
-    # 4. Standard build and manifest template formats (e.g. *.in, *.lock, *.template, *.spec)
-    if clean.endswith(
-        (".in", ".lock", ".template", ".sample", ".example", ".spec", ".log", ".bak", ".tmp")
+    # 4. Standard build template, configuration, and artifact suffixes
+    suffix = target_path.suffix.lower()
+    if suffix in (
+        ".in",
+        ".lock",
+        ".template",
+        ".sample",
+        ".example",
+        ".spec",
+        ".log",
+        ".bak",
+        ".tmp",
     ):
         return True
 
     return False
 
 
+@functools.lru_cache(maxsize=4096)
 def is_code_or_config_reference(target: str, source_file: str = "") -> bool:
     """Differentiate code identifiers, method chains, and config keys from network hosts."""
     clean = target.strip().rstrip(".,;)>]\"'")
@@ -145,14 +164,26 @@ def is_code_or_config_reference(target: str, source_file: str = "") -> bool:
     if len(parts) < 2:
         return True
 
-    # Check if dot-separated path corresponds to a local workspace file/module directory
-    alt_path = clean.replace(".", "/")
-    if any(Path.cwd().glob(f"**/{alt_path}*")):
+    # Check if dot-separated identifier path maps to a local directory or source module
+    alt_path = Path(clean.replace(".", "/"))
+    if (Path.cwd() / alt_path).is_dir():
         return True
+
+    for top_dir in Path.cwd().iterdir():
+        if top_dir.is_dir() and not top_dir.name.startswith("."):
+            sub_p = top_dir / alt_path
+            if sub_p.is_dir():
+                return True
+            for nested in top_dir.iterdir():
+                if nested.is_dir() and not nested.name.startswith("."):
+                    nested_p = nested / alt_path
+                    if nested_p.is_dir():
+                        return True
 
     return False
 
 
+@functools.lru_cache(maxsize=4096)
 def is_network_domain(target: str, source_file: str = "") -> bool:
     """Validate whether target string is a legitimate public network domain using general stylistic
     properties and the Public Suffix List (PSL).

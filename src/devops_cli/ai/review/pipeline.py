@@ -303,95 +303,109 @@ class ReviewPipelineOrchestrator:
         rprint(f"[dim]Stage 2/6: Initializing payload tracking for {n_paths} file(s)...[/dim]")
         payloads: list[FileReviewPayload] = []
 
+        # Step 2a: Static security tool batch scanning
         static_findings_by_file: dict[str, list[SavedFinding]] = {}
+        all_static_findings: list[SavedFinding] = []
         try:
             from devops_cli.security.bandit import run_bandit_scan
             from devops_cli.security.kubelinter import run_kubelinter_scan
             from devops_cli.security.pluto import run_pluto_scan
             from devops_cli.security.trivy import run_trivy_scan
 
-            def _scan_file_static(fpath: str) -> tuple[str, list[SavedFinding]]:
-                p_obj = self._resolve_file_path(fpath)
-                p_name = Path(fpath).name.lower()
-                findings: list[SavedFinding] = []
+            rprint(
+                "  [cyan]• Running static security analyzers "
+                "(Bandit, Kube-linter, Pluto, Trivy)...[/cyan]"
+            )
 
-                # 1. Kube-linter & Pluto scan for K8s manifests
-                if fpath.endswith((".yaml", ".yml")):
-                    kl_findings = run_kubelinter_scan(p_obj)
-                    if kl_findings:
-                        findings.extend(
-                            [
-                                SavedFinding(
-                                    **f.model_dump(),
-                                    persona="devsecops",
-                                    persona_title="Principal DevSecOps Engineer",
-                                )
-                                for f in kl_findings
-                            ]
-                        )
-
-                    pluto_findings = run_pluto_scan(p_obj)
-                    if pluto_findings:
-                        findings.extend(
-                            [
-                                SavedFinding(
-                                    **f.model_dump(),
-                                    persona="devsecops",
-                                    persona_title="Principal DevSecOps Engineer",
-                                )
-                                for f in pluto_findings
-                            ]
-                        )
-
-                # 2. Bandit static security scanner for Python files
-                if fpath.endswith(".py"):
-                    bandit_findings = run_bandit_scan(p_obj)
-                    if bandit_findings:
-                        findings.extend(
-                            [
-                                SavedFinding(
-                                    **f.model_dump(),
-                                    persona="devsecops",
-                                    persona_title="Principal DevSecOps Engineer",
-                                )
-                                for f in bandit_findings
-                            ]
-                        )
-
-                # 3. Aqua Trivy scan for Dockerfiles and lockfiles
-                if p_name in ("dockerfile", "containerfile") or p_name.endswith(
-                    (".lock", ".lockb")
-                ):
-                    t_findings = run_trivy_scan(
-                        p_obj,
-                        scan_type="config" if "docker" in p_name else "fs",
+            # 1. Batch Bandit scan for all Python files in target scope
+            py_paths = [self._resolve_file_path(f) for f in file_paths if f.endswith(".py")]
+            if py_paths:
+                b_findings = run_bandit_scan(py_paths)
+                all_static_findings.extend(
+                    SavedFinding(
+                        **f.model_dump(),
+                        persona="devsecops",
+                        persona_title="Principal DevSecOps Engineer",
                     )
-                    if t_findings:
-                        findings.extend(
-                            [
-                                SavedFinding(
-                                    **f.model_dump(),
-                                    persona="devsecops",
-                                    persona_title="Principal DevSecOps Engineer",
-                                )
-                                for f in t_findings
-                            ]
+                    for f in b_findings
+                )
+
+            # 2. Pluto & Kube-linter scan for Kubernetes manifests
+            yaml_paths = [
+                self._resolve_file_path(f) for f in file_paths if f.endswith((".yaml", ".yml"))
+            ]
+            for yp in yaml_paths:
+                kl_findings = run_kubelinter_scan(yp)
+                if kl_findings:
+                    all_static_findings.extend(
+                        SavedFinding(
+                            **f.model_dump(),
+                            persona="devsecops",
+                            persona_title="Principal DevSecOps Engineer",
                         )
+                        for f in kl_findings
+                    )
+                pluto_findings = run_pluto_scan(yp)
+                if pluto_findings:
+                    all_static_findings.extend(
+                        SavedFinding(
+                            **f.model_dump(),
+                            persona="devsecops",
+                            persona_title="Principal DevSecOps Engineer",
+                        )
+                        for f in pluto_findings
+                    )
 
-                return fpath, findings
+            # 3. Aqua Trivy scan for Dockerfiles and lockfiles
+            docker_lock_paths = [
+                self._resolve_file_path(f)
+                for f in file_paths
+                if Path(f).name.lower() in ("dockerfile", "containerfile")
+                or f.endswith((".lock", ".lockb"))
+            ]
+            for dp in docker_lock_paths:
+                t_findings = run_trivy_scan(
+                    dp,
+                    scan_type="config" if "docker" in dp.name.lower() else "fs",
+                )
+                if t_findings:
+                    all_static_findings.extend(
+                        SavedFinding(
+                            **f.model_dump(),
+                            persona="devsecops",
+                            persona_title="Principal DevSecOps Engineer",
+                        )
+                        for f in t_findings
+                    )
 
-            with ThreadPoolExecutor(max_workers=8) as executor:
-                for fpath, f_findings in executor.map(_scan_file_static, file_paths):
-                    if f_findings:
-                        static_findings_by_file.setdefault(fpath, []).extend(f_findings)
-        except Exception:
-            pass
+            for sf in all_static_findings:
+                loc_path = sf.location.split(":")[0].strip()
+                matched_fpath = next(
+                    (
+                        fp
+                        for fp in file_paths
+                        if fp == loc_path or loc_path.endswith(fp) or fp.endswith(loc_path)
+                    ),
+                    None,
+                )
+                if matched_fpath:
+                    static_findings_by_file.setdefault(matched_fpath, []).append(sf)
+            rprint(
+                f"    [dim]✓ Static analyzers completed "
+                f"({len(all_static_findings)} finding(s) detected)[/dim]"
+            )
+        except Exception as exc:
+            logger.debug("Static security scanning failed or skipped: %s", exc)
 
         osv_client = OSVClient()
         shodan_client = ShodanInternetDBClient()
         radar_client = CloudflareRadarClient()
 
-        # 1. Parse dependencies and network references across target files
+        # Step 2b: Parse dependencies and network references across target files
+        rprint(
+            f"  [cyan]• Extracting dependencies and network references across "
+            f"{n_paths} file(s)...[/cyan]"
+        )
         raw_file_data: dict[str, tuple[list[DependencySpec], list[NetworkReference]]] = {}
         all_unique_deps: set[tuple[str, str, str]] = set()
         all_unique_nets: set[tuple[str, str]] = set()
@@ -413,7 +427,12 @@ class ReviewPipelineOrchestrator:
             for n in file_nets:
                 all_unique_nets.add((n.target, n.reference_type))
 
-        # 2. Concurrently pre-fetch unique dependency vulnerabilities and network reputations
+        rprint(
+            f"    [dim]✓ Extracted {len(all_unique_deps)} unique dependency(ies) and "
+            f"{len(all_unique_nets)} network target(s)[/dim]"
+        )
+
+        # Step 2c: Concurrently pre-fetch unique dependency vulnerabilities and network reputations
         dep_cache: dict[tuple[str, str, str], list[VulnerabilityRecord]] = {}
         net_cache: dict[str, NetworkReputationRecord] = {}
 
@@ -439,6 +458,10 @@ class ReviewPipelineOrchestrator:
                 return target, NetworkReputationRecord(target=target, ip="")
 
         if all_unique_deps or all_unique_nets:
+            rprint(
+                "  [cyan]• Querying vulnerability databases & threat intelligence "
+                "(OSV, Shodan, Cloudflare)...[/cyan]"
+            )
             with ThreadPoolExecutor(max_workers=8) as executor:
                 if all_unique_deps:
                     for d_key, vulns in executor.map(_fetch_dep, list(all_unique_deps)):
@@ -446,8 +469,13 @@ class ReviewPipelineOrchestrator:
                 if all_unique_nets:
                     for target, rep in executor.map(_fetch_net, list(all_unique_nets)):
                         net_cache[target] = rep
+            rprint("    [dim]✓ Completed vulnerability and threat reputation lookups[/dim]")
 
-        # 3. Assemble FileReviewPayload objects
+        # Step 2d: Assemble FileReviewPayload objects
+        rprint(
+            f"  [cyan]• Assembling payload tracking files & linking dependency graphs "
+            f"for {n_paths} file(s)...[/cyan]"
+        )
         for fpath in file_paths:
             fmeta = self._find_matching_metadata(fpath, metadata_by_path) or FileAnalysisMeta(
                 path=fpath

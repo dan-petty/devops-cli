@@ -60,10 +60,10 @@ All work follows a progressive verification strategy to optimize developer feedb
   - Unit tests must isolate external dependencies (network, LLM providers, subprocesses) using mocks (`unittest.mock`, `pytest-mock`).
   - Never hardcode real user credentials or live environment endpoints in test suites.
 - **Comprehensive, Robust Implementations Over Brittle Literal Collections**:
-  - Never rely on partial iterable collections of string literals, ad-hoc keyword lists, or fragile regex substring matching for domain logic, syntax analysis, or security filtering.
-  - Incomplete literal collections lead to random inconsistencies, brittle edge cases, and high maintenance overhead.
-  - Always use comprehensive, language-agnostic code quality standards: prefer standard library parsers (`ast`, `tokenize`, `json`, `tomllib`, `yaml`, `urllib.parse`, `ipaddress`), official specifications (e.g. Public Suffix List via `tldextract`, PEP 508 `packaging.requirements`), and structural/syntactic analysis over matching against a hardcoded subset of possibilities.
-  - DevOps automation and AI developer tooling must be resilient and language-agnostic, avoiding runtime assumptions coupled to a single language runtime.
+  - **Strict Prohibition on Incomplete Literal Collections**: Never rely on partial iterable collections of string literals, ad-hoc lists of file extensions, arbitrary keyword/attribute sets, or fragile regex substring matching for domain logic, syntax analysis, file classification, or security filtering.
+  - **Why Incomplete Collections Fail**: Subsets of string literals (e.g. hardcoded lists of extensions or directory names) inevitably introduce random inconsistencies, false positives, fragile edge cases, and high maintenance debt when encountering valid languages, frameworks, or domain structures outside the hardcoded subset.
+  - **Always Use Standard Parsers & Dynamic Introspection**: Use established language-agnostic code quality standards, standard library parsers (`ast`, `tokenize`, `json`, `tomllib`, `yaml`, `urllib.parse`, `ipaddress`, `mimetypes`, `functools.lru_cache`), official specifications (e.g. Public Suffix List via `tldextract`, PEP 508 `packaging.requirements`), dynamic filesystem queries (`Path.iterdir()`), and syntactic/structural analysis over matching against a hardcoded subset of possibilities.
+  - **Target-Agnostic & Language-Agnostic Design**: DevOps automation and AI developer tooling must remain robust and resilient across any software ecosystem (Python, Go, Rust, TypeScript, Java, C#, HCL, Kubernetes, Docker) without hardcoding runtime assumptions or brittle token subsets.
 - **Documentation Integrity**:
   - Keep CLI documentation, option help text, environment variable tables, and architecture guides synchronized with source code via `devops docs generate --sync-readme`.
 

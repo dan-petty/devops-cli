@@ -55,15 +55,16 @@ def parse_bandit_json(data: dict[str, Any], target_path: str = "") -> list[Findi
 
 
 def run_bandit_scan(
-    target: Path = Path("."),
+    target: Path | list[Path] = Path("."),
     severity_level: str = "medium",
 ) -> list[Finding]:
     """Execute Bandit Python security scanner subprocess and return parsed findings."""
     if is_dry_run():
+        target_str = str(target[0]) if isinstance(target, list) and target else str(target)
         return [
             Finding(
                 severity="HIGH",
-                location=f"{target}:10",
+                location=f"{target_str}:10",
                 title="[B602] [DRY-RUN] Simulated Bandit Python Security Finding",
                 description="Bandit static security audit simulation mode active.",
                 fix="Remediate subprocess invocation (dry-run mode)",
@@ -71,16 +72,15 @@ def run_bandit_scan(
             )
         ]
 
-    if not target.exists():
-        return []
-
-    target_abs = target.resolve()
     level_flag = "-ll" if severity_level.lower() == "medium" else "-lll"
 
-    if target_abs.is_file():
+    if isinstance(target, list):
+        valid_files = [str(p.resolve()) for p in target if p.exists() and p.is_file()]
+        if not valid_files:
+            return []
         cmd = [
             BIN_BANDIT,
-            str(target_abs),
+            *valid_files,
             level_flag,
             "-s",
             "B608",
@@ -88,25 +88,40 @@ def run_bandit_scan(
             "json",
         ]
     else:
-        cmd = [
-            BIN_BANDIT,
-            "-r",
-            str(target_abs),
-            "--exclude",
-            f"{target_abs}/.venv,{target_abs}/venv,{target_abs}/node_modules,{target_abs}/.data",
-            level_flag,
-            "-s",
-            "B608",
-            "-f",
-            "json",
-        ]
+        if not target.exists():
+            return []
+        target_abs = target.resolve()
+        if target_abs.is_file():
+            cmd = [
+                BIN_BANDIT,
+                str(target_abs),
+                level_flag,
+                "-s",
+                "B608",
+                "-f",
+                "json",
+            ]
+        else:
+            cmd = [
+                BIN_BANDIT,
+                "-r",
+                str(target_abs),
+                "--exclude",
+                ".venv,venv,node_modules,.data,repos,.git",
+                level_flag,
+                "-s",
+                "B608",
+                "-f",
+                "json",
+            ]
 
     try:
         proc = run_subprocess(cmd, timeout=CONST_BANDIT_TIMEOUT_SECONDS, check=False)
         if proc.stdout:
             data = json.loads(proc.stdout)
             if isinstance(data, dict):
-                return parse_bandit_json(data, target_path=str(target))
+                tgt_str = str(target) if isinstance(target, Path) else ""
+                return parse_bandit_json(data, target_path=tgt_str)
     except Exception as exc:
         logger.debug("Bandit scan execution skipped or failed: %s", exc)
 
