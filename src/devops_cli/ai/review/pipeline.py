@@ -688,31 +688,15 @@ class ReviewPipelineOrchestrator:
             symbols = ", ".join(payload.metadata.key_symbols if payload.metadata else [])
             rag_context_str = ""
             try:
-                from devops_cli.ai.rag.embeddings import EmbeddingsEngine
-                from devops_cli.ai.rag.qdrant import QdrantClient
-                from devops_cli.ai.rag.retriever import SemanticRetriever
-                from devops_cli.config.settings import get_ai_api_key, load_settings
+                from devops_cli.ai.rag.investigator import (
+                    format_rag_investigation_for_prompt,
+                    investigate_rag_context,
+                )
 
-                st = load_settings()
-                if st.ai.rag.enabled:
-                    q_client = QdrantClient(
-                        base_url=st.qdrant.url or "http://localhost:6333",
-                        allow_private_network=st.ai.allow_private_network,
-                    )
-                    if q_client.is_alive():
-                        emb_engine = EmbeddingsEngine(ai_config=st.ai, api_key=get_ai_api_key(st))
-                        retriever = SemanticRetriever(
-                            qdrant=q_client,
-                            embedder=emb_engine,
-                            code_collection=f"{st.qdrant.collection_prefix}_code",
-                            docs_collection=f"{st.qdrant.collection_prefix}_docs",
-                            default_top_k=3,
-                        )
-                        ctx = retriever.retrieve_context(f"{fpath} {symbols}")
-                        if ctx.has_results:
-                            rag_context_str = (
-                                f"\n\nCross-File Architecture & Context:\n{ctx.formatted_text}"
-                            )
+                ctx = investigate_rag_context(f"{fpath} {symbols}", top_k=3)
+                rag_context_str = format_rag_investigation_for_prompt(
+                    ctx, "Cross-File Architecture & Context"
+                )
             except Exception:
                 pass
 

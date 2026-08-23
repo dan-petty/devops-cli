@@ -56,6 +56,27 @@ app.add_typer(
 )
 console = Console()
 
+
+@app.callback(invoke_without_command=True)
+def ai_main(
+    ctx: typer.Context,
+    explain: Annotated[
+        bool,
+        typer.Option(
+            "--explain",
+            "-e",
+            help="Explain AI agent workflows, FastMCP tools, RAG terminology, and metrics",
+        ),
+    ] = False,
+) -> None:
+    """Manage AI provider configuration (Ollama, Claude, Copilot/OpenAI) and agent tools."""
+    if explain:
+        from devops_cli.ai.explain import render_explanation
+
+        render_explanation("benchmark")
+        raise typer.Exit(0)
+
+
 _PROVIDERS = ("ollama", "claude", "copilot", "openai")
 
 # ── Agent file targets ────────────────────────────────────────────────────────
@@ -80,37 +101,16 @@ def _try_retrieve_rag_context(
 ) -> str | None:
     """Attempt to retrieve relevant semantic context from RAG vector store."""
     try:
-        from devops_cli.ai.rag.embeddings import EmbeddingsEngine
-        from devops_cli.ai.rag.qdrant import QdrantClient
-        from devops_cli.ai.rag.retriever import SemanticRetriever
-        from devops_cli.config.settings import get_ai_api_key, load_settings
+        from devops_cli.ai.rag.investigator import investigate_rag_context
 
-        settings = load_settings()
-        if not settings.ai.rag.enabled:
-            return None
-
-        qdrant = QdrantClient(
-            base_url=settings.qdrant.url or "http://localhost:6333",
-            allow_private_network=settings.ai.allow_private_network,
+        ctx = investigate_rag_context(
+            query,
+            persona=persona,
+            category=category,
+            project=project,
+            top_k=top_k,
         )
-        if not qdrant.is_alive():
-            return None
-
-        embedder = EmbeddingsEngine(ai_config=settings.ai, api_key=get_ai_api_key(settings))
-        retriever = SemanticRetriever(
-            qdrant=qdrant,
-            embedder=embedder,
-            code_collection=f"{settings.qdrant.collection_prefix}_code",
-            docs_collection=f"{settings.qdrant.collection_prefix}_docs",
-            default_top_k=top_k,
-        )
-        if persona:
-            ctx = retriever.retrieve_context_for_persona(
-                query, persona=persona, top_k=top_k, project=project
-            )
-        else:
-            ctx = retriever.retrieve_context(query, top_k=top_k, category=category, project=project)
-        if ctx.has_results:
+        if ctx and ctx.has_results:
             return ctx.formatted_text
     except Exception:
         pass
@@ -196,12 +196,19 @@ def _collect_project_context(repo: Path) -> str:
 
 
 def _agent_prompt(context: str, target_file: str) -> str:
+    rag_info = _try_retrieve_rag_context(
+        f"project architecture design guidelines coding standards {target_file}",
+        persona="architect",
+        top_k=3,
+    )
+    rag_block = f"\n\n### Grounding Architectural Context:\n{rag_info}\n" if rag_info else ""
     return (
         f"Generate the contents of `{target_file}` for this project.\n\n"
         "The file must help AI coding assistants understand the project and work effectively.\n"
         "Include: project purpose, architecture overview, build/test/lint commands, "
         "code conventions, important file paths, security notes, and any non-obvious patterns.\n\n"
         f"{context}"
+        f"{rag_block}"
     )
 
 
@@ -631,8 +638,17 @@ def chat(
     prewarm: Annotated[
         bool, typer.Option("--prewarm/--no-prewarm", help="Prewarm the model before starting chat")
     ] = True,
+    explain: Annotated[
+        bool,
+        typer.Option("--explain", "-e", help="Explain chat personas, tools, and reasoning modes"),
+    ] = False,
 ) -> None:
     """Start an interactive chat with a Pydantic AI persona (tools, thinking, streaming, RAG)."""
+    if explain:
+        from devops_cli.ai.explain import render_explanation
+
+        render_explanation("rag")
+        return
     import sys
 
     from devops_cli.ai.agents import PydanticAgent

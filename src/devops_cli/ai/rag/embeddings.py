@@ -56,31 +56,51 @@ class EmbeddingsEngine:
             return 384
         return 1024
 
-    def embed_texts(self, texts: list[str]) -> list[list[float]]:
+    def embed_texts(self, texts: list[str], *, is_query: bool = False) -> list[list[float]]:
         """Generate vector embeddings for a list of text strings."""
         if not texts:
             return []
 
+        # Model-aware task prefixing for asymmetric models
+        prefixed_texts = self._apply_model_prefix(texts, is_query=is_query)
+
         provider = self.ai_config.provider.lower()
-        if provider == "ollama":
-            return self._embed_ollama(texts)
-        elif provider in ("openai", "copilot"):
-            return self._embed_openai(texts)
+        api_base = self.ai_config.api_base_url or ""
+        if provider in ("openai", "copilot"):
+            return self._embed_openai(prefixed_texts)
+        elif provider == "ollama" or ":11434" in api_base:
+            return self._embed_ollama(prefixed_texts)
+        elif self.ai_config.ollama_urls:
+            return self._embed_ollama(prefixed_texts)
         else:
             # Fallback to Ollama if configured, otherwise deterministic vectors
             if self.ai_config.ollama_urls:
                 try:
-                    return self._embed_ollama(texts)
+                    return self._embed_ollama(prefixed_texts)
                 except Exception as exc:
                     logger.debug("Ollama embedding fallback failed: %s", exc)
-            return self._deterministic_fallback(texts)
+            return self._deterministic_fallback(prefixed_texts)
 
     def embed_query(self, text: str) -> list[float]:
         """Generate vector embedding for a single search query."""
-        results = self.embed_texts([text])
+        results = self.embed_texts([text], is_query=True)
         if not results:
             raise EmbeddingsError(f"Failed to generate embedding for query: {text[:50]}")
         return results[0]
+
+    def _apply_model_prefix(self, texts: list[str], *, is_query: bool) -> list[str]:
+        """Apply asymmetric task prefix based on embedding model architecture."""
+        m = self.model.lower()
+        if "nomic" in m:
+            prefix = "search_query: " if is_query else "search_document: "
+            return [
+                t if t.startswith(("search_query: ", "search_document: ")) else f"{prefix}{t}"
+                for t in texts
+            ]
+        elif "qwen" in m or "bge" in m or "e5" in m:
+            prefix = "query: " if is_query else "passage: "
+            return [t if t.startswith(("query: ", "passage: ")) else f"{prefix}{t}" for t in texts]
+        return texts
 
     def _embed_ollama(self, texts: list[str]) -> list[list[float]]:
         """Query Ollama server(s) for embeddings with parallel batching and automatic failover."""
@@ -192,9 +212,12 @@ class EmbeddingsEngine:
             "input": texts,
         }
 
+        endpoint = (
+            f"{base_url}/embeddings" if base_url.endswith("/v1") else f"{base_url}/v1/embeddings"
+        )
         try:
             with httpx2.Client(timeout=self.timeout) as client:
-                res = client.post(f"{base_url}/embeddings", headers=headers, json=payload)
+                res = client.post(endpoint, headers=headers, json=payload)
                 if res.status_code != 200:
                     raise EmbeddingsError(f"OpenAI embeddings HTTP {res.status_code}: {res.text}")
                 data = res.json()

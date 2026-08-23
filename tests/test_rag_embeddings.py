@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import httpx2
 import pytest
 
@@ -21,7 +23,7 @@ def test_deterministic_fallback_embeddings() -> None:
 
 
 def test_ollama_embeddings_success(monkeypatch: pytest.MonkeyPatch) -> None:
-    def fake_post(url: str, json: dict | None = None, **kwargs) -> httpx2.Response:
+    def fake_post(url: str, json: dict[str, Any] | None = None, **kwargs: Any) -> httpx2.Response:
         return httpx2.Response(200, json={"embedding": [0.1] * 384})
 
     monkeypatch.setattr(httpx2.Client, "post", lambda self, url, **kwargs: fake_post(url, **kwargs))
@@ -35,12 +37,15 @@ def test_ollama_embeddings_success(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_openai_embeddings_success(monkeypatch: pytest.MonkeyPatch) -> None:
-    def fake_post(url: str, json: dict | None = None, **kwargs) -> httpx2.Response:
+    def fake_post(url: str, json: dict[str, Any] | None = None, **kwargs: Any) -> httpx2.Response:
         return httpx2.Response(
             200,
             json={"data": [{"index": 0, "embedding": [0.2] * 1536}]},
         )
 
+    monkeypatch.setattr(
+        "devops_cli.ai.rag.embeddings.validate_service_url", lambda *args, **kwargs: None
+    )
     monkeypatch.setattr(httpx2.Client, "post", lambda self, url, **kwargs: fake_post(url, **kwargs))
     ai_cfg = AIConfig(provider="openai", allow_private_network=True)
     engine = EmbeddingsEngine(ai_cfg, api_key="sk-fake")

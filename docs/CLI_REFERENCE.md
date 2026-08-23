@@ -1723,6 +1723,7 @@ devops ai chat [OPTIONS]
 | `--tools`, `--no-tools` | `boolean` | `True` | Enable DevOps agent tools |
 | `--thinking`, `--no-thinking` | `boolean` | `True` | Enable model reasoning/thinking |
 | `--prewarm`, `--no-prewarm` | `boolean` | `True` | Prewarm the model before starting chat |
+| `--explain`, `-e` | `boolean` | - | Explain chat personas, tools, and reasoning modes |
 
 ### `devops ai bundle-models`
 
@@ -1766,8 +1767,14 @@ devops ai pipeline [OPTIONS] <prompt>
 **AI-powered multi-persona code review system.**
 
 ```bash
-devops ai review COMMAND [ARGS]...
+devops ai review [OPTIONS] COMMAND [ARGS]...
 ```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology |
 
 #### `devops ai review path`
 
@@ -1792,6 +1799,7 @@ devops ai review path [OPTIONS] <target>
 | `--all` | `boolean` | - | Run all four reviewer personas |
 | `--dry-run` | `boolean` | - | Print commands and AI request payloads without executing. |
 | `--summary`, `-s` | `boolean` | - | Show segment metadata without running a full review. |
+| `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology |
 
 #### `devops ai review branch`
 
@@ -1817,6 +1825,7 @@ devops ai review branch [OPTIONS] <branch_name>
 | `--repo` | `path` | `.` | Path to the git repository |
 | `--dry-run` | `boolean` | - | Print commands and AI request payloads without executing. |
 | `--summary`, `-s` | `boolean` | - | Show segment metadata without running a full review. |
+| `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology |
 
 #### `devops ai review pr`
 
@@ -1842,6 +1851,7 @@ devops ai review pr [OPTIONS] <number>
 | `--post` | `boolean` | - | Post the review as a comment on the GitHub PR |
 | `--dry-run` | `boolean` | - | Print commands and AI request payloads without executing. |
 | `--summary`, `-s` | `boolean` | - | Show segment metadata without running a full review. |
+| `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology |
 
 #### `devops ai review findings`
 
@@ -1940,8 +1950,14 @@ devops ai review apply-patch [OPTIONS] <session>
 **Analyze codebase metadata and generate structural outlines.**
 
 ```bash
-devops ai analyze COMMAND [ARGS]...
+devops ai analyze [OPTIONS] COMMAND [ARGS]...
 ```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--explain`, `-x` | `boolean` | - | Explain static code analysis metrics and terminology |
 
 #### `devops ai analyze path`
 
@@ -1964,6 +1980,7 @@ devops ai analyze path [OPTIONS] <target>
 | `--pattern`, `-g` | `string` | `*` | Glob pattern for files (default: all files) |
 | `--enhanced`, `-e`, `--no-enhanced` | `boolean` | `True` | Generate AI-enhanced metadata (pseudocode, complexity, last_updated) |
 | `--update-all`, `-u` | `boolean` | - | Regenerate all enhanced metadata fields regardless of last_* timestamps |
+| `--explain`, `-x` | `boolean` | - | Explain static code analysis metrics and terminology |
 
 #### `devops ai analyze branch`
 
@@ -1986,6 +2003,7 @@ devops ai analyze branch [OPTIONS] <branch>
 | `--base`, `-b` | `string` | `main` | Base branch for diff |
 | `--enhanced`, `-e`, `--no-enhanced` | `boolean` | `True` | Generate AI-enhanced metadata (pseudocode, complexity, last_updated) |
 | `--update-all`, `-u` | `boolean` | - | Regenerate all enhanced metadata fields regardless of last_* timestamps |
+| `--explain`, `-x` | `boolean` | - | Explain static code analysis metrics and terminology |
 
 #### `devops ai analyze pr`
 
@@ -2007,14 +2025,21 @@ devops ai analyze pr [OPTIONS] <pr_number>
 |---|---|---|---|
 | `--enhanced`, `-e`, `--no-enhanced` | `boolean` | `True` | Generate AI-enhanced metadata (pseudocode, complexity, last_updated) |
 | `--update-all`, `-u` | `boolean` | - | Regenerate all enhanced metadata fields regardless of last_* timestamps |
+| `--explain`, `-x` | `boolean` | - | Explain static code analysis metrics and terminology |
 
 ### `devops ai rag`
 
 **Manage RAG vector embeddings, indexing, and semantic search (Qdrant).**
 
 ```bash
-devops ai rag COMMAND [ARGS]...
+devops ai rag [OPTIONS] COMMAND [ARGS]...
 ```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--explain`, `-e` | `boolean` | - | Explain RAG vector embeddings, Qdrant indexing, and terminology |
 
 #### `devops ai rag index`
 
@@ -2037,6 +2062,7 @@ devops ai rag index [OPTIONS] <path>
 | `--project`, `-p` | `string` | - | Project / repository name override |
 | `--force`, `-f` | `boolean` | - | Re-index all files ignoring content hash cache |
 | `--collection`, `-c` | `string` | - | Target collection override |
+| `--explain`, `-e` | `boolean` | - | Explain RAG vector embeddings, Qdrant indexing, and terminology |
 
 #### `devops ai rag query`
 
@@ -2063,6 +2089,7 @@ devops ai rag query [OPTIONS] <query>
 | `--min-score`, `-s` | `float` | `0.35` | Minimum cosine similarity threshold |
 | `--collection`, `-c` | `string` | - | Search only a specific collection |
 | `--file`, `-f` | `string` | - | Filter results to a specific file |
+| `--explain`, `-e` | `boolean` | - | Explain RAG vector embeddings, Qdrant indexing, and terminology |
 
 #### `devops ai rag status`
 
@@ -2123,6 +2150,9 @@ devops ai benchmark [OPTIONS]
 | `--output`, `-o` | `path` | - | Destination JSON report filepath |
 | `--format`, `-f` | `string` | `table` | Output format: table, json, markdown |
 | `--dry-run` | `boolean` | - | Simulate benchmark without sending remote LLM requests |
+| `--explain`, `-e` | `boolean` | - | Explain benchmark metrics, terminology, and mathematical formulas |
+| `--document`, `-d` | `path` | - | Path to large test document for in-memory tokenization and section retrieval |
+| `--samples` | `integer` | `15` | Number of random sections to sample for retrieval evaluation |
 
 ---
 
@@ -2155,6 +2185,7 @@ devops review path [OPTIONS] <target>
 | `--all` | `boolean` | - | Run all four reviewer personas |
 | `--dry-run` | `boolean` | - | Print commands and AI request payloads without executing. |
 | `--summary`, `-s` | `boolean` | - | Show segment metadata without running a full review. |
+| `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology |
 
 ### `devops review branch`
 
@@ -2180,6 +2211,7 @@ devops review branch [OPTIONS] <branch_name>
 | `--repo` | `path` | `.` | Path to the git repository |
 | `--dry-run` | `boolean` | - | Print commands and AI request payloads without executing. |
 | `--summary`, `-s` | `boolean` | - | Show segment metadata without running a full review. |
+| `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology |
 
 ### `devops review pr`
 
@@ -2205,6 +2237,7 @@ devops review pr [OPTIONS] <number>
 | `--post` | `boolean` | - | Post the review as a comment on the GitHub PR |
 | `--dry-run` | `boolean` | - | Print commands and AI request payloads without executing. |
 | `--summary`, `-s` | `boolean` | - | Show segment metadata without running a full review. |
+| `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology |
 
 ### `devops review findings`
 

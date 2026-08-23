@@ -188,9 +188,24 @@ class BenchmarkRunner:
                 )
             t0 = time.monotonic()
             try:
+                rag_block = ""
+                try:
+                    from devops_cli.ai.rag.investigator import (
+                        format_rag_investigation_for_prompt,
+                        investigate_rag_context,
+                    )
+
+                    rag_ctx = investigate_rag_context(f"{task.id} {task.prompt[:150]}", top_k=2)
+                    rag_block = format_rag_investigation_for_prompt(
+                        rag_ctx, "Architectural Grounding Context"
+                    )
+                except Exception:
+                    pass
+
+                user_prompt = f"{task.prompt}{rag_block}"
                 res_text = client.chat(
                     system="You are an expert DevOps and DevSecOps staff engineer.",
-                    user=task.prompt,
+                    user=user_prompt,
                 )
                 duration = time.monotonic() - t0
                 results.append(

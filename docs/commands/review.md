@@ -27,6 +27,7 @@ devops review path [OPTIONS] <target>
 | `--all` | `boolean` | - | Run all four reviewer personas |
 | `--dry-run` | `boolean` | - | Print commands and AI request payloads without executing. |
 | `--summary`, `-s` | `boolean` | - | Show segment metadata without running a full review. |
+| `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology |
 
 ---
 
@@ -54,6 +55,7 @@ devops review branch [OPTIONS] <branch_name>
 | `--repo` | `path` | `.` | Path to the git repository |
 | `--dry-run` | `boolean` | - | Print commands and AI request payloads without executing. |
 | `--summary`, `-s` | `boolean` | - | Show segment metadata without running a full review. |
+| `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology |
 
 ---
 
@@ -81,6 +83,7 @@ devops review pr [OPTIONS] <number>
 | `--post` | `boolean` | - | Post the review as a comment on the GitHub PR |
 | `--dry-run` | `boolean` | - | Print commands and AI request payloads without executing. |
 | `--summary`, `-s` | `boolean` | - | Show segment metadata without running a full review. |
+| `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology |
 
 ---
 

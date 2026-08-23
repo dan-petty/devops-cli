@@ -15,7 +15,7 @@ class EmbeddingEvalPair:
     target_passage: str
 
 
-# 15 domain-specific query-passage evaluation pairs across 5 DevOps domains
+# 20 domain-specific query-passage evaluation pairs across 5 DevOps domains (4 per category)
 EMBEDDING_EVAL_PAIRS: list[EmbeddingEvalPair] = [
     # 1. Security
     EmbeddingEvalPair(
@@ -55,6 +55,16 @@ EMBEDDING_EVAL_PAIRS: list[EmbeddingEvalPair] = [
             "passphrases securely, preventing accidental credential leaks."
         ),
     ),
+    EmbeddingEvalPair(
+        id="sec-cve-osv-lookup",
+        category="security",
+        query="Scan dependencies for CVE security advisories using OSV.dev database",
+        target_passage=(
+            "The vulnerability intelligence lookup queries Open Source Vulnerabilities (OSV.dev) "
+            "with package names and versions from pyproject.toml or package.json, "
+            "identifying vulnerable ranges, CVSS severity ratings, and fix recommendations."
+        ),
+    ),
     # 2. Kubernetes
     EmbeddingEvalPair(
         id="k8s-pod-security",
@@ -91,6 +101,16 @@ EMBEDDING_EVAL_PAIRS: list[EmbeddingEvalPair] = [
             "rollout status until all pods pass readiness probes."
         ),
     ),
+    EmbeddingEvalPair(
+        id="k8s-netpol-isolation",
+        category="kubernetes",
+        query="Isolate pod network traffic with default-deny ingress and egress NetworkPolicy",
+        target_passage=(
+            "Apply a Kubernetes NetworkPolicy with policyTypes [Ingress, Egress] and empty "
+            "podSelector to block cross-namespace traffic by default, whitelisting DNS port 53 "
+            "and backend service CIDR blocks."
+        ),
+    ),
     # 3. Architecture & Python
     EmbeddingEvalPair(
         id="arch-pydantic-v2",
@@ -120,6 +140,16 @@ EMBEDDING_EVAL_PAIRS: list[EmbeddingEvalPair] = [
             "The AST CodeScanner parses Python source trees using ast.parse(), traversing "
             "FunctionDef, AsyncFunctionDef, and ClassDef nodes to compute cyclomatic complexity, "
             "symbol dependencies, and signature type hints without executing arbitrary code."
+        ),
+    ),
+    EmbeddingEvalPair(
+        id="arch-polyglot-chunker",
+        category="architecture",
+        query="Chunk source code files along class and function boundaries for RAG indexing",
+        target_passage=(
+            "The PolyglotChunker parses syntactic grammar definitions for Python, Go, Rust, and "
+            "TypeScript, segmenting source modules along AST function boundaries while attaching "
+            "symbol metadata and import dependencies to each vector chunk."
         ),
     ),
     # 4. CI/CD
@@ -157,6 +187,16 @@ EMBEDDING_EVAL_PAIRS: list[EmbeddingEvalPair] = [
             "third-party action SHA references."
         ),
     ),
+    EmbeddingEvalPair(
+        id="ci-uv-cache-matrix",
+        category="ci_cd",
+        query="Accelerate CI test matrix runs using uv cache and lockfile hash keys",
+        target_passage=(
+            "Use astral-sh/setup-uv with enable-cache: true and cache-dependency-glob: 'uv.lock' "
+            "to restore pre-built Python wheels across Ubuntu, macOS, and Windows matrix jobs, "
+            "reducing dependency sync duration from minutes to under 5 seconds."
+        ),
+    ),
     # 5. Infrastructure & Cloud
     EmbeddingEvalPair(
         id="infra-terraform-state",
@@ -188,6 +228,16 @@ EMBEDDING_EVAL_PAIRS: list[EmbeddingEvalPair] = [
             "by (le)) to monitor microservice tail latency SLA breaches."
         ),
     ),
+    EmbeddingEvalPair(
+        id="infra-jaeger-tracing",
+        category="infrastructure",
+        query="Collect distributed trace spans with OpenTelemetry Collector and Jaeger UI",
+        target_passage=(
+            "Deploy OpenTelemetry Collector DaemonSet receiving OTLP gRPC spans at port 4317 and "
+            "exporting traces to Jaeger backend storage, visualizing request call graphs and "
+            "latency bottlenecks across microservices."
+        ),
+    ),
 ]
 
 # Distractor passages to test negative ranking separation and semantic discrimination
@@ -202,6 +252,11 @@ EMBEDDING_DISTRACTORS: list[str] = [
     "Sourdough fermentation relies on wild lactobacillus bacteria and ambient yeasts.",
     "The rules of chess dictate that pawns move forward but capture diagonally on adjacent files.",
     "Scuba diving safety rules require monitoring tank pressure and decompression stops.",
+    "Espresso brewing requires a water temperature between 90 and 96 degrees Celsius.",
+    "Ancient Roman aqueducts transported fresh water using gravity across stone arches.",
+    "Vocal warmups for opera singers involve diaphragmatic breathing and arpeggio scales.",
+    "Woodworking joinery techniques utilize mortise and tenon or dovetail interlocking joints.",
+    "Beekeeping requires inspecting brood frames for queen presence and varroa mite control.",
 ]
 
 

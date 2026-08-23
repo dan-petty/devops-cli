@@ -178,6 +178,24 @@ app = new_typer(
 console = Console()
 
 
+@app.callback(invoke_without_command=True)
+def review_main(
+    ctx: typer.Context,
+    explain: Annotated[
+        bool,
+        typer.Option(
+            "--explain", "-e", help="Explain code review personas, severity levels, and terminology"
+        ),
+    ] = False,
+) -> None:
+    """Multi-persona AI code review with confidence calibration and finding verification."""
+    if explain:
+        from devops_cli.ai.explain import render_explanation
+
+        render_explanation("review")
+        raise typer.Exit(0)
+
+
 # ── path ──────────────────────────────────────────────────────────────────────
 
 
@@ -209,8 +227,19 @@ def path(
             "--summary", "-s", help="Show segment metadata without running a full review."
         ),
     ] = False,
+    explain: Annotated[
+        bool,
+        typer.Option(
+            "--explain", "-e", help="Explain code review personas, severity levels, and terminology"
+        ),
+    ] = False,
 ) -> None:
     """Review source files directly (no git required)."""
+    if explain:
+        from devops_cli.ai.explain import render_explanation
+
+        render_explanation("review")
+        return
     set_dry_run(dry_run)
     settings = load_settings()
     clients = _make_review_clients(settings)
@@ -265,8 +294,19 @@ def branch(
             "--summary", "-s", help="Show segment metadata without running a full review."
         ),
     ] = False,
+    explain: Annotated[
+        bool,
+        typer.Option(
+            "--explain", "-e", help="Explain code review personas, severity levels, and terminology"
+        ),
+    ] = False,
 ) -> None:
     """Review a git branch diff with one or all AI personas."""
+    if explain:
+        from devops_cli.ai.explain import render_explanation
+
+        render_explanation("review")
+        return
     set_dry_run(dry_run)
     settings = load_settings()
     clients = _make_review_clients(settings)
@@ -318,8 +358,19 @@ def pr(
             "--summary", "-s", help="Show segment metadata without running a full review."
         ),
     ] = False,
+    explain: Annotated[
+        bool,
+        typer.Option(
+            "--explain", "-e", help="Explain code review personas, severity levels, and terminology"
+        ),
+    ] = False,
 ) -> None:
     """Review a GitHub pull request with one or all AI personas."""
+    if explain:
+        from devops_cli.ai.explain import render_explanation
+
+        render_explanation("review")
+        return
     from devops_cli.config.settings import get_github_token
 
     set_dry_run(dry_run)

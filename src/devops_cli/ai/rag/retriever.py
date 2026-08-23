@@ -207,6 +207,7 @@ class SemanticRetriever:
         project: str | None = None,
         language: str | None = None,
         category: str | None = None,
+        file_filter: str | None = None,
         rerank: bool = True,
         max_chars: int = 15000,
     ) -> RAGContext:
@@ -219,6 +220,7 @@ class SemanticRetriever:
             project=project,
             language=language,
             category=category,
+            file_filter=file_filter,
             rerank=rerank,
         )
 

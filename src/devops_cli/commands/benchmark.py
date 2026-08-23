@@ -97,9 +97,39 @@ def run_benchmark(
         bool,
         typer.Option("--dry-run", help="Simulate benchmark without sending remote LLM requests"),
     ] = False,
+    explain: Annotated[
+        bool,
+        typer.Option(
+            "--explain",
+            "-e",
+            help="Explain benchmark metrics, terminology, and mathematical formulas",
+        ),
+    ] = False,
+    document: Annotated[
+        Path | None,
+        typer.Option(
+            "--document",
+            "-d",
+            help="Path to large test document for in-memory tokenization and section retrieval",
+            exists=True,
+            readable=True,
+        ),
+    ] = None,
+    samples: Annotated[
+        int,
+        typer.Option(
+            "--samples", help="Number of random sections to sample for retrieval evaluation"
+        ),
+    ] = 15,
 ) -> None:
     """Run benchmark tasks across candidate models and execute cross-model peer grading."""
     if ctx.invoked_subcommand is not None:
+        return
+
+    if explain:
+        from devops_cli.ai.explain import render_explanation
+
+        render_explanation("benchmark")
         return
 
     settings = load_settings()
@@ -138,6 +168,8 @@ def run_benchmark(
             is_dry_run=dry_run,
             concurrency=safe_concurrency,
             servers=server_list,
+            document_path=document,
+            sample_count=samples,
         )
         embed_report = embed_runner.run()
 

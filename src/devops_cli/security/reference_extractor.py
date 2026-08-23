@@ -24,7 +24,7 @@ from devops_cli.models.vulnerability import DependencySpec, NetworkReference
 
 logger = logging.getLogger(__name__)
 
-# Ensure standard MIME types are initialized from system/python registry
+# Ensure standard MIME types are initialized from system registry
 mimetypes.init()
 
 _TLD_EXTRACTOR = tldextract.TLDExtract(cache_dir=None)
@@ -40,7 +40,7 @@ _HCL_STRING_OR_COMMENT_REGEX = re.compile(
     r"""(?:"(?:\\.|[^"\\])*"|#[^\r\n]*|//[^\r\n]*|/\*[\s\S]*?\*/)"""
 )
 
-# Standard RFC 2606 and RFC 6761 reserved domain suffixes and public infra endpoints
+# Standard RFC 2606 and RFC 6761 reserved domain suffixes
 _RESERVED_DOMAINS = {
     "example.com",
     "example.org",
@@ -53,7 +53,7 @@ _RESERVED_DOMAINS = {
     "internal",
 }
 
-_EXCLUDED_DOMAINS = {
+_EXCLUDED_PUBLIC_REGISTRIES = {
     "schema.org",
     "w3.org",
     "json-schema.org",
@@ -70,39 +70,10 @@ _EXCLUDED_DOMAINS = {
     "cloudflare.com",
 }
 
-_PRIMARY_WEB_TLDS = {
-    "com",
-    "org",
-    "net",
-    "io",
-    "co",
-    "app",
-    "dev",
-    "cloud",
-    "gov",
-    "edu",
-    "mil",
-    "int",
-    "ai",
-}
-
-_KNOWN_NON_DOMAIN_EXTENSIONS = {
-    "in",
-    "out",
-    "lock",
-    "env",
-    "example",
-    "sample",
-    "template",
-    "spec",
-    "log",
-    "tmp",
-    "bak",
-}
-
 __all__ = [
     "extract_dependencies_from_text",
     "extract_network_references",
+    "is_code_or_config_reference",
     "is_file_reference",
     "is_network_domain",
     "is_public_ip",
@@ -127,20 +98,21 @@ def is_public_ip(ip_str: str) -> bool:
 
 
 def is_file_reference(target: str, source_file: str = "") -> bool:
-    """Check if target string represents a local file path, manifest item, or standard
-    file format.
-    """
-    target_clean = target.strip()
-    if "/" in target_clean or "\\" in target_clean:
+    """Check if target string represents an existing file on disk or standard file path."""
+    clean = target.strip().rstrip(".,;)>]\"'")
+    if "/" in clean or "\\" in clean or clean.startswith("."):
         return True
 
-    # Check local filesystem existence
-    if Path(target_clean).exists() or (Path.cwd() / target_clean).exists():
+    # 1. Direct or cwd-relative filesystem existence
+    if Path(clean).is_file() or (Path.cwd() / clean).is_file():
         return True
 
-    # Ignore and lock files context check
+    # 2. Source file relative existence
     if source_file:
-        src_name = Path(source_file).name.lower()
+        src = Path(source_file)
+        if (src.parent / clean).is_file():
+            return True
+        src_name = src.name.lower()
         if (
             src_name.endswith("ignore")
             or src_name.endswith(".lock")
@@ -148,57 +120,67 @@ def is_file_reference(target: str, source_file: str = "") -> bool:
         ):
             return True
 
-    suffix = Path(target_clean).suffix.lower().lstrip(".")
-    if suffix in _KNOWN_NON_DOMAIN_EXTENSIONS:
+    # 3. Check if target matches an actual file in the workspace directory tree
+    if any(Path.cwd().glob(f"**/{clean}")):
         return True
 
-    ext = _TLD_EXTRACTOR(target_clean)
-    if not ext.domain or not ext.suffix:
-        return True
-
-    # Multi-level FQDN or primary web TLD indicates a domain, not a file
-    if ext.subdomain or ext.suffix in _PRIMARY_WEB_TLDS:
-        return False
-
-    # Standard library mimetypes check
-    mime, _ = mimetypes.guess_type(target_clean)
-    if mime is not None and mime not in (
-        "application/x-msdos-program",
-        "application/x-msdownload",
-        "application/x-sh",
+    # 4. Standard build and manifest template formats (e.g. *.in, *.lock, *.template, *.spec)
+    if clean.endswith(
+        (".in", ".lock", ".template", ".sample", ".example", ".spec", ".log", ".bak", ".tmp")
     ):
         return True
 
     return False
 
 
+def is_code_or_config_reference(target: str, source_file: str = "") -> bool:
+    """Differentiate code identifiers, method chains, and config keys from network hosts."""
+    clean = target.strip().rstrip(".,;)>]\"'")
+
+    # Valid network hostnames cannot contain underscores (RFC 1123)
+    if "_" in clean or clean.startswith("-") or clean.endswith("-"):
+        return True
+
+    parts = clean.split(".")
+    if len(parts) < 2:
+        return True
+
+    # Check if dot-separated path corresponds to a local workspace file/module directory
+    alt_path = clean.replace(".", "/")
+    if any(Path.cwd().glob(f"**/{alt_path}*")):
+        return True
+
+    return False
+
+
 def is_network_domain(target: str, source_file: str = "") -> bool:
-    """Validate whether target string is a legitimate public network domain using tldextract,
-    mimetypes, and ipaddress.
+    """Validate whether target string is a legitimate public network domain using general stylistic
+    properties and the Public Suffix List (PSL).
     """
-    target_clean = target.strip().rstrip(".,;)>]\"'")
-    if "_" in target_clean or not _HOSTNAME_REGEX.match(target_clean):
+    clean = target.strip().rstrip(".,;)>]\"'")
+    if not _HOSTNAME_REGEX.match(clean):
         return False
 
-    if is_file_reference(target_clean, source_file=source_file):
+    if is_file_reference(clean, source_file=source_file):
         return False
 
-    ext = _TLD_EXTRACTOR(target_clean)
+    if is_code_or_config_reference(clean, source_file=source_file):
+        return False
+
+    ext = _TLD_EXTRACTOR(clean)
     if not ext.domain or not ext.suffix:
         return False
 
-    suffix = ext.suffix.lower()
-    domain = ext.domain.lower()
+    registered = f"{ext.domain.lower()}.{ext.suffix.lower()}"
     fqdn = ext.fqdn.lower()
-    registered = f"{domain}.{suffix}"
 
-    # Check against RFC reserved and excluded domains
+    # Exclude reserved RFC domains and common public tooling registries
     if (
         registered in _RESERVED_DOMAINS
-        or registered in _EXCLUDED_DOMAINS
+        or registered in _EXCLUDED_PUBLIC_REGISTRIES
         or fqdn in _RESERVED_DOMAINS
-        or fqdn in _EXCLUDED_DOMAINS
-        or any(fqdn.endswith("." + exc) for exc in _RESERVED_DOMAINS | _EXCLUDED_DOMAINS)
+        or fqdn in _EXCLUDED_PUBLIC_REGISTRIES
+        or any(fqdn.endswith("." + exc) for exc in _RESERVED_DOMAINS | _EXCLUDED_PUBLIC_REGISTRIES)
     ):
         return False
 
@@ -215,7 +197,6 @@ def _extract_python_literals_and_comments(content: str) -> list[tuple[str, int]]
     """Extract string constants and comments from Python source code via AST and tokenize."""
     literals: list[tuple[str, int]] = []
     source = textwrap.dedent(content)
-    # 1. AST string constants & docstrings
     try:
         tree = ast.parse(source)
         for node in ast.walk(tree):
@@ -225,7 +206,6 @@ def _extract_python_literals_and_comments(content: str) -> list[tuple[str, int]]
     except (SyntaxError, IndentationError):
         pass
 
-    # 2. Tokenize comments
     try:
         tokens = tokenize.generate_tokens(io.StringIO(source).readline)
         for tok in tokens:
@@ -410,7 +390,7 @@ def extract_dependencies_from_text(content: str, file_name: str) -> list[Depende
     if name_lower in ("requirements.txt", "requirements-dev.txt", "requirements.in"):
         for line in content.splitlines():
             line = line.strip()
-            if not line or line.startswith("#") or line.startswith("-"):
+            if not line or line.startswith(("#", "-", "--")):
                 continue
             try:
                 req = Requirement(line)
@@ -424,19 +404,7 @@ def extract_dependencies_from_text(content: str, file_name: str) -> list[Depende
                     )
                 )
             except InvalidRequirement:
-                # Fallback to robust token split for non-standard legacy entries
-                parts = re.split(r"([=><~^!]+.*)", line, maxsplit=1)
-                pkg_name = parts[0].strip()
-                version_spec = parts[1].strip() if len(parts) > 1 else "*"
-                if pkg_name:
-                    deps.append(
-                        DependencySpec(
-                            name=pkg_name,
-                            version_range=version_spec,
-                            ecosystem="PyPI",
-                            source_file=file_name,
-                        )
-                    )
+                pass
 
     elif name_lower == "pyproject.toml":
         try:
@@ -502,54 +470,37 @@ def extract_dependencies_from_text(content: str, file_name: str) -> list[Depende
         except Exception:
             pass
 
-    elif name_lower == "cargo.toml":
+    elif name_lower in ("cargo.toml", "cargo.lock"):
         try:
             data = tomllib.loads(content)
-            for section in ("dependencies", "dev-dependencies", "build-dependencies"):
-                table = data.get(section, {})
-                if isinstance(table, dict):
-                    for pkg, ver_data in table.items():
-                        ver_str = (
-                            ver_data
-                            if isinstance(ver_data, str)
-                            else ver_data.get("version", "*")
-                            if isinstance(ver_data, dict)
-                            else "*"
+            cargo_deps = data.get("dependencies", {})
+            if isinstance(cargo_deps, dict):
+                for pkg, ver in cargo_deps.items():
+                    ver_str = ver if isinstance(ver, str) else ver.get("version", "*")
+                    deps.append(
+                        DependencySpec(
+                            name=pkg,
+                            version_range=str(ver_str),
+                            ecosystem="crates.io",
+                            source_file=file_name,
                         )
-                        deps.append(
-                            DependencySpec(
-                                name=pkg,
-                                version_range=str(ver_str),
-                                ecosystem="crates.io",
-                                source_file=file_name,
-                            )
-                        )
+                    )
         except Exception:
             pass
 
     elif name_lower == "go.mod":
-        in_require = False
+        in_require_block = False
         for line in content.splitlines():
             line = line.strip()
             if line.startswith("require ("):
-                in_require = True
+                in_require_block = True
                 continue
-            if line == ")" and in_require:
-                in_require = False
+            if in_require_block and line == ")":
+                in_require_block = False
                 continue
-            if in_require and line and not line.startswith("//"):
-                parts = line.split()
-                if len(parts) >= 2:
-                    deps.append(
-                        DependencySpec(
-                            name=parts[0],
-                            version_range=parts[1],
-                            ecosystem="Go",
-                            source_file=file_name,
-                        )
-                    )
-            elif line.startswith("require ") and not in_require:
-                parts = line.removeprefix("require ").strip().split()
+            if in_require_block or line.startswith("require "):
+                raw = line.removeprefix("require").strip()
+                parts = raw.split()
                 if len(parts) >= 2:
                     deps.append(
                         DependencySpec(

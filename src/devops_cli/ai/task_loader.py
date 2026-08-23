@@ -15,7 +15,9 @@ def load_task_prompt(filename: str) -> str:
     """Load a markdown prompt file from the ai/tasks/ directory.
 
     Returns the file contents stripped of leading/trailing whitespace,
-    or an empty string if the file does not exist.
+    or an empty string if the file does not exist or is outside the tasks directory.
     """
-    path = _TASKS_DIR / filename
-    return path.read_text(encoding="utf-8").strip() if path.exists() else ""
+    target_path = (_TASKS_DIR / filename).resolve()
+    if not target_path.is_relative_to(_TASKS_DIR) or not target_path.is_file():
+        return ""
+    return target_path.read_text(encoding="utf-8").strip()

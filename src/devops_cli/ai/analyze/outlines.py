@@ -100,31 +100,13 @@ def _enhance_file_metadata_with_ai(
     sanitized_content = _mask_sensitive_data(content[:150000])
     rag_context = ""
     try:
-        from devops_cli.ai.rag.embeddings import EmbeddingsEngine
-        from devops_cli.ai.rag.qdrant import QdrantClient
-        from devops_cli.ai.rag.retriever import SemanticRetriever
-        from devops_cli.config.settings import get_ai_api_key, load_settings
+        from devops_cli.ai.rag.investigator import (
+            format_rag_investigation_for_prompt,
+            investigate_rag_context,
+        )
 
-        settings = load_settings()
-        if settings.ai.rag.enabled:
-            qdrant = QdrantClient(
-                base_url=settings.qdrant.url or "http://localhost:6333",
-                allow_private_network=settings.ai.allow_private_network,
-            )
-            if qdrant.is_alive():
-                embedder = EmbeddingsEngine(ai_config=settings.ai, api_key=get_ai_api_key(settings))
-                retriever = SemanticRetriever(
-                    qdrant=qdrant,
-                    embedder=embedder,
-                    code_collection=f"{settings.qdrant.collection_prefix}_code",
-                    docs_collection=f"{settings.qdrant.collection_prefix}_docs",
-                    default_top_k=2,
-                )
-                ctx = retriever.retrieve_context(
-                    f"{rel_path} {' '.join(static_symbols[:5])}", top_k=2
-                )
-                if ctx.has_results:
-                    rag_context = f"\n\nRelated Architectural Context:\n{ctx.formatted_text}\n"
+        ctx = investigate_rag_context(f"{rel_path} {' '.join(static_symbols[:5])}", top_k=2)
+        rag_context = format_rag_investigation_for_prompt(ctx, "Related Architectural Context")
     except Exception:
         pass
 
@@ -345,11 +327,20 @@ def _generate_pseudocode(
     """Generate a representative list of strings simplifying key elements and structure."""
     if ai_client is not None and content.strip():
         try:
+            from devops_cli.ai.rag.investigator import (
+                format_rag_investigation_for_prompt,
+                investigate_rag_context,
+            )
             from devops_cli.models.ai import ChatMessage
+
+            sanitized_content = _mask_sensitive_data(content[:150000])
+            rag_ctx = investigate_rag_context(f"{rel_path} {' '.join(symbols[:3])}", top_k=2)
+            rag_info = format_rag_investigation_for_prompt(rag_ctx, "Interface & Module Context")
 
             prompt = (
                 f"File: '{rel_path}' ({lang})\n\n"
-                f"Source code snippet:\n{content[:200000]}\n\n"
+                f"Source code snippet:\n{sanitized_content}\n"
+                f"{rag_info}\n"
                 f"{ANALYZE_PSEUDOCODE_TASK_PROMPT}"
             )
             response = ai_client.chat_messages(

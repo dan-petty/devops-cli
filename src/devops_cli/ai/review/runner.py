@@ -219,12 +219,35 @@ def _build_segment_review_prompt(
     )
     part_title = title if total == 1 else f"{title} — file {index}/{total}"
     format_section = _persona_format_section(persona)
+
+    # RAG investigation step for cross-file architecture and security guidelines
+    rag_section = ""
+    try:
+        from devops_cli.ai.rag.investigator import (
+            format_rag_investigation_for_prompt,
+            investigate_rag_context,
+        )
+
+        symbols: list[str] = []
+        for m in relevant_metas.values():
+            if isinstance(m, dict) and "key_symbols" in m and isinstance(m["key_symbols"], list):
+                symbols.extend([str(s) for s in m["key_symbols"][:3]])
+
+        rag_query = f"{' '.join(fns)} {' '.join(symbols)}".strip() or title
+        rag_ctx = investigate_rag_context(rag_query, persona=persona.name, top_k=3)
+        rag_section = format_rag_investigation_for_prompt(
+            rag_ctx, "Cross-File Architecture & Semantic Context"
+        )
+    except Exception:
+        pass
+
     return (
         f"You are performing a code review as: {persona.title}.\n\n"
         f"Analysis metadata for review context:\n"
         f"<review_metadata_context>\n```json\n{meta_json}\n```\n</review_metadata_context>\n\n"
         f"{_PAGINATED_REVIEW_PROTOCOL}\n"
         f"{build_base(segment, part_title)}"
+        + (f"\n\n{rag_section}" if rag_section else "")
         + (f"\n\n{format_section}" if format_section else "")
         + _REVIEW_OUTPUT_INSTRUCTION
     )

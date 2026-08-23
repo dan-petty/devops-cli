@@ -141,8 +141,11 @@ class EmbeddingBenchmarkResult(BaseModel):
     dimension: int = Field(default=0, ge=0)
     recall_at_1: float = Field(default=0.0, ge=0.0, le=100.0)
     recall_at_3: float = Field(default=0.0, ge=0.0, le=100.0)
+    recall_at_5: float = Field(default=0.0, ge=0.0, le=100.0)
     mrr: float = Field(default=0.0, ge=0.0, le=1.0)
+    ndcg_at_5: float = Field(default=0.0, ge=0.0, le=1.0)
     mean_cosine_margin: float = Field(default=0.0)
+    separation_score: float = Field(default=0.0)
     latency_ms_p50: float = Field(default=0.0, ge=0.0)
     latency_ms_p95: float = Field(default=0.0, ge=0.0)
     throughput_items_per_sec: float = Field(default=0.0, ge=0.0)
@@ -150,6 +153,18 @@ class EmbeddingBenchmarkResult(BaseModel):
     overall_score: float = Field(default=0.0, ge=0.0, le=100.0)
     is_normalized: bool = True
     category_accuracies: dict[str, float] = Field(default_factory=dict)
+    memory_kb_per_vector: float = Field(default=0.0, ge=0.0)
+
+
+class EmbeddingServerSummary(BaseModel):
+    """Aggregated performance metrics for an embedding model backend server."""
+
+    server: str
+    avg_latency_p50_ms: float = Field(default=0.0, ge=0.0)
+    avg_throughput_items_per_sec: float = Field(default=0.0, ge=0.0)
+    models_evaluated_count: int = Field(default=0, ge=0)
+    fastest_model: str = ""
+    top_score_model: str = ""
 
 
 class EmbeddingBenchmarkReport(BaseModel):
@@ -158,4 +173,6 @@ class EmbeddingBenchmarkReport(BaseModel):
     session_id: str
     timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
     models: list[EmbeddingBenchmarkResult] = Field(default_factory=list)
+    server_benchmarks: list[EmbeddingServerSummary] = Field(default_factory=list)
+    recommendations: list[str] = Field(default_factory=list)
     is_dry_run: bool = False
