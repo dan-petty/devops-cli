@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from devops_cli.ai.review_exporter import export_invalidated_feedback
+from devops_cli.ai.review.exporter import export_invalidated_feedback
 
 
 def test_export_invalidated_feedback_empty_dir(tmp_path: Path) -> None:

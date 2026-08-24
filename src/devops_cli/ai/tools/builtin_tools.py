@@ -6,6 +6,7 @@ import logging
 import subprocess
 from pathlib import Path
 
+from devops_cli.config.constants import CONST_BINARY_EXTENSIONS
 from devops_cli.config.defaults import (
     DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
     DEFAULT_TOOL_BUFFER_CHUNK_SIZE,
@@ -67,22 +68,24 @@ def list_files(directory: str = ".") -> list[str]:
     root = Path(directory).resolve()
     if not _is_safe_workspace_path(root) or not root.exists() or not root.is_dir():
         return []
-    results: list[str] = []
-    for path in root.glob("*"):
+
+    entries: list[str] = []
+    for path in sorted(root.glob("*")):
         if path.name.startswith(".") or path.name == "__pycache__":
             continue
         if not _is_safe_workspace_path(path.resolve()):
             continue
         if path.is_file():
-            results.append(path.name)
+            entries.append(path.name)
         elif path.is_dir():
-            for child in path.glob("*"):
+            for child in sorted(path.glob("*")):
                 if child.name.startswith(".") or child.name == "__pycache__":
                     continue
                 if not _is_safe_workspace_path(child.resolve()):
                     continue
-                results.append(f"{path.name}/{child.name}")
-    return sorted(results)[:DEFAULT_TOOL_MAX_FILES]
+                entries.append(f"{path.name}/{child.name}")
+
+    return entries[:DEFAULT_TOOL_MAX_FILES]
 
 
 def read_file(path: str, max_bytes: int = DEFAULT_TOOL_READ_MAX_BYTES) -> str:
@@ -126,13 +129,17 @@ def git_diff() -> str:
 
 
 def search_code(query: str, directory: str = ".") -> list[str]:
-    """Search workspace source code files for a string query."""
+    """Search workspace source code and manifest files for a string query (language-agnostic)."""
     root = Path(directory).resolve()
     if not _is_safe_workspace_path(root) or not root.exists():
         return []
+
     matches: list[str] = []
     query_bytes = query.encode("utf-8")
-    for path in root.rglob("*.py"):
+
+    for path in root.rglob("*"):
+        if not path.is_file() or path.suffix.lower() in CONST_BINARY_EXTENSIONS:
+            continue
         if "__pycache__" in path.parts or any(p.startswith(".") for p in path.parts):
             continue
         if not _is_safe_workspace_path(path.resolve()):
@@ -146,6 +153,7 @@ def search_code(query: str, directory: str = ".") -> list[str]:
             pass
         if len(matches) >= DEFAULT_TOOL_MAX_SEARCH_MATCHES:
             break
+
     return matches
 
 
