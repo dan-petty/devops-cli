@@ -322,6 +322,7 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 ## Working Documentation
 
 - [AGENTS.md](AGENTS.md) — Single source of truth for AI agents.
+- [Knowledge Base](docs/knowledge_base/README.md) — Comprehensive technical manual for tools and operational tasks.
 - [RELEASE_NOTES.md](docs/RELEASE_NOTES.md) — Version release notes and highlights.
 - [CHANGELOG.md](CHANGELOG.md) — Historical release and version changes.
 - [ROADMAP.md](docs/ROADMAP.md) — Vision, principles, and phased deliverables.
