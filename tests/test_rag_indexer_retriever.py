@@ -38,6 +38,15 @@ class FakeQdrantClient(QdrantClient):
         self.collections[name].extend(points)
         return len(points)
 
+    def delete_points_by_file(self, name: str, file_path: str) -> bool:
+        if name in self.collections:
+            self.collections[name] = [
+                p
+                for p in self.collections[name]
+                if p.get("payload", {}).get("file_path") != file_path
+            ]
+        return True
+
     def search_points(
         self,
         name: str,
@@ -79,11 +88,13 @@ def test_indexer_and_retriever_flow(tmp_path: Path) -> None:
     stats = indexer.index_workspace(tmp_path)
     assert stats["indexed_files"] == 2
     assert stats["total_chunks"] >= 2
+    assert stats["removed_files"] == 0
 
     # Second index run should skip unchanged files
     stats2 = indexer.index_workspace(tmp_path)
     assert stats2["indexed_files"] == 0
     assert stats2["skipped_files"] == 2
+    assert stats2["removed_files"] == 0
 
     # Query retriever
     retriever = SemanticRetriever(qdrant=qdrant, embedder=embedder)
@@ -94,3 +105,11 @@ def test_indexer_and_retriever_flow(tmp_path: Path) -> None:
     context = retriever.retrieve_context("how to run app")
     assert context.has_results is True
     assert "<rag_context>" in context.formatted_text
+
+    # Third run: Delete README.md -> should remove 1 outdated file from Qdrant and cache
+    doc_file.unlink()
+    stats3 = indexer.index_workspace(tmp_path)
+    assert stats3["indexed_files"] == 0
+    assert stats3["skipped_files"] == 1
+    assert stats3["removed_files"] == 1
+    assert len(qdrant.collections.get(indexer.docs_collection, [])) == 0

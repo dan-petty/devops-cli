@@ -73,7 +73,7 @@ def test_workspace_open_resolves_default_workspace_file_from_project_root(tmp_pa
     with (
         patch("devops_cli.commands.workspace.load_settings", return_value=settings),
         patch("devops_cli.commands.workspace._PROJECT_ROOT", project_root),
-        patch("devops_cli.commands.workspace.subprocess.run") as mock_run,
+        patch("devops_cli.commands.workspace.run_subprocess") as mock_run,
     ):
         result = runner.invoke(app, ["workspace", "open"], catch_exceptions=False)
 

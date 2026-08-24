@@ -105,9 +105,16 @@ def test_export_feedback_by_status_and_all(tmp_path: Path) -> None:
     assert len(v_lines) == 1
     assert json.loads(v_lines[0])["status"] == "VERIFIED"
 
-    # Export ALL
+    # Export ALL via None
     out_all = tmp_path / "all.jsonl"
     count_all, _ = export_invalidated_feedback(
         reviews_dir=reviews_dir, output_file=out_all, status_filter=None
     )
     assert count_all == 2
+
+    # Export ALL via string "ALL"
+    out_all_str = tmp_path / "all_str.jsonl"
+    count_all_str, _ = export_invalidated_feedback(
+        reviews_dir=reviews_dir, output_file=out_all_str, status_filter="ALL"
+    )
+    assert count_all_str == 2

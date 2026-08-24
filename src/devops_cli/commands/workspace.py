@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import subprocess
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -14,9 +13,11 @@ from devops_cli.config.constants import CONST_VSCODE_CLI
 from devops_cli.config.defaults import DEFAULT_SUBPROCESS_SHORT_TIMEOUT_SECONDS
 from devops_cli.config.settings import load_settings
 from devops_cli.core.cli import new_typer
+from devops_cli.core.process import run_subprocess
 from devops_cli.git.operations import iter_workspace_repos
+from devops_cli.lang import ERRORS, HELP, MESSAGES
 
-app = new_typer(help="Manage VS Code workspace files.", no_args_is_help=True)
+app = new_typer(help=HELP.workspace.app, no_args_is_help=True)
 
 # Repo root: src/devops_cli/commands/workspace.py -> parents[3]
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -64,17 +65,15 @@ def _load(ws_file: Path) -> dict[str, Any]:
         try:
             if ws_file.stat().st_size > 10 * 1024 * 1024:  # 10 MiB guard
                 rprint(
-                    f"[yellow]Workspace file too large to load: {ws_file}. Using defaults.[/yellow]"
+                    f"[yellow]{ERRORS.workspace.file_too_large.format(ws_file=str(ws_file))}[/yellow]"
                 )
                 return {"folders": [], "settings": {}}
             data = json.loads(ws_file.read_text(encoding="utf-8"))
             if isinstance(data, dict) and "folders" in data and isinstance(data["folders"], list):
                 return data
-            rprint(
-                f"[yellow]Malformed workspace file structure: {ws_file}. Using defaults.[/yellow]"
-            )
+            rprint(f"[yellow]{ERRORS.workspace.malformed.format(ws_file=str(ws_file))}[/yellow]")
         except json.JSONDecodeError:
-            rprint(f"[yellow]Corrupted workspace file: {ws_file}. Using defaults.[/yellow]")
+            rprint(f"[yellow]{ERRORS.workspace.corrupted.format(ws_file=str(ws_file))}[/yellow]")
     return {"folders": [], "settings": {}}
 
 
@@ -140,24 +139,22 @@ def add(
         or repo_resolved.is_relative_to(base_dir)
         or repo_resolved.is_relative_to(proj_root)
     ):
-        rprint(
-            f"[red]Error: Cannot add path '{repo_resolved}' outside allowed workspace roots.[/red]"
-        )
+        rprint(f"[red]{ERRORS.workspace.outside_roots.format(path=str(repo_resolved))}[/red]")
         raise typer.Exit(1)
 
     folder_str = str(repo_resolved)
     if any(folder.get("path") == folder_str for folder in data["folders"]):
-        rprint(f"[yellow]Already in workspace: {folder_str}[/yellow]")
+        rprint(f"[yellow]{ERRORS.workspace.already_present.format(path=folder_str)}[/yellow]")
         raise typer.Exit(0)
 
     data["folders"].append({"path": folder_str})
     _save(ws_file, data)
-    rprint(f"[green]Added:[/green] {folder_str}")
+    rprint(f"[green]{MESSAGES.workspace.added_folder.format(path=folder_str)}[/green]")
 
 
 @app.command()
 def remove(
-    repo_path: Annotated[Path, typer.Argument(help="Folder path to remove")],
+    repo_path: Annotated[Path, typer.Argument(help=HELP.workspace.remove)],
     workspace_file: Annotated[Path | None, typer.Option("--workspace", "-w")] = None,
 ) -> None:
     """Remove a folder from the VS Code workspace file."""
@@ -170,11 +167,11 @@ def remove(
     data["folders"] = [folder for folder in data["folders"] if folder.get("path") != folder_str]
 
     if len(data["folders"]) == before:
-        rprint(f"[yellow]Not found in workspace: {folder_str}[/yellow]")
+        rprint(f"[yellow]{ERRORS.workspace.not_present.format(path=folder_str)}[/yellow]")
         raise typer.Exit(0)
 
     _save(ws_file, data)
-    rprint(f"[green]Removed:[/green] {folder_str}")
+    rprint(f"[green]{MESSAGES.workspace.removed_folder.format(path=folder_str)}[/green]")
 
 
 @app.command()
@@ -188,12 +185,15 @@ def generate(
     ws_file = _resolve_from_project_root(workspace_file or settings.workspace.file)
 
     if not root.exists():
-        rprint(f"[yellow]Repos directory not found: {root}[/yellow]")
+        rprint(f"[yellow]{ERRORS.workspace.repos_not_found.format(path=str(root))}[/yellow]")
         raise typer.Exit(0)
 
     data = _workspace_data_from_repos(root)
     _save(ws_file, data)
-    rprint(f"[green]Generated[/green] {ws_file} with [bold]{len(data['folders'])}[/bold] folders.")
+    msg = MESSAGES.workspace.generated_with_count.format(
+        ws_file=str(ws_file), count=len(data["folders"])
+    )
+    rprint(f"[green]{msg}[/green]")
 
 
 @app.command("open")
@@ -204,9 +204,9 @@ def open_workspace(
     settings = load_settings()
     ws_file = _resolve_from_project_root(workspace_file or settings.workspace.file)
     if not ws_file.exists():
-        rprint(f"[red]Workspace file not found: {ws_file}[/red]")
+        rprint(f"[red]{ERRORS.workspace.file_not_found.format(ws_file=str(ws_file))}[/red]")
         raise typer.Exit(1)
-    subprocess.run(
+    run_subprocess(
         [CONST_VSCODE_CLI, str(ws_file)],
         check=True,
         timeout=DEFAULT_SUBPROCESS_SHORT_TIMEOUT_SECONDS,

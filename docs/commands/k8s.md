@@ -159,6 +159,7 @@ devops k8s port-forward [OPTIONS]
 | `--grafana-port` | `integer` | `8030` | Local port for Grafana |
 | `--prometheus-port` | `integer` | `8090` | Local port for Prometheus |
 | `--jaeger-port` | `integer` | `16686` | Local port for Jaeger Query UI |
+| `--otel-port` | `integer` | `4318` | Local port for OpenTelemetry OTLP Traces (HTTP) |
 | `--ollama-port` | `integer` | `11434` | Local port for Ollama |
 | `--open-webui-port` | `integer` | `3000` | Local port for Open-WebUI |
 | `--qdrant-port` | `integer` | `6333` | Local port for Qdrant HTTP |
@@ -258,5 +259,50 @@ devops k8s check-deprecated [OPTIONS] <target>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--dry-run` | `boolean` | - | Simulate deprecated API detection. |
+
+---
+
+## `devops k8s create-tls-secret`
+
+**Create or update a kubernetes.io/tls secret from certificate and private key files.**
+
+```bash
+devops k8s create-tls-secret [OPTIONS] <secret_name>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<secret_name>` | `string` | Yes | Name of the Kubernetes TLS secret to create or update |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--namespace`, `-n` | `string` | `default` | Target Kubernetes namespace |
+| `--cert` | `path` | `~/.config/devops-cli/tls/tls.crt` | Path to TLS certificate file (.crt or .pem) |
+| `--key` | `path` | `~/.config/devops-cli/tls/tls.key` | Path to TLS private key file (.key or .pem) |
+| `--context`, `-c` | `string` | - | Kubernetes cluster context |
+
+---
+
+## `devops k8s enable-tls`
+
+**Generate Homelab certificates and apply TLS secrets across Kubernetes cluster namespaces.**
+
+```bash
+devops k8s enable-tls [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--context`, `-c` | `string` | - | Kubernetes cluster context |
+| `--tls-dir` | `path` | `~/.config/devops-cli/tls` | Directory with generated TLS certificates |
+| `--secret-name` | `string` | `homelab-tls` | TLS secret name across namespaces |
+| `--stack`, `-s` | `string` | `all` | Stack to deploy TLS secrets into (infra, llm, all) |
+| `--overwrite`, `-f` | `boolean` | - | Regenerate certs if missing |
 
 ---

@@ -26,7 +26,7 @@ extraEnvVars:
   - name: RAG_EMBEDDING_MODEL
     value: "nomic-embed-text"
   - name: WEBUI_AUTH
-    value: "false"
+    value: "true"
 
 websocket:
   enabled: true

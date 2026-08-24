@@ -2,25 +2,25 @@
 
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
 from typing import Annotated
 
-import rich
 import typer
 
+from devops_cli.config.commands import (
+    build_kubectl_cmd,
+    build_kustomize_build_cmd,
+)
 from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.core.cli import new_typer
+from devops_cli.core.process import run_subprocess
+from devops_cli.core.validation import validate_path
 
 app = new_typer(help="Kustomize build and apply operations.", no_args_is_help=True)
 
 
 def _validate_path(path: Path) -> Path:
-    resolved = path.resolve()
-    if not resolved.exists():
-        rich.print(f"[red]Path '{path}' does not exist.[/red]")
-        raise typer.Exit(1)
-    return resolved
+    return validate_path(path, must_exist=True)
 
 
 @app.command()
@@ -32,10 +32,12 @@ def build(
 ) -> None:
     """Build kustomize overlays (delegates to kustomize build)."""
     target = _validate_path(path)
-    cmd = ["kustomize", "build", str(target)]
+    cmd = build_kustomize_build_cmd(target)
     if output:
         cmd += ["--output", output]
-    subprocess.run(cmd, check=True, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS)
+    run_subprocess(
+        cmd, check=True, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS, capture_output=False
+    )
 
 
 @app.command()
@@ -44,10 +46,8 @@ def diff(
 ) -> None:
     """Show a diff of pending changes (delegates to kubectl diff -k)."""
     target = _validate_path(path)
-    # kubectl diff returns exit code 1 when diffs exist; don't treat that as error
-    subprocess.run(
-        ["kubectl", "diff", "-k", str(target)], timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
-    )
+    cmd = build_kubectl_cmd(["diff", "-k", str(target)])
+    run_subprocess(cmd, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS, capture_output=False)
 
 
 @app.command()
@@ -62,9 +62,12 @@ def apply(
         from devops_cli.commands.k8s import _validate_k8s_identifier
 
         _validate_k8s_identifier(namespace, "namespace", namespace=True)
-    cmd = ["kubectl", "apply", "-k", str(target)]
+    k_args = ["apply", "-k", str(target)]
     if dry_run:
-        cmd += ["--dry-run=client"]
+        k_args.append("--dry-run=client")
     if namespace:
-        cmd += ["--namespace", namespace]
-    subprocess.run(cmd, check=True, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS)
+        k_args.extend(["--namespace", namespace])
+    cmd = build_kubectl_cmd(k_args)
+    run_subprocess(
+        cmd, check=True, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS, capture_output=False
+    )

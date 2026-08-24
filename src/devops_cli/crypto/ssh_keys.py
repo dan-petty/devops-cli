@@ -15,6 +15,7 @@ from cryptography.hazmat.primitives.serialization import (
 )
 
 from devops_cli.config.constants import CONST_PERM_PRIVATE_KEY, CONST_PERM_PUBLIC_KEY
+from devops_cli.core.validation import validate_safe_key_path
 from devops_cli.models.ssh import ManagedSSHKey
 
 # Matches id_ed25519-2024JAN15 or id_ed25519-2024JAN
@@ -27,6 +28,8 @@ def generate_ed25519_key(key_path: Path, comment: str = "") -> None:
     Private key is written to *key_path* (mode 0600).
     Public key is written to *key_path*.pub (mode 0644).
     """
+    key_path = validate_safe_key_path(key_path)
+
     private_key = Ed25519PrivateKey.generate()
 
     private_bytes = private_key.private_bytes(
@@ -78,7 +81,7 @@ def get_key_age_days(key_path: Path) -> int:
     key_date = parse_key_date(key_path)
     if key_date is None:
         raise ValueError(f"Cannot parse date from key name: {key_path.name}")
-    return (date.today() - key_date).days
+    return max(0, (date.today() - key_date).days)
 
 
 def find_newest_key(key_dir: Path) -> Path | None:

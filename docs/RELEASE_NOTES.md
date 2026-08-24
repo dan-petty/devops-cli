@@ -1,8 +1,32 @@
-# Release Notes — devops-cli v0.1.8
+# Release Notes — devops-cli v0.1.13
 
-Workstation-native DevOps CLI for managing repositories, SSH keys, Kubernetes clusters, Kustomize, ArgoCD, Grafana, Prometheus, Docker, workspace files, and multi-persona AI code reviews.
+Workstation-native DevOps CLI for managing repositories, SSH keys, Kubernetes clusters, Kustomize, ArgoCD, Grafana, Prometheus, Docker, workspace files, vector embedding benchmarks, TLS certificate automation, OpenTelemetry observability, and multi-persona AI code reviews.
 
 ---
+
+## 🚀 Highlights of v0.1.13
+
+### ⚡ Embedding Model Benchmark Suite (`devops ai benchmark --type embedding`)
+- **Vector Embedding Model Evaluation**: Dedicated benchmark runner for dense vector embedding models (`qwen3-embedding`, `nomic-embed-text`, `all-minilm`, `bge-*`, `text-embedding-3-*`).
+- **Semantic Retrieval Quality & Accuracy**: Evaluates Recall@1, Recall@3, Mean Reciprocal Rank (MRR), and Cosine Margin against a domain-specific evaluation corpus of 15 DevOps query-passage pairs and 10 distractors across Security, Kubernetes, Architecture, CI/CD, and Infrastructure.
+- **Latency & Throughput**: Benchmarks single-query p50/p95 latency (ms) and batch throughput (items/sec and chars/sec).
+- **Auto-Detection & Multi-Server Routing**: Automatically routes embedding models to vector evaluation and supports parallel multi-server Ollama distribution.
+
+### 🔒 Local & Homelab TLS Certificate Automation (`devops tls`, `devops cert`)
+- **X.509 Certificate Generation**: Native CA and TLS server/client certificate issuance with SAN extensions for IP addresses, hostnames, localhost, homelab `.lan`/`.local` domains, and Kubernetes service FQDNs.
+- **Kubernetes Secret Provisioning**: Automated secret injection (`devops tls inject-k8s-secret`, `devops k8s enable-tls`) and cert-manager ClusterIssuer integration.
+
+### 📊 End-to-End OpenTelemetry Observability (`devops telemetry`, `devops otel`)
+- **OTLP Trace Export**: Distributed tracing across all CLI commands and AI multi-agent pipeline stages.
+- **Observability Stack**: OTLP endpoint configuration and Jaeger deployment manifests (`k8s/otel/jaeger.yaml`).
+
+### 🧼 Standard Library Code Hygiene & AST Tokenization
+- **Standard Library Parsing**: Replaced ad-hoc keyword lists and regex string matching in `reference_extractor.py` with standard `ast`, `tokenize`, `packaging.requirements.Requirement`, `tomllib`, `json`, `yaml`, `urllib.parse`, `ipaddress`, `mimetypes`, and `tldextract`.
+- **PEP 508 & PEP 621 Support**: Standard requirement parsing for dependencies, optional groups, and PEP 735 dependency groups.
+- **Review Pipeline Optimization**: Filtered universal standard library imports to eliminate graph explosion in individual file review JSONs.
+
+---
+
 
 ## 🚀 Highlights of v0.1.8
 

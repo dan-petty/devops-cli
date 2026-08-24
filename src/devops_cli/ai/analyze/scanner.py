@@ -66,7 +66,20 @@ _EXT_LANG_FALLBACK: dict[str, str] = {
     ".sh": "shell",
     ".bash": "shell",
     ".zsh": "shell",
+    ".cs": "csharp",
+    ".rb": "ruby",
+    ".php": "php",
+    ".scala": "scala",
+    ".lua": "lua",
+    ".fish": "shell",
+    ".ps1": "powershell",
+    ".rst": "rst",
+    ".adoc": "asciidoc",
+    ".asciidoc": "asciidoc",
+    ".org": "org",
+    ".txt": "text",
     ".md": "markdown",
+    ".markdown": "markdown",
 }
 
 

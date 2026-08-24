@@ -35,6 +35,26 @@ app = new_typer(
 console = Console()
 
 
+@app.callback(invoke_without_command=True)
+def rag_main(
+    ctx: typer.Context,
+    explain: Annotated[
+        bool,
+        typer.Option(
+            "--explain",
+            "-e",
+            help="Explain RAG vector embeddings, Qdrant indexing, and terminology",
+        ),
+    ] = False,
+) -> None:
+    """Manage RAG vector embeddings, indexing, and semantic code search (Qdrant)."""
+    if explain:
+        from devops_cli.ai.explain import render_explanation
+
+        render_explanation("rag")
+        raise typer.Exit(0)
+
+
 def _get_rag_components() -> tuple[QdrantClient, EmbeddingsEngine, str, str]:
     """Resolve configured Qdrant client, Embeddings engine, and collection names."""
     settings = load_settings()
@@ -74,8 +94,21 @@ def index_cmd(
         str | None,
         typer.Option("--collection", "-c", help="Target collection override"),
     ] = None,
+    explain: Annotated[
+        bool,
+        typer.Option(
+            "--explain",
+            "-e",
+            help="Explain RAG vector embeddings, Qdrant indexing, and terminology",
+        ),
+    ] = False,
 ) -> None:
     """Scan and index workspace code and documentation into Qdrant vector database."""
+    if explain:
+        from devops_cli.ai.explain import render_explanation
+
+        render_explanation("rag")
+        return
     target_path = path.resolve()
     if not target_path.exists():
         rprint(f"[red]Path not found: {target_path}[/red]")
@@ -144,10 +177,16 @@ def index_cmd(
             progress_callback=_on_progress,
         )
 
+    removed_msg = (
+        f", removed [yellow]{results['removed_files']}[/yellow] outdated file(s)"
+        if results.get("removed_files")
+        else ""
+    )
     rprint(
         f"\n[bold green]✓ Indexing complete![/bold green] "
         f"Indexed [cyan]{results['indexed_files']}[/cyan] file(s), "
-        f"upserted [cyan]{results['total_chunks']}[/cyan] chunk(s) "
+        f"upserted [cyan]{results['total_chunks']}[/cyan] chunk(s)"
+        f"{removed_msg} "
         f"(skipped {results['skipped_files']} unchanged files)."
     )
 
@@ -188,8 +227,21 @@ def query_cmd(
         str | None,
         typer.Option("--file", "-f", help="Filter results to a specific file"),
     ] = None,
+    explain: Annotated[
+        bool,
+        typer.Option(
+            "--explain",
+            "-e",
+            help="Explain RAG vector embeddings, Qdrant indexing, and terminology",
+        ),
+    ] = False,
 ) -> None:
     """Perform semantic search across indexed workspace code and documentation."""
+    if explain:
+        from devops_cli.ai.explain import render_explanation
+
+        render_explanation("rag")
+        return
     if is_dry_run():
         res = CommandDryRunResult(
             command="devops ai rag query",
@@ -325,6 +377,9 @@ def status_cmd() -> None:
 
 
 @app.command("clear")
+@app.command(
+    "reset", help="Alias for clear — clear vector index collections and reset local cache."
+)
 def clear_cmd(
     collection: Annotated[
         str | None,

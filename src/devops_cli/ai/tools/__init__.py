@@ -1,7 +1,6 @@
 """Agent tools submodule for devops-cli."""
 
-from devops_cli.ai.tools.mcp_bridge import get_mcp_agent_tools
-from devops_cli.ai.tools.native import (
+from devops_cli.ai.tools.builtin_tools import (
     argo_apps,
     check_threat_intel,
     git_diff,
@@ -20,6 +19,7 @@ from devops_cli.ai.tools.native import (
     scan_trivy,
     search_code,
 )
+from devops_cli.ai.tools.mcp_bridge import get_mcp_agent_tools
 from devops_cli.ai.tools.registry import get_default_tools, get_persona_tools
 
 __all__ = [

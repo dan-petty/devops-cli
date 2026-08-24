@@ -14,6 +14,7 @@ from rich.console import Console
 from devops_cli import __version__
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import is_dry_run, set_dry_run
+from devops_cli.telemetry import record_metric, trace_span
 
 _console = Console(stderr=True)
 _timing: dict[str, float] = {}
@@ -65,6 +66,22 @@ _COMMAND_SPECS: Final[dict[str, tuple[str, str]]] = {
         "devops_cli.commands.tf",
         "OpenTofu and Terraform Infrastructure-as-Code operations (alias for tf).",
     ),
+    "tls": (
+        "devops_cli.commands.tls",
+        "X.509 TLS certificate generation, inspection, verification, and Kubernetes secrets.",
+    ),
+    "cert": (
+        "devops_cli.commands.tls",
+        "TLS certificate generation and management (alias for tls).",
+    ),
+    "telemetry": (
+        "devops_cli.commands.telemetry",
+        "OpenTelemetry observability, tracing, and metrics management.",
+    ),
+    "otel": (
+        "devops_cli.commands.telemetry",
+        "OpenTelemetry observability and tracing (alias for telemetry).",
+    ),
 }
 
 
@@ -80,17 +97,73 @@ def _delegate(module_path: str, command_name: str, args: list[str]) -> None:
     module = import_module(module_path)
     module_app = module.app
     command = typer.main.get_command(module_app)
-    try:
-        result = command.main(
-            args=args,
-            prog_name=f"devops {command_name}",
-            standalone_mode=False,
-        )
-        if isinstance(result, int) and result != 0:
-            raise typer.Exit(result)
-    except SystemExit as exc:  # pragma: no cover - defensive for wrapped click exits
-        code = exc.code if isinstance(exc.code, int) else 1
-        raise typer.Exit(code) from exc
+    args_summary = " ".join(args) if args else ""
+    t0 = time.perf_counter()
+    with trace_span(
+        f"cli.{command_name}",
+        attributes={
+            "cli.command": command_name,
+            "cli.args": args_summary,
+            "cli.args_count": len(args),
+            "cli.module": module_path,
+            "cli.version": __version__,
+            "cli.is_dry_run": is_dry_run(),
+        },
+    ) as span_h:
+        span_h.add_event("command_delegated", {"command": command_name, "module": module_path})
+        try:
+            result = command.main(
+                args=args,
+                prog_name=f"devops {command_name}",
+                standalone_mode=False,
+            )
+            dur = time.perf_counter() - t0
+            exit_code = result if isinstance(result, int) else 0
+            span_h.set_attribute("cli.exit_code", exit_code)
+            span_h.set_attribute("cli.duration_seconds", dur)
+            span_h.set_attribute("cli.status", "ok" if exit_code == 0 else "error")
+            span_h.add_event(
+                "command_completed",
+                {"command": command_name, "exit_code": exit_code, "duration_seconds": dur},
+            )
+            record_metric(
+                "devops_cli_command_total",
+                1.0,
+                attributes={
+                    "command": command_name,
+                    "status": "ok" if exit_code == 0 else "error",
+                },
+            )
+            record_metric(
+                "devops_cli_command_duration_seconds",
+                dur,
+                unit="s",
+                attributes={"command": command_name},
+            )
+            if exit_code != 0:
+                raise typer.Exit(exit_code)
+        except SystemExit as exc:  # pragma: no cover - defensive for wrapped click exits
+            dur = time.perf_counter() - t0
+            code = exc.code if isinstance(exc.code, int) else 1
+            span_h.set_attribute("cli.exit_code", code)
+            span_h.set_attribute("cli.duration_seconds", dur)
+            span_h.set_attribute("cli.status", "ok" if code == 0 else "error")
+            span_h.add_event(
+                "command_exited",
+                {"command": command_name, "exit_code": code, "duration_seconds": dur},
+            )
+            record_metric(
+                "devops_cli_command_total",
+                1.0,
+                attributes={"command": command_name, "status": "ok" if code == 0 else "error"},
+            )
+            record_metric(
+                "devops_cli_command_duration_seconds",
+                dur,
+                unit="s",
+                attributes={"command": command_name},
+            )
+            raise typer.Exit(code) from exc
 
 
 def _register_command_proxy(name: str, module_path: str, help_text: str) -> None:

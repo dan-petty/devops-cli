@@ -527,7 +527,7 @@ def test_generate_consolidated_report_with_intelligence_tables(
         "devops_cli.config.constants.CONST_REVIEWS_DATA_DIR", tmp_path / ".data" / "reviews"
     )
 
-    from devops_cli.models.intelligence import DependencySpec, NetworkReference
+    from devops_cli.models.vulnerability import DependencySpec, NetworkReference
 
     orchestrator = ReviewPipelineOrchestrator(
         session_id="intel-tables-test", llm_client=MagicMock()
@@ -586,3 +586,57 @@ def test_generate_consolidated_report_with_intelligence_tables(
 
     assert len(data_out["external_dependencies"]) == 2
     assert len(data_out["network_references"]) == 2
+
+
+def test_empty_findings_filtered_and_field_aliasing() -> None:
+    """Verify that blank/empty findings are discarded and alternate field names mapped."""
+    from devops_cli.ai.review_schema import Finding, ReviewResult, parse_review_result
+
+    # 1. Blank finding is empty
+    blank = Finding(severity="MEDIUM", location="", title="", description="", fix="")
+    assert blank.is_empty is True
+
+    # 2. Finding with title/description is not empty
+    valid_f = Finding(
+        title="SQL Injection", description="Unsanitized user input", location="db.py:10"
+    )
+    assert valid_f.is_empty is False
+
+    # 3. Field aliasing maps alternative keys
+    aliased_data = {
+        "issue": "SSRF vulnerability",
+        "details": "User-controlled URL passed to requests.get",
+        "file": "fetch.py:42",
+        "remediation": "Validate target IP address",
+    }
+    f_aliased = Finding.model_validate(aliased_data)
+    assert f_aliased.title == "SSRF vulnerability"
+    assert f_aliased.description == "User-controlled URL passed to requests.get"
+    assert f_aliased.location == "fetch.py:42"
+    assert f_aliased.fix == "Validate target IP address"
+    assert f_aliased.is_empty is False
+
+    # 4. ReviewResult filters out empty findings and sets recommendation to APPROVE
+    res = ReviewResult(
+        findings=[blank, valid_f, Finding(title="", description="")],
+        recommendation="REQUEST CHANGES",
+    )
+    assert len(res.findings) == 1
+    assert res.findings[0].title == "SQL Injection"
+
+    res_all_empty = ReviewResult(
+        findings=[blank],
+        recommendation="REQUEST CHANGES",
+    )
+    assert len(res_all_empty.findings) == 0
+    assert res_all_empty.recommendation == "APPROVE"
+
+    # 5. Parsing LLM outputs with empty finding structures
+    raw_json = (
+        '{"findings": [{"severity": "MEDIUM", "location": "", "title": "", '
+        '"description": "", "fix": ""}], "recommendation": "REQUEST CHANGES"}'
+    )
+    parsed = parse_review_result(raw_json)
+    assert parsed is not None
+    assert len(parsed.findings) == 0
+    assert parsed.recommendation == "APPROVE"

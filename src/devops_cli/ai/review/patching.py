@@ -9,6 +9,7 @@ from rich import print as rprint
 from rich.console import Console
 
 from devops_cli.ai.review.runner import _get_reviews_base_dir
+from devops_cli.core.validation import validate_session_id
 
 console = Console()
 
@@ -19,11 +20,22 @@ def stage_finding_patch(
     interactive: bool = False,
 ) -> bool:
     """Stage or preview an automated code fix from a review finding."""
-    reviews_dir = _get_reviews_base_dir() / session
+    try:
+        clean_session = validate_session_id(session)
+    except ValueError as exc:
+        rprint(f"[red]{exc}[/red]")
+        return False
+
+    base_dir = _get_reviews_base_dir().resolve()
+    reviews_dir = (base_dir / clean_session).resolve()
+    if not reviews_dir.is_relative_to(base_dir):
+        rprint(f"[red]Invalid review session path: {session}[/red]")
+        return False
+
     findings_file = reviews_dir / "findings.json"
 
     if not findings_file.exists():
-        rprint(f"[red]Review session '{session}' not found.[/red]")
+        rprint(f"[red]Review session '{clean_session}' not found.[/red]")
         return False
 
     try:

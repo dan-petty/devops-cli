@@ -32,6 +32,7 @@ from devops_cli.config.settings import (
     load_settings,
     save_settings,
 )
+from devops_cli.core.process import run_subprocess
 from devops_cli.http.validation import validate_service_url
 
 app = typer.Typer(help="Manage devops-cli configuration.", no_args_is_help=True)
@@ -177,9 +178,10 @@ def init() -> None:
         if not _gh_auth_status() and typer.confirm(
             "Authenticate with GitHub CLI now using 'gh auth login'?", default=True
         ):
-            subprocess.run(
+            run_subprocess(
                 ["gh", "auth", "login"],
                 check=False,
+                capture_output=False,
                 timeout=DEFAULT_GH_AUTH_TIMEOUT_SECONDS * 4,
             )
 

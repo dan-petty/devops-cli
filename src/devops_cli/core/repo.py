@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import fnmatch
-import subprocess
 from pathlib import Path
 
 from devops_cli.config.constants import CONST_BINARY_EXTENSIONS
 from devops_cli.config.defaults import DEFAULT_SUBPROCESS_FAST_TIMEOUT_SECONDS
+from devops_cli.core.process import run_subprocess
 
 
 def find_repo_root(start_path: Path | str | None = None) -> Path:
@@ -79,10 +78,11 @@ def is_ignored_by_git(repo_root: Path, target_path: Path) -> bool:
                 if target_path.is_relative_to(repo_root)
                 else target_path
             )
-            res = subprocess.run(
+            res = run_subprocess(
                 ["git", "-C", str(repo_root), "check-ignore", "-q", "--", str(rel)],
                 capture_output=True,
                 check=False,
+                quiet=True,
                 timeout=DEFAULT_SUBPROCESS_FAST_TIMEOUT_SECONDS,
             )
             if res.returncode == 0:
@@ -90,26 +90,20 @@ def is_ignored_by_git(repo_root: Path, target_path: Path) -> bool:
         except Exception:
             pass
 
-    # 2. Dynamic runtime fallback: match against dynamically loaded .gitignore rules
+    # 2. Dynamic runtime fallback: match against dynamically loaded .gitignore rules using pathspec
     patterns = read_gitignore_patterns(repo_root)
     if not patterns:
         return False
+
+    import pathspec
 
     rel_str = (
         str(target_path.relative_to(repo_root))
         if target_path.is_relative_to(repo_root)
         else target_path.name
     )
-    for pat in patterns:
-        clean_pat = pat.rstrip("/")
-        clean_pat = clean_pat.removeprefix("/")
-        if fnmatch.fnmatch(rel_str, clean_pat) or fnmatch.fnmatch(target_path.name, clean_pat):
-            return True
-        for part in rel_parts:
-            if fnmatch.fnmatch(part, clean_pat):
-                return True
-
-    return False
+    spec = pathspec.PathSpec.from_lines("gitwildmatch", patterns)
+    return bool(spec.match_file(rel_str))
 
 
 def list_repo_files(target_dir: Path) -> list[Path]:
@@ -136,11 +130,12 @@ def list_repo_files(target_dir: Path) -> list[Path]:
                 rel_to_repo = resolved_target.relative_to(repo_root)
                 cmd.extend(["--", str(rel_to_repo)])
 
-            proc = subprocess.run(
+            proc = run_subprocess(
                 cmd,
                 capture_output=True,
                 text=True,
                 check=True,
+                quiet=True,
                 timeout=DEFAULT_SUBPROCESS_FAST_TIMEOUT_SECONDS,
             )
             files: list[Path] = []

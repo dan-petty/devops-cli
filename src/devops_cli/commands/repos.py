@@ -85,9 +85,10 @@ def _resolve_workspace_file(root: Path, workspace_file: Path) -> Path:
 
 def _reload_workspace(workspace_file: Path) -> None:
     from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
+    from devops_cli.core.process import run_subprocess
 
     try:
-        subprocess.run(
+        run_subprocess(
             [CONST_VSCODE_CLI, "--reuse-window", "--", str(workspace_file)],
             check=False,
             timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import subprocess
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Annotated
@@ -12,8 +11,10 @@ from rich import print as rprint
 
 from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.core.cli import new_typer
+from devops_cli.core.process import run_subprocess
+from devops_cli.lang import ERRORS, HELP
 
-app = new_typer(help="uv dependency management proxies.", no_args_is_help=True)
+app = new_typer(help=HELP.uv.app, no_args_is_help=True)
 
 # Repo root: src/devops_cli/commands/uv.py -> parents[3]
 _ROOT = Path(__file__).resolve().parents[3]
@@ -23,7 +24,9 @@ def _run(cmd: Sequence[str]) -> None:
     full_cmd = list(cmd)
     if full_cmd and full_cmd[0] == "uv" and "--preview-features" not in full_cmd:
         full_cmd[1:1] = ["--preview-features", "malware-check"]
-    result = subprocess.run(full_cmd, cwd=_ROOT, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS)
+    result = run_subprocess(
+        full_cmd, cwd=_ROOT, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS, capture_output=False
+    )
     if result.returncode != 0:
         raise typer.Exit(result.returncode)
 
@@ -73,13 +76,13 @@ def python_install(
         )
 
     if not version:
-        rprint("[red]No Python version provided and .python-version is missing.[/red]")
+        rprint(f"[red]{ERRORS.uv.no_version_provided}[/red]")
         raise typer.Exit(1)
 
     import re
 
     if not re.match(r"^\d+(\.\d+)*[a-zA-Z0-9._-]*$", version):
-        rprint(f"[red]Invalid Python version format: {version}[/red]")
+        rprint(f"[red]{ERRORS.uv.invalid_version_format.format(version=version)}[/red]")
         raise typer.Exit(1)
 
     _run(["uv", "python", "install", version])
@@ -95,7 +98,7 @@ def run(ctx: typer.Context) -> None:
       devops uv run -- pytest -q
     """
     if not ctx.args:
-        rprint("[red]Missing command. Example: devops uv run -- pytest -q[/red]")
+        rprint(f"[red]{ERRORS.uv.missing_command}[/red]")
         raise typer.Exit(1)
 
     _run(["uv", "run", *ctx.args])

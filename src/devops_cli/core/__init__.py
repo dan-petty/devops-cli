@@ -12,6 +12,17 @@ from devops_cli.core.repo import (
     list_repo_files,
     read_gitignore_patterns,
 )
+from devops_cli.core.validation import (
+    is_non_public_ip,
+    validate_dir,
+    validate_file,
+    validate_k8s_name,
+    validate_path,
+    validate_safe_key_path,
+    validate_service_url,
+    validate_url,
+    validate_version_str,
+)
 
 __all__ = [
     "find_repo_root",
@@ -19,10 +30,19 @@ __all__ = [
     "format_command",
     "is_dry_run",
     "is_ignored_by_git",
+    "is_non_public_ip",
     "list_repo_files",
     "new_typer",
     "read_gitignore_patterns",
     "repo_label",
     "run_subprocess",
     "set_dry_run",
+    "validate_dir",
+    "validate_file",
+    "validate_k8s_name",
+    "validate_path",
+    "validate_safe_key_path",
+    "validate_service_url",
+    "validate_url",
+    "validate_version_str",
 ]

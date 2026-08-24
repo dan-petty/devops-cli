@@ -16,27 +16,62 @@ from devops_cli.models.ai import (
     MCPToolInfo,
     ProjectAnalysisMeta,
 )
-from devops_cli.models.argo import ArgoCDApp
+from devops_cli.models.benchmark import (
+    BenchmarkCategory,
+    BenchmarkReport,
+    BenchmarkTask,
+    ModelBenchmarkSummary,
+    PeerGrade,
+    TaskResponse,
+)
 from devops_cli.models.git import BranchListing
 from devops_cli.models.github import SSHKeyInfo
 from devops_cli.models.grafana import GrafanaAlertRule, GrafanaDashboard, GrafanaDatasource
 from devops_cli.models.prometheus import PrometheusQueryResult, PrometheusSeries
 from devops_cli.models.ssh import ManagedSSHKey
+from devops_cli.models.tls import (
+    CAGenerationRequest,
+    CertGenerationRequest,
+    CertificateInfo,
+    KubernetesTLSSecretResult,
+    TLSEnablementSummary,
+)
+from devops_cli.models.vulnerability import (
+    DependencySpec,
+    NetworkReference,
+    NetworkReputationRecord,
+    VulnerabilityRecord,
+)
 
 __all__ = [
     "AnalysisMetadata",
     "ArgoCDApp",
+    "BenchmarkCategory",
+    "BenchmarkReport",
+    "BenchmarkTask",
     "BranchListing",
+    "CAGenerationRequest",
+    "CertGenerationRequest",
+    "CertificateInfo",
     "ChatMessage",
     "CommandDryRunResult",
+    "DependencySpec",
     "FileAnalysisMeta",
     "GrafanaAlertRule",
     "GrafanaDashboard",
     "GrafanaDatasource",
+    "KubernetesTLSSecretResult",
     "MCPToolInfo",
     "ManagedSSHKey",
+    "ModelBenchmarkSummary",
+    "NetworkReference",
+    "NetworkReputationRecord",
+    "PeerGrade",
     "ProjectAnalysisMeta",
     "PrometheusQueryResult",
     "PrometheusSeries",
     "SSHKeyInfo",
+    "TLSEnablementSummary",
+    "TaskResponse",
+    "VulnerabilityRecord",
 ]

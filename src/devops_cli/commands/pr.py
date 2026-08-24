@@ -31,7 +31,7 @@ def _require_gh_cli() -> None:
 
 
 def _detect_active_release_branch() -> str | None:
-    """Detect latest local/remote release branch (e.g. release/v0.1.12)."""
+    """Detect latest local/remote release branch (e.g. release/v0.1.13)."""
     res = run_subprocess(["git", "branch", "-a"], check=False, quiet=True)
     if res.returncode != 0:
         return None

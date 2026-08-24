@@ -1,14 +1,8 @@
-"""Unit tests for security intelligence clients and dependency/network reference extractors."""
+"""Unit tests for dependency and network reference extractors."""
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
-
-from devops_cli.security.intelligence import (
-    CloudflareRadarClient,
-    NVDClient,
-    OSVClient,
-    ShodanInternetDBClient,
+from devops_cli.security.reference_extractor import (
     extract_dependencies_from_text,
     extract_network_references,
     is_public_ip,
@@ -196,82 +190,152 @@ def test_extract_network_references_toml_table_filtering() -> None:
     assert "tool.mypy" not in targets
 
 
-@patch("httpx.Client.post")
-def test_osv_client(mock_post: MagicMock) -> None:
-    mock_resp = MagicMock()
-    mock_resp.status_code = 200
-    mock_resp.json.return_value = {
-        "vulns": [
-            {
-                "id": "GHSA-1234",
-                "summary": "Sample RCE vulnerability",
-                "severity": [
-                    {"type": "CVSS_V3", "score": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"}
-                ],
-            }
-        ]
+def test_extract_network_references_code_false_positives_filtering() -> None:
+    """Ensure programming code, git config keys, pip-tools files, and mock paths are not domains."""
+    workflow_yaml = """
+    name: Release
+    jobs:
+      release:
+        runs-on: ubuntu-latest
+        steps:
+          - name: Setup git
+            run: |
+              git config user.name "github-actions"
+              git config user.email "action@github.com"
+          - name: Login to GHCR
+            run: |
+              echo ${{ secrets.TOKEN }} | docker login ghcr.io -u ${{ github.actor }}
+    """
+    refs_yaml = extract_network_references(workflow_yaml, ".github/workflows/release.yml")
+    targets_yaml = {r.target for r in refs_yaml}
+    assert "user.email" not in targets_yaml
+    assert "user.name" not in targets_yaml
+    assert "ghcr.io" in targets_yaml
+
+    py_content = """
+    # Mocking patch
+    @patch("devops_cli.commands.workspace.subprocess.run")
+    @patch("devops_cli.ai.agents.pipeline.multiagentpipeline.run")
+    def test_run():
+        m = re.match(r"^test", "test")
+        val = m.group(0)
+        from devops_cli.commands.ai import app
+        self.host = "localhost"
+        domain = "prod-infra.custom-cloud.io"
+        file_ref = "requirements.in"
+    """
+    refs_py = extract_network_references(py_content, "tests/test_mock.py")
+    targets_py = {r.target for r in refs_py}
+    assert "devops_cli.commands.workspace.subprocess.run" not in targets_py
+    assert "devops_cli.ai.agents.pipeline.multiagentpipeline.run" not in targets_py
+    assert "m.group" not in targets_py
+    assert "commands.ai" not in targets_py
+    assert "self.host" not in targets_py
+    assert "requirements.in" not in targets_py
+    assert "prod-infra.custom-cloud.io" in targets_py
+
+
+def test_extract_network_references_tf_and_python_imports() -> None:
+    """Ensure Terraform attributes and Python imports are not extracted as domains."""
+    tf_content = """
+    resource "aws_route" "r" {
+      route_table_id = aws_route_table.public.id
+      nat_gateway_id = aws_nat_gateway.nat.id
+      gateway_id     = aws_internet_gateway.igw.id
     }
-    mock_post.return_value = mock_resp
-
-    client = OSVClient()
-    records = client.check_vulnerability("insecure-pkg", "1.0.0", "PyPI")
-    assert len(records) == 1
-    assert records[0].id == "GHSA-1234"
-    assert records[0].severity == "CRITICAL"
-
-
-@patch("httpx.Client.get")
-def test_shodan_internetdb_client(mock_get: MagicMock) -> None:
-    mock_resp = MagicMock()
-    mock_resp.status_code = 200
-    mock_resp.json.return_value = {
-        "ip": "93.184.216.34",
-        "ports": [80, 443],
-        "vulns": ["CVE-2023-12345"],
-        "tags": ["web-server"],
+    output "cluster_name" {
+      value = aws_eks_cluster.eks.name
     }
-    mock_get.return_value = mock_resp
+    """
+    refs_tf = extract_network_references(tf_content, "tf/aws/main.tf")
+    targets_tf = {r.target for r in refs_tf}
+    assert "nat.id" not in targets_tf
+    assert "igw.id" not in targets_tf
+    assert "public.id" not in targets_tf
+    assert "eks.name" not in targets_tf
 
-    client = ShodanInternetDBClient()
-    rec = client.check_ip("93.184.216.34")
-    assert rec.ports == [80, 443]
-    assert rec.cves == ["CVE-2023-12345"]
-    assert rec.is_malicious is True
+    py_imports = """
+    from collections.abc import Sequence
+    from devops_cli.models.ai import FileAnalysisMeta
+    import httpx.client.post
+    """
+    refs_py = extract_network_references(py_imports, "src/devops_cli/foo.py")
+    targets_py = {r.target for r in refs_py}
+    assert "collections.abc" not in targets_py
+    assert "models.ai" not in targets_py
+    assert "httpx.client.post" not in targets_py
 
 
-@patch("httpx.Client.get")
-def test_nvd_client(mock_get: MagicMock) -> None:
-    mock_resp = MagicMock()
-    mock_resp.status_code = 200
-    mock_resp.json.return_value = {
-        "vulnerabilities": [
-            {
-                "cve": {
-                    "id": "CVE-2024-9999",
-                    "descriptions": [{"lang": "en", "value": "NVD test description"}],
-                }
-            }
-        ]
+def test_extract_dependencies_pep621_and_extras() -> None:
+    """Test standard PEP 621 pyproject dependencies, optional groups, and PEP 508 extras."""
+    req_txt = """
+    # Comments and blank lines
+    pydantic[email]>=2.10.0
+    uvicorn[standard]==0.30.0; python_version >= '3.10'
+    """
+    deps_req = extract_dependencies_from_text(req_txt, "requirements.txt")
+    assert len(deps_req) == 2
+    assert deps_req[0].name == "pydantic"
+    assert deps_req[0].version_range == ">=2.10.0"
+
+    pyproject_toml = """
+    [project]
+    name = "my-service"
+    dependencies = [
+        "fastapi>=0.110.0",
+        "httpx~=0.28.0",
+    ]
+
+    [project.optional-dependencies]
+    test = [
+        "pytest>=8.0.0",
+        "pytest-asyncio",
+    ]
+
+    [dependency-groups]
+    dev = [
+        "ruff>=0.9.0",
+        "mypy>=1.14.0",
+    ]
+    """
+    deps_toml = extract_dependencies_from_text(pyproject_toml, "pyproject.toml")
+    names = {d.name: d.version_range for d in deps_toml}
+    assert "fastapi" in names
+    assert names["fastapi"] == ">=0.110.0"
+    assert "pytest" in names
+    assert names["pytest"] == ">=8.0.0"
+    assert "pytest-asyncio" in names
+    assert names["pytest-asyncio"] == "*"
+    assert "ruff" in names
+    assert names["ruff"] == ">=0.9.0"
+
+
+def test_extract_network_references_json_and_yaml_scalars() -> None:
+    """Test extracting network references from structured JSON and YAML configs."""
+    json_doc = """
+    {
+        "api_endpoint": "https://api.external-metrics.io/v1",
+        "primary_host": "gateway.production-cloud.net",
+        "internal_ip": "10.0.0.5",
+        "public_ip": "93.184.216.34"
     }
-    mock_get.return_value = mock_resp
+    """
+    refs_json = extract_network_references(json_doc, "config/settings.json")
+    targets_json = {r.target for r in refs_json}
+    assert "https://api.external-metrics.io/v1" in targets_json
+    assert "gateway.production-cloud.net" in targets_json
+    assert "93.184.216.34" in targets_json
+    assert "10.0.0.5" not in targets_json
 
-    client = NVDClient()
-    records = client.search_cve("vulnerable-pkg")
-    assert len(records) == 1
-    assert records[0].id == "CVE-2024-9999"
-    assert records[0].source == "NVD"
-
-
-@patch("httpx.Client.get")
-def test_cloudflare_radar_client(mock_get: MagicMock) -> None:
-    mock_resp = MagicMock()
-    mock_resp.status_code = 200
-    mock_resp.json.return_value = {
-        "result": {"categories": [{"name": "Technology"}, {"name": "Cloud Platform"}]}
-    }
-    mock_get.return_value = mock_resp
-
-    client = CloudflareRadarClient()
-    rec = client.check_domain("api.cloudservice.io")
-    assert "Technology" in rec.tags
-    assert rec.source == "Cloudflare Radar"
+    yaml_doc = """
+    services:
+      monitoring:
+        url: https://telemetry.custom-service.io/traces
+        dns: traces.custom-service.io
+        server_ip: 8.8.8.8
+    """
+    refs_yaml = extract_network_references(yaml_doc, "docker-compose.yml")
+    targets_yaml = {r.target for r in refs_yaml}
+    assert "https://telemetry.custom-service.io/traces" in targets_yaml
+    assert "traces.custom-service.io" in targets_yaml
+    assert "8.8.8.8" in targets_yaml

@@ -20,7 +20,7 @@ def test_load_project_metadata_authoritative() -> None:
     meta = load_project_metadata()
     assert isinstance(meta, ProjectMetadata)
     assert meta.name == "devops-cli"
-    assert meta.version == "0.1.12"
+    assert meta.version == __version__
     assert meta.python_version == "3.14"
     assert meta.requires_python == ">=3.14"
     assert "DevOps CLI" in meta.description
@@ -28,8 +28,8 @@ def test_load_project_metadata_authoritative() -> None:
 
 def test_metadata_helper_functions() -> None:
     """Helper functions must return expected values directly."""
-    assert get_version() == "0.1.12"
-    assert __version__ == "0.1.12"
+    assert get_version() == __version__
+    assert __version__.count(".") == 2
     assert get_project_name() == "devops-cli"
     assert get_project_python_version() == "3.14"
     assert "DevOps CLI" in get_project_description()

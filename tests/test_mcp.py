@@ -75,6 +75,13 @@ class TestMcpServer:
             "rag_index",
             "security_intel_package",
             "security_intel_network",
+            "tls_generate_ca",
+            "tls_generate_cert",
+            "tls_inspect_cert",
+            "k8s_create_tls_secret",
+            "k8s_enable_tls",
+            "telemetry_status",
+            "telemetry_test_span",
         }
         assert expected.issubset(tool_names), f"Missing tools: {expected - tool_names}"
 

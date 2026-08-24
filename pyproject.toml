@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "devops-cli"
-version = "0.1.12"
+version = "0.1.13"
 description = "DevOps CLI for managing repos, SSH keys, Kubernetes, and more"
 requires-python = ">=3.14"
 dependencies = [
@@ -26,6 +26,9 @@ dependencies = [
     "qdrant-client>=1.11.0",
     "pydantic-settings>=2.4.0",
     "json-repair>=0.63.3",
+    "tldextract>=5.3.2",
+    "pathspec>=0.12.1",
+    "packaging>=24.0",
 ]
 
 [project.scripts]
@@ -72,3 +75,6 @@ addopts = "-n auto --maxprocesses=4"
 [tool.coverage.run]
 data_file = ".data/.coverage"
 parallel = true
+
+[tool.uv]
+preview-features = ["malware-check"]

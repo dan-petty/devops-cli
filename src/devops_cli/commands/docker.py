@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 from typing import Annotated, Any
@@ -24,8 +25,15 @@ def _client() -> Any:
         import docker  # type: ignore[import-untyped]
         from docker.errors import DockerException  # type: ignore[import-untyped]
 
+        docker_host = os.environ.get("DOCKER_HOST", "").strip()
+        if docker_host.startswith(("tcp://", "http://", "https://")):
+            from devops_cli.core.validation import validate_service_url
+
+            http_url = docker_host.replace("tcp://", "http://", 1)
+            validate_service_url(http_url, "Docker Host", allow=True)
+
         return docker.from_env(timeout=int(DEFAULT_DOCKER_TIMEOUT_SECONDS))
-    except (ImportError, DockerException) as exc:
+    except (ImportError, DockerException, ValueError) as exc:
         rprint(f"[red]Cannot connect to Docker: {exc}[/red]")
         raise typer.Exit(1)
 

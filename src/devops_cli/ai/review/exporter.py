@@ -57,7 +57,11 @@ def export_invalidated_feedback(
             findings = data.get("findings", [])
             for f in findings:
                 f_status = str(f.get("status", "")).upper()
-                if status_filter is None or f_status == status_filter.upper():
+                if (
+                    status_filter is None
+                    or status_filter.upper() == "ALL"
+                    or f_status == status_filter.upper()
+                ):
                     record = FeedbackRecord(
                         session_id=data.get("session_id", s_dir.name),
                         persona=f.get("persona", "unknown"),

@@ -120,6 +120,9 @@ def test_mask_secrets_in_content() -> None:
     raw = (
         "token = 'ghp_1234567890abcdef1234567890abcdef1234'\n"
         "key = 'sk-proj-12345678901234567890123456789012345'\n"
+        "aws_key = 'AKIA1234567890ABCDEF'\n"
+        "aws_sec = 'aws_secret_access_key=1234567890123456789012345678901234567890'\n"
+        "az_sec = 'client_secret=123456789012345678901234567890'\n"
         "ssh = '-----BEGIN PRIVATE KEY-----\n"
         "MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQC...\n"
         "-----END PRIVATE KEY-----'\n"
@@ -129,5 +132,76 @@ def test_mask_secrets_in_content() -> None:
     assert "<masked-github-token>" in scrubbed
     assert "sk-proj-1234567890" not in scrubbed
     assert "<masked-openai-key>" in scrubbed
+    assert "AKIA1234567890ABCDEF" not in scrubbed
+    assert "<masked-aws-key-id>" in scrubbed
+    assert "aws_secret_access_key=<masked-aws-secret>" in scrubbed
+    assert "client_secret=<masked-client-secret>" in scrubbed
     assert "-----BEGIN PRIVATE KEY-----" not in scrubbed
     assert "<masked-private-key>" in scrubbed
+
+
+def test_escape_backticks_preserves_code_fences() -> None:
+    from devops_cli.ai.review.sanitization import _escape_backticks
+
+    diff_with_backticks = "```python\nprint('hello')\n```"
+    escaped = _escape_backticks(diff_with_backticks)
+    assert "```" not in escaped
+    assert "\\`\\`\\`python" in escaped
+
+
+def test_finding_is_empty_and_orphan_rejection() -> None:
+    from devops_cli.ai.review_schema import Finding, ReviewResult
+
+    # Orphan code snippets or missing locations are marked is_empty
+    f_code = Finding(title="str) -> str:\n clean_diff = ...", location="")
+    assert f_code.is_empty is True
+
+    f_schema = Finding(title="ReviewResult", location="")
+    assert f_schema.is_empty is True
+
+    f_no_loc = Finding(title="SQL Injection Vulnerability", location="")
+    assert f_no_loc.is_empty is True
+
+    f_valid = Finding(title="SQL Injection Vulnerability", location="src/db.py:42")
+    assert f_valid.is_empty is False
+
+    # ReviewResult automatically filters out empty/orphan findings
+    res = ReviewResult(findings=[f_code, f_schema, f_no_loc, f_valid])
+    assert len(res.findings) == 1
+    assert res.findings[0].title == "SQL Injection Vulnerability"
+
+
+def test_parse_review_result_filters_orphan_fragments() -> None:
+    from devops_cli.ai.review_schema import parse_review_result
+
+    json_with_orphan = (
+        '{"findings": ['
+        '  {"location": "src/app.py:10", "title": "Real Bug", "severity": "HIGH"},'
+        '  {"location": "", "title": "str) -> str:\\n clean = sanitize(diff)"},'
+        '  {"location": "", "title": "ReviewResult"}'
+        "]}"
+    )
+    parsed = parse_review_result(json_with_orphan)
+    assert parsed is not None
+    assert len(parsed.findings) == 1
+    assert parsed.findings[0].location == "src/app.py:10"
+    assert parsed.findings[0].title == "Real Bug"
+
+
+def test_markdown_table_rendering_escaping() -> None:
+    from devops_cli.ai.review_schema import Finding
+
+    f = Finding(
+        severity="HIGH",
+        location="src/module.py:10",
+        title="Issue with | pipes\nand newlines",
+        status="VERIFIED",
+    )
+    clean_sev = f.severity.replace("|", "\\|").replace("\n", " ").strip()
+    clean_loc = f.location.replace("|", "\\|").replace("\n", " ").strip()
+    clean_title = f.title.replace("|", "\\|").replace("\n", " ").strip()
+
+    row = f"| **{clean_sev}** | `{clean_loc}` | {clean_title} | {f.status} |"
+    assert "\n" not in row
+    assert "\\|" in row
+    assert row.startswith("|") and row.endswith("|")

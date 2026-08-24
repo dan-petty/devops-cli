@@ -28,6 +28,10 @@ Complete command-line reference for `devops-cli`, automatically generated from C
 - [`devops pr`](#devops-pr) — Manage GitHub pull requests and base branch targeting.
 - [`devops tf`](#devops-tf) — OpenTofu and Terraform Infrastructure-as-Code operations.
 - [`devops tofu`](#devops-tofu) — OpenTofu and Terraform Infrastructure-as-Code operations (alias for tf).
+- [`devops tls`](#devops-tls) — X.509 TLS certificate generation, inspection, verification, and Kubernetes secrets.
+- [`devops cert`](#devops-cert) — TLS certificate generation and management (alias for tls).
+- [`devops telemetry`](#devops-telemetry) — OpenTelemetry observability, tracing, and metrics management.
+- [`devops otel`](#devops-otel) — OpenTelemetry observability and tracing (alias for telemetry).
 
 ---
 
@@ -434,6 +438,8 @@ devops devcontainer run-lifecycle [OPTIONS]
 
 Manage VS Code workspace files.
 
+Manage multi-root VS Code workspace files (.code-workspace).
+
 ### `devops workspace add`
 
 **Add a folder to the VS Code workspace file.**
@@ -466,7 +472,7 @@ devops workspace remove [OPTIONS] <repo_path>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<repo_path>` | `path` | Yes | Folder path to remove |
+| `<repo_path>` | `path` | Yes | Remove a repository folder from the VS Code workspace file. |
 
 **Options:**
 
@@ -670,6 +676,7 @@ devops k8s port-forward [OPTIONS]
 | `--grafana-port` | `integer` | `8030` | Local port for Grafana |
 | `--prometheus-port` | `integer` | `8090` | Local port for Prometheus |
 | `--jaeger-port` | `integer` | `16686` | Local port for Jaeger Query UI |
+| `--otel-port` | `integer` | `4318` | Local port for OpenTelemetry OTLP Traces (HTTP) |
 | `--ollama-port` | `integer` | `11434` | Local port for Ollama |
 | `--open-webui-port` | `integer` | `3000` | Local port for Open-WebUI |
 | `--qdrant-port` | `integer` | `6333` | Local port for Qdrant HTTP |
@@ -759,6 +766,47 @@ devops k8s check-deprecated [OPTIONS] <target>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--dry-run` | `boolean` | - | Simulate deprecated API detection. |
+
+### `devops k8s create-tls-secret`
+
+**Create or update a kubernetes.io/tls secret from certificate and private key files.**
+
+```bash
+devops k8s create-tls-secret [OPTIONS] <secret_name>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<secret_name>` | `string` | Yes | Name of the Kubernetes TLS secret to create or update |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--namespace`, `-n` | `string` | `default` | Target Kubernetes namespace |
+| `--cert` | `path` | `~/.config/devops-cli/tls/tls.crt` | Path to TLS certificate file (.crt or .pem) |
+| `--key` | `path` | `~/.config/devops-cli/tls/tls.key` | Path to TLS private key file (.key or .pem) |
+| `--context`, `-c` | `string` | - | Kubernetes cluster context |
+
+### `devops k8s enable-tls`
+
+**Generate Homelab certificates and apply TLS secrets across Kubernetes cluster namespaces.**
+
+```bash
+devops k8s enable-tls [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--context`, `-c` | `string` | - | Kubernetes cluster context |
+| `--tls-dir` | `path` | `~/.config/devops-cli/tls` | Directory with generated TLS certificates |
+| `--secret-name` | `string` | `homelab-tls` | TLS secret name across namespaces |
+| `--stack`, `-s` | `string` | `all` | Stack to deploy TLS secrets into (infra, llm, all) |
+| `--overwrite`, `-f` | `boolean` | - | Regenerate certs if missing |
 
 ---
 
@@ -1604,6 +1652,7 @@ devops ai config [OPTIONS]
 | `--provider`, `-p` | `string` | - | Provider: ollama, claude, copilot, openai |
 | `--model`, `-m` | `string` | - | Model name, e.g. gemma4:26b, claude-opus-4-5 |
 | `--ollama-urls` | `string` | - | Ollama server base URLs (comma-separated) |
+| `--ollama-max-parallel` | `integer` | - | Maximum number of simultaneous requests allowed per Ollama server node |
 | `--api-base-url` | `string` | - | Override API base URL for any provider |
 | `--api-key` | `string` | - | API key — stored in OS keyring, not config file |
 | `--max-retries` | `integer` | - | Maximum retry count for AI requests upon failure |
@@ -1626,7 +1675,7 @@ devops ai preload
 
 ### `devops ai test`
 
-**Send a test prompt to verify AI provider connectivity.**
+**Send a test prompt to verify AI provider connectivity across configured servers.**
 
 ```bash
 devops ai test [OPTIONS]
@@ -1637,6 +1686,7 @@ devops ai test [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--prompt`, `-p` | `string` | `Reply with exactly one word: OK` | Test prompt to send to the provider |
+| `--url`, `-u` | `string` | - | Specific Ollama server URL to test |
 
 ### `devops ai agents`
 
@@ -1673,6 +1723,7 @@ devops ai chat [OPTIONS]
 | `--tools`, `--no-tools` | `boolean` | `True` | Enable DevOps agent tools |
 | `--thinking`, `--no-thinking` | `boolean` | `True` | Enable model reasoning/thinking |
 | `--prewarm`, `--no-prewarm` | `boolean` | `True` | Prewarm the model before starting chat |
+| `--explain`, `-e` | `boolean` | - | Explain chat personas, tools, and reasoning modes |
 
 ### `devops ai bundle-models`
 
@@ -1713,11 +1764,17 @@ devops ai pipeline [OPTIONS] <prompt>
 
 ### `devops ai review`
 
-**AI-powered code reviews using expert personas (devsecops, architect, pm, auditor, qa).**
+**AI-powered multi-persona code review system.**
 
 ```bash
-devops ai review COMMAND [ARGS]...
+devops ai review [OPTIONS] COMMAND [ARGS]...
 ```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology |
 
 #### `devops ai review path`
 
@@ -1742,6 +1799,7 @@ devops ai review path [OPTIONS] <target>
 | `--all` | `boolean` | - | Run all four reviewer personas |
 | `--dry-run` | `boolean` | - | Print commands and AI request payloads without executing. |
 | `--summary`, `-s` | `boolean` | - | Show segment metadata without running a full review. |
+| `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology |
 
 #### `devops ai review branch`
 
@@ -1767,6 +1825,7 @@ devops ai review branch [OPTIONS] <branch_name>
 | `--repo` | `path` | `.` | Path to the git repository |
 | `--dry-run` | `boolean` | - | Print commands and AI request payloads without executing. |
 | `--summary`, `-s` | `boolean` | - | Show segment metadata without running a full review. |
+| `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology |
 
 #### `devops ai review pr`
 
@@ -1792,6 +1851,7 @@ devops ai review pr [OPTIONS] <number>
 | `--post` | `boolean` | - | Post the review as a comment on the GitHub PR |
 | `--dry-run` | `boolean` | - | Print commands and AI request payloads without executing. |
 | `--summary`, `-s` | `boolean` | - | Show segment metadata without running a full review. |
+| `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology |
 
 #### `devops ai review findings`
 
@@ -1887,11 +1947,17 @@ devops ai review apply-patch [OPTIONS] <session>
 
 ### `devops ai analyze`
 
-**Analyze codebase metadata and create/update .data/analysis/*-metadata.json files.**
+**Analyze codebase metadata and generate structural outlines.**
 
 ```bash
-devops ai analyze COMMAND [ARGS]...
+devops ai analyze [OPTIONS] COMMAND [ARGS]...
 ```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--explain`, `-x` | `boolean` | - | Explain static code analysis metrics and terminology |
 
 #### `devops ai analyze path`
 
@@ -1914,6 +1980,7 @@ devops ai analyze path [OPTIONS] <target>
 | `--pattern`, `-g` | `string` | `*` | Glob pattern for files (default: all files) |
 | `--enhanced`, `-e`, `--no-enhanced` | `boolean` | `True` | Generate AI-enhanced metadata (pseudocode, complexity, last_updated) |
 | `--update-all`, `-u` | `boolean` | - | Regenerate all enhanced metadata fields regardless of last_* timestamps |
+| `--explain`, `-x` | `boolean` | - | Explain static code analysis metrics and terminology |
 
 #### `devops ai analyze branch`
 
@@ -1936,6 +2003,7 @@ devops ai analyze branch [OPTIONS] <branch>
 | `--base`, `-b` | `string` | `main` | Base branch for diff |
 | `--enhanced`, `-e`, `--no-enhanced` | `boolean` | `True` | Generate AI-enhanced metadata (pseudocode, complexity, last_updated) |
 | `--update-all`, `-u` | `boolean` | - | Regenerate all enhanced metadata fields regardless of last_* timestamps |
+| `--explain`, `-x` | `boolean` | - | Explain static code analysis metrics and terminology |
 
 #### `devops ai analyze pr`
 
@@ -1957,14 +2025,21 @@ devops ai analyze pr [OPTIONS] <pr_number>
 |---|---|---|---|
 | `--enhanced`, `-e`, `--no-enhanced` | `boolean` | `True` | Generate AI-enhanced metadata (pseudocode, complexity, last_updated) |
 | `--update-all`, `-u` | `boolean` | - | Regenerate all enhanced metadata fields regardless of last_* timestamps |
+| `--explain`, `-x` | `boolean` | - | Explain static code analysis metrics and terminology |
 
 ### `devops ai rag`
 
-**Manage RAG vector embeddings, indexing, and semantic code search (Qdrant).**
+**Manage RAG vector embeddings, indexing, and semantic search (Qdrant).**
 
 ```bash
-devops ai rag COMMAND [ARGS]...
+devops ai rag [OPTIONS] COMMAND [ARGS]...
 ```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--explain`, `-e` | `boolean` | - | Explain RAG vector embeddings, Qdrant indexing, and terminology |
 
 #### `devops ai rag index`
 
@@ -1987,6 +2062,7 @@ devops ai rag index [OPTIONS] <path>
 | `--project`, `-p` | `string` | - | Project / repository name override |
 | `--force`, `-f` | `boolean` | - | Re-index all files ignoring content hash cache |
 | `--collection`, `-c` | `string` | - | Target collection override |
+| `--explain`, `-e` | `boolean` | - | Explain RAG vector embeddings, Qdrant indexing, and terminology |
 
 #### `devops ai rag query`
 
@@ -2013,6 +2089,7 @@ devops ai rag query [OPTIONS] <query>
 | `--min-score`, `-s` | `float` | `0.35` | Minimum cosine similarity threshold |
 | `--collection`, `-c` | `string` | - | Search only a specific collection |
 | `--file`, `-f` | `string` | - | Filter results to a specific file |
+| `--explain`, `-e` | `boolean` | - | Explain RAG vector embeddings, Qdrant indexing, and terminology |
 
 #### `devops ai rag status`
 
@@ -2021,6 +2098,21 @@ devops ai rag query [OPTIONS] <query>
 ```bash
 devops ai rag status
 ```
+
+#### `devops ai rag reset`
+
+**Alias for clear — clear vector index collections and reset local cache.**
+
+```bash
+devops ai rag reset [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--collection`, `-c` | `string` | - | Specific collection to delete (default: all) |
+| `--force`, `-f` | `boolean` | - | Bypass confirmation prompt |
 
 #### `devops ai rag clear`
 
@@ -2036,6 +2128,31 @@ devops ai rag clear [OPTIONS]
 |---|---|---|---|
 | `--collection`, `-c` | `string` | - | Specific collection to delete (default: all) |
 | `--force`, `-f` | `boolean` | - | Bypass confirmation prompt |
+
+### `devops ai benchmark`
+
+**Benchmark, evaluate, and peer-grade candidate AI models across engineering tasks.**
+
+```bash
+devops ai benchmark [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--models`, `-m` | `string` | - | Comma-separated candidate models (e.g. 'qwen2.5:0.5b,llama3.1:8b@http://gpu2:11434') |
+| `--servers`, `--ollama-urls` | `string` | - | Comma-separated Ollama server URLs for concurrent execution (e.g. 'http://node1:11434,http://node2:11434') |
+| `--provider`, `-p` | `string` | - | AI provider (ollama, claude, copilot, openai) |
+| `--type`, `--mode` | `string` | `auto` | Benchmark mode: 'auto', 'chat', 'embedding' (default: auto) |
+| `--tasks`, `-t` | `string` | - | Filter specific task categories or IDs (e.g. 'security,kubernetes') |
+| `--concurrency`, `-c` | `integer` | `4` | Number of concurrent model server workers (default: automatic per model count) |
+| `--output`, `-o` | `path` | - | Destination JSON report filepath |
+| `--format`, `-f` | `string` | `table` | Output format: table, json, markdown |
+| `--dry-run` | `boolean` | - | Simulate benchmark without sending remote LLM requests |
+| `--explain`, `-e` | `boolean` | - | Explain benchmark metrics, terminology, and mathematical formulas |
+| `--document`, `-d` | `path` | - | Path to large test document for in-memory tokenization and section retrieval |
+| `--samples` | `integer` | `5` | Number of random sections to sample for retrieval evaluation |
 
 ---
 
@@ -2068,6 +2185,7 @@ devops review path [OPTIONS] <target>
 | `--all` | `boolean` | - | Run all four reviewer personas |
 | `--dry-run` | `boolean` | - | Print commands and AI request payloads without executing. |
 | `--summary`, `-s` | `boolean` | - | Show segment metadata without running a full review. |
+| `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology |
 
 ### `devops review branch`
 
@@ -2093,6 +2211,7 @@ devops review branch [OPTIONS] <branch_name>
 | `--repo` | `path` | `.` | Path to the git repository |
 | `--dry-run` | `boolean` | - | Print commands and AI request payloads without executing. |
 | `--summary`, `-s` | `boolean` | - | Show segment metadata without running a full review. |
+| `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology |
 
 ### `devops review pr`
 
@@ -2118,6 +2237,7 @@ devops review pr [OPTIONS] <number>
 | `--post` | `boolean` | - | Post the review as a comment on the GitHub PR |
 | `--dry-run` | `boolean` | - | Print commands and AI request payloads without executing. |
 | `--summary`, `-s` | `boolean` | - | Show segment metadata without running a full review. |
+| `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology |
 
 ### `devops review findings`
 
@@ -2890,5 +3010,315 @@ devops tofu deploy-cloud [OPTIONS]
 | `--provider`, `-p` | `string` | - | Target cloud provider: aws, azure, or gcp |
 | `--auto-approve` | `boolean` | - | Automatically approve apply without prompt |
 | `--var-file`, `-v` | `path` | - | Path to custom tfvars file |
+
+---
+
+## devops tls
+
+X.509 TLS certificate generation, inspection, verification, and Kubernetes secrets.
+
+### `devops tls ca`
+
+**Generate a self-signed Root Certificate Authority (CA) key pair.**
+
+```bash
+devops tls ca [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--output-dir`, `-o` | `path` | `~/.config/devops-cli/tls` | Directory to save CA certificate and key |
+| `--common-name`, `-cn` | `string` | `Homelab DevOps Root CA` | Common Name for the Root CA |
+| `--organization`, `-org` | `string` | `Homelab DevOps` | Organization name |
+| `--country`, `-c` | `string` | `US` | 2-letter country code |
+| `--validity-days`, `-d` | `integer` | `3650` | Validity period in days |
+| `--key-size`, `-k` | `integer` | `2048` | RSA key size in bits (2048 or 4096) |
+| `--overwrite`, `-f` | `boolean` | - | Overwrite existing CA certificate and key |
+
+### `devops tls cert`
+
+**Generate an X.509 TLS certificate signed by local CA or self-signed.**
+
+```bash
+devops tls cert [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--common-name`, `-cn` | `string` | `localhost` | Primary Common Name or domain |
+| `--san`, `-s` | `string` | - | Subject Alternative Names (DNS names or IP addresses) |
+| `--ca-cert` | `path` | - | Path to signing CA certificate (ca.crt) |
+| `--ca-key` | `path` | - | Path to signing CA private key (ca.key) |
+| `--output-dir`, `-o` | `path` | `~/.config/devops-cli/tls` | Directory to save certificate and key |
+| `--validity-days`, `-d` | `integer` | `365` | Validity period in days |
+| `--key-size`, `-k` | `integer` | `2048` | RSA key size in bits (2048 or 4096) |
+| `--organization`, `-org` | `string` | `Homelab DevOps` | Organization name |
+| `--overwrite`, `-f` | `boolean` | - | Overwrite existing files |
+
+### `devops tls homelab`
+
+**Generate complete Homelab TLS bundle (Root CA, Wildcard + Stack Services Cert).**
+
+```bash
+devops tls homelab [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--output-dir`, `-o` | `path` | `~/.config/devops-cli/tls` | Directory to save certificates |
+| `--domain`, `-d` | `string` | - | Additional custom domains to include in SANs |
+| `--ip`, `-i` | `string` | - | Additional custom IP addresses to include in SANs |
+| `--overwrite`, `-f` | `boolean` | - | Regenerate all existing certificates |
+
+### `devops tls inspect`
+
+**Inspect and display metadata of an X.509 certificate.**
+
+```bash
+devops tls inspect <cert_path>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<cert_path>` | `path` | Yes | Path to X.509 certificate file (.crt or .pem) |
+
+### `devops tls verify`
+
+**Verify an X.509 certificate cryptographic chain against a CA certificate.**
+
+```bash
+devops tls verify [OPTIONS] <cert_path>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<cert_path>` | `path` | Yes | Path to leaf certificate file (.crt or .pem) |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--ca-cert`, `-ca` | `path` | `~/.config/devops-cli/tls/ca.crt` | Path to Root CA certificate file (ca.crt) |
+
+### `devops tls enable-k8s`
+
+**Generate and apply TLS secrets (kubernetes.io/tls) across Kubernetes namespaces.**
+
+```bash
+devops tls enable-k8s [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--context`, `-c` | `string` | - | Kubernetes cluster context (e.g. minikube, default) |
+| `--tls-dir` | `path` | `~/.config/devops-cli/tls` | Directory with generated TLS certificates |
+| `--secret-name` | `string` | `homelab-tls` | Kubernetes TLS secret name to create |
+| `--namespace`, `-n` | `string` | - | Target namespaces to deploy TLS secret into |
+| `--overwrite`, `-f` | `boolean` | - | Regenerate certs if missing |
+
+---
+
+## devops cert
+
+TLS certificate generation and management (alias for tls).
+
+X.509 TLS certificate generation, inspection, verification, and Kubernetes secrets.
+
+### `devops cert ca`
+
+**Generate a self-signed Root Certificate Authority (CA) key pair.**
+
+```bash
+devops cert ca [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--output-dir`, `-o` | `path` | `~/.config/devops-cli/tls` | Directory to save CA certificate and key |
+| `--common-name`, `-cn` | `string` | `Homelab DevOps Root CA` | Common Name for the Root CA |
+| `--organization`, `-org` | `string` | `Homelab DevOps` | Organization name |
+| `--country`, `-c` | `string` | `US` | 2-letter country code |
+| `--validity-days`, `-d` | `integer` | `3650` | Validity period in days |
+| `--key-size`, `-k` | `integer` | `2048` | RSA key size in bits (2048 or 4096) |
+| `--overwrite`, `-f` | `boolean` | - | Overwrite existing CA certificate and key |
+
+### `devops cert cert`
+
+**Generate an X.509 TLS certificate signed by local CA or self-signed.**
+
+```bash
+devops cert cert [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--common-name`, `-cn` | `string` | `localhost` | Primary Common Name or domain |
+| `--san`, `-s` | `string` | - | Subject Alternative Names (DNS names or IP addresses) |
+| `--ca-cert` | `path` | - | Path to signing CA certificate (ca.crt) |
+| `--ca-key` | `path` | - | Path to signing CA private key (ca.key) |
+| `--output-dir`, `-o` | `path` | `~/.config/devops-cli/tls` | Directory to save certificate and key |
+| `--validity-days`, `-d` | `integer` | `365` | Validity period in days |
+| `--key-size`, `-k` | `integer` | `2048` | RSA key size in bits (2048 or 4096) |
+| `--organization`, `-org` | `string` | `Homelab DevOps` | Organization name |
+| `--overwrite`, `-f` | `boolean` | - | Overwrite existing files |
+
+### `devops cert homelab`
+
+**Generate complete Homelab TLS bundle (Root CA, Wildcard + Stack Services Cert).**
+
+```bash
+devops cert homelab [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--output-dir`, `-o` | `path` | `~/.config/devops-cli/tls` | Directory to save certificates |
+| `--domain`, `-d` | `string` | - | Additional custom domains to include in SANs |
+| `--ip`, `-i` | `string` | - | Additional custom IP addresses to include in SANs |
+| `--overwrite`, `-f` | `boolean` | - | Regenerate all existing certificates |
+
+### `devops cert inspect`
+
+**Inspect and display metadata of an X.509 certificate.**
+
+```bash
+devops cert inspect <cert_path>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<cert_path>` | `path` | Yes | Path to X.509 certificate file (.crt or .pem) |
+
+### `devops cert verify`
+
+**Verify an X.509 certificate cryptographic chain against a CA certificate.**
+
+```bash
+devops cert verify [OPTIONS] <cert_path>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<cert_path>` | `path` | Yes | Path to leaf certificate file (.crt or .pem) |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--ca-cert`, `-ca` | `path` | `~/.config/devops-cli/tls/ca.crt` | Path to Root CA certificate file (ca.crt) |
+
+### `devops cert enable-k8s`
+
+**Generate and apply TLS secrets (kubernetes.io/tls) across Kubernetes namespaces.**
+
+```bash
+devops cert enable-k8s [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--context`, `-c` | `string` | - | Kubernetes cluster context (e.g. minikube, default) |
+| `--tls-dir` | `path` | `~/.config/devops-cli/tls` | Directory with generated TLS certificates |
+| `--secret-name` | `string` | `homelab-tls` | Kubernetes TLS secret name to create |
+| `--namespace`, `-n` | `string` | - | Target namespaces to deploy TLS secret into |
+| `--overwrite`, `-f` | `boolean` | - | Regenerate certs if missing |
+
+---
+
+## devops telemetry
+
+OpenTelemetry observability, tracing, and metrics management.
+
+### `devops telemetry status`
+
+**Display OpenTelemetry collector endpoint, Jaeger UI URL, and connection health.**
+
+```bash
+devops telemetry status
+```
+
+### `devops telemetry test`
+
+**Emit a test OpenTelemetry trace span and metric to the configured collector.**
+
+```bash
+devops telemetry test [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--name`, `-n` | `string` | `devops-cli.manual_test` | Name for test span |
+
+### `devops telemetry open-ui`
+
+**Print and show the Jaeger Query UI endpoint for inspecting traces.**
+
+```bash
+devops telemetry open-ui
+```
+
+---
+
+## devops otel
+
+OpenTelemetry observability and tracing (alias for telemetry).
+
+OpenTelemetry observability, tracing, and metrics management.
+
+### `devops otel status`
+
+**Display OpenTelemetry collector endpoint, Jaeger UI URL, and connection health.**
+
+```bash
+devops otel status
+```
+
+### `devops otel test`
+
+**Emit a test OpenTelemetry trace span and metric to the configured collector.**
+
+```bash
+devops otel test [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--name`, `-n` | `string` | `devops-cli.manual_test` | Name for test span |
+
+### `devops otel open-ui`
+
+**Print and show the Jaeger Query UI endpoint for inspecting traces.**
+
+```bash
+devops otel open-ui
+```
 
 ---

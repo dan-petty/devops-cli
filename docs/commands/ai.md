@@ -19,6 +19,7 @@ devops ai config [OPTIONS]
 | `--provider`, `-p` | `string` | - | Provider: ollama, claude, copilot, openai |
 | `--model`, `-m` | `string` | - | Model name, e.g. gemma4:26b, claude-opus-4-5 |
 | `--ollama-urls` | `string` | - | Ollama server base URLs (comma-separated) |
+| `--ollama-max-parallel` | `integer` | - | Maximum number of simultaneous requests allowed per Ollama server node |
 | `--api-base-url` | `string` | - | Override API base URL for any provider |
 | `--api-key` | `string` | - | API key — stored in OS keyring, not config file |
 | `--max-retries` | `integer` | - | Maximum retry count for AI requests upon failure |
@@ -47,7 +48,7 @@ devops ai preload
 
 ## `devops ai test`
 
-**Send a test prompt to verify AI provider connectivity.**
+**Send a test prompt to verify AI provider connectivity across configured servers.**
 
 ```bash
 devops ai test [OPTIONS]
@@ -58,6 +59,7 @@ devops ai test [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--prompt`, `-p` | `string` | `Reply with exactly one word: OK` | Test prompt to send to the provider |
+| `--url`, `-u` | `string` | - | Specific Ollama server URL to test |
 
 ---
 
@@ -98,6 +100,7 @@ devops ai chat [OPTIONS]
 | `--tools`, `--no-tools` | `boolean` | `True` | Enable DevOps agent tools |
 | `--thinking`, `--no-thinking` | `boolean` | `True` | Enable model reasoning/thinking |
 | `--prewarm`, `--no-prewarm` | `boolean` | `True` | Prewarm the model before starting chat |
+| `--explain`, `-e` | `boolean` | - | Explain chat personas, tools, and reasoning modes |
 
 ---
 
@@ -144,11 +147,17 @@ devops ai pipeline [OPTIONS] <prompt>
 
 ## `devops ai review`
 
-**AI-powered code reviews using expert personas (devsecops, architect, pm, auditor, qa).**
+**AI-powered multi-persona code review system.**
 
 ```bash
-devops ai review COMMAND [ARGS]...
+devops ai review [OPTIONS] COMMAND [ARGS]...
 ```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology |
 
 ### `devops ai review path`
 
@@ -173,6 +182,7 @@ devops ai review path [OPTIONS] <target>
 | `--all` | `boolean` | - | Run all four reviewer personas |
 | `--dry-run` | `boolean` | - | Print commands and AI request payloads without executing. |
 | `--summary`, `-s` | `boolean` | - | Show segment metadata without running a full review. |
+| `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology |
 
 ### `devops ai review branch`
 
@@ -198,6 +208,7 @@ devops ai review branch [OPTIONS] <branch_name>
 | `--repo` | `path` | `.` | Path to the git repository |
 | `--dry-run` | `boolean` | - | Print commands and AI request payloads without executing. |
 | `--summary`, `-s` | `boolean` | - | Show segment metadata without running a full review. |
+| `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology |
 
 ### `devops ai review pr`
 
@@ -223,6 +234,7 @@ devops ai review pr [OPTIONS] <number>
 | `--post` | `boolean` | - | Post the review as a comment on the GitHub PR |
 | `--dry-run` | `boolean` | - | Print commands and AI request payloads without executing. |
 | `--summary`, `-s` | `boolean` | - | Show segment metadata without running a full review. |
+| `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology |
 
 ### `devops ai review findings`
 
@@ -320,11 +332,17 @@ devops ai review apply-patch [OPTIONS] <session>
 
 ## `devops ai analyze`
 
-**Analyze codebase metadata and create/update .data/analysis/*-metadata.json files.**
+**Analyze codebase metadata and generate structural outlines.**
 
 ```bash
-devops ai analyze COMMAND [ARGS]...
+devops ai analyze [OPTIONS] COMMAND [ARGS]...
 ```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--explain`, `-x` | `boolean` | - | Explain static code analysis metrics and terminology |
 
 ### `devops ai analyze path`
 
@@ -347,6 +365,7 @@ devops ai analyze path [OPTIONS] <target>
 | `--pattern`, `-g` | `string` | `*` | Glob pattern for files (default: all files) |
 | `--enhanced`, `-e`, `--no-enhanced` | `boolean` | `True` | Generate AI-enhanced metadata (pseudocode, complexity, last_updated) |
 | `--update-all`, `-u` | `boolean` | - | Regenerate all enhanced metadata fields regardless of last_* timestamps |
+| `--explain`, `-x` | `boolean` | - | Explain static code analysis metrics and terminology |
 
 ### `devops ai analyze branch`
 
@@ -369,6 +388,7 @@ devops ai analyze branch [OPTIONS] <branch>
 | `--base`, `-b` | `string` | `main` | Base branch for diff |
 | `--enhanced`, `-e`, `--no-enhanced` | `boolean` | `True` | Generate AI-enhanced metadata (pseudocode, complexity, last_updated) |
 | `--update-all`, `-u` | `boolean` | - | Regenerate all enhanced metadata fields regardless of last_* timestamps |
+| `--explain`, `-x` | `boolean` | - | Explain static code analysis metrics and terminology |
 
 ### `devops ai analyze pr`
 
@@ -390,16 +410,23 @@ devops ai analyze pr [OPTIONS] <pr_number>
 |---|---|---|---|
 | `--enhanced`, `-e`, `--no-enhanced` | `boolean` | `True` | Generate AI-enhanced metadata (pseudocode, complexity, last_updated) |
 | `--update-all`, `-u` | `boolean` | - | Regenerate all enhanced metadata fields regardless of last_* timestamps |
+| `--explain`, `-x` | `boolean` | - | Explain static code analysis metrics and terminology |
 
 ---
 
 ## `devops ai rag`
 
-**Manage RAG vector embeddings, indexing, and semantic code search (Qdrant).**
+**Manage RAG vector embeddings, indexing, and semantic search (Qdrant).**
 
 ```bash
-devops ai rag COMMAND [ARGS]...
+devops ai rag [OPTIONS] COMMAND [ARGS]...
 ```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--explain`, `-e` | `boolean` | - | Explain RAG vector embeddings, Qdrant indexing, and terminology |
 
 ### `devops ai rag index`
 
@@ -422,6 +449,7 @@ devops ai rag index [OPTIONS] <path>
 | `--project`, `-p` | `string` | - | Project / repository name override |
 | `--force`, `-f` | `boolean` | - | Re-index all files ignoring content hash cache |
 | `--collection`, `-c` | `string` | - | Target collection override |
+| `--explain`, `-e` | `boolean` | - | Explain RAG vector embeddings, Qdrant indexing, and terminology |
 
 ### `devops ai rag query`
 
@@ -448,6 +476,7 @@ devops ai rag query [OPTIONS] <query>
 | `--min-score`, `-s` | `float` | `0.35` | Minimum cosine similarity threshold |
 | `--collection`, `-c` | `string` | - | Search only a specific collection |
 | `--file`, `-f` | `string` | - | Filter results to a specific file |
+| `--explain`, `-e` | `boolean` | - | Explain RAG vector embeddings, Qdrant indexing, and terminology |
 
 ### `devops ai rag status`
 
@@ -456,6 +485,21 @@ devops ai rag query [OPTIONS] <query>
 ```bash
 devops ai rag status
 ```
+
+### `devops ai rag reset`
+
+**Alias for clear — clear vector index collections and reset local cache.**
+
+```bash
+devops ai rag reset [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--collection`, `-c` | `string` | - | Specific collection to delete (default: all) |
+| `--force`, `-f` | `boolean` | - | Bypass confirmation prompt |
 
 ### `devops ai rag clear`
 
@@ -471,5 +515,32 @@ devops ai rag clear [OPTIONS]
 |---|---|---|---|
 | `--collection`, `-c` | `string` | - | Specific collection to delete (default: all) |
 | `--force`, `-f` | `boolean` | - | Bypass confirmation prompt |
+
+---
+
+## `devops ai benchmark`
+
+**Benchmark, evaluate, and peer-grade candidate AI models across engineering tasks.**
+
+```bash
+devops ai benchmark [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--models`, `-m` | `string` | - | Comma-separated candidate models (e.g. 'qwen2.5:0.5b,llama3.1:8b@http://gpu2:11434') |
+| `--servers`, `--ollama-urls` | `string` | - | Comma-separated Ollama server URLs for concurrent execution (e.g. 'http://node1:11434,http://node2:11434') |
+| `--provider`, `-p` | `string` | - | AI provider (ollama, claude, copilot, openai) |
+| `--type`, `--mode` | `string` | `auto` | Benchmark mode: 'auto', 'chat', 'embedding' (default: auto) |
+| `--tasks`, `-t` | `string` | - | Filter specific task categories or IDs (e.g. 'security,kubernetes') |
+| `--concurrency`, `-c` | `integer` | `4` | Number of concurrent model server workers (default: automatic per model count) |
+| `--output`, `-o` | `path` | - | Destination JSON report filepath |
+| `--format`, `-f` | `string` | `table` | Output format: table, json, markdown |
+| `--dry-run` | `boolean` | - | Simulate benchmark without sending remote LLM requests |
+| `--explain`, `-e` | `boolean` | - | Explain benchmark metrics, terminology, and mathematical formulas |
+| `--document`, `-d` | `path` | - | Path to large test document for in-memory tokenization and section retrieval |
+| `--samples` | `integer` | `5` | Number of random sections to sample for retrieval evaluation |
 
 ---

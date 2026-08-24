@@ -25,8 +25,16 @@ from pydantic import BaseModel, Field
 
 from devops_cli.ai.agents.memory import AgentMemory
 from devops_cli.ai.client import LLMClient
+from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.defaults import DEFAULT_AGENT_MAX_TURNS
 from devops_cli.models.ai import ChatMessage
+
+_TOOL_PROTOCOL_TEMPLATE = load_task_prompt("tool_execution_protocol.md")
+_TOOL_FEEDBACK_TEMPLATE = load_task_prompt("agent_tool_feedback.md")
+_TOOL_ALREADY_CALLED_PROMPT = load_task_prompt("agent_tool_already_called.md")
+_INVOKE_TOOL_REQUEST_TEMPLATE = load_task_prompt("agent_invoke_tool_request.md")
+_DIRECT_RESPONSE_FROM_TOOLS_PROMPT = load_task_prompt("agent_direct_response_from_tools.md")
+_DIRECT_RESPONSE_FROM_REASONING_PROMPT = load_task_prompt("agent_direct_response_from_reasoning.md")
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -126,17 +134,7 @@ class PydanticAgent[T]:
                     desc = desc[:297] + "..."
                 tools_desc.append(f"- `{name}`: {desc} params={params_str}")
 
-            tools_block = (
-                "## Available Tools\n"
-                "You have access to these tools:\n" + "\n".join(tools_desc) + "\n\n"
-                "## Tool Execution Rules (CRITICAL):\n"
-                "1. When you need data or actions from a tool, output ONLY the JSON code block:\n"
-                '```json\n{"tool": "tool_name", "arguments": {"param": "value"}}\n```\n'
-                "2. Do NOT output conversational promises like 'We need to call...' in reply.\n"
-                "3. After tool execution, you will receive the tool result in the next turn.\n"
-                "4. ONCE YOU RECEIVE THE TOOL RESULT, YOU MUST PROVIDE YOUR FULL NATURAL LANGUAGE "
-                "RESPONSE TO THE USER. DO NOT REPEAT THE TOOL CALL."
-            )
+            tools_block = _TOOL_PROTOCOL_TEMPLATE.format(tools_desc="\n".join(tools_desc))
             prompt_parts.append(tools_block)
 
         if self.output_schema is not None:
@@ -166,6 +164,21 @@ class PydanticAgent[T]:
         self.memory.auto_summarize_if_needed(llm_client=self.client)
 
         system = self._build_system_prompt_with_tools()
+
+        # RAG investigation step
+        try:
+            from devops_cli.ai.rag.investigator import (
+                format_rag_investigation_for_prompt,
+                investigate_rag_context,
+            )
+
+            rag_ctx = investigate_rag_context(user_prompt, persona=self.name)
+            rag_context_str = format_rag_investigation_for_prompt(rag_ctx)
+            if rag_context_str:
+                system = f"{system}\n\n{rag_context_str}"
+        except Exception:
+            pass
+
         messages: list[ChatMessage] = self.memory.to_chat_messages()
         if not messages or messages[-1].content != user_prompt:
             messages.append(ChatMessage(role="user", content=user_prompt))
@@ -238,11 +251,9 @@ class PydanticAgent[T]:
                         messages.append(
                             ChatMessage(
                                 role="user",
-                                content=(
-                                    f"Tool '{tool_name}' output:\n"
-                                    f"{json.dumps(tool_result, default=str)}\n\n"
-                                    "Provide your complete response, analysis, and recommendations "
-                                    "to the user based on these tool results."
+                                content=_TOOL_FEEDBACK_TEMPLATE.format(
+                                    tool_name=tool_name,
+                                    tool_result=json.dumps(tool_result, default=str),
                                 ),
                             )
                         )
@@ -253,10 +264,7 @@ class PydanticAgent[T]:
                     messages.append(
                         ChatMessage(
                             role="user",
-                            content=(
-                                "The requested tool has already executed. Do NOT output tool JSON. "
-                                "Provide your direct, complete response to the user now."
-                            ),
+                            content=_TOOL_ALREADY_CALLED_PROMPT,
                         )
                     )
                     continue
@@ -286,9 +294,9 @@ class PydanticAgent[T]:
                 messages.append(
                     ChatMessage(
                         role="user",
-                        content=(
-                            f"Invoke tool '{detected_tool}' now. Output ONLY JSON:\n"
-                            f"```json\n{example_json}\n```"
+                        content=_INVOKE_TOOL_REQUEST_TEMPLATE.format(
+                            detected_tool=detected_tool,
+                            example_json=example_json,
                         ),
                     )
                 )
@@ -319,15 +327,11 @@ class PydanticAgent[T]:
 
             if is_deliberation and turn < max_turns:
                 messages.append(ChatMessage(role="assistant", content=response_text))
-                if tool_calls:
-                    prompt_msg = (
-                        "Provide your direct final response to the user based on the tool results. "
-                        "Do NOT output JSON tool blocks."
-                    )
-                else:
-                    prompt_msg = (
-                        "Provide your direct final response to the user based on your reasoning."
-                    )
+                prompt_msg = (
+                    _DIRECT_RESPONSE_FROM_TOOLS_PROMPT
+                    if tool_calls
+                    else _DIRECT_RESPONSE_FROM_REASONING_PROMPT
+                )
                 messages.append(ChatMessage(role="user", content=prompt_msg))
                 continue
 
@@ -372,6 +376,21 @@ class PydanticAgent[T]:
     ) -> Generator[str]:
         """Stream response tokens in real-time."""
         system = self._build_system_prompt_with_tools()
+
+        # RAG investigation step
+        try:
+            from devops_cli.ai.rag.investigator import (
+                format_rag_investigation_for_prompt,
+                investigate_rag_context,
+            )
+
+            rag_ctx = investigate_rag_context(user_prompt, persona=self.name)
+            rag_context_str = format_rag_investigation_for_prompt(rag_ctx)
+            if rag_context_str:
+                system = f"{system}\n\n{rag_context_str}"
+        except Exception:
+            pass
+
         messages = [ChatMessage(role="user", content=user_prompt)]
         yield from self.client.chat_messages_stream(
             system, messages, enable_thinking=enable_thinking

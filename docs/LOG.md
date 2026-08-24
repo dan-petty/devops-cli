@@ -6,6 +6,24 @@ Chronological log of refactoring milestones, quality gates, and security enhance
 
 ## Log Entries
 
+### [2026-08-22] Release v0.1.13 Embedding Benchmarks, TLS Automation & OpenTelemetry Observability
+- **Embedding Model Benchmark Suite (`devops ai benchmark --type embedding`, `devops_cli.ai.benchmark`)**:
+  - Implemented specialized vector embedding evaluation engine (`EmbeddingBenchmarkRunner`) measuring Recall@1, Recall@3, MRR, Cosine Margin, single-query latency (p50/p95 ms), batch throughput (items/sec and chars/sec), and vector dimension/$L_2$ norm health.
+  - Curated 15 domain-specific evaluation pairs + 10 distractors across Security, Kubernetes, Architecture, CI/CD, and Infrastructure.
+  - Added CLI auto-detection routing for embedding models (`nomic-embed-text`, `qwen3-embedding`, `all-minilm`, `bge-*`, `text-embedding-3-*`).
+- **Local & Homelab TLS Certificate Management (`devops tls`, `devops cert`, `devops_cli.crypto`)**:
+  - Implemented CA and TLS server/client certificate issuance with SAN extensions for IP addresses, hostnames, localhost, `.lan`/`.local` domains, and Kubernetes service FQDNs.
+  - Implemented automated Kubernetes TLS secret provisioning (`devops tls inject-k8s-secret`, `devops k8s enable-tls`) and cert-manager ClusterIssuer integration.
+- **Universal OpenTelemetry Integration (`devops telemetry`, `devops otel`, `devops_cli.telemetry`)**:
+  - Integrated OTLP distributed trace exporters across all CLI commands and AI multi-agent pipeline stages with Jaeger collector manifests (`k8s/otel/jaeger.yaml`).
+- **Standard Library & PEP 508 Code Hygiene Refactoring (`devops_cli.security.reference_extractor`)**:
+  - Eliminated arbitrary string lists/blacklists; adopted standard `ast`, `tokenize`, `packaging.requirements.Requirement`, `tomllib`, `json`, `yaml`, `urllib.parse`, `ipaddress`, `mimetypes`, and `tldextract`.
+  - Implemented PEP 508/PEP 621/PEP 735 requirement extraction, Python AST literal/comment tokenization, and RFC 2606 reserved domain exclusions.
+- **Review Pipeline Optimization & Prompt Hardening**:
+  - Bounded linked file graph resolution to top 10 relevant files with universal standard library import filtering (`_UNIVERSAL_MODULES`).
+  - Hardened review and verification prompts (`src/devops_cli/ai/tasks/review.md`, `verify_finding.md`).
+- **Quality Gate**: Verified full test suite (522 unit tests passed, 100% green), ruff lint clean, ruff format clean, strict mypy clean (140 source files), documentation synchronized.
+
 ### [2026-08-20] Release v0.1.12 Enhancements & Open Source Modernization
 - **Official `qdrant-client` SDK Adoption**: Replaced handcrafted HTTP REST calls with the official `qdrant-client` SDK for vector database operations, enabling connection pooling, typed vector search (`query_points`), and batch upserts.
 - **Hierarchical Configuration with `pydantic-settings`**: Migrated `Settings` to inherit from `pydantic_settings.BaseSettings` with `SettingsConfigDict(env_prefix="DEVOPS_CLI_", env_nested_delimiter="__")`.

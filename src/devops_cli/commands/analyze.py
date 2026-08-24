@@ -32,6 +32,24 @@ app = new_typer(
 console = Console()
 
 
+@app.callback(invoke_without_command=True)
+def analyze_main(
+    ctx: typer.Context,
+    explain: Annotated[
+        bool,
+        typer.Option(
+            "--explain", "-x", help="Explain static code analysis metrics and terminology"
+        ),
+    ] = False,
+) -> None:
+    """Analyze repository source code structure, dependencies, and cyclomatic complexity."""
+    if explain:
+        from devops_cli.ai.explain import render_explanation
+
+        render_explanation("analyze")
+        raise typer.Exit(0)
+
+
 # ── Subcommands ───────────────────────────────────────────────────────────────
 
 
@@ -58,13 +76,28 @@ def analyze_path(
             help="Regenerate all enhanced metadata fields regardless of last_* timestamps",
         ),
     ] = False,
+    explain: Annotated[
+        bool,
+        typer.Option(
+            "--explain", "-x", help="Explain static code analysis metrics and terminology"
+        ),
+    ] = False,
 ) -> None:
     """Analyze a local directory path or single file and save metadata to .data/analysis/."""
+    if explain:
+        from devops_cli.ai.explain import render_explanation
+
+        render_explanation("analyze")
+        return
     repo = find_repo_root(target)
     target_abs = target.resolve() if target.is_absolute() else (repo / target).resolve()
 
     if not target_abs.exists():
         rprint(f"[red]{MESSAGES.analyze.path_not_exists.format(path=target)}[/red]")
+        raise typer.Exit(1)
+
+    if not (target_abs == repo or target_abs.is_relative_to(repo)):
+        rprint(f"[red]Target path '{target}' is outside the repository root '{repo}'.[/red]")
         raise typer.Exit(1)
 
     collected_paths = list_repo_files(target_abs)
@@ -164,8 +197,19 @@ def analyze_branch(
             help="Regenerate all enhanced metadata fields regardless of last_* timestamps",
         ),
     ] = False,
+    explain: Annotated[
+        bool,
+        typer.Option(
+            "--explain", "-x", help="Explain static code analysis metrics and terminology"
+        ),
+    ] = False,
 ) -> None:
     """Analyze a git branch diff against base and save metadata to .data/analysis/."""
+    if explain:
+        from devops_cli.ai.explain import render_explanation
+
+        render_explanation("analyze")
+        return
     from devops_cli.core.process import run_subprocess
     from devops_cli.git.operations import list_branches
 
@@ -296,8 +340,19 @@ def analyze_pr(
             help="Regenerate all enhanced metadata fields regardless of last_* timestamps",
         ),
     ] = False,
+    explain: Annotated[
+        bool,
+        typer.Option(
+            "--explain", "-x", help="Explain static code analysis metrics and terminology"
+        ),
+    ] = False,
 ) -> None:
     """Analyze a GitHub Pull Request and save metadata to .data/analysis/."""
+    if explain:
+        from devops_cli.ai.explain import render_explanation
+
+        render_explanation("analyze")
+        return
     from devops_cli.config.settings import get_github_token, load_settings
     from devops_cli.github.client import GitHubClient
 

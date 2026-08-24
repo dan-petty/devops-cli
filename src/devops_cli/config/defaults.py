@@ -5,14 +5,17 @@ from __future__ import annotations
 from pathlib import Path
 
 from devops_cli.config.constants import (
+    CONST_CONFIG_DIR,
     CONST_REVIEW_OVERLAP_FACTOR,
     CONST_REVIEW_TIMEOUT_SECONDS,
     CONST_REVIEW_WINDOW_SIZE_FACTOR,
+    CONST_TLS_DIR_NAME,
     CONST_URL_OLLAMA_LOCALHOST,
 )
 from devops_cli.config.metadata import get_project_python_version
 
 # ── General Defaults ──────────────────────────────────────────────────────────
+DEFAULT_LOCAL_BIN_DIR = Path.home() / ".local" / "bin"
 DEFAULT_SSH_KEY_DIR = Path.home() / ".ssh"
 DEFAULT_SSH_ROTATION_DAYS = 90
 DEFAULT_REPOS_BASE_DIR = Path("repos")
@@ -20,16 +23,50 @@ DEFAULT_WORKSPACE_FILE = Path(".code-workspace")
 DEFAULT_AI_PROVIDER = "ollama"
 DEFAULT_AI_MODEL = "gemma4:26b"
 DEFAULT_OLLAMA_URLS: tuple[str, ...] = (CONST_URL_OLLAMA_LOCALHOST,)
+DEFAULT_OLLAMA_MAX_PARALLEL: int = 2
 DEFAULT_AI_MAX_RETRIES: int = 2
 DEFAULT_PYTHON_VERSION = get_project_python_version()
 DEFAULT_BUNDLE_MODELS: tuple[str, ...] = ("qwen2.5-coder:7b", "llama3.1:8b")
 DEFAULT_PR_STATE = "open"
 
+# ── Benchmark Defaults ────────────────────────────────────────────────────────
+DEFAULT_BENCHMARK_CONCURRENCY: int = 4
+DEFAULT_BENCHMARK_FORMAT: str = "table"
+DEFAULT_BENCHMARK_SAMPLES: int = 5
+DEFAULT_BENCHMARK_TYPE: str = "auto"
+
+# ── TLS & Cryptographic Defaults ──────────────────────────────────────────────
+DEFAULT_TLS_DIR = CONST_CONFIG_DIR / CONST_TLS_DIR_NAME
+DEFAULT_CA_VALIDITY_DAYS: int = 3650  # 10 years for Root CA
+DEFAULT_TLS_VALIDITY_DAYS: int = 365  # 1 year for Server/Client Certs
+DEFAULT_TLS_KEY_SIZE: int = 2048
+DEFAULT_TLS_ORGANIZATION: str = "Homelab DevOps"
+DEFAULT_TLS_COUNTRY: str = "US"
+DEFAULT_HOMELAB_DOMAINS: tuple[str, ...] = (
+    "*.homelab.local",
+    "homelab.local",
+    "*.local",
+    "localhost",
+    "argocd.homelab.local",
+    "grafana.homelab.local",
+    "prometheus.homelab.local",
+    "ollama.homelab.local",
+    "open-webui.homelab.local",
+    "qdrant.homelab.local",
+    "jaeger.homelab.local",
+    "otel.homelab.local",
+)
+DEFAULT_HOMELAB_IPS: tuple[str, ...] = (
+    "127.0.0.1",
+    "::1",
+    "192.168.49.2",  # Minikube standard node IP
+)
+
 # ── RAG & Vector Store Defaults ───────────────────────────────────────────────
 DEFAULT_QDRANT_URL = "http://localhost:6333"
 DEFAULT_RAG_COLLECTION = "devops_code"
 DEFAULT_RAG_DOCS_COLLECTION = "devops_docs"
-DEFAULT_RAG_EMBEDDING_MODEL = "all-minilm"
+DEFAULT_RAG_EMBEDDING_MODEL = "qwen3-embedding:0.6b"
 DEFAULT_RAG_TOP_K: int = 5
 DEFAULT_RAG_SCORE_THRESHOLD: float = 0.35
 DEFAULT_RAG_CHUNK_SIZE: int = 500
@@ -59,6 +96,10 @@ DEFAULT_TRIVY_TIMEOUT_SECONDS: float = 120.0
 DEFAULT_KUBELINTER_TIMEOUT_SECONDS: float = 60.0
 DEFAULT_POPEYE_TIMEOUT_SECONDS: float = 60.0
 DEFAULT_PLUTO_TIMEOUT_SECONDS: float = 60.0
+DEFAULT_VULNERABILITY_LOOKUP_TIMEOUT_SECONDS: float = 10.0
+
+# ── Telemetry HTTP Defaults ───────────────────────────────────────────────────
+DEFAULT_OTEL_HTTP_TIMEOUT_SECONDS: float = 5.0
 
 # ── FastMCP Server Tool Execution Timeouts ─────────────────────────────────────
 DEFAULT_MCP_TOOL_TIMEOUT_SECONDS: float = 300.0

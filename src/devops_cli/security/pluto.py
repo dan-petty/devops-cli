@@ -8,13 +8,12 @@ from pathlib import Path
 from typing import Any
 
 from devops_cli.ai.review_schema import Finding
+from devops_cli.config.commands import BIN_PLUTO
 from devops_cli.config.defaults import DEFAULT_PLUTO_TIMEOUT_SECONDS
 from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run.state import is_dry_run
 
 logger = logging.getLogger(__name__)
-
-CONST_PLUTO_TIMEOUT_SECONDS = DEFAULT_PLUTO_TIMEOUT_SECONDS
 
 
 def parse_pluto_json(data: dict[str, Any], target_path: str = "") -> list[Finding]:
@@ -53,32 +52,42 @@ def parse_pluto_json(data: dict[str, Any], target_path: str = "") -> list[Findin
 
 def run_pluto_scan(target: Path = Path(".")) -> list[Finding]:
     """Execute Pluto deprecated API scanner subprocess and return parsed findings."""
-    if is_dry_run():
-        return [
-            Finding(
-                severity="HIGH",
-                location=f"{target}:Deployment/dry-run-spec",
-                title="[DRY-RUN] Simulated Pluto Deprecated K8s API Detection",
-                description="Pluto deprecated API detection simulation mode active.",
-                fix="Update apiVersion to apps/v1 (dry-run mode)",
-                confidence_score=1.0,
-            )
-        ]
+    from devops_cli.telemetry import trace_span
 
-    target_abs = target.resolve() if target.exists() else Path.cwd().resolve()
-    cmd = (
-        ["pluto", "detect-files", "-f", str(target_abs), "-o", "json"]
-        if target_abs.is_file()
-        else ["pluto", "detect-files", "-d", str(target_abs), "-o", "json"]
-    )
+    with trace_span(
+        "security.scan.pluto",
+        attributes={"target": str(target)},
+    ) as span_h:
+        if is_dry_run():
+            return [
+                Finding(
+                    severity="HIGH",
+                    location=f"{target}:Deployment/dry-run-spec",
+                    title="[DRY-RUN] Simulated Pluto Deprecated K8s API Detection",
+                    description="Pluto deprecated API detection simulation mode active.",
+                    fix="Update apiVersion to apps/v1 (dry-run mode)",
+                    confidence_score=1.0,
+                )
+            ]
 
-    try:
-        proc = run_subprocess(cmd, timeout=CONST_PLUTO_TIMEOUT_SECONDS)
-        if proc.stdout:
-            data = json.loads(proc.stdout)
-            if isinstance(data, dict):
-                return parse_pluto_json(data, target_path=str(target))
-    except Exception as exc:
-        logger.debug(f"Pluto scan execution skipped or failed: {exc}")
+        target_abs = target.resolve() if target.exists() else Path.cwd().resolve()
+        cmd = (
+            [BIN_PLUTO, "detect-files", "-f", str(target_abs), "-o", "json"]
+            if target_abs.is_file()
+            else [BIN_PLUTO, "detect-files", "-d", str(target_abs), "-o", "json"]
+        )
 
-    return []
+        findings: list[Finding] = []
+        try:
+            proc = run_subprocess(cmd, timeout=DEFAULT_PLUTO_TIMEOUT_SECONDS, check=False)
+            if proc.returncode == 127:
+                span_h.set_attribute("tool.available", False)
+            elif proc.stdout:
+                data = json.loads(proc.stdout)
+                if isinstance(data, dict):
+                    findings = parse_pluto_json(data, target_path=str(target))
+        except Exception as exc:
+            logger.debug(f"Pluto scan execution skipped or failed: {exc}")
+
+        span_h.set_attribute("findings_count", len(findings))
+        return findings

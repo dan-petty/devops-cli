@@ -9,7 +9,6 @@ Functionality:
 from __future__ import annotations
 
 import os
-import subprocess
 from collections.abc import Generator
 from pathlib import Path
 
@@ -27,6 +26,7 @@ from devops_cli.config.constants import (
     CONST_URL_SCHEME_HTTPS,
 )
 from devops_cli.config.defaults import DEFAULT_SUBPROCESS_FAST_TIMEOUT_SECONDS
+from devops_cli.core.process import run_subprocess
 from devops_cli.models.git import BranchListing
 
 
@@ -63,21 +63,23 @@ def _ensure_known_host(hostname: str = CONST_GITHUB_HOST) -> None:
     known_hosts = ssh_dir / "known_hosts"
     ssh_dir.mkdir(mode=CONST_PERM_DIR, parents=True, exist_ok=True)
     if known_hosts.exists():
-        result = subprocess.run(
+        result = run_subprocess(
             ["ssh-keygen", "-F", hostname, "-f", str(known_hosts)],
             capture_output=True,
             text=True,
             check=False,
+            quiet=True,
             timeout=DEFAULT_SUBPROCESS_FAST_TIMEOUT_SECONDS,
         )
         if result.returncode == 0:
             return
 
-    result = subprocess.run(
+    result = run_subprocess(
         ["ssh-keyscan", "-t", "ed25519", hostname],
         capture_output=True,
         text=True,
         check=False,
+        quiet=True,
         timeout=DEFAULT_SUBPROCESS_FAST_TIMEOUT_SECONDS,
     )
     if result.returncode != 0 or not result.stdout.strip() or hostname not in result.stdout:

@@ -9,29 +9,9 @@ from typing import Any
 
 from devops_cli.ai.review.sanitization import _sanitize_prompt_boundary_tags
 from devops_cli.ai.review_schema import _SEVERITY_RANK, Finding, ReviewResult, extract_json_block
+from devops_cli.ai.task_loader import load_task_prompt
 
-_VALIDATION_SYSTEM = (
-    "You are an expert code review verification and validation system.\n"
-    "Verify whether each reported finding is genuine, accurate, and reportable "
-    "by testing its criteria:\n"
-    "1. Test 'verification_criteria': Observable conditions proving the defect in visible code.\n"
-    "2. Test 'invalidation_criteria': Conditions, mitigations, or context disproving the defect.\n"
-    "3. Is the code visible in the excerpt? If absent, mark false.\n"
-    "4. Is the issue mitigated by error handling, type safety, guardrails, or related files?\n\n"
-    "Output MUST be a JSON array of objects with fields:\n"
-    '  - "verified": boolean (true if genuine & unmitigated, false if false-positive/mitigated)\n'
-    '  - "mitigated": boolean (true if a related file or guardrail mitigates the risk)\n'
-    '  - "status": string ("VERIFIED" | "INVALIDATED" | "MITIGATED" | "UNVERIFIED")\n'
-    '  - "reportable": boolean (true if finding should be reported, '
-    "false if invalidated/mitigated)\n"
-    '  - "location": string (file:lines)\n'
-    '  - "severity": string (CRITICAL | HIGH | MEDIUM | LOW | INFO)\n'
-    '  - "confidence_score": float from 0.0 to 1.0\n'
-    '  - "verified_criteria_matched": list of strings (criteria confirmed present)\n'
-    '  - "invalidated_criteria_matched": list of strings (invalidation criteria confirmed)\n'
-    '  - "reason": string (brief justification)\n\n'
-    "Output ONLY the JSON array inside a ```json ``` code block."
-)
+_VALIDATION_SYSTEM = load_task_prompt("verify_finding_system.md")
 
 
 def _extract_location_context(segment: str, location: str, context_lines: int = 12) -> str:
@@ -212,6 +192,28 @@ def _build_validation_prompt(
             + "\n</untrusted_related_files>\n\n"
         )
 
+    # Augment validation with semantic RAG investigation across indexed codebase
+    rag_verification_blocks: list[str] = []
+    try:
+        from devops_cli.ai.rag.investigator import investigate_rag_context
+
+        for f in findings[:4]:
+            f_query = f"{f.title} {f.description[:100]}"
+            rag_ctx = investigate_rag_context(f_query, top_k=2)
+            if rag_ctx and rag_ctx.has_results:
+                rag_verification_blocks.append(
+                    f"### Context for Finding {f.title}:\n{rag_ctx.formatted_text}"
+                )
+    except Exception:
+        pass
+
+    if rag_verification_blocks:
+        related_section += (
+            "\n\nCross-File RAG Context:\n<untrusted_rag_context>\n"
+            + "\n\n".join(rag_verification_blocks)
+            + "\n</untrusted_rag_context>\n\n"
+        )
+
     findings_json = _sanitize_prompt_boundary_tags(
         json.dumps(
             [
@@ -245,8 +247,25 @@ def _deterministic_pre_verification(finding: Finding, repo_root: Path | None = N
     import ast
 
     loc_file = finding.location.split(":")[0].strip()
-    root = repo_root or Path.cwd()
-    file_path = root / loc_file if not Path(loc_file).is_absolute() else Path(loc_file)
+    if not loc_file or finding.is_empty:
+        return finding.model_copy(
+            update={
+                "verified": False,
+                "reportable": False,
+                "status": "INVALIDATED",
+                "invalidation_reason": "No valid target file location or empty finding",
+            }
+        )
+    root = (repo_root or Path.cwd()).resolve()
+    candidate = Path(loc_file)
+    file_path = candidate if candidate.is_absolute() else (root / candidate)
+    try:
+        resolved_file = file_path.resolve()
+        if not resolved_file.is_relative_to(root):
+            return finding
+        file_path = resolved_file
+    except (ValueError, OSError):
+        return finding
 
     title_lower = finding.title.lower()
     desc_lower = finding.description.lower()

@@ -40,11 +40,7 @@ def _load(path: Path) -> str:
 # ── Task prompts loaded once ────────────────────────────────────────────
 
 METADATA_SYSTEM_PROMPT: str = _load(_TASKS_DIR / "metadata.md")
-ANALYZE_PSEUDOCODE_SYSTEM_PROMPT: str = (
-    "You are a senior software architect. Output a concise technical pseudocode outline "
-    "of the source file (target 4-10 lines) using symbols and names from the source "
-    "without generic prose or explanatory boilerplate."
-)
+ANALYZE_PSEUDOCODE_SYSTEM_PROMPT: str = _load(_TASKS_DIR / "analyze_pseudocode_system.md")
 ANALYZE_PSEUDOCODE_TASK_PROMPT: str = _load(_TASKS_DIR / "analyze_pseudocode.md")
 _TASK_REVIEW: str = _load(_TASKS_DIR / "review.md")
 _TASK_CHAT: str = _load(_TASKS_DIR / "chat.md")

@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import functools
 import importlib.metadata
+import logging
 import re
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -76,8 +79,8 @@ def load_project_metadata(pyproject_path: Path | None = None) -> ProjectMetadata
                 requires_python=requires_python,
                 python_version=python_version,
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Failed to parse project metadata from %s: %s", target_path, exc)
 
     # Fallback to standard packaging distribution metadata
     try:
@@ -95,8 +98,8 @@ def load_project_metadata(pyproject_path: Path | None = None) -> ProjectMetadata
             requires_python=requires_python,
             python_version=python_version,
         )
-    except importlib.metadata.PackageNotFoundError:
-        pass
+    except importlib.metadata.PackageNotFoundError as exc:
+        logger.debug("devops-cli distribution metadata not found: %s", exc)
 
     return _DEFAULT_METADATA
 

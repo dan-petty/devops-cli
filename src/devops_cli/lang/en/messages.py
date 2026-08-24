@@ -120,6 +120,9 @@ class WorkspaceMessages(BaseModel):
     generated_workspace: str = "✓ Generated multi-root workspace file at {path}"
     synced_repos: str = "✓ Synced workspace with {count} repo(s)"
     no_repos_found: str = "No cloned repos found under {base_dir}."
+    added_folder: str = "Added: {path}"
+    removed_folder: str = "Removed: {path}"
+    generated_with_count: str = "Generated {ws_file} with {count} folders."
 
 
 class RepoMessages(BaseModel):
@@ -285,6 +288,24 @@ class PRMessages(BaseModel):
     )
 
 
+class UVMessages(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    no_version_provided: str = "No Python version provided and .python-version is missing."
+    invalid_version_format: str = "Invalid Python version format: {version}"
+    missing_command: str = "Missing command. Example: devops uv run -- pytest -q"
+
+
+class ToolMessages(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    working_tree_clean: str = "Working tree clean."
+    no_unstaged_changes: str = "No unstaged changes."
+    no_pods_in_namespace: str = "No pods found in namespace {namespace}."
+    no_argo_apps: str = "No ArgoCD applications found."
+    no_trivy_flaws: str = "No vulnerabilities, secrets, or flaws found by Trivy."
+
+
 class LanguageCatalog(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -305,6 +326,8 @@ class LanguageCatalog(BaseModel):
     tofu: TfMessages = TfMessages()
     remote_ci: RemoteCIMessages = RemoteCIMessages()
     pr: PRMessages = PRMessages()
+    uv: UVMessages = UVMessages()
+    tools: ToolMessages = ToolMessages()
 
 
 MESSAGES = LanguageCatalog()

@@ -52,6 +52,21 @@ class RAGContext(BaseModel):
         """Return True if any search results are present."""
         return len(self.results) > 0
 
+    @property
+    def total_chars(self) -> int:
+        """Total characters across formatted retrieved chunks."""
+        return len(self.formatted_text)
+
+    @property
+    def is_valid(self) -> bool:
+        """Verify that context contains valid, non-empty chunks with recognized paths."""
+        if not self.results:
+            return True
+        return all(
+            bool(r.chunk.file_path and r.chunk.content and r.chunk.start_line <= r.chunk.end_line)
+            for r in self.results
+        )
+
 
 class IndexStats(BaseModel):
     """Summary statistics for a vector collection."""

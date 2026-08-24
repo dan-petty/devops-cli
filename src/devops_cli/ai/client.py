@@ -11,13 +11,16 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import logging
 import os
 import socket
+import tempfile
 import threading
 import time
 from collections.abc import Callable, Generator
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
@@ -33,9 +36,10 @@ from devops_cli.config.defaults import DEFAULT_HTTP_TIMEOUT_SECONDS
 from devops_cli.config.settings import AIConfig
 from devops_cli.http.client import request_timeout
 from devops_cli.models.ai import ChatMessage
-from devops_cli.telemetry import record_metric, trace_span
+from devops_cli.telemetry import inject_trace_context, record_metric, trace_span
 
 MAX_STREAM_BYTES = 50 * 1024 * 1024  # 50MB maximum streamed response size
+logger = logging.getLogger(__name__)
 
 
 class AIClientError(RuntimeError):
@@ -49,6 +53,11 @@ class LLMResponse(str):
     wall_seconds: float
     backend_info: str | None
     thinking: str | None
+    prompt_tokens: int | None
+    completion_tokens: int | None
+    total_tokens: int | None
+    eval_duration_ms: float | None
+    prompt_eval_duration_ms: float | None
 
     def __new__(
         cls,
@@ -57,41 +66,103 @@ class LLMResponse(str):
         wall_seconds: float = 0.0,
         backend_info: str | None = None,
         thinking: str | None = None,
+        prompt_tokens: int | None = None,
+        completion_tokens: int | None = None,
+        total_tokens: int | None = None,
+        eval_duration_ms: float | None = None,
+        prompt_eval_duration_ms: float | None = None,
     ) -> LLMResponse:
-        obj = super().__new__(cls, content)
+        obj = str.__new__(cls, content)
         obj.processing_seconds = processing_seconds
         obj.wall_seconds = wall_seconds
         obj.backend_info = backend_info
         obj.thinking = thinking
+        obj.prompt_tokens = prompt_tokens
+        obj.completion_tokens = completion_tokens
+        obj.total_tokens = total_tokens
+        obj.eval_duration_ms = eval_duration_ms
+        obj.prompt_eval_duration_ms = prompt_eval_duration_ms
         return obj
+
+    @property
+    def text(self) -> str:
+        """Return the string response content."""
+        return str(self)
+
+    @property
+    def content(self) -> str:
+        """Return the string response content."""
+        return str(self)
 
 
 class LLMClient:
-    """Unified chat-completion client across AI providers."""
+    """Unified client for interacting with AI models across different providers."""
 
     _ALLOW_PRIVATE_NETWORK_ENV = "DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK"
     _active_ollama_requests: dict[str, int] = {}
     _ollama_active_lock = threading.Lock()
+    _ollama_semaphores: dict[str, threading.Semaphore] = {}
+    _ollama_sem_lock = threading.Lock()
+    _global_ollama_url_index: int = 0
+    _global_ollama_url_lock = threading.Lock()
+
+    @classmethod
+    def _load_and_increment_rr_index(cls, n: int) -> int:
+        """Atomically fetch and increment the round-robin server index across runs."""
+        if n <= 1:
+            return 0
+        uid = os.getuid() if hasattr(os, "getuid") else 0
+        state_file = Path(tempfile.gettempdir()) / f"devops_cli_ollama_rr_{uid}"
+        with cls._global_ollama_url_lock:
+            idx = cls._global_ollama_url_index
+            try:
+                if state_file.exists():
+                    idx = int(state_file.read_text(encoding="utf-8").strip())
+            except Exception:
+                pass
+            next_idx = (idx + 1) % n
+            cls._global_ollama_url_index = next_idx
+            try:
+                state_file.write_text(str(next_idx), encoding="utf-8")
+            except Exception:
+                pass
+            return idx % n
+
+    @classmethod
+    def _get_ollama_semaphore(cls, url: str, max_parallel: int) -> threading.Semaphore:
+        with cls._ollama_sem_lock:
+            if (
+                url not in cls._ollama_semaphores
+                or getattr(cls._ollama_semaphores[url], "_max_parallel", None) != max_parallel
+            ):
+                sem = threading.Semaphore(max(1, max_parallel))
+                setattr(sem, "_max_parallel", max_parallel)
+                cls._ollama_semaphores[url] = sem
+            return cls._ollama_semaphores[url]
 
     @classmethod
     @contextmanager
-    def _track_ollama_url(cls, url: str) -> Generator[None]:
-        """Track active in-flight requests per Ollama server node."""
-        with cls._ollama_active_lock:
-            cls._active_ollama_requests[url] = cls._active_ollama_requests.get(url, 0) + 1
+    def _track_ollama_url(cls, url: str, max_parallel: int = 2) -> Generator[None]:
+        """Acquire concurrency slot and track active in-flight requests per Ollama server node."""
+        sem = cls._get_ollama_semaphore(url, max_parallel)
+        sem.acquire()
         try:
+            with cls._ollama_active_lock:
+                cls._active_ollama_requests[url] = cls._active_ollama_requests.get(url, 0) + 1
             yield
         finally:
             with cls._ollama_active_lock:
                 cls._active_ollama_requests[url] = max(
                     0, cls._active_ollama_requests.get(url, 0) - 1
                 )
+            sem.release()
 
     def __init__(
         self,
         config: AIConfig | None = None,
         api_key: str | None = None,
         *,
+        custom_endpoint: str | None = None,
         request_timeout_seconds: float | None = None,
     ) -> None:
         if config is None:
@@ -104,9 +175,10 @@ class LLMClient:
 
         self._config = config
         self._api_key = api_key or ""
+        self._custom_endpoint = custom_endpoint
         self._request_timeout_seconds = request_timeout_seconds
-        self._ollama_thinking_supported: bool | None = None  # None = unknown
-        self._ollama_url_index: int = 0
+        self._ollama_thinking_supported: bool | None = None
+        self._ollama_url_index = 0
         self._ollama_url_lock = threading.Lock()
 
     def _connection_error(self, exc: Exception) -> AIClientError:
@@ -154,7 +226,7 @@ class LLMClient:
                 base_url = CONST_URL_OPENAI_API_BASE
         if base_url:
             parsed = urlparse(base_url)
-            return parsed.netloc or parsed.path or base_url
+            return str(parsed.netloc or parsed.path or base_url)
         return "unknown"
 
     @property
@@ -167,39 +239,71 @@ class LLMClient:
         """Remove <think>...</think> chain-of-thought blocks emitted by thinking models."""
         return strip_think_blocks(text)
 
-    def preload_models(self) -> dict[str, bool]:
-        """Preload configured model into VRAM across all configured Ollama servers concurrently."""
+    def preload_models(
+        self,
+        blocking: bool = True,
+        on_complete: Callable[[dict[str, bool]], None] | None = None,
+    ) -> dict[str, bool]:
+        """Preload model into VRAM across all configured Ollama servers concurrently.
+
+        When blocking=False, prewarming runs in a background thread without blocking.
+        """
         if self._config.provider != "ollama":
             return {}
         all_urls = self._config.get_ollama_urls
         if not all_urls:
             return {}
 
-        results: dict[str, bool] = {}
+        def _do_preload() -> dict[str, bool]:
+            results: dict[str, bool] = {}
 
-        def _preload_single(url: str) -> tuple[str, bool]:
-            try:
-                base = self._validate_base_url(
-                    url,
-                    purpose="Ollama",
-                    allow_loopback_for_local_tooling=True,
-                )
-                with httpx2.Client(timeout=60.0) as http_client:
-                    res = http_client.post(
-                        f"{base}/api/generate",
-                        json={"model": self._config.model, "keep_alive": "1h"},
+            def _preload_single(url: str) -> tuple[str, bool]:
+                try:
+                    base = self._validate_base_url(
+                        url,
+                        purpose="Ollama",
+                        allow_loopback_for_local_tooling=True,
                     )
-                    return (url, res.status_code == 200)
-            except Exception:
-                return (url, False)
+                    with httpx2.Client(timeout=self._request_timeout()) as http_client:
+                        res = http_client.post(
+                            f"{base}/api/generate",
+                            json={"model": self._config.model, "keep_alive": "1h"},
+                        )
+                        return (url, res.status_code == 200)
+                except Exception:
+                    return (url, False)
 
-        with ThreadPoolExecutor(max_workers=max(len(all_urls), 1)) as executor:
-            futures = [executor.submit(_preload_single, url) for url in all_urls]
-            for future in as_completed(futures):
-                url, ok = future.result()
-                results[url] = ok
+            with ThreadPoolExecutor(max_workers=max(len(all_urls), 1)) as executor:
+                futures = [executor.submit(_preload_single, url) for url in all_urls]
+                for future in as_completed(futures):
+                    url, ok = future.result()
+                    results[url] = ok
 
-        return results
+            if on_complete is not None:
+                try:
+                    on_complete(results)
+                except Exception as exc:
+                    logger.debug("Preload on_complete callback failed: %s", exc)
+
+            return results
+
+        if not blocking:
+            thread = threading.Thread(
+                target=_do_preload,
+                name=f"ollama-prewarm-{self._config.model}",
+                daemon=True,
+            )
+            thread.start()
+            return {}
+
+        return _do_preload()
+
+    def prewarm_async(
+        self,
+        on_complete: Callable[[dict[str, bool]], None] | None = None,
+    ) -> None:
+        """Non-blocking helper to prewarm model in a background daemon thread."""
+        self.preload_models(blocking=False, on_complete=on_complete)
 
     @staticmethod
     def _validate_response_text(
@@ -244,48 +348,70 @@ class LLMClient:
     ) -> LLMResponse:
         p = self._config.provider
         start = time.perf_counter()
+        prompt_preview = ""
+        for m in reversed(messages):
+            if m.role == "user":
+                prompt_preview = m.content[:200].replace("\n", " ").strip()
+                break
+
         with trace_span(
             "ai.llm.dispatch",
-            {"provider": p, "model": self._config.model},
-        ):
+            {
+                "gen_ai.system": p,
+                "gen_ai.request.model": self._config.model,
+                "gen_ai.request.message_count": len(messages),
+                "gen_ai.request.system_prompt_length": len(system),
+                "gen_ai.request.enable_thinking": enable_thinking,
+                "gen_ai.prompt_preview": prompt_preview,
+                "provider": p,
+                "model": self._config.model,
+            },
+        ) as span_handle:
             if p == "ollama":
                 res = self._ollama_messages(system, messages, enable_thinking=enable_thinking)
             elif p == "claude":
-                res_claude = self._claude_messages(system, messages)
-                b_info = (
-                    getattr(res_claude, "backend_info", None) or f"claude ({self.backend_host})"
-                )
-                text_claude = (
-                    str(res_claude)
-                    if enable_thinking
-                    else self._strip_think_blocks(str(res_claude))
-                )
-                res = LLMResponse(
-                    text_claude,
-                    processing_seconds=res_claude.processing_seconds,
-                    wall_seconds=res_claude.wall_seconds,
-                    backend_info=b_info,
-                    thinking=getattr(res_claude, "thinking", None),
-                )
+                res = self._claude_messages(system, messages)
             elif p in ("copilot", "openai"):
-                res_openai = self._openai_compat_messages(system, messages)
-                b_info = getattr(res_openai, "backend_info", None) or f"{p} ({self.backend_host})"
-                text_openai = (
-                    str(res_openai)
-                    if enable_thinking
-                    else self._strip_think_blocks(str(res_openai))
-                )
-                res = LLMResponse(
-                    text_openai,
-                    processing_seconds=res_openai.processing_seconds,
-                    wall_seconds=res_openai.wall_seconds,
-                    backend_info=b_info,
-                    thinking=getattr(res_openai, "thinking", None),
-                )
+                res = self._openai_compat_messages(system, messages)
             else:
                 raise ValueError(
                     f"Unknown provider: {p!r}. Choose: ollama, claude, copilot, openai"
                 )
+
+            if res.backend_info:
+                span_handle.set_attribute("gen_ai.server.address", res.backend_info)
+            if res.prompt_tokens is not None:
+                span_handle.set_attribute("gen_ai.usage.prompt_tokens", res.prompt_tokens)
+                span_handle.set_attribute("gen_ai.usage.input_tokens", res.prompt_tokens)
+            if res.completion_tokens is not None:
+                span_handle.set_attribute("gen_ai.usage.completion_tokens", res.completion_tokens)
+                span_handle.set_attribute("gen_ai.usage.output_tokens", res.completion_tokens)
+            if res.total_tokens is not None:
+                span_handle.set_attribute("gen_ai.usage.total_tokens", res.total_tokens)
+            if res.eval_duration_ms is not None:
+                span_handle.set_attribute("llm.eval_duration_ms", res.eval_duration_ms)
+            if res.prompt_eval_duration_ms is not None:
+                span_handle.set_attribute(
+                    "llm.prompt_eval_duration_ms", res.prompt_eval_duration_ms
+                )
+            if res.processing_seconds is not None:
+                span_handle.set_attribute("llm.processing_seconds", res.processing_seconds)
+            if res.wall_seconds is not None:
+                span_handle.set_attribute("llm.wall_seconds", res.wall_seconds)
+
+            span_handle.set_attribute(
+                "gen_ai.response_preview", res.text[:200].replace("\n", " ").strip()
+            )
+            span_handle.set_attribute("gen_ai.thinking", bool(res.thinking))
+
+            span_handle.add_event(
+                "llm_response_received",
+                {
+                    "total_tokens": res.total_tokens or 0,
+                    "wall_seconds": res.wall_seconds or 0.0,
+                    "backend": res.backend_info or p,
+                },
+            )
 
         duration = time.perf_counter() - start
         record_metric(
@@ -496,15 +622,20 @@ class LLMClient:
         n = len(all_urls)
         if n == 0:
             return [(0, "http://localhost:11434")]
-        with self._ollama_url_lock:
-            start = self._ollama_url_index % n
-            self._ollama_url_index = (start + 1) % n
-            indexed_urls = [((start + i) % n, all_urls[(start + i) % n]) for i in range(n)]
+        start = self._load_and_increment_rr_index(n)
+        self._ollama_url_index = LLMClient._global_ollama_url_index
+        candidate_urls = [all_urls[(start + i) % n] for i in range(n)]
+        indexed_urls = list(enumerate(candidate_urls))
 
+        max_par = getattr(self._config, "ollama_max_parallel", 2)
         with LLMClient._ollama_active_lock:
             sorted_candidates = sorted(
                 indexed_urls,
-                key=lambda item: (LLMClient._active_ollama_requests.get(item[1], 0), item[0]),
+                key=lambda item: (
+                    1 if LLMClient._active_ollama_requests.get(item[1], 0) >= max_par else 0,
+                    LLMClient._active_ollama_requests.get(item[1], 0),
+                    item[0],
+                ),
             )
 
         return [(idx, url) for idx, url in sorted_candidates]
@@ -513,6 +644,7 @@ class LLMClient:
         self, system: str, messages: list[ChatMessage], *, enable_thinking: bool = True
     ) -> LLMResponse:
         candidates = self._get_ollama_urls_loop()
+        max_par = getattr(self._config, "ollama_max_parallel", 2)
         last_exc: Exception | None = None
 
         for idx, candidate_url in candidates:
@@ -524,7 +656,7 @@ class LLMClient:
                 )
                 use_thinking = enable_thinking and self._ollama_thinking_supported is not False
                 try:
-                    with self._track_ollama_url(candidate_url):
+                    with self._track_ollama_url(candidate_url, max_parallel=max_par):
                         res = self._ollama_request(base, system, messages, use_thinking)
                         return res
                 except httpx2.HTTPStatusError as exc:
@@ -533,7 +665,7 @@ class LLMClient:
                         and "does not support thinking" in exc.response.text
                     ):
                         self._ollama_thinking_supported = False
-                        with self._track_ollama_url(candidate_url):
+                        with self._track_ollama_url(candidate_url, max_parallel=max_par):
                             res = self._ollama_request(base, system, messages, think=False)
                             return res
                     msg_text = exc.response.text[:300].strip() or "(empty)"
@@ -576,7 +708,8 @@ class LLMClient:
             }
             if think:
                 payload["think"] = True
-            response = http_client.post(f"{base}/api/chat", json=payload)
+            headers = inject_trace_context({"Content-Type": "application/json"})
+            response = http_client.post(f"{base}/api/chat", json=payload, headers=headers)
             response.raise_for_status()
             if think and self._ollama_thinking_supported is None:
                 self._ollama_thinking_supported = True
@@ -605,6 +738,16 @@ class LLMClient:
             else:
                 proc_sec = None
 
+            prompt_tokens = raw_res.get("prompt_eval_count")
+            completion_tokens = raw_res.get("eval_count")
+            total_tokens = (
+                (prompt_tokens + completion_tokens)
+                if prompt_tokens is not None and completion_tokens is not None
+                else None
+            )
+            eval_dur_ms = (eval_ns / 1_000_000.0) if eval_ns else None
+            prompt_eval_dur_ms = (prompt_eval_ns / 1_000_000.0) if prompt_eval_ns else None
+
             parsed = urlparse(base)
             host_str = parsed.netloc or parsed.path or base
             b_info = f"ollama ({host_str})"
@@ -614,6 +757,11 @@ class LLMClient:
                 wall_seconds=wall_elapsed,
                 backend_info=b_info,
                 thinking=thinking_str,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                total_tokens=total_tokens,
+                eval_duration_ms=eval_dur_ms,
+                prompt_eval_duration_ms=prompt_eval_dur_ms,
             )
 
     def _ollama_models(self) -> list[str]:
@@ -627,7 +775,7 @@ class LLMClient:
                     purpose="Ollama",
                     allow_loopback_for_local_tooling=True,
                 )
-                with httpx2.Client(timeout=request_timeout()) as http_client:
+                with httpx2.Client(timeout=self._request_timeout()) as http_client:
                     response = http_client.get(f"{base}/api/tags")
                     response.raise_for_status()
                     return [
@@ -664,13 +812,16 @@ class LLMClient:
         t0 = time.monotonic()
         try:
             with httpx2.Client(timeout=self._request_timeout()) as http_client:
-                response = http_client.post(
-                    f"{base}/v1/messages",
-                    headers={
+                headers = inject_trace_context(
+                    {
                         "x-api-key": self._api_key,
                         "anthropic-version": "2023-06-01",
                         "content-type": "application/json",
-                    },
+                    }
+                )
+                response = http_client.post(
+                    f"{base}/v1/messages",
+                    headers=headers,
                     json={
                         "model": self._config.model,
                         "max_tokens": 8192,
@@ -680,13 +831,25 @@ class LLMClient:
                 )
                 response.raise_for_status()
                 wall_elapsed = time.monotonic() - t0
-                text = str(self._read_limited_json(response)["content"][0]["text"])
+                raw_json = self._read_limited_json(response)
+                text = str(raw_json["content"][0]["text"])
+                usage = raw_json.get("usage", {})
+                prompt_tokens = usage.get("input_tokens")
+                completion_tokens = usage.get("output_tokens")
+                total_tokens = (
+                    (prompt_tokens + completion_tokens)
+                    if prompt_tokens is not None and completion_tokens is not None
+                    else None
+                )
                 b_info = f"claude ({self.backend_host})"
                 return LLMResponse(
                     text,
                     processing_seconds=None,
                     wall_seconds=wall_elapsed,
                     backend_info=b_info,
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                    total_tokens=total_tokens,
                 )
         except (httpx2.ConnectError, httpx2.ConnectTimeout) as exc:
             raise self._connection_error(exc) from exc
@@ -701,12 +864,15 @@ class LLMClient:
         t0 = time.monotonic()
         try:
             with httpx2.Client(timeout=self._request_timeout()) as http_client:
-                response = http_client.post(
-                    f"{self._api_base()}/chat/completions",
-                    headers={
+                headers = inject_trace_context(
+                    {
                         "Authorization": f"Bearer {self._api_key}",
                         "Content-Type": "application/json",
-                    },
+                    }
+                )
+                response = http_client.post(
+                    f"{self._api_base()}/chat/completions",
+                    headers=headers,
                     json={
                         "model": self._config.model,
                         "messages": [
@@ -717,13 +883,21 @@ class LLMClient:
                 )
                 response.raise_for_status()
                 wall_elapsed = time.monotonic() - t0
-                text = str(self._read_limited_json(response)["choices"][0]["message"]["content"])
+                raw_json = self._read_limited_json(response)
+                text = str(raw_json["choices"][0]["message"]["content"])
+                usage = raw_json.get("usage", {})
+                prompt_tokens = usage.get("prompt_tokens")
+                completion_tokens = usage.get("completion_tokens")
+                total_tokens = usage.get("total_tokens")
                 b_info = f"{self.backend_type} ({self.backend_host})"
                 return LLMResponse(
                     text,
                     processing_seconds=None,
                     wall_seconds=wall_elapsed,
                     backend_info=b_info,
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                    total_tokens=total_tokens,
                 )
         except (httpx2.ConnectError, httpx2.ConnectTimeout) as exc:
             raise self._connection_error(exc) from exc
@@ -736,6 +910,7 @@ class LLMClient:
         self, system: str, messages: list[ChatMessage], *, enable_thinking: bool = True
     ) -> Generator[str]:
         candidates = self._get_ollama_urls_loop()
+        max_par = getattr(self._config, "ollama_max_parallel", 2)
         last_exc: Exception | None = None
 
         for idx, candidate_url in candidates:
@@ -747,18 +922,22 @@ class LLMClient:
                 )
                 use_thinking = enable_thinking and self._ollama_thinking_supported is not False
                 try:
-                    yield from self._ollama_stream_request(
-                        base, system, messages, think=use_thinking
-                    )
-                    return
+                    with self._track_ollama_url(candidate_url, max_parallel=max_par):
+                        yield from self._ollama_stream_request(
+                            base, system, messages, think=use_thinking
+                        )
+                        return
                 except httpx2.HTTPStatusError as exc:
                     if (
                         exc.response.status_code == 400
                         and "does not support thinking" in exc.response.text
                     ):
                         self._ollama_thinking_supported = False
-                        yield from self._ollama_stream_request(base, system, messages, think=False)
-                        return
+                        with self._track_ollama_url(candidate_url, max_parallel=max_par):
+                            yield from self._ollama_stream_request(
+                                base, system, messages, think=False
+                            )
+                            return
                     body = exc.response.text[:300].strip()
                     msg_text = body or "(empty)"
                     raise AIClientError(

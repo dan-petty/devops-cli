@@ -13,7 +13,9 @@ from rich.rule import Rule
 from rich.table import Table
 
 from devops_cli.ai.personas import PERSONAS, Persona
+from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.commands.analyze import app as analyze_app
+from devops_cli.commands.benchmark import app as benchmark_app
 from devops_cli.commands.rag import app as rag_app
 from devops_cli.commands.review import app as review_app
 from devops_cli.config.constants import (
@@ -26,27 +28,55 @@ from devops_cli.config.env import env_var_for_option
 from devops_cli.config.options import AI_API_KEY
 from devops_cli.config.settings import SecretStorageError, dotted_set
 from devops_cli.core.cli import new_typer
+from devops_cli.core.process import run_subprocess
+from devops_cli.lang import HELP
 
 app = new_typer(
-    help="Configure, test, chat, analyze, and review codebases (Ollama, Claude, Copilot).",
+    help=HELP.ai.app,
     no_args_is_help=True,
 )
 app.add_typer(
     review_app,
     name="review",
-    help="AI-powered code reviews using expert personas (devsecops, architect, pm, auditor, qa).",
+    help=HELP.ai.review,
 )
 app.add_typer(
     analyze_app,
     name="analyze",
-    help="Analyze codebase metadata and create/update .data/analysis/*-metadata.json files.",
+    help=HELP.ai.analyze,
 )
 app.add_typer(
     rag_app,
     name="rag",
-    help="Manage RAG vector embeddings, indexing, and semantic code search (Qdrant).",
+    help=HELP.ai.rag,
+)
+app.add_typer(
+    benchmark_app,
+    name="benchmark",
+    help=HELP.ai.benchmark,
 )
 console = Console()
+
+
+@app.callback(invoke_without_command=True)
+def ai_main(
+    ctx: typer.Context,
+    explain: Annotated[
+        bool,
+        typer.Option(
+            "--explain",
+            "-e",
+            help="Explain AI agent workflows, FastMCP tools, RAG terminology, and metrics",
+        ),
+    ] = False,
+) -> None:
+    """Manage AI provider configuration (Ollama, Claude, Copilot/OpenAI) and agent tools."""
+    if explain:
+        from devops_cli.ai.explain import render_explanation
+
+        render_explanation("benchmark")
+        raise typer.Exit(0)
+
 
 _PROVIDERS = ("ollama", "claude", "copilot", "openai")
 
@@ -59,55 +89,29 @@ _AGENT_FILES: dict[str, str] = {
 }
 
 # Task-specific addendum appended to the architect persona when generating AGENTS.md
-_AGENTS_TASK_ADDENDUM = """\
-\nYour current task is to write the `AGENTS.md` file — precise, structured
-instructions for AI coding agents (GitHub Copilot, Claude, Codex). The output
-will be read by AI assistants to understand this project and assist developers.
-
-The file MUST include:
-- Project purpose, language, entry point, virtual environment
-- An "Environment & Modernization Policy" section (latest Python/images/deps is
-  intentional; `devops ci` is the safety net)
-- Exact build/test/lint/format/typecheck commands
-- Code conventions (line length, import style, HTTP library, secrets storage,
-  config and language literal centralization, non-instructional design justification comments)
-- Architecture overview with key file paths
-- AI feature commands (`devops ai`, `devops ai review`) and persona names
-- Security notes covering SSH keys, tokens, SSRF mitigations, accepted risks,
-
-  and routine maintenance of all project documentation and references
-"""
+_AGENTS_TASK_ADDENDUM = "\n" + load_task_prompt("generate_agents.md")
 
 
-def _try_retrieve_rag_context(query: str, top_k: int = 3) -> str | None:
+def _try_retrieve_rag_context(
+    query: str,
+    *,
+    persona: str | None = None,
+    category: str | None = None,
+    project: str | None = None,
+    top_k: int = 3,
+) -> str | None:
     """Attempt to retrieve relevant semantic context from RAG vector store."""
     try:
-        from devops_cli.ai.rag.embeddings import EmbeddingsEngine
-        from devops_cli.ai.rag.qdrant import QdrantClient
-        from devops_cli.ai.rag.retriever import SemanticRetriever
-        from devops_cli.config.settings import get_ai_api_key, load_settings
+        from devops_cli.ai.rag.investigator import investigate_rag_context
 
-        settings = load_settings()
-        if not settings.ai.rag.enabled:
-            return None
-
-        qdrant = QdrantClient(
-            base_url=settings.qdrant.url or "http://localhost:6333",
-            allow_private_network=settings.ai.allow_private_network,
+        ctx = investigate_rag_context(
+            query,
+            persona=persona,
+            category=category,
+            project=project,
+            top_k=top_k,
         )
-        if not qdrant.is_alive():
-            return None
-
-        embedder = EmbeddingsEngine(ai_config=settings.ai, api_key=get_ai_api_key(settings))
-        retriever = SemanticRetriever(
-            qdrant=qdrant,
-            embedder=embedder,
-            code_collection=f"{settings.qdrant.collection_prefix}_code",
-            docs_collection=f"{settings.qdrant.collection_prefix}_docs",
-            default_top_k=top_k,
-        )
-        ctx = retriever.retrieve_context(query, top_k=top_k)
-        if ctx.has_results:
+        if ctx and ctx.has_results:
             return ctx.formatted_text
     except Exception:
         pass
@@ -140,7 +144,7 @@ def _collect_project_context(repo: Path) -> str:
 
     # Directory tree (2 levels)
     try:
-        tree = subprocess.run(
+        tree = run_subprocess(
             [
                 "find",
                 ".",
@@ -193,16 +197,20 @@ def _collect_project_context(repo: Path) -> str:
 
 
 def _agent_prompt(context: str, target_file: str) -> str:
+    rag_info = _try_retrieve_rag_context(
+        f"project architecture design guidelines coding standards {target_file}",
+        persona="architect",
+        top_k=3,
+    )
+    rag_block = f"\n\n### Grounding Architectural Context:\n{rag_info}\n" if rag_info else ""
     return (
         f"Generate the contents of `{target_file}` for this project.\n\n"
         "The file must help AI coding assistants understand the project and work effectively.\n"
         "Include: project purpose, architecture overview, build/test/lint commands, "
         "code conventions, important file paths, security notes, and any non-obvious patterns.\n\n"
         f"{context}"
+        f"{rag_block}"
     )
-
-
-_CANONICAL_AGENT_FILE = CONST_AGENTS_MD_FILENAME
 
 
 def _pointer_stub(title: str, tool_name: str, filename: str, canonical_relpath: str) -> str:
@@ -238,107 +246,48 @@ def _template_content(target_file: str, context_summary: dict[str, str]) -> str:
     entry_point = context_summary.get("entry_point", "")
 
     return f"""\
-# {name} — Agent Instructions
+# {name} — Agent Instructions & Engineering Best Practices
 
 > **Canonical source.** This file is the single source of truth for AI coding agent
 > instructions in this repo. [CLAUDE.md](./CLAUDE.md) and
 > [.github/copilot-instructions.md](./.github/copilot-instructions.md) are thin pointers
-> to this file, kept only because their tools look for those specific filenames. Edit
-> this file (or regenerate via `devops ai agents`), not the pointer files.
+> to this file.
 
-## Project
+## 1. Project Overview
 **{name}** — {description}
 
 - Language: Python {python_version}
 - Entry point: `{entry_point}`
 - Virtual environment: `.venv/` (managed by `uv`)
 
-## Environment & Modernization Policy
-- This project is built to run **only inside the provided dev container** on a local
-  DevOps Engineer's workstation — it is not intended for bare-metal installs, shared
-  servers, or as a base image for other services.
-- Tracking the **latest Python release, latest container base images, and latest
-  dependency versions** is intentional, not an oversight. The dev container is rebuilt
-  routinely, so staying current avoids accumulating upgrade debt and reduces exposure
-  to unpatched legacy CVEs.
-- This is safe specifically because of the test/lint/format/typecheck suite: `devops ci`
-  is the guardrail that catches breakage from modernization before it merges. Treat a
-  failing `devops ci` after a version bump as a signal to fix the break, not to pin
-  backwards.
-- When bumping Python, base images, or dependencies: update the version, run
-  `devops ci`, and resolve any failures it surfaces before merging.
+## 2. Core Engineering Philosophy & Best Practices
+- **Progressive Testing**: Run targeted, isolated unit tests during active loops;
+  defer full CI test suites to the final pre-handoff milestone.
+- **Architectural Flexibility**: Prioritize clean abstractions, SOLID principles, and
+  separation of concerns. Prefer idiomatic, standard library and established tools.
+- **Modern Python Standards**: Strict typing (`mypy --strict`), modern syntax
+  (`from __future__ import annotations`, type unions `A | B`), and Pydantic models.
+- **Zero-Trust Security**: Never commit plaintext secrets or tokens. Use OS Keyring
+  (`keyring`). Enforce SSRF mitigations on network I/O and bounded subprocess timeouts.
+- **Target-Agnostic Reviews**: When reviewing target workspaces, evaluate code against
+  standard software engineering and security principles (OWASP, CIS, SOLID).
 
-## Build & Test Commands
+## 3. Build & Test Commands
 ```bash
-uv sync                        # install / sync dependencies
-devops ci                      # run all checks (test + lint + format + typecheck)
-devops ci test [-v] [-k expr]  # pytest
+uv sync                        # synchronize dependencies
+devops ci                      # run full CI quality gate
+devops ci test [-v] [-k expr]  # pytest unit test suite
 devops ci lint [--fix]         # ruff check
 devops ci format [--fix]       # ruff format
-devops ci typecheck            # mypy (strict)
+devops ci typecheck            # mypy strict static typechecking
+devops docs generate --sync-readme  # synchronize CLI documentation and README matrix
 ```
 
-## Code Conventions
-- Python 3.14+, strict mypy, ruff (E/F/I/N/W/UP rules), 100-char line limit
-- 4-space indent for Python; 2-space for JSON/YAML/TOML/shell
-- LF line endings, trim trailing whitespace, final newline
-- Type annotations on all public functions; `from __future__ import annotations`
-- Import `Callable` from `collections.abc`, not `typing`
-- Use `httpx2` (not `httpx`) for HTTP — `import httpx2`
-- Secrets stored in OS keyring via `keyring`; never in config files or env vars
-- Automatically add non-instructional, reference-backed design justification comments
-  (`# NOTE (Design Justification - <REF>): ...`) for all invalidated findings or
-  intentional design trade-offs directly above target code constructs. Routinely update all
-  documentation (`AGENTS.md`, `README.md`, `CLAUDE.md`, `.github/copilot-instructions.md`)
-  whenever code, architecture, or prompt conventions evolve.
-
-## Architecture
-```
-src/devops_cli/
-  main.py              # Typer app entrypoint and command group registration
-  mcp.py               # FastMCP server for LLM tools & DevOps automation
-  ai/                  # Unified LLM client, reviewer personas, prompt tasks, agent tools
-  commands/            # CLI subcommands (ai, argo, config, k8s, repos, review, ssh, etc.)
-  config/              # Pydantic Settings, keyring integration, env vars, defaults
-  core/                # Shared CLI utilities, repo path resolution, dry-run state
-  crypto/              # Ed25519 SSH key pair generation, rotation, and validation
-  git/                 # Git operations, cloning, branch detection, known_hosts
-  github/              # PyGithub & httpx2 wrapper, SSH key registration
-  http/                # Egress network validation and SSRF mitigation guards
-  lang/                # i18n string catalog (en.py) and Pydantic message schemas
-  models/              # Pydantic domain models for AI, K8s, Argo, Grafana, GitHub
-  templates/           # Jinja2 templates for devcontainer scaffolding
-tests/                 # pytest unit test suite (169+ tests passing)
-```
-
-## AI Features (`devops ai`, `devops ai review`)
-- `devops ai config --provider <ollama|claude|copilot|openai>`
-- `devops ai test` — verify LLM connectivity
-- `devops ai agents` — (re)generate this file and siblings
-- `devops ai review branch [<branch>] [--base main] [--persona <p>] [--all]`
-  (alias: `devops review branch`)
-- `devops ai review pr <number> [--post]` — review GitHub PRs; optionally post as comment
-- `devops ai review path [<target>] [--pattern <glob>] [--persona <p>] [--all]`
-  (alias: `devops review path`)
-- Personas: `devsecops` · `architect` · `pm` · `auditor` · `qa`
-- All `devops ai review` commands load this file (AGENTS.md) from the target repo and
-  inject it into the reviewer's system prompt, so findings must defer to conventions
-  and policies documented here rather than flag them as issues.
-
-## Security Notes
-- SSH private keys: `~/.ssh/id_ed25519-<YYYYMMM>` pattern; rotated every 90 days
-- GitHub / Grafana / ArgoCD tokens stored in OS keyring only
-- All HTTP clients use `httpx2` with explicit timeouts
-- No credentials in config YAML or source files
-- `devops_cli.ai.client.LLMClient` validates Ollama/Claude/OpenAI-compatible base URLs
-  and refuses private/loopback/link-local targets unless
-  `DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true` is set — this mitigates SSRF via
-  attacker- or config-controlled endpoints; do not flag this as unmitigated SSRF risk
-- `.devcontainer/devcontainer.json` bind-mounts the host's `~/.ssh` into the container
-  by design — this CLI's core purpose includes generating, rotating, and registering
-  SSH keys, which requires direct access to the real key material. This is an accepted,
-  intentional risk of the local-workstation-only usage model; do not recommend SSH
-  agent forwarding as a required fix
+## 4. Git & Workflow Hygiene
+- **Branch Hierarchy**: Topic branches (`feat/*`, `fix/*`, `refactor/*`, `docs/*`)
+  target the active release branch (`release/v*`).
+- **Conventional Commits**: Format commit messages cleanly (`feat(scope): ...`, `fix(scope): ...`).
+- **Zero Direct Commits to `main`**: Maintain PR governance and monitor remote CI checks.
 """
 
 
@@ -375,6 +324,13 @@ def config(
         str | None,
         typer.Option("--ollama-urls", help="Ollama server base URLs (comma-separated)"),
     ] = None,
+    ollama_max_parallel: Annotated[
+        int | None,
+        typer.Option(
+            "--ollama-max-parallel",
+            help="Maximum number of simultaneous requests allowed per Ollama server node",
+        ),
+    ] = None,
     api_base_url: Annotated[
         str | None,
         typer.Option("--api-base-url", help="Override API base URL for any provider"),
@@ -397,7 +353,17 @@ def config(
 
     settings = load_settings()
 
-    if not any([provider, model, ollama_urls, api_base_url, api_key, max_retries is not None]):
+    if not any(
+        [
+            provider,
+            model,
+            ollama_urls,
+            ollama_max_parallel is not None,
+            api_base_url,
+            api_key,
+            max_retries is not None,
+        ]
+    ):
         ai = settings.ai
         current_key = get_ai_api_key(settings)
         table = Table(title="AI Configuration")
@@ -406,6 +372,7 @@ def config(
         table.add_row("provider", ai.provider)
         table.add_row("model", ai.model)
         table.add_row("ollama_urls", ", ".join(ai.get_ollama_urls))
+        table.add_row("ollama_max_parallel", str(ai.ollama_max_parallel))
         table.add_row("api_base_url", ai.api_base_url or "(default)")
         key_display = "[green]***set***[/green]" if current_key else "[dim](not set)[/dim]"
         table.add_row("api_key", key_display)
@@ -422,6 +389,8 @@ def config(
         settings.ai.model = model
     if ollama_urls:
         settings.ai.ollama_urls = [u.strip() for u in ollama_urls.split(",") if u.strip()]
+    if ollama_max_parallel is not None:
+        settings.ai.ollama_max_parallel = max(1, ollama_max_parallel)
     if api_base_url:
         settings.ai.api_base_url = api_base_url
     if max_retries is not None:
@@ -489,23 +458,72 @@ def test(
         str,
         typer.Option("--prompt", "-p", help="Test prompt to send to the provider"),
     ] = "Reply with exactly one word: OK",
+    url: Annotated[
+        str | None,
+        typer.Option("--url", "-u", help="Specific Ollama server URL to test"),
+    ] = None,
 ) -> None:
-    """Send a test prompt to verify AI provider connectivity."""
+    """Send a test prompt to verify AI provider connectivity across configured servers."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
     from devops_cli.ai.client import LLMClient
     from devops_cli.config.settings import get_ai_api_key, load_settings
-    from devops_cli.lang import MESSAGES
 
     settings = load_settings()
+    test_sys_prompt = load_task_prompt("test_assistant.md")
+
+    if settings.ai.provider == "ollama":
+        urls = [url] if url else settings.ai.get_ollama_urls
+        if len(urls) > 1:
+            rprint(
+                f"Testing Ollama servers ({len(urls)}) | model: [cyan]{settings.ai.model}[/cyan]..."
+            )
+
+            def _test_single(u: str) -> tuple[str, bool, str, str]:
+                sub_cfg = settings.ai.model_copy(update={"ollama_urls": [u]})
+                sub_client = LLMClient(sub_cfg, api_key=get_ai_api_key(settings))
+                try:
+                    resp = sub_client.chat(system=test_sys_prompt, user=prompt)
+                    wall_sec = (
+                        f"{resp.wall_seconds:.2f}s"
+                        if getattr(resp, "wall_seconds", None) is not None
+                        else "0.0s"
+                    )
+                    return (u, True, str(resp).strip(), wall_sec)
+                except Exception as exc:
+                    return (u, False, str(exc), "0.0s")
+
+            all_passed = True
+            with ThreadPoolExecutor(max_workers=len(urls)) as executor:
+                futures = {executor.submit(_test_single, u): u for u in urls}
+                for f in as_completed(futures):
+                    u, ok, ans, wall = f.result()
+                    if ok:
+                        rprint(f"  [cyan]{u}[/cyan]: [green]✓ {ans}[/green] [dim]({wall})[/dim]")
+                    else:
+                        all_passed = False
+                        rprint(f"  [cyan]{u}[/cyan]: [red]✗ failed: {ans}[/red]")
+
+            if not all_passed:
+                raise typer.Exit(1)
+            return
+
     client = LLMClient(settings.ai, api_key=get_ai_api_key(settings))
     rprint(
         f"Testing provider: [cyan]{client.backend_info}[/cyan] | "
         f"model: [cyan]{settings.ai.model}[/cyan]..."
     )
     try:
-        reply = client.chat(system="You are a helpful assistant.", user=prompt)
-        rprint(MESSAGES.ai.test_success.format(reply=reply.strip()))
+        resp = client.chat(system=test_sys_prompt, user=prompt)
+        handled = getattr(resp, "backend_info", None) or client.backend_info
+        wall_sec = (
+            f" in {resp.wall_seconds:.1f}s"
+            if getattr(resp, "wall_seconds", None) is not None
+            else ""
+        )
+        rprint(f"[green]✓ {str(resp).strip()}[/green] [dim](handled by {handled}{wall_sec})[/dim]")
     except Exception as exc:
-        rprint(MESSAGES.ai.test_failed.format(exc=exc))
+        rprint(f"[red]✗ AI provider test failed: {exc}[/red]")
         raise typer.Exit(1)
 
 
@@ -556,7 +574,7 @@ def agents(
 
         # Only the canonical file is worth spending an LLM call on — the others
         # are static pointers to it, so they always use the template.
-        if target != _CANONICAL_AGENT_FILE:
+        if target != CONST_AGENTS_MD_FILENAME:
             content = _template_content(target, meta)
         elif use_llm and client is not None:
             rprint(MESSAGES.ai.generating_agents.format(target=f"[cyan]{target}[/cyan]"))
@@ -618,8 +636,17 @@ def chat(
     prewarm: Annotated[
         bool, typer.Option("--prewarm/--no-prewarm", help="Prewarm the model before starting chat")
     ] = True,
+    explain: Annotated[
+        bool,
+        typer.Option("--explain", "-e", help="Explain chat personas, tools, and reasoning modes"),
+    ] = False,
 ) -> None:
     """Start an interactive chat with a Pydantic AI persona (tools, thinking, streaming, RAG)."""
+    if explain:
+        from devops_cli.ai.explain import render_explanation
+
+        render_explanation("rag")
+        return
     import sys
 
     from devops_cli.ai.agents import PydanticAgent
@@ -643,15 +670,11 @@ def chat(
         ollama_urls = client._config.get_ollama_urls
         if ollama_urls:
             n_nodes = len(ollama_urls)
-            rprint(f"[dim]Prewarming model '{settings.ai.model}' across {n_nodes} node(s)...[/dim]")
-            preload_results = client.preload_models()
-            for url, ok in preload_results.items():
-                status = (
-                    "[dim green]✓ ready[/dim green]"
-                    if ok
-                    else "[dim yellow]✗ offline/skipped[/dim yellow]"
-                )
-                rprint(f"[dim]  {url}: {status}[/dim]")
+            rprint(
+                f"[dim]Prewarming model '{settings.ai.model}' in background across "
+                f"{n_nodes} node(s)...[/dim]"
+            )
+            client.preload_models(blocking=False)
 
     agent_tools = get_persona_tools(persona) if tools else []
     agent: PydanticAgent[Any] = PydanticAgent(
@@ -684,7 +707,7 @@ def chat(
 
         effective_prompt = user_input
         if rag:
-            rag_snippet = _try_retrieve_rag_context(user_input, top_k=3)
+            rag_snippet = _try_retrieve_rag_context(user_input, persona=persona, top_k=3)
             if rag_snippet:
                 effective_prompt = f"{rag_snippet}\n\nUser Question: {user_input}"
 

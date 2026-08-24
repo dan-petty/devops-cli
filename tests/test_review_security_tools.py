@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
 from devops_cli.ai.review_schema import Finding
-from devops_cli.ai.tools.native import (
+from devops_cli.ai.tools.builtin_tools import (
     run_security_scan,
     scan_bandit,
     scan_kubelinter,
@@ -30,7 +30,7 @@ def test_native_security_tools_in_registry() -> None:
     assert "run_security_scan" in tool_names
 
 
-@patch("devops_cli.ai.tools.native._run_tool_cmd")
+@patch("devops_cli.ai.tools.builtin_tools._run_tool_cmd")
 def test_native_security_tool_invocations(mock_cmd: MagicMock, tmp_path: Path) -> None:
     """Security tools must execute safe subprocess commands."""
     mock_cmd.return_value = "No security issues detected."

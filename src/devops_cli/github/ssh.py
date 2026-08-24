@@ -12,6 +12,7 @@ from devops_cli.config.defaults import (
     DEFAULT_GH_AUTH_TIMEOUT_SECONDS,
     DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS,
 )
+from devops_cli.core.process import run_subprocess
 from devops_cli.github.client import GitHubClient
 
 
@@ -66,9 +67,6 @@ def _register_with_gh(pub_key: str, title: str) -> bool:
 
 
 def _gh_auth_ok() -> bool:
-    from devops_cli.config.defaults import DEFAULT_GH_AUTH_TIMEOUT_SECONDS
-    from devops_cli.core.process import run_subprocess
-
     try:
         result = run_subprocess(
             ["gh", "auth", "status"],
@@ -81,9 +79,6 @@ def _gh_auth_ok() -> bool:
 
 
 def _gh_list_keys(endpoint: str) -> set[str] | None:
-    from devops_cli.config.defaults import DEFAULT_GH_AUTH_TIMEOUT_SECONDS
-    from devops_cli.core.process import run_subprocess
-
     try:
         result = run_subprocess(
             ["gh", "api", endpoint],
@@ -116,7 +111,7 @@ def _gh_list_keys(endpoint: str) -> set[str] | None:
 
 def _gh_add_key(endpoint: str, pub_key: str, title: str) -> None:
     try:
-        result = subprocess.run(
+        result = run_subprocess(
             [
                 "gh",
                 "api",

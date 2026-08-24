@@ -7,13 +7,12 @@ import logging
 from typing import Any
 
 from devops_cli.ai.review_schema import Finding
+from devops_cli.config.commands import build_popeye_cmd
 from devops_cli.config.defaults import DEFAULT_POPEYE_TIMEOUT_SECONDS
 from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run.state import is_dry_run
 
 logger = logging.getLogger(__name__)
-
-CONST_POPEYE_TIMEOUT_SECONDS = DEFAULT_POPEYE_TIMEOUT_SECONDS
 
 
 def parse_popeye_json(data: dict[str, Any]) -> list[Finding]:
@@ -50,27 +49,37 @@ def parse_popeye_json(data: dict[str, Any]) -> list[Finding]:
 
 def run_popeye_scan() -> list[Finding]:
     """Execute Popeye K8s cluster sanitizer subprocess and return parsed findings."""
-    if is_dry_run():
-        return [
-            Finding(
-                severity="MEDIUM",
-                location="k8s:pods/default/dry-run-pod",
-                title="[DRY-RUN] Simulated Popeye Cluster Health Audit Result",
-                description="Popeye cluster health audit simulation mode active.",
-                fix="No action required (dry-run mode)",
-                confidence_score=1.0,
-            )
-        ]
+    from devops_cli.telemetry import trace_span
 
-    cmd = ["popeye", "-o", "json"]
+    with trace_span(
+        "security.scan.popeye",
+        attributes={},
+    ) as span_h:
+        if is_dry_run():
+            return [
+                Finding(
+                    severity="MEDIUM",
+                    location="k8s:pods/default/dry-run-pod",
+                    title="[DRY-RUN] Simulated Popeye Cluster Health Audit Result",
+                    description="Popeye cluster health audit simulation mode active.",
+                    fix="No action required (dry-run mode)",
+                    confidence_score=1.0,
+                )
+            ]
 
-    try:
-        proc = run_subprocess(cmd, timeout=CONST_POPEYE_TIMEOUT_SECONDS)
-        if proc.stdout:
-            data = json.loads(proc.stdout)
-            if isinstance(data, dict):
-                return parse_popeye_json(data)
-    except Exception as exc:
-        logger.debug(f"Popeye execution skipped or failed: {exc}")
+        cmd = build_popeye_cmd()
+        findings: list[Finding] = []
 
-    return []
+        try:
+            proc = run_subprocess(cmd, timeout=DEFAULT_POPEYE_TIMEOUT_SECONDS, check=False)
+            if proc.returncode == 127:
+                span_h.set_attribute("tool.available", False)
+            elif proc.stdout:
+                data = json.loads(proc.stdout)
+                if isinstance(data, dict):
+                    findings = parse_popeye_json(data)
+        except Exception as exc:
+            logger.debug(f"Popeye execution skipped or failed: {exc}")
+
+        span_h.set_attribute("findings_count", len(findings))
+        return findings

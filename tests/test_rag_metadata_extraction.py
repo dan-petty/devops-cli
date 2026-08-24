@@ -97,8 +97,29 @@ def fetch_data(url: str) -> str:
     res = httpx2.get(url)
     return res.text
 """
-    meta = extract_code_metadata(code, language="python", symbols=["fetch_data"])
+    meta = extract_code_metadata(
+        code, language="python", symbols=["fetch_data"], file_path="src/network.py"
+    )
     assert meta["line_count"] >= 5
     assert meta["symbols_count"] == 1
     assert "httpx2" in meta["imports"]
     assert "network" in meta["security_tags"]
+    assert "fetch_data" in meta["declarations"]
+    assert "api" in meta["structural_tags"] or "network" in meta["structural_tags"]
+    assert "httpx" in meta["frameworks"]
+    assert meta["is_test"] is False
+
+
+def test_extract_declarations_polyglot() -> None:
+    from devops_cli.ai.rag.metadata import extract_declarations
+
+    py = "class ClusterManager:\n    async def bootstrap(self):\n        pass\n"
+    assert extract_declarations(py, "python") == ["ClusterManager", "bootstrap"]
+
+    go = "func ReconcileCluster(ctx context.Context) error { return nil }\ntype PodSpec struct {}\n"
+    assert "ReconcileCluster" in extract_declarations(go, "go")
+    assert "PodSpec" in extract_declarations(go, "go")
+
+    rust = "pub fn execute_pipeline() -> Result<()> {}\npub struct TaskState {}\n"
+    assert "execute_pipeline" in extract_declarations(rust, "rust")
+    assert "TaskState" in extract_declarations(rust, "rust")

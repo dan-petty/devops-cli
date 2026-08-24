@@ -1,0 +1,4 @@
+- Accuracy (0-10): Correct IP and URL parsing logic without syntax errors.
+- Security (0-10): Completely blocks 127.0.0.1, localhost, AWS metadata 169.254.169.254, RFC1918 private IPs, IPv6 mapped IPv4.
+- Completeness (0-10): Handles DNS rebinding (pinning IP in transport or pre-resolving), redirect protection.
+- Clarity (0-10): Clean Python type annotations, docstring, defensiveness.

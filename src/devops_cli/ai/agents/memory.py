@@ -18,6 +18,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.models.ai import ChatMessage
 
 logger = logging.getLogger(__name__)
@@ -26,14 +27,8 @@ _DEFAULT_MAX_ENTRIES = 8
 _DEFAULT_MAX_CHARS = 4000
 _DEFAULT_KEEP_RECENT = 3
 
-_SUMMARY_PROMPT = (
-    "You are a memory consolidation engine. Condense the following interaction history into a "
-    "concise, highly factual summary (under 200 words) preserving all user goals, key technical "
-    "decisions, file paths, tool actions, and pending tasks.\n\n"
-    "Existing Summary:\n{existing_summary}\n\n"
-    "New Interactions to Incorporate:\n{interactions}\n\n"
-    "Respond ONLY with the consolidated summary text."
-)
+_SUMMARY_SYSTEM_PROMPT = load_task_prompt("summarize_memory_system.md")
+_SUMMARY_PROMPT = load_task_prompt("summarize_memory.md")
 
 
 class MemoryEntry(BaseModel):
@@ -93,7 +88,16 @@ class AgentMemory(BaseModel):
         to_summarize = self.entries[:cutoff]
         to_keep = self.entries[cutoff:]
 
-        rendered_interactions = "\n".join(f"[{e.role.upper()}]: {e.content}" for e in to_summarize)
+        from devops_cli.ai.review.sanitization import (
+            _mask_secrets_in_content,
+            _sanitize_prompt_boundary_tags,
+        )
+
+        rendered_interactions = "\n".join(
+            f"[{e.role.upper()}]: "
+            f"{_sanitize_prompt_boundary_tags(_mask_secrets_in_content(e.content))}"
+            for e in to_summarize
+        )
 
         new_summary = ""
         if llm_client is not None and hasattr(llm_client, "chat"):
@@ -103,7 +107,7 @@ class AgentMemory(BaseModel):
                     interactions=rendered_interactions,
                 )
                 res = llm_client.chat(
-                    system="You are an expert conversational summarizer.",
+                    system=_SUMMARY_SYSTEM_PROMPT,
                     user=prompt,
                     enable_thinking=False,
                 )
