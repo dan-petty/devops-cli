@@ -102,7 +102,9 @@ __all__ = [
     "extract_network_references",
     "is_code_or_config_reference",
     "is_file_reference",
+    "is_local_or_reserved_domain",
     "is_network_domain",
+    "is_private_or_local_ip",
     "is_public_ip",
 ]
 
@@ -123,6 +125,56 @@ def is_public_ip(ip_str: str) -> bool:
         )
     except ValueError:
         return False
+
+
+@functools.lru_cache(maxsize=4096)
+def is_private_or_local_ip(ip_str: str) -> bool:
+    """Check whether an IP string is a private, loopback, link-local, or reserved IP address."""
+    try:
+        ip = ipaddress.ip_address(ip_str.strip())
+        return (
+            ip.is_private
+            or ip.is_loopback
+            or ip.is_link_local
+            or ip.is_reserved
+            or ip.is_unspecified
+        )
+    except ValueError:
+        return False
+
+
+@functools.lru_cache(maxsize=4096)
+def is_local_or_reserved_domain(target: str) -> bool:
+    """Check if domain or hostname is an RFC reserved, internal, or local network hostname."""
+    clean = target.strip().rstrip(".,;)>]\"'").lower()
+    if not clean or clean.startswith("-") or clean.endswith("-") or "_" in clean:
+        return False
+    if clean in _RESERVED_DOMAINS:
+        return True
+    if any(clean.endswith("." + d) for d in _RESERVED_DOMAINS):
+        return True
+    ext = _TLD_EXTRACTOR(clean)
+    if ext.suffix and ext.suffix.lower() in _RESERVED_DOMAINS:
+        return True
+    if any(
+        clean.endswith(ext_name)
+        for ext_name in (
+            ".local",
+            ".internal",
+            ".lan",
+            ".home.arpa",
+            ".cluster.local",
+            ".localhost",
+            ".localdomain",
+            ".svc",
+            ".corp",
+            ".test",
+            ".example",
+            ".invalid",
+        )
+    ):
+        return True
+    return False
 
 
 @functools.lru_cache(maxsize=16)
@@ -261,6 +313,9 @@ def is_code_or_config_reference(target: str, source_file: str = "") -> bool:
     # Top-level workspace package matching (e.g. devops_cli.*, tests.*)
     if (Path.cwd() / first_seg).exists() or (Path.cwd() / "src" / first_seg).exists():
         return True
+
+    if is_local_or_reserved_domain(clean):
+        return False
 
     ext = _TLD_EXTRACTOR(clean)
     if not ext.domain or not ext.suffix:
@@ -446,8 +501,10 @@ def _get_target_segments(content: str, source_file: str) -> list[tuple[str, int]
     return [(line, line_idx) for line_idx, line in enumerate(content.splitlines(), 1)]
 
 
-def extract_network_references(content: str, source_file: str = "") -> list[NetworkReference]:
-    """Extract external IPs, URLs, and public domains from documentation or source code."""
+def extract_network_references(
+    content: str, source_file: str = "", include_local: bool = True
+) -> list[NetworkReference]:
+    """Extract external and local network references (IPs, URLs, and domains) from source code."""
     results: list[NetworkReference] = []
     seen: set[str] = set()
 
@@ -471,21 +528,44 @@ def extract_network_references(content: str, source_file: str = "") -> list[Netw
                 parsed = urllib.parse.urlsplit(raw_url)
                 if parsed.scheme in ("http", "https") and parsed.netloc and raw_url not in seen:
                     seen.add(raw_url)
-                    results.append(
-                        NetworkReference(
-                            target=raw_url,
-                            reference_type="url",
-                            source_file=source_file,
-                            line_number=line_idx,
-                        )
+                    host = parsed.hostname or ""
+                    is_local_host = is_private_or_local_ip(host) or is_local_or_reserved_domain(
+                        host
                     )
+                    if is_local_host:
+                        if include_local:
+                            results.append(
+                                NetworkReference(
+                                    target=raw_url,
+                                    reference_type="url",
+                                    source_file=source_file,
+                                    line_number=line_idx,
+                                    is_local=True,
+                                    scope="local",
+                                    security_status="✓ Safe (Local)",
+                                )
+                            )
+                    else:
+                        results.append(
+                            NetworkReference(
+                                target=raw_url,
+                                reference_type="url",
+                                source_file=source_file,
+                                line_number=line_idx,
+                                is_local=False,
+                                scope="external",
+                                security_status="✓ Safe",
+                            )
+                        )
             except ValueError:
                 pass
 
-        # 2. Extract Public IPs
+        # 2. Extract Public and Private/Local IPs
         for match in _IP_REGEX.finditer(text_segment):
             ip_candidate = match.group(0)
-            if is_public_ip(ip_candidate) and ip_candidate not in seen:
+            if ip_candidate in seen:
+                continue
+            if is_public_ip(ip_candidate):
                 seen.add(ip_candidate)
                 results.append(
                     NetworkReference(
@@ -493,10 +573,26 @@ def extract_network_references(content: str, source_file: str = "") -> list[Netw
                         reference_type="ip",
                         source_file=source_file,
                         line_number=line_idx,
+                        is_local=False,
+                        scope="external",
+                        security_status="✓ Safe",
+                    )
+                )
+            elif is_private_or_local_ip(ip_candidate) and include_local:
+                seen.add(ip_candidate)
+                results.append(
+                    NetworkReference(
+                        target=ip_candidate,
+                        reference_type="ip",
+                        source_file=source_file,
+                        line_number=line_idx,
+                        is_local=True,
+                        scope="local",
+                        security_status="✓ Safe (Local)",
                     )
                 )
 
-        # 3. Extract External Domains
+        # 3. Extract Domains (Public & Local/Reserved)
         for match in _DOMAIN_REGEX.finditer(text_segment):
             domain_candidate = match.group(0).lower().rstrip(".,;)>]\"'")
 
@@ -511,14 +607,23 @@ def extract_network_references(content: str, source_file: str = "") -> list[Netw
             if start_pos > 0 and text_segment[start_pos - 1] in (".", "$", ">", ":", "\\"):
                 continue
 
+            if domain_candidate in seen:
+                continue
+
+            # Skip if inside URL path
             if (
-                domain_candidate not in seen
-                and "/"
-                not in text_segment[
-                    max(0, match.start() - 1) : min(len(text_segment), match.end() + 1)
-                ]
-                and is_network_domain(domain_candidate, source_file=source_file)
+                "/"
+                in text_segment[max(0, match.start() - 1) : min(len(text_segment), match.end() + 1)]
             ):
+                continue
+
+            if is_file_reference(domain_candidate, source_file=source_file):
+                continue
+
+            if is_code_or_config_reference(domain_candidate, source_file=source_file):
+                continue
+
+            if is_local_or_reserved_domain(domain_candidate) and include_local:
                 seen.add(domain_candidate)
                 results.append(
                     NetworkReference(
@@ -526,6 +631,22 @@ def extract_network_references(content: str, source_file: str = "") -> list[Netw
                         reference_type="domain",
                         source_file=source_file,
                         line_number=line_idx,
+                        is_local=True,
+                        scope="local",
+                        security_status="✓ Safe (Local)",
+                    )
+                )
+            elif is_network_domain(domain_candidate, source_file=source_file):
+                seen.add(domain_candidate)
+                results.append(
+                    NetworkReference(
+                        target=domain_candidate,
+                        reference_type="domain",
+                        source_file=source_file,
+                        line_number=line_idx,
+                        is_local=False,
+                        scope="external",
+                        security_status="✓ Safe",
                     )
                 )
 

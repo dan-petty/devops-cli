@@ -76,19 +76,40 @@ def test_extract_network_references() -> None:
     # Deployment Guide
     Access the cluster at https://api.prod.example-corp.com/v1
     Public ingress IP: 93.184.216.34
-    Private internal IP: 192.168.1.100 (should be skipped)
-    Test host: test.example.com (should be skipped)
+    Private internal IP: 192.168.1.100
+    Test host: test.example.com
     External endpoint: https://auth.vendor-service.io/oauth/token
     Bare domain reference: prod-infra.custom-cloud.io
     File reference: main.py, coverage.xml, dmypy.json, config.yaml (should all be skipped)
     """
     refs = extract_network_references(doc, "docs/deploy.md")
-    targets = {r.target for r in refs}
+    targets = {r.target: r for r in refs}
+
+    # External targets
     assert "https://api.prod.example-corp.com/v1" in targets
+    assert not targets["https://api.prod.example-corp.com/v1"].is_local
+    assert targets["https://api.prod.example-corp.com/v1"].scope == "external"
+
     assert "93.184.216.34" in targets
+    assert not targets["93.184.216.34"].is_local
+
     assert "prod-infra.custom-cloud.io" in targets
-    assert "192.168.1.100" not in targets
+    assert not targets["prod-infra.custom-cloud.io"].is_local
+
     assert "https://auth.vendor-service.io/oauth/token" in targets
+    assert not targets["https://auth.vendor-service.io/oauth/token"].is_local
+
+    # Local targets
+    assert "192.168.1.100" in targets
+    assert targets["192.168.1.100"].is_local
+    assert targets["192.168.1.100"].scope == "local"
+    assert "Local" in targets["192.168.1.100"].security_status
+
+    assert "test.example.com" in targets
+    assert targets["test.example.com"].is_local
+    assert targets["test.example.com"].scope == "local"
+
+    # Non-network file references skipped
     assert "main.py" not in targets
     assert "coverage.xml" not in targets
     assert "dmypy.json" not in targets
@@ -321,11 +342,19 @@ def test_extract_network_references_json_and_yaml_scalars() -> None:
     }
     """
     refs_json = extract_network_references(json_doc, "config/settings.json")
-    targets_json = {r.target for r in refs_json}
+    targets_json = {r.target: r for r in refs_json}
     assert "https://api.external-metrics.io/v1" in targets_json
+    assert not targets_json["https://api.external-metrics.io/v1"].is_local
+
     assert "gateway.production-cloud.net" in targets_json
+    assert not targets_json["gateway.production-cloud.net"].is_local
+
     assert "93.184.216.34" in targets_json
-    assert "10.0.0.5" not in targets_json
+    assert not targets_json["93.184.216.34"].is_local
+
+    assert "10.0.0.5" in targets_json
+    assert targets_json["10.0.0.5"].is_local
+    assert targets_json["10.0.0.5"].scope == "local"
 
     yaml_doc = """
     services:
@@ -335,10 +364,41 @@ def test_extract_network_references_json_and_yaml_scalars() -> None:
         server_ip: 8.8.8.8
     """
     refs_yaml = extract_network_references(yaml_doc, "docker-compose.yml")
-    targets_yaml = {r.target for r in refs_yaml}
+    targets_yaml = {r.target: r for r in refs_yaml}
     assert "https://telemetry.custom-service.io/traces" in targets_yaml
     assert "traces.custom-service.io" in targets_yaml
     assert "8.8.8.8" in targets_yaml
+
+
+def test_extract_network_references_local_and_reserved_spaces() -> None:
+    """Test extraction of RFC reserved domains, local TLDs, and private IP spaces."""
+    doc = """
+    # Local & Internal Services
+    Localhost API: http://localhost:8080/v1
+    Cluster DNS: jaeger.otel.svc.cluster.local
+    Internal node: node1.corp.internal
+    Home LAN: server.lan
+    Private IP: 192.168.1.1
+    Loopback: 127.0.0.1
+    Reserved domain: test.example.org
+    """
+    refs = extract_network_references(doc, "docs/internal.md")
+    targets = {r.target: r for r in refs}
+
+    assert "http://localhost:8080/v1" in targets
+    assert targets["http://localhost:8080/v1"].is_local
+
+    assert "192.168.1.1" in targets
+    assert targets["192.168.1.1"].is_local
+
+    assert "127.0.0.1" in targets
+    assert targets["127.0.0.1"].is_local
+
+    assert "test.example.org" in targets
+    assert targets["test.example.org"].is_local
+
+    assert "jaeger.otel.svc.cluster.local" in targets
+    assert targets["jaeger.otel.svc.cluster.local"].is_local
 
 
 def test_extract_network_references_function_calls_and_workspace_files() -> None:

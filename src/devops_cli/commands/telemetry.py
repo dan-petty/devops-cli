@@ -127,7 +127,12 @@ def telemetry_test_cmd(
         f"[bold green]✓ Test span emitted successfully![/bold green] "
         f"(Span ID: [cyan]{span_id}[/cyan], Duration: {elapsed_ms:.1f}ms)"
     )
-    rprint(f"[dim]View in Jaeger: http://localhost:16686 (Service: {tracer.service_name})[/dim]")
+    settings = load_settings()
+    jaeger_cfg = getattr(settings, "jaeger", None)
+    jaeger_url = (
+        jaeger_cfg.url if jaeger_cfg and hasattr(jaeger_cfg, "url") else "http://localhost:16686"
+    )
+    rprint(f"[dim]View in Jaeger: {jaeger_url} (Service: {tracer.service_name})[/dim]")
 
 
 @app.command("open-ui")

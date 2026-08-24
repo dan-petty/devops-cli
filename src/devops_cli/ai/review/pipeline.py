@@ -1224,11 +1224,25 @@ class ReviewPipelineOrchestrator:
                 )
             lines.append("")
 
-        if all_nets:
+        external_nets = [n for n in all_nets if not n.is_local]
+        local_nets = [n for n in all_nets if n.is_local]
+
+        if external_nets:
             lines.append("## External Network References (Shodan InternetDB & Cloudflare Radar)")
             lines.append("| Target | Type | Security Status | Location |")
             lines.append("|---|---|---|---|")
-            for net in all_nets:
+            for net in external_nets:
+                loc_str = f"`{net.location}`" if net.location else "—"
+                lines.append(
+                    f"| `{net.target}` | {net.reference_type} | {net.security_status} | {loc_str} |"
+                )
+            lines.append("")
+
+        if local_nets:
+            lines.append("## Local Network References (Private IP & Reserved Domains)")
+            lines.append("| Target | Type | Security Status | Location |")
+            lines.append("|---|---|---|---|")
+            for net in local_nets:
                 loc_str = f"`{net.location}`" if net.location else "—"
                 lines.append(
                     f"| `{net.target}` | {net.reference_type} | {net.security_status} | {loc_str} |"
@@ -1278,7 +1292,7 @@ class ReviewPipelineOrchestrator:
                 )
             console.print(dep_tbl)
 
-        if all_nets:
+        if external_nets:
             net_tbl = Table(
                 title="External Network References Security Audit (Shodan & Cloudflare Radar)"
             )
@@ -1286,7 +1300,7 @@ class ReviewPipelineOrchestrator:
             net_tbl.add_column("Type")
             net_tbl.add_column("Security Status")
             net_tbl.add_column("Location", style="dim")
-            for n in all_nets:
+            for n in external_nets:
                 color = "red" if "⚠️" in n.security_status else "green"
                 net_tbl.add_row(
                     n.target,
@@ -1295,6 +1309,21 @@ class ReviewPipelineOrchestrator:
                     n.location or "—",
                 )
             console.print(net_tbl)
+
+        if local_nets:
+            local_tbl = Table(title="Local Network References (Private IP & Reserved Domains)")
+            local_tbl.add_column("Target", style="bold cyan")
+            local_tbl.add_column("Type")
+            local_tbl.add_column("Security Status")
+            local_tbl.add_column("Location", style="dim")
+            for n in local_nets:
+                local_tbl.add_row(
+                    n.target,
+                    n.reference_type,
+                    f"[cyan]{n.security_status}[/cyan]",
+                    n.location or "—",
+                )
+            console.print(local_tbl)
 
         rprint(
             f"[green]✓ Consolidated review completed for session {self.session_id}[/green] "
