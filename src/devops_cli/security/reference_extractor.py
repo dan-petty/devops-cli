@@ -39,17 +39,6 @@ mimetypes.add_type("text/x-hcl", ".hcl")
 
 _TLD_EXTRACTOR = tldextract.TLDExtract(cache_dir=None)
 
-# Regular expressions for text token extraction
-_IP_REGEX = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
-_URL_REGEX = re.compile(r"https?://[^\s\"'<>`()\[\]{}]+", re.IGNORECASE)
-_DOMAIN_REGEX = re.compile(
-    r"(?<![a-zA-Z0-9_.@/\\-])(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}(?![a-zA-Z0-9_.@/\\-])"
-)
-_HOSTNAME_REGEX = re.compile(r"^(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$")
-_HCL_STRING_OR_COMMENT_REGEX = re.compile(
-    r"""(?:"(?:\\.|[^"\\])*"|#[^\r\n]*|//[^\r\n]*|/\*[\s\S]*?\*/)"""
-)
-
 # Standard RFC 2606 and RFC 6761 reserved domain suffixes
 _RESERVED_DOMAINS = {
     "example.com",
@@ -326,12 +315,27 @@ def is_code_or_config_reference(target: str, source_file: str = "") -> bool:
 
 @functools.lru_cache(maxsize=4096)
 def is_network_domain(target: str, source_file: str = "") -> bool:
-    """Validate whether target string is a legitimate public network domain using general stylistic
-    properties and the Public Suffix List (PSL).
+    """Validate whether target string is a legitimate public network domain using standard library
+    parsers and the Public Suffix List (PSL).
     """
     clean = target.strip().rstrip(".,;)>]\"'")
-    if not _HOSTNAME_REGEX.match(clean):
+    if not clean or "." not in clean or " " in clean or "/" in clean or "\\" in clean:
         return False
+
+    try:
+        parsed = urllib.parse.urlsplit(f"//{clean}")
+        hostname = parsed.hostname
+        if not hostname or hostname != clean.lower():
+            return False
+    except ValueError:
+        return False
+
+    # Check if target is an IP address
+    try:
+        ipaddress.ip_address(clean)
+        return False
+    except ValueError:
+        pass
 
     # Check for programmatic function calls
     if "(" in clean or ")" in clean or clean.endswith("()"):
@@ -410,6 +414,11 @@ def _extract_python_literals_and_comments(content: str) -> list[tuple[str, int]]
         pass
 
     return literals
+
+
+_HCL_STRING_OR_COMMENT_REGEX = re.compile(
+    r"""(?:"(?:\\.|[^"\\])*"|#[^\r\n]*|//[^\r\n]*|/\*[\s\S]*?\*/)"""
+)
 
 
 def _extract_hcl_literals_and_comments(content: str) -> list[tuple[str, int]]:
@@ -521,35 +530,70 @@ def extract_network_references(
     target_segments = _get_target_segments(content, source_file)
 
     for text_segment, line_idx in target_segments:
-        # 1. Extract URLs with RFC validation
-        for match in _URL_REGEX.finditer(text_segment):
-            raw_url = match.group(0).rstrip(".,;)>]\"'")
-            try:
-                parsed = urllib.parse.urlsplit(raw_url)
-                if parsed.scheme in ("http", "https") and parsed.netloc and raw_url not in seen:
-                    seen.add(raw_url)
-                    host = parsed.hostname or ""
-                    is_local_host = is_private_or_local_ip(host) or is_local_or_reserved_domain(
-                        host
-                    )
-                    if is_local_host:
-                        if include_local:
+        tokens = re.split(r"""[\s"'`<>()[\]{}]+""", text_segment)
+
+        for token in tokens:
+            if not token:
+                continue
+
+            clean_token = token.strip(".,;:\"'`<>()[]{}")
+            if not clean_token:
+                continue
+
+            # 1. Extract URLs with standard urllib.parse validation
+            if clean_token.lower().startswith(("http://", "https://", "ftp://")):
+                try:
+                    parsed = urllib.parse.urlsplit(clean_token)
+                    if (
+                        parsed.scheme in ("http", "https")
+                        and parsed.netloc
+                        and clean_token not in seen
+                    ):
+                        seen.add(clean_token)
+                        host = parsed.hostname or ""
+                        is_local_host = is_private_or_local_ip(host) or is_local_or_reserved_domain(
+                            host
+                        )
+                        if is_local_host:
+                            if include_local:
+                                results.append(
+                                    NetworkReference(
+                                        target=clean_token,
+                                        reference_type="url",
+                                        source_file=source_file,
+                                        line_number=line_idx,
+                                        is_local=True,
+                                        scope="local",
+                                        security_status="✓ Safe (Local)",
+                                    )
+                                )
+                        else:
                             results.append(
                                 NetworkReference(
-                                    target=raw_url,
+                                    target=clean_token,
                                     reference_type="url",
                                     source_file=source_file,
                                     line_number=line_idx,
-                                    is_local=True,
-                                    scope="local",
-                                    security_status="✓ Safe (Local)",
+                                    is_local=False,
+                                    scope="external",
+                                    security_status="✓ Safe",
                                 )
                             )
-                    else:
+                except ValueError:
+                    pass
+                continue
+
+            # 2. Extract IP addresses with standard ipaddress parser
+            try:
+                ip = ipaddress.ip_address(clean_token)
+                ip_str = str(ip)
+                if ip_str not in seen:
+                    if is_public_ip(clean_token):
+                        seen.add(ip_str)
                         results.append(
                             NetworkReference(
-                                target=raw_url,
-                                reference_type="url",
+                                target=ip_str,
+                                reference_type="ip",
                                 source_file=source_file,
                                 line_number=line_idx,
                                 is_local=False,
@@ -557,98 +601,86 @@ def extract_network_references(
                                 security_status="✓ Safe",
                             )
                         )
+                    elif is_private_or_local_ip(clean_token) and include_local:
+                        seen.add(ip_str)
+                        results.append(
+                            NetworkReference(
+                                target=ip_str,
+                                reference_type="ip",
+                                source_file=source_file,
+                                line_number=line_idx,
+                                is_local=True,
+                                scope="local",
+                                security_status="✓ Safe (Local)",
+                            )
+                        )
+                continue
             except ValueError:
                 pass
 
-        # 2. Extract Public and Private/Local IPs
-        for match in _IP_REGEX.finditer(text_segment):
-            ip_candidate = match.group(0)
-            if ip_candidate in seen:
-                continue
-            if is_public_ip(ip_candidate):
-                seen.add(ip_candidate)
-                results.append(
-                    NetworkReference(
-                        target=ip_candidate,
-                        reference_type="ip",
-                        source_file=source_file,
-                        line_number=line_idx,
-                        is_local=False,
-                        scope="external",
-                        security_status="✓ Safe",
-                    )
-                )
-            elif is_private_or_local_ip(ip_candidate) and include_local:
-                seen.add(ip_candidate)
-                results.append(
-                    NetworkReference(
-                        target=ip_candidate,
-                        reference_type="ip",
-                        source_file=source_file,
-                        line_number=line_idx,
-                        is_local=True,
-                        scope="local",
-                        security_status="✓ Safe (Local)",
-                    )
-                )
-
-        # 3. Extract Domains (Public & Local/Reserved)
-        for match in _DOMAIN_REGEX.finditer(text_segment):
-            domain_candidate = match.group(0).lower().rstrip(".,;)>]\"'")
-
-            # Reject programmatic function calls like not.a.domain.com(...)
-            end_pos = match.end()
-            trailing = text_segment[end_pos:].lstrip()
-            if trailing.startswith("(") or trailing.startswith("[") or trailing.startswith("="):
-                continue
-
-            start_pos = match.start()
-            # Reject if preceded by method access dots or symbols
-            if start_pos > 0 and text_segment[start_pos - 1] in (".", "$", ">", ":", "\\"):
-                continue
-
-            if domain_candidate in seen:
-                continue
-
-            # Skip if inside URL path
+            # 3. Extract Domains & Hostnames with standard urllib.parse and PSL introspection
             if (
-                "/"
-                in text_segment[max(0, match.start() - 1) : min(len(text_segment), match.end() + 1)]
+                "." in clean_token
+                and "/" not in clean_token
+                and "\\" not in clean_token
+                and "@" not in clean_token
+                and "$" not in clean_token
+                and "=" not in clean_token
             ):
-                continue
+                domain_candidate = clean_token.lower()
+                if domain_candidate in seen:
+                    continue
 
-            if is_file_reference(domain_candidate, source_file=source_file):
-                continue
+                # Validate hostname format via standard library urllib.parse
+                try:
+                    parsed = urllib.parse.urlsplit(f"//{domain_candidate}")
+                    hostname = parsed.hostname
+                    if not hostname or hostname != domain_candidate:
+                        continue
+                except ValueError:
+                    continue
 
-            if is_code_or_config_reference(domain_candidate, source_file=source_file):
-                continue
+                # Check programmatic function call indicators in original text segment
+                pos = text_segment.find(clean_token)
+                if pos != -1:
+                    trailing = text_segment[pos + len(clean_token) :].lstrip()
+                    if trailing.startswith(("(", "[", "=")):
+                        continue
+                    if pos > 0 and text_segment[pos - 1] in (".", "$", ">", ":", "\\"):
+                        continue
 
-            if is_local_or_reserved_domain(domain_candidate) and include_local:
-                seen.add(domain_candidate)
-                results.append(
-                    NetworkReference(
-                        target=domain_candidate,
-                        reference_type="domain",
-                        source_file=source_file,
-                        line_number=line_idx,
-                        is_local=True,
-                        scope="local",
-                        security_status="✓ Safe (Local)",
+                if is_file_reference(domain_candidate, source_file=source_file):
+                    continue
+
+                if is_code_or_config_reference(domain_candidate, source_file=source_file):
+                    continue
+
+                if is_local_or_reserved_domain(domain_candidate) and include_local:
+                    seen.add(domain_candidate)
+                    results.append(
+                        NetworkReference(
+                            target=domain_candidate,
+                            reference_type="domain",
+                            source_file=source_file,
+                            line_number=line_idx,
+                            is_local=True,
+                            scope="local",
+                            security_status="✓ Safe (Local)",
+                        )
                     )
-                )
-            elif is_network_domain(domain_candidate, source_file=source_file):
-                seen.add(domain_candidate)
-                results.append(
-                    NetworkReference(
-                        target=domain_candidate,
-                        reference_type="domain",
-                        source_file=source_file,
-                        line_number=line_idx,
-                        is_local=False,
-                        scope="external",
-                        security_status="✓ Safe",
+                elif is_network_domain(domain_candidate, source_file=source_file):
+                    seen.add(domain_candidate)
+                    results.append(
+                        NetworkReference(
+                            target=domain_candidate,
+                            reference_type="domain",
+                            source_file=source_file,
+                            line_number=line_idx,
+                            is_local=False,
+                            scope="external",
+                            security_status="✓ Safe",
+                        )
                     )
-                )
 
     return results
 
