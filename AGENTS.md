@@ -18,6 +18,12 @@ This document provides foundational context, architectural principles, and opera
 
 All work follows a progressive verification strategy to optimize developer feedback loops while guaranteeing release readiness:
 
+### Mandatory Knowledge Base Consultation
+Before planning, implementing, debugging, refactoring, or reviewing code, architectures, or operational workflows, AI agents and assistants **MUST ALWAYS** consult the **DevOps CLI Knowledge Base** under [`docs/knowledge_base/README.md`](docs/knowledge_base/README.md).
+- **Core Topic Guides ([`docs/knowledge_base/topics/`](docs/knowledge_base/README.md#core-topic-guides-docsknowledge_basetopics))**: Consult for deep architectural patterns, domain concepts, and engineering standards (Agentic AI, K8s & GitOps, Zero-Trust Security, Observability & Tracing, DevContainers, IaC, CI Quality Gates, Python 3.14+, REST APIs, Release Governance).
+- **Tool Reference Manuals ([`docs/knowledge_base/tools/`](docs/knowledge_base/README.md#tool-references-docsknowledge_basetools))**: Consult for tool usage, security policies, common commands, and official registries across all 20 integrated tools.
+- **Operational Task Guides ([`docs/knowledge_base/tasks/`](docs/knowledge_base/README.md#operational-task-references-docsknowledge_basetasks))**: Consult for workflow steps, subcommands, and operational procedures across all 12 automated task areas.
+
 ### Progressive Testing Strategy
 1. **Targeted Iterative Verification**: During active feature development or refactoring, run isolated, module-specific checks (e.g. `uv run pytest tests/test_<feature>.py`, `uv run ruff check path/to/file.py`, `uv run mypy path/to/file.py`). Do not run exhaustive full validation suites on every minor edit.
 2. **Full Validation Gate**: Execute the full local CI suite (`devops ci` or `uv run devops ci`) only at the final pre-commit / pre-handoff milestone to verify linting, formatting, strict typing, tests, coverage, security, and documentation freshness.
@@ -72,6 +78,7 @@ All work follows a progressive verification strategy to optimize developer feedb
 ## 5. Agentic AI & Review System Guidelines
 
 - **Multi-Persona Code Review**: Review systems should utilize distinct, domain-specialized personas (`devsecops`, `architect`, `pm`, `auditor`, `qa`) to analyze diffs and provide actionable, high-signal feedback.
+- **Knowledge Base & RAG Grounding**: AI review systems and coding assistants must reference repository knowledge bases (`docs/knowledge_base/` or target project docs) to ground findings against established architecture patterns, avoiding hallucinatory, outdated, or generic recommendations.
 - **Zero Information Leakage & Data Privacy**: AI assistants and review systems must never extract, copy, or expose confidential, private, hidden (dotfiles/dotfolders), or `.gitignored` file contents, credentials, system paths, or proprietary data into any documents, review findings, changelogs, public commits, or code artifacts.
 - **Target-Agnostic Code Analysis**: When analyzing or reviewing external repositories (e.g. under `repos/` or local target directories), evaluate code against universal software engineering principles (OWASP Top 10, CIS benchmarks, SOLID, DRY) and the target project's own declared conventions (`AGENTS.md`, `README.md`) rather than coupling to host CLI internal assumptions.
 - **Target Path Resolution & Isolation**: All file reading, AST analysis, security scanning, and dependency lookups on target projects must resolve paths relative to the target root directory (`target_dir`) to prevent host-workspace file collisions.

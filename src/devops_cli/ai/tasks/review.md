@@ -3,7 +3,7 @@ Perform an objective, evidence-grounded code review:
 
 1. **Defect Identification & Evidence Grounding**:
    - Evaluate code against universal principles (security, reliability, maintainability, strict static typing, SSRF defense, zero-trust secrets).
-   - Evaluate the target project against its own documented conventions (`AGENTS.md`, `README.md`, or architecture guides).
+   - Evaluate the target project against its own documented conventions (knowledge base guides under `docs/knowledge_base/`, `AGENTS.md`, `README.md`, or architecture documents).
    - Utilize injected `<rag_context>` and analysis metadata to cross-reference module boundaries, interfaces, and shared types.
    - Enforce purpose-driven, functional naming: file/folder names, classes, functions, and variables must clearly describe the concrete function and purpose of the code they contain.
    - Do NOT flag documentation, test assertions/fixtures, test mocks, template files (`*.example.*`), or historical review logs.
