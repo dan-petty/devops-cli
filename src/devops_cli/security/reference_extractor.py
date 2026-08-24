@@ -9,6 +9,7 @@ import ipaddress
 import json
 import logging
 import mimetypes
+import os
 import re
 import textwrap
 import tokenize
@@ -71,6 +72,23 @@ _EXCLUDED_PUBLIC_REGISTRIES = {
     "cloudflare.com",
 }
 
+_WORKSPACE_SKIP_DIRS = {
+    ".git",
+    ".venv",
+    "venv",
+    "node_modules",
+    "dist",
+    "build",
+    "__pycache__",
+    ".data",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".mypy_cache",
+    ".tox",
+    "repos",
+    "target",
+}
+
 __all__ = [
     "extract_dependencies_from_text",
     "extract_network_references",
@@ -99,20 +117,68 @@ def is_public_ip(ip_str: str) -> bool:
         return False
 
 
+@functools.lru_cache(maxsize=16)
+def _get_workspace_filenames(root_dir_str: str = "") -> tuple[set[str], tuple[str, ...]]:
+    """Recursively discover all file names and relative paths across the workspace."""
+    root = Path(root_dir_str) if root_dir_str else Path.cwd()
+    if not root.exists() or not root.is_dir():
+        root = Path.cwd()
+    exact_names: set[str] = set()
+    all_paths: list[str] = []
+    try:
+        for dirpath, dirnames, filenames in os.walk(root, topdown=True):
+            # Prune skipped directory branches in-place for instant scanning
+            dirnames[:] = [
+                d
+                for d in dirnames
+                if d not in _WORKSPACE_SKIP_DIRS
+                and (not d.startswith(".") or d in (".github", ".agents"))
+            ]
+            for fname in filenames:
+                fname_lower = fname.lower()
+                exact_names.add(fname_lower)
+                all_paths.append(fname_lower)
+                try:
+                    full_p = Path(dirpath) / fname
+                    rel = full_p.relative_to(root).as_posix().lower()
+                    exact_names.add(rel)
+                    all_paths.append(rel)
+                except ValueError:
+                    pass
+    except Exception:
+        pass
+    return exact_names, tuple(all_paths)
+
+
 @functools.lru_cache(maxsize=4096)
 def is_file_reference(target: str, source_file: str = "") -> bool:
-    """Check if target string represents an existing file on disk or filesystem path."""
-    clean = target.strip().rstrip(".,;)>]\"'")
+    """Check if target string represents an existing file on disk or matches in recursive search."""
+    clean = target.strip().rstrip(".,;)>]\"'").lower()
+    if not clean:
+        return False
     if "/" in clean or "\\" in clean or clean.startswith("."):
         return True
 
+    exact_names, all_paths = _get_workspace_filenames(str(Path.cwd().resolve()))
+
+    # 1. Exact match against any filename or relative path across workspace in recursive file search
+    if clean in exact_names:
+        return True
+
+    # 2. Check if specific value matches as a substring of a filename in recursive file search
+    for path_str in all_paths:
+        if clean == path_str or clean in path_str.split("/"):
+            return True
+        if "." in clean and (path_str.endswith("/" + clean) or path_str.endswith(clean)):
+            return True
+
     target_path = Path(clean)
 
-    # 1. Direct or cwd-relative filesystem existence
+    # 3. Direct or cwd-relative filesystem existence
     if target_path.is_file() or (Path.cwd() / target_path).is_file():
         return True
 
-    # 2. Source file relative existence
+    # 4. Source file relative existence
     if source_file:
         src = Path(source_file)
         if (src.parent / target_path).is_file():
@@ -123,17 +189,7 @@ def is_file_reference(target: str, source_file: str = "") -> bool:
                     if (sibling / target_path).is_file():
                         return True
 
-    # 3. Dynamic search across immediate top-level project directories
-    for top_dir in Path.cwd().iterdir():
-        if top_dir.is_dir() and not top_dir.name.startswith("."):
-            if (top_dir / target_path).is_file():
-                return True
-            for sub_dir in top_dir.iterdir():
-                if sub_dir.is_dir() and not sub_dir.name.startswith("."):
-                    if (sub_dir / target_path).is_file():
-                        return True
-
-    # 4. Standard build template, configuration, and artifact suffixes
+    # 5. Standard build template, configuration, and artifact suffixes
     suffix = target_path.suffix.lower()
     if suffix in (
         ".in",
@@ -148,6 +204,31 @@ def is_file_reference(target: str, source_file: str = "") -> bool:
     ):
         return True
 
+    if suffix in (
+        ".py",
+        ".js",
+        ".ts",
+        ".tsx",
+        ".jsx",
+        ".go",
+        ".rs",
+        ".java",
+        ".c",
+        ".cpp",
+        ".h",
+        ".md",
+        ".json",
+        ".yaml",
+        ".yml",
+        ".toml",
+        ".tf",
+        ".tfvars",
+        ".hcl",
+        ".sh",
+    ):
+        if any(clean in p for p in all_paths):
+            return True
+
     return False
 
 
@@ -155,6 +236,10 @@ def is_file_reference(target: str, source_file: str = "") -> bool:
 def is_code_or_config_reference(target: str, source_file: str = "") -> bool:
     """Differentiate code identifiers, method chains, and config keys from network hosts."""
     clean = target.strip().rstrip(".,;)>]\"'")
+
+    # Programmatic function calls like not.a.domain.com(...)
+    if "(" in clean or ")" in clean or clean.endswith("()"):
+        return True
 
     # Valid network hostnames cannot contain underscores (RFC 1123)
     if "_" in clean or clean.startswith("-") or clean.endswith("-"):
@@ -168,6 +253,66 @@ def is_code_or_config_reference(target: str, source_file: str = "") -> bool:
     alt_path = Path(clean.replace(".", "/"))
     if (Path.cwd() / alt_path).is_dir():
         return True
+
+    exact_names, all_paths = _get_workspace_filenames(str(Path.cwd().resolve()))
+    if clean.replace(".", "/") in exact_names or any(
+        clean.replace(".", "/") in p for p in all_paths
+    ):
+        return True
+
+    # Common programming attribute access patterns (e.g. eks.name, igw.id, nat.id, public.id)
+    last_seg = parts[-1].lower()
+    if last_seg in (
+        "id",
+        "name",
+        "arn",
+        "tags",
+        "type",
+        "count",
+        "key",
+        "value",
+        "val",
+        "data",
+        "self",
+        "len",
+        "get",
+        "post",
+        "put",
+        "delete",
+        "head",
+        "options",
+        "patch",
+        "run",
+        "main",
+        "app",
+        "cli",
+        "config",
+        "cfg",
+        "meta",
+        "spec",
+        "status",
+        "info",
+        "log",
+        "logger",
+        "ai",
+        "py",
+        "rs",
+        "go",
+        "ts",
+        "js",
+        "rb",
+        "sh",
+        "tf",
+        "json",
+        "yaml",
+        "yml",
+        "toml",
+    ):
+        if is_file_reference(clean, source_file=source_file):
+            return True
+        ext = _TLD_EXTRACTOR(clean)
+        if not ext.domain or not ext.suffix or ext.suffix in ("id", "name", "ai", "py", "sh"):
+            return True
 
     for top_dir in Path.cwd().iterdir():
         if top_dir.is_dir() and not top_dir.name.startswith("."):
@@ -190,6 +335,10 @@ def is_network_domain(target: str, source_file: str = "") -> bool:
     """
     clean = target.strip().rstrip(".,;)>]\"'")
     if not _HOSTNAME_REGEX.match(clean):
+        return False
+
+    # Check for programmatic function calls
+    if "(" in clean or ")" in clean or clean.endswith("()"):
         return False
 
     if is_file_reference(clean, source_file=source_file):
@@ -215,6 +364,12 @@ def is_network_domain(target: str, source_file: str = "") -> bool:
     ):
         return False
 
+    # Check if domain name or registered name matches a workspace file
+    if is_file_reference(fqdn, source_file=source_file) or is_file_reference(
+        registered, source_file=source_file
+    ):
+        return False
+
     try:
         ip = ipaddress.ip_address(fqdn)
         return is_public_ip(str(ip))
@@ -228,8 +383,10 @@ def _extract_python_literals_and_comments(content: str) -> list[tuple[str, int]]
     """Extract string constants and comments from Python source code via AST and tokenize."""
     literals: list[tuple[str, int]] = []
     source = textwrap.dedent(content)
+    parsed_ast = False
     try:
         tree = ast.parse(source)
+        parsed_ast = True
         for node in ast.walk(tree):
             if isinstance(node, ast.Constant) and isinstance(node.value, str):
                 line = getattr(node, "lineno", 1)
@@ -244,6 +401,15 @@ def _extract_python_literals_and_comments(content: str) -> list[tuple[str, int]]
                 comment_text = tok.string.lstrip("#").strip()
                 if comment_text:
                     literals.append((comment_text, tok.start[0]))
+            elif tok.type == tokenize.STRING and not parsed_ast:
+                try:
+                    val = ast.literal_eval(tok.string)
+                    if isinstance(val, str):
+                        literals.append((val, tok.start[0]))
+                except Exception:
+                    clean_str = tok.string.strip("\"'")
+                    if clean_str:
+                        literals.append((clean_str, tok.start[0]))
     except (tokenize.TokenError, IndentationError):
         pass
 
@@ -392,6 +558,38 @@ def extract_network_references(content: str, source_file: str = "") -> list[Netw
         # 3. Extract External Domains
         for match in _DOMAIN_REGEX.finditer(text_segment):
             domain_candidate = match.group(0).lower().rstrip(".,;)>]\"'")
+
+            # Reject programmatic function calls like not.a.domain.com(...)
+            end_pos = match.end()
+            trailing = text_segment[end_pos:].lstrip()
+            if trailing.startswith("(") or trailing.startswith("[") or trailing.startswith("="):
+                continue
+
+            start_pos = match.start()
+            leading = text_segment[:start_pos].rstrip()
+            if leading.endswith(
+                (
+                    "def ",
+                    "class ",
+                    "import ",
+                    "from ",
+                    "function ",
+                    "return ",
+                    "await ",
+                    "async ",
+                    "const ",
+                    "let ",
+                    "var ",
+                    "val ",
+                    "func ",
+                )
+            ):
+                continue
+
+            # Reject if preceded by method access dots or symbols
+            if start_pos > 0 and text_segment[start_pos - 1] in (".", "$", ">", ":", "\\"):
+                continue
+
             if (
                 domain_candidate not in seen
                 and "/"

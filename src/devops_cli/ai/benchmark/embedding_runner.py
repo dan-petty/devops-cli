@@ -109,14 +109,15 @@ class EmbeddingBenchmarkRunner:
         if endpoint and (":11434" in endpoint or "ollama" in endpoint):
             resolved_provider = "ollama"
 
+        allow_priv = self.settings.ai.allow_private_network
         ai_kwargs: dict[str, Any] = {
             "provider": resolved_provider,
-            "allow_private_network": True,
+            "allow_private_network": allow_priv,
             "rag": {"embedding_model": clean_model},
         }
 
         if endpoint:
-            clean_endpoint = validate_url(endpoint, "benchmark server", allow_private=True)
+            clean_endpoint = validate_url(endpoint, "benchmark server", allow_private=allow_priv)
             ai_kwargs["ollama_urls"] = [clean_endpoint]
             ai_kwargs["api_base_url"] = clean_endpoint
 

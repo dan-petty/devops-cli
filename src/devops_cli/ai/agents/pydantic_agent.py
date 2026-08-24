@@ -47,6 +47,23 @@ class AgentTool(BaseModel):
     func: Callable[..., Any]
     parameters: dict[str, Any] = Field(default_factory=dict)
 
+    def validate_args(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Validate and filter tool arguments against the declared parameter schema."""
+        if not self.parameters:
+            return args
+        valid_params = set(self.parameters.keys())
+        clean_args: dict[str, Any] = {}
+        for k, v in args.items():
+            if k in valid_params:
+                # Basic safety check on path parameters against traversal attacks
+                if isinstance(v, str) and any(key in k.lower() for key in ("path", "file", "dest")):
+                    if ".." in v and not v.startswith("."):
+                        raise ValueError(
+                            f"Path traversal sequence detected in parameter '{k}': {v}"
+                        )
+                clean_args[k] = v
+        return clean_args
+
     def execute(self, **kwargs: Any) -> Any:
         """Invoke the tool callback with kwargs."""
         return self.func(**kwargs)
@@ -120,7 +137,13 @@ class PydanticAgent[T]:
         prompt_parts: list[str] = [self.system_prompt.strip()]
 
         if self.memory and self.memory.summary:
-            prompt_parts.append(f"## Prior Interaction & Memory Summary\n{self.memory.summary}")
+            raw_summary = self.memory.summary.strip()
+            sanitized_summary = "".join(
+                c for c in raw_summary.replace("\n", " ") if 32 <= ord(c) <= 126
+            )
+            if len(sanitized_summary) > 1000:
+                sanitized_summary = sanitized_summary[:997] + "..."
+            prompt_parts.append(f"## Prior Interaction & Memory Summary\n{sanitized_summary}")
 
         if self._tools:
             tools_desc: list[str] = []
@@ -216,12 +239,24 @@ class PydanticAgent[T]:
                     args = tc_info.arguments
                     if tool_name in self._tools:
                         tool_obj = self._tools[tool_name]
-                        valid_params = set(tool_obj.parameters.keys())
-                        clean_args = (
-                            {k: v for k, v in args.items() if k in valid_params}
-                            if valid_params
-                            else args
-                        )
+                        try:
+                            clean_args = tool_obj.validate_args(args)
+                        except Exception as exc:
+                            tool_result = f"Tool argument validation error for {tool_name}: {exc}"
+                            tc = ToolCall(tool_name=tool_name, arguments=args, result=tool_result)
+                            tool_calls.append(tc)
+                            executed_any = True
+                            messages.append(ChatMessage(role="assistant", content=response_text))
+                            messages.append(
+                                ChatMessage(
+                                    role="user",
+                                    content=_TOOL_FEEDBACK_TEMPLATE.format(
+                                        tool_name=tool_name,
+                                        tool_result=json.dumps(tool_result, default=str),
+                                    ),
+                                )
+                            )
+                            continue
 
                         # Prevent infinite tool repetition loops
                         prior = next(

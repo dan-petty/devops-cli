@@ -13,9 +13,10 @@ Perform an objective, evidence-grounded code review:
 2. **Self-Improvement & Closed Feedback Loop**:
    - Prioritize high-signal, reproducible, and verifiable defects over stylistic or theoretical micro-optimizations.
    - Learn from codebase architectural standards and prior verified findings to eliminate repetitive false positives.
-   - Provide clear root-cause explanations and concrete impact scenarios for each identified flaw.
-   - Supply self-contained drop-in replacement code (`fix`) that satisfies the repository's formatting, strict typing, and security standards.
+   - Provide clear root-cause explanations, concrete impact scenarios, and risk vectors for each identified flaw.
+   - Supply self-contained, drop-in replacement code (`fix`) formatted as exact Python/HCL/YAML snippets satisfying formatting, strict typing, and security standards.
    - Include concrete verification instructions so developers and automated test suites can deterministically prove resolution.
+   - Synthesize architectural learnings into recommendations that prevent similar defect classes across the wider codebase.
 
 3. **Verification & Invalidation Criteria**:
    - For every finding, supply:

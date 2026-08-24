@@ -9,6 +9,7 @@ All configuration options for `devops-cli` can be overridden via environment var
 | `DEVOPS_CLI_AI_API_KEY` | `ai.api_key` | 🔒 Yes | AI API key (stored in OS keyring) |
 | `DEVOPS_CLI_AI_MAX_RETRIES` | `ai.max_retries` | No | Maximum retry count for AI requests upon response validation failure |
 | `DEVOPS_CLI_AI_MODEL` | `ai.model` | No | Default AI model name |
+| `DEVOPS_CLI_AI_OLLAMA_MAX_PARALLEL` | `ai.ollama_max_parallel` | No | Maximum parallel requests per Ollama host |
 | `DEVOPS_CLI_AI_OLLAMA_URLS` | `ai.ollama_urls` | No | Ollama service URLs (comma-separated) |
 | `DEVOPS_CLI_AI_PROVIDER` | `ai.provider` | No | AI provider (ollama \| claude \| copilot \| openai) |
 | `DEVOPS_CLI_AI_TASK_ANALYSIS_MODEL` | `ai.tasks.analysis.model` | No | AI model override for analysis task |

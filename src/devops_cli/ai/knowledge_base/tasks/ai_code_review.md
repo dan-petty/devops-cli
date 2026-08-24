@@ -25,9 +25,11 @@ graph TD
   - `auditor`: Evaluates compliance, license risks, and log sanitization.
   - `qa`: Evaluates edge cases, exception handling, and test isolation.
   - `pm`: Evaluates documentation sync, changelog updates, and user requirements.
-- **Closed-Loop Verification**:
-  - `verify_finding`: Calibrates confidence scores and runs AST/test checks to eliminate false positives.
-  - Patch generation: Synthesizes concrete, drop-in remediations for reported findings.
+- **Closed-Loop Feedback & Self-Improvement**:
+  - `verify_finding`: Tests observable verification and invalidation criteria against visible code and AST structures to eliminate false positives.
+  - **Confidence Calibration**: Weighs findings based on concrete criteria satisfaction, discarding unverified or mitigated items.
+  - **Self-Healing & Patch Application**: Generates drop-in remediation code patches that can be applied and verified against automated CI quality gates.
+  - **Continuous Knowledge Feedback**: Synthesizes recurrent review findings into repository architecture guides and test fixtures to prevent recurrence.
 
 ---
 

@@ -27,10 +27,12 @@ def _client() -> Any:
 
         docker_host = os.environ.get("DOCKER_HOST", "").strip()
         if docker_host.startswith(("tcp://", "http://", "https://")):
+            from devops_cli.config.settings import load_settings
             from devops_cli.core.validation import validate_service_url
 
+            settings = load_settings()
             http_url = docker_host.replace("tcp://", "http://", 1)
-            validate_service_url(http_url, "Docker Host", allow=True)
+            validate_service_url(http_url, "Docker Host", allow=settings.ai.allow_private_network)
 
         return docker.from_env(timeout=int(DEFAULT_DOCKER_TIMEOUT_SECONDS))
     except (ImportError, DockerException, ValueError) as exc:

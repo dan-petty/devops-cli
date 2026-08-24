@@ -339,3 +339,42 @@ def test_extract_network_references_json_and_yaml_scalars() -> None:
     assert "https://telemetry.custom-service.io/traces" in targets_yaml
     assert "traces.custom-service.io" in targets_yaml
     assert "8.8.8.8" in targets_yaml
+
+
+def test_extract_network_references_function_calls_and_workspace_files() -> None:
+    """Ensure function calls and workspace files are not extracted as external domains."""
+    content = """
+    # Programmatic function calls
+    result = not.a.domain.com("arg1", 42)
+    response = service.client.call(endpoint="test")
+    val = helper.utils.format(data)
+
+    # Workspace filenames and components
+    file1 = "auth.py"
+    file2 = "server.py"
+    file3 = "logging.py"
+    file4 = "test_reference_extractor.py"
+    file5 = "review.py"
+
+    # Legitimate external domain and URL
+    legit_domain = "metrics.telemetry-cloud.io"
+    legit_url = "https://dashboard.production-network.net/status"
+    """
+    refs = extract_network_references(content, "src/devops_cli/example.py")
+    targets = {r.target for r in refs}
+
+    # Function calls must NOT be matched as domains
+    assert "not.a.domain.com" not in targets
+    assert "service.client.call" not in targets
+    assert "helper.utils.format" not in targets
+
+    # Workspace files must NOT be matched as external domains
+    assert "auth.py" not in targets
+    assert "server.py" not in targets
+    assert "logging.py" not in targets
+    assert "test_reference_extractor.py" not in targets
+    assert "review.py" not in targets
+
+    # Legitimate external references must be extracted
+    assert "metrics.telemetry-cloud.io" in targets
+    assert "https://dashboard.production-network.net/status" in targets
