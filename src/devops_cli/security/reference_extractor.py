@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import ast
+import builtins
 import functools
 import io
 import ipaddress
 import json
+import keyword
 import logging
 import mimetypes
 import os
 import re
+import sys
 import textwrap
 import tokenize
 import tomllib
@@ -28,6 +31,11 @@ logger = logging.getLogger(__name__)
 
 # Ensure standard MIME types are initialized from system registry
 mimetypes.init()
+mimetypes.add_type("text/x-template", ".in")
+mimetypes.add_type("text/x-lock", ".lock")
+mimetypes.add_type("text/x-terraform", ".tf")
+mimetypes.add_type("text/x-terraform-vars", ".tfvars")
+mimetypes.add_type("text/x-hcl", ".hcl")
 
 _TLD_EXTRACTOR = tldextract.TLDExtract(cache_dir=None)
 
@@ -159,25 +167,6 @@ def is_file_reference(target: str, source_file: str = "") -> bool:
     if "/" in clean or "\\" in clean or clean.startswith("."):
         return True
 
-    # Standard manifest and build definition file basenames
-    if clean in {
-        "requirements.in",
-        "requirements.txt",
-        "requirements-dev.txt",
-        "pyproject.toml",
-        "package.json",
-        "package-lock.json",
-        "cargo.toml",
-        "cargo.lock",
-        "go.mod",
-        "go.sum",
-        "dockerfile",
-        "makefile",
-        "jenkinsfile",
-        "cmakelists.txt",
-    }:
-        return True
-
     exact_names, all_paths = _get_workspace_filenames(str(Path.cwd().resolve()))
 
     # 1. Exact match against any filename or relative path across workspace in recursive file search
@@ -208,15 +197,19 @@ def is_file_reference(target: str, source_file: str = "") -> bool:
                     if (sibling / target_path).is_file():
                         return True
 
+    # 5. Standard MIME type database resolution (for non-PSL domain formats like .py, .json, .xml)
+    ext = _TLD_EXTRACTOR(clean)
+    if not ext.domain or not ext.suffix:
+        mime_type, _ = mimetypes.guess_type(clean)
+        if mime_type is not None:
+            return True
+
     return False
 
 
 @functools.lru_cache(maxsize=4096)
 def is_code_or_config_reference(target: str, source_file: str = "") -> bool:
     """Differentiate code identifiers, method chains, and config keys from network hosts."""
-    import keyword
-    import sys
-
     clean = target.strip().rstrip(".,;)>]\"'")
 
     # Programmatic function calls like not.a.domain.com(...)
@@ -232,50 +225,22 @@ def is_code_or_config_reference(target: str, source_file: str = "") -> bool:
         return True
 
     first_seg = parts[0].lower()
+    last_seg = parts[-1].lower()
 
-    # Standard Python keywords, builtins, and standard library root modules
+    # Standard Python keywords and builtins (e.g. dir(builtins))
+    builtin_names = set(dir(builtins))
     stdlib_names = getattr(sys, "stdlib_module_names", set()) | set(sys.builtin_module_names)
 
-    # If it's a 2-segment token like self.host, user.name, m.group, app.run
-    if len(parts) == 2:
-        if (
-            keyword.iskeyword(first_seg)
-            or first_seg in stdlib_names
-            or first_seg
-            in (
-                "self",
-                "cls",
-                "this",
-                "super",
-                "user",
-                "window",
-                "document",
-                "process",
-                "console",
-                "req",
-                "res",
-                "event",
-                "err",
-                "error",
-                "app",
-                "db",
-                "m",
-                "r",
-                "val",
-                "data",
-                "config",
-                "cfg",
-                "node",
-                "cluster",
-                "service",
-                "helper",
-                "client",
-            )
-        ):
-            return True
+    # If first segment is a language keyword or stdlib root module (e.g. subprocess.run, os.path)
+    if keyword.iskeyword(first_seg) or first_seg in stdlib_names:
+        return True
 
-    # If it represents a direct file reference in the workspace
-    if is_file_reference(clean, source_file=source_file):
+    # If last segment is a keyword or builtin attribute in 2-segment expression
+    if keyword.iskeyword(last_seg) or (len(parts) == 2 and last_seg in builtin_names):
+        return True
+
+    # Single-letter variable receiver (e.g. m.group, r.json, f.read)
+    if len(first_seg) == 1 and len(parts) == 2:
         return True
 
     # Check if identifier path maps to a local directory, package, or python source module
@@ -300,28 +265,6 @@ def is_code_or_config_reference(target: str, source_file: str = "") -> bool:
     ext = _TLD_EXTRACTOR(clean)
     if not ext.domain or not ext.suffix:
         return True
-
-    # If public suffix extractor identifies code suffixes like .py, .sh, .id, .name
-    if ext.suffix in ("id", "name", "ai", "py", "sh", "rs", "go", "ts", "js", "rb", "tf"):
-        if is_file_reference(clean, source_file=source_file):
-            return True
-        if len(parts) == 2 or first_seg in stdlib_names or (Path.cwd() / first_seg).exists():
-            return True
-
-    # Standard programming method call or attribute chains (e.g. helper.utils.format)
-    if first_seg in ("helper", "service", "client", "utils", "mock", "stub", "fixture"):
-        return True
-
-    for top_dir in Path.cwd().iterdir():
-        if top_dir.is_dir() and not top_dir.name.startswith("."):
-            sub_p = top_dir / alt_path
-            if sub_p.is_dir() or (top_dir / (clean.replace(".", "/") + ".py")).is_file():
-                return True
-            for nested in top_dir.iterdir():
-                if nested.is_dir() and not nested.name.startswith("."):
-                    nested_p = nested / alt_path
-                    if nested_p.is_dir() or (nested / (clean.replace(".", "/") + ".py")).is_file():
-                        return True
 
     return False
 
@@ -564,26 +507,6 @@ def extract_network_references(content: str, source_file: str = "") -> list[Netw
                 continue
 
             start_pos = match.start()
-            leading = text_segment[:start_pos].rstrip()
-            if leading.endswith(
-                (
-                    "def ",
-                    "class ",
-                    "import ",
-                    "from ",
-                    "function ",
-                    "return ",
-                    "await ",
-                    "async ",
-                    "const ",
-                    "let ",
-                    "var ",
-                    "val ",
-                    "func ",
-                )
-            ):
-                continue
-
             # Reject if preceded by method access dots or symbols
             if start_pos > 0 and text_segment[start_pos - 1] in (".", "$", ">", ":", "\\"):
                 continue
