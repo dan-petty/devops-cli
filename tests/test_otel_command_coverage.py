@@ -212,8 +212,8 @@ def test_span_handle_attribute_mutation() -> None:
     assert attrs["b"] == 2
 
 
-def test_all_28_command_specs_registered() -> None:
-    """Verify that all 28 CLI command specs are present in _COMMAND_SPECS."""
+def test_all_command_specs_registered() -> None:
+    """Verify that all CLI command specs are present in _COMMAND_SPECS."""
     expected_commands = {
         "repos",
         "ssh",
@@ -243,6 +243,7 @@ def test_all_28_command_specs_registered() -> None:
         "cert",
         "telemetry",
         "otel",
+        "serve",
     }
     assert set(_COMMAND_SPECS.keys()) == expected_commands
 
