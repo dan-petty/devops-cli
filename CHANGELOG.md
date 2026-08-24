@@ -5,13 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.2.0] - Unreleased
+## [0.2.0] - 2026-08-24
 
 ### Added
+- **Published DevContainer Image Scaffolding Engine (`devops devcontainer init`, `devops_cli.commands.devcontainer`)**:
+  - `devops devcontainer init` now defaults to the pre-built, published container image `ghcr.io/dan-petty/devops-cli/devcontainer:latest`.
+  - Streamlined `devcontainer.json` generation omitting redundant feature blocks when using the published image, eliminating unnecessary tool builds in child repositories.
+  - Added `--home-volume` option to configure custom persistent `/home/vscode` named volumes.
+  - Added `--force` (`-f`) flag for in-place re-scaffolding of `.devcontainer/` and `.vscode/mcp.json`.
+- **Pre-baked DevContainer Dockerfile & uv Integration**:
+  - Created `.devcontainer/Dockerfile` pre-baking standalone `uv` and `uvx` binaries from `ghcr.io/astral-sh/uv:latest` and installing `devops-cli` globally.
+  - Added self-bootstrapping lifecycle hooks in `postCreateCommand` for seamless container startup across all target repositories.
+- **Pull Request DevContainer Image Publishing (`.github/workflows/ci.yml`)**:
+  - Added automated GitHub Container Registry (GHCR) image builds for Pull Requests tagged with `pr-<number>` (without the `latest` tag) to enable pre-merge devcontainer validation.
 
 ### Changed
-
-### Fixed
+- **Default Git Configuration**:
+  - Automatically configured default branch `main` and `push.autoSetupRemote true` across DevContainer post-start lifecycles.
+- **Pure uv Toolchain Standardization**:
+  - Replaced legacy pip invocations across all Dockerfile builds and devcontainer templates with pure `uv` commands (`uv tool install` and `uv pip install --system`).
 
 ## [0.1.13] - 2026-08-24
 
