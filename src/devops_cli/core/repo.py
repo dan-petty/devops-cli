@@ -45,16 +45,14 @@ def read_gitignore_patterns(repo_root: Path) -> list[str]:
     if not gitignore_file.is_file():
         return []
 
-    patterns: list[str] = []
     try:
-        content = gitignore_file.read_text(encoding="utf-8", errors="replace")
-        for line in content.splitlines():
-            line_str = line.strip()
-            if line_str and not line_str.startswith("#"):
-                patterns.append(line_str)
+        return [
+            line.strip()
+            for line in gitignore_file.read_text(encoding="utf-8", errors="replace").splitlines()
+            if line.strip() and not line.strip().startswith("#")
+        ]
     except Exception:
-        pass
-    return patterns
+        return []
 
 
 def is_ignored_by_git(repo_root: Path, target_path: Path) -> bool:

@@ -181,12 +181,12 @@ codebase or reviewing target repositories.
 
 - **High Reliability & Quality First**: Build robust, resilient workstation automation and developer
   tooling with defensive error handling, explicit timeouts, and zero tolerance for flaky tests.
-- **Architectural Flexibility & Clean Design**: Prioritize clean abstractions, SOLID principles,
-  high cohesion, and low coupling. Prefer idiomatic, modern language constructs over rigid or
-  incidental legacy patterns.
+- **Poetic Conciseness & Architectural Elegance**: The codebase is an expressive, poetically concise
+  integration of tools, libraries, docs, AI, and automation. Prefer clean functional pipelines,
+  Pydantic models, and standard library composition over low-level nested loops or ad-hoc parsing.
 - **Modern Python Ecosystem**: Track modern Python 3.14+ runtime features, typing standards, and
-  established open-source libraries (`pydantic v2`, `httpx`, `pytest`, `ruff`, `mypy`). Avoid
-  custom workarounds when standard library or robust open-source tools exist.
+  established open-source libraries (`pydantic v2`, `httpx2`, `pytest`, `ruff`, `mypy`, `uv.lock`).
+  Avoid custom workarounds when standard library or robust open-source tools exist.
 - **Zero-Trust Security & Egress Safety**:
   - Never store plaintext secrets or tokens in code, configuration files, or logs. Always use OS
     Keyring or secure secret stores.
