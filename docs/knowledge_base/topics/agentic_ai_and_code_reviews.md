@@ -45,7 +45,7 @@ AI assistants operate best when provided with a single authoritative source of t
 devops review branch --persona devsecops
 
 # Review an entire target project path
-devops review path /workspaces/devops-cli/repos/dan-petty/gdot-local-dev
+devops review path repos/dan-petty/gdot-local-dev
 
 # Scaffold AI agent instructions across child repositories
 devops ai agents --repo repos/dan-petty/gdot-local-dev --template
@@ -83,8 +83,8 @@ devops rag index docs/
 
 ## 7. Official References & Published Artifacts
 
-- **DevOps CLI AI Review Module**: [src/devops_cli/ai/review.py](file:///workspaces/devops-cli/src/devops_cli/ai/review.py)
-- **AI Task Prompt Definitions**: [src/devops_cli/ai/tasks/](file:///workspaces/devops-cli/src/devops_cli/ai/tasks/)
+- **DevOps CLI AI Review Module**: [src/devops_cli/ai/review.py](../../../src/devops_cli/ai/review.py)
+- **AI Task Prompt Definitions**: [src/devops_cli/ai/tasks/](../../../src/devops_cli/ai/tasks/)
 - **Ollama Project**: [ollama.com](https://ollama.com/) | [github.com/ollama/ollama](https://github.com/ollama/ollama)
 - **Anthropic Claude API**: [docs.anthropic.com](https://docs.anthropic.com/)
 - **Model Context Protocol (MCP)**: [modelcontextprotocol.io](https://modelcontextprotocol.io/)

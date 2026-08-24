@@ -88,4 +88,4 @@ kubectl top pods --all-namespaces
 - **Project Homepage**: [Kubernetes kubectl Reference](https://kubernetes.io/docs/reference/kubectl/)
 - **Public Git Repository**: [github.com/kubernetes/kubectl](https://github.com/kubernetes/kubectl)
 - **Official Kubernetes Releases**: [dl.k8s.io/release](https://dl.k8s.io/release/)
-- **DevOps CLI Kubernetes Engine**: [src/devops_cli/commands/k8s.py](file:///workspaces/devops-cli/src/devops_cli/commands/k8s.py)
+- **DevOps CLI Kubernetes Engine**: [src/devops_cli/commands/k8s.py](../../../src/devops_cli/commands/k8s.py)

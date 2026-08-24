@@ -39,7 +39,7 @@ graph TD
 devops review branch
 
 # Review an entire target path or child repository
-devops review path /workspaces/devops-cli/repos/dan-petty/gdot-local-dev
+devops review path repos/dan-petty/gdot-local-dev
 
 # Review a specific GitHub pull request by number
 devops review pr 17
@@ -79,6 +79,6 @@ devops review branch --export-md .data/reviews/review-report.md
 ## 7. Official References & Published Artifacts
 
 - **DevOps CLI Repository**: [github.com/dan-petty/devops-cli](https://github.com/dan-petty/devops-cli)
-- **Review Pipeline Engine**: [src/devops_cli/ai/review.py](file:///workspaces/devops-cli/src/devops_cli/ai/review.py)
-- **Persona Prompt Task Definitions**: [src/devops_cli/ai/tasks/](file:///workspaces/devops-cli/src/devops_cli/ai/tasks/)
+- **Review Pipeline Engine**: [src/devops_cli/ai/review.py](../../../src/devops_cli/ai/review.py)
+- **Persona Prompt Task Definitions**: [src/devops_cli/ai/tasks/](../../../src/devops_cli/ai/tasks/)
 - **Target Repository Example**: [github.com/dan-petty/gdot-local-dev](https://github.com/dan-petty/gdot-local-dev)

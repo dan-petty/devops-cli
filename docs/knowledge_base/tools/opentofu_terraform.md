@@ -108,4 +108,4 @@ tofu import aws_s3_bucket.data_lake my-bucket-name
 - **Public Git Repository**: [github.com/opentofu/opentofu](https://github.com/opentofu/opentofu)
 - **OpenTofu Registry**: [search.opentofu.org](https://search.opentofu.org/)
 - **Terraform Documentation**: [developer.hashicorp.com/terraform](https://developer.hashicorp.com/terraform)
-- **DevOps CLI OpenTofu Engine**: [src/devops_cli/commands/tf.py](file:///workspaces/devops-cli/src/devops_cli/commands/tf.py)
+- **DevOps CLI OpenTofu Engine**: [src/devops_cli/commands/tf.py](../../../src/devops_cli/commands/tf.py)

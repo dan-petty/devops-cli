@@ -30,10 +30,10 @@ graph TD
 ### Scaffolding Commands
 ```bash
 # Scaffold or synchronize agent instructions in a target repository
-devops ai agents --repo /workspaces/devops-cli/repos/dan-petty/gdot-local-dev --template
+devops ai agents --repo repos/dan-petty/gdot-local-dev --template
 
 # Overwrite existing instruction files with force flag
-devops ai agents --repo /workspaces/devops-cli/repos/dan-petty/gdot-local-dev --force
+devops ai agents --repo repos/dan-petty/gdot-local-dev --force
 
 # Automatically scaffolded during devcontainer initialization
 devops devcontainer init
@@ -70,7 +70,7 @@ devops devcontainer post-create
 
 ## 7. Official References & Published Artifacts
 
-- **DevOps CLI Agent Guidelines**: [AGENTS.md](file:///workspaces/devops-cli/AGENTS.md)
-- **GDOT Agent Guidelines**: [repos/dan-petty/gdot-local-dev/AGENTS.md](file:///workspaces/devops-cli/repos/dan-petty/gdot-local-dev/AGENTS.md)
-- **Instruction Generator Module**: [src/devops_cli/ai/instruction_generator.py](file:///workspaces/devops-cli/src/devops_cli/ai/instruction_generator.py)
-- **AI Command Module**: [src/devops_cli/commands/ai.py](file:///workspaces/devops-cli/src/devops_cli/commands/ai.py)
+- **DevOps CLI Agent Guidelines**: [AGENTS.md](../../../AGENTS.md)
+- **GDOT Agent Guidelines**: [repos/dan-petty/gdot-local-dev/AGENTS.md](../../../repos/dan-petty/gdot-local-dev/AGENTS.md)
+- **Instruction Generator Module**: [src/devops_cli/ai/instruction_generator.py](../../../src/devops_cli/ai/instruction_generator.py)
+- **AI Command Module**: [src/devops_cli/commands/ai.py](../../../src/devops_cli/commands/ai.py)

@@ -9,7 +9,7 @@ Repository and multi-root workspace management in `devops-cli` provides automate
 ## 2. Architecture & Workspace Structure
 
 ```text
-/workspaces/devops-cli/
+./
 ├── src/devops_cli/         # Primary devops-cli codebase
 ├── repos/                  # Child multi-repo root
 │   └── dan-petty/
@@ -74,5 +74,5 @@ devops workspace list
 
 - **DevOps CLI Repository**: [github.com/dan-petty/devops-cli](https://github.com/dan-petty/devops-cli)
 - **GDOT Child Workspace**: [github.com/dan-petty/gdot-local-dev](https://github.com/dan-petty/gdot-local-dev)
-- **DevOps CLI Workspace Module**: [src/devops_cli/commands/workspace.py](file:///workspaces/devops-cli/src/devops_cli/commands/workspace.py)
-- **DevOps CLI Repos Module**: [src/devops_cli/commands/repos.py](file:///workspaces/devops-cli/src/devops_cli/commands/repos.py)
+- **DevOps CLI Workspace Module**: [src/devops_cli/commands/workspace.py](../../../src/devops_cli/commands/workspace.py)
+- **DevOps CLI Repos Module**: [src/devops_cli/commands/repos.py](../../../src/devops_cli/commands/repos.py)

@@ -86,4 +86,4 @@ devops tofu status --path tf/aws
 - **OpenTofu Project**: [opentofu.org](https://opentofu.org/) | [github.com/opentofu/opentofu](https://github.com/opentofu/opentofu)
 - **OpenTofu Registry**: [search.opentofu.org](https://search.opentofu.org/)
 - **Terraform Documentation**: [developer.hashicorp.com/terraform](https://developer.hashicorp.com/terraform)
-- **DevOps CLI IaC Subsystem**: [src/devops_cli/commands/tf.py](file:///workspaces/devops-cli/src/devops_cli/commands/tf.py)
+- **DevOps CLI IaC Subsystem**: [src/devops_cli/commands/tf.py](../../../src/devops_cli/commands/tf.py)

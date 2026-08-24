@@ -87,5 +87,5 @@ devops ci
 ## 7. Official References & Published Artifacts
 
 - **DevOps CLI Repository**: [github.com/dan-petty/devops-cli](https://github.com/dan-petty/devops-cli)
-- **CI Quality Gate Command**: [src/devops_cli/commands/ci.py](file:///workspaces/devops-cli/src/devops_cli/commands/ci.py)
-- **GitHub Actions CI Workflow**: [.github/workflows/ci.yml](file:///workspaces/devops-cli/.github/workflows/ci.yml)
+- **CI Quality Gate Command**: [src/devops_cli/commands/ci.py](../../../src/devops_cli/commands/ci.py)
+- **GitHub Actions CI Workflow**: [.github/workflows/ci.yml](../../../.github/workflows/ci.yml)

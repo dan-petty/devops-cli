@@ -87,4 +87,4 @@ gh release download v0.2.0 --pattern "*.tar.gz"
 - **Project Homepage**: [cli.github.com](https://cli.github.com/)
 - **Public Git Repository**: [github.com/cli/cli](https://github.com/cli/cli)
 - **DevOps CLI Repository**: [github.com/dan-petty/devops-cli](https://github.com/dan-petty/devops-cli)
-- **DevOps CLI GitHub Client**: [src/devops_cli/github/client.py](file:///workspaces/devops-cli/src/devops_cli/github/client.py)
+- **DevOps CLI GitHub Client**: [src/devops_cli/github/client.py](../../../src/devops_cli/github/client.py)

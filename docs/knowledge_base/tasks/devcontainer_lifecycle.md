@@ -76,5 +76,5 @@ devops devcontainer post-start --dry-run
 
 - **DevContainer Specification**: [containers.dev](https://containers.dev/)
 - **Published Container Package**: [`ghcr.io/dan-petty/devops-cli/devcontainer:latest`](https://github.com/dan-petty/devops-cli/pkgs/container/devops-cli%2Fdevcontainer)
-- **DevContainer Command Module**: [src/devops_cli/commands/devcontainer.py](file:///workspaces/devops-cli/src/devops_cli/commands/devcontainer.py)
-- **DevContainer Usage Guide**: [docs/DEVCONTAINER_USAGE.md](file:///workspaces/devops-cli/docs/DEVCONTAINER_USAGE.md)
+- **DevContainer Command Module**: [src/devops_cli/commands/devcontainer.py](../../../src/devops_cli/commands/devcontainer.py)
+- **DevContainer Usage Guide**: [docs/DEVCONTAINER_USAGE.md](../../DEVCONTAINER_USAGE.md)

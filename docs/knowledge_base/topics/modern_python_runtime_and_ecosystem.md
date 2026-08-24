@@ -82,7 +82,7 @@ def inspect_project_metadata(repo_path: Path) -> dict[str, str]:
 
 - **Runtime Version**: Python `>=3.14`.
 - **Linter Rule Standard**: 100 character line length (`E501`).
-- **Configuration Root**: Centrally declared in [`pyproject.toml`](file:///workspaces/devops-cli/pyproject.toml).
+- **Configuration Root**: Centrally declared in [`pyproject.toml`](../../../pyproject.toml).
 
 ---
 

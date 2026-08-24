@@ -22,7 +22,7 @@ Trivy (by Aqua Security) is a comprehensive, open-source security scanner. It de
 devops scan image ghcr.io/dan-petty/devops-cli/devcontainer:latest
 
 # Scan a local repository filesystem for CVEs and misconfigurations
-devops scan fs /workspaces/devops-cli
+devops scan fs .
 
 # Scan Kubernetes manifests for security misconfigurations
 devops scan k8s k8s/
@@ -76,4 +76,4 @@ trivy image --ignore-unfixed ghcr.io/dan-petty/devops-cli/devcontainer:latest
 - **Project Homepage**: [trivy.dev](https://trivy.dev/)
 - **Public Git Repository**: [github.com/aquasecurity/trivy](https://github.com/aquasecurity/trivy)
 - **Published Container Image**: [hub.docker.com/r/aquasec/trivy](https://hub.docker.com/r/aquasec/trivy)
-- **DevOps CLI Scanner Engine**: [src/devops_cli/security/trivy.py](file:///workspaces/devops-cli/src/devops_cli/security/trivy.py)
+- **DevOps CLI Scanner Engine**: [src/devops_cli/security/trivy.py](../../../src/devops_cli/security/trivy.py)

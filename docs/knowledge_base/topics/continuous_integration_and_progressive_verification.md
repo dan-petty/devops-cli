@@ -91,8 +91,8 @@ gh run list --branch release/v0.2.0 -L 5
 
 ## 7. Official References & Published Artifacts
 
-- **DevOps CLI CI Module**: [src/devops_cli/commands/ci.py](file:///workspaces/devops-cli/src/devops_cli/commands/ci.py)
-- **GitHub Actions Workflow**: [.github/workflows/ci.yml](file:///workspaces/devops-cli/.github/workflows/ci.yml)
+- **DevOps CLI CI Module**: [src/devops_cli/commands/ci.py](../../../src/devops_cli/commands/ci.py)
+- **GitHub Actions Workflow**: [.github/workflows/ci.yml](../../../.github/workflows/ci.yml)
 - **Actionlint Project**: [github.com/rhysd/actionlint](https://github.com/rhysd/actionlint)
 - **Pytest Documentation**: [pytest.org](https://docs.pytest.org/)
 - **Ruff Documentation**: [astral.sh/ruff](https://astral.sh/ruff)

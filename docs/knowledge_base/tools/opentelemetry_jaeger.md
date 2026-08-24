@@ -103,4 +103,4 @@ curl -X POST http://localhost:4318/v1/traces \
   - [github.com/open-telemetry/opentelemetry-python](https://github.com/open-telemetry/opentelemetry-python)
   - [github.com/jaegertracing/jaeger](https://github.com/jaegertracing/jaeger)
 - **Published Container Image**: [hub.docker.com/r/jaegertracing/all-in-one](https://hub.docker.com/r/jaegertracing/all-in-one)
-- **DevOps CLI Telemetry Client**: [src/devops_cli/telemetry/tracer.py](file:///workspaces/devops-cli/src/devops_cli/telemetry/tracer.py)
+- **DevOps CLI Telemetry Client**: [src/devops_cli/telemetry/tracer.py](../../../src/devops_cli/telemetry/tracer.py)

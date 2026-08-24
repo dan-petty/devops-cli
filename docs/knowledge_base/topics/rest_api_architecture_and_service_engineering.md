@@ -85,5 +85,5 @@ curl -s http://localhost:8000/metrics
 
 - **FastAPI Documentation**: [fastapi.tiangolo.com](https://fastapi.tiangolo.com/) | [github.com/fastapi/fastapi](https://github.com/fastapi/fastapi)
 - **Uvicorn Documentation**: [uvicorn.org](https://www.uvicorn.org/) | [github.com/encode/uvicorn](https://github.com/encode/uvicorn)
-- **DevOps CLI Server Package**: [src/devops_cli/server/](file:///workspaces/devops-cli/src/devops_cli/server/)
-- **Serve Command**: [src/devops_cli/commands/serve.py](file:///workspaces/devops-cli/src/devops_cli/commands/serve.py)
+- **DevOps CLI Server Package**: [src/devops_cli/server/](../../../src/devops_cli/server/)
+- **Serve Command**: [src/devops_cli/commands/serve.py](../../../src/devops_cli/commands/serve.py)

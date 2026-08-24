@@ -75,6 +75,6 @@ devops release create-pr --version 0.2.0
 ## 7. Official References & Published Artifacts
 
 - **DevOps CLI Releases**: [github.com/dan-petty/devops-cli/releases](https://github.com/dan-petty/devops-cli/releases)
-- **Release Verification Engine**: [src/devops_cli/release/validator.py](file:///workspaces/devops-cli/src/devops_cli/release/validator.py)
-- **Release Command Module**: [src/devops_cli/commands/release.py](file:///workspaces/devops-cli/src/devops_cli/commands/release.py)
-- **Release Notes Document**: [docs/RELEASE_NOTES.md](file:///workspaces/devops-cli/docs/RELEASE_NOTES.md)
+- **Release Verification Engine**: [src/devops_cli/release/validator.py](../../../src/devops_cli/release/validator.py)
+- **Release Command Module**: [src/devops_cli/commands/release.py](../../../src/devops_cli/commands/release.py)
+- **Release Notes Document**: [docs/RELEASE_NOTES.md](../../RELEASE_NOTES.md)

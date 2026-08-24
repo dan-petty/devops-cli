@@ -70,7 +70,7 @@ bandit -r src/
 
 ## 7. Official References & Published Artifacts
 
-- **DevOps CLI Security Module**: [src/devops_cli/security/](file:///workspaces/devops-cli/src/devops_cli/security/)
-- **SSH Audit Engine**: [src/devops_cli/ssh/audit.py](file:///workspaces/devops-cli/src/devops_cli/ssh/audit.py)
+- **DevOps CLI Security Module**: [src/devops_cli/security/](../../../src/devops_cli/security/)
+- **SSH Audit Engine**: [src/devops_cli/ssh/audit.py](../../../src/devops_cli/ssh/audit.py)
 - **Aqua Security Trivy Scanner**: [github.com/aquasecurity/trivy](https://github.com/aquasecurity/trivy)
 - **PyCQA Bandit Static Analyzer**: [github.com/PyCQA/bandit](https://github.com/PyCQA/bandit)

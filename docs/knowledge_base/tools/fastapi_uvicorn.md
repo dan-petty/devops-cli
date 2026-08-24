@@ -93,4 +93,4 @@ curl -s http://localhost:8000/openapi.json > openapi.json
 - **Official PyPI Packages**:
   - [pypi.org/project/fastapi](https://pypi.org/project/fastapi/)
   - [pypi.org/project/uvicorn](https://pypi.org/project/uvicorn/)
-- **DevOps CLI Server Engine**: [src/devops_cli/server/app.py](file:///workspaces/devops-cli/src/devops_cli/server/app.py)
+- **DevOps CLI Server Engine**: [src/devops_cli/server/app.py](../../../src/devops_cli/server/app.py)
