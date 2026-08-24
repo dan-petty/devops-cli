@@ -56,14 +56,16 @@ uv audit
 ## 4. Best Practice Guidance
 
 1. **Zero Plaintext Secrets**: Never commit tokens, passwords, or credentials to configuration files, `.env` files, or test fixtures.
-2. **Use Ed25519 Keys**: Use modern Ed25519 keys for SSH authentication and Git commit signing (`devops ssh generate --type ed25519`).
-3. **Automate Pre-Commit Scanning**: Enforce security linting (`bandit`, `actionlint`) in pre-commit hooks to catch security issues before remote push.
-4. **Mask Output Logs**: Ensure string representations (`__repr__`) and telemetry exporters mask sensitive variables matching `*token*`, `*key*`, `*secret*`.
+2. **Zero Information Leakage from Private/Gitignored Files**: AI assistants and tooling must never leak, extract, or transcribe data from hidden files (`.env*`, `.ssh/`, `.data/`), private configs, or `.gitignored` paths into documentation, review findings, or code.
+3. **Use Ed25519 Keys**: Use modern Ed25519 keys for SSH authentication and Git commit signing (`devops ssh generate --type ed25519`).
+4. **Automate Pre-Commit Scanning**: Enforce security linting (`bandit`, `actionlint`) in pre-commit hooks to catch security issues before remote push.
+5. **Mask Output Logs**: Ensure string representations (`__repr__`) and telemetry exporters mask sensitive variables matching `*token*`, `*key*`, `*secret*`.
 
 ---
 
 ## 5. Security Recommendations & Zero-Trust Governance
 
+- **Zero Information Leakage**: Prevent extraction of sensitive local environment context, private files, or dotfolders into generated artifacts.
 - **Memory Lifetime**: Keep decrypted secrets in memory only for the minimal duration required to execute authenticated API calls.
 - **Least Privilege Access**: Request minimal required scopes on GitHub Personal Access Tokens and cloud IAM roles.
 - **Subprocess Argument Lists**: Never pass formatted strings to shell interpreters; pass tokenized argument arrays.

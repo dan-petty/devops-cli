@@ -9,6 +9,8 @@ This document provides foundational context, architectural principles, and opera
 - **Modern Python Ecosystem**: Track modern Python 3.14+ runtime features, typing standards, and established open-source libraries (`pydantic v2`, `httpx`, `pytest`, `ruff`, `mypy`). Avoid custom workarounds when standard library or robust open-source tools exist.
 - **Zero-Trust Security & Egress Safety**:
   - Never store plaintext secrets or tokens in code, configuration files, or logs. Always use OS Keyring or secure secret stores.
+  - Never leak, extract, or expose information from hidden, private, or `.gitignored` files (`.env*`, `.ssh/`, `.data/`, local credentials, private keys) into any documents, changelogs, review findings, public commits, or code artifacts.
+  - When constructing documentation, reviews, prompt context, or code examples, always redact, mask, or generalize any sensitive local environments, file system trees, or user identifiers.
   - Mitigate Server-Side Request Forgery (SSRF) and network egress risks by validating destination endpoints.
   - Enforce subprocess safety with explicit command argument lists, bounded timeouts, and error handling.
 
@@ -70,6 +72,7 @@ All work follows a progressive verification strategy to optimize developer feedb
 ## 5. Agentic AI & Review System Guidelines
 
 - **Multi-Persona Code Review**: Review systems should utilize distinct, domain-specialized personas (`devsecops`, `architect`, `pm`, `auditor`, `qa`) to analyze diffs and provide actionable, high-signal feedback.
+- **Zero Information Leakage & Data Privacy**: AI assistants and review systems must never extract, copy, or expose confidential, private, hidden (dotfiles/dotfolders), or `.gitignored` file contents, credentials, system paths, or proprietary data into any documents, review findings, changelogs, public commits, or code artifacts.
 - **Target-Agnostic Code Analysis**: When analyzing or reviewing external repositories (e.g. under `repos/` or local target directories), evaluate code against universal software engineering principles (OWASP Top 10, CIS benchmarks, SOLID, DRY) and the target project's own declared conventions (`AGENTS.md`, `README.md`) rather than coupling to host CLI internal assumptions.
 - **Target Path Resolution & Isolation**: All file reading, AST analysis, security scanning, and dependency lookups on target projects must resolve paths relative to the target root directory (`target_dir`) to prevent host-workspace file collisions.
 - **Pure Markdown Prompt Tasks & Zero Inline LLM Prompts**: All LLM system prompts, task instructions, guardrails, evaluation rubrics, benchmark prompts, and reference criteria must reside in dedicated Markdown files (`.md`) under `src/devops_cli/ai/tasks/`. Never declare multi-line prompt text strings or evaluation criteria inline in Python code.

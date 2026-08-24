@@ -190,6 +190,11 @@ codebase or reviewing target repositories.
 - **Zero-Trust Security & Egress Safety**:
   - Never store plaintext secrets or tokens in code, configuration files, or logs. Always use OS
     Keyring or secure secret stores.
+  - Never leak or extract information from hidden, private, or `.gitignored` files (`.env*`,
+    `.ssh/`, `.data/`, `~/.gemini/`, local credentials, private keys) into any documents,
+    changelogs, review findings, public commits, or code artifacts.
+  - When constructing documentation, reviews, prompt context, or code examples, always redact,
+    mask, or generalize any sensitive local environments, file system trees, or user identifiers.
   - Mitigate Server-Side Request Forgery (SSRF) and network egress risks by validating destination
     endpoints.
   - Enforce subprocess safety with explicit command argument lists, bounded timeouts, and error
