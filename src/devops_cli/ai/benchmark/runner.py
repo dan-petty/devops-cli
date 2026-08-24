@@ -90,7 +90,11 @@ class BenchmarkRunner:
 
         updates: dict[str, Any] = {"model": clean_model}
         if endpoint:
-            clean_endpoint = validate_url(endpoint, "benchmark server", allow_private=True)
+            clean_endpoint = validate_url(
+                endpoint,
+                "benchmark server",
+                allow_private=self.settings.ai.allow_private_network or False,
+            )
             updates["ollama_urls"] = [clean_endpoint]
             updates["api_base_url"] = clean_endpoint
 

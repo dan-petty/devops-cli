@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import subprocess
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -14,6 +13,7 @@ from devops_cli.config.constants import CONST_VSCODE_CLI
 from devops_cli.config.defaults import DEFAULT_SUBPROCESS_SHORT_TIMEOUT_SECONDS
 from devops_cli.config.settings import load_settings
 from devops_cli.core.cli import new_typer
+from devops_cli.core.process import run_subprocess
 from devops_cli.git.operations import iter_workspace_repos
 from devops_cli.lang import ERRORS, HELP, MESSAGES
 
@@ -206,7 +206,7 @@ def open_workspace(
     if not ws_file.exists():
         rprint(f"[red]{ERRORS.workspace.file_not_found.format(ws_file=str(ws_file))}[/red]")
         raise typer.Exit(1)
-    subprocess.run(
+    run_subprocess(
         [CONST_VSCODE_CLI, str(ws_file)],
         check=True,
         timeout=DEFAULT_SUBPROCESS_SHORT_TIMEOUT_SECONDS,

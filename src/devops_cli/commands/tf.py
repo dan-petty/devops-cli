@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import shutil
-import subprocess
 import sys
 from pathlib import Path
 from typing import Annotated
@@ -22,6 +21,7 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.core.cli import new_typer
+from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import find_top_level_repo_root
 from devops_cli.core.validation import validate_dir
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
@@ -107,7 +107,7 @@ def init(
         )
         return
 
-    result = subprocess.run(
+    result = run_subprocess(
         cmd,
         cwd=target,
         check=True,
@@ -153,7 +153,7 @@ def plan(
         )
         return
 
-    result = subprocess.run(
+    result = run_subprocess(
         cmd,
         cwd=target,
         check=True,
@@ -200,7 +200,7 @@ def apply(
         )
         return
 
-    result = subprocess.run(
+    result = run_subprocess(
         cmd,
         cwd=target,
         check=True,
@@ -241,7 +241,7 @@ def destroy(
         )
         return
 
-    result = subprocess.run(
+    result = run_subprocess(
         cmd,
         cwd=target,
         check=True,
@@ -281,7 +281,7 @@ def output(
         )
         return
 
-    result = subprocess.run(
+    result = run_subprocess(
         cmd,
         cwd=target,
         check=True,
@@ -316,7 +316,7 @@ def validate(
         )
         return
 
-    result = subprocess.run(
+    result = run_subprocess(
         cmd,
         cwd=target,
         check=True,
@@ -357,7 +357,7 @@ def fmt(
         )
         return
 
-    result = subprocess.run(
+    result = run_subprocess(
         cmd,
         cwd=target,
         check=True,
@@ -427,7 +427,7 @@ def deploy_cloud(
             target=str(cloud_dir),
         )
     else:
-        subprocess.run(
+        run_subprocess(
             init_cmd,
             cwd=cloud_dir,
             check=True,
@@ -449,7 +449,7 @@ def deploy_cloud(
         )
         return
 
-    subprocess.run(
+    run_subprocess(
         apply_cmd,
         cwd=cloud_dir,
         check=True,

@@ -22,7 +22,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - End-to-end telemetry configuration, status inspection, and OTLP trace export across all CLI operations and AI multi-agent pipelines.
   - Jaeger Query UI and OTLP collector deployment configurations in `k8s/otel/jaeger.yaml`.
 
+- **OpenTelemetry Universal Command Tracing & Span Instrumentation (`devops_cli.telemetry.tracer`)**:
+  - Full end-to-end command tracing spanning CLI subcommands (`branches`, `devcontainer`, `docker`, `github`, `install_tools`, `k8s`, `kustomize`, `mcp`, `pr`, `release`, `scan`, `tf`, `tls`, `tofu`, `uv`, `workspace`).
+  - Trace span lifecycle attributes, sanitized arguments, duration tracking, error status recording, and custom OTLP header authentication support.
+
 ### Changed
+- **Review Schema & Finding Deduplication Hardening (`devops_cli.ai.review_schema`)**:
+  - Eliminated fragile literal collections, ad-hoc string lists, and keyword regex heuristics in favor of clean structural schema validation and standard path parsing.
+  - Robust set-based token similarity with universal token length filtering and configurable line-range overlap tolerance for duplicate finding consolidation.
+  - Hardened location parser handling POSIX URIs, GitHub-style anchors (`#L10-L20`), line ranges (`:10-20`), and Windows path conventions.
 - **Standard Library & PEP 508 Code Hygiene Refactoring (`devops_cli.security.reference_extractor`)**:
   - Eliminated ad-hoc keyword lists and custom regex string splitting in favor of standard libraries (`ast`, `tokenize`, `packaging.requirements.Requirement`, `tomllib`, `json`, `yaml`, `urllib.parse`, `ipaddress`, `mimetypes`, `tldextract`).
   - Implemented PEP 508 requirement parsing for PyPI dependencies, PEP 621 `pyproject.toml` dependencies, optional dependency groups, and PEP 735 dependency groups.

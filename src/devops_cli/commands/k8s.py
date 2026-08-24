@@ -27,6 +27,7 @@ from devops_cli.config.defaults import (
     DEFAULT_TLS_DIR,
 )
 from devops_cli.core.cli import new_typer
+from devops_cli.core.process import run_subprocess
 from devops_cli.core.validation import validate_k8s_name
 from devops_cli.crypto.tls_certificates import generate_homelab_tls_bundle
 from devops_cli.dry_run import CommandDryRunResult, is_dry_run, render_dry_run_result
@@ -237,7 +238,12 @@ def logs(
         console.print_json(res.model_dump_json(indent=2))
         return
     if follow:
-        subprocess.run(cmd, check=True, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS)
+        run_subprocess(
+            cmd,
+            check=True,
+            timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
+            capture_output=False,
+        )
     else:
         _run_cmd(cmd, check=True)
 
@@ -333,7 +339,7 @@ def _run_cmd(
     capture: bool = False,
     timeout: float = DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
 ) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
+    return run_subprocess(
         cmd,
         check=check,
         capture_output=capture,
@@ -625,16 +631,17 @@ def _detect_service_url(service: str, namespace: str, context: str | None = None
     # 1. Try minikube service if context is not explicit non-minikube
     if not context or context == "minikube":
         try:
-            res = subprocess.run(
+            res = run_subprocess(
                 ["minikube", "service", service, "-n", namespace, "--url"],
                 capture_output=True,
                 text=True,
                 check=False,
+                quiet=True,
                 timeout=DEFAULT_SUBPROCESS_FAST_TIMEOUT_SECONDS,
             )
             if res.returncode == 0 and res.stdout.strip():
                 for line in res.stdout.splitlines():
-                    line_str = line.strip()
+                    line_str = str(line.strip())
                     if line_str.startswith("http://") or line_str.startswith("https://"):
                         return line_str
         except (OSError, subprocess.SubprocessError):
@@ -643,11 +650,12 @@ def _detect_service_url(service: str, namespace: str, context: str | None = None
     # 2. Generic K8s nodePort or loadBalancer detection via kubectl
     try:
         ctx_args = ["--context", context] if context else []
-        svc_res = subprocess.run(
+        svc_res = run_subprocess(
             ["kubectl", "get", "svc", service, "-n", namespace, "-o", "json"] + ctx_args,
             capture_output=True,
             text=True,
             check=False,
+            quiet=True,
             timeout=DEFAULT_SUBPROCESS_FAST_TIMEOUT_SECONDS,
         )
         if svc_res.returncode == 0 and svc_res.stdout.strip():
@@ -668,11 +676,12 @@ def _detect_service_url(service: str, namespace: str, context: str | None = None
 
             # Check NodePort
             if node_port:
-                nodes_res = subprocess.run(
+                nodes_res = run_subprocess(
                     ["kubectl", "get", "nodes", "-o", "json"] + ctx_args,
                     capture_output=True,
                     text=True,
                     check=False,
+                    quiet=True,
                     timeout=DEFAULT_SUBPROCESS_FAST_TIMEOUT_SECONDS,
                 )
                 if nodes_res.returncode == 0 and nodes_res.stdout.strip():

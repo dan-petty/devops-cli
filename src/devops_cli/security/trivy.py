@@ -15,8 +15,6 @@ from devops_cli.dry_run.state import is_dry_run
 
 logger = logging.getLogger(__name__)
 
-CONST_TRIVY_TIMEOUT_SECONDS = DEFAULT_TRIVY_TIMEOUT_SECONDS
-
 
 def parse_trivy_json(data: dict[str, Any], target_path: str = "") -> list[Finding]:
     """Parse Trivy JSON payload into structured Finding objects."""
@@ -101,27 +99,41 @@ def run_trivy_scan(
     severity: str = "UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL",
 ) -> list[Finding]:
     """Execute Trivy scanner subprocess and return parsed findings."""
-    if is_dry_run():
-        return [
-            Finding(
-                severity="HIGH",
-                location=f"{target}:CVE-2026-DRYRUN",
-                title="[DRY-RUN] Simulated Trivy Vulnerability Scan Result",
-                description="Trivy security scan simulation mode active.",
-                fix="No action required (dry-run mode)",
-                confidence_score=1.0,
-            )
-        ]
+    from devops_cli.telemetry import trace_span
 
-    cmd = build_trivy_scan_cmd(target, scan_type=scan_type, severity=severity)
+    with trace_span(
+        "security.scan.trivy",
+        attributes={
+            "target": str(target),
+            "scan_type": scan_type,
+            "severity": severity,
+        },
+    ) as span_h:
+        if is_dry_run():
+            return [
+                Finding(
+                    severity="HIGH",
+                    location=f"{target}:CVE-2026-DRYRUN",
+                    title="[DRY-RUN] Simulated Trivy Vulnerability Scan Result",
+                    description="Trivy security scan simulation mode active.",
+                    fix="No action required (dry-run mode)",
+                    confidence_score=1.0,
+                )
+            ]
 
-    try:
-        proc = run_subprocess(cmd, timeout=CONST_TRIVY_TIMEOUT_SECONDS)
-        if proc.stdout:
-            data = json.loads(proc.stdout)
-            if isinstance(data, dict):
-                return parse_trivy_json(data, target_path=str(target))
-    except Exception as exc:
-        logger.debug(f"Trivy scan execution skipped or failed: {exc}")
+        cmd = build_trivy_scan_cmd(target, scan_type=scan_type, severity=severity)
+        findings: list[Finding] = []
 
-    return []
+        try:
+            proc = run_subprocess(cmd, timeout=DEFAULT_TRIVY_TIMEOUT_SECONDS, check=False)
+            if proc.returncode == 127:
+                span_h.set_attribute("tool.available", False)
+            elif proc.stdout:
+                data = json.loads(proc.stdout)
+                if isinstance(data, dict):
+                    findings = parse_trivy_json(data, target_path=str(target))
+        except Exception as exc:
+            logger.debug(f"Trivy scan execution skipped or failed: {exc}")
+
+        span_h.set_attribute("findings_count", len(findings))
+        return findings

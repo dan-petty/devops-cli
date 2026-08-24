@@ -907,28 +907,37 @@ def _resolve_review_clients(settings: Settings | None = None) -> ReviewClients:
 
 
 def _load_agents_md(start: Path) -> str:
-    """Return AGENTS.md content from target repo, start dir, or CWD repo root."""
+    """Return sanitized AGENTS.md content from target repo, start dir, or CWD repo root."""
     start_resolved = start.resolve()
+    raw_content = ""
     target_repo = _git_repo_root(start_resolved)
     if target_repo is not None:
         agents_file = target_repo / CONST_AGENTS_MD_FILENAME
         if agents_file.is_file():
             try:
-                return agents_file.read_text(encoding="utf-8")
+                raw_content = agents_file.read_text(encoding="utf-8")
             except OSError:
                 pass
-        return ""
 
-    agents_file = (
-        start_resolved / CONST_AGENTS_MD_FILENAME
-        if start_resolved.is_dir()
-        else start_resolved.parent / CONST_AGENTS_MD_FILENAME
-    )
-    if agents_file.is_file():
-        try:
-            return agents_file.read_text(encoding="utf-8")
-        except OSError:
-            pass
+    if not raw_content:
+        agents_file = (
+            start_resolved / CONST_AGENTS_MD_FILENAME
+            if start_resolved.is_dir()
+            else start_resolved.parent / CONST_AGENTS_MD_FILENAME
+        )
+        if agents_file.is_file():
+            try:
+                raw_content = agents_file.read_text(encoding="utf-8")
+            except OSError:
+                pass
+
+    if raw_content:
+        from devops_cli.ai.review.sanitization import (
+            _mask_secrets_in_content,
+            _sanitize_prompt_boundary_tags,
+        )
+
+        return _sanitize_prompt_boundary_tags(_mask_secrets_in_content(raw_content))
 
     return ""
 

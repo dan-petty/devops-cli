@@ -29,7 +29,7 @@ Compare native `git` and `gh` (GitHub CLI) commands with unified `devops-cli` wo
 
 | Action / Goal | Original Command (`gh`) | `devops-cli` Command | Key Enhancements in `devops-cli` |
 | :--- | :--- | :--- | :--- |
-| **Create Release-Targeted PR** | `gh pr create --base release/v0.1.12 --head feat/my-feature` | `devops pr create --title "feat: ..." --body "..."` | Auto-detects active release branch target, generates changelog summary, and verifies pre-commit hooks. |
+| **Create Release-Targeted PR** | `gh pr create --base release/v0.1.13 --head feat/my-feature` | `devops pr create --title "feat: ..." --body "..."` | Auto-detects active release branch target, generates changelog summary, and verifies pre-commit hooks. |
 | **Inspect Active PR Status** | `gh pr status` | `devops pr status` | Summarizes open PRs, base branches, review requests, and merge readiness. |
 | **Monitor Remote CI Checks** | `gh pr checks <pr_number>` / `gh run watch <run_id>` | `devops pr checks <pr_number>` | Live terminal polling and failure diagnosis with direct error snippet highlighting. |
 | **View PR Diffs** | `gh pr diff <pr_number>` | `devops pr diff <pr_number>` | Sanitizes prompt boundary tags and strips binary lockfile blobs for clean code review. |

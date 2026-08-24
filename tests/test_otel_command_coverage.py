@@ -245,3 +245,82 @@ def test_all_28_command_specs_registered() -> None:
         "otel",
     }
     assert set(_COMMAND_SPECS.keys()) == expected_commands
+
+
+def test_span_events_and_exception_stacktrace(
+    clean_tracer: list[tuple[str, dict[str, Any]]],
+) -> None:
+    """Verify that SpanHandle records custom events and captures full exception stack traces."""
+    tracer = get_tracer()
+
+    with tracer.span("test.milestones") as handle:
+        handle.add_event("milestone_1", {"key": "value1"})
+        handle.add_event("milestone_2", {"step": 2})
+
+    trace_payloads = [p for path, p in clean_tracer if path == "/v1/traces"]
+    assert len(trace_payloads) >= 1
+    span = trace_payloads[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+    assert "events" in span
+    events = span["events"]
+    assert len(events) == 2
+    assert events[0]["name"] == "milestone_1"
+    assert events[1]["name"] == "milestone_2"
+
+    # Test exception event capture
+    with pytest.raises(ValueError, match="Boom"):
+        with tracer.span("test.failing"):
+            raise ValueError("Boom")
+
+    failing_payloads = [p for path, p in clean_tracer if path == "/v1/traces"]
+    failing_span = failing_payloads[-1]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+    assert failing_span["status"]["code"] == "STATUS_CODE_ERROR"
+    attrs = {a["key"]: a["value"]["stringValue"] for a in failing_span["attributes"]}
+    assert attrs["exception.type"] == "ValueError"
+    assert "Boom" in attrs["exception.message"]
+    assert "exception.stacktrace" in attrs
+    assert "events" in failing_span
+    assert any(e["name"] == "exception" for e in failing_span["events"])
+
+
+def test_resource_attributes_standard() -> None:
+    """Verify that standardized OTel resource attributes include runtime and SDK details."""
+    tracer = get_tracer()
+    res_attrs = {a["key"]: a["value"]["stringValue"] for a in tracer._get_resource_attributes()}
+    assert res_attrs["service.name"] == "devops-cli"
+    assert res_attrs["process.runtime.name"] == "cpython"
+    assert res_attrs["telemetry.sdk.name"] == "devops-cli-otel"
+    assert res_attrs["telemetry.sdk.language"] == "python"
+
+
+def test_subprocess_rich_telemetry_emission(
+    clean_tracer: list[tuple[str, dict[str, Any]]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify that run_subprocess emits rich telemetry with args, sizes, and events."""
+    import subprocess as sp
+
+    monkeypatch.setattr(
+        sp,
+        "run",
+        lambda *args, **kwargs: sp.CompletedProcess(
+            args[0], returncode=0, stdout="hello world\n", stderr=""
+        ),
+    )
+
+    proc = run_subprocess(["echo", "hello", "world"])
+    assert proc.returncode == 0
+
+    trace_payloads = [p for path, p in clean_tracer if path == "/v1/traces"]
+    subproc_spans = [
+        s
+        for p in trace_payloads
+        for s in p["resourceSpans"][0]["scopeSpans"][0]["spans"]
+        if s["name"] == "subprocess.echo"
+    ]
+    assert len(subproc_spans) >= 1
+    span = subproc_spans[0]
+    attrs = {a["key"]: a["value"]["stringValue"] for a in span["attributes"]}
+    assert attrs["subprocess.bin"] == "echo"
+    assert attrs["subprocess.status"] == "ok"
+    assert attrs["subprocess.args_count"] == "3"
+    assert int(attrs["subprocess.stdout_bytes"]) > 0
+    assert any(e["name"] == "subprocess_completed" for e in span.get("events", []))

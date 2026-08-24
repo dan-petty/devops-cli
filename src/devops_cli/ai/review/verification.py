@@ -247,8 +247,25 @@ def _deterministic_pre_verification(finding: Finding, repo_root: Path | None = N
     import ast
 
     loc_file = finding.location.split(":")[0].strip()
-    root = repo_root or Path.cwd()
-    file_path = root / loc_file if not Path(loc_file).is_absolute() else Path(loc_file)
+    if not loc_file or finding.is_empty:
+        return finding.model_copy(
+            update={
+                "verified": False,
+                "reportable": False,
+                "status": "INVALIDATED",
+                "invalidation_reason": "No valid target file location or empty finding",
+            }
+        )
+    root = (repo_root or Path.cwd()).resolve()
+    candidate = Path(loc_file)
+    file_path = candidate if candidate.is_absolute() else (root / candidate)
+    try:
+        resolved_file = file_path.resolve()
+        if not resolved_file.is_relative_to(root):
+            return finding
+        file_path = resolved_file
+    except (ValueError, OSError):
+        return finding
 
     title_lower = finding.title.lower()
     desc_lower = finding.description.lower()

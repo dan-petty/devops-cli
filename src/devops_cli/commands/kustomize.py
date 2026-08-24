@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
 from typing import Annotated
 
@@ -14,6 +13,7 @@ from devops_cli.config.commands import (
 )
 from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.core.cli import new_typer
+from devops_cli.core.process import run_subprocess
 from devops_cli.core.validation import validate_path
 
 app = new_typer(help="Kustomize build and apply operations.", no_args_is_help=True)
@@ -35,7 +35,9 @@ def build(
     cmd = build_kustomize_build_cmd(target)
     if output:
         cmd += ["--output", output]
-    subprocess.run(cmd, check=True, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS)
+    run_subprocess(
+        cmd, check=True, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS, capture_output=False
+    )
 
 
 @app.command()
@@ -45,7 +47,7 @@ def diff(
     """Show a diff of pending changes (delegates to kubectl diff -k)."""
     target = _validate_path(path)
     cmd = build_kubectl_cmd(["diff", "-k", str(target)])
-    subprocess.run(cmd, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS)
+    run_subprocess(cmd, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS, capture_output=False)
 
 
 @app.command()
@@ -66,4 +68,6 @@ def apply(
     if namespace:
         k_args.extend(["--namespace", namespace])
     cmd = build_kubectl_cmd(k_args)
-    subprocess.run(cmd, check=True, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS)
+    run_subprocess(
+        cmd, check=True, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS, capture_output=False
+    )

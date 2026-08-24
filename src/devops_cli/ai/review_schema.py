@@ -1,10 +1,12 @@
-"""Pydantic models for structured code review output."""
+"""Pydantic models and normalization utilities for structured code review output."""
 
 from __future__ import annotations
 
 import re
+import unicodedata
 from typing import Any
 
+import json_repair
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from devops_cli.models.ai import FileAnalysisMeta
@@ -15,6 +17,7 @@ from devops_cli.models.vulnerability import (
     VulnerabilityRecord,
 )
 
+# Constants & Configuration
 _SEVERITY_RANK: dict[str, int] = {
     "CRITICAL": 0,
     "HIGH": 1,
@@ -22,6 +25,16 @@ _SEVERITY_RANK: dict[str, int] = {
     "LOW": 3,
     "INFO": 4,
 }
+
+VALID_SEVERITIES: frozenset[str] = frozenset(_SEVERITY_RANK.keys())
+VALID_STATUSES: frozenset[str] = frozenset({"UNVERIFIED", "VERIFIED", "INVALIDATED", "MITIGATED"})
+VALID_RECOMMENDATIONS: frozenset[str] = frozenset({"APPROVE", "REQUEST CHANGES", "BLOCK"})
+
+DEFAULT_FINDING_CONFIDENCE: float = 0.8
+LINE_OVERLAP_TOLERANCE: int = 2
+TITLE_SIMILARITY_THRESHOLD: float = 0.5
+MAX_TITLE_LENGTH: int = 200
+MAX_SUMMARY_PREVIEW_LENGTH: int = 300
 
 _RECOMMENDATION_ALIASES: dict[str, str] = {
     "approve": "APPROVE",
@@ -34,7 +47,6 @@ _RECOMMENDATION_ALIASES: dict[str, str] = {
     "requires remediation": "REQUEST CHANGES",
     "requires_remediation": "REQUEST CHANGES",
 }
-
 
 _UNICODE_REPLACEMENTS: dict[str, str] = {
     "\u202f": " ",  # narrow no-break space
@@ -62,37 +74,21 @@ _UNICODE_REPLACEMENTS: dict[str, str] = {
     "\u2026": "...",  # ellipsis
 }
 
-
-_TRANSLATE_TABLE = str.maketrans(
-    {
-        "\u200b": "",
-        "\ufeff": "",
-        "\u2011": "-",
-        "\u2010": "-",
-        "\u2012": "-",
-        "\u2013": "-",
-        "\u2014": "-",
-        "\u2018": "'",
-        "\u2019": "'",
-        "\u201c": '"',
-        "\u201d": '"',
-        "\u201a": "'",
-        "\u201e": '"',
-        "\u2032": "'",
-        "\u2033": '"',
-        "\u2026": "...",
-    }
-)
+_TRANSLATE_TABLE = str.maketrans(_UNICODE_REPLACEMENTS)
 
 
 def normalize_unicode_text(text: str) -> str:
     """Normalize non-standard Unicode spaces, hyphens, and quotes to standard ASCII."""
     if not text:
         return ""
-    import unicodedata
-
     normalized = unicodedata.normalize("NFKC", text)
     return normalized.translate(_TRANSLATE_TABLE)
+
+
+def _tokenize_title(title: str) -> set[str]:
+    """Tokenize finding title into lowercase word tokens."""
+    words = re.findall(r"\b[a-zA-Z0-9_]+\b", title.lower())
+    return {w for w in words if len(w) > 2}
 
 
 class Finding(BaseModel):
@@ -121,18 +117,22 @@ class Finding(BaseModel):
     def _pre_validate_finding(cls, data: Any) -> Any:
         if isinstance(data, str):
             text = normalize_unicode_text(data).strip()
-            if not text or text.lower() in (
-                "none",
-                "n/a",
-                "no findings",
-                "no issues",
-                "clean",
-                "pass",
-                "compliant",
-                "approved",
-            ):
-                return {"title": "", "description": ""}
-            return {"title": text[:120], "description": text}
+            if not text:
+                return {"title": "", "location": "", "description": ""}
+            # If string is structured as "[SEVERITY] path:line - title"
+            m = re.match(
+                r"^\[?(CRITICAL|HIGH|MEDIUM|LOW|INFO)\]?\s*`?([^`:\s]+(?::\d+(?:-\d+)?)?)`?\s*[-:—]\s*(.+)$",
+                text,
+                re.IGNORECASE,
+            )
+            if m:
+                return {
+                    "severity": m.group(1).upper(),
+                    "location": m.group(2).strip(),
+                    "title": m.group(3).strip(),
+                    "description": text,
+                }
+            return {"title": "", "location": "", "description": ""}
         if isinstance(data, dict):
             d = dict(data)
             # Map alternative field names produced by varied LLM personas
@@ -183,13 +183,42 @@ class Finding(BaseModel):
 
     @property
     def is_empty(self) -> bool:
-        """Check if finding is completely blank without actionable title or description."""
-        return not self.title.strip() and not self.description.strip()
+        """Check if finding is blank or lacks a valid target location."""
+        clean_title = self.title.strip()
+        clean_loc = self.location.strip()
+        if not clean_title or not clean_loc:
+            return True
+        if "\n" in clean_loc or "```" in clean_loc:
+            return True
 
-    @field_validator("title", "location", "description", "fix", mode="before")
+        file_part, _, _ = _parse_location(clean_loc)
+        if not file_part or file_part in {"none", "n/a", "na", "null", "undefined"}:
+            return True
+        return False
+
+    @field_validator("description", "fix", mode="before")
     @classmethod
     def _clean_text_fields(cls, v: object) -> str:
         return normalize_unicode_text(str(v)).strip()
+
+    @field_validator("location", mode="before")
+    @classmethod
+    def _clean_location(cls, v: object) -> str:
+        loc = normalize_unicode_text(str(v)).strip()
+        if "\n" in loc or "```" in loc:
+            return ""
+        return loc
+
+    @field_validator("title", mode="before")
+    @classmethod
+    def _clean_title(cls, v: object) -> str:
+        text = normalize_unicode_text(str(v)).strip()
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        if not lines:
+            return ""
+        first_line = re.sub(r"^(?:#+\s*|\d+\.\s*|\*\s*|-\s*)", "", lines[0]).strip()
+        collapsed = re.sub(r"\s+", " ", first_line)
+        return collapsed[:MAX_TITLE_LENGTH]
 
     @field_validator(
         "references",
@@ -211,14 +240,13 @@ class Finding(BaseModel):
     @classmethod
     def _normalize_severity(cls, v: object) -> str:
         s = str(v).upper().strip()
-        return s if s in _SEVERITY_RANK else "MEDIUM"
+        return s if s in VALID_SEVERITIES else "MEDIUM"
 
     @field_validator("status", mode="before")
     @classmethod
     def _normalize_status(cls, v: object) -> str:
         s = str(v).upper().strip()
-        valid = {"UNVERIFIED", "VERIFIED", "INVALIDATED", "MITIGATED"}
-        return s if s in valid else "UNVERIFIED"
+        return s if s in VALID_STATUSES else "UNVERIFIED"
 
     @field_validator("confidence_score", mode="before")
     @classmethod
@@ -235,52 +263,68 @@ class Finding(BaseModel):
 def _parse_location(location: str) -> tuple[str, int | None, int | None]:
     """Extract normalized (filepath, start_line, end_line) from a location string."""
     loc = location.strip()
-    if ":" not in loc:
-        return loc.lower(), None, None
-    parts = loc.rsplit(":", 1)
-    file_path = parts[0].strip().lower()
-    line_part = parts[1].strip()
-    if "-" in line_part:
-        subparts = line_part.split("-", 1)
-        try:
-            return file_path, int(subparts[0]), int(subparts[1])
-        except ValueError:
-            return file_path, None, None
-    try:
-        line_num = int(line_part)
-        return file_path, line_num, line_num
-    except ValueError:
-        return file_path, None, None
+    if not loc:
+        return "", None, None
+
+    m = re.search(
+        r"^(.*?)(?:[#:]\s*(?:lines?\s*)?(?:L)?(\d+)(?:\s*[-–—:]\s*(?:L)?(\d+))?)?$",
+        loc,
+        re.IGNORECASE,
+    )
+    if not m:
+        return loc.lower().replace("\\", "/"), None, None
+
+    file_part = (m.group(1) or "").strip().lower().replace("\\", "/")
+    s_line_str = m.group(2)
+    e_line_str = m.group(3)
+
+    s_line = int(s_line_str) if s_line_str else None
+    e_line = int(e_line_str) if e_line_str else s_line
+
+    if s_line is not None and e_line is not None and s_line > e_line:
+        s_line, e_line = e_line, s_line
+
+    return file_part, s_line, e_line
 
 
 def _are_findings_duplicate(f1: Finding, f2: Finding) -> bool:
     """Determine if two findings describe the same underlying issue across personas or segments."""
-    loc1 = f1.location.strip().lower()
-    loc2 = f2.location.strip().lower()
+    file1, s1, e1 = _parse_location(f1.location)
+    file2, s2, e2 = _parse_location(f2.location)
     t1 = f1.title.strip().lower()
     t2 = f2.title.strip().lower()
 
-    # 1. Exact location & matching title
-    if loc1 and loc1 == loc2:
-        if t1 == t2 or t1 in t2 or t2 in t1:
-            return True
-        w1 = set(re.findall(r"\w+", t1))
-        w2 = set(re.findall(r"\w+", t2))
-        if w1 and w2 and len(w1 & w2) / min(len(w1), len(w2)) >= 0.5:
-            return True
+    if not file1 or not file2 or file1 != file2:
+        return False
 
-    # 2. Line range overlap in same file
-    file1, s1, e1 = _parse_location(f1.location)
-    file2, s2, e2 = _parse_location(f2.location)
-    if file1 and file1 == file2:
-        if t1 == t2:
+    if t1 == t2:
+        return True
+
+    tokens1 = _tokenize_title(t1)
+    tokens2 = _tokenize_title(t2)
+
+    intersection = tokens1 & tokens2
+    union = tokens1 | tokens2
+    jaccard = len(intersection) / len(union) if union else 0.0
+
+    same_line_range = (
+        s1 is not None
+        and e1 is not None
+        and s2 is not None
+        and e2 is not None
+        and max(s1, s2) <= min(e1, e2) + LINE_OVERLAP_TOLERANCE
+    )
+
+    if (s1 == s2 and e1 == e2) or (s1 is None and s2 is None):
+        if jaccard >= TITLE_SIMILARITY_THRESHOLD or (
+            tokens1 and tokens2 and len(intersection) / min(len(tokens1), len(tokens2)) >= 0.6
+        ):
             return True
-        if s1 is not None and e1 is not None and s2 is not None and e2 is not None:
-            if max(s1, s2) <= min(e1, e2) + 2:
-                w1 = set(re.findall(r"\w+", t1))
-                w2 = set(re.findall(r"\w+", t2))
-                if w1 and w2 and len(w1 & w2) / min(len(w1), len(w2)) >= 0.4:
-                    return True
+    elif same_line_range:
+        if jaccard >= 0.4 or (
+            tokens1 and tokens2 and len(intersection) / min(len(tokens1), len(tokens2)) >= 0.5
+        ):
+            return True
 
     return False
 
@@ -345,20 +389,28 @@ def _merge_two_findings[F: Finding](base: F, other: F) -> F:
         "reportable": reportable,
     }
 
-    if isinstance(base, SavedFinding) and isinstance(other, SavedFinding):
-        personas: list[str] = [p.strip() for p in base.persona.split(",") if p.strip()]
-        for p in other.persona.split(","):
-            p_clean = p.strip()
-            if p_clean and p_clean not in personas:
-                personas.append(p_clean)
-        updates["persona"] = ", ".join(personas)
+    if isinstance(base, SavedFinding):
+        base_personas = [p.strip() for p in base.persona.split(",") if p.strip()]
+        other_personas = (
+            [p.strip() for p in other.persona.split(",") if p.strip()]
+            if isinstance(other, SavedFinding)
+            else []
+        )
+        for p in other_personas:
+            if p and p not in base_personas:
+                base_personas.append(p)
+        updates["persona"] = ", ".join(base_personas)
 
-        titles: list[str] = [t.strip() for t in base.persona_title.split(",") if t.strip()]
-        for t in other.persona_title.split(","):
-            t_clean = t.strip()
-            if t_clean and t_clean not in titles:
-                titles.append(t_clean)
-        updates["persona_title"] = ", ".join(titles)
+        base_titles = [t.strip() for t in base.persona_title.split(",") if t.strip()]
+        other_titles = (
+            [t.strip() for t in other.persona_title.split(",") if t.strip()]
+            if isinstance(other, SavedFinding)
+            else []
+        )
+        for t in other_titles:
+            if t and t not in base_titles:
+                base_titles.append(t)
+        updates["persona_title"] = ", ".join(base_titles)
 
     return base.model_copy(update=updates)
 
@@ -495,8 +547,16 @@ class ReviewResult(BaseModel):
             (self.recommendation, other.recommendation),
             key=lambda r: rec_order.get(r, 99),
         )
-        c1 = self.confidence_score if self.confidence_score is not None else 0.8
-        c2 = other.confidence_score if other.confidence_score is not None else 0.8
+        c1 = (
+            self.confidence_score
+            if self.confidence_score is not None
+            else DEFAULT_FINDING_CONFIDENCE
+        )
+        c2 = (
+            other.confidence_score
+            if other.confidence_score is not None
+            else DEFAULT_FINDING_CONFIDENCE
+        )
         merged_conf = round((c1 + c2) / 2.0, 2)
         return ReviewResult(
             findings=merged_findings,
@@ -513,8 +573,6 @@ def extract_json_block(text: str) -> Any:
     """Extract and repair the first parseable JSON object or array from text using json-repair."""
     if not text or not text.strip():
         return None
-
-    import json_repair
 
     try:
         data = json_repair.loads(text)
@@ -538,45 +596,68 @@ def extract_json_block(text: str) -> Any:
 def _parse_markdown_review_findings(text: str) -> list[Finding]:
     """Fallback parser to extract Finding objects from Markdown-formatted review text."""
     findings: list[Finding] = []
-    blocks = re.split(r"\n(?=###?\s*Finding|\n\d+\.\s+|\n\*\*Location\*\*|\nLocation:)", text)
+    blocks = re.split(
+        r"\n+(?=(?:###?\s*(?:Finding|\d+\.)|\d+\.\s+|\*{1,2}Location\*{0,2}:|Location:))",
+        text,
+    )
     for block in blocks:
         loc_m = re.search(r"(?:Location|File):\s*`?([^`\n]+)`?", block, re.IGNORECASE)
         if not loc_m:
             continue
         loc = loc_m.group(1).strip()
-        sev_m = re.search(r"Severity:\s*\*?(CRITICAL|HIGH|MEDIUM|LOW)\*?", block, re.IGNORECASE)
-        sev = (
+        if "\n" in loc or "```" in loc:
+            continue
+
+        sev_m = re.search(
+            r"Severity:\s*\*?(CRITICAL|HIGH|MEDIUM|LOW|INFO)\*?", block, re.IGNORECASE
+        )
+        sev_from_block = (
             sev_m.group(1).upper()
-            if (sev_m and sev_m.group(1).upper() in ("CRITICAL", "HIGH", "MEDIUM", "LOW"))
-            else "MEDIUM"
+            if (sev_m and sev_m.group(1).upper() in VALID_SEVERITIES)
+            else None
         )
+
         title_m = re.search(
-            r"(?:###?\s*(?:Finding\s*\d*:?\s*)?|\d+\.\s+|\*\*Title\*\*:\s*)([^\n]+)", block
+            r"(?:###?\s*(?:Finding\s*\d*:?\s*)?|\d+\.\s+|\*\*Title\*\*:\s*)([^\n]+)",
+            block,
         )
-        title = title_m.group(1).strip("* ") if title_m else f"Issue at {loc}"
+        raw_title = title_m.group(1).strip("* ") if title_m else f"Issue at {loc}"
+
+        if not sev_from_block:
+            title_sev_m = re.match(
+                r"^\[?(CRITICAL|HIGH|MEDIUM|LOW|INFO)\]?\s*[-:—]?\s*(.+)$",
+                raw_title,
+                re.IGNORECASE,
+            )
+            if title_sev_m:
+                sev_from_block = title_sev_m.group(1).upper()
+                raw_title = title_sev_m.group(2).strip()
+
+        sev = sev_from_block or "MEDIUM"
+
         desc_m = re.search(
-            r"(?:Description|Impact):\s*(.+?)(?=\n\s*(?:Fix|Verification|Severity|Location):|\Z)",
+            r"(?:Description|Impact):\s*(.+?)(?=\n\s*(?:Fix|Remediation|Verification|Severity|Location):|\Z)",
             block,
             re.DOTALL | re.IGNORECASE,
         )
-        desc = desc_m.group(1).strip() if desc_m else block[:200]
+        desc = desc_m.group(1).strip() if desc_m else block[:MAX_TITLE_LENGTH]
         fix_m = re.search(
-            r"(?:Fix|Remediation):\s*(.+?)(?=\n\s*(?:Verification|Severity|Location):|\Z)",
+            r"(?:Fix|Remediation):\s*(.+?)(?=\n\s*(?:Verification|Invalidation|Severity|Location):|\Z)",
             block,
             re.DOTALL | re.IGNORECASE,
         )
         fix = fix_m.group(1).strip() if fix_m else ""
 
-        findings.append(
-            Finding(
-                severity=sev,
-                location=loc,
-                title=title,
-                description=desc,
-                fix=fix,
-                confidence_score=0.8,
-            )
+        f = Finding(
+            severity=sev,
+            location=loc,
+            title=raw_title,
+            description=desc,
+            fix=fix,
+            confidence_score=DEFAULT_FINDING_CONFIDENCE,
         )
+        if not f.is_empty:
+            findings.append(f)
 
     return findings
 
@@ -598,7 +679,9 @@ def parse_review_result(text: str) -> ReviewResult | None:
         for item in data:
             if isinstance(item, dict):
                 try:
-                    parsed_findings.append(Finding.model_validate(item))
+                    f = Finding.model_validate(item)
+                    if not f.is_empty:
+                        parsed_findings.append(f)
                 except Exception:
                     pass
         if parsed_findings:
@@ -616,6 +699,6 @@ def parse_review_result(text: str) -> ReviewResult | None:
     target_text = fixed.content or text
     md_findings = _parse_markdown_review_findings(target_text)
     if md_findings:
-        return ReviewResult(findings=md_findings, summary=target_text[:300])
+        return ReviewResult(findings=md_findings, summary=target_text[:MAX_SUMMARY_PREVIEW_LENGTH])
 
     return None

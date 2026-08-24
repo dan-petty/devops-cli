@@ -15,6 +15,7 @@ from devops_cli.config.constants import (
 from devops_cli.config.metadata import get_project_python_version
 
 # ── General Defaults ──────────────────────────────────────────────────────────
+DEFAULT_LOCAL_BIN_DIR = Path.home() / ".local" / "bin"
 DEFAULT_SSH_KEY_DIR = Path.home() / ".ssh"
 DEFAULT_SSH_ROTATION_DAYS = 90
 DEFAULT_REPOS_BASE_DIR = Path("repos")
@@ -27,6 +28,12 @@ DEFAULT_AI_MAX_RETRIES: int = 2
 DEFAULT_PYTHON_VERSION = get_project_python_version()
 DEFAULT_BUNDLE_MODELS: tuple[str, ...] = ("qwen2.5-coder:7b", "llama3.1:8b")
 DEFAULT_PR_STATE = "open"
+
+# ── Benchmark Defaults ────────────────────────────────────────────────────────
+DEFAULT_BENCHMARK_CONCURRENCY: int = 4
+DEFAULT_BENCHMARK_FORMAT: str = "table"
+DEFAULT_BENCHMARK_SAMPLES: int = 5
+DEFAULT_BENCHMARK_TYPE: str = "auto"
 
 # ── TLS & Cryptographic Defaults ──────────────────────────────────────────────
 DEFAULT_TLS_DIR = CONST_CONFIG_DIR / CONST_TLS_DIR_NAME
@@ -89,6 +96,10 @@ DEFAULT_TRIVY_TIMEOUT_SECONDS: float = 120.0
 DEFAULT_KUBELINTER_TIMEOUT_SECONDS: float = 60.0
 DEFAULT_POPEYE_TIMEOUT_SECONDS: float = 60.0
 DEFAULT_PLUTO_TIMEOUT_SECONDS: float = 60.0
+DEFAULT_VULNERABILITY_LOOKUP_TIMEOUT_SECONDS: float = 10.0
+
+# ── Telemetry HTTP Defaults ───────────────────────────────────────────────────
+DEFAULT_OTEL_HTTP_TIMEOUT_SECONDS: float = 5.0
 
 # ── FastMCP Server Tool Execution Timeouts ─────────────────────────────────────
 DEFAULT_MCP_TOOL_TIMEOUT_SECONDS: float = 300.0

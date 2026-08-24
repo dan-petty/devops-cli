@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import subprocess
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Annotated
@@ -12,6 +11,7 @@ from rich import print as rprint
 
 from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.core.cli import new_typer
+from devops_cli.core.process import run_subprocess
 from devops_cli.lang import ERRORS, HELP
 
 app = new_typer(help=HELP.uv.app, no_args_is_help=True)
@@ -24,7 +24,9 @@ def _run(cmd: Sequence[str]) -> None:
     full_cmd = list(cmd)
     if full_cmd and full_cmd[0] == "uv" and "--preview-features" not in full_cmd:
         full_cmd[1:1] = ["--preview-features", "malware-check"]
-    result = subprocess.run(full_cmd, cwd=_ROOT, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS)
+    result = run_subprocess(
+        full_cmd, cwd=_ROOT, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS, capture_output=False
+    )
     if result.returncode != 0:
         raise typer.Exit(result.returncode)
 

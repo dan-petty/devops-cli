@@ -71,7 +71,7 @@ def _render_review_result(persona: PersonaDefinition, result: ReviewResult) -> N
                 console.print("[bold]Fix:[/bold]")
                 console.print(Markdown(f.fix))
             if f.references:
-                console.print(f"[dim]References: {', '.join(f.references)}[/dim]")
+                console.print(f"[dim]References: {escape(', '.join(f.references))}[/dim]")
             console.print()
 
     if result.positive_observations:

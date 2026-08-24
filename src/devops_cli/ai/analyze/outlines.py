@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import json
+import logging
 import re
 from datetime import UTC, datetime
 from pathlib import Path
@@ -23,6 +24,8 @@ from devops_cli.ai.personas import (
 )
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.models.ai import FileAnalysisMeta
+
+logger = logging.getLogger(__name__)
 
 _METADATA_RETRY_TEMPLATE = load_task_prompt("metadata_retry_feedback.md")
 
@@ -70,18 +73,9 @@ def _validate_enhanced_metadata(
 
 def _mask_sensitive_data(text: str) -> str:
     """Mask credentials and secrets before transmitting code to external LLM services."""
-    masked = re.sub(
-        r"(ghp_[A-Za-z0-9_]{36}|gho_[A-Za-z0-9_]{36}|github_pat_[A-Za-z0-9_]{82})",
-        "<github-token-masked>",
-        text,
-    )
-    masked = re.sub(r"(sk-[A-Za-z0-9_-]{20,})", "<ai-key-masked>", masked)
-    masked = re.sub(
-        r"-----BEGIN [A-Z ]+ PRIVATE KEY-----[\s\S]*?-----END [A-Z ]+ PRIVATE KEY-----",
-        "<private-key-masked>",
-        masked,
-    )
-    return masked
+    from devops_cli.ai.review.sanitization import _mask_secrets_in_content
+
+    return _mask_secrets_in_content(text)
 
 
 def _enhance_file_metadata_with_ai(
@@ -107,8 +101,8 @@ def _enhance_file_metadata_with_ai(
 
         ctx = investigate_rag_context(f"{rel_path} {' '.join(static_symbols[:5])}", top_k=2)
         rag_context = format_rag_investigation_for_prompt(ctx, "Related Architectural Context")
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("RAG investigation failed for metadata enhancement: %s", exc)
 
     prompt = (
         f"Analyze File: '{rel_path}' ({lang})\n\n"
@@ -138,8 +132,8 @@ def _enhance_file_metadata_with_ai(
                         content=_METADATA_RETRY_TEMPLATE.format(err=err),
                     )
                 )
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Attempt %s metadata enhancement chat failed: %s", attempt, exc)
 
     return None
 
@@ -259,16 +253,16 @@ def _get_last_updated(rel_path: str, repo_root: Path | None = None) -> str:
             )
             if res.returncode == 0 and res.stdout.strip():
                 return str(res.stdout.strip())
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Failed to read git commit time for %s: %s", rel_path, exc)
 
         full_p = (repo_root / rel_path).resolve()
         if str(full_p).startswith(str(repo_root.resolve())) and full_p.exists():
             try:
                 mtime = full_p.stat().st_mtime
                 return datetime.fromtimestamp(mtime, tz=UTC).isoformat()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("Failed to read mtime for %s: %s", rel_path, exc)
 
     return datetime.now(UTC).isoformat()
 
@@ -310,8 +304,8 @@ def _extract_python_pseudocode_outline(content: str) -> list[str]:
                     if isinstance(item, ast.FunctionDef | ast.AsyncFunctionDef):
                         args = [a.arg for a in item.args.args if a.arg != "self"]
                         lines.append(f"    def {item.name}({', '.join(args[:2])}):")
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("Failed to extract Python pseudocode outline: %s", exc)
 
     return lines[:10]
 
@@ -357,8 +351,8 @@ def _generate_pseudocode(
                 filtered_steps = [s for s in raw_steps if s and not _is_import_or_docstring_line(s)]
                 if filtered_steps:
                     return filtered_steps[:10]
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Failed generating AI pseudocode for %s: %s", rel_path, exc)
 
     if lang == "python" and content.strip():
         py_outline = _extract_python_pseudocode_outline(content)
@@ -380,8 +374,8 @@ def _generate_pseudocode(
                         return out_steps
                 elif isinstance(data, list) and data:
                     return [json.dumps(item)[:60] for item in data[:8]]
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Failed parsing %s content for pseudocode: %s", lang, exc)
 
     if lang in ("shell", "bash") and content.strip():
         non_comment_lines: list[str] = []

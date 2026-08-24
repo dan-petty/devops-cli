@@ -220,3 +220,23 @@ def test_build_validation_prompt_includes_related_file_analysis_metadata() -> No
     assert "crypto/keyring.py" in prompt
     assert "generate_ed25519_key" in prompt
     assert "Pseudocode Outline" in prompt
+
+
+def test_deterministic_pre_verification_path_traversal_guard(tmp_path: Path) -> None:
+    from devops_cli.ai.review.verification import _deterministic_pre_verification
+
+    outside_file = tmp_path / "outside.py"
+    outside_file.write_text("valid = True\n", encoding="utf-8")
+
+    sub_repo = tmp_path / "repo"
+    sub_repo.mkdir()
+
+    finding = Finding(
+        title="Syntax error in python code",
+        location="../outside.py:1",
+        description="Fake syntax error",
+        status="UNVERIFIED",
+    )
+    # Even if outside file exists, path traversal should be ignored and not crash/resolve outside
+    result = _deterministic_pre_verification(finding, repo_root=sub_repo)
+    assert result.location == "../outside.py:1"

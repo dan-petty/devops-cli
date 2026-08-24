@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
 from typing import Annotated
 
@@ -16,9 +15,11 @@ from devops_cli.config.defaults import (
     DEFAULT_PYTHON_VERSION,
     DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
 )
+from devops_cli.core.cli import new_typer
+from devops_cli.core.process import run_subprocess
 from devops_cli.telemetry import record_metric, trace_span
 
-app = typer.Typer(help="Run tests, linting, formatting, and type-checks.")
+app = new_typer(help="Run tests, linting, formatting, and type-checks.")
 console = Console()
 
 
@@ -28,8 +29,7 @@ def _find_root() -> Path:
         if (cur / "pyproject.toml").exists():
             return cur
         cur = cur.parent
-    # If pyproject.toml was never found, return the filesystem root as a safe fallback.
-    return cur
+    return Path.cwd()
 
 
 _ROOT = _find_root()
@@ -54,7 +54,7 @@ def _run(cmd: list[str], timeout: float = DEFAULT_SUBPROCESS_TIMEOUT_SECONDS) ->
     full_cmd = list(cmd)
     if full_cmd and full_cmd[0] == "uv" and "--preview-features" not in full_cmd:
         full_cmd[1:1] = ["--preview-features", "malware-check"]
-    result = subprocess.run(full_cmd, cwd=_ROOT, timeout=timeout, capture_output=False)
+    result = run_subprocess(full_cmd, cwd=_ROOT, timeout=timeout, capture_output=False)
     return result.returncode == 0
 
 

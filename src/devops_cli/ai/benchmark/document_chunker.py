@@ -302,11 +302,14 @@ def load_test_document_corpus(
     )
 
     all_chunks: list[DocumentSectionChunk] = []
+    max_bytes = 20 * 1024 * 1024  # 20 MiB per test document
 
     if document_path and document_path.exists():
         if document_path.is_dir():
             for p in sorted(document_path.rglob("*.md")):
                 try:
+                    if p.stat().st_size > max_bytes:
+                        continue
                     txt = p.read_text(encoding="utf-8", errors="replace")
                     if txt.strip():
                         chunks = tokenizer.tokenize_and_chunk(txt, source_name=p.stem)
@@ -314,9 +317,13 @@ def load_test_document_corpus(
                 except Exception:
                     continue
         else:
-            txt = document_path.read_text(encoding="utf-8", errors="replace")
-            chunks = tokenizer.tokenize_and_chunk(txt, source_name=document_path.stem)
-            all_chunks.extend(chunks)
+            try:
+                if document_path.stat().st_size <= max_bytes:
+                    txt = document_path.read_text(encoding="utf-8", errors="replace")
+                    chunks = tokenizer.tokenize_and_chunk(txt, source_name=document_path.stem)
+                    all_chunks.extend(chunks)
+            except Exception:
+                pass
     elif repo_root:
         # Aggregate full documentation suite from repository
         candidate_paths: list[Path] = []
@@ -342,6 +349,8 @@ def load_test_document_corpus(
                 continue
             seen_paths.add(p)
             try:
+                if p.stat().st_size > max_bytes:
+                    continue
                 txt = p.read_text(encoding="utf-8", errors="replace")
                 if txt.strip():
                     chunks = tokenizer.tokenize_and_chunk(txt, source_name=p.stem)

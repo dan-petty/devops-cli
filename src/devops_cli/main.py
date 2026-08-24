@@ -104,9 +104,13 @@ def _delegate(module_path: str, command_name: str, args: list[str]) -> None:
         attributes={
             "cli.command": command_name,
             "cli.args": args_summary,
+            "cli.args_count": len(args),
+            "cli.module": module_path,
             "cli.version": __version__,
+            "cli.is_dry_run": is_dry_run(),
         },
     ) as span_h:
+        span_h.add_event("command_delegated", {"command": command_name, "module": module_path})
         try:
             result = command.main(
                 args=args,
@@ -117,6 +121,11 @@ def _delegate(module_path: str, command_name: str, args: list[str]) -> None:
             exit_code = result if isinstance(result, int) else 0
             span_h.set_attribute("cli.exit_code", exit_code)
             span_h.set_attribute("cli.duration_seconds", dur)
+            span_h.set_attribute("cli.status", "ok" if exit_code == 0 else "error")
+            span_h.add_event(
+                "command_completed",
+                {"command": command_name, "exit_code": exit_code, "duration_seconds": dur},
+            )
             record_metric(
                 "devops_cli_command_total",
                 1.0,
@@ -138,6 +147,11 @@ def _delegate(module_path: str, command_name: str, args: list[str]) -> None:
             code = exc.code if isinstance(exc.code, int) else 1
             span_h.set_attribute("cli.exit_code", code)
             span_h.set_attribute("cli.duration_seconds", dur)
+            span_h.set_attribute("cli.status", "ok" if code == 0 else "error")
+            span_h.add_event(
+                "command_exited",
+                {"command": command_name, "exit_code": code, "duration_seconds": dur},
+            )
             record_metric(
                 "devops_cli_command_total",
                 1.0,

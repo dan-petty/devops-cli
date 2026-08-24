@@ -28,6 +28,7 @@ from devops_cli.config.env import env_var_for_option
 from devops_cli.config.options import AI_API_KEY
 from devops_cli.config.settings import SecretStorageError, dotted_set
 from devops_cli.core.cli import new_typer
+from devops_cli.core.process import run_subprocess
 from devops_cli.lang import HELP
 
 app = new_typer(
@@ -143,7 +144,7 @@ def _collect_project_context(repo: Path) -> str:
 
     # Directory tree (2 levels)
     try:
-        tree = subprocess.run(
+        tree = run_subprocess(
             [
                 "find",
                 ".",
@@ -210,9 +211,6 @@ def _agent_prompt(context: str, target_file: str) -> str:
         f"{context}"
         f"{rag_block}"
     )
-
-
-_CANONICAL_AGENT_FILE = CONST_AGENTS_MD_FILENAME
 
 
 def _pointer_stub(title: str, tool_name: str, filename: str, canonical_relpath: str) -> str:
@@ -576,7 +574,7 @@ def agents(
 
         # Only the canonical file is worth spending an LLM call on — the others
         # are static pointers to it, so they always use the template.
-        if target != _CANONICAL_AGENT_FILE:
+        if target != CONST_AGENTS_MD_FILENAME:
             content = _template_content(target, meta)
         elif use_llm and client is not None:
             rprint(MESSAGES.ai.generating_agents.format(target=f"[cyan]{target}[/cyan]"))

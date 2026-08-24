@@ -2152,7 +2152,7 @@ devops ai benchmark [OPTIONS]
 | `--dry-run` | `boolean` | - | Simulate benchmark without sending remote LLM requests |
 | `--explain`, `-e` | `boolean` | - | Explain benchmark metrics, terminology, and mathematical formulas |
 | `--document`, `-d` | `path` | - | Path to large test document for in-memory tokenization and section retrieval |
-| `--samples` | `integer` | `15` | Number of random sections to sample for retrieval evaluation |
+| `--samples` | `integer` | `5` | Number of random sections to sample for retrieval evaluation |
 
 ---
 

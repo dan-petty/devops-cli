@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import ast
+import logging
 import re
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 # Patterns indicating security-sensitive operations in code/manifests
 _SECURITY_PATTERNS: dict[str, re.Pattern[str]] = {
@@ -80,8 +83,8 @@ def extract_imports(content: str, language: str) -> list[str]:
                 elif isinstance(node, ast.ImportFrom) and node.module:
                     imports.append(node.module)
             return sorted(set(imports))
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Failed extracting Python imports: %s", exc)
 
     pattern = _IMPORT_PATTERNS.get(lang_key)
     if not pattern:
@@ -109,8 +112,8 @@ def extract_declarations(content: str, language: str) -> list[str]:
                 if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
                     declarations.append(node.name)
             return sorted(set(declarations))
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Failed extracting Python declarations: %s", exc)
 
     # Regex fallbacks for polyglot languages
     polyglot_patterns: list[re.Pattern[str]] = [

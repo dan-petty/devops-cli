@@ -15,8 +15,6 @@ from devops_cli.dry_run.state import is_dry_run
 
 logger = logging.getLogger(__name__)
 
-CONST_KUBELINTER_TIMEOUT_SECONDS = DEFAULT_KUBELINTER_TIMEOUT_SECONDS
-
 
 def parse_kubelinter_json(data: dict[str, Any], target_path: str = "") -> list[Finding]:
     """Parse Kube-linter JSON output payload into Finding objects."""
@@ -52,27 +50,37 @@ def parse_kubelinter_json(data: dict[str, Any], target_path: str = "") -> list[F
 
 def run_kubelinter_scan(target: Path = Path(".")) -> list[Finding]:
     """Execute Kube-linter scanner subprocess and return parsed findings."""
-    if is_dry_run():
-        return [
-            Finding(
-                severity="MEDIUM",
-                location=f"{target}:Deployment/dry-run-spec",
-                title="[DRY-RUN] Simulated Kube-linter Manifest Audit",
-                description="Kube-linter static audit simulation mode active.",
-                fix="No action required (dry-run mode)",
-                confidence_score=1.0,
-            )
-        ]
+    from devops_cli.telemetry import trace_span
 
-    cmd = build_kubelinter_cmd(target)
+    with trace_span(
+        "security.scan.kubelinter",
+        attributes={"target": str(target)},
+    ) as span_h:
+        if is_dry_run():
+            return [
+                Finding(
+                    severity="MEDIUM",
+                    location=f"{target}:Deployment/dry-run-spec",
+                    title="[DRY-RUN] Simulated Kube-linter Manifest Audit",
+                    description="Kube-linter static audit simulation mode active.",
+                    fix="No action required (dry-run mode)",
+                    confidence_score=1.0,
+                )
+            ]
 
-    try:
-        proc = run_subprocess(cmd, timeout=CONST_KUBELINTER_TIMEOUT_SECONDS)
-        if proc.stdout:
-            data = json.loads(proc.stdout)
-            if isinstance(data, dict):
-                return parse_kubelinter_json(data, target_path=str(target))
-    except Exception as exc:
-        logger.debug(f"Kube-linter scan execution skipped or failed: {exc}")
+        cmd = build_kubelinter_cmd(target)
+        findings: list[Finding] = []
 
-    return []
+        try:
+            proc = run_subprocess(cmd, timeout=DEFAULT_KUBELINTER_TIMEOUT_SECONDS, check=False)
+            if proc.returncode == 127:
+                span_h.set_attribute("tool.available", False)
+            elif proc.stdout:
+                data = json.loads(proc.stdout)
+                if isinstance(data, dict):
+                    findings = parse_kubelinter_json(data, target_path=str(target))
+        except Exception as exc:
+            logger.debug(f"Kube-linter scan execution skipped or failed: {exc}")
+
+        span_h.set_attribute("findings_count", len(findings))
+        return findings

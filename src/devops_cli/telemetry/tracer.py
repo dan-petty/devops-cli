@@ -12,9 +12,12 @@ import secrets
 import threading
 import time
 from collections.abc import Callable, Generator
+from contextvars import ContextVar
 from typing import Any, TypeVar
 
 import httpx2
+
+from devops_cli.config.defaults import DEFAULT_OTEL_HTTP_TIMEOUT_SECONDS
 
 logger = logging.getLogger(__name__)
 
@@ -30,14 +33,21 @@ def _generate_span_id() -> str:
 
 
 class SpanHandle(str):
-    """Handle yielded by trace_span allowing dynamic attribute updates while behaving as
-    span_id string."""
+    """Handle yielded by trace_span allowing dynamic attribute updates and event logging while
+    behaving as span_id string."""
 
     _attributes: dict[str, Any]
+    _events: list[dict[str, Any]]
 
-    def __new__(cls, span_id: str, attributes: dict[str, Any] | None = None) -> SpanHandle:
+    def __new__(
+        cls,
+        span_id: str,
+        attributes: dict[str, Any] | None = None,
+        events: list[dict[str, Any]] | None = None,
+    ) -> SpanHandle:
         obj = str.__new__(cls, span_id)
         obj._attributes = attributes if attributes is not None else {}
+        obj._events = events if events is not None else []
         return obj
 
     def set_attribute(self, key: str, value: Any) -> None:
@@ -47,6 +57,29 @@ class SpanHandle(str):
     def set_attributes(self, mapping: dict[str, Any]) -> None:
         """Set or update multiple attributes on the active span."""
         self._attributes.update(mapping)
+
+    def add_event(
+        self,
+        name: str,
+        attributes: dict[str, Any] | None = None,
+        timestamp_ns: int | None = None,
+    ) -> None:
+        """Add a timestamped event / log annotation to the active span."""
+        t_nano = timestamp_ns if timestamp_ns is not None else int(time.time() * 1e9)
+        attr_list = [
+            {"key": k, "value": {"stringValue": str(v)}} for k, v in (attributes or {}).items()
+        ]
+        self._events.append(
+            {
+                "timeUnixNano": str(t_nano),
+                "name": name,
+                "attributes": attr_list,
+            }
+        )
+
+
+_current_trace_id_ctx: ContextVar[str | None] = ContextVar("otel_current_trace_id", default=None)
+_current_span_id_ctx: ContextVar[str | None] = ContextVar("otel_current_span_id", default=None)
 
 
 class OTelTelemetryClient:
@@ -66,8 +99,6 @@ class OTelTelemetryClient:
         self.host_name = platform.node() or "localhost"
         self.os_type = platform.system().lower() or "linux"
         self.enabled = enabled
-        self._current_trace_id: str | None = None
-        self._current_span_id: str | None = None
         self._http_client: httpx2.Client | None = None
         self._client_lock = threading.Lock()
 
@@ -88,23 +119,27 @@ class OTelTelemetryClient:
             {"key": "host.name", "value": {"stringValue": self.host_name}},
             {"key": "os.type", "value": {"stringValue": self.os_type}},
             {"key": "process.pid", "value": {"stringValue": str(os.getpid())}},
+            {"key": "process.runtime.name", "value": {"stringValue": "cpython"}},
+            {"key": "process.runtime.version", "value": {"stringValue": platform.python_version()}},
+            {"key": "telemetry.sdk.name", "value": {"stringValue": "devops-cli-otel"}},
+            {"key": "telemetry.sdk.language", "value": {"stringValue": "python"}},
         ]
 
     @property
     def current_trace_id(self) -> str | None:
-        return self._current_trace_id
+        return _current_trace_id_ctx.get()
 
     @property
     def current_span_id(self) -> str | None:
-        return self._current_span_id
+        return _current_span_id_ctx.get()
 
     def inject_trace_context(self, headers: dict[str, str] | None = None) -> dict[str, str]:
         """Inject W3C traceparent (00-{trace_id}-{span_id}-01) into headers dict."""
         out = dict(headers or {})
         if not self.enabled:
             return out
-        trace_id = self._current_trace_id or _generate_trace_id()
-        span_id = self._current_span_id or _generate_span_id()
+        trace_id = _current_trace_id_ctx.get() or _generate_trace_id()
+        span_id = _current_span_id_ctx.get() or _generate_span_id()
         out["traceparent"] = f"00-{trace_id}-{span_id}-01"
         return out
 
@@ -183,19 +218,19 @@ class OTelTelemetryClient:
         name: str,
         attributes: dict[str, Any] | None = None,
     ) -> Generator[SpanHandle]:
-        """Context manager to measure and emit a trace span."""
+        """Context manager to measure and emit a trace span with thread-safe context propagation."""
         if not self.enabled:
             yield SpanHandle("", {})
             return
 
-        trace_id = self._current_trace_id or _generate_trace_id()
+        parent_trace = _current_trace_id_ctx.get()
+        trace_id = parent_trace or _generate_trace_id()
         span_id = _generate_span_id()
-        parent_id = self._current_span_id
+        parent_id = _current_span_id_ctx.get()
         start_nano = int(time.time() * 1e9)
-        prev_trace = self._current_trace_id
-        prev_span = self._current_span_id
-        self._current_trace_id = trace_id
-        self._current_span_id = span_id
+
+        token_trace = _current_trace_id_ctx.set(trace_id)
+        token_span = _current_span_id_ctx.set(span_id)
 
         attrs = dict(attributes or {})
         handle = SpanHandle(span_id, attrs)
@@ -205,15 +240,40 @@ class OTelTelemetryClient:
         try:
             yield handle
         except Exception as exc:
+            exit_code = getattr(exc, "exit_code", getattr(exc, "code", None))
+            if exit_code == 0:
+                # Clean exit (e.g. typer.Exit(0), click.exceptions.Exit(0), SystemExit(0))
+                status_code = "STATUS_CODE_OK"
+                attrs.setdefault("cli.exit_code", 0)
+                raise
+
+            import traceback
+
             status_code = "STATUS_CODE_ERROR"
             error_msg = str(exc)
+            exc_type = type(exc).__name__
+            exc_stack = traceback.format_exc()
+
             attrs["error"] = True
+            attrs["exception.type"] = exc_type
             attrs["exception.message"] = error_msg
+            attrs["exception.stacktrace"] = exc_stack
+            if exit_code is not None:
+                attrs["cli.exit_code"] = exit_code
+
+            handle.add_event(
+                "exception",
+                {
+                    "exception.type": exc_type,
+                    "exception.message": error_msg,
+                    "exception.stacktrace": exc_stack,
+                },
+            )
             raise
         finally:
             end_nano = int(time.time() * 1e9)
-            self._current_trace_id = prev_trace
-            self._current_span_id = prev_span
+            _current_trace_id_ctx.reset(token_trace)
+            _current_span_id_ctx.reset(token_span)
 
             span_data: dict[str, Any] = {
                 "traceId": trace_id,
@@ -227,6 +287,8 @@ class OTelTelemetryClient:
                 ],
                 "status": {"code": status_code, "message": error_msg},
             }
+            if handle._events:
+                span_data["events"] = handle._events
             if parent_id and parent_id != span_id:
                 span_data["parentSpanId"] = parent_id
 
@@ -298,7 +360,7 @@ class OTelTelemetryClient:
         """Get or initialize thread-safe pooled HTTP client."""
         with self._client_lock:
             if self._http_client is None or getattr(self._http_client, "is_closed", False):
-                self._http_client = httpx2.Client(timeout=1.0)
+                self._http_client = httpx2.Client(timeout=DEFAULT_OTEL_HTTP_TIMEOUT_SECONDS)
             return self._http_client
 
     def _send_payload(self, path: str, payload: dict[str, Any]) -> None:
@@ -318,8 +380,8 @@ class OTelTelemetryClient:
             if self._http_client is not None and not getattr(self._http_client, "is_closed", False):
                 try:
                     self._http_client.close()
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("Failed closing OTel HTTP client: %s", exc)
                 self._http_client = None
 
 

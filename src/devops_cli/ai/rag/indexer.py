@@ -158,8 +158,8 @@ class WorkspaceIndexer:
         if self.cache_file.exists():
             try:
                 return json.loads(self.cache_file.read_text(encoding="utf-8"))  # type: ignore[no-any-return]
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("Failed to read index cache file: %s", exc)
         return {}
 
     def _save_cache(self, cache: dict[str, str]) -> None:
@@ -274,8 +274,8 @@ class WorkspaceIndexer:
                 rel_fpath = str(fpath.relative_to(root_dir))
                 self.qdrant.delete_points_by_file(self.code_collection, rel_fpath)
                 self.qdrant.delete_points_by_file(self.docs_collection, rel_fpath)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("Failed to delete obsolete points for %s: %s", fpath, exc)
 
         # Separate code vs doc chunks
         code_chunks: list[CodeChunk] = []

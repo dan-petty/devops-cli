@@ -88,7 +88,16 @@ class AgentMemory(BaseModel):
         to_summarize = self.entries[:cutoff]
         to_keep = self.entries[cutoff:]
 
-        rendered_interactions = "\n".join(f"[{e.role.upper()}]: {e.content}" for e in to_summarize)
+        from devops_cli.ai.review.sanitization import (
+            _mask_secrets_in_content,
+            _sanitize_prompt_boundary_tags,
+        )
+
+        rendered_interactions = "\n".join(
+            f"[{e.role.upper()}]: "
+            f"{_sanitize_prompt_boundary_tags(_mask_secrets_in_content(e.content))}"
+            for e in to_summarize
+        )
 
         new_summary = ""
         if llm_client is not None and hasattr(llm_client, "chat"):

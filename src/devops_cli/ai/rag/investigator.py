@@ -65,7 +65,14 @@ def investigate_rag_context(
         },
     ):
         try:
-            qdrant_url = st.qdrant.url or "http://localhost:6333"
+            from devops_cli.core.validation import validate_url
+
+            raw_url = st.qdrant.url or "http://localhost:6333"
+            qdrant_url = validate_url(
+                raw_url,
+                "Qdrant vector database",
+                allow_private=True,
+            )
             qdrant = QdrantClient(
                 base_url=qdrant_url,
                 allow_private_network=st.ai.allow_private_network,

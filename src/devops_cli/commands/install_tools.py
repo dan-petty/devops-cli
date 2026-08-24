@@ -34,15 +34,15 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import (
     DEFAULT_HTTP_DOWNLOAD_TIMEOUT_SECONDS,
     DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS,
+    DEFAULT_LOCAL_BIN_DIR,
     DEFAULT_SUBPROCESS_FAST_TIMEOUT_SECONDS,
 )
 from devops_cli.core.cli import new_typer
+from devops_cli.core.process import run_subprocess
 from devops_cli.core.validation import validate_version_str
 
 app = new_typer(help="Install and manage DevOps tool binaries.", no_args_is_help=True)
 console = Console()
-
-DEFAULT_BIN_DIR = Path.home() / ".local" / "bin"
 
 
 # ── Platform detection ────────────────────────────────────────────────────────
@@ -140,10 +140,11 @@ def _extract_tar_member(data: bytes, member: str, dest: Path) -> None:
 
 def _current_version(cmd: list[str]) -> str | None:
     try:
-        r = subprocess.run(
+        r = run_subprocess(
             cmd,
             capture_output=True,
             text=True,
+            quiet=True,
             timeout=DEFAULT_SUBPROCESS_FAST_TIMEOUT_SECONDS,
         )
         m = re.search(r"v?(\d+\.\d+[\.\d]*)", r.stdout + r.stderr)
@@ -423,7 +424,7 @@ def install_all(
     version: Annotated[
         str | None, typer.Option("--version", help="Specific version, e.g. v1.30.0")
     ] = None,
-    target_dir: Annotated[Path, typer.Option("--target-dir", "-d")] = DEFAULT_BIN_DIR,
+    target_dir: Annotated[Path, typer.Option("--target-dir", "-d")] = DEFAULT_LOCAL_BIN_DIR,
 ) -> None:
     """Install DevOps tool binaries. Without --tool, installs all tools."""
     if ctx.invoked_subcommand is not None:
@@ -462,7 +463,7 @@ def install_all(
 
 @app.command()
 def status(
-    target_dir: Annotated[Path, typer.Option("--target-dir", "-d")] = DEFAULT_BIN_DIR,
+    target_dir: Annotated[Path, typer.Option("--target-dir", "-d")] = DEFAULT_LOCAL_BIN_DIR,
 ) -> None:
     """Show installation status and versions for all managed tools."""
     table = Table(title="DevOps Tool Status")

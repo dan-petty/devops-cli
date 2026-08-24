@@ -5,7 +5,6 @@ from __future__ import annotations
 import subprocess
 import time
 from pathlib import Path
-from typing import Any
 
 from rich import print as rprint
 
@@ -27,7 +26,7 @@ def run_subprocess(
     check: bool = False,
     quiet: bool = False,
     timeout: float = DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
-) -> subprocess.CompletedProcess[Any]:
+) -> subprocess.CompletedProcess[str]:
     """Execute a subprocess command with unified timeout bounds, dry-run reporting,
     and OTel tracing."""
     if is_dry_run() and not quiet and not _QUIET_SUBPROCESS_ARGS.intersection(cmd):
@@ -43,24 +42,79 @@ def run_subprocess(
         attributes={
             "subprocess.bin": bin_name,
             "subprocess.cmd": cmd_summary,
+            "subprocess.args_count": len(cmd),
             "subprocess.cwd": str(cwd or ""),
+            "subprocess.timeout_seconds": timeout,
         },
     ) as span_h:
-        proc = subprocess.run(
-            cmd,
-            cwd=cwd,
-            capture_output=capture_output,
-            text=text,
-            check=check,
-            timeout=timeout,
-        )
+        try:
+            proc = subprocess.run(
+                cmd,
+                cwd=cwd,
+                capture_output=capture_output,
+                text=text,
+                check=check,
+                timeout=timeout,
+            )
+        except FileNotFoundError:
+            dur = time.perf_counter() - t0
+            span_h.set_attribute("subprocess.executable_found", False)
+            span_h.set_attribute("subprocess.exit_code", 127)
+            span_h.set_attribute("subprocess.duration_seconds", dur)
+            span_h.set_attribute("subprocess.status", "not_found")
+            span_h.add_event("subprocess_not_found", {"bin": bin_name})
+            if check:
+                raise
+            return subprocess.CompletedProcess(
+                cmd,
+                returncode=127,
+                stdout="",
+                stderr=f"Executable '{bin_name}' not found in PATH",
+            )
+
+        ret_code = getattr(proc, "returncode", 0)
+        stdout_val = getattr(proc, "stdout", None)
+        stderr_val = getattr(proc, "stderr", None)
+
         dur = time.perf_counter() - t0
-        span_h.set_attribute("subprocess.exit_code", proc.returncode)
+        span_h.set_attribute("subprocess.exit_code", ret_code)
         span_h.set_attribute("subprocess.duration_seconds", dur)
+        span_h.set_attribute("subprocess.status", "ok" if ret_code == 0 else "non_zero")
+
+        if stdout_val is not None:
+            stdout_len = (
+                len(stdout_val.encode("utf-8")) if isinstance(stdout_val, str) else len(stdout_val)
+            )
+            span_h.set_attribute("subprocess.stdout_bytes", stdout_len)
+        if stderr_val is not None:
+            stderr_len = (
+                len(stderr_val.encode("utf-8")) if isinstance(stderr_val, str) else len(stderr_val)
+            )
+            span_h.set_attribute("subprocess.stderr_bytes", stderr_len)
+
+        if ret_code != 0 and check:
+            span_h.set_attribute("error", True)
+            err_sample = (
+                (stderr_val or stdout_val or "")[:400]
+                if isinstance(stderr_val or stdout_val, str)
+                else ""
+            )
+            if err_sample:
+                span_h.set_attribute("subprocess.error_sample", err_sample)
+            span_h.add_event(
+                "subprocess_failed",
+                {"exit_code": ret_code, "error_sample": err_sample},
+            )
+        else:
+            span_h.add_event(
+                "subprocess_completed",
+                {"exit_code": ret_code, "duration_seconds": dur},
+            )
+
         record_metric(
             "devops_cli_subprocess_seconds",
             dur,
             unit="s",
-            attributes={"bin": bin_name, "status": "ok" if proc.returncode == 0 else "error"},
+            attributes={"bin": bin_name, "status": "ok" if ret_code == 0 else "error"},
         )
         return proc

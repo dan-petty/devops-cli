@@ -84,6 +84,16 @@ class LLMResponse(str):
         obj.prompt_eval_duration_ms = prompt_eval_duration_ms
         return obj
 
+    @property
+    def text(self) -> str:
+        """Return the string response content."""
+        return str(self)
+
+    @property
+    def content(self) -> str:
+        """Return the string response content."""
+        return str(self)
+
 
 class LLMClient:
     """Unified client for interacting with AI models across different providers."""
@@ -254,7 +264,7 @@ class LLMClient:
                         purpose="Ollama",
                         allow_loopback_for_local_tooling=True,
                     )
-                    with httpx2.Client(timeout=60.0) as http_client:
+                    with httpx2.Client(timeout=self._request_timeout()) as http_client:
                         res = http_client.post(
                             f"{base}/api/generate",
                             json={"model": self._config.model, "keep_alive": "1h"},
@@ -338,9 +348,24 @@ class LLMClient:
     ) -> LLMResponse:
         p = self._config.provider
         start = time.perf_counter()
+        prompt_preview = ""
+        for m in reversed(messages):
+            if m.role == "user":
+                prompt_preview = m.content[:200].replace("\n", " ").strip()
+                break
+
         with trace_span(
             "ai.llm.dispatch",
-            {"provider": p, "model": self._config.model},
+            {
+                "gen_ai.system": p,
+                "gen_ai.request.model": self._config.model,
+                "gen_ai.request.message_count": len(messages),
+                "gen_ai.request.system_prompt_length": len(system),
+                "gen_ai.request.enable_thinking": enable_thinking,
+                "gen_ai.prompt_preview": prompt_preview,
+                "provider": p,
+                "model": self._config.model,
+            },
         ) as span_handle:
             if p == "ollama":
                 res = self._ollama_messages(system, messages, enable_thinking=enable_thinking)
@@ -357,8 +382,10 @@ class LLMClient:
                 span_handle.set_attribute("gen_ai.server.address", res.backend_info)
             if res.prompt_tokens is not None:
                 span_handle.set_attribute("gen_ai.usage.prompt_tokens", res.prompt_tokens)
+                span_handle.set_attribute("gen_ai.usage.input_tokens", res.prompt_tokens)
             if res.completion_tokens is not None:
                 span_handle.set_attribute("gen_ai.usage.completion_tokens", res.completion_tokens)
+                span_handle.set_attribute("gen_ai.usage.output_tokens", res.completion_tokens)
             if res.total_tokens is not None:
                 span_handle.set_attribute("gen_ai.usage.total_tokens", res.total_tokens)
             if res.eval_duration_ms is not None:
@@ -367,6 +394,24 @@ class LLMClient:
                 span_handle.set_attribute(
                     "llm.prompt_eval_duration_ms", res.prompt_eval_duration_ms
                 )
+            if res.processing_seconds is not None:
+                span_handle.set_attribute("llm.processing_seconds", res.processing_seconds)
+            if res.wall_seconds is not None:
+                span_handle.set_attribute("llm.wall_seconds", res.wall_seconds)
+
+            span_handle.set_attribute(
+                "gen_ai.response_preview", res.text[:200].replace("\n", " ").strip()
+            )
+            span_handle.set_attribute("gen_ai.thinking", bool(res.thinking))
+
+            span_handle.add_event(
+                "llm_response_received",
+                {
+                    "total_tokens": res.total_tokens or 0,
+                    "wall_seconds": res.wall_seconds or 0.0,
+                    "backend": res.backend_info or p,
+                },
+            )
 
         duration = time.perf_counter() - start
         record_metric(
@@ -730,7 +775,7 @@ class LLMClient:
                     purpose="Ollama",
                     allow_loopback_for_local_tooling=True,
                 )
-                with httpx2.Client(timeout=request_timeout()) as http_client:
+                with httpx2.Client(timeout=self._request_timeout()) as http_client:
                     response = http_client.get(f"{base}/api/tags")
                     response.raise_for_status()
                     return [

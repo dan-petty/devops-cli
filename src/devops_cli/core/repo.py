@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
 
 from devops_cli.config.constants import CONST_BINARY_EXTENSIONS
 from devops_cli.config.defaults import DEFAULT_SUBPROCESS_FAST_TIMEOUT_SECONDS
+from devops_cli.core.process import run_subprocess
 
 
 def find_repo_root(start_path: Path | str | None = None) -> Path:
@@ -78,10 +78,11 @@ def is_ignored_by_git(repo_root: Path, target_path: Path) -> bool:
                 if target_path.is_relative_to(repo_root)
                 else target_path
             )
-            res = subprocess.run(
+            res = run_subprocess(
                 ["git", "-C", str(repo_root), "check-ignore", "-q", "--", str(rel)],
                 capture_output=True,
                 check=False,
+                quiet=True,
                 timeout=DEFAULT_SUBPROCESS_FAST_TIMEOUT_SECONDS,
             )
             if res.returncode == 0:
@@ -129,11 +130,12 @@ def list_repo_files(target_dir: Path) -> list[Path]:
                 rel_to_repo = resolved_target.relative_to(repo_root)
                 cmd.extend(["--", str(rel_to_repo)])
 
-            proc = subprocess.run(
+            proc = run_subprocess(
                 cmd,
                 capture_output=True,
                 text=True,
                 check=True,
+                quiet=True,
                 timeout=DEFAULT_SUBPROCESS_FAST_TIMEOUT_SECONDS,
             )
             files: list[Path] = []

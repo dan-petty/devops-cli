@@ -6,8 +6,6 @@ Deprecated: Import from `devops_cli.ai.tools.builtin_tools` instead.
 from __future__ import annotations
 
 from devops_cli.ai.tools.builtin_tools import (
-    _is_safe_workspace_path,
-    _run_tool_cmd,
     argo_apps,
     audit_dependencies,
     check_threat_intel,
@@ -30,8 +28,6 @@ from devops_cli.ai.tools.builtin_tools import (
 )
 
 __all__ = [
-    "_is_safe_workspace_path",
-    "_run_tool_cmd",
     "argo_apps",
     "audit_dependencies",
     "check_threat_intel",

@@ -8,7 +8,6 @@ Security & Input Validation:
 
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -23,6 +22,7 @@ from devops_cli.config.defaults import (
     DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
 )
 from devops_cli.core.cli import new_typer
+from devops_cli.core.process import run_subprocess
 from devops_cli.core.validation import validate_k8s_name
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
 from devops_cli.http.validation import validate_service_url
@@ -186,7 +186,9 @@ def workflows_list(
     cmd = ["argo", "list", "--output", "wide"]
     if namespace:
         cmd += ["--namespace", namespace]
-    subprocess.run(cmd, check=True, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS)
+    run_subprocess(
+        cmd, check=True, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS, capture_output=False
+    )
 
 
 @workflows_app.command("submit")
@@ -203,7 +205,9 @@ def workflows_submit(
         cmd += ["--namespace", namespace]
     if wait:
         cmd.append("--wait")
-    subprocess.run(cmd, check=True, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS)
+    run_subprocess(
+        cmd, check=True, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS, capture_output=False
+    )
 
 
 @workflows_app.command("logs")
@@ -221,9 +225,13 @@ def workflows_logs(
         cmd += ["--namespace", namespace]
     if follow:
         cmd.append("--follow")
-        subprocess.run(cmd, check=True, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS)
+        run_subprocess(
+            cmd, check=True, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS, capture_output=False
+        )
     else:
-        subprocess.run(cmd, check=True, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS)
+        run_subprocess(
+            cmd, check=True, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS, capture_output=False
+        )
 
 
 # ── Argo Rollouts (kubectl argo rollouts plugin) ──────────────────────────────
@@ -239,7 +247,9 @@ def rollouts_list(
     cmd = ["kubectl", "argo", "rollouts", "list"]
     if namespace:
         cmd += ["--namespace", namespace]
-    subprocess.run(cmd, check=True, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS)
+    run_subprocess(
+        cmd, check=True, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS, capture_output=False
+    )
 
 
 @rollouts_app.command("status")
@@ -257,6 +267,10 @@ def rollouts_status(
         cmd += ["--namespace", namespace]
     if watch:
         cmd.append("--watch")
-        subprocess.run(cmd, check=True, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS)
+        run_subprocess(
+            cmd, check=True, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS, capture_output=False
+        )
     else:
-        subprocess.run(cmd, check=True, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS)
+        run_subprocess(
+            cmd, check=True, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS, capture_output=False
+        )

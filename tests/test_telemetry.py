@@ -114,3 +114,40 @@ def test_test_connection_mock(monkeypatch: pytest.MonkeyPatch) -> None:
     assert ok is True
     assert "HTTP 200 OK" in msg
     assert latency >= 0
+
+
+def test_clean_exit_not_marked_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    import typer
+
+    sent_payloads: list[tuple[str, dict]] = []
+    client = OTelTelemetryClient(endpoint="http://localhost:4318", enabled=True)
+    monkeypatch.setattr(client, "_send_payload", lambda path, p: sent_payloads.append((path, p)))
+
+    with pytest.raises(typer.Exit):
+        with client.span("clean_exit_span"):
+            raise typer.Exit(0)
+
+    assert len(sent_payloads) == 1
+    span_data = sent_payloads[0][1]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+    assert span_data["status"]["code"] == "STATUS_CODE_OK"
+    attrs = {a["key"]: a["value"]["stringValue"] for a in span_data.get("attributes", [])}
+    assert "error" not in attrs
+
+
+def test_concurrent_threads_context_isolation(monkeypatch: pytest.MonkeyPatch) -> None:
+    import concurrent.futures
+
+    sent_payloads: list[tuple[str, dict]] = []
+    client = OTelTelemetryClient(endpoint="http://localhost:4318", enabled=True)
+    monkeypatch.setattr(client, "_send_payload", lambda path, p: sent_payloads.append((path, p)))
+
+    def task(i: int) -> None:
+        with client.span(f"parent_span_{i}"):
+            with client.span(f"child_span_{i}"):
+                pass
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+        list(pool.map(task, range(10)))
+
+    # Should have 20 spans total (10 parents, 10 children)
+    assert len(sent_payloads) == 20

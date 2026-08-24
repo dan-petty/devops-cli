@@ -11,6 +11,12 @@ from rich import print as rprint
 from devops_cli.ai.benchmark.embedding_runner import EmbeddingBenchmarkRunner
 from devops_cli.ai.benchmark.runner import BenchmarkRunner
 from devops_cli.ai.benchmark.tasks import get_benchmark_tasks
+from devops_cli.config.defaults import (
+    DEFAULT_BENCHMARK_CONCURRENCY,
+    DEFAULT_BENCHMARK_FORMAT,
+    DEFAULT_BENCHMARK_SAMPLES,
+    DEFAULT_BENCHMARK_TYPE,
+)
 from devops_cli.config.settings import load_settings
 from devops_cli.core.cli import new_typer
 from devops_cli.lang import ERRORS, HELP
@@ -66,9 +72,9 @@ def run_benchmark(
         typer.Option(
             "--type",
             "--mode",
-            help="Benchmark mode: 'auto', 'chat', 'embedding' (default: auto)",
+            help=f"Benchmark mode: 'auto', 'chat', 'embedding' (default: {DEFAULT_BENCHMARK_TYPE})",
         ),
-    ] = "auto",
+    ] = DEFAULT_BENCHMARK_TYPE,
     tasks_filter: Annotated[
         str | None,
         typer.Option(
@@ -84,7 +90,7 @@ def run_benchmark(
             "-c",
             help="Number of concurrent model server workers (default: automatic per model count)",
         ),
-    ] = 4,
+    ] = DEFAULT_BENCHMARK_CONCURRENCY,
     output: Annotated[
         Path | None,
         typer.Option("--output", "-o", help="Destination JSON report filepath"),
@@ -92,7 +98,7 @@ def run_benchmark(
     format_type: Annotated[
         str,
         typer.Option("--format", "-f", help="Output format: table, json, markdown"),
-    ] = "table",
+    ] = DEFAULT_BENCHMARK_FORMAT,
     dry_run: Annotated[
         bool,
         typer.Option("--dry-run", help="Simulate benchmark without sending remote LLM requests"),
@@ -120,7 +126,7 @@ def run_benchmark(
         typer.Option(
             "--samples", help="Number of random sections to sample for retrieval evaluation"
         ),
-    ] = 15,
+    ] = DEFAULT_BENCHMARK_SAMPLES,
 ) -> None:
     """Run benchmark tasks across candidate models and execute cross-model peer grading."""
     if ctx.invoked_subcommand is not None:
