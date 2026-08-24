@@ -34,7 +34,7 @@ uv run devops ci
   ```bash
   uv run mypy --python-version 3.14 --strict src
   ```
-- **Config & Literal Centralization**: Never scatter hardcoded strings or timeout literals throughout commands. Store constants in [`src/devops_cli/config/constants.py`](file:///workspaces/devops-cli/src/devops_cli/config/constants.py), defaults in [`src/devops_cli/config/defaults.py`](file:///workspaces/devops-cli/src/devops_cli/config/defaults.py), and user-facing messages in [`src/devops_cli/lang/en.py`](file:///workspaces/devops-cli/src/devops_cli/lang/en.py).
+- **Config & Literal Centralization**: Never scatter hardcoded strings or timeout literals throughout commands. Store constants in [`src/devops_cli/config/constants.py`](src/devops_cli/config/constants.py), defaults in [`src/devops_cli/config/defaults.py`](src/devops_cli/config/defaults.py), and user-facing messages in [`src/devops_cli/lang/en.py`](src/devops_cli/lang/en.py).
 - **Test Mocking Policy**: All automated unit tests must use `unittest.mock` or dummy test doubles. Live network calls in unit tests are prohibited.
 
 ---

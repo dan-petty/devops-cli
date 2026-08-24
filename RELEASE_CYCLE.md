@@ -52,9 +52,9 @@ flowchart LR
 - **Modular Subcommand Pattern**: New CLI subcommands must be implemented under `src/devops_cli/commands/` and registered in `src/devops_cli/main.py` via `_COMMAND_SPECS`.
 - **FastMCP Tool Parity**: Infrastructure commands should expose corresponding lazy MCP tools under `src/devops_cli/ai/mcp/` where appropriate.
 - **Literal & Constant Centralization**:
-  - Centralize timeouts and defaults in [`src/devops_cli/config/defaults.py`](file:///workspaces/devops-cli/src/devops_cli/config/defaults.py).
-  - Centralize static paths, regex patterns, and protocol constants in [`src/devops_cli/config/constants.py`](file:///workspaces/devops-cli/src/devops_cli/config/constants.py).
-  - Centralize user-facing help messages, summaries, and error logs in [`src/devops_cli/lang/`](file:///workspaces/devops-cli/src/devops_cli/lang/).
+  - Centralize timeouts and defaults in [`src/devops_cli/config/defaults.py`](src/devops_cli/config/defaults.py).
+  - Centralize static paths, regex patterns, and protocol constants in [`src/devops_cli/config/constants.py`](src/devops_cli/config/constants.py).
+  - Centralize user-facing help messages, summaries, and error logs in [`src/devops_cli/lang/`](src/devops_cli/lang/).
 - **Dry-Run Support**: All state-modifying subcommands must support the `--dry-run` flag via `devops_cli.dry_run`.
 
 ### Stage 3: Automated Testing & Mocking Standards
@@ -86,10 +86,10 @@ The `devops-cli` maintains living, introspected documentation:
 
 | Document | Purpose |
 | :--- | :--- |
-| [`README.md`](file:///workspaces/devops-cli/README.md) | Project introduction, architecture overview, and command matrix. |
-| [`docs/CLI_REFERENCE.md`](file:///workspaces/devops-cli/docs/CLI_REFERENCE.md) | Complete reference of all subcommands, options, and parameters. |
-| [`docs/ENV_VARS.md`](file:///workspaces/devops-cli/docs/ENV_VARS.md) | Environment variables, defaults, types, and descriptions. |
-| [`docs/MCP_TOOLS.md`](file:///workspaces/devops-cli/docs/MCP_TOOLS.md) | FastMCP tools, input schemas, and execution parameters. |
+| [`README.md`](README.md) | Project introduction, architecture overview, and command matrix. |
+| [`docs/CLI_REFERENCE.md`](docs/CLI_REFERENCE.md) | Complete reference of all subcommands, options, and parameters. |
+| [`docs/ENV_VARS.md`](docs/ENV_VARS.md) | Environment variables, defaults, types, and descriptions. |
+| [`docs/MCP_TOOLS.md`](docs/MCP_TOOLS.md) | FastMCP tools, input schemas, and execution parameters. |
 | `docs/commands/<group>.md` | Dedicated per-command-group reference manuals. |
 
 ---

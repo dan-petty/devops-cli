@@ -99,7 +99,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Jaeger Query UI and OTLP collector deployment manifests (`k8s/otel/jaeger.yaml`).
   - Customized Grafana dashboards for AI inference latency, token metrics, and Kubernetes cluster health (`k8s/monitoring/dashboards/`).
 - **DevContainer Background Git Daemon**:
-  - Native automated background Git daemon with `--export-all` across `/workspaces/devops-cli/k8s` and `/workspaces/devops-cli/repos` during container post-start lifecycle.
+  - Native automated background Git daemon with `--export-all` across `k8s` and `repos` during container post-start lifecycle.
 - **GitHub PR Governance & Remote CI Inspection (`devops pr`)**:
   - Pull request lifecycle management (`create`, `status`, `checks`, `view`, `diff`) with automated release branch base targeting and CI check monitoring.
 - **AI Review Subsystem Modularization & Decoupling**:

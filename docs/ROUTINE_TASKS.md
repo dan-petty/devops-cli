@@ -66,10 +66,10 @@ flowchart TD
 #### Step-by-Step Order:
 1. **Sync Dependencies (`uv sync`)**: Always ensure `.venv` is aligned with `uv.lock` before starting work.
 2. **Centralize Constants, Config & Defaults**:
-   - Put configuration options and environment variable schemas in [`src/devops_cli/config/settings.py`](file:///workspaces/devops-cli/src/devops_cli/config/settings.py).
-   - Put constants, regexes, and protocol strings in [`src/devops_cli/config/constants.py`](file:///workspaces/devops-cli/src/devops_cli/config/constants.py).
-   - Put timeouts and numeric defaults in [`src/devops_cli/config/defaults.py`](file:///workspaces/devops-cli/src/devops_cli/config/defaults.py).
-   - Put user-facing messages, summaries, and error logs in [`src/devops_cli/lang/en.py`](file:///workspaces/devops-cli/src/devops_cli/lang/en.py).
+   - Put configuration options and environment variable schemas in [`src/devops_cli/config/settings.py`](../src/devops_cli/config/settings.py).
+   - Put constants, regexes, and protocol strings in [`src/devops_cli/config/constants.py`](../src/devops_cli/config/constants.py).
+   - Put timeouts and numeric defaults in [`src/devops_cli/config/defaults.py`](../src/devops_cli/config/defaults.py).
+   - Put user-facing messages, summaries, and error logs in [`src/devops_cli/lang/en.py`](../src/devops_cli/lang/en.py).
 3. **Format & Lint Target Files**:
    ```bash
    uv run ruff check --fix <modified_paths>
