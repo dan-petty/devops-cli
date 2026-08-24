@@ -1255,6 +1255,61 @@ class ReviewPipelineOrchestrator:
         from rich.table import Table
 
         console = Console()
+
+        if reportable_findings:
+            findings_tbl = Table(title="Code Review Findings")
+            findings_tbl.add_column("#", justify="right", style="dim", no_wrap=True)
+            findings_tbl.add_column("Severity", justify="center", no_wrap=True)
+            findings_tbl.add_column("Location", style="bold cyan", overflow="fold")
+            findings_tbl.add_column("Title", overflow="fold")
+            findings_tbl.add_column("Status", justify="center", no_wrap=True)
+            findings_tbl.add_column("Persona", style="dim")
+            findings_tbl.add_column("Conf", justify="right", style="dim", no_wrap=True)
+
+            for idx, f in enumerate(reportable_findings, 1):
+                sev_upper = f.severity.upper()
+                if sev_upper == "CRITICAL":
+                    sev_str = "[bold red]CRITICAL[/bold red]"
+                elif sev_upper == "HIGH":
+                    sev_str = "[red]HIGH[/red]"
+                elif sev_upper == "MEDIUM":
+                    sev_str = "[yellow]MEDIUM[/yellow]"
+                elif sev_upper == "LOW":
+                    sev_str = "[cyan]LOW[/cyan]"
+                elif sev_upper == "INFO":
+                    sev_str = "[green]INFO[/green]"
+                else:
+                    sev_str = f"[white]{f.severity}[/white]"
+
+                st_upper = f.status.upper()
+                if st_upper == "VERIFIED":
+                    st_str = "[green]VERIFIED[/green]"
+                elif st_upper == "FLAGGED":
+                    st_str = "[yellow]FLAGGED[/yellow]"
+                elif st_upper == "MITIGATED":
+                    st_str = "[cyan]MITIGATED[/cyan]"
+                elif st_upper == "INVALIDATED":
+                    st_str = "[red]INVALIDATED[/red]"
+                else:
+                    st_str = f"[dim]{f.status}[/dim]"
+
+                conf_str = (
+                    f"{int(f.confidence_score * 100)}%" if f.confidence_score is not None else "—"
+                )
+
+                findings_tbl.add_row(
+                    str(idx),
+                    sev_str,
+                    f.location,
+                    f.title.strip(),
+                    st_str,
+                    f.persona_title or f.persona,
+                    conf_str,
+                )
+            console.print(findings_tbl)
+        else:
+            rprint("[bold green]✓ No reportable findings across reviewed files.[/bold green]")
+
         if all_deps:
             dep_tbl = Table(title="External Dependencies Security Audit (OSV.dev & NVD)")
             dep_tbl.add_column("Severity", justify="center", no_wrap=True)
@@ -1323,6 +1378,63 @@ class ReviewPipelineOrchestrator:
                     n.location or "—",
                 )
             console.print(local_tbl)
+
+        crit_cnt = sum(1 for f in reportable_findings if f.severity.upper() == "CRITICAL")
+        high_cnt = sum(1 for f in reportable_findings if f.severity.upper() == "HIGH")
+        med_cnt = sum(1 for f in reportable_findings if f.severity.upper() == "MEDIUM")
+        low_cnt = sum(1 for f in reportable_findings if f.severity.upper() == "LOW")
+        info_cnt = sum(1 for f in reportable_findings if f.severity.upper() == "INFO")
+        ver_cnt = sum(1 for f in reportable_findings if f.status.upper() == "VERIFIED")
+
+        if reportable_findings:
+            sev_parts: list[str] = []
+            if crit_cnt:
+                sev_parts.append(f"[bold red]{crit_cnt} Critical[/bold red]")
+            if high_cnt:
+                sev_parts.append(f"[red]{high_cnt} High[/red]")
+            if med_cnt:
+                sev_parts.append(f"[yellow]{med_cnt} Medium[/yellow]")
+            if low_cnt:
+                sev_parts.append(f"[cyan]{low_cnt} Low[/cyan]")
+            if info_cnt:
+                sev_parts.append(f"[green]{info_cnt} Info[/green]")
+            sev_breakdown = ", ".join(sev_parts) if sev_parts else "None"
+            findings_summary_str = f"{len(reportable_findings)} ({sev_breakdown})"
+            ver_pct = ver_cnt / len(reportable_findings)
+            ver_rate_str = f"{ver_cnt}/{len(reportable_findings)} verified ({ver_pct:.0%})"
+        else:
+            findings_summary_str = "[bold green]0 findings (Clean)[/bold green]"
+            ver_rate_str = "[green]✓ All clean[/green]"
+
+        vuln_deps = sum(1 for d in all_deps if d.severity.upper() not in ("CLEAN", "NONE", "INFO"))
+        if all_deps:
+            vuln_note = (
+                f" ([red]{vuln_deps} vulnerable[/red])" if vuln_deps else " ([green]clean[/green])"
+            )
+            deps_str = f"{len(all_deps)} audited{vuln_note}"
+        else:
+            deps_str = "0 scanned"
+
+        nets_str = (
+            f"{len(all_nets)} audited ({len(external_nets)} External, {len(local_nets)} Local)"
+            if all_nets
+            else "0 detected"
+        )
+
+        summary_tbl = Table(title="Review Summary", title_style="bold cyan")
+        summary_tbl.add_column("Metric", style="bold")
+        summary_tbl.add_column("Result")
+
+        summary_tbl.add_row("Session ID", f"[cyan]{self.session_id}[/cyan]")
+        summary_tbl.add_row("Files Reviewed", str(len(file_payloads)))
+        summary_tbl.add_row("Reportable Findings", findings_summary_str)
+        summary_tbl.add_row("Verification Rate", ver_rate_str)
+        summary_tbl.add_row("Dependencies", deps_str)
+        summary_tbl.add_row("Network Endpoints", nets_str)
+        summary_tbl.add_row("Markdown Report", str(self.session_dir / "review.md"))
+        summary_tbl.add_row("Findings JSON", str(self.session_dir / "findings.json"))
+
+        console.print(summary_tbl)
 
         rprint(
             f"[green]✓ Consolidated review completed for session {self.session_id}[/green] "

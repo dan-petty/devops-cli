@@ -647,3 +647,83 @@ def test_empty_findings_filtered_and_field_aliasing() -> None:
     assert parsed is not None
     assert len(parsed.findings) == 0
     assert parsed.recommendation == "APPROVE"
+
+
+def test_generate_consolidated_report_prints_findings_and_review_summary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Verify that generate_consolidated_report renders both the Code Review Findings
+    table and the Review Summary table to console on review completion.
+    """
+    monkeypatch.setattr("devops_cli.config.constants.CONST_DATA_DIR", tmp_path / ".data")
+    monkeypatch.setattr(
+        "devops_cli.config.constants.CONST_REVIEWS_DATA_DIR", tmp_path / ".data" / "reviews"
+    )
+
+    orchestrator = ReviewPipelineOrchestrator(
+        session_id="summary-output-test", llm_client=MagicMock()
+    )
+    finding = SavedFinding(
+        severity="HIGH",
+        location="src/auth.py:42",
+        title="Hardcoded Credential",
+        description="Found hardcoded secret key in auth module",
+        status="VERIFIED",
+        persona="devsecops",
+        persona_title="Principal DevSecOps Engineer",
+        reportable=True,
+        confidence_score=0.95,
+    )
+    payload = FileReviewPayload(
+        file_path="src/auth.py",
+        findings=[finding],
+        external_dependencies=[],
+        network_references=[],
+    )
+
+    data_out, report_md = orchestrator.generate_consolidated_report([payload])
+    captured = capsys.readouterr().out
+
+    assert "Code Review Findings" in captured
+    assert "src/auth.py:42" in captured
+    assert "Hardcoded Credential" in captured
+    assert "VERIFIED" in captured
+    assert "Review Summary" in captured
+    assert "Files Reviewed" in captured
+    assert "Reportable Findings" in captured
+    assert "1 High" in captured
+    assert "1/1 verified (100%)" in captured
+    assert "Consolidated review completed for session summary-output-test" in captured
+    assert len(data_out["findings"]) == 1
+    assert "## Summary of Reportable Findings" in report_md
+
+
+def test_generate_consolidated_report_clean_review_summary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Verify clean review summary output when 0 reportable findings are generated."""
+    monkeypatch.setattr("devops_cli.config.constants.CONST_DATA_DIR", tmp_path / ".data")
+    monkeypatch.setattr(
+        "devops_cli.config.constants.CONST_REVIEWS_DATA_DIR", tmp_path / ".data" / "reviews"
+    )
+
+    orchestrator = ReviewPipelineOrchestrator(
+        session_id="clean-summary-test", llm_client=MagicMock()
+    )
+    payload = FileReviewPayload(
+        file_path="src/clean_code.py",
+        findings=[],
+        external_dependencies=[],
+        network_references=[],
+    )
+
+    data_out, report_md = orchestrator.generate_consolidated_report([payload])
+    captured = capsys.readouterr().out
+
+    assert "No reportable findings across reviewed files" in captured
+    assert "Review Summary" in captured
+    assert "0 findings (Clean)" in captured
+    assert "✓ All clean" in captured
+    assert "Consolidated review completed for session clean-summary-test" in captured
+    assert len(data_out["findings"]) == 0
+    assert "No critical issues found during review" in report_md
