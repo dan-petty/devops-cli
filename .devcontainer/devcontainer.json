@@ -1,6 +1,8 @@
 {
   "name": "devops-cli",
-  "image": "python:3.14-trixie",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
   "features": {
     "ghcr.io/devcontainers/features/common-utils:2": {
       "installZsh": "true",

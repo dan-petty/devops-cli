@@ -323,7 +323,16 @@ def _run_post_create_lifecycle(workspace_dir: Path, *, dry_run: bool = False) ->
     """Execute DevContainer post-create setup tasks in pure Python."""
     actions: list[str] = []
 
-    # 1. Persistent bash history
+    # 1. Bootstrap uv & tools if not present
+    if shutil.which("uv") is None and not dry_run:
+        run_subprocess(
+            ["sh", "-c", "curl -LsSf https://astral.sh/uv/install.sh | sh"],
+            check=False,
+            quiet=True,
+        )
+        actions.append("Installed standalone uv binary into $HOME/.local/bin")
+
+    # 2. Persistent bash history
     hist_file = Path.home() / ".bash_history"
     if not dry_run:
         hist_file.touch(mode=0o600, exist_ok=True)
