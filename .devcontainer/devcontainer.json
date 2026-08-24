@@ -1,7 +1,8 @@
 {
   "name": "devops-cli",
   "build": {
-    "dockerfile": "Dockerfile"
+    "dockerfile": "Dockerfile",
+    "context": ".."
   },
   "features": {
     "ghcr.io/devcontainers/features/common-utils:2": {
@@ -102,8 +103,8 @@
       "onAutoForward": "ignore"
     }
   },
-  "postCreateCommand": "uv run devops devcontainer post-create",
-  "postStartCommand": "uv run devops devcontainer post-start",
+  "postCreateCommand": "uv sync && (command -v sudo >/dev/null && sudo ln -sf /workspaces/devops-cli/.venv/bin/devops /usr/local/bin/devops || true) && devops devcontainer post-create",
+  "postStartCommand": "devops devcontainer post-start",
   "customizations": {
     "vscode": {
       "extensions": [
