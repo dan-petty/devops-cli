@@ -51,6 +51,7 @@ CONST_DEVCONTAINER_POST_CREATE_PATH = (
     Path(CONST_DEVCONTAINER_DIR_NAME) / CONST_DEVCONTAINER_POST_CREATE_NAME
 )
 CONST_DEVCONTAINER_IMAGE_PREFIX = "mcr.microsoft.com/devcontainers/python:"
+CONST_DEVCONTAINER_PUBLISHED_IMAGE = "ghcr.io/dan-petty/devops-cli/devcontainer:latest"
 
 # ── OpenTofu & Infrastructure ──────────────────────────────────────────────────
 CONST_TF_DIR_NAME = "tf"

@@ -20,6 +20,7 @@ from devops_cli.config.constants import (
     CONST_DEVCONTAINER_IMAGE_PREFIX,
     CONST_DEVCONTAINER_JSON_NAME,
     CONST_DEVCONTAINER_JSON_PATH,
+    CONST_DEVCONTAINER_PUBLISHED_IMAGE,
 )
 from devops_cli.config.metadata import get_project_python_version
 from devops_cli.config.settings import load_settings
@@ -56,15 +57,22 @@ def init(
     python_version: Annotated[
         str, typer.Option("--python", help="Python version for base template")
     ] = _project_python_version(),
-    image: Annotated[str | None, typer.Option("--image", "-i", help="Base container image")] = None,
+    image: Annotated[
+        str | None,
+        typer.Option(
+            "--image",
+            "-i",
+            help="Base container image (defaults to published devops-cli image)",
+        ),
+    ] = None,
     published: Annotated[
         bool,
         typer.Option(
             "--published",
             "-p",
-            help="Use published GHCR image (ghcr.io/dan-petty/devops-cli/devcontainer:latest)",
+            help="Use published GHCR image (defaults to True)",
         ),
-    ] = False,
+    ] = True,
     home_volume: Annotated[
         str | None,
         typer.Option(
@@ -72,13 +80,6 @@ def init(
             help="Custom volume name for /home/vscode (defaults to <project_name>-home)",
         ),
     ] = None,
-    minikube: Annotated[
-        bool,
-        typer.Option(
-            "--minikube/--no-minikube",
-            help="Include Minikube and Kubernetes tools in base features",
-        ),
-    ] = True,
     force: Annotated[
         bool,
         typer.Option(
@@ -88,7 +89,7 @@ def init(
         ),
     ] = False,
 ) -> None:
-    """Scaffold .devcontainer/ in a repository using standard or published template."""
+    """Scaffold .devcontainer/ using the published DevOps CLI devcontainer image."""
     dc_dir = repo_path / CONST_DEVCONTAINER_DIR_NAME
     dc_file = dc_dir / CONST_DEVCONTAINER_JSON_NAME
 
@@ -101,9 +102,12 @@ def init(
     name = re.sub(r"[^a-zA-Z0-9._-]+", "_", raw_name)
     dc_dir.mkdir(parents=True, exist_ok=True)
 
-    selected_image: str | None = image
-    if published and not selected_image:
-        selected_image = "ghcr.io/dan-petty/devops-cli/devcontainer:latest"
+    if image:
+        selected_image = image
+        is_published = selected_image.startswith("ghcr.io/dan-petty/devops-cli/devcontainer")
+    else:
+        selected_image = CONST_DEVCONTAINER_PUBLISHED_IMAGE
+        is_published = True
 
     resolved_home_vol = home_volume or f"{name}-home"
 
@@ -113,9 +117,8 @@ def init(
         project_name=name,
         python_version=python_version,
         image=selected_image,
-        published=published,
+        published=is_published,
         home_volume=resolved_home_vol,
-        minikube=minikube,
     )
     dc_file.write_text(rendered.strip() + "\n", encoding="utf-8")
 
