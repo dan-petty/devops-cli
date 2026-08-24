@@ -68,3 +68,12 @@ docker logs -f --tail 100 <container_id>
 
 - **Registry Namespace**: Container images are hosted on GitHub Container Registry under `ghcr.io/dan-petty/devops-cli/devcontainer`.
 - **Labels & OCI Annotations**: Include OpenContainer annotations (`org.opencontainers.image.source`, `org.opencontainers.image.description`, `org.opencontainers.image.version`) in all published manifests.
+
+---
+
+## 7. Official References & Published Artifacts
+
+- **Project Homepage**: [Docker Documentation](https://docs.docker.com/)
+- **Public Git Repository**: [github.com/moby/moby](https://github.com/moby/moby)
+- **Published Container Package (GHCR)**: [`ghcr.io/dan-petty/devops-cli/devcontainer:latest`](https://github.com/dan-petty/devops-cli/pkgs/container/devops-cli%2Fdevcontainer)
+- **DevOps CLI Docker Engine**: [src/devops_cli/commands/docker.py](file:///workspaces/devops-cli/src/devops_cli/commands/docker.py)

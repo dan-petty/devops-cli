@@ -82,3 +82,12 @@ curl http://localhost:11434/api/embeddings -d '{
 
 - **Default Port**: Standard Ollama HTTP port `11434`.
 - **Modelfile Declarations**: Store custom model definitions under `src/devops_cli/ai/models/` or dedicated Modelfile manifests.
+
+---
+
+## 7. Official References & Published Artifacts
+
+- **Project Homepage**: [ollama.com](https://ollama.com/)
+- **Public Git Repository**: [github.com/ollama/ollama](https://github.com/ollama/ollama)
+- **Official Model Library**: [ollama.com/library](https://ollama.com/library)
+- **DevOps CLI Model Bundler**: [src/devops_cli/ai/model_bundler.py](file:///workspaces/devops-cli/src/devops_cli/ai/model_bundler.py)

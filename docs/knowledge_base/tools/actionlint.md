@@ -63,3 +63,11 @@ actionlint -format '{{json .}}'
 
 - **File Location**: Store workflows exclusively under `.github/workflows/*.yml` or `.github/workflows/*.yaml`.
 - **Exit Code**: Exit code `0` on clean workflows; exit code `1` when syntax or shellcheck errors are found.
+
+---
+
+## 7. Official References & Published Artifacts
+
+- **Project Homepage & Repo**: [github.com/rhysd/actionlint](https://github.com/rhysd/actionlint)
+- **Official Releases**: [github.com/rhysd/actionlint/releases](https://github.com/rhysd/actionlint/releases)
+- **DevOps CLI CI Gate**: [src/devops_cli/commands/ci.py](file:///workspaces/devops-cli/src/devops_cli/commands/ci.py)

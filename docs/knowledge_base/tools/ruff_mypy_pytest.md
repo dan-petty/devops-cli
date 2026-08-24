@@ -88,3 +88,16 @@ uv run pytest --cov=src/devops_cli --cov-report=html:coverage_html
 
 - **Config File**: All tool configurations reside centrally in [`pyproject.toml`](file:///workspaces/devops-cli/pyproject.toml).
 - **Test File Naming**: All test modules must be named `tests/test_<feature>.py`.
+
+---
+
+## 7. Official References & Published Artifacts
+
+- **Ruff Homepage**: [astral.sh/ruff](https://astral.sh/ruff) | [github.com/astral-sh/ruff](https://github.com/astral-sh/ruff)
+- **Mypy Homepage**: [mypy-lang.org](https://mypy-lang.org/) | [github.com/python/mypy](https://github.com/python/mypy)
+- **Pytest Homepage**: [pytest.org](https://docs.pytest.org/) | [github.com/pytest-dev/pytest](https://github.com/pytest-dev/pytest)
+- **Official PyPI Packages**:
+  - [pypi.org/project/ruff](https://pypi.org/project/ruff/)
+  - [pypi.org/project/mypy](https://pypi.org/project/mypy/)
+  - [pypi.org/project/pytest](https://pypi.org/project/pytest/)
+- **DevOps CLI CI Quality Command**: [src/devops_cli/commands/ci.py](file:///workspaces/devops-cli/src/devops_cli/commands/ci.py)

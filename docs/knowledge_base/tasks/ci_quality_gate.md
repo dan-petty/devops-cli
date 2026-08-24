@@ -81,3 +81,11 @@ devops ci
 
 - **Quality Threshold**: 100% pass requirement on all 10 gates before merging to release or main branches.
 - **Coverage Floor**: Minimum 70% branch and line coverage enforced across `src/devops_cli/`.
+
+---
+
+## 7. Official References & Published Artifacts
+
+- **DevOps CLI Repository**: [github.com/dan-petty/devops-cli](https://github.com/dan-petty/devops-cli)
+- **CI Quality Gate Command**: [src/devops_cli/commands/ci.py](file:///workspaces/devops-cli/src/devops_cli/commands/ci.py)
+- **GitHub Actions CI Workflow**: [.github/workflows/ci.yml](file:///workspaces/devops-cli/.github/workflows/ci.yml)

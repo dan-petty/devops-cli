@@ -73,3 +73,12 @@ keyring.delete_password(CONST_KEYRING_SERVICE, "github.token")
 
 - **Service Key**: `devops-cli`.
 - **Credential Keys**: `github.token`, `ai.api_key`, `cloud.aws_secret_key`, `cloud.azure_client_secret`.
+
+---
+
+## 7. Official References & Published Artifacts
+
+- **Project Documentation**: [keyring.readthedocs.io](https://keyring.readthedocs.io/)
+- **Public Git Repository**: [github.com/jaraco/keyring](https://github.com/jaraco/keyring)
+- **Official PyPI Package**: [pypi.org/project/keyring](https://pypi.org/project/keyring/)
+- **DevOps CLI Settings Engine**: [src/devops_cli/config/settings.py](file:///workspaces/devops-cli/src/devops_cli/config/settings.py)

@@ -74,3 +74,15 @@ pluto detect-helm -A
 
 - **Target Versions**: Keep Pluto target Kubernetes versions aligned with current production cluster runtimes.
 - **Rule Configurations**: Customize KubeLinter rules in `.kube-linter.yaml` when specific architectural exceptions are required.
+
+---
+
+## 7. Official References & Published Artifacts
+
+- **KubeLinter Homepage**: [kubelinter.io](https://www.stackrox.io/blog/kube-linter/) | [github.com/stackrox/kube-linter](https://github.com/stackrox/kube-linter)
+- **Popeye Homepage**: [popeyecli.io](https://popeyecli.io/) | [github.com/derailed/popeye](https://github.com/derailed/popeye)
+- **Pluto Homepage**: [pluto.docs.fairwinds.com](https://pluto.docs.fairwinds.com/) | [github.com/FairwindsOps/pluto](https://github.com/FairwindsOps/pluto)
+- **DevOps CLI Kubernetes Audit Engines**:
+  - [src/devops_cli/security/kubelinter.py](file:///workspaces/devops-cli/src/devops_cli/security/kubelinter.py)
+  - [src/devops_cli/security/popeye.py](file:///workspaces/devops-cli/src/devops_cli/security/popeye.py)
+  - [src/devops_cli/security/pluto.py](file:///workspaces/devops-cli/src/devops_cli/security/pluto.py)

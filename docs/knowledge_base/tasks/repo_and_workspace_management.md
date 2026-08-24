@@ -67,3 +67,12 @@ devops workspace list
 
 - **Child Repo Directory**: `repos/<org>/<repo-name>`.
 - **Workspace File**: Root `.code-workspace` JSON file formatted with 2-space indentation.
+
+---
+
+## 7. Official References & Published Artifacts
+
+- **DevOps CLI Repository**: [github.com/dan-petty/devops-cli](https://github.com/dan-petty/devops-cli)
+- **GDOT Child Workspace**: [github.com/dan-petty/gdot-local-dev](https://github.com/dan-petty/gdot-local-dev)
+- **DevOps CLI Workspace Module**: [src/devops_cli/commands/workspace.py](file:///workspaces/devops-cli/src/devops_cli/commands/workspace.py)
+- **DevOps CLI Repos Module**: [src/devops_cli/commands/repos.py](file:///workspaces/devops-cli/src/devops_cli/commands/repos.py)

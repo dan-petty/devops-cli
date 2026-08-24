@@ -9,6 +9,9 @@ FastAPI is a modern, high-performance web framework for building APIs with Pytho
 ## 2. Usage Information & Architecture
 
 - **Application Factory Pattern**: `src/devops_cli/server/app.py` exposes `create_app()` constructing the FastAPI instance with CORS middleware, OpenTelemetry request tracing, process timing headers (`X-Process-Time`), and version headers (`X-DevOps-Version`).
+- **Default Port**: `8000`.
+- **OpenAPI Version**: `3.1.0`.
+- **Python Framework**: FastAPI + Uvicorn ASGI server.
 - **Endpoint Structure**:
   - `GET /`: Service metadata, documentation links, and uptime.
   - `GET /health`, `GET /healthz`: Health and liveness probes.
@@ -80,3 +83,14 @@ curl -s http://localhost:8000/openapi.json > openapi.json
 
 - **Version Alignment**: FastAPI `>=0.110.0`, Uvicorn `>=0.30.0`, Pydantic `>=2.10.0`.
 - **Custom Headers**: Standard headers `X-Process-Time` (latency in seconds) and `X-DevOps-Version` (installed CLI semver).
+
+---
+
+## 7. Official References & Published Artifacts
+
+- **FastAPI Homepage**: [fastapi.tiangolo.com](https://fastapi.tiangolo.com/) | [github.com/fastapi/fastapi](https://github.com/fastapi/fastapi)
+- **Uvicorn Homepage**: [uvicorn.org](https://www.uvicorn.org/) | [github.com/encode/uvicorn](https://github.com/encode/uvicorn)
+- **Official PyPI Packages**:
+  - [pypi.org/project/fastapi](https://pypi.org/project/fastapi/)
+  - [pypi.org/project/uvicorn](https://pypi.org/project/uvicorn/)
+- **DevOps CLI Server Engine**: [src/devops_cli/server/app.py](file:///workspaces/devops-cli/src/devops_cli/server/app.py)

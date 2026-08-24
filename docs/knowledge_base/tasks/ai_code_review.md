@@ -73,3 +73,12 @@ devops review branch --export-md .data/reviews/review-report.md
 
 - **Finding Severity**: `CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, `INFO`.
 - **Finding Model**: Structured Pydantic model (`ReviewFinding`) with `id`, `file_path`, `line_start`, `line_end`, `persona`, `severity`, `title`, `description`, `remediation`, and `confidence`.
+
+---
+
+## 7. Official References & Published Artifacts
+
+- **DevOps CLI Repository**: [github.com/dan-petty/devops-cli](https://github.com/dan-petty/devops-cli)
+- **Review Pipeline Engine**: [src/devops_cli/ai/review.py](file:///workspaces/devops-cli/src/devops_cli/ai/review.py)
+- **Persona Prompt Task Definitions**: [src/devops_cli/ai/tasks/](file:///workspaces/devops-cli/src/devops_cli/ai/tasks/)
+- **Target Repository Example**: [github.com/dan-petty/gdot-local-dev](https://github.com/dan-petty/gdot-local-dev)

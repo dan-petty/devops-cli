@@ -77,3 +77,12 @@ devops tofu status --path tf/aws
       └── prod.tfvars
   ```
 - **HCL Syntax**: Use HCL2 declarative syntax with explicit type constraints for all variables (`type = string`, `type = list(string)`).
+
+---
+
+## 7. Official References & Published Artifacts
+
+- **OpenTofu Project**: [opentofu.org](https://opentofu.org/) | [github.com/opentofu/opentofu](https://github.com/opentofu/opentofu)
+- **OpenTofu Provider Registry**: [search.opentofu.org](https://search.opentofu.org/)
+- **Terraform Registry**: [registry.terraform.io](https://registry.terraform.io/)
+- **DevOps CLI IaC Engine**: [src/devops_cli/commands/tf.py](file:///workspaces/devops-cli/src/devops_cli/commands/tf.py)

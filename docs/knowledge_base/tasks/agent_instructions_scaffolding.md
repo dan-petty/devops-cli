@@ -65,3 +65,12 @@ devops devcontainer post-create
 - **Canonical File**: `AGENTS.md` at target repository root.
 - **Claude Pointer**: `CLAUDE.md` at target repository root (`./AGENTS.md`).
 - **Copilot Pointer**: `.github/copilot-instructions.md` (`../AGENTS.md`).
+
+---
+
+## 7. Official References & Published Artifacts
+
+- **DevOps CLI Agent Guidelines**: [AGENTS.md](file:///workspaces/devops-cli/AGENTS.md)
+- **GDOT Agent Guidelines**: [repos/dan-petty/gdot-local-dev/AGENTS.md](file:///workspaces/devops-cli/repos/dan-petty/gdot-local-dev/AGENTS.md)
+- **Instruction Generator Module**: [src/devops_cli/ai/instruction_generator.py](file:///workspaces/devops-cli/src/devops_cli/ai/instruction_generator.py)
+- **AI Command Module**: [src/devops_cli/commands/ai.py](file:///workspaces/devops-cli/src/devops_cli/commands/ai.py)

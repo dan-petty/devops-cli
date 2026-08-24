@@ -74,3 +74,12 @@ providers:
 
 - **Port Conventions**: Internal container port `3000`, service port `80`.
 - **Datasource Naming**: Standardized datasource identifiers: `Prometheus` (default metrics) and `Jaeger` (default traces).
+
+---
+
+## 7. Official References & Published Artifacts
+
+- **Project Homepage**: [grafana.com](https://grafana.com/)
+- **Public Git Repository**: [github.com/grafana/grafana](https://github.com/grafana/grafana)
+- **Published Container Image**: [hub.docker.com/r/grafana/grafana](https://hub.docker.com/r/grafana/grafana)
+- **DevOps CLI Grafana Integration**: [src/devops_cli/commands/grafana.py](file:///workspaces/devops-cli/src/devops_cli/commands/grafana.py)

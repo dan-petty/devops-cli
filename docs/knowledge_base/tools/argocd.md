@@ -100,3 +100,12 @@ spec:
 
 - **Namespace**: Standard ArgoCD deployments reside in the `argocd` namespace.
 - **Health Checks**: Implement standard Kubernetes readiness and liveness probes so ArgoCD can evaluate application health accurately.
+
+---
+
+## 7. Official References & Published Artifacts
+
+- **Project Homepage**: [argo-cd.readthedocs.io](https://argo-cd.readthedocs.io/)
+- **Public Git Repository**: [github.com/argoproj/argo-cd](https://github.com/argoproj/argo-cd)
+- **Published Container Image**: [quay.io/argoproj/argocd](https://quay.io/repository/argoproj/argocd)
+- **DevOps CLI ArgoCD Automation**: [src/devops_cli/commands/argo.py](file:///workspaces/devops-cli/src/devops_cli/commands/argo.py)

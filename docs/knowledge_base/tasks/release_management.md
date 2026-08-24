@@ -69,3 +69,12 @@ devops release create-pr --version 0.2.0
 - **Release Branch Naming**: `release/v<MAJOR>.<MINOR>.<PATCH>` (e.g. `release/v0.2.0`).
 - **Release Tag Naming**: `v<MAJOR>.<MINOR>.<PATCH>` (e.g. `v0.2.0`).
 - **Conventional Commits**: Format release commits as `chore(release): prepare v0.2.0 release`.
+
+---
+
+## 7. Official References & Published Artifacts
+
+- **DevOps CLI Releases**: [github.com/dan-petty/devops-cli/releases](https://github.com/dan-petty/devops-cli/releases)
+- **Release Verification Engine**: [src/devops_cli/release/validator.py](file:///workspaces/devops-cli/src/devops_cli/release/validator.py)
+- **Release Command Module**: [src/devops_cli/commands/release.py](file:///workspaces/devops-cli/src/devops_cli/commands/release.py)
+- **Release Notes Document**: [docs/RELEASE_NOTES.md](file:///workspaces/devops-cli/docs/RELEASE_NOTES.md)

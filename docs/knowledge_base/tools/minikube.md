@@ -80,3 +80,12 @@ minikube delete --all --purge
 
 - **Environment Control**: Respect `DEVOPS_MINIKUBE_AUTOSTART=true` environment variable during container post-create hooks.
 - **Kubernetes Version Alignment**: Track stable Kubernetes minor releases (`--kubernetes-version=v1.31.0`).
+
+---
+
+## 7. Official References & Published Artifacts
+
+- **Project Homepage**: [minikube.sigs.k8s.io](https://minikube.sigs.k8s.io/)
+- **Public Git Repository**: [github.com/kubernetes/minikube](https://github.com/kubernetes/minikube)
+- **Official Minikube Releases**: [github.com/kubernetes/minikube/releases](https://github.com/kubernetes/minikube/releases)
+- **DevOps CLI Minikube Bootstrap**: [src/devops_cli/commands/k8s.py](file:///workspaces/devops-cli/src/devops_cli/commands/k8s.py)

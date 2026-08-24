@@ -80,3 +80,12 @@ kubectl top pods --all-namespaces
 
 - **API Deprecation Audits**: Audit manifests with Pluto and KubeLinter before deploying across Kubernetes versions.
 - **Context Switching**: Use `kubectl config get-contexts` and `kubectl config use-context <name>` to verify target clusters before applying mutations.
+
+---
+
+## 7. Official References & Published Artifacts
+
+- **Project Homepage**: [Kubernetes kubectl Reference](https://kubernetes.io/docs/reference/kubectl/)
+- **Public Git Repository**: [github.com/kubernetes/kubectl](https://github.com/kubernetes/kubectl)
+- **Official Kubernetes Releases**: [dl.k8s.io/release](https://dl.k8s.io/release/)
+- **DevOps CLI Kubernetes Engine**: [src/devops_cli/commands/k8s.py](file:///workspaces/devops-cli/src/devops_cli/commands/k8s.py)

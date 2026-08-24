@@ -68,3 +68,12 @@ trivy image --ignore-unfixed ghcr.io/dan-petty/devops-cli/devcontainer:latest
 
 - **CVE Schema**: Follow standard NVD and GitHub Advisory Database identifiers (`CVE-YYYY-NNNN`, `GHSA-xxxx-xxxx-xxxx`).
 - **Exit Code Conventions**: Exit code `0` on clean scans; exit code `1` when policy-violating vulnerabilities are detected.
+
+---
+
+## 7. Official References & Published Artifacts
+
+- **Project Homepage**: [trivy.dev](https://trivy.dev/)
+- **Public Git Repository**: [github.com/aquasecurity/trivy](https://github.com/aquasecurity/trivy)
+- **Published Container Image**: [hub.docker.com/r/aquasec/trivy](https://hub.docker.com/r/aquasec/trivy)
+- **DevOps CLI Scanner Engine**: [src/devops_cli/security/trivy.py](file:///workspaces/devops-cli/src/devops_cli/security/trivy.py)

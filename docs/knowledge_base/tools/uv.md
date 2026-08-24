@@ -77,3 +77,13 @@ uv audit
 - **Python Version Tracking**: Target Python 3.14+ runtime environments (`requires-python = ">=3.14"` in `pyproject.toml`).
 - **Build Backend**: Use standard build backends such as `hatchling` (`[build-system] requires = ["hatchling"]`).
 - **Target Agnostic Tooling**: Never assume local project paths; always resolve the active repository root dynamically via `pyproject.toml` or `git rev-parse --show-toplevel`.
+
+---
+
+## 7. Official References & Published Artifacts
+
+- **Project Homepage**: [astral.sh/uv](https://astral.sh/uv)
+- **Public Git Repository**: [github.com/astral-sh/uv](https://github.com/astral-sh/uv)
+- **Official PyPI Package**: [pypi.org/project/uv](https://pypi.org/project/uv/)
+- **Binary Releases**: [github.com/astral-sh/uv/releases](https://github.com/astral-sh/uv/releases)
+- **DevOps CLI uv Wrapper**: [src/devops_cli/commands/uv.py](file:///workspaces/devops-cli/src/devops_cli/commands/uv.py)

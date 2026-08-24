@@ -78,3 +78,13 @@ devops k8s teardown-stack monitoring
   - Prometheus: `kubectl port-forward svc/prometheus-server -n monitoring 9090:80`
   - ArgoCD: `kubectl port-forward svc/argocd-server -n argocd 8080:443`
   - Jaeger: `kubectl port-forward svc/jaeger-query -n monitoring 16686:16686`
+
+---
+
+## 7. Official References & Published Artifacts
+
+- **Prometheus Community Charts**: [github.com/prometheus-community/helm-charts](https://github.com/prometheus-community/helm-charts)
+- **Grafana Community Charts**: [github.com/grafana/helm-charts](https://github.com/grafana/helm-charts)
+- **ArgoCD Official Charts**: [github.com/argoproj/argo-helm](https://github.com/argoproj/argo-helm)
+- **Jaeger Operator Charts**: [github.com/jaegertracing/helm-charts](https://github.com/jaegertracing/helm-charts)
+- **DevOps CLI Kubernetes Module**: [src/devops_cli/commands/k8s.py](file:///workspaces/devops-cli/src/devops_cli/commands/k8s.py)

@@ -75,3 +75,12 @@ bandit -r src/ -f json -o bandit-report.json
 
 - **Configuration File**: Controlled via `pyproject.toml` (`[tool.bandit]`) or standard CLI options.
 - **Python 3.14 Compatibility**: Supports all modern Python AST syntax constructs.
+
+---
+
+## 7. Official References & Published Artifacts
+
+- **Project Homepage**: [bandit.readthedocs.io](https://bandit.readthedocs.io/)
+- **Public Git Repository**: [github.com/PyCQA/bandit](https://github.com/PyCQA/bandit)
+- **Official PyPI Package**: [pypi.org/project/bandit](https://pypi.org/project/bandit/)
+- **DevOps CLI Bandit Scanner**: [src/devops_cli/security/bandit.py](file:///workspaces/devops-cli/src/devops_cli/security/bandit.py)

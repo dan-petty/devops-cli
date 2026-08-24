@@ -92,3 +92,15 @@ curl -X POST http://localhost:4318/v1/traces \
   - `4318`: OTLP HTTP JSON/Protobuf receiver.
   - `16686`: Jaeger Query & Web UI.
 - **Service Naming**: Set `service.name` to `devops-cli` (or child workspace name) across all trace spans.
+
+---
+
+## 7. Official References & Published Artifacts
+
+- **Project Homepage**: [opentelemetry.io](https://opentelemetry.io/)
+- **Jaeger Homepage**: [jaegertracing.io](https://www.jaegertracing.io/)
+- **Public Git Repositories**:
+  - [github.com/open-telemetry/opentelemetry-python](https://github.com/open-telemetry/opentelemetry-python)
+  - [github.com/jaegertracing/jaeger](https://github.com/jaegertracing/jaeger)
+- **Published Container Image**: [hub.docker.com/r/jaegertracing/all-in-one](https://hub.docker.com/r/jaegertracing/all-in-one)
+- **DevOps CLI Telemetry Client**: [src/devops_cli/telemetry/tracer.py](file:///workspaces/devops-cli/src/devops_cli/telemetry/tracer.py)

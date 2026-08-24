@@ -65,3 +65,12 @@ bandit -r src/
 
 - **Compliance Standards**: CIS Benchmarks, OWASP Top 10, NIST SP 800-53, PEP 508.
 - **Severity Levels**: `CRITICAL`, `HIGH`, `MEDIUM`, `LOW`.
+
+---
+
+## 7. Official References & Published Artifacts
+
+- **DevOps CLI Security Module**: [src/devops_cli/security/](file:///workspaces/devops-cli/src/devops_cli/security/)
+- **SSH Audit Engine**: [src/devops_cli/ssh/audit.py](file:///workspaces/devops-cli/src/devops_cli/ssh/audit.py)
+- **Aqua Security Trivy Scanner**: [github.com/aquasecurity/trivy](https://github.com/aquasecurity/trivy)
+- **PyCQA Bandit Static Analyzer**: [github.com/PyCQA/bandit](https://github.com/PyCQA/bandit)

@@ -81,3 +81,12 @@ curl -s http://localhost:8000/metrics
 - **Default Port**: `8000`.
 - **OpenAPI Version**: `3.1.0`.
 - **Python Framework**: FastAPI + Uvicorn ASGI server.
+
+---
+
+## 7. Official References & Published Artifacts
+
+- **FastAPI Documentation**: [fastapi.tiangolo.com](https://fastapi.tiangolo.com/)
+- **Uvicorn Documentation**: [uvicorn.org](https://www.uvicorn.org/)
+- **DevOps CLI Server Factory**: [src/devops_cli/server/app.py](file:///workspaces/devops-cli/src/devops_cli/server/app.py)
+- **Serve Command Module**: [src/devops_cli/commands/serve.py](file:///workspaces/devops-cli/src/devops_cli/commands/serve.py)

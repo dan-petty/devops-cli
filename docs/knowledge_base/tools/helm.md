@@ -82,3 +82,12 @@ helm uninstall prometheus -n monitoring
 
 - **Chart Standards**: Follow standard Helm chart conventions (`Chart.yaml` apiVersion v2, `templates/`, `values.yaml`).
 - **Release Naming**: Use lowercase kebab-case naming for all Helm releases (e.g. `prometheus-stack`, `argocd-server`).
+
+---
+
+## 7. Official References & Published Artifacts
+
+- **Project Homepage**: [helm.sh](https://helm.sh/)
+- **Public Git Repository**: [github.com/helm/helm](https://github.com/helm/helm)
+- **Artifact Hub (Charts)**: [artifacthub.io](https://artifacthub.io/)
+- **DevOps CLI Stack Deployment**: [src/devops_cli/commands/k8s.py](file:///workspaces/devops-cli/src/devops_cli/commands/k8s.py)

@@ -64,3 +64,12 @@ curl -s http://localhost:8000/metrics
 
 - **OTLP HTTP Endpoint**: Default `http://localhost:4318/v1/traces`.
 - **OTLP gRPC Endpoint**: Default `http://localhost:4317`.
+
+---
+
+## 7. Official References & Published Artifacts
+
+- **OpenTelemetry Standard**: [opentelemetry.io](https://opentelemetry.io/)
+- **Prometheus Metrics Specification**: [prometheus.io/docs/concepts/metric_types/](https://prometheus.io/docs/concepts/metric_types/)
+- **DevOps CLI Telemetry Tracer**: [src/devops_cli/telemetry/tracer.py](file:///workspaces/devops-cli/src/devops_cli/telemetry/tracer.py)
+- **Telemetry Command Module**: [src/devops_cli/commands/telemetry.py](file:///workspaces/devops-cli/src/devops_cli/commands/telemetry.py)

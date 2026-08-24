@@ -69,3 +69,12 @@ devops devcontainer post-start --dry-run
 - **Base Image**: `ghcr.io/dan-petty/devops-cli/devcontainer:latest`.
 - **Configuration File**: `.devcontainer/devcontainer.json`.
 - **Default User**: `vscode` (UID 1000).
+
+---
+
+## 7. Official References & Published Artifacts
+
+- **DevContainer Specification**: [containers.dev](https://containers.dev/)
+- **Published Container Package**: [`ghcr.io/dan-petty/devops-cli/devcontainer:latest`](https://github.com/dan-petty/devops-cli/pkgs/container/devops-cli%2Fdevcontainer)
+- **DevContainer Command Module**: [src/devops_cli/commands/devcontainer.py](file:///workspaces/devops-cli/src/devops_cli/commands/devcontainer.py)
+- **DevContainer Usage Guide**: [docs/DEVCONTAINER_USAGE.md](file:///workspaces/devops-cli/docs/DEVCONTAINER_USAGE.md)

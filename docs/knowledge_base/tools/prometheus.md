@@ -88,3 +88,12 @@ devops_cli_command_duration_seconds_count 60
 
 - **Port Convention**: Standard Prometheus service port `9090` (or `80` via Kubernetes Service abstraction).
 - **Metric Naming**: Follow standard OpenMetrics naming conventions (`<namespace>_<subsystem>_<name>_<unit>`).
+
+---
+
+## 7. Official References & Published Artifacts
+
+- **Project Homepage**: [prometheus.io](https://prometheus.io/)
+- **Public Git Repository**: [github.com/prometheus/prometheus](https://github.com/prometheus/prometheus)
+- **Published Container Image**: [hub.docker.com/r/prom/prometheus](https://hub.docker.com/r/prom/prometheus)
+- **DevOps CLI Prometheus Engine**: [src/devops_cli/commands/prometheus.py](file:///workspaces/devops-cli/src/devops_cli/commands/prometheus.py)

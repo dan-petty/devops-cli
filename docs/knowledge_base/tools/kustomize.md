@@ -101,3 +101,11 @@ patches:
           └── kustomization.yaml
   ```
 - **Kustomize Versioning**: Use standard `apiVersion: kustomize.config.k8s.io/v1beta1`.
+
+---
+
+## 7. Official References & Published Artifacts
+
+- **Project Homepage**: [kubectl.docs.kubernetes.io/guides/introduction/kustomize](https://kubectl.docs.kubernetes.io/guides/introduction/kustomize/)
+- **Public Git Repository**: [github.com/kubernetes-sigs/kustomize](https://github.com/kubernetes-sigs/kustomize)
+- **DevOps CLI Kustomize Engine**: [src/devops_cli/commands/kustomize.py](file:///workspaces/devops-cli/src/devops_cli/commands/kustomize.py)

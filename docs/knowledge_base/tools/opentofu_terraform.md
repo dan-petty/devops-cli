@@ -99,3 +99,13 @@ tofu import aws_s3_bucket.data_lake my-bucket-name
   - `variables.tf`: Input variable declarations with types and descriptions.
   - `outputs.tf`: Exported output attributes.
   - `versions.tf`: `required_version` and `required_providers` blocks.
+
+---
+
+## 7. Official References & Published Artifacts
+
+- **Project Homepage**: [opentofu.org](https://opentofu.org/)
+- **Public Git Repository**: [github.com/opentofu/opentofu](https://github.com/opentofu/opentofu)
+- **OpenTofu Registry**: [search.opentofu.org](https://search.opentofu.org/)
+- **Terraform Documentation**: [developer.hashicorp.com/terraform](https://developer.hashicorp.com/terraform)
+- **DevOps CLI OpenTofu Engine**: [src/devops_cli/commands/tf.py](file:///workspaces/devops-cli/src/devops_cli/commands/tf.py)

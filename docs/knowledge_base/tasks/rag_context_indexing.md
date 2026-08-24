@@ -63,3 +63,11 @@ devops rag clear
 
 - **Vector Store Path**: `.data/rag/vector_store.json`.
 - **Default Embedding Model**: `nomic-embed-text:latest` (Ollama).
+
+---
+
+## 7. Official References & Published Artifacts
+
+- **Ollama Nomic Embed Text Model**: [ollama.com/library/nomic-embed-text](https://ollama.com/library/nomic-embed-text)
+- **DevOps CLI RAG Subsystem**: [src/devops_cli/rag/](file:///workspaces/devops-cli/src/devops_cli/rag/)
+- **RAG Command Module**: [src/devops_cli/commands/rag.py](file:///workspaces/devops-cli/src/devops_cli/commands/rag.py)
