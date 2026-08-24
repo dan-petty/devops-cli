@@ -16,7 +16,10 @@ jobs:
     name: Validation
     runs-on: ubuntu-latest
     timeout-minutes: 30
-
+    permissions:
+      contents: read
+      packages: write
+      pull-requests: read
 
     steps:
       - name: Check out repository
@@ -60,3 +63,25 @@ jobs:
 
       - name: Security Scan (Bandit)
         run: uv run bandit -r src/ -ll -ii
+
+      - name: Log in to GitHub Container Registry (GHCR)
+        if: github.event_name == 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set Image Repository Name
+        if: github.event_name == 'pull_request'
+        id: image_repo
+        run: |
+          echo "name=ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')/devcontainer" >> "$GITHUB_OUTPUT"
+
+      - name: Build & Publish PR DevContainer Image
+        if: github.event_name == 'pull_request'
+        uses: devcontainers/ci@v0.3
+        with:
+          imageName: ${{ steps.image_repo.outputs.name }}
+          imageTag: pr-${{ github.event.pull_request.number }}
+          push: "always"
