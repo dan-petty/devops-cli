@@ -1,6 +1,6 @@
 # DevOps CLI — Knowledge Base & Engineering Reference
 
-The **DevOps CLI Knowledge Base** is a comprehensive, centralized technical manual and operational guide covering all core tools, subsystems, automation workflows, and engineering tasks leveraged across the `devops-cli` ecosystem.
+The **DevOps CLI Knowledge Base** is a comprehensive, centralized technical manual and operational guide covering all core tools, subsystems, automation workflows, architectural concepts, and engineering tasks leveraged across the `devops-cli` ecosystem.
 
 Each knowledge base article provides detailed usage instructions, common commands, architectural patterns, security recommendations, engineering standards, and direct links to official homepages, public Git repositories, and published container artifacts.
 
@@ -17,6 +17,23 @@ Each knowledge base article provides detailed usage instructions, common command
 | **Pull Requests & Code Reviews** | Active development pull requests | [GitHub Pull Requests](https://github.com/dan-petty/devops-cli/pulls) |
 | **GitHub Actions CI/CD** | Automated continuous integration and builds | [GitHub Actions](https://github.com/dan-petty/devops-cli/actions) |
 | **GDOT Child Repository** | GDOT local development environment | [github.com/dan-petty/gdot-local-dev](https://github.com/dan-petty/gdot-local-dev) |
+
+---
+
+## 📖 Core Topic Guides (`docs/knowledge_base/topics/`)
+
+| Core Topic | Domain | Summary | Topic Guide |
+| :--- | :--- | :--- | :--- |
+| **Agentic AI & Code Reviews** | AI & Multi-Persona Reviews | Architecture for multi-persona code reviews, prompt isolation, and calibrated findings. | [agentic_ai_and_code_reviews.md](file:///workspaces/devops-cli/docs/knowledge_base/topics/agentic_ai_and_code_reviews.md) |
+| **Cloud-Native K8s & GitOps** | Kubernetes & Cloud Delivery | Declarative GitOps delivery with ArgoCD, Helm charts, and local Minikube orchestration. | [cloud_native_kubernetes_and_gitops.md](file:///workspaces/devops-cli/docs/knowledge_base/topics/cloud_native_kubernetes_and_gitops.md) |
+| **Zero-Trust Security & Compliance** | Security Engineering | Credential isolation with OS Keyring, vulnerability scanning, and SSH key hardening. | [zero_trust_security_and_compliance.md](file:///workspaces/devops-cli/docs/knowledge_base/topics/zero_trust_security_and_compliance.md) |
+| **Observability & Distributed Tracing** | APM & Monitoring | OpenTelemetry distributed trace spans, Prometheus metrics series, and Jaeger UI. | [observability_and_distributed_tracing.md](file:///workspaces/devops-cli/docs/knowledge_base/topics/observability_and_distributed_tracing.md) |
+| **Reproducible DevContainers** | Developer Workstations | Containerized developer environments, Docker-in-Docker, persistent history, and MCP sync. | [developer_workstations_and_devcontainers.md](file:///workspaces/devops-cli/docs/knowledge_base/topics/developer_workstations_and_devcontainers.md) |
+| **Infrastructure as Code & Cloud Automation** | Cloud IaC | Declarative cloud provisioning with OpenTofu & Terraform, state locking, and drift checks. | [infrastructure_as_code_and_cloud_automation.md](file:///workspaces/devops-cli/docs/knowledge_base/topics/infrastructure_as_code_and_cloud_automation.md) |
+| **CI & Progressive Verification** | Continuous Integration | 10-point local quality gate (`devops ci`), progressive testing, and workflow validation. | [continuous_integration_and_progressive_verification.md](file:///workspaces/devops-cli/docs/knowledge_base/topics/continuous_integration_and_progressive_verification.md) |
+| **Modern Python 3.14+ Ecosystem** | Python Runtime & Tooling | Strict Mypy typing, Astral `uv` packaging, Ruff formatting, and dynamic standard parsers. | [modern_python_runtime_and_ecosystem.md](file:///workspaces/devops-cli/docs/knowledge_base/topics/modern_python_runtime_and_ecosystem.md) |
+| **REST API Architecture & Services** | Workstation REST API | Asynchronous FastAPI service engine (`devops serve`), OpenAPI schemas, and status probes. | [rest_api_architecture_and_service_engineering.md](file:///workspaces/devops-cli/docs/knowledge_base/topics/rest_api_architecture_and_service_engineering.md) |
+| **Release Engineering & SemVer** | Release Governance | Semantic versioning 2.0.0, release verification gates, and automated PR governance. | [release_engineering_and_semver_governance.md](file:///workspaces/devops-cli/docs/knowledge_base/topics/release_engineering_and_semver_governance.md) |
 
 ---
 
