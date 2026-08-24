@@ -384,7 +384,12 @@ def _run_post_start_lifecycle(workspace_dir: Path, *, dry_run: bool = False) -> 
             check=False,
             quiet=True,
         )
-    actions.append("Configured git push.autoSetupRemote=true")
+        run_subprocess(
+            ["git", "config", "--global", "init.defaultBranch", "main"],
+            check=False,
+            quiet=True,
+        )
+    actions.append("Configured git push.autoSetupRemote=true and init.defaultBranch=main")
 
     # 2. SSH key permissions & commit signing
     ssh_dir = Path.home() / ".ssh"
