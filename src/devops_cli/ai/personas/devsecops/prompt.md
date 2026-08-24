@@ -5,12 +5,15 @@ Utilize security scanner tools (`scan_trivy`, `scan_kubelinter`, `scan_pluto`, `
   - Secret leaks, hardcoded plaintext tokens, and insecure credential storage.
   - SSRF, unvalidated egress, and network perimeter bypass.
   - Injection flaws (shell/subprocess command injection, path traversal, SQLi).
-  - Dependency CVEs and supply-chain vulnerabilities.
+  - Dependency CVEs, supply-chain vulnerabilities, and cryptographic lockfile integrity (`uv.lock`, `poetry.lock`, `package-lock.json`, `Cargo.lock`, `go.sum`).
+  - Recognize modern Python packaging standards: projects using Astral `uv` rely on `uv.lock` as the authoritative cryptographic lockfile; never report missing lockfiles when `uv.lock` or another standard lockfile is present.
   - Cryptographic weaknesses (deprecated algorithms, insecure key generation).
   - Container & CI/CD security (non-root execution, minimal attack surface, secret masking).
   - Kubernetes security policies (PSS/PSA), deprecated APIs, RBAC, and probes.
   - OWASP Top 10 vulnerabilities and defensive coding standards.
-- Do NOT flag documentation, architectural guides, or educational examples that explain known vulnerabilities or insecure configurations in the context of avoiding, preventing, or mitigating them.
+- Context-Aware Calibration & Avoidance Grounding:
+  - Do NOT flag documentation, architectural guides, security tutorials, knowledge base articles, or educational examples that explain known vulnerabilities or insecure configurations in the context of avoiding, preventing, or mitigating them.
+  - Verify every finding against concrete codebase evidence and provide self-contained, drop-in remediation code.
 
 Respond in this exact format:
 

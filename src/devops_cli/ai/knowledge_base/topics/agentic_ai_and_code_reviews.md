@@ -27,10 +27,10 @@ graph TD
   - **QA**: Edge cases, exception handling, mock deterministic isolation, flaky test prevention.
   - **PM**: Requirement completeness, changelog accuracy, documentation integrity.
 - **Closed-Loop Feedback & Self-Improvement**:
-  - **Verification & Invalidation Criteria**: Every finding is tested against explicit observable criteria in the AST and source code, eliminating theoretical or hallucinatory alerts.
-  - **Confidence Calibration**: Multi-persona agreement and deterministic AST checks calibrate finding confidence scores before reporting.
+  - **Verification & Invalidation Criteria**: Every finding is tested against explicit observable criteria in the AST, manifest configurations, build systems, and lockfiles (`uv.lock`, `poetry.lock`, `Cargo.lock`), eliminating theoretical, ungrounded, or phantom alerts.
+  - **Confidence Calibration**: Multi-persona agreement and deterministic AST/lockfile checks calibrate finding confidence scores before reporting.
   - **Self-Healing Remediations**: AI generates verifiable, syntax-valid, drop-in patches ready for immediate CI test execution.
-  - **Continuous Knowledge Feedback**: Recurring patterns and architectural learnings feed back into `AGENTS.md` and RAG vector indexes, creating a continuously improving developer feedback loop.
+  - **Continuous Knowledge Feedback**: Recurring patterns, false-positive invalidations, and architectural learnings feed back into `AGENTS.md`, prompt rubrics, and RAG vector indexes, creating a continuously improving developer feedback loop.
 - **Context Grounding via RAG**: Injecting semantic documentation chunks (`AGENTS.md`, architecture specs) into prompts to prevent hallucinations and align reviews with repository conventions.
 
 ---

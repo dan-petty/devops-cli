@@ -433,7 +433,6 @@ def _validate_segment_findings(
                 ]
                 is_v = bool(item.get("verified", True))
                 is_m = bool(item.get("mitigated", False))
-                is_rep = bool(item.get("reportable", is_v and not is_m and not inv_matched))
 
                 if inv_matched:
                     is_v = False
@@ -445,8 +444,10 @@ def _validate_segment_findings(
                     is_rep = False
                 elif is_v:
                     status_val = "VERIFIED"
+                    is_rep = bool(item.get("reportable", True))
                 else:
                     status_val = "UNVERIFIED"
+                    is_rep = False
 
                 conf_val = item.get("confidence_score")
                 if conf_val is not None:

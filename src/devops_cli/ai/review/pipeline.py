@@ -1090,12 +1090,11 @@ class ReviewPipelineOrchestrator:
             rprint(f"[dim]Stage 5/6: Re-ranking and validating findings for {n_p} file(s)...[/dim]")
             for payload in file_payloads:
                 valid_findings = [
-                    f
-                    for f in payload.findings
-                    if f.reportable and f.status in ("VERIFIED", "UNVERIFIED", "MITIGATED")
+                    f for f in payload.findings if f.reportable and f.status != "INVALIDATED"
                 ]
-                for f in payload.findings:
-                    payload.reportable = f.status != "INVALIDATED" and f.reportable
+                payload.reportable = any(
+                    f.reportable and f.status != "INVALIDATED" for f in payload.findings
+                )
                 payload.ai_scratchpad["stage"] = "reranked"
                 payload.ai_scratchpad["reportable_count"] = len(valid_findings)
 
