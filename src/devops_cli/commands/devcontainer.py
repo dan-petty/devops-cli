@@ -65,12 +65,34 @@ def init(
             help="Use published GHCR image (ghcr.io/dan-petty/devops-cli/devcontainer:latest)",
         ),
     ] = False,
+    home_volume: Annotated[
+        str | None,
+        typer.Option(
+            "--home-volume",
+            help="Custom volume name for /home/vscode (defaults to <project_name>-home)",
+        ),
+    ] = None,
+    minikube: Annotated[
+        bool,
+        typer.Option(
+            "--minikube/--no-minikube",
+            help="Include Minikube and Kubernetes tools in base features",
+        ),
+    ] = True,
+    force: Annotated[
+        bool,
+        typer.Option(
+            "--force",
+            "-f",
+            help="Overwrite existing devcontainer.json and configurations",
+        ),
+    ] = False,
 ) -> None:
     """Scaffold .devcontainer/ in a repository using standard or published template."""
     dc_dir = repo_path / CONST_DEVCONTAINER_DIR_NAME
     dc_file = dc_dir / CONST_DEVCONTAINER_JSON_NAME
 
-    if dc_file.exists():
+    if dc_file.exists() and not force:
         rprint(f"[yellow]devcontainer.json already exists: {dc_file}[/yellow]")
         raise typer.Exit(1)
 
@@ -83,20 +105,25 @@ def init(
     if published and not selected_image:
         selected_image = "ghcr.io/dan-petty/devops-cli/devcontainer:latest"
 
+    resolved_home_vol = home_volume or f"{name}-home"
+
     env = _jinja_env()
 
-    dc_file.write_text(
-        env.get_template("devcontainer.json.j2").render(
-            project_name=name, python_version=python_version, image=selected_image
-        ),
-        encoding="utf-8",
+    rendered = env.get_template("devcontainer.json.j2").render(
+        project_name=name,
+        python_version=python_version,
+        image=selected_image,
+        published=published,
+        home_volume=resolved_home_vol,
+        minikube=minikube,
     )
+    dc_file.write_text(rendered.strip() + "\n", encoding="utf-8")
 
     rprint(f"[green]Created:[/green] {dc_file}")
 
     vscode_dir = repo_path / ".vscode"
     mcp_file = vscode_dir / "mcp.json"
-    if not mcp_file.exists():
+    if not mcp_file.exists() or force:
         vscode_dir.mkdir(parents=True, exist_ok=True)
         mcp_file.write_text(
             env.get_template("mcp.json.j2").render(project_name=name),

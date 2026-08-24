@@ -26,6 +26,9 @@ devops devcontainer init [OPTIONS] <repo_path>
 | `--python` | `string` | `3.14` | Python version for base template |
 | `--image`, `-i` | `string` | - | Base container image |
 | `--published`, `-p` | `boolean` | - | Use published GHCR image (ghcr.io/dan-petty/devops-cli/devcontainer:latest) |
+| `--home-volume` | `string` | - | Custom volume name for /home/vscode (defaults to <project_name>-home) |
+| `--minikube`, `--no-minikube` | `boolean` | `True` | Include Minikube and Kubernetes tools in base features |
+| `--force`, `-f` | `boolean` | - | Overwrite existing devcontainer.json and configurations |
 
 ---
 

@@ -47,7 +47,7 @@ class TestDevcontainerCli:
         assert mcp_data["mcpServers"]["test-project"]["command"] == "uv"
 
     def test_init_with_published_flag(self, runner: CliRunner, tmp_path: Path) -> None:
-        """devops devcontainer init --published must use the published GHCR image."""
+        """devops devcontainer init --published must use published GHCR image and omit features."""
         result = runner.invoke(app, ["init", str(tmp_path), "--name", "pub-proj", "--published"])
         assert result.exit_code == 0
 
@@ -55,6 +55,33 @@ class TestDevcontainerCli:
         assert dc_file.exists()
         dc_data = json.loads(dc_file.read_text(encoding="utf-8"))
         assert "ghcr.io/dan-petty/devops-cli/devcontainer" in dc_data["image"]
+        assert "features" not in dc_data
+
+    def test_init_with_home_volume_and_force(self, runner: CliRunner, tmp_path: Path) -> None:
+        """devops devcontainer init with --home-volume and --force must configure mount."""
+        # Initial creation
+        res1 = runner.invoke(app, ["init", str(tmp_path), "--name", "test-vol"])
+        assert res1.exit_code == 0
+
+        # Overwrite with --force and --home-volume
+        res2 = runner.invoke(
+            app,
+            [
+                "init",
+                str(tmp_path),
+                "--name",
+                "test-vol",
+                "--home-volume",
+                "custom-home-vol",
+                "--published",
+                "--force",
+            ],
+        )
+        assert res2.exit_code == 0
+
+        dc_file = tmp_path / ".devcontainer" / "devcontainer.json"
+        dc_data = json.loads(dc_file.read_text(encoding="utf-8"))
+        assert any("source=custom-home-vol" in m for m in dc_data.get("mounts", []))
 
     def test_init_with_custom_image(self, runner: CliRunner, tmp_path: Path) -> None:
         """devops devcontainer init --image must use the specified container image."""
