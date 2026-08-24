@@ -11,11 +11,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Annotated, Any
 
+import httpx2
 import typer
 from rich import print as rprint
 from rich.console import Console
 from rich.table import Table
 
+from devops_cli.config import load_settings
 from devops_cli.config.defaults import (
     DEFAULT_HTTP_LONG_TIMEOUT_SECONDS,
     DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS,
@@ -81,10 +83,6 @@ def cd_apps_list() -> None:
         )
         return
 
-    import httpx2
-
-    from devops_cli.config import load_settings
-
     settings = load_settings()
     base, headers = _argocd(settings)
 
@@ -125,10 +123,6 @@ def cd_apps_sync(
 ) -> None:
     """Trigger a sync for an ArgoCD application."""
     _validate_k8s_name(name, "application name")
-    import httpx2
-
-    from devops_cli.config import load_settings
-
     settings = load_settings()
     base, headers = _argocd(settings)
 
@@ -149,10 +143,6 @@ def cd_apps_status(
 ) -> None:
     """Show sync and health status for an ArgoCD application."""
     _validate_k8s_name(name, "application name")
-    import httpx2
-
-    from devops_cli.config import load_settings
-
     settings = load_settings()
     base, headers = _argocd(settings)
 
