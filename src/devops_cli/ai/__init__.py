@@ -3,6 +3,17 @@
 from __future__ import annotations
 
 from devops_cli.ai.client import AIClientError
+from devops_cli.ai.instruction_generator import (
+    CONST_CLAUDE_MD_FILENAME,
+    CONST_COPILOT_INSTRUCTIONS_PATH,
+    DEFAULT_AGENT_FILES,
+    ProjectMetadata,
+    generate_agents_md,
+    generate_instruction_content,
+    generate_pointer_stub,
+    parse_project_metadata,
+    scaffold_agent_instructions,
+)
 from devops_cli.ai.model_bundler import ModelBundleManifest, bundle_ollama_models
 from devops_cli.ai.response_repair import (
     ExtractedToolCall,
@@ -20,15 +31,24 @@ from devops_cli.ai.thinking_stream import (
 
 __all__ = [
     "AIClientError",
+    "CONST_CLAUDE_MD_FILENAME",
+    "CONST_COPILOT_INSTRUCTIONS_PATH",
+    "DEFAULT_AGENT_FILES",
     "ExtractedToolCall",
     "FormattedLLMResponse",
     "ModelBundleManifest",
+    "ProjectMetadata",
     "ThinkingStreamProcessor",
     "bundle_ollama_models",
     "extract_think_blocks",
     "extract_tool_invocations",
     "fix_llm_response",
+    "generate_agents_md",
+    "generate_instruction_content",
+    "generate_pointer_stub",
     "normalize_raw_llm_text",
+    "parse_project_metadata",
     "repair_json_string",
+    "scaffold_agent_instructions",
     "strip_think_blocks",
 ]

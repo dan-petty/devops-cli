@@ -12,6 +12,11 @@ from rich.console import Console
 from rich.rule import Rule
 from rich.table import Table
 
+from devops_cli.ai.instruction_generator import (
+    ProjectMetadata,
+    generate_instruction_content,
+    parse_project_metadata,
+)
 from devops_cli.ai.personas import PERSONAS, Persona
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.commands.analyze import app as analyze_app
@@ -227,87 +232,23 @@ def _pointer_stub(title: str, tool_name: str, filename: str, canonical_relpath: 
 """
 
 
-def _template_content(target_file: str, context_summary: dict[str, str]) -> str:
+def _template_content(target_file: str, context_summary: dict[str, str] | ProjectMetadata) -> str:
     """Fallback template when no LLM is configured."""
-    name = context_summary.get("name", "Project")
-    if target_file == "CLAUDE.md":
-        return _pointer_stub(
-            f"{name} — Claude Instructions", "Claude Code", "CLAUDE.md", "./AGENTS.md"
+    if isinstance(context_summary, ProjectMetadata):
+        meta = context_summary
+    else:
+        meta = ProjectMetadata(
+            name=context_summary.get("name", "Project"),
+            description=context_summary.get("description", ""),
+            requires_python=context_summary.get("requires_python", ">=3.14"),
+            entry_point=context_summary.get("entry_point", ""),
         )
-    if "copilot" in target_file:
-        return _pointer_stub(
-            f"{name} — GitHub Copilot Instructions",
-            "GitHub Copilot",
-            ".github/copilot-instructions.md",
-            "../AGENTS.md",
-        )
-    description = context_summary.get("description", "")
-    python_version = context_summary.get("requires_python", ">=3.14")
-    entry_point = context_summary.get("entry_point", "")
-
-    return f"""\
-# {name} — Agent Instructions & Engineering Best Practices
-
-> **Canonical source.** This file is the single source of truth for AI coding agent
-> instructions in this repo. [CLAUDE.md](./CLAUDE.md) and
-> [.github/copilot-instructions.md](./.github/copilot-instructions.md) are thin pointers
-> to this file.
-
-## 1. Project Overview
-**{name}** — {description}
-
-- Language: Python {python_version}
-- Entry point: `{entry_point}`
-- Virtual environment: `.venv/` (managed by `uv`)
-
-## 2. Core Engineering Philosophy & Best Practices
-- **Progressive Testing**: Run targeted, isolated unit tests during active loops;
-  defer full CI test suites to the final pre-handoff milestone.
-- **Architectural Flexibility**: Prioritize clean abstractions, SOLID principles, and
-  separation of concerns. Prefer idiomatic, standard library and established tools.
-- **Modern Python Standards**: Strict typing (`mypy --strict`), modern syntax
-  (`from __future__ import annotations`, type unions `A | B`), and Pydantic models.
-- **Zero-Trust Security**: Never commit plaintext secrets or tokens. Use OS Keyring
-  (`keyring`). Enforce SSRF mitigations on network I/O and bounded subprocess timeouts.
-- **Target-Agnostic Reviews**: When reviewing target workspaces, evaluate code against
-  standard software engineering and security principles (OWASP, CIS, SOLID).
-
-## 3. Build & Test Commands
-```bash
-uv sync                        # synchronize dependencies
-devops ci                      # run full CI quality gate
-devops ci test [-v] [-k expr]  # pytest unit test suite
-devops ci lint [--fix]         # ruff check
-devops ci format [--fix]       # ruff format
-devops ci typecheck            # mypy strict static typechecking
-devops docs generate --sync-readme  # synchronize CLI documentation and README matrix
-```
-
-## 4. Git & Workflow Hygiene
-- **Branch Hierarchy**: Topic branches (`feat/*`, `fix/*`, `refactor/*`, `docs/*`)
-  target the active release branch (`release/v*`).
-- **Conventional Commits**: Format commit messages cleanly (`feat(scope): ...`, `fix(scope): ...`).
-- **Zero Direct Commits to `main`**: Maintain PR governance and monitor remote CI checks.
-"""
+    return generate_instruction_content(target_file, meta)
 
 
-def _parse_pyproject(repo: Path) -> dict[str, str]:
-    """Extract key fields from pyproject.toml without a TOML parser dependency."""
-    result: dict[str, str] = {}
-    pp = repo / "pyproject.toml"
-    if not pp.exists():
-        return result
-    for line in pp.read_text().splitlines():
-        line = line.strip()
-        if line.startswith("name = "):
-            result["name"] = line.split("=", 1)[1].strip().strip('"')
-        elif line.startswith("description = "):
-            result["description"] = line.split("=", 1)[1].strip().strip('"')
-        elif line.startswith("requires-python = "):
-            result["requires_python"] = line.split("=", 1)[1].strip().strip('"')
-        elif "devops_cli.main:app" in line or "main:app" in line:
-            result["entry_point"] = line.split("=", 1)[0].strip().strip('"')
-    return result
+def _parse_pyproject(repo: Path) -> ProjectMetadata:
+    """Extract structured fields from pyproject.toml and repo context."""
+    return parse_project_metadata(repo)
 
 
 @app.command()

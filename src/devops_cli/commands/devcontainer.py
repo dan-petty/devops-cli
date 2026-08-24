@@ -15,7 +15,9 @@ from rich import print as rprint
 from rich.console import Console
 from rich.table import Table
 
+from devops_cli.ai.instruction_generator import scaffold_agent_instructions
 from devops_cli.config.constants import (
+    CONST_AGENTS_MD_FILENAME,
     CONST_DEVCONTAINER_DIR_NAME,
     CONST_DEVCONTAINER_IMAGE_PREFIX,
     CONST_DEVCONTAINER_JSON_NAME,
@@ -133,6 +135,11 @@ def init(
             encoding="utf-8",
         )
         rprint(f"[green]Created:[/green] {mcp_file}")
+
+    # Scaffold AI agent instruction files (AGENTS.md, CLAUDE.md, .github/copilot-instructions.md)
+    agent_files = scaffold_agent_instructions(repo_path, force=force, template=True)
+    for af in agent_files:
+        rprint(f"[green]Created:[/green] {af}")
 
 
 @app.command()
@@ -405,6 +412,19 @@ def _run_post_create_lifecycle(workspace_dir: Path, *, dry_run: bool = False) ->
         gemini_cfg.mkdir(parents=True, exist_ok=True)
     actions.append(f"Ensured config directory exists at {gemini_cfg}")
 
+    # 3. Agent instructions initialization
+    agents_file = workspace_dir / CONST_AGENTS_MD_FILENAME
+    if not agents_file.exists():
+        if not dry_run:
+            created = scaffold_agent_instructions(workspace_dir, force=False, template=True)
+            if created:
+                file_names = ", ".join(p.name for p in created)
+                actions.append(
+                    f"Scaffolded AI agent instructions ({file_names}) in {workspace_dir}"
+                )
+        else:
+            actions.append(f"Scaffolded AI agent instructions (AGENTS.md) in {workspace_dir}")
+
     devops_cfg = os.getenv("DEVOPS_CLI_CONFIG")
     if devops_cfg and not Path(devops_cfg).exists():
         actions.append(f"Warning: Specified DEVOPS_CLI_CONFIG file does not exist: {devops_cfg}")
@@ -522,7 +542,20 @@ def _run_post_start_lifecycle(workspace_dir: Path, *, dry_run: bool = False) -> 
                 agents_mcp_dest.write_text(synced_text, encoding="utf-8")
             actions.append(f"Synced MCP configuration to {agents_mcp_dest}")
 
-    # 5. Minikube autostart & K8s deploy status evaluation
+    # 5. AI Agent instructions initialization
+    agents_file = workspace_dir / CONST_AGENTS_MD_FILENAME
+    if not agents_file.exists():
+        if not dry_run:
+            created = scaffold_agent_instructions(workspace_dir, force=False, template=True)
+            if created:
+                file_names = ", ".join(p.name for p in created)
+                actions.append(
+                    f"Scaffolded AI agent instructions ({file_names}) in {workspace_dir}"
+                )
+        else:
+            actions.append(f"Scaffolded AI agent instructions (AGENTS.md) in {workspace_dir}")
+
+    # 6. Minikube autostart & K8s deploy status evaluation
     auto_start = os.getenv("DEVOPS_MINIKUBE_AUTOSTART", "true").lower() in ("true", "1")
     minikube_healthy = False
     if auto_start and shutil.which("minikube"):
