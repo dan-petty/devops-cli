@@ -16,7 +16,6 @@ Each knowledge base article provides detailed usage instructions, common command
 | **Release Artifacts & Tarballs** | Official GitHub release assets and changelogs | [GitHub Releases](https://github.com/dan-petty/devops-cli/releases) |
 | **Pull Requests & Code Reviews** | Active development pull requests | [GitHub Pull Requests](https://github.com/dan-petty/devops-cli/pulls) |
 | **GitHub Actions CI/CD** | Automated continuous integration and builds | [GitHub Actions](https://github.com/dan-petty/devops-cli/actions) |
-| **GDOT Child Repository** | GDOT local development environment | [github.com/dan-petty/gdot-local-dev](https://github.com/dan-petty/gdot-local-dev) |
 
 ---
 

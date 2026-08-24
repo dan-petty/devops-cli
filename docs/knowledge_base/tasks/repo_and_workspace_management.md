@@ -12,8 +12,8 @@ Repository and multi-root workspace management in `devops-cli` provides automate
 ./
 ├── src/devops_cli/         # Primary devops-cli codebase
 ├── repos/                  # Child multi-repo root
-│   └── dan-petty/
-│       ├── gdot-local-dev/ # Cloned child repo
+│   └── <org>/
+│       ├── <repo-name>/    # Cloned child repo
 │       └── ...
 ├── .code-workspace         # VS Code multi-root workspace definition
 └── .data/                  # Local state, vector stores, and cache
@@ -73,6 +73,5 @@ devops workspace list
 ## 7. Official References & Published Artifacts
 
 - **DevOps CLI Repository**: [github.com/dan-petty/devops-cli](https://github.com/dan-petty/devops-cli)
-- **GDOT Child Workspace**: [github.com/dan-petty/gdot-local-dev](https://github.com/dan-petty/gdot-local-dev)
 - **DevOps CLI Workspace Module**: [src/devops_cli/commands/workspace.py](../../../src/devops_cli/commands/workspace.py)
 - **DevOps CLI Repos Module**: [src/devops_cli/commands/repos.py](../../../src/devops_cli/commands/repos.py)

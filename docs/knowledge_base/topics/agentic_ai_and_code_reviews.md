@@ -45,10 +45,10 @@ AI assistants operate best when provided with a single authoritative source of t
 devops review branch --persona devsecops
 
 # Review an entire target project path
-devops review path repos/dan-petty/gdot-local-dev
+devops review path repos/my-org/my-project
 
 # Scaffold AI agent instructions across child repositories
-devops ai agents --repo repos/dan-petty/gdot-local-dev --template
+devops ai agents --repo repos/my-org/my-project --template
 
 # Index codebase documentation into local RAG vector store
 devops rag index docs/
