@@ -9,7 +9,7 @@ from pathlib import Path
 from rich import print as rprint
 
 from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
-from devops_cli.core.dry_run import format_command, is_dry_run
+from devops_cli.dry_run import format_command, is_dry_run
 from devops_cli.telemetry import record_metric, trace_span
 
 _QUIET_SUBPROCESS_ARGS = frozenset(

@@ -7,7 +7,7 @@ from unittest.mock import patch
 from typer.testing import CliRunner
 
 from devops_cli.commands.telemetry import app
-from devops_cli.core.dry_run import set_dry_run
+from devops_cli.dry_run import set_dry_run
 
 runner = CliRunner()
 

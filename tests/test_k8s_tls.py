@@ -8,8 +8,8 @@ from unittest.mock import MagicMock, patch
 from typer.testing import CliRunner
 
 from devops_cli.commands.k8s import app
-from devops_cli.core.dry_run import set_dry_run
 from devops_cli.crypto.tls_certificates import generate_server_certificate
+from devops_cli.dry_run import set_dry_run
 
 runner = CliRunner()
 
