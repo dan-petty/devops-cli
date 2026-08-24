@@ -265,6 +265,7 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 | **otel** | `devops otel status` | Display OpenTelemetry collector endpoint, Jaeger UI URL, and connection health. |
 |  | `devops otel test [OPTIONS]` | Emit a test OpenTelemetry trace span and metric to the configured collector. |
 |  | `devops otel open-ui` | Print and show the Jaeger Query UI endpoint for inspecting traces. |
+| **serve** | `devops serve [OPTIONS]` | FastAPI REST & OpenAPI Service Engine for remote automation, health probes, and metrics. |
 <!-- COMMAND_MATRIX_END -->
 
 ---

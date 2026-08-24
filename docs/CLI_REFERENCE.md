@@ -32,6 +32,7 @@ Complete command-line reference for `devops-cli`, automatically generated from C
 - [`devops cert`](#devops-cert) — TLS certificate generation and management (alias for tls).
 - [`devops telemetry`](#devops-telemetry) — OpenTelemetry observability, tracing, and metrics management.
 - [`devops otel`](#devops-otel) — OpenTelemetry observability and tracing (alias for telemetry).
+- [`devops serve`](#devops-serve) — FastAPI REST and OpenAPI service engine.
 
 ---
 
@@ -3322,5 +3323,32 @@ devops otel test [OPTIONS]
 ```bash
 devops otel open-ui
 ```
+
+---
+
+## devops serve
+
+FastAPI REST and OpenAPI service engine.
+
+FastAPI REST & OpenAPI Service Engine for remote automation, health probes, and metrics.
+
+### `devops serve`
+
+**FastAPI REST & OpenAPI Service Engine for remote automation, health probes, and metrics.**
+
+```bash
+devops serve [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--host`, `-h` | `string` | `127.0.0.1` | Network interface host to bind the HTTP server. |
+| `--port`, `-p` | `integer` | `8000` | TCP port to listen on. |
+| `--reload`, `-r` | `boolean` | - | Enable auto-reload on code changes (development mode). |
+| `--workers`, `-w` | `integer` | `1` | Number of worker processes. |
+| `--log-level`, `-l` | `string` | `info` | Logging level (debug, info, warning, error). |
+| `--docs`, `--no-docs` | `boolean` | `True` | Enable or disable Swagger UI (/docs) and ReDoc (/redoc). |
 
 ---

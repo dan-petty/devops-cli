@@ -82,6 +82,10 @@ _COMMAND_SPECS: Final[dict[str, tuple[str, str]]] = {
         "devops_cli.commands.telemetry",
         "OpenTelemetry observability and tracing (alias for telemetry).",
     ),
+    "serve": (
+        "devops_cli.commands.serve",
+        "FastAPI REST and OpenAPI service engine.",
+    ),
 }
 
 
