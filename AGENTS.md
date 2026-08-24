@@ -74,6 +74,8 @@ Before planning, implementing, debugging, refactoring, or reviewing code, archit
   - **Target-Agnostic & Language-Agnostic Design**: DevOps automation and AI developer tooling must remain robust and resilient across any software ecosystem (Python, Go, Rust, TypeScript, Java, C#, HCL, Kubernetes, Docker) without hardcoding runtime assumptions or brittle token subsets.
 - **Documentation Integrity**:
   - Keep CLI documentation, option help text, environment variable tables, and architecture guides synchronized with source code via `devops docs generate --sync-readme`.
+- **Canonical Location Formatting (`filename.ext:n-n`)**:
+  - All CLI terminal outputs, Rich tables, Markdown review reports, findings, external dependencies, and network reference audit records must use the canonical `filename.ext:n-n` or `filename.ext:line` location convention project-wide to ensure consistent parsing, clickable referencing, and seamless IDE integration.
 
 ## 5. Agentic AI & Review System Guidelines
 
@@ -83,7 +85,7 @@ Before planning, implementing, debugging, refactoring, or reviewing code, archit
 - **Target-Agnostic Code Analysis**: When analyzing or reviewing external repositories (e.g. under `repos/` or local target directories), evaluate code against universal software engineering principles (OWASP Top 10, CIS benchmarks, SOLID, DRY) and the target project's own declared conventions (`AGENTS.md`, `README.md`) rather than coupling to host CLI internal assumptions.
 - **Target Path Resolution & Isolation**: All file reading, AST analysis, security scanning, and dependency lookups on target projects must resolve paths relative to the target root directory (`target_dir`) to prevent host-workspace file collisions.
 - **Pure Markdown Prompt Tasks & Zero Inline LLM Prompts**: All LLM system prompts, task instructions, guardrails, evaluation rubrics, benchmark prompts, and reference criteria must reside in dedicated Markdown files (`.md`) under `src/devops_cli/ai/tasks/`. Never declare multi-line prompt text strings or evaluation criteria inline in Python code.
-- **Actionable AI Feedback**: Conclude agent analyses and interactive reviews with concrete next steps, actionable code remediation snippets, or verification instructions.
+- **Context-Aware Documentation & Anti-Pattern Evaluation**: AI review systems and coding assistants must **never** flag documentation, architectural guides, security tutorials, knowledge base articles, prompt benchmarks, test assertions/fixtures, test mocks, template files (`*.example.*`), or explanatory comments that describe known vulnerabilities, attack vectors, or insecure configurations in the context of avoiding, mitigating, warning against, or explaining said configurations.
 - **Closed-Loop Review & Self-Improvement Cycle**:
   - **Deduplication & Calibration**: Calibrate confidence scores and test explicit verification/invalidation criteria to eliminate phantom alerts.
   - **Self-Healing & Patch Application**: Review findings should provide drop-in remediations verifiable by unit tests and automated CI gates.

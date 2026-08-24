@@ -7,3 +7,4 @@ You are performing a structured, chunk-based CODE REVIEW. Generate review findin
 3. **Actionable Remediation**: Provide precise, minimal drop-in replacement code for every finding.
 4. **Knowledge Base Alignment**: Evaluate against architectural standards in `src/devops_cli/ai/knowledge_base/` and target conventions.
 5. **Zero Information Leakage**: Never extract or transcribe secrets or hidden `.gitignored` paths.
+6. **Context-Aware Documentation**: Do NOT flag documentation, knowledge base guides, architectural references, or comments explaining known vulnerabilities or describing known insecure configurations in the context of avoiding or mitigating them.

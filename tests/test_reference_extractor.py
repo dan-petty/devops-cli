@@ -378,3 +378,28 @@ def test_extract_network_references_function_calls_and_workspace_files() -> None
     # Legitimate external references must be extracted
     assert "metrics.telemetry-cloud.io" in targets
     assert "https://dashboard.production-network.net/status" in targets
+
+
+def test_dependency_and_network_reference_canonical_location_formatting() -> None:
+    from devops_cli.models.vulnerability import DependencySpec, NetworkReference
+
+    dep_with_line = DependencySpec(
+        name="pydantic",
+        version_range=">=2.10.0",
+        source_file="pyproject.toml",
+        line_number=42,
+    )
+    assert dep_with_line.location == "pyproject.toml:42"
+
+    dep_no_line = DependencySpec(
+        name="pytest",
+        source_file="requirements.txt",
+    )
+    assert dep_no_line.location == "requirements.txt:1"
+
+    net_with_line = NetworkReference(
+        target="api.example.com",
+        source_file="src/client.py",
+        line_number=88,
+    )
+    assert net_with_line.location == "src/client.py:88"

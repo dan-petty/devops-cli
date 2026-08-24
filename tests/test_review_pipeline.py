@@ -541,6 +541,7 @@ def test_generate_consolidated_report_with_intelligence_tables(
                 version_range=">=2.10.0",
                 ecosystem="PyPI",
                 source_file="requirements.txt",
+                severity="CLEAN",
                 security_status="✓ Clean (0 CVEs)",
             ),
             DependencySpec(
@@ -548,7 +549,8 @@ def test_generate_consolidated_report_with_intelligence_tables(
                 version_range="1.0.0",
                 ecosystem="PyPI",
                 source_file="requirements.txt",
-                security_status="⚠️ 1 Known Vuln(s)",
+                severity="HIGH",
+                security_status="⚠️ 1 Known Vuln(s) [HIGH]",
             ),
         ],
         network_references=[
@@ -572,17 +574,22 @@ def test_generate_consolidated_report_with_intelligence_tables(
     data_out, report_md = orchestrator.generate_consolidated_report([payload])
 
     assert "## External Dependencies (OSV.dev & NVD)" in report_md
-    assert "| `pydantic` | `>=2.10.0` | PyPI | ✓ Clean (0 CVEs) | `requirements.txt` |" in report_md
     assert (
-        "| `vulnerable-pkg` | `1.0.0` | PyPI | ⚠️ 1 Known Vuln(s) | `requirements.txt` |"
-        in report_md
+        "| Severity | Dependency | Version Range | Ecosystem | "
+        "Security Status | Location |" in report_md
+    )
+    assert (
+        "| CLEAN | `pydantic` | `>=2.10.0` | PyPI | "
+        "✓ Clean (0 CVEs) | `requirements.txt:1` |" in report_md
+    )
+    assert (
+        "| **HIGH** | `vulnerable-pkg` | `1.0.0` | PyPI | "
+        "⚠️ 1 Known Vuln(s) [HIGH] | `requirements.txt:1` |" in report_md
     )
 
     assert "## External Network References (Shodan InternetDB & Cloudflare Radar)" in report_md
-    assert (
-        "| `api.example-corp.com` | domain | ✓ Safe / Low Risk | `src/main.py` | 15 |" in report_md
-    )
-    assert "| `93.184.216.34` | ip | ✓ Safe (Ports: 80, 443) | `src/main.py` | 20 |" in report_md
+    assert "| `api.example-corp.com` | domain | ✓ Safe / Low Risk | `src/main.py:15` |" in report_md
+    assert "| `93.184.216.34` | ip | ✓ Safe (Ports: 80, 443) | `src/main.py:20` |" in report_md
 
     assert len(data_out["external_dependencies"]) == 2
     assert len(data_out["network_references"]) == 2

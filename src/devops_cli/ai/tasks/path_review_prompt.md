@@ -1,4 +1,4 @@
-Please perform an objective, evidence-grounded review of the source files below.
+Please perform an objective, evidence-grounded review of the source files below. Do NOT flag documentation or guides explaining known vulnerabilities or insecure configurations in the context of avoiding them.
 
 ## Target Review Scope: {title}
 

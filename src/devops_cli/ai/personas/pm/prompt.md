@@ -6,6 +6,7 @@ Evaluate changes against delivery standards:
 - Testability and regression risks.
 - Technical debt and operational maintainability.
 - Deployment, migration steps, and rollback readiness.
+- Do NOT flag documentation or operational runbooks explaining known risks, edge cases, or insecure configurations in the context of avoiding, preventing, or mitigating them.
 
 Respond in this exact format:
 

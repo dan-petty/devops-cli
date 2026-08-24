@@ -159,6 +159,25 @@ def is_file_reference(target: str, source_file: str = "") -> bool:
     if "/" in clean or "\\" in clean or clean.startswith("."):
         return True
 
+    # Standard manifest and build definition file basenames
+    if clean in {
+        "requirements.in",
+        "requirements.txt",
+        "requirements-dev.txt",
+        "pyproject.toml",
+        "package.json",
+        "package-lock.json",
+        "cargo.toml",
+        "cargo.lock",
+        "go.mod",
+        "go.sum",
+        "dockerfile",
+        "makefile",
+        "jenkinsfile",
+        "cmakelists.txt",
+    }:
+        return True
+
     exact_names, all_paths = _get_workspace_filenames(str(Path.cwd().resolve()))
 
     # 1. Exact match against any filename or relative path across workspace in recursive file search
@@ -189,52 +208,15 @@ def is_file_reference(target: str, source_file: str = "") -> bool:
                     if (sibling / target_path).is_file():
                         return True
 
-    # 5. Standard build template, configuration, and artifact suffixes
-    suffix = target_path.suffix.lower()
-    if suffix in (
-        ".in",
-        ".lock",
-        ".template",
-        ".sample",
-        ".example",
-        ".spec",
-        ".log",
-        ".bak",
-        ".tmp",
-    ):
-        return True
-
-    if suffix in (
-        ".py",
-        ".js",
-        ".ts",
-        ".tsx",
-        ".jsx",
-        ".go",
-        ".rs",
-        ".java",
-        ".c",
-        ".cpp",
-        ".h",
-        ".md",
-        ".json",
-        ".yaml",
-        ".yml",
-        ".toml",
-        ".tf",
-        ".tfvars",
-        ".hcl",
-        ".sh",
-    ):
-        if any(clean in p for p in all_paths):
-            return True
-
     return False
 
 
 @functools.lru_cache(maxsize=4096)
 def is_code_or_config_reference(target: str, source_file: str = "") -> bool:
     """Differentiate code identifiers, method chains, and config keys from network hosts."""
+    import keyword
+    import sys
+
     clean = target.strip().rstrip(".,;)>]\"'")
 
     # Programmatic function calls like not.a.domain.com(...)
@@ -249,9 +231,60 @@ def is_code_or_config_reference(target: str, source_file: str = "") -> bool:
     if len(parts) < 2:
         return True
 
-    # Check if dot-separated identifier path maps to a local directory or source module
+    first_seg = parts[0].lower()
+
+    # Standard Python keywords, builtins, and standard library root modules
+    stdlib_names = getattr(sys, "stdlib_module_names", set()) | set(sys.builtin_module_names)
+
+    # If it's a 2-segment token like self.host, user.name, m.group, app.run
+    if len(parts) == 2:
+        if (
+            keyword.iskeyword(first_seg)
+            or first_seg in stdlib_names
+            or first_seg
+            in (
+                "self",
+                "cls",
+                "this",
+                "super",
+                "user",
+                "window",
+                "document",
+                "process",
+                "console",
+                "req",
+                "res",
+                "event",
+                "err",
+                "error",
+                "app",
+                "db",
+                "m",
+                "r",
+                "val",
+                "data",
+                "config",
+                "cfg",
+                "node",
+                "cluster",
+                "service",
+                "helper",
+                "client",
+            )
+        ):
+            return True
+
+    # If it represents a direct file reference in the workspace
+    if is_file_reference(clean, source_file=source_file):
+        return True
+
+    # Check if identifier path maps to a local directory, package, or python source module
     alt_path = Path(clean.replace(".", "/"))
-    if (Path.cwd() / alt_path).is_dir():
+    if (
+        (Path.cwd() / alt_path).is_dir()
+        or (Path.cwd() / (clean.replace(".", "/") + ".py")).is_file()
+        or (Path.cwd() / "src" / (clean.replace(".", "/") + ".py")).is_file()
+    ):
         return True
 
     exact_names, all_paths = _get_workspace_filenames(str(Path.cwd().resolve()))
@@ -260,69 +293,34 @@ def is_code_or_config_reference(target: str, source_file: str = "") -> bool:
     ):
         return True
 
-    # Common programming attribute access patterns (e.g. eks.name, igw.id, nat.id, public.id)
-    last_seg = parts[-1].lower()
-    if last_seg in (
-        "id",
-        "name",
-        "arn",
-        "tags",
-        "type",
-        "count",
-        "key",
-        "value",
-        "val",
-        "data",
-        "self",
-        "len",
-        "get",
-        "post",
-        "put",
-        "delete",
-        "head",
-        "options",
-        "patch",
-        "run",
-        "main",
-        "app",
-        "cli",
-        "config",
-        "cfg",
-        "meta",
-        "spec",
-        "status",
-        "info",
-        "log",
-        "logger",
-        "ai",
-        "py",
-        "rs",
-        "go",
-        "ts",
-        "js",
-        "rb",
-        "sh",
-        "tf",
-        "json",
-        "yaml",
-        "yml",
-        "toml",
-    ):
+    # Top-level workspace package matching (e.g. devops_cli.*, tests.*)
+    if (Path.cwd() / first_seg).exists() or (Path.cwd() / "src" / first_seg).exists():
+        return True
+
+    ext = _TLD_EXTRACTOR(clean)
+    if not ext.domain or not ext.suffix:
+        return True
+
+    # If public suffix extractor identifies code suffixes like .py, .sh, .id, .name
+    if ext.suffix in ("id", "name", "ai", "py", "sh", "rs", "go", "ts", "js", "rb", "tf"):
         if is_file_reference(clean, source_file=source_file):
             return True
-        ext = _TLD_EXTRACTOR(clean)
-        if not ext.domain or not ext.suffix or ext.suffix in ("id", "name", "ai", "py", "sh"):
+        if len(parts) == 2 or first_seg in stdlib_names or (Path.cwd() / first_seg).exists():
             return True
+
+    # Standard programming method call or attribute chains (e.g. helper.utils.format)
+    if first_seg in ("helper", "service", "client", "utils", "mock", "stub", "fixture"):
+        return True
 
     for top_dir in Path.cwd().iterdir():
         if top_dir.is_dir() and not top_dir.name.startswith("."):
             sub_p = top_dir / alt_path
-            if sub_p.is_dir():
+            if sub_p.is_dir() or (top_dir / (clean.replace(".", "/") + ".py")).is_file():
                 return True
             for nested in top_dir.iterdir():
                 if nested.is_dir() and not nested.name.startswith("."):
                     nested_p = nested / alt_path
-                    if nested_p.is_dir():
+                    if nested_p.is_dir() or (nested / (clean.replace(".", "/") + ".py")).is_file():
                         return True
 
     return False
@@ -611,13 +609,22 @@ def extract_network_references(content: str, source_file: str = "") -> list[Netw
     return results
 
 
+def _find_package_line(lines: list[str], pkg_token: str) -> int | None:
+    token_lower = pkg_token.lower()
+    for idx, line in enumerate(lines, start=1):
+        if token_lower in line.lower():
+            return idx
+    return None
+
+
 def extract_dependencies_from_text(content: str, file_name: str) -> list[DependencySpec]:
     """Extract dependency specifications from manifest file content using standard parsers."""
     deps: list[DependencySpec] = []
     name_lower = Path(file_name).name.lower()
+    content_lines = content.splitlines()
 
     if name_lower in ("requirements.txt", "requirements-dev.txt", "requirements.in"):
-        for line in content.splitlines():
+        for line_idx, line in enumerate(content_lines, start=1):
             line = line.strip()
             if not line or line.startswith(("#", "-", "--")):
                 continue
@@ -630,6 +637,7 @@ def extract_dependencies_from_text(content: str, file_name: str) -> list[Depende
                         version_range=version_spec,
                         ecosystem="PyPI",
                         source_file=file_name,
+                        line_number=line_idx,
                     )
                 )
             except InvalidRequirement:
@@ -662,12 +670,14 @@ def extract_dependencies_from_text(content: str, file_name: str) -> list[Depende
             for req_str in req_strings:
                 try:
                     req = Requirement(req_str)
+                    line_no = _find_package_line(content_lines, req.name)
                     deps.append(
                         DependencySpec(
                             name=req.name,
                             version_range=str(req.specifier) if str(req.specifier) else "*",
                             ecosystem="PyPI",
                             source_file=file_name,
+                            line_number=line_no,
                         )
                     )
                 except InvalidRequirement:
@@ -688,12 +698,16 @@ def extract_dependencies_from_text(content: str, file_name: str) -> list[Depende
                 if section in data and isinstance(data[section], dict):
                     all_deps.update(data[section])
             for pkg, ver in all_deps.items():
+                line_no = _find_package_line(content_lines, f'"{pkg}"') or _find_package_line(
+                    content_lines, pkg
+                )
                 deps.append(
                     DependencySpec(
                         name=pkg,
                         version_range=str(ver),
                         ecosystem="npm",
                         source_file=file_name,
+                        line_number=line_no,
                     )
                 )
         except Exception:
@@ -706,12 +720,14 @@ def extract_dependencies_from_text(content: str, file_name: str) -> list[Depende
             if isinstance(cargo_deps, dict):
                 for pkg, ver in cargo_deps.items():
                     ver_str = ver if isinstance(ver, str) else ver.get("version", "*")
+                    line_no = _find_package_line(content_lines, pkg)
                     deps.append(
                         DependencySpec(
                             name=pkg,
                             version_range=str(ver_str),
                             ecosystem="crates.io",
                             source_file=file_name,
+                            line_number=line_no,
                         )
                     )
         except Exception:
@@ -719,7 +735,7 @@ def extract_dependencies_from_text(content: str, file_name: str) -> list[Depende
 
     elif name_lower == "go.mod":
         in_require_block = False
-        for line in content.splitlines():
+        for line_idx, line in enumerate(content_lines, start=1):
             line = line.strip()
             if line.startswith("require ("):
                 in_require_block = True
@@ -737,6 +753,7 @@ def extract_dependencies_from_text(content: str, file_name: str) -> list[Depende
                             version_range=parts[1],
                             ecosystem="Go",
                             source_file=file_name,
+                            line_number=line_idx,
                         )
                     )
 

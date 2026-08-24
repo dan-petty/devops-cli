@@ -66,6 +66,7 @@ devops rag index docs/
 2. **Target Path Resolution & Isolation**: All file reading, AST analysis, and security scanning on target projects must resolve paths relative to the target root directory (`target_dir`) to prevent host-workspace file collisions.
 3. **Actionable AI Feedback**: Always conclude agent analyses with concrete remediation snippets, file line references, and drop-in patches.
 4. **Structured JSON Output Repair**: Employ defensive parsing (`repair_json_string`) and schema validation to handle LLM markdown code blocks and conversational preambles gracefully.
+5. **Context-Aware Documentation & Avoidance Context**: AI review engines must never flag documentation, architectural guides, security tutorials, or prompt tasks describing known vulnerabilities or insecure configurations in the context of avoiding or mitigating them.
 
 ---
 

@@ -104,6 +104,16 @@ _UNIVERSAL_MODULES: set[str] = {
     "typer",
 }
 
+_SEV_ORDER: dict[str, int] = {
+    "CRITICAL": 4,
+    "HIGH": 3,
+    "MEDIUM": 2,
+    "LOW": 1,
+    "INFO": 0,
+    "CLEAN": -1,
+    "NONE": -1,
+}
+
 
 class ReviewPipelineOrchestrator:
     """Orchestrates 6-stage multi-agent code reviews with per-file payloads and AI scratchpads."""
@@ -552,8 +562,15 @@ class ReviewPipelineOrchestrator:
                         vulns = dep_cache.get(d_key, [])
                         if vulns:
                             dep.vulnerabilities = vulns
-                            dep.security_status = f"⚠️ {len(vulns)} Known Vuln(s)"
+                            highest_sev = max(
+                                (v.severity.upper() for v in vulns),
+                                key=lambda s: _SEV_ORDER.get(s, 0),
+                                default="MEDIUM",
+                            )
+                            dep.severity = highest_sev
+                            dep.security_status = f"⚠️ {len(vulns)} Known Vuln(s) [{highest_sev}]"
                         else:
+                            dep.severity = "CLEAN"
                             dep.security_status = "✓ Clean"
 
                         for v in vulns:
@@ -1191,25 +1208,30 @@ class ReviewPipelineOrchestrator:
         if all_deps:
             lines.append("## External Dependencies (OSV.dev & NVD)")
             lines.append(
-                "| Dependency | Version Range | Ecosystem | Security Status | Source File |"
+                "| Severity | Dependency | Version Range | Ecosystem | Security Status | Location |"
             )
-            lines.append("|---|---|---|---|---|")
+            lines.append("|---|---|---|---|---|---|")
             for dep in all_deps:
+                sev_badge = (
+                    f"**{dep.severity}**"
+                    if dep.severity.upper() not in ("CLEAN", "NONE", "INFO")
+                    else dep.severity
+                )
+                loc_str = f"`{dep.location}`" if dep.location else "—"
                 lines.append(
-                    f"| `{dep.name}` | `{dep.version_range}` | {dep.ecosystem} | "
-                    f"{dep.security_status} | `{dep.source_file}` |"
+                    f"| {sev_badge} | `{dep.name}` | `{dep.version_range}` | {dep.ecosystem} | "
+                    f"{dep.security_status} | {loc_str} |"
                 )
             lines.append("")
 
         if all_nets:
             lines.append("## External Network References (Shodan InternetDB & Cloudflare Radar)")
-            lines.append("| Target | Type | Security Status | Source File | Line |")
-            lines.append("|---|---|---|---|---|")
+            lines.append("| Target | Type | Security Status | Location |")
+            lines.append("|---|---|---|---|")
             for net in all_nets:
-                l_str = str(net.line_number) if net.line_number else "—"
+                loc_str = f"`{net.location}`" if net.location else "—"
                 lines.append(
-                    f"| `{net.target}` | {net.reference_type} | {net.security_status} | "
-                    f"`{net.source_file}` | {l_str} |"
+                    f"| `{net.target}` | {net.reference_type} | {net.security_status} | {loc_str} |"
                 )
             lines.append("")
 
@@ -1222,19 +1244,37 @@ class ReviewPipelineOrchestrator:
         console = Console()
         if all_deps:
             dep_tbl = Table(title="External Dependencies Security Audit (OSV.dev & NVD)")
+            dep_tbl.add_column("Severity", justify="center", no_wrap=True)
             dep_tbl.add_column("Dependency", style="bold cyan")
             dep_tbl.add_column("Version Range")
             dep_tbl.add_column("Ecosystem")
             dep_tbl.add_column("Security Status")
-            dep_tbl.add_column("Source File", style="dim")
+            dep_tbl.add_column("Location", style="dim")
             for d in all_deps:
-                color = "red" if "⚠️" in d.security_status else "green"
+                sev_upper = d.severity.upper()
+                if sev_upper == "CRITICAL":
+                    sev_str = "[bold red]CRITICAL[/bold red]"
+                    status_str = f"[bold red]{d.security_status}[/bold red]"
+                elif sev_upper == "HIGH":
+                    sev_str = "[red]HIGH[/red]"
+                    status_str = f"[red]{d.security_status}[/red]"
+                elif sev_upper == "MEDIUM":
+                    sev_str = "[yellow]MEDIUM[/yellow]"
+                    status_str = f"[yellow]{d.security_status}[/yellow]"
+                elif sev_upper == "LOW":
+                    sev_str = "[cyan]LOW[/cyan]"
+                    status_str = f"[cyan]{d.security_status}[/cyan]"
+                else:
+                    sev_str = "[green]CLEAN[/green]"
+                    status_str = f"[green]{d.security_status}[/green]"
+
                 dep_tbl.add_row(
+                    sev_str,
                     d.name,
                     d.version_range,
                     d.ecosystem,
-                    f"[{color}]{d.security_status}[/{color}]",
-                    d.source_file,
+                    status_str,
+                    d.location or "—",
                 )
             console.print(dep_tbl)
 
@@ -1245,16 +1285,14 @@ class ReviewPipelineOrchestrator:
             net_tbl.add_column("Target", style="bold cyan")
             net_tbl.add_column("Type")
             net_tbl.add_column("Security Status")
-            net_tbl.add_column("Source File", style="dim")
-            net_tbl.add_column("Line", justify="right")
+            net_tbl.add_column("Location", style="dim")
             for n in all_nets:
                 color = "red" if "⚠️" in n.security_status else "green"
                 net_tbl.add_row(
                     n.target,
                     n.reference_type,
                     f"[{color}]{n.security_status}[/{color}]",
-                    n.source_file,
-                    str(n.line_number or "—"),
+                    n.location or "—",
                 )
             console.print(net_tbl)
 

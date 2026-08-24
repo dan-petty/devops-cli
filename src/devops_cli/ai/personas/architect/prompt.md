@@ -4,8 +4,9 @@ Evaluate changes against architectural principles:
 - Scalability (statelessness, caching, resource limits, batching).
 - Resilience (circuit breakers, exponential backoff, explicit timeouts).
 - Observability (structured logging, tracing, metrics, error context).
-- API contracts, strict typing, and interface coupling.
-- Performance (non-blocking I/O, bounded iteration, resource lifecycle).
+- **API contracts, strict typing, and interface coupling**:
+- **Performance**: Non-blocking I/O, bounded iteration, resource lifecycle.
+- Do NOT flag documentation, architectural references, or design specs describing anti-patterns or insecure configurations in the context of avoiding, mitigating, or explaining them.
 
 Respond in this exact format:
 

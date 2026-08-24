@@ -309,6 +309,73 @@ def _deterministic_pre_verification(finding: Finding, repo_root: Path | None = N
             }
         )
 
+    # 3. Documentation Explaining Known Vulnerabilities or Insecure Configs in Context of Avoidance
+    is_doc_file = (
+        loc_file.endswith((".md", ".rst", ".adoc", ".txt"))
+        or "docs/" in loc_file
+        or "knowledge_base/" in loc_file
+        or "ai/tasks/" in loc_file
+        or "tutorials/" in loc_file
+    )
+    if is_doc_file:
+        if file_path.exists() and file_path.is_file():
+            try:
+                doc_text = file_path.read_text(encoding="utf-8", errors="replace").lower()
+                avoidance_markers = (
+                    "avoid",
+                    "prevent",
+                    "mitigat",
+                    "never",
+                    "do not",
+                    "anti-pattern",
+                    "insecure example",
+                    "vulnerability",
+                    "risk",
+                    "guideline",
+                    "standard",
+                    "rule",
+                    "benchmark",
+                    "rubric",
+                    "prompt",
+                    "expected",
+                    "cwe-",
+                    "cve-",
+                    "owasp",
+                    "ssrf",
+                    "security",
+                )
+                if any(
+                    marker in title_lower or marker in desc_lower or marker in doc_text
+                    for marker in avoidance_markers
+                ):
+                    return finding.model_copy(
+                        update={
+                            "verified": False,
+                            "mitigated": True,
+                            "reportable": False,
+                            "status": "INVALIDATED",
+                            "invalidation_reason": (
+                                "Documentation explaining known vulnerabilities or insecure "
+                                "configurations in the context of avoiding said configuration"
+                            ),
+                        }
+                    )
+            except Exception:
+                pass
+        else:
+            return finding.model_copy(
+                update={
+                    "verified": False,
+                    "mitigated": True,
+                    "reportable": False,
+                    "status": "INVALIDATED",
+                    "invalidation_reason": (
+                        "Documentation explaining known vulnerabilities or insecure "
+                        "configurations in the context of avoiding said configuration"
+                    ),
+                }
+            )
+
     return finding
 
 

@@ -6,7 +6,7 @@ Perform an objective, evidence-grounded code review:
    - Evaluate the target project against its own documented conventions (knowledge base guides under `src/devops_cli/ai/knowledge_base/`, `AGENTS.md`, `README.md`, or architecture documents).
    - Utilize injected `<rag_context>` and analysis metadata to cross-reference module boundaries, interfaces, and shared types.
    - Enforce purpose-driven, functional naming: file/folder names, classes, functions, and variables must clearly describe the concrete function and purpose of the code they contain.
-   - Do NOT flag documentation, test assertions/fixtures, test mocks, template files (`*.example.*`), or historical review logs.
+   - Do NOT flag documentation, tutorials, architectural guides, knowledge base articles, prompt benchmarks, test assertions/fixtures, test mocks, template files (`*.example.*`), or historical review logs that explain known vulnerabilities or describe known insecure configurations in the context of avoiding, mitigating, warning against, or explaining said configuration.
    - Respect modern language features and idiomatic syntax (e.g. Python 3.14+ `except (Err1, Err2):`, Pydantic V2 models, strict type annotations).
    - If no actionable defects are identified, return an empty `findings` array and `APPROVE`.
 
@@ -21,7 +21,7 @@ Perform an objective, evidence-grounded code review:
 3. **Verification & Invalidation Criteria**:
    - For every finding, supply:
      - `verification_criteria`: 1-3 concrete conditions in visible code proving the defect is present.
-     - `invalidation_criteria`: 1-3 conditions, surrounding guardrails, or architectural mitigations proving the defect is absent or a false positive.
+     - `invalidation_criteria`: 1-3 conditions, surrounding guardrails, educational/avoidance context, or architectural mitigations proving the defect is absent, intentional instruction, or a false positive.
 
 ## Severity Scale
 - **CRITICAL**: Exploitable vulnerability, auth bypass, credential leak, SSRF, or fatal runtime crash.
