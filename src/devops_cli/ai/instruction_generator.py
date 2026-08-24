@@ -204,8 +204,9 @@ codebase or reviewing target repositories.
   `urllib.parse`, `ipaddress`, `mimetypes`, `functools.lru_cache`), and official specifications
   over hardcoded literal subsets.
 - **Knowledge Base Consultation**: Always consult project documentation and knowledge base
-  guides (`docs/knowledge_base/` or `docs/`) before designing, implementing, or modifying
-  system components.
+  guides (`src/devops_cli/ai/knowledge_base/` or `docs/`) before designing, implementing, or
+  modifying system components.
+
 
 
 ## 3. Build, Lint & Test Commands

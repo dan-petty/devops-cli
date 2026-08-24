@@ -200,20 +200,62 @@ class WorkspaceIndexer:
 
         return sorted(indexable_files)
 
+    def index_knowledge_base(
+        self,
+        *,
+        force: bool = False,
+        progress_callback: Callable[[str, int, int], None] | None = None,
+    ) -> dict[str, Any]:
+        """Index the bundled DevOps CLI Knowledge Base markdown files into the docs collection."""
+        from devops_cli.ai.kb import get_knowledge_base_dir
+
+        kb_dir = get_knowledge_base_dir()
+        if not kb_dir.is_dir():
+            logger.warning("Knowledge base directory not found at %s", kb_dir)
+            return {
+                "indexed_files": 0,
+                "total_chunks": 0,
+                "code_chunks": 0,
+                "doc_chunks": 0,
+                "removed_files": 0,
+                "skipped_files": 0,
+                "collections": [self.docs_collection],
+            }
+
+        return self.index_workspace(
+            kb_dir,
+            project="devops-cli-kb",
+            force=force,
+            include_kb=False,
+            progress_callback=progress_callback,
+        )
+
     def index_workspace(
         self,
         root_dir: Path,
         *,
         project: str | None = None,
         force: bool = False,
+        include_kb: bool = False,
         progress_callback: Callable[[str, int, int], None] | None = None,
     ) -> dict[str, Any]:
         """Incrementally index workspace files into Qdrant."""
         with trace_span(
             "rag.index_workspace",
-            attributes={"root_dir": str(root_dir), "force": force},
+            attributes={"root_dir": str(root_dir), "force": force, "include_kb": include_kb},
         ):
             files = self.collect_files(root_dir)
+            if include_kb:
+                from devops_cli.ai.kb import get_knowledge_base_dir
+
+                kb_dir = get_knowledge_base_dir()
+                if kb_dir.is_dir() and kb_dir.resolve() != root_dir.resolve():
+                    kb_files = self.collect_files(kb_dir)
+                    # Add KB files avoiding duplicates
+                    existing_set = {f.resolve() for f in files}
+                    for kbf in kb_files:
+                        if kbf.resolve() not in existing_set:
+                            files.append(kbf)
             cache = {} if force else self._load_cache()
             file_hashes: dict[str, str] = {}
 
@@ -341,12 +383,10 @@ class WorkspaceIndexer:
         """Embed text and upsert points in batches into Qdrant, saving incremental cache."""
         total = len(chunks)
         ai_cfg = getattr(self.embedder, "ai_config", None)
-        urls = (
-            getattr(ai_cfg, "get_ollama_urls", ["http://localhost:11434"])
-            if ai_cfg
-            else ["http://localhost:11434"]
-        )
-        max_par = getattr(ai_cfg, "ollama_max_parallel", 2) if ai_cfg else 2
+        urls_raw = getattr(ai_cfg, "get_ollama_urls", None)
+        urls = urls_raw if isinstance(urls_raw, list) else ["http://localhost:11434"]
+        max_par_raw = getattr(ai_cfg, "ollama_max_parallel", None)
+        max_par = max_par_raw if isinstance(max_par_raw, int) else 2
         effective_batch_size = max(batch_size, min(256, len(urls) * max_par * 32))
 
         for i in range(0, total, effective_batch_size):

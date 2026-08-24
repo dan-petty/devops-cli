@@ -90,6 +90,13 @@ def index_cmd(
         bool,
         typer.Option("--force", "-f", help="Re-index all files ignoring content hash cache"),
     ] = False,
+    include_kb: Annotated[
+        bool,
+        typer.Option(
+            "--include-kb/--no-include-kb",
+            help="Include bundled DevOps CLI Knowledge Base in docs collection",
+        ),
+    ] = True,
     collection: Annotated[
         str | None,
         typer.Option("--collection", "-c", help="Target collection override"),
@@ -123,6 +130,7 @@ def index_cmd(
                 "path": str(target_path),
                 "project": project,
                 "force": force,
+                "include_kb": include_kb,
                 "collection": collection,
             },
         )
@@ -174,6 +182,7 @@ def index_cmd(
             target_path,
             project=project,
             force=force,
+            include_kb=include_kb,
             progress_callback=_on_progress,
         )
 
@@ -188,6 +197,98 @@ def index_cmd(
         f"upserted [cyan]{results['total_chunks']}[/cyan] chunk(s)"
         f"{removed_msg} "
         f"(skipped {results['skipped_files']} unchanged files)."
+    )
+
+
+@app.command("index-kb")
+def index_kb_cmd(
+    force: Annotated[
+        bool,
+        typer.Option("--force", "-f", help="Re-index all KB files ignoring cache"),
+    ] = False,
+    collection: Annotated[
+        str | None,
+        typer.Option("--collection", "-c", help="Target collection override"),
+    ] = None,
+    explain: Annotated[
+        bool,
+        typer.Option(
+            "--explain",
+            "-e",
+            help="Explain RAG vector embeddings, Qdrant indexing, and terminology",
+        ),
+    ] = False,
+) -> None:
+    """Index the bundled DevOps CLI Knowledge Base into Qdrant for RAG agent retrieval."""
+    if explain:
+        from devops_cli.ai.explain import render_explanation
+
+        render_explanation("rag")
+        return
+
+    if is_dry_run():
+        res = CommandDryRunResult(
+            command="devops ai rag index-kb",
+            target="src/devops_cli/ai/knowledge_base",
+            action="vector_indexing_kb",
+            details={
+                "force": force,
+                "collection": collection,
+            },
+        )
+        rprint("[yellow][dry-run][/yellow] Command response:")
+        console.print_json(res.model_dump_json(indent=2))
+        return
+
+    qdrant, embedder, code_coll, docs_coll = _get_rag_components()
+    if collection:
+        docs_coll = collection
+
+    if not qdrant.is_alive():
+        rprint(
+            f"[red]✗ Cannot connect to Qdrant at [bold]{qdrant.base_url}[/bold][/red]\n"
+            "[yellow]Tip: Deploy or start Qdrant via 'devops k8s deploy-stack llm'[/yellow]"
+        )
+        raise typer.Exit(1)
+
+    indexer = WorkspaceIndexer(
+        qdrant=qdrant,
+        embedder=embedder,
+        code_collection=code_coll,
+        docs_collection=docs_coll,
+    )
+
+    rprint(
+        Rule(
+            f" [cyan]RAG Knowledge Base Indexer[/cyan]  "
+            f"[dim]Qdrant: {qdrant.base_url} | Model: {embedder.model}[/dim] ",
+            style="cyan",
+        )
+    )
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+        console=console,
+    ) as progress:
+        task_id = progress.add_task("Indexing knowledge base...", total=100)
+
+        def _on_progress(desc: str, current: int, total: int) -> None:
+            pct = (current / max(1, total)) * 100
+            progress.update(task_id, description=f"{desc} ({current}/{total})", completed=pct)
+
+        results = indexer.index_knowledge_base(
+            force=force,
+            progress_callback=_on_progress,
+        )
+
+    rprint(
+        f"\n[bold green]✓ Knowledge Base indexing complete![/bold green] "
+        f"Indexed [cyan]{results['indexed_files']}[/cyan] KB file(s), "
+        f"upserted [cyan]{results['total_chunks']}[/cyan] chunk(s) "
+        f"into [magenta]{docs_coll}[/magenta]."
     )
 
 

@@ -14,6 +14,12 @@ from devops_cli.ai.instruction_generator import (
     parse_project_metadata,
     scaffold_agent_instructions,
 )
+from devops_cli.ai.kb import (
+    get_knowledge_base_dir,
+    get_knowledge_base_stats,
+    list_knowledge_base_articles,
+    load_kb_article,
+)
 from devops_cli.ai.model_bundler import ModelBundleManifest, bundle_ollama_models
 from devops_cli.ai.response_repair import (
     ExtractedToolCall,
@@ -46,6 +52,10 @@ __all__ = [
     "generate_agents_md",
     "generate_instruction_content",
     "generate_pointer_stub",
+    "get_knowledge_base_dir",
+    "get_knowledge_base_stats",
+    "list_knowledge_base_articles",
+    "load_kb_article",
     "normalize_raw_llm_text",
     "parse_project_metadata",
     "repair_json_string",

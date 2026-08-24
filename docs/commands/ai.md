@@ -448,6 +448,23 @@ devops ai rag index [OPTIONS] <path>
 |---|---|---|---|
 | `--project`, `-p` | `string` | - | Project / repository name override |
 | `--force`, `-f` | `boolean` | - | Re-index all files ignoring content hash cache |
+| `--include-kb`, `--no-include-kb` | `boolean` | `True` | Include bundled DevOps CLI Knowledge Base in docs collection |
+| `--collection`, `-c` | `string` | - | Target collection override |
+| `--explain`, `-e` | `boolean` | - | Explain RAG vector embeddings, Qdrant indexing, and terminology |
+
+### `devops ai rag index-kb`
+
+**Index the bundled DevOps CLI Knowledge Base into Qdrant for RAG agent retrieval.**
+
+```bash
+devops ai rag index-kb [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--force`, `-f` | `boolean` | - | Re-index all KB files ignoring cache |
 | `--collection`, `-c` | `string` | - | Target collection override |
 | `--explain`, `-e` | `boolean` | - | Explain RAG vector embeddings, Qdrant indexing, and terminology |
 
