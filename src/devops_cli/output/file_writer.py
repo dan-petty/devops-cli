@@ -34,6 +34,8 @@ def write_text_file(
     target_path = Path(path).resolve()
     target_path.parent.mkdir(parents=True, exist_ok=True)
 
+    file_mode = mode if mode is not None else 0o644
+
     if atomic:
         temp_dir = target_path.parent
         with tempfile.NamedTemporaryFile(
@@ -43,6 +45,8 @@ def write_text_file(
             delete=False,
             prefix=f".tmp_{target_path.name}_",
         ) as tmp:
+            if mode is not None:
+                os.chmod(tmp.name, mode)
             tmp.write(content)
             tmp_path = Path(tmp.name)
 
@@ -50,7 +54,9 @@ def write_text_file(
             tmp_path.chmod(mode)
         os.replace(tmp_path, target_path)
     else:
-        target_path.write_text(content, encoding=encoding)
+        fd = os.open(target_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, file_mode)
+        with os.fdopen(fd, "w", encoding=encoding) as fh:
+            fh.write(content)
         if mode is not None:
             target_path.chmod(mode)
 
@@ -117,6 +123,8 @@ def write_bytes_file(
     target_path = Path(path).resolve()
     target_path.parent.mkdir(parents=True, exist_ok=True)
 
+    file_mode = mode if mode is not None else 0o644
+
     if atomic:
         temp_dir = target_path.parent
         with tempfile.NamedTemporaryFile(
@@ -125,6 +133,8 @@ def write_bytes_file(
             delete=False,
             prefix=f".tmp_{target_path.name}_",
         ) as tmp:
+            if mode is not None:
+                os.chmod(tmp.name, mode)
             tmp.write(data)
             tmp_path = Path(tmp.name)
 
@@ -132,7 +142,9 @@ def write_bytes_file(
             tmp_path.chmod(mode)
         os.replace(tmp_path, target_path)
     else:
-        target_path.write_bytes(data)
+        fd = os.open(target_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, file_mode)
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data)
         if mode is not None:
             target_path.chmod(mode)
 

@@ -39,13 +39,14 @@ async def get_telemetry() -> dict[str, Any]:
     """Inspect OpenTelemetry configuration and ping the OTLP collector endpoint."""
     tracer = get_tracer()
     ok, msg, latency = tracer.test_connection(timeout=2.0)
+    safe_msg = msg if ok else "Collector probe failed or unreachable"
     return {
         "enabled": tracer.enabled,
         "endpoint": tracer.endpoint,
         "service_name": "devops-cli",
         "service_version": __version__,
         "ping_ok": ok,
-        "ping_message": msg,
+        "ping_message": safe_msg,
         "ping_latency_ms": round(latency, 2),
     }
 
