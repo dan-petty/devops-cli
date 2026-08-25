@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "devops-cli"
-version = "0.2.0"
+version = "0.2.1"
 description = "DevOps CLI for managing repos, SSH keys, Kubernetes, and more"
 requires-python = ">=3.14"
 dependencies = [
@@ -30,6 +30,8 @@ dependencies = [
     "packaging>=24.0",
     "fastapi>=0.110.0",
     "uvicorn>=0.30.0",
+    "tiktoken>=0.8.0",
+    "pydantic-ai>=2.0.0",
 ]
 
 [project.scripts]

@@ -1,10 +1,19 @@
-"""Telemetry and OpenTelemetry tracing module for devops-cli."""
+"""Telemetry, OpenTelemetry tracing, and metrics module for devops-cli."""
 
 from __future__ import annotations
 
+from devops_cli.telemetry.context import (
+    extract_traceparent,
+    inject_traceparent_headers,
+)
+from devops_cli.telemetry.metrics import (
+    GLOBAL_METRICS,
+    InMemoryMetricsRegistry,
+)
 from devops_cli.telemetry.tracer import (
     ContextPropagatingThreadPoolExecutor,
     OTelTelemetryClient,
+    get_current_span_context,
     get_tracer,
     inject_trace_context,
     record_metric,
@@ -14,10 +23,15 @@ from devops_cli.telemetry.tracer import (
 )
 
 __all__ = [
+    "GLOBAL_METRICS",
     "ContextPropagatingThreadPoolExecutor",
+    "InMemoryMetricsRegistry",
     "OTelTelemetryClient",
+    "extract_traceparent",
+    "get_current_span_context",
     "get_tracer",
     "inject_trace_context",
+    "inject_traceparent_headers",
     "record_metric",
     "reset_tracer",
     "trace_span",

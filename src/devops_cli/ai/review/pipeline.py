@@ -683,40 +683,54 @@ class ReviewPipelineOrchestrator:
 
     # ── Stage 2: Per-File Review Session JSON Initialization ──────────────────
     def _run_static_scanners(self, file_paths: list[str]) -> dict[str, list[SavedFinding]]:
-        """Run Bandit, Kube-linter, Pluto, and Trivy static analyzers against target files."""
+        """Run Bandit, Kube-linter, Pluto, Trivy, Semgrep, and Gitleaks static analyzers."""
         static_findings_by_file: dict[str, list[SavedFinding]] = {}
         all_static_findings: list[SavedFinding] = []
         n_paths = len(file_paths)
         try:
             from devops_cli.security.bandit import run_bandit_scan
+            from devops_cli.security.gitleaks import run_gitleaks_scan
+            from devops_cli.security.semgrep import run_semgrep_scan
 
             rprint(
                 "  [cyan]• Running static security analyzers "
-                "(Bandit, Kube-linter, Pluto, Trivy)...[/cyan]"
+                "(Bandit, Kube-linter, Pluto, Trivy, Semgrep, Gitleaks)...[/cyan]"
             )
 
             with trace_span(
                 "security.static_scanners", attributes={"file_count": n_paths}
             ) as sc_span:
-                # 1. Batch Bandit scan for all Python files in target scope
-                py_paths = [self._resolve_file_path(f) for f in file_paths if f.endswith(".py")]
+                all_resolved = [self._resolve_file_path(f) for f in file_paths]
+
+                # 1. Batch Bandit scan for Python files
+                py_paths = [p for p in all_resolved if p.suffix == ".py"]
                 if py_paths:
                     all_static_findings.extend(_wrap_static_findings(run_bandit_scan(py_paths)))
 
                 # 2. Pluto & Kube-linter scan for Kubernetes manifests
-                yaml_paths = [
-                    self._resolve_file_path(f) for f in file_paths if f.endswith((".yaml", ".yml"))
-                ]
+                yaml_paths = [p for p in all_resolved if p.suffix in (".yaml", ".yml")]
                 all_static_findings.extend(_scan_kubernetes_manifests(yaml_paths))
 
                 # 3. Aqua Trivy scan for Dockerfiles and lockfiles
                 docker_lock_paths = [
-                    self._resolve_file_path(f)
-                    for f in file_paths
-                    if Path(f).name.lower() in ("dockerfile", "containerfile")
-                    or f.endswith((".lock", ".lockb"))
+                    p
+                    for p in all_resolved
+                    if p.name.lower() in ("dockerfile", "containerfile")
+                    or p.suffix in (".lock", ".lockb")
                 ]
                 all_static_findings.extend(_scan_container_and_lockfiles(docker_lock_paths))
+
+                # 4. Gitleaks secret pre-filter scan
+                if all_resolved:
+                    all_static_findings.extend(
+                        _wrap_static_findings(run_gitleaks_scan(all_resolved))
+                    )
+
+                # 5. Semgrep AST pattern match scan
+                if all_resolved:
+                    all_static_findings.extend(
+                        _wrap_static_findings(run_semgrep_scan(all_resolved))
+                    )
 
                 static_findings_by_file = _match_static_findings_to_files(
                     all_static_findings, file_paths

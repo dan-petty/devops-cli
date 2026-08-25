@@ -31,6 +31,9 @@ DEFAULT_LLM_CACHE_MAX_ENTRIES: int = 1000
 DEFAULT_PYTHON_VERSION = get_project_python_version()
 DEFAULT_BUNDLE_MODELS: tuple[str, ...] = ("qwen2.5-coder:7b", "llama3.1:8b")
 DEFAULT_PR_STATE = "open"
+DEFAULT_MAX_CONTEXT_TOKENS: int = 16384
+DEFAULT_DIFF_CHUNK_BUDGET: int = 8192
+DEFAULT_SEMGREP_CONFIG: str = "p/default"
 
 # ── Benchmark Defaults ────────────────────────────────────────────────────────
 DEFAULT_BENCHMARK_CONCURRENCY: int = 4

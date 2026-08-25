@@ -192,7 +192,11 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 |  | `devops uv lock [OPTIONS]` | Regenerate the uv lockfile. |
 |  | `devops uv python-install [OPTIONS]` | Install project Python version with uv. |
 |  | `devops uv run` | Run an arbitrary command using `uv run`. |
-| **scan** | `devops scan [OPTIONS] <target>` | Security, vulnerability, secret, and IaC scanner via Aqua Trivy. |
+| **scan** | `devops scan trivy [OPTIONS] <target>` | Run Aqua Trivy vulnerability, secret, and misconfiguration scan. |
+|  | `devops scan secrets [OPTIONS] <target>` | Run Gitleaks secret pre-filter scan across workspace or targets. |
+|  | `devops scan gitleaks [OPTIONS] <target>` | Alias for devops scan secrets. |
+|  | `devops scan semgrep [OPTIONS] <target>` | Run Semgrep multilingual static AST pattern matching scan. |
+|  | `devops scan sast [OPTIONS] <target>` | Run static application security testing (SAST) via Semgrep. |
 | **ai** | `devops ai config [OPTIONS]` | Show or update AI provider configuration. |
 |  | `devops ai models` | List available models for the configured provider. |
 |  | `devops ai preload` | Preload configured model into VRAM across all configured Ollama servers. |
@@ -201,6 +205,7 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 |  | `devops ai chat [OPTIONS]` | Start an interactive chat with a Pydantic AI persona (tools, thinking, streaming, RAG). |
 |  | `devops ai bundle-models [OPTIONS]` | Bundle Ollama model metadata into tarball for air-gapped DevContainers. |
 |  | `devops ai pipeline [OPTIONS] <prompt>` | Run a multi-agent Pydantic pipeline with shared DevOps tools and RAG context. |
+|  | `devops ai token-count [OPTIONS] <target>` | Calculate exact BPE tokens for text or files using tiktoken context budgeting. |
 |  | `devops ai review [OPTIONS] COMMAND [ARGS]...` | AI-powered multi-persona code review system. |
 |  | `devops ai analyze [OPTIONS] COMMAND [ARGS]...` | Analyze codebase metadata and generate structural outlines. |
 |  | `devops ai rag [OPTIONS] COMMAND [ARGS]...` | Manage RAG vector embeddings, indexing, and semantic search (Qdrant). |
