@@ -9,7 +9,11 @@ from typing import Any
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.commands import BIN_PLUTO
-from devops_cli.config.defaults import DEFAULT_PLUTO_TIMEOUT_SECONDS
+from devops_cli.config.defaults import (
+    DEFAULT_PLUTO_TIMEOUT_SECONDS,
+    DEFAULT_STATIC_SCAN_CONFIDENCE_HIGH,
+    DEFAULT_STATIC_SCAN_CONFIDENCE_MAX,
+)
 from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run.state import is_dry_run
 
@@ -43,7 +47,7 @@ def parse_pluto_json(data: dict[str, Any], target_path: str = "") -> list[Findin
                     f"{status_word.lower()} in target version. Upgrade to '{replacement}'."
                 ),
                 fix=f"Update apiVersion from '{api_ver}' to '{replacement}'",
-                confidence_score=0.95,
+                confidence_score=DEFAULT_STATIC_SCAN_CONFIDENCE_HIGH,
             )
         )
 
@@ -66,7 +70,7 @@ def run_pluto_scan(target: Path = Path(".")) -> list[Finding]:
                     title="[DRY-RUN] Simulated Pluto Deprecated K8s API Detection",
                     description="Pluto deprecated API detection simulation mode active.",
                     fix="Update apiVersion to apps/v1 (dry-run mode)",
-                    confidence_score=1.0,
+                    confidence_score=DEFAULT_STATIC_SCAN_CONFIDENCE_MAX,
                 )
             ]
 

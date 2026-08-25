@@ -8,7 +8,11 @@ from typing import Any
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.commands import build_popeye_cmd
-from devops_cli.config.defaults import DEFAULT_POPEYE_TIMEOUT_SECONDS
+from devops_cli.config.defaults import (
+    DEFAULT_POPEYE_TIMEOUT_SECONDS,
+    DEFAULT_STATIC_SCAN_CONFIDENCE_MAX,
+    DEFAULT_STATIC_SCAN_CONFIDENCE_MEDIUM,
+)
 from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run.state import is_dry_run
 
@@ -30,7 +34,7 @@ def _parse_single_popeye_issue(sanitizer_name: str, res_id: str, issue: dict[str
         title=f"[{sanitizer_name.upper()}] Cluster Sanitizer Finding",
         description=msg,
         fix=f"Review and adjust Kubernetes specification for {res_id}",
-        confidence_score=0.9,
+        confidence_score=DEFAULT_STATIC_SCAN_CONFIDENCE_MEDIUM,
     )
 
 
@@ -71,7 +75,7 @@ def run_popeye_scan() -> list[Finding]:
                     title="[DRY-RUN] Simulated Popeye Cluster Health Audit Result",
                     description="Popeye cluster health audit simulation mode active.",
                     fix="No action required (dry-run mode)",
-                    confidence_score=1.0,
+                    confidence_score=DEFAULT_STATIC_SCAN_CONFIDENCE_MAX,
                 )
             ]
 

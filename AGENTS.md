@@ -81,6 +81,9 @@ Before planning, implementing, debugging, refactoring, or reviewing code, archit
   - Keep CLI documentation, option help text, environment variable tables, and architecture guides synchronized with source code via `devops docs generate --sync-readme`.
 - **Canonical Location Formatting (`filename.ext:n-n`)**:
   - All CLI terminal outputs, Rich tables, Markdown review reports, findings, external dependencies, and network reference audit records must use the canonical `filename.ext:n-n` or `filename.ext:line` location convention project-wide to ensure consistent parsing, clickable referencing, and seamless IDE integration.
+- **Zero Hardcoded Confidence & Scoring Values**:
+  - Never hardcode arbitrary numerical scores, confidence weights, thresholds, or ranking values as magic numbers inline in code blocks or function bodies.
+  - All scoring floors, default confidence ratings, static analyzer weights, and calculation metrics must be declared as named, centralized constants in `devops_cli.config.defaults` or dynamically computed via standardized algorithmic scoring models.
 
 ## 5. Agentic AI & Review System Guidelines
 

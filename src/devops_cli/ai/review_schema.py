@@ -9,6 +9,7 @@ from typing import Any
 import json_repair
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from devops_cli.config.defaults import DEFAULT_FINDING_CONFIDENCE
 from devops_cli.models.ai import FileAnalysisMeta
 from devops_cli.models.vulnerability import (
     DependencySpec,
@@ -30,7 +31,6 @@ VALID_SEVERITIES: frozenset[str] = frozenset(_SEVERITY_RANK.keys())
 VALID_STATUSES: frozenset[str] = frozenset({"UNVERIFIED", "VERIFIED", "INVALIDATED", "MITIGATED"})
 VALID_RECOMMENDATIONS: frozenset[str] = frozenset({"APPROVE", "REQUEST CHANGES", "BLOCK"})
 
-DEFAULT_FINDING_CONFIDENCE: float = 0.8
 LINE_OVERLAP_TOLERANCE: int = 2
 TITLE_SIMILARITY_THRESHOLD: float = 0.5
 MAX_TITLE_LENGTH: int = 200

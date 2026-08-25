@@ -32,6 +32,16 @@ DEFAULT_PYTHON_VERSION = get_project_python_version()
 DEFAULT_BUNDLE_MODELS: tuple[str, ...] = ("qwen2.5-coder:7b", "llama3.1:8b")
 DEFAULT_PR_STATE = "open"
 
+# ── Finding Confidence & Scoring Defaults ─────────────────────────────────────
+DEFAULT_FINDING_CONFIDENCE: float = 0.80
+DEFAULT_VULNERABILITY_FINDING_CONFIDENCE: float = 0.95
+DEFAULT_MALICIOUS_NETWORK_FINDING_CONFIDENCE: float = 0.90
+DEFAULT_STATIC_SCAN_CONFIDENCE_HIGH: float = 0.95
+DEFAULT_STATIC_SCAN_CONFIDENCE_MEDIUM: float = 0.90
+DEFAULT_STATIC_SCAN_CONFIDENCE_LOW: float = 0.70
+DEFAULT_STATIC_SCAN_CONFIDENCE_MAX: float = 1.0
+DEFAULT_FILE_ANALYSIS_CONFIDENCE: float = 0.85
+
 # ── Benchmark Defaults ────────────────────────────────────────────────────────
 DEFAULT_BENCHMARK_CONCURRENCY: int = 4
 DEFAULT_BENCHMARK_FORMAT: str = "table"

@@ -9,7 +9,13 @@ from typing import Any
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.commands import BIN_BANDIT
-from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
+from devops_cli.config.defaults import (
+    DEFAULT_FILE_ANALYSIS_CONFIDENCE,
+    DEFAULT_STATIC_SCAN_CONFIDENCE_HIGH,
+    DEFAULT_STATIC_SCAN_CONFIDENCE_LOW,
+    DEFAULT_STATIC_SCAN_CONFIDENCE_MAX,
+    DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
+)
 from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run.state import is_dry_run
 from devops_cli.telemetry import trace_span
@@ -32,7 +38,15 @@ def parse_bandit_json(data: dict[str, Any], target_path: str = "") -> list[Findi
         conf = str(res.get("issue_confidence") or "MEDIUM").upper()
         more_info = res.get("more_info") or ""
 
-        confidence_val = 0.95 if conf == "HIGH" else (0.85 if conf == "MEDIUM" else 0.7)
+        confidence_val = (
+            DEFAULT_STATIC_SCAN_CONFIDENCE_HIGH
+            if conf == "HIGH"
+            else (
+                DEFAULT_FILE_ANALYSIS_CONFIDENCE
+                if conf == "MEDIUM"
+                else DEFAULT_STATIC_SCAN_CONFIDENCE_LOW
+            )
+        )
 
         loc = f"{filename}:{line_num}" if line_num is not None else filename
         fix_msg = f"Remediate {test_name} ({test_id})"
@@ -76,7 +90,7 @@ def run_bandit_scan(
                     title="[B602] [DRY-RUN] Simulated Bandit Python Security Finding",
                     description="Bandit static security audit simulation mode active.",
                     fix="Remediate subprocess invocation (dry-run mode)",
-                    confidence_score=1.0,
+                    confidence_score=DEFAULT_STATIC_SCAN_CONFIDENCE_MAX,
                 )
             ]
 

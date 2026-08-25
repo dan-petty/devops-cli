@@ -54,6 +54,10 @@ from devops_cli.config.constants import (
     CONST_MAX_FILE_SIZE_BYTES,
     CONST_REVIEWS_DATA_DIR,
 )
+from devops_cli.config.defaults import (
+    DEFAULT_MALICIOUS_NETWORK_FINDING_CONFIDENCE,
+    DEFAULT_VULNERABILITY_FINDING_CONFIDENCE,
+)
 from devops_cli.models.ai import FileAnalysisMeta
 from devops_cli.models.vulnerability import (
     DependencySpec,
@@ -280,7 +284,7 @@ def _build_vulnerability_finding(
         status="VERIFIED",
         verified=True,
         reportable=True,
-        confidence_score=0.95,
+        confidence_score=DEFAULT_VULNERABILITY_FINDING_CONFIDENCE,
         persona="devsecops",
         persona_title="Principal DevSecOps Engineer",
     )
@@ -305,7 +309,7 @@ def _build_malicious_network_finding(
         status="VERIFIED",
         verified=True,
         reportable=True,
-        confidence_score=0.90,
+        confidence_score=DEFAULT_MALICIOUS_NETWORK_FINDING_CONFIDENCE,
         persona="devsecops",
         persona_title="Principal DevSecOps Engineer",
     )
