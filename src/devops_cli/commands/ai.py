@@ -997,3 +997,47 @@ def token_count(
 
     rprint(table)
     return report
+
+
+# =============================================================================
+# Command: devops ai route
+# =============================================================================
+
+
+@app.command("route")
+def route_task(
+    task: Annotated[str, typer.Argument(help="Task name (e.g. review, scan)")],
+    tokens: Annotated[int, typer.Option("--tokens", "-t", help="Estimated tokens")] = 1000,
+    frontier: Annotated[bool, typer.Option("--frontier", "-f")] = False,
+    json_output: Annotated[bool, typer.Option("--json", help="Output JSON")] = False,
+) -> None:
+    """Evaluate task complexity and determine the optimal LLM provider and model route."""
+    from dataclasses import asdict
+
+    from devops_cli.ai.router import LLMRouter
+    from devops_cli.config.settings import load_settings
+    from devops_cli.output import format_json, write_stdout
+
+    settings = load_settings()
+    router = LLMRouter(config=settings.ai)
+    decision = router.route_task(
+        task_name=task,
+        token_count=tokens,
+        requires_frontier=frontier,
+    )
+
+    if json_output:
+        write_stdout(format_json(asdict(decision)) + "\n")
+        return
+
+    table = Table(title="AI Task Dynamic Routing Decision", style="magenta")
+    table.add_column("Property", style="bold")
+    table.add_column("Value")
+    table.add_row("Task Name", decision.task_name)
+    table.add_row("Complexity Tier", str(decision.complexity).upper())
+    table.add_row("Selected Provider", decision.provider_name)
+    table.add_row("Target Model", decision.model_name)
+    table.add_row("Est. Turn Cost (USD)", f"${decision.estimated_cost_usd:.4f}")
+    table.add_row("Routing Rationale", decision.rationale)
+
+    rprint(table)

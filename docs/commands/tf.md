@@ -199,3 +199,27 @@ devops tf deploy-cloud [OPTIONS]
 | `--var-file`, `-v` | `path` | - | Path to custom tfvars file |
 
 ---
+
+## `devops tf lint`
+
+**Run TFLint static analysis on Terraform/OpenTofu configurations.**
+
+```bash
+devops tf lint [OPTIONS] <directory>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<directory>` | `path` | No | Target directory containing Terraform / OpenTofu files |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--config`, `-c` | `path` | - | Path to .tflint.hcl config file |
+| `--dry-run` | `boolean` | - | Simulate TFLint execution |
+| `--json` | `boolean` | - | Output findings as JSON |
+
+---

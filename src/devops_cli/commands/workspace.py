@@ -231,3 +231,48 @@ def open_workspace(
         check=True,
         timeout=DEFAULT_SUBPROCESS_SHORT_TIMEOUT_SECONDS,
     )
+
+
+# =============================================================================
+# Command: devops workspace clean
+# =============================================================================
+
+
+@app.command("clean")
+def clean_workspace(
+    older_than_days: Annotated[
+        int,
+        typer.Option("--older-than", "-d", help="Prune artifacts older than N days"),
+    ] = 7,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Simulate pruning without deleting files"),
+    ] = False,
+) -> None:
+    """Clean stale review sessions, old analysis caches, and temporary traces under .data/."""
+    from devops_cli.core.cleanup import cleanup_data_tier
+    from devops_cli.dry_run import render_dry_run_result
+    from devops_cli.output import print_info, print_muted, print_success
+
+    if dry_run:
+        render_dry_run_result(
+            command=f"devops workspace clean --older-than {older_than_days}",
+            action="cleanup_data_tier",
+            details={"older_than_days": older_than_days},
+        )
+        return
+
+    print_muted(f"Pruning artifacts older than {older_than_days} days under .data/...")
+    summary = cleanup_data_tier(
+        older_than_seconds=float(older_than_days * 86400),
+        dry_run=False,
+    )
+
+    freed_mb = summary.freed_bytes / (1024 * 1024)
+    if not summary.pruned_files and not summary.pruned_dirs:
+        print_info("✓ Data tier is clean; no stale artifacts found.")
+        return
+
+    nf = len(summary.pruned_files)
+    nd = len(summary.pruned_dirs)
+    print_success(f"✓ Cleaned {nf} files and {nd} directories ({freed_mb:.2f} MB freed).")

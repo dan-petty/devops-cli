@@ -76,3 +76,26 @@ devops docker prune [OPTIONS]
 | `--force`, `-f` | `boolean` | - | Skip confirmation |
 
 ---
+
+## `devops docker analyze-layers`
+
+**Analyze container image layer efficiency and wasted space using Dive.**
+
+```bash
+devops docker analyze-layers [OPTIONS] <image>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<image>` | `string` | Yes | Container image tag or ID to analyze |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Simulate layer analysis |
+| `--json` | `boolean` | - | Output metrics as JSON |
+
+---

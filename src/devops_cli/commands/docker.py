@@ -195,3 +195,51 @@ def prune(
         reclaimed_bytes = 0
     reclaimed_mb = reclaimed_bytes // (1024 * 1024)
     print_success(f"Pruned. Space reclaimed: {reclaimed_mb} MB")
+
+
+# =============================================================================
+# Command: devops docker analyze-layers
+# =============================================================================
+
+
+@app.command("analyze-layers")
+def analyze_layers(
+    image: Annotated[str, typer.Argument(help="Container image tag or ID to analyze")],
+    dry_run: Annotated[bool, typer.Option("--dry-run", help="Simulate layer analysis")] = False,
+    json_output: Annotated[bool, typer.Option("--json", help="Output metrics as JSON")] = False,
+) -> None:
+    """Analyze container image layer efficiency and wasted space using Dive."""
+    from devops_cli.output import format_json, print_muted, write_stdout
+    from devops_cli.security.dive import run_dive_analysis
+
+    if dry_run or is_dry_run():
+        render_dry_run_result(
+            command=f"devops docker analyze-layers {image}",
+            action="dive_layer_analysis",
+            target=image,
+        )
+        return
+
+    print_muted(f"Analyzing container image layers for '{image}' via Dive...")
+    result = run_dive_analysis(image_name=image)
+
+    if json_output:
+        write_stdout(format_json(result.model_dump()) + "\n")
+        return
+
+    table = Table(title=f"Container Layer Efficiency: {result.image_name}")
+    table.add_column("Layer", justify="right")
+    table.add_column("Size (MB)", justify="right")
+    table.add_column("Wasted (MB)", justify="right")
+    table.add_column("Command / Directive")
+
+    for lyr in result.layers:
+        size_mb = f"{lyr.size_bytes / (1024 * 1024):.2f}"
+        wasted_mb = f"{lyr.wasted_bytes / (1024 * 1024):.2f}"
+        table.add_row(str(lyr.index), size_mb, wasted_mb, lyr.command[:80])
+
+    print_table(table)
+    eff_pct = result.efficiency_score * 100
+    tot_mb = result.total_bytes / (1024 * 1024)
+    wst_mb = result.wasted_bytes / (1024 * 1024)
+    print_info(f"Efficiency: {eff_pct:.1f}% | Size: {tot_mb:.1f} MB | Wasted: {wst_mb:.1f} MB")

@@ -429,3 +429,71 @@ def check_threat_intel(target: str) -> str:
             )
     except Exception as exc:
         return f"Threat intelligence check error: {exc}"
+
+
+def scan_iac(target: str = ".") -> str:
+    """Run Checkov IaC security and compliance scanner on IaC manifests."""
+    try:
+        from devops_cli.security.checkov import run_checkov_scan
+
+        findings = run_checkov_scan(target_path=Path(target))
+        if not findings:
+            return f"Checkov IaC scan clean for '{target}'. No policy violations."
+        lines = [f"Found {len(findings)} IaC policy violation(s) in '{target}':"]
+        for f in findings:
+            lines.append(f"- [{f.severity}] {f.location}: {f.title} ({f.fix})")
+        return "\n".join(lines)
+    except Exception as exc:
+        return f"Checkov IaC scan error: {exc}"
+
+
+def tf_lint(target: str = ".") -> str:
+    """Run TFLint static analysis on Terraform/OpenTofu code."""
+    try:
+        from devops_cli.security.tflint import run_tflint_scan
+
+        findings = run_tflint_scan(target_dir=Path(target))
+        if not findings:
+            return f"TFLint scan clean for '{target}'. No issues found."
+        lines = [f"Found {len(findings)} TFLint issue(s) in '{target}':"]
+        for f in findings:
+            lines.append(f"- [{f.severity}] {f.location}: {f.title}")
+        return "\n".join(lines)
+    except Exception as exc:
+        return f"TFLint execution error: {exc}"
+
+
+def k8s_validate_manifests(target: str = ".") -> str:
+    """Validate Kubernetes YAML manifests against OpenAPI schemas using Kubeconform."""
+    try:
+        from devops_cli.security.kubeconform import run_kubeconform_validation
+
+        findings = run_kubeconform_validation(manifest_path=Path(target))
+        if not findings:
+            return f"Kubeconform validation passed cleanly for '{target}'."
+        lines = [f"Found {len(findings)} schema validation issue(s) in '{target}':"]
+        for f in findings:
+            lines.append(f"- [{f.severity}] {f.location}: {f.title} ({f.description})")
+        return "\n".join(lines)
+    except Exception as exc:
+        return f"Kubeconform validation error: {exc}"
+
+
+def docker_analyze_layers(image: str) -> str:
+    """Analyze container image layers and wasted space using Dive."""
+    try:
+        from devops_cli.security.dive import run_dive_analysis
+
+        result = run_dive_analysis(image_name=image)
+        eff_pct = result.efficiency_score * 100
+        wasted_mb = result.wasted_bytes / (1024 * 1024)
+        total_mb = result.total_bytes / (1024 * 1024)
+        return (
+            f"Dive Container Analysis for '{image}':\n"
+            f"- Efficiency Score: {eff_pct:.1f}%\n"
+            f"- Total Image Size: {total_mb:.1f} MB\n"
+            f"- Wasted Space: {wasted_mb:.1f} MB\n"
+            f"- Total Layers Analyzed: {len(result.layers)}"
+        )
+    except Exception as exc:
+        return f"Dive layer analysis error: {exc}"

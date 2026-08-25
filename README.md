@@ -134,6 +134,7 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 |  | `devops workspace remove [OPTIONS] <repo_path>` | Remove a folder from the VS Code workspace file. |
 |  | `devops workspace generate [OPTIONS]` | Regenerate the workspace file from all repos in the repos directory. |
 |  | `devops workspace open [OPTIONS]` | Open the workspace in VS Code. |
+|  | `devops workspace clean [OPTIONS]` | Clean stale review sessions, old analysis caches, and temporary traces under .data/. |
 | **install-tools** | `devops install-tools status [OPTIONS]` | Show installation status and versions for all managed tools. |
 | **k8s** | `devops k8s contexts` | List kubeconfig contexts and mark the active one. |
 |  | `devops k8s switch-context <name>` | Switch active kubeconfig context. |
@@ -151,6 +152,7 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 |  | `devops k8s check-deprecated [OPTIONS] <target>` | Scan manifests for deprecated/removed K8s API versions using Fairwinds Pluto. |
 |  | `devops k8s create-tls-secret [OPTIONS] <secret_name>` | Create or update a kubernetes.io/tls secret from certificate and private key files. |
 |  | `devops k8s enable-tls [OPTIONS]` | Generate Homelab certificates and apply TLS secrets across Kubernetes cluster namespaces. |
+|  | `devops k8s validate [OPTIONS] <manifest_path>` | Validate Kubernetes YAML manifests against OpenAPI schemas using Kubeconform. |
 | **kustomize** | `devops kustomize build [OPTIONS] <path>` | Build kustomize overlays (delegates to kustomize build). |
 |  | `devops kustomize diff <path>` | Show a diff of pending changes (delegates to kubectl diff -k). |
 |  | `devops kustomize apply [OPTIONS] <path>` | Apply a kustomization (delegates to kubectl apply -k). |
@@ -158,6 +160,7 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 |  | `devops docker build [OPTIONS] <context>` | Build a Docker image. |
 |  | `devops docker push <image>` | Push a Docker image to a registry. |
 |  | `devops docker prune [OPTIONS]` | Remove unused containers, images, and networks. |
+|  | `devops docker analyze-layers [OPTIONS] <image>` | Analyze container image layer efficiency and wasted space using Dive. |
 | **grafana** | `devops grafana search [OPTIONS]` | Search Grafana dashboards and folders by query string. |
 |  | `devops grafana datasources` | List configured datasources. |
 |  | `devops grafana alerts` | List alert rules (Grafana 9+ unified alerting). |
@@ -197,6 +200,8 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 |  | `devops scan gitleaks [OPTIONS] <target>` | Alias for devops scan secrets. |
 |  | `devops scan semgrep [OPTIONS] <target>` | Run Semgrep multilingual static AST pattern matching scan. |
 |  | `devops scan sast [OPTIONS] <target>` | Run static application security testing (SAST) via Semgrep. |
+|  | `devops scan checkov [OPTIONS] <target>` | Run Checkov Infrastructure-as-Code (IaC) compliance scanner. |
+|  | `devops scan iac [OPTIONS] <target>` | Run Checkov IaC static policy and security compliance scan. |
 | **ai** | `devops ai config [OPTIONS]` | Show or update AI provider configuration. |
 |  | `devops ai models` | List available models for the configured provider. |
 |  | `devops ai preload` | Preload configured model into VRAM across all configured Ollama servers. |
@@ -206,6 +211,7 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 |  | `devops ai bundle-models [OPTIONS]` | Bundle Ollama model metadata into tarball for air-gapped DevContainers. |
 |  | `devops ai pipeline [OPTIONS] <prompt>` | Run a multi-agent Pydantic pipeline with shared DevOps tools and RAG context. |
 |  | `devops ai token-count [OPTIONS] <target>` | Calculate exact BPE tokens for text or files using tiktoken context budgeting. |
+|  | `devops ai route [OPTIONS] <task>` | Evaluate task complexity and determine the optimal LLM provider and model route. |
 |  | `devops ai review [OPTIONS] COMMAND [ARGS]...` | AI-powered multi-persona code review system. |
 |  | `devops ai analyze [OPTIONS] COMMAND [ARGS]...` | Analyze codebase metadata and generate structural outlines. |
 |  | `devops ai rag [OPTIONS] COMMAND [ARGS]...` | Manage RAG vector embeddings, indexing, and semantic search (Qdrant). |
@@ -244,6 +250,7 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 |  | `devops tf fmt [OPTIONS] <directory>` | Rewrites OpenTofu configuration files to canonical format. |
 |  | `devops tf status <directory>` | Show OpenTofu directory state, initialization status, and provider plugins. |
 |  | `devops tf deploy-cloud [OPTIONS]` | Deploy cloud Kubernetes infrastructure for AWS, Azure, or GCP. |
+|  | `devops tf lint [OPTIONS] <directory>` | Run TFLint static analysis on Terraform/OpenTofu configurations. |
 | **tls** | `devops tls ca [OPTIONS]` | Generate a self-signed Root Certificate Authority (CA) key pair. |
 |  | `devops tls cert [OPTIONS]` | Generate an X.509 TLS certificate signed by local CA or self-signed. |
 |  | `devops tls homelab [OPTIONS]` | Generate complete Homelab TLS bundle (Root CA, Wildcard + Stack Services Cert). |

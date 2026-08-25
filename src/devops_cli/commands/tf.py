@@ -513,3 +513,57 @@ def deploy_cloud(
     )
     msg = MESSAGES.tf.deploy_cloud_success.format(provider=provider.upper())
     print_success(msg)
+
+
+@app.command("lint")
+def tf_lint(
+    directory: Annotated[
+        Path,
+        typer.Argument(help="Target directory containing Terraform / OpenTofu files"),
+    ] = Path("."),
+    config: Annotated[
+        Path | None,
+        typer.Option("--config", "-c", help="Path to .tflint.hcl config file"),
+    ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Simulate TFLint execution"),
+    ] = False,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Output findings as JSON"),
+    ] = False,
+) -> None:
+    """Run TFLint static analysis on Terraform/OpenTofu configurations."""
+    from devops_cli.output import format_json, print_muted
+    from devops_cli.security.tflint import run_tflint_scan
+
+    target_dir = directory.resolve()
+    if dry_run:
+        render_dry_run_result(
+            command=f"devops tf lint {directory}",
+            action="tflint",
+            target=str(target_dir),
+        )
+        return
+
+    print_muted(f"Executing TFLint static analysis on '{target_dir}'...")
+    findings = run_tflint_scan(target_dir=target_dir, config_file=config)
+
+    if json_output:
+        write_stdout(format_json([f.model_dump() for f in findings]) + "\n")
+        return
+
+    if not findings:
+        print_success("✓ No Terraform / OpenTofu lint issues detected.")
+        return
+
+    table = Table(title=f"TFLint Findings: {target_dir.name or str(target_dir)}")
+    table.add_column("Severity", style="bold")
+    table.add_column("Location")
+    table.add_column("Rule / Title")
+    table.add_column("Description")
+
+    for f in findings:
+        table.add_row(f.severity, f.location, f.title, f.description)
+    print_table(table)

@@ -1586,3 +1586,71 @@ def enable_tls_stack(
         table.add_row(r.namespace, r.secret_name, status_str)
 
     print_table(table)
+
+
+# =============================================================================
+# Command: devops k8s validate
+# =============================================================================
+
+
+@app.command("validate")
+def k8s_validate(
+    manifest_path: Annotated[
+        Path,
+        typer.Argument(help="Path to Kubernetes YAML manifest file or directory"),
+    ] = Path("."),
+    k8s_version: Annotated[
+        str,
+        typer.Option("--kubernetes-version", "-v", help="Target Kubernetes OpenAPI version"),
+    ] = "master",
+    strict: Annotated[
+        bool,
+        typer.Option("--strict/--no-strict", help="Disallow additional undeclared properties"),
+    ] = True,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Simulate schema validation"),
+    ] = False,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Output findings as JSON"),
+    ] = False,
+) -> None:
+    """Validate Kubernetes YAML manifests against OpenAPI schemas using Kubeconform."""
+    from devops_cli.output import format_json, print_muted
+    from devops_cli.security.kubeconform import run_kubeconform_validation
+
+    target_path = manifest_path.resolve()
+    if dry_run or is_dry_run():
+        render_dry_run_result(
+            command=f"devops k8s validate {manifest_path} --kubernetes-version {k8s_version}",
+            action="kubeconform_validation",
+            target=str(target_path),
+        )
+        return
+
+    print_muted(f"Validating Kubernetes manifests at '{target_path}' (k8s: {k8s_version})...")
+    findings = run_kubeconform_validation(
+        manifest_path=target_path,
+        k8s_version=k8s_version,
+        strict=strict,
+    )
+
+    if json_output:
+        write_stdout(format_json([f.model_dump() for f in findings]) + "\n")
+        return
+
+    if not findings:
+        print_success(f"✓ All Kubernetes manifests at '{target_path}' are valid schemas.")
+        return
+
+    title_str = f"Kubeconform Schema Issues: {target_path.name or str(target_path)}"
+    table = Table(title=title_str)
+    table.add_column("Severity", style="bold red")
+    table.add_column("Location")
+    table.add_column("Error")
+    table.add_column("Remediation")
+
+    for f in findings:
+        table.add_row(f.severity, f.location, f.title, f.fix or f.description)
+    print_table(table)

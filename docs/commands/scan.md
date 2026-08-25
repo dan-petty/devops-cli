@@ -122,3 +122,51 @@ devops scan sast [OPTIONS] <target>
 | `--json` | `boolean` | - | Output raw findings as JSON |
 
 ---
+
+## `devops scan checkov`
+
+**Run Checkov Infrastructure-as-Code (IaC) compliance scanner.**
+
+```bash
+devops scan checkov [OPTIONS] <target>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<target>` | `path` | No | Target directory or file to scan with Checkov IaC rules |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--framework`, `-f` | `string` | - | Specific IaC framework (e.g. terraform) |
+| `--dry-run` | `boolean` | - | Simulate Checkov IaC scan execution. |
+| `--json` | `boolean` | - | Output raw findings as JSON |
+
+---
+
+## `devops scan iac`
+
+**Run Checkov IaC static policy and security compliance scan.**
+
+```bash
+devops scan iac [OPTIONS] <target>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<target>` | `path` | No | Target directory or file to scan with Checkov IaC rules |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--framework`, `-f` | `string` | - | Specific IaC framework (e.g. terraform) |
+| `--dry-run` | `boolean` | - | Simulate Checkov IaC scan execution. |
+| `--json` | `boolean` | - | Output raw findings as JSON |
+
+---

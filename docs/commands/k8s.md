@@ -306,3 +306,28 @@ devops k8s enable-tls [OPTIONS]
 | `--overwrite`, `-f` | `boolean` | - | Regenerate certs if missing |
 
 ---
+
+## `devops k8s validate`
+
+**Validate Kubernetes YAML manifests against OpenAPI schemas using Kubeconform.**
+
+```bash
+devops k8s validate [OPTIONS] <manifest_path>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<manifest_path>` | `path` | No | Path to Kubernetes YAML manifest file or directory |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--kubernetes-version`, `-v` | `string` | `master` | Target Kubernetes OpenAPI version |
+| `--strict`, `--no-strict` | `boolean` | `True` | Disallow additional undeclared properties |
+| `--dry-run` | `boolean` | - | Simulate schema validation |
+| `--json` | `boolean` | - | Output findings as JSON |
+
+---

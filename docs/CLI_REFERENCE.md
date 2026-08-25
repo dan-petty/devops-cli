@@ -509,6 +509,21 @@ devops workspace open [OPTIONS]
 |---|---|---|---|
 | `--workspace`, `-w` | `path` | - | - |
 
+### `devops workspace clean`
+
+**Clean stale review sessions, old analysis caches, and temporary traces under .data/.**
+
+```bash
+devops workspace clean [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--older-than`, `-d` | `integer` | `7` | Prune artifacts older than N days |
+| `--dry-run` | `boolean` | - | Simulate pruning without deleting files |
+
 ---
 
 ## devops install-tools
@@ -808,6 +823,29 @@ devops k8s enable-tls [OPTIONS]
 | `--stack`, `-s` | `string` | `all` | Stack to deploy TLS secrets into (infra, llm, all) |
 | `--overwrite`, `-f` | `boolean` | - | Regenerate certs if missing |
 
+### `devops k8s validate`
+
+**Validate Kubernetes YAML manifests against OpenAPI schemas using Kubeconform.**
+
+```bash
+devops k8s validate [OPTIONS] <manifest_path>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<manifest_path>` | `path` | No | Path to Kubernetes YAML manifest file or directory |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--kubernetes-version`, `-v` | `string` | `master` | Target Kubernetes OpenAPI version |
+| `--strict`, `--no-strict` | `boolean` | `True` | Disallow additional undeclared properties |
+| `--dry-run` | `boolean` | - | Simulate schema validation |
+| `--json` | `boolean` | - | Output findings as JSON |
+
 ---
 
 ## devops kustomize
@@ -941,6 +979,27 @@ devops docker prune [OPTIONS]
 |---|---|---|---|
 | `--volumes` | `boolean` | - | Also remove unused volumes |
 | `--force`, `-f` | `boolean` | - | Skip confirmation |
+
+### `devops docker analyze-layers`
+
+**Analyze container image layer efficiency and wasted space using Dive.**
+
+```bash
+devops docker analyze-layers [OPTIONS] <image>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<image>` | `string` | Yes | Container image tag or ID to analyze |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Simulate layer analysis |
+| `--json` | `boolean` | - | Output metrics as JSON |
 
 ---
 
@@ -1715,6 +1774,50 @@ devops scan sast [OPTIONS] <target>
 | `--dry-run` | `boolean` | - | Simulate Semgrep scan execution. |
 | `--json` | `boolean` | - | Output raw findings as JSON |
 
+### `devops scan checkov`
+
+**Run Checkov Infrastructure-as-Code (IaC) compliance scanner.**
+
+```bash
+devops scan checkov [OPTIONS] <target>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<target>` | `path` | No | Target directory or file to scan with Checkov IaC rules |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--framework`, `-f` | `string` | - | Specific IaC framework (e.g. terraform) |
+| `--dry-run` | `boolean` | - | Simulate Checkov IaC scan execution. |
+| `--json` | `boolean` | - | Output raw findings as JSON |
+
+### `devops scan iac`
+
+**Run Checkov IaC static policy and security compliance scan.**
+
+```bash
+devops scan iac [OPTIONS] <target>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<target>` | `path` | No | Target directory or file to scan with Checkov IaC rules |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--framework`, `-f` | `string` | - | Specific IaC framework (e.g. terraform) |
+| `--dry-run` | `boolean` | - | Simulate Checkov IaC scan execution. |
+| `--json` | `boolean` | - | Output raw findings as JSON |
+
 ---
 
 ## devops ai
@@ -1869,6 +1972,28 @@ devops ai token-count [OPTIONS] <target>
 | `--model`, `-m` | `string` | `gpt-4o` | Target model BPE tokenizer (e.g. gpt-4o, cl100k_base) |
 | `--budget`, `-b` | `integer` | `16384` | Max context token budget limit |
 | `--json` | `boolean` | - | Output token budget analysis as JSON |
+
+### `devops ai route`
+
+**Evaluate task complexity and determine the optimal LLM provider and model route.**
+
+```bash
+devops ai route [OPTIONS] <task>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<task>` | `string` | Yes | Task name (e.g. review, scan) |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--tokens`, `-t` | `integer` | `1000` | Estimated tokens |
+| `--frontier`, `-f` | `boolean` | - | - |
+| `--json` | `boolean` | - | Output JSON |
 
 ### `devops ai review`
 
@@ -3008,6 +3133,28 @@ devops tf deploy-cloud [OPTIONS]
 | `--provider`, `-p` | `string` | - | Target cloud provider: aws, azure, or gcp |
 | `--auto-approve` | `boolean` | - | Automatically approve apply without prompt |
 | `--var-file`, `-v` | `path` | - | Path to custom tfvars file |
+
+### `devops tf lint`
+
+**Run TFLint static analysis on Terraform/OpenTofu configurations.**
+
+```bash
+devops tf lint [OPTIONS] <directory>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<directory>` | `path` | No | Target directory containing Terraform / OpenTofu files |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--config`, `-c` | `path` | - | Path to .tflint.hcl config file |
+| `--dry-run` | `boolean` | - | Simulate TFLint execution |
+| `--json` | `boolean` | - | Output findings as JSON |
 
 ---
 

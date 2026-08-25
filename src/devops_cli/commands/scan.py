@@ -25,6 +25,7 @@ from devops_cli.output import (
     render_table,
     write_stdout,
 )
+from devops_cli.security.checkov import run_checkov_scan
 from devops_cli.security.gitleaks import run_gitleaks_scan
 from devops_cli.security.semgrep import run_semgrep_scan
 from devops_cli.security.trivy import run_trivy_scan
@@ -345,6 +346,95 @@ def scan_sast(
             target=str(target_abs),
             action="semgrep_ast_scan",
             details={"config": config, "findings_count": len(findings)},
+        )
+    return None
+
+
+@app.command("checkov")
+def scan_checkov(
+    target: Annotated[
+        Path,
+        typer.Argument(help="Target directory or file to scan with Checkov IaC rules"),
+    ] = Path("."),
+    framework: Annotated[
+        str | None,
+        typer.Option("--framework", "-f", help="Specific IaC framework (e.g. terraform)"),
+    ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Simulate Checkov IaC scan execution."),
+    ] = False,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Output raw findings as JSON"),
+    ] = False,
+) -> CommandDryRunResult | None:
+    """Run Checkov Infrastructure-as-Code (IaC) compliance scanner."""
+    return scan_iac(target=target, framework=framework, dry_run=dry_run, json_output=json_output)
+
+
+@app.command("iac")
+def scan_iac(
+    target: Annotated[
+        Path,
+        typer.Argument(help="Target directory or file to scan with Checkov IaC rules"),
+    ] = Path("."),
+    framework: Annotated[
+        str | None,
+        typer.Option("--framework", "-f", help="Specific IaC framework (e.g. terraform)"),
+    ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Simulate Checkov IaC scan execution."),
+    ] = False,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Output raw findings as JSON"),
+    ] = False,
+) -> CommandDryRunResult | None:
+    """Run Checkov IaC static policy and security compliance scan."""
+    set_dry_run(dry_run)
+    target_abs = target.resolve() if target.exists() else target
+
+    if not is_dry_run():
+        print_muted(f"Executing Checkov IaC scan on '{target_abs}'...")
+
+    findings = run_checkov_scan(target_path=target_abs, framework=framework)
+
+    if json_output:
+        data = [f.model_dump() for f in findings]
+        write_stdout(format_json(data) + "\n")
+        if is_dry_run():
+            return CommandDryRunResult(
+                command=f"devops scan iac {target}",
+                target=str(target_abs),
+                action="checkov_iac_scan",
+                details={"framework": framework, "findings_count": len(findings)},
+            )
+        return None
+
+    if not findings:
+        print_success("✓ No IaC policy violations detected.")
+        if is_dry_run():
+            return CommandDryRunResult(
+                command=f"devops scan iac {target}",
+                target=str(target_abs),
+                action="checkov_iac_scan",
+                details={"framework": framework, "findings_count": 0},
+            )
+        return None
+
+    _render_scan_results_table(
+        title=f"Checkov IaC Scan: {target_abs.name or target_abs}",
+        findings=findings,
+    )
+
+    if is_dry_run():
+        return CommandDryRunResult(
+            command=f"devops scan iac {target}",
+            target=str(target_abs),
+            action="checkov_iac_scan",
+            details={"framework": framework, "findings_count": len(findings)},
         )
     return None
 

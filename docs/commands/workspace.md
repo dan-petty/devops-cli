@@ -80,3 +80,20 @@ devops workspace open [OPTIONS]
 | `--workspace`, `-w` | `path` | - | - |
 
 ---
+
+## `devops workspace clean`
+
+**Clean stale review sessions, old analysis caches, and temporary traces under .data/.**
+
+```bash
+devops workspace clean [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--older-than`, `-d` | `integer` | `7` | Prune artifacts older than N days |
+| `--dry-run` | `boolean` | - | Simulate pruning without deleting files |
+
+---
