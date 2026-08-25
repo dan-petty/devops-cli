@@ -195,6 +195,7 @@ class OTelTelemetryClient:
         self.os_type = platform.system().lower() or "linux"
         self.enabled = enabled
         self._http_client: httpx2.Client | None = None
+        self._executor: ContextPropagatingThreadPoolExecutor | None = None
         self._client_lock = threading.Lock()
 
     @staticmethod
@@ -239,11 +240,11 @@ class OTelTelemetryClient:
         return out
 
     def extract_trace_context(self, headers: dict[str, str]) -> tuple[str | None, str | None]:
-        """Extract trace_id and span_id from incoming W3C traceparent header."""
+        """Extract trace_id and parent span_id from incoming W3C traceparent header."""
         tp = headers.get("traceparent") or headers.get("Traceparent")
         if not tp:
             return None, None
-        parts = tp.split("-")
+        parts = tp.strip().split("-")
         if len(parts) >= 4 and parts[0] == "00":
             return parts[1], parts[2]
         return None, None
@@ -393,10 +394,13 @@ class OTelTelemetryClient:
                 attrs["error.type"] = "KeyboardInterrupt"
                 attrs["cli.interrupted"] = True
                 error_msg = "Command cancelled by user (SIGINT / KeyboardInterrupt)"
-            if exit_code is not None:
-                attrs["cli.exit_code"] = exit_code
-                attrs["process.exit.code"] = exit_code
             else:
+                attrs["error.type"] = exc.__class__.__name__
+                attrs["error.message"] = str(exc)
+                if exit_code is not None:
+                    attrs["cli.exit_code"] = exit_code
+                    attrs["process.exit.code"] = exit_code
+            if not isinstance(exc, (SystemExit, KeyboardInterrupt)):
                 handle.record_exception(exc)
             raise
         finally:
@@ -424,7 +428,7 @@ class OTelTelemetryClient:
             payload = self._build_traces_payload([span_data])
             self._send_payload("/v1/traces", payload)
 
-    def test_connection(self, timeout: float = 2.0) -> tuple[bool, str, float]:
+    def test_connection(self, timeout: float = 1.0) -> tuple[bool, str, float]:
         """Test reachability of the OTLP collector endpoint and measure latency."""
         start = time.perf_counter()
         try:
@@ -448,7 +452,13 @@ class OTelTelemetryClient:
             )
             import httpx2
 
-            with httpx2.Client(timeout=timeout) as client:
+            timeout_cfg = httpx2.Timeout(
+                connect=1.0,
+                read=timeout,
+                write=timeout,
+                pool=1.0,
+            )
+            with httpx2.Client(timeout=timeout_cfg) as client:
                 res = client.post(url, json=payload)
                 elapsed_ms = (time.perf_counter() - start) * 1000
                 if res.status_code in (200, 202):
@@ -459,17 +469,33 @@ class OTelTelemetryClient:
             elapsed_ms = (time.perf_counter() - start) * 1000
             return False, "Connection probe failed", elapsed_ms
 
+    def _get_executor(self) -> ContextPropagatingThreadPoolExecutor:
+        """Get or initialize thread-safe background thread executor for non-blocking payload emission."""
+        with self._client_lock:
+            if self._executor is None:
+                self._executor = ContextPropagatingThreadPoolExecutor(
+                    max_workers=2,
+                    thread_name_prefix="devops-otel",
+                )
+            return self._executor
+
     def _get_http_client(self) -> httpx2.Client:
-        """Get or initialize thread-safe pooled HTTP client."""
+        """Get or initialize thread-safe pooled HTTP client with short connect timeout."""
         with self._client_lock:
             if self._http_client is None or getattr(self._http_client, "is_closed", False):
                 import httpx2
 
-                self._http_client = httpx2.Client(timeout=DEFAULT_OTEL_HTTP_TIMEOUT_SECONDS)
+                timeout_cfg = httpx2.Timeout(
+                    connect=1.0,
+                    read=DEFAULT_OTEL_HTTP_TIMEOUT_SECONDS,
+                    write=DEFAULT_OTEL_HTTP_TIMEOUT_SECONDS,
+                    pool=1.0,
+                )
+                self._http_client = httpx2.Client(timeout=timeout_cfg)
             return self._http_client
 
-    def _send_payload(self, path: str, payload: dict[str, Any]) -> None:
-        """Send payload over HTTP with pooled connection."""
+    def _send_payload_sync(self, path: str, payload: dict[str, Any]) -> None:
+        """Execute synchronous HTTP payload delivery."""
         if not self.enabled:
             return
         try:
@@ -479,9 +505,25 @@ class OTelTelemetryClient:
         except Exception as exc:
             logger.debug("OTel payload send failed to %s%s: %s", self.endpoint, path, exc)
 
+    def _send_payload(self, path: str, payload: dict[str, Any]) -> None:
+        """Send payload asynchronously via background thread executor to prevent blocking CLI execution."""
+        if not self.enabled:
+            return
+        try:
+            executor = self._get_executor()
+            executor.submit(self._send_payload_sync, path, payload)
+        except Exception as exc:
+            logger.debug("Failed submitting OTel payload to executor: %s", exc)
+
     def shutdown(self) -> None:
-        """Cleanly close pooled HTTP transport."""
+        """Cleanly close background executor and pooled HTTP transport with bounded drain timeout."""
         with self._client_lock:
+            if self._executor is not None:
+                try:
+                    self._executor.shutdown(wait=False, cancel_futures=True)
+                except Exception as exc:
+                    logger.debug("Failed closing OTel executor: %s", exc)
+                self._executor = None
             if self._http_client is not None and not getattr(self._http_client, "is_closed", False):
                 try:
                     self._http_client.close()

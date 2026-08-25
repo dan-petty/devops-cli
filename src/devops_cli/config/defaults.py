@@ -127,7 +127,7 @@ DEFAULT_PLUTO_TIMEOUT_SECONDS: float = 60.0
 DEFAULT_VULNERABILITY_LOOKUP_TIMEOUT_SECONDS: float = 10.0
 
 # ── Telemetry HTTP Defaults ───────────────────────────────────────────────────
-DEFAULT_OTEL_HTTP_TIMEOUT_SECONDS: float = 5.0
+DEFAULT_OTEL_HTTP_TIMEOUT_SECONDS: float = 1.0
 
 # ── FastMCP Server Tool Execution Timeouts ─────────────────────────────────────
 DEFAULT_MCP_TOOL_TIMEOUT_SECONDS: float = 300.0
@@ -137,9 +137,12 @@ DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS: float = 30.0
 # ── Docker Defaults ───────────────────────────────────────────────────────────
 DEFAULT_DOCKER_TIMEOUT_SECONDS: float = 300.0
 
-# ── High Timeout Policies ─────────────────────────────────────────────────────
-# NOTE (Design Justification - AGENTS.md §4 & README.md): High default timeouts are intentional
-# to accommodate local LLM inference (CPU/GPU Ollama), corporate proxy delays, and minikube setup.
+# ── Connection & Response Timeout Policies ───────────────────────────────────
+# NOTE (Design Justification): Connection timeouts are intentionally short (1.0s)
+# to fail fast when endpoints are unreachable, while response/read timeouts remain
+# high (up to 3600s) to accommodate homelab performance and local AI/LLM inference.
+DEFAULT_CONNECT_TIMEOUT_SECONDS: float = 1.0
+DEFAULT_POOL_TIMEOUT_SECONDS: float = 1.0
 DEFAULT_REVIEW_TIMEOUT_SECONDS: float = float(CONST_REVIEW_TIMEOUT_SECONDS)  # 1200.0s
 DEFAULT_REVIEW_WINDOW_SIZE_FACTOR: float = CONST_REVIEW_WINDOW_SIZE_FACTOR  # 0.8
 DEFAULT_REVIEW_OVERLAP_FACTOR: float = CONST_REVIEW_OVERLAP_FACTOR  # 0.1
@@ -148,15 +151,13 @@ DEFAULT_HTTP_TIMEOUT_SECONDS: float = 3600.0  # 1 hour (API requests & downloads
 DEFAULT_DNS_TIMEOUT_SECONDS: float = 15.0  # 15 seconds (socket DNS resolution)
 
 # ── Consolidated Aliases & Sub-keys ───────────────────────────────────────────
-# NOTE (Design Justification - AGENTS.md §4): Short/fast aliases map to main subprocess timeout
-# to guarantee uniform bounds across all subcommand subprocess invocations.
 DEFAULT_SUBPROCESS_SHORT_TIMEOUT_SECONDS: float = DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 DEFAULT_SUBPROCESS_FAST_TIMEOUT_SECONDS: float = DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 
-HTTP_CONNECT_TIMEOUT_SECONDS: float = DEFAULT_HTTP_TIMEOUT_SECONDS
+HTTP_CONNECT_TIMEOUT_SECONDS: float = DEFAULT_CONNECT_TIMEOUT_SECONDS
 HTTP_READ_TIMEOUT_SECONDS: float = DEFAULT_HTTP_TIMEOUT_SECONDS
 HTTP_WRITE_TIMEOUT_SECONDS: float = DEFAULT_HTTP_TIMEOUT_SECONDS
-HTTP_POOL_TIMEOUT_SECONDS: float = DEFAULT_HTTP_TIMEOUT_SECONDS
+HTTP_POOL_TIMEOUT_SECONDS: float = DEFAULT_POOL_TIMEOUT_SECONDS
 
 DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS: float = DEFAULT_HTTP_TIMEOUT_SECONDS
 DEFAULT_HTTP_LONG_TIMEOUT_SECONDS: float = DEFAULT_HTTP_TIMEOUT_SECONDS

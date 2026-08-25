@@ -123,7 +123,8 @@ class EmbeddingsEngine:
                 "rag.model": str(self.model),
             },
         ):
-            with httpx2.Client(timeout=self.timeout) as client:
+            client_timeout = httpx2.Timeout(self.timeout, connect=1.0)
+            with httpx2.Client(timeout=client_timeout) as client:
                 alt_endpoint = f"{base_url}/api/embed"
                 alt_payload = {"model": self.model, "input": batch_texts}
                 alt_res = client.post(alt_endpoint, json=alt_payload)
@@ -235,7 +236,8 @@ class EmbeddingsEngine:
             f"{base_url}/embeddings" if base_url.endswith("/v1") else f"{base_url}/v1/embeddings"
         )
         try:
-            with httpx2.Client(timeout=self.timeout) as client:
+            client_timeout = httpx2.Timeout(self.timeout, connect=1.0)
+            with httpx2.Client(timeout=client_timeout) as client:
                 res = client.post(endpoint, headers=headers, json=payload)
                 if res.status_code != 200:
                     raise EmbeddingsError(f"OpenAI embeddings HTTP {res.status_code}: {res.text}")
