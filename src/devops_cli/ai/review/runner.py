@@ -1018,9 +1018,15 @@ def _collect_file_blocks(root: Path, pattern: str) -> list[str]:
             )
             if result.returncode == 0 and result.stdout:
                 candidates = [repo_root / Path(item) for item in result.stdout.split("\0") if item]
+                is_from_git = True
+            else:
+                is_from_git = False
+    else:
+        is_from_git = False
 
     if not candidates:
         candidates = [p for p in sorted(root.rglob("*")) if p.is_file()]
+        is_from_git = False
 
     for p in sorted(candidates):
         if not p.is_file():
@@ -1029,7 +1035,12 @@ def _collect_file_blocks(root: Path, pattern: str) -> list[str]:
             continue
         if p.name in CONST_REVIEW_GENERATED_FILES:
             continue
-        if repo_root is not None and not root_ignored and _is_git_ignored(repo_root, p):
+        if (
+            not is_from_git
+            and repo_root is not None
+            and not root_ignored
+            and _is_git_ignored(repo_root, p)
+        ):
             continue
         try:
             rel = p.relative_to(root)

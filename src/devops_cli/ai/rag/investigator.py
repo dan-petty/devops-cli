@@ -21,6 +21,56 @@ from devops_cli.telemetry import record_metric, trace_span
 
 logger = logging.getLogger(__name__)
 
+_INVESTIGATION_CACHE: dict[str, tuple[float, RAGContext | None]] = {}
+_RETRIEVER_CACHE: tuple[float, SemanticRetriever] | None = None
+_CACHE_TTL_SECONDS = 60.0
+
+
+def _get_or_create_retriever(
+    st: Settings, top_k: int | None, score_threshold: float | None
+) -> SemanticRetriever | None:
+    """Get or create cached SemanticRetriever instance."""
+    global _RETRIEVER_CACHE
+    now = time.monotonic()
+    if _RETRIEVER_CACHE is not None:
+        last_t, retriever = _RETRIEVER_CACHE
+        if now - last_t < _CACHE_TTL_SECONDS and retriever.qdrant.is_alive():
+            return retriever
+
+    from devops_cli.core.validation import validate_url
+
+    raw_url = st.qdrant.url or "http://localhost:6333"
+    qdrant_url = validate_url(
+        raw_url,
+        "Qdrant vector database",
+        allow_private=True,
+    )
+    qdrant = QdrantClient(
+        base_url=qdrant_url,
+        allow_private_network=st.ai.allow_private_network,
+    )
+    if not qdrant.is_alive():
+        logger.debug(
+            "Qdrant vector store unreachable at %s, skipping RAG investigation", qdrant_url
+        )
+        return None
+
+    embedder = EmbeddingsEngine(ai_config=st.ai, api_key=settings_mod.get_ai_api_key(st))
+    prefix = st.qdrant.collection_prefix or "devops"
+    code_coll = f"{prefix}_code" if prefix else DEFAULT_RAG_COLLECTION
+    docs_coll = f"{prefix}_docs" if prefix else DEFAULT_RAG_DOCS_COLLECTION
+
+    retriever = SemanticRetriever(
+        qdrant=qdrant,
+        embedder=embedder,
+        code_collection=code_coll,
+        docs_collection=docs_coll,
+        default_top_k=top_k or DEFAULT_RAG_TOP_K,
+        default_score_threshold=score_threshold or DEFAULT_RAG_SCORE_THRESHOLD,
+    )
+    _RETRIEVER_CACHE = (now, retriever)
+    return retriever
+
 
 def investigate_rag_context(
     query: str,
@@ -49,6 +99,16 @@ def investigate_rag_context(
     if not st.ai.rag.enabled:
         return None
 
+    cache_key = (
+        f"{clean_query}|{persona}|{top_k}|{score_threshold}|{project}|"
+        f"{language}|{category}|{file_filter}|{max_chars}"
+    )
+    now = time.monotonic()
+    if cache_key in _INVESTIGATION_CACHE:
+        c_time, c_val = _INVESTIGATION_CACHE[cache_key]
+        if now - c_time < _CACHE_TTL_SECONDS:
+            return c_val
+
     max_query_len = 2048
     is_truncated = len(clean_query) > max_query_len
     search_query = clean_query[:max_query_len] if is_truncated else clean_query
@@ -65,37 +125,10 @@ def investigate_rag_context(
         },
     ) as r_span:
         try:
-            from devops_cli.core.validation import validate_url
-
-            raw_url = st.qdrant.url or "http://localhost:6333"
-            qdrant_url = validate_url(
-                raw_url,
-                "Qdrant vector database",
-                allow_private=True,
-            )
-            qdrant = QdrantClient(
-                base_url=qdrant_url,
-                allow_private_network=st.ai.allow_private_network,
-            )
-            if not qdrant.is_alive():
-                logger.debug(
-                    "Qdrant vector store unreachable at %s, skipping RAG investigation", qdrant_url
-                )
+            retriever = _get_or_create_retriever(st, top_k, score_threshold)
+            if retriever is None:
+                _INVESTIGATION_CACHE[cache_key] = (now, None)
                 return None
-
-            embedder = EmbeddingsEngine(ai_config=st.ai, api_key=settings_mod.get_ai_api_key(st))
-            prefix = st.qdrant.collection_prefix or "devops"
-            code_coll = f"{prefix}_code" if prefix else DEFAULT_RAG_COLLECTION
-            docs_coll = f"{prefix}_docs" if prefix else DEFAULT_RAG_DOCS_COLLECTION
-
-            retriever = SemanticRetriever(
-                qdrant=qdrant,
-                embedder=embedder,
-                code_collection=code_coll,
-                docs_collection=docs_coll,
-                default_top_k=top_k or DEFAULT_RAG_TOP_K,
-                default_score_threshold=score_threshold or DEFAULT_RAG_SCORE_THRESHOLD,
-            )
 
             if persona:
                 ctx = retriever.retrieve_context_for_persona(
@@ -131,12 +164,15 @@ def investigate_rag_context(
                     duration_ms,
                     clean_query,
                 )
+                _INVESTIGATION_CACHE[cache_key] = (now, ctx)
                 return ctx
 
             record_metric("ai.rag.investigation.empty", 1)
+            _INVESTIGATION_CACHE[cache_key] = (now, None)
             return None
         except Exception as exc:
             logger.debug("RAG investigation skipped due to error: %s", exc)
+            _INVESTIGATION_CACHE[cache_key] = (now, None)
             return None
 
 

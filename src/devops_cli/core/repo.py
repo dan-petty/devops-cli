@@ -2,11 +2,27 @@
 
 from __future__ import annotations
 
+import functools
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    import pathspec
 
 from devops_cli.config.constants import CONST_BINARY_EXTENSIONS
 from devops_cli.config.defaults import DEFAULT_SUBPROCESS_FAST_TIMEOUT_SECONDS
 from devops_cli.core.process import run_subprocess
+
+
+@functools.lru_cache(maxsize=32)
+def _get_pathspec_for_repo(repo_root_str: str) -> pathspec.PathSpec[Any] | None:
+    """Compile and cache PathSpec instance for a repository root."""
+    patterns = read_gitignore_patterns(Path(repo_root_str))
+    if not patterns:
+        return None
+    import pathspec
+
+    return pathspec.PathSpec.from_lines("gitwildmatch", patterns)
 
 
 def find_repo_root(start_path: Path | str | None = None) -> Path:
@@ -68,7 +84,17 @@ def is_ignored_by_git(repo_root: Path, target_path: Path) -> bool:
     if ".git" in rel_parts:
         return True
 
-    # 1. Ask git directly if inside a git repository
+    # 1. Fast in-memory matching against cached gitignore rules
+    spec = _get_pathspec_for_repo(str(repo_root.resolve()))
+    rel_str = (
+        str(target_path.relative_to(repo_root))
+        if target_path.is_relative_to(repo_root)
+        else target_path.name
+    )
+    if spec is not None and spec.match_file(rel_str):
+        return True
+
+    # 2. Fallback check directly with git if inside a repository
     if (repo_root / ".git").exists():
         try:
             rel = (
@@ -88,20 +114,7 @@ def is_ignored_by_git(repo_root: Path, target_path: Path) -> bool:
         except Exception:
             pass
 
-    # 2. Dynamic runtime fallback: match against dynamically loaded .gitignore rules using pathspec
-    patterns = read_gitignore_patterns(repo_root)
-    if not patterns:
-        return False
-
-    import pathspec
-
-    rel_str = (
-        str(target_path.relative_to(repo_root))
-        if target_path.is_relative_to(repo_root)
-        else target_path.name
-    )
-    spec = pathspec.PathSpec.from_lines("gitwildmatch", patterns)
-    return bool(spec.match_file(rel_str))
+    return False
 
 
 def _list_git_tracked_files(repo_root: Path, resolved_target: Path) -> list[Path] | None:

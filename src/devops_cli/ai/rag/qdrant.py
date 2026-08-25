@@ -105,6 +105,7 @@ class QdrantClient:
         validate_service_url(self.base_url, "Qdrant", allow=self.allow_private_network)
 
         self._client: NativeQdrantClient | None = None
+        self._last_alive: tuple[float, bool] | None = None
 
     def _get_client(self, force_refresh: bool = False) -> NativeQdrantClient:
         if self._client is None or force_refresh:
@@ -136,12 +137,20 @@ class QdrantClient:
                     continue
                 raise
 
-    def is_alive(self) -> bool:
-        """Check if Qdrant server is reachable and responsive."""
+    def is_alive(self, *, force_check: bool = False) -> bool:
+        """Check if Qdrant server is reachable and responsive (cached for 15s)."""
+        now = time.monotonic()
+        if not force_check and self._last_alive is not None:
+            last_time, status = self._last_alive
+            if now - last_time < 15.0:
+                return status
+
         try:
             self._execute_with_retry(lambda c: c.get_collections(), "is_alive", max_attempts=2)
+            self._last_alive = (now, True)
             return True
         except Exception:
+            self._last_alive = (now, False)
             return False
 
     def list_collections(self) -> list[str]:

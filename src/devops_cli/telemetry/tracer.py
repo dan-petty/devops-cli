@@ -33,6 +33,21 @@ class ContextPropagatingThreadPoolExecutor(ThreadPoolExecutor):
         ctx = contextvars.copy_context()
         return super().submit(ctx.run, fn, *args, **kwargs)
 
+    def map(  # type: ignore[override]
+        self,
+        fn: Callable[..., Any],
+        *iterables: Any,
+        timeout: float | None = None,
+        chunksize: int = 1,
+    ) -> Any:
+        ctx = contextvars.copy_context()
+        return super().map(
+            functools.partial(ctx.run, fn),
+            *iterables,
+            timeout=timeout,
+            chunksize=chunksize,
+        )
+
 
 def _generate_trace_id() -> str:
     return secrets.token_hex(16)
