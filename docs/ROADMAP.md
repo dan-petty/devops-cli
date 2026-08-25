@@ -110,6 +110,7 @@ High-density product roadmap and open-source integration strategy for `devops-cl
 - [ ] **TFLint Cloud Provider Linter (`tflint`)**: `devops tf lint` for deep Terraform/OpenTofu static validation against cloud provider rules.
 - [ ] **Dive Docker Layer Efficiency Analyzer (`dive`)**: `devops docker analyze-layers` for container image layer inspection and wasted space minimization.
 - [ ] **Kubeconform Fast OpenAPI Schema Validator (`kubeconform`)**: `devops k8s validate` validating manifests against OpenAPI schemas.
+- [ ] **Dynamic Cost- & Latency-Aware LLM Router (`devops_cli.ai.router`)**: Task complexity routing between local Ollama (`qwen2.5-coder`) and remote frontier models with cost, token, and latency tracking.
 - [ ] **Prometheus In-Memory Metrics Registry & Exporter Engine (`devops_cli.telemetry.metrics`)**: Dedicated metrics collector tracking command runtimes, LLM token throughput (tokens/sec), review accuracy rates, and AST cache hit ratios.
 - [ ] **AST Parsing Cache & Structural Memoization (`devops_cli.ai.analyze.cache`)**: Centralized content-hash-keyed AST cache eliminating redundant syntactic re-parsing across multi-persona review passes.
 - [ ] **Automated Workspace & Data Tier Cleanup Engine (`devops workspace clean`, `devops clean`)**: Housekeeping command pruning stale `.data/reviews/`, `.data/analysis/`, and temporary traces with configurable retention policies (`--older-than`, `--dry-run`).
@@ -117,6 +118,8 @@ High-density product roadmap and open-source integration strategy for `devops-cl
 
 ### Declarative Policy, Programmable CI & Resiliency (v0.2.3 - Scheduled)
 - [ ] **Kyverno & OPA Gatekeeper K8s Policy Validator (`kyverno-cli`, `opa`)**: `devops k8s validate-policy` for pre-deployment admission policy validation (`ClusterPolicy`, `ConstraintTemplate`) in CI and local workflows.
+- [ ] **Multi-Agent Adversarial Debate (MAD) Verification Stage**: Adversarial challenger persona eliminating hallucinated security alerts, false positives, and stylistic noise.
+- [ ] **Spec-Driven Architecture & Contract Verification (`devops ai spec`)**: Executable markdown specification contracts (`.devops/specs/*.spec.md`) verifying code against architectural invariants and API schemas.
 - [ ] **Stern Multi-Pod Live Log Streamer (`stern`)**: `devops k8s stream-logs` for regex-based live multi-container log streaming across replica sets.
 - [ ] **Helm Diff Deployment Impact Previewer (`helm-diff`)**: `devops k8s diff-helm` previewing manifest changes prior to Helm upgrades.
 - [ ] **Difftastic Structural Syntax-Aware AST Diff Provider (`difft`)**: Syntax-aware AST diffing feeding clean, whitespace-invariant diffs into LLM review stages.
@@ -130,6 +133,8 @@ High-density product roadmap and open-source integration strategy for `devops-cl
 
 ### Real-Time Agent Streaming & Diagram Generation (v0.2.4 - Scheduled)
 - [ ] **Streaming SSE / WebSocket Agent Reasoning Feed (`devops serve /stream`)**: Server-Sent Events (SSE) and WebSocket streams delivering real-time LLM token generation, multi-agent reasoning steps, and scratchpad updates to IDE extensions and web UIs.
+- [ ] **Automated Unit Test Synthesizer & Execution Verifier (`devops ai test-gen`)**: Generates and executes isolated pytest test suites for uncommitted diffs to maximize branch coverage.
+- [ ] **Prompt Mutation Testing & Benchmark Guardrails (`devops ai prompt-eval`)**: Automated evaluation framework benchmarking persona prompt variations against verified feedback datasets.
 - [ ] **Aider-Style Tree-Sitter Repository Map Generator (`devops ai repomap`)**: Compact whole-repo symbol and relationship map for global architecture context without prompt budget overflow.
 - [ ] **tfcmt Automated PR Plan Notifier (`tfcmt`)**: Post structured, collapsible OpenTofu/Terraform plan diffs directly to PRs.
 - [ ] **Architecture & Threat Modeling Diagram Synthesis (`diagrams`, `mermaid-cli`)**: `devops ai diagram [arch|threat]` generating visual architecture topology diagrams and threat flowcharts directly from AST and IaC manifests.
@@ -142,6 +147,7 @@ High-density product roadmap and open-source integration strategy for `devops-cl
 
 ### Enterprise Fleet Orchestration & Multi-Cluster Mesh (v0.3.0 - Future Vision)
 - [ ] **Multi-Cluster ArgoCD Fleet Sync & Rollouts (`argo-rollouts`)**: Advanced canary and blue-green rollout management with automated Prometheus metric-based rollback gates.
+- [ ] **Cross-Encoder Context Re-Ranker & Deep Semantic RAG**: Two-stage dense-sparse retrieval with local cross-encoder re-ranking for enterprise codebases.
 - [ ] **Falco eBPF Runtime Security & Anomaly Streamer (`falco`)**: `devops k8s security-stream` streaming real-time kernel anomaly events.
 - [ ] **Vault & Cloud KMS Enterprise Secret Broker (`hvac`, `aws-kms`, `gcp-kms`)**: Dynamic secret leases, key rotation, and envelope encryption for enterprise teams beyond OS Keyring.
 - [ ] **Trace-Driven Automated Performance Regression Detection**: Continuous performance baseline tracking comparing OTel spans across PRs to flag latency regressions before production merges.
@@ -170,6 +176,7 @@ High-density product roadmap and open-source integration strategy for `devops-cl
 | | TFLint Cloud Provider Linter | `tflint` CLI | High | Low | v0.2.2 | 🔄 Up Next |
 | | Dive Docker Layer Efficiency Analyzer | `dive` CLI | High | Low | v0.2.2 | 🔄 Up Next |
 | | Kubeconform Fast OpenAPI Schema Validator | `kubeconform` CLI | High | Low | v0.2.2 | 🔄 Up Next |
+| | Dynamic Cost- & Latency-Aware LLM Router | RouteLLM / Pydantic | High | Low | v0.2.2 | 🔄 Up Next |
 | | Prometheus In-Memory Metrics Registry & Exporter | `prometheus-client` | High | Low | v0.2.2 | 🔄 Up Next |
 | | AST Parsing Cache & Structural Memoization | `ast` / LRU Cache | High | Low | v0.2.2 | 🔄 Up Next |
 | | Automated Workspace & Data Tier Cleanup | Standard Library (`pathlib`, `shutil`) | High | Low | v0.2.2 | 🔄 Up Next |
@@ -177,9 +184,11 @@ High-density product roadmap and open-source integration strategy for `devops-cl
 | | Stern Multi-Pod Live Log Streamer | `stern` CLI | High | Low | v0.2.3 | 📋 Scheduled |
 | | Helm Diff Deployment Impact Previewer | `helm-diff` plugin | High | Low | v0.2.3 | 📋 Scheduled |
 | | Difftastic Structural Syntax-Aware AST Diff Provider | `difft` CLI | High | Low | v0.2.3 | 📋 Scheduled |
+| | Spec-Driven Architecture & Contract Verification | Markdown Specs / Pydantic | High | Low | v0.2.3 | 📋 Scheduled |
 | | OpenTelemetry Log Correlation Bridge | `opentelemetry-appender-logging` | High | Low | v0.2.3 | 📋 Scheduled |
 | | Dead Code & Unused Symbol Pruning | `vulture` / `ruff` | High | Low | v0.2.3 | 📋 Scheduled |
 | | Toolchain & Lockfile Maintenance Review Gate | `uv` / GitHub Actions | High | Low | v0.2.3 | 📋 Scheduled |
+| | Prompt Mutation Testing & Benchmark Guardrails | Pytest / Feedback Dataset | High | Low | v0.2.4 | 📋 Scheduled |
 | | tfcmt Automated PR Plan Notifier | `tfcmt` CLI | High | Low | v0.2.4 | 📋 Scheduled |
 | | Trace Waterfall Visualizer CLI (`devops telemetry profile`) | Rich / OTel Spans | Medium | Low | v0.2.4 | 📋 Scheduled |
 | | FastMCP Tool Schema Contract Regression Suite | FastMCP / Pytest | High | Low | v0.2.4 | 📋 Scheduled |
@@ -195,11 +204,14 @@ High-density product roadmap and open-source integration strategy for `devops-cl
 | | Sigstore Cosign Container Provenance | `cosign` CLI / OS Keyring | High | Medium | v0.2.2 | 🔄 Up Next |
 | | Infracost FinOps Cloud Cost Estimation | `infracost` CLI | High | Medium | v0.2.2 | 🔄 Up Next |
 | | Syft & Grype SBOM & Container Scanning | `syft`, `grype` | High | Medium | v0.2.2 | 🔄 Up Next |
+| | Multi-Agent Adversarial Debate (MAD) Verification | PydanticAI / Multi-Agent | High | Medium | v0.2.3 | 📋 Scheduled |
 | | Review Pipeline Modular Decomposition | Python Package Refactoring | High | Medium | v0.2.3 | 📋 Scheduled |
+| | Automated Unit Test Synthesizer & Execution | Pytest / AST / LLM | High | Medium | v0.2.4 | 📋 Scheduled |
 | | Async HTTP/2 Connection Pooling & Client Reuse | `httpx2.AsyncClient` | High | Medium | v0.2.4 | 📋 Scheduled |
 | | Streaming SSE / WebSocket Agent Reasoning Feed | FastAPI SSE / WebSockets | High | Medium | v0.2.4 | 📋 Scheduled |
 | | Aider-Style Tree-Sitter Repository Map Generator | `tree-sitter` / AST | High | Medium | v0.2.4 | 📋 Scheduled |
 | | Hybrid Dense-Sparse RAG Search (BM25 + Qdrant) | Qdrant / Rank-BM25 | High | Medium | v0.2.4 | 📋 Scheduled |
+| | Cross-Encoder Context Re-Ranker & Deep Semantic RAG | Cross-Encoder / Qdrant | High | Medium | v0.3.0 | 💡 Future Vision |
 | | Multi-Cluster ArgoCD Fleet Sync & Rollouts | Argo Rollouts / Prometheus | High | High | v0.3.0 | 💡 Future Vision |
 | | Falco eBPF Runtime Security & Anomaly Streamer | `falco` / eBPF | High | Medium | v0.3.0 | 💡 Future Vision |
 | **Tactical Additions** | Line-Level GitHub PR Inline Comments | PyGithub / GitHub REST API | High | High | v0.1.1 | ✅ Completed |
