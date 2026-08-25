@@ -12,11 +12,13 @@ BIN_BANDIT: str = "bandit"
 BIN_DOCKER: str = "docker"
 BIN_FIND: str = "find"
 BIN_GIT: str = "git"
+BIN_GITLEAKS: str = "gitleaks"
 BIN_KUBECTL: str = "kubectl"
 BIN_KUBELINTER: str = "kube-linter"
 BIN_KUSTOMIZE: str = "kustomize"
 BIN_PLUTO: str = "pluto"
 BIN_POPEYE: str = "popeye"
+BIN_SEMGREP: str = "semgrep"
 BIN_TERRAFORM: str = "terraform"
 BIN_TOFU: str = "tofu"
 BIN_TRIVY: str = "trivy"
@@ -163,3 +165,27 @@ def build_tf_cmd(subcommand: str, args: Sequence[str] | None = None) -> list[str
 def build_tofu_cmd(subcommand: str, args: Sequence[str] | None = None) -> list[str]:
     """Build an opentofu command."""
     return build_iac_cmd(BIN_TOFU, subcommand, args=args)
+
+
+def build_gitleaks_cmd(target_path: Path | str, no_git: bool = True) -> list[str]:
+    """Build a Gitleaks secret scanner command."""
+    cmd = [BIN_GITLEAKS, "detect", "--report-format", "json"]
+    if no_git:
+        cmd.extend(["--no-git", "--source", str(target_path)])
+    else:
+        cmd.extend(["--source", str(target_path)])
+    return cmd
+
+
+def build_semgrep_cmd(
+    target_path: Path | str,
+    config: str = "p/default",
+    exclude_paths: Sequence[str] | None = None,
+) -> list[str]:
+    """Build a Semgrep AST security and code quality scan command."""
+    cmd = [BIN_SEMGREP, "scan", "--json", "--config", config]
+    if exclude_paths:
+        for p in exclude_paths:
+            cmd.extend(["--exclude", p])
+    cmd.append(str(target_path))
+    return cmd

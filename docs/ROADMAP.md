@@ -95,11 +95,11 @@ High-density product roadmap and open-source integration strategy for `devops-cl
 - [x] **Grafana Workstation Telemetry Dashboards**: Pre-provisioned Grafana dashboards in `k8s/` monitoring workstation load, Docker containers, and AI reviewer performance in real time.
 - [x] **Jaeger Distributed Trace Visualization**: Jaeger collector and UI integration for end-to-end trace waterfalls of multi-persona agentic reasoning.
 
-### Next-Gen Agentic Architecture & Context Optimization (v0.2.1 - Strategic Investment)
-- [ ] **PydanticAI Standardized Agent Framework (`pydantic-ai`)**: Modernize multi-agent review and reasoning pipelines using PydanticAI to eliminate boilerplate tool routing, validate structured LLM responses, and simplify multi-turn handoffs.
-- [ ] **Local Context Budgeting & Token Counting (`tiktoken`)**: Client-side BPE tokenizer budgeting and diff chunking before LLM dispatch, preventing context overflows and minimizing inference latency.
-- [ ] **Semgrep Static AST Pattern Matcher (`semgrep`)**: Embed Semgrep CLI for sub-second multilingual AST pattern matching, pre-filtering static bugs and injecting deterministic findings into `devsecops` and `qa` review stages.
-- [ ] **Gitleaks Sub-Millisecond Secret Pre-Filter (`gitleaks`)**: Native pre-review secret scanner hook catching uncommitted credentials prior to diff analysis.
+### Next-Gen Agentic Architecture & Context Optimization (v0.2.1 - Completed)
+- [x] **PydanticAI Standardized Agent Framework (`pydantic-ai`)**: Modernize multi-agent review and reasoning pipelines using PydanticAI to eliminate boilerplate tool routing, validate structured LLM responses, and simplify multi-turn handoffs.
+- [x] **Local Context Budgeting & Token Counting (`tiktoken`)**: Client-side BPE tokenizer budgeting and diff chunking before LLM dispatch, preventing context overflows and minimizing inference latency.
+- [x] **Semgrep Static AST Pattern Matcher (`semgrep`)**: Embed Semgrep CLI for sub-second multilingual AST pattern matching, pre-filtering static bugs and injecting deterministic findings into `devsecops` and `qa` review stages.
+- [x] **Gitleaks Sub-Millisecond Secret Pre-Filter (`gitleaks`)**: Native pre-review secret scanner hook catching uncommitted credentials prior to diff analysis.
 
 ### Supply Chain Security & FinOps Governance (v0.2.2 - Strategic Investment)
 - [ ] **Sigstore Cosign Keyless Image Signing (`cosign`)**: Keyless container image and manifest signing (`devops docker sign|verify`) integrating with OS Keyring for supply-chain provenance.
@@ -128,16 +128,16 @@ High-density product roadmap and open-source integration strategy for `devops-cl
 | | Popeye K8s Cluster Sanitizer | Popeye CLI | High | Low | ✅ Completed (v0.1.6) |
 | | Pluto K8s Deprecated API Scanner | Fairwinds Pluto | High | Low | ✅ Completed (v0.1.6) |
 | | Reusable DevContainer Package on Release | `devcontainers/ci`, GHCR | High | Low | ✅ Completed (v0.1.9) |
-| | Local Context Budgeting & Token Counting | `tiktoken` | High | Low | 🔄 Scheduled (v0.2.1) |
-| | Gitleaks Secret Pre-Filter | `gitleaks` CLI | High | Low | 🔄 Scheduled (v0.2.1) |
+| | Local Context Budgeting & Token Counting | `tiktoken` | High | Low | ✅ Completed (v0.2.1) |
+| | Gitleaks Secret Pre-Filter | `gitleaks` CLI | High | Low | ✅ Completed (v0.2.1) |
 | **Strategic Investments** | OpenTofu Multi-Cloud IaC Modules (`tf/`) | OpenTofu / AWS / Azure / GCP | High | High | ✅ Completed (v0.1.9) |
 | | Minikube Service Auto-Config & 7-Gate CI | Minikube / GitHub Actions | High | High | ✅ Completed (v0.1.5) |
 | | DevContainer Shell Script Replacement Engine | Python Subprocess / Typer | High | Medium | ✅ Completed (v0.1.7) |
 | | Enhanced AI/LLM Scratchpad Reasoning Buffer | Pydantic / Rich | High | Medium | ✅ Completed (v0.1.7) |
 | | FastAPI REST & OpenAPI Service Engine (`devops serve`) | FastAPI / Uvicorn | High | Medium | ✅ Completed (v0.2.0) |
 | | OpenTelemetry Distributed Tracing & Metrics | OpenTelemetry SDK / Prometheus | High | Medium | ✅ Completed (v0.2.0) |
-| | PydanticAI Multi-Agent Pipeline Orchestration | `pydantic-ai`, `fastmcp` | High | Medium | 🔄 Scheduled (v0.2.1) |
-| | Semgrep AST Pattern Matcher | `semgrep` CLI | High | Medium | 🔄 Scheduled (v0.2.1) |
+| | PydanticAI Multi-Agent Pipeline Orchestration | `pydantic-ai`, `fastmcp` | High | Medium | ✅ Completed (v0.2.1) |
+| | Semgrep AST Pattern Matcher | `semgrep` CLI | High | Medium | ✅ Completed (v0.2.1) |
 | | Sigstore Cosign Container Provenance | `cosign` CLI / OS Keyring | High | Medium | 🔄 Scheduled (v0.2.2) |
 | | Infracost Cloud Cost Estimation | `infracost` CLI | High | Medium | 🔄 Scheduled (v0.2.2) |
 

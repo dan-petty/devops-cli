@@ -450,10 +450,11 @@ class OTelTelemetryClient:
                 elapsed_ms = (time.perf_counter() - start) * 1000
                 if res.status_code in (200, 202):
                     return True, f"HTTP {res.status_code} OK", elapsed_ms
-                return False, f"HTTP {res.status_code}: {res.text[:100]}", elapsed_ms
+                return False, f"HTTP {res.status_code} probe failed", elapsed_ms
         except Exception as exc:
+            logger.debug("OTel connection probe failed to %s: %s", self.endpoint, exc)
             elapsed_ms = (time.perf_counter() - start) * 1000
-            return False, str(exc), elapsed_ms
+            return False, "Connection probe failed", elapsed_ms
 
     def _get_http_client(self) -> httpx2.Client:
         """Get or initialize thread-safe pooled HTTP client."""
