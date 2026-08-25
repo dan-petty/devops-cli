@@ -286,10 +286,23 @@ class LLMClient:
         self._ollama_url_lock = threading.Lock()
 
         cache_cfg = getattr(config, "cache", None)
-        cache_enabled = cache_cfg.enabled if cache_cfg is not None else True
-        cache_dir = cache_cfg.dir if cache_cfg is not None else None
-        cache_ttl = cache_cfg.ttl_seconds if cache_cfg is not None else 86400 * 7
-        cache_max = cache_cfg.max_entries if cache_cfg is not None else 1000
+        cache_enabled = getattr(cache_cfg, "enabled", True) if cache_cfg is not None else True
+        if not isinstance(cache_enabled, bool):
+            cache_enabled = True
+        cache_dir_raw = getattr(cache_cfg, "dir", None) if cache_cfg is not None else None
+        cache_dir: Path | None = None
+        if isinstance(cache_dir_raw, Path):
+            cache_dir = cache_dir_raw
+        elif isinstance(cache_dir_raw, str):
+            cache_dir = Path(cache_dir_raw)
+        cache_ttl = (
+            getattr(cache_cfg, "ttl_seconds", 86400 * 7) if cache_cfg is not None else 86400 * 7
+        )
+        if not isinstance(cache_ttl, (int, float)):
+            cache_ttl = 86400 * 7
+        cache_max = getattr(cache_cfg, "max_entries", 1000) if cache_cfg is not None else 1000
+        if not isinstance(cache_max, int):
+            cache_max = 1000
 
         from devops_cli.ai.response_cache import get_llm_response_cache
 
@@ -327,28 +340,34 @@ class LLMClient:
     @property
     def backend_type(self) -> str:
         """Return the AI provider backend type (e.g. ollama, claude, copilot, openai)."""
-        return self._config.provider
+        p = getattr(self._config, "provider", "ollama")
+        return str(p) if isinstance(p, str) else "mock"
 
     @property
     def backend_host(self) -> str:
         """Return the endpoint host for the current AI provider."""
-        p = self._config.provider
+        p = getattr(self._config, "provider", "ollama")
+        if not isinstance(p, str):
+            p = "ollama"
         if p == "ollama":
-            urls = self._config.get_ollama_urls
+            urls = getattr(self._config, "get_ollama_urls", ["http://localhost:11434"])
+            if not isinstance(urls, (list, tuple)):
+                urls = ["http://localhost:11434"]
             hosts: list[str] = []
             for u in urls:
-                parsed = urlparse(u)
-                hosts.append(parsed.netloc or parsed.path or u)
-            return ", ".join(hosts)
-        base_url = self._config.api_base_url
-        if not base_url:
+                if isinstance(u, str):
+                    parsed = urlparse(u)
+                    hosts.append(parsed.netloc or parsed.path or u)
+            return ", ".join(hosts) or "localhost:11434"
+        base_url = getattr(self._config, "api_base_url", None)
+        if not isinstance(base_url, str) or not base_url:
             if p == "claude":
                 base_url = CONST_URL_ANTHROPIC_API_BASE
             elif p == "copilot":
                 base_url = CONST_URL_GITHUB_COPILOT_API_BASE
             elif p == "openai":
                 base_url = CONST_URL_OPENAI_API_BASE
-        if base_url:
+        if isinstance(base_url, str) and base_url:
             parsed = urlparse(base_url)
             return str(parsed.netloc or parsed.path or base_url)
         return "unknown"
@@ -730,8 +749,8 @@ class LLMClient:
 
         out_messages = self._augment_messages(messages, eff_start)
         cache_key = self._cache.generate_key(
-            provider=self._config.provider,
-            model=self._config.model,
+            provider=str(getattr(self._config, "provider", "ollama")),
+            model=str(getattr(self._config, "model", "default")),
             system=system,
             messages_or_prompt=out_messages,
             options={"enable_thinking": enable_thinking},

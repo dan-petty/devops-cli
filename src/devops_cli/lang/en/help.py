@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict
+from dataclasses import dataclass, field
 
 
-class OptionHelp(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
+@dataclass(frozen=True)
+class OptionHelp:
     repo: str = "Repository root directory (default: current directory)."
     persona: str = "Reviewer persona to activate (devsecops, architect, pm, auditor, qa)."
     all_personas: str = "Run all reviewer personas in sequence."
@@ -25,9 +24,8 @@ class OptionHelp(BaseModel):
     auto_approve: str = "Skip interactive confirmation prompts."
 
 
-class AICommandHelp(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
+@dataclass(frozen=True)
+class AICommandHelp:
     app: str = "Configure, test, chat, analyze, and review codebases (Ollama, Claude, Copilot)."
     chat: str = "Interactive multi-turn AI chat session with optional tool execution."
     config: str = "Show or update AI provider configuration (provider, model, endpoints, keys)."
@@ -42,27 +40,24 @@ class AICommandHelp(BaseModel):
     cache: str = "Manage LLM response cache, performance metrics, and warm starting points."
 
 
-class K8sCommandHelp(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
+@dataclass(frozen=True)
+class K8sCommandHelp:
     app: str = "Manage Kubernetes clusters, pods, services, and workloads."
     pods: str = "List running pods across namespaces with health metrics."
     status: str = "Cluster health and resource utilization summary."
     port_forward: str = "Forward local port to a remote Kubernetes service."
 
 
-class SSHCommandHelp(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
+@dataclass(frozen=True)
+class SSHCommandHelp:
     app: str = "Generate, rotate, audit, and register Ed25519 SSH keypairs."
     generate: str = "Generate a new Ed25519 SSH keypair with 90-day expiry naming."
     status: str = "Show currently active SSH key and days until expiration."
     audit: str = "Audit SSH key configuration and recommend rotation if near expiry."
 
 
-class BranchesCommandHelp(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
+@dataclass(frozen=True)
+class BranchesCommandHelp:
     app: str = "Branch management and Jira workflows."
     sync: str = "Fetch and pull tracking branches across all workspace repositories."
     jira: str = "Create a feature branch for a Jira ticket: feature/PROJ-123[-slug]."
@@ -70,9 +65,8 @@ class BranchesCommandHelp(BaseModel):
     clean: str = "Delete local branches that have been merged into the default branch."
 
 
-class WorkspaceCommandHelp(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
+@dataclass(frozen=True)
+class WorkspaceCommandHelp:
     app: str = "Manage multi-root VS Code workspace files (.code-workspace)."
     sync: str = "Synchronize VS Code workspace file with all cloned repositories."
     add: str = "Add a repository folder into the VS Code workspace file."
@@ -81,9 +75,8 @@ class WorkspaceCommandHelp(BaseModel):
     open_ws: str = "Open the workspace file in VS Code."
 
 
-class ReposCommandHelp(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
+@dataclass(frozen=True)
+class ReposCommandHelp:
     app: str = "Clone, synchronize, and manage organization repositories."
     clone_org: str = "Clone all repositories belonging to a GitHub organization."
     clone: str = "Clone a specific GitHub repository."
@@ -91,9 +84,8 @@ class ReposCommandHelp(BaseModel):
     sync: str = "Synchronize all cloned repositories with their remotes."
 
 
-class UVCommandHelp(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
+@dataclass(frozen=True)
+class UVCommandHelp:
     app: str = "uv dependency management proxies."
     sync: str = "Sync project dependencies into the virtual environment."
     lock: str = "Generate or update uv.lock file."
@@ -103,9 +95,8 @@ class UVCommandHelp(BaseModel):
     run: str = "Run an arbitrary command using uv run in the virtual environment."
 
 
-class TfCommandHelp(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
+@dataclass(frozen=True)
+class TfCommandHelp:
     app: str = "OpenTofu and Terraform Infrastructure-as-Code operations."
     init: str = "Initialize OpenTofu/Terraform working directory and download providers."
     plan: str = "Generate and show an execution plan for infrastructure changes."
@@ -116,18 +107,16 @@ class TfCommandHelp(BaseModel):
     fmt: str = "Format OpenTofu/Terraform configuration files to standard format."
 
 
-class KustomizeCommandHelp(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
+@dataclass(frozen=True)
+class KustomizeCommandHelp:
     app: str = "Kustomize build and apply operations."
     build: str = "Build kustomize overlays (delegates to kustomize build)."
     diff: str = "Show a diff of pending changes (delegates to kubectl diff -k)."
     apply: str = "Apply a kustomization (delegates to kubectl apply -k)."
 
 
-class ToolDocHelp(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
+@dataclass(frozen=True)
+class ToolDocHelp:
     list_files: str = "List non-hidden files in the specified directory up to 2 levels deep."
     read_file: str = "Read contents of a text file up to max_bytes."
     git_status: str = "Return current git status summary."
@@ -138,20 +127,19 @@ class ToolDocHelp(BaseModel):
     scan_trivy: str = "Run Aqua Trivy vulnerability, secret, misconfiguration, and IaC scanner."
 
 
-class HelpCatalog(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
-    options: OptionHelp = OptionHelp()
-    ai: AICommandHelp = AICommandHelp()
-    k8s: K8sCommandHelp = K8sCommandHelp()
-    ssh: SSHCommandHelp = SSHCommandHelp()
-    branches: BranchesCommandHelp = BranchesCommandHelp()
-    workspace: WorkspaceCommandHelp = WorkspaceCommandHelp()
-    repos: ReposCommandHelp = ReposCommandHelp()
-    uv: UVCommandHelp = UVCommandHelp()
-    tf: TfCommandHelp = TfCommandHelp()
-    kustomize: KustomizeCommandHelp = KustomizeCommandHelp()
-    tools: ToolDocHelp = ToolDocHelp()
+@dataclass(frozen=True)
+class HelpCatalog:
+    options: OptionHelp = field(default_factory=OptionHelp)
+    ai: AICommandHelp = field(default_factory=AICommandHelp)
+    k8s: K8sCommandHelp = field(default_factory=K8sCommandHelp)
+    ssh: SSHCommandHelp = field(default_factory=SSHCommandHelp)
+    branches: BranchesCommandHelp = field(default_factory=BranchesCommandHelp)
+    workspace: WorkspaceCommandHelp = field(default_factory=WorkspaceCommandHelp)
+    repos: ReposCommandHelp = field(default_factory=ReposCommandHelp)
+    uv: UVCommandHelp = field(default_factory=UVCommandHelp)
+    tf: TfCommandHelp = field(default_factory=TfCommandHelp)
+    kustomize: KustomizeCommandHelp = field(default_factory=KustomizeCommandHelp)
+    tools: ToolDocHelp = field(default_factory=ToolDocHelp)
 
 
 HELP = HelpCatalog()

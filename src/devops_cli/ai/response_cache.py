@@ -153,11 +153,14 @@ class LLMResponseCache:
     ) -> str:
         """Generate a deterministic SHA-256 cache key for an LLM request."""
         hasher = hashlib.sha256(usedforsecurity=False)
-        hasher.update(provider.strip().lower().encode("utf-8"))
+        p_str = str(provider) if not isinstance(provider, str) else provider
+        m_str = str(model) if not isinstance(model, str) else model
+        s_str = str(system) if not isinstance(system, str) else system
+        hasher.update(p_str.strip().lower().encode("utf-8"))
         hasher.update(b"|")
-        hasher.update(model.strip().lower().encode("utf-8"))
+        hasher.update(m_str.strip().lower().encode("utf-8"))
         hasher.update(b"|")
-        hasher.update(system.strip().encode("utf-8"))
+        hasher.update(s_str.strip().encode("utf-8"))
         hasher.update(b"|")
 
         if isinstance(messages_or_prompt, str):

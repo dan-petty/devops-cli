@@ -11,11 +11,12 @@ from typing import Any
 import typer
 
 from devops_cli.config.constants import CONST_HELP_OPTION_NAMES
-from devops_cli.telemetry import record_metric, trace_span
 
 
 def _record_cli_success(span_h: Any, cmd_name: str, dur: float) -> None:
     """Record telemetry attributes, events, and metrics for successful CLI command execution."""
+    from devops_cli.telemetry import record_metric
+
     span_h.set_attribute("cli.duration_seconds", dur)
     span_h.set_attribute("cli.status", "ok")
     span_h.add_event(
@@ -39,6 +40,8 @@ def _record_cli_failure(span_h: Any, cmd_name: str, dur: float, exc: Exception) 
     span_h.set_attribute("cli.status", status_str)
     if exit_code is not None:
         span_h.set_attribute("cli.exit_code", exit_code)
+
+    from devops_cli.telemetry import record_metric
 
     if is_clean_exit:
         span_h.add_event(
@@ -72,6 +75,8 @@ def _execute_traced_cli_command(
     cmd_name: str,
 ) -> Any:
     """Execute CLI subcommand wrapped in OpenTelemetry span with telemetry recording."""
+    from devops_cli.telemetry import trace_span
+
     span_name = f"cli.{cmd_name}"
     t0 = time.perf_counter()
     kwargs_summary = ", ".join(f_kwargs.keys()) if f_kwargs else ""

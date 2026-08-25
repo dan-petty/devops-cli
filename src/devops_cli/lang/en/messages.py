@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict
+from dataclasses import dataclass, field
 
 
-class PersonaTitles(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
+@dataclass(frozen=True)
+class PersonaTitles:
     devsecops: str = "Principal DevSecOps Engineer"
     architect: str = "Enterprise Infrastructure Architect"
     pm: str = "Enterprise Project Manager"
@@ -15,9 +14,8 @@ class PersonaTitles(BaseModel):
     qa: str = "Senior Test Engineer"
 
 
-class ReviewMessages(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
+@dataclass(frozen=True)
+class ReviewMessages:
     spans_pages: str = "Content spans {count} pages to ensure full coverage."
     generating_metadata: str = "Generating segment metadata..."
     step1_metadata: str = "Step 1/4: Analyzing metadata across {count} file(s)..."
@@ -57,9 +55,8 @@ class ReviewMessages(BaseModel):
     no_saved_sessions: str = "No saved review sessions found."
 
 
-class AIMessages(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
+@dataclass(frozen=True)
+class AIMessages:
     provider_model_info: str = "Provider: {provider}  Model: {model}"
     test_success: str = "✓ {reply}"
     test_failed: str = "✗ Failed: {exc}"
@@ -70,9 +67,8 @@ class AIMessages(BaseModel):
     you_prompt: str = "You: "
 
 
-class ConfigMessages(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
+@dataclass(frozen=True)
+class ConfigMessages:
     header: str = "devops-cli configuration"
     key_col: str = "Key"
     val_col: str = "Value"
@@ -81,9 +77,8 @@ class ConfigMessages(BaseModel):
     set_secret_success: str = "✓ Set {key} in OS keyring"
 
 
-class InstallMessages(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
+@dataclass(frozen=True)
+class InstallMessages:
     checking_tools: str = "Checking DevOps toolchain versions..."
     installing_tool: str = "Installing {name} ({version})..."
     tool_installed: str = "✓ {name} {version} installed to {path}"
@@ -91,9 +86,8 @@ class InstallMessages(BaseModel):
     download_failed: str = "Error downloading {name} from {url}: {exc}"
 
 
-class GeneralMessages(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
+@dataclass(frozen=True)
+class GeneralMessages:
     goodbye: str = "Goodbye."
     llm_unavailable_template_fallback: str = "LLM unavailable ({exc}), falling back to template."
     llm_failed_template_fallback: str = "LLM failed ({exc}), using template."
@@ -116,18 +110,16 @@ class GeneralMessages(BaseModel):
     )
 
 
-class BranchMessages(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
+@dataclass(frozen=True)
+class BranchMessages:
     invalid_ticket_id: str = "Invalid ticket ID '{ticket_id}'. Expected format: PROJ-123"
     not_a_git_repo: str = "Not a git repository: {repo_path}"
     created_branch: str = "Created and checked out: {branch_name}"
     no_merged_branches: str = "No merged branches to clean."
 
 
-class WorkspaceMessages(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
+@dataclass(frozen=True)
+class WorkspaceMessages:
     generated_workspace: str = "✓ Generated multi-root workspace file at {path}"
     synced_repos: str = "✓ Synced workspace with {count} repo(s)"
     no_repos_found: str = "No cloned repos found under {base_dir}."
@@ -136,9 +128,8 @@ class WorkspaceMessages(BaseModel):
     generated_with_count: str = "Generated {ws_file} with {count} folders."
 
 
-class RepoMessages(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
+@dataclass(frozen=True)
+class RepoMessages:
     no_org_configured: str = (
         "No GitHub organisation configured. Set github.default_org or pass an org name."
     )
@@ -154,9 +145,8 @@ class RepoMessages(BaseModel):
     done: str = "Done."
 
 
-class K8sMessages(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
+@dataclass(frozen=True)
+class K8sMessages:
     current_context: str = "Current Kubernetes context: [bold cyan]{context}[/bold cyan]"
     switched_context: str = "✓ Switched to Kubernetes context: [bold green]{context}[/bold green]"
     no_contexts_found: str = "No Kubernetes contexts found in Kubeconfig."
@@ -178,9 +168,8 @@ class K8sMessages(BaseModel):
     generating_homelab_tls: str = "[bold]Generating Homelab TLS certificate bundle...[/bold]"
 
 
-class AnalyzeMessages(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
+@dataclass(frozen=True)
+class AnalyzeMessages:
     app_help: str = (
         "Analyze codebases and create/update structured metadata files under .data/analysis/."
     )
@@ -211,9 +200,8 @@ class AnalyzeMessages(BaseModel):
     enhanced_enabled: str = "[green]Enabled (pseudocode, complexity, last_updated)[/green]"
 
 
-class DocsMessages(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
+@dataclass(frozen=True)
+class DocsMessages:
     generating_docs: str = "Generating CLI and architecture documentation in {output_dir}..."
     generated_file: str = "✓ Generated: {path}"
     docs_up_to_date: str = "✓ All documentation files are up to date."
@@ -230,9 +218,8 @@ class DocsMessages(BaseModel):
     )
 
 
-class ReleaseMessages(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
+@dataclass(frozen=True)
+class ReleaseMessages:
     status_header: str = "DevOps CLI Release Status"
     current_version: str = "Current Version"
     latest_tag: str = "Latest Git Tag"
@@ -268,9 +255,8 @@ class ReleaseMessages(BaseModel):
     )
 
 
-class TfMessages(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
+@dataclass(frozen=True)
+class TfMessages:
     init_header: str = "Initializing OpenTofu in [cyan]{path}[/cyan]..."
     init_success: str = "✓ OpenTofu initialization successful."
     plan_header: str = "Running OpenTofu plan for [cyan]{path}[/cyan]..."
@@ -295,9 +281,8 @@ class TfMessages(BaseModel):
     deploy_cloud_success: str = "✓ {provider} cloud infrastructure deployed successfully."
 
 
-class RemoteCIMessages(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
+@dataclass(frozen=True)
+class RemoteCIMessages:
     no_runs_found: str = "No GitHub Actions workflow runs found."
     no_checks_found: str = "No CI checks found for PR #{number}."
     fetching_runs: str = "Fetching remote CI workflow runs..."
@@ -307,9 +292,8 @@ class RemoteCIMessages(BaseModel):
     ci_failed: str = "✗ Remote CI checks failed or contains errors."
 
 
-class PRMessages(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
+@dataclass(frozen=True)
+class PRMessages:
     no_prs_found: str = "No pull requests found matching criteria."
     pr_created: str = "✓ Pull request created: #{number} ({url})"
     pr_updated: str = "✓ Pull request #{number} updated: {url}"
@@ -323,17 +307,15 @@ class PRMessages(BaseModel):
     )
 
 
-class UVMessages(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
+@dataclass(frozen=True)
+class UVMessages:
     no_version_provided: str = "No Python version provided and .python-version is missing."
     invalid_version_format: str = "Invalid Python version format: {version}"
     missing_command: str = "Missing command. Example: devops uv run -- pytest -q"
 
 
-class DryRunMessages(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
+@dataclass(frozen=True)
+class DryRunMessages:
     command_response_header: str = "[yellow][dry-run][/yellow] Command response:"
     would_run_command: str = "[yellow][dry-run][/yellow] Would run command: [cyan]{command}[/cyan]"
     would_run_delegated: str = (
@@ -342,36 +324,31 @@ class DryRunMessages(BaseModel):
     skipped_pr_comment: str = "\n[dry-run] Skipped posting comment to PR #{number}"
 
 
-class TelemetryMessages(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
+@dataclass(frozen=True)
+class TelemetryMessages:
     port_forward_tip: str = (
         "[dim]Port-forward if running in cluster: devops k8s port-forward otel[/dim]"
     )
 
 
-class ScanMessages(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
+@dataclass(frozen=True)
+class ScanMessages:
     no_flaws_found: str = "No security vulnerabilities, secrets, or flaws found."
 
 
-class RAGMessages(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
+@dataclass(frozen=True)
+class RAGMessages:
     operation_cancelled: str = "[dim]Operation cancelled.[/dim]"
     reset_cache_success: str = "Reset local indexing cache"
 
 
-class TLSMessages(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
+@dataclass(frozen=True)
+class TLSMessages:
     generating_bundle: str = "[bold]Generating homelab TLS bundle...[/bold]"
 
 
-class SSHMessages(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
+@dataclass(frozen=True)
+class SSHMessages:
     no_managed_keys: str = "No managed SSH keys found. Run 'devops ssh generate' first."
     no_managed_keys_pattern: str = "No managed SSH keys found (expected: id_ed25519-YYYYMMMDD)."
     registered_and_configured: str = "Registered new key and updated git signing config."
@@ -384,18 +361,16 @@ class SSHMessages(BaseModel):
     register_tip: str = "\nRun [bold]devops ssh register[/bold] to add it to GitHub."
 
 
-class PrometheusMessages(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
+@dataclass(frozen=True)
+class PrometheusMessages:
     url_not_configured: str = (
         "Prometheus URL not configured. Run: devops config set prometheus.url <url>"
     )
     no_results: str = "No results."
 
 
-class ToolMessages(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
+@dataclass(frozen=True)
+class ToolMessages:
     working_tree_clean: str = "Working tree clean."
     no_unstaged_changes: str = "No unstaged changes."
     no_pods_in_namespace: str = "No pods found in namespace {namespace}."
@@ -403,35 +378,34 @@ class ToolMessages(BaseModel):
     no_trivy_flaws: str = "No vulnerabilities, secrets, or flaws found by Trivy."
 
 
-class LanguageCatalog(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
-    persona_titles: PersonaTitles = PersonaTitles()
-    messages: GeneralMessages = GeneralMessages()
-    review: ReviewMessages = ReviewMessages()
-    ai: AIMessages = AIMessages()
-    config: ConfigMessages = ConfigMessages()
-    install: InstallMessages = InstallMessages()
-    branches: BranchMessages = BranchMessages()
-    workspace: WorkspaceMessages = WorkspaceMessages()
-    repos: RepoMessages = RepoMessages()
-    k8s: K8sMessages = K8sMessages()
-    analyze: AnalyzeMessages = AnalyzeMessages()
-    docs: DocsMessages = DocsMessages()
-    release: ReleaseMessages = ReleaseMessages()
-    tf: TfMessages = TfMessages()
-    tofu: TfMessages = TfMessages()
-    remote_ci: RemoteCIMessages = RemoteCIMessages()
-    pr: PRMessages = PRMessages()
-    uv: UVMessages = UVMessages()
-    dry_run: DryRunMessages = DryRunMessages()
-    telemetry: TelemetryMessages = TelemetryMessages()
-    scan: ScanMessages = ScanMessages()
-    rag: RAGMessages = RAGMessages()
-    tls: TLSMessages = TLSMessages()
-    ssh: SSHMessages = SSHMessages()
-    prometheus: PrometheusMessages = PrometheusMessages()
-    tools: ToolMessages = ToolMessages()
+@dataclass(frozen=True)
+class LanguageCatalog:
+    persona_titles: PersonaTitles = field(default_factory=PersonaTitles)
+    messages: GeneralMessages = field(default_factory=GeneralMessages)
+    review: ReviewMessages = field(default_factory=ReviewMessages)
+    ai: AIMessages = field(default_factory=AIMessages)
+    config: ConfigMessages = field(default_factory=ConfigMessages)
+    install: InstallMessages = field(default_factory=InstallMessages)
+    branches: BranchMessages = field(default_factory=BranchMessages)
+    workspace: WorkspaceMessages = field(default_factory=WorkspaceMessages)
+    repos: RepoMessages = field(default_factory=RepoMessages)
+    k8s: K8sMessages = field(default_factory=K8sMessages)
+    analyze: AnalyzeMessages = field(default_factory=AnalyzeMessages)
+    docs: DocsMessages = field(default_factory=DocsMessages)
+    release: ReleaseMessages = field(default_factory=ReleaseMessages)
+    tf: TfMessages = field(default_factory=TfMessages)
+    tofu: TfMessages = field(default_factory=TfMessages)
+    remote_ci: RemoteCIMessages = field(default_factory=RemoteCIMessages)
+    pr: PRMessages = field(default_factory=PRMessages)
+    uv: UVMessages = field(default_factory=UVMessages)
+    dry_run: DryRunMessages = field(default_factory=DryRunMessages)
+    telemetry: TelemetryMessages = field(default_factory=TelemetryMessages)
+    scan: ScanMessages = field(default_factory=ScanMessages)
+    rag: RAGMessages = field(default_factory=RAGMessages)
+    tls: TLSMessages = field(default_factory=TLSMessages)
+    ssh: SSHMessages = field(default_factory=SSHMessages)
+    prometheus: PrometheusMessages = field(default_factory=PrometheusMessages)
+    tools: ToolMessages = field(default_factory=ToolMessages)
 
 
 MESSAGES = LanguageCatalog()

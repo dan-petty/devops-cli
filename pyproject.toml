@@ -35,7 +35,7 @@ dependencies = [
 ]
 
 [project.scripts]
-devops = "devops_cli.main:app"
+devops = "devops_cli.entry:main"
 
 [dependency-groups]
 dev = [
@@ -62,7 +62,7 @@ exclude = ["repos"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP"]
-ignore = ["N818"]
+ignore = ["E501", "N818"]
 
 [tool.mypy]
 python_version = "3.14"

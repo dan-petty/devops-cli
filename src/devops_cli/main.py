@@ -12,8 +12,6 @@ import typer
 from devops_cli import __version__
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import is_dry_run, set_dry_run
-from devops_cli.output import get_console, print_dry_run_command, print_muted
-from devops_cli.telemetry import record_metric, trace_span
 
 _timing: dict[str, float] = {}
 
@@ -21,6 +19,8 @@ _timing: dict[str, float] = {}
 def _print_elapsed() -> None:
     if "start" in _timing:
         elapsed = time.monotonic() - _timing["start"]
+        from devops_cli.output import print_muted
+
         print_muted(f"Elapsed: {elapsed:.2f}s", to_stderr=True)
 
 
@@ -84,6 +84,8 @@ app = new_typer(
 
 
 def _delegate(module_path: str, command_name: str, args: list[str]) -> None:
+    from devops_cli.telemetry import record_metric, trace_span
+
     module = import_module(module_path)
     module_app = module.app
     command = typer.main.get_command(module_app)
@@ -169,6 +171,8 @@ def _register_command_proxy(name: str, module_path: str, help_text: str) -> None
     def _proxy(ctx: typer.Context) -> None:
         if is_dry_run():
             args = ["devops", name, *list(ctx.args)]
+            from devops_cli.output import print_dry_run_command
+
             print_dry_run_command(args, delegated=True)
             return
         _delegate(module_path, name, list(ctx.args))
@@ -180,6 +184,8 @@ for _name, (_module_path, _help) in _COMMAND_SPECS.items():
 
 def _version_callback(value: bool) -> None:
     if value:
+        from devops_cli.output import get_console
+
         get_console().print(f"devops-cli [bold green]{__version__}[/bold green]")
         raise typer.Exit()
 
@@ -208,3 +214,22 @@ def main(
     _timing["start"] = time.monotonic()
     set_dry_run(dry_run)
     ctx.obj = {"dry_run": dry_run}
+
+
+def _show_fast_version() -> None:
+    from devops_cli.help import show_version
+
+    show_version()
+
+
+def _show_fast_help() -> None:
+    from devops_cli.help import show_help
+
+    show_help([])
+
+
+def main_entry() -> None:
+    """Fast CLI entrypoint dispatcher."""
+    from devops_cli.entry import main
+
+    main()

@@ -6,12 +6,11 @@ import fnmatch
 import json
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 
 from devops_cli.ai.analyze.cache import _render_analysis_summary, save_analysis_metadata
-from devops_cli.ai.analyze.outlines import analyze_single_file
 from devops_cli.ai.analyze.scanner import detect_language, sanitize_reference
 from devops_cli.ai.client import LLMClient
 from devops_cli.config.constants import (
@@ -23,15 +22,28 @@ from devops_cli.core.repo import find_repo_root, find_top_level_repo_root, list_
 from devops_cli.dry_run import is_dry_run
 from devops_cli.lang import MESSAGES
 from devops_cli.models.ai import AnalysisMetadata, FileAnalysisMeta
-from devops_cli.output import (
-    print_error,
-    print_info,
-)
+from devops_cli.output.console import print_error, print_info
 
 app = new_typer(
     help=MESSAGES.analyze.app_help,
     no_args_is_help=True,
 )
+
+
+def __getattr__(name: str) -> Any:
+    if name in {"detect_language", "sanitize_reference", "scan_directory"}:
+        import devops_cli.ai.analyze.scanner as sc
+
+        return getattr(sc, name)
+    if name == "analyze_single_file":
+        from devops_cli.ai.analyze.outlines import analyze_single_file
+
+        return analyze_single_file
+    if name in {"load_cached_analysis", "save_analysis_metadata"}:
+        import devops_cli.ai.analyze.cache as ca
+
+        return getattr(ca, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 # =============================================================================
@@ -92,6 +104,8 @@ def _process_single_repo_file_meta(
                 return reused
 
         content = p.read_text(encoding="utf-8", errors="replace")
+        from devops_cli.ai.analyze.outlines import analyze_single_file
+
         return analyze_single_file(
             rel_str,
             content,
@@ -125,6 +139,8 @@ def _process_single_branch_file_meta(
                 return reused
 
         content = file_path.read_text(encoding="utf-8", errors="replace")
+        from devops_cli.ai.analyze.outlines import analyze_single_file
+
         return analyze_single_file(
             rel_path,
             content,
@@ -453,6 +469,8 @@ def analyze_pr(
         if file_path.exists() and status != "removed":
             try:
                 content = file_path.read_text(encoding="utf-8", errors="replace")
+                from devops_cli.ai.analyze.outlines import analyze_single_file
+
                 meta = analyze_single_file(
                     path,
                     content,

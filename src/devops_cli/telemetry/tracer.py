@@ -15,9 +15,10 @@ import time
 from collections.abc import Callable, Generator
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextvars import ContextVar
-from typing import Any, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 
-import httpx2
+if TYPE_CHECKING:
+    import httpx2
 
 from devops_cli.config.defaults import DEFAULT_OTEL_HTTP_TIMEOUT_SECONDS
 
@@ -445,6 +446,8 @@ class OTelTelemetryClient:
                 resource_attributes=ping_res_attrs,
                 scope_name="devops-cli.telemetry.ping",
             )
+            import httpx2
+
             with httpx2.Client(timeout=timeout) as client:
                 res = client.post(url, json=payload)
                 elapsed_ms = (time.perf_counter() - start) * 1000
@@ -460,6 +463,8 @@ class OTelTelemetryClient:
         """Get or initialize thread-safe pooled HTTP client."""
         with self._client_lock:
             if self._http_client is None or getattr(self._http_client, "is_closed", False):
+                import httpx2
+
                 self._http_client = httpx2.Client(timeout=DEFAULT_OTEL_HTTP_TIMEOUT_SECONDS)
             return self._http_client
 

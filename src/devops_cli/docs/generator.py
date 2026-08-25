@@ -688,6 +688,6 @@ class DocGenerator:
         return {
             "version": "1.0",
             "groups": [asdict(g) for g in groups],
-            "env_vars": [e.model_dump() for e in env_specs],
+            "env_vars": [asdict(e) for e in env_specs],
             "mcp_tools": [asdict(t) for t in mcp_tools],
         }

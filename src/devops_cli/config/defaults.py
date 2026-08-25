@@ -12,7 +12,6 @@ from devops_cli.config.constants import (
     CONST_TLS_DIR_NAME,
     CONST_URL_OLLAMA_LOCALHOST,
 )
-from devops_cli.config.metadata import get_project_python_version
 
 # ── General Defaults ──────────────────────────────────────────────────────────
 DEFAULT_LOCAL_BIN_DIR = Path.home() / ".local" / "bin"
@@ -28,7 +27,7 @@ DEFAULT_AI_MAX_RETRIES: int = 2
 DEFAULT_LLM_CACHE_ENABLED: bool = True
 DEFAULT_LLM_CACHE_TTL_SECONDS: int = 86400 * 7  # 7 days
 DEFAULT_LLM_CACHE_MAX_ENTRIES: int = 1000
-DEFAULT_PYTHON_VERSION = get_project_python_version()
+DEFAULT_PYTHON_VERSION: str = "3.14"
 DEFAULT_BUNDLE_MODELS: tuple[str, ...] = ("qwen2.5-coder:7b", "llama3.1:8b")
 DEFAULT_PR_STATE = "open"
 DEFAULT_MAX_CONTEXT_TOKENS: int = 16384

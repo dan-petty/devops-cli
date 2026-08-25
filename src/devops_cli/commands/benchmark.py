@@ -13,10 +13,8 @@ from devops_cli.config.defaults import (
     DEFAULT_BENCHMARK_SAMPLES,
     DEFAULT_BENCHMARK_TYPE,
 )
-from devops_cli.config.settings import load_settings
 from devops_cli.core.cli import new_typer
 from devops_cli.lang import ERRORS, HELP
-from devops_cli.output import print_error, print_success, write_text_file
 
 app = new_typer(
     help=HELP.ai.benchmark,
@@ -134,6 +132,9 @@ def run_benchmark(
 
         render_explanation("benchmark")
         return
+
+    from devops_cli.config.settings import load_settings
+    from devops_cli.output import print_error, print_success, write_text_file
 
     settings = load_settings()
 

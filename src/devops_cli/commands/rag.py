@@ -12,17 +12,12 @@ from rich.rule import Rule
 from rich.syntax import Syntax
 from rich.table import Table
 
-from devops_cli.ai.rag.embeddings import EmbeddingsEngine
-from devops_cli.ai.rag.indexer import WorkspaceIndexer
-from devops_cli.ai.rag.qdrant import QdrantClient
-from devops_cli.ai.rag.retriever import SemanticRetriever
 from devops_cli.config.defaults import (
     DEFAULT_RAG_COLLECTION,
     DEFAULT_RAG_DOCS_COLLECTION,
     DEFAULT_RAG_SCORE_THRESHOLD,
     DEFAULT_RAG_TOP_K,
 )
-from devops_cli.config.settings import get_ai_api_key, load_settings
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import is_dry_run
 from devops_cli.lang import MESSAGES
@@ -68,8 +63,18 @@ def rag_main(
 # =============================================================================
 
 
-def _get_rag_components() -> tuple[QdrantClient, EmbeddingsEngine, str, str]:
+def load_settings(*args: Any, **kwargs: Any) -> Any:
+    from devops_cli.config.settings import load_settings as fn
+
+    return fn(*args, **kwargs)
+
+
+def _get_rag_components() -> tuple[Any, Any, str, str]:
     """Resolve configured Qdrant client, Embeddings engine, and collection names."""
+    from devops_cli.ai.rag.embeddings import EmbeddingsEngine
+    from devops_cli.ai.rag.qdrant import QdrantClient
+    from devops_cli.config.settings import get_ai_api_key, load_settings
+
     settings = load_settings()
     qdrant_url = settings.qdrant.url or "http://localhost:6333"
     prefix = settings.qdrant.collection_prefix or "devops"
@@ -166,6 +171,8 @@ def index_cmd(
             prefix=False,
         )
         raise typer.Exit(1)
+
+    from devops_cli.ai.rag.indexer import WorkspaceIndexer
 
     indexer = WorkspaceIndexer(
         qdrant=qdrant,
@@ -269,6 +276,8 @@ def index_kb_cmd(
             prefix=False,
         )
         raise typer.Exit(1)
+
+    from devops_cli.ai.rag.indexer import WorkspaceIndexer
 
     indexer = WorkspaceIndexer(
         qdrant=qdrant,
@@ -382,6 +391,8 @@ def search(
     if not qdrant.is_alive():
         print_error(f"Cannot connect to Qdrant vector store at {qdrant.base_url}", prefix=False)
         raise typer.Exit(1)
+
+    from devops_cli.ai.rag.retriever import SemanticRetriever
 
     retriever = SemanticRetriever(
         qdrant=qdrant,

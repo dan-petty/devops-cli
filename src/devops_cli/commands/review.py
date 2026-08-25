@@ -4,92 +4,17 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 from rich.rule import Rule
 from rich.table import Table
 
 from devops_cli.ai.personas import Persona
-from devops_cli.ai.review.chunker import (
-    _diff_pages,
-    _extract_code_lines,
-    _extract_segment_filenames,
-    _find_repo_files,
-    _is_generated_diff_block,
-    _paginate_file_diff_block,
-    _render_source_block,
-    _split_diff_into_file_blocks,
-    _split_source_file_blocks,
-    _split_text_lines,
-)
-from devops_cli.ai.review.exporter import export_invalidated_feedback
-from devops_cli.ai.review.patching import stage_finding_patch
-from devops_cli.ai.review.runner import (
-    ReviewClients,
-    _build_path_prompt,
-    _build_recompose_prompt,
-    _build_segment_review_prompt,
-    _collect_file_blocks,
-    _collect_files,
-    _debug_block,
-    _detect_base_branch,
-    _execute_review_workflow,
-    _fallback_join,
-    _find_session_dir,
-    _get_reviews_base_dir,
-    _git_repo_root,
-    _is_allowed_review_boundary,
-    _is_git_ignored,
-    _llm_request_preview,
-    _load_agents_md,
-    _make_review_clients,
-    _persona_format_section,
-    _persona_system_prompt,
-    _personas_to_run,
-    _prepare_branch_content,
-    _prepare_path_content,
-    _prepare_pr_content,
-    _print_analysis_metadata,
-    _print_review,
-    _resolve_review_clients,
-    _review_session_dir,
-    _review_to_markdown,
-    _run_persona_loop,
-    _run_review,
-    _save_findings_json,
-    _save_persona_review,
-    _save_segments,
-    _write_summary,
-)
-from devops_cli.ai.review.sanitization import (
-    _build_prompt,
-    _mask_secrets_in_content,
-    _sanitize_filename,
-    _sanitize_prompt_boundary_tags,
-    _truncate_for_prompt,
-    _unique_preserve_order,
-)
-from devops_cli.ai.review.verification import (
-    _build_validation_prompt,
-    _extract_location_context,
-    _find_related_file_metas,
-    _match_dep_to_filepath,
-    _merge_segment_results,
-    _reconcile_verified,
-    _validate_segment_findings,
-)
-from devops_cli.ai.review_schema import (
-    Finding,
-    ReviewResult,
-    ReviewSessionPayload,
-    SavedFinding,
-)
 from devops_cli.config.constants import (
     CONST_DATA_DIR,
     CONST_REVIEWS_DATA_DIR,
 )
-from devops_cli.config.settings import load_settings
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import is_dry_run, set_dry_run
 from devops_cli.lang import MESSAGES
@@ -104,77 +29,183 @@ from devops_cli.output import (
 )
 
 __all__ = [
-    "app",
-    "ReviewClients",
-    "Finding",
-    "ReviewResult",
-    "ReviewSessionPayload",
-    "SavedFinding",
     "CONST_DATA_DIR",
     "CONST_REVIEWS_DATA_DIR",
-    "_diff_pages",
-    "_extract_code_lines",
-    "_extract_segment_filenames",
-    "_find_repo_files",
-    "_is_generated_diff_block",
-    "_paginate_file_diff_block",
-    "_render_source_block",
-    "_split_diff_into_file_blocks",
-    "_split_source_file_blocks",
-    "_split_text_lines",
+    "app",
     "export_invalidated_feedback",
     "stage_finding_patch",
-    "_build_path_prompt",
-    "_build_recompose_prompt",
-    "_build_segment_review_prompt",
-    "_collect_file_blocks",
-    "_collect_files",
-    "_debug_block",
-    "_detect_base_branch",
-    "_execute_review_workflow",
-    "_fallback_join",
-    "_find_session_dir",
-    "_get_reviews_base_dir",
-    "_git_repo_root",
-    "_is_allowed_review_boundary",
-    "_is_git_ignored",
-    "_llm_request_preview",
-    "_load_agents_md",
-    "_make_review_clients",
-    "_persona_format_section",
-    "_persona_system_prompt",
-    "_personas_to_run",
-    "_prepare_branch_content",
-    "_prepare_path_content",
-    "_prepare_pr_content",
-    "_print_analysis_metadata",
-    "_print_review",
-    "_resolve_review_clients",
-    "_review_session_dir",
-    "_review_to_markdown",
-    "_run_persona_loop",
-    "_run_review",
-    "_save_findings_json",
-    "_save_persona_review",
-    "_save_segments",
-    "_write_summary",
-    "_build_prompt",
-    "_mask_secrets_in_content",
-    "_sanitize_filename",
-    "_sanitize_prompt_boundary_tags",
-    "_truncate_for_prompt",
-    "_unique_preserve_order",
-    "_build_validation_prompt",
-    "_extract_location_context",
-    "_find_related_file_metas",
-    "_match_dep_to_filepath",
-    "_merge_segment_results",
-    "_reconcile_verified",
-    "_validate_segment_findings",
-    "load_settings",
-    "is_dry_run",
-    "set_dry_run",
 ]
+
+
+def __getattr__(name: str) -> Any:
+    if name in {
+        "_diff_pages",
+        "_extract_code_lines",
+        "_extract_segment_filenames",
+        "_find_repo_files",
+        "_is_generated_diff_block",
+        "_paginate_file_diff_block",
+        "_render_source_block",
+        "_split_diff_into_file_blocks",
+        "_split_source_file_blocks",
+        "_split_text_lines",
+    }:
+        import devops_cli.ai.review.chunker
+
+        return getattr(devops_cli.ai.review.chunker, name)
+    if name == "export_invalidated_feedback":
+        import devops_cli.ai.review.exporter
+
+        return getattr(devops_cli.ai.review.exporter, name)
+    if name == "stage_finding_patch":
+        import devops_cli.ai.review.patching
+
+        return getattr(devops_cli.ai.review.patching, name)
+    if name in {
+        "ReviewClients",
+        "_build_path_prompt",
+        "_build_recompose_prompt",
+        "_build_segment_review_prompt",
+        "_collect_file_blocks",
+        "_collect_files",
+        "_debug_block",
+        "_detect_base_branch",
+        "_execute_review_workflow",
+        "_fallback_join",
+        "_find_session_dir",
+        "_get_reviews_base_dir",
+        "_git_repo_root",
+        "_is_allowed_review_boundary",
+        "_is_git_ignored",
+        "_llm_request_preview",
+        "_load_agents_md",
+        "_make_review_clients",
+        "_persona_format_section",
+        "_persona_system_prompt",
+        "_personas_to_run",
+        "_prepare_branch_content",
+        "_prepare_path_content",
+        "_prepare_pr_content",
+        "_print_analysis_metadata",
+        "_print_review",
+        "_resolve_review_clients",
+        "_review_session_dir",
+        "_review_to_markdown",
+        "_run_persona_loop",
+        "_run_review",
+        "_save_findings_json",
+        "_save_persona_review",
+        "_save_segments",
+        "_write_summary",
+    }:
+        import devops_cli.ai.review.runner
+
+        return getattr(devops_cli.ai.review.runner, name)
+    if name in {
+        "_build_prompt",
+        "_mask_secrets_in_content",
+        "_sanitize_filename",
+        "_sanitize_prompt_boundary_tags",
+        "_truncate_for_prompt",
+        "_unique_preserve_order",
+    }:
+        import devops_cli.ai.review.sanitization
+
+        return getattr(devops_cli.ai.review.sanitization, name)
+    if name in {
+        "_build_validation_prompt",
+        "_extract_location_context",
+        "_find_related_file_metas",
+        "_match_dep_to_filepath",
+        "_merge_segment_results",
+        "_reconcile_verified",
+        "_validate_segment_findings",
+    }:
+        import devops_cli.ai.review.verification
+
+        return getattr(devops_cli.ai.review.verification, name)
+    if name in {"Finding", "ReviewResult", "ReviewSessionPayload", "SavedFinding"}:
+        import devops_cli.ai.review_schema
+
+        return getattr(devops_cli.ai.review_schema, name)
+    if name == "load_settings":
+        from devops_cli.config.settings import load_settings
+
+        return load_settings
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def _prepare_path_content(*args: Any, **kwargs: Any) -> Any:
+    from devops_cli.ai.review.runner import _prepare_path_content as fn
+
+    return fn(*args, **kwargs)
+
+
+def _prepare_branch_content(*args: Any, **kwargs: Any) -> Any:
+    from devops_cli.ai.review.runner import _prepare_branch_content as fn
+
+    return fn(*args, **kwargs)
+
+
+def _prepare_pr_content(*args: Any, **kwargs: Any) -> Any:
+    from devops_cli.ai.review.runner import _prepare_pr_content as fn
+
+    return fn(*args, **kwargs)
+
+
+def _build_path_prompt(*args: Any, **kwargs: Any) -> Any:
+    from devops_cli.ai.review.runner import _build_path_prompt as fn
+
+    return fn(*args, **kwargs)
+
+
+def _make_review_clients(*args: Any, **kwargs: Any) -> Any:
+    from devops_cli.ai.review.runner import _make_review_clients as fn
+
+    return fn(*args, **kwargs)
+
+
+def _execute_review_workflow(*args: Any, **kwargs: Any) -> Any:
+    from devops_cli.ai.review.runner import _execute_review_workflow as fn
+
+    return fn(*args, **kwargs)
+
+
+def _find_session_dir(*args: Any, **kwargs: Any) -> Any:
+    from devops_cli.ai.review.runner import _find_session_dir as fn
+
+    return fn(*args, **kwargs)
+
+
+def _get_reviews_base_dir(*args: Any, **kwargs: Any) -> Any:
+    from devops_cli.ai.review.runner import _get_reviews_base_dir as fn
+
+    return fn(*args, **kwargs)
+
+
+def load_settings(*args: Any, **kwargs: Any) -> Any:
+    from devops_cli.config.settings import load_settings as fn
+
+    return fn(*args, **kwargs)
+
+
+def _build_prompt(*args: Any, **kwargs: Any) -> Any:
+    from devops_cli.ai.review.sanitization import _build_prompt as fn
+
+    return fn(*args, **kwargs)
+
+
+def stage_finding_patch(*args: Any, **kwargs: Any) -> Any:
+    from devops_cli.ai.review.patching import stage_finding_patch as fn
+
+    return fn(*args, **kwargs)
+
+
+def export_invalidated_feedback(*args: Any, **kwargs: Any) -> Any:
+    from devops_cli.ai.review.exporter import export_invalidated_feedback as fn
+
+    return fn(*args, **kwargs)
+
 
 app = new_typer(
     help="AI Code Review across branches, paths, and pull requests.", no_args_is_help=True
@@ -436,6 +467,8 @@ def pr(
     )
 
     if post_comment and reviews:
+        from devops_cli.ai.review.runner import _review_to_markdown
+
         sections = "\n\n---\n\n".join(
             f"## Review by {pd.title}\n\n{_review_to_markdown(text)}" for pd, text in reviews
         )
@@ -481,6 +514,8 @@ def list_findings(
     ] = False,
 ) -> None:
     """Inspect structured findings for a review session."""
+    from devops_cli.ai.review.runner import _find_session_dir
+
     session_dir = _find_session_dir(session)
     if not session_dir:
         print_warning("No review sessions found in .data/reviews/", prefix=False)
@@ -490,6 +525,8 @@ def list_findings(
     if not findings_file.exists():
         print_warning(f"No findings.json in session {session_dir.name}", prefix=False)
         raise typer.Exit(0)
+
+    from devops_cli.ai.review_schema import ReviewSessionPayload
 
     payload = ReviewSessionPayload.model_validate_json(findings_file.read_text(encoding="utf-8"))
     findings = payload.findings
@@ -580,6 +617,8 @@ def verify_finding(
     ] = "",
 ) -> None:
     """Validate or invalidate a review finding, persisting feedback reasons."""
+    from devops_cli.ai.review.runner import _find_session_dir
+
     target_session = session or session_opt
     session_dir = _find_session_dir(target_session)
     if not session_dir:
@@ -590,6 +629,8 @@ def verify_finding(
     if not findings_file.exists():
         print_error(f"No findings.json in {session_dir}", prefix=False)
         raise typer.Exit(1)
+
+    from devops_cli.ai.review_schema import ReviewSessionPayload
 
     payload = ReviewSessionPayload.model_validate_json(findings_file.read_text(encoding="utf-8"))
     if not payload.findings:
@@ -643,6 +684,8 @@ def review_stats(
     ] = None,
 ) -> None:
     """Compute and display review accuracy statistics across saved sessions."""
+    from devops_cli.ai.review.runner import _get_reviews_base_dir
+
     r_dir = reviews_dir or _get_reviews_base_dir()
     if not r_dir.exists():
         print_warning(MESSAGES.review.no_review_dir_found, prefix=False)
@@ -658,6 +701,8 @@ def review_stats(
     by_status: dict[str, int] = {"VERIFIED": 0, "UNVERIFIED": 0, "INVALIDATED": 0, "MITIGATED": 0}
     by_persona_total: dict[str, int] = {}
     by_persona_invalidated: dict[str, int] = {}
+
+    from devops_cli.ai.review_schema import ReviewSessionPayload
 
     for d in session_dirs:
         try:
@@ -732,6 +777,8 @@ def export_feedback(
 ) -> None:
     """Export review findings into a JSONL benchmark dataset for prompt tuning and fine-tuning."""
     status_filter = None if status.upper() == "ALL" else status.upper()
+    from devops_cli.ai.review.exporter import export_invalidated_feedback
+
     count, out_path = export_invalidated_feedback(
         reviews_dir=reviews_dir, output_file=output, status_filter=status_filter
     )

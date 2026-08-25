@@ -13,13 +13,7 @@ from rich.console import Console
 from rich.rule import Rule
 from rich.table import Table
 
-from devops_cli.ai.instruction_generator import (
-    ProjectMetadata,
-    generate_instruction_content,
-    parse_project_metadata,
-)
-from devops_cli.ai.personas import PERSONAS, Persona
-from devops_cli.ai.task_loader import load_task_prompt
+from devops_cli.ai.personas import Persona
 from devops_cli.commands.ai_cache import app as cache_app
 from devops_cli.commands.analyze import app as analyze_app
 from devops_cli.commands.benchmark import app as benchmark_app
@@ -33,7 +27,6 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.config.env import env_var_for_option
 from devops_cli.config.options import AI_API_KEY
-from devops_cli.config.settings import SecretStorageError, dotted_set
 from devops_cli.core.cli import new_typer
 from devops_cli.core.process import run_subprocess
 from devops_cli.lang import HELP
@@ -103,8 +96,11 @@ _AGENT_FILES: dict[str, str] = {
     ".github/copilot-instructions.md": "Pointer stub redirecting GitHub Copilot to AGENTS.md",
 }
 
-# Task-specific addendum appended to the architect persona when generating AGENTS.md
-_AGENTS_TASK_ADDENDUM = "\n" + load_task_prompt("generate_agents.md")
+
+def _get_agents_task_addendum() -> str:
+    from devops_cli.ai.task_loader import load_task_prompt
+
+    return "\n" + load_task_prompt("generate_agents.md")
 
 
 # =============================================================================
@@ -247,8 +243,13 @@ def _pointer_stub(title: str, tool_name: str, filename: str, canonical_relpath: 
 """
 
 
-def _template_content(target_file: str, context_summary: dict[str, str] | ProjectMetadata) -> str:
+def _template_content(target_file: str, context_summary: dict[str, str] | Any) -> str:
     """Fallback template when no LLM is configured."""
+    from devops_cli.ai.instruction_generator import (
+        ProjectMetadata,
+        generate_instruction_content,
+    )
+
     if isinstance(context_summary, ProjectMetadata):
         meta = context_summary
     else:
@@ -261,8 +262,10 @@ def _template_content(target_file: str, context_summary: dict[str, str] | Projec
     return generate_instruction_content(target_file, meta)
 
 
-def _parse_pyproject(repo: Path) -> ProjectMetadata:
+def _parse_pyproject(repo: Path) -> Any:
     """Extract structured fields from pyproject.toml and repo context."""
+    from devops_cli.ai.instruction_generator import parse_project_metadata
+
     return parse_project_metadata(repo)
 
 
@@ -307,6 +310,8 @@ def config(
 ) -> None:
     """Show or update AI provider configuration."""
     from devops_cli.config.settings import (
+        SecretStorageError,
+        dotted_set,
         get_ai_api_key,
         load_settings,
         save_settings,
@@ -509,6 +514,7 @@ def test(
 ) -> None:
     """Send a test prompt to verify AI provider connectivity across configured servers."""
     from devops_cli.ai.client import LLMClient
+    from devops_cli.ai.task_loader import load_task_prompt
     from devops_cli.config.settings import get_ai_api_key, load_settings
 
     settings = load_settings()
@@ -597,8 +603,10 @@ def agents(
         if target != CONST_AGENTS_MD_FILENAME:
             content = _template_content(target, meta)
         elif use_llm and client is not None:
+            from devops_cli.ai.personas import PERSONAS, Persona
+
             rprint(MESSAGES.ai.generating_agents.format(target=f"[cyan]{target}[/cyan]"))
-            system = PERSONAS[Persona.ARCHITECT].system_prompt + _AGENTS_TASK_ADDENDUM
+            system = PERSONAS[Persona.ARCHITECT].system_prompt + _get_agents_task_addendum()
             try:
                 content = client.chat(
                     system=system,
@@ -711,6 +719,8 @@ def chat(
     if persona not in _PERSONA_NAMES:
         rprint(f"[red]Unknown persona {persona!r}. Choose: {', '.join(_PERSONA_NAMES)}[/red]")
         raise typer.Exit(1)
+
+    from devops_cli.ai.personas import PERSONAS, Persona
 
     persona_def = PERSONAS[Persona(persona)]
     system = persona_def.chat_prompt
@@ -850,6 +860,7 @@ def pipeline(
     from devops_cli.ai.agents import PydanticAgent
     from devops_cli.ai.agents.pipeline import MultiAgentPipeline
     from devops_cli.ai.client import LLMClient
+    from devops_cli.ai.personas import PERSONAS, Persona
     from devops_cli.ai.tools import get_default_tools, get_persona_tools
     from devops_cli.config.settings import get_ai_api_key, load_settings
     from devops_cli.dry_run import is_dry_run
