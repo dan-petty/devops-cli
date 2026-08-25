@@ -550,6 +550,7 @@ class ReviewPipelineOrchestrator:
         self.files_dir.mkdir(parents=True, exist_ok=True)
         self.llm_client = llm_client or LLMClient()
         self.target_dir = target_dir
+        self.errored_files: dict[str, str] = {}
 
     def _resolve_file_path(self, fpath: str) -> Path:
         """Resolve fpath to an existing filesystem Path within target_dir."""
@@ -967,33 +968,44 @@ class ReviewPipelineOrchestrator:
         payloads: list[FileReviewPayload] = []
         with trace_span("review.assemble_payloads", attributes={"file_count": n_paths}):
             for fpath in file_paths:
-                fmeta = self._find_matching_metadata(fpath, metadata_by_path) or FileAnalysisMeta(
-                    path=fpath
-                )
-                linked = self._find_linked_files(fpath, fmeta, metadata_by_path)
-                file_deps, file_nets = raw_file_data.get(fpath, ([], []))
+                try:
+                    fmeta = self._find_matching_metadata(
+                        fpath, metadata_by_path
+                    ) or FileAnalysisMeta(path=fpath)
+                    linked = self._find_linked_files(fpath, fmeta, metadata_by_path)
+                    file_deps, file_nets = raw_file_data.get(fpath, ([], []))
 
-                initial_findings = list(static_findings_by_file.get(fpath, []))
-                initial_findings.extend(self._audit_file_dependencies(fpath, file_deps, dep_cache))
-                initial_findings.extend(
-                    self._audit_file_network_references(fpath, file_nets, net_cache)
-                )
+                    initial_findings = list(static_findings_by_file.get(fpath, []))
+                    initial_findings.extend(
+                        self._audit_file_dependencies(fpath, file_deps, dep_cache)
+                    )
+                    initial_findings.extend(
+                        self._audit_file_network_references(fpath, file_nets, net_cache)
+                    )
 
-                sanitized_name = _sanitize_filename(fpath) + ".json"
-                json_file = self.files_dir / sanitized_name
+                    sanitized_name = _sanitize_filename(fpath) + ".json"
+                    json_file = self.files_dir / sanitized_name
+                    json_file.parent.mkdir(parents=True, exist_ok=True)
 
-                payload = FileReviewPayload(
-                    file_path=fpath,
-                    metadata=fmeta,
-                    linked_files=linked,
-                    findings=initial_findings,
-                    external_dependencies=file_deps,
-                    network_references=file_nets,
-                    ai_scratchpad=_create_initial_scratchpad(fpath, len(initial_findings)),
-                )
+                    payload = FileReviewPayload(
+                        file_path=fpath,
+                        metadata=fmeta,
+                        linked_files=linked,
+                        findings=initial_findings,
+                        external_dependencies=file_deps,
+                        network_references=file_nets,
+                        ai_scratchpad=_create_initial_scratchpad(fpath, len(initial_findings)),
+                    )
 
-                json_file.write_text(payload.model_dump_json(indent=2), encoding="utf-8")
-                payloads.append(payload)
+                    json_file.write_text(payload.model_dump_json(indent=2), encoding="utf-8")
+                    payloads.append(payload)
+                except Exception as exc:
+                    logger.error("Failed assembling payload for %s: %s", fpath, exc)
+                    self.errored_files[fpath] = f"Stage 2 (Initialization): {exc}"
+                    rprint(
+                        f"  [yellow]• [bold red]Skipped errored file during init:[/bold red] "
+                        f"[bold]{fpath}[/bold] [dim]({exc})[/dim][/yellow]"
+                    )
 
         return payloads
 
@@ -1285,14 +1297,28 @@ class ReviewPipelineOrchestrator:
 
             def _review_task(arg: tuple[int, FileReviewPayload]) -> None:
                 idx, payload = arg
-                self._review_single_file_payload(
-                    idx=idx,
-                    total_files=total_files,
-                    payload=payload,
-                    diff_text_by_file=diff_text_by_file,
-                    active_personas=active_personas,
-                    server_info=server_info,
-                )
+                if payload.file_path in self.errored_files:
+                    return
+                try:
+                    self._review_single_file_payload(
+                        idx=idx,
+                        total_files=total_files,
+                        payload=payload,
+                        diff_text_by_file=diff_text_by_file,
+                        active_personas=active_personas,
+                        server_info=server_info,
+                    )
+                except Exception as exc:
+                    logger.error("Error reviewing file %s: %s", payload.file_path, exc)
+                    payload.findings = []
+                    payload.ai_scratchpad["stage"] = "failed"
+                    payload.ai_scratchpad["error"] = str(exc)
+                    self.errored_files[payload.file_path] = f"Stage 3 (Review): {exc}"
+                    rprint(
+                        f"[yellow][{idx}/{total_files}][/yellow] "
+                        f"[bold red]Skipped errored file:[/bold red] "
+                        f"[bold]{payload.file_path}[/bold] [dim]({exc})[/dim]"
+                    )
 
             if n_workers > 1:
                 with ThreadPoolExecutor(max_workers=n_workers) as executor:
@@ -1414,7 +1440,9 @@ class ReviewPipelineOrchestrator:
             )
 
             payloads_with_findings = [
-                (idx, p) for idx, p in enumerate(file_payloads, 1) if p.findings
+                (idx, p)
+                for idx, p in enumerate(file_payloads, 1)
+                if p.findings and p.file_path not in self.errored_files
             ]
             s4_span.set_attribute("review.files_with_findings", len(payloads_with_findings))
             if not payloads_with_findings:
@@ -1435,12 +1463,25 @@ class ReviewPipelineOrchestrator:
 
             def _verify_task(arg: tuple[int, FileReviewPayload]) -> None:
                 idx, payload = arg
-                self._verify_single_file_payload(
-                    idx=idx,
-                    total_files=total_files,
-                    payload=payload,
-                    server_info=server_info,
-                )
+                if payload.file_path in self.errored_files:
+                    return
+                try:
+                    self._verify_single_file_payload(
+                        idx=idx,
+                        total_files=total_files,
+                        payload=payload,
+                        server_info=server_info,
+                    )
+                except Exception as exc:
+                    logger.error("Error verifying file %s: %s", payload.file_path, exc)
+                    payload.ai_scratchpad["stage"] = "failed"
+                    payload.ai_scratchpad["error"] = str(exc)
+                    self.errored_files[payload.file_path] = f"Stage 4 (Verification): {exc}"
+                    rprint(
+                        f"[yellow][{idx}/{total_files}][/yellow] "
+                        f"[bold red]Skipped verification on errored file:[/bold red] "
+                        f"[bold]{payload.file_path}[/bold] [dim]({exc})[/dim]"
+                    )
 
             if n_workers > 1:
                 with ThreadPoolExecutor(max_workers=n_workers) as executor:
@@ -1458,28 +1499,36 @@ class ReviewPipelineOrchestrator:
         ) as s5_span:
             rprint(f"[dim]Stage 5/6: Re-ranking and validating findings for {n_p} file(s)...[/dim]")
             for payload in file_payloads:
-                valid_findings = [
-                    f for f in payload.findings if f.reportable and f.status != "INVALIDATED"
-                ]
-                payload.reportable = any(
-                    f.reportable and f.status != "INVALIDATED" for f in payload.findings
-                )
-                payload.ai_scratchpad["stage"] = "reranked"
-                payload.ai_scratchpad["reportable_count"] = len(valid_findings)
+                if payload.file_path in self.errored_files:
+                    continue
+                try:
+                    valid_findings = [
+                        f for f in payload.findings if f.reportable and f.status != "INVALIDATED"
+                    ]
+                    payload.reportable = any(
+                        f.reportable and f.status != "INVALIDATED" for f in payload.findings
+                    )
+                    payload.ai_scratchpad["stage"] = "reranked"
+                    payload.ai_scratchpad["reportable_count"] = len(valid_findings)
 
-                thoughts_list = payload.ai_scratchpad.setdefault("thoughts", [])
-                thoughts_list.append(
-                    f"[Stage 5 Re-ranking] Identified {len(valid_findings)} reportable finding(s) "
-                    f"from {len(payload.findings)} total candidate(s)"
-                )
+                    thoughts_list = payload.ai_scratchpad.setdefault("thoughts", [])
+                    thoughts_list.append(
+                        f"[Stage 5 Re-ranking] Identified {len(valid_findings)} reportable "
+                        f"finding(s) from {len(payload.findings)} total candidate(s)"
+                    )
 
-                sanitized_name = _sanitize_filename(payload.file_path) + ".json"
-                json_target = self.files_dir / sanitized_name
-                json_target.write_text(payload.model_dump_json(indent=2), encoding="utf-8")
+                    sanitized_name = _sanitize_filename(payload.file_path) + ".json"
+                    json_target = self.files_dir / sanitized_name
+                    json_target.parent.mkdir(parents=True, exist_ok=True)
+                    json_target.write_text(payload.model_dump_json(indent=2), encoding="utf-8")
+                except Exception as exc:
+                    logger.error("Error re-ranking findings for %s: %s", payload.file_path, exc)
+                    self.errored_files[payload.file_path] = f"Stage 5 (Reranking): {exc}"
 
             total_reportable = sum(
                 len([f for f in p.findings if f.reportable and f.status != "INVALIDATED"])
                 for p in file_payloads
+                if p.file_path not in self.errored_files
             )
             s5_span.set_attribute("review.total_reportable", total_reportable)
             s5_span.add_event("reranking_completed", {"total_reportable": total_reportable})
@@ -1599,6 +1648,16 @@ class ReviewPipelineOrchestrator:
                 "✅ **No network endpoints or remote addresses referenced in review scope.**"
             )
         lines.append("")
+
+        if self.errored_files:
+            lines.append("## Skipped / Errored Files")
+            lines.append("| File Path | Stage / Error Reason |")
+            lines.append("|---|---|")
+            for fpath, reason in sorted(self.errored_files.items()):
+                clean_f = fpath.replace("|", "\\|").replace("\n", " ").strip()
+                clean_r = reason.replace("|", "\\|").replace("\n", " ").strip()
+                lines.append(f"| `{clean_f}` | {clean_r} |")
+            lines.append("")
 
         return "\n".join(lines)
 
@@ -1747,6 +1806,19 @@ class ReviewPipelineOrchestrator:
             )
         console.print(net_tbl)
 
+    def _render_console_errored_files_table(self, console: Any) -> None:
+        """Render table of skipped/errored files to console."""
+        if not self.errored_files:
+            return
+        from rich.table import Table
+
+        err_tbl = Table(title="Skipped / Errored Files During Review", title_style="bold yellow")
+        err_tbl.add_column("File Path", style="bold red")
+        err_tbl.add_column("Stage / Error Details", style="yellow")
+        for fpath, reason in sorted(self.errored_files.items()):
+            err_tbl.add_row(fpath, reason)
+        console.print(err_tbl)
+
     def _render_console_summary_table(
         self,
         console: Any,
@@ -1809,6 +1881,11 @@ class ReviewPipelineOrchestrator:
 
         summary_tbl.add_row("Session ID", f"[cyan]{session_id}[/cyan]")
         summary_tbl.add_row("Files Reviewed", str(n_files))
+        if self.errored_files:
+            summary_tbl.add_row(
+                "Skipped / Errored Files",
+                f"[bold red]{len(self.errored_files)} file(s) skipped[/bold red]",
+            )
         summary_tbl.add_row("Reportable Findings", findings_summary_str)
         summary_tbl.add_row("Verification Rate", ver_rate_str)
         summary_tbl.add_row("Dependencies", deps_str)
@@ -1862,6 +1939,7 @@ class ReviewPipelineOrchestrator:
         from rich.console import Console
 
         console = Console()
+        self._render_console_errored_files_table(console)
         self._render_console_findings_table(console, reportable_findings)
         self._render_console_dependencies_table(console, all_deps)
         self._render_console_network_table(console, all_nets)

@@ -735,3 +735,55 @@ def test_generate_consolidated_report_clean_review_summary(
     assert "Consolidated review completed for session clean-summary-test" in captured
     assert len(data_out["findings"]) == 0
     assert "No critical issues found during review" in report_md
+
+
+def test_review_pipeline_skips_and_lists_errored_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Verify that any errored files across review stages are skipped and listed in output."""
+    monkeypatch.setattr("devops_cli.config.constants.CONST_DATA_DIR", tmp_path / ".data")
+    monkeypatch.setattr(
+        "devops_cli.config.constants.CONST_REVIEWS_DATA_DIR", tmp_path / ".data" / "reviews"
+    )
+
+    orchestrator = ReviewPipelineOrchestrator(
+        session_id="error-skip-test", llm_client=MagicMock(), target_dir=tmp_path
+    )
+    orchestrator.errored_files["src/bad_syntax.py"] = (
+        "Stage 3 (Review): SyntaxError: invalid syntax"
+    )
+    orchestrator.errored_files["src/missing_file.py"] = (
+        "Stage 2 (Initialization): FileNotFoundError"
+    )
+
+    valid_payload = FileReviewPayload(
+        file_path="src/good.py",
+        findings=[
+            SavedFinding(
+                severity="MEDIUM",
+                location="src/good.py:10",
+                title="Input validation",
+                description="Missing input validation",
+                status="VERIFIED",
+                persona="devsecops",
+                persona_title="Principal DevSecOps Engineer",
+                reportable=True,
+            )
+        ],
+        external_dependencies=[],
+        network_references=[],
+    )
+
+    data_out, report_md = orchestrator.generate_consolidated_report([valid_payload])
+    captured = capsys.readouterr().out
+
+    # 1. Console outputs errored files table and summary metric
+    assert "Skipped / Errored Files During Review" in captured
+    assert "src/bad_syntax.py" in captured
+    assert "src/missing_file.py" in captured
+    assert "2 file(s) skipped" in captured
+
+    # 2. Markdown report includes dedicated errored files table
+    assert "## Skipped / Errored Files" in report_md
+    assert "| `src/bad_syntax.py` | Stage 3 (Review): SyntaxError: invalid syntax |" in report_md
+    assert "| `src/missing_file.py` | Stage 2 (Initialization): FileNotFoundError |" in report_md
