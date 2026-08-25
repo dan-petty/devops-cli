@@ -276,21 +276,17 @@ class WorkspaceIndexer:
         gitignore_spec = _load_gitignore_spec(root)
         indexable_files: list[Path] = []
 
+        def _is_dir_excluded(d: str, rel_dir: str) -> bool:
+            if d in _EXCLUDED_PARTS or d.startswith("."):
+                return True
+            if gitignore_spec is None:
+                return False
+            path_suffix = os.path.join(rel_dir, d, "") if rel_dir != "." else f"{d}/"
+            return bool(gitignore_spec.match_file(path_suffix))
+
         for dirpath, dirnames, filenames in os.walk(root):
-            # Prune excluded directories in-place to prevent os.walk from descending
             rel_dir = os.path.relpath(dirpath, root)
-            dirnames[:] = [
-                d
-                for d in dirnames
-                if d not in _EXCLUDED_PARTS
-                and not d.startswith(".")
-                and (
-                    gitignore_spec is None
-                    or not gitignore_spec.match_file(
-                        os.path.join(rel_dir, d, "") if rel_dir != "." else d + "/"
-                    )
-                )
-            ]
+            dirnames[:] = [d for d in dirnames if not _is_dir_excluded(d, rel_dir)]
             for fname in filenames:
                 p = Path(dirpath) / fname
                 if _is_indexable_file(p, root, gitignore_spec=gitignore_spec):

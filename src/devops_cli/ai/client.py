@@ -686,11 +686,11 @@ class LLMClient:
             try:
                 res = self._dispatch_messages(system, out_messages, enable_thinking=enable_thinking)
                 if not self._validate_response_text(res, validator):
-                    fail_msg = (
-                        f"Response validation failed for model '{self._config.model}' "
+                    m = self._config.model
+                    last_exc = AIClientError(
+                        f"Response validation failed for model '{m}' "
                         f"(attempt {attempt}/{attempts})."
                     )
-                    last_exc = AIClientError(fail_msg)
                     continue
                 return self._handle_successful_chat_dispatch(
                     res, cache_key, system, out_messages, use_cache, context_tag, span_h

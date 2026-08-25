@@ -18,6 +18,7 @@ from __future__ import annotations
 import logging
 import os
 import time
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
@@ -27,9 +28,15 @@ from rich import print as rprint
 from devops_cli.ai.agents.pipeline import MultiAgentPipeline
 from devops_cli.ai.agents.pydantic_agent import PydanticAgent
 from devops_cli.ai.analyze.cache import load_cached_analysis
+from devops_cli.ai.analyze.outlines import analyze_single_file
 from devops_cli.ai.client import LLMClient
 from devops_cli.ai.personas import PERSONAS
-from devops_cli.ai.review.sanitization import _sanitize_filename
+from devops_cli.ai.review.sanitization import (
+    _escape_backticks,
+    _mask_secrets_in_content,
+    _sanitize_filename,
+    _sanitize_prompt_boundary_tags,
+)
 from devops_cli.ai.review.verification import _validate_segment_findings
 from devops_cli.ai.review_schema import (
     FileReviewPayload,
@@ -182,6 +189,346 @@ def _process_pipeline_step_findings(
             file_findings.append(saved)
 
 
+def _try_reuse_cached_analysis_meta(
+    old_meta: FileAnalysisMeta, file_mtime: datetime
+) -> FileAnalysisMeta | None:
+    """Attempt to reuse cached analysis metadata if file has not been modified."""
+    if not (old_meta.last_analyzed and old_meta.pseudocode):
+        return None
+    try:
+        analyzed_dt = datetime.fromisoformat(old_meta.last_analyzed)
+        if file_mtime <= analyzed_dt:
+            return old_meta.model_copy(update={"last_analyzed": datetime.now(UTC).isoformat()})
+    except Exception as exc:
+        logger.debug("Failed parsing last_analyzed timestamp: %s", exc)
+    return None
+
+
+def _wrap_static_findings(findings: list[Finding]) -> list[SavedFinding]:
+    """Wrap generic findings from static analyzers into DevSecOps SavedFindings."""
+    return [
+        SavedFinding(
+            **f.model_dump(),
+            persona="devsecops",
+            persona_title="Principal DevSecOps Engineer",
+        )
+        for f in findings
+    ]
+
+
+def _match_static_findings_to_files(
+    findings: list[SavedFinding], file_paths: list[str]
+) -> dict[str, list[SavedFinding]]:
+    """Map findings from static analyzers to corresponding target repository files."""
+    by_file: dict[str, list[SavedFinding]] = {}
+    for sf in findings:
+        loc_path = sf.location.split(":")[0].strip()
+        matched = next(
+            (
+                fp
+                for fp in file_paths
+                if fp == loc_path or loc_path.endswith(fp) or fp.endswith(loc_path)
+            ),
+            None,
+        )
+        if matched:
+            by_file.setdefault(matched, []).append(sf)
+    return by_file
+
+
+def _scan_kubernetes_manifests(yaml_paths: list[Path]) -> list[SavedFinding]:
+    """Scan Kubernetes YAML manifests with Kube-linter and Pluto."""
+    from devops_cli.security.kubelinter import run_kubelinter_scan
+    from devops_cli.security.pluto import run_pluto_scan
+
+    findings: list[SavedFinding] = []
+    for yp in yaml_paths:
+        if kl := run_kubelinter_scan(yp):
+            findings.extend(_wrap_static_findings(kl))
+        if pl := run_pluto_scan(yp):
+            findings.extend(_wrap_static_findings(pl))
+    return findings
+
+
+def _scan_container_and_lockfiles(docker_lock_paths: list[Path]) -> list[SavedFinding]:
+    """Scan container files and lockfiles with Trivy."""
+    from devops_cli.security.trivy import run_trivy_scan
+
+    findings: list[SavedFinding] = []
+    for dp in docker_lock_paths:
+        scan_t = "config" if "docker" in dp.name.lower() else "fs"
+        if t_findings := run_trivy_scan(dp, scan_type=scan_t):
+            findings.extend(_wrap_static_findings(t_findings))
+    return findings
+
+
+def _build_vulnerability_finding(
+    fpath: str, dep: DependencySpec, v: VulnerabilityRecord
+) -> SavedFinding:
+    """Build a verified SavedFinding for an identified vulnerable package dependency."""
+    desc = f"Dependency '{dep.name}' ({dep.version_range}) is affected by {v.id}: {v.summary}"
+    return SavedFinding(
+        severity=v.severity,
+        location=f"{fpath}:1",
+        title=f"Vulnerable Dependency: {dep.name} ({v.id})",
+        description=desc,
+        fix=f"Upgrade '{dep.name}' to a patched release.",
+        references=[v.details_url] if v.details_url else [],
+        verification_criteria=[f"Package '{dep.name}' declared in {fpath}"],
+        invalidation_criteria=["Dependency upgraded or patched in lockfile"],
+        verified_criteria_matched=[f"Package '{dep.name}' declared in {fpath}"],
+        status="VERIFIED",
+        verified=True,
+        reportable=True,
+        confidence_score=0.95,
+        persona="devsecops",
+        persona_title="Principal DevSecOps Engineer",
+    )
+
+
+def _build_malicious_network_finding(
+    fpath: str, net: NetworkReference, rep: NetworkReputationRecord
+) -> SavedFinding:
+    """Build a verified SavedFinding for an identified suspicious external network target."""
+    ref_urls = [f"https://internetdb.shodan.io/{rep.ip}"] if rep.ip else []
+    desc = f"External host '{net.target}' flagged by {rep.source}: {rep.reputation_summary}"
+    return SavedFinding(
+        severity="HIGH",
+        location=f"{fpath}:{net.line_number or 1}",
+        title=f"Suspicious / Vulnerable Network Reference: {net.target}",
+        description=desc,
+        fix=f"Sanitize or remove external host reference '{net.target}'",
+        references=ref_urls,
+        verification_criteria=[f"Host '{net.target}' referenced in {fpath}"],
+        invalidation_criteria=["Internal test fixture or isolated sandbox"],
+        verified_criteria_matched=[f"Host '{net.target}' referenced in {fpath}"],
+        status="VERIFIED",
+        verified=True,
+        reportable=True,
+        confidence_score=0.90,
+        persona="devsecops",
+        persona_title="Principal DevSecOps Engineer",
+    )
+
+
+def _create_initial_scratchpad(fpath: str, initial_findings_count: int) -> dict[str, Any]:
+    """Create initial tracking scratchpad payload for a reviewed file."""
+    thoughts = [f"Tracking findings for {fpath}"]
+    if initial_findings_count > 0:
+        thoughts.append(f"Injected {initial_findings_count} static scan / threat intel finding(s)")
+    return {
+        "initialized_at": datetime.now(UTC).isoformat(),
+        "stage": "initialized",
+        "thoughts": thoughts,
+    }
+
+
+def _build_page_review_prompt(
+    fpath: str,
+    p_idx: int,
+    total_pages: int,
+    page_content: str,
+    symbols: str,
+    rag_context_str: str,
+) -> str:
+    """Construct sanitized review prompt for a specific paginated slice of source code."""
+    masked = _mask_secrets_in_content(page_content)
+    clean = _sanitize_prompt_boundary_tags(_escape_backticks(masked))
+    prefix = (
+        f"Review File: {fpath} (Page {p_idx}/{total_pages})\n"
+        if total_pages > 1
+        else f"Review File: {fpath}\n"
+    )
+    return f"{prefix}Key Symbols: {symbols}{rag_context_str}\n\nCode Content / Diff:\n{clean}"
+
+
+def _collect_linked_snippets(
+    linked_files: Sequence[FileAnalysisMeta],
+    resolve_fn: Callable[[str], Path],
+) -> list[str]:
+    """Extract code context snippets from linked repository files."""
+    snippets: list[str] = []
+    for lmeta in linked_files:
+        lpath = resolve_fn(lmeta.path)
+        if lpath.exists() and lpath.is_file():
+            try:
+                snippet = lpath.read_text(encoding="utf-8", errors="replace")[:2000]
+                snippets.append(f"Linked File ({lmeta.path}):\n{snippet}")
+            except Exception as exc:
+                logger.debug("Failed reading linked file %s: %s", lmeta.path, exc)
+    return snippets
+
+
+def _probe_single_dir_deps(
+    p_dir: Path,
+    raw_file_data: dict[str, tuple[list[DependencySpec], list[NetworkReference]]],
+    all_unique_deps: set[tuple[str, str, str]],
+) -> bool:
+    """Probe a single directory for manifest files and extract declared dependencies."""
+    try:
+        candidates = sorted(p_dir.iterdir())
+    except OSError:
+        return False
+    for candidate in candidates:
+        if not candidate.is_file() or candidate.is_symlink():
+            continue
+        try:
+            c_text = candidate.read_text(encoding="utf-8", errors="replace")
+            c_rel = (
+                str(candidate.relative_to(Path.cwd()))
+                if candidate.is_relative_to(Path.cwd())
+                else candidate.name
+            )
+            if extracted := extract_dependencies_from_text(c_text, c_rel):
+                raw_file_data.setdefault(c_rel, ([], []))
+                raw_file_data[c_rel][0].extend(extracted)
+                all_unique_deps.update((d.name, d.version_range, d.ecosystem) for d in extracted)
+        except Exception:
+            pass
+    return bool(all_unique_deps)
+
+
+def _probe_manifest_deps_in_dirs(
+    probe_dirs: list[Path],
+    raw_file_data: dict[str, tuple[list[DependencySpec], list[NetworkReference]]],
+    all_unique_deps: set[tuple[str, str, str]],
+) -> None:
+    """Probe directories for manifest files and extract declared dependencies."""
+    for p_dir in probe_dirs:
+        if _probe_single_dir_deps(p_dir, raw_file_data, all_unique_deps):
+            break
+
+
+def _probe_single_dir_nets(
+    p_dir: Path,
+    raw_file_data: dict[str, tuple[list[DependencySpec], list[NetworkReference]]],
+    all_unique_nets: set[tuple[str, str]],
+) -> bool:
+    """Probe a single directory for source files and extract declared network targets."""
+    try:
+        candidates = sorted(p_dir.iterdir())
+    except OSError:
+        return False
+    for candidate in candidates:
+        if not candidate.is_file() or candidate.is_symlink() or candidate.name.startswith("."):
+            continue
+        try:
+            c_text = candidate.read_text(encoding="utf-8", errors="replace")
+            c_rel = (
+                str(candidate.relative_to(Path.cwd()))
+                if candidate.is_relative_to(Path.cwd())
+                else candidate.name
+            )
+            if extracted := extract_network_references(c_text, c_rel):
+                raw_file_data.setdefault(c_rel, ([], []))
+                raw_file_data[c_rel][1].extend(extracted)
+                all_unique_nets.update((n.target, n.reference_type) for n in extracted)
+        except Exception:
+            pass
+    return bool(all_unique_nets)
+
+
+def _probe_network_refs_in_dirs(
+    probe_dirs: list[Path],
+    raw_file_data: dict[str, tuple[list[DependencySpec], list[NetworkReference]]],
+    all_unique_nets: set[tuple[str, str]],
+) -> None:
+    """Probe directories for source files and extract declared network targets."""
+    for p_dir in probe_dirs:
+        if _probe_single_dir_nets(p_dir, raw_file_data, all_unique_nets):
+            break
+
+
+def _execute_pre_analysis_batch(
+    paths_to_analyze: list[tuple[Path, str]],
+    repo: Path,
+    ai_client: LLMClient,
+    batch_capacity: int,
+) -> list[FileAnalysisMeta]:
+    """Execute parallel pre-analysis across batch of repository paths."""
+
+    def _analyze_path(item: tuple[Path, str]) -> FileAnalysisMeta | None:
+        path_obj, rel_path = item
+        try:
+            content = path_obj.read_text(encoding="utf-8", errors="replace")
+            return analyze_single_file(
+                rel_path,
+                content,
+                path_obj.stat().st_size,
+                enhanced=True,
+                repo_root=repo,
+                ai_client=ai_client,
+            )
+        except Exception:
+            return None
+
+    results: list[FileAnalysisMeta] = []
+    workers = min(len(paths_to_analyze), batch_capacity, 32)
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        for meta in executor.map(_analyze_path, paths_to_analyze):
+            if meta is not None:
+                results.append(meta)
+    return results
+
+
+def _execute_page_review_steps(
+    pipeline: Any,
+    prompt: str,
+    fpath: str,
+    p_idx: int,
+    total_pages: int,
+    persona_lookup: dict[str, tuple[str, str]],
+    thoughts: list[str],
+    actual_servers: list[str],
+    file_findings: list[SavedFinding],
+) -> int:
+    """Execute review pipeline on a page prompt and process step findings."""
+    result = pipeline.run(prompt, max_turns_per_agent=1, enable_thinking=False)
+    for step in result.steps:
+        _process_pipeline_step_findings(
+            step=step,
+            fpath=fpath,
+            p_idx=p_idx,
+            total_pages=total_pages,
+            persona_lookup=persona_lookup,
+            thoughts_list=thoughts,
+            actual_servers=actual_servers,
+            file_findings=file_findings,
+        )
+    return len(result.steps)
+
+
+def _collect_paths_to_analyze(
+    collected_paths: list[Path],
+    repo: Path,
+    existing_file_metas: dict[str, FileAnalysisMeta],
+    force_refresh: bool,
+    file_metas: list[FileAnalysisMeta],
+    metadata_by_path: dict[str, FileAnalysisMeta],
+) -> list[tuple[Path, str]]:
+    """Filter candidate paths and reuse existing analysis metadata where available."""
+    paths_to_analyze: list[tuple[Path, str]] = []
+    for p in collected_paths:
+        if p.stat().st_size > CONST_MAX_FILE_SIZE_BYTES:
+            continue
+        rel_str = str(p.relative_to(repo)) if p.is_relative_to(repo) else str(p)
+        try:
+            file_mtime = datetime.fromtimestamp(p.stat().st_mtime, UTC)
+            old_meta = existing_file_metas.get(rel_str)
+            if (
+                not force_refresh
+                and old_meta
+                and (reused := _try_reuse_cached_analysis_meta(old_meta, file_mtime))
+            ):
+                file_metas.append(reused)
+                metadata_by_path[rel_str] = reused
+            else:
+                paths_to_analyze.append((p, rel_str))
+        except Exception as exc:
+            logger.debug("Failed preparing path %s for analysis: %s", p, exc)
+    return paths_to_analyze
+
+
 class ReviewPipelineOrchestrator:
     """Orchestrates 6-stage multi-agent code reviews with per-file payloads and AI scratchpads."""
 
@@ -244,7 +591,6 @@ class ReviewPipelineOrchestrator:
     ) -> dict[str, FileAnalysisMeta]:
         """Scan workspace and refresh metadata if files were edited or missing."""
         from devops_cli.ai.analyze.cache import save_analysis_metadata
-        from devops_cli.ai.analyze.outlines import analyze_single_file
         from devops_cli.core.repo import find_repo_root, list_repo_files
         from devops_cli.dry_run.state import is_dry_run
 
@@ -288,58 +634,23 @@ class ReviewPipelineOrchestrator:
             max_par = int(raw_par) if isinstance(raw_par, int) else 2
             batch_capacity = max(1, len(ollama_urls) * max_par)
 
-            paths_to_analyze: list[tuple[Path, str]] = []
-            for p in collected_paths:
-                if p.stat().st_size > CONST_MAX_FILE_SIZE_BYTES:
-                    continue
-                rel_str = str(p.relative_to(repo)) if p.is_relative_to(repo) else str(p)
-                try:
-                    file_mtime = datetime.fromtimestamp(p.stat().st_mtime, UTC)
-                    if not force_refresh and rel_str in existing_file_metas:
-                        old_meta = existing_file_metas[rel_str]
-                        if old_meta.last_analyzed and old_meta.pseudocode:
-                            try:
-                                analyzed_dt = datetime.fromisoformat(old_meta.last_analyzed)
-                                if file_mtime <= analyzed_dt:
-                                    reused_meta = old_meta.model_copy(
-                                        update={"last_analyzed": datetime.now(UTC).isoformat()}
-                                    )
-                                    file_metas.append(reused_meta)
-                                    metadata_by_path[rel_str] = reused_meta
-                                    continue
-                            except Exception as exc:
-                                logger.debug("Failed parsing last_analyzed timestamp: %s", exc)
-
-                    paths_to_analyze.append((p, rel_str))
-                except Exception as exc:
-                    logger.debug("Failed preparing path %s for analysis: %s", p, exc)
-                    continue
+            paths_to_analyze = _collect_paths_to_analyze(
+                collected_paths,
+                repo,
+                existing_file_metas,
+                force_refresh,
+                file_metas,
+                metadata_by_path,
+            )
 
             if paths_to_analyze:
-
-                def _analyze_path(item: tuple[Path, str]) -> FileAnalysisMeta | None:
-                    path_obj, rel_path = item
-                    try:
-                        content = path_obj.read_text(encoding="utf-8", errors="replace")
-                        return analyze_single_file(
-                            rel_path,
-                            content,
-                            path_obj.stat().st_size,
-                            enhanced=True,
-                            repo_root=repo,
-                            ai_client=self.llm_client,
-                        )
-                    except Exception:
-                        return None
-
-                with ThreadPoolExecutor(
-                    max_workers=min(len(paths_to_analyze), batch_capacity, 32)
-                ) as executor:
-                    for meta in executor.map(_analyze_path, paths_to_analyze):
-                        if meta is not None:
-                            file_metas.append(meta)
-                            metadata_by_path[meta.path] = meta
-                            updated_any = True
+                new_metas = _execute_pre_analysis_batch(
+                    paths_to_analyze, repo, self.llm_client, batch_capacity
+                )
+                for meta in new_metas:
+                    file_metas.append(meta)
+                    metadata_by_path[meta.path] = meta
+                    updated_any = True
 
             if file_metas:
                 title = f"{repo.name} pre-analysis: {target_ref}"
@@ -375,9 +686,6 @@ class ReviewPipelineOrchestrator:
         n_paths = len(file_paths)
         try:
             from devops_cli.security.bandit import run_bandit_scan
-            from devops_cli.security.kubelinter import run_kubelinter_scan
-            from devops_cli.security.pluto import run_pluto_scan
-            from devops_cli.security.trivy import run_trivy_scan
 
             rprint(
                 "  [cyan]• Running static security analyzers "
@@ -390,41 +698,13 @@ class ReviewPipelineOrchestrator:
                 # 1. Batch Bandit scan for all Python files in target scope
                 py_paths = [self._resolve_file_path(f) for f in file_paths if f.endswith(".py")]
                 if py_paths:
-                    b_findings = run_bandit_scan(py_paths)
-                    all_static_findings.extend(
-                        SavedFinding(
-                            **f.model_dump(),
-                            persona="devsecops",
-                            persona_title="Principal DevSecOps Engineer",
-                        )
-                        for f in b_findings
-                    )
+                    all_static_findings.extend(_wrap_static_findings(run_bandit_scan(py_paths)))
 
                 # 2. Pluto & Kube-linter scan for Kubernetes manifests
                 yaml_paths = [
                     self._resolve_file_path(f) for f in file_paths if f.endswith((".yaml", ".yml"))
                 ]
-                for yp in yaml_paths:
-                    kl_findings = run_kubelinter_scan(yp)
-                    if kl_findings:
-                        all_static_findings.extend(
-                            SavedFinding(
-                                **f.model_dump(),
-                                persona="devsecops",
-                                persona_title="Principal DevSecOps Engineer",
-                            )
-                            for f in kl_findings
-                        )
-                    pluto_findings = run_pluto_scan(yp)
-                    if pluto_findings:
-                        all_static_findings.extend(
-                            SavedFinding(
-                                **f.model_dump(),
-                                persona="devsecops",
-                                persona_title="Principal DevSecOps Engineer",
-                            )
-                            for f in pluto_findings
-                        )
+                all_static_findings.extend(_scan_kubernetes_manifests(yaml_paths))
 
                 # 3. Aqua Trivy scan for Dockerfiles and lockfiles
                 docker_lock_paths = [
@@ -433,42 +713,19 @@ class ReviewPipelineOrchestrator:
                     if Path(f).name.lower() in ("dockerfile", "containerfile")
                     or f.endswith((".lock", ".lockb"))
                 ]
-                for dp in docker_lock_paths:
-                    t_findings = run_trivy_scan(
-                        dp,
-                        scan_type="config" if "docker" in dp.name.lower() else "fs",
-                    )
-                    if t_findings:
-                        all_static_findings.extend(
-                            SavedFinding(
-                                **f.model_dump(),
-                                persona="devsecops",
-                                persona_title="Principal DevSecOps Engineer",
-                            )
-                            for f in t_findings
-                        )
+                all_static_findings.extend(_scan_container_and_lockfiles(docker_lock_paths))
 
-                for sf in all_static_findings:
-                    loc_path = sf.location.split(":")[0].strip()
-                    matched_fpath = next(
-                        (
-                            fp
-                            for fp in file_paths
-                            if fp == loc_path or loc_path.endswith(fp) or fp.endswith(loc_path)
-                        ),
-                        None,
-                    )
-                    if matched_fpath:
-                        static_findings_by_file.setdefault(matched_fpath, []).append(sf)
-
-                sc_span.set_attributes(
-                    {
-                        "findings_count": len(all_static_findings),
-                        "python_files": len(py_paths),
-                        "yaml_files": len(yaml_paths),
-                        "docker_files": len(docker_lock_paths),
-                    }
+                static_findings_by_file = _match_static_findings_to_files(
+                    all_static_findings, file_paths
                 )
+
+                sc_attrs = {
+                    "findings_count": len(all_static_findings),
+                    "python_files": len(py_paths),
+                    "yaml_files": len(yaml_paths),
+                    "docker_files": len(docker_lock_paths),
+                }
+                sc_span.set_attributes(sc_attrs)
 
             rprint(
                 f"    [dim]✓ Static analyzers completed "
@@ -517,10 +774,10 @@ class ReviewPipelineOrchestrator:
             with ThreadPoolExecutor(max_workers=min(16, (os.cpu_count() or 4) * 2)) as executor:
                 for fpath, file_deps, file_nets in executor.map(_extract_single_file, file_paths):
                     raw_file_data[fpath] = (file_deps, file_nets)
-                    for d in file_deps:
-                        all_unique_deps.add((d.name, d.version_range, d.ecosystem))
-                    for n in file_nets:
-                        all_unique_nets.add((n.target, n.reference_type))
+                    all_unique_deps.update(
+                        (d.name, d.version_range, d.ecosystem) for d in file_deps
+                    )
+                    all_unique_nets.update((n.target, n.reference_type) for n in file_nets)
 
             # Dynamically discover project manifests and configuration files via
             # filesystem inspection if none were directly present in reviewed file paths
@@ -531,60 +788,10 @@ class ReviewPipelineOrchestrator:
                     probe_dirs.append(p_base)
 
             if not all_unique_deps:
-                for p_dir in probe_dirs:
-                    try:
-                        for candidate in sorted(p_dir.iterdir()):
-                            if not candidate.is_file() or candidate.is_symlink():
-                                continue
-                            try:
-                                c_text = candidate.read_text(encoding="utf-8", errors="replace")
-                                c_rel = (
-                                    str(candidate.relative_to(Path.cwd()))
-                                    if candidate.is_relative_to(Path.cwd())
-                                    else candidate.name
-                                )
-                                extracted_deps = extract_dependencies_from_text(c_text, c_rel)
-                                if extracted_deps:
-                                    raw_file_data.setdefault(c_rel, ([], []))
-                                    cur_deps, _ = raw_file_data[c_rel]
-                                    cur_deps.extend(extracted_deps)
-                                    for d in extracted_deps:
-                                        all_unique_deps.add((d.name, d.version_range, d.ecosystem))
-                            except Exception:
-                                pass
-                        if all_unique_deps:
-                            break
-                    except OSError:
-                        pass
+                _probe_manifest_deps_in_dirs(probe_dirs, raw_file_data, all_unique_deps)
 
             if not all_unique_nets:
-                for p_dir in probe_dirs:
-                    try:
-                        for candidate in sorted(p_dir.iterdir()):
-                            if not candidate.is_file() or candidate.is_symlink():
-                                continue
-                            if candidate.name.startswith("."):
-                                continue
-                            try:
-                                c_text = candidate.read_text(encoding="utf-8", errors="replace")
-                                c_rel = (
-                                    str(candidate.relative_to(Path.cwd()))
-                                    if candidate.is_relative_to(Path.cwd())
-                                    else candidate.name
-                                )
-                                extracted_nets = extract_network_references(c_text, c_rel)
-                                if extracted_nets:
-                                    raw_file_data.setdefault(c_rel, ([], []))
-                                    _, cur_nets = raw_file_data[c_rel]
-                                    cur_nets.extend(extracted_nets)
-                                    for n in extracted_nets:
-                                        all_unique_nets.add((n.target, n.reference_type))
-                            except Exception:
-                                pass
-                        if all_unique_nets:
-                            break
-                    except OSError:
-                        pass
+                _probe_network_refs_in_dirs(probe_dirs, raw_file_data, all_unique_nets)
 
             ref_span.set_attributes(
                 {
@@ -655,8 +862,7 @@ class ReviewPipelineOrchestrator:
                 dep_cache.update(batch_results)
             if unique_nets:
                 with ThreadPoolExecutor(max_workers=8) as executor:
-                    for target, rep in executor.map(_fetch_net, list(unique_nets)):
-                        net_cache[target] = rep
+                    net_cache.update(dict(executor.map(_fetch_net, list(unique_nets))))
         rprint("    [dim]✓ Completed vulnerability and threat reputation lookups[/dim]")
 
         return dep_cache, net_cache
@@ -716,29 +922,7 @@ class ReviewPipelineOrchestrator:
                 dep.severity = "CLEAN"
                 dep.security_status = "✓ Clean"
 
-            for v in vulns:
-                findings.append(
-                    SavedFinding(
-                        severity=v.severity,
-                        location=f"{fpath}:1",
-                        title=f"Vulnerable Dependency: {dep.name} ({v.id})",
-                        description=(
-                            f"Dependency '{dep.name}' ({dep.version_range}) is "
-                            f"affected by {v.id}: {v.summary}"
-                        ),
-                        fix=f"Upgrade '{dep.name}' to a patched release.",
-                        references=[v.details_url] if v.details_url else [],
-                        verification_criteria=[f"Package '{dep.name}' declared in {fpath}"],
-                        invalidation_criteria=["Dependency upgraded or patched in lockfile"],
-                        verified_criteria_matched=[f"Package '{dep.name}' declared in {fpath}"],
-                        status="VERIFIED",
-                        verified=True,
-                        reportable=True,
-                        confidence_score=0.95,
-                        persona="devsecops",
-                        persona_title="Principal DevSecOps Engineer",
-                    )
-                )
+            findings.extend(_build_vulnerability_finding(fpath, dep, v) for v in vulns)
         return findings
 
     def _audit_file_network_references(
@@ -760,29 +944,7 @@ class ReviewPipelineOrchestrator:
                 net.security_status = "✓ Safe / Low Risk"
 
             if rep.is_malicious:
-                ref_urls = [f"https://internetdb.shodan.io/{rep.ip}"] if rep.ip else []
-                findings.append(
-                    SavedFinding(
-                        severity="HIGH",
-                        location=f"{fpath}:{net.line_number or 1}",
-                        title=f"Suspicious / Vulnerable Network Reference: {net.target}",
-                        description=(
-                            f"External host '{net.target}' flagged by {rep.source}: "
-                            f"{rep.reputation_summary}"
-                        ),
-                        fix=f"Sanitize or remove external host reference '{net.target}'",
-                        references=ref_urls,
-                        verification_criteria=[f"Host '{net.target}' referenced in {fpath}"],
-                        invalidation_criteria=["Internal test fixture or isolated sandbox"],
-                        verified_criteria_matched=[f"Host '{net.target}' referenced in {fpath}"],
-                        status="VERIFIED",
-                        verified=True,
-                        reportable=True,
-                        confidence_score=0.90,
-                        persona="devsecops",
-                        persona_title="Principal DevSecOps Engineer",
-                    )
-                )
+                findings.append(_build_malicious_network_finding(fpath, net, rep))
         return findings
 
     def _assemble_and_persist_payloads(
@@ -825,21 +987,7 @@ class ReviewPipelineOrchestrator:
                     findings=initial_findings,
                     external_dependencies=file_deps,
                     network_references=file_nets,
-                    ai_scratchpad={
-                        "initialized_at": datetime.now(UTC).isoformat(),
-                        "stage": "initialized",
-                        "thoughts": [
-                            f"Tracking findings for {fpath}",
-                            *(
-                                [
-                                    f"Injected {len(initial_findings)} static scan / "
-                                    "threat intel finding(s)"
-                                ]
-                                if initial_findings
-                                else []
-                            ),
-                        ],
-                    },
+                    ai_scratchpad=_create_initial_scratchpad(fpath, len(initial_findings)),
                 )
 
                 json_file.write_text(payload.model_dump_json(indent=2), encoding="utf-8")
@@ -980,11 +1128,6 @@ class ReviewPipelineOrchestrator:
                 return
 
             from devops_cli.ai.review.chunker import _diff_pages
-            from devops_cli.ai.review.sanitization import (
-                _escape_backticks,
-                _mask_secrets_in_content,
-                _sanitize_prompt_boundary_tags,
-            )
             from devops_cli.config.constants import CONST_REVIEW_MAX_DIFF_CHARS
 
             pages = (
@@ -1024,38 +1167,27 @@ class ReviewPipelineOrchestrator:
             t_start = time.monotonic()
             actual_servers: list[str] = []
             thoughts: list[str] = list(payload.ai_scratchpad.get("thoughts", []))
+
+            def _review_page(p_idx: int, page_content: str) -> int:
+                prompt = _build_page_review_prompt(
+                    fpath, p_idx, total_pages, page_content, symbols, rag_context_str
+                )
+                return _execute_page_review_steps(
+                    pipeline,
+                    prompt,
+                    fpath,
+                    p_idx,
+                    total_pages,
+                    persona_lookup,
+                    thoughts,
+                    actual_servers,
+                    file_findings,
+                )
+
             try:
-                total_step_count = 0
-                for p_idx, page_content in enumerate(pages, 1):
-                    clean_content = _sanitize_prompt_boundary_tags(
-                        _escape_backticks(_mask_secrets_in_content(page_content))
-                    )
-                    page_prefix = (
-                        f"Review File: {fpath} (Page {p_idx}/{total_pages})\n"
-                        if total_pages > 1
-                        else f"Review File: {fpath}\n"
-                    )
-                    prompt = (
-                        f"{page_prefix}"
-                        f"Key Symbols: {symbols}"
-                        f"{rag_context_str}\n\n"
-                        f"Code Content / Diff:\n{clean_content}"
-                    )
-
-                    result = pipeline.run(prompt, max_turns_per_agent=1, enable_thinking=False)
-                    total_step_count += len(result.steps)
-
-                    for step in result.steps:
-                        _process_pipeline_step_findings(
-                            step=step,
-                            fpath=fpath,
-                            p_idx=p_idx,
-                            total_pages=total_pages,
-                            persona_lookup=persona_lookup,
-                            thoughts_list=thoughts,
-                            actual_servers=actual_servers,
-                            file_findings=file_findings,
-                        )
+                total_step_count = sum(
+                    _review_page(p_idx, page_content) for p_idx, page_content in enumerate(pages, 1)
+                )
 
                 payload.findings = consolidate_duplicate_findings(file_findings)
                 payload.ai_scratchpad["thoughts"] = thoughts
@@ -1195,16 +1327,9 @@ class ReviewPipelineOrchestrator:
                 except Exception as exc:
                     logger.debug("Failed reading target file %s for verification: %s", fpath, exc)
 
-            linked_snippets: list[str] = []
-            for lmeta in payload.linked_files:
-                lpath = self._resolve_file_path(lmeta.path)
-                if lpath.exists() and lpath.is_file():
-                    try:
-                        snippet = lpath.read_text(encoding="utf-8", errors="replace")[:2000]
-                        linked_snippets.append(f"Linked File ({lmeta.path}):\n{snippet}")
-                    except Exception as exc:
-                        logger.debug("Failed reading linked file %s: %s", lmeta.path, exc)
-
+            linked_snippets = _collect_linked_snippets(
+                payload.linked_files, self._resolve_file_path
+            )
             linked_str = "\n\n".join(linked_snippets) if linked_snippets else ""
             context = file_code + ("\n\n" + linked_str if linked_str else "")
             findings_to_verify = [Finding(**f.model_dump()) for f in payload.findings]
