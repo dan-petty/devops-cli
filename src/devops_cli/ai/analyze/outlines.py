@@ -62,10 +62,10 @@ def _validate_enhanced_metadata(
     if static_symbols and not isinstance(parsed.key_symbols, list):
         return None, "key_symbols must be a list of strings."
 
-    if not (0.0 <= parsed.confidence_score <= 1.0):
+    if parsed.confidence_score is not None and not (0.0 <= parsed.confidence_score <= 1.0):
         return None, "confidence_score must be between 0.0 and 1.0."
 
-    if not (0.0 <= parsed.quality_score <= 1.0):
+    if parsed.quality_score is not None and not (0.0 <= parsed.quality_score <= 1.0):
         return None, "quality_score must be between 0.0 and 1.0."
 
     return parsed, None

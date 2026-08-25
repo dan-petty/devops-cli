@@ -239,14 +239,25 @@ class QdrantClient:
         if not points:
             return 0
 
-        total_upserted = 0
-        for i in range(0, len(points), batch_size):
-            batch = points[i : i + batch_size]
-            point_structs = [_build_point_struct(p) for p in batch]
-            self._upsert_batch_with_retry(name, point_structs)
-            total_upserted += len(batch)
+        with trace_span(
+            "qdrant.upsert_points",
+            attributes={
+                "db.system": "qdrant",
+                "db.operation": "upsert_points",
+                "db.collection.name": name,
+                "collection": name,
+                "server.address": str(self.base_url),
+                "points_count": len(points),
+            },
+        ):
+            total_upserted = 0
+            for i in range(0, len(points), batch_size):
+                batch = points[i : i + batch_size]
+                point_structs = [_build_point_struct(p) for p in batch]
+                self._upsert_batch_with_retry(name, point_structs)
+                total_upserted += len(batch)
 
-        return total_upserted
+            return total_upserted
 
     def search_points(
         self,

@@ -337,163 +337,174 @@ class WorkspaceIndexer:
     ) -> dict[str, Any]:
         """Incrementally index workspace files into Qdrant."""
         with trace_span(
-            "rag.index_workspace",
-            attributes={"root_dir": str(root_dir), "force": force, "include_kb": include_kb},
-        ):
+            "ai.rag.index_workspace",
+            attributes={
+                "rag.root_dir": str(root_dir),
+                "rag.project": project or "auto",
+                "rag.force": force,
+                "rag.include_kb": include_kb,
+            },
+        ) as root_span:
             files = _collect_all_indexing_files(self.collect_files, root_dir, include_kb)
             cache = {} if force else self._load_cache()
             file_hashes: dict[str, str] = {}
 
-        all_chunks: list[CodeChunk] = []
-        files_to_reindex: list[tuple[Path, str, str]] = []
+            all_chunks: list[CodeChunk] = []
+            files_to_reindex: list[tuple[Path, str, str]] = []
 
-        from devops_cli.ai.kb import get_knowledge_base_dir
+            from devops_cli.ai.kb import get_knowledge_base_dir
 
-        kb_dir = get_knowledge_base_dir().resolve()
+            kb_dir = get_knowledge_base_dir().resolve()
 
-        for idx, file_path in enumerate(files, 1):
-            if progress_callback:
-                progress_callback("Scanning files", idx, len(files))
+            for idx, file_path in enumerate(files, 1):
+                if progress_callback:
+                    progress_callback("Scanning files", idx, len(files))
 
-            f_resolved = file_path.resolve()
-            is_kb = False
-            try:
-                if kb_dir.is_dir() and f_resolved.is_relative_to(kb_dir):
-                    is_kb = True
-            except Exception:
-                pass
+                f_resolved = file_path.resolve()
+                is_kb = False
+                try:
+                    if kb_dir.is_dir() and f_resolved.is_relative_to(kb_dir):
+                        is_kb = True
+                except Exception:
+                    pass
 
-            if is_kb:
-                proj_name = "devops-cli-kb"
-                rel_base = kb_dir
-            else:
-                proj_name = project or detect_project_name(file_path, root_dir)
-                rel_base = root_dir.resolve()
+                if is_kb:
+                    proj_name = "devops-cli-kb"
+                    rel_base = kb_dir
+                else:
+                    proj_name = project or detect_project_name(file_path, root_dir)
+                    rel_base = root_dir.resolve()
 
-            try:
-                rel_path = str(f_resolved.relative_to(rel_base))
-            except ValueError:
-                rel_path = file_path.name
+                try:
+                    rel_path = str(f_resolved.relative_to(rel_base))
+                except ValueError:
+                    rel_path = file_path.name
 
-            cache_key = f"{proj_name}:{rel_path}"
+                cache_key = f"{proj_name}:{rel_path}"
 
-            try:
-                content = file_path.read_text(encoding="utf-8", errors="replace")
-                content_hash = SemanticChunker._hash_content(content)
-                file_hashes[cache_key] = content_hash
-            except Exception:
-                continue
+                try:
+                    content = file_path.read_text(encoding="utf-8", errors="replace")
+                    content_hash = SemanticChunker._hash_content(content)
+                    file_hashes[cache_key] = content_hash
+                except Exception:
+                    continue
 
-            if not force and cache.get(cache_key) == content_hash:
-                continue
+                if not force and cache.get(cache_key) == content_hash:
+                    continue
 
-            files_to_reindex.append((file_path, rel_path, proj_name))
-            file_chunks = self.chunker.chunk_file(
-                file_path, relative_to=rel_base, project_name=proj_name
-            )
-            all_chunks.extend(file_chunks)
+                files_to_reindex.append((file_path, rel_path, proj_name))
+                file_chunks = self.chunker.chunk_file(
+                    file_path, relative_to=rel_base, project_name=proj_name
+                )
+                all_chunks.extend(file_chunks)
 
-        # Purge files deleted from disk since last index (scoped to scanned projects)
-        removed_files_count = 0
-        if not force:
-            scanned_projects = {k.partition(":")[0] for k in file_hashes.keys()}
-            current_keys = set(file_hashes.keys())
-            deleted_keys = [
-                k
-                for k in cache
-                if k.partition(":")[0] in scanned_projects and k not in current_keys
-            ]
-            for dkey in deleted_keys:
-                dproj, _, d_rel_path = dkey.partition(":")
-                if d_rel_path:
+            # Purge files deleted from disk since last index (scoped to scanned projects)
+            removed_files_count = 0
+            if not force:
+                scanned_projects = {k.partition(":")[0] for k in file_hashes.keys()}
+                current_keys = set(file_hashes.keys())
+                deleted_keys = [
+                    k
+                    for k in cache
+                    if k.partition(":")[0] in scanned_projects and k not in current_keys
+                ]
+                for dkey in deleted_keys:
+                    dproj, _, d_rel_path = dkey.partition(":")
+                    if d_rel_path:
+                        self.qdrant.delete_points_by_file(
+                            self.code_collection, d_rel_path, project_name=dproj
+                        )
+                        self.qdrant.delete_points_by_file(
+                            self.docs_collection, d_rel_path, project_name=dproj
+                        )
+                        removed_files_count += 1
+                    del cache[dkey]
+                if deleted_keys:
+                    self._save_cache(cache)
+
+            if not all_chunks:
+                root_span.set_attribute("rag.indexed_files", 0)
+                root_span.set_attribute("rag.total_chunks", 0)
+                return {
+                    "indexed_files": 0,
+                    "total_chunks": 0,
+                    "code_chunks": 0,
+                    "doc_chunks": 0,
+                    "removed_files": removed_files_count,
+                    "skipped_files": len(files),
+                    "collections": [self.code_collection, self.docs_collection],
+                }
+
+            # Purge obsolete vectors for files that are being re-indexed (scoped to project)
+            for fpath, rel_fpath, fproj in files_to_reindex:
+                try:
                     self.qdrant.delete_points_by_file(
-                        self.code_collection, d_rel_path, project_name=dproj
+                        self.code_collection, rel_fpath, project_name=fproj
                     )
                     self.qdrant.delete_points_by_file(
-                        self.docs_collection, d_rel_path, project_name=dproj
+                        self.docs_collection, rel_fpath, project_name=fproj
                     )
-                    removed_files_count += 1
-                del cache[dkey]
-            if deleted_keys:
-                self._save_cache(cache)
+                except Exception as exc:
+                    logger.debug(
+                        "Failed to delete obsolete points for %s (%s): %s",
+                        rel_fpath,
+                        fproj,
+                        exc,
+                    )
 
-        if not all_chunks:
+            # Separate code vs doc chunks
+            code_chunks: list[CodeChunk] = []
+            doc_chunks: list[CodeChunk] = []
+
+            for chunk in all_chunks:
+                if chunk.category == "docs" or chunk.doc_type == "doc":
+                    doc_chunks.append(chunk)
+                else:
+                    code_chunks.append(chunk)
+
+            # Ensure collections exist in Qdrant with appropriate vector size
+            sample_emb = self.embedder.embed_query("test dimension probe")
+            dim = len(sample_emb)
+
+            if code_chunks:
+                self.qdrant.ensure_collection(self.code_collection, vector_size=dim)
+                self._upsert_chunk_batch(
+                    self.code_collection,
+                    code_chunks,
+                    progress_title="Indexing code chunks",
+                    progress_callback=progress_callback,
+                    cache=cache,
+                    file_hashes=file_hashes,
+                )
+
+            if doc_chunks:
+                self.qdrant.ensure_collection(self.docs_collection, vector_size=dim)
+                self._upsert_chunk_batch(
+                    self.docs_collection,
+                    doc_chunks,
+                    progress_title="Indexing doc chunks",
+                    progress_callback=progress_callback,
+                    cache=cache,
+                    file_hashes=file_hashes,
+                )
+
+            self._save_cache(cache)
+            record_metric("rag.indexed_chunks_count", float(len(all_chunks)), unit="1")
+            record_metric("rag.indexed_files_count", float(len(files_to_reindex)), unit="1")
+            root_span.set_attribute("rag.indexed_files", len(files_to_reindex))
+            root_span.set_attribute("rag.total_chunks", len(all_chunks))
+            root_span.set_attribute("rag.code_chunks", len(code_chunks))
+            root_span.set_attribute("rag.doc_chunks", len(doc_chunks))
+
             return {
-                "indexed_files": 0,
-                "total_chunks": 0,
-                "code_chunks": 0,
-                "doc_chunks": 0,
+                "indexed_files": len(files_to_reindex),
+                "total_chunks": len(all_chunks),
+                "code_chunks": len(code_chunks),
+                "doc_chunks": len(doc_chunks),
                 "removed_files": removed_files_count,
-                "skipped_files": len(files),
+                "skipped_files": len(files) - len(files_to_reindex),
                 "collections": [self.code_collection, self.docs_collection],
             }
-
-        # Purge obsolete vectors for files that are being re-indexed (scoped to project)
-        for fpath, rel_fpath, fproj in files_to_reindex:
-            try:
-                self.qdrant.delete_points_by_file(
-                    self.code_collection, rel_fpath, project_name=fproj
-                )
-                self.qdrant.delete_points_by_file(
-                    self.docs_collection, rel_fpath, project_name=fproj
-                )
-            except Exception as exc:
-                logger.debug(
-                    "Failed to delete obsolete points for %s (%s): %s",
-                    rel_fpath,
-                    fproj,
-                    exc,
-                )
-
-        # Separate code vs doc chunks
-        code_chunks: list[CodeChunk] = []
-        doc_chunks: list[CodeChunk] = []
-
-        for chunk in all_chunks:
-            if chunk.category == "docs" or chunk.doc_type == "doc":
-                doc_chunks.append(chunk)
-            else:
-                code_chunks.append(chunk)
-
-        # Ensure collections exist in Qdrant with appropriate vector size
-        sample_emb = self.embedder.embed_query("test dimension probe")
-        dim = len(sample_emb)
-
-        if code_chunks:
-            self.qdrant.ensure_collection(self.code_collection, vector_size=dim)
-            self._upsert_chunk_batch(
-                self.code_collection,
-                code_chunks,
-                progress_title="Indexing code chunks",
-                progress_callback=progress_callback,
-                cache=cache,
-                file_hashes=file_hashes,
-            )
-
-        if doc_chunks:
-            self.qdrant.ensure_collection(self.docs_collection, vector_size=dim)
-            self._upsert_chunk_batch(
-                self.docs_collection,
-                doc_chunks,
-                progress_title="Indexing doc chunks",
-                progress_callback=progress_callback,
-                cache=cache,
-                file_hashes=file_hashes,
-            )
-
-        self._save_cache(cache)
-        record_metric("rag.indexed_chunks_count", float(len(all_chunks)), unit="1")
-        record_metric("rag.indexed_files_count", float(len(files_to_reindex)), unit="1")
-
-        return {
-            "indexed_files": len(files_to_reindex),
-            "total_chunks": len(all_chunks),
-            "code_chunks": len(code_chunks),
-            "doc_chunks": len(doc_chunks),
-            "removed_files": removed_files_count,
-            "skipped_files": len(files) - len(files_to_reindex),
-            "collections": [self.code_collection, self.docs_collection],
-        }
 
     def _upsert_chunk_batch(
         self,
@@ -509,39 +520,50 @@ class WorkspaceIndexer:
         """Embed text and upsert points in batches into Qdrant, saving incremental cache."""
         total = len(chunks)
         ai_cfg = getattr(self.embedder, "ai_config", None)
-        urls_raw = getattr(ai_cfg, "get_ollama_urls", None)
-        urls = urls_raw if isinstance(urls_raw, list) else ["http://localhost:11434"]
-        max_par_raw = getattr(ai_cfg, "ollama_max_parallel", None)
-        max_par = max_par_raw if isinstance(max_par_raw, int) else 2
+        urls = (
+            ai_cfg.get_ollama_urls
+            if (ai_cfg and hasattr(ai_cfg, "get_ollama_urls"))
+            else ["http://localhost:11434"]
+        )
+        max_par = getattr(ai_cfg, "ollama_max_parallel", 2) if ai_cfg else 2
         effective_batch_size = max(batch_size, min(256, len(urls) * max_par * 32))
 
         for i in range(0, total, effective_batch_size):
             batch = chunks[i : i + effective_batch_size]
-            texts = [c.content for c in batch]
-            embeddings = self.embedder.embed_texts(texts)
+            with trace_span(
+                "ai.rag.upsert_chunk_batch",
+                attributes={
+                    "rag.collection_name": collection_name,
+                    "rag.batch_chunks_count": len(batch),
+                    "rag.batch_index": i // effective_batch_size,
+                    "rag.total_chunks": total,
+                },
+            ):
+                texts = [c.content for c in batch]
+                embeddings = self.embedder.embed_texts(texts)
 
-            points: list[dict[str, Any]] = []
-            for chunk, vec in zip(batch, embeddings, strict=False):
-                payload = {
-                    "file_path": chunk.file_path,
-                    "start_line": chunk.start_line,
-                    "end_line": chunk.end_line,
-                    "content": chunk.content,
-                    "language": chunk.language,
-                    "doc_type": chunk.doc_type,
-                    "category": chunk.category,
-                    "project_name": chunk.project_name,
-                    "section_path": chunk.section_path,
-                    "symbol_names": chunk.symbol_names,
-                    "metadata": chunk.metadata,
-                    "content_hash": chunk.content_hash,
-                }
-                points.append({"id": chunk.id, "vector": vec, "payload": payload})
+                points: list[dict[str, Any]] = []
+                for chunk, vec in zip(batch, embeddings, strict=False):
+                    payload = {
+                        "file_path": chunk.file_path,
+                        "start_line": chunk.start_line,
+                        "end_line": chunk.end_line,
+                        "content": chunk.content,
+                        "language": chunk.language,
+                        "doc_type": chunk.doc_type,
+                        "category": chunk.category,
+                        "project_name": chunk.project_name,
+                        "section_path": chunk.section_path,
+                        "symbol_names": chunk.symbol_names,
+                        "metadata": chunk.metadata,
+                        "content_hash": chunk.content_hash,
+                    }
+                    points.append({"id": chunk.id, "vector": vec, "payload": payload})
 
-            self.qdrant.upsert_points(collection_name, points)
+                self.qdrant.upsert_points(collection_name, points)
 
-            # Persist incremental progress to cache
-            _update_incremental_cache(cache, file_hashes, batch, self._save_cache)
+                # Persist incremental progress to cache
+                _update_incremental_cache(cache, file_hashes, batch, self._save_cache)
 
             if progress_callback:
                 progress_callback(progress_title, min(i + len(batch), total), total)

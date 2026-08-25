@@ -6,6 +6,7 @@ from typing import Annotated
 
 import typer
 
+from devops_cli.ai.mcp import list_mcp_tools, run_mcp_server
 from devops_cli.core.cli import new_typer
 from devops_cli.output import (
     print_error,
@@ -64,8 +65,6 @@ def serve_cmd(
         write_stderr("Starting FastMCP server (stdio) — devops-cli\n")
 
     try:
-        from devops_cli.ai.mcp import run_mcp_server
-
         run_mcp_server(transport=transport, host=host, port=port, allow_remote=allow_remote)
     except ValueError as exc:
         print_error(str(exc))
@@ -75,8 +74,6 @@ def serve_cmd(
 @app.command("tools")
 def tools_cmd() -> None:
     """List all registered FastMCP tools and descriptions."""
-    from devops_cli.ai.mcp import list_mcp_tools
-
     tools = list_mcp_tools()
     table = render_table(
         title="Registered FastMCP Tools (devops-cli)",

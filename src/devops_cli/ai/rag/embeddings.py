@@ -15,7 +15,12 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.config.settings import AIConfig
 from devops_cli.http.validation import validate_service_url
-from devops_cli.telemetry import ContextPropagatingThreadPoolExecutor as ThreadPoolExecutor
+from devops_cli.telemetry import (
+    ContextPropagatingThreadPoolExecutor as ThreadPoolExecutor,
+)
+from devops_cli.telemetry import (
+    trace_span,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -62,18 +67,27 @@ class EmbeddingsEngine:
         if not texts:
             return []
 
-        # Model-aware task prefixing for asymmetric models
-        prefixed_texts = self._apply_model_prefix(texts, is_query=is_query)
+        with trace_span(
+            "ai.rag.embed_texts",
+            attributes={
+                "rag.texts_count": len(texts),
+                "rag.model": str(self.model),
+                "rag.provider": str(self.ai_config.provider),
+                "rag.is_query": is_query,
+            },
+        ):
+            # Model-aware task prefixing for asymmetric models
+            prefixed_texts = self._apply_model_prefix(texts, is_query=is_query)
 
-        provider = self.ai_config.provider.lower()
-        api_base = self.ai_config.api_base_url or ""
-        if provider in ("openai", "copilot"):
-            return self._embed_openai(prefixed_texts)
-        if provider == "ollama" or (not provider and ":11434" in api_base):
-            return self._embed_ollama(prefixed_texts)
-        if self.ai_config.ollama_urls:
-            return self._embed_ollama(prefixed_texts)
-        return self._deterministic_fallback(prefixed_texts)
+            provider = self.ai_config.provider.lower()
+            api_base = self.ai_config.api_base_url or ""
+            if provider in ("openai", "copilot"):
+                return self._embed_openai(prefixed_texts)
+            if provider == "ollama" or (not provider and ":11434" in api_base):
+                return self._embed_ollama(prefixed_texts)
+            if self.ai_config.ollama_urls:
+                return self._embed_ollama(prefixed_texts)
+            return self._deterministic_fallback(prefixed_texts)
 
     def embed_query(self, text: str) -> list[float]:
         """Generate vector embedding for a single search query."""
@@ -101,31 +115,39 @@ class EmbeddingsEngine:
     ) -> list[list[float]] | None:
         """Attempt to fetch batch embeddings from a single Ollama node."""
         validate_service_url(base_url, "Ollama", allow=self.ai_config.allow_private_network)
-        with httpx2.Client(timeout=self.timeout) as client:
-            alt_endpoint = f"{base_url}/api/embed"
-            alt_payload = {"model": self.model, "input": batch_texts}
-            alt_res = client.post(alt_endpoint, json=alt_payload)
-            if alt_res.status_code == 200:
-                embs = alt_res.json().get("embeddings", [])
-                if embs and isinstance(embs, list) and len(embs) == len(batch_texts):
-                    return embs
+        with trace_span(
+            "ai.rag.ollama_embed_batch",
+            attributes={
+                "server.address": base_url,
+                "rag.batch_size": len(batch_texts),
+                "rag.model": str(self.model),
+            },
+        ):
+            with httpx2.Client(timeout=self.timeout) as client:
+                alt_endpoint = f"{base_url}/api/embed"
+                alt_payload = {"model": self.model, "input": batch_texts}
+                alt_res = client.post(alt_endpoint, json=alt_payload)
+                if alt_res.status_code == 200:
+                    embs = alt_res.json().get("embeddings", [])
+                    if embs and isinstance(embs, list) and len(embs) == len(batch_texts):
+                        return embs
 
-            # Fallback for single /api/embeddings endpoint
-            embs_fallback: list[list[float]] = []
-            for t in batch_texts:
-                endpoint = f"{base_url}/api/embeddings"
-                payload = {"model": self.model, "prompt": t}
-                res = client.post(endpoint, json=payload)
-                if res.status_code != 200:
-                    break
-                single_emb = res.json().get("embedding", [])
-                if not single_emb:
-                    break
-                embs_fallback.append(single_emb)
+                # Fallback for single /api/embeddings endpoint
+                embs_fallback: list[list[float]] = []
+                for t in batch_texts:
+                    endpoint = f"{base_url}/api/embeddings"
+                    payload = {"model": self.model, "prompt": t}
+                    res = client.post(endpoint, json=payload)
+                    if res.status_code != 200:
+                        break
+                    single_emb = res.json().get("embedding", [])
+                    if not single_emb:
+                        break
+                    embs_fallback.append(single_emb)
 
-            if len(embs_fallback) == len(batch_texts):
-                return embs_fallback
-        return None
+                if len(embs_fallback) == len(batch_texts):
+                    return embs_fallback
+            return None
 
     def _embed_ollama(self, texts: list[str]) -> list[list[float]]:
         """Compute Ollama embeddings with multi-node round-robin distribution and batching."""

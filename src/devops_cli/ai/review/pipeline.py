@@ -1206,6 +1206,7 @@ class ReviewPipelineOrchestrator:
 
             sanitized_name = _sanitize_filename(fpath) + ".json"
             json_target = self.files_dir / sanitized_name
+            json_target.parent.mkdir(parents=True, exist_ok=True)
             json_target.write_text(payload.model_dump_json(indent=2), encoding="utf-8")
 
             elapsed_sec = time.monotonic() - t_start
@@ -1383,6 +1384,7 @@ class ReviewPipelineOrchestrator:
 
             sanitized_name = _sanitize_filename(payload.file_path) + ".json"
             json_target = self.files_dir / sanitized_name
+            json_target.parent.mkdir(parents=True, exist_ok=True)
             json_target.write_text(payload.model_dump_json(indent=2), encoding="utf-8")
 
             handled_by = actual_backend or server_info
