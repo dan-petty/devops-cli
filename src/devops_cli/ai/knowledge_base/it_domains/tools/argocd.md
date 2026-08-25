@@ -108,4 +108,4 @@ spec:
 - **Project Homepage**: [argo-cd.readthedocs.io](https://argo-cd.readthedocs.io/)
 - **Public Git Repository**: [github.com/argoproj/argo-cd](https://github.com/argoproj/argo-cd)
 - **Published Container Image**: [quay.io/argoproj/argocd](https://quay.io/repository/argoproj/argocd)
-- **DevOps CLI ArgoCD Automation**: [src/devops_cli/commands/argo.py](../../../commands/argo.py)
+- **DevOps CLI ArgoCD Automation**: [src/devops_cli/commands/argo.py](../../../../commands/argo.py)

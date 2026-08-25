@@ -72,7 +72,7 @@ devops repos clone-org dan-petty
 
 - **Base Image**: `ghcr.io/dan-petty/devops-cli/devcontainer:latest`.
 - **Config Path**: `.devcontainer/devcontainer.json`.
-- **Documentation Guide**: [docs/DEVCONTAINER_USAGE.md](../../../../../docs/DEVCONTAINER_USAGE.md).
+- **Documentation Guide**: [docs/commands/devcontainer.md](../../../../../../docs/commands/devcontainer.md).
 
 ---
 
@@ -80,5 +80,5 @@ devops repos clone-org dan-petty
 
 - **DevContainer Specification**: [containers.dev](https://containers.dev/)
 - **Published DevContainer Package (GHCR)**: [`ghcr.io/dan-petty/devops-cli/devcontainer:latest`](https://github.com/dan-petty/devops-cli/pkgs/container/devops-cli%2Fdevcontainer)
-- **DevContainer CLI Module**: [src/devops_cli/commands/devcontainer.py](../../../commands/devcontainer.py)
-- **DevContainer Usage Guide**: [docs/DEVCONTAINER_USAGE.md](../../../../../docs/DEVCONTAINER_USAGE.md)
+- **DevContainer CLI Module**: [src/devops_cli/commands/devcontainer.py](../../../../commands/devcontainer.py)
+- **DevContainer Usage Guide**: [docs/commands/devcontainer.md](../../../../../../docs/commands/devcontainer.md)

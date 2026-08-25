@@ -86,5 +86,5 @@ devops review branch --export-md .data/reviews/review-report.md
 ## 7. Official References & Published Artifacts
 
 - **DevOps CLI Repository**: [github.com/dan-petty/devops-cli](https://github.com/dan-petty/devops-cli)
-- **Review Pipeline Engine**: [src/devops_cli/ai/review.py](../../review/)
-- **Persona Prompt Task Definitions**: [src/devops_cli/ai/tasks/](../../../ai/tasks/)
+- **Review Pipeline Engine**: [src/devops_cli/ai/review/pipeline.py](../../../../ai/review/pipeline.py)
+- **Persona Prompt Task Definitions**: [src/devops_cli/ai/tasks/](../../../../ai/tasks/)

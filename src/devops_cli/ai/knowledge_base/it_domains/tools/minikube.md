@@ -88,4 +88,4 @@ minikube delete --all --purge
 - **Project Homepage**: [minikube.sigs.k8s.io](https://minikube.sigs.k8s.io/)
 - **Public Git Repository**: [github.com/kubernetes/minikube](https://github.com/kubernetes/minikube)
 - **Official Minikube Releases**: [github.com/kubernetes/minikube/releases](https://github.com/kubernetes/minikube/releases)
-- **DevOps CLI Minikube Bootstrap**: [src/devops_cli/commands/k8s.py](../../../commands/k8s.py)
+- **DevOps CLI Minikube Bootstrap**: [src/devops_cli/commands/k8s.py](../../../../commands/k8s.py)

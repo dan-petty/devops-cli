@@ -71,5 +71,5 @@ curl -s http://localhost:8000/metrics
 
 - **OpenTelemetry Standard**: [opentelemetry.io](https://opentelemetry.io/)
 - **Prometheus Metrics Specification**: [prometheus.io/docs/concepts/metric_types/](https://prometheus.io/docs/concepts/metric_types/)
-- **DevOps CLI Telemetry Tracer**: [src/devops_cli/telemetry/tracer.py](../../../telemetry/tracer.py)
-- **Telemetry Command Module**: [src/devops_cli/commands/telemetry.py](../../../commands/telemetry.py)
+- **DevOps CLI Telemetry Tracer**: [src/devops_cli/telemetry/tracer.py](../../../../telemetry/tracer.py)
+- **Telemetry Command Module**: [src/devops_cli/commands/telemetry.py](../../../../commands/telemetry.py)

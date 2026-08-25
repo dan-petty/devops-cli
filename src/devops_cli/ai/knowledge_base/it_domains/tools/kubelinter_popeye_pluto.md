@@ -83,6 +83,6 @@ pluto detect-helm -A
 - **Popeye Homepage**: [popeyecli.io](https://popeyecli.io/) | [github.com/derailed/popeye](https://github.com/derailed/popeye)
 - **Pluto Homepage**: [pluto.docs.fairwinds.com](https://pluto.docs.fairwinds.com/) | [github.com/FairwindsOps/pluto](https://github.com/FairwindsOps/pluto)
 - **DevOps CLI Kubernetes Audit Engines**:
-  - [src/devops_cli/security/kubelinter.py](../../../security/kubelinter.py)
-  - [src/devops_cli/security/popeye.py](../../../security/popeye.py)
-  - [src/devops_cli/security/pluto.py](../../../security/pluto.py)
+  - [src/devops_cli/security/kubelinter.py](../../../../security/kubelinter.py)
+  - [src/devops_cli/security/popeye.py](../../../../security/popeye.py)
+  - [src/devops_cli/security/pluto.py](../../../../security/pluto.py)

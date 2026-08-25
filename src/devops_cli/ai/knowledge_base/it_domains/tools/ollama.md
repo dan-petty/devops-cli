@@ -90,4 +90,4 @@ curl http://localhost:11434/api/embeddings -d '{
 - **Project Homepage**: [ollama.com](https://ollama.com/)
 - **Public Git Repository**: [github.com/ollama/ollama](https://github.com/ollama/ollama)
 - **Official Model Library**: [ollama.com/library](https://ollama.com/library)
-- **DevOps CLI Model Bundler**: [src/devops_cli/ai/model_bundler.py](../../../ai/model_bundler.py)
+- **DevOps CLI Model Bundler**: [src/devops_cli/ai/model_bundler.py](../../../model_bundler.py)

@@ -70,6 +70,6 @@ devops devcontainer post-create
 
 ## 7. Official References & Published Artifacts
 
-- **DevOps CLI Agent Guidelines**: [AGENTS.md](../../../../../AGENTS.md)
-- **Instruction Generator Module**: [src/devops_cli/ai/instruction_generator.py](../../../ai/instruction_generator.py)
-- **AI Command Module**: [src/devops_cli/commands/ai.py](../../../commands/ai.py)
+- **DevOps CLI Agent Guidelines**: [AGENTS.md](../../../../../../AGENTS.md)
+- **Instruction Generator Module**: [src/devops_cli/ai/instruction_generator.py](../../../instruction_generator.py)
+- **AI Command Module**: [src/devops_cli/commands/ai.py](../../../../commands/ai.py)

@@ -86,4 +86,4 @@ devops scan pluto k8s/
 - **ArgoCD GitOps Project**: [argo-cd.readthedocs.io](https://argo-cd.readthedocs.io/) | [github.com/argoproj/argo-cd](https://github.com/argoproj/argo-cd)
 - **Helm Documentation**: [helm.sh](https://helm.sh/) | [github.com/helm/helm](https://github.com/helm/helm)
 - **Minikube Project**: [minikube.sigs.k8s.io](https://minikube.sigs.k8s.io/) | [github.com/kubernetes/minikube](https://github.com/kubernetes/minikube)
-- **DevOps CLI Kubernetes Subsystem**: [src/devops_cli/commands/k8s.py](../../../commands/k8s.py)
+- **DevOps CLI Kubernetes Subsystem**: [src/devops_cli/commands/k8s.py](../../../../commands/k8s.py)

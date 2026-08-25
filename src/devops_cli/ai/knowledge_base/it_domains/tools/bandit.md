@@ -83,4 +83,4 @@ bandit -r src/ -f json -o bandit-report.json
 - **Project Homepage**: [bandit.readthedocs.io](https://bandit.readthedocs.io/)
 - **Public Git Repository**: [github.com/PyCQA/bandit](https://github.com/PyCQA/bandit)
 - **Official PyPI Package**: [pypi.org/project/bandit](https://pypi.org/project/bandit/)
-- **DevOps CLI Bandit Scanner**: [src/devops_cli/security/bandit.py](../../../security/bandit.py)
+- **DevOps CLI Bandit Scanner**: [src/devops_cli/security/bandit.py](../../../../security/bandit.py)

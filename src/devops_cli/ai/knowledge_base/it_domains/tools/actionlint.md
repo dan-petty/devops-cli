@@ -70,4 +70,4 @@ actionlint -format '{{json .}}'
 
 - **Project Homepage & Repo**: [github.com/rhysd/actionlint](https://github.com/rhysd/actionlint)
 - **Official Releases**: [github.com/rhysd/actionlint/releases](https://github.com/rhysd/actionlint/releases)
-- **DevOps CLI CI Gate**: [src/devops_cli/commands/ci.py](../../../commands/ci.py)
+- **DevOps CLI CI Gate**: [src/devops_cli/commands/ci.py](../../../../commands/ci.py)

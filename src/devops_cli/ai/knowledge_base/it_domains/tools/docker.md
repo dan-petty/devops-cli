@@ -76,4 +76,4 @@ docker logs -f --tail 100 <container_id>
 - **Project Homepage**: [Docker Documentation](https://docs.docker.com/)
 - **Public Git Repository**: [github.com/moby/moby](https://github.com/moby/moby)
 - **Published Container Package (GHCR)**: [`ghcr.io/dan-petty/devops-cli/devcontainer:latest`](https://github.com/dan-petty/devops-cli/pkgs/container/devops-cli%2Fdevcontainer)
-- **DevOps CLI Docker Engine**: [src/devops_cli/commands/docker.py](../../../commands/docker.py)
+- **DevOps CLI Docker Engine**: [src/devops_cli/commands/docker.py](../../../../commands/docker.py)

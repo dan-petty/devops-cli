@@ -90,4 +90,4 @@ helm uninstall prometheus -n monitoring
 - **Project Homepage**: [helm.sh](https://helm.sh/)
 - **Public Git Repository**: [github.com/helm/helm](https://github.com/helm/helm)
 - **Artifact Hub (Charts)**: [artifacthub.io](https://artifacthub.io/)
-- **DevOps CLI Stack Deployment**: [src/devops_cli/commands/k8s.py](../../../commands/k8s.py)
+- **DevOps CLI Stack Deployment**: [src/devops_cli/commands/k8s.py](../../../../commands/k8s.py)

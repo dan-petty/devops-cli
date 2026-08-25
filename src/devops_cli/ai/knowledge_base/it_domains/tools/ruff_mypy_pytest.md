@@ -86,7 +86,7 @@ uv run pytest --cov=src/devops_cli --cov-report=html:coverage_html
 
 ## 6. General Standards & Reference Guidelines
 
-- **Config File**: All tool configurations reside centrally in [`pyproject.toml`](../../../../../pyproject.toml).
+- **Config File**: All tool configurations reside centrally in [`pyproject.toml`](../../../../../../pyproject.toml).
 - **Test File Naming**: All test modules must be named `tests/test_<feature>.py`.
 
 ---
@@ -100,4 +100,4 @@ uv run pytest --cov=src/devops_cli --cov-report=html:coverage_html
   - [pypi.org/project/ruff](https://pypi.org/project/ruff/)
   - [pypi.org/project/mypy](https://pypi.org/project/mypy/)
   - [pypi.org/project/pytest](https://pypi.org/project/pytest/)
-- **DevOps CLI CI Quality Command**: [src/devops_cli/commands/ci.py](../../../commands/ci.py)
+- **DevOps CLI CI Quality Command**: [src/devops_cli/commands/ci.py](../../../../commands/ci.py)

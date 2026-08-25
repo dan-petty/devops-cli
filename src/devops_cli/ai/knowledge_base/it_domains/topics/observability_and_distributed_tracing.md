@@ -94,4 +94,4 @@ curl -s http://localhost:8000/metrics
 - **Jaeger Tracing Project**: [jaegertracing.io](https://www.jaegertracing.io/) | [github.com/jaegertracing/jaeger](https://github.com/jaegertracing/jaeger)
 - **Prometheus Monitoring**: [prometheus.io](https://prometheus.io/) | [github.com/prometheus/prometheus](https://github.com/prometheus/prometheus)
 - **Grafana Visualization**: [grafana.com](https://grafana.com/) | [github.com/grafana/grafana](https://github.com/grafana/grafana)
-- **DevOps CLI Telemetry Subsystem**: [src/devops_cli/telemetry/tracer.py](../../../telemetry/tracer.py)
+- **DevOps CLI Telemetry Subsystem**: [src/devops_cli/telemetry/tracer.py](../../../../telemetry/tracer.py)

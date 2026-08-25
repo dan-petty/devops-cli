@@ -60,7 +60,7 @@ devops release create-pr --version 0.2.0
 
 1. **Maintain Atomic Commits**: Keep commits focused and cohesive with clear Conventional Commit messages.
 2. **Synchronize Documentation**: Always execute `devops docs generate --sync-readme` when adding new commands or options before cutting a release.
-3. **Document in Release Notes**: Record all additions, fixes, and refactorings in `docs/RELEASE_NOTES.md` under the appropriate version header.
+3. **Document in Release Notes**: Record all additions, fixes, and refactorings in `docs/commands/release.md` under the appropriate version header.
 4. **Human-in-the-Loop Governance**: AI assistants prepare clean commits and open PRs; merging into protected branches (`main`) requires human maintainer approval.
 5. **Strict Path Boundary Verification**: Release operations (`bump`, `prepare`, `status`, `notes`) must validate that target files (`CHANGELOG.md`, `pyproject.toml`) reside strictly within the repository root (`Path.is_relative_to`) to prevent path traversal writes.
 
@@ -86,5 +86,5 @@ devops release create-pr --version 0.2.0
 - **Semantic Versioning 2.0.0**: [semver.org](https://semver.org/)
 - **Conventional Commits**: [conventionalcommits.org](https://www.conventionalcommits.org/)
 - **DevOps CLI GitHub Releases**: [github.com/dan-petty/devops-cli/releases](https://github.com/dan-petty/devops-cli/releases)
-- **Release Module**: [src/devops_cli/commands/release.py](../../../commands/release.py)
-- **Release Notes**: [docs/RELEASE_NOTES.md](../../../../../docs/RELEASE_NOTES.md)
+- **Release Module**: [src/devops_cli/commands/release.py](../../../../commands/release.py)
+- **Release Notes**: [docs/commands/release.md](../../../../../../docs/commands/release.md)

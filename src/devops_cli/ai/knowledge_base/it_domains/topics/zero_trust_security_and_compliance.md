@@ -82,8 +82,8 @@ uv audit
 
 ## 7. Official References & Published Artifacts
 
-- **DevOps CLI Security Module**: [src/devops_cli/security/](../../../security/)
-- **SSH Audit Subsystem**: [src/devops_cli/ssh/audit.py](../../../commands/ssh.py)
+- **DevOps CLI Security Module**: [src/devops_cli/security/](../../../../security)
+- **SSH Audit Subsystem**: [src/devops_cli/commands/ssh.py](../../../../commands/ssh.py)
 - **Aqua Security Trivy**: [github.com/aquasecurity/trivy](https://github.com/aquasecurity/trivy)
 - **PyCQA Bandit**: [github.com/PyCQA/bandit](https://github.com/PyCQA/bandit)
 - **Python Keyring Library**: [github.com/jaraco/keyring](https://github.com/jaraco/keyring)

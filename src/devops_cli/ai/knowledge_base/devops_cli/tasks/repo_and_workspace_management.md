@@ -73,5 +73,5 @@ devops workspace list
 ## 7. Official References & Published Artifacts
 
 - **DevOps CLI Repository**: [github.com/dan-petty/devops-cli](https://github.com/dan-petty/devops-cli)
-- **DevOps CLI Workspace Module**: [src/devops_cli/commands/workspace.py](../../../commands/workspace.py)
-- **DevOps CLI Repos Module**: [src/devops_cli/commands/repos.py](../../../commands/repos.py)
+- **DevOps CLI Workspace Module**: [src/devops_cli/commands/workspace.py](../../../../commands/workspace.py)
+- **DevOps CLI Repos Module**: [src/devops_cli/commands/repos.py](../../../../commands/repos.py)

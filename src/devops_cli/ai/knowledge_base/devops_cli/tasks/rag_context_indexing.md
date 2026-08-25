@@ -69,5 +69,5 @@ devops rag clear
 ## 7. Official References & Published Artifacts
 
 - **Ollama Nomic Embed Text Model**: [ollama.com/library/nomic-embed-text](https://ollama.com/library/nomic-embed-text)
-- **DevOps CLI RAG Subsystem**: [src/devops_cli/rag/](../../rag/)
-- **RAG Command Module**: [src/devops_cli/commands/rag.py](../../../commands/rag.py)
+- **DevOps CLI RAG Subsystem**: [src/devops_cli/ai/rag/](../../../../ai/rag/)
+- **RAG Command Module**: [src/devops_cli/commands/ai.py](../../../../commands/ai.py)

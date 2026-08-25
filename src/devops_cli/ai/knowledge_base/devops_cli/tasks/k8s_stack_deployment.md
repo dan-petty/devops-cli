@@ -87,4 +87,4 @@ devops k8s teardown-stack monitoring
 - **Grafana Community Charts**: [github.com/grafana/helm-charts](https://github.com/grafana/helm-charts)
 - **ArgoCD Official Charts**: [github.com/argoproj/argo-helm](https://github.com/argoproj/argo-helm)
 - **Jaeger Operator Charts**: [github.com/jaegertracing/helm-charts](https://github.com/jaegertracing/helm-charts)
-- **DevOps CLI Kubernetes Module**: [src/devops_cli/commands/k8s.py](../../../commands/k8s.py)
+- **DevOps CLI Kubernetes Module**: [src/devops_cli/commands/k8s.py](../../../../commands/k8s.py)

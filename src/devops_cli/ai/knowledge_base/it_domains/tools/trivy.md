@@ -76,4 +76,4 @@ trivy image --ignore-unfixed ghcr.io/dan-petty/devops-cli/devcontainer:latest
 - **Project Homepage**: [trivy.dev](https://trivy.dev/)
 - **Public Git Repository**: [github.com/aquasecurity/trivy](https://github.com/aquasecurity/trivy)
 - **Published Container Image**: [hub.docker.com/r/aquasec/trivy](https://hub.docker.com/r/aquasec/trivy)
-- **DevOps CLI Scanner Engine**: [src/devops_cli/security/trivy.py](../../../security/trivy.py)
+- **DevOps CLI Scanner Engine**: [src/devops_cli/security/trivy.py](../../../../security/trivy.py)

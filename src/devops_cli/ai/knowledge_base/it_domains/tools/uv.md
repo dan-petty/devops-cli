@@ -86,4 +86,4 @@ uv audit
 - **Public Git Repository**: [github.com/astral-sh/uv](https://github.com/astral-sh/uv)
 - **Official PyPI Package**: [pypi.org/project/uv](https://pypi.org/project/uv/)
 - **Binary Releases**: [github.com/astral-sh/uv/releases](https://github.com/astral-sh/uv/releases)
-- **DevOps CLI uv Wrapper**: [src/devops_cli/commands/uv.py](../../../commands/uv.py)
+- **DevOps CLI uv Wrapper**: [src/devops_cli/commands/uv.py](../../../../commands/uv.py)
