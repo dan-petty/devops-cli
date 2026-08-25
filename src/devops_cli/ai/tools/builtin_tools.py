@@ -101,8 +101,17 @@ def read_file(
     max_bytes: int = DEFAULT_TOOL_READ_MAX_BYTES,
 ) -> str:
     """Read contents of a text file from byte offset up to max_bytes with paging support."""
-    max_bytes = max(1, min(max_bytes, DEFAULT_TOOL_MAX_BYTES_LIMIT))
-    offset = max(0, offset)
+    try:
+        parsed_offset = int(offset)
+    except ValueError, TypeError:
+        parsed_offset = 0
+    try:
+        parsed_max_bytes = int(max_bytes)
+    except ValueError, TypeError:
+        parsed_max_bytes = DEFAULT_TOOL_READ_MAX_BYTES
+
+    max_bytes = max(1, min(parsed_max_bytes, DEFAULT_TOOL_MAX_BYTES_LIMIT))
+    offset = max(0, parsed_offset)
     file_path = Path(path).resolve()
     if not _is_safe_workspace_path(file_path):
         logger.warning("Access denied attempting to read path outside workspace: %s", path)
