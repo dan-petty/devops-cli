@@ -13,6 +13,7 @@ from devops_cli import (
     get_version,
     load_project_metadata,
 )
+from devops_cli.config.metadata import _parse_python_version
 
 
 def test_load_project_metadata_authoritative() -> None:
@@ -54,3 +55,10 @@ requires-python = ">=3.13"
     assert meta.description == "Custom Tool Description"
     assert meta.python_version == "3.13"
     assert meta.requires_python == ">=3.13"
+
+
+def test_parse_python_version() -> None:
+    """Verify _parse_python_version handling of various specifiers."""
+    assert _parse_python_version(">=3.14.0") == "3.14.0"
+    assert _parse_python_version("3.14") == "3.14"
+    assert _parse_python_version(">=3.13") == "3.13"

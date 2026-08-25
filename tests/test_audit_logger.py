@@ -1,11 +1,13 @@
-"""Tests for SIEM audit trail logger."""
+"""Tests for SIEM audit trail logger and log destination resolution."""
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
-from devops_cli.core.audit import record_audit_event
+import pytest
+
+from devops_cli.core.audit import _resolve_audit_log_dest, record_audit_event
 
 
 def test_record_audit_event(tmp_path: Path) -> None:
@@ -28,3 +30,15 @@ def test_record_audit_event(tmp_path: Path) -> None:
     data = json.loads(lines[0])
     assert data["command"] == "devops k8s contexts"
     assert data["status"] == "SUCCESS"
+
+
+def test_resolve_audit_log_dest(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify _resolve_audit_log_dest boundaries and safety checks."""
+    monkeypatch.setenv("DEVOPS_CLI_AUDIT_LOG_DEST", str(tmp_path / ".data" / "custom.jsonl"))
+    monkeypatch.setattr("devops_cli.core.audit.CONST_DATA_DIR", tmp_path / ".data")
+    dest = _resolve_audit_log_dest(None)
+    assert dest == tmp_path / ".data" / "custom.jsonl"
+
+    monkeypatch.setenv("DEVOPS_CLI_AUDIT_LOG_DEST", "/etc/passwd")
+    with pytest.raises(ValueError, match="must be within"):
+        _resolve_audit_log_dest(None)

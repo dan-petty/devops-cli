@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
+from unittest.mock import patch
 
 from typer.testing import CliRunner
 
 from devops_cli.commands.tls import app
 from devops_cli.crypto.tls_certificates import generate_ca_certificate, generate_server_certificate
+from devops_cli.models.tls import CertificateInfo
 
 runner = CliRunner()
 
@@ -109,3 +112,58 @@ def test_tls_enable_k8s_dry_run(tmp_path: Path) -> None:
         assert "apply_k8s_tls_secrets" in result.output
     finally:
         set_dry_run(False)
+
+
+def test_tls_commands_mocked(tmp_path: Path) -> None:
+    """Verify tls ca, cert, and inspect commands with mock crypto functions."""
+    ca_cert = tmp_path / "ca.crt"
+    ca_key = tmp_path / "ca.key"
+    srv_cert = tmp_path / "srv.crt"
+    srv_key = tmp_path / "srv.key"
+
+    mock_info = CertificateInfo(
+        subject={"CN": "example.com"},
+        issuer={"CN": "Test CA"},
+        not_before=datetime.now(UTC),
+        not_after=datetime.now(UTC),
+        sans_dns=["example.com"],
+        serial_number="12345",
+        signature_algorithm="sha256WithRSAEncryption",
+        is_ca=False,
+    )
+
+    with (
+        patch(
+            "devops_cli.commands.tls.generate_ca_certificate",
+            return_value=(ca_cert, ca_key),
+        ),
+        patch(
+            "devops_cli.commands.tls.generate_server_certificate",
+            return_value=(srv_cert, srv_key, srv_cert),
+        ),
+        patch("devops_cli.commands.tls.inspect_certificate", return_value=mock_info),
+    ):
+        res_ca = runner.invoke(app, ["ca", "--output-dir", str(tmp_path)])
+        assert res_ca.exit_code == 0
+
+        res_cert = runner.invoke(
+            app,
+            [
+                "cert",
+                "--common-name",
+                "example.com",
+                "--ca-cert",
+                str(ca_cert),
+                "--ca-key",
+                str(ca_key),
+                "--output-dir",
+                str(tmp_path),
+            ],
+        )
+        assert res_cert.exit_code == 0
+
+        srv_cert.write_text(
+            "-----BEGIN CERTIFICATE-----\n-----END CERTIFICATE-----", encoding="utf-8"
+        )
+        res_insp = runner.invoke(app, ["inspect", str(srv_cert)])
+        assert res_insp.exit_code == 0

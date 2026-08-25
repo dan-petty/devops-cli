@@ -1,19 +1,22 @@
-"""Comprehensive unit tests covering review CLI workflows."""
+"""Unit tests covering the devops review CLI subcommands and workflows."""
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 from typer.testing import CliRunner
 
+from devops_cli.ai.review_schema import ReviewSessionPayload
 from devops_cli.commands.review import app as review_app
 
 runner = CliRunner()
 
 
 def test_review_explain() -> None:
+    """Verify review subcommands with --explain flag."""
     res = runner.invoke(review_app, ["path", "--explain"])
     assert res.exit_code == 0
 
@@ -25,6 +28,7 @@ def test_review_explain() -> None:
 
 
 def test_review_path_workflow(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify devops review path workflow execution."""
     monkeypatch.setattr(
         "devops_cli.core.validation.validate_service_url", lambda *args, **kwargs: None
     )
@@ -45,6 +49,7 @@ def test_review_path_workflow(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
 
 
 def test_review_branch_workflow(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify devops review branch workflow execution."""
     monkeypatch.setattr(
         "devops_cli.core.validation.validate_service_url", lambda *args, **kwargs: None
     )
@@ -63,6 +68,7 @@ def test_review_branch_workflow(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
 
 
 def test_review_pr_workflow(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify devops review pr workflow execution."""
     monkeypatch.setattr(
         "devops_cli.core.validation.validate_service_url", lambda *args, **kwargs: None
     )
@@ -83,6 +89,46 @@ def test_review_pr_workflow(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
 
 
 def test_review_verify_and_apply_patch(tmp_path: Path) -> None:
+    """Verify apply-patch subcommand execution."""
     with patch("devops_cli.commands.review.stage_finding_patch", return_value=True):
         res_patch = runner.invoke(review_app, ["apply-patch", "session-123", "--index", "1"])
         assert res_patch.exit_code == 0
+
+
+def test_review_findings_stats_export_feedback(tmp_path: Path) -> None:
+    """Verify review findings, stats, and export-feedback subcommands."""
+    session_dir = tmp_path / "session_1"
+    session_dir.mkdir()
+    findings_file = session_dir / "findings.json"
+    session_payload = ReviewSessionPayload(
+        target_type="path",
+        target_ref=str(tmp_path),
+        findings=[],
+        generated_at=datetime.now(UTC).isoformat(),
+    )
+    findings_file.write_text(session_payload.model_dump_json(), encoding="utf-8")
+
+    with (
+        patch("devops_cli.commands.review._find_session_dir", return_value=session_dir),
+        patch(
+            "devops_cli.commands.review.export_invalidated_feedback",
+            return_value=(1, tmp_path / "fb.jsonl"),
+        ),
+    ):
+        res_find = runner.invoke(review_app, ["findings"])
+        assert res_find.exit_code == 0
+
+        res_stats = runner.invoke(review_app, ["stats"])
+        assert res_stats.exit_code == 0
+
+        res_fb = runner.invoke(
+            review_app,
+            [
+                "export-feedback",
+                "--reviews-dir",
+                str(tmp_path),
+                "--output",
+                str(tmp_path / "fb.jsonl"),
+            ],
+        )
+        assert res_fb.exit_code == 0

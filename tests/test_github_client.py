@@ -1,12 +1,76 @@
-"""Tests for the GitHub client wrapper."""
+"""Tests for the GitHub client wrapper and repository models."""
 
 from __future__ import annotations
 
 from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 from github.GithubException import UnknownObjectException
 
-from devops_cli.github.client import GitHubClient
+from devops_cli.github.client import GitHubClient, RepoInfo
+
+
+def test_repo_info_model() -> None:
+    """Verify RepoInfo Pydantic model initialization."""
+    info = RepoInfo(
+        name="test",
+        full_name="org/test",
+        ssh_url="git@github.com:org/test.git",
+        clone_url="https://github.com/org/test.git",
+        private=True,
+        fork=False,
+        archived=False,
+    )
+    assert info.name == "test"
+    assert info.private is True
+
+
+def test_github_client_operations() -> None:
+    """Verify GitHubClient get_org_repos, SSH key management, and PR lookups."""
+    mock_gh = MagicMock()
+    mock_user = MagicMock()
+    mock_user.login = "test-user"
+    mock_key = MagicMock()
+    mock_key.id = 1
+    mock_key.title = "key1"
+    mock_key.key = "ssh-ed25519 AAA..."
+    mock_user.get_keys.return_value = [mock_key]
+    mock_created_key = MagicMock()
+    mock_created_key.id = 2
+    mock_user.create_key.return_value = mock_created_key
+    mock_gh.get_user.return_value = mock_user
+
+    mock_repo = MagicMock()
+    mock_repo.name = "repo1"
+    mock_repo.full_name = "test-org/repo1"
+    mock_repo.ssh_url = "git@github.com:test-org/repo1.git"
+    mock_repo.clone_url = "https://github.com/test-org/repo1.git"
+    mock_repo.private = False
+    mock_repo.fork = False
+    mock_repo.archived = False
+
+    mock_org = MagicMock()
+    mock_org.get_repos.return_value = [mock_repo]
+    mock_gh.get_organization.return_value = mock_org
+
+    with patch("github.Github", return_value=mock_gh):
+        client = GitHubClient("token123")
+        repos = client.get_org_repos("test-org")
+        assert len(repos) == 1
+        assert repos[0].name == "repo1"
+
+        keys = client.get_user_ssh_keys()
+        assert len(keys) == 1
+        assert keys[0].id == 1
+
+        new_key_id = client.add_user_ssh_key("new_key", "ssh-ed25519 AAA...")
+        assert new_key_id == 2
+
+        client.delete_user_ssh_key(1)
+        mock_user.get_key.assert_called_with(1)
+
+        _ = client.get_pull("test-org/repo1", 42)
+        mock_gh.get_repo.assert_called_with("test-org/repo1")
 
 
 def test_get_org_repos_falls_back_to_authenticated_user_login() -> None:

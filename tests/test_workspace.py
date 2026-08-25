@@ -1,4 +1,4 @@
-"""Tests for workspace file generation."""
+"""Tests for workspace subcommands and multi-root workspace file generation."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 
 from typer.testing import CliRunner
 
+from devops_cli.commands.workspace import app as workspace_app
 from devops_cli.commands.workspace import sync_from_repos
 from devops_cli.config.defaults import DEFAULT_SUBPROCESS_SHORT_TIMEOUT_SECONDS
 from devops_cli.main import app
@@ -83,3 +84,21 @@ def test_workspace_open_resolves_default_workspace_file_from_project_root(tmp_pa
         check=True,
         timeout=DEFAULT_SUBPROCESS_SHORT_TIMEOUT_SECONDS,
     )
+
+
+def test_workspace_add_remove_commands(tmp_path: Path) -> None:
+    """Verify workspace add, remove, and generate subcommands."""
+    ws_file = tmp_path / "test.code-workspace"
+    ws_file.write_text(json.dumps({"folders": [{"path": "."}]}), encoding="utf-8")
+
+    with patch("devops_cli.commands.workspace._PROJECT_ROOT", tmp_path):
+        res_add = runner.invoke(workspace_app, ["add", str(tmp_path), "--workspace", str(ws_file)])
+        assert res_add.exit_code == 0
+
+        res_remove = runner.invoke(
+            workspace_app, ["remove", str(tmp_path), "--workspace", str(ws_file)]
+        )
+        assert res_remove.exit_code == 0
+
+        res_gen = runner.invoke(workspace_app, ["generate", "--workspace", str(ws_file)])
+        assert res_gen.exit_code == 0

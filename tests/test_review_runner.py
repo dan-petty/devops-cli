@@ -1,3 +1,5 @@
+"""Unit tests for AI review runner, prompt construction, and session persistence."""
+
 from __future__ import annotations
 
 import json
@@ -44,6 +46,7 @@ from devops_cli.models.vulnerability import DependencySpec, NetworkReference
 
 
 def test_rendering_helpers() -> None:
+    """Verify rendering of structured review results and raw markdown."""
     persona_def = PERSONAS[Persona.DEVSECOPS]
     finding = Finding(
         severity="HIGH",
@@ -86,6 +89,7 @@ def test_rendering_helpers() -> None:
 
 
 def test_runner_file_and_repo_helpers(tmp_path: Path) -> None:
+    """Verify runner repository traversal, git boundary, and agents.md loading."""
     st = Settings()
     st.repos.base_dir = tmp_path
     repo_dir = tmp_path / "repo"
@@ -113,6 +117,7 @@ def test_runner_file_and_repo_helpers(tmp_path: Path) -> None:
 
 
 def test_runner_persona_and_prompts() -> None:
+    """Verify persona filtering and prompt generation logic."""
     personas = _personas_to_run(all_personas=True, persona=None)
     assert len(personas) == 5
 
@@ -136,6 +141,7 @@ def test_runner_persona_and_prompts() -> None:
 
 
 def test_runner_session_persistence(tmp_path: Path) -> None:
+    """Verify saving of persona reviews, findings, segments, and summaries."""
     base_dir = _get_reviews_base_dir()
     assert base_dir.exists()
 
@@ -170,6 +176,7 @@ def test_runner_session_persistence(tmp_path: Path) -> None:
 
 
 def test_make_and_resolve_review_clients() -> None:
+    """Verify review client factory functions."""
     st = Settings()
     clients = _make_review_clients(st)
     assert isinstance(clients, ReviewClients)
@@ -179,6 +186,7 @@ def test_make_and_resolve_review_clients() -> None:
 
 
 def test_prepare_content_helpers(tmp_path: Path) -> None:
+    """Verify content preparation for paths, branches, and PRs."""
     test_file = Path("src/devops_cli/main.py")
 
     pages, title, agents_md = _prepare_path_content(test_file, "*")
@@ -211,6 +219,7 @@ def test_prepare_content_helpers(tmp_path: Path) -> None:
 
 
 def test_run_review_and_persona_loop(tmp_path: Path) -> None:
+    """Verify review execution and persona multi-step loop."""
     valid_json_response = json.dumps(
         {
             "findings": [

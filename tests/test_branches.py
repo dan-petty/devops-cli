@@ -1,10 +1,18 @@
-"""Tests for branches commands."""
+"""Tests for branches commands and branch naming logic."""
 
 from __future__ import annotations
 
 import re
+from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
+from typer.testing import CliRunner
+
+from devops_cli.commands.branches import app as branches_app
+from devops_cli.main import app as main_app
+
+runner = CliRunner()
 
 
 def _make_branch(ticket_id: str, slug: str | None = None) -> str:
@@ -51,3 +59,24 @@ def test_jira_id_validation(ticket_id: str, valid: bool) -> None:
 )
 def test_branch_name_generation(ticket_id: str, slug: str | None, expected: str) -> None:
     assert _make_branch(ticket_id, slug) == expected
+
+
+def test_branches_commands(tmp_path: Path) -> None:
+    """Verify branches list and delete-merged subcommands."""
+    (tmp_path / ".git").mkdir()
+    with (
+        patch("devops_cli.core.repo.find_repo_root", return_value=tmp_path),
+        patch(
+            "devops_cli.git.operations.list_branches",
+            return_value=MagicMock(branches=["main", "feat/test"], current="main"),
+        ),
+        patch("devops_cli.git.operations.delete_merged_branches", return_value=["feat/test"]),
+    ):
+        res_list = runner.invoke(main_app, ["--dry-run", "branches", "list"])
+        assert res_list.exit_code == 0
+
+        res_del = runner.invoke(main_app, ["--dry-run", "branches", "delete-merged"])
+        assert res_del.exit_code == 0
+
+        res_direct = runner.invoke(branches_app, ["list"])
+        assert res_direct.exit_code == 0

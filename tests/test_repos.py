@@ -1,13 +1,23 @@
-"""Tests for repos commands."""
+"""Tests for repos commands and repository utilities."""
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 from typer.testing import CliRunner
 
+from devops_cli.commands.repos import app as repos_app
+from devops_cli.core.repo import (
+    find_repo_root,
+    find_top_level_repo_root,
+    get_repo_origin_name,
+    is_ignored_by_git,
+    list_repo_files,
+    read_gitignore_patterns,
+)
 from devops_cli.main import app
 
 runner = CliRunner()
@@ -210,3 +220,63 @@ def test_repos_update_no_repos(tmp_path: Path) -> None:
 
     assert result.exit_code == 0
     assert "No repositories" in result.output
+
+
+def test_repo_origin_and_git_ignore_helpers(tmp_path: Path) -> None:
+    """Verify get_repo_origin_name and is_ignored_by_git."""
+    (tmp_path / ".git").mkdir()
+    mock_proc = subprocess.CompletedProcess(
+        args=["git"], returncode=0, stdout="git@github.com:org/repo.git\n", stderr=""
+    )
+    with patch("devops_cli.core.process.run_subprocess", return_value=mock_proc):
+        origin = get_repo_origin_name(tmp_path)
+        assert origin == "org/repo"
+
+    (tmp_path / ".gitignore").write_text("ignored.txt\n", encoding="utf-8")
+    assert is_ignored_by_git(tmp_path, tmp_path / "ignored.txt") is True
+    assert is_ignored_by_git(tmp_path, tmp_path / ".git" / "config") is True
+
+
+def test_core_repo_find_roots(tmp_path: Path) -> None:
+    """Verify finding repo roots in nested directories."""
+    sub = tmp_path / "a" / "b" / "c"
+    sub.mkdir(parents=True)
+    git_dir = tmp_path / "a" / ".git"
+    git_dir.mkdir()
+
+    root = find_repo_root(sub)
+    assert root == tmp_path / "a"
+
+    top_root = find_top_level_repo_root(sub)
+    assert top_root == tmp_path / "a"
+
+
+def test_core_repo_gitignore_and_files(tmp_path: Path) -> None:
+    """Verify gitignore parsing and listing repo files."""
+    gitignore = tmp_path / ".gitignore"
+    gitignore.write_text("*.tmp\nbuild/\n# comment\n", encoding="utf-8")
+
+    patterns = read_gitignore_patterns(tmp_path)
+    assert "*.tmp" in patterns
+    assert "build/" in patterns
+
+    (tmp_path / "app.py").write_text("print('hello')", encoding="utf-8")
+    (tmp_path / "test.tmp").write_text("temp", encoding="utf-8")
+    (tmp_path / "build").mkdir()
+    (tmp_path / "build" / "out.bin").write_text("bin", encoding="utf-8")
+
+    files = list_repo_files(tmp_path)
+    file_names = [f.name for f in files]
+    assert "app.py" in file_names
+    assert is_ignored_by_git(tmp_path, tmp_path / "test.tmp") is True
+    assert is_ignored_by_git(tmp_path, tmp_path / "app.py") is False
+
+
+def test_repos_commands_dry_run(tmp_path: Path) -> None:
+    """Verify repos list and sync in dry-run mode."""
+    with patch("devops_cli.dry_run.is_dry_run", return_value=True):
+        res_list = runner.invoke(repos_app, ["list", "--base-dir", str(tmp_path)])
+        assert res_list.exit_code == 0
+
+        res_sync = runner.invoke(repos_app, ["sync", "--base-dir", str(tmp_path)])
+        assert res_sync.exit_code == 0

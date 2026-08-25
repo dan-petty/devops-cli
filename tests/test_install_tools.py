@@ -1,12 +1,14 @@
-"""Tests for install-tools command."""
+"""Tests for install-tools command and registry."""
 
 from __future__ import annotations
 
 import hashlib
 import subprocess
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from typer.testing import CliRunner
 
 from devops_cli.commands.install_tools import (
     TOOLS,
@@ -14,6 +16,10 @@ from devops_cli.commands.install_tools import (
     _parse_checksum_file,
     _verify_sha256,
 )
+from devops_cli.commands.install_tools import app as install_tools_app
+from devops_cli.main import app as main_app
+
+runner = CliRunner()
 
 
 def test_tool_registry_has_required_entries() -> None:
@@ -120,3 +126,19 @@ def test_parse_checksum_file_handles_asterisk_prefix() -> None:
 def test_parse_checksum_file_raises_when_not_found() -> None:
     with pytest.raises(ValueError, match="No checksum entry"):
         _parse_checksum_file("abc123  other-file\n", "missing-file")
+
+
+def test_install_tools_commands(tmp_path: Path) -> None:
+    """Verify install-tools status and all subcommands."""
+    with (
+        patch("shutil.which", return_value="/usr/local/bin/kubectl"),
+        patch("devops_cli.commands.install_tools._current_version", return_value="v1.28.0"),
+    ):
+        res_stat = runner.invoke(main_app, ["install-tools", "status"])
+        assert res_stat.exit_code == 0
+
+        res_all = runner.invoke(main_app, ["--dry-run", "install-tools", "all"])
+        assert res_all.exit_code == 0
+
+        res_direct = runner.invoke(install_tools_app, ["status"])
+        assert res_direct.exit_code == 0

@@ -1,12 +1,15 @@
-"""Tests for SSH key generation and management."""
+"""Tests for SSH key generation, management, and CLI commands."""
 
 from __future__ import annotations
 
 from datetime import date, timedelta
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
+from typer.testing import CliRunner
 
+from devops_cli.commands.ssh import app as ssh_app
 from devops_cli.crypto.ssh_keys import (
     find_newest_key,
     generate_ed25519_key,
@@ -14,6 +17,9 @@ from devops_cli.crypto.ssh_keys import (
     list_managed_keys,
     parse_key_date,
 )
+from devops_cli.models.ssh import ManagedSSHKey
+
+runner = CliRunner()
 
 
 def test_generate_creates_key_pair(tmp_path: Path) -> None:
@@ -103,3 +109,40 @@ def test_list_managed_keys_filters_correctly(tmp_path: Path) -> None:
     keys = list_managed_keys(tmp_path)
     names = {k.name for k in keys}
     assert names == {"id_ed25519-2024JAN15", "id_ed25519-2025MAR01"}
+
+
+def test_ssh_commands(tmp_path: Path) -> None:
+    """Verify ssh generate, status, audit, and register subcommands."""
+    mock_key_info = ManagedSSHKey(
+        path=tmp_path / "id_ed25519-2024JAN15",
+        key_date=date(2024, 1, 15),
+        age_days=10,
+    )
+    priv_file = tmp_path / "id_ed25519-2024JAN15"
+    pub_file = tmp_path / "id_ed25519-2024JAN15.pub"
+    priv_file.write_text("private", encoding="utf-8")
+    pub_file.write_text("ssh-ed25519 AAAA test@domain.com", encoding="utf-8")
+
+    with (
+        patch("devops_cli.crypto.ssh_keys.list_managed_keys_info", return_value=[mock_key_info]),
+        patch("devops_cli.crypto.ssh_keys.generate_ed25519_key"),
+        patch("devops_cli.crypto.ssh_keys.find_newest_key", return_value=priv_file),
+        patch("devops_cli.github.ssh.register_key_on_github", return_value=True),
+        patch("devops_cli.config.settings.get_github_token", return_value="ghp_test"),
+        patch("devops_cli.commands.ssh._configure_git_signing"),
+    ):
+        res_gen = runner.invoke(
+            ssh_app, ["generate", "--key-dir", str(tmp_path), "--comment", "test@domain.com"]
+        )
+        assert res_gen.exit_code == 0
+
+        res_stat = runner.invoke(ssh_app, ["status", "--key-dir", str(tmp_path)])
+        assert res_stat.exit_code == 0
+
+        res_audit = runner.invoke(ssh_app, ["audit", "--key-dir", str(tmp_path)])
+        assert res_audit.exit_code == 0
+
+        res_reg = runner.invoke(
+            ssh_app, ["register", "--key-file", str(priv_file), "--title", "My Key"]
+        )
+        assert res_reg.exit_code == 0

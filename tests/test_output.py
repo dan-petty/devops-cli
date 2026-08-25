@@ -26,6 +26,7 @@ from devops_cli.output.console import (
 from devops_cli.output.file_writer import (
     write_bytes_file,
     write_json_file,
+    write_serialized_file,
     write_text_file,
     write_yaml_file,
 )
@@ -33,6 +34,7 @@ from devops_cli.output.formatter import (
     format_json,
     format_location,
     format_output,
+    format_serialized,
     format_yaml,
     render_table,
 )
@@ -107,9 +109,15 @@ def test_file_writer_atomic_text_json_yaml_bytes(tmp_path: Path) -> None:
     """Test defensive and atomic file output generation for text, JSON, YAML, and binary data."""
     # 1. Text file with nested directory creation
     text_file = tmp_path / "deep" / "nested" / "doc.txt"
-    written_text = write_text_file(text_file, "Hello, DevOps!", atomic=True)
+    written_text = write_text_file(text_file, "Hello, DevOps!", atomic=True, mode=0o644)
     assert written_text.is_file()
     assert written_text.read_text(encoding="utf-8") == "Hello, DevOps!"
+
+    # 1b. Non-atomic text file with mode
+    text_file_non_atomic = tmp_path / "deep" / "direct.txt"
+    written_direct = write_text_file(text_file_non_atomic, "Direct write", atomic=False, mode=0o600)
+    assert written_direct.is_file()
+    assert written_direct.read_text(encoding="utf-8") == "Direct write"
 
     # 2. JSON file with Pydantic model serialization
     json_file = tmp_path / "data" / "model.json"
@@ -128,9 +136,17 @@ def test_file_writer_atomic_text_json_yaml_bytes(tmp_path: Path) -> None:
 
     # 4. Binary file
     bin_file = tmp_path / "bin" / "data.bin"
-    written_bin = write_bytes_file(bin_file, b"\x00\x01\x02\x03", atomic=True)
+    written_bin = write_bytes_file(bin_file, b"\x00\x01\x02\x03", atomic=True, mode=0o600)
     assert written_bin.is_file()
     assert written_bin.read_bytes() == b"\x00\x01\x02\x03"
+
+    # 4b. Non-atomic binary file
+    bin_file_direct = tmp_path / "bin" / "direct.bin"
+    written_bin_direct = write_bytes_file(
+        bin_file_direct, b"\x04\x05\x06", atomic=False, mode=0o644
+    )
+    assert written_bin_direct.is_file()
+    assert written_bin_direct.read_bytes() == b"\x04\x05\x06"
 
 
 def test_format_location_canonical_syntax() -> None:
@@ -153,3 +169,12 @@ def test_format_output_serializers() -> None:
     assert isinstance(yaml_str, str)
     assert "status: ok" in yaml_str
     assert format_yaml(data) == yaml_str
+
+    ser_str = format_serialized({"key": "val"}, format_type="yaml")
+    assert "key: val" in ser_str
+
+    ser_json_file = write_serialized_file(
+        "out_ser.json", [{"a": 1}], format_type="json", atomic=False
+    )
+    assert ser_json_file.exists()
+    ser_json_file.unlink(missing_ok=True)
