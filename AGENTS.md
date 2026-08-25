@@ -27,18 +27,18 @@ Before planning, implementing, debugging, refactoring, or reviewing code, archit
 - **DevOps CLI Information ([`src/devops_cli/ai/knowledge_base/devops_cli/`](src/devops_cli/ai/knowledge_base/README.md#-division-1-devops-cli-information-devops_cli))**: Consult for DevOps CLI internals, subsystem architecture, configuration & keyring management, CLI command matrix, and 12 operational task manuals (`devops_cli/tasks/`).
 - **IT Domain-Specific Information ([`src/devops_cli/ai/knowledge_base/it_domains/`](src/devops_cli/ai/knowledge_base/README.md#-division-2-information-technology-domain-specific-information-it_domains))**: Consult for deep architectural patterns and standards across 10 IT domain topic guides (`it_domains/topics/`) and 20 integrated tool reference manuals (`it_domains/tools/`).
 
-### Progressive Testing Strategy
-1. **Targeted Iterative Verification**: During active feature development or refactoring, run isolated, module-specific checks (e.g. `uv run pytest tests/test_<feature>.py`, `uv run ruff check path/to/file.py`, `uv run mypy path/to/file.py`). Do not run exhaustive full validation suites on every minor edit.
-2. **Full Validation Gate**: Execute the full local CI suite (`devops ci` or `uv run devops ci`) only at the final pre-commit / pre-handoff milestone to verify linting, formatting, strict typing, tests, coverage, security, and documentation freshness.
+### Verification Strategy & CI Quality Gate
+- **Primary CI Verification Gate**: AI agents should simply run `devops ci` (or `uv run devops ci`) to comprehensively validate changes instead of running a fragmented series of individual checks (ruff, mypy, pytest, actionlint, security audit, docs check) that are already automatically executed and aggregated by `devops ci`.
+- **Targeted Iterative Checks**: If isolating a specific failing test or debugging a single file during active editing, run targeted checks (e.g. `uv run pytest tests/test_<feature>.py`). Once edits are complete, always run `devops ci` to verify all 10 quality gates pass together.
 
 ### Build, Lint & Test Commands
 | Operation | Command | Purpose |
 | :--- | :--- | :--- |
 | **Dependency Sync** | `uv sync` | Synchronize virtual environment with lockfile. |
-| **Targeted Test** | `uv run pytest tests/test_<feature>.py` | Fast, isolated unit test execution. |
+| **Full CI Suite (Primary Gate)** | `devops ci` / `uv run devops ci` | Comprehensive quality gate (version, test, coverage, lint, format, typecheck, audit, security, actionlint, docs). |
+| **Targeted Test** | `uv run pytest tests/test_<feature>.py` | Fast, isolated unit test execution for debugging. |
 | **Targeted Lint** | `uv run ruff check path/to/file.py` | Fast lint inspection on modified files. |
 | **Targeted Typecheck** | `uv run mypy path/to/file.py` | Strict static type validation on modified modules. |
-| **Full CI Suite** | `devops ci` / `uv run devops ci` | Comprehensive quality gate (version, test, coverage, lint, format, typecheck, audit, security, actionlint, docs). |
 | **Documentation Sync** | `devops docs generate --sync-readme` | Introspect CLI and synchronize markdown references and README. |
 
 ## 3. Git Hygiene & Branch Management
@@ -49,7 +49,8 @@ Before planning, implementing, debugging, refactoring, or reviewing code, archit
   - **Branch Freshness**: Always branch off fresh upstream tracking branches (`git fetch origin`).
 - **Commit Standards**:
   - Follow **Conventional Commits** format (`feat(scope): ...`, `fix(scope): ...`, `refactor(scope): ...`, `docs(scope): ...`).
-  - Maintain atomic, cohesive commits with clean commit messages.
+  - **Atomic Commits by Default**: AI agents must create atomic, cohesive commits whenever possible. Break multi-faceted work into small, logically self-contained commits (e.g., separating schema changes, implementation, tests, refactorings, or documentation) with precise conventional commit messages rather than bundling disparate changes into single massive commits.
+  - Maintain clean commit messages with informative descriptions.
 - **Pull Request Governance & Title Conventions**:
   - **Conventional Commit PR Titles**: All Pull Request titles MUST strictly follow the **Conventional Commits** format (`feat(scope): description`, `fix(scope): description`, `feat(release): v<version>`, `chore(release): v<version>`) so that when maintainers squash-merge PRs onto `main`, the resulting commit message on `main` conforms to conventional commits.
   - **GitHub Release Titles**: GitHub Release titles must strictly be the version tag / number from `pyproject.toml` (e.g. `v0.2.1` or `0.2.1`) without any conventional commit prefix.
