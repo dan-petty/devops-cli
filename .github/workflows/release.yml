@@ -60,14 +60,7 @@ jobs:
             VERSION=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")
           fi
           TAG="v${VERSION}"
-          HEAD_MSG="$(git log -1 --pretty=%B)"
-
-          # Extract or format title following <feat|fix>(release)<!>: vx.x.x standard
-          if echo "$HEAD_MSG" | grep -qE "(feat|fix)\(release\)!?:"; then
-            TITLE=$(echo "$HEAD_MSG" | grep -oE "(feat|fix)\(release\)!?: v[0-9.]+" | head -n 1)
-          else
-            TITLE="feat(release): ${TAG}"
-          fi
+          TITLE="${TAG}"
 
           {
             echo "version=${VERSION}"
