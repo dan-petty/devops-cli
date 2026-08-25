@@ -174,17 +174,8 @@ def _register_command_proxy(name: str, module_path: str, help_text: str) -> None
         _delegate(module_path, name, list(ctx.args))
 
 
-def _register_typer_group(name: str, module_path: str) -> None:
-    module = import_module(module_path)
-    module_app = module.app
-    app.add_typer(module_app, name=name)
-
-
 for _name, (_module_path, _help) in _COMMAND_SPECS.items():
-    if _name == "review":
-        _register_typer_group(_name, _module_path)
-    else:
-        _register_command_proxy(_name, _module_path, _help)
+    _register_command_proxy(_name, _module_path, _help)
 
 
 def _version_callback(value: bool) -> None:
