@@ -50,9 +50,12 @@ Before planning, implementing, debugging, refactoring, or reviewing code, archit
 - **Commit Standards**:
   - Follow **Conventional Commits** format (`feat(scope): ...`, `fix(scope): ...`, `refactor(scope): ...`, `docs(scope): ...`).
   - Maintain atomic, cohesive commits with clean commit messages.
-- **Pull Request Governance**:
+- **Pull Request Governance & Title Conventions**:
+  - **Conventional Commit PR Titles**: All Pull Request titles MUST strictly follow the **Conventional Commits** format (`feat(scope): description`, `fix(scope): description`, `feat(release): v<version>`, `chore(release): v<version>`) so that when maintainers squash-merge PRs onto `main`, the resulting commit message on `main` conforms to conventional commits.
+  - **GitHub Release Titles**: GitHub Release titles must strictly be the version tag / number from `pyproject.toml` (e.g. `v0.2.1` or `0.2.1`) without any conventional commit prefix.
   - **Human-in-the-Loop Merging**: AI agents must never merge PRs autonomously. Agents prepare clean commits, open/update PRs, monitor CI checks, and leave merge approval to maintainers.
   - **Active CI Monitoring & Remediation**: When opening or updating a PR, actively monitor remote GitHub Actions status (`gh pr checks <pr>` or `gh run list --branch <branch>`). If any check fails, inspect logs, diagnose root causes, push corrective commits, and verify green status.
+
 
 ## 4. Code Quality & Architectural Best Practices
 
