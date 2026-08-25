@@ -1,4 +1,4 @@
-"""CLI subcommand for security, vulnerability, secret, and IaC scanning via Aqua Trivy."""
+"""CLI subcommand for security scanning via Trivy, Semgrep, and Gitleaks."""
 
 from __future__ import annotations
 
@@ -7,7 +7,13 @@ from typing import Annotated
 
 import typer
 
-from devops_cli.config.defaults import DEFAULT_TRIVY_SCAN_TYPE, DEFAULT_TRIVY_SEVERITIES
+from devops_cli.ai.review_schema import Finding
+from devops_cli.config.defaults import (
+    DEFAULT_SEMGREP_CONFIG,
+    DEFAULT_TRIVY_SCAN_TYPE,
+    DEFAULT_TRIVY_SEVERITIES,
+)
+from devops_cli.core.cli import new_typer
 from devops_cli.dry_run.models import CommandDryRunResult
 from devops_cli.dry_run.state import is_dry_run, set_dry_run
 from devops_cli.lang import MESSAGES
@@ -19,22 +25,77 @@ from devops_cli.output import (
     render_table,
     write_stdout,
 )
+from devops_cli.security.gitleaks import run_gitleaks_scan
+from devops_cli.security.semgrep import run_semgrep_scan
 from devops_cli.security.trivy import run_trivy_scan
 
-app = typer.Typer(
-    name="scan",
-    help="Security, vulnerability, secret, and IaC scanner via Aqua Trivy.",
+app = new_typer(
+    help="Security, vulnerability, secret, and AST scanner (Trivy, Semgrep, Gitleaks).",
     no_args_is_help=False,
 )
 
+_SEV_COLORS = {
+    "CRITICAL": "bold red",
+    "HIGH": "red",
+    "MEDIUM": "yellow",
+    "LOW": "cyan",
+    "INFO": "dim",
+}
+
+
+def _render_scan_results_table(title: str, findings: list[Finding]) -> None:
+    """Render structured rich table for security findings."""
+    columns: list[str | tuple[str, str]] = [
+        ("Severity", "bold"),
+        "Location",
+        "Title",
+        "Suggested Fix",
+    ]
+    rows: list[list[str]] = []
+    for f in findings:
+        style = _SEV_COLORS.get(f.severity.upper(), "white")
+        rows.append(
+            [
+                f"[{style}]{f.severity}[/{style}]",
+                f.location,
+                f.title,
+                f.fix or "-",
+            ]
+        )
+
+    table = render_table(title=title, columns=columns, rows=rows)
+    print_table(table)
+
 
 # =============================================================================
-# Command: devops scan
+# Root Callback & Subcommands
 # =============================================================================
 
 
 @app.callback(invoke_without_command=True)
-def main(
+def callback(
+    ctx: typer.Context,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Simulate security scan execution."),
+    ] = False,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Output raw findings as JSON"),
+    ] = False,
+) -> None:
+    """Security, vulnerability, secret, and AST scanner (Trivy, Semgrep, Gitleaks)."""
+    if ctx.invoked_subcommand is None:
+        scan_trivy(target=Path("."), dry_run=dry_run, json_output=json_output)
+
+
+# =============================================================================
+# Command: devops scan trivy
+# =============================================================================
+
+
+@app.command("trivy")
+def scan_trivy(
     target: Annotated[
         Path,
         typer.Argument(help="Target directory, file, or repository to scan"),
@@ -70,7 +131,7 @@ def main(
         write_stdout(format_json(data) + "\n")
         if is_dry_run():
             return CommandDryRunResult(
-                command=f"devops scan {target} --type {scan_type}",
+                command=f"devops scan trivy {target} --type {scan_type}",
                 target=str(target_abs),
                 action="trivy_security_scan",
                 details={"scan_type": scan_type, "findings_count": len(findings)},
@@ -81,52 +142,212 @@ def main(
         print_success(MESSAGES.scan.no_flaws_found)
         if is_dry_run():
             return CommandDryRunResult(
-                command=f"devops scan {target} --type {scan_type}",
+                command=f"devops scan trivy {target} --type {scan_type}",
                 target=str(target_abs),
                 action="trivy_security_scan",
                 details={"scan_type": scan_type, "findings_count": 0},
             )
         return None
 
-    sev_colors = {
-        "CRITICAL": "bold red",
-        "HIGH": "red",
-        "MEDIUM": "yellow",
-        "LOW": "cyan",
-        "INFO": "dim",
-    }
-
-    columns: list[str | tuple[str, str]] = [
-        ("Severity", "bold"),
-        "Location",
-        "Title",
-        "Suggested Fix",
-    ]
-    rows: list[list[str]] = []
-    for f in findings:
-        style = sev_colors.get(f.severity.upper(), "white")
-        rows.append(
-            [
-                f"[{style}]{f.severity}[/{style}]",
-                f.location,
-                f.title,
-                f.fix or "-",
-            ]
-        )
-
-    table = render_table(
-        title=f"Security Scan Results: {target_abs.name or target_abs}",
-        columns=columns,
-        rows=rows,
+    _render_scan_results_table(
+        title=f"Trivy Security Scan: {target_abs.name or target_abs}",
+        findings=findings,
     )
-    print_table(table)
 
     if is_dry_run():
         return CommandDryRunResult(
-            command=f"devops scan {target} --type {scan_type}",
+            command=f"devops scan trivy {target} --type {scan_type}",
             target=str(target_abs),
             action="trivy_security_scan",
             details={"scan_type": scan_type, "findings_count": len(findings)},
         )
 
     return None
+
+
+# =============================================================================
+# Command: devops scan secrets / devops scan gitleaks
+# =============================================================================
+
+
+@app.command("secrets")
+def scan_secrets(
+    target: Annotated[
+        Path,
+        typer.Argument(help="Target directory or file to scan for secrets"),
+    ] = Path("."),
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Simulate secret scan execution."),
+    ] = False,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Output raw findings as JSON"),
+    ] = False,
+) -> CommandDryRunResult | None:
+    """Run Gitleaks secret pre-filter scan across workspace or targets."""
+    set_dry_run(dry_run)
+    target_abs = target.resolve() if target.exists() else target
+
+    if not is_dry_run():
+        print_muted(f"Executing Gitleaks secret scan on '{target_abs}'...")
+
+    findings = run_gitleaks_scan(target=target_abs)
+
+    if json_output:
+        data = [f.model_dump() for f in findings]
+        write_stdout(format_json(data) + "\n")
+        if is_dry_run():
+            return CommandDryRunResult(
+                command=f"devops scan secrets {target}",
+                target=str(target_abs),
+                action="gitleaks_secret_scan",
+                details={"findings_count": len(findings)},
+            )
+        return None
+
+    if not findings:
+        print_success("✓ No secrets or credential leaks detected.")
+        if is_dry_run():
+            return CommandDryRunResult(
+                command=f"devops scan secrets {target}",
+                target=str(target_abs),
+                action="gitleaks_secret_scan",
+                details={"findings_count": 0},
+            )
+        return None
+
+    _render_scan_results_table(
+        title=f"Gitleaks Secret Scan: {target_abs.name or target_abs}",
+        findings=findings,
+    )
+
+    if is_dry_run():
+        return CommandDryRunResult(
+            command=f"devops scan secrets {target}",
+            target=str(target_abs),
+            action="gitleaks_secret_scan",
+            details={"findings_count": len(findings)},
+        )
+    return None
+
+
+@app.command("gitleaks")
+def scan_gitleaks_cmd(
+    target: Annotated[
+        Path,
+        typer.Argument(help="Target directory or file to scan for secrets"),
+    ] = Path("."),
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Simulate secret scan execution."),
+    ] = False,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Output raw findings as JSON"),
+    ] = False,
+) -> CommandDryRunResult | None:
+    """Alias for devops scan secrets."""
+    return scan_secrets(target=target, dry_run=dry_run, json_output=json_output)
+
+
+# =============================================================================
+# Command: devops scan semgrep / devops scan sast
+# =============================================================================
+
+
+@app.command("semgrep")
+def scan_semgrep_cmd(
+    target: Annotated[
+        Path,
+        typer.Argument(help="Target directory or file to scan with Semgrep AST rules"),
+    ] = Path("."),
+    config: Annotated[
+        str,
+        typer.Option(
+            "--config", "-c", help="Semgrep ruleset config (e.g. p/default, p/security-audit)"
+        ),
+    ] = DEFAULT_SEMGREP_CONFIG,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Simulate Semgrep scan execution."),
+    ] = False,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Output raw findings as JSON"),
+    ] = False,
+) -> CommandDryRunResult | None:
+    """Run Semgrep multilingual static AST pattern matching scan."""
+    return scan_sast(target=target, config=config, dry_run=dry_run, json_output=json_output)
+
+
+@app.command("sast")
+def scan_sast(
+    target: Annotated[
+        Path,
+        typer.Argument(help="Target directory or file to scan with Semgrep AST rules"),
+    ] = Path("."),
+    config: Annotated[
+        str,
+        typer.Option(
+            "--config", "-c", help="Semgrep ruleset config (e.g. p/default, p/security-audit)"
+        ),
+    ] = DEFAULT_SEMGREP_CONFIG,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Simulate Semgrep scan execution."),
+    ] = False,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Output raw findings as JSON"),
+    ] = False,
+) -> CommandDryRunResult | None:
+    """Run static application security testing (SAST) via Semgrep."""
+    set_dry_run(dry_run)
+    target_abs = target.resolve() if target.exists() else target
+
+    if not is_dry_run():
+        print_muted(f"Executing Semgrep AST scan on '{target_abs}' (config: {config})...")
+
+    findings = run_semgrep_scan(target=target_abs, config=config)
+
+    if json_output:
+        data = [f.model_dump() for f in findings]
+        write_stdout(format_json(data) + "\n")
+        if is_dry_run():
+            return CommandDryRunResult(
+                command=f"devops scan sast {target} --config {config}",
+                target=str(target_abs),
+                action="semgrep_ast_scan",
+                details={"config": config, "findings_count": len(findings)},
+            )
+        return None
+
+    if not findings:
+        print_success("✓ No static AST pattern flaws detected.")
+        if is_dry_run():
+            return CommandDryRunResult(
+                command=f"devops scan sast {target} --config {config}",
+                target=str(target_abs),
+                action="semgrep_ast_scan",
+                details={"config": config, "findings_count": 0},
+            )
+        return None
+
+    _render_scan_results_table(
+        title=f"Semgrep AST Scan: {target_abs.name or target_abs}",
+        findings=findings,
+    )
+
+    if is_dry_run():
+        return CommandDryRunResult(
+            command=f"devops scan sast {target} --config {config}",
+            target=str(target_abs),
+            action="semgrep_ast_scan",
+            details={"config": config, "findings_count": len(findings)},
+        )
+    return None
+
+
+main = scan_trivy
+scan_main = scan_trivy

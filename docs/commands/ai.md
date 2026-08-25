@@ -145,6 +145,30 @@ devops ai pipeline [OPTIONS] <prompt>
 
 ---
 
+## `devops ai token-count`
+
+**Calculate exact BPE tokens for text or files using tiktoken context budgeting.**
+
+```bash
+devops ai token-count [OPTIONS] <target>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<target>` | `string` | No | File path or text string to calculate tokens for |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--model`, `-m` | `string` | `gpt-4o` | Target model BPE tokenizer (e.g. gpt-4o, cl100k_base) |
+| `--budget`, `-b` | `integer` | `16384` | Max context token budget limit |
+| `--json` | `boolean` | - | Output token budget analysis as JSON |
+
+---
+
 ## `devops ai review`
 
 **AI-powered multi-persona code review system.**

@@ -313,6 +313,26 @@ def scan_popeye(namespace: str = "") -> str:
     )
 
 
+def scan_gitleaks(target: str = ".") -> str:
+    """Run Gitleaks secret pre-filter scan across workspace or targets."""
+    return _run_workspace_security_scan(
+        target,
+        lambda p: ["gitleaks", "detect", "--no-git", "--source", str(p), "--report-format", "json"],
+        fallback_msg="No secrets or credential leaks detected by Gitleaks.",
+        missing_tool_name="gitleaks",
+    )
+
+
+def scan_semgrep(target: str = ".", config: str = "p/default") -> str:
+    """Run Semgrep multilingual static AST pattern matching scan."""
+    return _run_workspace_security_scan(
+        target,
+        lambda p: ["semgrep", "scan", "--json", "--config", config, str(p)],
+        fallback_msg="No AST code pattern flaws detected by Semgrep.",
+        missing_tool_name="semgrep",
+    )
+
+
 def rag_search(
     query: str,
     top_k: int = 5,

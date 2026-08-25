@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import subprocess
 from pathlib import Path
 from typing import Annotated, Any
@@ -929,3 +930,70 @@ def pipeline(
         f"({result.total_turns} total turns, {len(result.all_tool_calls)} tool executions)."
         "[/bold green]"
     )
+
+
+# =============================================================================
+# Command: devops ai token-count
+# =============================================================================
+
+
+@app.command("token-count")
+def token_count(
+    target: Annotated[
+        str | None,
+        typer.Argument(help="File path or text string to calculate tokens for"),
+    ] = None,
+    model: Annotated[
+        str,
+        typer.Option("--model", "-m", help="Target model BPE tokenizer (e.g. gpt-4o, cl100k_base)"),
+    ] = "gpt-4o",
+    budget: Annotated[
+        int,
+        typer.Option("--budget", "-b", help="Max context token budget limit"),
+    ] = 16384,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Output token budget analysis as JSON"),
+    ] = False,
+) -> Any:
+    """Calculate exact BPE tokens for text or files using tiktoken context budgeting."""
+    from devops_cli.ai.context_budget import TokenBudgetReport, count_file_tokens, count_tokens
+    from devops_cli.output import format_json, write_stdout
+
+    content = target or ""
+    p = Path(content)
+    if p.exists() and p.is_file():
+        num_tokens = count_file_tokens(p, model=model)
+        raw_len = len(p.read_text(encoding="utf-8", errors="replace"))
+        desc = f"File: {p}"
+    else:
+        num_tokens = count_tokens(content, model=model)
+        raw_len = len(content)
+        desc = f"Text snippet ({raw_len} chars)"
+
+    fits = num_tokens <= budget
+    report = TokenBudgetReport(
+        text_length=raw_len,
+        estimated_tokens=num_tokens,
+        max_budget=budget,
+        fits_budget=fits,
+        model=model,
+        chunk_count=max(1, math.ceil(num_tokens / max(1, budget))),
+    )
+
+    if json_output:
+        write_stdout(format_json(report.model_dump()) + "\n")
+        return report
+
+    table = Table(title="AI Context Token Budget Report", style="cyan")
+    table.add_column("Property", style="bold")
+    table.add_column("Value", style="green" if fits else "red")
+    table.add_row("Target", desc)
+    table.add_row("Model Encoding", model)
+    table.add_row("Character Length", str(raw_len))
+    table.add_row("Estimated Tokens", str(num_tokens))
+    table.add_row("Token Budget Limit", str(budget))
+    table.add_row("Fits Budget", "✓ Yes" if fits else "✗ No (Exceeds budget)")
+
+    rprint(table)
+    return report

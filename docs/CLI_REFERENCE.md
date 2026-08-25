@@ -1604,14 +1604,14 @@ devops uv run
 
 Security, vulnerability, secret, and IaC scanner.
 
-Security, vulnerability, secret, and IaC scanner via Aqua Trivy.
+Security, vulnerability, secret, and AST scanner (Trivy, Semgrep, Gitleaks).
 
-### `devops scan`
+### `devops scan trivy`
 
-**Security, vulnerability, secret, and IaC scanner via Aqua Trivy.**
+**Run Aqua Trivy vulnerability, secret, and misconfiguration scan.**
 
 ```bash
-devops scan [OPTIONS] <target>
+devops scan trivy [OPTIONS] <target>
 ```
 
 **Arguments:**
@@ -1627,6 +1627,92 @@ devops scan [OPTIONS] <target>
 | `--type`, `-t` | `string` | `fs` | Trivy scan mode: fs, image, iac, repo |
 | `--severity`, `-s` | `string` | `UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL` | Comma-separated severity levels to include |
 | `--dry-run` | `boolean` | - | Simulate security scan execution. |
+| `--json` | `boolean` | - | Output raw findings as JSON |
+
+### `devops scan secrets`
+
+**Run Gitleaks secret pre-filter scan across workspace or targets.**
+
+```bash
+devops scan secrets [OPTIONS] <target>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<target>` | `path` | No | Target directory or file to scan for secrets |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Simulate secret scan execution. |
+| `--json` | `boolean` | - | Output raw findings as JSON |
+
+### `devops scan gitleaks`
+
+**Alias for devops scan secrets.**
+
+```bash
+devops scan gitleaks [OPTIONS] <target>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<target>` | `path` | No | Target directory or file to scan for secrets |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Simulate secret scan execution. |
+| `--json` | `boolean` | - | Output raw findings as JSON |
+
+### `devops scan semgrep`
+
+**Run Semgrep multilingual static AST pattern matching scan.**
+
+```bash
+devops scan semgrep [OPTIONS] <target>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<target>` | `path` | No | Target directory or file to scan with Semgrep AST rules |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--config`, `-c` | `string` | `p/default` | Semgrep ruleset config (e.g. p/default, p/security-audit) |
+| `--dry-run` | `boolean` | - | Simulate Semgrep scan execution. |
+| `--json` | `boolean` | - | Output raw findings as JSON |
+
+### `devops scan sast`
+
+**Run static application security testing (SAST) via Semgrep.**
+
+```bash
+devops scan sast [OPTIONS] <target>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<target>` | `path` | No | Target directory or file to scan with Semgrep AST rules |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--config`, `-c` | `string` | `p/default` | Semgrep ruleset config (e.g. p/default, p/security-audit) |
+| `--dry-run` | `boolean` | - | Simulate Semgrep scan execution. |
 | `--json` | `boolean` | - | Output raw findings as JSON |
 
 ---
@@ -1761,6 +1847,28 @@ devops ai pipeline [OPTIONS] <prompt>
 | `--max-turns` | `integer` | `5` | Maximum tool turns per agent stage |
 | `--rag`, `--no-rag` | `boolean` | `True` | Retrieve relevant semantic RAG context |
 | `--thinking`, `--no-thinking` | `boolean` | `True` | Enable reasoning/thinking per agent |
+
+### `devops ai token-count`
+
+**Calculate exact BPE tokens for text or files using tiktoken context budgeting.**
+
+```bash
+devops ai token-count [OPTIONS] <target>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<target>` | `string` | No | File path or text string to calculate tokens for |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--model`, `-m` | `string` | `gpt-4o` | Target model BPE tokenizer (e.g. gpt-4o, cl100k_base) |
+| `--budget`, `-b` | `integer` | `16384` | Max context token budget limit |
+| `--json` | `boolean` | - | Output token budget analysis as JSON |
 
 ### `devops ai review`
 
