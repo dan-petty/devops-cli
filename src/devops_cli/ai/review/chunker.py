@@ -36,16 +36,6 @@ def _extract_header_filenames(segment: str, header_type: str = "all") -> list[st
     return _unique_preserve_order(items)
 
 
-def _extract_diff_filenames(segment: str) -> list[str]:
-    """Extract filenames from git diff headers."""
-    return _extract_header_filenames(segment, header_type="diff")
-
-
-def _extract_path_filenames(segment: str) -> list[str]:
-    """Extract filenames from file block headers."""
-    return _extract_header_filenames(segment, header_type="path")
-
-
 def _extract_segment_filenames(segment: str) -> list[str]:
     """Extract filenames from either git diff headers or file block headers."""
     return _extract_header_filenames(segment, header_type="all")
@@ -327,3 +317,7 @@ def _find_repo_files(
             continue
         files.append(p)
     return files
+
+
+diff_pages = _diff_pages
+find_repo_files = _find_repo_files

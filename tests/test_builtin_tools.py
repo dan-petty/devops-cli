@@ -221,7 +221,7 @@ def test_scan_osv_and_threat_intel(monkeypatch: pytest.MonkeyPatch) -> None:
         ecosystem="PyPI",
     )
     with patch(
-        "devops_cli.security.vulnerability_lookup.OSVClient.check_vulnerability",
+        "devops_cli.security.vulnerability_lookup.OSVClient.query_package",
         return_value=[mock_rec],
     ):
         res_osv = scan_osv("pydantic", version="2.0.0")

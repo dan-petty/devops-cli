@@ -38,7 +38,7 @@ from devops_cli.ai.review_schema import (
     ReviewSessionPayload,
     SavedFinding,
     consolidate_duplicate_findings,
-    parse_review_result,
+    parse_review_response,
 )
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.ai.thinking import extract_think_blocks
@@ -150,7 +150,7 @@ def _process_pipeline_step_findings(
     parsed: ReviewResult | None = (
         step.parsed_data
         if getattr(step, "parsed_data", None) and isinstance(step.parsed_data, ReviewResult)
-        else parse_review_result(getattr(step, "content", "") or "")
+        else parse_review_response(getattr(step, "content", "") or "")
     )
 
     p_val, p_title = persona_lookup.get(
@@ -623,7 +623,7 @@ class ReviewPipelineOrchestrator:
         ) -> tuple[tuple[str, str, str], list[VulnerabilityRecord]]:
             name, ver, eco = d_key
             try:
-                vulns = osv_client.check_vulnerability(name, ver, eco)
+                vulns = osv_client.query_package(name, ver, eco)
                 return d_key, vulns
             except Exception:
                 return d_key, []

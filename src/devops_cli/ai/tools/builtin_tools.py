@@ -355,7 +355,7 @@ def scan_osv(package_name: str, version: str = "", ecosystem: str = "PyPI") -> s
         from devops_cli.security.vulnerability_lookup import OSVClient
 
         client = OSVClient()
-        vulns = client.check_vulnerability(package_name, version=version, ecosystem=ecosystem)
+        vulns = client.query_package(package_name, version=version, ecosystem=ecosystem)
         if not vulns:
             return f"No known vulnerabilities found in OSV/NVD for {package_name} ({ecosystem})."
         lines = [f"Found {len(vulns)} vulnerability record(s) for {package_name}:"]

@@ -603,7 +603,7 @@ def test_generate_consolidated_report_with_intelligence_tables(
 
 def test_empty_findings_filtered_and_field_aliasing() -> None:
     """Verify that blank/empty findings are discarded and alternate field names mapped."""
-    from devops_cli.ai.review_schema import Finding, ReviewResult, parse_review_result
+    from devops_cli.ai.review_schema import Finding, ReviewResult, parse_review_response
 
     # 1. Blank finding is empty
     blank = Finding(severity="MEDIUM", location="", title="", description="", fix="")
@@ -649,7 +649,7 @@ def test_empty_findings_filtered_and_field_aliasing() -> None:
         '{"findings": [{"severity": "MEDIUM", "location": "", "title": "", '
         '"description": "", "fix": ""}], "recommendation": "REQUEST CHANGES"}'
     )
-    parsed = parse_review_result(raw_json)
+    parsed = parse_review_response(raw_json)
     assert parsed is not None
     assert len(parsed.findings) == 0
     assert parsed.recommendation == "APPROVE"

@@ -68,9 +68,6 @@ class TestMcpServer:
             "tf_plan",
             "tf_apply",
             "tf_output",
-            "tofu_plan",
-            "tofu_apply",
-            "tofu_output",
             "rag_search",
             "rag_index",
             "security_intel_package",
@@ -207,11 +204,3 @@ class TestTfMcpTools:
             args = mock.call_args[0][0]
             assert "output" in args
             assert "--json" in args
-
-    def test_tofu_aliases(self) -> None:
-        from devops_cli.ai.mcp.server import tofu_apply, tofu_output, tofu_plan
-
-        with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="ok"):
-            assert tofu_plan("tf/aws") == "ok"
-            assert tofu_apply("tf/aws") == "ok"
-            assert tofu_output("tf/aws") == "ok"

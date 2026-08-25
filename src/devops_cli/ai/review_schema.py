@@ -711,7 +711,3 @@ def parse_review_response(text: str) -> ReviewResult | None:
         return ReviewResult(findings=md_findings, summary=target_text[:MAX_SUMMARY_PREVIEW_LENGTH])
 
     return None
-
-
-# Backward-compatible alias used across review subsystem
-parse_review_result = parse_review_response

@@ -94,8 +94,6 @@ def get_persona_tools(persona: str | Persona) -> list[Any]:
             mcp_module.grafana_dashboards,
             mcp_module.tf_plan,
             mcp_module.tf_output,
-            mcp_module.tofu_plan,
-            mcp_module.tofu_output,
             mcp_module.docker_stats,
         ]
     elif p_str == "qa":

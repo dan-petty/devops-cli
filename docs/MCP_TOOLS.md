@@ -47,9 +47,6 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`tls_generate_ca`](#tls-generate-ca) | Generate an X.509 Root CA key pair for local or homelab infrastructure. |
 | [`tls_generate_cert`](#tls-generate-cert) | Generate an X.509 TLS certificate with Subject Alternative Names signed by local CA. |
 | [`tls_inspect_cert`](#tls-inspect-cert) | Inspect and display metadata, validity, SANs, and expiration of a TLS certificate. |
-| [`tofu_apply`](#tofu-apply) | Apply OpenTofu Infrastructure-as-Code changes (alias for tf_apply). |
-| [`tofu_output`](#tofu-output) | Retrieve OpenTofu outputs from state (alias for tf_output). |
-| [`tofu_plan`](#tofu-plan) | Generate and inspect an OpenTofu execution plan (alias for tf_plan). |
 | [`verify_finding`](#verify-finding) | Validate or invalidate a finding and record human feedback. |
 | [`workspace_list`](#workspace-list) | Show the active VS Code workspace file and configured repository directories. |
 
@@ -450,40 +447,6 @@ Inspect and display metadata, validity, SANs, and expiration of a TLS certificat
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `cert_path` | `string` | Yes | - | - |
-
-### `tofu_apply`
-
-Apply OpenTofu Infrastructure-as-Code changes (alias for tf_apply).
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `directory` | `string` | No | `.` | - |
-| `var_file` | `string` | No | `` | - |
-| `auto_approve` | `boolean` | No | `True` | - |
-
-### `tofu_output`
-
-Retrieve OpenTofu outputs from state (alias for tf_output).
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `directory` | `string` | No | `.` | - |
-| `json_format` | `boolean` | No | `True` | - |
-
-### `tofu_plan`
-
-Generate and inspect an OpenTofu execution plan (alias for tf_plan).
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `directory` | `string` | No | `.` | - |
-| `var_file` | `string` | No | `` | - |
 
 ### `verify_finding`
 

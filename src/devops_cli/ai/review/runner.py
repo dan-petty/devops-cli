@@ -39,7 +39,7 @@ from devops_cli.ai.review_schema import (
     ReviewSessionPayload,
     SavedFinding,
     consolidate_duplicate_findings,
-    parse_review_result,
+    parse_review_response,
 )
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.constants import (
@@ -413,7 +413,7 @@ def _save_findings_json(
 
 def _review_to_markdown(review: ReviewResult | str) -> str:
     if isinstance(review, str):
-        parsed = parse_review_result(review)
+        parsed = parse_review_response(review)
         return _review_to_markdown(parsed) if parsed else review
     lines: list[str] = [f"**Recommendation: {review.recommendation}**\n"]
     if review.findings:
@@ -656,7 +656,7 @@ def _run_review(
                 res_obj = clients.analysis.chat(
                     system=analysis_system,
                     user=user_prompt,
-                    validator=lambda text: parse_review_result(text) is not None,
+                    validator=lambda text: parse_review_response(text) is not None,
                 )
                 result_text = str(res_obj)
                 proc_sec = getattr(res_obj, "processing_seconds", None)
@@ -709,7 +709,7 @@ def _run_review(
     if not non_empty:
         return ""
 
-    segment_results: list[ReviewResult | None] = [parse_review_result(r) for r in responses]
+    segment_results: list[ReviewResult | None] = [parse_review_response(r) for r in responses]
     if not is_dry_run():
         rprint(f"[dim]Step 3/4: Validating findings for {total} file(s)...{analysis_suffix}[/dim]")
         t3 = time.monotonic()
@@ -792,13 +792,13 @@ def _run_review(
             clients.compose.chat(
                 system=compose_system,
                 user=recompose_prompt,
-                validator=lambda text: parse_review_result(text) is not None,
+                validator=lambda text: parse_review_response(text) is not None,
             )
         )
         rprint(f"[dim]  ✓ {time.monotonic() - t4:.1f}s{compose_suffix}[/dim]")
         if not raw.strip():
             return _merge_segment_results(segment_results) or _fallback_join(non_empty)
-        parsed = parse_review_result(raw)
+        parsed = parse_review_response(raw)
         if parsed is not None:
             return _reconcile_verified(parsed, segment_results)
         return raw
@@ -911,7 +911,7 @@ def _print_review(persona: PersonaDefinition, review: ReviewResult | str) -> Non
     if not review.strip():
         rprint("[yellow]No review content returned by the model.[/yellow]")
         return
-    parsed = parse_review_result(review)
+    parsed = parse_review_response(review)
     if parsed:
         _render_review_result(persona, parsed)
         return

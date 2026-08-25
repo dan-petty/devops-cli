@@ -171,8 +171,8 @@ def test_finding_is_empty_and_orphan_rejection() -> None:
     assert res.findings[0].title == "SQL Injection Vulnerability"
 
 
-def test_parse_review_result_filters_orphan_fragments() -> None:
-    from devops_cli.ai.review_schema import parse_review_result
+def test_parse_review_response_filters_orphan_fragments() -> None:
+    from devops_cli.ai.review_schema import parse_review_response
 
     json_with_orphan = (
         '{"findings": ['
@@ -181,7 +181,7 @@ def test_parse_review_result_filters_orphan_fragments() -> None:
         '  {"location": "", "title": "ReviewResult"}'
         "]}"
     )
-    parsed = parse_review_result(json_with_orphan)
+    parsed = parse_review_response(json_with_orphan)
     assert parsed is not None
     assert len(parsed.findings) == 1
     assert parsed.findings[0].location == "src/app.py:10"

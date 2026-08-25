@@ -238,11 +238,8 @@ def test_all_command_specs_registered() -> None:
         "release",
         "pr",
         "tf",
-        "tofu",
         "tls",
-        "cert",
         "telemetry",
-        "otel",
         "serve",
     }
     assert set(_COMMAND_SPECS.keys()) == expected_commands

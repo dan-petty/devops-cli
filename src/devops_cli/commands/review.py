@@ -14,8 +14,6 @@ from devops_cli.ai.personas import Persona
 from devops_cli.ai.review.chunker import (
     _diff_pages,
     _extract_code_lines,
-    _extract_diff_filenames,
-    _extract_path_filenames,
     _extract_segment_filenames,
     _find_repo_files,
     _is_generated_diff_block,
@@ -116,8 +114,6 @@ __all__ = [
     "CONST_REVIEWS_DATA_DIR",
     "_diff_pages",
     "_extract_code_lines",
-    "_extract_diff_filenames",
-    "_extract_path_filenames",
     "_extract_segment_filenames",
     "_find_repo_files",
     "_is_generated_diff_block",

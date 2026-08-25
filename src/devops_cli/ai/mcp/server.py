@@ -380,24 +380,6 @@ def tf_output(directory: str = ".", json_format: bool = True) -> str:
 
 
 @mcp.tool()
-def tofu_plan(directory: str = ".", var_file: str = "") -> str:
-    """Generate and inspect an OpenTofu execution plan (alias for tf_plan)."""
-    return tf_plan(directory=directory, var_file=var_file)
-
-
-@mcp.tool()
-def tofu_apply(directory: str = ".", var_file: str = "", auto_approve: bool = True) -> str:
-    """Apply OpenTofu Infrastructure-as-Code changes (alias for tf_apply)."""
-    return tf_apply(directory=directory, var_file=var_file, auto_approve=auto_approve)
-
-
-@mcp.tool()
-def tofu_output(directory: str = ".", json_format: bool = True) -> str:
-    """Retrieve OpenTofu outputs from state (alias for tf_output)."""
-    return tf_output(directory=directory, json_format=json_format)
-
-
-@mcp.tool()
 def rag_search(
     query: str,
     top_k: int = 5,
