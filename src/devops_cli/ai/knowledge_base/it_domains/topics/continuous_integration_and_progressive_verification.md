@@ -24,7 +24,7 @@ graph TD
 - **The 10-Point Local Quality Gate**:
   1. Version Consistency (`pyproject.toml`, `__init__.py`, `RELEASE_NOTES.md`).
   2. Parallel Unit Tests (`pytest -n auto`).
-  3. Branch Coverage Floor (`>=70%`).
+  3. Branch Coverage Floor (`>=90%`).
   4. Fast Code Linting (`ruff check`).
   5. Fast Code Formatting (`ruff format --check`).
   6. Strict Static Type Checking (`mypy --strict`).

@@ -12,7 +12,7 @@ The Local CI Quality Gate (`devops ci`) provides a comprehensive, 10-point local
 graph TD
     A[devops ci / uv run devops ci] --> B[1. Version Check]
     A --> C[2. Unit Tests pytest -n auto]
-    A --> D[3. Branch Coverage >=70%]
+    A --> D[3. Branch Coverage >=90%]
     A --> E[4. Fast Linting ruff check]
     A --> F[5. Formatting ruff format --check]
     A --> G[6. Static Type Check mypy --strict]
@@ -80,7 +80,7 @@ devops ci
 ## 6. General Standards & Reference Guidelines
 
 - **Quality Threshold**: 100% pass requirement on all 10 gates before merging to release or main branches.
-- **Coverage Floor**: Minimum 70% branch and line coverage enforced across `src/devops_cli/`.
+- **Coverage Floor**: Minimum 90% branch and line coverage enforced across `src/devops_cli/`.
 
 ---
 

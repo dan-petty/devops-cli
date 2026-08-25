@@ -77,5 +77,9 @@ addopts = "-n auto --maxprocesses=4"
 data_file = ".data/.coverage"
 parallel = true
 
+[tool.coverage.report]
+fail_under = 90
+show_missing = true
+
 [tool.uv]
 preview-features = ["malware-check"]
