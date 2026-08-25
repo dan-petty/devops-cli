@@ -54,10 +54,6 @@ from devops_cli.config.constants import (
     CONST_MAX_FILE_SIZE_BYTES,
     CONST_REVIEWS_DATA_DIR,
 )
-from devops_cli.config.defaults import (
-    DEFAULT_MALICIOUS_NETWORK_FINDING_CONFIDENCE,
-    DEFAULT_VULNERABILITY_FINDING_CONFIDENCE,
-)
 from devops_cli.models.ai import FileAnalysisMeta
 from devops_cli.models.vulnerability import (
     DependencySpec,
@@ -284,7 +280,7 @@ def _build_vulnerability_finding(
         status="VERIFIED",
         verified=True,
         reportable=True,
-        confidence_score=DEFAULT_VULNERABILITY_FINDING_CONFIDENCE,
+        confidence_score=getattr(v, "cvss_score", None),
         persona="devsecops",
         persona_title="Principal DevSecOps Engineer",
     )
@@ -309,7 +305,7 @@ def _build_malicious_network_finding(
         status="VERIFIED",
         verified=True,
         reportable=True,
-        confidence_score=DEFAULT_MALICIOUS_NETWORK_FINDING_CONFIDENCE,
+        confidence_score=None,
         persona="devsecops",
         persona_title="Principal DevSecOps Engineer",
     )
@@ -562,12 +558,14 @@ class ReviewPipelineOrchestrator:
         candidate = p if p.is_absolute() else (target_root / p)
         try:
             resolved = candidate.resolve()
-            if resolved.is_relative_to(target_root) and resolved.is_file():
+            if resolved.is_relative_to(target_root):
                 return resolved
-        except ValueError, OSError:
-            pass
+        except (ValueError, OSError) as exc:
+            logger.debug("Failed resolving path %s: %s", fpath, exc)
 
-        return (target_root / fpath).resolve()
+        # Fallback to sanitized in-target path
+        safe_rel = Path(fpath.lstrip("/\\")).name
+        return target_root / safe_rel
 
     def _get_server_info(self) -> str:
         """Return formatted string describing target AI/LLM provider, host, and model."""

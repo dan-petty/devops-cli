@@ -9,11 +9,7 @@ from typing import Any
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.commands import build_kubelinter_cmd
-from devops_cli.config.defaults import (
-    DEFAULT_KUBELINTER_TIMEOUT_SECONDS,
-    DEFAULT_STATIC_SCAN_CONFIDENCE_MAX,
-    DEFAULT_STATIC_SCAN_CONFIDENCE_MEDIUM,
-)
+from devops_cli.config.defaults import DEFAULT_KUBELINTER_TIMEOUT_SECONDS
 from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run.state import is_dry_run
 
@@ -45,7 +41,7 @@ def parse_kubelinter_json(data: dict[str, Any], target_path: str = "") -> list[F
                 title=f"[{check_name}] K8s Security Lint Warning",
                 description=f"{msg} for {kind} '{name}' in namespace '{namespace}'.",
                 fix=f"Update K8s manifest spec for {kind} '{name}' to resolve {check_name}",
-                confidence_score=DEFAULT_STATIC_SCAN_CONFIDENCE_MEDIUM,
+                confidence_score=None,
             )
         )
 
@@ -68,7 +64,7 @@ def run_kubelinter_scan(target: Path = Path(".")) -> list[Finding]:
                     title="[DRY-RUN] Simulated Kube-linter Manifest Audit",
                     description="Kube-linter static audit simulation mode active.",
                     fix="No action required (dry-run mode)",
-                    confidence_score=DEFAULT_STATIC_SCAN_CONFIDENCE_MAX,
+                    confidence_score=None,
                 )
             ]
 

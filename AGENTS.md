@@ -81,9 +81,10 @@ Before planning, implementing, debugging, refactoring, or reviewing code, archit
   - Keep CLI documentation, option help text, environment variable tables, and architecture guides synchronized with source code via `devops docs generate --sync-readme`.
 - **Canonical Location Formatting (`filename.ext:n-n`)**:
   - All CLI terminal outputs, Rich tables, Markdown review reports, findings, external dependencies, and network reference audit records must use the canonical `filename.ext:n-n` or `filename.ext:line` location convention project-wide to ensure consistent parsing, clickable referencing, and seamless IDE integration.
-- **Zero Hardcoded Confidence & Scoring Values**:
-  - Never hardcode arbitrary numerical scores, confidence weights, thresholds, or ranking values as magic numbers inline in code blocks or function bodies.
-  - All scoring floors, default confidence ratings, static analyzer weights, and calculation metrics must be declared as named, centralized constants in `devops_cli.config.defaults` or dynamically computed via standardized algorithmic scoring models.
+- **Zero Hardcoded Scoring, Quality Assessment, or Synthetic Confidence Values**:
+  - Never hardcode arbitrary numerical scores, confidence weights, synthetic thresholds, or default scoring floats anywhere in the codebase (neither inline in function bodies nor as static configuration constants).
+  - All scoring, confidence ratings, and quality assessments MUST originate directly from external tools that natively produce those metrics (e.g., security scanners providing native severity ratings, tool confidence levels, or CVSS scores) or from structured AI/LLM model responses.
+  - When an external tool or AI model does not produce a score or confidence rating, the field MUST remain `None` (or 0.0 where non-nullable) — never invent, synthesize, or inject artificial scoring numbers via static default constants or fallback weights.
 
 ## 5. Agentic AI & Review System Guidelines
 

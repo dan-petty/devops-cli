@@ -62,12 +62,13 @@ def _escape_backticks(text: str) -> str:
 
 
 # NOTE (Design Justification - OWASP LLM01): To prevent prompt injection attacks where untrusted
-# code diffs contain embedded closing XML tags (e.g. </target_code_to_review>),
-# _sanitize_prompt_boundary_tags escapes closing tags inside untrusted user content (&lt;/tag&gt;).
+# code diffs contain embedded XML boundary tags (e.g. <untrusted_code_diff>
+# or </target_code_to_review>), _sanitize_prompt_boundary_tags escapes boundary tags inside
+# untrusted user content.
 # The system prompt wrapper retains literal unencoded outer tags (<tag>...</tag>) so LLM parsers
-# recognize the boundary without risking premature block escape.
+# recognize the boundary without risking premature block escape or spoofing.
 def _sanitize_prompt_boundary_tags(text: str) -> str:
-    """Sanitize XML-style boundary closing tags in untrusted content to prevent boundary escape."""
+    """Sanitize XML-style boundary opening and closing tags in untrusted content."""
     if not text:
         return ""
     tags = [
@@ -82,6 +83,8 @@ def _sanitize_prompt_boundary_tags(text: str) -> str:
     ]
     sanitized = text
     for tag in tags:
+        sanitized = sanitized.replace(f"<{tag}>", f"&lt;{tag}&gt;")
+        sanitized = sanitized.replace(f"<{tag} ", f"&lt;{tag} ")
         sanitized = sanitized.replace(f"</{tag}>", f"&lt;/{tag}&gt;")
     return sanitized
 

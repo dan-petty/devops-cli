@@ -31,13 +31,14 @@ graph TD
   - **Lockfile-Aware Dependency Scanning**: Resolves exact package releases from lockfiles (`uv.lock`, `poetry.lock`, `package-lock.json`, `Cargo.lock`, `go.sum`) before querying OSV.dev and NVD vulnerability databases.
   - **Network Reference Disambiguation**: Differentiates legitimate network endpoints from source file extensions (`*.py`, `*.md`, `*.sh`, `*.tf`, `*.rs`, `*.pid`) and telemetry/code property paths (`service.name`, `ci.step.*`, `host.name`, `process.pid`).
   - **Self-Healing & Patch Application**: Generates drop-in remediation code patches that can be applied and verified against automated CI quality gates.
+  - **Continuous Feedback Dataset Export**: Persists validated and invalidated review findings to structured JSONL feedback datasets (`.data/reviews/feedback_dataset.jsonl`) via `devops review export-feedback` to continuously ground RAG indices and calibrate LLM evaluation prompts.
   - **Continuous Knowledge Feedback**: Synthesizes recurrent review findings into repository architecture guides and test fixtures to prevent recurrence.
 
 ---
 
 ## 3. Useful Usage Information & Common Commands
 
-### Review Commands
+### Review & Feedback Commands
 ```bash
 # Review active working directory git diff (staged + unstaged)
 devops review branch
@@ -53,6 +54,9 @@ devops review branch --persona devsecops --provider ollama --model qwen2.5-coder
 
 # Export review report to markdown
 devops review branch --export-md .data/reviews/review-report.md
+
+# Export invalidated and verified feedback dataset for model tuning/RAG
+devops review export-feedback --status-filter ALL --output .data/reviews/feedback_dataset.jsonl
 ```
 
 ---

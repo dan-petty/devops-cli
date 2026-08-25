@@ -9,13 +9,7 @@ from typing import Any
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.commands import BIN_BANDIT
-from devops_cli.config.defaults import (
-    DEFAULT_FILE_ANALYSIS_CONFIDENCE,
-    DEFAULT_STATIC_SCAN_CONFIDENCE_HIGH,
-    DEFAULT_STATIC_SCAN_CONFIDENCE_LOW,
-    DEFAULT_STATIC_SCAN_CONFIDENCE_MAX,
-    DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
-)
+from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run.state import is_dry_run
 from devops_cli.telemetry import trace_span
@@ -35,18 +29,7 @@ def parse_bandit_json(data: dict[str, Any], target_path: str = "") -> list[Findi
         line_num = res.get("line_number")
         issue_text = res.get("issue_text") or "Security flaw detected by Bandit"
         sev = str(res.get("issue_severity") or "MEDIUM").upper()
-        conf = str(res.get("issue_confidence") or "MEDIUM").upper()
         more_info = res.get("more_info") or ""
-
-        confidence_val = (
-            DEFAULT_STATIC_SCAN_CONFIDENCE_HIGH
-            if conf == "HIGH"
-            else (
-                DEFAULT_FILE_ANALYSIS_CONFIDENCE
-                if conf == "MEDIUM"
-                else DEFAULT_STATIC_SCAN_CONFIDENCE_LOW
-            )
-        )
 
         loc = f"{filename}:{line_num}" if line_num is not None else filename
         fix_msg = f"Remediate {test_name} ({test_id})"
@@ -60,7 +43,7 @@ def parse_bandit_json(data: dict[str, Any], target_path: str = "") -> list[Findi
                 title=f"[{test_id}] {issue_text}",
                 description=f"Bandit {test_name} flaw detected at line {line_num}: {issue_text}",
                 fix=fix_msg,
-                confidence_score=confidence_val,
+                confidence_score=None,
             )
         )
 
@@ -90,7 +73,7 @@ def run_bandit_scan(
                     title="[B602] [DRY-RUN] Simulated Bandit Python Security Finding",
                     description="Bandit static security audit simulation mode active.",
                     fix="Remediate subprocess invocation (dry-run mode)",
-                    confidence_score=DEFAULT_STATIC_SCAN_CONFIDENCE_MAX,
+                    confidence_score=None,
                 )
             ]
 

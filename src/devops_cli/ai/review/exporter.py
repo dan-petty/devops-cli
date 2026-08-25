@@ -87,6 +87,20 @@ def export_invalidated_feedback(
     r_dir = reviews_dir or CONST_REVIEWS_DATA_DIR
     out_path = output_file or CONST_FEEDBACK_DATASET_PATH
 
+    if output_file is not None:
+        resolved_out = output_file.resolve()
+        workspace_root = Path.cwd().resolve()
+        data_root = CONST_REVIEWS_DATA_DIR.resolve().parent
+        allowed_roots = [workspace_root, data_root]
+        if reviews_dir is not None:
+            allowed_roots.append(reviews_dir.resolve().parent)
+        import tempfile
+
+        allowed_roots.append(Path(tempfile.gettempdir()).resolve())
+        if not any(resolved_out.is_relative_to(root) for root in allowed_roots):
+            raise ValueError(f"Output path escapes allowed workspace directory: {output_file}")
+        out_path = resolved_out
+
     if not r_dir.exists():
         return 0, out_path
 

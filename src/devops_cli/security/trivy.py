@@ -9,12 +9,7 @@ from typing import Any
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.commands import build_trivy_scan_cmd
-from devops_cli.config.defaults import (
-    DEFAULT_STATIC_SCAN_CONFIDENCE_HIGH,
-    DEFAULT_STATIC_SCAN_CONFIDENCE_MAX,
-    DEFAULT_STATIC_SCAN_CONFIDENCE_MEDIUM,
-    DEFAULT_TRIVY_TIMEOUT_SECONDS,
-)
+from devops_cli.config.defaults import DEFAULT_TRIVY_TIMEOUT_SECONDS
 from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run.state import is_dry_run
 
@@ -51,7 +46,7 @@ def parse_trivy_json(data: dict[str, Any], target_path: str = "") -> list[Findin
                     title=f"[{cve_id}] {title}",
                     description=desc[:500],
                     fix=fix_msg,
-                    confidence_score=DEFAULT_STATIC_SCAN_CONFIDENCE_HIGH,
+                    confidence_score=None,
                 )
             )
 
@@ -74,7 +69,7 @@ def parse_trivy_json(data: dict[str, Any], target_path: str = "") -> list[Findin
                     title=f"[{rule_id}] {title}",
                     description=desc[:500],
                     fix=resolution,
-                    confidence_score=DEFAULT_STATIC_SCAN_CONFIDENCE_MEDIUM,
+                    confidence_score=None,
                 )
             )
 
@@ -91,7 +86,7 @@ def parse_trivy_json(data: dict[str, Any], target_path: str = "") -> list[Findin
                     title=f"[SECRET] {title}",
                     description="Plaintext secret or token identified in workspace file.",
                     fix="Remove hardcoded secret and store in OS Keyring or environment variables",
-                    confidence_score=DEFAULT_STATIC_SCAN_CONFIDENCE_HIGH,
+                    confidence_score=None,
                 )
             )
 
@@ -122,7 +117,7 @@ def run_trivy_scan(
                     title="[DRY-RUN] Simulated Trivy Vulnerability Scan Result",
                     description="Trivy security scan simulation mode active.",
                     fix="No action required (dry-run mode)",
-                    confidence_score=DEFAULT_STATIC_SCAN_CONFIDENCE_MAX,
+                    confidence_score=None,
                 )
             ]
 

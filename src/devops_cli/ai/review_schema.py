@@ -9,7 +9,6 @@ from typing import Any
 import json_repair
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from devops_cli.config.defaults import DEFAULT_FINDING_CONFIDENCE
 from devops_cli.models.ai import FileAnalysisMeta
 from devops_cli.models.vulnerability import (
     DependencySpec,
@@ -552,17 +551,8 @@ class ReviewResult(BaseModel):
             (self.recommendation, other.recommendation),
             key=lambda r: rec_order.get(r, 99),
         )
-        c1 = (
-            self.confidence_score
-            if self.confidence_score is not None
-            else DEFAULT_FINDING_CONFIDENCE
-        )
-        c2 = (
-            other.confidence_score
-            if other.confidence_score is not None
-            else DEFAULT_FINDING_CONFIDENCE
-        )
-        merged_conf = round((c1 + c2) / 2.0, 2)
+        scores = [s for s in (self.confidence_score, other.confidence_score) if s is not None]
+        merged_conf = round(sum(scores) / len(scores), 2) if scores else None
         return ReviewResult(
             findings=merged_findings,
             positive_observations=list(
@@ -659,7 +649,7 @@ def _parse_markdown_review_findings(text: str) -> list[Finding]:
             title=raw_title,
             description=desc,
             fix=fix,
-            confidence_score=DEFAULT_FINDING_CONFIDENCE,
+            confidence_score=None,
         )
         if not f.is_empty:
             findings.append(f)

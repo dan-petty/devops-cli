@@ -23,7 +23,6 @@ from devops_cli.ai.personas import (
     ANALYZE_PSEUDOCODE_TASK_PROMPT,
 )
 from devops_cli.ai.task_loader import load_task_prompt
-from devops_cli.config.defaults import DEFAULT_FILE_ANALYSIS_CONFIDENCE
 from devops_cli.models.ai import FileAnalysisMeta
 
 logger = logging.getLogger(__name__)
@@ -39,8 +38,8 @@ class EnhancedMetadataOutput(BaseModel):
     dependencies: list[str] = Field(default_factory=list)
     pseudocode: list[str] = Field(default_factory=list)
     complexity_score: Literal["Low", "Medium", "High"] = "Low"
-    confidence_score: float = Field(default=DEFAULT_FILE_ANALYSIS_CONFIDENCE, ge=0.0, le=1.0)
-    quality_score: float = Field(default=DEFAULT_FILE_ANALYSIS_CONFIDENCE, ge=0.0, le=1.0)
+    confidence_score: float | None = Field(default=None, ge=0.0, le=1.0)
+    quality_score: float | None = Field(default=None, ge=0.0, le=1.0)
 
 
 def _validate_enhanced_metadata(

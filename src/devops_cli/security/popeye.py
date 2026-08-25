@@ -8,11 +8,7 @@ from typing import Any
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.commands import build_popeye_cmd
-from devops_cli.config.defaults import (
-    DEFAULT_POPEYE_TIMEOUT_SECONDS,
-    DEFAULT_STATIC_SCAN_CONFIDENCE_MAX,
-    DEFAULT_STATIC_SCAN_CONFIDENCE_MEDIUM,
-)
+from devops_cli.config.defaults import DEFAULT_POPEYE_TIMEOUT_SECONDS
 from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run.state import is_dry_run
 
@@ -34,7 +30,7 @@ def _parse_single_popeye_issue(sanitizer_name: str, res_id: str, issue: dict[str
         title=f"[{sanitizer_name.upper()}] Cluster Sanitizer Finding",
         description=msg,
         fix=f"Review and adjust Kubernetes specification for {res_id}",
-        confidence_score=DEFAULT_STATIC_SCAN_CONFIDENCE_MEDIUM,
+        confidence_score=None,
     )
 
 
@@ -59,23 +55,27 @@ def parse_popeye_json(data: dict[str, Any]) -> list[Finding]:
     return findings
 
 
-def run_popeye_scan() -> list[Finding]:
-    """Execute Popeye K8s cluster sanitizer subprocess and return parsed findings."""
+def run_popeye_scan(
+    namespace: str | None = None,
+    context: str | None = None,
+    save_output: bool = True,
+) -> list[Finding]:
+    """Execute Popeye sanitizer subprocess and return parsed findings."""
     from devops_cli.telemetry import trace_span
 
     with trace_span(
         "security.scan.popeye",
-        attributes={},
+        attributes={"namespace": namespace or "all", "context": context or "default"},
     ) as span_h:
         if is_dry_run():
             return [
                 Finding(
-                    severity="MEDIUM",
-                    location="k8s:pods/default/dry-run-pod",
-                    title="[DRY-RUN] Simulated Popeye Cluster Health Audit Result",
-                    description="Popeye cluster health audit simulation mode active.",
+                    severity="LOW",
+                    location="k8s:cluster/dry-run-node",
+                    title="[DRY-RUN] Simulated Popeye Kubernetes Cluster Scan",
+                    description="Popeye cluster sanitation simulation mode active.",
                     fix="No action required (dry-run mode)",
-                    confidence_score=DEFAULT_STATIC_SCAN_CONFIDENCE_MAX,
+                    confidence_score=None,
                 )
             ]
 

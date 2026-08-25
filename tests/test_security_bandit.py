@@ -36,7 +36,7 @@ def test_parse_bandit_json_valid() -> None:
     assert "B602" in f.title
     assert "src/devops_cli/core/process.py:42" in f.location
     assert "https://bandit.readthedocs.io" in f.fix
-    assert f.confidence_score == 0.95
+    assert f.confidence_score is None
 
 
 def test_run_bandit_scan_dry_run(tmp_path: Path) -> None:
@@ -46,7 +46,7 @@ def test_run_bandit_scan_dry_run(tmp_path: Path) -> None:
         findings = run_bandit_scan(tmp_path)
         assert len(findings) == 1
         assert "DRY-RUN" in findings[0].title
-        assert findings[0].confidence_score == 1.0
+        assert findings[0].confidence_score is None
     finally:
         set_dry_run(False)
 
@@ -75,4 +75,4 @@ def test_run_bandit_scan_mocked(mock_proc: MagicMock, tmp_path: Path) -> None:
     assert len(findings) == 1
     assert findings[0].severity == "MEDIUM"
     assert "B108" in findings[0].title
-    assert findings[0].confidence_score == 0.85
+    assert findings[0].confidence_score is None

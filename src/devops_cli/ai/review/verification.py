@@ -15,10 +15,6 @@ from devops_cli.ai.review.sanitization import (
 )
 from devops_cli.ai.review_schema import _SEVERITY_RANK, Finding, ReviewResult, extract_json_block
 from devops_cli.ai.task_loader import load_task_prompt
-from devops_cli.config.defaults import (
-    DEFAULT_FINDING_CONFIDENCE,
-    DEFAULT_STATIC_SCAN_CONFIDENCE_MEDIUM,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -493,15 +489,11 @@ def _apply_single_finding_verification(
         try:
             conf: float | None = max(0.0, min(1.0, float(conf_val)))
         except ValueError, TypeError:
-            conf = f.confidence_score or DEFAULT_FINDING_CONFIDENCE
+            conf = f.confidence_score
     elif f.verification_criteria:
         conf = round(len(ver_matched) / max(1, len(f.verification_criteria)), 2)
     else:
-        conf = (
-            DEFAULT_STATIC_SCAN_CONFIDENCE_MEDIUM
-            if is_v
-            else round(1.0 - DEFAULT_STATIC_SCAN_CONFIDENCE_MEDIUM, 2)
-        )
+        conf = f.confidence_score
 
     updates: dict[str, object] = {
         "verified": is_v,
