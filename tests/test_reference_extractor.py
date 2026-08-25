@@ -517,3 +517,37 @@ def test_extract_network_references_package_files_and_lockfile_filtering() -> No
     assert "https://api.external-monitoring-service.net/v2/events" in targets
     assert "https://files.pythonhosted.org/packages/4c/76/pkg-1.0.0.whl" not in targets
     assert "https://registry.npmjs.org/lib/-/lib-2.0.0.tgz" not in targets
+
+
+def test_extract_network_references_file_extensions_and_code_properties() -> None:
+    """Verify source files and telemetry/code properties are not matched as external domains."""
+    doc_content = """
+    # Architecture & Agent Rules
+    See intelligence.py, manager.py, misc.py, common.py, helpers.py.
+    Also check postcreate.sh, architect.md, devsecops.md, vpc.tf, lib.rs, git-daemon.pid.
+    Span attributes: service.name, ci.step.security, host.name, process.pid, concurrency.group.
+    Legitimate domain: api.datadoghq.com and auth.auth0.com.
+    """
+    refs = extract_network_references(doc_content, "docs/architecture.md")
+    targets = {r.target for r in refs}
+
+    # Legitimate external domains
+    assert "api.datadoghq.com" in targets
+    assert "auth.auth0.com" in targets
+
+    # Source files should NOT be extracted as domains
+    assert "intelligence.py" not in targets
+    assert "manager.py" not in targets
+    assert "postcreate.sh" not in targets
+    assert "architect.md" not in targets
+    assert "devsecops.md" not in targets
+    assert "vpc.tf" not in targets
+    assert "lib.rs" not in targets
+    assert "git-daemon.pid" not in targets
+
+    # Span and code attribute properties should NOT be extracted as domains
+    assert "service.name" not in targets
+    assert "ci.step.security" not in targets
+    assert "host.name" not in targets
+    assert "process.pid" not in targets
+    assert "concurrency.group" not in targets

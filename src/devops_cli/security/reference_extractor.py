@@ -232,22 +232,128 @@ def _get_workspace_filenames(root_dir_str: str = "") -> tuple[set[str], tuple[st
     return exact_names, tuple(all_paths)
 
 
+_COMMON_FILE_EXTENSIONS = (
+    ".py",
+    ".pyi",
+    ".pyx",
+    ".md",
+    ".markdown",
+    ".rst",
+    ".adoc",
+    ".txt",
+    ".sh",
+    ".bash",
+    ".zsh",
+    ".fish",
+    ".bat",
+    ".cmd",
+    ".ps1",
+    ".tf",
+    ".tfvars",
+    ".hcl",
+    ".yaml",
+    ".yml",
+    ".json",
+    ".toml",
+    ".ini",
+    ".cfg",
+    ".conf",
+    ".rs",
+    ".go",
+    ".ts",
+    ".tsx",
+    ".js",
+    ".jsx",
+    ".mjs",
+    ".cjs",
+    ".html",
+    ".htm",
+    ".css",
+    ".scss",
+    ".sass",
+    ".less",
+    ".xml",
+    ".svg",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".webp",
+    ".ico",
+    ".lock",
+    ".lockb",
+    ".pid",
+    ".env",
+    ".example",
+    ".sample",
+    ".template",
+    ".sql",
+    ".db",
+    ".sqlite",
+    ".log",
+    ".out",
+    ".err",
+    ".bak",
+    ".tmp",
+)
+
+_CODE_CONFIG_PREFIXES = (
+    "self.",
+    "cls.",
+    "os.",
+    "sys.",
+    "process.",
+    "ci.step.",
+    "telemetry.",
+    "logger.",
+    "log.",
+    "mcp.",
+    "uvicorn.",
+    "httpx.",
+    "httpx2.",
+)
+
+_COMMON_PROPERTY_SUFFIXES = {
+    "name",
+    "email",
+    "actor",
+    "pid",
+    "group",
+    "security",
+    "docs",
+    "ping",
+    "call",
+    "run",
+    "post",
+    "collection",
+    "sdk",
+    "executable",
+    "runtime",
+}
+
+
 @functools.lru_cache(maxsize=4096)
 def is_file_reference(target: str, source_file: str = "") -> bool:
-    """Check if target string represents an existing file on disk or matches in recursive search."""
+    """Check if target string represents an existing file on disk, known extension,
+    or search match.
+    """
     clean = target.strip().rstrip(".,;)>]\"'").lower()
     if not clean:
         return False
     if "/" in clean or "\\" in clean or clean.startswith("."):
         return True
 
+    # 1. Standard source code, documentation, template, script, and config extensions
+    if any(clean.endswith(ext) for ext in _COMMON_FILE_EXTENSIONS):
+        return True
+
     exact_names, all_paths = _get_workspace_filenames(str(Path.cwd().resolve()))
 
-    # 1. Exact match against any filename or relative path across workspace in recursive file search
+    # 2. Exact match against any filename or relative path across workspace
     if clean in exact_names:
         return True
 
-    # 2. Check if specific value matches as a substring of a filename in recursive file search
+    # 3. Match as a substring of a filename in workspace file tree
     for path_str in all_paths:
         if clean == path_str or clean in path_str.split("/"):
             return True
@@ -256,11 +362,11 @@ def is_file_reference(target: str, source_file: str = "") -> bool:
 
     target_path = Path(clean)
 
-    # 3. Direct or cwd-relative filesystem existence
+    # 4. Direct or cwd-relative filesystem existence
     if target_path.is_file() or (Path.cwd() / target_path).is_file():
         return True
 
-    # 4. Source file relative existence
+    # 5. Source file relative existence
     if source_file:
         src = Path(source_file)
         if (src.parent / target_path).is_file():
@@ -270,13 +376,6 @@ def is_file_reference(target: str, source_file: str = "") -> bool:
             for sibling in src.parent.iterdir()
             if sibling.is_dir() and not sibling.name.startswith(".")
         ):
-            return True
-
-    # 5. Standard MIME type database resolution (for non-PSL domain formats like .py, .json, .xml)
-    ext = _TLD_EXTRACTOR(clean)
-    if not ext.domain or not ext.suffix:
-        mime_type, _ = mimetypes.guess_type(clean)
-        if mime_type is not None:
             return True
 
     return False
@@ -293,6 +392,15 @@ def is_code_or_config_reference(target: str, source_file: str = "") -> bool:
 
     # Valid network hostnames cannot contain underscores (RFC 1123)
     if "_" in clean or clean.startswith("-") or clean.endswith("-"):
+        return True
+
+    if is_local_or_reserved_domain(clean):
+        return False
+
+    clean_lower = clean.lower()
+
+    # Common code receiver or property prefixes (e.g. self.host, ci.step.security, host.name)
+    if clean_lower.startswith(_CODE_CONFIG_PREFIXES):
         return True
 
     parts = clean.split(".")
@@ -337,11 +445,24 @@ def is_code_or_config_reference(target: str, source_file: str = "") -> bool:
     if (Path.cwd() / first_seg).exists() or (Path.cwd() / "src" / first_seg).exists():
         return True
 
-    if is_local_or_reserved_domain(clean):
-        return False
-
     ext = _TLD_EXTRACTOR(clean)
     if not ext.domain or not ext.suffix:
+        return True
+
+    # If the TLD suffix or domain is a programmatic identifier and not a standard web domain suffix
+    if ext.suffix.lower() in _COMMON_PROPERTY_SUFFIXES and ext.suffix.lower() not in (
+        "com",
+        "org",
+        "net",
+        "io",
+        "dev",
+        "app",
+        "gov",
+        "edu",
+        "info",
+        "co",
+        "me",
+    ):
         return True
 
     return False
@@ -871,10 +992,11 @@ def _extract_pyproject_dependencies(
         try:
             req = Requirement(req_str)
             line_no = _find_package_line(content_lines, req.name)
+            version_spec = str(req.specifier) if str(req.specifier) else "*"
             deps.append(
                 DependencySpec(
                     name=req.name,
-                    version_range=str(req.specifier) if str(req.specifier) else "*",
+                    version_range=version_spec,
                     ecosystem="PyPI",
                     source_file=file_name,
                     line_number=line_no,

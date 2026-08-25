@@ -29,6 +29,8 @@ graph TD
 - **Closed-Loop Feedback & Self-Improvement**:
   - **Verification & Invalidation Criteria**: Every finding is tested against explicit observable criteria in the AST, manifest configurations, build systems, path boundaries, and lockfiles (`uv.lock`, `poetry.lock`, `Cargo.lock`), eliminating theoretical, ungrounded, or phantom alerts.
   - **Confidence Calibration**: Multi-persona agreement and deterministic AST/lockfile checks calibrate finding confidence scores before reporting.
+  - **Lockfile-Aware Dependency Resolution**: Evaluates dependency vulnerability alerts against exact cryptographic package releases resolved from authoritative lockfiles (`uv.lock`, `poetry.lock`, `package-lock.json`, `Cargo.lock`, `go.sum`) to prevent false alarms on loose manifest ranges (`>=`, `~=`).
+  - **Network Reference & Code Identifier Disambiguation**: Applies RFC 1123/2606 rules, Public Suffix List (`tldextract`) validation, and AST introspection to distinguish legitimate network domains from source file names (`*.py`, `*.md`, `*.sh`, `*.tf`, `*.rs`, `*.pid`) and telemetry/code property paths (`service.name`, `ci.step.*`, `host.name`, `process.pid`).
   - **Self-Healing Remediations**: AI generates verifiable, syntax-valid, drop-in patches ready for immediate CI test execution.
   - **Path & Boundary Validation**: Evaluators verify that file operations, release paths, and workspace tools enforce repository containment (`Path.is_relative_to`) to prevent path traversal.
   - **Zero-Trust Secret Verification**: Evaluators confirm that credentials use secure OS Keyring backends (`keyring>=25`) and reject unencrypted plaintext store additions.

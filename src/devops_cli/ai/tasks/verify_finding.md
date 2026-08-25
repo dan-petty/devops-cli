@@ -13,6 +13,7 @@ Execute a structured, 4-step chain-of-thought verification procedure for each re
 - Verify cryptographic lockfiles (`uv.lock`, `poetry.lock`, `package-lock.json`, `Cargo.lock`, `go.sum`) to disprove false missing-pin alerts.
 - Verify secure OS Keyring usage and confirm absence of insecure unencrypted packages (e.g. `keyrings.alt`).
 - Check if the flagged code is documentation, tutorials, knowledge base guides, test assertions/fixtures, test mocks, template files, or prompt tasks explaining known vulnerabilities in the context of avoiding, explaining, or mitigating them.
+- Check if the flagged item is a source code identifier, OpenTelemetry attribute, or file name rather than an actual unauthenticated external network endpoint.
 
 ### Step 3: Fix Correctness & Regression Evaluation
 - Trace the proposed `fix` against the codebase.
