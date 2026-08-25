@@ -41,7 +41,7 @@ def parse_kubelinter_json(data: dict[str, Any], target_path: str = "") -> list[F
                 title=f"[{check_name}] K8s Security Lint Warning",
                 description=f"{msg} for {kind} '{name}' in namespace '{namespace}'.",
                 fix=f"Update K8s manifest spec for {kind} '{name}' to resolve {check_name}",
-                confidence_score=0.9,
+                confidence_score=None,
             )
         )
 
@@ -64,7 +64,7 @@ def run_kubelinter_scan(target: Path = Path(".")) -> list[Finding]:
                     title="[DRY-RUN] Simulated Kube-linter Manifest Audit",
                     description="Kube-linter static audit simulation mode active.",
                     fix="No action required (dry-run mode)",
-                    confidence_score=1.0,
+                    confidence_score=None,
                 )
             ]
 

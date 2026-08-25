@@ -211,6 +211,12 @@ def get_all_env_var_specs() -> list[EnvVarSpec]:
             "Ollama service URLs (comma-separated)",
         ),
         EnvVarSpec(
+            ENV_AI_OLLAMA_MAX_PARALLEL,
+            opt.AI_OLLAMA_MAX_PARALLEL,
+            False,
+            "Maximum parallel requests per Ollama host",
+        ),
+        EnvVarSpec(
             ENV_AI_API_BASE_URL,
             opt.AI_API_BASE_URL,
             False,

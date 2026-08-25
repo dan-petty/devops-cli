@@ -8,30 +8,44 @@ import shutil
 from typing import Annotated
 
 import typer
-from rich import print as rprint
-from rich.console import Console
 from rich.table import Table
 
 from devops_cli.config.constants import CONST_GH_CLI
 from devops_cli.core.cli import new_typer
 from devops_cli.core.process import run_subprocess
 from devops_cli.lang import MESSAGES
+from devops_cli.output import (
+    print_error,
+    print_success,
+    print_table,
+    print_warning,
+)
 
 app = new_typer(
     help="Manage GitHub pull requests, base branch targeting, and review gates.",
     no_args_is_help=True,
 )
-console = Console()
 
 
 def _require_gh_cli() -> None:
     if not shutil.which(CONST_GH_CLI):
-        rprint(f"[red]{MESSAGES.pr.gh_cli_required}[/red]")
+        print_error(MESSAGES.pr.gh_cli_required, prefix=False)
         raise typer.Exit(1)
 
 
+def _run_gh_pr_command(subcommand: str, number: int, repo: str | None = None) -> None:
+    """Execute a GitHub PR subcommand (e.g. view, checks) for a PR number."""
+    _require_gh_cli()
+    cmd = [CONST_GH_CLI, "pr", subcommand, str(number)]
+    if repo:
+        cmd.extend(["--repo", repo])
+    res = run_subprocess(cmd, check=False)
+    if res.returncode != 0:
+        raise typer.Exit(res.returncode)
+
+
 def _detect_active_release_branch() -> str | None:
-    """Detect latest local/remote release branch (e.g. release/v0.1.13)."""
+    """Detect latest local/remote release branch (e.g. release/v0.2.0)."""
     res = run_subprocess(["git", "branch", "-a"], check=False, quiet=True)
     if res.returncode != 0:
         return None
@@ -49,6 +63,11 @@ def _detect_active_release_branch() -> str | None:
 
     sorted_releases = sorted(set(matches), key=_ver_key, reverse=True)
     return sorted_releases[0] if sorted_releases else None
+
+
+# =============================================================================
+# Command: devops pr list
+# =============================================================================
 
 
 @app.command("list")
@@ -84,7 +103,7 @@ def list_prs(
 
     res = run_subprocess(cmd, check=False)
     if res.returncode != 0:
-        rprint(f"[red]Failed to list PRs: {res.stderr}[/red]")
+        print_error(f"Failed to list PRs: {res.stderr}", prefix=False)
         raise typer.Exit(res.returncode)
 
     try:
@@ -93,7 +112,7 @@ def list_prs(
         prs = []
 
     if not prs:
-        rprint(f"[yellow]{MESSAGES.pr.no_prs_found}[/yellow]")
+        print_warning(MESSAGES.pr.no_prs_found, prefix=False)
         return
 
     table = Table(title=f"Pull Requests ({state})", title_style="bold")
@@ -120,7 +139,12 @@ def list_prs(
 
         table.add_row(f"#{number}", title, head, base, author, updated, url)
 
-    console.print(table)
+    print_table(table)
+
+
+# =============================================================================
+# Command: devops pr view
+# =============================================================================
 
 
 @app.command("view")
@@ -132,13 +156,12 @@ def view_pr(
     ] = None,
 ) -> None:
     """View details of a pull request."""
-    _require_gh_cli()
-    cmd = [CONST_GH_CLI, "pr", "view", str(number)]
-    if repo:
-        cmd.extend(["--repo", repo])
-    res = run_subprocess(cmd, check=False)
-    if res.returncode != 0:
-        raise typer.Exit(res.returncode)
+    _run_gh_pr_command("view", number, repo)
+
+
+# =============================================================================
+# Command: devops pr checks
+# =============================================================================
 
 
 @app.command("checks")
@@ -150,13 +173,12 @@ def pr_checks(
     ] = None,
 ) -> None:
     """Check remote CI quality gate status on a pull request."""
-    _require_gh_cli()
-    cmd = [CONST_GH_CLI, "pr", "checks", str(number)]
-    if repo:
-        cmd.extend(["--repo", repo])
-    res = run_subprocess(cmd, check=False)
-    if res.returncode != 0:
-        raise typer.Exit(res.returncode)
+    _run_gh_pr_command("checks", number, repo)
+
+
+# =============================================================================
+# Command: devops pr edit
+# =============================================================================
 
 
 @app.command("edit")
@@ -194,7 +216,12 @@ def edit_pr(
     res = run_subprocess(cmd, check=False)
     if res.returncode != 0:
         raise typer.Exit(res.returncode)
-    rprint(f"[green]✓ Successfully updated PR #{number}[/green]")
+    print_success(f"Successfully updated PR #{number}")
+
+
+# =============================================================================
+# Command: devops pr create
+# =============================================================================
 
 
 @app.command("create")
@@ -243,7 +270,4 @@ def create_pr(
     res = run_subprocess(cmd, check=False)
     if res.returncode != 0:
         raise typer.Exit(res.returncode)
-    rprint(
-        f"[green]✓ Pull request created successfully targeting base "
-        f"[bold]{target_base}[/bold][/green]"
-    )
+    print_success(f"Pull request created successfully targeting base [bold]{target_base}[/bold]")

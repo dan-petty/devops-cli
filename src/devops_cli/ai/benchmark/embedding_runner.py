@@ -24,7 +24,29 @@ from devops_cli.ai.benchmark.embedding_tasks import (
     EmbeddingEvalPair,
 )
 from devops_cli.ai.rag.embeddings import EmbeddingsEngine
-from devops_cli.config.constants import CONST_DATA_DIR
+from devops_cli.config.constants import (
+    CONST_BENCHMARKS_DATA_DIR,
+    CONST_EMBEDDING_REPORT_FILENAME,
+    CONST_FP32_BYTES_PER_ELEMENT,
+    CONST_KILOBYTE_BYTES,
+)
+from devops_cli.config.defaults import (
+    DEFAULT_DRY_RUN_EMBEDDING_CATEGORIES,
+    DEFAULT_DRY_RUN_EMBEDDING_DIMENSION,
+    DEFAULT_DRY_RUN_EMBEDDING_LATENCY_P50,
+    DEFAULT_DRY_RUN_EMBEDDING_LATENCY_P95,
+    DEFAULT_DRY_RUN_EMBEDDING_MARGIN,
+    DEFAULT_DRY_RUN_EMBEDDING_MRR,
+    DEFAULT_DRY_RUN_EMBEDDING_NDCG,
+    DEFAULT_DRY_RUN_EMBEDDING_OVERALL_SCORE,
+    DEFAULT_DRY_RUN_EMBEDDING_RECALL,
+    DEFAULT_DRY_RUN_EMBEDDING_SEPARATION,
+    DEFAULT_DRY_RUN_EMBEDDING_THROUGHPUT_CHARS,
+    DEFAULT_DRY_RUN_EMBEDDING_THROUGHPUT_ITEMS,
+    DEFAULT_EMBEDDING_BENCHMARK_CONCURRENCY,
+    DEFAULT_EMBEDDING_BENCHMARK_MODELS,
+    DEFAULT_EMBEDDING_BENCHMARK_SAMPLE_COUNT,
+)
 from devops_cli.config.settings import AIConfig, Settings, get_ai_api_key, load_settings
 from devops_cli.models.benchmark import (
     EmbeddingBenchmarkReport,
@@ -63,16 +85,16 @@ class EmbeddingBenchmarkRunner:
 
     def __init__(
         self,
-        models: list[str],
+        models: list[str] | None = None,
         settings: Settings | None = None,
         provider: str | None = None,
         is_dry_run: bool | None = None,
-        concurrency: int = 4,
+        concurrency: int = DEFAULT_EMBEDDING_BENCHMARK_CONCURRENCY,
         servers: list[str] | None = None,
         document_path: Path | None = None,
-        sample_count: int = 15,
+        sample_count: int = DEFAULT_EMBEDDING_BENCHMARK_SAMPLE_COUNT,
     ) -> None:
-        self.models = models or ["nomic-embed-text:latest"]
+        self.models = models or list(DEFAULT_EMBEDDING_BENCHMARK_MODELS)
         self.settings = settings or load_settings()
         self.provider = provider or self.settings.ai.provider
         self.session_id = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
@@ -109,14 +131,15 @@ class EmbeddingBenchmarkRunner:
         if endpoint and (":11434" in endpoint or "ollama" in endpoint):
             resolved_provider = "ollama"
 
+        allow_priv = self.settings.ai.allow_private_network
         ai_kwargs: dict[str, Any] = {
             "provider": resolved_provider,
-            "allow_private_network": True,
+            "allow_private_network": allow_priv,
             "rag": {"embedding_model": clean_model},
         }
 
         if endpoint:
-            clean_endpoint = validate_url(endpoint, "benchmark server", allow_private=True)
+            clean_endpoint = validate_url(endpoint, "benchmark server", allow_private=allow_priv)
             ai_kwargs["ollama_urls"] = [clean_endpoint]
             ai_kwargs["api_base_url"] = clean_endpoint
 
@@ -158,32 +181,31 @@ class EmbeddingBenchmarkRunner:
             )
 
         if self.is_dry_run_active:
-            dim = 768
+            dim = DEFAULT_DRY_RUN_EMBEDDING_DIMENSION
             return EmbeddingBenchmarkResult(
                 model=clean_model,
                 server=server_url,
                 dimension=dim,
-                recall_at_1=100.0,
-                recall_at_3=100.0,
-                recall_at_5=100.0,
-                mrr=1.0,
-                ndcg_at_5=1.0,
-                mean_cosine_margin=0.45,
-                separation_score=0.48,
-                latency_ms_p50=12.5,
-                latency_ms_p95=18.2,
-                throughput_items_per_sec=85.0,
-                throughput_chars_per_sec=18500.0,
-                overall_score=95.0,
+                recall_at_1=DEFAULT_DRY_RUN_EMBEDDING_RECALL,
+                recall_at_3=DEFAULT_DRY_RUN_EMBEDDING_RECALL,
+                recall_at_5=DEFAULT_DRY_RUN_EMBEDDING_RECALL,
+                mrr=DEFAULT_DRY_RUN_EMBEDDING_MRR,
+                ndcg_at_5=DEFAULT_DRY_RUN_EMBEDDING_NDCG,
+                mean_cosine_margin=DEFAULT_DRY_RUN_EMBEDDING_MARGIN,
+                separation_score=DEFAULT_DRY_RUN_EMBEDDING_SEPARATION,
+                latency_ms_p50=DEFAULT_DRY_RUN_EMBEDDING_LATENCY_P50,
+                latency_ms_p95=DEFAULT_DRY_RUN_EMBEDDING_LATENCY_P95,
+                throughput_items_per_sec=DEFAULT_DRY_RUN_EMBEDDING_THROUGHPUT_ITEMS,
+                throughput_chars_per_sec=DEFAULT_DRY_RUN_EMBEDDING_THROUGHPUT_CHARS,
+                overall_score=DEFAULT_DRY_RUN_EMBEDDING_OVERALL_SCORE,
                 is_normalized=True,
                 category_accuracies={
-                    "security": 100.0,
-                    "kubernetes": 100.0,
-                    "architecture": 100.0,
-                    "ci_cd": 100.0,
-                    "infrastructure": 100.0,
+                    cat: DEFAULT_DRY_RUN_EMBEDDING_RECALL
+                    for cat in DEFAULT_DRY_RUN_EMBEDDING_CATEGORIES
                 },
-                memory_kb_per_vector=round((dim * 4) / 1024, 2),
+                memory_kb_per_vector=round(
+                    (dim * CONST_FP32_BYTES_PER_ELEMENT) / CONST_KILOBYTE_BYTES, 2
+                ),
             )
 
         engine = self._engine_for_model(clean_model, server_url)
@@ -471,9 +493,9 @@ class EmbeddingBenchmarkRunner:
 
     def _save_report(self, report: EmbeddingBenchmarkReport) -> None:
         """Save benchmark report to disk under .data/benchmarks/<session_id>/."""
-        bench_dir = CONST_DATA_DIR / "benchmarks" / self.session_id
+        bench_dir = CONST_BENCHMARKS_DATA_DIR / self.session_id
         bench_dir.mkdir(parents=True, exist_ok=True)
-        report_file = bench_dir / "embedding_report.json"
+        report_file = bench_dir / CONST_EMBEDDING_REPORT_FILENAME
         report_file.write_text(report.model_dump_json(indent=2), encoding="utf-8")
         logger.info("Saved embedding benchmark report to %s", report_file)
 

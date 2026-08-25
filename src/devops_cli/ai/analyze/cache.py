@@ -96,9 +96,10 @@ def save_analysis_metadata(
     payload = AnalysisMetadata(project=proj_meta, files=files)
 
     if is_dry_run():
+        from devops_cli.output import print_dry_run_result
+
         rprint(MESSAGES.analyze.would_save_metadata.format(path=out_file))
-        rprint("[yellow][dry-run][/yellow] AnalysisMetadata Pydantic model response:")
-        console.print_json(payload.model_dump_json(indent=2))
+        print_dry_run_result(payload)
     else:
         out_file.write_text(json.dumps(payload.model_dump(mode="json"), indent=2), encoding="utf-8")
         rprint(MESSAGES.analyze.saved_metadata.format(path=out_file))

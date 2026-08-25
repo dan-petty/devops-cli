@@ -6,6 +6,8 @@ mode: deployment
 
 image:
   repository: "otel/opentelemetry-collector-contrib"
+  tag: "0.120.0"
+  pullPolicy: IfNotPresent
 
 resources:
   requests:

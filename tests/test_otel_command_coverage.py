@@ -55,7 +55,7 @@ def test_otel_typer_subcommand_span_and_metrics(
     assert span_data["name"] == "cli.test-subcmd"
     assert span_data["status"]["code"] == "STATUS_CODE_OK"
 
-    attrs = {a["key"]: a["value"]["stringValue"] for a in span_data["attributes"]}
+    attrs = {a["key"]: str(next(iter(a["value"].values()))) for a in span_data["attributes"]}
     assert attrs["cli.command"] == "test-subcmd"
     assert attrs["cli.status"] == "ok"
     assert "cli.duration_seconds" in attrs
@@ -85,7 +85,7 @@ def test_otel_typer_subcommand_error_span(
     assert span_data["name"] == "cli.failing-cmd"
     assert span_data["status"]["code"] == "STATUS_CODE_ERROR"
 
-    attrs = {a["key"]: a["value"]["stringValue"] for a in span_data["attributes"]}
+    attrs = {a["key"]: str(next(iter(a["value"].values()))) for a in span_data["attributes"]}
     assert attrs["cli.status"] == "error"
     assert "Cluster unreachable" in attrs.get("cli.error", "")
 
@@ -151,7 +151,7 @@ def test_subprocess_span_and_metrics(
     span_data = trace_payloads[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
     assert span_data["name"] == "subprocess.kubectl"
 
-    attrs = {a["key"]: a["value"]["stringValue"] for a in span_data["attributes"]}
+    attrs = {a["key"]: str(next(iter(a["value"].values()))) for a in span_data["attributes"]}
     assert attrs["subprocess.bin"] == "kubectl"
     assert attrs["subprocess.exit_code"] == "0"
     assert "subprocess.duration_seconds" in attrs
@@ -181,7 +181,7 @@ def test_subprocess_error_span_and_metrics(
 
     trace_payloads = [p for path, p in clean_tracer if path == "/v1/traces"]
     span_data = trace_payloads[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
-    attrs = {a["key"]: a["value"]["stringValue"] for a in span_data["attributes"]}
+    attrs = {a["key"]: str(next(iter(a["value"].values()))) for a in span_data["attributes"]}
     assert attrs["subprocess.bin"] == "helm"
     assert attrs["subprocess.exit_code"] == "1"
 
@@ -212,8 +212,8 @@ def test_span_handle_attribute_mutation() -> None:
     assert attrs["b"] == 2
 
 
-def test_all_28_command_specs_registered() -> None:
-    """Verify that all 28 CLI command specs are present in _COMMAND_SPECS."""
+def test_all_command_specs_registered() -> None:
+    """Verify that all CLI command specs are present in _COMMAND_SPECS."""
     expected_commands = {
         "repos",
         "ssh",
@@ -238,11 +238,9 @@ def test_all_28_command_specs_registered() -> None:
         "release",
         "pr",
         "tf",
-        "tofu",
         "tls",
-        "cert",
         "telemetry",
-        "otel",
+        "serve",
     }
     assert set(_COMMAND_SPECS.keys()) == expected_commands
 
@@ -274,7 +272,7 @@ def test_span_events_and_exception_stacktrace(
     failing_payloads = [p for path, p in clean_tracer if path == "/v1/traces"]
     failing_span = failing_payloads[-1]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
     assert failing_span["status"]["code"] == "STATUS_CODE_ERROR"
-    attrs = {a["key"]: a["value"]["stringValue"] for a in failing_span["attributes"]}
+    attrs = {a["key"]: str(next(iter(a["value"].values()))) for a in failing_span["attributes"]}
     assert attrs["exception.type"] == "ValueError"
     assert "Boom" in attrs["exception.message"]
     assert "exception.stacktrace" in attrs
@@ -285,7 +283,9 @@ def test_span_events_and_exception_stacktrace(
 def test_resource_attributes_standard() -> None:
     """Verify that standardized OTel resource attributes include runtime and SDK details."""
     tracer = get_tracer()
-    res_attrs = {a["key"]: a["value"]["stringValue"] for a in tracer._get_resource_attributes()}
+    res_attrs = {
+        a["key"]: str(next(iter(a["value"].values()))) for a in tracer._get_resource_attributes()
+    }
     assert res_attrs["service.name"] == "devops-cli"
     assert res_attrs["process.runtime.name"] == "cpython"
     assert res_attrs["telemetry.sdk.name"] == "devops-cli-otel"
@@ -318,7 +318,7 @@ def test_subprocess_rich_telemetry_emission(
     ]
     assert len(subproc_spans) >= 1
     span = subproc_spans[0]
-    attrs = {a["key"]: a["value"]["stringValue"] for a in span["attributes"]}
+    attrs = {a["key"]: str(next(iter(a["value"].values()))) for a in span["attributes"]}
     assert attrs["subprocess.bin"] == "echo"
     assert attrs["subprocess.status"] == "ok"
     assert attrs["subprocess.args_count"] == "3"

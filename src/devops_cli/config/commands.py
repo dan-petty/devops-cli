@@ -146,17 +146,20 @@ def build_uv_audit_cmd() -> list[str]:
     return [BIN_UV, "audit"]
 
 
-def build_tf_cmd(subcommand: str, args: Sequence[str] | None = None) -> list[str]:
-    """Build a terraform command."""
-    cmd = [BIN_TERRAFORM, subcommand]
+def build_iac_cmd(binary: str, subcommand: str, args: Sequence[str] | None = None) -> list[str]:
+    """Build an Infrastructure-as-Code command (terraform or tofu)."""
+    bin_name = BIN_TOFU if binary.lower() in ("tofu", "opentofu", BIN_TOFU) else BIN_TERRAFORM
+    cmd = [bin_name, subcommand]
     if args:
         cmd.extend(args)
     return cmd
+
+
+def build_tf_cmd(subcommand: str, args: Sequence[str] | None = None) -> list[str]:
+    """Build a terraform command."""
+    return build_iac_cmd(BIN_TERRAFORM, subcommand, args=args)
 
 
 def build_tofu_cmd(subcommand: str, args: Sequence[str] | None = None) -> list[str]:
     """Build an opentofu command."""
-    cmd = [BIN_TOFU, subcommand]
-    if args:
-        cmd.extend(args)
-    return cmd
+    return build_iac_cmd(BIN_TOFU, subcommand, args=args)

@@ -10,8 +10,6 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
-from rich import print as rprint
-from rich.console import Console
 from rich.table import Table
 
 from devops_cli.config import options as opt
@@ -34,9 +32,21 @@ from devops_cli.config.settings import (
 )
 from devops_cli.core.process import run_subprocess
 from devops_cli.http.validation import validate_service_url
+from devops_cli.output import (
+    get_console,
+    print_error,
+    print_info,
+    print_success,
+    print_table,
+    print_warning,
+)
 
 app = typer.Typer(help="Manage devops-cli configuration.", no_args_is_help=True)
-console = Console()
+
+
+# =============================================================================
+# Secret Storage & Auth Helpers
+# =============================================================================
 
 
 def _render_secret_store_error(key: str, exc: SecretStorageError) -> None:
@@ -44,9 +54,9 @@ def _render_secret_store_error(key: str, exc: SecretStorageError) -> None:
 
     env_var = env_var_for_option(key)
     masked_err = _mask_secrets_in_content(str(exc))
-    rprint(f"[yellow]Could not store secret for {key}: {masked_err}[/yellow]")
+    print_warning(f"Could not store secret for {key}: {masked_err}", prefix=False)
     if env_var:
-        rprint(f"[yellow]Use environment variable fallback: export {env_var}=<value>[/yellow]")
+        print_warning(f"Use environment variable fallback: export {env_var}=<value>", prefix=False)
 
 
 def _gh_auth_status() -> bool:
@@ -59,7 +69,7 @@ def _gh_auth_status() -> bool:
             quiet=True,
             timeout=DEFAULT_GH_AUTH_TIMEOUT_SECONDS,
         )
-    except (OSError, subprocess.SubprocessError):
+    except OSError, subprocess.SubprocessError:
         return False
     return result.returncode == 0
 
@@ -74,13 +84,18 @@ def _gh_auth_token() -> str | None:
             quiet=True,
             timeout=DEFAULT_GH_AUTH_TIMEOUT_SECONDS,
         )
-    except (OSError, subprocess.SubprocessError):
+    except OSError, subprocess.SubprocessError:
         return None
 
     if result.returncode != 0:
         return None
     token = result.stdout.strip()
     return token or None
+
+
+# =============================================================================
+# Command: devops config show
+# =============================================================================
 
 
 @app.command()
@@ -122,8 +137,13 @@ def show() -> None:
     _row(opt.AI_ALLOW_PRIVATE_NETWORK, settings.ai.allow_private_network)
     _row(opt.AI_API_KEY, get_ai_api_key(settings), secret=True)
 
-    console.print(table)
-    console.print(f"\nConfig file: [dim]{get_active_config_path()}[/dim]")
+    print_table(table)
+    print_info(f"\nConfig file: [dim]{get_active_config_path()}[/dim]", prefix=False)
+
+
+# =============================================================================
+# Command: devops config get
+# =============================================================================
 
 
 @app.command("get")
@@ -132,15 +152,22 @@ def get_value(
 ) -> None:
     """Print a single configuration value."""
     if key in _SECRET_FIELDS:
-        rprint("[yellow]Secret keys cannot be retrieved with 'get'. Use 'config show'.[/yellow]")
+        print_warning(
+            "Secret keys cannot be retrieved with 'get'. Use 'config show'.", prefix=False
+        )
         raise typer.Exit(1)
     settings = load_settings()
     try:
         value = dotted_get(settings, key)
-        rprint(str(value) if value is not None else "[dim](not set)[/dim]")
+        print_info(str(value) if value is not None else "[dim](not set)[/dim]", prefix=False)
     except AttributeError:
-        rprint(f"[red]Unknown config key: {key!r}[/red]")
+        print_error(f"Unknown config key: {key!r}", prefix=False)
         raise typer.Exit(1)
+
+
+# =============================================================================
+# Command: devops config set
+# =============================================================================
 
 
 @app.command("set")
@@ -154,25 +181,30 @@ def set_value(
         dotted_set(settings, key, value)
         save_settings(settings)
         if key in _SECRET_FIELDS:
-            rprint(f"[green]Secret '{key}' stored in keyring.[/green]")
+            print_success(f"Secret '{key}' stored in keyring.", prefix=False)
         else:
-            rprint(f"[green]{key} = {value}[/green]")
+            print_success(f"{key} = {value}", prefix=False)
     except SecretStorageError as exc:
         _render_secret_store_error(key, exc)
         raise typer.Exit(1)
     except (AttributeError, ValueError) as exc:
-        rprint(f"[red]Failed to set {key!r}: {exc}[/red]")
+        print_error(f"Failed to set {key!r}: {exc}", prefix=False)
         raise typer.Exit(1)
+
+
+# =============================================================================
+# Command: devops config init
+# =============================================================================
 
 
 @app.command()
 def init() -> None:
     """Interactive first-time setup wizard."""
     settings = load_settings()
-    console.print("[bold]devops-cli setup wizard[/bold]\n")
+    print_info("[bold]devops-cli setup wizard[/bold]\n", prefix=False)
 
     # ── GitHub ─────────────────────────────────────────────────────────────
-    console.print("[cyan]GitHub[/cyan]")
+    print_info("[cyan]GitHub[/cyan]", prefix=False)
     gh_path = shutil.which("gh")
     if gh_path:
         if not _gh_auth_status() and typer.confirm(
@@ -189,21 +221,21 @@ def init() -> None:
         if gh_token and typer.confirm("Import GitHub CLI token into devops keyring?", default=True):
             try:
                 dotted_set(settings, opt.GITHUB_TOKEN, gh_token)
-                rprint("  [green]✓[/green] GitHub token stored in keyring.")
+                print_success("GitHub token stored in keyring.")
             except SecretStorageError as exc:
                 _render_secret_store_error(opt.GITHUB_TOKEN, exc)
         elif gh_token:
-            rprint("  [green]✓[/green] Using GitHub CLI authentication via 'gh auth token'.")
+            print_success("Using GitHub CLI authentication via 'gh auth token'.")
         else:
-            rprint(
-                "  [yellow]No GitHub CLI session found. You can run 'gh auth login' later.[/yellow]"
+            print_warning(
+                "No GitHub CLI session found. You can run 'gh auth login' later.", prefix=False
             )
     else:
         token = typer.prompt("Personal Access Token (PAT)", hide_input=True, default="")
         if token:
             try:
                 dotted_set(settings, opt.GITHUB_TOKEN, token)
-                rprint("  [green]✓[/green] GitHub token stored in keyring.")
+                print_success("GitHub token stored in keyring.")
             except SecretStorageError as exc:
                 _render_secret_store_error(opt.GITHUB_TOKEN, exc)
 
@@ -212,19 +244,19 @@ def init() -> None:
         settings.github.default_org = default_org
 
     # ── Repositories ───────────────────────────────────────────────────────
-    console.print("\n[cyan]Repositories[/cyan]")
+    print_info("\n[cyan]Repositories[/cyan]", prefix=False)
     base_dir = typer.prompt("Repos base directory", default=str(settings.repos.base_dir))
     settings.repos.base_dir = Path(base_dir)
 
     # ── Grafana ────────────────────────────────────────────────────────────
-    console.print("\n[cyan]Grafana[/cyan]")
+    print_info("\n[cyan]Grafana[/cyan]", prefix=False)
     grafana_url = typer.prompt("Grafana URL (leave blank to skip)", default="")
     if grafana_url:
         try:
             validate_service_url(grafana_url, "Grafana", allow=settings.ai.allow_private_network)
             settings.grafana.url = grafana_url
         except ValueError as exc:
-            rprint(f"  [red]{exc}[/red]")
+            print_error(f"{exc}", prefix=False)
         g_token = typer.prompt("Grafana API token", hide_input=True, default="")
         if g_token:
             try:
@@ -233,24 +265,24 @@ def init() -> None:
                 _render_secret_store_error(opt.GRAFANA_TOKEN, exc)
 
     # ── Prometheus ─────────────────────────────────────────────────────────
-    console.print("\n[cyan]Prometheus[/cyan]")
+    print_info("\n[cyan]Prometheus[/cyan]", prefix=False)
     prom_url = typer.prompt("Prometheus URL (leave blank to skip)", default="")
     if prom_url:
         try:
             validate_service_url(prom_url, "Prometheus", allow=settings.ai.allow_private_network)
             settings.prometheus.url = prom_url
         except ValueError as exc:
-            rprint(f"  [red]{exc}[/red]")
+            print_error(f"{exc}", prefix=False)
 
     # ── ArgoCD ─────────────────────────────────────────────────────────────
-    console.print("\n[cyan]ArgoCD[/cyan]")
+    print_info("\n[cyan]ArgoCD[/cyan]", prefix=False)
     argocd_url = typer.prompt("ArgoCD URL (leave blank to skip)", default="")
     if argocd_url:
         try:
             validate_service_url(argocd_url, "ArgoCD", allow=settings.ai.allow_private_network)
             settings.argocd.url = argocd_url
         except ValueError as exc:
-            rprint(f"  [red]{exc}[/red]")
+            print_error(f"{exc}", prefix=False)
         a_token = typer.prompt("ArgoCD API token", hide_input=True, default="")
         if a_token:
             try:
@@ -259,8 +291,13 @@ def init() -> None:
                 _render_secret_store_error(opt.ARGOCD_TOKEN, exc)
 
     save_settings(settings)
-    console.print("\n[bold green]Configuration saved![/bold green]")
-    console.print(f"Config file: [dim]{CONST_CONFIG_PATH}[/dim]")
+    print_success("Configuration saved!")
+    print_info(f"Config file: [dim]{CONST_CONFIG_PATH}[/dim]", prefix=False)
+
+
+# =============================================================================
+# Environment Variable Specification Helpers
+# =============================================================================
 
 
 def _resolve_env_spec_value(spec: EnvVarSpec, settings: Settings) -> tuple[object, bool]:
@@ -288,6 +325,11 @@ def _resolve_env_spec_value(spec: EnvVarSpec, settings: Settings) -> tuple[objec
         return val, False
     except AttributeError:
         return None, False
+
+
+# =============================================================================
+# Command: devops config output / env
+# =============================================================================
 
 
 @app.command("output")
@@ -332,22 +374,24 @@ def output_env_vars(
                     "description": spec.description,
                 }
             )
-        console.print(json.dumps(data, indent=2))
+        get_console().print(json.dumps(data, indent=2))
         return
 
     if export:
         import shlex
 
-        console.print("# devops-cli environment variables export")
+        print_info("# devops-cli environment variables export", prefix=False)
         for spec in specs:
             val, _ = _resolve_env_spec_value(spec, settings)
             if spec.is_secret:
-                console.print(f'# export {spec.env_var}="****"  # secret (stored in OS keyring)')
+                print_info(
+                    f'# export {spec.env_var}="****"  # secret (stored in OS keyring)', prefix=False
+                )
             elif val is not None:
                 quoted = shlex.quote(str(val))
-                console.print(f"export {spec.env_var}={quoted}")
+                print_info(f"export {spec.env_var}={quoted}", prefix=False)
             else:
-                console.print(f'# export {spec.env_var}=""  # {spec.description}')
+                print_info(f'# export {spec.env_var}=""  # {spec.description}', prefix=False)
         return
 
     table = Table(title="devops-cli environment variables", show_header=True, header_style="bold")
@@ -370,7 +414,12 @@ def output_env_vars(
 
         table.add_row(spec.env_var, key_display, val_display, spec.description)
 
-    console.print(table)
+    print_table(table)
+
+
+# =============================================================================
+# Command: devops config auth-headless
+# =============================================================================
 
 
 # NOTE (Design Justification - v0.1.1 Prep): auth_headless provides the command stub
@@ -386,14 +435,20 @@ def auth_headless(
     from devops_cli.config.settings import _EPHEMERAL_CI_SECRETS
 
     if key not in KEYRING_KEYS:
-        rprint(
-            f"[red]Invalid secret key '{key}'. Must be one of: {list(KEYRING_KEYS.keys())}[/red]"
+        print_error(
+            f"Invalid secret key '{key}'. Must be one of: {list(KEYRING_KEYS.keys())}",
+            prefix=False,
         )
         raise typer.Exit(1)
 
     keyring_field = KEYRING_KEYS[key]
     _EPHEMERAL_CI_SECRETS[keyring_field] = token
-    rprint(f"[green]✓ Ephemeral secret loaded into memory: {key}[/green]")
+    print_success(f"Ephemeral secret loaded into memory: {key}")
+
+
+# =============================================================================
+# Command: devops config audit-stream
+# =============================================================================
 
 
 @app.command("audit-stream")
@@ -404,4 +459,4 @@ def audit_stream(
     from devops_cli.core.audit import stream_audit_records
 
     count = stream_audit_records(destination_url=destination)
-    rprint(f"[green]✓ Streamed {count} audit record(s) → [bold]{destination}[/bold][/green]")
+    print_success(f"Streamed {count} audit record(s) → [bold]{destination}[/bold]")

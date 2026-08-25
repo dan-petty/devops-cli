@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import logging
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 
+from devops_cli.config.constants import CONST_BINARY_EXTENSIONS
 from devops_cli.config.defaults import (
     DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
     DEFAULT_TOOL_BUFFER_CHUNK_SIZE,
@@ -16,19 +18,24 @@ from devops_cli.config.defaults import (
     DEFAULT_TOOL_READ_MAX_BYTES,
 )
 from devops_cli.core.process import run_subprocess
+from devops_cli.core.repo import is_safe_subpath
 from devops_cli.lang import ERRORS, MESSAGES
 
 logger = logging.getLogger(__name__)
 
 
-def _is_safe_workspace_path(target: Path) -> bool:
-    cwd = Path.cwd().resolve()
-    target_resolved = target.resolve()
-    return target_resolved == cwd or target_resolved.is_relative_to(cwd)
+def _is_safe_workspace_path(target: Path, workspace_root: Path | None = None) -> bool:
+    if target.is_symlink():
+        return False
+    root = workspace_root or Path.cwd()
+    return is_safe_subpath(root, target)
 
 
 def _run_tool_cmd(
-    cmd: list[str], fallback_msg: str = "", max_chars: int = DEFAULT_TOOL_DIFF_MAX_CHARS
+    cmd: list[str],
+    fallback_msg: str = "",
+    max_chars: int = DEFAULT_TOOL_DIFF_MAX_CHARS,
+    cwd: Path | None = None,
 ) -> str:
     """Safely run a subprocess command for an agent tool without blocking async loops."""
 
@@ -39,6 +46,7 @@ def _run_tool_cmd(
                 capture_output=True,
                 text=True,
                 check=False,
+                cwd=cwd,
                 timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
             )
             output = str(res.stdout).strip()
@@ -67,27 +75,43 @@ def list_files(directory: str = ".") -> list[str]:
     root = Path(directory).resolve()
     if not _is_safe_workspace_path(root) or not root.exists() or not root.is_dir():
         return []
-    results: list[str] = []
-    for path in root.glob("*"):
+
+    entries: list[str] = []
+    for path in sorted(root.glob("*")):
         if path.name.startswith(".") or path.name == "__pycache__":
             continue
         if not _is_safe_workspace_path(path.resolve()):
             continue
         if path.is_file():
-            results.append(path.name)
+            entries.append(path.name)
         elif path.is_dir():
-            for child in path.glob("*"):
+            for child in sorted(path.glob("*")):
                 if child.name.startswith(".") or child.name == "__pycache__":
                     continue
                 if not _is_safe_workspace_path(child.resolve()):
                     continue
-                results.append(f"{path.name}/{child.name}")
-    return sorted(results)[:DEFAULT_TOOL_MAX_FILES]
+                entries.append(f"{path.name}/{child.name}")
+
+    return entries[:DEFAULT_TOOL_MAX_FILES]
 
 
-def read_file(path: str, max_bytes: int = DEFAULT_TOOL_READ_MAX_BYTES) -> str:
-    """Read contents of a text file up to max_bytes."""
-    max_bytes = max(1, min(max_bytes, DEFAULT_TOOL_MAX_BYTES_LIMIT))
+def read_file(
+    path: str,
+    offset: int = 0,
+    max_bytes: int = DEFAULT_TOOL_READ_MAX_BYTES,
+) -> str:
+    """Read contents of a text file from byte offset up to max_bytes with paging support."""
+    try:
+        parsed_offset = int(offset)
+    except ValueError, TypeError:
+        parsed_offset = 0
+    try:
+        parsed_max_bytes = int(max_bytes)
+    except ValueError, TypeError:
+        parsed_max_bytes = DEFAULT_TOOL_READ_MAX_BYTES
+
+    max_bytes = max(1, min(parsed_max_bytes, DEFAULT_TOOL_MAX_BYTES_LIMIT))
+    offset = max(0, parsed_offset)
     file_path = Path(path).resolve()
     if not _is_safe_workspace_path(file_path):
         logger.warning("Access denied attempting to read path outside workspace: %s", path)
@@ -96,16 +120,23 @@ def read_file(path: str, max_bytes: int = DEFAULT_TOOL_READ_MAX_BYTES) -> str:
         return ERRORS.tools.file_not_found.format(path=path)
     try:
         file_size = file_path.stat().st_size
-        bytes_to_read = min(file_size, max_bytes + 1)
+        if offset >= file_size:
+            return f"(Offset {offset} is at or beyond end of file ({file_size} bytes).)"
         with open(file_path, "rb") as f:
-            raw = f.read(bytes_to_read)
-        logger.debug("Read %d bytes from %s", len(raw), path)
-        if len(raw) > max_bytes:
+            f.seek(offset)
+            raw = f.read(max_bytes + 1)
+        logger.debug("Read %d bytes from %s at offset %d", len(raw), path, offset)
+        has_more = len(raw) > max_bytes
+        chunk = raw[:max_bytes]
+        text = chunk.decode("utf-8", errors="replace")
+        if has_more:
+            next_offset = offset + len(chunk)
             return (
-                raw[:max_bytes].decode("utf-8", errors="replace")
-                + f"\n... [truncated at {max_bytes} bytes]"
+                f"{text}\n\n"
+                f"... [Page ended at byte {next_offset} of {file_size}. "
+                f"Use read_file(path='{path}', offset={next_offset}) to read next page.]"
             )
-        return raw.decode("utf-8", errors="replace")
+        return text
     except (OSError, UnicodeDecodeError) as exc:
         logger.warning("Error reading file %s: %s", path, exc)
         return ERRORS.tools.error_reading_file.format(exc=exc)
@@ -125,27 +156,43 @@ def git_diff() -> str:
     )
 
 
+def _file_contains_bytes(path: Path, query_bytes: bytes, query_len: int) -> bool:
+    """Check whether a file contains the given query byte sequence using buffered reading."""
+    try:
+        with open(path, "rb") as f:
+            tail = b""
+            while chunk := f.read(DEFAULT_TOOL_BUFFER_CHUNK_SIZE):
+                search_buf = tail + chunk
+                if query_bytes in search_buf:
+                    return True
+                tail = chunk[-(query_len - 1) :] if query_len > 1 else b""
+    except Exception:
+        return False
+    return False
+
+
 def search_code(query: str, directory: str = ".") -> list[str]:
-    """Search workspace source code files for a string query."""
+    """Search workspace source code and manifest files for a string query."""
     root = Path(directory).resolve()
     if not _is_safe_workspace_path(root) or not root.exists():
         return []
+
     matches: list[str] = []
     query_bytes = query.encode("utf-8")
-    for path in root.rglob("*.py"):
+    query_len = len(query_bytes)
+
+    for path in root.rglob("*"):
+        if not path.is_file() or path.suffix.lower() in CONST_BINARY_EXTENSIONS:
+            continue
         if "__pycache__" in path.parts or any(p.startswith(".") for p in path.parts):
             continue
         if not _is_safe_workspace_path(path.resolve()):
             continue
-        try:
-            with open(path, "rb") as f:
-                header = f.read(DEFAULT_TOOL_BUFFER_CHUNK_SIZE)
-                if query_bytes in header:
-                    matches.append(str(path.relative_to(root)))
-        except Exception:
-            pass
+        if _file_contains_bytes(path, query_bytes, query_len):
+            matches.append(str(path.relative_to(root)))
         if len(matches) >= DEFAULT_TOOL_MAX_SEARCH_MATCHES:
             break
+
     return matches
 
 
@@ -157,42 +204,62 @@ def k8s_pods(namespace: str = "default") -> str:
     )
 
 
-def argo_apps() -> str:
-    """Query ArgoCD applications in minikube/k8s cluster."""
+def k8s_jaeger_status(namespace: str = "observability") -> str:
+    """Check Jaeger distributed tracing backend deployment status in cluster."""
     return _run_tool_cmd(
-        ["kubectl", "get", "applications", "-A"],
+        ["kubectl", "get", "jaegers,deployments,services", "-n", namespace],
+        fallback_msg=f"No Jaeger tracing resources found in namespace '{namespace}'.",
+    )
+
+
+def argo_apps() -> str:
+    """List ArgoCD application sync and health statuses."""
+    return _run_tool_cmd(
+        ["argocd", "app", "list"],
         fallback_msg=MESSAGES.tools.no_argo_apps,
     )
 
 
-def scan_trivy(
-    target: str = ".",
-    scan_type: str = "fs",
-    severity: str = "UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL",
+def _run_workspace_security_scan(
+    target: str | Path,
+    cmd_builder: Callable[[Path], list[str]],
+    *,
+    fallback_msg: str = "",
+    missing_tool_name: str | None = None,
+    cwd: Path | None = None,
 ) -> str:
-    """Run Aqua Trivy vulnerability, secret, misconfiguration, and IaC scanner."""
+    """Validate target path security boundaries and execute scanner subprocess."""
     target_path = Path(target).resolve()
     if not _is_safe_workspace_path(target_path):
-        return ERRORS.tools.access_denied_outside_workspace.format(path=target)
+        return f"Access Denied: {target} is outside workspace."
+    cmd = cmd_builder(target_path)
     res = _run_tool_cmd(
-        ["trivy", scan_type, "--severity", severity, str(target_path)],
-        fallback_msg=MESSAGES.tools.no_trivy_flaws,
+        cmd,
+        cwd=cwd,
+        fallback_msg=fallback_msg,
         max_chars=DEFAULT_TOOL_DIFF_MAX_CHARS,
     )
-    if "No such file or directory: 'trivy'" in res:
-        return (
-            "Trivy CLI is not installed in the environment. "
-            "For Python dependency vulnerability auditing, use scan_uv_audit or scan_osv."
-        )
+    if missing_tool_name and f"No such file or directory: '{missing_tool_name}'" in res:
+        cap_name = missing_tool_name.capitalize()
+        return f"{cap_name} static analysis tool is not installed in the environment."
     return res
 
 
+def scan_trivy(target: str = ".") -> str:
+    """Run Trivy filesystem security scanner for CVEs and configuration misconfigurations."""
+    return _run_workspace_security_scan(
+        target,
+        lambda p: ["trivy", "fs", "--severity", "HIGH,CRITICAL", str(p)],
+        fallback_msg="No HIGH/CRITICAL vulnerabilities detected by Trivy.",
+    )
+
+
 def scan_uv_audit(directory: str = ".", requirements_file: str = "") -> str:
-    """Run uv / pip-audit to check workspace Python dependencies for known CVEs."""
-    target_path = Path(directory).resolve()
-    if not _is_safe_workspace_path(target_path):
+    """Audit Python dependencies for known CVEs using uv audit / PyPI advisory database."""
+    target_dir = Path(directory).resolve()
+    if not _is_safe_workspace_path(target_dir):
         return f"Access Denied: {directory} is outside workspace."
-    cmd = ["uvx", "pip-audit"]
+    cmd = ["uv", "audit"]
     if requirements_file:
         req_path = Path(requirements_file).resolve()
         if not _is_safe_workspace_path(req_path):
@@ -200,54 +267,37 @@ def scan_uv_audit(directory: str = ".", requirements_file: str = "") -> str:
         cmd.extend(["-r", str(req_path)])
     return _run_tool_cmd(
         cmd,
-        fallback_msg="No known dependency vulnerabilities found by uv/pip-audit.",
+        cwd=target_dir,
+        fallback_msg="No dependency vulnerabilities detected by uv audit.",
         max_chars=DEFAULT_TOOL_DIFF_MAX_CHARS,
     )
 
 
-def audit_dependencies(directory: str = ".", requirements_file: str = "") -> str:
-    """Audit Python package dependencies for vulnerabilities (alias for scan_uv_audit)."""
-    return scan_uv_audit(directory=directory, requirements_file=requirements_file)
-
-
 def scan_kubelinter(target: str = ".") -> str:
     """Run Red Hat Kube-linter static security and best-practice analysis on K8s manifests."""
-    target_path = Path(target).resolve()
-    if not _is_safe_workspace_path(target_path):
-        return f"Access Denied: {target} is outside workspace."
-    return _run_tool_cmd(
-        ["kube-linter", "lint", str(target_path)],
+    return _run_workspace_security_scan(
+        target,
+        lambda p: ["kube-linter", "lint", str(p)],
         fallback_msg="No K8s manifest lint errors detected by Kube-linter.",
-        max_chars=DEFAULT_TOOL_DIFF_MAX_CHARS,
     )
 
 
 def scan_pluto(target: str = ".") -> str:
     """Run Fairwinds Pluto to detect deprecated and removed Kubernetes API versions."""
-    target_path = Path(target).resolve()
-    if not _is_safe_workspace_path(target_path):
-        return f"Access Denied: {target} is outside workspace."
-    cmd = (
-        ["pluto", "detect-files", "-f", str(target_path)]
-        if target_path.is_file()
-        else ["pluto", "detect-files", "-d", str(target_path)]
-    )
-    return _run_tool_cmd(
-        cmd,
+    return _run_workspace_security_scan(
+        target,
+        lambda p: ["pluto", "detect-files", "-f" if p.is_file() else "-d", str(p)],
         fallback_msg="No deprecated Kubernetes APIs detected by Pluto.",
-        max_chars=DEFAULT_TOOL_DIFF_MAX_CHARS,
     )
 
 
 def scan_bandit(target: str = "src") -> str:
     """Run PyCQA Bandit static security vulnerability analysis on Python source files."""
-    target_path = Path(target).resolve()
-    if not _is_safe_workspace_path(target_path):
-        return f"Access Denied: {target} is outside workspace."
-    return _run_tool_cmd(
-        ["bandit", "-r", str(target_path), "-ll", "-s", "B608", "-q"],
+    return _run_workspace_security_scan(
+        target,
+        lambda p: ["bandit", "-r", str(p), "-ll", "-s", "B608", "-q"],
         fallback_msg="No high/medium security issues detected by Bandit.",
-        max_chars=DEFAULT_TOOL_DIFF_MAX_CHARS,
+        missing_tool_name="bandit",
     )
 
 
@@ -261,11 +311,6 @@ def scan_popeye(namespace: str = "") -> str:
         fallback_msg="Popeye cluster sanitize check passed.",
         max_chars=DEFAULT_TOOL_DIFF_MAX_CHARS,
     )
-
-
-def run_security_scan(target: str = "src") -> str:
-    """Perform static security analysis scan on Python workspace files (alias for scan_bandit)."""
-    return scan_bandit(target=target)
 
 
 def rag_search(
@@ -319,7 +364,7 @@ def scan_osv(package_name: str, version: str = "", ecosystem: str = "PyPI") -> s
         from devops_cli.security.vulnerability_lookup import OSVClient
 
         client = OSVClient()
-        vulns = client.check_vulnerability(package_name, version=version, ecosystem=ecosystem)
+        vulns = client.query_package(package_name, version=version, ecosystem=ecosystem)
         if not vulns:
             return f"No known vulnerabilities found in OSV/NVD for {package_name} ({ecosystem})."
         lines = [f"Found {len(vulns)} vulnerability record(s) for {package_name}:"]
@@ -364,14 +409,3 @@ def check_threat_intel(target: str) -> str:
             )
     except Exception as exc:
         return f"Threat intelligence check error: {exc}"
-
-
-def k8s_jaeger_status() -> str:
-    """Query Jaeger distributed tracing service status and connection endpoints."""
-    return (
-        "Jaeger Distributed Tracing Endpoints:\n"
-        "- Query UI: http://localhost:16686 (port-forward svc/jaeger -n otel 16686:16686)\n"
-        "- OTLP gRPC Receiver: localhost:4317\n"
-        "- OTLP HTTP Receiver: http://localhost:4318/v1/traces\n"
-        "- Health: http://localhost:14269"
-    )

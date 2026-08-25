@@ -44,6 +44,17 @@ class ReviewMessages(BaseModel):
         "Could not detect branch. Ensure command is run inside a valid git repo."
     )
     github_repo_parse_failed: str = "Could not parse GitHub repo owner/name from remote URL: {raw}"
+    github_token_not_configured: str = (
+        "GitHub token not configured. Run: devops config set github.token <token>"
+    )
+    no_review_sessions_found: str = "No review sessions found in .data/reviews/"
+    no_findings_to_update: str = "Session has no findings to update."
+    specify_index_or_title: str = "Must specify --index <N> or --title <pattern>"
+    invalid_status_choices: str = (
+        "Status must be one of: VERIFIED, INVALIDATED, MITIGATED, UNVERIFIED"
+    )
+    no_review_dir_found: str = "No review directory found."
+    no_saved_sessions: str = "No saved review sessions found."
 
 
 class AIMessages(BaseModel):
@@ -133,6 +144,14 @@ class RepoMessages(BaseModel):
     )
     cloning_org_repos: str = "Cloning [bold]{count}[/bold] repos into [dim]{dest}[/dim]"
     already_cloned: str = "Already cloned at {dest}"
+    github_token_not_configured: str = (
+        "GitHub token not configured. Run 'devops config init' or "
+        "set github.token in 'devops config set'"
+    )
+    invalid_dest_path: str = "Invalid repository destination path."
+    invalid_url_hyphen: str = "Invalid repository URL: must not start with a hyphen."
+    no_repos_found: str = "No repositories found."
+    done: str = "Done."
 
 
 class K8sMessages(BaseModel):
@@ -141,6 +160,22 @@ class K8sMessages(BaseModel):
     current_context: str = "Current Kubernetes context: [bold cyan]{context}[/bold cyan]"
     switched_context: str = "✓ Switched to Kubernetes context: [bold green]{context}[/bold green]"
     no_contexts_found: str = "No Kubernetes contexts found in Kubeconfig."
+    cluster_not_reachable: str = "Kubernetes cluster is not reachable."
+    start_minikube_tip: str = "Start it with: [cyan]minikube start --driver=docker[/cyan]"
+    starting_minikube: str = "[bold cyan]Starting minikube cluster...[/bold cyan]"
+    failed_start_minikube: str = "Failed to start minikube cluster."
+    minikube_not_running: str = (
+        "minikube is not running. Start with: minikube start --driver=docker"
+    )
+    adding_helm_repos: str = "[bold]Adding Helm repositories...[/bold]"
+    removing_stack_namespaces: str = "[bold]Removing all stack namespaces...[/bold]"
+    removing_infra_namespaces: str = "[bold]Removing infra namespaces...[/bold]"
+    removing_llm_namespace: str = "[bold]Removing llm namespace...[/bold]"
+    kube_linter_passed: str = "Kube-linter audit passed: no security warnings."
+    popeye_executing: str = "[dim]Executing Popeye K8s cluster health sanitizer...[/dim]"
+    popeye_passed: str = "Popeye cluster audit passed: no health warnings."
+    pluto_passed: str = "Pluto API check passed: no deprecated K8s APIs."
+    generating_homelab_tls: str = "[bold]Generating Homelab TLS certificate bundle...[/bold]"
 
 
 class AnalyzeMessages(BaseModel):
@@ -296,6 +331,68 @@ class UVMessages(BaseModel):
     missing_command: str = "Missing command. Example: devops uv run -- pytest -q"
 
 
+class DryRunMessages(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    command_response_header: str = "[yellow][dry-run][/yellow] Command response:"
+    would_run_command: str = "[yellow][dry-run][/yellow] Would run command: [cyan]{command}[/cyan]"
+    would_run_delegated: str = (
+        "[yellow][dry-run][/yellow] Would run delegated command: [cyan]{command}[/cyan]"
+    )
+    skipped_pr_comment: str = "\n[dry-run] Skipped posting comment to PR #{number}"
+
+
+class TelemetryMessages(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    port_forward_tip: str = (
+        "[dim]Port-forward if running in cluster: devops k8s port-forward otel[/dim]"
+    )
+
+
+class ScanMessages(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    no_flaws_found: str = "No security vulnerabilities, secrets, or flaws found."
+
+
+class RAGMessages(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    operation_cancelled: str = "[dim]Operation cancelled.[/dim]"
+    reset_cache_success: str = "Reset local indexing cache"
+
+
+class TLSMessages(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    generating_bundle: str = "[bold]Generating homelab TLS bundle...[/bold]"
+
+
+class SSHMessages(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    no_managed_keys: str = "No managed SSH keys found. Run 'devops ssh generate' first."
+    no_managed_keys_pattern: str = "No managed SSH keys found (expected: id_ed25519-YYYYMMMDD)."
+    registered_and_configured: str = "Registered new key and updated git signing config."
+    cleaned_unregistered_keys: str = (
+        "Cleaned up un-registered key files. Fix auth and re-run rotation."
+    )
+    configured_signing: str = (
+        "Configured [dim]gpg.format=ssh[/dim] and [dim]commit.gpgsign=true[/dim]"
+    )
+    register_tip: str = "\nRun [bold]devops ssh register[/bold] to add it to GitHub."
+
+
+class PrometheusMessages(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    url_not_configured: str = (
+        "Prometheus URL not configured. Run: devops config set prometheus.url <url>"
+    )
+    no_results: str = "No results."
+
+
 class ToolMessages(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -327,6 +424,13 @@ class LanguageCatalog(BaseModel):
     remote_ci: RemoteCIMessages = RemoteCIMessages()
     pr: PRMessages = PRMessages()
     uv: UVMessages = UVMessages()
+    dry_run: DryRunMessages = DryRunMessages()
+    telemetry: TelemetryMessages = TelemetryMessages()
+    scan: ScanMessages = ScanMessages()
+    rag: RAGMessages = RAGMessages()
+    tls: TLSMessages = TLSMessages()
+    ssh: SSHMessages = SSHMessages()
+    prometheus: PrometheusMessages = PrometheusMessages()
     tools: ToolMessages = ToolMessages()
 
 

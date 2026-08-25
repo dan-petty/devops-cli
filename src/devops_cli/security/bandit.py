@@ -29,10 +29,7 @@ def parse_bandit_json(data: dict[str, Any], target_path: str = "") -> list[Findi
         line_num = res.get("line_number")
         issue_text = res.get("issue_text") or "Security flaw detected by Bandit"
         sev = str(res.get("issue_severity") or "MEDIUM").upper()
-        conf = str(res.get("issue_confidence") or "MEDIUM").upper()
         more_info = res.get("more_info") or ""
-
-        confidence_val = 0.95 if conf == "HIGH" else (0.85 if conf == "MEDIUM" else 0.7)
 
         loc = f"{filename}:{line_num}" if line_num is not None else filename
         fix_msg = f"Remediate {test_name} ({test_id})"
@@ -46,7 +43,7 @@ def parse_bandit_json(data: dict[str, Any], target_path: str = "") -> list[Findi
                 title=f"[{test_id}] {issue_text}",
                 description=f"Bandit {test_name} flaw detected at line {line_num}: {issue_text}",
                 fix=fix_msg,
-                confidence_score=confidence_val,
+                confidence_score=None,
             )
         )
 
@@ -76,7 +73,7 @@ def run_bandit_scan(
                     title="[B602] [DRY-RUN] Simulated Bandit Python Security Finding",
                     description="Bandit static security audit simulation mode active.",
                     fix="Remediate subprocess invocation (dry-run mode)",
-                    confidence_score=1.0,
+                    confidence_score=None,
                 )
             ]
 

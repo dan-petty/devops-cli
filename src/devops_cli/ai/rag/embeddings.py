@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import as_completed
 from typing import Any
 
 import httpx2
@@ -15,6 +15,12 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.config.settings import AIConfig
 from devops_cli.http.validation import validate_service_url
+from devops_cli.telemetry import (
+    ContextPropagatingThreadPoolExecutor as ThreadPoolExecutor,
+)
+from devops_cli.telemetry import (
+    trace_span,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -61,24 +67,26 @@ class EmbeddingsEngine:
         if not texts:
             return []
 
-        # Model-aware task prefixing for asymmetric models
-        prefixed_texts = self._apply_model_prefix(texts, is_query=is_query)
+        with trace_span(
+            "ai.rag.embed_texts",
+            attributes={
+                "rag.texts_count": len(texts),
+                "rag.model": str(self.model),
+                "rag.provider": str(self.ai_config.provider),
+                "rag.is_query": is_query,
+            },
+        ):
+            # Model-aware task prefixing for asymmetric models
+            prefixed_texts = self._apply_model_prefix(texts, is_query=is_query)
 
-        provider = self.ai_config.provider.lower()
-        api_base = self.ai_config.api_base_url or ""
-        if provider in ("openai", "copilot"):
-            return self._embed_openai(prefixed_texts)
-        elif provider == "ollama" or ":11434" in api_base:
-            return self._embed_ollama(prefixed_texts)
-        elif self.ai_config.ollama_urls:
-            return self._embed_ollama(prefixed_texts)
-        else:
-            # Fallback to Ollama if configured, otherwise deterministic vectors
+            provider = self.ai_config.provider.lower()
+            api_base = self.ai_config.api_base_url or ""
+            if provider in ("openai", "copilot"):
+                return self._embed_openai(prefixed_texts)
+            if provider == "ollama" or (not provider and ":11434" in api_base):
+                return self._embed_ollama(prefixed_texts)
             if self.ai_config.ollama_urls:
-                try:
-                    return self._embed_ollama(prefixed_texts)
-                except Exception as exc:
-                    logger.debug("Ollama embedding fallback failed: %s", exc)
+                return self._embed_ollama(prefixed_texts)
             return self._deterministic_fallback(prefixed_texts)
 
     def embed_query(self, text: str) -> list[float]:
@@ -102,17 +110,59 @@ class EmbeddingsEngine:
             return [t if t.startswith(("query: ", "passage: ")) else f"{prefix}{t}" for t in texts]
         return texts
 
+    def _query_ollama_node_batch(
+        self, base_url: str, batch_texts: list[str]
+    ) -> list[list[float]] | None:
+        """Attempt to fetch batch embeddings from a single Ollama node."""
+        validate_service_url(base_url, "Ollama", allow=self.ai_config.allow_private_network)
+        with trace_span(
+            "ai.rag.ollama_embed_batch",
+            attributes={
+                "server.address": base_url,
+                "rag.batch_size": len(batch_texts),
+                "rag.model": str(self.model),
+            },
+        ):
+            with httpx2.Client(timeout=self.timeout) as client:
+                alt_endpoint = f"{base_url}/api/embed"
+                alt_payload = {"model": self.model, "input": batch_texts}
+                alt_res = client.post(alt_endpoint, json=alt_payload)
+                if alt_res.status_code == 200:
+                    embs = alt_res.json().get("embeddings", [])
+                    if embs and isinstance(embs, list) and len(embs) == len(batch_texts):
+                        return embs
+
+                # Fallback for single /api/embeddings endpoint
+                embs_fallback: list[list[float]] = []
+                for t in batch_texts:
+                    endpoint = f"{base_url}/api/embeddings"
+                    payload = {"model": self.model, "prompt": t}
+                    res = client.post(endpoint, json=payload)
+                    if res.status_code != 200:
+                        break
+                    single_emb = res.json().get("embedding", [])
+                    if not single_emb:
+                        break
+                    embs_fallback.append(single_emb)
+
+                if len(embs_fallback) == len(batch_texts):
+                    return embs_fallback
+            return None
+
     def _embed_ollama(self, texts: list[str]) -> list[list[float]]:
-        """Query Ollama server(s) for embeddings with parallel batching and automatic failover."""
-        urls = self.ai_config.get_ollama_urls
-        if not urls:
-            return self._deterministic_fallback(texts)
-
-        max_parallel = max(1, getattr(self.ai_config, "ollama_max_parallel", 2))
+        """Compute Ollama embeddings with multi-node round-robin distribution and batching."""
+        urls = (
+            self.ai_config.get_ollama_urls
+            if hasattr(self.ai_config, "get_ollama_urls")
+            else (
+                self.ai_config.ollama_urls
+                or [self.ai_config.api_base_url or "http://localhost:11434"]
+            )
+        )
         chunk_batch_size = 32
+        max_parallel = max(1, min(16, getattr(self.ai_config, "ollama_max_parallel", 2)))
 
-        # Partition texts into sub-batches of up to chunk_batch_size
-        batches: list[tuple[int, list[str]]] = [
+        batches = [
             (idx, texts[i : i + chunk_batch_size])
             for idx, i in enumerate(range(0, len(texts), chunk_batch_size))
         ]
@@ -129,46 +179,15 @@ class EmbeddingsEngine:
             candidate_urls = [urls[(start_offset + j) % n_urls] for j in range(n_urls)]
 
             for base_url in candidate_urls:
-                base_url = base_url.rstrip("/")
                 try:
-                    validate_service_url(
-                        base_url, "Ollama", allow=self.ai_config.allow_private_network
-                    )
+                    embs = self._query_ollama_node_batch(base_url.rstrip("/"), batch_texts)
                 except Exception as exc:
                     last_err = exc
                     continue
-
-                try:
-                    with httpx2.Client(timeout=self.timeout) as client:
-                        alt_endpoint = f"{base_url}/api/embed"
-                        alt_payload = {"model": self.model, "input": batch_texts}
-                        alt_res = client.post(alt_endpoint, json=alt_payload)
-                        if alt_res.status_code == 200:
-                            embs = alt_res.json().get("embeddings", [])
-                            if embs and isinstance(embs, list) and len(embs) == len(batch_texts):
-                                if embs[0] and self._dimension is None:
-                                    self._dimension = len(embs[0])
-                                return (batch_idx, embs)
-
-                        # Fallback for single /api/embeddings endpoint
-                        embs_fallback: list[list[float]] = []
-                        for t in batch_texts:
-                            endpoint = f"{base_url}/api/embeddings"
-                            payload = {"model": self.model, "prompt": t}
-                            res = client.post(endpoint, json=payload)
-                            if res.status_code == 200:
-                                single_emb = res.json().get("embedding", [])
-                                if single_emb:
-                                    embs_fallback.append(single_emb)
-                                    continue
-                            break
-                        if len(embs_fallback) == len(batch_texts):
-                            if embs_fallback[0] and self._dimension is None:
-                                self._dimension = len(embs_fallback[0])
-                            return (batch_idx, embs_fallback)
-                except Exception as exc:
-                    last_err = exc
+                if not (embs and embs[0]):
                     continue
+                self._dimension = self._dimension or len(embs[0])
+                return (batch_idx, embs)
 
             if last_err:
                 logger.debug(

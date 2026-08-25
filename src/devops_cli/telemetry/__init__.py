@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from devops_cli.telemetry.tracer import (
+    ContextPropagatingThreadPoolExecutor,
     OTelTelemetryClient,
     get_tracer,
     inject_trace_context,
@@ -13,6 +14,7 @@ from devops_cli.telemetry.tracer import (
 )
 
 __all__ = [
+    "ContextPropagatingThreadPoolExecutor",
     "OTelTelemetryClient",
     "get_tracer",
     "inject_trace_context",

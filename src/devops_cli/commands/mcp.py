@@ -2,19 +2,21 @@
 
 from __future__ import annotations
 
-import sys
 from typing import Annotated
 
 import typer
-from rich import print as rprint
-from rich.console import Console
-from rich.table import Table
 
 from devops_cli.ai.mcp import list_mcp_tools, run_mcp_server
 from devops_cli.core.cli import new_typer
+from devops_cli.output import (
+    print_error,
+    print_info,
+    print_table,
+    render_table,
+    write_stderr,
+)
 
 app = new_typer(name="mcp", help="FastMCP server and Model Context Protocol integrations.")
-_console = Console()
 
 
 @app.command("serve")
@@ -53,24 +55,19 @@ def serve_cmd(
 ) -> None:
     """Launch FastMCP server to expose devops-cli tools to MCP clients."""
     if transport not in {"stdio", "sse"}:
-        rprint(f"[red]Error: Invalid transport '{transport}'. Choose 'stdio' or 'sse'.[/red]")
+        print_error(f"Invalid transport '{transport}'. Choose 'stdio' or 'sse'.")
         raise typer.Exit(1)
 
     if transport == "sse":
-        rprint(
-            f"[bold green]Starting FastMCP server (SSE)[/bold green] on [cyan]http://{host}:{port}[/cyan]..."
-        )
+        print_info(f"Starting FastMCP server (SSE) on http://{host}:{port}...")
     else:
         # For stdio, stdout must carry ONLY MCP JSON-RPC. Write status to stderr.
-        print(
-            "Starting FastMCP server (stdio) — devops-cli",
-            file=sys.stderr,
-        )
+        write_stderr("Starting FastMCP server (stdio) — devops-cli\n")
 
     try:
         run_mcp_server(transport=transport, host=host, port=port, allow_remote=allow_remote)
     except ValueError as exc:
-        rprint(f"[red]Error: {exc}[/red]")
+        print_error(str(exc))
         raise typer.Exit(1)
 
 
@@ -78,11 +75,9 @@ def serve_cmd(
 def tools_cmd() -> None:
     """List all registered FastMCP tools and descriptions."""
     tools = list_mcp_tools()
-    table = Table(title="Registered FastMCP Tools (devops-cli)", title_style="bold blue")
-    table.add_column("MCP Tool Name", style="cyan", no_wrap=True)
-    table.add_column("Description", style="white")
-
-    for t in tools:
-        table.add_row(t["name"], t["description"])
-
-    _console.print(table)
+    table = render_table(
+        title="Registered FastMCP Tools (devops-cli)",
+        columns=[("MCP Tool Name", "cyan"), ("Description", "white")],
+        rows=[[t["name"], t["description"]] for t in tools],
+    )
+    print_table(table)

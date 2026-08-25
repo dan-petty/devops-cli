@@ -46,7 +46,7 @@ def parse_trivy_json(data: dict[str, Any], target_path: str = "") -> list[Findin
                     title=f"[{cve_id}] {title}",
                     description=desc[:500],
                     fix=fix_msg,
-                    confidence_score=0.95,
+                    confidence_score=None,
                 )
             )
 
@@ -69,7 +69,7 @@ def parse_trivy_json(data: dict[str, Any], target_path: str = "") -> list[Findin
                     title=f"[{rule_id}] {title}",
                     description=desc[:500],
                     fix=resolution,
-                    confidence_score=0.9,
+                    confidence_score=None,
                 )
             )
 
@@ -86,7 +86,7 @@ def parse_trivy_json(data: dict[str, Any], target_path: str = "") -> list[Findin
                     title=f"[SECRET] {title}",
                     description="Plaintext secret or token identified in workspace file.",
                     fix="Remove hardcoded secret and store in OS Keyring or environment variables",
-                    confidence_score=0.95,
+                    confidence_score=None,
                 )
             )
 
@@ -117,7 +117,7 @@ def run_trivy_scan(
                     title="[DRY-RUN] Simulated Trivy Vulnerability Scan Result",
                     description="Trivy security scan simulation mode active.",
                     fix="No action required (dry-run mode)",
-                    confidence_score=1.0,
+                    confidence_score=None,
                 )
             ]
 

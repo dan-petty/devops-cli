@@ -100,9 +100,9 @@ devops k8s bootstrap [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--k8s-dir` | `path` | `k8s` | Path to k8s/ config directory |
+| `--dir`, `-d` | `path` | `k8s` | Directory containing Kubernetes manifests |
 | `--auto-start`, `--no-auto-start` | `boolean` | `True` | Auto-start minikube if stopped |
-| `--stack`, `-s` | `string` | `infra` | Stack to deploy (infra, llm, all) |
+| `--stack`, `-s` | `string` | `all` | Stack to deploy after bootstrap: infra | llm | all |
 
 ---
 

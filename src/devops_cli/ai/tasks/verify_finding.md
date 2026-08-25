@@ -1,12 +1,30 @@
-## Finding Verification Protocol
-Validate reported findings against visible code, surrounding architecture, and file context:
+## Chain-of-Thought Finding Verification Protocol
 
-1. **Test `verification_criteria`**: Confirm observable, concrete conditions proving the defect in code.
-2. **Test `invalidation_criteria`**: Confirm conditions, parameter validations, or surrounding mitigations disproving the defect.
-3. **Calibrate Confidence & Status**:
-   - Any invalidation criterion satisfied or mitigation present → `"status": "INVALIDATED"|"MITIGATED", "verified": false, "reportable": false`.
-   - Verification criteria satisfied without invalidation or mitigation → `"status": "VERIFIED", "verified": true, "reportable": true`.
-   - Inconclusive or unprovable finding → `"status": "UNVERIFIED", "verified": false, "reportable": false`.
+Execute a structured, 4-step chain-of-thought verification procedure for each reported finding:
+
+### Step 1: Observable Code & AST Evidence Tracing
+- Locate the exact file and line span (`path/to/file.ext:start-end`).
+- Test each item in `verification_criteria` against the actual visible code, AST syntax, and runtime constructs.
+- Determine whether the alleged vulnerability or logic error is genuinely present in the execution path.
+
+### Step 2: Guardrail, Lockfile & Invalidation Testing
+- Test all `invalidation_criteria` against surrounding context, caller validation, type guards, and architectural constraints.
+- Verify path containment checks (`Path.is_relative_to`) and boundary enforcement.
+- Verify cryptographic lockfiles (`uv.lock`, `poetry.lock`, `package-lock.json`, `Cargo.lock`, `go.sum`) to disprove false missing-pin alerts.
+- Verify secure OS Keyring usage and confirm absence of insecure unencrypted packages (e.g. `keyrings.alt`).
+- Check if the flagged code is documentation, tutorials, knowledge base guides, test assertions/fixtures, test mocks, template files, or prompt tasks explaining known vulnerabilities in the context of avoiding, explaining, or mitigating them.
+- Check if the flagged item is a source code identifier, OpenTelemetry attribute, or file name rather than an actual unauthenticated external network endpoint.
+
+### Step 3: Fix Correctness & Regression Evaluation
+- Trace the proposed `fix` against the codebase.
+- Confirm the fix directly remediates the root cause without introducing secondary flaws, type errors, or breaking API contracts.
+
+### Step 4: Confidence Calibration & Causal Status Determination
+- Any invalidation criterion satisfied, avoidance context detected, or mitigation present → `"status": "INVALIDATED" | "MITIGATED"`, `"verified": false`, `"reportable": false`.
+- Verification criteria satisfied without invalidation or mitigation → `"status": "VERIFIED"`, `"verified": true`, `"reportable": true`.
+- Inconclusive, theoretical, or unprovable finding → `"status": "UNVERIFIED"`, `"verified": false`, `"reportable": false`.
+
+---
 
 ## Output Format
 Return ONLY a JSON array with one object per input finding:
@@ -23,7 +41,7 @@ Return ONLY a JSON array with one object per input finding:
     "confidence_score": 0.95,
     "verified_criteria_matched": ["Observable defect condition confirmed in source."],
     "invalidated_criteria_matched": [],
-    "reason": "Observable defect present in lines 12-18 with no mitigating guards."
+    "reason": "Step-by-step verification confirmed defect present in lines 12-18 with zero mitigating guards."
   }
 ]
 ```

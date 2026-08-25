@@ -6,7 +6,7 @@ import json
 import logging
 import time
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import as_completed
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
@@ -39,7 +39,7 @@ from devops_cli.ai.review_schema import (
     ReviewSessionPayload,
     SavedFinding,
     consolidate_duplicate_findings,
-    parse_review_result,
+    parse_review_response,
 )
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.constants import (
@@ -55,8 +55,10 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.config.settings import Settings, get_ai_api_key, load_settings
 from devops_cli.core.process import run_subprocess as _run_subprocess
+from devops_cli.core.repo import find_repo_root, is_ignored_by_git, is_safe_subpath
 from devops_cli.dry_run import is_dry_run
 from devops_cli.models.ai import FileAnalysisMeta
+from devops_cli.telemetry import ContextPropagatingThreadPoolExecutor as ThreadPoolExecutor
 from devops_cli.telemetry import trace_span
 
 logger = logging.getLogger(__name__)
@@ -88,8 +90,10 @@ def _personas_to_run(all_personas: bool, persona: Persona | None) -> list[Person
 
 
 def _debug_block(title: str, payload: dict[str, Any]) -> None:
+    from devops_cli.output import print_dry_run_result
+
     rprint(f"[yellow][dry-run][/yellow] {title}")
-    console.print_json(json.dumps(payload, ensure_ascii=True))
+    print_dry_run_result(payload)
 
 
 def _llm_request_preview(client: Any, system: str, user: str) -> dict[str, Any]:
@@ -409,7 +413,7 @@ def _save_findings_json(
 
 def _review_to_markdown(review: ReviewResult | str) -> str:
     if isinstance(review, str):
-        parsed = parse_review_result(review)
+        parsed = parse_review_response(review)
         return _review_to_markdown(parsed) if parsed else review
     lines: list[str] = [f"**Recommendation: {review.recommendation}**\n"]
     if review.findings:
@@ -506,6 +510,81 @@ def _write_summary(
         rprint(f"[dim]Review saved → {session_dir}[/dim]")
 
 
+def _build_dry_run_segment_result(file_label: str, title: str) -> ReviewResult:
+    """Construct mock ReviewResult for dry-run simulation of a segment."""
+    return ReviewResult(
+        findings=[
+            Finding(
+                severity="INFO",
+                location=title,
+                title=f"[dry-run] {file_label} Analysis",
+                description=f"Dry run analysis performed for {file_label}.",
+                fix="No action required (dry-run mode).",
+                verified=True,
+                status="VERIFIED",
+            )
+        ],
+        positive_observations=["Segment code passed dry-run analysis."],
+        recommendation="APPROVE",
+        summary=f"Dry run {file_label} review simulation.",
+    )
+
+
+def _log_segment_error(
+    file_label: str, seg_elapsed: float, fail_backend: str, attempt: int
+) -> None:
+    """Log segment failure or retry message."""
+    if attempt <= _MAX_SEGMENT_RETRIES:
+        rprint(
+            f"[yellow]  ✗ {file_label} error in {seg_elapsed:.1f}s"
+            f"{fail_backend} (attempt {attempt}), retrying...[/yellow]"
+        )
+    else:
+        rprint(
+            f"[yellow]  ✗ {file_label} failed in {seg_elapsed:.1f}s after "
+            f"{_MAX_SEGMENT_RETRIES + 1} attempt(s); skipping.{fail_backend}[/yellow]"
+        )
+
+
+def _log_segment_empty(
+    file_label: str, seg_elapsed: float, req_backend_str: str, attempt: int
+) -> None:
+    """Log empty segment response or retry message."""
+    if attempt <= _MAX_SEGMENT_RETRIES:
+        rprint(
+            f"[yellow]  ✗ {file_label} empty in {seg_elapsed:.1f}s"
+            f"{req_backend_str} (attempt {attempt}), retrying...[/yellow]"
+        )
+    else:
+        rprint(
+            f"[yellow]Warning: {file_label} still empty in {seg_elapsed:.1f}s "
+            f"after {_MAX_SEGMENT_RETRIES + 1} attempt(s).{req_backend_str}[/yellow]"
+        )
+
+
+def _build_dry_run_persona_result(title: str, persona_name: str, total: int) -> ReviewResult:
+    """Construct mock ReviewResult for dry-run simulation of a persona."""
+    return ReviewResult(
+        findings=[
+            Finding(
+                severity="INFO",
+                location=title,
+                title="[dry-run] Simulated Review Execution",
+                description=(
+                    f"Dry run analysis performed for persona {persona_name} "
+                    f"across {total} segment(s)."
+                ),
+                fix="No changes required (dry-run mode).",
+                verified=True,
+                status="VERIFIED",
+            )
+        ],
+        positive_observations=["Dry run command execution completed successfully."],
+        recommendation="APPROVE",
+        summary=f"Dry run execution of review for {title}.",
+    )
+
+
 def _run_review(
     pages: list[str],
     title: str,
@@ -565,23 +644,9 @@ def _run_review(
                 f"Would send LLM review request for {file_label}",
                 _llm_request_preview(clients.analysis, analysis_system, user_prompt),
             )
-            dry_seg = ReviewResult(
-                findings=[
-                    Finding(
-                        severity="INFO",
-                        location=title,
-                        title=f"[dry-run] {file_label} Analysis",
-                        description=f"Dry run analysis performed for {file_label}.",
-                        fix="No action required (dry-run mode).",
-                        verified=True,
-                        status="VERIFIED",
-                    )
-                ],
-                positive_observations=["Segment code passed dry-run analysis."],
-                recommendation="APPROVE",
-                summary=f"Dry run {file_label} review simulation.",
-            )
+            dry_seg = _build_dry_run_segment_result(file_label, title)
             return (i, dry_seg.model_dump_json(indent=2))
+
         result_text = ""
         res_backend: str | None = None
         for attempt in range(1, _MAX_SEGMENT_RETRIES + 2):
@@ -591,41 +656,32 @@ def _run_review(
                 res_obj = clients.analysis.chat(
                     system=analysis_system,
                     user=user_prompt,
-                    validator=lambda text: parse_review_result(text) is not None,
+                    validator=lambda text: parse_review_response(text) is not None,
                 )
                 result_text = str(res_obj)
                 proc_sec = getattr(res_obj, "processing_seconds", None)
                 res_backend = getattr(res_obj, "backend_info", None) or getattr(
                     clients.analysis, "backend_info", ""
                 )
-            except (AIClientError, OSError):
+            except AIClientError, OSError:
                 seg_elapsed = time.monotonic() - seg_start
                 fail_info = getattr(clients.analysis, "backend_info", "")
                 fail_backend = f" [{fail_info}]" if fail_info else analysis_suffix
+                _log_segment_error(file_label, seg_elapsed, fail_backend, attempt)
                 if attempt <= _MAX_SEGMENT_RETRIES:
-                    rprint(
-                        f"[yellow]  ✗ {file_label} error in {seg_elapsed:.1f}s"
-                        f"{fail_backend} (attempt {attempt}), retrying...[/yellow]"
-                    )
                     continue
-                rprint(
-                    f"[yellow]  ✗ {file_label} failed in {seg_elapsed:.1f}s after "
-                    f"{_MAX_SEGMENT_RETRIES + 1} attempt(s); skipping.{fail_backend}[/yellow]"
-                )
                 break
-            seg_elapsed = proc_sec if proc_sec is not None else (time.monotonic() - seg_start)
+
+            seg_elapsed = (
+                float(proc_sec)
+                if isinstance(proc_sec, (int, float))
+                else (time.monotonic() - seg_start)
+            )
             req_backend_str = f" [{res_backend}]" if res_backend else analysis_suffix
             if not result_text.strip():
+                _log_segment_empty(file_label, seg_elapsed, req_backend_str, attempt)
                 if attempt <= _MAX_SEGMENT_RETRIES:
-                    rprint(
-                        f"[yellow]  ✗ {file_label} empty in {seg_elapsed:.1f}s"
-                        f"{req_backend_str} (attempt {attempt}), retrying...[/yellow]"
-                    )
                     continue
-                rprint(
-                    f"[yellow]Warning: {file_label} still empty in {seg_elapsed:.1f}s "
-                    f"after {_MAX_SEGMENT_RETRIES + 1} attempt(s).{req_backend_str}[/yellow]"
-                )
             else:
                 retry_note = f" (attempt {attempt})" if attempt > 1 else ""
                 rprint(
@@ -657,7 +713,7 @@ def _run_review(
     if not non_empty:
         return ""
 
-    segment_results: list[ReviewResult | None] = [parse_review_result(r) for r in responses]
+    segment_results: list[ReviewResult | None] = [parse_review_response(r) for r in responses]
     if not is_dry_run():
         rprint(f"[dim]Step 3/4: Validating findings for {total} file(s)...{analysis_suffix}[/dim]")
         t3 = time.monotonic()
@@ -693,10 +749,8 @@ def _run_review(
             )
             val_elapsed = proc_sec if proc_sec is not None else (time.monotonic() - val_start)
             n_verified = sum(1 for f in validated.findings if f.verified)
-            rprint(
-                f"[dim]  ✓ {file_label} in {val_elapsed:.1f}s: "
-                f"{n_verified}/{len(validated.findings)} finding(s) verified{analysis_suffix}[/dim]"
-            )
+            v_count = f"{n_verified}/{len(validated.findings)} finding(s) verified"
+            rprint(f"[dim]  ✓ {file_label} in {val_elapsed:.1f}s: {v_count}{analysis_suffix}[/dim]")
             return (i, validated)
 
         if total > 1:
@@ -735,38 +789,20 @@ def _run_review(
         merged = _merge_segment_results(segment_results)
         if isinstance(merged, ReviewResult):
             return merged
-        return ReviewResult(
-            findings=[
-                Finding(
-                    severity="INFO",
-                    location=title,
-                    title="[dry-run] Simulated Review Execution",
-                    description=(
-                        f"Dry run analysis performed for persona {persona.name} "
-                        f"across {total} segment(s)."
-                    ),
-                    fix="No changes required (dry-run mode).",
-                    verified=True,
-                    status="VERIFIED",
-                )
-            ],
-            positive_observations=["Dry run command execution completed successfully."],
-            recommendation="APPROVE",
-            summary=f"Dry run execution of review for {title}.",
-        )
+        return _build_dry_run_persona_result(title, persona.name, total)
     try:
         t4 = time.monotonic()
         raw = str(
             clients.compose.chat(
                 system=compose_system,
                 user=recompose_prompt,
-                validator=lambda text: parse_review_result(text) is not None,
+                validator=lambda text: parse_review_response(text) is not None,
             )
         )
         rprint(f"[dim]  ✓ {time.monotonic() - t4:.1f}s{compose_suffix}[/dim]")
         if not raw.strip():
             return _merge_segment_results(segment_results) or _fallback_join(non_empty)
-        parsed = parse_review_result(raw)
+        parsed = parse_review_response(raw)
         if parsed is not None:
             return _reconcile_verified(parsed, segment_results)
         return raw
@@ -837,6 +873,13 @@ def _run_persona_loop(
             )
             return (pd, review_text)
 
+        def _record_result(pd: PersonaDefinition, review_text: ReviewResult | str) -> None:
+            _print_review(pd, review_text)
+            completed.append((pd, review_text))
+            if session_dir:
+                _save_persona_review(pd, review_text, session_dir)
+                _write_summary(title, session_dir, pages, completed, shared_meta)
+
         if len(personas) > 1 and not is_dry_run():
             config = getattr(clients.analysis, "_config", None)
             raw_urls = getattr(config, "get_ollama_urls", None)
@@ -848,19 +891,11 @@ def _run_persona_loop(
                 future_map = {executor.submit(_execute_persona, pd): pd for pd in personas}
                 for future in as_completed(future_map):
                     pd, review_text = future.result()
-                    _print_review(pd, review_text)
-                    completed.append((pd, review_text))
-                    if session_dir:
-                        _save_persona_review(pd, review_text, session_dir)
-                        _write_summary(title, session_dir, pages, completed, shared_meta)
+                    _record_result(pd, review_text)
         else:
             for pd in personas:
                 pd, review_text = _execute_persona(pd)
-                _print_review(pd, review_text)
-                completed.append((pd, review_text))
-                if session_dir:
-                    _save_persona_review(pd, review_text, session_dir)
-                    _write_summary(title, session_dir, pages, completed, shared_meta)
+                _record_result(pd, review_text)
     except AIClientError as exc:
         rprint(f"[red]AI provider error:[/red] {exc}")
         raise
@@ -880,7 +915,7 @@ def _print_review(persona: PersonaDefinition, review: ReviewResult | str) -> Non
     if not review.strip():
         rprint("[yellow]No review content returned by the model.[/yellow]")
         return
-    parsed = parse_review_result(review)
+    parsed = parse_review_response(review)
     if parsed:
         _render_review_result(persona, parsed)
         return
@@ -943,31 +978,12 @@ def _load_agents_md(start: Path) -> str:
 
 
 def _git_repo_root(path: Path) -> Path | None:
-    probe = path if path.is_dir() else path.parent
-    result = _run_subprocess(
-        ["git", "-C", str(probe), "rev-parse", "--show-toplevel"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if result.returncode != 0:
-        return None
-    return Path(result.stdout.strip())
+    root = find_repo_root(path)
+    return root if (root / ".git").exists() else None
 
 
 def _is_git_ignored(repo_root: Path, path: Path) -> bool:
-    try:
-        rel_path = path.relative_to(repo_root)
-    except ValueError:
-        return False
-
-    result = _run_subprocess(
-        ["git", "-C", str(repo_root), "check-ignore", "-q", "--no-index", "--", str(rel_path)],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    return result.returncode == 0
+    return is_ignored_by_git(repo_root, path)
 
 
 def _collect_file_blocks(root: Path, pattern: str) -> list[str]:
@@ -1006,9 +1022,15 @@ def _collect_file_blocks(root: Path, pattern: str) -> list[str]:
             )
             if result.returncode == 0 and result.stdout:
                 candidates = [repo_root / Path(item) for item in result.stdout.split("\0") if item]
+                is_from_git = True
+            else:
+                is_from_git = False
+    else:
+        is_from_git = False
 
     if not candidates:
         candidates = [p for p in sorted(root.rglob("*")) if p.is_file()]
+        is_from_git = False
 
     for p in sorted(candidates):
         if not p.is_file():
@@ -1017,7 +1039,12 @@ def _collect_file_blocks(root: Path, pattern: str) -> list[str]:
             continue
         if p.name in CONST_REVIEW_GENERATED_FILES:
             continue
-        if repo_root is not None and not root_ignored and _is_git_ignored(repo_root, p):
+        if (
+            not is_from_git
+            and repo_root is not None
+            and not root_ignored
+            and _is_git_ignored(repo_root, p)
+        ):
             continue
         try:
             rel = p.relative_to(root)
@@ -1103,9 +1130,7 @@ def _is_allowed_review_boundary(target: Path, settings: Settings) -> bool:
     repos_base = settings.repos.base_dir.resolve()
     allowed_roots.append(repos_base)
 
-    return any(
-        target_resolved == root or target_resolved.is_relative_to(root) for root in allowed_roots
-    )
+    return any(is_safe_subpath(root, target_resolved) for root in allowed_roots)
 
 
 def _detect_base_branch(repo_path: Path, preferred_base: str = "main") -> str:
@@ -1315,6 +1340,32 @@ def _prepare_pr_content(
     return pages, title, agents_md, pull, repo
 
 
+def _run_orchestrator_review(
+    orchestrator: Any,
+    all_files: list[str],
+    metadata_by_path: dict[str, FileAnalysisMeta],
+    target_dir: Path | None,
+    pages: list[str],
+    active_p: list[str],
+    persona: Persona | None,
+) -> list[tuple[PersonaDefinition, ReviewResult | str]]:
+    """Execute orchestrator pipeline review for all files."""
+    payloads = orchestrator.init_per_file_payloads(
+        all_files, metadata_by_path, target_dir=target_dir
+    )
+    if not is_dry_run():
+        diff_map = {f: "\n".join([p for p in pages if f in p]) for f in all_files}
+        orchestrator.execute_multi_persona_review(
+            payloads, diff_text_by_file=diff_map, personas=active_p
+        )
+        orchestrator.execute_finding_verification(payloads)
+        orchestrator.execute_finding_reranking(payloads)
+
+    _, report_md = orchestrator.generate_consolidated_report(payloads)
+    p_def = PERSONAS[persona or Persona.DEVSECOPS]
+    return [(p_def, report_md)]
+
+
 def _execute_review_workflow(
     pages: list[str],
     title: str,
@@ -1339,7 +1390,7 @@ def _execute_review_workflow(
     all_files = sorted(list({fn for page in pages for fn in _extract_segment_filenames(page)}))
     orchestrator = ReviewPipelineOrchestrator(llm_client=clients.analysis, target_dir=target_dir)
 
-    if not is_dry_run() and type(clients.analysis).__name__ == "LLMClient":
+    if type(clients.analysis).__name__ == "LLMClient":
         server_info = orchestrator._get_server_info()
         n_af = len(all_files)
         all_p = ["devsecops", "architect", "qa", "auditor", "pm"]
@@ -1364,21 +1415,15 @@ def _execute_review_workflow(
                 target_ref=target_ref,
             )
             if all_files:
-                payloads = orchestrator.init_per_file_payloads(
-                    all_files, metadata_by_path, target_dir=target_dir
+                return _run_orchestrator_review(
+                    orchestrator,
+                    all_files,
+                    metadata_by_path,
+                    target_dir,
+                    pages,
+                    active_p,
+                    persona,
                 )
-                diff_text_by_file = {
-                    f: "\n".join([page for page in pages if f in page]) for f in all_files
-                }
-                orchestrator.execute_multi_persona_review(
-                    payloads, diff_text_by_file=diff_text_by_file, personas=active_p
-                )
-                orchestrator.execute_finding_verification(payloads)
-                orchestrator.execute_finding_reranking(payloads)
-                _, report_md = orchestrator.generate_consolidated_report(payloads)
-
-                p_def = PERSONAS[persona or Persona.DEVSECOPS]
-                return [(p_def, report_md)]
 
     if summary_only:
         rprint(f"[dim]{MESSAGES.review.generating_metadata}[/dim]")

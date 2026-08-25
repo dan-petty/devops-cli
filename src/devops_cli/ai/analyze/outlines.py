@@ -38,8 +38,8 @@ class EnhancedMetadataOutput(BaseModel):
     dependencies: list[str] = Field(default_factory=list)
     pseudocode: list[str] = Field(default_factory=list)
     complexity_score: Literal["Low", "Medium", "High"] = "Low"
-    confidence_score: float = Field(default=0.85, ge=0.0, le=1.0)
-    quality_score: float = Field(default=0.85, ge=0.0, le=1.0)
+    confidence_score: float | None = Field(default=None, ge=0.0, le=1.0)
+    quality_score: float | None = Field(default=None, ge=0.0, le=1.0)
 
 
 def _validate_enhanced_metadata(
@@ -62,10 +62,10 @@ def _validate_enhanced_metadata(
     if static_symbols and not isinstance(parsed.key_symbols, list):
         return None, "key_symbols must be a list of strings."
 
-    if not (0.0 <= parsed.confidence_score <= 1.0):
+    if parsed.confidence_score is not None and not (0.0 <= parsed.confidence_score <= 1.0):
         return None, "confidence_score must be between 0.0 and 1.0."
 
-    if not (0.0 <= parsed.quality_score <= 1.0):
+    if parsed.quality_score is not None and not (0.0 <= parsed.quality_score <= 1.0):
         return None, "quality_score must be between 0.0 and 1.0."
 
     return parsed, None
@@ -125,13 +125,9 @@ def _enhance_file_metadata_with_ai(
                 return parsed
 
             if attempt < max_retries and err:
+                retry_msg = _METADATA_RETRY_TEMPLATE.format(err=err)
                 messages.append(ChatMessage(role="assistant", content=raw_text))
-                messages.append(
-                    ChatMessage(
-                        role="user",
-                        content=_METADATA_RETRY_TEMPLATE.format(err=err),
-                    )
-                )
+                messages.append(ChatMessage(role="user", content=retry_msg))
         except Exception as exc:
             logger.debug("Attempt %s metadata enhancement chat failed: %s", attempt, exc)
 
@@ -267,6 +263,46 @@ def _get_last_updated(rel_path: str, repo_root: Path | None = None) -> str:
     return datetime.now(UTC).isoformat()
 
 
+_KEY_STMT_TYPES = (
+    ast.If,
+    ast.For,
+    ast.While,
+    ast.Return,
+    ast.Raise,
+    ast.Assign,
+    ast.Expr,
+)
+
+
+def _extract_function_pseudocode(node: ast.FunctionDef | ast.AsyncFunctionDef) -> list[str]:
+    """Extract signature and key body statements from a Python AST function."""
+    args = [a.arg for a in node.args.args if a.arg != "self"]
+    args_str = ", ".join(args[:3]) + (", ..." if len(node.args.args) > 3 else "")
+    ret = f" -> {ast.unparse(node.returns)}" if node.returns else ""
+    res = [f"{node.name}({args_str}){ret}:"]
+    for stmt in node.body[:2]:
+        if not isinstance(stmt, _KEY_STMT_TYPES):
+            continue
+        try:
+            stmt_code = ast.unparse(stmt).splitlines()[0]
+            res.append(f"    {stmt_code[:60]}")
+        except Exception:
+            pass
+    return res
+
+
+def _extract_class_pseudocode(node: ast.ClassDef) -> list[str]:
+    """Extract class signature and key methods from a Python AST class."""
+    bases = [ast.unparse(b) for b in node.bases]
+    bases_str = f"({', '.join(bases)})" if bases else ""
+    res = [f"class {node.name}{bases_str}:"]
+    for item in node.body[:2]:
+        if isinstance(item, ast.FunctionDef | ast.AsyncFunctionDef):
+            args = [a.arg for a in item.args.args if a.arg != "self"]
+            res.append(f"    def {item.name}({', '.join(args[:2])}):")
+    return res
+
+
 def _extract_python_pseudocode_outline(content: str) -> list[str]:
     """Extract AST signatures and key statements directly from Python source code."""
     lines: list[str] = []
@@ -274,40 +310,76 @@ def _extract_python_pseudocode_outline(content: str) -> list[str]:
         tree = ast.parse(content)
         for node in tree.body:
             if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
-                args = [a.arg for a in node.args.args if a.arg != "self"]
-                args_str = ", ".join(args[:3])
-                if len(node.args.args) > 3:
-                    args_str += ", ..."
-                ret = f" -> {ast.unparse(node.returns)}" if node.returns else ""
-                lines.append(f"{node.name}({args_str}){ret}:")
-                for stmt in node.body[:2]:
-                    if isinstance(
-                        stmt,
-                        ast.If
-                        | ast.For
-                        | ast.While
-                        | ast.Return
-                        | ast.Raise
-                        | ast.Assign
-                        | ast.Expr,
-                    ):
-                        try:
-                            stmt_code = ast.unparse(stmt).splitlines()[0]
-                            lines.append(f"    {stmt_code[:60]}")
-                        except Exception:
-                            pass
+                lines.extend(_extract_function_pseudocode(node))
             elif isinstance(node, ast.ClassDef):
-                bases = [ast.unparse(b) for b in node.bases]
-                bases_str = f"({', '.join(bases)})" if bases else ""
-                lines.append(f"class {node.name}{bases_str}:")
-                for item in node.body[:2]:
-                    if isinstance(item, ast.FunctionDef | ast.AsyncFunctionDef):
-                        args = [a.arg for a in item.args.args if a.arg != "self"]
-                        lines.append(f"    def {item.name}({', '.join(args[:2])}):")
+                lines.extend(_extract_class_pseudocode(node))
     except Exception as exc:
         logger.debug("Failed to extract Python pseudocode outline: %s", exc)
 
     return lines[:10]
+
+
+def _extract_json_pseudocode(content: str) -> list[str] | None:
+    """Format structured JSON data into concise pseudocode lines."""
+    try:
+        data = json.loads(content)
+        if isinstance(data, dict) and data:
+            out: list[str] = []
+            for k, v in list(data.items())[:8]:
+                val_str = json.dumps(v)
+                if len(val_str) > 60:
+                    val_str = val_str[:57] + "..."
+                out.append(f"{k}: {val_str}")
+            return out or None
+        if isinstance(data, list) and data:
+            return [json.dumps(item)[:60] for item in data[:8]]
+    except Exception as exc:
+        logger.debug("Failed parsing json content for pseudocode: %s", exc)
+    return None
+
+
+def _generate_ai_pseudocode(
+    rel_path: str,
+    content: str,
+    lang: str,
+    symbols: list[str],
+    ai_client: Any,
+) -> list[str] | None:
+    """Generate pseudocode using AI and RAG investigation."""
+    try:
+        from devops_cli.ai.rag.investigator import (
+            format_rag_investigation_for_prompt,
+            investigate_rag_context,
+        )
+        from devops_cli.models.ai import ChatMessage
+
+        sanitized_content = _mask_sensitive_data(content[:150000])
+        rag_ctx = investigate_rag_context(f"{rel_path} {' '.join(symbols[:3])}", top_k=2)
+        rag_info = format_rag_investigation_for_prompt(rag_ctx, "Interface & Module Context")
+
+        prompt = (
+            f"File: '{rel_path}' ({lang})\n\n"
+            f"Source code snippet:\n{sanitized_content}\n"
+            f"{rag_info}\n"
+            f"{ANALYZE_PSEUDOCODE_TASK_PROMPT}"
+        )
+        response = ai_client.chat_messages(
+            system_prompt=ANALYZE_PSEUDOCODE_SYSTEM_PROMPT,
+            messages=[ChatMessage(role="user", content=prompt)],
+        )
+        clean_res = str(response).strip()
+        if not clean_res:
+            return None
+        raw_steps = [
+            re.sub(r"^\d+[\.\)]\s*|^[-*]\s*", "", line).strip()
+            for line in clean_res.splitlines()
+            if line.strip()
+        ]
+        filtered = [s for s in raw_steps if s and not _is_import_or_docstring_line(s)]
+        return filtered[:10] if filtered else None
+    except Exception as exc:
+        logger.debug("Failed generating AI pseudocode for %s: %s", rel_path, exc)
+    return None
 
 
 def _generate_pseudocode(
@@ -320,39 +392,9 @@ def _generate_pseudocode(
 ) -> list[str]:
     """Generate a representative list of strings simplifying key elements and structure."""
     if ai_client is not None and content.strip():
-        try:
-            from devops_cli.ai.rag.investigator import (
-                format_rag_investigation_for_prompt,
-                investigate_rag_context,
-            )
-            from devops_cli.models.ai import ChatMessage
-
-            sanitized_content = _mask_sensitive_data(content[:150000])
-            rag_ctx = investigate_rag_context(f"{rel_path} {' '.join(symbols[:3])}", top_k=2)
-            rag_info = format_rag_investigation_for_prompt(rag_ctx, "Interface & Module Context")
-
-            prompt = (
-                f"File: '{rel_path}' ({lang})\n\n"
-                f"Source code snippet:\n{sanitized_content}\n"
-                f"{rag_info}\n"
-                f"{ANALYZE_PSEUDOCODE_TASK_PROMPT}"
-            )
-            response = ai_client.chat_messages(
-                system_prompt=ANALYZE_PSEUDOCODE_SYSTEM_PROMPT,
-                messages=[ChatMessage(role="user", content=prompt)],
-            )
-            clean_res = str(response).strip()
-            if clean_res:
-                raw_steps = [
-                    re.sub(r"^\d+[\.\)]\s*|^[-*]\s*", "", line).strip()
-                    for line in clean_res.splitlines()
-                    if line.strip()
-                ]
-                filtered_steps = [s for s in raw_steps if s and not _is_import_or_docstring_line(s)]
-                if filtered_steps:
-                    return filtered_steps[:10]
-        except Exception as exc:
-            logger.debug("Failed generating AI pseudocode for %s: %s", rel_path, exc)
+        ai_steps = _generate_ai_pseudocode(rel_path, content, lang, symbols, ai_client)
+        if ai_steps:
+            return ai_steps
 
     if lang == "python" and content.strip():
         py_outline = _extract_python_pseudocode_outline(content)
@@ -360,22 +402,9 @@ def _generate_pseudocode(
             return py_outline
 
     if lang in ("json", "yaml", "toml") and content.strip():
-        try:
-            if lang == "json":
-                data = json.loads(content)
-                if isinstance(data, dict) and data:
-                    out_steps: list[str] = []
-                    for k, v in list(data.items())[:8]:
-                        val_str = json.dumps(v)
-                        if len(val_str) > 60:
-                            val_str = val_str[:57] + "..."
-                        out_steps.append(f"{k}: {val_str}")
-                    if out_steps:
-                        return out_steps
-                elif isinstance(data, list) and data:
-                    return [json.dumps(item)[:60] for item in data[:8]]
-        except Exception as exc:
-            logger.debug("Failed parsing %s content for pseudocode: %s", lang, exc)
+        json_outline = _extract_json_pseudocode(content)
+        if json_outline:
+            return json_outline
 
     if lang in ("shell", "bash") and content.strip():
         non_comment_lines: list[str] = []

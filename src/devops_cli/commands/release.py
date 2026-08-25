@@ -3,51 +3,58 @@
 from __future__ import annotations
 
 import re
-import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
 
 import typer
-from rich import print as rprint
-from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
 from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.core.cli import new_typer
 from devops_cli.core.process import run_subprocess
-from devops_cli.core.repo import find_top_level_repo_root
+from devops_cli.core.repo import find_top_level_repo_root, resolve_safe_subpath
 from devops_cli.docs.generator import DocGenerator
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
+from devops_cli.git.operations import get_latest_git_tag, is_git_clean
 from devops_cli.lang import MESSAGES
+from devops_cli.output import (
+    print_error,
+    print_info,
+    print_panel,
+    print_success,
+    print_table,
+    print_warning,
+    write_stdout,
+    write_text_file,
+)
 
 app = new_typer(
     help="Manage release cycles, version bumping, changelogs, and release verification."
 )
-console = Console()
 
 _SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$")
 
 
+# =============================================================================
+# Path & Git Inspection Helpers
+# =============================================================================
+
+
 def _get_project_root(target: Path | None = None) -> Path:
     """Find the top-level repository root containing pyproject.toml."""
-    start = target or Path.cwd()
-    top_root = find_top_level_repo_root(start)
-    if (top_root / "pyproject.toml").exists():
-        return top_root
-    # Fallback upwards looking for pyproject.toml
-    cur = start.resolve()
-    while cur != cur.parent:
-        if (cur / "pyproject.toml").exists():
-            return cur
-        cur = cur.parent
-    return top_root
+    return find_top_level_repo_root(target)
+
+
+def _resolve_safe_project_path(root: Path, relative_name: str | Path) -> Path:
+    """Resolve a path and verify it strictly resides within repository root."""
+    return resolve_safe_subpath(root, relative_name)
 
 
 def _get_pyproject_version(root: Path) -> str | None:
     """Read version string from pyproject.toml."""
-    pyproject_file = root / "pyproject.toml"
+    pyproject_file = _resolve_safe_project_path(root, "pyproject.toml")
     if not pyproject_file.exists():
         return None
     content = pyproject_file.read_text(encoding="utf-8")
@@ -57,7 +64,7 @@ def _get_pyproject_version(root: Path) -> str | None:
 
 def _get_init_version(root: Path) -> str | None:
     """Read version from src/devops_cli/__init__.py or pyproject.toml."""
-    init_file = root / "src" / "devops_cli" / "__init__.py"
+    init_file = _resolve_safe_project_path(root, Path("src/devops_cli/__init__.py"))
     if not init_file.exists():
         return None
     content = init_file.read_text(encoding="utf-8")
@@ -69,27 +76,22 @@ def _get_init_version(root: Path) -> str | None:
 
 def _get_latest_git_tag(root: Path) -> str | None:
     """Retrieve latest git tag if git is available."""
-    try:
-        proc = run_subprocess(["git", "describe", "--tags", "--abbrev=0"], cwd=root)
-        if proc.returncode == 0 and proc.stdout:
-            return str(proc.stdout).strip()
-    except Exception:
-        pass
-    return None
+    return get_latest_git_tag(root)
 
 
 def _is_git_clean(root: Path) -> bool:
     """Check whether git working directory has uncommitted changes."""
-    try:
-        proc = run_subprocess(["git", "status", "--porcelain"], cwd=root)
-        return proc.returncode == 0 and not bool(proc.stdout.strip())
-    except Exception:
-        return False
+    return is_git_clean(root)
+
+
+# =============================================================================
+# Version & Changelog Manipulation Helpers
+# =============================================================================
 
 
 def _extract_changelog_notes(root: Path, version: str) -> str | None:
     """Extract release notes for a specific version from CHANGELOG.md."""
-    changelog_file = root / "CHANGELOG.md"
+    changelog_file = _resolve_safe_project_path(root, "CHANGELOG.md")
     if not changelog_file.exists():
         return None
     content = changelog_file.read_text(encoding="utf-8")
@@ -103,7 +105,7 @@ def _extract_changelog_notes(root: Path, version: str) -> str | None:
 
 def _get_latest_changelog_version(root: Path) -> str | None:
     """Extract the first/latest released version listed in CHANGELOG.md."""
-    changelog_file = root / "CHANGELOG.md"
+    changelog_file = _resolve_safe_project_path(root, "CHANGELOG.md")
     if not changelog_file.exists():
         return None
     content = changelog_file.read_text(encoding="utf-8")
@@ -113,7 +115,7 @@ def _get_latest_changelog_version(root: Path) -> str | None:
 
 def _update_pyproject_version(root: Path, new_version: str) -> bool:
     """Update version in pyproject.toml."""
-    pyproject_file = root / "pyproject.toml"
+    pyproject_file = _resolve_safe_project_path(root, "pyproject.toml")
     if not pyproject_file.exists():
         return False
     content = pyproject_file.read_text(encoding="utf-8")
@@ -124,14 +126,14 @@ def _update_pyproject_version(root: Path, new_version: str) -> bool:
         count=1,
     )
     if count > 0:
-        pyproject_file.write_text(new_content, encoding="utf-8")
+        write_text_file(pyproject_file, new_content)
         return True
     return False
 
 
 def _update_init_version(root: Path, new_version: str) -> bool:
     """Update __version__ in src/devops_cli/__init__.py if hardcoded, or return True."""
-    init_file = root / "src" / "devops_cli" / "__init__.py"
+    init_file = _resolve_safe_project_path(root, Path("src/devops_cli/__init__.py"))
     if not init_file.exists():
         return False
     content = init_file.read_text(encoding="utf-8")
@@ -145,14 +147,14 @@ def _update_init_version(root: Path, new_version: str) -> bool:
         count=1,
     )
     if count > 0:
-        init_file.write_text(new_content, encoding="utf-8")
+        write_text_file(init_file, new_content)
         return True
     return True
 
 
 def _update_changelog_header(root: Path, new_version: str, release_date: str | None = None) -> bool:
     """Ensure CHANGELOG.md has a header for the new version."""
-    changelog_file = root / "CHANGELOG.md"
+    changelog_file = _resolve_safe_project_path(root, "CHANGELOG.md")
     if not changelog_file.exists():
         return False
     today = release_date or datetime.now(UTC).strftime("%Y-%m-%d")
@@ -165,7 +167,7 @@ def _update_changelog_header(root: Path, new_version: str, release_date: str | N
             f"## [{new_version}] - {today}",
             content,
         )
-        changelog_file.write_text(new_content, encoding="utf-8")
+        write_text_file(changelog_file, new_content)
         return True
 
     # If [Unreleased] section exists, rename to [new_version] - date
@@ -175,7 +177,7 @@ def _update_changelog_header(root: Path, new_version: str, release_date: str | N
             f"## [{new_version}] - {today}",
             1,
         )
-        changelog_file.write_text(new_content, encoding="utf-8")
+        write_text_file(changelog_file, new_content)
         return True
 
     # Otherwise prepend new section before the first ## [
@@ -184,7 +186,7 @@ def _update_changelog_header(root: Path, new_version: str, release_date: str | N
         pos = first_section.start()
         header = f"## [{new_version}] - {today}\n\n### Added\n- Release version {new_version}.\n\n"
         new_content = content[:pos] + header + content[pos:]
-        changelog_file.write_text(new_content, encoding="utf-8")
+        write_text_file(changelog_file, new_content)
         return True
 
     return False
@@ -199,6 +201,11 @@ def _format_release_title(version: str, prefix: str = "feat", breaking: bool = F
         norm_prefix = "feat"
     bang = "!" if breaking else ""
     return f"{norm_prefix}(release){bang}: v{clean_ver}"
+
+
+# =============================================================================
+# Command: release status
+# =============================================================================
 
 
 @app.command("status")
@@ -243,7 +250,12 @@ def release_status(
         else "[red]✗ Outdated (run 'devops docs generate')[/red]",
     )
 
-    console.print(table)
+    print_table(table)
+
+
+# =============================================================================
+# Command: release prepare
+# =============================================================================
 
 
 @app.command("prepare")
@@ -295,7 +307,7 @@ def release_prepare(
     """Bump version across pyproject.toml and source, update changelog, and sync docs."""
     clean_version = version.lstrip("v").strip()
     if not _SEMVER_RE.match(clean_version):
-        rprint(f"[red]{MESSAGES.release.invalid_version.format(version=version)}[/red]")
+        print_error(MESSAGES.release.invalid_version.format(version=version), prefix=False)
         raise typer.Exit(1)
 
     repo_root = _get_project_root(root)
@@ -334,31 +346,31 @@ def release_prepare(
             )
         return
 
-    rprint(MESSAGES.release.preparing_release.format(version=clean_version))
+    print_info(MESSAGES.release.preparing_release.format(version=clean_version), prefix=False)
 
     # 1. Update pyproject.toml
     if _update_pyproject_version(repo_root, clean_version):
-        rprint(MESSAGES.release.updated_pyproject.format(version=clean_version))
+        print_info(MESSAGES.release.updated_pyproject.format(version=clean_version), prefix=False)
 
     # 2. Update __init__.py
     if _update_init_version(repo_root, clean_version):
-        rprint(MESSAGES.release.updated_init.format(version=clean_version))
+        print_info(MESSAGES.release.updated_init.format(version=clean_version), prefix=False)
 
     # 3. Update CHANGELOG.md
     if update_changelog:
         today = datetime.now(UTC).strftime("%Y-%m-%d")
         if _update_changelog_header(repo_root, clean_version, today):
-            rprint(MESSAGES.release.updated_changelog.format(version=clean_version, date=today))
+            print_info(
+                MESSAGES.release.updated_changelog.format(version=clean_version, date=today),
+                prefix=False,
+            )
 
     # 4. Regenerate documentation & sync README Command Matrix
     if sync_docs:
         generator = DocGenerator(root_dir=repo_root)
         generator.write_all_docs(output_dir=repo_root / "docs", sync_readme_table=True)
-    msg = (
-        f"\n[bold green]✓ Release preparation for v{clean_version} "
-        "completed successfully.[/bold green]"
-    )
-    rprint(msg)
+    msg = f"Release preparation for v{clean_version} completed successfully."
+    print_success(msg)
 
     if create_pr:
         release_pr(
@@ -367,6 +379,11 @@ def release_prepare(
             breaking=breaking,
             root=root,
         )
+
+
+# =============================================================================
+# Command: release pr
+# =============================================================================
 
 
 @app.command("pr")
@@ -415,9 +432,10 @@ def release_pr(
     """Create release branch, commit version bumps, and open a GitHub Release Pull Request."""
     repo_root = _get_project_root(root)
     target_ver = (version or _get_pyproject_version(repo_root) or "").lstrip("v").strip()
-    if not target_ver or not _SEMVER_RE.match(target_ver):
+    clean_version = target_ver
+    if not clean_version or not _SEMVER_RE.match(clean_version):
         err = MESSAGES.release.invalid_version.format(version=target_ver or version or "")
-        rprint(f"[red]{err}[/red]")
+        print_error(err, prefix=False)
         raise typer.Exit(1)
 
     branch_name = f"release/v{target_ver}"
@@ -442,14 +460,16 @@ def release_pr(
         )
         return
 
-    rprint(MESSAGES.release.creating_release_branch.format(branch=branch_name))
+    print_info(MESSAGES.release.creating_release_branch.format(branch=branch_name), prefix=False)
 
     # 1. Checkout new release branch
     branch_proc = run_subprocess(["git", "checkout", "-B", branch_name], cwd=repo_root)
     if branch_proc.returncode != 0:
-        rprint(f"[red]Failed to create release branch {branch_name}: {branch_proc.stderr}[/red]")
+        print_error(
+            f"Failed to create release branch {branch_name}: {branch_proc.stderr}", prefix=False
+        )
         raise typer.Exit(1)
-    rprint(MESSAGES.release.branch_created.format(branch=branch_name))
+    print_success(MESSAGES.release.branch_created.format(branch=branch_name), prefix=False)
 
     # 2. Stage and commit release files
     run_subprocess(
@@ -469,16 +489,18 @@ def release_pr(
         cwd=repo_root,
     )
     if commit_proc.returncode != 0 and "nothing to commit" not in str(commit_proc.stdout):
-        rprint(f"[yellow]Note: {commit_proc.stderr or commit_proc.stdout}[/yellow]")
+        print_warning(f"Note: {commit_proc.stderr or commit_proc.stdout}", prefix=False)
 
     # 3. Push branch if requested
     if push:
         push_proc = run_subprocess(["git", "push", "-u", "origin", branch_name], cwd=repo_root)
         if push_proc.returncode != 0:
-            rprint(f"[yellow]Warning: Could not push branch to remote: {push_proc.stderr}[/yellow]")
+            print_warning(
+                f"Warning: Could not push branch to remote: {push_proc.stderr}", prefix=False
+            )
 
     # 4. Open GitHub Pull Request via gh CLI
-    rprint(MESSAGES.release.creating_release_pr.format(version=target_ver))
+    print_info(MESSAGES.release.creating_release_pr.format(version=target_ver), prefix=False)
     notes = _extract_changelog_notes(repo_root, target_ver) or f"Release v{target_ver}"
     pr_title = release_title
     pr_body = (
@@ -513,7 +535,7 @@ def release_pr(
         cleaned_labels = [lbl.strip() for lbl in labels.split(",") if lbl.strip()]
         for lbl in cleaned_labels:
             if not re.match(r"^[a-zA-Z0-9_\- /.:]+$", lbl):
-                rprint(f"[red]Error: Invalid label '{lbl}'.[/red]")
+                print_error(f"Invalid label '{lbl}'.", prefix=False)
                 raise typer.Exit(1)
             pr_cmd.extend(["--label", lbl])
 
@@ -528,13 +550,19 @@ def release_pr(
 
     if pr_proc.returncode == 0:
         pr_url = str(pr_proc.stdout).strip()
-        rprint(MESSAGES.release.pr_created.format(url=pr_url))
+        print_success(MESSAGES.release.pr_created.format(url=pr_url), prefix=False)
     else:
         err = str(pr_proc.stderr).strip() or str(pr_proc.stdout).strip()
-        rprint(f"[yellow]{MESSAGES.release.pr_failed.format(error=err)}[/yellow]")
-        rprint(
-            f"[dim]Branch '{branch_name}' is ready. You can manually open the PR on GitHub.[/dim]"
+        print_warning(MESSAGES.release.pr_failed.format(error=err), prefix=False)
+        print_info(
+            f"Branch '{branch_name}' is ready. You can manually open the PR on GitHub.",
+            prefix=False,
         )
+
+
+# =============================================================================
+# Command: release check
+# =============================================================================
 
 
 @app.command("check")
@@ -560,22 +588,25 @@ def release_check(
 
     # 1. Version Consistency
     if not pyproject_ver or pyproject_ver != init_ver:
-        rprint(
-            f"[red]Version mismatch: pyproject.toml ({pyproject_ver}) != "
-            f"src/devops_cli/__init__.py ({init_ver})[/red]"
+        print_error(
+            f"Version mismatch: pyproject.toml ({pyproject_ver}) != "
+            f"src/devops_cli/__init__.py ({init_ver})",
+            prefix=False,
         )
         raise typer.Exit(1)
 
     if changelog_ver and changelog_ver != pyproject_ver:
-        rprint(
-            f"[yellow]Warning: Latest CHANGELOG.md version ({changelog_ver}) differs from "
-            f"pyproject version ({pyproject_ver})[/yellow]"
+        print_warning(
+            f"Warning: Latest CHANGELOG.md version ({changelog_ver}) differs from "
+            f"pyproject version ({pyproject_ver})",
+            prefix=False,
         )
 
     # 2. Git Cleanliness Check
     if not allow_dirty and not _is_git_clean(repo_root):
-        rprint(
-            "[red]Git working directory is dirty. Commit or stash changes before releasing.[/red]"
+        print_error(
+            "Git working directory is dirty. Commit or stash changes before releasing.",
+            prefix=False,
         )
         raise typer.Exit(1)
 
@@ -583,12 +614,13 @@ def release_check(
     generator = DocGenerator(root_dir=repo_root)
     docs_ok, diffs = generator.check_docs(repo_root / "docs", check_readme_table=True)
     if not docs_ok:
-        rprint(
-            "[red]Documentation is out of sync. "
-            "Run 'devops release prepare' or 'devops docs generate --sync-readme'[/red]"
+        print_error(
+            "Documentation is out of sync. "
+            "Run 'devops release prepare' or 'devops docs generate --sync-readme'",
+            prefix=False,
         )
         for d in diffs:
-            rprint(f"  - {d}")
+            print_error(f"  - {d}", prefix=False)
         raise typer.Exit(1)
 
     # 4. CI Quality Gate
@@ -607,17 +639,24 @@ def release_check(
             )
             return
 
-        rprint("[cyan]Running CI quality gate...[/cyan]")
+        print_info("Running CI quality gate...", prefix=False)
         proc = run_subprocess(
             ["uv", "run", "devops", "ci", "run"],
             cwd=repo_root,
             timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS * 4,
         )
         if proc.returncode != 0:
-            rprint("[red]CI Quality Gate checks failed. Resolve errors before releasing.[/red]")
+            print_error(
+                "CI Quality Gate checks failed. Resolve errors before releasing.", prefix=False
+            )
             raise typer.Exit(1)
 
-    rprint(f"[bold green]{MESSAGES.release.verification_passed}[/bold green]")
+    print_success(MESSAGES.release.verification_passed, prefix=False)
+
+
+# =============================================================================
+# Command: release notes
+# =============================================================================
 
 
 @app.command("notes")
@@ -639,12 +678,12 @@ def release_notes(
     repo_root = _get_project_root(root)
     target_ver = (version or _get_pyproject_version(repo_root) or "").lstrip("v")
     if not target_ver:
-        rprint("[red]Could not determine target release version.[/red]")
+        print_error("Could not determine target release version.", prefix=False)
         raise typer.Exit(1)
 
     notes = _extract_changelog_notes(repo_root, target_ver)
     if not notes:
-        rprint(f"[yellow]{MESSAGES.release.notes_not_found.format(version=target_ver)}[/yellow]")
+        print_warning(MESSAGES.release.notes_not_found.format(version=target_ver), prefix=False)
         raise typer.Exit(1)
 
     if is_dry_run():
@@ -657,7 +696,7 @@ def release_notes(
         return
 
     if raw:
-        sys.stdout.write(notes + "\n")
+        write_stdout(notes + "\n")
         return
 
     panel = Panel(
@@ -665,7 +704,12 @@ def release_notes(
         title=f"Release Notes — v{target_ver}",
         border_style="cyan",
     )
-    console.print(panel)
+    print_panel(panel)
+
+
+# =============================================================================
+# Command: release tag
+# =============================================================================
 
 
 @app.command("tag")
@@ -708,7 +752,7 @@ def release_tag(
     target_ver = (version or _get_pyproject_version(repo_root) or "").lstrip("v")
     if not target_ver or not _SEMVER_RE.match(target_ver):
         err_msg = MESSAGES.release.invalid_version.format(version=target_ver or version or "")
-        rprint(f"[red]{err_msg}[/red]")
+        print_error(err_msg, prefix=False)
         raise typer.Exit(1)
 
     tag_name = f"v{target_ver}"
@@ -753,14 +797,16 @@ def release_tag(
     # Create annotated tag
     tag_proc = run_subprocess(["git", "tag", "-a", tag_name, "-m", tag_msg], cwd=repo_root)
     if tag_proc.returncode != 0:
-        rprint(f"[red]Failed to create git tag {tag_name}: {tag_proc.stderr}[/red]")
+        print_error(f"Failed to create git tag {tag_name}: {tag_proc.stderr}", prefix=False)
         raise typer.Exit(1)
 
-    rprint(MESSAGES.release.tag_created.format(tag=tag_name))
+    print_success(MESSAGES.release.tag_created.format(tag=tag_name), prefix=False)
 
     if push:
         push_proc = run_subprocess(["git", "push", "origin", "--tags"], cwd=repo_root)
         if push_proc.returncode != 0:
-            rprint(f"[red]Failed to push tag {tag_name} to origin: {push_proc.stderr}[/red]")
+            print_error(
+                f"Failed to push tag {tag_name} to origin: {push_proc.stderr}", prefix=False
+            )
             raise typer.Exit(1)
-        rprint(MESSAGES.release.tag_pushed.format(tag=tag_name))
+        print_success(MESSAGES.release.tag_pushed.format(tag=tag_name), prefix=False)

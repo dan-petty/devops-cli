@@ -69,3 +69,31 @@ def test_valid_k8s_resource_names(value: str) -> None:
 def test_invalid_k8s_resource_names_rejected(value: str) -> None:
     with pytest.raises(typer.Exit):
         _validate_k8s_name(value, "workflow name")
+
+
+def test_argocd_app_from_api_item() -> None:
+    """Verify ArgoCDApp parses full and partial API responses."""
+    from devops_cli.models.argo import ArgoCDApp
+
+    # Full item
+    item = {
+        "metadata": {"name": "frontend-app"},
+        "spec": {"project": "default", "source": {"repoURL": "https://github.com/org/repo.git"}},
+        "status": {
+            "sync": {"status": "Synced", "revision": "abcdef123456789"},
+            "health": {"status": "Healthy"},
+        },
+    }
+    app = ArgoCDApp.from_api_item(item)
+    assert app.name == "frontend-app"
+    assert app.project == "default"
+    assert app.sync_status == "Synced"
+    assert app.health_status == "Healthy"
+    assert app.repo_url == "https://github.com/org/repo.git"
+    assert app.revision == "abcdef12"
+
+    # Empty / malformed item defaults safely
+    empty_app = ArgoCDApp.from_api_item({})
+    assert empty_app.name == ""
+    assert empty_app.sync_status == "Unknown"
+    assert empty_app.health_status == "Unknown"

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from devops_cli.core.cli import new_typer, repo_label
-from devops_cli.core.dry_run import format_command, is_dry_run, set_dry_run
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import (
     find_repo_root,
@@ -23,6 +22,7 @@ from devops_cli.core.validation import (
     validate_url,
     validate_version_str,
 )
+from devops_cli.dry_run import format_command, is_dry_run, set_dry_run
 
 __all__ = [
     "find_repo_root",

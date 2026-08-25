@@ -11,11 +11,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Annotated, Any
 
+import httpx2
 import typer
-from rich import print as rprint
-from rich.console import Console
 from rich.table import Table
 
+from devops_cli.config import load_settings
 from devops_cli.config.defaults import (
     DEFAULT_HTTP_LONG_TIMEOUT_SECONDS,
     DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS,
@@ -27,9 +27,14 @@ from devops_cli.core.validation import validate_k8s_name
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
 from devops_cli.http.validation import validate_service_url
 from devops_cli.models.argo import ArgoCDApp
+from devops_cli.output import (
+    print_error,
+    print_info,
+    print_success,
+    print_table,
+)
 
 app = new_typer(help="Argo CD, Workflows, and Rollouts management.", no_args_is_help=True)
-console = Console()
 
 # ── Sub-groups ────────────────────────────────────────────────────────────────
 cd_app = new_typer(help="ArgoCD application management.")
@@ -44,6 +49,11 @@ cd_apps_app = new_typer(help="Manage ArgoCD applications.")
 cd_app.add_typer(cd_apps_app, name="apps")
 
 
+# =============================================================================
+# ArgoCD Endpoint & Validation Helpers
+# =============================================================================
+
+
 def _validate_k8s_name(value: str, label: str, *, namespace: bool = False) -> None:
     """Raise typer.Exit if value is not a valid Kubernetes name."""
     validate_k8s_name(value, label, namespace=namespace)
@@ -53,12 +63,15 @@ def _argocd(settings: Any) -> tuple[str, dict[str, str]]:
     from devops_cli.config.settings import get_argocd_token
 
     if not settings.argocd.url:
-        rprint("[red]ArgoCD URL not configured. Run: devops config set argocd.url <url>[/red]")
+        print_error(
+            "ArgoCD URL not configured. Run: devops config set argocd.url <url>",
+            prefix=False,
+        )
         raise typer.Exit(1)
     try:
         validate_service_url(settings.argocd.url, "ArgoCD", allow=settings.ai.allow_private_network)
     except ValueError as exc:
-        rprint(f"[red]{exc}[/red]")
+        print_error(str(exc), prefix=False)
         raise typer.Exit(1)
     headers: dict[str, str] = {"Content-Type": "application/json"}
     token = get_argocd_token(settings)
@@ -67,7 +80,9 @@ def _argocd(settings: Any) -> tuple[str, dict[str, str]]:
     return settings.argocd.url.rstrip("/"), headers
 
 
-# ── ArgoCD: apps ──────────────────────────────────────────────────────────────
+# =============================================================================
+# Command: devops argo cd apps list
+# =============================================================================
 
 
 @cd_apps_app.command("list")
@@ -80,10 +95,6 @@ def cd_apps_list() -> None:
             details={"apps": []},
         )
         return
-
-    import httpx2
-
-    from devops_cli.config import load_settings
 
     settings = load_settings()
     base, headers = _argocd(settings)
@@ -103,7 +114,9 @@ def cd_apps_list() -> None:
     table.add_column("Health")
     table.add_column("Repo", style="dim")
 
-    for item in resp.json().get("items", []):
+    data = resp.json()
+    items = data.get("items", []) if isinstance(data, dict) else []
+    for item in items:
         app_info = ArgoCDApp.from_api_item(item)
         sync_c = "green" if app_info.sync_status == "Synced" else "yellow"
         health_c = "green" if app_info.health_status == "Healthy" else "red"
@@ -114,7 +127,12 @@ def cd_apps_list() -> None:
             f"[{health_c}]{app_info.health_status}[/{health_c}]",
             app_info.repo_url,
         )
-    console.print(table)
+    print_table(table)
+
+
+# =============================================================================
+# Command: devops argo cd apps sync
+# =============================================================================
 
 
 @cd_apps_app.command("sync")
@@ -125,10 +143,6 @@ def cd_apps_sync(
 ) -> None:
     """Trigger a sync for an ArgoCD application."""
     _validate_k8s_name(name, "application name")
-    import httpx2
-
-    from devops_cli.config import load_settings
-
     settings = load_settings()
     base, headers = _argocd(settings)
 
@@ -140,7 +154,12 @@ def cd_apps_sync(
             timeout=DEFAULT_HTTP_LONG_TIMEOUT_SECONDS,
         )
         resp.raise_for_status()
-    rprint(f"[green]Sync triggered:[/green] {name}")
+    print_success(f"Sync triggered: {name}")
+
+
+# =============================================================================
+# Command: devops argo cd apps status
+# =============================================================================
 
 
 @cd_apps_app.command("status")
@@ -149,10 +168,6 @@ def cd_apps_status(
 ) -> None:
     """Show sync and health status for an ArgoCD application."""
     _validate_k8s_name(name, "application name")
-    import httpx2
-
-    from devops_cli.config import load_settings
-
     settings = load_settings()
     base, headers = _argocd(settings)
 
@@ -167,13 +182,15 @@ def cd_apps_status(
     data = resp.json()
     app_info = ArgoCDApp.from_api_item(data)
 
-    rprint(f"[bold cyan]{app_info.name}[/bold cyan]")
-    rprint(f"  Sync:     {app_info.sync_status}")
-    rprint(f"  Health:   {app_info.health_status}")
-    rprint(f"  Revision: {app_info.revision}")
+    print_info(f"[bold cyan]{app_info.name}[/bold cyan]", prefix=False)
+    print_info(f"  Sync:     {app_info.sync_status}", prefix=False)
+    print_info(f"  Health:   {app_info.health_status}", prefix=False)
+    print_info(f"  Revision: {app_info.revision}", prefix=False)
 
 
-# ── Argo Workflows (argo CLI) ─────────────────────────────────────────────────
+# =============================================================================
+# Command: devops argo workflows (list, submit, logs)
+# =============================================================================
 
 
 @workflows_app.command("list")
@@ -225,16 +242,14 @@ def workflows_logs(
         cmd += ["--namespace", namespace]
     if follow:
         cmd.append("--follow")
-        run_subprocess(
-            cmd, check=True, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS, capture_output=False
-        )
-    else:
-        run_subprocess(
-            cmd, check=True, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS, capture_output=False
-        )
+    run_subprocess(
+        cmd, check=True, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS, capture_output=False
+    )
 
 
-# ── Argo Rollouts (kubectl argo rollouts plugin) ──────────────────────────────
+# =============================================================================
+# Command: devops argo rollouts (list, status)
+# =============================================================================
 
 
 @rollouts_app.command("list")
@@ -267,10 +282,6 @@ def rollouts_status(
         cmd += ["--namespace", namespace]
     if watch:
         cmd.append("--watch")
-        run_subprocess(
-            cmd, check=True, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS, capture_output=False
-        )
-    else:
-        run_subprocess(
-            cmd, check=True, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS, capture_output=False
-        )
+    run_subprocess(
+        cmd, check=True, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS, capture_output=False
+    )

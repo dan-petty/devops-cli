@@ -23,6 +23,9 @@ from devops_cli.config.constants import (
     CONST_KEYRING_SERVICE as KEYRING_SERVICE,
 )
 from devops_cli.config.constants import (
+    CONST_LLM_CACHE_DATA_DIR,
+)
+from devops_cli.config.constants import (
     CONST_PROJECT_CONFIG_ENV as PROJECT_CONFIG_ENV,
 )
 from devops_cli.config.constants import (
@@ -33,6 +36,9 @@ from devops_cli.config.defaults import (
     DEFAULT_AI_MODEL,
     DEFAULT_AI_PROVIDER,
     DEFAULT_JAEGER_URL,
+    DEFAULT_LLM_CACHE_ENABLED,
+    DEFAULT_LLM_CACHE_MAX_ENTRIES,
+    DEFAULT_LLM_CACHE_TTL_SECONDS,
     DEFAULT_OLLAMA_MAX_PARALLEL,
     DEFAULT_OLLAMA_URLS,
     DEFAULT_OTEL_ENDPOINT,
@@ -128,6 +134,14 @@ class AIRAGConfig(BaseModel):
     chunk_overlap: int = DEFAULT_RAG_CHUNK_OVERLAP
 
 
+class AICacheConfig(BaseModel):
+    model_config = ConfigDict(frozen=False)
+    enabled: bool = DEFAULT_LLM_CACHE_ENABLED
+    dir: Path = CONST_LLM_CACHE_DATA_DIR
+    ttl_seconds: int = DEFAULT_LLM_CACHE_TTL_SECONDS
+    max_entries: int = DEFAULT_LLM_CACHE_MAX_ENTRIES
+
+
 class AITaskOverride(BaseModel):
     """Per-task model/server override; unset fields fall back to the parent AIConfig."""
 
@@ -159,6 +173,7 @@ class AIConfig(BaseModel):
     max_retries: int = DEFAULT_AI_MAX_RETRIES
     tasks: AITasksConfig = AITasksConfig()
     rag: AIRAGConfig = AIRAGConfig()
+    cache: AICacheConfig = AICacheConfig()
 
     @property
     def get_ollama_urls(self) -> list[str]:
@@ -284,7 +299,7 @@ def load_settings() -> Settings:
             continue
         try:
             dotted_set(settings, option_key, env_value)
-        except (AttributeError, ValueError):
+        except AttributeError, ValueError:
             # Ignore invalid or unknown env overrides and keep existing settings.
             continue
 
@@ -323,7 +338,7 @@ def _github_cli_token() -> str | None:
 
     try:
         result = run_subprocess(["gh", "auth", "token"], quiet=True, timeout=5.0)
-    except (FileNotFoundError, OSError, subprocess.SubprocessError):
+    except FileNotFoundError, OSError, subprocess.SubprocessError:
         return None
 
     if result.returncode != 0:

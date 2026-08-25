@@ -34,6 +34,15 @@ def extract_think_blocks(text: str) -> tuple[list[str], str]:
     return [t.strip() for t in thinks], clean
 
 
+def _find_suffix_overlap(text: str, target: str) -> int:
+    """Find the length of the longest suffix of text that matches a prefix of target."""
+    max_check = min(len(text), len(target) - 1)
+    for length in range(max_check, 0, -1):
+        if target.startswith(text[-length:]):
+            return length
+    return 0
+
+
 class ThinkingStreamProcessor:
     """Stateful streaming token parser for rendering or suppressing thinking blocks in CLI chat."""
 
@@ -69,20 +78,35 @@ class ThinkingStreamProcessor:
                 out = self.console.print if self.console else print
                 out("[dim cyan]💭 Thinking...[/dim cyan]")
 
-    def _handle_think_chunk(self, chunk: str) -> None:
+    def _handle_stream_chunk(self, chunk: str, is_thinking: bool = False) -> None:
+        """Append stream chunk to appropriate buffer and dispatch to callback or console."""
         if not chunk:
             return
-        self.thinking_content += chunk
-        if self.on_think_chunk:
-            self.on_think_chunk(chunk)
-        elif self.show_thinking:
+        if is_thinking:
+            self.thinking_content += chunk
+            callback = self.on_think_chunk
+            format_spec = "[dim italic]{}[/dim italic]"
+            should_emit = self.show_thinking
+        else:
+            self._finalize_thinking_footer()
+            self.clean_content += chunk
+            callback = self.on_content_chunk
+            format_spec = "{}"
+            should_emit = True
+
+        if callback:
+            callback(chunk)
+        elif should_emit:
             if self.console:
                 from rich.markup import escape
 
-                self.console.print(f"[dim italic]{escape(chunk)}[/dim italic]", end="")
+                self.console.print(format_spec.format(escape(chunk)), end="")
             else:
                 sys.stdout.write(chunk)
                 sys.stdout.flush()
+
+    def _handle_think_chunk(self, chunk: str) -> None:
+        self._handle_stream_chunk(chunk, is_thinking=True)
 
     def _handle_think_end(self) -> None:
         self.in_think = False
@@ -97,75 +121,65 @@ class ThinkingStreamProcessor:
                 out("\n[dim cyan]✓ Thought complete[/dim cyan]\n")
 
     def _handle_content_chunk(self, chunk: str) -> None:
-        if not chunk:
-            return
-        self._finalize_thinking_footer()
-        self.clean_content += chunk
-        if self.on_content_chunk:
-            self.on_content_chunk(chunk)
-        else:
-            if self.console:
-                from rich.markup import escape
-
-                self.console.print(escape(chunk), end="")
-            else:
-                sys.stdout.write(chunk)
-                sys.stdout.flush()
+        self._handle_stream_chunk(chunk, is_thinking=False)
 
     def feed(self, chunk: str) -> None:
         """Feed a new streaming token chunk into the processor."""
         self._buffer += chunk
         self._process_buffer()
 
+    def _process_outside_think(self) -> bool:
+        """Process buffer while outside <think> block. Returns False to break loop."""
+        pos = self._buffer.find("<think>")
+        if pos != -1:
+            content = self._buffer[:pos]
+            if content:
+                self._handle_content_chunk(content)
+            self.in_think = True
+            self._handle_think_start()
+            self._buffer = self._buffer[pos + 7 :]
+            return True
+
+        match_len = _find_suffix_overlap(self._buffer, "<think>")
+        if match_len > 0:
+            safe_content = self._buffer[:-match_len]
+            if safe_content:
+                self._handle_content_chunk(safe_content)
+            self._buffer = self._buffer[-match_len:]
+            return False
+
+        self._handle_content_chunk(self._buffer)
+        self._buffer = ""
+        return True
+
+    def _process_inside_think(self) -> bool:
+        """Process buffer while inside <think> block. Returns False to break loop."""
+        pos = self._buffer.find("</think>")
+        if pos != -1:
+            think_chunk = self._buffer[:pos]
+            if think_chunk:
+                self._handle_think_chunk(think_chunk)
+            self._handle_think_end()
+            self._buffer = self._buffer[pos + 8 :]
+            return True
+
+        match_len = _find_suffix_overlap(self._buffer, "</think>")
+        if match_len > 0:
+            safe_think = self._buffer[:-match_len]
+            if safe_think:
+                self._handle_think_chunk(safe_think)
+            self._buffer = self._buffer[-match_len:]
+            return False
+
+        self._handle_think_chunk(self._buffer)
+        self._buffer = ""
+        return True
+
     def _process_buffer(self) -> None:
         while self._buffer:
-            if not self.in_think:
-                pos = self._buffer.find("<think>")
-                if pos != -1:
-                    content = self._buffer[:pos]
-                    if content:
-                        self._handle_content_chunk(content)
-                    self.in_think = True
-                    self._handle_think_start()
-                    self._buffer = self._buffer[pos + 7 :]
-                else:
-                    buf = self._buffer
-                    match_len = 0
-                    for i in range(1, min(len(buf), 7) + 1):
-                        if "<think>".startswith(buf[-i:]):
-                            match_len = i
-                    if match_len > 0:
-                        safe_content = buf[:-match_len]
-                        if safe_content:
-                            self._handle_content_chunk(safe_content)
-                        self._buffer = buf[-match_len:]
-                        break
-                    else:
-                        self._handle_content_chunk(buf)
-                        self._buffer = ""
-            else:
-                pos = self._buffer.find("</think>")
-                if pos != -1:
-                    think_chunk = self._buffer[:pos]
-                    if think_chunk:
-                        self._handle_think_chunk(think_chunk)
-                    self._handle_think_end()
-                    self._buffer = self._buffer[pos + 8 :]
-                else:
-                    buf = self._buffer
-                    match_len = 0
-                    for i in range(1, min(len(buf), 8) + 1):
-                        if "</think>".startswith(buf[-i:]):
-                            match_len = i
-                    if match_len > 0:
-                        safe_think = buf[:-match_len]
-                        if safe_think:
-                            self._handle_think_chunk(safe_think)
-                        self._buffer = buf[-match_len:]
-                        break
-                    else:
-                        self._handle_think_chunk(buf)
-                        self._buffer = ""
+            cont = self._process_inside_think() if self.in_think else self._process_outside_think()
+            if not cont:
+                break
 
     def flush(self) -> None:
         """Flush any remaining buffered tokens at end of stream."""

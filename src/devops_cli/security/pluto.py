@@ -43,7 +43,7 @@ def parse_pluto_json(data: dict[str, Any], target_path: str = "") -> list[Findin
                     f"{status_word.lower()} in target version. Upgrade to '{replacement}'."
                 ),
                 fix=f"Update apiVersion from '{api_ver}' to '{replacement}'",
-                confidence_score=0.95,
+                confidence_score=None,
             )
         )
 
@@ -66,7 +66,7 @@ def run_pluto_scan(target: Path = Path(".")) -> list[Finding]:
                     title="[DRY-RUN] Simulated Pluto Deprecated K8s API Detection",
                     description="Pluto deprecated API detection simulation mode active.",
                     fix="Update apiVersion to apps/v1 (dry-run mode)",
-                    confidence_score=1.0,
+                    confidence_score=None,
                 )
             ]
 

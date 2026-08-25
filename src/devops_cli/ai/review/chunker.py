@@ -20,22 +20,15 @@ from devops_cli.config.defaults import (
 _CODE_LINE_SKIP_PREFIXES = ("diff --git", "index ", "--- ", "+++ ", "@@ ", "### File: ", "```")
 
 
-def _extract_diff_filenames(segment: str) -> list[str]:
-    """Extract filenames from git diff headers."""
+def _extract_header_filenames(segment: str, header_type: str = "all") -> list[str]:
+    """Extract filenames from git diff ('diff --git') or file ('### File:') headers."""
     items: list[str] = []
     for line in segment.splitlines():
-        if line.startswith("diff --git "):
+        if header_type in ("diff", "all") and line.startswith("diff --git "):
             parts = line.split()
             if len(parts) >= 4:
                 items.append(parts[2].removeprefix("a/"))
-    return _unique_preserve_order(items)
-
-
-def _extract_path_filenames(segment: str) -> list[str]:
-    """Extract filenames from file block headers."""
-    items: list[str] = []
-    for line in segment.splitlines():
-        if line.startswith("### File: "):
+        elif header_type in ("path", "file", "all") and line.startswith("### File: "):
             item = line.removeprefix("### File: ").strip()
             item = item.split(" (part ", 1)[0].strip()
             if item:
@@ -45,9 +38,7 @@ def _extract_path_filenames(segment: str) -> list[str]:
 
 def _extract_segment_filenames(segment: str) -> list[str]:
     """Extract filenames from either git diff headers or file block headers."""
-    return _unique_preserve_order(
-        _extract_diff_filenames(segment) + _extract_path_filenames(segment)
-    )
+    return _extract_header_filenames(segment, header_type="all")
 
 
 def _extract_code_lines(segment: str, n: int) -> tuple[list[str], list[str]]:
@@ -292,14 +283,28 @@ def _find_repo_files(
     pattern: str = "*",
     max_file_size: int = CONST_MAX_FILE_SIZE_BYTES,
     excluded_dirs: set[str] | None = None,
+    repo_root: Path | None = None,
 ) -> list[Path]:
-    """Discover reviewable source files under target, skipping binary and ignored paths."""
+    """Discover reviewable source files under target, skipping binary and symlinked paths."""
+    root = (repo_root or target).resolve()
+    target_resolved = target.resolve()
+    if not target_resolved.is_relative_to(root):
+        raise ValueError("target must be a sub-path of the repository root")
+
     ignore_set = excluded_dirs or set(CONST_GITIGNORE_DIRS)
     files: list[Path] = []
     if target.is_file():
+        if target.is_symlink() or not target_resolved.is_relative_to(root):
+            return []
         return [target]
+
     for p in sorted(target.rglob(pattern)):
-        if not p.is_file():
+        if p.is_symlink() or not p.is_file():
+            continue
+        try:
+            if not p.resolve().is_relative_to(root):
+                continue
+        except Exception:
             continue
         if any(part in ignore_set for part in p.parts):
             continue
@@ -312,3 +317,7 @@ def _find_repo_files(
             continue
         files.append(p)
     return files
+
+
+diff_pages = _diff_pages
+find_repo_files = _find_repo_files

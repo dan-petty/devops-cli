@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
-from rich import print as rprint
-from rich.console import Console
 from rich.panel import Panel
 from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
 from rich.rule import Rule
@@ -26,13 +24,23 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.config.settings import get_ai_api_key, load_settings
 from devops_cli.core.cli import new_typer
-from devops_cli.dry_run import CommandDryRunResult, is_dry_run
+from devops_cli.dry_run import is_dry_run
+from devops_cli.lang import MESSAGES
+from devops_cli.output import (
+    get_console,
+    print_error,
+    print_info,
+    print_panel,
+    print_success,
+    print_table,
+    print_warning,
+    render_dry_run_result,
+)
 
 app = new_typer(
     help="Manage RAG vector embeddings, indexing, and semantic code search (Qdrant).",
     no_args_is_help=True,
 )
-console = Console()
 
 
 @app.callback(invoke_without_command=True)
@@ -55,6 +63,11 @@ def rag_main(
         raise typer.Exit(0)
 
 
+# =============================================================================
+# RAG Vector Components Resolution Helper
+# =============================================================================
+
+
 def _get_rag_components() -> tuple[QdrantClient, EmbeddingsEngine, str, str]:
     """Resolve configured Qdrant client, Embeddings engine, and collection names."""
     settings = load_settings()
@@ -74,6 +87,11 @@ def _get_rag_components() -> tuple[QdrantClient, EmbeddingsEngine, str, str]:
     return qdrant, embedder, code_coll, docs_coll
 
 
+# =============================================================================
+# Command: devops rag index
+# =============================================================================
+
+
 @app.command("index")
 def index_cmd(
     path: Annotated[
@@ -90,6 +108,13 @@ def index_cmd(
         bool,
         typer.Option("--force", "-f", help="Re-index all files ignoring content hash cache"),
     ] = False,
+    include_kb: Annotated[
+        bool,
+        typer.Option(
+            "--include-kb/--no-include-kb",
+            help="Include bundled DevOps CLI Knowledge Base in docs collection",
+        ),
+    ] = True,
     collection: Annotated[
         str | None,
         typer.Option("--collection", "-c", help="Target collection override"),
@@ -111,11 +136,11 @@ def index_cmd(
         return
     target_path = path.resolve()
     if not target_path.exists():
-        rprint(f"[red]Path not found: {target_path}[/red]")
+        print_error(f"Path not found: {target_path}", prefix=False)
         raise typer.Exit(1)
 
     if is_dry_run():
-        res = CommandDryRunResult(
+        render_dry_run_result(
             command="devops ai rag index",
             target=str(target_path),
             action="vector_indexing",
@@ -123,11 +148,10 @@ def index_cmd(
                 "path": str(target_path),
                 "project": project,
                 "force": force,
+                "include_kb": include_kb,
                 "collection": collection,
             },
         )
-        rprint("[yellow][dry-run][/yellow] Command response:")
-        console.print_json(res.model_dump_json(indent=2))
         return
 
     qdrant, embedder, code_coll, docs_coll = _get_rag_components()
@@ -136,9 +160,10 @@ def index_cmd(
         docs_coll = collection
 
     if not qdrant.is_alive():
-        rprint(
-            f"[red]✗ Cannot connect to Qdrant at [bold]{qdrant.base_url}[/bold][/red]\n"
-            "[yellow]Tip: Deploy or start Qdrant via 'devops k8s deploy-stack llm'[/yellow]"
+        print_error(
+            f"Cannot connect to Qdrant at [bold]{qdrant.base_url}[/bold]\n"
+            "Tip: Deploy or start Qdrant via 'devops k8s deploy-stack llm'",
+            prefix=False,
         )
         raise typer.Exit(1)
 
@@ -149,7 +174,7 @@ def index_cmd(
         docs_collection=docs_coll,
     )
 
-    rprint(
+    get_console().print(
         Rule(
             f" [cyan]RAG Workspace Indexer[/cyan]  "
             f"[dim]Qdrant: {qdrant.base_url} | Model: {embedder.model}[/dim] ",
@@ -162,7 +187,7 @@ def index_cmd(
         TextColumn("[progress.description]{task.description}"),
         BarColumn(),
         TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-        console=console,
+        console=get_console(),
     ) as progress:
         task_id = progress.add_task("Indexing files...", total=100)
 
@@ -174,6 +199,7 @@ def index_cmd(
             target_path,
             project=project,
             force=force,
+            include_kb=include_kb,
             progress_callback=_on_progress,
         )
 
@@ -182,50 +208,27 @@ def index_cmd(
         if results.get("removed_files")
         else ""
     )
-    rprint(
-        f"\n[bold green]✓ Indexing complete![/bold green] "
-        f"Indexed [cyan]{results['indexed_files']}[/cyan] file(s), "
+    print_success(
+        f"Indexing complete! Indexed [cyan]{results['indexed_files']}[/cyan] file(s), "
         f"upserted [cyan]{results['total_chunks']}[/cyan] chunk(s)"
-        f"{removed_msg} "
-        f"(skipped {results['skipped_files']} unchanged files)."
+        f"{removed_msg} (skipped {results['skipped_files']} unchanged files)."
     )
 
 
-@app.command("query")
-def query_cmd(
-    query: Annotated[
-        str,
-        typer.Argument(
-            help="Semantic search query string",
-        ),
-    ],
-    project: Annotated[
-        str | None,
-        typer.Option("--project", "-p", help="Filter results to a specific project"),
-    ] = None,
-    language: Annotated[
-        str | None,
-        typer.Option("--language", "-l", help="Filter by programming language"),
-    ] = None,
-    category: Annotated[
-        str | None,
-        typer.Option("--category", help="Filter by category (code, docs, iac, config)"),
-    ] = None,
-    top_k: Annotated[
-        int,
-        typer.Option("--top-k", "-k", help="Number of results to retrieve"),
-    ] = DEFAULT_RAG_TOP_K,
-    min_score: Annotated[
-        float,
-        typer.Option("--min-score", "-s", help="Minimum cosine similarity threshold"),
-    ] = DEFAULT_RAG_SCORE_THRESHOLD,
+# =============================================================================
+# Command: devops rag index-kb
+# =============================================================================
+
+
+@app.command("index-kb")
+def index_kb_cmd(
+    force: Annotated[
+        bool,
+        typer.Option("--force", "-f", help="Re-index all KB files ignoring cache"),
+    ] = False,
     collection: Annotated[
         str | None,
-        typer.Option("--collection", "-c", help="Search only a specific collection"),
-    ] = None,
-    file_filter: Annotated[
-        str | None,
-        typer.Option("--file", "-f", help="Filter results to a specific file"),
+        typer.Option("--collection", "-c", help="Target collection override"),
     ] = None,
     explain: Annotated[
         bool,
@@ -236,6 +239,120 @@ def query_cmd(
         ),
     ] = False,
 ) -> None:
+    """Index the bundled DevOps CLI Knowledge Base into Qdrant for RAG agent retrieval."""
+    if explain:
+        from devops_cli.ai.explain import render_explanation
+
+        render_explanation("rag")
+        return
+
+    if is_dry_run():
+        render_dry_run_result(
+            command="devops ai rag index-kb",
+            target="src/devops_cli/ai/knowledge_base",
+            action="vector_indexing_kb",
+            details={
+                "force": force,
+                "collection": collection,
+            },
+        )
+        return
+
+    qdrant, embedder, code_coll, docs_coll = _get_rag_components()
+    if collection:
+        docs_coll = collection
+
+    if not qdrant.is_alive():
+        print_error(
+            f"Cannot connect to Qdrant at [bold]{qdrant.base_url}[/bold]\n"
+            "Tip: Deploy or start Qdrant via 'devops k8s deploy-stack llm'",
+            prefix=False,
+        )
+        raise typer.Exit(1)
+
+    indexer = WorkspaceIndexer(
+        qdrant=qdrant,
+        embedder=embedder,
+        code_collection=code_coll,
+        docs_collection=docs_coll,
+    )
+
+    get_console().print(
+        Rule(
+            f" [cyan]RAG Knowledge Base Indexer[/cyan]  "
+            f"[dim]Qdrant: {qdrant.base_url} | Model: {embedder.model}[/dim] ",
+            style="cyan",
+        )
+    )
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+        console=get_console(),
+    ) as progress:
+        task_id = progress.add_task("Indexing knowledge base...", total=100)
+
+        def _on_progress(desc: str, current: int, total: int) -> None:
+            pct = (current / max(1, total)) * 100
+            progress.update(task_id, description=f"{desc} ({current}/{total})", completed=pct)
+
+        results = indexer.index_knowledge_base(
+            force=force,
+            progress_callback=_on_progress,
+        )
+
+    print_success(
+        f"Knowledge Base indexing complete! "
+        f"Indexed [cyan]{results['indexed_files']}[/cyan] KB file(s), "
+        f"upserted [cyan]{results['total_chunks']}[/cyan] chunk(s) "
+        f"into [magenta]{docs_coll}[/magenta]."
+    )
+
+
+# =============================================================================
+# Command: devops ai rag query / search
+# =============================================================================
+
+
+@app.command("query")
+@app.command("search")
+def search(
+    query: Annotated[str, typer.Argument(help="Natural language query or code search term")],
+    project: Annotated[
+        str | None,
+        typer.Option("--project", "-p", help="Filter results by project name"),
+    ] = None,
+    language: Annotated[
+        str | None,
+        typer.Option("--language", "-l", help="Filter results by programming language"),
+    ] = None,
+    category: Annotated[
+        str | None,
+        typer.Option("--category", "-c", help="Filter by category (code, docs, topics, tasks)"),
+    ] = None,
+    top_k: Annotated[
+        int,
+        typer.Option("--top-k", "-k", help="Number of results to return"),
+    ] = DEFAULT_RAG_TOP_K,
+    min_score: Annotated[
+        float,
+        typer.Option("--min-score", "-s", help="Minimum similarity score (0.0 - 1.0)"),
+    ] = DEFAULT_RAG_SCORE_THRESHOLD,
+    collection: Annotated[
+        str | None,
+        typer.Option("--collection", help="Target Qdrant collection (default: auto)"),
+    ] = None,
+    file_filter: Annotated[
+        str | None,
+        typer.Option("--file", "-f", help="Filter by filepath glob pattern"),
+    ] = None,
+    explain: Annotated[
+        bool,
+        typer.Option("--explain", help="Explain how RAG vector search works"),
+    ] = False,
+) -> None:
     """Perform semantic search across indexed workspace code and documentation."""
     if explain:
         from devops_cli.ai.explain import render_explanation
@@ -243,7 +360,7 @@ def query_cmd(
         render_explanation("rag")
         return
     if is_dry_run():
-        res = CommandDryRunResult(
+        render_dry_run_result(
             command="devops ai rag query",
             target=query,
             action="semantic_search",
@@ -258,14 +375,12 @@ def query_cmd(
                 "file_filter": file_filter,
             },
         )
-        rprint("[yellow][dry-run][/yellow] Command response:")
-        console.print_json(res.model_dump_json(indent=2))
         return
 
     qdrant, embedder, code_coll, docs_coll = _get_rag_components()
 
     if not qdrant.is_alive():
-        rprint(f"[red]✗ Cannot connect to Qdrant vector store at {qdrant.base_url}[/red]")
+        print_error(f"Cannot connect to Qdrant vector store at {qdrant.base_url}", prefix=False)
         raise typer.Exit(1)
 
     retriever = SemanticRetriever(
@@ -289,10 +404,10 @@ def query_cmd(
     )
 
     if not results:
-        rprint(f"[yellow]No matching code/documentation found for query: {query!r}[/yellow]")
+        print_warning(f"No matching code/documentation found for query: {query!r}", prefix=False)
         return
 
-    rprint(
+    get_console().print(
         Rule(
             f" [cyan]RAG Semantic Search[/cyan]: '{query}' "
             f"({len(results)} matches, min_score={min_score}) ",
@@ -320,7 +435,37 @@ def query_cmd(
             start_line=chunk.start_line,
             theme="monokai",
         )
-        console.print(Panel(syntax, title=title, border_style="blue"))
+        print_panel(Panel(syntax, title=title, border_style="blue"))
+
+
+# =============================================================================
+# Command: devops rag status
+# =============================================================================
+
+
+def _render_collections_table(qdrant: Any, collections: list[str]) -> None:
+    """Build and print summary table of active Qdrant vector collections."""
+    coll_table = Table(title="Active Vector Collections")
+    coll_table.add_column("Collection", style="cyan")
+    coll_table.add_column("Vectors Count", justify="right")
+    coll_table.add_column("Vector Size", justify="right")
+    coll_table.add_column("Status")
+
+    for coll_name in collections:
+        info = qdrant.get_collection_info(coll_name)
+        pts = (
+            info.get("points_count")
+            or info.get("vectors_count")
+            or info.get("indexed_vectors_count")
+            or 0
+        )
+        params = info.get("config", {}).get("params", {})
+        vec_params = params.get("vectors", {})
+        v_size = vec_params.get("size", 0) if isinstance(vec_params, dict) else 0
+        c_status = info.get("status", "ok")
+        coll_table.add_row(coll_name, str(pts), str(v_size), c_status)
+
+    print_table(coll_table)
 
 
 @app.command("status")
@@ -344,36 +489,20 @@ def status_cmd() -> None:
     table.add_row("Docs Collection", docs_coll)
     table.add_row("RAG Enabled", str(settings.ai.rag.enabled))
 
-    console.print(table)
+    print_table(table)
 
     if is_alive:
         try:
             collections = qdrant.list_collections()
             if collections:
-                coll_table = Table(title="Active Vector Collections")
-                coll_table.add_column("Collection", style="cyan")
-                coll_table.add_column("Vectors Count", justify="right")
-                coll_table.add_column("Vector Size", justify="right")
-                coll_table.add_column("Status")
-
-                for coll_name in collections:
-                    info = qdrant.get_collection_info(coll_name)
-                    pts = (
-                        info.get("points_count")
-                        or info.get("vectors_count")
-                        or info.get("indexed_vectors_count")
-                        or 0
-                    )
-                    params = info.get("config", {}).get("params", {})
-                    vec_params = params.get("vectors", {})
-                    v_size = vec_params.get("size", 0) if isinstance(vec_params, dict) else 0
-                    c_status = info.get("status", "ok")
-
-                    coll_table.add_row(coll_name, str(pts), str(v_size), c_status)
-
-                console.print(coll_table)
+                _render_collections_table(qdrant, collections)
         except Exception as exc:
-            rprint(f"[yellow]Could not fetch collection details: {exc}[/yellow]")
+            print_warning(f"Could not fetch collection details: {exc}", prefix=False)
+
+
+# =============================================================================
+# Command: devops rag clear / reset
+# =============================================================================
 
 
 @app.command("clear")
@@ -394,7 +523,7 @@ def clear_cmd(
     qdrant, _, code_coll, docs_coll = _get_rag_components()
 
     if not qdrant.is_alive():
-        rprint(f"[red]✗ Cannot connect to Qdrant vector store at {qdrant.base_url}[/red]")
+        print_error(f"Cannot connect to Qdrant vector store at {qdrant.base_url}", prefix=False)
         raise typer.Exit(1)
 
     targets = [collection] if collection else [code_coll, docs_coll]
@@ -404,15 +533,15 @@ def clear_cmd(
             f"Are you sure you want to clear collections: {', '.join(targets)}?"
         )
         if not confirm:
-            rprint("[dim]Operation cancelled.[/dim]")
+            print_info(MESSAGES.rag.operation_cancelled, prefix=False)
             return
 
     for coll in targets:
         qdrant.delete_collection(coll)
-        rprint(f"[green]✓ Cleared collection:[/green] {coll}")
+        print_success(f"Cleared collection: {coll}")
 
     # Remove local cache
     cache_file = Path(".data/rag/index_cache.json")
     if cache_file.exists():
         cache_file.unlink()
-        rprint("[green]✓ Reset local indexing cache[/green]")
+        print_success(MESSAGES.rag.reset_cache_success)

@@ -32,7 +32,7 @@ def test_jaeger_manifest_valid() -> None:
 
 
 def test_k8s_port_forward_jaeger_dry_run(runner: CliRunner) -> None:
-    from devops_cli.core.dry_run import set_dry_run
+    from devops_cli.dry_run import set_dry_run
 
     set_dry_run(True)
     try:
@@ -50,7 +50,7 @@ def test_k8s_port_forward_jaeger_dry_run(runner: CliRunner) -> None:
 
 
 def test_k8s_configure_urls_jaeger_dry_run(runner: CliRunner) -> None:
-    from devops_cli.core.dry_run import set_dry_run
+    from devops_cli.dry_run import set_dry_run
 
     set_dry_run(True)
     try:
@@ -70,7 +70,7 @@ def test_k8s_deploy_stack_shows_jaeger_connection_info(runner: CliRunner) -> Non
     from unittest.mock import MagicMock, patch
 
     from devops_cli.commands.k8s import app as k8s_app
-    from devops_cli.core.dry_run import set_dry_run
+    from devops_cli.dry_run import set_dry_run
 
     set_dry_run(False)
     with (

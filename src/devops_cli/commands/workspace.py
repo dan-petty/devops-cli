@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Annotated, Any
 
 import typer
-from rich import print as rprint
 
 from devops_cli.config.constants import CONST_VSCODE_CLI
 from devops_cli.config.defaults import DEFAULT_SUBPROCESS_SHORT_TIMEOUT_SECONDS
@@ -16,11 +15,17 @@ from devops_cli.core.cli import new_typer
 from devops_cli.core.process import run_subprocess
 from devops_cli.git.operations import iter_workspace_repos
 from devops_cli.lang import ERRORS, HELP, MESSAGES
+from devops_cli.output import print_error, print_success, print_warning, write_json_file
 
 app = new_typer(help=HELP.workspace.app, no_args_is_help=True)
 
 # Repo root: src/devops_cli/commands/workspace.py -> parents[3]
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
+
+
+# =============================================================================
+# Workspace File Resolution & IO Helpers
+# =============================================================================
 
 
 def _resolve_from_project_root(path: Path) -> Path:
@@ -64,16 +69,14 @@ def _load(ws_file: Path) -> dict[str, Any]:
     if ws_file.exists():
         try:
             if ws_file.stat().st_size > 10 * 1024 * 1024:  # 10 MiB guard
-                rprint(
-                    f"[yellow]{ERRORS.workspace.file_too_large.format(ws_file=str(ws_file))}[/yellow]"
-                )
+                print_warning(ERRORS.workspace.file_too_large.format(ws_file=str(ws_file)))
                 return {"folders": [], "settings": {}}
             data = json.loads(ws_file.read_text(encoding="utf-8"))
             if isinstance(data, dict) and "folders" in data and isinstance(data["folders"], list):
                 return data
-            rprint(f"[yellow]{ERRORS.workspace.malformed.format(ws_file=str(ws_file))}[/yellow]")
+            print_warning(ERRORS.workspace.malformed.format(ws_file=str(ws_file)))
         except json.JSONDecodeError:
-            rprint(f"[yellow]{ERRORS.workspace.corrupted.format(ws_file=str(ws_file))}[/yellow]")
+            print_warning(ERRORS.workspace.corrupted.format(ws_file=str(ws_file)))
     return {"folders": [], "settings": {}}
 
 
@@ -101,12 +104,9 @@ def _is_safe_workspace_file(ws_file: Path) -> bool:
 
 def _save(ws_file: Path, data: dict[str, Any]) -> None:
     if not _is_safe_workspace_file(ws_file):
-        rprint(
-            f"[red]Error: Cannot write workspace file '{ws_file.resolve()}' outside boundary.[/red]"
-        )
+        print_error(f"Cannot write workspace file '{ws_file.resolve()}' outside boundary.")
         raise typer.Exit(1)
-    ws_file.parent.mkdir(parents=True, exist_ok=True)
-    ws_file.write_text(json.dumps(_ensure_root_entry(data), indent=2) + "\n", encoding="utf-8")
+    write_json_file(ws_file, _ensure_root_entry(data), indent=2, atomic=True)
 
 
 def sync_from_repos(
@@ -118,6 +118,11 @@ def sync_from_repos(
         return
 
     _save(workspace_file, _workspace_data_from_repos(base_dir))
+
+
+# =============================================================================
+# Command: devops workspace add
+# =============================================================================
 
 
 @app.command()
@@ -139,17 +144,22 @@ def add(
         or repo_resolved.is_relative_to(base_dir)
         or repo_resolved.is_relative_to(proj_root)
     ):
-        rprint(f"[red]{ERRORS.workspace.outside_roots.format(path=str(repo_resolved))}[/red]")
+        print_error(ERRORS.workspace.outside_roots.format(path=str(repo_resolved)))
         raise typer.Exit(1)
 
     folder_str = str(repo_resolved)
     if any(folder.get("path") == folder_str for folder in data["folders"]):
-        rprint(f"[yellow]{ERRORS.workspace.already_present.format(path=folder_str)}[/yellow]")
+        print_warning(ERRORS.workspace.already_present.format(path=folder_str))
         raise typer.Exit(0)
 
     data["folders"].append({"path": folder_str})
     _save(ws_file, data)
-    rprint(f"[green]{MESSAGES.workspace.added_folder.format(path=folder_str)}[/green]")
+    print_success(MESSAGES.workspace.added_folder.format(path=folder_str))
+
+
+# =============================================================================
+# Command: devops workspace remove
+# =============================================================================
 
 
 @app.command()
@@ -167,11 +177,16 @@ def remove(
     data["folders"] = [folder for folder in data["folders"] if folder.get("path") != folder_str]
 
     if len(data["folders"]) == before:
-        rprint(f"[yellow]{ERRORS.workspace.not_present.format(path=folder_str)}[/yellow]")
+        print_warning(ERRORS.workspace.not_present.format(path=folder_str))
         raise typer.Exit(0)
 
     _save(ws_file, data)
-    rprint(f"[green]{MESSAGES.workspace.removed_folder.format(path=folder_str)}[/green]")
+    print_success(MESSAGES.workspace.removed_folder.format(path=folder_str))
+
+
+# =============================================================================
+# Command: devops workspace generate
+# =============================================================================
 
 
 @app.command()
@@ -185,7 +200,7 @@ def generate(
     ws_file = _resolve_from_project_root(workspace_file or settings.workspace.file)
 
     if not root.exists():
-        rprint(f"[yellow]{ERRORS.workspace.repos_not_found.format(path=str(root))}[/yellow]")
+        print_warning(ERRORS.workspace.repos_not_found.format(path=str(root)))
         raise typer.Exit(0)
 
     data = _workspace_data_from_repos(root)
@@ -193,7 +208,12 @@ def generate(
     msg = MESSAGES.workspace.generated_with_count.format(
         ws_file=str(ws_file), count=len(data["folders"])
     )
-    rprint(f"[green]{msg}[/green]")
+    print_success(msg)
+
+
+# =============================================================================
+# Command: devops workspace open
+# =============================================================================
 
 
 @app.command("open")
@@ -204,7 +224,7 @@ def open_workspace(
     settings = load_settings()
     ws_file = _resolve_from_project_root(workspace_file or settings.workspace.file)
     if not ws_file.exists():
-        rprint(f"[red]{ERRORS.workspace.file_not_found.format(ws_file=str(ws_file))}[/red]")
+        print_error(ERRORS.workspace.file_not_found.format(ws_file=str(ws_file)))
         raise typer.Exit(1)
     run_subprocess(
         [CONST_VSCODE_CLI, str(ws_file)],

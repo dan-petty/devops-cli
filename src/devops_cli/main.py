@@ -8,22 +8,20 @@ from importlib import import_module
 from typing import Final
 
 import typer
-from rich import print as rprint
-from rich.console import Console
 
 from devops_cli import __version__
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import is_dry_run, set_dry_run
+from devops_cli.output import get_console, print_dry_run_command, print_muted
 from devops_cli.telemetry import record_metric, trace_span
 
-_console = Console(stderr=True)
 _timing: dict[str, float] = {}
 
 
 def _print_elapsed() -> None:
     if "start" in _timing:
         elapsed = time.monotonic() - _timing["start"]
-        _console.print(f"[dim]Elapsed: {elapsed:.2f}s[/dim]")
+        print_muted(f"Elapsed: {elapsed:.2f}s", to_stderr=True)
 
 
 atexit.register(_print_elapsed)
@@ -62,25 +60,17 @@ _COMMAND_SPECS: Final[dict[str, tuple[str, str]]] = {
         "devops_cli.commands.tf",
         "OpenTofu and Terraform Infrastructure-as-Code operations.",
     ),
-    "tofu": (
-        "devops_cli.commands.tf",
-        "OpenTofu and Terraform Infrastructure-as-Code operations (alias for tf).",
-    ),
     "tls": (
         "devops_cli.commands.tls",
         "X.509 TLS certificate generation, inspection, verification, and Kubernetes secrets.",
-    ),
-    "cert": (
-        "devops_cli.commands.tls",
-        "TLS certificate generation and management (alias for tls).",
     ),
     "telemetry": (
         "devops_cli.commands.telemetry",
         "OpenTelemetry observability, tracing, and metrics management.",
     ),
-    "otel": (
-        "devops_cli.commands.telemetry",
-        "OpenTelemetry observability and tracing (alias for telemetry).",
+    "serve": (
+        "devops_cli.commands.serve",
+        "FastAPI REST and OpenAPI service engine.",
     ),
 }
 
@@ -179,30 +169,18 @@ def _register_command_proxy(name: str, module_path: str, help_text: str) -> None
     def _proxy(ctx: typer.Context) -> None:
         if is_dry_run():
             args = ["devops", name, *list(ctx.args)]
-            rendered = " ".join(args)
-            rprint(
-                f"[yellow][dry-run][/yellow] Would run delegated command: [cyan]{rendered}[/cyan]"
-            )
+            print_dry_run_command(args, delegated=True)
             return
         _delegate(module_path, name, list(ctx.args))
 
 
-def _register_typer_group(name: str, module_path: str) -> None:
-    module = import_module(module_path)
-    module_app = module.app
-    app.add_typer(module_app, name=name)
-
-
 for _name, (_module_path, _help) in _COMMAND_SPECS.items():
-    if _name == "review":
-        _register_typer_group(_name, _module_path)
-    else:
-        _register_command_proxy(_name, _module_path, _help)
+    _register_command_proxy(_name, _module_path, _help)
 
 
 def _version_callback(value: bool) -> None:
     if value:
-        rprint(f"devops-cli [bold green]{__version__}[/bold green]")
+        get_console().print(f"devops-cli [bold green]{__version__}[/bold green]")
         raise typer.Exit()
 
 

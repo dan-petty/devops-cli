@@ -1,28 +1,115 @@
 {
   "name": "{{ project_name }}",
-  {% if image %}
+  {% if published %}
+  "image": "ghcr.io/dan-petty/devops-cli/devcontainer:latest",
+  {% elif image %}
   "image": "{{ image }}",
   {% else %}
-  "image": "mcr.microsoft.com/devcontainers/python:{{ python_version }}",
+  "image": "python:{{ python_version }}-trixie",
   {% endif %}
+  {% if not published %}
   "features": {
+    "ghcr.io/devcontainers/features/common-utils:2": {
+      "installZsh": "true",
+      "configureZshAsDefaultShell": "true",
+      "username": "vscode",
+      "userUid": "1000",
+      "userGid": "1000",
+      "upgradePackages": "true"
+    },
     "ghcr.io/devcontainers/features/git:1": {},
     "ghcr.io/devcontainers/features/docker-in-docker:2": {
       "version": "latest",
+      "moby": false,
       "enableNonRootDocker": true
-    },
+    }{% if minikube %},
     "ghcr.io/devcontainers/features/kubectl-helm-minikube:1": {
       "version": "latest",
       "helm": "latest",
       "minikube": "latest"
+    }{% endif %},
+    "ghcr.io/devcontainers/features/copilot-cli:1": {},
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+  {% endif %}
+  "mounts": [
+    "source=global-devcontainer-tmp,target=/tmp,type=volume",
+    "source={{ home_volume | default(project_name ~ '-home') }},target=/home/vscode,type=volume",
+    "source=${localEnv:USERPROFILE}/.ssh,target=/home/vscode/.ssh,type=bind,consistency=cached"
+  ],
+  "containerEnv": {
+    "DEVOPS_CLI_CONFIG": "${containerWorkspaceFolder}/config.yaml",
+    "DEVOPS_MINIKUBE_AUTOSTART": "true",
+    "DEVOPS_K8S_AUTO_DEPLOY": "true",
+    "DEVOPS_GIT_DAEMON_AUTOSTART": "true",
+    "UV_MALWARE_CHECK": "1"
+  },
+  "forwardPorts": [
+    8080,
+    8030,
+    8090,
+    16686,
+    3000,
+    6333,
+    6379,
+    9090,
+    4317,
+    4318,
+    11434,
+    9418
+  ],
+  "portsAttributes": {
+    "8080": {
+      "label": "ArgoCD Web UI",
+      "onAutoForward": "notify"
+    },
+    "8030": {
+      "label": "Grafana Dashboard",
+      "onAutoForward": "notify"
+    },
+    "8090": {
+      "label": "Prometheus Metrics",
+      "onAutoForward": "notify"
+    },
+    "16686": {
+      "label": "Jaeger Query UI",
+      "onAutoForward": "notify"
+    },
+    "6333": {
+      "label": "Qdrant Vector DB",
+      "onAutoForward": "notify"
+    },
+    "6379": {
+      "label": "Valkey Cache",
+      "onAutoForward": "ignore"
+    },
+    "3000": {
+      "label": "Grafana Fallback",
+      "onAutoForward": "ignore"
+    },
+    "9090": {
+      "label": "Prometheus Fallback",
+      "onAutoForward": "ignore"
+    },
+    "4317": {
+      "label": "OpenTelemetry gRPC",
+      "onAutoForward": "ignore"
+    },
+    "4318": {
+      "label": "OpenTelemetry HTTP",
+      "onAutoForward": "ignore"
+    },
+    "11434": {
+      "label": "Ollama LLM Engine",
+      "onAutoForward": "ignore"
+    },
+    "9418": {
+      "label": "Git Daemon",
+      "onAutoForward": "ignore"
     }
   },
-  "mounts": [
-    "source={{ project_name }}-bashhistory,target=/commandhistory,type=volume",
-    "source=${localEnv:HOME}/.ssh,target=/home/vscode/.ssh,type=bind,consistency=cached"
-  ],
-  "postCreateCommand": "uv run devops devcontainer post-create",
-  "postStartCommand": "uv run devops devcontainer post-start",
+  "postCreateCommand": "devops devcontainer post-create",
+  "postStartCommand": "devops devcontainer post-start",
   "customizations": {
     "vscode": {
       "extensions": [
@@ -31,13 +118,22 @@
         "charliermarsh.ruff",
         "tamasfe.even-better-toml",
         "ms-azuretools.vscode-docker",
-        "ms-kubernetes-tools.vscode-kubernetes-tools"
+        "ms-azuretools.vscode-containers",
+        "ms-kubernetes-tools.vscode-kubernetes-tools",
+        "Ollama.ollama"
       ],
       "settings": {
         "editor.formatOnSave": true,
+        "editor.tabSize": 2,
+        "editor.insertSpaces": true,
+        "files.eol": "\n",
         "files.trimTrailingWhitespace": true,
+        "files.insertFinalNewline": true,
+        "editor.rulers": [
+          100
+        ],
         "terminal.integrated.defaultProfile.linux": "zsh",
-        "python.defaultInterpreterPath": "/usr/local/bin/python",
+        "python.defaultInterpreterPath": "/workspaces/{{ project_name }}/.venv/bin/python",
         "[python]": {
           "editor.defaultFormatter": "charliermarsh.ruff"
         }
@@ -50,18 +146,31 @@
         "charliermarsh.ruff",
         "tamasfe.even-better-toml",
         "ms-azuretools.vscode-docker",
-        "ms-kubernetes-tools.vscode-kubernetes-tools"
+        "ms-azuretools.vscode-containers",
+        "ms-kubernetes-tools.vscode-kubernetes-tools",
+        "Ollama.ollama"
       ],
       "settings": {
         "editor.formatOnSave": true,
+        "editor.tabSize": 2,
+        "editor.insertSpaces": true,
+        "files.eol": "\n",
         "files.trimTrailingWhitespace": true,
+        "files.insertFinalNewline": true,
+        "editor.rulers": [
+          100
+        ],
         "terminal.integrated.defaultProfile.linux": "zsh",
-        "python.defaultInterpreterPath": "/usr/local/bin/python",
+        "python.defaultInterpreterPath": "/workspaces/{{ project_name }}/.venv/bin/python",
         "[python]": {
           "editor.defaultFormatter": "charliermarsh.ruff"
         }
       }
     }
   },
-  "remoteUser": "vscode"
+  "remoteUser": "vscode",
+  "runArgs": [
+    "--gpus",
+    "all"
+  ]
 }

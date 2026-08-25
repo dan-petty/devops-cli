@@ -57,3 +57,4 @@ config.yaml
 # Local data directory — reports, review output, computed artefacts
 .data/*
 !.data/.gitkeep
+scratch/

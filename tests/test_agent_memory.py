@@ -117,7 +117,8 @@ def test_multi_agent_pipeline_with_memory() -> None:
     res = pipeline.run("Analyze code")
 
     assert len(res.steps) == 2
-    assert len(pipeline.memory.entries) == 3  # initial user prompt + 2 stage outputs
     assert pipeline.memory.entries[0].role == "user"
-    assert pipeline.memory.entries[1].role == "Agent1"
-    assert pipeline.memory.entries[2].role == "Agent2"
+    assert pipeline.memory.entries[1].role == "assistant"
+    assert pipeline.memory.entries[1].metadata.get("agent") == "Agent1"
+    assert pipeline.memory.entries[2].role == "assistant"
+    assert pipeline.memory.entries[2].metadata.get("agent") == "Agent2"

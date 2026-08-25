@@ -13,6 +13,7 @@ import click
 import typer
 
 from devops_cli.config.env import EnvVarSpec, get_all_env_var_specs
+from devops_cli.output import write_text_file
 
 _RICH_TAG_RE = re.compile(
     r"\[/?(?:bold|dim|green|cyan|yellow|red|magenta|blue|italic|underline)[^\]]*\]"
@@ -98,16 +99,77 @@ class MCPToolDoc:
     parameters: list[dict[str, Any]] = field(default_factory=list)
 
 
+def _parse_mcp_input_schema_parameters(input_schema: Any) -> list[dict[str, Any]]:
+    """Extract structured parameter specifications from an MCP tool input schema."""
+    if not isinstance(input_schema, dict):
+        return []
+    props = input_schema.get("properties", {})
+    reqs = set(input_schema.get("required", []))
+    return [
+        {
+            "name": prop_name,
+            "type": prop_data.get("type", "string"),
+            "description": prop_data.get("description", ""),
+            "default": prop_data.get("default", None),
+            "required": prop_name in reqs,
+        }
+        for prop_name, prop_data in props.items()
+    ]
+
+
+def _mcp_tool_to_doc(tool: Any) -> MCPToolDoc:
+    """Convert an instantiated FastMCP tool to an MCPToolDoc documentation model."""
+    input_schema = getattr(tool, "parameters", None) or getattr(tool, "inputSchema", None) or {}
+    return MCPToolDoc(
+        name=tool.name,
+        description=tool.description or "",
+        parameters=_parse_mcp_input_schema_parameters(input_schema),
+    )
+
+
+def _format_param_default_str(default_val: Any, root_dir: Path) -> str:
+    """Format parameter default value with sanitized root and home path representations."""
+    if isinstance(default_val, Path):
+        try:
+            return str(default_val.resolve().relative_to(root_dir.resolve()))
+        except ValueError, AttributeError:
+            pass
+        try:
+            return f"~/{default_val.resolve().relative_to(Path.home().resolve())}"
+        except ValueError, AttributeError:
+            return str(default_val)
+
+    default_str = str(default_val)
+    home_str = str(Path.home().resolve())
+    root_str = str(root_dir.resolve())
+    if root_str and root_str in default_str:
+        return default_str.replace(root_str, ".").lstrip("./")
+    if home_str and home_str in default_str:
+        return default_str.replace(home_str, "~")
+    return default_str
+
+
+def _render_mcp_param_row(p: dict[str, Any]) -> str:
+    """Render a single markdown table row for an MCP parameter."""
+    req_str = "Yes" if p.get("required") else "No"
+    def_val = p.get("default")
+    def_str = f"`{def_val}`" if def_val is not None else "-"
+    p_desc = p.get("description", "-") or "-"
+    p_name = p.get("name", "")
+    p_type = p.get("type", "string")
+    return f"| `{p_name}` | `{p_type}` | {req_str} | {def_str} | {p_desc} |"
+
+
 class DocGenerator:
-    """Introspects devops-cli commands, environment variables, and MCP tools."""
+    """Introspects Typer / Click CLI trees and generates Markdown documentation."""
 
     def __init__(self, root_dir: Path | None = None) -> None:
         self.root_dir = root_dir or Path.cwd()
 
-    def introspect_param(self, param: Any) -> ParamDoc:
-        """Extract documentation metadata from a click/typer Parameter."""
-        raw_opts = list(getattr(param, "opts", []) or [])
-        sec_opts = list(getattr(param, "secondary_opts", []) or [])
+    def introspect_param(self, param: click.Parameter) -> ParamDoc:
+        """Extract documentation model from a click Parameter."""
+        raw_opts = list(getattr(param, "opts", []))
+        sec_opts = list(getattr(param, "secondary_opts", []))
         is_option = any(opt.startswith("-") for opt in raw_opts)
 
         flags: list[str] = []
@@ -126,25 +188,7 @@ class DocGenerator:
         default_val = getattr(param, "default", None)
         default_str: str | None = None
         if default_val is not None and not (kind == "flag" and default_val is False):
-            if isinstance(default_val, Path):
-                try:
-                    rel_to_root = default_val.resolve().relative_to(self.root_dir.resolve())
-                    default_str = str(rel_to_root)
-                except (ValueError, AttributeError):
-                    try:
-                        rel_to_home = default_val.resolve().relative_to(Path.home().resolve())
-                        default_str = f"~/{rel_to_home}"
-                    except (ValueError, AttributeError):
-                        default_str = str(default_val)
-
-            else:
-                default_str = str(default_val)
-                home_str = str(Path.home().resolve())
-                root_str = str(self.root_dir.resolve())
-                if root_str and root_str in default_str:
-                    default_str = default_str.replace(root_str, ".").lstrip("./")
-                elif home_str and home_str in default_str:
-                    default_str = default_str.replace(home_str, "~")
+            default_str = _format_param_default_str(default_val, self.root_dir)
 
         return ParamDoc(
             name=param.name or "",
@@ -210,42 +254,44 @@ class DocGenerator:
             hidden=bool(getattr(cmd, "hidden", False)),
         )
 
+    def _introspect_single_group(
+        self, name: str, module_path: str, summary: str
+    ) -> CommandGroupDoc | None:
+        """Introspect a single command module and construct CommandGroupDoc."""
+        try:
+            module = import_module(module_path)
+            app_obj = getattr(module, "app", None)
+            if app_obj is None:
+                return None
+            click_cmd = typer.main.get_command(app_obj)
+            doc = self.introspect_command(click_cmd, parent_path="devops", override_name=name)
+            desc = doc.description or summary
+            commands_list = doc.subcommands if doc.is_group else [doc]
+            return CommandGroupDoc(
+                name=name,
+                module_path=module_path,
+                summary=summary or doc.summary,
+                description=desc,
+                commands=commands_list,
+            )
+        except Exception as exc:
+            return CommandGroupDoc(
+                name=name,
+                module_path=module_path,
+                summary=summary,
+                description=f"Error introspecting module: {exc}",
+                commands=[],
+            )
+
     def introspect_all_groups(self) -> list[CommandGroupDoc]:
         """Introspect all command groups declared in main._COMMAND_SPECS."""
         from devops_cli.main import _COMMAND_SPECS
 
         groups: list[CommandGroupDoc] = []
         for name, (module_path, summary) in _COMMAND_SPECS.items():
-            try:
-                module = import_module(module_path)
-                app_obj = getattr(module, "app", None)
-                if app_obj is None:
-                    continue
-                click_cmd = typer.main.get_command(app_obj)
-                doc = self.introspect_command(click_cmd, parent_path="devops", override_name=name)
-                desc = doc.description or summary
-                commands_list = doc.subcommands if doc.is_group else [doc]
-
-                groups.append(
-                    CommandGroupDoc(
-                        name=name,
-                        module_path=module_path,
-                        summary=summary or doc.summary,
-                        description=desc,
-                        commands=commands_list,
-                    )
-                )
-            except Exception as exc:
-                # Keep resilient if an individual module cannot be imported
-                groups.append(
-                    CommandGroupDoc(
-                        name=name,
-                        module_path=module_path,
-                        summary=summary,
-                        description=f"Error introspecting module: {exc}",
-                        commands=[],
-                    )
-                )
+            group_doc = self._introspect_single_group(name, module_path, summary)
+            if group_doc is not None:
+                groups.append(group_doc)
         return groups
 
     def introspect_env_vars(self) -> list[EnvVarSpec]:
@@ -259,35 +305,7 @@ class DocGenerator:
 
             async def _get_tools() -> list[MCPToolDoc]:
                 tools = await mcp.list_tools()
-                result: list[MCPToolDoc] = []
-                for tool in tools:
-                    params_list: list[dict[str, Any]] = []
-                    input_schema = (
-                        getattr(tool, "parameters", None)
-                        or getattr(tool, "inputSchema", None)
-                        or {}
-                    )
-                    if isinstance(input_schema, dict):
-                        props = input_schema.get("properties", {})
-                        reqs = set(input_schema.get("required", []))
-                        for prop_name, prop_data in props.items():
-                            params_list.append(
-                                {
-                                    "name": prop_name,
-                                    "type": prop_data.get("type", "string"),
-                                    "description": prop_data.get("description", ""),
-                                    "default": prop_data.get("default", None),
-                                    "required": prop_name in reqs,
-                                }
-                            )
-                    result.append(
-                        MCPToolDoc(
-                            name=tool.name,
-                            description=tool.description or "",
-                            parameters=params_list,
-                        )
-                    )
-                return result
+                return [_mcp_tool_to_doc(tool) for tool in tools]
 
             try:
                 loop = asyncio.get_running_loop()
@@ -473,13 +491,7 @@ class DocGenerator:
                 lines.append("| Parameter | Type | Required | Default | Description |")
                 lines.append("|---|---|---|---|---|")
                 for p in tool.parameters:
-                    req_str = "Yes" if p.get("required") else "No"
-                    def_val = p.get("default")
-                    def_str = f"`{def_val}`" if def_val is not None else "-"
-                    p_desc = p.get("description", "-") or "-"
-                    lines.append(
-                        f"| `{p['name']}` | `{p['type']}` | {req_str} | {def_str} | {p_desc} |"
-                    )
+                    lines.append(_render_mcp_param_row(p))
                 lines.append("")
             else:
                 lines.append("*No parameters required.*")
@@ -553,7 +565,7 @@ class DocGenerator:
             else:
                 return False
 
-        target.write_text(new_content, encoding="utf-8")
+        write_text_file(target, new_content)
         return True
 
     def check_readme(self, readme_path: Path | None = None) -> tuple[bool, str | None]:
@@ -632,8 +644,7 @@ class DocGenerator:
         written: list[Path] = []
         for rel_path, content in docs.items():
             dest = output_dir / rel_path
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_text(content, encoding="utf-8")
+            write_text_file(dest, content)
             written.append(dest)
 
         if sync_readme_table:

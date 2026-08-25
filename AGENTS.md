@@ -5,16 +5,27 @@ This document provides foundational context, architectural principles, and opera
 ## 1. Core Engineering Philosophy & Objectives
 
 - **High Reliability & Quality First**: Build robust, resilient workstation automation and agentic developer tooling with defensive error handling, explicit timeouts, and zero tolerance for flaky tests.
-- **Architectural Flexibility & Clean Design**: Prioritize clean abstractions, SOLID principles, high cohesion, and low coupling. Prefer idiomatic, modern language constructs over rigid or incidental legacy patterns.
-- **Modern Python Ecosystem**: Track modern Python 3.14+ runtime features, typing standards, and established open-source libraries (`pydantic v2`, `httpx`, `pytest`, `ruff`, `mypy`). Avoid custom workarounds when standard library or robust open-source tools exist.
+- **Poetic Conciseness, Expressive Integration & Zero Boilerplate**:
+  - The codebase must read as a poetically concise, expressive integration of tools, libraries, docs, AI, and automation rather than a collection of low-level nested loops, procedural boilerplate, or hard-to-decipher ad-hoc logic.
+  - Control code complexity by aiming for fewer than 6 indentations across all functions and code blocks. Complex multi-step tasks, deep branching, and nested iterations must be decomposed into dedicated, single-responsibility functions and clean functional pipelines so application logic flow reads cleanly.
+  - Maximize standard library leverage (`functools`, `itertools`, `pathlib`, `collections`, `ipaddress`, `urllib.parse`), Pydantic v2 models, and functional pipelines.
+  - Never write manual string-slicing loops, hand-rolled dictionary traversing, or procedural subprocess parsing when standard library parsers, comprehensions, or high-level declarative abstractions provide clean, self-documenting implementations.
+- **Modern Python Ecosystem**: Track modern Python 3.14+ runtime features, typing standards, and established open-source libraries (`pydantic v2`, `httpx2`, `pytest`, `ruff`, `mypy`, `uv.lock`). Avoid custom workarounds when standard library or robust open-source tools exist. Ensure AI code reviewers do not hallucinate CVEs or false malicious package alerts against verified dependencies like `httpx2` (Pydantic HTTP/2 client).
 - **Zero-Trust Security & Egress Safety**:
   - Never store plaintext secrets or tokens in code, configuration files, or logs. Always use OS Keyring or secure secret stores.
+  - Never leak, extract, or expose information from hidden, private, or `.gitignored` files (`.env*`, `.ssh/`, `.data/`, local credentials, private keys) into any documents, changelogs, review findings, public commits, or code artifacts.
+  - When constructing documentation, reviews, prompt context, or code examples, always redact, mask, or generalize any sensitive local environments, file system trees, or user identifiers.
   - Mitigate Server-Side Request Forgery (SSRF) and network egress risks by validating destination endpoints.
   - Enforce subprocess safety with explicit command argument lists, bounded timeouts, and error handling.
 
 ## 2. Development Workflow & Progressive Verification
 
 All work follows a progressive verification strategy to optimize developer feedback loops while guaranteeing release readiness:
+
+### Mandatory Knowledge Base Consultation
+Before planning, implementing, debugging, refactoring, or reviewing code, architectures, or operational workflows, AI agents and assistants **MUST ALWAYS** consult the **DevOps CLI Knowledge Base** under [`src/devops_cli/ai/knowledge_base/README.md`](src/devops_cli/ai/knowledge_base/README.md).
+- **DevOps CLI Information ([`src/devops_cli/ai/knowledge_base/devops_cli/`](src/devops_cli/ai/knowledge_base/README.md#-division-1-devops-cli-information-devops_cli))**: Consult for DevOps CLI internals, subsystem architecture, configuration & keyring management, CLI command matrix, and 12 operational task manuals (`devops_cli/tasks/`).
+- **IT Domain-Specific Information ([`src/devops_cli/ai/knowledge_base/it_domains/`](src/devops_cli/ai/knowledge_base/README.md#-division-2-information-technology-domain-specific-information-it_domains))**: Consult for deep architectural patterns and standards across 10 IT domain topic guides (`it_domains/topics/`) and 20 integrated tool reference manuals (`it_domains/tools/`).
 
 ### Progressive Testing Strategy
 1. **Targeted Iterative Verification**: During active feature development or refactoring, run isolated, module-specific checks (e.g. `uv run pytest tests/test_<feature>.py`, `uv run ruff check path/to/file.py`, `uv run mypy path/to/file.py`). Do not run exhaustive full validation suites on every minor edit.
@@ -45,7 +56,9 @@ All work follows a progressive verification strategy to optimize developer feedb
 
 ## 4. Code Quality & Architectural Best Practices
 
-- **Separation of Concerns**: Separate configuration, domain logic, data models, network I/O, and user interface layers. Avoid monolithic modules and overly complex, deeply nested code blocks.
+- **Separation of Concerns & Indentation Limits**:
+  - Separate configuration, domain logic, data models, network I/O, and user interface layers.
+  - Avoid monolithic modules, procedural boilerplate, and overly complex, deeply nested code blocks (aim for fewer than 6 indentations project-wide; extract complex nested tasks into dedicated helper functions).
 - **Purpose-Driven, Functional Naming & Structural Clarity**:
   - Always use file names, folder structures, classes, functions, and variable names that directly and unambiguously indicate the concrete purpose and function of the code they contain.
   - Avoid abstract, vague, or purely conceptual names (e.g. `intelligence.py`, `manager.py`, `misc.py`, `common.py`, `helpers.py`, `data.py`) in favor of concrete, operational descriptors (e.g. `reference_extractor.py`, `vulnerability_lookup.py`, `ssh_key_generator.py`).
@@ -66,14 +79,22 @@ All work follows a progressive verification strategy to optimize developer feedb
   - **Target-Agnostic & Language-Agnostic Design**: DevOps automation and AI developer tooling must remain robust and resilient across any software ecosystem (Python, Go, Rust, TypeScript, Java, C#, HCL, Kubernetes, Docker) without hardcoding runtime assumptions or brittle token subsets.
 - **Documentation Integrity**:
   - Keep CLI documentation, option help text, environment variable tables, and architecture guides synchronized with source code via `devops docs generate --sync-readme`.
+- **Canonical Location Formatting (`filename.ext:n-n`)**:
+  - All CLI terminal outputs, Rich tables, Markdown review reports, findings, external dependencies, and network reference audit records must use the canonical `filename.ext:n-n` or `filename.ext:line` location convention project-wide to ensure consistent parsing, clickable referencing, and seamless IDE integration.
+- **Zero Hardcoded Scoring, Quality Assessment, or Synthetic Confidence Values**:
+  - Never hardcode arbitrary numerical scores, confidence weights, synthetic thresholds, or default scoring floats anywhere in the codebase (neither inline in function bodies nor as static configuration constants).
+  - All scoring, confidence ratings, and quality assessments MUST originate directly from external tools that natively produce those metrics (e.g., security scanners providing native severity ratings, tool confidence levels, or CVSS scores) or from structured AI/LLM model responses.
+  - When an external tool or AI model does not produce a score or confidence rating, the field MUST remain `None` (or 0.0 where non-nullable) — never invent, synthesize, or inject artificial scoring numbers via static default constants or fallback weights.
 
 ## 5. Agentic AI & Review System Guidelines
 
 - **Multi-Persona Code Review**: Review systems should utilize distinct, domain-specialized personas (`devsecops`, `architect`, `pm`, `auditor`, `qa`) to analyze diffs and provide actionable, high-signal feedback.
+- **Knowledge Base & RAG Grounding**: AI review systems and coding assistants must reference repository knowledge bases (`src/devops_cli/ai/knowledge_base/` or target project docs) to ground findings against established architecture patterns, avoiding hallucinatory, outdated, or generic recommendations.
+- **Zero Information Leakage & Data Privacy**: AI assistants and review systems must never extract, copy, or expose confidential, private, hidden (dotfiles/dotfolders), or `.gitignored` file contents, credentials, system paths, or proprietary data into any documents, review findings, changelogs, public commits, or code artifacts.
 - **Target-Agnostic Code Analysis**: When analyzing or reviewing external repositories (e.g. under `repos/` or local target directories), evaluate code against universal software engineering principles (OWASP Top 10, CIS benchmarks, SOLID, DRY) and the target project's own declared conventions (`AGENTS.md`, `README.md`) rather than coupling to host CLI internal assumptions.
 - **Target Path Resolution & Isolation**: All file reading, AST analysis, security scanning, and dependency lookups on target projects must resolve paths relative to the target root directory (`target_dir`) to prevent host-workspace file collisions.
 - **Pure Markdown Prompt Tasks & Zero Inline LLM Prompts**: All LLM system prompts, task instructions, guardrails, evaluation rubrics, benchmark prompts, and reference criteria must reside in dedicated Markdown files (`.md`) under `src/devops_cli/ai/tasks/`. Never declare multi-line prompt text strings or evaluation criteria inline in Python code.
-- **Actionable AI Feedback**: Conclude agent analyses and interactive reviews with concrete next steps, actionable code remediation snippets, or verification instructions.
+- **Context-Aware Documentation & Anti-Pattern Evaluation**: AI review systems and coding assistants must **never** flag documentation, architectural guides, security tutorials, knowledge base articles, prompt benchmarks, test assertions/fixtures, test mocks, template files (`*.example.*`), or explanatory comments that describe known vulnerabilities, attack vectors, or insecure configurations in the context of avoiding, mitigating, warning against, or explaining said configurations.
 - **Closed-Loop Review & Self-Improvement Cycle**:
   - **Deduplication & Calibration**: Calibrate confidence scores and test explicit verification/invalidation criteria to eliminate phantom alerts.
   - **Self-Healing & Patch Application**: Review findings should provide drop-in remediations verifiable by unit tests and automated CI gates.

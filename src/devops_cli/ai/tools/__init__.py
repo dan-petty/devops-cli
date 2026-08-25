@@ -10,13 +10,13 @@ from devops_cli.ai.tools.builtin_tools import (
     list_files,
     rag_search,
     read_file,
-    run_security_scan,
     scan_bandit,
     scan_kubelinter,
     scan_osv,
     scan_pluto,
     scan_popeye,
     scan_trivy,
+    scan_uv_audit,
     search_code,
 )
 from devops_cli.ai.tools.mcp_bridge import get_mcp_agent_tools
@@ -35,12 +35,12 @@ __all__ = [
     "list_files",
     "rag_search",
     "read_file",
-    "run_security_scan",
     "scan_bandit",
     "scan_kubelinter",
     "scan_osv",
     "scan_pluto",
     "scan_popeye",
     "scan_trivy",
+    "scan_uv_audit",
     "search_code",
 ]

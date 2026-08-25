@@ -240,3 +240,31 @@ def test_deterministic_pre_verification_path_traversal_guard(tmp_path: Path) -> 
     # Even if outside file exists, path traversal should be ignored and not crash/resolve outside
     result = _deterministic_pre_verification(finding, repo_root=sub_repo)
     assert result.location == "../outside.py:1"
+
+
+def test_deterministic_pre_verification_documentation_avoidance_context(tmp_path: Path) -> None:
+    from devops_cli.ai.review.verification import _deterministic_pre_verification
+
+    docs_dir = tmp_path / "docs" / "security"
+    docs_dir.mkdir(parents=True)
+    guide = docs_dir / "ssrf_prevention.md"
+    guide.write_text(
+        "# SSRF Prevention Guide\n\n"
+        "Never use unvalidated URLs. Avoid insecure configurations such as binding to 0.0.0.0 "
+        "or allowing unrestricted redirects. Mitigate SSRF by enforcing strict allowlists.\n",
+        encoding="utf-8",
+    )
+
+    finding = Finding(
+        title="Missing SSRF mitigation and insecure 0.0.0.0 binding",
+        location="docs/security/ssrf_prevention.md:3-5",
+        description="Documentation describes binding to 0.0.0.0 and SSRF vulnerabilities.",
+        status="UNVERIFIED",
+    )
+
+    result = _deterministic_pre_verification(finding, repo_root=tmp_path)
+    assert result.status == "INVALIDATED"
+    assert result.verified is False
+    assert result.reportable is False
+    assert result.invalidation_reason is not None
+    assert "avoiding said configuration" in result.invalidation_reason

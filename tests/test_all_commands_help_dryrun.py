@@ -33,6 +33,7 @@ COMMAND_SPECS = [
     (ai_app, ["test", "--help"]),
     (ai_app, ["review", "--help"]),
     (ai_app, ["pipeline", "--help"]),
+    (ai_app, ["cache", "--help"]),
     (config_app, ["--help"]),
     (config_app, ["output", "--help"]),
     (repos_app, ["--help"]),

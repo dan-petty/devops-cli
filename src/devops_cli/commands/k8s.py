@@ -14,8 +14,6 @@ from pathlib import Path
 from typing import Annotated, Any
 
 import typer
-from rich import print as rprint
-from rich.console import Console
 from rich.table import Table
 
 from devops_cli.config.constants import (
@@ -30,15 +28,28 @@ from devops_cli.core.cli import new_typer
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.validation import validate_k8s_name
 from devops_cli.crypto.tls_certificates import generate_homelab_tls_bundle
-from devops_cli.dry_run import CommandDryRunResult, is_dry_run, render_dry_run_result
+from devops_cli.dry_run import is_dry_run, render_dry_run_result
+from devops_cli.lang import MESSAGES
 from devops_cli.models.tls import KubernetesTLSSecretResult
+from devops_cli.output import (
+    print_error,
+    print_info,
+    print_success,
+    print_table,
+    print_warning,
+    write_stdout,
+)
 
 app = new_typer(help="Kubernetes resource management.", no_args_is_help=True)
-console = Console()
 
 
-def _validate_k8s_identifier(value: str, label: str, *, namespace: bool = False) -> None:
-    validate_k8s_name(value, label, namespace=namespace)
+# =============================================================================
+# Validation & Client Resolution Helpers
+# =============================================================================
+
+
+def _validate_k8s_identifier(val: str, label: str, *, namespace: bool = False) -> None:
+    validate_k8s_name(val, label, namespace=namespace)
 
 
 def _k8s_clients() -> tuple[Any, Any]:
@@ -47,28 +58,31 @@ def _k8s_clients() -> tuple[Any, Any]:
         from kubernetes import config as k8s_config
 
         return k8s_config, k8s_client
-    except Exception as exc:
-        rprint(f"[red]kubernetes SDK unavailable: {exc}[/red]")
+    except ImportError:
+        print_error("kubernetes package not installed. Run: pip install kubernetes", prefix=False)
         raise typer.Exit(1)
+
+
+# =============================================================================
+# Command: devops k8s contexts
+# =============================================================================
 
 
 @app.command()
 def contexts() -> None:
     """List kubeconfig contexts and mark the active one."""
     if is_dry_run():
-        res = CommandDryRunResult(
+        render_dry_run_result(
             command="devops k8s contexts",
             action="list_kube_config_contexts",
             details={"contexts": ["minikube"], "active": "minikube"},
         )
-        rprint("[yellow][dry-run][/yellow] Command response:")
-        console.print_json(res.model_dump_json(indent=2))
         return
     k8s_config, _ = _k8s_clients()
     try:
         ctx_list, active = k8s_config.list_kube_config_contexts()
     except Exception as exc:
-        rprint(f"[red]Failed to load kubeconfig: {exc}[/red]")
+        print_error(f"Failed to load kubeconfig: {exc}", prefix=False)
         raise typer.Exit(1)
 
     active_name = active["name"] if active else ""
@@ -86,7 +100,12 @@ def contexts() -> None:
             ctx["context"].get("cluster", ""),
             ctx["context"].get("user", ""),
         )
-    console.print(table)
+    print_table(table)
+
+
+# =============================================================================
+# Command: devops k8s switch-context
+# =============================================================================
 
 
 @app.command("switch-context")
@@ -94,37 +113,36 @@ def switch_context(
     name: Annotated[str, typer.Argument(help="Target context name to switch to")],
 ) -> None:
     """Switch active kubeconfig context."""
-    from devops_cli.lang import MESSAGES
-
     if is_dry_run():
-        res = CommandDryRunResult(
+        render_dry_run_result(
             command="devops k8s switch-context",
             target=name,
             action="switch_kube_config_context",
             details={"target_context": name},
         )
-        rprint("[yellow][dry-run][/yellow] Command response:")
-        console.print_json(res.model_dump_json(indent=2))
         return
 
     _validate_k8s_identifier(name, "context name")
     cmd = ["kubectl", "config", "use-context", name]
     _run_cmd(cmd, check=True)
     msg = MESSAGES.k8s.switched_context.format(context=name)
-    rprint(msg)
+    print_success(msg, prefix=False)
+
+
+# =============================================================================
+# Command: devops k8s status
+# =============================================================================
 
 
 @app.command()
 def status() -> None:
     """Show node and pod summary for the current context."""
     if is_dry_run():
-        res = CommandDryRunResult(
+        render_dry_run_result(
             command="devops k8s status",
             action="query_k8s_status",
             details={"nodes": 1, "status": "Ready"},
         )
-        rprint("[yellow][dry-run][/yellow] Command response:")
-        console.print_json(res.model_dump_json(indent=2))
         return
     k8s_config, k8s_client = _k8s_clients()
     try:
@@ -132,7 +150,7 @@ def status() -> None:
         core_v1_api = k8s_client.CoreV1Api()
         nodes = core_v1_api.list_node()
     except Exception as exc:
-        rprint(f"[red]Failed to query cluster: {exc}[/red]")
+        print_error(f"Failed to query cluster: {exc}", prefix=False)
         raise typer.Exit(1)
 
     table = Table(title="Nodes")
@@ -175,7 +193,12 @@ def status() -> None:
             roles,
             version,
         )
-    console.print(table)
+    print_table(table)
+
+
+# =============================================================================
+# Command: devops k8s apply
+# =============================================================================
 
 
 @app.command()
@@ -193,16 +216,19 @@ def apply(
     if namespace:
         cmd += ["--namespace", namespace]
     if is_dry_run():
-        res = CommandDryRunResult(
+        render_dry_run_result(
             command="devops k8s apply",
             target=path,
             action="kubectl_apply",
             details={"cmd": " ".join(cmd), "namespace": namespace},
         )
-        rprint("[yellow][dry-run][/yellow] Command response:")
-        console.print_json(res.model_dump_json(indent=2))
         return
     _run_cmd(cmd, check=True)
+
+
+# =============================================================================
+# Command: devops k8s logs
+# =============================================================================
 
 
 @app.command()
@@ -228,14 +254,12 @@ def logs(
     if follow:
         cmd.append("--follow")
     if is_dry_run():
-        res = CommandDryRunResult(
+        render_dry_run_result(
             command="devops k8s logs",
             target=pod,
             action="kubectl_logs",
             details={"cmd": " ".join(cmd), "pod": pod, "tail": bounded_tail},
         )
-        rprint("[yellow][dry-run][/yellow] Command response:")
-        console.print_json(res.model_dump_json(indent=2))
         return
     if follow:
         run_subprocess(
@@ -248,7 +272,9 @@ def logs(
         _run_cmd(cmd, check=True)
 
 
-# ── Helm chart and manifest definitions for deploy-stack / teardown-stack ────
+# =============================================================================
+# Stack Helm & Manifest Definitions
+# =============================================================================
 
 _HELM_REPOS_BY_STACK: dict[str, dict[str, str]] = {
     "infra": {
@@ -328,7 +354,10 @@ def _resolve_stacks(stack: str) -> list[str]:
         return ["infra", "llm"]
     if s in _HELM_RELEASES_BY_STACK:
         return [s]
-    rprint(f"[red]Invalid stack: {stack!r}. Supported stacks: {', '.join(VALID_STACKS)}[/red]")
+    print_error(
+        f"Invalid stack: {stack!r}. Supported stacks: {', '.join(VALID_STACKS)}",
+        prefix=False,
+    )
     raise typer.Exit(1)
 
 
@@ -354,7 +383,7 @@ def _minikube_running() -> bool:
             ["minikube", "status", "--format", "{{.Host}}"], check=False, capture=True
         )
         return result.returncode == 0 and "Running" in result.stdout
-    except (FileNotFoundError, OSError, subprocess.SubprocessError):
+    except FileNotFoundError, OSError, subprocess.SubprocessError:
         return False
 
 
@@ -367,7 +396,7 @@ def _cluster_reachable(context: str | None = None) -> bool:
         res = _run_cmd(cmd, check=False, capture=True)
         if res.returncode == 0:
             return True
-    except (FileNotFoundError, OSError, subprocess.SubprocessError):
+    except FileNotFoundError, OSError, subprocess.SubprocessError:
         pass
 
     if not context or context == "minikube":
@@ -375,22 +404,28 @@ def _cluster_reachable(context: str | None = None) -> bool:
     return False
 
 
+# =============================================================================
+# Command: devops k8s bootstrap
+# =============================================================================
+
+
 @app.command("bootstrap")
 def bootstrap(
     k8s_dir: Annotated[
-        Path, typer.Option("--k8s-dir", help="Path to k8s/ config directory")
-    ] = _K8S_DIR,
+        Path, typer.Option("--dir", "-d", help="Directory containing Kubernetes manifests")
+    ] = Path("k8s"),
     auto_start: Annotated[
         bool, typer.Option("--auto-start/--no-auto-start", help="Auto-start minikube if stopped")
     ] = True,
     stack: Annotated[
-        str, typer.Option("--stack", "-s", help="Stack to deploy (infra, llm, all)")
-    ] = "infra",
+        str,
+        typer.Option("--stack", "-s", help="Stack to deploy after bootstrap: infra | llm | all"),
+    ] = "all",
 ) -> None:
     """Bootstrap minikube Kubernetes cluster and deploy infrastructure/LLM stack."""
     selected_stacks = _resolve_stacks(stack)
     if is_dry_run():
-        res = CommandDryRunResult(
+        render_dry_run_result(
             command="devops k8s bootstrap",
             target=str(k8s_dir),
             action="minikube_bootstrap",
@@ -401,13 +436,11 @@ def bootstrap(
                 "stacks": selected_stacks,
             },
         )
-        rprint("[yellow][dry-run][/yellow] Command response:")
-        console.print_json(res.model_dump_json(indent=2))
         return
 
     if not _minikube_running():
         if auto_start:
-            rprint("[bold cyan]Starting minikube cluster...[/bold cyan]")
+            print_info(MESSAGES.k8s.starting_minikube, prefix=False)
             has_gpu = shutil.which("nvidia-smi") is not None
             started = False
             if has_gpu:
@@ -419,11 +452,14 @@ def bootstrap(
                 start_res = _run_cmd(["minikube", "start", "--driver=docker"], check=False)
                 started = start_res.returncode == 0 and _minikube_running()
             if not started:
-                rprint("[red]Failed to start minikube cluster.[/red]")
+                print_error(MESSAGES.k8s.failed_start_minikube, prefix=False)
                 raise typer.Exit(1)
             _run_cmd(["minikube", "update-context"], check=False)
         else:
-            rprint("[red]minikube is not running. Start with: minikube start --driver=docker[/red]")
+            print_error(
+                MESSAGES.k8s.minikube_not_running,
+                prefix=False,
+            )
             raise typer.Exit(1)
     else:
         _run_cmd(["minikube", "update-context"], check=False)
@@ -452,10 +488,8 @@ def _adopt_helm_resource_if_conflict(
     adopted_any = False
     for kind_raw, name, ns in matches:
         kind = kind_raw.lower()
-        adopt_msg = (
-            f"[yellow]Adopting pre-existing {kind}/{name} for release '{release_name}'...[/yellow]"
-        )
-        rprint(adopt_msg)
+        adopt_msg = f"Adopting pre-existing {kind}/{name} for release '{release_name}'..."
+        print_warning(adopt_msg)
         _run_cmd(
             [
                 "kubectl",
@@ -489,6 +523,11 @@ def _adopt_helm_resource_if_conflict(
     return adopted_any
 
 
+# =============================================================================
+# Command: devops k8s deploy-stack
+# =============================================================================
+
+
 @app.command("deploy-stack")
 def deploy_stack(
     k8s_dir: Annotated[
@@ -514,7 +553,7 @@ def deploy_stack(
         all_manifests.extend([str(p) for p in _MANIFESTS_BY_STACK.get(s_name, [])])
 
     if is_dry_run():
-        res = CommandDryRunResult(
+        render_dry_run_result(
             command="devops k8s deploy-stack",
             target=str(k8s_dir),
             action="deploy_k8s_stack",
@@ -527,22 +566,20 @@ def deploy_stack(
                 "manifests": all_manifests,
             },
         )
-        rprint("[yellow][dry-run][/yellow] Command response:")
-        console.print_json(res.model_dump_json(indent=2))
         return
 
     # 1. Verify cluster reachability
     if not _cluster_reachable(context=context):
-        rprint("[red]Kubernetes cluster is not reachable.[/red]")
+        print_error(MESSAGES.k8s.cluster_not_reachable, prefix=False)
         if not context or context == "minikube":
-            rprint("Start it with: [cyan]minikube start --driver=docker[/cyan]")
+            print_info(MESSAGES.k8s.start_minikube_tip, prefix=False)
         raise typer.Exit(1)
 
     kubectl_ctx = ["--context", context] if context else []
     helm_ctx = ["--kube-context", context] if context else []
 
     # 2. Apply kustomize base (namespaces)
-    rprint("[bold]Applying namespaces...[/bold]")
+    print_info("[bold]Applying namespaces...[/bold]", prefix=False)
     _run_cmd(["kubectl", "apply", "-k", str(k8s_dir)] + kubectl_ctx)
 
     # 3. Add Helm repos for selected stacks
@@ -551,19 +588,19 @@ def deploy_stack(
         repos_to_add.update(_HELM_REPOS_BY_STACK.get(s_name, {}))
 
     if repos_to_add:
-        rprint("[bold]Adding Helm repositories...[/bold]")
+        print_info(MESSAGES.k8s.adding_helm_repos, prefix=False)
         for repo_name, repo_url in repos_to_add.items():
             _run_cmd(["helm", "repo", "add", repo_name, repo_url], check=False)
         _run_cmd(["helm", "repo", "update"])
 
     # 4. Install native manifests
     for manifest_path in all_manifests:
-        rprint(f"[bold]Applying manifest {Path(manifest_path).name}...[/bold]")
+        print_info(f"[bold]Applying manifest {Path(manifest_path).name}...[/bold]", prefix=False)
         _run_cmd(["kubectl", "apply", "-f", manifest_path] + kubectl_ctx, check=False)
 
     # 5. Install Helm releases
     for release in all_releases:
-        rprint(f"[bold]Installing {release['name']}...[/bold]")
+        print_info(f"[bold]Installing {release['name']}...[/bold]", prefix=False)
         helm_cmd = (
             [
                 "helm",
@@ -599,29 +636,95 @@ def deploy_stack(
             result = _run_cmd(helm_cmd, check=False, capture=True)
 
         if result.returncode != 0:
-            rprint(f"[red]Failed to install {release['name']}[/red]")
+            print_error(f"Failed to install {release['name']}", prefix=False)
         else:
-            rprint(f"[green]✓ {release['name']} installed[/green]")
+            print_success(f"{release['name']} installed")
 
     # 6. Auto-configure monitoring URLs & port forwarding
-    rprint()
-    rprint(f"[bold green]Kubernetes stack ({stack}) deployed.[/bold green]")
-    rprint()
+    write_stdout("\n")
+    print_success(f"Kubernetes stack ({stack}) deployed.")
+    write_stdout("\n")
     port_forward(stack=stack, context=context)
-    rprint()
+    write_stdout("\n")
     if "infra" in selected_stacks:
-        rprint(
+        print_info(
             "[dim]ArgoCD admin password: kubectl -n argocd get secret"
-            " argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d[/dim]"
+            " argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d[/dim]",
+            prefix=False,
         )
-        rprint("[dim]Grafana credentials: set via grafana.token in 'devops config set'[/dim]")
-        rprint("[dim]Jaeger Query UI: http://localhost:16686 (namespace: otel)[/dim]")
-        rprint("[dim]Jaeger OTLP Traces: localhost:4317 (gRPC) / localhost:4318 (HTTP)[/dim]")
+        print_info(
+            "[dim]Grafana credentials: set via grafana.token in 'devops config set'[/dim]",
+            prefix=False,
+        )
+        print_info(
+            "[dim]Jaeger Query UI: http://localhost:16686 (namespace: otel)[/dim]",
+            prefix=False,
+        )
+        print_info(
+            "[dim]Jaeger OTLP Traces: localhost:4317 (gRPC) / localhost:4318 (HTTP)[/dim]",
+            prefix=False,
+        )
     if "llm" in selected_stacks:
-        rprint("[dim]Ollama: http://localhost:11434 (namespace: llm)[/dim]")
-        rprint("[dim]Open-WebUI: http://localhost:3000 (minikube service open-webui -n llm)[/dim]")
-        rprint("[dim]Qdrant Vector DB: http://localhost:6333 (HTTP) / :6334 (gRPC)[/dim]")
-        rprint("[dim]Valkey Cache: localhost:6379 (namespace: llm)[/dim]")
+        print_info("[dim]Ollama: http://localhost:11434 (namespace: llm)[/dim]", prefix=False)
+        print_info(
+            "[dim]Open-WebUI: http://localhost:3000 (minikube service open-webui -n llm)[/dim]",
+            prefix=False,
+        )
+        print_info(
+            "[dim]Qdrant Vector DB: http://localhost:6333 (HTTP) / :6334 (gRPC)[/dim]",
+            prefix=False,
+        )
+        print_info("[dim]Valkey Cache: localhost:6379 (namespace: llm)[/dim]", prefix=False)
+
+
+# =============================================================================
+# Service URL Detection & Reachability Helpers
+# =============================================================================
+
+
+def _parse_minikube_service_url(stdout: str) -> str | None:
+    """Extract HTTP/HTTPS URL from minikube service command output."""
+    for line in stdout.splitlines():
+        line_str = line.strip()
+        if line_str.startswith(("http://", "https://")):
+            return line_str
+    return None
+
+
+def _extract_first_node_ip(item: dict[str, Any]) -> str | None:
+    """Extract first external/internal IP or hostname from a Kubernetes node item."""
+    for addr in item.get("status", {}).get("addresses", []):
+        if addr.get("type") in ("ExternalIP", "InternalIP", "Hostname"):
+            ip = addr.get("address")
+            if ip:
+                return str(ip)
+    return None
+
+
+def _resolve_k8s_node_port_url(ctx_args: list[str], node_port: int) -> str | None:
+    """Query Kubernetes nodes to find node IP and construct nodePort URL."""
+    from devops_cli.config.defaults import DEFAULT_SUBPROCESS_FAST_TIMEOUT_SECONDS
+
+    try:
+        nodes_res = run_subprocess(
+            ["kubectl", "get", "nodes", "-o", "json"] + ctx_args,
+            capture_output=True,
+            text=True,
+            check=False,
+            quiet=True,
+            timeout=DEFAULT_SUBPROCESS_FAST_TIMEOUT_SECONDS,
+        )
+        if nodes_res.returncode == 0 and nodes_res.stdout.strip():
+            import json
+
+            nodes_data = json.loads(nodes_res.stdout)
+            for item in nodes_data.get("items", []):
+                node_ip = _extract_first_node_ip(item)
+                if node_ip:
+                    return f"http://{node_ip}:{node_port}"
+    except Exception:
+        pass
+    return None
 
 
 def _detect_service_url(service: str, namespace: str, context: str | None = None) -> str | None:
@@ -640,11 +743,10 @@ def _detect_service_url(service: str, namespace: str, context: str | None = None
                 timeout=DEFAULT_SUBPROCESS_FAST_TIMEOUT_SECONDS,
             )
             if res.returncode == 0 and res.stdout.strip():
-                for line in res.stdout.splitlines():
-                    line_str = str(line.strip())
-                    if line_str.startswith("http://") or line_str.startswith("https://"):
-                        return line_str
-        except (OSError, subprocess.SubprocessError):
+                url = _parse_minikube_service_url(res.stdout)
+                if url:
+                    return url
+        except OSError, subprocess.SubprocessError:
             pass
 
     # 2. Generic K8s nodePort or loadBalancer detection via kubectl
@@ -676,26 +778,9 @@ def _detect_service_url(service: str, namespace: str, context: str | None = None
 
             # Check NodePort
             if node_port:
-                nodes_res = run_subprocess(
-                    ["kubectl", "get", "nodes", "-o", "json"] + ctx_args,
-                    capture_output=True,
-                    text=True,
-                    check=False,
-                    quiet=True,
-                    timeout=DEFAULT_SUBPROCESS_FAST_TIMEOUT_SECONDS,
-                )
-                if nodes_res.returncode == 0 and nodes_res.stdout.strip():
-                    nodes_data = json.loads(nodes_res.stdout)
-                    for item in nodes_data.get("items", []):
-                        addrs = item.get("status", {}).get("addresses", [])
-                        node_ip = None
-                        for addr in addrs:
-                            if addr.get("type") in ("ExternalIP", "InternalIP", "Hostname"):
-                                node_ip = addr.get("address")
-                                if node_ip:
-                                    break
-                        if node_ip:
-                            return f"http://{node_ip}:{node_port}"
+                node_url = _resolve_k8s_node_port_url(ctx_args, int(node_port))
+                if node_url:
+                    return node_url
     except Exception:
         pass
 
@@ -752,6 +837,11 @@ def _resolve_accessible_url(
     return detected_url
 
 
+# =============================================================================
+# Command: devops k8s configure-urls
+# =============================================================================
+
+
 @app.command("configure-urls")
 def configure_urls(
     stack: Annotated[
@@ -788,20 +878,21 @@ def configure_urls(
         )
 
     if is_dry_run():
-        res = CommandDryRunResult(
+        render_dry_run_result(
             command="devops k8s configure-urls",
             action="configure_monitoring_urls",
             details=dry_run_details,
         )
-        rprint("[yellow][dry-run][/yellow] Command response:")
-        console.print_json(res.model_dump_json(indent=2))
         return
 
     if not _cluster_reachable(context=context):
-        rprint("[red]Kubernetes cluster is not reachable.[/red]")
+        print_error(MESSAGES.k8s.cluster_not_reachable, prefix=False)
         raise typer.Exit(1)
 
-    rprint(f"[bold]Detecting {stack} service URLs (context: {context or 'active'})...[/bold]")
+    print_info(
+        f"[bold]Detecting {stack} service URLs (context: {context or 'active'})...[/bold]",
+        prefix=False,
+    )
 
     from devops_cli.config.settings import dotted_set, load_settings, save_settings
 
@@ -869,7 +960,12 @@ def configure_urls(
     for k, v in configured.items():
         table.add_row(k, v)
 
-    console.print(table)
+    print_table(table)
+
+
+# =============================================================================
+# Command: devops k8s port-forward
+# =============================================================================
 
 
 @app.command("port-forward")
@@ -937,20 +1033,21 @@ def port_forward(
         )
 
     if is_dry_run():
-        res = CommandDryRunResult(
+        render_dry_run_result(
             command="devops k8s port-forward",
             action="k8s_port_forward",
             details=details,
         )
-        rprint("[yellow][dry-run][/yellow] Command response:")
-        console.print_json(res.model_dump_json(indent=2))
         return
 
     if not _cluster_reachable(context=context):
-        rprint("[red]Kubernetes cluster is not reachable.[/red]")
+        print_error(MESSAGES.k8s.cluster_not_reachable, prefix=False)
         raise typer.Exit(1)
 
-    rprint(f"[bold cyan]Port-forwarding k8s {stack} services to localhost ports...[/bold cyan]")
+    print_info(
+        f"[bold cyan]Port-forwarding k8s {stack} services to localhost ports...[/bold cyan]",
+        prefix=False,
+    )
 
     services: list[tuple[str, str, int, int]] = []
     if "infra" in selected_stacks:
@@ -986,10 +1083,15 @@ def port_forward(
             f"{lport}:{rport}",
         ] + ctx_args
         subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        rprint(f"[green]✓ Forwarding {svc} ({ns}) to http://{address}:{lport}[/green]")
+        print_success(f"Forwarding {svc} ({ns}) to http://{address}:{lport}")
 
     time.sleep(1.0)
     configure_urls(stack=stack, context=context)
+
+
+# =============================================================================
+# Command: devops k8s teardown-stack
+# =============================================================================
 
 
 @app.command("teardown-stack")
@@ -1033,7 +1135,7 @@ def teardown_stack(
         return
 
     if not _cluster_reachable(context=context):
-        rprint("[red]Kubernetes cluster is not reachable.[/red]")
+        print_error(MESSAGES.k8s.cluster_not_reachable, prefix=False)
         raise typer.Exit(1)
 
     kubectl_ctx = ["--context", context] if context else []
@@ -1041,7 +1143,7 @@ def teardown_stack(
 
     # 1. Delete manifests
     for manifest_path in all_manifest_deletes:
-        rprint(f"[bold]Deleting manifest {Path(manifest_path).name}...[/bold]")
+        print_info(f"[bold]Deleting manifest {Path(manifest_path).name}...[/bold]", prefix=False)
         _run_cmd(
             ["kubectl", "delete", "-f", manifest_path, "--ignore-not-found"] + kubectl_ctx,
             check=False,
@@ -1049,7 +1151,7 @@ def teardown_stack(
 
     # 2. Uninstall Helm releases in reverse order
     for release in all_uninstalls:
-        rprint(f"[bold]Uninstalling {release['name']}...[/bold]")
+        print_info(f"[bold]Uninstalling {release['name']}...[/bold]", prefix=False)
         _run_cmd(
             ["helm", "uninstall", release["name"], "--namespace", release["namespace"]] + helm_ctx,
             check=False,
@@ -1057,26 +1159,31 @@ def teardown_stack(
 
     # 3. Clean up namespaces
     if stack == "all":
-        rprint("[bold]Removing all stack namespaces...[/bold]")
+        print_info(MESSAGES.k8s.removing_stack_namespaces, prefix=False)
         _run_cmd(
             ["kubectl", "delete", "-k", str(k8s_dir), "--ignore-not-found"] + kubectl_ctx,
             check=False,
         )
     elif stack == "infra":
-        rprint("[bold]Removing infra namespaces...[/bold]")
+        print_info(MESSAGES.k8s.removing_infra_namespaces, prefix=False)
         for ns in ["argocd", "monitoring", "otel"]:
             _run_cmd(
                 ["kubectl", "delete", "namespace", ns, "--ignore-not-found"] + kubectl_ctx,
                 check=False,
             )
     elif stack == "llm":
-        rprint("[bold]Removing llm namespace...[/bold]")
+        print_info(MESSAGES.k8s.removing_llm_namespace, prefix=False)
         _run_cmd(
             ["kubectl", "delete", "namespace", "llm", "--ignore-not-found"] + kubectl_ctx,
             check=False,
         )
 
-    rprint(f"[green]✓ Kubernetes stack ({stack}) torn down.[/green]")
+    print_success(f"Kubernetes stack ({stack}) torn down.")
+
+
+# =============================================================================
+# Command: devops k8s rbac-audit
+# =============================================================================
 
 
 @app.command("rbac-audit")
@@ -1107,7 +1214,12 @@ def rbac_audit(
         "ClusterRole/cluster-admin",
         "[green]PASS[/green]",
     )
-    console.print(table)
+    print_table(table)
+
+
+# =============================================================================
+# Command: devops k8s lint
+# =============================================================================
 
 
 @app.command("lint")
@@ -1128,7 +1240,10 @@ def k8s_lint(
     set_dry_run(dry_run)
     target_abs = target.resolve() if target.exists() else target
     if not is_dry_run():
-        rprint(f"[dim]Executing Kube-linter manifest audit on '{target_abs}'...[/dim]")
+        print_info(
+            f"[dim]Executing Kube-linter manifest audit on '{target_abs}'...[/dim]",
+            prefix=False,
+        )
 
     findings = run_kubelinter_scan(target=target_abs)
 
@@ -1141,7 +1256,7 @@ def k8s_lint(
         return
 
     if not findings:
-        rprint("[bold green]✓ Kube-linter audit passed: no security warnings.[/bold green]")
+        print_success(MESSAGES.k8s.kube_linter_passed)
         return
 
     table = Table(title=f"Kube-linter Manifest Audit: {target_abs.name or target_abs}")
@@ -1153,7 +1268,12 @@ def k8s_lint(
     for f in findings:
         table.add_row(f.severity, f.location, f.title, f.fix or "-")
 
-    console.print(table)
+    print_table(table)
+
+
+# =============================================================================
+# Command: devops k8s audit
+# =============================================================================
 
 
 @app.command("audit")
@@ -1169,7 +1289,7 @@ def k8s_audit(
 
     set_dry_run(dry_run)
     if not is_dry_run():
-        rprint("[dim]Executing Popeye K8s cluster health sanitizer...[/dim]")
+        print_info(MESSAGES.k8s.popeye_executing, prefix=False)
 
     findings = run_popeye_scan()
 
@@ -1182,7 +1302,7 @@ def k8s_audit(
         return
 
     if not findings:
-        rprint("[bold green]✓ Popeye cluster audit passed: no health warnings.[/bold green]")
+        print_success(MESSAGES.k8s.popeye_passed)
         return
 
     table = Table(title="Popeye Cluster Health Audit")
@@ -1197,7 +1317,12 @@ def k8s_audit(
         style = sev_colors.get(f.severity.upper(), "white")
         table.add_row(f"[{style}]{f.severity}[/{style}]", f.location, f.title, f.fix or "-")
 
-    console.print(table)
+    print_table(table)
+
+
+# =============================================================================
+# Command: devops k8s check-deprecated
+# =============================================================================
 
 
 @app.command("check-deprecated")
@@ -1218,7 +1343,10 @@ def k8s_check_deprecated(
     set_dry_run(dry_run)
     target_abs = target.resolve() if target.exists() else target
     if not is_dry_run():
-        rprint(f"[dim]Executing Pluto deprecated API scan on '{target_abs}'...[/dim]")
+        print_info(
+            f"[dim]Executing Pluto deprecated API scan on '{target_abs}'...[/dim]",
+            prefix=False,
+        )
 
     findings = run_pluto_scan(target=target_abs)
 
@@ -1231,7 +1359,7 @@ def k8s_check_deprecated(
         return
 
     if not findings:
-        rprint("[bold green]✓ Pluto API check passed: no deprecated K8s APIs.[/bold green]")
+        print_success(MESSAGES.k8s.pluto_passed)
         return
 
     table = Table(title=f"Pluto Deprecated K8s API Report: {target_abs.name or target_abs}")
@@ -1243,18 +1371,12 @@ def k8s_check_deprecated(
     for f in findings:
         table.add_row(f.severity, f.location, f.title, f.fix or "-")
 
-    console.print(table)
+    print_table(table)
 
-    table = Table(title=f"Pluto Deprecated K8s API Report: {target_abs.name or target_abs}")
-    table.add_column("Severity", style="bold red")
-    table.add_column("Resource Location")
-    table.add_column("Deprecation Warning")
-    table.add_column("Migration Target")
 
-    for f in findings:
-        table.add_row(f.severity, f.location, f.title, f.fix or "-")
-
-    console.print(table)
+# =============================================================================
+# Command: devops k8s create-tls-secret
+# =============================================================================
 
 
 @app.command("create-tls-secret")
@@ -1287,7 +1409,7 @@ def create_tls_secret(
     _validate_k8s_identifier(secret_name, "secret_name")
 
     if is_dry_run():
-        res = CommandDryRunResult(
+        render_dry_run_result(
             command="devops k8s create-tls-secret",
             target=secret_name,
             action="create_k8s_tls_secret",
@@ -1299,15 +1421,13 @@ def create_tls_secret(
                 "context": context,
             },
         )
-        rprint("[yellow][dry-run][/yellow] Command response:")
-        console.print_json(res.model_dump_json(indent=2))
         return
 
     if not cert_path.exists():
-        rprint(f"[red]Error: Certificate file not found: {cert_path}[/red]")
+        print_error(f"Certificate file not found: {cert_path}", prefix=False)
         raise typer.Exit(1)
     if not key_path.exists():
-        rprint(f"[red]Error: Key file not found: {key_path}[/red]")
+        print_error(f"Key file not found: {key_path}", prefix=False)
         raise typer.Exit(1)
 
     kubectl_ctx = ["--context", context] if context else []
@@ -1337,13 +1457,21 @@ def create_tls_secret(
 
     rc = _run_cmd(create_cmd, check=False)
     if rc.returncode == 0:
-        rprint(
-            f"[bold green]✓ Created TLS secret[/bold green] [cyan]{secret_name}[/cyan] "
+        print_success(
+            f"Created TLS secret [cyan]{secret_name}[/cyan] "
             f"in namespace [magenta]{namespace}[/magenta]"
         )
     else:
-        rprint(f"[red]Failed to create TLS secret {secret_name} in namespace {namespace}[/red]")
+        print_error(
+            f"Failed to create TLS secret {secret_name} in namespace {namespace}",
+            prefix=False,
+        )
         raise typer.Exit(1)
+
+
+# =============================================================================
+# Command: devops k8s enable-tls
+# =============================================================================
 
 
 @app.command("enable-tls")
@@ -1388,7 +1516,7 @@ def enable_tls_stack(
     key_path = tls_dir / CONST_SERVER_KEY_NAME
 
     if is_dry_run():
-        res = CommandDryRunResult(
+        render_dry_run_result(
             command="devops k8s enable-tls",
             target=stack,
             action="enable_k8s_tls_stack",
@@ -1402,21 +1530,20 @@ def enable_tls_stack(
                 "context": context,
             },
         )
-        rprint("[yellow][dry-run][/yellow] Command response:")
-        console.print_json(res.model_dump_json(indent=2))
         return
 
     # Generate certificates bundle if needed
     if not cert_path.exists() or not key_path.exists() or overwrite:
-        rprint("[bold]Generating Homelab TLS certificate bundle...[/bold]")
+        print_info(MESSAGES.k8s.generating_homelab_tls, prefix=False)
         generate_homelab_tls_bundle(output_dir=tls_dir, overwrite=overwrite)
 
     kubectl_ctx = ["--context", context] if context else []
     results: list[KubernetesTLSSecretResult] = []
 
-    rprint(
+    print_info(
         f"[bold]Applying TLS secret '[cyan]{secret_name}[/cyan]' "
-        f"across {len(target_namespaces)} namespace(s)...[/bold]"
+        f"across {len(target_namespaces)} namespace(s)...[/bold]",
+        prefix=False,
     )
     for ns in target_namespaces:
         ns_check = _run_cmd(["kubectl", "get", "namespace", ns] + kubectl_ctx, check=False)
@@ -1458,4 +1585,4 @@ def enable_tls_stack(
         status_str = "[green]✓ Created[/green]" if r.created else f"[red]✗ Failed: {r.error}[/red]"
         table.add_row(r.namespace, r.secret_name, status_str)
 
-    console.print(table)
+    print_table(table)

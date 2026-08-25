@@ -118,7 +118,7 @@ def pull_tracking(repo_dir: Path) -> None:
             tracking = repo.active_branch.tracking_branch()
             if tracking:
                 repo.remotes[tracking.remote_name].pull(repo.active_branch.name)
-    except (gitlib.GitCommandError, IndexError):
+    except gitlib.GitCommandError, IndexError:
         pass
 
 
@@ -169,3 +169,23 @@ def delete_merged_branches(repo_dir: Path, dry_run: bool = False) -> list[str]:
             repo.delete_head(branch, force=False)
         deleted.append(branch.name)
     return deleted
+
+
+def is_git_clean(repo_dir: Path) -> bool:
+    """Check whether git working directory has uncommitted changes."""
+    try:
+        proc = run_subprocess(["git", "status", "--porcelain"], cwd=repo_dir, quiet=True)
+        return proc.returncode == 0 and not bool(proc.stdout.strip())
+    except Exception:
+        return False
+
+
+def get_latest_git_tag(repo_dir: Path) -> str | None:
+    """Retrieve latest git tag for the repository if available."""
+    try:
+        proc = run_subprocess(["git", "describe", "--tags", "--abbrev=0"], cwd=repo_dir, quiet=True)
+        if proc.returncode == 0 and proc.stdout:
+            return str(proc.stdout).strip()
+    except Exception:
+        pass
+    return None

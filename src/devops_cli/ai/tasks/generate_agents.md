@@ -1,7 +1,17 @@
-Generate an `AGENTS.md` file providing structured guidance and engineering principles for AI coding assistants:
-- **Project Scope & Runtime**: Python 3.14+, virtual environment (`uv`), and core tooling.
-- **Progressive Verification**: Isolated iterative checks (`uv run pytest`, `ruff check`, `mypy`) vs full CI gate (`devops ci`).
-- **Clean Architecture & Design**: High cohesion, low coupling, strict typing, and defensive error handling.
-- **Zero-Trust Security**: OS keyring credentials, SSRF mitigation, and bounded subprocess execution.
-- **Target-Agnostic Review**: Evaluate target projects by their declared conventions and universal principles.
-- **Git Hygiene**: Topic branches (`release/v*` targeting), Conventional Commits, and remote CI checks monitoring.
+Generate a comprehensive `AGENTS.md` file providing structured guidance and engineering principles for AI coding assistants using a 4-step chain-of-thought synthesis:
+
+### Step 1: Project Stack & Runtime Deconstruction
+- Analyze the project runtime (Python 3.14+, Astral `uv`, lockfiles, build systems) and core libraries.
+
+### Step 2: Verification & Workflow Scaffolding
+- Detail the progressive testing strategy: fast isolated checks (`uv run pytest`, `ruff check`, `mypy`) vs full CI gates (`devops ci`).
+- Define Git hygiene: topic branch hierarchy (`feat/*`, `fix/*` targeting `release/v*`), Conventional Commits, and remote CI checks monitoring.
+
+### Step 3: Architecture & Security Synthesis
+- Define clean architecture: separation of concerns, strict typing (`mypy --strict`), and aiming for fewer than 6 indentations project-wide by decomposing complex nested logic into dedicated functions.
+- Define zero-trust security: OS Keyring credentials, SSRF mitigation, bounded subprocesses, and strict prohibition on leaking data from hidden, private, or `.gitignored` files into documents or code.
+- Define prompt isolation: all LLM prompts in dedicated markdown files under `src/devops_cli/ai/tasks/` (zero inline strings).
+- Define canonical output convention: project-wide `filename.ext:n-n` location referencing.
+
+### Step 4: Output Assembly
+- Format the final document with clear Markdown headings, tables, and clickable references.

@@ -18,6 +18,37 @@ class PrometheusSeries(BaseModel):
         return ", ".join(f"{k}={v}" for k, v in self.labels.items() if k != "__name__")
 
 
+def _parse_instant_series(item: dict[str, object]) -> PrometheusSeries:
+    """Parse single series entry from instant query result."""
+    labels = item.get("metric", {}) if isinstance(item.get("metric"), dict) else {}
+    val_pair = item.get("value", [None, ""])
+    value = str(val_pair[1]) if isinstance(val_pair, list) and len(val_pair) > 1 else ""
+    return PrometheusSeries(labels=labels, value=value)  # type: ignore[arg-type]
+
+
+def _parse_prometheus_series_values(raw_values: object) -> list[tuple[float, str]]:
+    """Parse timestamp-value pairs for a Prometheus series."""
+    if not isinstance(raw_values, list):
+        return []
+    values: list[tuple[float, str]] = []
+    for pair in raw_values:
+        if not (isinstance(pair, list) and len(pair) == 2):
+            continue
+        try:
+            values.append((float(pair[0]), str(pair[1])))
+        except ValueError, TypeError:
+            continue
+    return values
+
+
+def _parse_range_series(item: dict[str, object]) -> PrometheusSeries:
+    """Parse single series entry from range query result."""
+    labels = item.get("metric", {}) if isinstance(item.get("metric"), dict) else {}
+    raw_values = item.get("values", [])
+    values = _parse_prometheus_series_values(raw_values)
+    return PrometheusSeries(labels=labels, values=values)  # type: ignore[arg-type]
+
+
 class PrometheusQueryResult(BaseModel):
     """Parsed response from /api/v1/query or /api/v1/query_range."""
 
@@ -40,13 +71,7 @@ class PrometheusQueryResult(BaseModel):
             results = results.get("result", [])
         series: list[PrometheusSeries] = []
         if isinstance(results, list):
-            for item in results:
-                if not isinstance(item, dict):
-                    continue
-                labels = item.get("metric", {})
-                val_pair = item.get("value", [None, ""])
-                value = str(val_pair[1]) if isinstance(val_pair, list) and len(val_pair) > 1 else ""
-                series.append(PrometheusSeries(labels=labels, value=value))
+            series = [_parse_instant_series(item) for item in results if isinstance(item, dict)]
         return cls(status=status, series=series, error=error)
 
     @classmethod
@@ -59,19 +84,5 @@ class PrometheusQueryResult(BaseModel):
             results = results.get("result", [])
         series: list[PrometheusSeries] = []
         if isinstance(results, list):
-            for item in results:
-                if not isinstance(item, dict):
-                    continue
-                labels = item.get("metric", {})
-                raw_values = item.get("values", [])
-                values: list[tuple[float, str]] = []
-                if isinstance(raw_values, list):
-                    for pair in raw_values:
-                        if isinstance(pair, list) and len(pair) == 2:
-                            try:
-                                values.append((float(pair[0]), str(pair[1])))
-                            except (ValueError, TypeError):
-                                continue
-
-                series.append(PrometheusSeries(labels=labels, values=values))
+            series = [_parse_range_series(item) for item in results if isinstance(item, dict)]
         return cls(status=status, series=series, error=error)

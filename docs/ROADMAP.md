@@ -88,12 +88,12 @@ High-density product roadmap and open-source integration strategy for `devops-cl
 
 ---
 
-### Distributed Observability, Tracing & Telemetry (v0.2.0 - Next Focus)
-- [ ] **FastAPI REST & OpenAPI Service Engine (`devops serve`)**: Native asynchronous FastAPI HTTP service (`uvicorn` / `fastapi`) exposing REST endpoints for remote CLI invocation, AI review triggers, workspace status queries, and health probes with auto-generated OpenAPI documentation and Swagger UI.
-- [ ] **OpenTelemetry Python SDK Instrumentation (`opentelemetry-sdk`, `opentelemetry-exporter-otlp`)**: Instrument CLI commands, multi-agent pipeline turns, subprocess executions, and FastMCP tools with distributed span tracing exported to OTLP collectors.
-- [ ] **Prometheus Client Metrics Engine (`prometheus-client`)**: In-memory metrics tracking turn latency, LLM throughput (tokens/sec), review accuracy rates, and cache hit ratios.
-- [ ] **Grafana Workstation Telemetry Dashboards**: Pre-provisioned Grafana dashboards in `k8s/` monitoring workstation load, Docker containers, and AI reviewer performance in real time.
-- [ ] **Jaeger Distributed Trace Visualization**: Jaeger collector and UI integration for end-to-end trace waterfalls of multi-persona agentic reasoning.
+### Distributed Observability, Tracing & Telemetry (v0.2.0 - Completed)
+- [x] **FastAPI REST & OpenAPI Service Engine (`devops serve`)**: Native asynchronous FastAPI HTTP service (`uvicorn` / `fastapi`) exposing REST endpoints for remote CLI invocation, AI review triggers, workspace status queries, and health probes with auto-generated OpenAPI documentation and Swagger UI.
+- [x] **OpenTelemetry Python SDK Instrumentation (`opentelemetry-sdk`, `opentelemetry-exporter-otlp`)**: Instrument CLI commands, multi-agent pipeline turns, subprocess executions, and FastMCP tools with distributed span tracing exported to OTLP collectors.
+- [x] **Prometheus Client Metrics Engine (`prometheus-client`)**: In-memory metrics tracking turn latency, LLM throughput (tokens/sec), review accuracy rates, and cache hit ratios.
+- [x] **Grafana Workstation Telemetry Dashboards**: Pre-provisioned Grafana dashboards in `k8s/` monitoring workstation load, Docker containers, and AI reviewer performance in real time.
+- [x] **Jaeger Distributed Trace Visualization**: Jaeger collector and UI integration for end-to-end trace waterfalls of multi-persona agentic reasoning.
 
 ### Next-Gen Agentic Architecture & Context Optimization (v0.2.1 - Strategic Investment)
 - [ ] **PydanticAI Standardized Agent Framework (`pydantic-ai`)**: Modernize multi-agent review and reasoning pipelines using PydanticAI to eliminate boilerplate tool routing, validate structured LLM responses, and simplify multi-turn handoffs.
@@ -134,8 +134,8 @@ High-density product roadmap and open-source integration strategy for `devops-cl
 | | Minikube Service Auto-Config & 7-Gate CI | Minikube / GitHub Actions | High | High | ✅ Completed (v0.1.5) |
 | | DevContainer Shell Script Replacement Engine | Python Subprocess / Typer | High | Medium | ✅ Completed (v0.1.7) |
 | | Enhanced AI/LLM Scratchpad Reasoning Buffer | Pydantic / Rich | High | Medium | ✅ Completed (v0.1.7) |
-| | FastAPI REST & OpenAPI Service Engine (`devops serve`) | FastAPI / Uvicorn | High | Medium | 🔄 Scheduled (v0.2.0) |
-| | OpenTelemetry Distributed Tracing & Metrics | OpenTelemetry SDK / Prometheus | High | Medium | 🔄 Scheduled (v0.2.0) |
+| | FastAPI REST & OpenAPI Service Engine (`devops serve`) | FastAPI / Uvicorn | High | Medium | ✅ Completed (v0.2.0) |
+| | OpenTelemetry Distributed Tracing & Metrics | OpenTelemetry SDK / Prometheus | High | Medium | ✅ Completed (v0.2.0) |
 | | PydanticAI Multi-Agent Pipeline Orchestration | `pydantic-ai`, `fastmcp` | High | Medium | 🔄 Scheduled (v0.2.1) |
 | | Semgrep AST Pattern Matcher | `semgrep` CLI | High | Medium | 🔄 Scheduled (v0.2.1) |
 | | Sigstore Cosign Container Provenance | `cosign` CLI / OS Keyring | High | Medium | 🔄 Scheduled (v0.2.2) |

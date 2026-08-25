@@ -39,6 +39,7 @@ class AICommandHelp(BaseModel):
     benchmark: str = (
         "Benchmark, evaluate, and peer-grade candidate AI models across engineering tasks."
     )
+    cache: str = "Manage LLM response cache, performance metrics, and warm starting points."
 
 
 class K8sCommandHelp(BaseModel):

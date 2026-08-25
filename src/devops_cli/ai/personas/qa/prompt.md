@@ -5,6 +5,7 @@ Evaluate changes against test engineering standards:
 - Test determinism, isolation, and mock correctness (no live network/endpoint calls).
 - Patch recommendations with concrete diff suggestions.
 - Ordered validation commands to verify fixes.
+- Do NOT flag documentation or test explanations describing failure modes, attack vectors, or insecure configurations in the context of testing or avoiding them.
 
 Respond in this exact format:
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from typer.testing import CliRunner
@@ -32,29 +33,15 @@ class TestReviewReposSubdirectories:
 
     def test_detect_base_branch_falls_back_to_master(self, tmp_path: Path) -> None:
         """_detect_base_branch must detect master if main does not exist in repo."""
-        subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
-        subprocess.run(
-            [
-                "git",
-                "-c",
-                "user.name=test",
-                "-c",
-                "user.email=test@test.com",
-                "commit",
-                "--allow-empty",
-                "-m",
-                "init",
-            ],
-            cwd=tmp_path,
-            check=True,
-            capture_output=True,
-        )
-        subprocess.run(
-            ["git", "branch", "-M", "master"], cwd=tmp_path, check=True, capture_output=True
-        )
-
-        detected = _detect_base_branch(tmp_path, preferred_base="main")
-        assert detected == "master"
+        with patch("devops_cli.ai.review.runner._run_subprocess") as mock_proc:
+            mock_proc.side_effect = [
+                subprocess.CompletedProcess(args=["git"], returncode=1, stdout="", stderr=""),
+                subprocess.CompletedProcess(
+                    args=["git"], returncode=0, stdout="master\n", stderr=""
+                ),
+            ]
+            detected = _detect_base_branch(tmp_path, preferred_base="main")
+            assert detected == "master"
 
     def test_review_path_summary_in_repos_directory(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

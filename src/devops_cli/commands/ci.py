@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Annotated
 
 import typer
@@ -17,22 +16,18 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.core.cli import new_typer
 from devops_cli.core.process import run_subprocess
+from devops_cli.core.repo import find_top_level_repo_root
 from devops_cli.telemetry import record_metric, trace_span
 
 app = new_typer(help="Run tests, linting, formatting, and type-checks.")
 console = Console()
 
-
-def _find_root() -> Path:
-    cur = Path(__file__).resolve().parent
-    while cur != cur.parent:
-        if (cur / "pyproject.toml").exists():
-            return cur
-        cur = cur.parent
-    return Path.cwd()
+_ROOT = find_top_level_repo_root(__file__)
 
 
-_ROOT = _find_root()
+# =============================================================================
+# Environment & Subprocess Helpers
+# =============================================================================
 
 
 def _verify_python_314_environment() -> bool:
@@ -69,6 +64,11 @@ def _clean_coverage_artifacts() -> None:
             path.unlink(missing_ok=True)
         except OSError:
             pass
+
+
+# =============================================================================
+# Pipeline Execution
+# =============================================================================
 
 
 def _run_all_checks(*, lint_fix: bool, format_fix: bool) -> list[tuple[str, bool]]:
@@ -190,6 +190,11 @@ def all_checks(ctx: typer.Context) -> None:
 
     if not all(ok for _, ok in checks):
         raise typer.Exit(1)
+
+
+# =============================================================================
+# Individual CI Commands
+# =============================================================================
 
 
 @app.command()

@@ -170,3 +170,47 @@ def test_cli_benchmark_document_option(tmp_path: Path) -> None:
     assert result.exit_code == 0
     assert "test_doc.md" in result.stdout
     assert "Embedding Model Benchmark Suite" in result.stdout
+
+
+def test_infer_category_exact_word_boundaries_and_domain_classification() -> None:
+    """Verify InMemoryDocumentTokenizer._infer_category uses word boundaries
+    and domain phrase weighting.
+    """
+    from devops_cli.ai.benchmark.document_chunker import InMemoryDocumentTokenizer
+
+    # 1. Security domain
+    sec_cat = InMemoryDocumentTokenizer._infer_category(
+        "Zero-Trust Egress", "Authenticate using OS keyring and prevent SSRF attacks."
+    )
+    assert sec_cat == "security"
+
+    # 2. Kubernetes domain
+    k8s_cat = InMemoryDocumentTokenizer._infer_category(
+        "Cluster Pods", "Deploy Traefik IngressRoute with Pod Security Standards."
+    )
+    assert k8s_cat == "kubernetes"
+
+    # 3. Architecture domain
+    arch_cat = InMemoryDocumentTokenizer._infer_category(
+        "Python 3.14 AST Engine",
+        "Ensure SOLID principles and static typing with Pydantic and mypy.",
+    )
+    assert arch_cat == "architecture"
+
+    # 4. CI/CD domain (must not trigger on words containing 'pr', 'ci', or 'cd' like 'practice')
+    cicd_cat = InMemoryDocumentTokenizer._infer_category(
+        "GitHub Actions Workflows", "Run actionlint and pre-commit checks on pull request branch."
+    )
+    assert cicd_cat == "ci_cd"
+
+    # Word boundary test: "practice" and "prevent" do NOT falsely match PR/CI
+    arch_boundary = InMemoryDocumentTokenizer._infer_category(
+        "Best Practice Refactoring", "Prevent coupling and increase cohesion."
+    )
+    assert arch_boundary == "architecture"
+
+    # 5. Infrastructure fallback
+    infra_cat = InMemoryDocumentTokenizer._infer_category(
+        "OpenTofu State", "Provision S3 backend with DynamoDB locking and Jaeger tracing."
+    )
+    assert infra_cat == "infrastructure"

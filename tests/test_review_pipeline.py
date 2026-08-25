@@ -541,6 +541,7 @@ def test_generate_consolidated_report_with_intelligence_tables(
                 version_range=">=2.10.0",
                 ecosystem="PyPI",
                 source_file="requirements.txt",
+                severity="CLEAN",
                 security_status="✓ Clean (0 CVEs)",
             ),
             DependencySpec(
@@ -548,7 +549,8 @@ def test_generate_consolidated_report_with_intelligence_tables(
                 version_range="1.0.0",
                 ecosystem="PyPI",
                 source_file="requirements.txt",
-                security_status="⚠️ 1 Known Vuln(s)",
+                severity="HIGH",
+                security_status="⚠️ 1 Known Vuln(s) [HIGH]",
             ),
         ],
         network_references=[
@@ -572,17 +574,28 @@ def test_generate_consolidated_report_with_intelligence_tables(
     data_out, report_md = orchestrator.generate_consolidated_report([payload])
 
     assert "## External Dependencies (OSV.dev & NVD)" in report_md
-    assert "| `pydantic` | `>=2.10.0` | PyPI | ✓ Clean (0 CVEs) | `requirements.txt` |" in report_md
     assert (
-        "| `vulnerable-pkg` | `1.0.0` | PyPI | ⚠️ 1 Known Vuln(s) | `requirements.txt` |"
-        in report_md
+        "| Severity | Dependency | Version Range | Ecosystem | "
+        "Security Status | Location |" in report_md
+    )
+    assert (
+        "| CLEAN | `pydantic` | `>=2.10.0` | PyPI | "
+        "✓ Clean (0 CVEs) | `requirements.txt:1` |" in report_md
+    )
+    assert (
+        "| **HIGH** | `vulnerable-pkg` | `1.0.0` | PyPI | "
+        "⚠️ 1 Known Vuln(s) [HIGH] | `requirements.txt:1` |" in report_md
     )
 
-    assert "## External Network References (Shodan InternetDB & Cloudflare Radar)" in report_md
+    assert "## Network References & Endpoints (Shodan InternetDB & Cloudflare Radar)" in report_md
     assert (
-        "| `api.example-corp.com` | domain | ✓ Safe / Low Risk | `src/main.py` | 15 |" in report_md
+        "| `api.example-corp.com` | domain | External | ✓ Safe / Low Risk | `src/main.py:15` |"
+        in report_md
     )
-    assert "| `93.184.216.34` | ip | ✓ Safe (Ports: 80, 443) | `src/main.py` | 20 |" in report_md
+    assert (
+        "| `93.184.216.34` | ip | External | ✓ Safe (Ports: 80, 443) | `src/main.py:20` |"
+        in report_md
+    )
 
     assert len(data_out["external_dependencies"]) == 2
     assert len(data_out["network_references"]) == 2
@@ -590,7 +603,7 @@ def test_generate_consolidated_report_with_intelligence_tables(
 
 def test_empty_findings_filtered_and_field_aliasing() -> None:
     """Verify that blank/empty findings are discarded and alternate field names mapped."""
-    from devops_cli.ai.review_schema import Finding, ReviewResult, parse_review_result
+    from devops_cli.ai.review_schema import Finding, ReviewResult, parse_review_response
 
     # 1. Blank finding is empty
     blank = Finding(severity="MEDIUM", location="", title="", description="", fix="")
@@ -636,7 +649,141 @@ def test_empty_findings_filtered_and_field_aliasing() -> None:
         '{"findings": [{"severity": "MEDIUM", "location": "", "title": "", '
         '"description": "", "fix": ""}], "recommendation": "REQUEST CHANGES"}'
     )
-    parsed = parse_review_result(raw_json)
+    parsed = parse_review_response(raw_json)
     assert parsed is not None
     assert len(parsed.findings) == 0
     assert parsed.recommendation == "APPROVE"
+
+
+def test_generate_consolidated_report_prints_findings_and_review_summary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Verify that generate_consolidated_report renders both the Code Review Findings
+    table and the Review Summary table to console on review completion.
+    """
+    monkeypatch.setattr("devops_cli.config.constants.CONST_DATA_DIR", tmp_path / ".data")
+    monkeypatch.setattr(
+        "devops_cli.config.constants.CONST_REVIEWS_DATA_DIR", tmp_path / ".data" / "reviews"
+    )
+
+    orchestrator = ReviewPipelineOrchestrator(
+        session_id="summary-output-test", llm_client=MagicMock()
+    )
+    finding = SavedFinding(
+        severity="HIGH",
+        location="src/auth.py:42",
+        title="Hardcoded Credential",
+        description="Found hardcoded secret key in auth module",
+        status="VERIFIED",
+        persona="devsecops",
+        persona_title="Principal DevSecOps Engineer",
+        reportable=True,
+        confidence_score=0.95,
+    )
+    payload = FileReviewPayload(
+        file_path="src/auth.py",
+        findings=[finding],
+        external_dependencies=[],
+        network_references=[],
+    )
+
+    data_out, report_md = orchestrator.generate_consolidated_report([payload])
+    captured = capsys.readouterr().out
+
+    assert "Code Review Findings" in captured
+    assert "src/auth.py:42" in captured
+    assert "Hardcoded Credential" in captured
+    assert "VERIFIED" in captured
+    assert "External Dependencies Security Audit" in captured
+    assert "Network References & Endpoints Security Audit" in captured
+    assert "Review Summary" in captured
+    assert "Files Reviewed" in captured
+    assert "Reportable Findings" in captured
+    assert "1 High" in captured
+    assert "1/1 verified (100%)" in captured
+    assert "Consolidated review completed for session summary-output-test" in captured
+    assert len(data_out["findings"]) == 1
+    assert "## Summary of Reportable Findings" in report_md
+
+
+def test_generate_consolidated_report_clean_review_summary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Verify clean review summary output when 0 reportable findings are generated."""
+    monkeypatch.setattr("devops_cli.config.constants.CONST_DATA_DIR", tmp_path / ".data")
+    monkeypatch.setattr(
+        "devops_cli.config.constants.CONST_REVIEWS_DATA_DIR", tmp_path / ".data" / "reviews"
+    )
+
+    orchestrator = ReviewPipelineOrchestrator(
+        session_id="clean-summary-test", llm_client=MagicMock()
+    )
+    payload = FileReviewPayload(
+        file_path="src/clean_code.py",
+        findings=[],
+        external_dependencies=[],
+        network_references=[],
+    )
+
+    data_out, report_md = orchestrator.generate_consolidated_report([payload])
+    captured = capsys.readouterr().out
+
+    assert "No reportable findings across reviewed files" in captured
+    assert "Review Summary" in captured
+    assert "0 findings (Clean)" in captured
+    assert "✓ All clean" in captured
+    assert "Consolidated review completed for session clean-summary-test" in captured
+    assert len(data_out["findings"]) == 0
+    assert "No critical issues found during review" in report_md
+
+
+def test_review_pipeline_skips_and_lists_errored_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Verify that any errored files across review stages are skipped and listed in output."""
+    monkeypatch.setattr("devops_cli.config.constants.CONST_DATA_DIR", tmp_path / ".data")
+    monkeypatch.setattr(
+        "devops_cli.config.constants.CONST_REVIEWS_DATA_DIR", tmp_path / ".data" / "reviews"
+    )
+
+    orchestrator = ReviewPipelineOrchestrator(
+        session_id="error-skip-test", llm_client=MagicMock(), target_dir=tmp_path
+    )
+    orchestrator.errored_files["src/bad_syntax.py"] = (
+        "Stage 3 (Review): SyntaxError: invalid syntax"
+    )
+    orchestrator.errored_files["src/missing_file.py"] = (
+        "Stage 2 (Initialization): FileNotFoundError"
+    )
+
+    valid_payload = FileReviewPayload(
+        file_path="src/good.py",
+        findings=[
+            SavedFinding(
+                severity="MEDIUM",
+                location="src/good.py:10",
+                title="Input validation",
+                description="Missing input validation",
+                status="VERIFIED",
+                persona="devsecops",
+                persona_title="Principal DevSecOps Engineer",
+                reportable=True,
+            )
+        ],
+        external_dependencies=[],
+        network_references=[],
+    )
+
+    data_out, report_md = orchestrator.generate_consolidated_report([valid_payload])
+    captured = capsys.readouterr().out
+
+    # 1. Console outputs errored files table and summary metric
+    assert "Skipped / Errored Files During Review" in captured
+    assert "src/bad_syntax.py" in captured
+    assert "src/missing_file.py" in captured
+    assert "2 file(s) skipped" in captured
+
+    # 2. Markdown report includes dedicated errored files table
+    assert "## Skipped / Errored Files" in report_md
+    assert "| `src/bad_syntax.py` | Stage 3 (Review): SyntaxError: invalid syntax |" in report_md
+    assert "| `src/missing_file.py` | Stage 2 (Initialization): FileNotFoundError |" in report_md

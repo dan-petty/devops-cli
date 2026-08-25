@@ -69,22 +69,27 @@ def extract_security_tags(content: str) -> list[str]:
     return sorted(tags)
 
 
+def _extract_python_imports(content: str) -> list[str]:
+    """Parse AST to extract imported module names from Python source."""
+    try:
+        tree = ast.parse(content)
+        imports: list[str] = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                imports.extend(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                imports.append(node.module)
+        return sorted(set(imports))
+    except Exception as exc:
+        logger.debug("Failed extracting Python imports: %s", exc)
+        return []
+
+
 def extract_imports(content: str, language: str) -> list[str]:
     """Extract imported modules or dependencies from source code."""
     lang_key = language.lower()
     if lang_key.startswith("python") or lang_key == "py":
-        try:
-            tree = ast.parse(content)
-            imports: list[str] = []
-            for node in ast.walk(tree):
-                if isinstance(node, ast.Import):
-                    for alias in node.names:
-                        imports.append(alias.name)
-                elif isinstance(node, ast.ImportFrom) and node.module:
-                    imports.append(node.module)
-            return sorted(set(imports))
-        except Exception as exc:
-            logger.debug("Failed extracting Python imports: %s", exc)
+        return _extract_python_imports(content)
 
     pattern = _IMPORT_PATTERNS.get(lang_key)
     if not pattern:

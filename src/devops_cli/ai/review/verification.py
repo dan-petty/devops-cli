@@ -2,16 +2,46 @@
 
 from __future__ import annotations
 
+import ast
 import json
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from devops_cli.ai.review.sanitization import _sanitize_prompt_boundary_tags
+from devops_cli.ai.review.sanitization import (
+    _mask_secrets_in_content,
+    _sanitize_prompt_boundary_tags,
+)
 from devops_cli.ai.review_schema import _SEVERITY_RANK, Finding, ReviewResult, extract_json_block
 from devops_cli.ai.task_loader import load_task_prompt
 
+logger = logging.getLogger(__name__)
+
 _VALIDATION_SYSTEM = load_task_prompt("verify_finding_system.md")
+
+_SECRET_PATH_KEYWORDS = {
+    ".env",
+    ".pem",
+    ".key",
+    ".cert",
+    ".crt",
+    ".pfx",
+    ".p12",
+    "id_rsa",
+    "id_ed25519",
+    "credentials",
+    "secret",
+    "secrets",
+    ".netrc",
+    ".dockercfg",
+}
+
+
+def _is_secret_path(path_str: str) -> bool:
+    """Check if file path indicates sensitive secrets or credential files."""
+    p_lower = path_str.lower()
+    return any(keyword in p_lower for keyword in _SECRET_PATH_KEYWORDS)
 
 
 def _extract_location_context(segment: str, location: str, context_lines: int = 12) -> str:
@@ -45,7 +75,7 @@ def _extract_location_context(segment: str, location: str, context_lines: int = 
     code = segment[code_start : fence_close if fence_close != -1 else code_start + 4000]
 
     if line_range is None:
-        return code[:2000]
+        return code
 
     lines = code.splitlines()
     lo = max(0, line_range[0] - 1 - context_lines)
@@ -114,6 +144,48 @@ def _find_related_file_metas(
     return related
 
 
+def _read_and_mask_related_file(
+    repo_root: Path, rel_path: str, max_chars: int = 1500
+) -> str | None:
+    """Read a related file safely from repo_root, masking secrets and boundary tags."""
+    if _is_secret_path(rel_path):
+        return None
+    try:
+        candidate = repo_root / rel_path
+        resolved = candidate.resolve()
+        if not resolved.is_relative_to(repo_root.resolve()) or not resolved.is_file():
+            return None
+        raw_text = resolved.read_text(encoding="utf-8", errors="replace")[:max_chars]
+        clean_text = _sanitize_prompt_boundary_tags(_mask_secrets_in_content(raw_text))
+        return f"```\n{clean_text}\n```"
+    except Exception as exc:
+        logger.debug("Failed reading related file %s: %s", rel_path, exc)
+        return None
+
+
+def _format_related_file_block(rmeta: Any, repo_root: Path | None) -> str | None:
+    """Format single related file analysis metadata block."""
+    if _is_secret_path(rmeta.path):
+        return None
+    r_lines: list[str] = [
+        f"### Related File: `{rmeta.path}`",
+        f"- **Purpose**: {rmeta.primary_purpose or 'N/A'}",
+    ]
+    if rmeta.key_symbols:
+        r_lines.append(f"- **Key Symbols**: {', '.join(rmeta.key_symbols[:10])}")
+    if rmeta.dependencies:
+        r_lines.append(f"- **Dependencies**: {', '.join(rmeta.dependencies[:10])}")
+    if rmeta.pseudocode:
+        r_lines.append("- **Pseudocode Outline**:")
+        r_lines.extend(f"  {step}" for step in rmeta.pseudocode[:15])
+
+    if repo_root:
+        masked_block = _read_and_mask_related_file(repo_root, rmeta.path)
+        if masked_block:
+            r_lines.append(masked_block)
+    return "\n".join(r_lines)
+
+
 def _build_validation_prompt(
     findings: list[Finding],
     all_segments: list[str],
@@ -129,7 +201,6 @@ def _build_validation_prompt(
     for f in findings:
         primary = ""
         additional: list[str] = []
-        finding_file = f.location.split(":")[0] if ":" in f.location else f.location
         for seg in all_segments:
             ctx = _extract_location_context(seg, f.location)
             if not ctx:
@@ -140,55 +211,36 @@ def _build_validation_prompt(
                 additional.append(ctx)
         parts: list[str] = []
         if primary:
-            parts.append(f"```\n{_sanitize_prompt_boundary_tags(primary[:1500])}\n```")
+            clean_prim = _sanitize_prompt_boundary_tags(_mask_secrets_in_content(primary[:1500]))
+            parts.append(f"```\n{clean_prim}\n```")
         for extra in additional[:2]:
-            parts.append(
-                f"*(related context)*\n```\n{_sanitize_prompt_boundary_tags(extra[:800])}\n```"
-            )
-        if parts:
-            excerpts.append(f"**{f.location}:**\n" + "\n".join(parts))
+            clean_extra = _sanitize_prompt_boundary_tags(_mask_secrets_in_content(extra[:800]))
+            parts.append(f"```\n{clean_extra}\n```")
+            if ctx:
+                clean_ctx = _sanitize_prompt_boundary_tags(ctx)
+                excerpts.append(f"### Finding: {f.title} ({f.location})\n```\n{clean_ctx}\n```")
+                break
 
+        # Grounding with file analysis metadata if available
+        loc_file = f.location.split(":")[0].strip()
         if analysis_metas:
-            rel_metas = _find_related_file_metas(f, finding_file, analysis_metas)
-            for rmeta in rel_metas:
-                r_lines: list[str] = [
-                    f"### Related File: `{rmeta.path}`",
-                    f"- **Purpose**: {rmeta.primary_purpose or 'N/A'}",
-                ]
-                if rmeta.key_symbols:
-                    r_lines.append(f"- **Key Symbols**: {', '.join(rmeta.key_symbols[:10])}")
-                if rmeta.dependencies:
-                    r_lines.append(f"- **Dependencies**: {', '.join(rmeta.dependencies[:10])}")
-                if rmeta.pseudocode:
-                    r_lines.append("- **Pseudocode Outline**:")
-                    r_lines.extend(f"  {step}" for step in rmeta.pseudocode[:15])
+            for rmeta in _find_related_file_metas(f, loc_file, analysis_metas):
+                block = _format_related_file_block(rmeta, repo_root)
+                if block:
+                    related_file_blocks.append(block)
 
-                if repo_root:
-                    r_path = repo_root / rmeta.path
-                    if r_path.exists() and r_path.is_file():
-                        try:
-                            r_code = r_path.read_text(encoding="utf-8", errors="replace")[:1200]
-                            r_lines.append(
-                                "```\n" + _sanitize_prompt_boundary_tags(r_code) + "\n```"
-                            )
-                        except Exception:
-                            pass
-                related_file_blocks.append("\n".join(r_lines))
-
-    code_section = (
-        "\n\n".join(excerpts)
-        if excerpts
-        else _sanitize_prompt_boundary_tags(
-            all_segments[0][:6000] + ("\u2026" if len(all_segments[0]) > 6000 else "")
-        )
-    )
+    if excerpts:
+        code_section = "\n\n".join(excerpts)
+    else:
+        full_code = "\n\n---\n\n".join(all_segments)
+        code_section = _sanitize_prompt_boundary_tags(_mask_secrets_in_content(full_code))
 
     related_section = ""
     if related_file_blocks:
         dedup_related = list(dict.fromkeys(related_file_blocks))
         related_section = (
             "\n\nRelated Analysis Metadata & Context:\n<untrusted_related_files>\n"
-            + "\n\n".join(dedup_related[:5])
+            + "\n\n".join(dedup_related[:10])
             + "\n</untrusted_related_files>\n\n"
         )
 
@@ -197,8 +249,8 @@ def _build_validation_prompt(
     try:
         from devops_cli.ai.rag.investigator import investigate_rag_context
 
-        for f in findings[:4]:
-            f_query = f"{f.title} {f.description[:100]}"
+        for f in findings:
+            f_query = f"{f.title} {f.description}"
             rag_ctx = investigate_rag_context(f_query, top_k=2)
             if rag_ctx and rag_ctx.has_results:
                 rag_verification_blocks.append(
@@ -225,7 +277,7 @@ def _build_validation_prompt(
         )
     )
     return (
-        "Verify each finding below against provided code and related analysis metadata.\n"
+        f"{_VALIDATION_SYSTEM}\n\n"
         "Examine related file pseudocode outlines and symbols to confirm, mitigate, "
         "or invalidate findings.\n"
         'Set "verified": true if the issue is clearly present and unmitigated.\n'
@@ -242,64 +294,44 @@ def _build_validation_prompt(
     )
 
 
-def _deterministic_pre_verification(finding: Finding, repo_root: Path | None = None) -> Finding:
-    """Apply deterministic static rules to prevent common hallucinations and false positives."""
-    import ast
-
-    loc_file = finding.location.split(":")[0].strip()
-    if not loc_file or finding.is_empty:
+def _check_syntax_error_hallucination(
+    finding: Finding, loc_file: str, file_path: Path, title_lower: str, desc_lower: str
+) -> Finding | None:
+    """Deterministically invalidate hallucinated Python syntax errors if AST parses cleanly."""
+    is_py_syntax = loc_file.endswith(".py") and any(
+        kw in title_lower or kw in desc_lower
+        for kw in ("syntax error", "syntaxerror", "invalid syntax", "malformed except")
+    )
+    if not (is_py_syntax and file_path.exists() and file_path.is_file()):
+        return None
+    try:
+        code_content = file_path.read_text(encoding="utf-8", errors="replace")
+        ast.parse(code_content)
         return finding.model_copy(
             update={
                 "verified": False,
-                "reportable": False,
+                "mitigated": False,
                 "status": "INVALIDATED",
-                "invalidation_reason": "No valid target file location or empty finding",
+                "invalidation_reason": "Syntax validation passed cleanly via ast.parse",
             }
         )
-    root = (repo_root or Path.cwd()).resolve()
-    candidate = Path(loc_file)
-    file_path = candidate if candidate.is_absolute() else (root / candidate)
-    try:
-        resolved_file = file_path.resolve()
-        if not resolved_file.is_relative_to(root):
-            return finding
-        file_path = resolved_file
-    except (ValueError, OSError):
-        return finding
+    except SyntaxError:
+        return None
 
-    title_lower = finding.title.lower()
-    desc_lower = finding.description.lower()
 
-    # 1. Deterministic Python Syntax Verification
-    if loc_file.endswith(".py") and any(
-        kw in title_lower or kw in desc_lower
-        for kw in ("syntax error", "syntaxerror", "invalid syntax", "malformed except")
-    ):
-        if file_path.exists() and file_path.is_file():
-            try:
-                code_content = file_path.read_text(encoding="utf-8", errors="replace")
-                ast.parse(code_content)
-                # AST parsed cleanly - the reported syntax error is a hallucination
-                return finding.model_copy(
-                    update={
-                        "verified": False,
-                        "mitigated": False,
-                        "status": "INVALIDATED",
-                        "invalidation_reason": "Syntax validation passed cleanly via ast.parse",
-                    }
-                )
-            except SyntaxError:
-                pass
-
-    # 2. Template / Example Configuration Placeholder Mitigation
+def _check_template_placeholder(
+    finding: Finding, loc_file: str, title_lower: str, desc_lower: str
+) -> Finding | None:
+    """Mitigate findings that flag placeholder credentials in template/example files."""
     is_example_file = any(
         loc_file.endswith(sfx) or sfx in loc_file
         for sfx in (".example.", "example.yaml", "example.json", ".env.example", "template.")
     )
-    if is_example_file and any(
+    has_secret_kw = any(
         kw in title_lower or kw in desc_lower
         for kw in ("secret", "token", "password", "key", "credential")
-    ):
+    )
+    if is_example_file and has_secret_kw:
         return finding.model_copy(
             update={
                 "verified": False,
@@ -308,8 +340,179 @@ def _deterministic_pre_verification(finding: Finding, repo_root: Path | None = N
                 "invalidation_reason": "Placeholder in example configuration template",
             }
         )
+    return None
+
+
+_DOC_AVOIDANCE_MARKERS = (
+    "avoid",
+    "prevent",
+    "mitigat",
+    "never",
+    "do not",
+    "anti-pattern",
+    "insecure example",
+    "vulnerability",
+    "risk",
+    "guideline",
+    "standard",
+    "rule",
+    "benchmark",
+    "rubric",
+    "prompt",
+    "expected",
+    "cwe-",
+    "cve-",
+    "owasp",
+    "ssrf",
+    "security",
+)
+
+
+_DOC_INVALIDATION_REASON = (
+    "Documentation explaining known vulnerabilities or insecure "
+    "configurations in the context of avoiding said configuration"
+)
+
+
+def _check_documentation_avoidance(
+    finding: Finding, loc_file: str, file_path: Path, title_lower: str, desc_lower: str
+) -> Finding | None:
+    """Invalidate findings in documentation that explain vulnerabilities in context of avoidance."""
+    is_doc_file = (
+        loc_file.endswith((".md", ".rst", ".adoc", ".txt"))
+        or "docs/" in loc_file
+        or "knowledge_base/" in loc_file
+        or "ai/tasks/" in loc_file
+        or "tutorials/" in loc_file
+    )
+    if not is_doc_file:
+        return None
+
+    if not (file_path.exists() and file_path.is_file()):
+        return finding.model_copy(
+            update={
+                "verified": False,
+                "mitigated": True,
+                "reportable": False,
+                "status": "INVALIDATED",
+                "invalidation_reason": _DOC_INVALIDATION_REASON,
+            }
+        )
+
+    try:
+        doc_text = file_path.read_text(encoding="utf-8", errors="replace").lower()
+        if any(
+            marker in title_lower or marker in desc_lower or marker in doc_text
+            for marker in _DOC_AVOIDANCE_MARKERS
+        ):
+            return finding.model_copy(
+                update={
+                    "verified": False,
+                    "mitigated": True,
+                    "reportable": False,
+                    "status": "INVALIDATED",
+                    "invalidation_reason": _DOC_INVALIDATION_REASON,
+                }
+            )
+    except Exception:
+        pass
+    return None
+
+
+def _deterministic_pre_verification(finding: Finding, repo_root: Path | None = None) -> Finding:
+    """Run local deterministic AST/syntax/rule checks to invalidate obvious false positives."""
+    if not repo_root:
+        return finding
+
+    loc_file = finding.location.split(":")[0].strip()
+    if not loc_file or _is_secret_path(loc_file):
+        return finding
+
+    try:
+        resolved_file = (repo_root / loc_file).resolve()
+        resolved_root = repo_root.resolve()
+        if not resolved_file.is_relative_to(resolved_root):
+            return finding
+        file_path = resolved_file
+    except ValueError, OSError:
+        return finding
+
+    title_lower = finding.title.lower()
+    desc_lower = finding.description.lower()
+
+    syntax_res = _check_syntax_error_hallucination(
+        finding, loc_file, file_path, title_lower, desc_lower
+    )
+    if syntax_res:
+        return syntax_res
+
+    tmpl_res = _check_template_placeholder(finding, loc_file, title_lower, desc_lower)
+    if tmpl_res:
+        return tmpl_res
+
+    doc_res = _check_documentation_avoidance(finding, loc_file, file_path, title_lower, desc_lower)
+    if doc_res:
+        return doc_res
 
     return finding
+
+
+def _apply_single_finding_verification(
+    f: Finding, item: dict[str, Any] | None, now_iso: str
+) -> Finding:
+    """Apply parsed LLM verification metadata to a single Finding."""
+    if not isinstance(item, dict):
+        return f
+
+    ver_matched = [str(x) for x in item.get("verified_criteria_matched", []) if str(x)]
+    inv_matched = [str(x) for x in item.get("invalidated_criteria_matched", []) if str(x)]
+    is_v = bool(item.get("verified", True))
+    is_m = bool(item.get("mitigated", False))
+
+    if inv_matched:
+        is_v = False
+        is_m = True
+        status_val = "INVALIDATED"
+        is_rep = False
+    elif is_m:
+        status_val = "MITIGATED"
+        is_rep = False
+    elif is_v:
+        status_val = "VERIFIED"
+        is_rep = bool(item.get("reportable", True))
+    else:
+        status_val = "UNVERIFIED"
+        is_rep = False
+
+    conf_val = item.get("confidence_score")
+    if conf_val is not None:
+        try:
+            conf: float | None = max(0.0, min(1.0, float(conf_val)))
+        except ValueError, TypeError:
+            conf = f.confidence_score
+    elif f.verification_criteria:
+        conf = round(len(ver_matched) / max(1, len(f.verification_criteria)), 2)
+    else:
+        conf = f.confidence_score
+
+    updates: dict[str, object] = {
+        "verified": is_v,
+        "mitigated": is_m,
+        "status": status_val,
+        "reportable": is_rep,
+        "confidence_score": conf,
+        "verified_criteria_matched": ver_matched,
+        "invalidated_criteria_matched": inv_matched,
+        "verified_by": "llm",
+        "verified_at": now_iso,
+    }
+    new_sev = str(item.get("severity", "")).upper().strip()
+    if new_sev and new_sev in _SEVERITY_RANK:
+        updates["severity"] = new_sev
+    new_loc = str(item.get("location", "")).strip()
+    if new_loc and new_loc != f.location:
+        updates["location"] = new_loc
+    return f.model_copy(update=updates)
 
 
 def _validate_segment_findings(
@@ -351,65 +554,11 @@ def _validate_segment_findings(
             validated: list[Finding] = []
             now_iso = datetime.now().isoformat()
             for idx, f in enumerate(result.findings):
-                # If deterministically invalidated, preserve its status
                 if f.status == "INVALIDATED":
                     validated.append(f)
                     continue
-
                 item = data[idx] if idx < len(data) else None
-                if not isinstance(item, dict):
-                    validated.append(f)
-                    continue
-                ver_matched = [str(x) for x in item.get("verified_criteria_matched", []) if str(x)]
-                inv_matched = [
-                    str(x) for x in item.get("invalidated_criteria_matched", []) if str(x)
-                ]
-                is_v = bool(item.get("verified", True))
-                is_m = bool(item.get("mitigated", False))
-                is_rep = bool(item.get("reportable", is_v and not is_m and not inv_matched))
-
-                if inv_matched:
-                    is_v = False
-                    is_m = True
-                    status_val = "INVALIDATED"
-                    is_rep = False
-                elif is_m:
-                    status_val = "MITIGATED"
-                    is_rep = False
-                elif is_v:
-                    status_val = "VERIFIED"
-                else:
-                    status_val = "UNVERIFIED"
-
-                conf_val = item.get("confidence_score")
-                if conf_val is not None:
-                    try:
-                        conf: float | None = max(0.0, min(1.0, float(conf_val)))
-                    except (ValueError, TypeError):
-                        conf = f.confidence_score or 0.8
-                elif f.verification_criteria:
-                    conf = round(len(ver_matched) / max(1, len(f.verification_criteria)), 2)
-                else:
-                    conf = 0.9 if is_v else 0.4
-
-                updates: dict[str, object] = {
-                    "verified": is_v,
-                    "mitigated": is_m,
-                    "status": status_val,
-                    "reportable": is_rep,
-                    "confidence_score": conf,
-                    "verified_criteria_matched": ver_matched,
-                    "invalidated_criteria_matched": inv_matched,
-                    "verified_by": "llm",
-                    "verified_at": now_iso,
-                }
-                new_sev = str(item.get("severity", "")).upper().strip()
-                if new_sev and new_sev in _SEVERITY_RANK:
-                    updates["severity"] = new_sev
-                new_loc = str(item.get("location", "")).strip()
-                if new_loc and new_loc != f.location:
-                    updates["location"] = new_loc
-                validated.append(f.model_copy(update=updates))
+                validated.append(_apply_single_finding_verification(f, item, now_iso))
             return result.model_copy(update={"findings": validated}), proc_sec, b_info
     except Exception:
         pass

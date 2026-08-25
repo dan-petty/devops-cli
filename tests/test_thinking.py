@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from devops_cli.ai.thinking import (
+from devops_cli.ai.thinking_stream import (
     ThinkingStreamProcessor,
     extract_think_blocks,
     strip_think_blocks,

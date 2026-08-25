@@ -5,7 +5,45 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.13] - 2026-08-22
+## [0.2.0] - 2026-08-25
+
+### Added
+- **Published DevContainer Image Scaffolding Engine (`devops devcontainer init`, `devops_cli.commands.devcontainer`)**:
+  - `devops devcontainer init` now defaults to the pre-built, published container image `ghcr.io/dan-petty/devops-cli/devcontainer:latest`.
+  - Streamlined `devcontainer.json` generation omitting redundant feature blocks when using the published image, eliminating unnecessary tool builds in child repositories.
+  - Added `--home-volume` option to configure custom persistent `/home/vscode` named volumes.
+  - Added `--force` (`-f`) flag for in-place re-scaffolding of `.devcontainer/` and `.vscode/mcp.json`.
+- **Pre-baked DevContainer Dockerfile & uv Integration**:
+  - Created `.devcontainer/Dockerfile` pre-baking standalone `uv` and `uvx` binaries from `ghcr.io/astral-sh/uv:latest` and installing `devops-cli` globally.
+  - Added self-bootstrapping lifecycle hooks in `postCreateCommand` for seamless container startup across all target repositories.
+- **Pull Request DevContainer Image Publishing (`.github/workflows/ci.yml`)**:
+  - Added automated GitHub Container Registry (GHCR) image builds for Pull Requests tagged with `pr-<number>` (without the `latest` tag) to enable pre-merge devcontainer validation.
+- **Fault-Tolerant Code Review Pipeline (`devops_cli.ai.review.pipeline`)**:
+  - Graceful per-file error isolation across all 6 review pipeline stages (pre-analysis, payload initialization, multi-persona review, verification, re-ranking, and report generation).
+  - Skips failing files without crashing multi-file reviews and outputs dedicated Rich console tables and a Markdown `## Skipped / Errored Files` section in `review.md`.
+- **Comprehensive Distributed Tracing & Subcommand Hierarchy (`devops_cli.telemetry`)**:
+  - Unified command proxy delegation in `main.py` nesting all child commands, subprocess executions, and multi-agent pipeline stages under the root `cli.<subcommand>` span.
+  - Instrumented OpenTelemetry spans across workspace RAG indexing (`ai.rag.index_workspace`, `ai.rag.upsert_chunk_batch`, `ai.rag.embed_texts`, `ai.rag.ollama_embed_batch`, `qdrant.upsert_points`).
+  - Added `BaseException` handling in `trace_span` to capture `KeyboardInterrupt` and `SIGINT` cancellations with error tags and status attributes.
+
+### Changed
+- **Zero Hardcoded Scoring Policy & Agent Instruction Standards**:
+  - Eliminated synthetic confidence floats, fallback weights, and static scoring defaults project-wide.
+  - All review findings and quality ratings originate strictly from native external security scanners (Bandit, Trivy, OSV, Pluto) or structured LLM responses.
+- **RAG Collection Isolation**:
+  - Separated workspace indexing and knowledge base indexing into distinct Qdrant collections (`devops_code`, `devops_docs` vs `kb_code`, `kb_docs`) to prevent point deletion collisions.
+- **Performance Optimizations & In-Memory Caching**:
+  - Optimized repository file discovery in `runner.py` by eliminating redundant `git check-ignore` subprocesses for files already sourced from `git ls-files --exclude-standard`.
+  - Cached compiled `.gitignore` pattern matching using `@functools.lru_cache` on `pathspec.PathSpec`.
+  - Added RAG investigation memoization (`_INVESTIGATION_CACHE`) with a 60-second TTL and client reuse.
+  - Cached `QdrantClient.is_alive()` status (15-second TTL) to eliminate repetitive HTTP collection probes.
+  - Added robust integer coercion for `offset` and `max_bytes` in the `read_file` agent tool.
+- **Default Git Configuration**:
+  - Automatically configured default branch `main` and `push.autoSetupRemote true` across DevContainer post-start lifecycles.
+- **Pure uv Toolchain Standardization**:
+  - Replaced legacy pip invocations across all Dockerfile builds and devcontainer templates with pure `uv` commands (`uv tool install` and `uv pip install --system`).
+
+## [0.1.13] - 2026-08-24
 
 ### Added
 - **Embedding Model Benchmark Suite (`devops ai benchmark --type embedding`, `devops_cli.ai.benchmark`)**:
@@ -79,7 +117,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Jaeger Query UI and OTLP collector deployment manifests (`k8s/otel/jaeger.yaml`).
   - Customized Grafana dashboards for AI inference latency, token metrics, and Kubernetes cluster health (`k8s/monitoring/dashboards/`).
 - **DevContainer Background Git Daemon**:
-  - Native automated background Git daemon with `--export-all` across `/workspaces/devops-cli/k8s` and `/workspaces/devops-cli/repos` during container post-start lifecycle.
+  - Native automated background Git daemon with `--export-all` across `k8s` and `repos` during container post-start lifecycle.
 - **GitHub PR Governance & Remote CI Inspection (`devops pr`)**:
   - Pull request lifecycle management (`create`, `status`, `checks`, `view`, `diff`) with automated release branch base targeting and CI check monitoring.
 - **AI Review Subsystem Modularization & Decoupling**:

@@ -20,6 +20,18 @@ def reset_dry_run_state():
     os.environ.pop("DEVOPS_CLI_DRY_RUN", None)
 
 
+@pytest.fixture(autouse=True)
+def isolate_llm_response_cache(tmp_path: Path):
+    """Ensure LLM response cache is isolated per test to prevent cross-test cache hits."""
+    from devops_cli.ai.response_cache import get_llm_response_cache, reset_llm_response_cache
+
+    reset_llm_response_cache()
+    test_cache_dir = tmp_path / "test_llm_cache"
+    get_llm_response_cache(cache_dir=test_cache_dir, enabled=True)
+    yield
+    reset_llm_response_cache()
+
+
 @pytest.fixture
 def tmp_ssh_dir(tmp_path: Path) -> Path:
     ssh_dir = tmp_path / ".ssh"

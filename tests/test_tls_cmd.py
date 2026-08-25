@@ -25,7 +25,7 @@ def test_tls_ca_command_live(tmp_path: Path) -> None:
 
 def test_tls_ca_command_dry_run(tmp_path: Path) -> None:
     """devops tls ca --dry-run prints json payload without creating files."""
-    from devops_cli.core.dry_run import set_dry_run
+    from devops_cli.dry_run import set_dry_run
 
     out_dir = tmp_path / "dry_run_ca"
     set_dry_run(True)
@@ -99,7 +99,7 @@ def test_tls_inspect_and_verify_command(tmp_path: Path) -> None:
 
 def test_tls_enable_k8s_dry_run(tmp_path: Path) -> None:
     """devops tls enable-k8s --dry-run prints plan without cluster calls."""
-    from devops_cli.core.dry_run import set_dry_run
+    from devops_cli.dry_run import set_dry_run
 
     set_dry_run(True)
     try:

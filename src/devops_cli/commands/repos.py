@@ -6,10 +6,7 @@ import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated
 
-import git as gitlib
 import typer
-from rich import print as rprint
-from rich.console import Console
 from rich.progress import track
 from rich.table import Table
 
@@ -21,7 +18,9 @@ from devops_cli.config.constants import (
     CONST_VSCODE_CLI,
     CONST_VSCODE_WORKSPACE_FILE,
 )
+from devops_cli.config.settings import Settings, get_github_token, load_settings
 from devops_cli.core.cli import new_typer, repo_label
+from devops_cli.dry_run import is_dry_run
 from devops_cli.git.operations import (
     clone_repo,
     fetch_all,
@@ -29,29 +28,28 @@ from devops_cli.git.operations import (
     pull_tracking,
 )
 from devops_cli.lang import MESSAGES
+from devops_cli.output import (
+    print_error,
+    print_info,
+    print_success,
+    print_table,
+    print_warning,
+    render_dry_run_result,
+)
 
 if TYPE_CHECKING:
-    from devops_cli.config.settings import Settings
     from devops_cli.github.client import GitHubClient
 
 app = new_typer(help="Clone and manage repositories.", no_args_is_help=True)
-console = Console()
+
+
+# =============================================================================
+# Repos & Workspace Synchronization Helpers
+# =============================================================================
 
 
 def _github_https_url(full_name: str) -> str:
     return f"{CONST_URL_SCHEME_HTTPS}{CONST_GITHUB_HOST}/{full_name}{CONST_GITHUB_REPO_SUFFIX}"
-
-
-def load_settings() -> Settings:
-    from devops_cli.config.settings import load_settings as _load_settings
-
-    return _load_settings()
-
-
-def get_github_token(settings: Settings) -> str | None:
-    from devops_cli.config.settings import get_github_token as _get_github_token
-
-    return _get_github_token(settings)
 
 
 def _require_client(settings: Settings) -> GitHubClient:
@@ -59,9 +57,9 @@ def _require_client(settings: Settings) -> GitHubClient:
 
     token = get_github_token(settings)
     if not token:
-        rprint(
-            "[red]GitHub token not configured. "
-            "Run 'devops config init' or set DEVOPS_CLI_GITHUB_TOKEN.[/red]"
+        print_error(
+            "GitHub token not configured. Run 'devops config init' or set DEVOPS_CLI_GITHUB_TOKEN.",
+            prefix=False,
         )
         raise typer.Exit(1)
     return GitHubClient(token)
@@ -69,6 +67,8 @@ def _require_client(settings: Settings) -> GitHubClient:
 
 def _current_branch(repo_dir: Path) -> str:
     try:
+        import git as gitlib
+
         repo = gitlib.Repo(str(repo_dir))
         return "HEAD detached" if repo.head.is_detached else repo.active_branch.name
     except Exception:
@@ -93,16 +93,20 @@ def _reload_workspace(workspace_file: Path) -> None:
             check=False,
             timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
         )
-    except (OSError, subprocess.SubprocessError):
+    except OSError, subprocess.SubprocessError:
         from devops_cli.lang import MESSAGES
 
-        rprint(f"[yellow]{MESSAGES.messages.vscode_cli_unavailable}[/yellow]")
+        print_warning(MESSAGES.messages.vscode_cli_unavailable, prefix=False)
 
 
-def _sync_and_reload_workspace(root: Path, workspace_file: Path) -> None:
-    resolved_workspace_file = _resolve_workspace_file(root, workspace_file)
-    sync_from_repos(root, resolved_workspace_file)
-    _reload_workspace(resolved_workspace_file)
+def _sync_and_reload_workspace(root: Path, ws_file: Path) -> None:
+    sync_from_repos(root, ws_file)
+    _reload_workspace(ws_file)
+
+
+# =============================================================================
+# Command: devops repos clone-org
+# =============================================================================
 
 
 @app.command("clone-org")
@@ -116,23 +120,19 @@ def clone_org(
     forks: Annotated[bool, typer.Option("--forks/--no-forks")] = False,
 ) -> None:
     """Clone all repos from a GitHub org into repos/<org>/."""
-    from devops_cli.dry_run import CommandDryRunResult, is_dry_run
-
     if is_dry_run():
-        res = CommandDryRunResult(
+        render_dry_run_result(
             command="devops repos clone-org",
             target=org,
             action="clone_org_repositories",
             details={"org": org, "private": private, "forks": forks},
         )
-        rprint("[yellow][dry-run][/yellow] Command response:")
-        console.print_json(res.model_dump_json(indent=2))
         return
 
     settings = load_settings()
     org_name = org or settings.github.default_org
     if not org_name:
-        rprint(f"[red]{MESSAGES.repos.no_org_configured}[/red]")
+        print_error(MESSAGES.repos.no_org_configured, prefix=False)
         raise typer.Exit(1)
 
     root = (base_dir or settings.repos.base_dir).resolve()
@@ -147,22 +147,29 @@ def clone_org(
     org_dir = root / org_name
     org_dir.mkdir(parents=True, exist_ok=True)
 
-    rprint(MESSAGES.repos.cloning_org_repos.format(count=len(repos), dest=org_dir))
+    print_info(
+        MESSAGES.repos.cloning_org_repos.format(count=len(repos), dest=org_dir), prefix=False
+    )
     for repo in track(repos, description="Cloning..."):
         dest = (org_dir / repo.name).resolve()
         if not dest.is_relative_to(org_dir.resolve()):
-            rprint(f"  [red]skip[/red] {repo.name} (path traversal detected)")
+            print_error(f"skip {repo.name} (path traversal detected)")
             continue
         if dest.exists():
-            rprint(f"  [yellow]skip[/yellow] {repo.name} (already exists)")
+            print_warning(f"skip {repo.name} (already exists)")
             continue
         try:
             clone_repo(_github_https_url(repo.full_name), dest)
-            rprint(f"  [green]done[/green] {repo.name}")
-        except (gitlib.exc.GitError, OSError, subprocess.SubprocessError) as exc:
-            rprint(f"  [red]fail[/red] {repo.name}: {exc}")
+            print_success(f"done {repo.name}")
+        except (OSError, subprocess.SubprocessError, Exception) as exc:
+            print_error(f"fail {repo.name}: {exc}")
 
     _sync_and_reload_workspace(root, settings.workspace.file)
+
+
+# =============================================================================
+# Command: devops repos clone
+# =============================================================================
 
 
 @app.command()
@@ -171,17 +178,13 @@ def clone(
     base_dir: Annotated[Path | None, typer.Option("--base-dir", "-d")] = None,
 ) -> None:
     """Clone an individual repository into repos/_standalone/<name>/."""
-    from devops_cli.dry_run import CommandDryRunResult, is_dry_run
-
     if is_dry_run():
-        res = CommandDryRunResult(
+        render_dry_run_result(
             command="devops repos clone",
             target=url,
             action="clone_single_repository",
             details={"url": url},
         )
-        rprint("[yellow][dry-run][/yellow] Command response:")
-        console.print_json(res.model_dump_json(indent=2))
         return
 
     settings = load_settings()
@@ -192,21 +195,26 @@ def clone(
     raw_name = Path(url.rstrip("/").split("/")[-1].removesuffix(CONST_GITHUB_REPO_SUFFIX)).name
     dest = (dest_dir / raw_name).resolve()
     if not dest.is_relative_to(dest_dir.resolve()):
-        rprint("[red]Invalid repository destination path.[/red]")
+        print_error(MESSAGES.repos.invalid_dest_path, prefix=False)
         raise typer.Exit(1)
 
     if dest.exists():
-        rprint(f"[yellow]Repository already exists at {dest}[/yellow]")
+        print_warning(f"Repository already exists at {dest}", prefix=False)
         raise typer.Exit(1)
 
     if url.startswith("-"):
-        rprint("[red]Invalid repository URL: must not start with a hyphen.[/red]")
+        print_error(MESSAGES.repos.invalid_url_hyphen, prefix=False)
         raise typer.Exit(1)
 
-    rprint(f"Cloning [dim]{url}[/dim] → [dim]{dest}[/dim]")
+    print_info(f"Cloning [dim]{url}[/dim] → [dim]{dest}[/dim]", prefix=False)
     clone_repo(url, dest)
     _sync_and_reload_workspace(root, settings.workspace.file)
-    rprint("[green]Done.[/green]")
+    print_success(MESSAGES.repos.done, prefix=False)
+
+
+# =============================================================================
+# Command: devops repos list
+# =============================================================================
 
 
 @app.command("list")
@@ -214,23 +222,19 @@ def list_repos(
     base_dir: Annotated[Path | None, typer.Option("--base-dir", "-d")] = None,
 ) -> None:
     """List all cloned repositories."""
-    from devops_cli.dry_run import CommandDryRunResult, is_dry_run
-
     if is_dry_run():
-        res = CommandDryRunResult(
+        render_dry_run_result(
             command="devops repos list",
             action="list_cloned_repositories",
             details={},
         )
-        rprint("[yellow][dry-run][/yellow] Command response:")
-        console.print_json(res.model_dump_json(indent=2))
         return
 
     settings = load_settings()
     root = base_dir or settings.repos.base_dir
 
     if not root.exists():
-        rprint(f"[yellow]Repos directory not found: {root}[/yellow]")
+        print_warning(f"Repos directory not found: {root}", prefix=False)
         raise typer.Exit(0)
 
     table = Table(title=f"Cloned repositories — {root}")
@@ -245,7 +249,12 @@ def list_repos(
             _current_branch(repo_dir),
         )
 
-    console.print(table)
+    print_table(table)
+
+
+# =============================================================================
+# Command: devops repos sync / update
+# =============================================================================
 
 
 @app.command("sync")
@@ -255,16 +264,12 @@ def update(
     pull: Annotated[bool, typer.Option("--pull/--no-pull")] = True,
 ) -> None:
     """Fetch (and optionally pull) all tracking branches across repos."""
-    from devops_cli.dry_run import CommandDryRunResult, is_dry_run
-
     if is_dry_run():
-        res = CommandDryRunResult(
+        render_dry_run_result(
             command="devops repos sync",
             action="sync_workspace_repositories",
             details={"pull": pull},
         )
-        rprint("[yellow][dry-run][/yellow] Command response:")
-        console.print_json(res.model_dump_json(indent=2))
         return
 
     settings = load_settings()
@@ -272,7 +277,7 @@ def update(
 
     repos_list = list(iter_workspace_repos(root))
     if not repos_list:
-        rprint("[yellow]No repositories found.[/yellow]")
+        print_warning(MESSAGES.repos.no_repos_found, prefix=False)
         raise typer.Exit(0)
 
     for repo_dir in track(repos_list, description="Updating..."):
@@ -281,8 +286,8 @@ def update(
             fetch_all(repo_dir)
             if pull:
                 pull_tracking(repo_dir)
-            rprint(f"  [green]✓[/green] {label}")
-        except (gitlib.exc.GitError, OSError, subprocess.SubprocessError) as exc:
-            rprint(f"  [red]✗[/red] {label}: {exc}")
+            print_success(f"{label}")
+        except (OSError, subprocess.SubprocessError, Exception) as exc:
+            print_error(f"{label}: {exc}")
 
     _sync_and_reload_workspace(root, settings.workspace.file)

@@ -1,6 +1,9 @@
 {
   "name": "devops-cli",
-  "image": "python:3.14-trixie",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
   "features": {
     "ghcr.io/devcontainers/features/common-utils:2": {
       "installZsh": "true",
@@ -100,8 +103,8 @@
       "onAutoForward": "ignore"
     }
   },
-  "postCreateCommand": "uv run devops devcontainer post-create",
-  "postStartCommand": "uv run devops devcontainer post-start",
+  "postCreateCommand": "uv sync && (command -v sudo >/dev/null && sudo ln -sf /workspaces/devops-cli/.venv/bin/devops /usr/local/bin/devops || true) && devops devcontainer post-create",
+  "postStartCommand": "devops devcontainer post-start",
   "customizations": {
     "vscode": {
       "extensions": [

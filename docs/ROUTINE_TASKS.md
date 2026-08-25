@@ -22,7 +22,7 @@ The following matrix categorizes all project routine tasks by operational layer,
 | Operational Cadence | Routine Task | Sequence Order | Primary Command(s) | Methodology & Scope | Success Verification Gate |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **Inner Loop (Daily / Per Edit)** | Dependency Synchronization | Step 1 | `uv sync` | Synchronizes virtual environment with `uv.lock` | Clean exit; all dependencies resolved |
-| **Inner Loop (Daily / Per Edit)** | Constant & Config Centralization | Step 2 | Manual / Refactor | Centralize literals in `constants.py`, `defaults.py`, `lang/en.py` | No hardcoded string literals in command code |
+| **Inner Loop (Daily / Per Edit)** | Constant & Config Centralization | Step 2 | Manual / Refactor | Centralize literals in `constants.py`, `defaults.py`, `lang/en/` | No hardcoded string literals in command code |
 | **Inner Loop (Daily / Per Edit)** | Targeted Linting & Formatting | Step 3 | `uv run ruff check --fix <file>` | Fast focused linting on modified files | `ruff check` reports 0 errors |
 | **Inner Loop (Daily / Per Edit)** | Targeted Type Checking | Step 4 | `uv run mypy --strict <file>` | Strict type validation on modified modules | 0 type errors across modified files |
 | **Inner Loop (Daily / Per Edit)** | Targeted Unit Testing | Step 5 | `uv run pytest tests/test_<module>.py` | Fast isolated testing of active features/fixes | Targeted tests pass |
@@ -66,10 +66,10 @@ flowchart TD
 #### Step-by-Step Order:
 1. **Sync Dependencies (`uv sync`)**: Always ensure `.venv` is aligned with `uv.lock` before starting work.
 2. **Centralize Constants, Config & Defaults**:
-   - Put configuration options and environment variable schemas in [`src/devops_cli/config/settings.py`](file:///workspaces/devops-cli/src/devops_cli/config/settings.py).
-   - Put constants, regexes, and protocol strings in [`src/devops_cli/config/constants.py`](file:///workspaces/devops-cli/src/devops_cli/config/constants.py).
-   - Put timeouts and numeric defaults in [`src/devops_cli/config/defaults.py`](file:///workspaces/devops-cli/src/devops_cli/config/defaults.py).
-   - Put user-facing messages, summaries, and error logs in [`src/devops_cli/lang/en.py`](file:///workspaces/devops-cli/src/devops_cli/lang/en.py).
+   - Put configuration options and environment variable schemas in [`src/devops_cli/config/settings.py`](../src/devops_cli/config/settings.py).
+   - Put constants, regexes, and protocol strings in [`src/devops_cli/config/constants.py`](../src/devops_cli/config/constants.py).
+   - Put timeouts and numeric defaults in [`src/devops_cli/config/defaults.py`](../src/devops_cli/config/defaults.py).
+   - Put user-facing messages, summaries, and error logs in [`src/devops_cli/lang/en/`](../src/devops_cli/lang/en/).
 3. **Format & Lint Target Files**:
    ```bash
    uv run ruff check --fix <modified_paths>

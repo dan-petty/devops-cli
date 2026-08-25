@@ -3,64 +3,27 @@
 from __future__ import annotations
 
 import logging
+import math
 import random
 import re
+from collections import Counter
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
+
+from devops_cli.ai.kb import get_knowledge_base_dir, list_knowledge_base_articles
+from devops_cli.ai.task_loader import load_task_prompt
 
 logger = logging.getLogger(__name__)
 
+
+def get_builtin_test_document() -> str:
+    """Load built-in test document specification from tasks/benchmark_builtin_spec.md."""
+    return load_task_prompt("benchmark_builtin_spec.md")
+
+
 # Built-in comprehensive DevOps specification used when no document path is provided
-BUILTIN_TEST_DOCUMENT: str = """# Enterprise DevOps & Agentic Infrastructure Architecture
-
-## 1. Zero-Trust Security, Secret Storage & Network Egress
-Modern cloud-native workstations and CI/CD automation systems must operate under zero-trust.
-Plaintext API tokens and cloud keys must never be stored in files, env vars, or logs.
-The devops_cli.config.keyring subsystem interfaces directly with native OS secret stores:
-- Linux: SecretService / D-Bus Secret Service API (freedesktop secret storage)
-- macOS: Apple Keychain Services API
-- Windows: Windows Credential Manager
-All outbound HTTP requests dispatched by AI agents must pass rigorous SSRF validation.
-Destination hostnames must resolve to publicly routable IP addresses verified via ipaddress.
-Requests reaching RFC 1918 private subnets, link-local, loopback, or metadata endpoints are blocked.
-
-## 2. Kubernetes Cluster Orchestration & Pod Security Standards
-Kubernetes deployments in local, homelab, and edge environments enforce Pod Security Standards.
-Every container manifest must declare explicit security contexts at Pod and Container scopes:
-- runAsNonRoot: true with explicit non-root UID/GID (e.g., 65532:65532)
-- readOnlyRootFilesystem: true to prevent runtime binary alteration
-- allowPrivilegeEscalation: false
-- capabilities.drop: [ALL] to strip unnecessary Linux capabilities
-Temporary scratch storage must be mounted via in-memory emptyDir volumes at /tmp and /data.
-Ingress routing is managed via Traefik IngressRoute with Let's Encrypt TLS certificates.
-NetworkPolicies enforce default-deny ingress and egress isolation across namespaces.
-
-## 3. High-Performance Asynchronous Python Architecture & Type Safety
-The DevOps CLI codebase is built upon Python 3.14+ runtime features, adhering to mypy --strict.
-Data structures and configuration schemas are declared as immutable Pydantic v2 models.
-Field validation uses @field_validator and serialization is via model.model_dump_json().
-Static code analysis is performed using Python's native ast module.
-The AST CodeScanner parses Python source trees into syntax trees without executing arbitrary code,
-extracting FunctionDef, AsyncFunctionDef, and ClassDef nodes to compute McCabe complexity.
-For HTTP communication, httpx2 clients enforce strict request timeouts and connection pooling.
-
-## 4. CI/CD Pipeline Optimization, Distroless Containers & Quality Gates
-Continuous integration pipelines running on GitHub Actions must maximize speed and determinism.
-Dependency resolution is accelerated using uv sync and astral-sh/setup-uv caching.
-Multi-stage Docker builds separate build toolchains from runtime containers:
-- Stage 1: Build virtual environment and compile native extensions using uv
-- Stage 2: Copy virtual environment into distroless with nonroot user privileges
-Workflow concurrency groups terminate obsolete runs upon rapid commit pushes.
-The devops ci quality gate enforces pre-commit verification including actionlint and ruff.
-
-## 5. Cloud Infrastructure, OpenTofu State Locking & Observability
-Infrastructure as Code (IaC) is provisioned using OpenTofu and Terraform configurations:
-- S3 backend storage with AES-256 server-side encryption
-- DynamoDB state locking tables to prevent conflicting concurrent terraform apply executions
-Observability telemetry is collected via OpenTelemetry Collector DaemonSets forwarding OTLP spans.
-Prometheus scrapes operational metrics at 15-second intervals for SLA monitoring.
-Vector similarity search for code intelligence is indexed into Qdrant vector databases.
-"""
+BUILTIN_TEST_DOCUMENT: str = get_builtin_test_document()
 
 
 @dataclass(frozen=True)
@@ -87,6 +50,198 @@ class SectionRetrievalTask:
     category: str
 
 
+_DOMAIN_KB_TOPIC_MAP: dict[str, list[str]] = {
+    "security": [
+        "it_domains/topics/zero_trust_security_and_compliance.md",
+        "devops_cli/tasks/security_audit_and_scanning.md",
+        "it_domains/tools/bandit.md",
+        "it_domains/tools/trivy.md",
+        "it_domains/tools/keyring.md",
+    ],
+    "kubernetes": [
+        "it_domains/topics/cloud_native_kubernetes_and_gitops.md",
+        "devops_cli/tasks/k8s_stack_deployment.md",
+        "it_domains/tools/kubectl.md",
+        "it_domains/tools/helm.md",
+        "it_domains/tools/kustomize.md",
+        "it_domains/tools/minikube.md",
+        "it_domains/tools/argocd.md",
+        "it_domains/tools/kubelinter_popeye_pluto.md",
+    ],
+    "architecture": [
+        "devops_cli/architecture.md",
+        "it_domains/topics/modern_python_runtime_and_ecosystem.md",
+        "it_domains/topics/agentic_ai_and_code_reviews.md",
+        "it_domains/topics/rest_api_architecture_and_service_engineering.md",
+        "devops_cli/tasks/ai_code_review.md",
+        "devops_cli/tasks/agent_instructions_scaffolding.md",
+        "it_domains/tools/fastapi_uvicorn.md",
+        "it_domains/tools/ruff_mypy_pytest.md",
+    ],
+    "ci_cd": [
+        "it_domains/topics/continuous_integration_and_progressive_verification.md",
+        "it_domains/topics/release_engineering_and_semver_governance.md",
+        "devops_cli/tasks/ci_quality_gate.md",
+        "devops_cli/tasks/release_management.md",
+        "it_domains/tools/github_cli.md",
+        "it_domains/tools/actionlint.md",
+    ],
+    "infrastructure": [
+        "devops_cli/configuration_and_settings.md",
+        "it_domains/topics/infrastructure_as_code_and_cloud_automation.md",
+        "it_domains/topics/observability_and_distributed_tracing.md",
+        "it_domains/topics/developer_workstations_and_devcontainers.md",
+        "devops_cli/tasks/infrastructure_provisioning.md",
+        "devops_cli/tasks/telemetry_and_observability.md",
+        "devops_cli/tasks/devcontainer_lifecycle.md",
+        "it_domains/tools/opentofu_terraform.md",
+        "it_domains/tools/grafana.md",
+        "it_domains/tools/prometheus.md",
+        "it_domains/tools/opentelemetry_jaeger.md",
+        "it_domains/tools/docker.md",
+        "devops_cli/tasks/rag_context_indexing.md",
+    ],
+}
+
+_STOPWORDS: frozenset[str] = frozenset(
+    {
+        "a",
+        "an",
+        "the",
+        "and",
+        "or",
+        "in",
+        "on",
+        "at",
+        "to",
+        "for",
+        "with",
+        "by",
+        "from",
+        "of",
+        "is",
+        "are",
+        "was",
+        "were",
+        "be",
+        "been",
+        "that",
+        "this",
+        "it",
+        "as",
+        "all",
+        "can",
+        "must",
+        "should",
+        "will",
+        "used",
+        "using",
+        "use",
+        "into",
+        "when",
+        "how",
+        "devops",
+        "md",
+        "about",
+        "such",
+        "than",
+        "then",
+        "more",
+        "most",
+        "also",
+        "other",
+        "prevent",
+        "increase",
+        "ensuring",
+        "ensure",
+        "providing",
+        "provide",
+        "best",
+        "practice",
+    }
+)
+
+
+def _read_architecture_extra_docs(repo_root: Path) -> list[str]:
+    """Read extra architecture reference files if present."""
+    extras: list[str] = []
+    for extra in ("AGENTS.md", "docs/ARCHITECTURE.md"):
+        p_extra = repo_root / extra
+        if p_extra.is_file():
+            try:
+                extras.append(p_extra.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+    return extras
+
+
+@lru_cache(maxsize=1)
+def _get_domain_knowledge_base_index() -> dict[str, tuple[set[str], set[str]]]:
+    """Dynamically index domain vocabularies and distinctive terms from the Knowledge Base."""
+    kb_dir = get_knowledge_base_dir()
+    repo_root = kb_dir.parent.parent.parent.parent
+    domain_texts: dict[str, str] = {}
+    domain_word_counts: dict[str, Counter[str]] = {}
+
+    for domain, rel_paths in _DOMAIN_KB_TOPIC_MAP.items():
+        doc_texts: list[str] = []
+        for rel in rel_paths:
+            path = kb_dir / rel
+            if path.is_file():
+                try:
+                    doc_texts.append(path.read_text(encoding="utf-8"))
+                except Exception:
+                    pass
+
+        if domain == "architecture":
+            doc_texts.extend(_read_architecture_extra_docs(repo_root))
+
+        full_text = " ".join(doc_texts).lower()
+        domain_texts[domain] = full_text
+        words = re.findall(r"\b[a-z0-9_-]{2,}\b", full_text)
+        filtered_words = [w for w in words if w not in _STOPWORDS]
+        domain_word_counts[domain] = Counter(filtered_words)
+
+    num_domains = len(_DOMAIN_KB_TOPIC_MAP)
+    domain_index: dict[str, tuple[set[str], set[str]]] = {}
+
+    for domain, counts in domain_word_counts.items():
+        text = domain_texts.get(domain, "")
+        phrases: set[str] = set()
+        for match in re.finditer(r"(?m)^#{1,4}\s+(.+)$|\*\*([^*]+)\*\*", text):
+            phrase_cand = (match.group(1) or match.group(2) or "").strip().lower()
+            if 3 <= len(phrase_cand) <= 40 and not any(
+                ch in phrase_cand for ch in ("`", "[", "]", "(", ")")
+            ):
+                phrases.add(phrase_cand)
+
+        scores: dict[str, float] = {}
+        for word, count in counts.items():
+            doc_freq = sum(1 for d in domain_word_counts if word in domain_word_counts[d])
+            idf = math.log((num_domains + 1) / (doc_freq + 0.5)) + 1.0
+            scores[word] = count * idf
+
+        top_terms = set(sorted(scores, key=lambda w: scores.get(w, 0.0), reverse=True)[:250])
+        domain_index[domain] = (phrases, top_terms)
+
+    return domain_index
+
+
+def _build_section_chunk(
+    words_slice: list[str], heading: str, source_name: str, s_idx: int, chunk_counter: int
+) -> DocumentSectionChunk:
+    """Construct DocumentSectionChunk from word slice."""
+    chunk_text = " ".join(words_slice)
+    return DocumentSectionChunk(
+        id=f"{source_name}-sec{s_idx + 1}-chunk{chunk_counter + 1}",
+        section_index=chunk_counter,
+        heading=heading,
+        text=chunk_text,
+        token_count=len(words_slice),
+        char_count=len(chunk_text),
+    )
+
+
 class InMemoryDocumentTokenizer:
     """Performs in-memory tokenization, semantic chunking, and evaluation task generation."""
 
@@ -105,21 +260,19 @@ class InMemoryDocumentTokenizer:
         document_text: str,
         source_name: str = "document",
     ) -> list[DocumentSectionChunk]:
-        """Perform in-memory tokenization and sliding window semantic chunking across text."""
-        # Split document by markdown headings (e.g. #, ##, ###)
-        raw_sections = re.split(r"\n(?=#{1,4}\s+)", document_text)
+        """Split document text into heading-aware semantic chunks."""
+        sections = re.split(r"(?m)(?=^#{1,3}\s+)", document_text)
         chunks: list[DocumentSectionChunk] = []
-
         chunk_counter = 0
-        for s_idx, raw_sec in enumerate(raw_sections):
-            sec_text = raw_sec.strip()
+
+        for s_idx, sec in enumerate(sections):
+            sec_text = sec.strip()
             if not sec_text:
                 continue
 
             lines = sec_text.splitlines()
             heading = lines[0].lstrip("#").strip() if lines else f"Section {s_idx + 1}"
 
-            # Word-level tokenization
             words = sec_text.split()
             if not words:
                 continue
@@ -128,23 +281,11 @@ class InMemoryDocumentTokenizer:
             effective_min = min(self.min_chunk_words, max(5, self.chunk_size_words // 4))
             for w_idx in range(0, len(words), step):
                 chunk_slice = words[w_idx : w_idx + self.chunk_size_words]
-                if len(chunk_slice) < effective_min and w_idx > 0 and chunks:
-                    continue
-                if not chunk_slice:
+                if (len(chunk_slice) < effective_min and w_idx > 0 and chunks) or not chunk_slice:
                     continue
 
-                chunk_text = " ".join(chunk_slice)
-                approx_tokens = len(chunk_slice)
-                chunk_id = f"{source_name}-sec{s_idx + 1}-chunk{chunk_counter + 1}"
                 chunks.append(
-                    DocumentSectionChunk(
-                        id=chunk_id,
-                        section_index=chunk_counter,
-                        heading=heading,
-                        text=chunk_text,
-                        token_count=approx_tokens,
-                        char_count=len(chunk_text),
-                    )
+                    _build_section_chunk(chunk_slice, heading, source_name, s_idx, chunk_counter)
                 )
                 chunk_counter += 1
 
@@ -220,71 +361,59 @@ class InMemoryDocumentTokenizer:
 
         return f"Retrieve section regarding {chunk.heading}"
 
-    def _infer_category(self, heading: str, text: str = "") -> str:
+    @classmethod
+    def _infer_category(cls, heading: str, text: str = "") -> str:
         """Categorize section heading and text content into standard DevOps domains."""
-        combined = f"{heading} {text}".lower()
-        if any(
-            w in combined
-            for w in (
-                "security",
-                "secret",
-                "ssrf",
-                "keyring",
-                "cve",
-                "auth",
-                "zero-trust",
-                "token",
-                "egress",
-            )
-        ):
-            return "security"
-        if any(
-            w in combined
-            for w in (
-                "kubernetes",
-                "k8s",
-                "pod",
-                "ingress",
-                "helm",
-                "traefik",
-                "minikube",
-                "k3s",
-                "cluster",
-            )
-        ):
-            return "kubernetes"
-        if any(
-            w in combined
-            for w in (
-                "architecture",
-                "ast",
-                "pydantic",
-                "mypy",
-                "typing",
-                "solid",
-                "coupling",
-                "cohesion",
-                "python 3.14",
-            )
-        ):
-            return "architecture"
-        if any(
-            w in combined
-            for w in (
-                "ci",
-                "cd",
-                "github actions",
-                "workflow",
-                "actionlint",
-                "pre-commit",
-                "branch",
-                "pr",
-                "pull request",
-                "git hygiene",
-            )
-        ):
-            return "ci_cd"
-        return "infrastructure"
+        norm_heading = heading.lower()
+        norm_body = text.lower()
+        norm_full = f"{norm_heading} {norm_body}"
+        heading_words = set(re.findall(r"\b[a-z0-9_-]{2,}\b", norm_heading)) - _STOPWORDS
+        body_words = set(re.findall(r"\b[a-z0-9_-]{2,}\b", norm_body)) - _STOPWORDS
+
+        domain_index = _get_domain_knowledge_base_index()
+        scores: dict[str, int] = {}
+        for domain, (phrases, terms) in domain_index.items():
+            phrase_score = sum(3 for p in phrases if p in norm_full)
+            h_score = len(heading_words & terms) * 2
+            b_score = len(body_words & terms)
+            total = phrase_score + h_score + b_score
+            if total > 0:
+                scores[domain] = total
+
+        if not scores:
+            return "infrastructure"
+
+        return max(scores.items(), key=lambda item: item[1])[0]
+
+
+def _collect_chunks_from_path(
+    document_path: Path, safe_base: Path, tokenizer: InMemoryDocumentTokenizer
+) -> list[DocumentSectionChunk]:
+    """Safely traverse and tokenize markdown files under document_path."""
+    resolved_doc = document_path.resolve()
+    if not (resolved_doc == safe_base or resolved_doc.is_relative_to(safe_base)):
+        return []
+
+    chunks: list[DocumentSectionChunk] = []
+    if document_path.is_file() and not document_path.is_symlink():
+        try:
+            txt = document_path.read_text(encoding="utf-8", errors="replace")
+            chunks.extend(tokenizer.tokenize_and_chunk(txt, source_name=document_path.stem))
+        except Exception:
+            pass
+        return chunks
+
+    if document_path.is_dir():
+        for p in sorted(document_path.rglob("*.md")):
+            try:
+                if p.is_symlink() or not p.is_file() or not p.resolve().is_relative_to(safe_base):
+                    continue
+                txt = p.read_text(encoding="utf-8", errors="replace")
+                if txt.strip():
+                    chunks.extend(tokenizer.tokenize_and_chunk(txt, source_name=p.stem))
+            except Exception:
+                continue
+    return chunks
 
 
 def load_test_document_corpus(
@@ -302,31 +431,25 @@ def load_test_document_corpus(
     )
 
     all_chunks: list[DocumentSectionChunk] = []
-    max_bytes = 20 * 1024 * 1024  # 20 MiB per test document
+    safe_base = (
+        repo_root
+        or (
+            document_path
+            if (document_path and document_path.is_dir())
+            else (document_path.parent if document_path else Path.cwd())
+        )
+    ).resolve()
 
     if document_path and document_path.exists():
-        if document_path.is_dir():
-            for p in sorted(document_path.rglob("*.md")):
-                try:
-                    if p.stat().st_size > max_bytes:
-                        continue
-                    txt = p.read_text(encoding="utf-8", errors="replace")
-                    if txt.strip():
-                        chunks = tokenizer.tokenize_and_chunk(txt, source_name=p.stem)
-                        all_chunks.extend(chunks)
-                except Exception:
-                    continue
-        else:
-            try:
-                if document_path.stat().st_size <= max_bytes:
-                    txt = document_path.read_text(encoding="utf-8", errors="replace")
-                    chunks = tokenizer.tokenize_and_chunk(txt, source_name=document_path.stem)
-                    all_chunks.extend(chunks)
-            except Exception:
-                pass
+        all_chunks.extend(_collect_chunks_from_path(document_path, safe_base, tokenizer))
     elif repo_root:
-        # Aggregate full documentation suite from repository
+        # Aggregate full documentation suite from knowledge base and repository
         candidate_paths: list[Path] = []
+
+        # 1. Bundled Knowledge Base articles across topics, tools, and tasks
+        candidate_paths.extend(list_knowledge_base_articles())
+
+        # 2. Key architectural specifications and documentation
         for top_file in ("AGENTS.md", "README.md", "docs/ARCHITECTURE.md"):
             p = repo_root / top_file
             if p.exists():
@@ -343,14 +466,26 @@ def load_test_document_corpus(
         if tasks_dir.exists():
             candidate_paths.extend(sorted(tasks_dir.glob("*.md")))
 
+        kb_dir = repo_root / "src" / "devops_cli" / "ai" / "knowledge_base"
+        if kb_dir.exists():
+            candidate_paths.extend(sorted(kb_dir.rglob("*.md")))
+
         seen_paths: set[Path] = set()
         for p in candidate_paths:
-            if p in seen_paths or not p.is_file():
+            if p in seen_paths or not p.is_file() or p.is_symlink():
                 continue
             seen_paths.add(p)
             try:
-                if p.stat().st_size > max_bytes:
-                    continue
+                txt = p.read_text(encoding="utf-8", errors="replace")
+                if txt.strip():
+                    chunks = tokenizer.tokenize_and_chunk(txt, source_name=p.stem)
+                    all_chunks.extend(chunks)
+            except Exception:
+                continue
+
+    if not all_chunks:
+        for p in list_knowledge_base_articles():
+            try:
                 txt = p.read_text(encoding="utf-8", errors="replace")
                 if txt.strip():
                     chunks = tokenizer.tokenize_and_chunk(txt, source_name=p.stem)
