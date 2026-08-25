@@ -571,6 +571,14 @@ def traced(
     return decorator
 
 
+def get_current_span_context() -> dict[str, str | None]:
+    """Retrieve the current active span and trace IDs as a dictionary."""
+    return {
+        "trace_id": _current_trace_id_ctx.get(),
+        "span_id": _current_span_id_ctx.get(),
+    }
+
+
 def shutdown_tracer() -> None:
     """Flush and shut down global tracer instance."""
     global _GLOBAL_TRACER

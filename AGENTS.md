@@ -88,6 +88,16 @@ Before planning, implementing, debugging, refactoring, or reviewing code, archit
   - Never hardcode arbitrary numerical scores, confidence weights, synthetic thresholds, or default scoring floats anywhere in the codebase (neither inline in function bodies nor as static configuration constants).
   - All scoring, confidence ratings, and quality assessments MUST originate directly from external tools that natively produce those metrics (e.g., security scanners providing native severity ratings, tool confidence levels, or CVSS scores) or from structured AI/LLM model responses.
   - When an external tool or AI model does not produce a score or confidence rating, the field MUST remain `None` (or 0.0 where non-nullable) — never invent, synthesize, or inject artificial scoring numbers via static default constants or fallback weights.
+- **Modular Stage Pipeline Architecture**:
+  - Complex multi-step pipelines (such as code review, indexing, analysis, or compliance validation) must be partitioned into dedicated, single-responsibility stage modules under a `stages/` subpackage (e.g. `pre_analysis.py`, `static_scan.py`, `persona_review.py`).
+  - Each stage must expose a pure functional interface, maintain explicit input/output contracts, and be decorated with `@trace_span` for granular telemetry waterfalls.
+- **Provider Protocol & Deterministic Mock Isolation**:
+  - External LLM backends, cloud providers, and container runtimes must implement abstract provider protocols under `providers/` (e.g. `BaseLLMProvider`) and supply deterministic mock implementations for fast, offline unit testing.
+- **Standardized Domain Exception Taxonomy**:
+  - All domain error states must raise strongly typed exceptions inheriting from `DevOpsCLIError` under `src/devops_cli/exceptions/`, specifying explicit POSIX exit codes, canonical machine-readable error codes, and structured context dictionaries rather than raising generic `RuntimeError` or `ValueError`.
+- **Telemetry & Metrics by Default**:
+  - All new CLI subcommands, background tasks, and AI pipeline stages must be instrumented with OpenTelemetry distributed spans (`@trace_span`, `inject_traceparent_headers`) and record in-memory Prometheus metrics via `GLOBAL_METRICS`.
+
 
 ## 5. Agentic AI & Review System Guidelines
 
@@ -96,7 +106,7 @@ Before planning, implementing, debugging, refactoring, or reviewing code, archit
 - **Zero Information Leakage & Data Privacy**: AI assistants and review systems must never extract, copy, or expose confidential, private, hidden (dotfiles/dotfolders), or `.gitignored` file contents, credentials, system paths, or proprietary data into any documents, review findings, changelogs, public commits, or code artifacts.
 - **Target-Agnostic Code Analysis**: When analyzing or reviewing external repositories (e.g. under `repos/` or local target directories), evaluate code against universal software engineering principles (OWASP Top 10, CIS benchmarks, SOLID, DRY) and the target project's own declared conventions (`AGENTS.md`, `README.md`) rather than coupling to host CLI internal assumptions.
 - **Target Path Resolution & Isolation**: All file reading, AST analysis, security scanning, and dependency lookups on target projects must resolve paths relative to the target root directory (`target_dir`) to prevent host-workspace file collisions.
-- **Pure Markdown Prompt Tasks & Zero Inline LLM Prompts**: All LLM system prompts, task instructions, guardrails, evaluation rubrics, benchmark prompts, and reference criteria must reside in dedicated Markdown files (`.md`) under `src/devops_cli/ai/tasks/`. Never declare multi-line prompt text strings or evaluation criteria inline in Python code.
+- **Pure Markdown Prompt Tasks & Zero Inline LLM Prompts**: All LLM system prompts, task instructions, guardrails, evaluation rubrics, benchmark prompts, and reference criteria must reside in dedicated Markdown files (`.md`) under `src/devops_cli/ai/`. Never declare multi-line prompt text strings or evaluation criteria inline in Python code.
 - **Context-Aware Documentation & Anti-Pattern Evaluation**: AI review systems and coding assistants must **never** flag documentation, architectural guides, security tutorials, knowledge base articles, prompt benchmarks, test assertions/fixtures, test mocks, template files (`*.example.*`), or explanatory comments that describe known vulnerabilities, attack vectors, or insecure configurations in the context of avoiding, mitigating, warning against, or explaining said configurations.
 - **Closed-Loop Review & Self-Improvement Cycle**:
   - **Deduplication & Calibration**: Calibrate confidence scores and test explicit verification/invalidation criteria to eliminate phantom alerts.
