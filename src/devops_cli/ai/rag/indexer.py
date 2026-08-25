@@ -15,6 +15,8 @@ from devops_cli.ai.rag.models import CodeChunk, IndexStats
 from devops_cli.ai.rag.qdrant import QdrantClient
 from devops_cli.config.defaults import (
     DEFAULT_RAG_CACHE_DIR,
+    DEFAULT_RAG_CHUNK_OVERLAP,
+    DEFAULT_RAG_CHUNK_SIZE,
     DEFAULT_RAG_COLLECTION,
     DEFAULT_RAG_DOCS_COLLECTION,
 )
@@ -239,8 +241,8 @@ class WorkspaceIndexer:
         code_collection: str = DEFAULT_RAG_COLLECTION,
         docs_collection: str = DEFAULT_RAG_DOCS_COLLECTION,
         cache_dir: Path = DEFAULT_RAG_CACHE_DIR,
-        chunk_size: int = 500,
-        chunk_overlap: int = 50,
+        chunk_size: int = DEFAULT_RAG_CHUNK_SIZE,
+        chunk_overlap: int = DEFAULT_RAG_CHUNK_OVERLAP,
     ) -> None:
         self.qdrant = qdrant
         self.embedder = embedder

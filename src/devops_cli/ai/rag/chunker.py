@@ -10,6 +10,7 @@ from pathlib import Path
 from devops_cli.ai.analyze.scanner import detect_language
 from devops_cli.ai.rag.metadata import extract_code_metadata, extract_doc_metadata
 from devops_cli.ai.rag.models import CodeChunk
+from devops_cli.config.defaults import DEFAULT_RAG_CHUNK_OVERLAP, DEFAULT_RAG_CHUNK_SIZE
 
 _DOC_EXTENSIONS = {".md", ".markdown", ".rst", ".adoc", ".asciidoc", ".org", ".txt"}
 _IAC_EXTENSIONS = {".tf", ".hcl", ".tfvars"}
@@ -22,8 +23,8 @@ class SemanticChunker:
 
     def __init__(
         self,
-        chunk_size: int = 500,
-        chunk_overlap: int = 50,
+        chunk_size: int = DEFAULT_RAG_CHUNK_SIZE,
+        chunk_overlap: int = DEFAULT_RAG_CHUNK_OVERLAP,
     ) -> None:
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap

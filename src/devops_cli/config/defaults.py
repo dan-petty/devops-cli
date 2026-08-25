@@ -95,8 +95,8 @@ DEFAULT_RAG_DOCS_COLLECTION = "devops_docs"
 DEFAULT_RAG_EMBEDDING_MODEL = "qwen3-embedding:0.6b"
 DEFAULT_RAG_TOP_K: int = 5
 DEFAULT_RAG_SCORE_THRESHOLD: float = 0.35
-DEFAULT_RAG_CHUNK_SIZE: int = 500
-DEFAULT_RAG_CHUNK_OVERLAP: int = 50
+DEFAULT_RAG_CHUNK_SIZE: int = 1000
+DEFAULT_RAG_CHUNK_OVERLAP: int = 100
 DEFAULT_RAG_CACHE_DIR = Path(".data/rag")
 
 # ── Tracing & Telemetry Defaults ──────────────────────────────────────────────

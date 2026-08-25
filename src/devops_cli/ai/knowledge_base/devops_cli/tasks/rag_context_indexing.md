@@ -45,7 +45,7 @@ devops rag clear
 
 ## 4. Best Practice Guidance
 
-1. **Optimal Chunk Sizing**: Use sliding window chunking (500–1000 tokens with 100 token overlap) to preserve semantic coherence across headings and code blocks.
+1. **Optimal Chunk Sizing**: Use sliding window chunking (1000–1500 tokens with 100 token overlap) to preserve semantic coherence across headings and code blocks.
 2. **Include Structural Metadata**: Attach file path, heading hierarchy, and source repository names as metadata attributes on each indexed chunk.
 3. **Re-index After Documentation Updates**: Re-run `devops rag index` whenever major documentation or architectural changes are merged.
 4. **Grounded Inferences**: Instruct LLM prompts to cite specific document paths when answering queries based on retrieved context.
