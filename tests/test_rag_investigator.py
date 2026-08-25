@@ -4,12 +4,20 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from devops_cli.ai.rag.investigator import (
+    clear_investigation_cache,
     format_rag_investigation_for_prompt,
     investigate_rag_context,
 )
 from devops_cli.ai.rag.models import CodeChunk, RAGContext, SearchResult
 from devops_cli.config.settings import Settings
+
+
+@pytest.fixture(autouse=True)
+def _reset_investigation_cache() -> None:
+    clear_investigation_cache()
 
 
 def test_investigate_rag_context_empty_query() -> None:

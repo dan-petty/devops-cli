@@ -26,6 +26,13 @@ _RETRIEVER_CACHE: tuple[float, SemanticRetriever] | None = None
 _CACHE_TTL_SECONDS = 60.0
 
 
+def clear_investigation_cache() -> None:
+    """Clear in-memory RAG investigation and retriever caches."""
+    global _RETRIEVER_CACHE, _INVESTIGATION_CACHE
+    _RETRIEVER_CACHE = None
+    _INVESTIGATION_CACHE.clear()
+
+
 def _get_or_create_retriever(
     st: Settings, top_k: int | None, score_threshold: float | None
 ) -> SemanticRetriever | None:

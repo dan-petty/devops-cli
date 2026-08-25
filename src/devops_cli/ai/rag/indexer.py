@@ -520,13 +520,16 @@ class WorkspaceIndexer:
         """Embed text and upsert points in batches into Qdrant, saving incremental cache."""
         total = len(chunks)
         ai_cfg = getattr(self.embedder, "ai_config", None)
-        urls = (
-            ai_cfg.get_ollama_urls
-            if (ai_cfg and hasattr(ai_cfg, "get_ollama_urls"))
-            else ["http://localhost:11434"]
-        )
-        max_par = getattr(ai_cfg, "ollama_max_parallel", 2) if ai_cfg else 2
-        effective_batch_size = max(batch_size, min(256, len(urls) * max_par * 32))
+        try:
+            raw_urls = getattr(ai_cfg, "get_ollama_urls", None)
+            urls = raw_urls if isinstance(raw_urls, list) else ["http://localhost:11434"]
+            raw_par = getattr(ai_cfg, "ollama_max_parallel", 2)
+            is_numeric = isinstance(raw_par, (int, float, str)) and not isinstance(raw_par, bool)
+            max_par = int(raw_par) if is_numeric else 2
+            calc_batch = len(urls) * max_par * 32
+            effective_batch_size = max(int(batch_size), min(256, calc_batch))
+        except TypeError, ValueError:
+            effective_batch_size = int(batch_size)
 
         for i in range(0, total, effective_batch_size):
             batch = chunks[i : i + effective_batch_size]
