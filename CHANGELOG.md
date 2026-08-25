@@ -8,7 +8,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.2.1] - 2026-08-25
 
 ### Added
-- Release version 0.2.1.
+- **Local Context Budgeting & Token Counting Engine (`devops ai token-count`, `devops_cli.ai.context_budget`)**:
+  - Implemented Byte-Pair Encoding (BPE) token counting using `tiktoken` with model-family encoding resolution (`o-series`, `gpt-4o`, and character-ratio fallback).
+  - Added semantic prefix-preserving truncation (`truncate_to_token_limit`) and hunk-aware git diff budgeting (`budget_diff_chunks`) to prevent context window overflow (HTTP 400).
+  - Added CLI command `devops ai token-count <target> [--budget INT] [--model STR] [--json]` with Rich breakdown tables.
+  - Bundled Knowledge Base tool manual: `it_domains/tools/tiktoken.md`.
+- **Gitleaks Sub-Millisecond Secret Pre-Filter (`devops scan secrets`, `devops scan gitleaks`, `devops_cli.security.gitleaks`)**:
+  - Subprocess runner with native regex fallback pattern scanning AWS access keys, GitHub PATs, OpenAI API keys, RSA/EC private key blocks, and Stripe tokens.
+  - Integrated into Stage 2 code review pipeline (`devops_cli.ai.review.pipeline`) to scrub uncommitted secrets before LLM prompt dispatch.
+  - Added CLI subcommands `devops scan secrets <target>` and `devops scan gitleaks <target>` with Rich table and JSON exports.
+  - Registered `scan_gitleaks` native persona tool and bundled Knowledge Base manual: `it_domains/tools/gitleaks.md`.
+- **Semgrep Static AST Pattern Matcher (`devops scan semgrep`, `devops scan sast`, `devops_cli.security.semgrep`)**:
+  - Polyglot static AST pattern matching runner (`p/default`) with structured finding normalization (`Finding` models).
+  - Integrated into Stage 2 code review pipeline for multi-language AST vulnerability scanning.
+  - Added CLI subcommands `devops scan semgrep <target>` and `devops scan sast <target>`.
+  - Registered `scan_semgrep` native persona tool and bundled Knowledge Base manual: `it_domains/tools/semgrep.md`.
+- **PydanticAI Standardized Agent Framework (`devops_cli.ai.pydantic_ai_bridge`)**:
+  - Standardized PydanticAI Agent bridge adapter (`create_pydantic_ai_agent`, `get_persona_pydantic_agent`) supporting strongly typed output models, dynamic parameter inspection, and persona workflows (`devsecops`, `architect`, `qa`, `pm`).
+  - Bundled Knowledge Base manual: `it_domains/tools/pydantic_ai.md`.
+
+### Fixed
+- **CodeQL Security Hardening**:
+  - Resolved `py/stack-trace-exposure` on `/api/v1/telemetry` by sanitizing OTLP probe error returns and logging internal exception details via `logger.debug`.
+  - Resolved `py/clear-text-storage-sensitive-data` in `file_writer.py` by allocating file descriptors using `os.open` with restrictive POSIX file creation modes (`0o644` / `0o600`) and upfront `os.chmod` on atomic temporary files.
 
 ## [0.2.0] - 2026-08-25
 
