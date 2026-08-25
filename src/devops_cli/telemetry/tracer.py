@@ -377,7 +377,7 @@ class OTelTelemetryClient:
 
         try:
             yield handle
-        except Exception as exc:
+        except BaseException as exc:
             exit_code = getattr(exc, "exit_code", getattr(exc, "code", None))
             if exit_code == 0:
                 # Clean exit (e.g. typer.Exit(0), click.exceptions.Exit(0), SystemExit(0))
@@ -387,7 +387,11 @@ class OTelTelemetryClient:
                 raise
 
             status_code = "STATUS_CODE_ERROR"
-            error_msg = str(exc)
+            error_msg = str(exc) or exc.__class__.__name__
+            if isinstance(exc, KeyboardInterrupt):
+                attrs["error.type"] = "KeyboardInterrupt"
+                attrs["cli.interrupted"] = True
+                error_msg = "Command cancelled by user (SIGINT / KeyboardInterrupt)"
             if exit_code is not None:
                 attrs["cli.exit_code"] = exit_code
                 attrs["process.exit.code"] = exit_code
