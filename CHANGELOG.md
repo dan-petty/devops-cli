@@ -26,6 +26,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **PydanticAI Standardized Agent Framework (`devops_cli.ai.pydantic_ai_bridge`)**:
   - Standardized PydanticAI Agent bridge adapter (`create_pydantic_ai_agent`, `get_persona_pydantic_agent`) supporting strongly typed output models, dynamic parameter inspection, and persona workflows (`devsecops`, `architect`, `qa`, `pm`).
   - Bundled Knowledge Base manual: `it_domains/tools/pydantic_ai.md`.
+- **Modular AI Review Pipeline Stages (`devops_cli.ai.review.stages`)**:
+  - Decomposed the multi-stage review orchestrator into dedicated single-responsibility stage modules (`pre_analysis.py`, `static_scan.py`, `persona_review.py`, `verification.py`, `reranking.py`, `reporting.py`) with `@trace_span` telemetry instrumentation.
+- **LLM Provider Abstraction Layer (`devops_cli.ai.providers`)**:
+  - Modular provider protocol architecture (`BaseLLMProvider`) with dedicated provider implementations for `ollama`, `openai`, `claude`, `copilot`, and `mock` for deterministic test isolation.
+- **Standardized Domain Exception Taxonomy (`devops_cli.exceptions`)**:
+  - Strongly typed exception hierarchy (`DevOpsCLIError`, `SecurityError`, `SSRFBlockedError`, `KeyringUnavailableError`, `SecretExposureError`, `LLMInferenceError`, `ContextBudgetExceededError`, `ModelUnavailableError`, `PersonaExecutionError`) with explicit POSIX exit codes and canonical error codes.
+- **In-Memory Prometheus Metrics Collector & Context Propagation (`devops_cli.telemetry.metrics`, `devops_cli.telemetry.context`)**:
+  - Thread-safe in-memory metric registry (`GLOBAL_METRICS`, `InMemoryMetricsRegistry`) tracking counters, gauges, and histograms with Prometheus text exposition format and W3C traceparent header propagation (`inject_traceparent_headers`, `extract_traceparent`).
+- **Strategic Roadmap Grooming & Industry Tool Integrations (`docs/ROADMAP.md`)**:
+  - Extended and groomed the strategic roadmap through v0.3.0 incorporating advanced AI research (Multi-Agent Adversarial Debate, Spec-Driven Development, Dynamic Cost/Latency Router, Automated Test Synthesizer, Hybrid BM25+Qdrant Search, Cross-Encoder Re-Ranking) and open-source DevOps tooling (TFLint, Dive, Kubeconform, Stern, Helm-diff, Difftastic, tfcmt, Falco).
 
 ### Fixed
 - **CodeQL Security Hardening**:
