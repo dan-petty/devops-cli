@@ -38,12 +38,20 @@ class FakeQdrantClient(QdrantClient):
         self.collections[name].extend(points)
         return len(points)
 
-    def delete_points_by_file(self, name: str, file_path: str) -> bool:
+    def delete_points_by_file(
+        self, name: str, file_path: str, *, project_name: str | None = None
+    ) -> bool:
         if name in self.collections:
             self.collections[name] = [
                 p
                 for p in self.collections[name]
-                if p.get("payload", {}).get("file_path") != file_path
+                if not (
+                    p.get("payload", {}).get("file_path") == file_path
+                    and (
+                        project_name is None
+                        or p.get("payload", {}).get("project_name") == project_name
+                    )
+                )
             ]
         return True
 
@@ -113,3 +121,38 @@ def test_indexer_and_retriever_flow(tmp_path: Path) -> None:
     assert stats3["skipped_files"] == 1
     assert stats3["removed_files"] == 1
     assert len(qdrant.collections.get(indexer.docs_collection, [])) == 0
+
+
+def test_index_and_index_kb_coexistence(tmp_path: Path) -> None:
+    """Ensure indexing workspace and indexing knowledge base do not purge each other."""
+    ws_dir = tmp_path / "workspace"
+    ws_dir.mkdir()
+    ws_file = ws_dir / "main.py"
+    ws_file.write_text("print('hello workspace')", encoding="utf-8")
+
+    qdrant = FakeQdrantClient()
+    ai_cfg = AIConfig(provider="custom", ollama_urls=[])
+    embedder = EmbeddingsEngine(ai_cfg)
+
+    indexer = WorkspaceIndexer(
+        qdrant=qdrant,
+        embedder=embedder,
+        cache_dir=tmp_path / ".cache",
+    )
+
+    # 1. Index workspace
+    ws_stats = indexer.index_workspace(ws_dir, project="my-workspace")
+    assert ws_stats["indexed_files"] == 1
+    assert len(qdrant.collections.get(indexer.code_collection, [])) >= 1
+
+    # 2. Index knowledge base
+    kb_stats = indexer.index_knowledge_base()
+    assert kb_stats["indexed_files"] >= 1
+    assert kb_stats["removed_files"] == 0
+    # Workspace code points must NOT be deleted
+    assert len(qdrant.collections.get(indexer.code_collection, [])) >= 1
+
+    # 3. Re-index workspace (should not delete KB docs)
+    ws_stats2 = indexer.index_workspace(ws_dir, project="my-workspace")
+    assert ws_stats2["removed_files"] == 0
+    assert len(qdrant.collections.get(indexer.docs_collection, [])) >= 1

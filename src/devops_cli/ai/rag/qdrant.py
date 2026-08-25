@@ -296,16 +296,24 @@ class QdrantClient:
                 logger.debug("Error searching collection %s: %s", name, exc)
                 raise QdrantClientError(f"Search failed in '{name}': {exc}") from exc
 
-    def delete_points_by_file(self, name: str, file_path: str) -> bool:
-        """Delete all indexed chunks belonging to a given file path."""
-        file_filter = qmodels.Filter(
-            must=[
+    def delete_points_by_file(
+        self, name: str, file_path: str, *, project_name: str | None = None
+    ) -> bool:
+        """Delete all indexed chunks for a file path, optionally scoped to a project."""
+        must_conditions: list[qmodels.Condition] = [
+            qmodels.FieldCondition(
+                key="file_path",
+                match=qmodels.MatchValue(value=file_path),
+            )
+        ]
+        if project_name:
+            must_conditions.append(
                 qmodels.FieldCondition(
-                    key="file_path",
-                    match=qmodels.MatchValue(value=file_path),
+                    key="project_name",
+                    match=qmodels.MatchValue(value=project_name),
                 )
-            ]
-        )
+            )
+        file_filter = qmodels.Filter(must=must_conditions)
         try:
             self._execute_with_retry(
                 lambda c: c.delete(
@@ -313,9 +321,14 @@ class QdrantClient:
                     points_selector=qmodels.FilterSelector(filter=file_filter),
                     wait=True,
                 ),
-                f"delete_points_by_file({name}, {file_path})",
+                f"delete_points_by_file({name}, {file_path}, project={project_name})",
             )
             return True
         except Exception as exc:
-            logger.debug("Failed to delete points by file for %s: %s", file_path, exc)
+            logger.debug(
+                "Failed to delete points by file for %s (project: %s): %s",
+                file_path,
+                project_name,
+                exc,
+            )
             return False

@@ -345,19 +345,41 @@ class WorkspaceIndexer:
             file_hashes: dict[str, str] = {}
 
         all_chunks: list[CodeChunk] = []
-        files_to_embed: list[Path] = []
+        files_to_reindex: list[tuple[Path, str, str]] = []
+
+        from devops_cli.ai.kb import get_knowledge_base_dir
+
+        kb_dir = get_knowledge_base_dir().resolve()
 
         for idx, file_path in enumerate(files, 1):
             if progress_callback:
                 progress_callback("Scanning files", idx, len(files))
 
-            proj_name = project or detect_project_name(file_path, root_dir)
+            f_resolved = file_path.resolve()
+            is_kb = False
+            try:
+                if kb_dir.is_dir() and f_resolved.is_relative_to(kb_dir):
+                    is_kb = True
+            except Exception:
+                pass
+
+            if is_kb:
+                proj_name = "devops-cli-kb"
+                rel_base = kb_dir
+            else:
+                proj_name = project or detect_project_name(file_path, root_dir)
+                rel_base = root_dir.resolve()
+
+            try:
+                rel_path = str(f_resolved.relative_to(rel_base))
+            except ValueError:
+                rel_path = file_path.name
+
+            cache_key = f"{proj_name}:{rel_path}"
 
             try:
                 content = file_path.read_text(encoding="utf-8", errors="replace")
                 content_hash = SemanticChunker._hash_content(content)
-                rel_path = str(file_path.relative_to(root_dir))
-                cache_key = f"{proj_name}:{rel_path}"
                 file_hashes[cache_key] = content_hash
             except Exception:
                 continue
@@ -365,22 +387,31 @@ class WorkspaceIndexer:
             if not force and cache.get(cache_key) == content_hash:
                 continue
 
-            files_to_embed.append(file_path)
+            files_to_reindex.append((file_path, rel_path, proj_name))
             file_chunks = self.chunker.chunk_file(
-                file_path, relative_to=root_dir, project_name=proj_name
+                file_path, relative_to=rel_base, project_name=proj_name
             )
             all_chunks.extend(file_chunks)
 
-        # Identify and purge files that were deleted from disk since last index
+        # Purge files deleted from disk since last index (scoped to scanned projects)
         removed_files_count = 0
         if not force:
+            scanned_projects = {k.partition(":")[0] for k in file_hashes.keys()}
             current_keys = set(file_hashes.keys())
-            deleted_keys = [k for k in cache if k not in current_keys]
+            deleted_keys = [
+                k
+                for k in cache
+                if k.partition(":")[0] in scanned_projects and k not in current_keys
+            ]
             for dkey in deleted_keys:
-                _, _, d_rel_path = dkey.partition(":")
+                dproj, _, d_rel_path = dkey.partition(":")
                 if d_rel_path:
-                    self.qdrant.delete_points_by_file(self.code_collection, d_rel_path)
-                    self.qdrant.delete_points_by_file(self.docs_collection, d_rel_path)
+                    self.qdrant.delete_points_by_file(
+                        self.code_collection, d_rel_path, project_name=dproj
+                    )
+                    self.qdrant.delete_points_by_file(
+                        self.docs_collection, d_rel_path, project_name=dproj
+                    )
                     removed_files_count += 1
                 del cache[dkey]
             if deleted_keys:
@@ -390,19 +421,29 @@ class WorkspaceIndexer:
             return {
                 "indexed_files": 0,
                 "total_chunks": 0,
+                "code_chunks": 0,
+                "doc_chunks": 0,
                 "removed_files": removed_files_count,
                 "skipped_files": len(files),
                 "collections": [self.code_collection, self.docs_collection],
             }
 
-        # Purge obsolete vectors for files that are being re-indexed
-        for fpath in files_to_embed:
+        # Purge obsolete vectors for files that are being re-indexed (scoped to project)
+        for fpath, rel_fpath, fproj in files_to_reindex:
             try:
-                rel_fpath = str(fpath.relative_to(root_dir))
-                self.qdrant.delete_points_by_file(self.code_collection, rel_fpath)
-                self.qdrant.delete_points_by_file(self.docs_collection, rel_fpath)
+                self.qdrant.delete_points_by_file(
+                    self.code_collection, rel_fpath, project_name=fproj
+                )
+                self.qdrant.delete_points_by_file(
+                    self.docs_collection, rel_fpath, project_name=fproj
+                )
             except Exception as exc:
-                logger.debug("Failed to delete obsolete points for %s: %s", fpath, exc)
+                logger.debug(
+                    "Failed to delete obsolete points for %s (%s): %s",
+                    rel_fpath,
+                    fproj,
+                    exc,
+                )
 
         # Separate code vs doc chunks
         code_chunks: list[CodeChunk] = []
@@ -442,15 +483,15 @@ class WorkspaceIndexer:
 
         self._save_cache(cache)
         record_metric("rag.indexed_chunks_count", float(len(all_chunks)), unit="1")
-        record_metric("rag.indexed_files_count", float(len(files_to_embed)), unit="1")
+        record_metric("rag.indexed_files_count", float(len(files_to_reindex)), unit="1")
 
         return {
-            "indexed_files": len(files_to_embed),
+            "indexed_files": len(files_to_reindex),
             "total_chunks": len(all_chunks),
             "code_chunks": len(code_chunks),
             "doc_chunks": len(doc_chunks),
             "removed_files": removed_files_count,
-            "skipped_files": len(files) - len(files_to_embed),
+            "skipped_files": len(files) - len(files_to_reindex),
             "collections": [self.code_collection, self.docs_collection],
         }
 
