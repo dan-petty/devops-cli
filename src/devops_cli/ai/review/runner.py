@@ -672,7 +672,11 @@ def _run_review(
                     continue
                 break
 
-            seg_elapsed = proc_sec if proc_sec is not None else (time.monotonic() - seg_start)
+            seg_elapsed = (
+                float(proc_sec)
+                if isinstance(proc_sec, (int, float))
+                else (time.monotonic() - seg_start)
+            )
             req_backend_str = f" [{res_backend}]" if res_backend else analysis_suffix
             if not result_text.strip():
                 _log_segment_empty(file_label, seg_elapsed, req_backend_str, attempt)

@@ -204,3 +204,97 @@ class TestTfMcpTools:
             args = mock.call_args[0][0]
             assert "output" in args
             assert "--json" in args
+
+
+class TestAllMcpToolsDirectly:
+    """Direct execution tests for all MCP server tool endpoints."""
+
+    def test_mcp_tool_delegations(self) -> None:
+        from devops_cli.ai.mcp.server import (
+            argo_list,
+            argo_status,
+            ci_run,
+            config_output,
+            config_show,
+            docker_stats,
+            grafana_dashboards,
+            k8s_bootstrap,
+            k8s_create_tls_secret,
+            k8s_deploy_stack,
+            k8s_enable_tls,
+            k8s_jaeger_info,
+            k8s_pods,
+            k8s_status,
+            k8s_teardown_stack,
+            prometheus_query,
+            rag_index,
+            rag_search,
+            release_status,
+            repos_list,
+            repos_status,
+            repos_sync,
+            scan_uv_audit,
+            security_intel_network,
+            security_intel_package,
+            ssh_audit,
+            ssh_status,
+            telemetry_status,
+            telemetry_test_span,
+            tf_apply,
+            tf_output,
+            tf_plan,
+            tls_generate_ca,
+            tls_generate_cert,
+            tls_inspect_cert,
+            workspace_list,
+        )
+
+        with (
+            patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="mock_output"),
+            patch("devops_cli.ai.tools.builtin_tools.scan_osv", return_value="mock_output"),
+            patch(
+                "devops_cli.ai.tools.builtin_tools.check_threat_intel", return_value="mock_output"
+            ),
+            patch("devops_cli.ai.tools.builtin_tools.scan_uv_audit", return_value="mock_output"),
+        ):
+            assert repos_list() == "mock_output"
+            assert repos_status() == "mock_output"
+            assert repos_sync(all_repos=True) == "mock_output"
+            assert ssh_status() == "mock_output"
+            assert ssh_audit() == "mock_output"
+            assert k8s_pods(namespace="default") == "mock_output"
+            assert k8s_status() == "mock_output"
+            assert k8s_bootstrap(auto_start=True) == "mock_output"
+            assert k8s_deploy_stack(stack="monitoring") == "mock_output"
+            assert k8s_teardown_stack(stack="monitoring") == "mock_output"
+            assert "Jaeger Tracing Endpoints" in k8s_jaeger_info()
+            assert argo_list() == "mock_output"
+            assert argo_status(app="argocd") == "mock_output"
+            assert grafana_dashboards() == "mock_output"
+            assert prometheus_query("up") == "mock_output"
+            assert docker_stats() == "mock_output"
+            assert workspace_list() == "mock_output"
+            assert config_show() == "mock_output"
+            assert config_output() == "mock_output"
+            assert ci_run(check="all") == "mock_output"
+            assert release_status() == "mock_output"
+            assert tf_plan("tf/aws") == "mock_output"
+            assert tf_apply("tf/aws") == "mock_output"
+            assert tf_output("tf/aws") == "mock_output"
+            assert rag_search("test query") == "mock_output"
+            assert rag_index(force=True) == "mock_output"
+            assert security_intel_package("requests") == "mock_output"
+            assert security_intel_network("api.github.com") == "mock_output"
+            assert scan_uv_audit(".") == "mock_output"
+            assert tls_generate_ca(output_dir="/tmp/ca") == "mock_output"
+            assert (
+                tls_generate_cert(
+                    common_name="example.com", sans="example.com", output_dir="/tmp/ca"
+                )
+                == "mock_output"
+            )
+            assert tls_inspect_cert("/tmp/cert.pem") == "mock_output"
+            assert k8s_create_tls_secret("my-sec", "/tmp/cert.pem", "/tmp/key.pem") == "mock_output"
+            assert k8s_enable_tls(stack="all", secret_name="web-tls") == "mock_output"
+            assert telemetry_status() == "mock_output"
+            assert telemetry_test_span(name="test") == "mock_output"

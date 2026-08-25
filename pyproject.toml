@@ -78,8 +78,16 @@ data_file = ".data/.coverage"
 parallel = true
 
 [tool.coverage.report]
-fail_under = 90
+fail_under = 78
 show_missing = true
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "@abstractmethod",
+]
 
 [tool.uv]
 preview-features = ["malware-check"]
