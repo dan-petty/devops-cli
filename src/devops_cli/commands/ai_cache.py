@@ -9,7 +9,6 @@ from rich import print as rprint
 from rich.console import Console
 from rich.table import Table
 
-from devops_cli.ai.response_cache import get_llm_response_cache
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import is_dry_run
 from devops_cli.lang import HELP
@@ -29,6 +28,8 @@ def cache_status(
     ] = "table",
 ) -> None:
     """Display LLM response cache performance statistics, hit rates, and disk storage."""
+    from devops_cli.ai.response_cache import get_llm_response_cache
+
     cache = get_llm_response_cache()
     stats = cache.get_stats()
 
@@ -84,6 +85,8 @@ def cache_clear() -> None:
             details={},
         )
         return
+
+    from devops_cli.ai.response_cache import get_llm_response_cache
 
     cache = get_llm_response_cache()
     cleared_count = cache.clear()

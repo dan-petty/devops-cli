@@ -388,10 +388,11 @@ class OTelTelemetryClient:
 
             status_code = "STATUS_CODE_ERROR"
             error_msg = str(exc)
-            handle.record_exception(exc)
             if exit_code is not None:
                 attrs["cli.exit_code"] = exit_code
                 attrs["process.exit.code"] = exit_code
+            else:
+                handle.record_exception(exc)
             raise
         finally:
             end_nano = int(time.time() * 1e9)

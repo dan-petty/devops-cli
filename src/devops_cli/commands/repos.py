@@ -6,7 +6,6 @@ import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated
 
-import git as gitlib
 import typer
 from rich.progress import track
 from rich.table import Table
@@ -68,6 +67,8 @@ def _require_client(settings: Settings) -> GitHubClient:
 
 def _current_branch(repo_dir: Path) -> str:
     try:
+        import git as gitlib
+
         repo = gitlib.Repo(str(repo_dir))
         return "HEAD detached" if repo.head.is_detached else repo.active_branch.name
     except Exception:
@@ -160,7 +161,7 @@ def clone_org(
         try:
             clone_repo(_github_https_url(repo.full_name), dest)
             print_success(f"done {repo.name}")
-        except (gitlib.exc.GitError, OSError, subprocess.SubprocessError) as exc:
+        except (OSError, subprocess.SubprocessError, Exception) as exc:
             print_error(f"fail {repo.name}: {exc}")
 
     _sync_and_reload_workspace(root, settings.workspace.file)
@@ -286,7 +287,7 @@ def update(
             if pull:
                 pull_tracking(repo_dir)
             print_success(f"{label}")
-        except (gitlib.exc.GitError, OSError, subprocess.SubprocessError) as exc:
+        except (OSError, subprocess.SubprocessError, Exception) as exc:
             print_error(f"{label}: {exc}")
 
     _sync_and_reload_workspace(root, settings.workspace.file)

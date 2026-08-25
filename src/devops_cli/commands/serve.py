@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import typer
-import uvicorn
 
 from devops_cli import __version__
 from devops_cli.core.cli import new_typer
@@ -11,7 +10,6 @@ from devops_cli.output import (
     print_info,
     print_success,
 )
-from devops_cli.server.app import create_app
 
 app = new_typer(
     help="FastAPI REST & OpenAPI Service Engine for remote automation, health probes, and metrics.",
@@ -97,6 +95,10 @@ def serve(
     docs_url = "/docs" if docs else None
     redoc_url = "/redoc" if docs else None
     openapi_url = "/openapi.json" if docs else None
+
+    import uvicorn
+
+    from devops_cli.server.app import create_app
 
     fastapi_app = create_app(
         docs_url=docs_url,

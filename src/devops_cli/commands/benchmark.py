@@ -7,9 +7,6 @@ from typing import Annotated
 
 import typer
 
-from devops_cli.ai.benchmark.embedding_runner import EmbeddingBenchmarkRunner
-from devops_cli.ai.benchmark.runner import BenchmarkRunner
-from devops_cli.ai.benchmark.tasks import get_benchmark_tasks
 from devops_cli.config.defaults import (
     DEFAULT_BENCHMARK_CONCURRENCY,
     DEFAULT_BENCHMARK_FORMAT,
@@ -167,6 +164,8 @@ def run_benchmark(
     )
 
     if is_embedding:
+        from devops_cli.ai.benchmark.embedding_runner import EmbeddingBenchmarkRunner
+
         embed_runner = EmbeddingBenchmarkRunner(
             models=model_list,
             settings=settings,
@@ -188,6 +187,9 @@ def run_benchmark(
         return
 
     # Parse task filters for LLM Chat benchmark
+    from devops_cli.ai.benchmark.runner import BenchmarkRunner
+    from devops_cli.ai.benchmark.tasks import get_benchmark_tasks
+
     cat_filters = [c.strip() for c in tasks_filter.split(",")] if tasks_filter else None
     task_list = get_benchmark_tasks(cat_filters)
 
