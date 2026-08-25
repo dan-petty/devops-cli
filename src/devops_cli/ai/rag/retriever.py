@@ -21,6 +21,61 @@ from devops_cli.telemetry import record_metric, trace_span
 logger = logging.getLogger(__name__)
 
 
+def _embed_search_query(embedder: Any, query: str) -> list[float] | None:
+    """Embed search query with tracing and error handling."""
+    model_name = getattr(embedder, "model", "default")
+    try:
+        with trace_span("ai.rag.embed_query", {"query_length": len(query), "model": model_name}):
+            return embedder.embed_query(query)  # type: ignore[no-any-return]
+    except Exception as exc:
+        logger.warning("Failed to embed search query: %s", exc)
+        return None
+
+
+def _build_rag_filter_payload(
+    file_filter: str | None,
+    project: str | None,
+    language: str | None,
+    category: str | None,
+) -> dict[str, Any] | None:
+    """Build filter payload dict for Qdrant search."""
+    filter_payload: dict[str, Any] = {}
+    if file_filter:
+        filter_payload["file_path"] = file_filter
+    if project:
+        filter_payload["project_name"] = project
+    if language:
+        filter_payload["language"] = language
+    if category:
+        filter_payload["category"] = category
+    return filter_payload if filter_payload else None
+
+
+def _search_collections(
+    qdrant: Any,
+    target_collections: list[str],
+    query_vec: list[float],
+    fetch_limit: int,
+    threshold: float | None,
+    active_filter: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    """Query Qdrant points across target collections."""
+    raw_results: list[dict[str, Any]] = []
+    for coll in target_collections:
+        try:
+            points = qdrant.search_points(
+                coll,
+                query_vec,
+                limit=fetch_limit,
+                score_threshold=threshold,
+                filter_payload=active_filter,
+            )
+            raw_results.extend(points)
+        except Exception as exc:
+            logger.debug("Failed searching collection %s: %s", coll, exc)
+    return raw_results
+
+
 class SemanticRetriever:
     """Retrieves relevant code and documentation chunks to augment LLM prompts."""
 
@@ -67,81 +122,74 @@ class SemanticRetriever:
 
         with trace_span(
             "ai.rag.search",
-            {"query_length": len(query), "top_k": k, "project": project or "all"},
-        ):
-            try:
-                query_vec = self.embedder.embed_query(query)
-            except Exception as exc:
-                logger.warning("Failed to embed search query: %s", exc)
+            {
+                "query_length": len(query),
+                "top_k": k,
+                "project": project or "all",
+                "rag.rerank": rerank,
+            },
+        ) as search_span:
+            query_vec = _embed_search_query(self.embedder, query)
+            if query_vec is None:
                 return []
 
-        if collection:
-            target_collections = [collection]
-        elif category == "docs":
-            target_collections = [self.docs_collection]
-        elif category in ("code", "iac", "config"):
-            target_collections = [self.code_collection]
-        else:
-            target_collections = [self.code_collection, self.docs_collection]
+            if collection:
+                target_collections = [collection]
+            elif category == "docs":
+                target_collections = [self.docs_collection]
+            elif category in ("code", "iac", "config"):
+                target_collections = [self.code_collection]
+            else:
+                target_collections = [self.code_collection, self.docs_collection]
 
-        filter_payload: dict[str, Any] = {}
-        if file_filter:
-            filter_payload["file_path"] = file_filter
-        if project:
-            filter_payload["project_name"] = project
-        if language:
-            filter_payload["language"] = language
-        if category:
-            filter_payload["category"] = category
+            search_span.set_attribute("rag.collections", target_collections)
 
-        active_filter = filter_payload if filter_payload else None
-
-        raw_results: list[dict[str, Any]] = []
-        for coll in target_collections:
-            try:
-                points = self.qdrant.search_points(
-                    coll,
-                    query_vec,
-                    limit=fetch_limit,
-                    score_threshold=threshold,
-                    filter_payload=active_filter,
-                )
-                raw_results.extend(points)
-            except Exception as exc:
-                logger.debug("Failed searching collection %s: %s", coll, exc)
-
-        results: list[SearchResult] = []
-        for pt in raw_results:
-            payload = pt.get("payload", {})
-            chunk = CodeChunk(
-                id=str(pt.get("id", "")),
-                file_path=str(payload.get("file_path", "")),
-                start_line=int(payload.get("start_line", 1)),
-                end_line=int(payload.get("end_line", 1)),
-                content=str(payload.get("content", "")),
-                language=str(payload.get("language", "text")),
-                doc_type=str(payload.get("doc_type", "code")),
-                category=str(payload.get("category", "code")),
-                project_name=str(payload.get("project_name", "default")),
-                section_path=list(payload.get("section_path", [])),
-                symbol_names=list(payload.get("symbol_names", [])),
-                metadata=dict(payload.get("metadata", {})),
-                content_hash=str(payload.get("content_hash", "")),
+            active_filter = _build_rag_filter_payload(file_filter, project, language, category)
+            raw_results = _search_collections(
+                self.qdrant,
+                target_collections,
+                query_vec,
+                fetch_limit,
+                threshold,
+                active_filter,
             )
-            results.append(SearchResult(chunk=chunk, score=float(pt.get("score", 0.0))))
 
-        if rerank and results:
-            final_results = self.reranker.rerank(query, results, top_k=k)
-        else:
-            results.sort(key=lambda x: x.score, reverse=True)
-            final_results = results[:k]
+            results: list[SearchResult] = []
+            for pt in raw_results:
+                payload = pt.get("payload", {})
+                chunk = CodeChunk(
+                    id=str(pt.get("id", "")),
+                    file_path=str(payload.get("file_path", "")),
+                    start_line=int(payload.get("start_line", 1)),
+                    end_line=int(payload.get("end_line", 1)),
+                    content=str(payload.get("content", "")),
+                    language=str(payload.get("language", "text")),
+                    doc_type=str(payload.get("doc_type", "code")),
+                    category=str(payload.get("category", "code")),
+                    project_name=str(payload.get("project_name", "default")),
+                    section_path=list(payload.get("section_path", [])),
+                    symbol_names=list(payload.get("symbol_names", [])),
+                    metadata=dict(payload.get("metadata", {})),
+                    content_hash=str(payload.get("content_hash", "")),
+                )
+                results.append(SearchResult(chunk=chunk, score=float(pt.get("score", 0.0))))
 
-        record_metric(
-            "devops_cli_rag_query_duration_ms",
-            (time.perf_counter() - start) * 1000,
-            unit="ms",
-        )
-        return final_results
+            if rerank and results:
+                final_results = self.reranker.rerank(query, results, top_k=k)
+            else:
+                results.sort(key=lambda x: x.score, reverse=True)
+                final_results = results[:k]
+
+            search_span.set_attribute("rag.results_count", len(final_results))
+            if final_results:
+                search_span.set_attribute("rag.top_score", final_results[0].score)
+
+            record_metric(
+                "devops_cli_rag_query_duration_ms",
+                (time.perf_counter() - start) * 1000,
+                unit="ms",
+            )
+            return final_results
 
     def filter_and_validate_results(
         self,

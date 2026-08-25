@@ -7,19 +7,24 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
-from rich import print as rprint
 from rich.console import Console
 
 from devops_cli.core.cli import new_typer
 from devops_cli.docs.generator import DocGenerator
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
 from devops_cli.lang import MESSAGES
+from devops_cli.output import print_error, print_info, print_success, write_text_file
 
 app = new_typer(
     help="Generate and validate CLI and architecture documentation.",
     no_args_is_help=True,
 )
 console = Console()
+
+
+# =============================================================================
+# Helper Utilities
+# =============================================================================
 
 
 def _get_default_docs_dir() -> Path:
@@ -30,6 +35,11 @@ def _get_default_docs_dir() -> Path:
             return cur / "docs"
         cur = cur.parent
     return Path("docs")
+
+
+# =============================================================================
+# Command: generate
+# =============================================================================
 
 
 @app.command(name="generate")
@@ -72,12 +82,12 @@ def generate(
     if format_type.lower() == "json":
         json_data = generator.to_json_dict()
         out_json = json.dumps(json_data, indent=2)
+        json_file = target_dir / "cli_schema.json"
         if check:
-            json_file = target_dir / "cli_schema.json"
             if not json_file.exists() or json_file.read_text(encoding="utf-8") != out_json:
-                rprint(f"[red]{MESSAGES.docs.docs_outdated.format(path=json_file)}[/red]")
+                print_error(MESSAGES.docs.docs_outdated.format(path=json_file), prefix=False)
                 raise typer.Exit(1)
-            rprint(f"[green]{MESSAGES.docs.docs_up_to_date}[/green]")
+            print_success(MESSAGES.docs.docs_up_to_date, prefix=False)
             return
 
         if is_dry_run():
@@ -89,24 +99,22 @@ def generate(
             )
             return
 
-        target_dir.mkdir(parents=True, exist_ok=True)
-        json_file = target_dir / "cli_schema.json"
-        json_file.write_text(out_json, encoding="utf-8")
-        rprint(f"[green]{MESSAGES.docs.generated_file.format(path=json_file)}[/green]")
+        write_text_file(json_file, out_json)
+        print_success(MESSAGES.docs.generated_file.format(path=json_file), prefix=False)
         return
 
     if format_type.lower() != "markdown":
-        rprint(f"[red]{MESSAGES.docs.unsupported_format.format(format=format_type)}[/red]")
+        print_error(MESSAGES.docs.unsupported_format.format(format=format_type), prefix=False)
         raise typer.Exit(1)
 
     if check:
         ok, errors = generator.check_docs(target_dir, check_readme_table=sync_readme)
         if not ok:
             for err in errors:
-                rprint(f"[red]{err}[/red]")
-            rprint(f"[bold red]{MESSAGES.docs.check_failed}[/bold red]")
+                print_error(err, prefix=False)
+            print_error(MESSAGES.docs.check_failed, prefix=False)
             raise typer.Exit(1)
-        rprint(f"[green]{MESSAGES.docs.docs_up_to_date}[/green]")
+        print_success(MESSAGES.docs.docs_up_to_date, prefix=False)
         return
 
     if is_dry_run():
@@ -122,10 +130,17 @@ def generate(
         )
         return
 
-    rprint(MESSAGES.docs.generating_docs.format(output_dir=f"[cyan]{target_dir}[/cyan]"))
+    print_info(
+        MESSAGES.docs.generating_docs.format(output_dir=f"[cyan]{target_dir}[/cyan]"), prefix=False
+    )
     written = generator.write_all_docs(target_dir, sync_readme_table=sync_readme)
     for path in written:
-        rprint(f"[green]{MESSAGES.docs.generated_file.format(path=path)}[/green]")
+        print_success(MESSAGES.docs.generated_file.format(path=path), prefix=False)
+
+
+# =============================================================================
+# Command: check
+# =============================================================================
 
 
 @app.command(name="check")
@@ -152,10 +167,15 @@ def check(
     ok, errors = generator.check_docs(target_dir, check_readme_table=check_readme)
     if not ok:
         for err in errors:
-            rprint(f"[red]{err}[/red]")
-        rprint(f"[bold red]{MESSAGES.docs.check_failed}[/bold red]")
+            print_error(err, prefix=False)
+        print_error(MESSAGES.docs.check_failed, prefix=False)
         raise typer.Exit(1)
-    rprint(f"[green]{MESSAGES.docs.docs_up_to_date}[/green]")
+    print_success(MESSAGES.docs.docs_up_to_date, prefix=False)
+
+
+# =============================================================================
+# Command: sync-readme
+# =============================================================================
 
 
 @app.command(name="sync-readme")
@@ -182,19 +202,24 @@ def sync_readme_cmd(
         ok, err = generator.check_readme(readme_path)
         if not ok:
             if err:
-                rprint(f"[red]{err}[/red]")
+                print_error(err, prefix=False)
             raise typer.Exit(1)
-        rprint(f"[green]{MESSAGES.docs.docs_up_to_date}[/green]")
+        print_success(MESSAGES.docs.docs_up_to_date, prefix=False)
         return
 
     if is_dry_run():
         target = generator._find_readme(readme_path)
-        rprint(f"[yellow][dry-run][/yellow] Would update Command Matrix in: [cyan]{target}[/cyan]")
+        render_dry_run_result(
+            command="devops docs sync-readme",
+            target=str(target),
+            action="sync_readme_matrix",
+            details={"readme_path": str(target)},
+        )
         return
 
     target = generator._find_readme(readme_path)
     if generator.sync_readme(readme_path):
-        rprint(f"[green]{MESSAGES.docs.synced_readme.format(path=target)}[/green]")
+        print_success(MESSAGES.docs.synced_readme.format(path=target), prefix=False)
     else:
-        rprint(f"[red]Failed to synchronize README Command Matrix in {target}[/red]")
+        print_error(f"Failed to synchronize README Command Matrix in {target}", prefix=False)
         raise typer.Exit(1)

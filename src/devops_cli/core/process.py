@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 import time
 from pathlib import Path
 
-from rich import print as rprint
-
 from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
-from devops_cli.dry_run import format_command, is_dry_run
+from devops_cli.dry_run import is_dry_run
+from devops_cli.output import print_dry_run_command
 from devops_cli.telemetry import record_metric, trace_span
+from devops_cli.telemetry.tracer import get_tracer
 
 _QUIET_SUBPROCESS_ARGS = frozenset(
     {"rev-parse", "symbolic-ref", "for-each-ref", "diff", "cat-file", "tag", "remote", "status"}
@@ -21,6 +22,7 @@ def run_subprocess(
     cmd: list[str],
     *,
     cwd: Path | None = None,
+    env: dict[str, str] | None = None,
     capture_output: bool = True,
     text: bool = True,
     check: bool = False,
@@ -28,14 +30,15 @@ def run_subprocess(
     timeout: float = DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
 ) -> subprocess.CompletedProcess[str]:
     """Execute a subprocess command with unified timeout bounds, dry-run reporting,
-    and OTel tracing."""
+    W3C trace context propagation, and OTel tracing."""
     if is_dry_run() and not quiet and not _QUIET_SUBPROCESS_ARGS.intersection(cmd):
-        rendered = format_command(cmd, cwd=str(cwd) if cwd else None)
-        rprint(f"[yellow][dry-run][/yellow] Would run command: [cyan]{rendered}[/cyan]")
+        print_dry_run_command(cmd, cwd=str(cwd) if cwd else None)
 
     bin_name = Path(cmd[0]).name if cmd else "unknown"
     cmd_summary = " ".join(cmd[:8]) + ("..." if len(cmd) > 8 else "") if cmd else ""
     t0 = time.perf_counter()
+
+    sub_env = dict(env or os.environ)
 
     with trace_span(
         f"subprocess.{bin_name}",
@@ -45,12 +48,18 @@ def run_subprocess(
             "subprocess.args_count": len(cmd),
             "subprocess.cwd": str(cwd or ""),
             "subprocess.timeout_seconds": timeout,
+            "process.executable.name": bin_name,
+            "process.command_line": cmd_summary,
+            "process.working_directory": str(cwd or ""),
         },
     ) as span_h:
+        # Inject active subprocess span as parent trace context for child process
+        get_tracer().inject_trace_context(sub_env)
         try:
             proc = subprocess.run(
                 cmd,
                 cwd=cwd,
+                env=sub_env,
                 capture_output=capture_output,
                 text=text,
                 check=check,
@@ -60,6 +69,7 @@ def run_subprocess(
             dur = time.perf_counter() - t0
             span_h.set_attribute("subprocess.executable_found", False)
             span_h.set_attribute("subprocess.exit_code", 127)
+            span_h.set_attribute("process.exit.code", 127)
             span_h.set_attribute("subprocess.duration_seconds", dur)
             span_h.set_attribute("subprocess.status", "not_found")
             span_h.add_event("subprocess_not_found", {"bin": bin_name})
@@ -78,6 +88,7 @@ def run_subprocess(
 
         dur = time.perf_counter() - t0
         span_h.set_attribute("subprocess.exit_code", ret_code)
+        span_h.set_attribute("process.exit.code", ret_code)
         span_h.set_attribute("subprocess.duration_seconds", dur)
         span_h.set_attribute("subprocess.status", "ok" if ret_code == 0 else "non_zero")
 

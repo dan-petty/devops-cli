@@ -113,13 +113,18 @@ def load_custom_repo_persona(repo_path: Path, persona_name: str) -> PersonaDefin
     safe_name = Path(persona_name).name
     if not safe_name or safe_name != persona_name:
         return None
-    custom_dir = (repo_path / ".devops" / "personas").resolve()
-    custom_file = (custom_dir / f"{safe_name}.md").resolve()
-    try:
-        custom_file.relative_to(custom_dir)
-    except ValueError:
+    custom_dir = repo_path / ".devops" / "personas"
+    if custom_dir.is_symlink():
         return None
-    if not custom_file.is_file():
+    custom_file = custom_dir / f"{safe_name}.md"
+    if custom_file.is_symlink() or not custom_file.is_file():
+        return None
+    try:
+        resolved_repo = repo_path.resolve(strict=True)
+        resolved_file = custom_file.resolve(strict=True)
+        if not resolved_file.is_relative_to(resolved_repo):
+            return None
+    except Exception:
         return None
     content = _load(custom_file)
     return PersonaDefinition(

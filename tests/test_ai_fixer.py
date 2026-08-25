@@ -1,15 +1,15 @@
-"""Unit tests for AI/LLM response fixer and formatter (devops_cli.ai.fixer)."""
+"""Unit tests for AI/LLM response repair and formatter (devops_cli.ai.response_repair)."""
 
 from __future__ import annotations
 
 from pydantic import BaseModel
 
-from devops_cli.ai.fixer import (
+from devops_cli.ai.response_repair import (
     extract_tool_invocations,
     fix_llm_response,
-    normalize_raw_llm_text,
     repair_json_string,
 )
+from devops_cli.ai.review_schema import normalize_unicode_text
 
 
 class SampleModel(BaseModel):
@@ -18,9 +18,9 @@ class SampleModel(BaseModel):
     active: bool = True
 
 
-def test_normalize_raw_llm_text_unicode_spaces_and_quotes() -> None:
+def test_normalize_unicode_text_spaces_and_quotes() -> None:
     raw = "Hello\u202fworld\u00a0\u2018smart\u2019 \u201cquotes\u201d\u200b!"
-    norm = normalize_raw_llm_text(raw)
+    norm = normalize_unicode_text(raw)
     assert norm == "Hello world 'smart' \"quotes\"!"
 
 

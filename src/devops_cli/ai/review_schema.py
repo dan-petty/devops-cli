@@ -251,13 +251,23 @@ class Finding(BaseModel):
     @field_validator("confidence_score", mode="before")
     @classmethod
     def _normalize_confidence(cls, v: object) -> float | None:
-        if v is None or str(v).lower() in ("null", "none", ""):
-            return None
-        try:
-            val = float(str(v))
-            return max(0.0, min(1.0, val))
-        except (ValueError, TypeError):
-            return None
+        return _parse_confidence_score(v)
+
+
+def _parse_confidence_score(v: object) -> float | None:
+    """Parse and clamp confidence score between 0.0 and 1.0."""
+    if v is None or str(v).lower() in ("null", "none", ""):
+        return None
+    try:
+        val = float(str(v))
+        return max(0.0, min(1.0, val))
+    except ValueError, TypeError:
+        return None
+
+
+def _filter_non_empty_findings[T: (Finding, SavedFinding)](v: list[T]) -> list[T]:
+    """Filter out empty finding records from lists."""
+    return [f for f in v if not f.is_empty]
 
 
 def _parse_location(location: str) -> tuple[str, int | None, int | None]:
@@ -367,11 +377,10 @@ def _merge_two_findings[F: Finding](base: F, other: F) -> F:
     inv_match = list(
         dict.fromkeys(base.invalidated_criteria_matched + other.invalidated_criteria_matched)
     )
-    reportable = (
-        base.reportable and other.reportable
-        if (not verified and (base.mitigated or other.mitigated))
-        else (base.reportable or other.reportable)
-    )
+    if not verified and (base.mitigated or other.mitigated):
+        reportable = base.reportable and other.reportable
+    else:
+        reportable = base.reportable or other.reportable
 
     updates: dict[str, Any] = {
         "severity": best_sev,
@@ -466,7 +475,7 @@ class FileReviewPayload(BaseModel):
     @field_validator("findings", mode="after")
     @classmethod
     def _filter_valid_findings(cls, v: list[SavedFinding]) -> list[SavedFinding]:
-        return [f for f in v if not f.is_empty]
+        return _filter_non_empty_findings(v)
 
 
 class ReviewSessionPayload(BaseModel):
@@ -481,7 +490,7 @@ class ReviewSessionPayload(BaseModel):
     @field_validator("findings", mode="after")
     @classmethod
     def _filter_valid_findings(cls, v: list[SavedFinding]) -> list[SavedFinding]:
-        return [f for f in v if not f.is_empty]
+        return _filter_non_empty_findings(v)
 
     @property
     def sorted_findings(self) -> list[SavedFinding]:
@@ -494,11 +503,13 @@ class ReviewResult(BaseModel):
     recommendation: str = "REQUEST CHANGES"
     summary: str = ""
     confidence_score: float | None = None
+    external_dependencies: list[DependencySpec] = Field(default_factory=list)
+    network_references: list[NetworkReference] = Field(default_factory=list)
 
     @field_validator("findings", mode="after")
     @classmethod
     def _filter_valid_findings(cls, v: list[Finding]) -> list[Finding]:
-        return [f for f in v if not f.is_empty]
+        return _filter_non_empty_findings(v)
 
     @model_validator(mode="after")
     def _sync_recommendation(self) -> ReviewResult:
@@ -527,13 +538,7 @@ class ReviewResult(BaseModel):
     @field_validator("confidence_score", mode="before")
     @classmethod
     def _normalize_confidence(cls, v: object) -> float | None:
-        if v is None or str(v).lower() in ("null", "none", ""):
-            return None
-        try:
-            val = float(str(v))
-            return max(0.0, min(1.0, val))
-        except (ValueError, TypeError):
-            return None
+        return _parse_confidence_score(v)
 
     @property
     def sorted_findings(self) -> list[Finding]:
@@ -662,12 +667,24 @@ def _parse_markdown_review_findings(text: str) -> list[Finding]:
     return findings
 
 
-def parse_review_result(text: str) -> ReviewResult | None:
-    """Parse LLM output into a ReviewResult. Returns None if parsing fails."""
-    if not text or not text.strip():
-        return None
+def _validate_raw_findings_list(data: list[Any]) -> list[Finding]:
+    """Validate and filter list of raw dictionary findings."""
+    parsed_findings: list[Finding] = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        try:
+            f = Finding.model_validate(item)
+            if not f.is_empty:
+                parsed_findings.append(f)
+        except Exception:
+            pass
+    return parsed_findings
 
-    from devops_cli.ai.fixer import fix_llm_response
+
+def parse_review_response(text: str) -> ReviewResult | None:
+    """Parse review LLM response, prioritizing Pydantic structured output."""
+    from devops_cli.ai.response_repair import fix_llm_response
 
     fixed = fix_llm_response(text, schema=ReviewResult)
     if fixed.parsed_model is not None and isinstance(fixed.parsed_model, ReviewResult):
@@ -675,15 +692,7 @@ def parse_review_result(text: str) -> ReviewResult | None:
 
     data = fixed.json_data or extract_json_block(text)
     if isinstance(data, list):
-        parsed_findings: list[Finding] = []
-        for item in data:
-            if isinstance(item, dict):
-                try:
-                    f = Finding.model_validate(item)
-                    if not f.is_empty:
-                        parsed_findings.append(f)
-                except Exception:
-                    pass
+        parsed_findings = _validate_raw_findings_list(data)
         if parsed_findings:
             return ReviewResult(
                 findings=parsed_findings,
@@ -702,3 +711,7 @@ def parse_review_result(text: str) -> ReviewResult | None:
         return ReviewResult(findings=md_findings, summary=target_text[:MAX_SUMMARY_PREVIEW_LENGTH])
 
     return None
+
+
+# Backward-compatible alias used across review subsystem
+parse_review_result = parse_review_response

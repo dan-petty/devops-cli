@@ -164,14 +164,14 @@ devops ai review [OPTIONS] COMMAND [ARGS]...
 **Review source files directly (no git required).**
 
 ```bash
-devops ai review path [OPTIONS] <target>
+devops ai review path [OPTIONS] <targets>
 ```
 
 **Arguments:**
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<target>` | `path` | No | File or directory to review |
+| `<targets>` | `path` | No | File(s) or directory(ies) to review |
 
 **Options:**
 
@@ -266,14 +266,15 @@ devops ai review verify [OPTIONS] <session>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<session>` | `string` | Yes | Session ID or substring |
+| `<session>` | `string` | No | Session ID or substring (default: latest) |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--index`, `-i` | `integer` | - | 1-based index of the finding to update |
-| `--title`, `-t` | `string` | - | Title substring to match finding |
+| `--session`, `-s` | `string` | - | Session ID or substring |
+| `--index`, `-i` | `integer` | - | 1-based finding index in session to verify |
+| `--title`, `-t` | `string` | - | Match finding by substring in title |
 | `--status` | `string` | `INVALIDATED` | Target status: VERIFIED | INVALIDATED | MITIGATED | UNVERIFIED |
 | `--reason`, `-r` | `string` | `` | Explanation or justification for the status change |
 
@@ -346,7 +347,7 @@ devops ai analyze [OPTIONS] COMMAND [ARGS]...
 
 ### `devops ai analyze path`
 
-**Analyze a local directory path or single file and save metadata to .data/analysis/.**
+**Analyze all repository files under target path and save metadata to .data/analysis/.**
 
 ```bash
 devops ai analyze path [OPTIONS] <target>
@@ -468,6 +469,33 @@ devops ai rag index-kb [OPTIONS]
 | `--collection`, `-c` | `string` | - | Target collection override |
 | `--explain`, `-e` | `boolean` | - | Explain RAG vector embeddings, Qdrant indexing, and terminology |
 
+### `devops ai rag search`
+
+**Perform semantic search across indexed workspace code and documentation.**
+
+```bash
+devops ai rag search [OPTIONS] <query>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<query>` | `string` | Yes | Natural language query or code search term |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--project`, `-p` | `string` | - | Filter results by project name |
+| `--language`, `-l` | `string` | - | Filter results by programming language |
+| `--category`, `-c` | `string` | - | Filter by category (code, docs, topics, tasks) |
+| `--top-k`, `-k` | `integer` | `5` | Number of results to return |
+| `--min-score`, `-s` | `float` | `0.35` | Minimum similarity score (0.0 - 1.0) |
+| `--collection` | `string` | - | Target Qdrant collection (default: auto) |
+| `--file`, `-f` | `string` | - | Filter by filepath glob pattern |
+| `--explain` | `boolean` | - | Explain how RAG vector search works |
+
 ### `devops ai rag query`
 
 **Perform semantic search across indexed workspace code and documentation.**
@@ -480,20 +508,20 @@ devops ai rag query [OPTIONS] <query>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<query>` | `string` | Yes | Semantic search query string |
+| `<query>` | `string` | Yes | Natural language query or code search term |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--project`, `-p` | `string` | - | Filter results to a specific project |
-| `--language`, `-l` | `string` | - | Filter by programming language |
-| `--category` | `string` | - | Filter by category (code, docs, iac, config) |
-| `--top-k`, `-k` | `integer` | `5` | Number of results to retrieve |
-| `--min-score`, `-s` | `float` | `0.35` | Minimum cosine similarity threshold |
-| `--collection`, `-c` | `string` | - | Search only a specific collection |
-| `--file`, `-f` | `string` | - | Filter results to a specific file |
-| `--explain`, `-e` | `boolean` | - | Explain RAG vector embeddings, Qdrant indexing, and terminology |
+| `--project`, `-p` | `string` | - | Filter results by project name |
+| `--language`, `-l` | `string` | - | Filter results by programming language |
+| `--category`, `-c` | `string` | - | Filter by category (code, docs, topics, tasks) |
+| `--top-k`, `-k` | `integer` | `5` | Number of results to return |
+| `--min-score`, `-s` | `float` | `0.35` | Minimum similarity score (0.0 - 1.0) |
+| `--collection` | `string` | - | Target Qdrant collection (default: auto) |
+| `--file`, `-f` | `string` | - | Filter by filepath glob pattern |
+| `--explain` | `boolean` | - | Explain how RAG vector search works |
 
 ### `devops ai rag status`
 
@@ -559,5 +587,37 @@ devops ai benchmark [OPTIONS]
 | `--explain`, `-e` | `boolean` | - | Explain benchmark metrics, terminology, and mathematical formulas |
 | `--document`, `-d` | `path` | - | Path to large test document for in-memory tokenization and section retrieval |
 | `--samples` | `integer` | `5` | Number of random sections to sample for retrieval evaluation |
+
+---
+
+## `devops ai cache`
+
+**Manage LLM response cache, performance metrics, and warm starting points.**
+
+```bash
+devops ai cache COMMAND [ARGS]...
+```
+
+### `devops ai cache status`
+
+**Display LLM response cache performance statistics, hit rates, and disk storage.**
+
+```bash
+devops ai cache status [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--format`, `-f` | `string` | `table` | Output format: table, json |
+
+### `devops ai cache clear`
+
+**Purge all in-memory and persistent disk cache entries.**
+
+```bash
+devops ai cache clear
+```
 
 ---

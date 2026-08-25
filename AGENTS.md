@@ -7,6 +7,7 @@ This document provides foundational context, architectural principles, and opera
 - **High Reliability & Quality First**: Build robust, resilient workstation automation and agentic developer tooling with defensive error handling, explicit timeouts, and zero tolerance for flaky tests.
 - **Poetic Conciseness, Expressive Integration & Zero Boilerplate**:
   - The codebase must read as a poetically concise, expressive integration of tools, libraries, docs, AI, and automation rather than a collection of low-level nested loops, procedural boilerplate, or hard-to-decipher ad-hoc logic.
+  - Control code complexity by aiming for fewer than 6 indentations across all functions and code blocks. Complex multi-step tasks, deep branching, and nested iterations must be decomposed into dedicated, single-responsibility functions and clean functional pipelines so application logic flow reads cleanly.
   - Maximize standard library leverage (`functools`, `itertools`, `pathlib`, `collections`, `ipaddress`, `urllib.parse`), Pydantic v2 models, and functional pipelines.
   - Never write manual string-slicing loops, hand-rolled dictionary traversing, or procedural subprocess parsing when standard library parsers, comprehensions, or high-level declarative abstractions provide clean, self-documenting implementations.
 - **Modern Python Ecosystem**: Track modern Python 3.14+ runtime features, typing standards, and established open-source libraries (`pydantic v2`, `httpx2`, `pytest`, `ruff`, `mypy`, `uv.lock`). Avoid custom workarounds when standard library or robust open-source tools exist. Ensure AI code reviewers do not hallucinate CVEs or false malicious package alerts against verified dependencies like `httpx2` (Pydantic HTTP/2 client).
@@ -23,9 +24,8 @@ All work follows a progressive verification strategy to optimize developer feedb
 
 ### Mandatory Knowledge Base Consultation
 Before planning, implementing, debugging, refactoring, or reviewing code, architectures, or operational workflows, AI agents and assistants **MUST ALWAYS** consult the **DevOps CLI Knowledge Base** under [`src/devops_cli/ai/knowledge_base/README.md`](src/devops_cli/ai/knowledge_base/README.md).
-- **Core Topic Guides ([`src/devops_cli/ai/knowledge_base/topics/`](src/devops_cli/ai/knowledge_base/README.md#core-topic-guides-srcdevops_cliaiknowledge_basetopics))**: Consult for deep architectural patterns, domain concepts, and engineering standards (Agentic AI, K8s & GitOps, Zero-Trust Security, Observability & Tracing, DevContainers, IaC, CI Quality Gates, Python 3.14+, REST APIs, Release Governance).
-- **Tool Reference Manuals ([`src/devops_cli/ai/knowledge_base/tools/`](src/devops_cli/ai/knowledge_base/README.md#tool-references-srcdevops_cliaiknowledge_basetools))**: Consult for tool usage, security policies, common commands, and official registries across all 20 integrated tools.
-- **Operational Task Guides ([`src/devops_cli/ai/knowledge_base/tasks/`](src/devops_cli/ai/knowledge_base/README.md#operational-task-references-srcdevops_cliaiknowledge_basetasks))**: Consult for workflow steps, subcommands, and operational procedures across all 12 automated task areas.
+- **DevOps CLI Information ([`src/devops_cli/ai/knowledge_base/devops_cli/`](src/devops_cli/ai/knowledge_base/README.md#-division-1-devops-cli-information-devops_cli))**: Consult for DevOps CLI internals, subsystem architecture, configuration & keyring management, CLI command matrix, and 12 operational task manuals (`devops_cli/tasks/`).
+- **IT Domain-Specific Information ([`src/devops_cli/ai/knowledge_base/it_domains/`](src/devops_cli/ai/knowledge_base/README.md#-division-2-information-technology-domain-specific-information-it_domains))**: Consult for deep architectural patterns and standards across 10 IT domain topic guides (`it_domains/topics/`) and 20 integrated tool reference manuals (`it_domains/tools/`).
 
 ### Progressive Testing Strategy
 1. **Targeted Iterative Verification**: During active feature development or refactoring, run isolated, module-specific checks (e.g. `uv run pytest tests/test_<feature>.py`, `uv run ruff check path/to/file.py`, `uv run mypy path/to/file.py`). Do not run exhaustive full validation suites on every minor edit.
@@ -56,7 +56,9 @@ Before planning, implementing, debugging, refactoring, or reviewing code, archit
 
 ## 4. Code Quality & Architectural Best Practices
 
-- **Separation of Concerns**: Separate configuration, domain logic, data models, network I/O, and user interface layers. Avoid monolithic modules and overly complex, deeply nested code blocks.
+- **Separation of Concerns & Indentation Limits**:
+  - Separate configuration, domain logic, data models, network I/O, and user interface layers.
+  - Avoid monolithic modules, procedural boilerplate, and overly complex, deeply nested code blocks (aim for fewer than 6 indentations project-wide; extract complex nested tasks into dedicated helper functions).
 - **Purpose-Driven, Functional Naming & Structural Clarity**:
   - Always use file names, folder structures, classes, functions, and variable names that directly and unambiguously indicate the concrete purpose and function of the code they contain.
   - Avoid abstract, vague, or purely conceptual names (e.g. `intelligence.py`, `manager.py`, `misc.py`, `common.py`, `helpers.py`, `data.py`) in favor of concrete, operational descriptors (e.g. `reference_extractor.py`, `vulnerability_lookup.py`, `ssh_key_generator.py`).

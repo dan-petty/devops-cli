@@ -21,12 +21,17 @@ from devops_cli.ai.kb import (
     load_kb_article,
 )
 from devops_cli.ai.model_bundler import ModelBundleManifest, bundle_ollama_models
+from devops_cli.ai.response_cache import (
+    CachedLLMResponse,
+    LLMResponseCache,
+    get_llm_response_cache,
+    reset_llm_response_cache,
+)
 from devops_cli.ai.response_repair import (
     ExtractedToolCall,
     FormattedLLMResponse,
     extract_tool_invocations,
     fix_llm_response,
-    normalize_raw_llm_text,
     repair_json_string,
 )
 from devops_cli.ai.thinking_stream import (
@@ -39,9 +44,11 @@ __all__ = [
     "AIClientError",
     "CONST_CLAUDE_MD_FILENAME",
     "CONST_COPILOT_INSTRUCTIONS_PATH",
+    "CachedLLMResponse",
     "DEFAULT_AGENT_FILES",
     "ExtractedToolCall",
     "FormattedLLMResponse",
+    "LLMResponseCache",
     "ModelBundleManifest",
     "ProjectMetadata",
     "ThinkingStreamProcessor",
@@ -54,11 +61,12 @@ __all__ = [
     "generate_pointer_stub",
     "get_knowledge_base_dir",
     "get_knowledge_base_stats",
+    "get_llm_response_cache",
     "list_knowledge_base_articles",
     "load_kb_article",
-    "normalize_raw_llm_text",
     "parse_project_metadata",
     "repair_json_string",
+    "reset_llm_response_cache",
     "scaffold_agent_instructions",
     "strip_think_blocks",
 ]

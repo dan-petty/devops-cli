@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import atexit
 import contextlib
+import contextvars
 import functools
 import logging
 import os
@@ -12,6 +13,7 @@ import secrets
 import threading
 import time
 from collections.abc import Callable, Generator
+from concurrent.futures import Future, ThreadPoolExecutor
 from contextvars import ContextVar
 from typing import Any, TypeVar
 
@@ -24,12 +26,36 @@ logger = logging.getLogger(__name__)
 F = TypeVar("F", bound=Callable[..., Any])
 
 
+class ContextPropagatingThreadPoolExecutor(ThreadPoolExecutor):
+    """ThreadPoolExecutor that automatically propagates ContextVar snapshots to worker threads."""
+
+    def submit(self, fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Future[Any]:  # type: ignore[override]
+        ctx = contextvars.copy_context()
+        return super().submit(ctx.run, fn, *args, **kwargs)
+
+
 def _generate_trace_id() -> str:
     return secrets.token_hex(16)
 
 
 def _generate_span_id() -> str:
     return secrets.token_hex(8)
+
+
+def _to_otlp_any_value(val: Any) -> dict[str, Any]:
+    """Convert a Python scalar or sequence into a strongly-typed OpenTelemetry AnyValue dict."""
+    if isinstance(val, bool):
+        return {"boolValue": val}
+    elif isinstance(val, int):
+        return {"intValue": str(val)}
+    elif isinstance(val, float):
+        return {"doubleValue": val}
+    elif isinstance(val, (list, tuple, set)):
+        return {"arrayValue": {"values": [_to_otlp_any_value(v) for v in val]}}
+    elif isinstance(val, dict):
+        kv_list = [{"key": str(k), "value": _to_otlp_any_value(v)} for k, v in val.items()]
+        return {"kvlistValue": {"values": kv_list}}
+    return {"stringValue": str(val)}
 
 
 class SpanHandle(str):
@@ -67,7 +93,7 @@ class SpanHandle(str):
         """Add a timestamped event / log annotation to the active span."""
         t_nano = timestamp_ns if timestamp_ns is not None else int(time.time() * 1e9)
         attr_list = [
-            {"key": k, "value": {"stringValue": str(v)}} for k, v in (attributes or {}).items()
+            {"key": k, "value": _to_otlp_any_value(v)} for k, v in (attributes or {}).items()
         ]
         self._events.append(
             {
@@ -76,6 +102,74 @@ class SpanHandle(str):
                 "attributes": attr_list,
             }
         )
+
+    def record_exception(
+        self, exc: BaseException, attributes: dict[str, Any] | None = None
+    ) -> None:
+        """Record structured exception details and event to the active span."""
+        import traceback
+
+        exc_type = type(exc).__name__
+        exc_msg = str(exc)
+        exc_stack = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+        self._attributes["error"] = True
+        self._attributes["otel.status_code"] = "ERROR"
+        self._attributes["exception.type"] = exc_type
+        self._attributes["exception.message"] = exc_msg
+        self._attributes["exception.stacktrace"] = exc_stack
+        event_attrs: dict[str, Any] = {
+            "exception.type": exc_type,
+            "exception.message": exc_msg,
+            "exception.stacktrace": exc_stack,
+        }
+        if attributes:
+            event_attrs.update(attributes)
+        self.add_event("exception", event_attrs)
+
+    def record_llm_metrics(
+        self,
+        *,
+        provider: str,
+        model: str,
+        prompt_tokens: int | None = None,
+        completion_tokens: int | None = None,
+        total_tokens: int | None = None,
+        ttft_ms: float | None = None,
+        duration_s: float | None = None,
+        token_rate: float | None = None,
+    ) -> None:
+        """Record standard OpenTelemetry GenAI attributes on the active span."""
+        self._attributes["gen_ai.system"] = provider
+        self._attributes["gen_ai.request.model"] = model
+        if prompt_tokens is not None:
+            self._attributes["gen_ai.usage.prompt_tokens"] = prompt_tokens
+            self._attributes["gen_ai.usage.input_tokens"] = prompt_tokens
+        if completion_tokens is not None:
+            self._attributes["gen_ai.usage.completion_tokens"] = completion_tokens
+            self._attributes["gen_ai.usage.output_tokens"] = completion_tokens
+        if total_tokens is not None:
+            self._attributes["gen_ai.usage.total_tokens"] = total_tokens
+        if ttft_ms is not None:
+            self._attributes["gen_ai.time_to_first_token_ms"] = round(ttft_ms, 2)
+        if duration_s is not None:
+            self._attributes["gen_ai.duration_seconds"] = round(duration_s, 4)
+        if token_rate is not None:
+            self._attributes["gen_ai.token_rate_tok_per_sec"] = round(token_rate, 2)
+
+
+_ATTRIBUTE_NORMALIZATION: dict[str, str] = {
+    "cli.command": "process.command_line",
+    "cli.function": "code.function",
+    "file_path": "code.filepath",
+    "subprocess.bin": "process.executable.name",
+    "subprocess.cmd": "process.command_line",
+    "subprocess.cwd": "process.working_directory",
+    "subprocess.exit_code": "process.exit.code",
+    "http.method": "http.request.method",
+    "http.status_code": "http.response.status_code",
+    "http.url": "url.full",
+    "http.route": "url.path",
+}
 
 
 _current_trace_id_ctx: ContextVar[str | None] = ContextVar("otel_current_trace_id", default=None)
@@ -153,6 +247,55 @@ class OTelTelemetryClient:
             return parts[1], parts[2]
         return None, None
 
+    def _build_metrics_payload(
+        self,
+        name: str,
+        value: float,
+        unit: str,
+        timestamp_ns: int,
+        attributes: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Build structured OTLP resourceMetrics payload."""
+        data_point = {
+            "timeUnixNano": str(timestamp_ns),
+            "asDouble": float(value),
+            "attributes": attributes,
+        }
+        metric_entry = {
+            "name": name,
+            "unit": unit,
+            "gauge": {"dataPoints": [data_point]},
+        }
+        scope_entry = {
+            "scope": {"name": "devops-cli.telemetry"},
+            "metrics": [metric_entry],
+        }
+        return {
+            "resourceMetrics": [
+                {
+                    "resource": {"attributes": self._get_resource_attributes()},
+                    "scopeMetrics": [scope_entry],
+                }
+            ]
+        }
+
+    def _build_traces_payload(
+        self,
+        spans: list[dict[str, Any]],
+        resource_attributes: list[dict[str, Any]] | None = None,
+        scope_name: str = "devops-cli.telemetry",
+    ) -> dict[str, Any]:
+        """Build structured OTLP resourceSpans payload."""
+        res_attrs = resource_attributes or self._get_resource_attributes()
+        return {
+            "resourceSpans": [
+                {
+                    "resource": {"attributes": res_attrs},
+                    "scopeSpans": [{"scope": {"name": scope_name}, "spans": spans}],
+                }
+            ]
+        }
+
     def record_metric(
         self,
         name: str,
@@ -167,38 +310,9 @@ class OTelTelemetryClient:
 
         now_nano = int(time.time() * 1e9)
         attr_list = [
-            {"key": k, "value": {"stringValue": str(v)}} for k, v in (attributes or {}).items()
+            {"key": k, "value": _to_otlp_any_value(v)} for k, v in (attributes or {}).items()
         ]
-
-        payload = {
-            "resourceMetrics": [
-                {
-                    "resource": {
-                        "attributes": self._get_resource_attributes(),
-                    },
-                    "scopeMetrics": [
-                        {
-                            "scope": {"name": "devops-cli.telemetry"},
-                            "metrics": [
-                                {
-                                    "name": name,
-                                    "unit": unit,
-                                    "gauge": {
-                                        "dataPoints": [
-                                            {
-                                                "timeUnixNano": str(now_nano),
-                                                "asDouble": float(value),
-                                                "attributes": attr_list,
-                                            }
-                                        ]
-                                    },
-                                }
-                            ],
-                        }
-                    ],
-                }
-            ]
-        }
+        payload = self._build_metrics_payload(name, value, unit, now_nano, attr_list)
         self._send_payload("/v1/metrics", payload)
 
     def increment_counter(
@@ -217,22 +331,46 @@ class OTelTelemetryClient:
         self,
         name: str,
         attributes: dict[str, Any] | None = None,
+        *,
+        parent_context: dict[str, str] | None = None,
+        parent_trace_id: str | None = None,
+        parent_span_id: str | None = None,
     ) -> Generator[SpanHandle]:
         """Context manager to measure and emit a trace span with thread-safe context propagation."""
         if not self.enabled:
             yield SpanHandle("", {})
             return
 
-        parent_trace = _current_trace_id_ctx.get()
+        parent_trace = parent_trace_id or _current_trace_id_ctx.get()
+        parent_id = parent_span_id or _current_span_id_ctx.get()
+
+        if parent_context:
+            ext_trace, ext_span = self.extract_trace_context(parent_context)
+            if ext_trace:
+                parent_trace = ext_trace
+                parent_id = ext_span
+
+        if not parent_trace:
+            tp = os.environ.get("TRACEPARENT") or os.environ.get("traceparent")
+            if tp:
+                ext_trace, ext_span = self.extract_trace_context({"traceparent": tp})
+                if ext_trace:
+                    parent_trace = ext_trace
+                    parent_id = ext_span
+
         trace_id = parent_trace or _generate_trace_id()
         span_id = _generate_span_id()
-        parent_id = _current_span_id_ctx.get()
         start_nano = int(time.time() * 1e9)
 
         token_trace = _current_trace_id_ctx.set(trace_id)
         token_span = _current_span_id_ctx.set(span_id)
 
         attrs = dict(attributes or {})
+        # Auto-normalize legacy attribute names to OTel semantic conventions
+        for legacy_k, otel_k in _ATTRIBUTE_NORMALIZATION.items():
+            if legacy_k in attrs and otel_k not in attrs:
+                attrs[otel_k] = attrs[legacy_k]
+
         handle = SpanHandle(span_id, attrs)
         status_code = "STATUS_CODE_OK"
         error_msg = ""
@@ -245,30 +383,15 @@ class OTelTelemetryClient:
                 # Clean exit (e.g. typer.Exit(0), click.exceptions.Exit(0), SystemExit(0))
                 status_code = "STATUS_CODE_OK"
                 attrs.setdefault("cli.exit_code", 0)
+                attrs.setdefault("process.exit.code", 0)
                 raise
-
-            import traceback
 
             status_code = "STATUS_CODE_ERROR"
             error_msg = str(exc)
-            exc_type = type(exc).__name__
-            exc_stack = traceback.format_exc()
-
-            attrs["error"] = True
-            attrs["exception.type"] = exc_type
-            attrs["exception.message"] = error_msg
-            attrs["exception.stacktrace"] = exc_stack
+            handle.record_exception(exc)
             if exit_code is not None:
                 attrs["cli.exit_code"] = exit_code
-
-            handle.add_event(
-                "exception",
-                {
-                    "exception.type": exc_type,
-                    "exception.message": error_msg,
-                    "exception.stacktrace": exc_stack,
-                },
-            )
+                attrs["process.exit.code"] = exit_code
             raise
         finally:
             end_nano = int(time.time() * 1e9)
@@ -283,7 +406,7 @@ class OTelTelemetryClient:
                 "startTimeUnixNano": str(start_nano),
                 "endTimeUnixNano": str(end_nano),
                 "attributes": [
-                    {"key": k, "value": {"stringValue": str(v)}} for k, v in attrs.items()
+                    {"key": k, "value": _to_otlp_any_value(v)} for k, v in attrs.items()
                 ],
                 "status": {"code": status_code, "message": error_msg},
             }
@@ -292,21 +415,7 @@ class OTelTelemetryClient:
             if parent_id and parent_id != span_id:
                 span_data["parentSpanId"] = parent_id
 
-            payload = {
-                "resourceSpans": [
-                    {
-                        "resource": {
-                            "attributes": self._get_resource_attributes(),
-                        },
-                        "scopeSpans": [
-                            {
-                                "scope": {"name": "devops-cli.telemetry"},
-                                "spans": [span_data],
-                            }
-                        ],
-                    }
-                ]
-            }
+            payload = self._build_traces_payload([span_data])
             self._send_payload("/v1/traces", payload)
 
     def test_connection(self, timeout: float = 2.0) -> tuple[bool, str, float]:
@@ -317,35 +426,20 @@ class OTelTelemetryClient:
             test_trace_id = _generate_trace_id()
             test_span_id = _generate_span_id()
             now_nano = str(int(time.time() * 1e9))
-            payload = {
-                "resourceSpans": [
-                    {
-                        "resource": {
-                            "attributes": [
-                                {
-                                    "key": "service.name",
-                                    "value": {"stringValue": "devops-cli-ping"},
-                                }
-                            ]
-                        },
-                        "scopeSpans": [
-                            {
-                                "scope": {"name": "devops-cli.telemetry.ping"},
-                                "spans": [
-                                    {
-                                        "traceId": test_trace_id,
-                                        "spanId": test_span_id,
-                                        "name": "ping",
-                                        "startTimeUnixNano": now_nano,
-                                        "endTimeUnixNano": now_nano,
-                                        "status": {"code": "STATUS_CODE_OK"},
-                                    }
-                                ],
-                            }
-                        ],
-                    }
-                ]
+            ping_span = {
+                "traceId": test_trace_id,
+                "spanId": test_span_id,
+                "name": "ping",
+                "startTimeUnixNano": now_nano,
+                "endTimeUnixNano": now_nano,
+                "status": {"code": "STATUS_CODE_OK"},
             }
+            ping_res_attrs = [{"key": "service.name", "value": {"stringValue": "devops-cli-ping"}}]
+            payload = self._build_traces_payload(
+                [ping_span],
+                resource_attributes=ping_res_attrs,
+                scope_name="devops-cli.telemetry.ping",
+            )
             with httpx2.Client(timeout=timeout) as client:
                 res = client.post(url, json=payload)
                 elapsed_ms = (time.perf_counter() - start) * 1000

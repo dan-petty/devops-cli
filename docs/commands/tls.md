@@ -22,7 +22,7 @@ devops tls ca [OPTIONS]
 | `--country`, `-c` | `string` | `US` | 2-letter country code |
 | `--validity-days`, `-d` | `integer` | `3650` | Validity period in days |
 | `--key-size`, `-k` | `integer` | `2048` | RSA key size in bits (2048 or 4096) |
-| `--overwrite`, `-f` | `boolean` | - | Overwrite existing CA certificate and key |
+| `--overwrite`, `-f` | `boolean` | - | Overwrite existing files |
 
 ---
 

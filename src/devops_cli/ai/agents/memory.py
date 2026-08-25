@@ -14,9 +14,9 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.models.ai import ChatMessage
@@ -34,10 +34,18 @@ _SUMMARY_PROMPT = load_task_prompt("summarize_memory.md")
 class MemoryEntry(BaseModel):
     """An individual record in an agent interaction memory."""
 
-    role: str  # user | assistant | system | tool
+    role: Literal["user", "assistant", "system", "tool"] = "user"
     content: str
     timestamp: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("role", mode="before")
+    @classmethod
+    def _normalize_role(cls, v: object) -> str:
+        s = str(v).lower().strip()
+        if s in {"user", "assistant", "system", "tool"}:
+            return s
+        return "assistant"
 
     @property
     def char_count(self) -> int:
@@ -56,7 +64,7 @@ class AgentMemory(BaseModel):
 
     def add_interaction(
         self,
-        role: str,
+        role: Literal["user", "assistant", "system", "tool"],
         content: str,
         **metadata: Any,
     ) -> MemoryEntry:

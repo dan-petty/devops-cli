@@ -8,16 +8,25 @@ from pathlib import Path
 from typing import Annotated, Any
 
 import typer
-from rich import print as rprint
-from rich.console import Console
 from rich.table import Table
 
 from devops_cli.config.defaults import DEFAULT_DOCKER_TIMEOUT_SECONDS
 from devops_cli.core.cli import new_typer
-from devops_cli.dry_run import CommandDryRunResult, is_dry_run
+from devops_cli.dry_run import is_dry_run
+from devops_cli.output import (
+    print_error,
+    print_info,
+    print_success,
+    print_table,
+    render_dry_run_result,
+)
 
 app = new_typer(help="Docker image management.", no_args_is_help=True)
-console = Console()
+
+
+# =============================================================================
+# Docker SDK Client Connection Helper
+# =============================================================================
 
 
 def _client() -> Any:
@@ -36,8 +45,13 @@ def _client() -> Any:
 
         return docker.from_env(timeout=int(DEFAULT_DOCKER_TIMEOUT_SECONDS))
     except (ImportError, DockerException, ValueError) as exc:
-        rprint(f"[red]Cannot connect to Docker: {exc}[/red]")
+        print_error(f"Cannot connect to Docker: {exc}", prefix=False)
         raise typer.Exit(1)
+
+
+# =============================================================================
+# Command: devops docker images
+# =============================================================================
 
 
 @app.command("images")
@@ -46,13 +60,11 @@ def list_images(
 ) -> None:
     """List local Docker images."""
     if is_dry_run():
-        res = CommandDryRunResult(
+        render_dry_run_result(
             command="devops docker images",
             action="list_docker_images",
             details={"name_filter": name},
         )
-        rprint("[yellow][dry-run][/yellow] Command response:")
-        console.print_json(res.model_dump_json(indent=2))
         return
     client = _client()
     images = client.images.list(name=name)
@@ -70,7 +82,12 @@ def list_images(
             size_mb = image.attrs.get("Size", 0) // (1024 * 1024)
             table.add_row(repo or "<none>", t or "<none>", image.short_id, f"{size_mb} MB")
 
-    console.print(table)
+    print_table(table)
+
+
+# =============================================================================
+# Command: devops docker build
+# =============================================================================
 
 
 @app.command()
@@ -82,7 +99,7 @@ def build(
 ) -> None:
     """Build a Docker image."""
     if is_dry_run():
-        res = CommandDryRunResult(
+        render_dry_run_result(
             command="devops docker build",
             target=str(context),
             action="build_docker_image",
@@ -92,8 +109,6 @@ def build(
                 "no_cache": no_cache,
             },
         )
-        rprint("[yellow][dry-run][/yellow] Command response:")
-        console.print_json(res.model_dump_json(indent=2))
         return
     client = _client()
     kwargs: dict[str, Any] = {"path": str(context), "rm": True, "nocache": no_cache}
@@ -102,14 +117,20 @@ def build(
     if dockerfile:
         kwargs["dockerfile"] = str(dockerfile)
 
-    rprint(f"Building from [dim]{context}[/dim]...")
+    print_info(f"Building from [dim]{context}[/dim]...", prefix=False)
     image, build_logs = client.images.build(**kwargs)
     for chunk in build_logs:
         if "stream" in chunk:
             line = re.sub(r"[\x00-\x1f\x7f]", "", chunk["stream"]).rstrip()
             if line:
-                rprint(line)
-    rprint(f"[green]Built:[/green] {image.short_id}" + (f" ({tag})" if tag else ""))
+                print_info(line, prefix=False)
+    tag_suffix = f" ({tag})" if tag else ""
+    print_success(f"Built: {image.short_id}{tag_suffix}")
+
+
+# =============================================================================
+# Command: devops docker push
+# =============================================================================
 
 
 @app.command()
@@ -118,29 +139,32 @@ def push(
 ) -> None:
     """Push a Docker image to a registry."""
     if is_dry_run():
-        res = CommandDryRunResult(
+        render_dry_run_result(
             command="devops docker push",
             target=image,
             action="push_docker_image",
             details={"image": image},
         )
-        rprint("[yellow][dry-run][/yellow] Command response:")
-        console.print_json(res.model_dump_json(indent=2))
         return
     if not re.match(r"^[a-zA-Z0-9_.-]+(?:/[a-zA-Z0-9_.-]+)*(?::[a-zA-Z0-9_.-]+)?$", image):
-        rprint(f"[red]Invalid Docker image name format: '{image}'[/red]")
+        print_error(f"Invalid Docker image name format: '{image}'", prefix=False)
         raise typer.Exit(1)
     client = _client()
-    rprint(f"Pushing [dim]{image}[/dim]...")
+    print_info(f"Pushing [dim]{image}[/dim]...", prefix=False)
     for chunk in client.images.push(image, stream=True, decode=True):
         if "status" in chunk and "progressDetail" not in chunk:
             clean_status = re.sub(r"[\x00-\x1f\x7f]", "", str(chunk["status"]))
-            rprint(clean_status)
+            print_info(clean_status, prefix=False)
         elif "error" in chunk:
             clean_err = re.sub(r"[\x00-\x1f\x7f]", "", str(chunk["error"]))
-            rprint(f"[red]{clean_err}[/red]")
+            print_error(clean_err, prefix=False)
             raise typer.Exit(1)
-    rprint("[green]Pushed.[/green]")
+    print_success("Pushed.")
+
+
+# =============================================================================
+# Command: devops docker prune
+# =============================================================================
 
 
 @app.command()
@@ -150,13 +174,11 @@ def prune(
 ) -> None:
     """Remove unused containers, images, and networks."""
     if is_dry_run():
-        res = CommandDryRunResult(
+        render_dry_run_result(
             command="devops docker prune",
             action="prune_docker_resources",
             details={"volumes": volumes, "force": force},
         )
-        rprint("[yellow][dry-run][/yellow] Command response:")
-        console.print_json(res.model_dump_json(indent=2))
         return
     if not force:
         typer.confirm(
@@ -172,4 +194,4 @@ def prune(
     else:
         reclaimed_bytes = 0
     reclaimed_mb = reclaimed_bytes // (1024 * 1024)
-    rprint(f"[green]Pruned. Space reclaimed: {reclaimed_mb} MB[/green]")
+    print_success(f"Pruned. Space reclaimed: {reclaimed_mb} MB")

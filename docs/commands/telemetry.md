@@ -6,7 +6,7 @@ OpenTelemetry observability, tracing, and metrics management.
 
 ## `devops telemetry status`
 
-**Display OpenTelemetry collector endpoint, Jaeger UI URL, and connection health.**
+**Check OpenTelemetry collector health, Jaeger endpoint, and trace propagation status.**
 
 ```bash
 devops telemetry status

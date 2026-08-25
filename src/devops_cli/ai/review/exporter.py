@@ -33,6 +33,48 @@ class FeedbackRecord(BaseModel):
     verified_by: str = "human"
 
 
+def _build_feedback_record(f: dict[str, Any], session_id: str, f_status: str) -> FeedbackRecord:
+    """Construct FeedbackRecord from finding dictionary."""
+    return FeedbackRecord(
+        session_id=session_id,
+        persona=f.get("persona", "unknown"),
+        title=f.get("title", ""),
+        severity=f.get("severity", "medium"),
+        location=f.get("location", ""),
+        description=f.get("description", ""),
+        status=f_status,
+        verified=bool(f.get("verified", False)),
+        mitigated=bool(f.get("mitigated", False)),
+        confidence_score=f.get("confidence_score"),
+        fix=f.get("fix"),
+        invalidation_reason=f.get("invalidation_reason"),
+        verified_at=f.get("verified_at", ""),
+        verified_by=f.get("verified_by", "human"),
+    )
+
+
+def _extract_session_feedback_records(
+    s_dir: Path, status_filter: str | None
+) -> list[FeedbackRecord]:
+    """Parse findings.json from a review session and extract matching FeedbackRecords."""
+    try:
+        data: dict[str, Any] = json.loads((s_dir / "findings.json").read_text(encoding="utf-8"))
+    except Exception:
+        return []
+
+    records: list[FeedbackRecord] = []
+    session_id = data.get("session_id", s_dir.name)
+    filter_upper = status_filter.upper() if status_filter else None
+
+    for f in data.get("findings", []):
+        f_status = str(f.get("status", "")).upper()
+        if filter_upper is not None and filter_upper != "ALL" and f_status != filter_upper:
+            continue
+        records.append(_build_feedback_record(f, session_id, f_status))
+
+    return records
+
+
 def export_invalidated_feedback(
     reviews_dir: Path | None = None,
     output_file: Path | None = None,
@@ -52,35 +94,7 @@ def export_invalidated_feedback(
     records: list[FeedbackRecord] = []
 
     for s_dir in session_dirs:
-        try:
-            data: dict[str, Any] = json.loads((s_dir / "findings.json").read_text(encoding="utf-8"))
-            findings = data.get("findings", [])
-            for f in findings:
-                f_status = str(f.get("status", "")).upper()
-                if (
-                    status_filter is None
-                    or status_filter.upper() == "ALL"
-                    or f_status == status_filter.upper()
-                ):
-                    record = FeedbackRecord(
-                        session_id=data.get("session_id", s_dir.name),
-                        persona=f.get("persona", "unknown"),
-                        title=f.get("title", ""),
-                        severity=f.get("severity", "medium"),
-                        location=f.get("location", ""),
-                        description=f.get("description", ""),
-                        status=f_status,
-                        verified=bool(f.get("verified", False)),
-                        mitigated=bool(f.get("mitigated", False)),
-                        confidence_score=f.get("confidence_score"),
-                        fix=f.get("fix"),
-                        invalidation_reason=f.get("invalidation_reason"),
-                        verified_at=f.get("verified_at", ""),
-                        verified_by=f.get("verified_by", "human"),
-                    )
-                    records.append(record)
-        except Exception:
-            continue
+        records.extend(_extract_session_feedback_records(s_dir, status_filter))
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with out_path.open("w", encoding="utf-8") as f:

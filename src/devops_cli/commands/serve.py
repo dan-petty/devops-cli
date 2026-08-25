@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import typer
 import uvicorn
-from rich.console import Console
 
 from devops_cli import __version__
 from devops_cli.core.cli import new_typer
+from devops_cli.output import (
+    print_info,
+    print_success,
+)
 from devops_cli.server.app import create_app
 
 app = new_typer(
@@ -15,7 +18,10 @@ app = new_typer(
     rich_markup_mode="rich",
 )
 
-console = Console()
+
+# =============================================================================
+# Command: devops serve
+# =============================================================================
 
 
 @app.callback(invoke_without_command=True)
@@ -61,25 +67,31 @@ def serve(
     if ctx.invoked_subcommand is not None:
         return
 
-    console.print(
-        f"[bold green]Starting DevOps CLI REST & OpenAPI Service v{__version__}[/bold green]"
+    print_success(
+        f"Starting DevOps CLI REST & OpenAPI Service v{__version__}",
+        prefix=False,
     )
-    console.print(f"  [cyan]•[/cyan] Listening on: [bold]http://{host}:{port}[/bold]")
+    print_info(f"  [cyan]•[/cyan] Listening on: [bold]http://{host}:{port}[/bold]", prefix=False)
     if docs:
-        console.print(
-            f"  [cyan]•[/cyan] Swagger UI:  [link=http://{host}:{port}/docs]http://{host}:{port}/docs[/link]"
+        print_info(
+            f"  [cyan]•[/cyan] Swagger UI:  [link=http://{host}:{port}/docs]http://{host}:{port}/docs[/link]",
+            prefix=False,
         )
-        console.print(
-            f"  [cyan]•[/cyan] ReDoc:       [link=http://{host}:{port}/redoc]http://{host}:{port}/redoc[/link]"
+        print_info(
+            f"  [cyan]•[/cyan] ReDoc:       [link=http://{host}:{port}/redoc]http://{host}:{port}/redoc[/link]",
+            prefix=False,
         )
-        console.print(
-            f"  [cyan]•[/cyan] OpenAPI JSON:[link=http://{host}:{port}/openapi.json]http://{host}:{port}/openapi.json[/link]"
+        print_info(
+            f"  [cyan]•[/cyan] OpenAPI JSON:[link=http://{host}:{port}/openapi.json]http://{host}:{port}/openapi.json[/link]",
+            prefix=False,
         )
-    console.print(
-        f"  [cyan]•[/cyan] Health:      [link=http://{host}:{port}/health]http://{host}:{port}/health[/link]"
+    print_info(
+        f"  [cyan]•[/cyan] Health:      [link=http://{host}:{port}/health]http://{host}:{port}/health[/link]",
+        prefix=False,
     )
-    console.print(
-        f"  [cyan]•[/cyan] Metrics:     [link=http://{host}:{port}/metrics]http://{host}:{port}/metrics[/link]\n"
+    print_info(
+        f"  [cyan]•[/cyan] Metrics:     [link=http://{host}:{port}/metrics]http://{host}:{port}/metrics[/link]\n",
+        prefix=False,
     )
 
     docs_url = "/docs" if docs else None

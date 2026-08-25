@@ -7,6 +7,7 @@ project initialization workflows.
 
 from __future__ import annotations
 
+import html
 import logging
 import tomllib
 from dataclasses import dataclass, field
@@ -173,7 +174,7 @@ codebase or reviewing target repositories.
 ## 1. Project Overview & Architecture
 
 - **Project Name**: `{meta.name}`
-- **Description**: {meta.description}
+- **Description**: {html.escape(meta.description, quote=True)}
 - **Language & Runtime**: Python {meta.requires_python}
 {entry_point_line}- **Virtual Environment**: `.venv/` (managed by `uv`)
 {devcontainer_context}
@@ -182,8 +183,11 @@ codebase or reviewing target repositories.
 - **High Reliability & Quality First**: Build robust, resilient workstation automation and developer
   tooling with defensive error handling, explicit timeouts, and zero tolerance for flaky tests.
 - **Poetic Conciseness & Architectural Elegance**: The codebase is an expressive, poetically concise
-  integration of tools, libraries, docs, AI, and automation. Prefer clean functional pipelines,
-  Pydantic models, and standard library composition over low-level nested loops or ad-hoc parsing.
+  integration of tools, libraries, docs, AI, and automation. Control code complexity by aiming for
+  fewer than 6 indentations across all functions and code blocks. Decompose complex tasks, deep
+  branching, and nested iterations into dedicated, single-responsibility functions. Prefer clean
+  functional pipelines, Pydantic models, and standard library composition over low-level nested
+  loops or ad-hoc procedural parsing.
 - **Modern Python Ecosystem**: Track modern Python 3.14+ runtime features, typing standards, and
   established open-source libraries (`pydantic v2`, `httpx2`, `pytest`, `ruff`, `mypy`, `uv.lock`).
   Avoid custom workarounds when standard library or robust open-source tools exist.

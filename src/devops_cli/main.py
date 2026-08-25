@@ -8,22 +8,20 @@ from importlib import import_module
 from typing import Final
 
 import typer
-from rich import print as rprint
-from rich.console import Console
 
 from devops_cli import __version__
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import is_dry_run, set_dry_run
+from devops_cli.output import get_console, print_dry_run_command, print_muted
 from devops_cli.telemetry import record_metric, trace_span
 
-_console = Console(stderr=True)
 _timing: dict[str, float] = {}
 
 
 def _print_elapsed() -> None:
     if "start" in _timing:
         elapsed = time.monotonic() - _timing["start"]
-        _console.print(f"[dim]Elapsed: {elapsed:.2f}s[/dim]")
+        print_muted(f"Elapsed: {elapsed:.2f}s", to_stderr=True)
 
 
 atexit.register(_print_elapsed)
@@ -183,10 +181,7 @@ def _register_command_proxy(name: str, module_path: str, help_text: str) -> None
     def _proxy(ctx: typer.Context) -> None:
         if is_dry_run():
             args = ["devops", name, *list(ctx.args)]
-            rendered = " ".join(args)
-            rprint(
-                f"[yellow][dry-run][/yellow] Would run delegated command: [cyan]{rendered}[/cyan]"
-            )
+            print_dry_run_command(args, delegated=True)
             return
         _delegate(module_path, name, list(ctx.args))
 
@@ -206,7 +201,7 @@ for _name, (_module_path, _help) in _COMMAND_SPECS.items():
 
 def _version_callback(value: bool) -> None:
     if value:
-        rprint(f"devops-cli [bold green]{__version__}[/bold green]")
+        get_console().print(f"devops-cli [bold green]{__version__}[/bold green]")
         raise typer.Exit()
 
 

@@ -132,6 +132,102 @@ def detect_project_name(file_path: Path, root_dir: Path) -> str:
     return root_dir.name or "default"
 
 
+def _load_gitignore_spec(root: Path) -> Any:
+    """Load .gitignore patterns from root as a compiled pathspec matcher."""
+    gitignore_file = root / ".gitignore"
+    if not gitignore_file.is_file():
+        return None
+    try:
+        import pathspec
+
+        patterns = [
+            line.strip()
+            for line in gitignore_file.read_text(encoding="utf-8", errors="replace").splitlines()
+            if line.strip() and not line.strip().startswith("#")
+        ]
+        return pathspec.PathSpec.from_lines("gitwildmatch", patterns) if patterns else None
+    except Exception:
+        return None
+
+
+def _is_indexable_file(p: Path, root: Path, *, gitignore_spec: Any = None) -> bool:
+    """Determine if a path is an indexable code/doc file under root."""
+    if not p.is_file():
+        return False
+    rel_parts = p.relative_to(root).parts
+    if any(part in _EXCLUDED_PARTS or part.startswith(".") for part in rel_parts[:-1]):
+        return False
+    if p.name.startswith(".") and not p.name.endswith((".yaml", ".yml", ".json", ".toml")):
+        return False
+    if gitignore_spec is not None and gitignore_spec.match_file(str(p.relative_to(root))):
+        return False
+    named_match = p.name in {
+        "Dockerfile",
+        "Containerfile",
+        "Makefile",
+        "Vagrantfile",
+        "Jenkinsfile",
+    }
+    if not (p.suffix.lower() in _INDEXABLE_EXTENSIONS or named_match):
+        return False
+    try:
+        return p.stat().st_size <= 2 * 1024 * 1024
+    except OSError:
+        return False
+
+
+def _collect_all_indexing_files(
+    collector: Callable[[Path], list[Path]], root_dir: Path, include_kb: bool
+) -> list[Path]:
+    """Collect workspace and optional knowledge base files."""
+    files = collector(root_dir)
+    if not include_kb:
+        return files
+    from devops_cli.ai.kb import get_knowledge_base_dir
+
+    kb_dir = get_knowledge_base_dir()
+    if kb_dir.is_dir() and kb_dir.resolve() != root_dir.resolve():
+        existing_set = {f.resolve() for f in files}
+        for kbf in collector(kb_dir):
+            if kbf.resolve() not in existing_set:
+                files.append(kbf)
+    return files
+
+
+def _update_incremental_cache(
+    cache: dict[str, str] | None,
+    file_hashes: dict[str, str] | None,
+    batch: list[CodeChunk],
+    save_fn: Callable[[dict[str, str]], None],
+) -> None:
+    """Update and persist incremental cache entries for an embedded batch."""
+    if cache is None or file_hashes is None:
+        return
+    for c in batch:
+        ckey = f"{c.project_name}:{c.file_path}"
+        if ckey in file_hashes:
+            cache[ckey] = file_hashes[ckey]
+    save_fn(cache)
+
+
+def _get_single_collection_stat(
+    qdrant: Any, coll: str, cached_file_count: int
+) -> IndexStats | None:
+    """Query single Qdrant collection info and construct IndexStats."""
+    info = qdrant.get_collection_info(coll)
+    if not info:
+        return None
+    cnt = int(info.get("points_count", 0))
+    size = int(info.get("config", {}).get("params", {}).get("vectors", {}).get("size", 0))
+    return IndexStats(
+        collection_name=coll,
+        total_vectors=cnt,
+        vector_size=size,
+        indexed_files=cached_file_count,
+        last_indexed_at=datetime.now(UTC).isoformat(),
+    )
+
+
 class WorkspaceIndexer:
     """Discovers, chunks, embeds, and indexes workspace source code and docs into Qdrant."""
 
@@ -170,33 +266,35 @@ class WorkspaceIndexer:
             logger.debug("Failed to write index cache: %s", exc)
 
     def collect_files(self, root_dir: Path) -> list[Path]:
-        """Collect all indexable files under root_dir, respecting exclusion rules."""
-        root = root_dir.resolve()
-        indexable_files: list[Path] = []
+        """Collect all indexable files under root_dir, respecting .gitignore and exclusion rules."""
+        import os
 
+        root = root_dir.resolve()
         if root.is_file():
             return [root]
 
-        for p in root.rglob("*"):
-            if not p.is_file():
-                continue
-            rel_parts = p.relative_to(root).parts
-            if any(part in _EXCLUDED_PARTS or part.startswith(".") for part in rel_parts[:-1]):
-                continue
-            if p.name.startswith(".") and not p.name.endswith((".yaml", ".yml", ".json", ".toml")):
-                continue
-            if p.suffix.lower() in _INDEXABLE_EXTENSIONS or p.name in (
-                "Dockerfile",
-                "Containerfile",
-                "Makefile",
-                "Vagrantfile",
-                "Jenkinsfile",
-            ):
-                try:
-                    if p.stat().st_size <= 2 * 1024 * 1024:  # Up to 2MB per file
-                        indexable_files.append(p)
-                except OSError:
-                    continue
+        gitignore_spec = _load_gitignore_spec(root)
+        indexable_files: list[Path] = []
+
+        for dirpath, dirnames, filenames in os.walk(root):
+            # Prune excluded directories in-place to prevent os.walk from descending
+            rel_dir = os.path.relpath(dirpath, root)
+            dirnames[:] = [
+                d
+                for d in dirnames
+                if d not in _EXCLUDED_PARTS
+                and not d.startswith(".")
+                and (
+                    gitignore_spec is None
+                    or not gitignore_spec.match_file(
+                        os.path.join(rel_dir, d, "") if rel_dir != "." else d + "/"
+                    )
+                )
+            ]
+            for fname in filenames:
+                p = Path(dirpath) / fname
+                if _is_indexable_file(p, root, gitignore_spec=gitignore_spec):
+                    indexable_files.append(p)
 
         return sorted(indexable_files)
 
@@ -244,18 +342,7 @@ class WorkspaceIndexer:
             "rag.index_workspace",
             attributes={"root_dir": str(root_dir), "force": force, "include_kb": include_kb},
         ):
-            files = self.collect_files(root_dir)
-            if include_kb:
-                from devops_cli.ai.kb import get_knowledge_base_dir
-
-                kb_dir = get_knowledge_base_dir()
-                if kb_dir.is_dir() and kb_dir.resolve() != root_dir.resolve():
-                    kb_files = self.collect_files(kb_dir)
-                    # Add KB files avoiding duplicates
-                    existing_set = {f.resolve() for f in files}
-                    for kbf in kb_files:
-                        if kbf.resolve() not in existing_set:
-                            files.append(kbf)
+            files = _collect_all_indexing_files(self.collect_files, root_dir, include_kb)
             cache = {} if force else self._load_cache()
             file_hashes: dict[str, str] = {}
 
@@ -415,12 +502,7 @@ class WorkspaceIndexer:
             self.qdrant.upsert_points(collection_name, points)
 
             # Persist incremental progress to cache
-            if cache is not None and file_hashes is not None:
-                for c in batch:
-                    ckey = f"{c.project_name}:{c.file_path}"
-                    if ckey in file_hashes:
-                        cache[ckey] = file_hashes[ckey]
-                self._save_cache(cache)
+            _update_incremental_cache(cache, file_hashes, batch, self._save_cache)
 
             if progress_callback:
                 progress_callback(progress_title, min(i + len(batch), total), total)
@@ -431,19 +513,7 @@ class WorkspaceIndexer:
         cache = self._load_cache()
 
         for coll in (self.code_collection, self.docs_collection):
-            info = self.qdrant.get_collection_info(coll)
-            if info:
-                cnt = int(info.get("points_count", 0))
-                size = int(
-                    info.get("config", {}).get("params", {}).get("vectors", {}).get("size", 0)
-                )
-                stats.append(
-                    IndexStats(
-                        collection_name=coll,
-                        total_vectors=cnt,
-                        vector_size=size,
-                        indexed_files=len(cache),
-                        last_indexed_at=datetime.now(UTC).isoformat(),
-                    )
-                )
+            stat = _get_single_collection_stat(self.qdrant, coll, len(cache))
+            if stat:
+                stats.append(stat)
         return stats

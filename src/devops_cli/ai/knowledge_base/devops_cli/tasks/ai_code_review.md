@@ -67,7 +67,9 @@ devops review branch --export-md .data/reviews/review-report.md
 
 ## 5. Security Recommendations & Zero-Trust Policies
 
-- **Secret Masking**: All diffs are passed through `_sanitize_prompt_boundary_tags` and token redactors before being sent to LLM providers.
+- **Secret Masking & Path Filtering**: All diffs and source excerpts pass through `_mask_secrets_in_content` before transmission to LLM providers. Secret-containing paths (`.env*`, `.pem`, `*.key`, `*secret*`) are excluded from validation prompt injection.
+- **Prompt Injection Defense**: Boundary closing tags and diff titles are escaped to prevent prompt manipulation.
+- **Path Traversal Protection**: Directory traversal routines strictly enforce repository boundaries and skip symlinked files.
 - **Offline Review Option**: For proprietary or air-gapped environments, use `--provider ollama` to keep all code analysis strictly on the local machine.
 
 ---

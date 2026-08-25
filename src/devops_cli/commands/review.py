@@ -7,8 +7,6 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
-from rich import print as rprint
-from rich.console import Console
 from rich.rule import Rule
 from rich.table import Table
 
@@ -96,6 +94,16 @@ from devops_cli.config.constants import (
 from devops_cli.config.settings import load_settings
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import is_dry_run, set_dry_run
+from devops_cli.lang import MESSAGES
+from devops_cli.output import (
+    get_console,
+    print_error,
+    print_info,
+    print_success,
+    print_table,
+    print_warning,
+    write_json_file,
+)
 
 __all__ = [
     "app",
@@ -175,7 +183,6 @@ __all__ = [
 app = new_typer(
     help="AI Code Review across branches, paths, and pull requests.", no_args_is_help=True
 )
-console = Console()
 
 
 @app.callback(invoke_without_command=True)
@@ -196,15 +203,17 @@ def review_main(
         raise typer.Exit(0)
 
 
-# ── path ──────────────────────────────────────────────────────────────────────
+# =============================================================================
+# Command: devops review path
+# =============================================================================
 
 
 @app.command()
 def path(
-    target: Annotated[
-        Path,
-        typer.Argument(help="File or directory to review"),
-    ] = Path("."),
+    targets: Annotated[
+        list[Path] | None,
+        typer.Argument(help="File(s) or directory(ies) to review"),
+    ] = None,
     pattern: Annotated[
         str,
         typer.Option("--pattern", "-g", help="Glob pattern for files (default: all files)"),
@@ -243,7 +252,34 @@ def path(
     set_dry_run(dry_run)
     settings = load_settings()
     clients = _make_review_clients(settings)
-    pages, title, agents_md = _prepare_path_content(target, pattern)
+    path_targets = targets or [Path(".")]
+
+    if len(path_targets) == 1:
+        target = path_targets[0]
+        pages, title, agents_md = _prepare_path_content(target, pattern)
+        target_dir = target if target.is_dir() else target.parent
+        target_ref = str(target)
+    else:
+        all_pages: list[str] = []
+        agents_md = ""
+        target_names: list[str] = []
+        first_target_dir = Path(".")
+        for t in path_targets:
+            t_pages, _, t_agents = _prepare_path_content(t, pattern)
+            all_pages.extend(t_pages)
+            if not agents_md and t_agents:
+                agents_md = t_agents
+            target_names.append(str(t))
+            if first_target_dir == Path(".") and t.exists():
+                first_target_dir = t if t.is_dir() else t.parent
+
+        pages = all_pages
+        title = f"Multiple targets ({len(path_targets)} paths)"
+        target_dir = first_target_dir
+        target_ref = ", ".join(target_names[:3]) + (
+            f" (+{len(target_names) - 3} more)" if len(target_names) > 3 else ""
+        )
+
     _execute_review_workflow(
         pages,
         title,
@@ -254,12 +290,14 @@ def path(
         summary,
         clients,
         target_type="path",
-        target_ref=str(target),
-        target_dir=target,
+        target_ref=target_ref,
+        target_dir=target_dir,
     )
 
 
-# ── branch ────────────────────────────────────────────────────────────────────
+# =============================================================================
+# Command: devops review branch
+# =============================================================================
 
 
 @app.command()
@@ -326,7 +364,9 @@ def branch(
     )
 
 
-# ── pr ────────────────────────────────────────────────────────────────────────
+# =============================================================================
+# Command: devops review pr
+# =============================================================================
 
 
 @app.command()
@@ -377,8 +417,9 @@ def pr(
     settings = load_settings()
     token = get_github_token(settings)
     if not token:
-        rprint(
-            "[red]GitHub token not configured. Run: devops config set github.token <token>[/red]"
+        print_error(
+            MESSAGES.review.github_token_not_configured,
+            prefix=False,
         )
         raise typer.Exit(1)
 
@@ -410,13 +451,15 @@ def pr(
                 f"Would post PR comment on #{number}",
                 {"repo": repo_name, "pr_number": number, "comment_body": comment_body},
             )
-            rprint(f"\n[yellow][dry-run][/yellow] Skipped posting comment to PR #{number}")
+            print_warning(MESSAGES.dry_run.skipped_pr_comment.format(number=number), prefix=False)
             return
         pull.create_issue_comment(comment_body)
-        rprint(f"\n[green]✓[/green] Review posted as comment on PR #{number}")
+        print_success(f"Review posted as comment on PR #{number}")
 
 
-# ── Verification & Invalidation Commands ─────────────────────────────────────
+# =============================================================================
+# Command: devops review findings
+# =============================================================================
 
 
 @app.command("findings")
@@ -444,12 +487,12 @@ def list_findings(
     """Inspect structured findings for a review session."""
     session_dir = _find_session_dir(session)
     if not session_dir:
-        rprint("[yellow]No review sessions found in .data/reviews/[/yellow]")
+        print_warning("No review sessions found in .data/reviews/", prefix=False)
         raise typer.Exit(0)
 
     findings_file = session_dir / "findings.json"
     if not findings_file.exists():
-        rprint(f"[yellow]No findings.json in session {session_dir.name}[/yellow]")
+        print_warning(f"No findings.json in session {session_dir.name}", prefix=False)
         raise typer.Exit(0)
 
     payload = ReviewSessionPayload.model_validate_json(findings_file.read_text(encoding="utf-8"))
@@ -503,19 +546,31 @@ def list_findings(
             info,
         )
 
-    console.print(table)
+    print_table(table)
+
+
+# =============================================================================
+# Command: devops review verify
+# =============================================================================
 
 
 @app.command("verify")
 def verify_finding(
-    session: Annotated[str, typer.Argument(help="Session ID or substring")],
+    session: Annotated[
+        str | None,
+        typer.Argument(help="Session ID or substring (default: latest)"),
+    ] = None,
+    session_opt: Annotated[
+        str | None,
+        typer.Option("--session", "-s", help="Session ID or substring"),
+    ] = None,
     index: Annotated[
         int | None,
-        typer.Option("--index", "-i", help="1-based index of the finding to update"),
+        typer.Option("--index", "-i", help="1-based finding index in session to verify"),
     ] = None,
     title_pattern: Annotated[
         str | None,
-        typer.Option("--title", "-t", help="Title substring to match finding"),
+        typer.Option("--title", "-t", help="Match finding by substring in title"),
     ] = None,
     status: Annotated[
         str,
@@ -529,25 +584,26 @@ def verify_finding(
     ] = "",
 ) -> None:
     """Validate or invalidate a review finding, persisting feedback reasons."""
-    session_dir = _find_session_dir(session)
+    target_session = session or session_opt
+    session_dir = _find_session_dir(target_session)
     if not session_dir:
-        rprint(f"[red]Session not found matching: {session}[/red]")
+        print_error(f"Session not found matching: {target_session}", prefix=False)
         raise typer.Exit(1)
 
     findings_file = session_dir / "findings.json"
     if not findings_file.exists():
-        rprint(f"[red]No findings.json in {session_dir}[/red]")
+        print_error(f"No findings.json in {session_dir}", prefix=False)
         raise typer.Exit(1)
 
     payload = ReviewSessionPayload.model_validate_json(findings_file.read_text(encoding="utf-8"))
     if not payload.findings:
-        rprint("[yellow]Session has no findings to update.[/yellow]")
+        print_warning(MESSAGES.review.no_findings_to_update, prefix=False)
         raise typer.Exit(0)
 
     target_idx: int | None = None
     if index is not None:
         if index < 1 or index > len(payload.findings):
-            rprint(f"[red]Index out of bounds (1-{len(payload.findings)})[/red]")
+            print_error(f"Index out of bounds (1-{len(payload.findings)})", prefix=False)
             raise typer.Exit(1)
         target_idx = index - 1
     elif title_pattern is not None:
@@ -557,12 +613,12 @@ def verify_finding(
                 break
 
     if target_idx is None:
-        rprint("[red]Must specify --index <N> or --title <pattern>[/red]")
+        print_error(MESSAGES.review.specify_index_or_title, prefix=False)
         raise typer.Exit(1)
 
     new_status = status.upper().strip()
     if new_status not in {"VERIFIED", "INVALIDATED", "MITIGATED", "UNVERIFIED"}:
-        rprint("[red]Status must be one of: VERIFIED, INVALIDATED, MITIGATED, UNVERIFIED[/red]")
+        print_error(MESSAGES.review.invalid_status_choices, prefix=False)
         raise typer.Exit(1)
 
     finding = payload.findings[target_idx]
@@ -574,8 +630,13 @@ def verify_finding(
     if reason:
         finding.invalidation_reason = reason
 
-    findings_file.write_text(payload.model_dump_json(indent=2), encoding="utf-8")
-    rprint(f"[green]✓ Updated finding #{target_idx + 1} status → [bold]{new_status}[/bold][/green]")
+    write_json_file(findings_file, payload)
+    print_success(f"Updated finding #{target_idx + 1} status → {new_status}")
+
+
+# =============================================================================
+# Command: devops review stats
+# =============================================================================
 
 
 @app.command("stats")
@@ -588,12 +649,12 @@ def review_stats(
     """Compute and display review accuracy statistics across saved sessions."""
     r_dir = reviews_dir or _get_reviews_base_dir()
     if not r_dir.exists():
-        rprint("[yellow]No review directory found.[/yellow]")
+        print_warning(MESSAGES.review.no_review_dir_found, prefix=False)
         raise typer.Exit(0)
 
     session_dirs = [d for d in r_dir.iterdir() if d.is_dir() and (d / "findings.json").exists()]
     if not session_dirs:
-        rprint("[yellow]No saved review sessions found.[/yellow]")
+        print_warning(MESSAGES.review.no_saved_sessions, prefix=False)
         raise typer.Exit(0)
 
     total_sessions = len(session_dirs)
@@ -618,9 +679,9 @@ def review_stats(
         except Exception:
             continue
 
-    rprint(Rule(" AI Code Review Accuracy & Verification Stats ", style="bold cyan"))
-    rprint(f"[bold]Total Sessions:[/bold]  {total_sessions}")
-    rprint(f"[bold]Total Findings:[/bold]  {total_findings}\n")
+    get_console().print(Rule(" AI Code Review Accuracy & Verification Stats ", style="bold cyan"))
+    print_info(f"[bold]Total Sessions:[/bold]  {total_sessions}", prefix=False)
+    print_info(f"[bold]Total Findings:[/bold]  {total_findings}\n", prefix=False)
 
     table = Table(title="Finding Status Breakdown")
     table.add_column("Status", style="cyan")
@@ -631,8 +692,8 @@ def review_stats(
         pct = (count / total_findings * 100) if total_findings else 0.0
         table.add_row(st, str(count), f"{pct:.1f}%")
 
-    console.print(table)
-    console.print()
+    print_table(table)
+    get_console().print()
 
     if by_persona_total:
         ptable = Table(title="Persona False Positive Rate (Invalidated)")
@@ -646,7 +707,12 @@ def review_stats(
             rate = (inval / count * 100) if count else 0.0
             ptable.add_row(persona, str(count), str(inval), f"{rate:.1f}%")
 
-        console.print(ptable)
+        print_table(ptable)
+
+
+# =============================================================================
+# Command: devops review export-feedback
+# =============================================================================
 
 
 @app.command("export-feedback")
@@ -675,9 +741,14 @@ def export_feedback(
     )
     if count == 0:
         target_dir = reviews_dir or _get_reviews_base_dir()
-        rprint(f"[yellow]No {status} findings found to export under {target_dir}.[/yellow]")
+        print_warning(f"No {status} findings found to export under {target_dir}.", prefix=False)
     else:
-        rprint(f"[green]✓ Exported {count} {status} finding(s) → [bold]{out_path}[/bold][/green]")
+        print_success(f"Exported {count} {status} finding(s) → [bold]{out_path}[/bold]")
+
+
+# =============================================================================
+# Command: devops review apply-patch
+# =============================================================================
 
 
 @app.command("apply-patch")

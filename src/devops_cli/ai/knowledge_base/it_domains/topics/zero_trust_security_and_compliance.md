@@ -55,11 +55,12 @@ uv audit
 
 ## 4. Best Practice Guidance
 
-1. **Zero Plaintext Secrets**: Never commit tokens, passwords, or credentials to configuration files, `.env` files, or test fixtures.
+1. **Zero Plaintext Secrets & OS Keyring Exclusivity**: Never commit tokens, passwords, or credentials to configuration files, `.env` files, or test fixtures. Always use encrypted OS Keyring backends (`keyring>=25`); never use unencrypted plaintext fallbacks (such as `keyrings.alt`).
 2. **Zero Information Leakage from Private/Gitignored Files**: AI assistants and tooling must never leak, extract, or transcribe data from hidden files (`.env*`, `.ssh/`, `.data/`), private configs, or `.gitignored` paths into documentation, review findings, or code.
-3. **Use Ed25519 Keys**: Use modern Ed25519 keys for SSH authentication and Git commit signing (`devops ssh generate --type ed25519`).
-4. **Automate Pre-Commit Scanning**: Enforce security linting (`bandit`, `actionlint`) in pre-commit hooks to catch security issues before remote push.
-5. **Mask Output Logs**: Ensure string representations (`__repr__`) and telemetry exporters mask sensitive variables matching `*token*`, `*key*`, `*secret*`.
+3. **Repository Path Boundary Containment**: Enforce strict filesystem boundary validation (`resolved_path.is_relative_to(repo_root)`) on all file writing and reading helpers to mitigate path traversal (CWE-22) vulnerabilities.
+4. **Use Ed25519 Keys**: Use modern Ed25519 keys for SSH authentication and Git commit signing (`devops ssh generate --type ed25519`).
+5. **Automate Pre-Commit Scanning**: Enforce security linting (`bandit`, `actionlint`) in pre-commit hooks to catch security issues before remote push.
+6. **Mask Output Logs**: Ensure string representations (`__repr__`) and telemetry exporters mask sensitive variables matching `*token*`, `*key*`, `*secret*`.
 
 ---
 

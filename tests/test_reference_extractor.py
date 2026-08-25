@@ -463,3 +463,57 @@ def test_dependency_and_network_reference_canonical_location_formatting() -> Non
         line_number=88,
     )
     assert net_with_line.location == "src/client.py:88"
+
+
+def test_extract_network_references_package_files_and_lockfile_filtering() -> None:
+    from devops_cli.security.reference_extractor import (
+        is_lockfile_or_ignore_file,
+        is_package_repository_asset,
+    )
+
+    # Lockfiles should be identified
+    assert is_lockfile_or_ignore_file("uv.lock")
+    assert is_lockfile_or_ignore_file("poetry.lock")
+    assert is_lockfile_or_ignore_file("package-lock.json")
+    assert is_lockfile_or_ignore_file("cargo.lock")
+    assert is_lockfile_or_ignore_file("yarn.lock")
+    assert is_lockfile_or_ignore_file("pnpm-lock.yaml")
+    assert is_lockfile_or_ignore_file("composer.lock")
+    assert is_lockfile_or_ignore_file("Gemfile.lock")
+    assert is_lockfile_or_ignore_file(".gitignore")
+    assert not is_lockfile_or_ignore_file("pyproject.toml")
+    assert not is_lockfile_or_ignore_file("src/client.py")
+
+    # Lockfile contents should produce 0 network references (covered by dependency checks)
+    lock_doc = """
+    [[package]]
+    name = "foo"
+    version = "1.0.0"
+    source = { url = "https://files.pythonhosted.org/packages/12/34/foo-1.0.0-py3-none-any.whl" }
+    """
+    refs_lock = extract_network_references(lock_doc, "uv.lock")
+    assert len(refs_lock) == 0
+
+    # Package repository download assets should be recognized
+    assert is_package_repository_asset("https://files.pythonhosted.org/packages/foo.whl")
+    assert is_package_repository_asset("https://registry.npmjs.org/@scope/pkg/-/pkg-1.0.0.tgz")
+    assert is_package_repository_asset(
+        "https://static.crates.io/crates/mycrate/mycrate-0.1.0.crate"
+    )
+    assert is_package_repository_asset(
+        "https://repo.maven.apache.org/maven2/org/example/pkg-1.0.jar"
+    )
+    assert not is_package_repository_asset("https://api.my-vendor-service.io/v1/webhook")
+
+    # In source files, package file download URLs are skipped while legitimate
+    # service endpoints are kept
+    src_content = """
+    pypi_wheel = "https://files.pythonhosted.org/packages/4c/76/pkg-1.0.0.whl"
+    npm_tarball = "https://registry.npmjs.org/lib/-/lib-2.0.0.tgz"
+    service_api = "https://api.external-monitoring-service.net/v2/events"
+    """
+    refs_src = extract_network_references(src_content, "src/worker.py")
+    targets = {r.target for r in refs_src}
+    assert "https://api.external-monitoring-service.net/v2/events" in targets
+    assert "https://files.pythonhosted.org/packages/4c/76/pkg-1.0.0.whl" not in targets
+    assert "https://registry.npmjs.org/lib/-/lib-2.0.0.tgz" not in targets

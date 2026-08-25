@@ -37,18 +37,15 @@ def render_dry_run_result(
     target: str | None = None,
     details: dict[str, Any] | None = None,
 ) -> Any:
-    """Construct and print structured CommandDryRunResult JSON for dry-run mode."""
-    from rich import print as rprint
-    from rich.console import Console
+    """Construct and print structured CommandDryRunResult JSON for dry-run mode.
 
-    from devops_cli.dry_run.models import CommandDryRunResult
+    Delegates to devops_cli.output.
+    """
+    from devops_cli.output.console import render_dry_run_result as _render_output
 
-    res = CommandDryRunResult(
+    return _render_output(
         command=command,
-        action=action or "",
+        action=action,
         target=target,
-        details=details or {},
+        details=details,
     )
-    rprint("[yellow][dry-run][/yellow] Command response:")
-    Console().print_json(res.model_dump_json(indent=2))
-    return res

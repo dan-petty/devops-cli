@@ -8,7 +8,6 @@ from unittest.mock import MagicMock, patch
 from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
 from devops_cli.ai.review_schema import Finding
 from devops_cli.ai.tools.builtin_tools import (
-    run_security_scan,
     scan_bandit,
     scan_kubelinter,
     scan_pluto,
@@ -19,7 +18,7 @@ from devops_cli.ai.tools.registry import get_default_tools
 
 
 def test_native_security_tools_in_registry() -> None:
-    """get_default_tools must register all 5 discrete security scanner tools."""
+    """get_default_tools must register all discrete security scanner tools."""
     tools = get_default_tools()
     tool_names = [t.__name__ for t in tools if hasattr(t, "__name__")]
     assert "scan_trivy" in tool_names
@@ -27,7 +26,6 @@ def test_native_security_tools_in_registry() -> None:
     assert "scan_pluto" in tool_names
     assert "scan_bandit" in tool_names
     assert "scan_popeye" in tool_names
-    assert "run_security_scan" in tool_names
 
 
 @patch("devops_cli.ai.tools.builtin_tools._run_tool_cmd")
@@ -35,7 +33,7 @@ def test_native_security_tool_invocations(mock_cmd: MagicMock, tmp_path: Path) -
     """Security tools must execute safe subprocess commands."""
     mock_cmd.return_value = "No security issues detected."
 
-    res_trivy = scan_trivy("src", scan_type="fs", severity="CRITICAL")
+    res_trivy = scan_trivy("src")
     assert res_trivy == "No security issues detected."
     assert mock_cmd.call_count == 1
 
@@ -50,9 +48,6 @@ def test_native_security_tool_invocations(mock_cmd: MagicMock, tmp_path: Path) -
 
     res_popeye = scan_popeye(namespace="monitoring")
     assert res_popeye == "No security issues detected."
-
-    res_legacy = run_security_scan("src")
-    assert res_legacy == "No security issues detected."
 
 
 @patch("devops_cli.security.trivy.run_trivy_scan")

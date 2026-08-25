@@ -63,7 +63,7 @@ def investigate_rag_context(
             "persona": persona or "none",
             "project": project or "all",
         },
-    ):
+    ) as r_span:
         try:
             from devops_cli.core.validation import validate_url
 
@@ -122,6 +122,8 @@ def investigate_rag_context(
             record_metric("ai.rag.investigation.duration_ms", duration_ms)
 
             if ctx.has_results:
+                r_span.set_attribute("rag.results_count", len(ctx.results))
+                r_span.set_attribute("rag.total_chars", ctx.total_chars)
                 record_metric("ai.rag.investigation.hits", len(ctx.results))
                 logger.debug(
                     "RAG investigation retrieved %d chunks in %.1fms for query: %.50s",

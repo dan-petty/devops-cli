@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import shutil
@@ -30,12 +31,25 @@ from devops_cli.core.cli import new_typer, repo_label
 from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
 from devops_cli.git.operations import iter_workspace_repos
+from devops_cli.output import (
+    print_error,
+    print_success,
+    write_json_file,
+    write_text_file,
+)
+
+logger = logging.getLogger(__name__)
 
 app = new_typer(help="Manage devcontainer configurations.", no_args_is_help=True)
 console = Console()
 
 _TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+
+# =============================================================================
+# Template & Environment Helpers
+# =============================================================================
 
 
 def _project_python_version() -> str:
@@ -50,6 +64,11 @@ def _jinja_env() -> Environment:
         lstrip_blocks=True,
         keep_trailing_newline=True,
     )
+
+
+# =============================================================================
+# Command: devops devcontainer init
+# =============================================================================
 
 
 @app.command()
@@ -122,24 +141,27 @@ def init(
         published=is_published,
         home_volume=resolved_home_vol,
     )
-    dc_file.write_text(rendered.strip() + "\n", encoding="utf-8")
-
-    rprint(f"[green]Created:[/green] {dc_file}")
+    write_text_file(dc_file, rendered.strip() + "\n")
+    print_success(f"Created: {dc_file}")
 
     vscode_dir = repo_path / ".vscode"
     mcp_file = vscode_dir / "mcp.json"
     if not mcp_file.exists() or force:
-        vscode_dir.mkdir(parents=True, exist_ok=True)
-        mcp_file.write_text(
+        write_text_file(
+            mcp_file,
             env.get_template("mcp.json.j2").render(project_name=name),
-            encoding="utf-8",
         )
-        rprint(f"[green]Created:[/green] {mcp_file}")
+        print_success(f"Created: {mcp_file}")
 
     # Scaffold AI agent instruction files (AGENTS.md, CLAUDE.md, .github/copilot-instructions.md)
     agent_files = scaffold_agent_instructions(repo_path, force=force, template=True)
     for af in agent_files:
-        rprint(f"[green]Created:[/green] {af}")
+        print_success(f"Created: {af}")
+
+
+# =============================================================================
+# Command: devops devcontainer update
+# =============================================================================
 
 
 @app.command()
@@ -150,17 +172,22 @@ def update(
     """Update the Python image version in an existing devcontainer.json."""
     dc_file = repo_path / CONST_DEVCONTAINER_JSON_PATH
     if not dc_file.exists():
-        rprint(f"[red]No devcontainer.json found: {dc_file}[/red]")
+        print_error(f"No devcontainer.json found: {dc_file}")
         raise typer.Exit(1)
 
     try:
         data = json.loads(dc_file.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
-        rprint(f"[red]Invalid JSON in {dc_file}: {exc}[/red]")
+        print_error(f"Invalid JSON in {dc_file}: {exc}")
         raise typer.Exit(1)
     data["image"] = f"{CONST_DEVCONTAINER_IMAGE_PREFIX}{python_version}"
-    dc_file.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-    rprint(f"[green]Updated image → python:{python_version}[/green]")
+    write_json_file(dc_file, data)
+    print_success(f"Updated image → python:{python_version}")
+
+
+# =============================================================================
+# Validation Logic
+# =============================================================================
 
 
 def _strip_json_comments(text: str) -> str:
@@ -217,6 +244,11 @@ def _validate_manifest_content(data: object, base_dir: Path) -> list[str]:
         errors.append("'customizations' must be a JSON object.")
 
     return errors
+
+
+# =============================================================================
+# Command: devops devcontainer validate
+# =============================================================================
 
 
 @app.command("validate")
@@ -292,6 +324,11 @@ def validate(
     rprint(f"  [dim]Forward Ports:[/dim] {n_ports} configured")
 
 
+# =============================================================================
+# Command: devops devcontainer list
+# =============================================================================
+
+
 @app.command("list")
 def list_devcontainers(
     base_dir: Annotated[Path | None, typer.Option("--base-dir", "-d")] = None,
@@ -324,6 +361,11 @@ def list_devcontainers(
         )
 
     console.print(table)
+
+
+# =============================================================================
+# Lifecycle Task Helpers
+# =============================================================================
 
 
 def _run_post_create_lifecycle(workspace_dir: Path, *, dry_run: bool = False) -> list[str]:
@@ -432,6 +474,48 @@ def _run_post_create_lifecycle(workspace_dir: Path, *, dry_run: bool = False) ->
     return actions
 
 
+def _chmod_ssh_dir_and_keys(ssh_dir: Path) -> None:
+    """Set secure 0700 permissions on .ssh directory and 0600 on private keys."""
+    try:
+        ssh_dir.chmod(0o700)
+        for key_path in ssh_dir.glob("id_*"):
+            if not key_path.name.endswith(".pub"):
+                key_path.chmod(0o600)
+    except Exception as exc:
+        logger.debug("Failed to set SSH permissions: %s", exc)
+
+
+def _start_minikube_cluster(dry_run: bool) -> tuple[bool, str]:
+    """Start Minikube cluster with GPU support if nvidia-smi is available, otherwise CPU."""
+    has_gpu = bool(shutil.which("nvidia-smi"))
+    start_cmd = ["minikube", "start", "--driver=docker"]
+    if has_gpu:
+        start_cmd.append("--gpus=all")
+    if not dry_run:
+        start_res = run_subprocess(start_cmd, check=False, quiet=True)
+        if start_res.returncode == 0:
+            gpu_str = " (--driver=docker --gpus=all)" if has_gpu else " (--driver=docker)"
+            return True, f"Started Minikube cluster{gpu_str}"
+        return False, "Warning: Failed to start Minikube cluster"
+    gpu_str = " (--driver=docker --gpus=all)" if has_gpu else " (--driver=docker)"
+    return True, f"Started Minikube cluster{gpu_str}"
+
+
+def _auto_deploy_k8s_stack(workspace_dir: Path, stack: str, dry_run: bool) -> str | None:
+    """Auto-deploy Kubernetes stack via devops k8s deploy-stack."""
+    if not dry_run:
+        res = run_subprocess(
+            ["devops", "k8s", "deploy-stack", stack],
+            cwd=workspace_dir,
+            check=False,
+            quiet=True,
+        )
+        if res.returncode == 0:
+            return f"Auto-deployed Kubernetes stack '{stack}'"
+        return f"Warning: Failed to auto-deploy Kubernetes stack '{stack}'"
+    return f"Auto-deployed Kubernetes stack '{stack}'"
+
+
 def _run_post_start_lifecycle(workspace_dir: Path, *, dry_run: bool = False) -> list[str]:
     """Execute DevContainer post-start lifecycle tasks in pure Python."""
     actions: list[str] = []
@@ -454,13 +538,7 @@ def _run_post_start_lifecycle(workspace_dir: Path, *, dry_run: bool = False) -> 
     ssh_dir = Path.home() / ".ssh"
     if ssh_dir.exists():
         if not dry_run:
-            ssh_dir.chmod(0o700)
-            for item in ssh_dir.iterdir():
-                if item.is_file():
-                    if item.name.startswith("id_") and not item.name.endswith(".pub"):
-                        item.chmod(0o600)
-                    elif item.name.endswith(".pub"):
-                        item.chmod(0o644)
+            _chmod_ssh_dir_and_keys(ssh_dir)
         actions.append(f"Hardened SSH key permissions in {ssh_dir}")
 
         keys = sorted(
@@ -498,22 +576,19 @@ def _run_post_start_lifecycle(workspace_dir: Path, *, dry_run: bool = False) -> 
                 "preferences: {}\n"
                 "users: []\n"
             )
-            kube_file.write_text(kube_skeleton, encoding="utf-8")
-            kube_file.chmod(0o600)
+            write_text_file(kube_file, kube_skeleton, mode=0o600)
     actions.append(f"Initialized kubeconfig file at {kube_file}")
 
     # 4. MCP configuration sync
     vscode_mcp = workspace_dir / ".vscode" / "mcp.json"
     if not vscode_mcp.exists() and (workspace_dir / "pyproject.toml").exists():
-        vscode_dir = workspace_dir / ".vscode"
         if not dry_run:
-            vscode_dir.mkdir(parents=True, exist_ok=True)
             env = _jinja_env()
             raw_name = workspace_dir.name
             name = re.sub(r"[^a-zA-Z0-9._-]+", "_", raw_name)
-            vscode_mcp.write_text(
+            write_text_file(
+                vscode_mcp,
                 env.get_template("mcp.json.j2").render(project_name=name),
-                encoding="utf-8",
             )
         actions.append(f"Scaffolded MCP configuration at {vscode_mcp}")
 
@@ -523,12 +598,11 @@ def _run_post_start_lifecycle(workspace_dir: Path, *, dry_run: bool = False) -> 
             Path.home() / ".gemini" / "antigravity-ide" / "mcp_config.json",
         ):
             if not dry_run:
-                mcp_dest.parent.mkdir(parents=True, exist_ok=True)
                 raw_text = vscode_mcp.read_text(encoding="utf-8")
                 synced_text = raw_text.replace("${workspaceFolder}", str(workspace_dir)).replace(
                     "${env:HOME}", str(Path.home())
                 )
-                mcp_dest.write_text(synced_text, encoding="utf-8")
+                write_text_file(mcp_dest, synced_text)
             actions.append(f"Synced MCP configuration to {mcp_dest}")
 
         agents_dir = workspace_dir / ".agents"
@@ -539,7 +613,7 @@ def _run_post_start_lifecycle(workspace_dir: Path, *, dry_run: bool = False) -> 
                 synced_text = raw_text.replace("${workspaceFolder}", str(workspace_dir)).replace(
                     "${env:HOME}", str(Path.home())
                 )
-                agents_mcp_dest.write_text(synced_text, encoding="utf-8")
+                write_text_file(agents_mcp_dest, synced_text)
             actions.append(f"Synced MCP configuration to {agents_mcp_dest}")
 
     # 5. AI Agent instructions initialization
@@ -574,40 +648,10 @@ def _run_post_start_lifecycle(workspace_dir: Path, *, dry_run: bool = False) -> 
             )
             is_running = res.returncode == 0 and "Running" in str(res.stdout)
             if not is_running:
-                has_gpu = shutil.which("nvidia-smi") is not None
-                started = False
-                if has_gpu:
-                    if not dry_run:
-                        start_res = run_subprocess(
-                            ["minikube", "start", "--driver=docker", "--gpus=all"],
-                            check=False,
-                            quiet=True,
-                            timeout=300.0,
-                        )
-                        started = start_res.returncode == 0
-                    else:
-                        started = True
-                    if started:
-                        actions.append("Started Minikube cluster (--driver=docker --gpus=all)")
-
-                if not started:
-                    if not dry_run:
-                        start_res = run_subprocess(
-                            ["minikube", "start", "--driver=docker"],
-                            check=False,
-                            quiet=True,
-                            timeout=300.0,
-                        )
-                        started = start_res.returncode == 0
-                    else:
-                        started = True
-                    if started:
-                        actions.append("Started Minikube cluster (--driver=docker)")
-                    else:
-                        actions.append("Warning: Failed to start Minikube cluster")
-
-                minikube_healthy = started
-                if started and not dry_run:
+                healthy, action_msg = _start_minikube_cluster(dry_run)
+                actions.append(action_msg)
+                minikube_healthy = healthy
+                if healthy and not dry_run:
                     run_subprocess(["minikube", "update-context"], check=False, quiet=True)
             else:
                 if not dry_run:
@@ -619,18 +663,9 @@ def _run_post_start_lifecycle(workspace_dir: Path, *, dry_run: bool = False) -> 
     if auto_deploy and shutil.which("minikube") and shutil.which("kubectl"):
         if minikube_healthy or dry_run:
             stack = os.getenv("DEVOPS_K8S_STACK", "infra")
-            k8s_dir = workspace_dir / "k8s"
-            if k8s_dir.exists() and (k8s_dir / "kustomization.yaml").exists():
-                if not dry_run:
-                    from devops_cli.commands.k8s import deploy_stack as k8s_deploy_stack
-
-                    try:
-                        k8s_deploy_stack(k8s_dir=k8s_dir, stack=stack)
-                        actions.append(f"Auto-deployed Kubernetes stack ({stack})")
-                    except Exception as exc:
-                        actions.append(f"Auto-deploy failed for stack ({stack}): {exc}")
-                else:
-                    actions.append(f"Auto-deployed Kubernetes stack ({stack})")
+            result = _auto_deploy_k8s_stack(workspace_dir, stack, dry_run)
+            if result:
+                actions.append(result)
         else:
             actions.append("Skipping Kubernetes auto-deploy: Minikube is not running")
 
@@ -673,7 +708,7 @@ def _is_git_daemon_running() -> bool:
             pid = int(pid_file.read_text(encoding="utf-8").strip())
             os.kill(pid, 0)
             return True
-        except (OSError, ValueError):
+        except OSError, ValueError:
             pass
     import socket
 
@@ -729,6 +764,11 @@ def _start_git_daemon(workspace_dir: Path, *, dry_run: bool = False) -> list[str
     return actions
 
 
+# =============================================================================
+# Command: devops devcontainer post-create
+# =============================================================================
+
+
 @app.command("post-create")
 def post_create(
     workspace: Annotated[
@@ -755,6 +795,11 @@ def post_create(
     rprint("[bold green]✓ DevContainer post-create setup ready.[/bold green]")
 
 
+# =============================================================================
+# Command: devops devcontainer post-start
+# =============================================================================
+
+
 @app.command("post-start")
 def post_start(
     workspace: Annotated[
@@ -779,6 +824,11 @@ def post_start(
     for action in actions:
         rprint(f"  [green]✓[/green] {action}")
     rprint("[bold green]✓ DevContainer post-start lifecycle complete.[/bold green]")
+
+
+# =============================================================================
+# Command: devops devcontainer run-lifecycle
+# =============================================================================
 
 
 @app.command("run-lifecycle")

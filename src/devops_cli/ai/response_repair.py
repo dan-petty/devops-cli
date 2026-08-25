@@ -16,8 +16,16 @@ from pydantic import BaseModel, Field
 
 from devops_cli.ai.review_schema import normalize_unicode_text
 
-# Public alias preserved for backward compatibility (exported from ai/__init__.py)
-normalize_raw_llm_text = normalize_unicode_text
+__all__ = [
+    "ExtractedToolCall",
+    "FormattedLLMResponse",
+    "extract_tool_invocations",
+    "fix_llm_response",
+    "repair_json_string",
+]
+
+_TOOL_EXTRACT_PAGE_SIZE = 32 * 1024  # 32 KiB chunk window
+_TOOL_EXTRACT_OVERLAP = 1024  # 1 KiB overlap to prevent boundary cuts
 
 
 def repair_json_string(text: str) -> Any:
@@ -25,7 +33,7 @@ def repair_json_string(text: str) -> Any:
     if not text or not text.strip():
         return None
 
-    cleaned = normalize_raw_llm_text(text).strip()
+    cleaned = normalize_unicode_text(text).strip()
 
     # 1. First pass: use standard json_repair to parse JSON, objects, lists, or markdown fences
     try:
@@ -71,53 +79,49 @@ class FormattedLLMResponse[T](BaseModel):
     repair_notes: list[str] = Field(default_factory=list)
 
 
-def extract_tool_invocations(
-    text: str, available_tools: list[str] | set[str] | None = None
-) -> list[ExtractedToolCall]:
-    """Extract tool calls from JSON structures, function signatures, or XML tags."""
-    if not text:
-        return []
+def _extract_json_dict_tool_call(
+    json_dict: dict[str, Any], known_tool_names: set[str] | None
+) -> ExtractedToolCall | None:
+    """Extract ExtractedToolCall from JSON dictionary if it matches tool calling schema."""
+    tool_name = json_dict.get("tool") or json_dict.get("name") or json_dict.get("function")
+    if not (tool_name and isinstance(tool_name, str)):
+        return None
+    if known_tool_names and tool_name not in known_tool_names:
+        return None
 
+    args = json_dict.get("arguments") or json_dict.get("parameters") or {}
+    if not isinstance(args, dict):
+        args = {}
+    return ExtractedToolCall(
+        tool_name=tool_name,
+        arguments=args,
+        raw_syntax=json.dumps(json_dict, default=str),
+    )
+
+
+def _extract_tool_invocations_from_chunk(
+    text: str,
+    known_tool_names: set[str],
+) -> list[ExtractedToolCall]:
+    """Extract tool calls from a single text chunk with bounded regex processing."""
     calls: list[ExtractedToolCall] = []
-    known_tool_names = set(available_tools) if available_tools else set()
 
     # 1. JSON-based tool call detection
     json_obj = repair_json_string(text)
     if isinstance(json_obj, dict):
-        tool_name = json_obj.get("tool") or json_obj.get("name") or json_obj.get("function")
-        if tool_name and isinstance(tool_name, str):
-            args = json_obj.get("arguments") or json_obj.get("parameters") or {}
-            if not isinstance(args, dict):
-                args = {}
-            if not known_tool_names or tool_name in known_tool_names:
-                calls.append(
-                    ExtractedToolCall(
-                        tool_name=tool_name,
-                        arguments=args,
-                        raw_syntax=json.dumps(json_obj, default=str),
-                    )
-                )
-
-    if isinstance(json_obj, list):
+        call = _extract_json_dict_tool_call(json_obj, known_tool_names)
+        if call:
+            calls.append(call)
+    elif isinstance(json_obj, list):
         for item in json_obj:
             if isinstance(item, dict):
-                t_name = item.get("tool") or item.get("name") or item.get("function")
-                if t_name and isinstance(t_name, str):
-                    args = item.get("arguments") or item.get("parameters") or {}
-                    if not isinstance(args, dict):
-                        args = {}
-                    if not known_tool_names or t_name in known_tool_names:
-                        calls.append(
-                            ExtractedToolCall(
-                                tool_name=t_name,
-                                arguments=args,
-                                raw_syntax=json.dumps(item, default=str),
-                            )
-                        )
+                call = _extract_json_dict_tool_call(item, known_tool_names)
+                if call:
+                    calls.append(call)
 
     # 2. Function-style call extraction: tool_name({"arg": "val"}) or tool_name(arg="val")
     fn_pattern = (
-        r"(?:invoke|call|run|execute)?\s*`?([a-zA-Z0-9_]+)`?\s*\(\s*(\{[\s\S]*?\}|[^\)]*)\s*\)"
+        r"(?:invoke|call|run|execute)?\s*`?([a-zA-Z0-9_]+)`?\s*\(\s*(\{.*?\}|[^()\n]*)\s*\)"
     )
     for match in re.finditer(fn_pattern, text):
         function_name = match.group(1).strip()
@@ -133,7 +137,6 @@ def extract_tool_invocations(
             if isinstance(parsed_json, dict):
                 parsed_args = parsed_json
         else:
-            # Parse keyword arguments: k="v", k=123
             kw_matches = re.findall(
                 r'([a-zA-Z0-9_]+)\s*=\s*(?:"([^"]*)"|\'([^\']*)\'|([^\s,]+))', raw_args
             )
@@ -154,6 +157,52 @@ def extract_tool_invocations(
     return calls
 
 
+def extract_tool_invocations(
+    text: str, available_tools: list[str] | set[str] | None = None
+) -> list[ExtractedToolCall]:
+    """Extract tool calls across full text using sliding window paging."""
+    if not text or not text.strip():
+        return []
+
+    known_tool_names = set(available_tools) if available_tools else set()
+
+    if len(text) <= _TOOL_EXTRACT_PAGE_SIZE:
+        return _extract_tool_invocations_from_chunk(text, known_tool_names)
+
+    # Paging with sliding window for complete coverage on large text
+    all_calls: list[ExtractedToolCall] = []
+    seen_calls: set[tuple[str, str]] = set()
+    offset = 0
+    step = _TOOL_EXTRACT_PAGE_SIZE - _TOOL_EXTRACT_OVERLAP
+
+    while offset < len(text):
+        chunk = text[offset : offset + _TOOL_EXTRACT_PAGE_SIZE]
+        chunk_calls = _extract_tool_invocations_from_chunk(chunk, known_tool_names)
+        for call in chunk_calls:
+            key = (call.tool_name, call.raw_syntax)
+            if key not in seen_calls:
+                seen_calls.add(key)
+                all_calls.append(call)
+        offset += step
+
+    return all_calls
+
+
+def _extract_tools_from_thoughts(
+    thoughts: list[str], available_tools: list[str] | set[str] | None
+) -> tuple[list[ExtractedToolCall], list[str]]:
+    """Extract tool calls embedded inside reasoning/thinking blocks."""
+    tool_calls: list[ExtractedToolCall] = []
+    repair_notes: list[str] = []
+    for thought in thoughts:
+        extracted = extract_tool_invocations(thought, available_tools)
+        for call in extracted:
+            if not any(c.tool_name == call.tool_name for c in tool_calls):
+                tool_calls.append(call)
+                repair_notes.append(f"extracted_tool_call_from_thinking:{call.tool_name}")
+    return tool_calls, repair_notes
+
+
 def fix_llm_response[T = Any](
     raw_response: str | Any,
     schema: type[T] | None = None,
@@ -164,7 +213,7 @@ def fix_llm_response[T = Any](
     Ensures zero-loss recovery of valid thoughts, answers, tool calls, and structured models.
     """
     raw_str = str(raw_response) if raw_response is not None else ""
-    norm_text = normalize_raw_llm_text(raw_str)
+    norm_text = normalize_unicode_text(raw_str)
 
     thoughts: list[str] = []
     repair_notes: list[str] = []
@@ -186,16 +235,11 @@ def fix_llm_response[T = Any](
     # Tool call extraction across both clean text and thoughts
     tool_calls = extract_tool_invocations(clean_text, available_tools)
     if not tool_calls and thoughts:
-        # Check thoughts for tool calls
-        for thought in thoughts:
-            extracted_thought_tools = extract_tool_invocations(thought, available_tools)
-            for extracted_call in extracted_thought_tools:
-                if not any(c.tool_name == extracted_call.tool_name for c in tool_calls):
-                    tool_calls.append(extracted_call)
-                    was_repaired = True
-                    repair_notes.append(
-                        f"extracted_tool_call_from_thinking:{extracted_call.tool_name}"
-                    )
+        extracted_tools, thought_notes = _extract_tools_from_thoughts(thoughts, available_tools)
+        if extracted_tools:
+            tool_calls.extend(extracted_tools)
+            was_repaired = True
+            repair_notes.extend(thought_notes)
 
     # Content Recovery Heuristic: Only recover if explicit user-facing conclusion/answer exists
     final_content = clean_text

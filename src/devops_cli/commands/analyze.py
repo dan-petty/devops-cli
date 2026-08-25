@@ -9,12 +9,11 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
-from rich import print as rprint
-from rich.console import Console
 
 from devops_cli.ai.analyze.cache import _render_analysis_summary, save_analysis_metadata
 from devops_cli.ai.analyze.outlines import analyze_single_file
 from devops_cli.ai.analyze.scanner import detect_language, sanitize_reference
+from devops_cli.ai.client import LLMClient
 from devops_cli.config.constants import (
     CONST_ANALYSIS_DATA_DIR,
     CONST_MAX_FILE_SIZE_BYTES,
@@ -24,12 +23,119 @@ from devops_cli.core.repo import find_repo_root, find_top_level_repo_root, list_
 from devops_cli.dry_run import is_dry_run
 from devops_cli.lang import MESSAGES
 from devops_cli.models.ai import AnalysisMetadata, FileAnalysisMeta
+from devops_cli.output import (
+    print_error,
+    print_info,
+)
 
 app = new_typer(
     help=MESSAGES.analyze.app_help,
     no_args_is_help=True,
 )
-console = Console()
+
+
+# =============================================================================
+# File Metadata Extraction & Cache Re-use Helpers
+# =============================================================================
+
+
+def _create_deleted_file_meta(rel_path: str) -> FileAnalysisMeta:
+    """Create a FileAnalysisMeta instance representing a deleted repository file."""
+    return FileAnalysisMeta(
+        path=rel_path,
+        size_bytes=0,
+        line_count=0,
+        char_count=0,
+        language=detect_language(rel_path),
+        primary_purpose=f"Deleted file {Path(rel_path).name}",
+        key_symbols=[],
+        dependencies=[],
+        change_type="deleted",
+        pseudocode=None,
+        last_updated=None,
+        complexity_score=None,
+    )
+
+
+def _try_reuse_cached_file_meta(
+    old_meta: FileAnalysisMeta, file_mtime: datetime
+) -> FileAnalysisMeta | None:
+    """Attempt to reuse cached analysis metadata if file has not been modified."""
+    if not (old_meta.last_analyzed and old_meta.pseudocode):
+        return None
+    try:
+        analyzed_dt = datetime.fromisoformat(old_meta.last_analyzed)
+        if file_mtime <= analyzed_dt:
+            return old_meta.model_copy(update={"last_analyzed": datetime.now(UTC).isoformat()})
+    except Exception:
+        pass
+    return None
+
+
+def _process_single_repo_file_meta(
+    p: Path,
+    repo: Path,
+    enhanced: bool,
+    existing_file_metas: dict[str, FileAnalysisMeta],
+    ai_client: LLMClient | None,
+) -> FileAnalysisMeta | None:
+    """Analyze a single file for repository-wide or path analysis."""
+    if p.stat().st_size > CONST_MAX_FILE_SIZE_BYTES:
+        return None
+    try:
+        rel_str = str(p.relative_to(repo)) if p.is_relative_to(repo) else str(p)
+        file_mtime = datetime.fromtimestamp(p.stat().st_mtime, UTC)
+
+        if enhanced and rel_str in existing_file_metas:
+            reused = _try_reuse_cached_file_meta(existing_file_metas[rel_str], file_mtime)
+            if reused is not None:
+                return reused
+
+        content = p.read_text(encoding="utf-8", errors="replace")
+        return analyze_single_file(
+            rel_str,
+            content,
+            p.stat().st_size,
+            enhanced=enhanced,
+            repo_root=repo,
+            ai_client=ai_client,
+        )
+    except Exception:
+        return None
+
+
+def _process_single_branch_file_meta(
+    file_path: Path,
+    rel_path: str,
+    change_type: str,
+    enhanced: bool,
+    existing_file_metas: dict[str, FileAnalysisMeta],
+    repo: Path,
+    ai_client: LLMClient | None,
+) -> FileAnalysisMeta | None:
+    """Analyze a single file for branch diff analysis."""
+    if change_type == "deleted" or not file_path.exists():
+        return _create_deleted_file_meta(rel_path)
+
+    try:
+        file_mtime = datetime.fromtimestamp(file_path.stat().st_mtime, UTC)
+        if enhanced and rel_path in existing_file_metas:
+            reused = _try_reuse_cached_file_meta(existing_file_metas[rel_path], file_mtime)
+            if reused is not None:
+                return reused
+
+        content = file_path.read_text(encoding="utf-8", errors="replace")
+        return analyze_single_file(
+            rel_path,
+            content,
+            file_path.stat().st_size,
+            change_type=change_type,
+            enhanced=enhanced,
+            repo_root=repo,
+            ai_client=ai_client,
+        )
+    except Exception:
+        return None
 
 
 @app.callback(invoke_without_command=True)
@@ -50,7 +156,9 @@ def analyze_main(
         raise typer.Exit(0)
 
 
-# ── Subcommands ───────────────────────────────────────────────────────────────
+# =============================================================================
+# Command: devops analyze path
+# =============================================================================
 
 
 @app.command(name="path")
@@ -83,7 +191,7 @@ def analyze_path(
         ),
     ] = False,
 ) -> None:
-    """Analyze a local directory path or single file and save metadata to .data/analysis/."""
+    """Analyze all repository files under target path and save metadata to .data/analysis/."""
     if explain:
         from devops_cli.ai.explain import render_explanation
 
@@ -93,11 +201,13 @@ def analyze_path(
     target_abs = target.resolve() if target.is_absolute() else (repo / target).resolve()
 
     if not target_abs.exists():
-        rprint(f"[red]{MESSAGES.analyze.path_not_exists.format(path=target)}[/red]")
+        print_error(MESSAGES.analyze.path_not_exists.format(path=target), prefix=False)
         raise typer.Exit(1)
 
     if not (target_abs == repo or target_abs.is_relative_to(repo)):
-        rprint(f"[red]Target path '{target}' is outside the repository root '{repo}'.[/red]")
+        print_error(
+            f"Target path '{target}' is outside the repository root '{repo}'.", prefix=False
+        )
         raise typer.Exit(1)
 
     collected_paths = list_repo_files(target_abs)
@@ -112,8 +222,9 @@ def analyze_path(
 
             settings = load_settings()
             ai_client = LLMClient(settings.ai, api_key=get_ai_api_key(settings))
-            rprint(
-                f"[dim]Analyzing with AI backend: [cyan]{ai_client.backend_info}[/cyan]...[/dim]"
+            print_info(
+                f"[dim]Analyzing with AI backend: [cyan]{ai_client.backend_info}[/cyan]...[/dim]",
+                prefix=False,
             )
         except Exception:
             ai_client = None
@@ -134,38 +245,9 @@ def analyze_path(
 
     file_metas: list[FileAnalysisMeta] = []
     for p in collected_paths:
-        if p.stat().st_size > CONST_MAX_FILE_SIZE_BYTES:
-            continue
-        try:
-            rel_str = str(p.relative_to(repo)) if p.is_relative_to(repo) else str(p)
-            file_mtime = datetime.fromtimestamp(p.stat().st_mtime, UTC)
-
-            if enhanced and rel_str in existing_file_metas:
-                old_meta = existing_file_metas[rel_str]
-                if old_meta.last_analyzed and old_meta.pseudocode:
-                    try:
-                        analyzed_dt = datetime.fromisoformat(old_meta.last_analyzed)
-                        if file_mtime <= analyzed_dt:
-                            reused_meta = old_meta.model_copy(
-                                update={"last_analyzed": datetime.now(UTC).isoformat()}
-                            )
-                            file_metas.append(reused_meta)
-                            continue
-                    except Exception:
-                        pass
-
-            content = p.read_text(encoding="utf-8", errors="replace")
-            meta = analyze_single_file(
-                rel_str,
-                content,
-                p.stat().st_size,
-                enhanced=enhanced,
-                repo_root=repo,
-                ai_client=ai_client,
-            )
+        meta = _process_single_repo_file_meta(p, repo, enhanced, existing_file_metas, ai_client)
+        if meta is not None:
             file_metas.append(meta)
-        except Exception:
-            continue
 
     title = f"{repo.name} path analysis: {ref_str}"
     out_file = save_analysis_metadata("path", ref_str, title, file_metas, repo, enhanced=enhanced)
@@ -173,6 +255,11 @@ def analyze_path(
     if not is_dry_run():
         payload_data = json.loads(out_file.read_text(encoding="utf-8"))
         _render_analysis_summary(AnalysisMetadata.model_validate(payload_data), out_file)
+
+
+# =============================================================================
+# Command: devops analyze branch
+# =============================================================================
 
 
 @app.command(name="branch")
@@ -216,7 +303,7 @@ def analyze_branch(
     repo = find_repo_root()
     target_branch = branch or list_branches(repo).current
     if not target_branch:
-        rprint(f"[red]{MESSAGES.analyze.git_branch_failed}[/red]")
+        print_error(MESSAGES.analyze.git_branch_failed, prefix=False)
         raise typer.Exit(1)
 
     ai_client = None
@@ -227,8 +314,9 @@ def analyze_branch(
 
             settings = load_settings()
             ai_client = LLMClient(settings.ai, api_key=get_ai_api_key(settings))
-            rprint(
-                f"[dim]Analyzing with AI backend: [cyan]{ai_client.backend_info}[/cyan]...[/dim]"
+            print_info(
+                f"[dim]Analyzing with AI backend: [cyan]{ai_client.backend_info}[/cyan]...[/dim]",
+                prefix=False,
             )
         except Exception:
             ai_client = None
@@ -261,55 +349,17 @@ def analyze_branch(
                 else ("deleted" if status.startswith("D") else "modified")
             )
             file_path = repo / rel_path
-
-            if change_type == "deleted" or not file_path.exists():
-                file_metas.append(
-                    FileAnalysisMeta(
-                        path=rel_path,
-                        size_bytes=0,
-                        line_count=0,
-                        char_count=0,
-                        language=detect_language(rel_path),
-                        primary_purpose=f"Deleted file {Path(rel_path).name}",
-                        key_symbols=[],
-                        dependencies=[],
-                        change_type="deleted",
-                        pseudocode=None,
-                        last_updated=None,
-                        complexity_score=None,
-                    )
-                )
-                continue
-
-            try:
-                file_mtime = datetime.fromtimestamp(file_path.stat().st_mtime, UTC)
-                if enhanced and rel_path in existing_file_metas:
-                    old_meta = existing_file_metas[rel_path]
-                    if old_meta.last_analyzed and old_meta.pseudocode:
-                        try:
-                            analyzed_dt = datetime.fromisoformat(old_meta.last_analyzed)
-                            if file_mtime <= analyzed_dt:
-                                reused_meta = old_meta.model_copy(
-                                    update={"last_analyzed": datetime.now(UTC).isoformat()}
-                                )
-                                file_metas.append(reused_meta)
-                                continue
-                        except Exception:
-                            pass
-
-                content = file_path.read_text(encoding="utf-8", errors="replace")
-                meta = analyze_single_file(
-                    rel_path,
-                    content,
-                    file_path.stat().st_size,
-                    change_type=change_type,
-                    enhanced=enhanced,
-                    repo_root=repo,
-                    ai_client=ai_client,
-                )
+            meta = _process_single_branch_file_meta(
+                file_path,
+                rel_path,
+                change_type,
+                enhanced,
+                existing_file_metas,
+                repo,
+                ai_client,
+            )
+            if meta is not None:
                 file_metas.append(meta)
-            except Exception:
-                continue
 
     title = f"{repo.name} branch analysis: {target_branch} vs {base}"
     out_file = save_analysis_metadata(
@@ -319,6 +369,11 @@ def analyze_branch(
     if not is_dry_run():
         payload_data = json.loads(out_file.read_text(encoding="utf-8"))
         _render_analysis_summary(AnalysisMetadata.model_validate(payload_data), out_file)
+
+
+# =============================================================================
+# Command: devops analyze pr
+# =============================================================================
 
 
 @app.command(name="pr")
@@ -360,7 +415,7 @@ def analyze_pr(
     settings = load_settings()
     token = get_github_token(settings)
     if not token:
-        rprint(f"[red]{MESSAGES.analyze.github_token_required}[/red]")
+        print_error(MESSAGES.analyze.github_token_required, prefix=False)
         raise typer.Exit(1)
 
     ai_client = None
@@ -371,8 +426,9 @@ def analyze_pr(
 
             settings = load_settings()
             ai_client = LLMClient(settings.ai, api_key=get_ai_api_key(settings))
-            rprint(
-                f"[dim]Analyzing with AI backend: [cyan]{ai_client.backend_info}[/cyan]...[/dim]"
+            print_info(
+                f"[dim]Analyzing with AI backend: [cyan]{ai_client.backend_info}[/cyan]...[/dim]",
+                prefix=False,
             )
         except Exception:
             ai_client = None
@@ -381,7 +437,7 @@ def analyze_pr(
 
     repo_name = get_repo_origin_name(repo)
     if not repo_name:
-        rprint(f"[red]{MESSAGES.analyze.github_origin_failed}[/red]")
+        print_error(MESSAGES.analyze.github_origin_failed, prefix=False)
         raise typer.Exit(1)
 
     gh_client = GitHubClient(token=token)

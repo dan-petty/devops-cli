@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter
@@ -33,45 +34,50 @@ class WorkspacesResponse(BaseModel):
     )
 
 
+def _inspect_repo_metadata(path: Path, name: str) -> dict[str, Any]:
+    """Inspect and format metadata for a repository directory."""
+    return {
+        "name": name,
+        "path": str(path.resolve()),
+        "has_git": (path / ".git").exists(),
+        "has_devcontainer": (path / ".devcontainer").is_dir(),
+        "has_pyproject": (path / "pyproject.toml").is_file(),
+    }
+
+
+def _scan_owner_directory(owner_dir: Path) -> list[dict[str, Any]]:
+    """Scan subdirectories or single repository under an owner folder."""
+    if (owner_dir / ".git").exists() or (owner_dir / "pyproject.toml").is_file():
+        return [_inspect_repo_metadata(owner_dir, owner_dir.name)]
+
+    repos: list[dict[str, Any]] = []
+    for repo_dir in owner_dir.iterdir():
+        if not repo_dir.is_dir() or repo_dir.name.startswith("."):
+            continue
+        if (repo_dir / ".git").exists() or (repo_dir / "pyproject.toml").is_file():
+            repos.append(_inspect_repo_metadata(repo_dir, f"{owner_dir.name}/{repo_dir.name}"))
+    return repos
+
+
+def _discover_workspace_repositories(repos_dir: Path) -> list[dict[str, Any]]:
+    """Discover all repositories under workspace repos directory."""
+    if not repos_dir.is_dir():
+        return []
+    repos: list[dict[str, Any]] = []
+    for owner_dir in repos_dir.iterdir():
+        if not owner_dir.is_dir() or owner_dir.name.startswith("."):
+            continue
+        repos.extend(_scan_owner_directory(owner_dir))
+    return repos
+
+
 @router.get("/workspaces", response_model=WorkspacesResponse, summary="List workspace repositories")
 async def list_workspaces() -> dict[str, Any]:
     """Discover repositories and devcontainer configurations in the current workspace."""
     root = find_top_level_repo_root()
-    repos_dir = root / "repos"
-    repositories: list[dict[str, Any]] = []
-
-    if repos_dir.is_dir():
-        for owner_dir in repos_dir.iterdir():
-            if not owner_dir.is_dir() or owner_dir.name.startswith("."):
-                continue
-            if (owner_dir / ".git").exists() or (owner_dir / "pyproject.toml").is_file():
-                repositories.append(
-                    {
-                        "name": owner_dir.name,
-                        "path": str(owner_dir.resolve()),
-                        "has_git": (owner_dir / ".git").exists(),
-                        "has_devcontainer": (owner_dir / ".devcontainer").is_dir(),
-                        "has_pyproject": (owner_dir / "pyproject.toml").is_file(),
-                    }
-                )
-            else:
-                for repo_dir in owner_dir.iterdir():
-                    if not repo_dir.is_dir() or repo_dir.name.startswith("."):
-                        continue
-                    if (repo_dir / ".git").exists() or (repo_dir / "pyproject.toml").is_file():
-                        repositories.append(
-                            {
-                                "name": f"{owner_dir.name}/{repo_dir.name}",
-                                "path": str(repo_dir.resolve()),
-                                "has_git": (repo_dir / ".git").exists(),
-                                "has_devcontainer": (repo_dir / ".devcontainer").is_dir(),
-                                "has_pyproject": (repo_dir / "pyproject.toml").is_file(),
-                            }
-                        )
-
     return {
         "workspace_root": str(root.resolve()),
-        "repositories": repositories,
+        "repositories": _discover_workspace_repositories(root / "repos"),
     }
 
 

@@ -104,48 +104,60 @@ def is_ignored_by_git(repo_root: Path, target_path: Path) -> bool:
     return bool(spec.match_file(rel_str))
 
 
-def list_repo_files(target_dir: Path) -> list[Path]:
-    """Return non-git-ignored source files using dynamic git ls-files or .gitignore."""
-    resolved_target = target_dir.resolve()
+def _list_git_tracked_files(repo_root: Path, resolved_target: Path) -> list[Path] | None:
+    """List files using git ls-files if inside a git repository."""
+    if not (repo_root / ".git").exists():
+        return None
+    try:
+        cmd = [
+            "git",
+            "-C",
+            str(repo_root),
+            "ls-files",
+            "--cached",
+            "--others",
+            "--exclude-standard",
+        ]
+        if resolved_target != repo_root:
+            rel_to_repo = resolved_target.relative_to(repo_root)
+            cmd.extend(["--", str(rel_to_repo)])
+
+        proc = run_subprocess(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=True,
+            quiet=True,
+            timeout=DEFAULT_SUBPROCESS_FAST_TIMEOUT_SECONDS,
+        )
+        files: list[Path] = []
+        for line in proc.stdout.splitlines():
+            line_str = line.strip()
+            if not line_str:
+                continue
+            p = repo_root / line_str
+            if p.is_file() and p.suffix.lower() not in CONST_BINARY_EXTENSIONS:
+                files.append(p)
+        return sorted(files)
+    except Exception:
+        return None
+
+
+def list_repo_files(target: Path | str = ".") -> list[Path]:
+    """Return all reviewable files under target directory respecting .gitignore rules."""
+    resolved_target = Path(target).resolve()
+    if not resolved_target.exists():
+        return []
+
     repo_root = find_repo_root(resolved_target)
 
     if resolved_target.is_file():
         return [resolved_target] if not is_ignored_by_git(repo_root, resolved_target) else []
 
     # 1. Try git ls-files if inside a git repository
-    if (repo_root / ".git").exists():
-        try:
-            cmd = [
-                "git",
-                "-C",
-                str(repo_root),
-                "ls-files",
-                "--cached",
-                "--others",
-                "--exclude-standard",
-            ]
-            if resolved_target != repo_root:
-                rel_to_repo = resolved_target.relative_to(repo_root)
-                cmd.extend(["--", str(rel_to_repo)])
-
-            proc = run_subprocess(
-                cmd,
-                capture_output=True,
-                text=True,
-                check=True,
-                quiet=True,
-                timeout=DEFAULT_SUBPROCESS_FAST_TIMEOUT_SECONDS,
-            )
-            files: list[Path] = []
-            for line in proc.stdout.splitlines():
-                line_str = line.strip()
-                if line_str:
-                    p = repo_root / line_str
-                    if p.is_file() and p.suffix.lower() not in CONST_BINARY_EXTENSIONS:
-                        files.append(p)
-            return sorted(files)
-        except Exception:
-            pass
+    git_files = _list_git_tracked_files(repo_root, resolved_target)
+    if git_files is not None:
+        return git_files
 
     # 2. Directory walk with dynamic .gitignore rules fallback
     walked_files: list[Path] = []
@@ -156,7 +168,7 @@ def list_repo_files(target_dir: Path) -> list[Path]:
                 resolved_p = p.resolve()
                 if not str(resolved_p).startswith(str(repo_root_resolved)):
                     continue
-            except (OSError, RuntimeError):
+            except OSError, RuntimeError:
                 continue
         if p.is_file() and not is_ignored_by_git(repo_root, p):
             walked_files.append(p)
@@ -180,3 +192,36 @@ def get_repo_origin_name(repo_root: Path | None = None) -> str | None:
     raw = proc.stdout.strip()
     match = re.search(r"[:/]([a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+?)(?:\.git)?$", raw)
     return match.group(1) if match else None
+
+
+def is_safe_subpath(root: Path | str, target: Path | str) -> bool:
+    """Return True if *target* strictly resides within *root* directory hierarchy."""
+    try:
+        resolved_root = Path(root).resolve()
+        target_p = Path(target)
+        resolved_target = (
+            (resolved_root / target_p).resolve()
+            if not target_p.is_absolute()
+            else target_p.resolve()
+        )
+        return resolved_target.is_relative_to(resolved_root)
+    except Exception:
+        return False
+
+
+def resolve_safe_subpath(root: Path | str, target: Path | str) -> Path:
+    """Resolve *target* relative to *root* and verify it strictly resides within *root*.
+
+    Raises ValueError if path traversal outside *root* is detected.
+    """
+    resolved_root = Path(root).resolve()
+    target_p = Path(target)
+    resolved_target = (
+        (resolved_root / target_p).resolve() if not target_p.is_absolute() else target_p.resolve()
+    )
+    if not resolved_target.is_relative_to(resolved_root):
+        raise ValueError(
+            f"Path traversal detected: target '{resolved_target}' "
+            f"resolves outside root '{resolved_root}'"
+        )
+    return resolved_target

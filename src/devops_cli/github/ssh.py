@@ -73,7 +73,7 @@ def _gh_auth_ok() -> bool:
             quiet=True,
             timeout=DEFAULT_GH_AUTH_TIMEOUT_SECONDS,
         )
-    except (FileNotFoundError, OSError, subprocess.SubprocessError):
+    except FileNotFoundError, OSError, subprocess.SubprocessError:
         return False
     return result.returncode == 0
 
@@ -85,7 +85,7 @@ def _gh_list_keys(endpoint: str) -> set[str] | None:
             quiet=True,
             timeout=DEFAULT_GH_AUTH_TIMEOUT_SECONDS,
         )
-    except (FileNotFoundError, OSError, subprocess.SubprocessError):
+    except FileNotFoundError, OSError, subprocess.SubprocessError:
         return None
 
     if result.returncode != 0:

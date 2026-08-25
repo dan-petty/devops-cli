@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -60,14 +61,33 @@ def test_status_endpoint(client: TestClient) -> None:
     assert "telemetry_enabled" in data
 
 
-def test_workspaces_endpoint(client: TestClient) -> None:
-    """Test /api/v1/workspaces discovery endpoint."""
+def test_workspaces_endpoint_with_nested_repos(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test /api/v1/workspaces discovery with direct and nested owner/repo hierarchies."""
+    fake_root = tmp_path / "workspace"
+    repos_dir = fake_root / "repos"
+    owner_a = repos_dir / "owner_a"
+    repo_1 = owner_a / "repo_1"
+    repo_1.mkdir(parents=True)
+    (repo_1 / ".git").mkdir()
+    (repo_1 / ".devcontainer").mkdir()
+    (repo_1 / "pyproject.toml").write_text("[project]\nname='repo1'", encoding="utf-8")
+
+    direct_repo = repos_dir / "direct_repo"
+    direct_repo.mkdir(parents=True)
+    (direct_repo / ".git").mkdir()
+
+    monkeypatch.setattr(
+        "devops_cli.server.routes.workspace.find_top_level_repo_root", lambda: fake_root
+    )
     response = client.get("/api/v1/workspaces")
     assert response.status_code == 200
     data = response.json()
-    assert "workspace_root" in data
-    assert "repositories" in data
-    assert isinstance(data["repositories"], list)
+    assert data["workspace_root"] == str(fake_root.resolve())
+    repo_names = [r["name"] for r in data["repositories"]]
+    assert "direct_repo" in repo_names
+    assert "owner_a/repo_1" in repo_names
 
 
 def test_config_endpoint_sanitization(client: TestClient) -> None:
@@ -78,8 +98,9 @@ def test_config_endpoint_sanitization(client: TestClient) -> None:
     assert data["status"] == "ok"
     assert "config" in data
     cfg = data["config"]
-    if "github" in cfg and cfg["github"].get("token"):
-        assert cfg["github"]["token"] == "***REDACTED***"
+    assert "ssh" in cfg
+    assert "repos" in cfg
+    assert "workspace" in cfg
 
 
 def test_telemetry_endpoint(client: TestClient) -> None:

@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
-from rich import print as rprint
 
 from devops_cli.ai.benchmark.embedding_runner import EmbeddingBenchmarkRunner
 from devops_cli.ai.benchmark.runner import BenchmarkRunner
@@ -20,6 +19,7 @@ from devops_cli.config.defaults import (
 from devops_cli.config.settings import load_settings
 from devops_cli.core.cli import new_typer
 from devops_cli.lang import ERRORS, HELP
+from devops_cli.output import print_error, print_success, write_text_file
 
 app = new_typer(
     help=HELP.ai.benchmark,
@@ -181,9 +181,8 @@ def run_benchmark(
 
         if output:
             resolved_output = output.resolve()
-            resolved_output.parent.mkdir(parents=True, exist_ok=True)
-            resolved_output.write_text(embed_report.model_dump_json(indent=2), encoding="utf-8")
-            rprint(f"[green]✓ Exported custom report to {resolved_output}[/green]")
+            write_text_file(resolved_output, embed_report.model_dump_json(indent=2))
+            print_success(f"Exported custom report to {resolved_output}")
 
         embed_runner.print_report(embed_report, format_type=format_type)
         return
@@ -194,7 +193,7 @@ def run_benchmark(
 
     if not task_list:
         err = ERRORS.ai.unsupported_provider.format(provider="No matching tasks found")
-        rprint(f"[red]{err}[/red]")
+        print_error(err)
         raise typer.Exit(1)
 
     runner = BenchmarkRunner(
@@ -211,9 +210,8 @@ def run_benchmark(
 
     if output:
         resolved_output = output.resolve()
-        resolved_output.parent.mkdir(parents=True, exist_ok=True)
-        resolved_output.write_text(report.model_dump_json(indent=2), encoding="utf-8")
-        rprint(f"[green]✓ Exported custom report to {resolved_output}[/green]")
+        write_text_file(resolved_output, report.model_dump_json(indent=2))
+        print_success(f"Exported custom report to {resolved_output}")
 
     if format_type.lower() == "json":
         print(report.model_dump_json(indent=2))

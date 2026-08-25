@@ -5,10 +5,8 @@ from __future__ import annotations
 from typing import Any
 
 from devops_cli.ai.personas import Persona
-from devops_cli.ai.tools.mcp_bridge import get_mcp_agent_tools
-from devops_cli.ai.tools.native import (
+from devops_cli.ai.tools.builtin_tools import (
     argo_apps,
-    audit_dependencies,
     check_threat_intel,
     git_diff,
     git_status,
@@ -17,7 +15,6 @@ from devops_cli.ai.tools.native import (
     list_files,
     rag_search,
     read_file,
-    run_security_scan,
     scan_bandit,
     scan_kubelinter,
     scan_osv,
@@ -27,6 +24,7 @@ from devops_cli.ai.tools.native import (
     scan_uv_audit,
     search_code,
 )
+from devops_cli.ai.tools.mcp_bridge import get_mcp_agent_tools
 
 
 def get_default_tools() -> list[Any]:
@@ -43,14 +41,12 @@ def get_default_tools() -> list[Any]:
         argo_apps,
         scan_trivy,
         scan_uv_audit,
-        audit_dependencies,
         scan_kubelinter,
         scan_pluto,
         scan_bandit,
         scan_popeye,
         scan_osv,
         check_threat_intel,
-        run_security_scan,
     ]
     return native + get_mcp_agent_tools()
 
@@ -68,7 +64,6 @@ def get_persona_tools(persona: str | Persona) -> list[Any]:
             git_diff,
             rag_search,
             scan_uv_audit,
-            audit_dependencies,
             scan_trivy,
             scan_kubelinter,
             scan_pluto,

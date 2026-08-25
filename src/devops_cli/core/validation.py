@@ -60,7 +60,7 @@ def validate_service_url(url: str, purpose: str = "service", *, allow: bool = Fa
         socket.setdefaulttimeout(DEFAULT_DNS_TIMEOUT_SECONDS)
         port = parsed.port or (443 if parsed.scheme == "https" else 80)
         addrinfos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
-    except (socket.gaierror, TimeoutError, OSError):
+    except socket.gaierror, TimeoutError, OSError:
         # Unable to resolve IP address (e.g. offline or unresolvable domain)
         return
     finally:

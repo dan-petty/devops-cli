@@ -587,9 +587,15 @@ def test_generate_consolidated_report_with_intelligence_tables(
         "⚠️ 1 Known Vuln(s) [HIGH] | `requirements.txt:1` |" in report_md
     )
 
-    assert "## External Network References (Shodan InternetDB & Cloudflare Radar)" in report_md
-    assert "| `api.example-corp.com` | domain | ✓ Safe / Low Risk | `src/main.py:15` |" in report_md
-    assert "| `93.184.216.34` | ip | ✓ Safe (Ports: 80, 443) | `src/main.py:20` |" in report_md
+    assert "## Network References & Endpoints (Shodan InternetDB & Cloudflare Radar)" in report_md
+    assert (
+        "| `api.example-corp.com` | domain | External | ✓ Safe / Low Risk | `src/main.py:15` |"
+        in report_md
+    )
+    assert (
+        "| `93.184.216.34` | ip | External | ✓ Safe (Ports: 80, 443) | `src/main.py:20` |"
+        in report_md
+    )
 
     assert len(data_out["external_dependencies"]) == 2
     assert len(data_out["network_references"]) == 2
@@ -688,6 +694,8 @@ def test_generate_consolidated_report_prints_findings_and_review_summary(
     assert "src/auth.py:42" in captured
     assert "Hardcoded Credential" in captured
     assert "VERIFIED" in captured
+    assert "External Dependencies Security Audit" in captured
+    assert "Network References & Endpoints Security Audit" in captured
     assert "Review Summary" in captured
     assert "Files Reviewed" in captured
     assert "Reportable Findings" in captured

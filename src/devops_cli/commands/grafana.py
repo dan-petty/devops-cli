@@ -9,8 +9,6 @@ from typing import Annotated
 
 import httpx2
 import typer
-from rich import print as rprint
-from rich.console import Console
 from rich.table import Table
 
 from devops_cli.config.constants import CONST_MAX_FILE_SIZE_BYTES
@@ -20,25 +18,39 @@ from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
 from devops_cli.http.validation import validate_service_url
 from devops_cli.models.grafana import GrafanaAlertRule, GrafanaDashboard, GrafanaDatasource
+from devops_cli.output import (
+    print_error,
+    print_success,
+    print_table,
+    print_warning,
+    write_json_file,
+)
 
 app = new_typer(help="Grafana dashboard and alert management.", no_args_is_help=True)
-console = Console()
 
 dashboards_app = new_typer(help="Manage Grafana dashboards.")
 app.add_typer(dashboards_app, name="dashboards")
 
 
+# =============================================================================
+# Grafana Client Arguments Helper
+# =============================================================================
+
+
 def _client_args(settings: Settings) -> tuple[str, dict[str, str]]:
     """Return (base_url, headers) for Grafana API requests."""
     if not settings.grafana.url:
-        rprint("[red]Grafana URL not configured. Run: devops config set grafana.url <url>[/red]")
+        print_error(
+            "Grafana URL not configured. Run: devops config set grafana.url <url>",
+            prefix=False,
+        )
         raise typer.Exit(1)
     try:
         validate_service_url(
             settings.grafana.url, "Grafana", allow=settings.ai.allow_private_network
         )
     except ValueError as exc:
-        rprint(f"[red]{exc}[/red]")
+        print_error(str(exc), prefix=False)
         raise typer.Exit(1)
     headers: dict[str, str] = {"Content-Type": "application/json"}
     token = get_grafana_token(settings)
@@ -47,7 +59,9 @@ def _client_args(settings: Settings) -> tuple[str, dict[str, str]]:
     return settings.grafana.url.rstrip("/"), headers
 
 
-# ── dashboards ────────────────────────────────────────────────────────────────
+# =============================================================================
+# Command: devops grafana dashboards list
+# =============================================================================
 
 
 @dashboards_app.command("list")
@@ -81,7 +95,12 @@ def dashboards_list() -> None:
     for item in response.json():
         dash = GrafanaDashboard.model_validate(item)
         table.add_row(dash.uid, dash.title, dash.folder_title)
-    console.print(table)
+    print_table(table)
+
+
+# =============================================================================
+# Command: devops grafana dashboards export
+# =============================================================================
 
 
 @dashboards_app.command("export")
@@ -91,12 +110,15 @@ def dashboards_export(
 ) -> None:
     """Export a dashboard to JSON."""
     if not re.match(r"^[a-zA-Z0-9_-]+$", uid):
-        rprint("[red]Invalid Dashboard UID: alphanumeric, hyphens, and underscores only.[/red]")
+        print_error(
+            "Invalid Dashboard UID: alphanumeric, hyphens, and underscores only.",
+            prefix=False,
+        )
         raise typer.Exit(1)
     if output is not None:
         resolved = output.resolve()
         if not resolved.is_relative_to(Path.cwd().resolve()):
-            rprint("[red]Invalid output path: path traversal not allowed.[/red]")
+            print_error("Invalid output path: path traversal not allowed.", prefix=False)
             raise typer.Exit(1)
     settings = load_settings()
     base, headers = _client_args(settings)
@@ -110,8 +132,13 @@ def dashboards_export(
         response.raise_for_status()
 
     dest = output or Path(f"{uid}.json")
-    dest.write_text(json.dumps(response.json(), indent=2), encoding="utf-8")
-    rprint(f"[green]Exported → {dest}[/green]")
+    write_json_file(dest, response.json())
+    print_success(f"Exported → {dest}")
+
+
+# =============================================================================
+# Command: devops grafana dashboards import
+# =============================================================================
 
 
 @dashboards_app.command("import")
@@ -124,20 +151,20 @@ def dashboards_import(
     base, headers = _client_args(settings)
 
     if file.stat().st_size > CONST_MAX_FILE_SIZE_BYTES:
-        rprint(
-            f"[red]File '{file}' exceeds maximum allowed size "
-            f"({CONST_MAX_FILE_SIZE_BYTES} bytes).[/red]"
+        print_error(
+            f"File '{file}' exceeds maximum allowed size ({CONST_MAX_FILE_SIZE_BYTES} bytes).",
+            prefix=False,
         )
         raise typer.Exit(1)
 
     try:
         raw = json.loads(file.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError) as exc:
-        rprint(f"[red]Failed to parse dashboard JSON file '{file}': {exc}[/red]")
+        print_error(f"Failed to parse dashboard JSON file '{file}': {exc}", prefix=False)
         raise typer.Exit(1)
 
     if not isinstance(raw, dict):
-        rprint(f"[red]Invalid dashboard JSON in '{file}': expected JSON object.[/red]")
+        print_error(f"Invalid dashboard JSON in '{file}': expected JSON object.", prefix=False)
         raise typer.Exit(1)
 
     dashboard = raw.get("dashboard", raw)
@@ -163,7 +190,12 @@ def dashboards_import(
             timeout=DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS,
         )
         response.raise_for_status()
-    rprint(f"[green]Imported:[/green] {response.json().get('slug', 'unknown')}")
+    print_success(f"Imported: {response.json().get('slug', 'unknown')}")
+
+
+# =============================================================================
+# Command: devops grafana dashboards sync
+# =============================================================================
 
 
 @dashboards_app.command("sync")
@@ -176,12 +208,12 @@ def dashboards_sync(
     """Sync all bundled/local dashboards to Grafana."""
     search_dir = dir_path or Path("k8s/monitoring/dashboards")
     if not search_dir.exists():
-        rprint(f"[yellow]Dashboard directory '{search_dir}' not found.[/yellow]")
+        print_warning(f"Dashboard directory '{search_dir}' not found.", prefix=False)
         raise typer.Exit(1)
 
     json_files = sorted(search_dir.glob("*.json"))
     if not json_files:
-        rprint(f"[yellow]No dashboard JSON files found in '{search_dir}'.[/yellow]")
+        print_warning(f"No dashboard JSON files found in '{search_dir}'.", prefix=False)
         return
 
     if is_dry_run():
@@ -210,20 +242,19 @@ def dashboards_sync(
                     timeout=DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS,
                 )
                 response.raise_for_status()
-                rprint(
-                    f"[green]✓ Synced dashboard:[/green] [bold]{title}[/bold] ({dash_file.name})"
-                )
+                print_success(f"Synced dashboard: [bold]{title}[/bold] ({dash_file.name})")
                 success_count += 1
             except Exception as exc:
-                rprint(f"[red]✗ Failed to sync '{dash_file.name}': {exc}[/red]")
+                print_error(f"Failed to sync '{dash_file.name}': {exc}", prefix=False)
 
-    rprint(
-        f"[green]✓ Dashboard sync completed: "
-        f"{success_count}/{len(json_files)} synced successfully.[/green]"
+    print_success(
+        f"Dashboard sync completed: {success_count}/{len(json_files)} synced successfully."
     )
 
 
-# ── search & datasources ───────────────────────────────────────────────────────
+# =============================================================================
+# Command: devops grafana search
+# =============================================================================
 
 
 @app.command()
@@ -258,7 +289,12 @@ def search(
             item.get("type", ""),  # type is not on GrafanaDashboard — keep raw
             dash.folder_title,
         )
-    console.print(table)
+    print_table(table)
+
+
+# =============================================================================
+# Command: devops grafana datasources
+# =============================================================================
 
 
 @app.command()
@@ -289,10 +325,12 @@ def datasources() -> None:
             ds.url,
             "[green]●[/green]" if ds.is_default else "",
         )
-    console.print(table)
+    print_table(table)
 
 
-# ── alerts ────────────────────────────────────────────────────────────────────
+# =============================================================================
+# Command: devops grafana alerts
+# =============================================================================
 
 
 @app.command()
@@ -318,4 +356,4 @@ def alerts() -> None:
     for item in response.json():
         rule = GrafanaAlertRule.model_validate(item)
         table.add_row(rule.uid, rule.title, rule.folder_uid, rule.condition)
-    console.print(table)
+    print_table(table)

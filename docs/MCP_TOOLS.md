@@ -8,7 +8,6 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 |---|---|
 | [`argo_list`](#argo-list) | List ArgoCD applications. |
 | [`argo_status`](#argo-status) | Check ArgoCD application health and sync status. |
-| [`audit_dependencies`](#audit-dependencies) | Audit Python package dependencies for known vulnerabilities (alias for scan_uv_audit). |
 | [`ci_run`](#ci-run) | Run devops-cli complete quality gate (pytest, ruff check, ruff format, mypy). |
 | [`config_output`](#config-output) | Output environment variables available for configuration (text or json). |
 | [`config_show`](#config-show) | Display configuration settings with masked secret tokens. |
@@ -71,17 +70,6 @@ Check ArgoCD application health and sync status.
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `app` | `string` | No | `argocd` | - |
-
-### `audit_dependencies`
-
-Audit Python package dependencies for known vulnerabilities (alias for scan_uv_audit).
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `directory` | `string` | No | `.` | - |
-| `requirements_file` | `string` | No | `` | - |
 
 ### `ci_run`
 

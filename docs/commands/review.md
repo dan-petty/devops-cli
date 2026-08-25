@@ -9,14 +9,14 @@ AI-powered code reviews using expert personas.
 **Review source files directly (no git required).**
 
 ```bash
-devops review path [OPTIONS] <target>
+devops review path [OPTIONS] <targets>
 ```
 
 **Arguments:**
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<target>` | `path` | No | File or directory to review |
+| `<targets>` | `path` | No | File(s) or directory(ies) to review |
 
 **Options:**
 
@@ -119,14 +119,15 @@ devops review verify [OPTIONS] <session>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<session>` | `string` | Yes | Session ID or substring |
+| `<session>` | `string` | No | Session ID or substring (default: latest) |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--index`, `-i` | `integer` | - | 1-based index of the finding to update |
-| `--title`, `-t` | `string` | - | Title substring to match finding |
+| `--session`, `-s` | `string` | - | Session ID or substring |
+| `--index`, `-i` | `integer` | - | 1-based finding index in session to verify |
+| `--title`, `-t` | `string` | - | Match finding by substring in title |
 | `--status` | `string` | `INVALIDATED` | Target status: VERIFIED | INVALIDATED | MITIGATED | UNVERIFIED |
 | `--reason`, `-r` | `string` | `` | Explanation or justification for the status change |
 

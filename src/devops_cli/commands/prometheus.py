@@ -7,8 +7,6 @@ from typing import Annotated, Any
 
 import httpx2
 import typer
-from rich import print as rprint
-from rich.console import Console
 from rich.table import Table
 
 from devops_cli.config.defaults import (
@@ -19,18 +17,30 @@ from devops_cli.config.settings import Settings, load_settings
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
 from devops_cli.http.validation import validate_service_url
+from devops_cli.lang import MESSAGES
 from devops_cli.models.prometheus import PrometheusQueryResult
+from devops_cli.output import (
+    print_error,
+    print_info,
+    print_table,
+    print_warning,
+)
 
 app = new_typer(help="Prometheus query and rule management.", no_args_is_help=True)
-console = Console()
 
 _MAX_PROMQL_LEN = 4096
 
 
+# =============================================================================
+# Prometheus URL & Request Validation Helpers
+# =============================================================================
+
+
 def _base_url(settings: Settings) -> str:
     if not settings.prometheus.url:
-        rprint(
-            "[red]Prometheus URL not configured. Run: devops config set prometheus.url <url>[/red]"
+        print_error(
+            MESSAGES.prometheus.url_not_configured,
+            prefix=False,
         )
         raise typer.Exit(1)
     try:
@@ -38,15 +48,16 @@ def _base_url(settings: Settings) -> str:
             settings.prometheus.url, "Prometheus", allow=settings.ai.allow_private_network
         )
     except ValueError as exc:
-        rprint(f"[red]{exc}[/red]")
+        print_error(str(exc), prefix=False)
         raise typer.Exit(1)
     return settings.prometheus.url.rstrip("/")
 
 
 def _validate_expr(expr: str) -> None:
     if len(expr) > _MAX_PROMQL_LEN:
-        rprint(
-            f"[red]PromQL expression exceeds maximum length of {_MAX_PROMQL_LEN} characters.[/red]"
+        print_error(
+            f"PromQL expression exceeds maximum length of {_MAX_PROMQL_LEN} characters.",
+            prefix=False,
         )
         raise typer.Exit(1)
 
@@ -75,10 +86,18 @@ def _parse_duration(s: str) -> float:
 def _read_json(response: httpx2.Response) -> dict[str, Any]:
     content_type = response.headers.get("content-type", "")
     if "application/json" not in content_type:
-        rprint(f"[red]Unexpected Content-Type '{content_type}' from Prometheus API endpoint.[/red]")
+        print_error(
+            f"Unexpected Content-Type '{content_type}' from Prometheus API endpoint.",
+            prefix=False,
+        )
         raise typer.Exit(1)
     data = response.json()
     return data if isinstance(data, dict) else {}
+
+
+# =============================================================================
+# Command: devops prometheus query
+# =============================================================================
 
 
 @app.command()
@@ -115,11 +134,11 @@ def query(
 
     result = PrometheusQueryResult.from_instant_response(_read_json(response))
     if result.status != "success":
-        rprint(f"[red]Query failed: {result.error or 'unknown'}[/red]")
+        print_error(f"Query failed: {result.error or 'unknown'}", prefix=False)
         raise typer.Exit(1)
 
     if not result.series:
-        rprint("[yellow]No results.[/yellow]")
+        print_warning(MESSAGES.prometheus.no_results, prefix=False)
         return
 
     table = Table(title=expr[:80])
@@ -128,7 +147,12 @@ def query(
 
     for series in result.series:
         table.add_row(series.label_str or "(no labels)", series.value)
-    console.print(table)
+    print_table(table)
+
+
+# =============================================================================
+# Command: devops prometheus query-range
+# =============================================================================
 
 
 @app.command("query-range")
@@ -163,14 +187,25 @@ def query_range(
 
     result = PrometheusQueryResult.from_range_response(_read_json(response))
     if result.status != "success":
-        rprint(f"[red]Query failed: {result.error or 'unknown'}[/red]")
+        print_error(f"Query failed: {result.error or 'unknown'}", prefix=False)
         raise typer.Exit(1)
 
     total_points = sum(len(s.values) for s in result.series)
-    rprint(f"[bold]{expr[:80]}[/bold]")
-    rprint(f"{len(result.series)} series, {total_points} total data points (step={step})")
+    print_info(f"[bold]{expr[:80]}[/bold]", prefix=False)
+    print_info(
+        f"{len(result.series)} series, {total_points} total data points (step={step})",
+        prefix=False,
+    )
     for series in result.series:
-        rprint(f"  [cyan]{series.label_str or '(no labels)'}[/cyan]: {len(series.values)} points")
+        print_info(
+            f"  [cyan]{series.label_str or '(no labels)'}[/cyan]: {len(series.values)} points",
+            prefix=False,
+        )
+
+
+# =============================================================================
+# Command: devops prometheus rules
+# =============================================================================
 
 
 @app.command()
@@ -204,7 +239,12 @@ def rules() -> None:
                 rule.get("type", ""),
                 "[green]ok[/green]" if health == "ok" else f"[red]{health}[/red]",
             )
-    console.print(table)
+    print_table(table)
+
+
+# =============================================================================
+# Command: devops prometheus targets
+# =============================================================================
 
 
 @app.command()
@@ -236,4 +276,4 @@ def targets() -> None:
             "[green]up[/green]" if up else "[red]down[/red]",
             target.get("lastScrape", "")[:19],
         )
-    console.print(table)
+    print_table(table)

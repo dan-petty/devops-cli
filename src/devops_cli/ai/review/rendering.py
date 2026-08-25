@@ -74,6 +74,65 @@ def _render_review_result(persona: PersonaDefinition, result: ReviewResult) -> N
                 console.print(f"[dim]References: {escape(', '.join(f.references))}[/dim]")
             console.print()
 
+    if result.external_dependencies:
+        dep_tbl = Table(title="External Dependencies Security Audit (OSV.dev & NVD)")
+        dep_tbl.add_column("Severity", justify="center", no_wrap=True)
+        dep_tbl.add_column("Dependency", style="bold cyan")
+        dep_tbl.add_column("Version Range")
+        dep_tbl.add_column("Ecosystem")
+        dep_tbl.add_column("Security Status")
+        dep_tbl.add_column("Location", style="dim")
+        for d in result.external_dependencies:
+            sev_upper = d.severity.upper()
+            if sev_upper == "CRITICAL":
+                sev_str = "[bold red]CRITICAL[/bold red]"
+                status_str = f"[bold red]{d.security_status}[/bold red]"
+            elif sev_upper == "HIGH":
+                sev_str = "[red]HIGH[/red]"
+                status_str = f"[red]{d.security_status}[/red]"
+            elif sev_upper == "MEDIUM":
+                sev_str = "[yellow]MEDIUM[/yellow]"
+                status_str = f"[yellow]{d.security_status}[/yellow]"
+            elif sev_upper == "LOW":
+                sev_str = "[cyan]LOW[/cyan]"
+                status_str = f"[cyan]{d.security_status}[/cyan]"
+            else:
+                sev_str = "[green]CLEAN[/green]"
+                status_str = f"[green]{d.security_status}[/green]"
+
+            dep_tbl.add_row(
+                sev_str,
+                d.name,
+                d.version_range,
+                d.ecosystem,
+                status_str,
+                d.location or "—",
+            )
+        console.print(dep_tbl)
+        console.print()
+
+    if result.network_references:
+        net_tbl = Table(
+            title="Network References & Endpoints Security Audit (Shodan & Cloudflare Radar)"
+        )
+        net_tbl.add_column("Target", style="bold cyan")
+        net_tbl.add_column("Type")
+        net_tbl.add_column("Scope")
+        net_tbl.add_column("Security Status")
+        net_tbl.add_column("Location", style="dim")
+        for n in result.network_references:
+            scope_str = "[dim]Local[/dim]" if n.is_local else "[bold cyan]External[/bold cyan]"
+            color = "red" if "⚠️" in n.security_status else ("cyan" if n.is_local else "green")
+            net_tbl.add_row(
+                n.target,
+                n.reference_type,
+                scope_str,
+                f"[{color}]{n.security_status}[/{color}]",
+                n.location or "—",
+            )
+        console.print(net_tbl)
+        console.print()
+
     if result.positive_observations:
         console.print("[bold green]Positive Observations[/bold green]")
         for obs in result.positive_observations:

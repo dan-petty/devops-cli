@@ -139,7 +139,7 @@ class MultiAgentPipeline[T]:
             )
             steps.append(step)
 
-            self.memory.add_interaction(agent.name, res.content)
+            self.memory.add_interaction("assistant", res.content, agent=agent.name)
             self.memory.auto_summarize_if_needed()
 
             raw_hyp = res.content[:150].replace("\n", " ") + "..."

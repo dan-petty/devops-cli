@@ -14,6 +14,7 @@ from devops_cli.commands.release import (
     _get_init_version,
     _get_latest_changelog_version,
     _get_pyproject_version,
+    _resolve_safe_project_path,
     _update_changelog_header,
     _update_init_version,
     _update_pyproject_version,
@@ -273,3 +274,20 @@ def test_release_pr_conventional_flags(sample_project_dir: Path) -> None:
         assert "fix(release)!: v0.1.8" in result.output
     finally:
         set_dry_run(False)
+
+
+def test_resolve_safe_project_path(sample_project_dir: Path) -> None:
+    # Valid relative paths within repo
+    safe_path = _resolve_safe_project_path(sample_project_dir, "CHANGELOG.md")
+    assert safe_path == sample_project_dir / "CHANGELOG.md"
+
+    init_rel_path = Path("src/devops_cli/__init__.py")
+    safe_sub_path = _resolve_safe_project_path(sample_project_dir, init_rel_path)
+    assert safe_sub_path == sample_project_dir / "src" / "devops_cli" / "__init__.py"
+
+    # Malicious traversal attempts outside repo root
+    with pytest.raises(ValueError, match="Path traversal detected"):
+        _resolve_safe_project_path(sample_project_dir, "../../../etc/passwd")
+
+    with pytest.raises(ValueError, match="Path traversal detected"):
+        _resolve_safe_project_path(sample_project_dir, Path("..") / "sibling_repo" / "file.txt")

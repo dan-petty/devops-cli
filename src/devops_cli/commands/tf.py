@@ -3,13 +3,10 @@
 from __future__ import annotations
 
 import shutil
-import sys
 from pathlib import Path
 from typing import Annotated
 
 import typer
-from rich import print as rprint
-from rich.console import Console
 from rich.table import Table
 
 from devops_cli.config.constants import (
@@ -26,12 +23,23 @@ from devops_cli.core.repo import find_top_level_repo_root
 from devops_cli.core.validation import validate_dir
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
 from devops_cli.lang import MESSAGES
+from devops_cli.output import (
+    print_error,
+    print_info,
+    print_success,
+    print_table,
+    write_stdout,
+)
 
 app = new_typer(
     help="OpenTofu and Terraform Infrastructure-as-Code operations.",
     no_args_is_help=True,
 )
-console = Console()
+
+
+# =============================================================================
+# OpenTofu / Terraform Binary & Path Helpers
+# =============================================================================
 
 
 def _resolve_tf_binary() -> str:
@@ -43,7 +51,7 @@ def _resolve_tf_binary() -> str:
     if is_dry_run():
         return "tofu"
 
-    rprint(f"[red]{MESSAGES.tf.binary_not_found}[/red]")
+    print_error(MESSAGES.tf.binary_not_found, prefix=False)
     raise typer.Exit(1)
 
 
@@ -61,9 +69,9 @@ def _get_cloud_dir(cloud_provider: str, repo_root: Path) -> Path:
     }
     key = cloud_provider.lower()
     if key not in provider_map:
-        rprint(
-            f"[red]Unsupported cloud provider '{cloud_provider}'. "
-            "Supported providers: aws, azure, gcp[/red]"
+        print_error(
+            f"Unsupported cloud provider '{cloud_provider}'. Supported providers: aws, azure, gcp",
+            prefix=False,
         )
         raise typer.Exit(1)
     return provider_map[key]
@@ -74,6 +82,11 @@ def _get_default_var_file(cloud_provider: str, repo_root: Path) -> Path | None:
     key = cloud_provider.lower()
     candidate = repo_root / CONST_TF_ENVIRONMENTS_DIR / f"{key}.tfvars.example"
     return candidate if candidate.exists() else None
+
+
+# =============================================================================
+# Command: devops tf init
+# =============================================================================
 
 
 @app.command()
@@ -98,7 +111,7 @@ def init(
     if reconfigure:
         cmd.append("-reconfigure")
 
-    rprint(MESSAGES.tf.init_header.format(path=str(target)))
+    print_info(MESSAGES.tf.init_header.format(path=str(target)), prefix=False)
     if is_dry_run():
         render_dry_run_result(
             command=" ".join(cmd),
@@ -114,7 +127,12 @@ def init(
         timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
     )
     if result.returncode == 0:
-        rprint(f"[bold green]{MESSAGES.tf.init_success}[/bold green]")
+        print_success(MESSAGES.tf.init_success)
+
+
+# =============================================================================
+# Command: devops tf plan
+# =============================================================================
 
 
 @app.command()
@@ -144,7 +162,7 @@ def plan(
     if destroy:
         cmd.append("-destroy")
 
-    rprint(MESSAGES.tf.plan_header.format(path=str(target)))
+    print_info(MESSAGES.tf.plan_header.format(path=str(target)), prefix=False)
     if is_dry_run():
         render_dry_run_result(
             command=" ".join(cmd),
@@ -160,7 +178,12 @@ def plan(
         timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
     )
     if result.returncode == 0:
-        rprint(f"[bold green]{MESSAGES.tf.plan_success}[/bold green]")
+        print_success(MESSAGES.tf.plan_success)
+
+
+# =============================================================================
+# Command: devops tf apply
+# =============================================================================
 
 
 @app.command()
@@ -191,7 +214,7 @@ def apply(
         if auto_approve:
             cmd.append("-auto-approve")
 
-    rprint(MESSAGES.tf.apply_header.format(path=str(target)))
+    print_info(MESSAGES.tf.apply_header.format(path=str(target)), prefix=False)
     if is_dry_run():
         render_dry_run_result(
             command=" ".join(cmd),
@@ -207,7 +230,12 @@ def apply(
         timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
     )
     if result.returncode == 0:
-        rprint(f"[bold green]{MESSAGES.tf.apply_success}[/bold green]")
+        print_success(MESSAGES.tf.apply_success)
+
+
+# =============================================================================
+# Command: devops tf destroy
+# =============================================================================
 
 
 @app.command()
@@ -232,7 +260,7 @@ def destroy(
     if auto_approve:
         cmd.append("-auto-approve")
 
-    rprint(MESSAGES.tf.destroy_header.format(path=str(target)))
+    print_info(MESSAGES.tf.destroy_header.format(path=str(target)), prefix=False)
     if is_dry_run():
         render_dry_run_result(
             command=" ".join(cmd),
@@ -248,7 +276,12 @@ def destroy(
         timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
     )
     if result.returncode == 0:
-        rprint(f"[bold green]{MESSAGES.tf.destroy_success}[/bold green]")
+        print_success(MESSAGES.tf.destroy_success)
+
+
+# =============================================================================
+# Command: devops tf output
+# =============================================================================
 
 
 @app.command()
@@ -289,7 +322,12 @@ def output(
         text=True,
         timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
     )
-    sys.stdout.write(result.stdout)
+    write_stdout(result.stdout)
+
+
+# =============================================================================
+# Command: devops tf validate
+# =============================================================================
 
 
 @app.command()
@@ -307,7 +345,7 @@ def validate(
     if no_color:
         cmd.append("-no-color")
 
-    rprint(MESSAGES.tf.validate_header.format(path=str(target)))
+    print_info(MESSAGES.tf.validate_header.format(path=str(target)), prefix=False)
     if is_dry_run():
         render_dry_run_result(
             command=" ".join(cmd),
@@ -323,7 +361,12 @@ def validate(
         timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
     )
     if result.returncode == 0:
-        rprint(f"[bold green]{MESSAGES.tf.validate_success}[/bold green]")
+        print_success(MESSAGES.tf.validate_success)
+
+
+# =============================================================================
+# Command: devops tf fmt
+# =============================================================================
 
 
 @app.command()
@@ -348,7 +391,7 @@ def fmt(
     if recursive:
         cmd.append("-recursive")
 
-    rprint(MESSAGES.tf.fmt_header.format(path=str(target)))
+    print_info(MESSAGES.tf.fmt_header.format(path=str(target)), prefix=False)
     if is_dry_run():
         render_dry_run_result(
             command=" ".join(cmd),
@@ -364,7 +407,12 @@ def fmt(
         timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
     )
     if result.returncode == 0:
-        rprint(f"[bold green]{MESSAGES.tf.fmt_success}[/bold green]")
+        print_success(MESSAGES.tf.fmt_success)
+
+
+# =============================================================================
+# Command: devops tf status
+# =============================================================================
 
 
 @app.command(name="status")
@@ -395,7 +443,12 @@ def status_command(
     table.add_row("Lock File (.lock.hcl)", "✓ Yes" if lock_file.exists() else "[dim]None[/dim]")
     table.add_row("Local State File", "✓ Yes" if state_file.exists() else "[dim]None[/dim]")
 
-    console.print(table)
+    print_table(table)
+
+
+# =============================================================================
+# Command: devops tf deploy-cloud
+# =============================================================================
 
 
 @app.command(name="deploy-cloud")
@@ -416,7 +469,10 @@ def deploy_cloud(
     resolved_var_file = var_file or _get_default_var_file(provider, repo_root)
     binary = _resolve_tf_binary()
 
-    rprint(MESSAGES.tf.deploy_cloud_header.format(provider=provider.upper(), path=str(cloud_dir)))
+    print_info(
+        MESSAGES.tf.deploy_cloud_header.format(provider=provider.upper(), path=str(cloud_dir)),
+        prefix=False,
+    )
 
     # Step 1: Init
     init_cmd = [binary, "init"]
@@ -456,4 +512,4 @@ def deploy_cloud(
         timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
     )
     msg = MESSAGES.tf.deploy_cloud_success.format(provider=provider.upper())
-    rprint(f"[bold green]{msg}[/bold green]")
+    print_success(msg)

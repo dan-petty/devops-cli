@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import urllib.parse
 import uuid
 from typing import Any
 
@@ -20,6 +21,44 @@ class QdrantClientError(RuntimeError):
     """Raised when an interaction with Qdrant fails."""
 
 
+def _coerce_point_id(p_id: Any) -> int | str:
+    """Coerce arbitrary point ID to valid Qdrant integer or UUID string."""
+    if isinstance(p_id, int):
+        return p_id
+    if isinstance(p_id, str):
+        try:
+            uuid.UUID(p_id)
+            return p_id
+        except ValueError:
+            return str(uuid.uuid5(uuid.NAMESPACE_DNS, p_id))
+    return str(uuid.uuid4())
+
+
+def _build_point_struct(p: dict[str, Any]) -> qmodels.PointStruct:
+    """Convert point dictionary to Qdrant PointStruct."""
+    return qmodels.PointStruct(
+        id=_coerce_point_id(p.get("id")),
+        vector=p["vector"],
+        payload=p.get("payload", {}),
+    )
+
+
+def _build_payload_filter(filter_payload: dict[str, Any] | None) -> qmodels.Filter | None:
+    """Construct Qdrant Filter from payload match criteria."""
+    if not filter_payload:
+        return None
+    conditions: list[Any] = [
+        qmodels.FieldCondition(key=k, match=qmodels.MatchValue(value=v))
+        for k, v in filter_payload.items()
+    ]
+    return qmodels.Filter(must=conditions)
+
+
+def _format_query_hits(points: list[Any]) -> list[dict[str, Any]]:
+    """Format Qdrant search point results into dictionaries."""
+    return [{"id": hit.id, "score": hit.score, "payload": hit.payload or {}} for hit in points]
+
+
 class QdrantClient:
     """Client for Qdrant vector database using official Qdrant Python SDK."""
 
@@ -31,7 +70,10 @@ class QdrantClient:
         allow_private_network: bool = True,
         timeout: float = DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS,
     ) -> None:
-        self.base_url = base_url.rstrip("/")
+        parsed = urllib.parse.urlparse(base_url)
+        if not parsed.scheme or not parsed.netloc:
+            raise ValueError(f"Invalid base_url: missing scheme or host in '{base_url}'")
+        self.base_url = urllib.parse.urlunparse(parsed).rstrip("/")
         self.api_key = api_key
         self.allow_private_network = allow_private_network
         self.timeout = min(timeout, 30.0)
@@ -142,27 +184,7 @@ class QdrantClient:
 
         for i in range(0, len(points), batch_size):
             batch = points[i : i + batch_size]
-            point_structs: list[qmodels.PointStruct] = []
-            for p in batch:
-                p_id = p.get("id")
-                point_id: int | str
-                if isinstance(p_id, int):
-                    point_id = p_id
-                elif isinstance(p_id, str):
-                    try:
-                        uuid.UUID(p_id)
-                        point_id = p_id
-                    except ValueError:
-                        point_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, p_id))
-                else:
-                    point_id = str(uuid.uuid4())
-                point_structs.append(
-                    qmodels.PointStruct(
-                        id=point_id,
-                        vector=p["vector"],
-                        payload=p.get("payload", {}),
-                    )
-                )
+            point_structs = [_build_point_struct(p) for p in batch]
             try:
                 client.upsert(
                     collection_name=name,
@@ -186,19 +208,19 @@ class QdrantClient:
         filter_payload: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         """Search nearest vector points in the specified collection."""
-        with trace_span("qdrant.search_points", attributes={"collection": name, "limit": limit}):
+        with trace_span(
+            "qdrant.search_points",
+            attributes={
+                "db.system": "qdrant",
+                "db.operation": "search_points",
+                "db.collection.name": name,
+                "collection": name,
+                "server.address": str(self.base_url),
+                "limit": limit,
+            },
+        ) as q_span:
             client = self._get_client()
-            query_filter = None
-            if filter_payload:
-                conditions: list[qmodels.Condition] = []
-                for key, val in filter_payload.items():
-                    conditions.append(
-                        qmodels.FieldCondition(
-                            key=key,
-                            match=qmodels.MatchValue(value=val),
-                        )
-                    )
-                query_filter = qmodels.Filter(must=conditions)
+            query_filter = _build_payload_filter(filter_payload)
 
             try:
                 res = client.query_points(
@@ -209,14 +231,10 @@ class QdrantClient:
                     query_filter=query_filter,
                     with_payload=True,
                 )
-                hits = [
-                    {
-                        "id": hit.id,
-                        "score": hit.score,
-                        "payload": hit.payload or {},
-                    }
-                    for hit in res.points
-                ]
+                hits = _format_query_hits(res.points)
+                q_span.set_attribute("db.response.returned_points", len(hits))
+                if hits:
+                    q_span.set_attribute("db.response.top_score", hits[0]["score"])
                 record_metric("qdrant.search_hits_count", float(len(hits)), unit="1")
                 return hits
             except Exception as exc:

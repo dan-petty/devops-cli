@@ -205,7 +205,8 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 |  | `devops ai analyze [OPTIONS] COMMAND [ARGS]...` | Analyze codebase metadata and generate structural outlines. |
 |  | `devops ai rag [OPTIONS] COMMAND [ARGS]...` | Manage RAG vector embeddings, indexing, and semantic search (Qdrant). |
 |  | `devops ai benchmark [OPTIONS]` | Benchmark, evaluate, and peer-grade candidate AI models across engineering tasks. |
-| **review** | `devops review path [OPTIONS] <target>` | Review source files directly (no git required). |
+|  | `devops ai cache COMMAND [ARGS]...` | Manage LLM response cache, performance metrics, and warm starting points. |
+| **review** | `devops review path [OPTIONS] <targets>` | Review source files directly (no git required). |
 |  | `devops review branch [OPTIONS] <branch_name>` | Review a git branch diff with one or all AI personas. |
 |  | `devops review pr [OPTIONS] <number>` | Review a GitHub pull request with one or all AI personas. |
 |  | `devops review findings [OPTIONS]` | Inspect structured findings for a review session. |
@@ -259,10 +260,10 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 |  | `devops cert inspect <cert_path>` | Inspect and display metadata of an X.509 certificate. |
 |  | `devops cert verify [OPTIONS] <cert_path>` | Verify an X.509 certificate cryptographic chain against a CA certificate. |
 |  | `devops cert enable-k8s [OPTIONS]` | Generate and apply TLS secrets (kubernetes.io/tls) across Kubernetes namespaces. |
-| **telemetry** | `devops telemetry status` | Display OpenTelemetry collector endpoint, Jaeger UI URL, and connection health. |
+| **telemetry** | `devops telemetry status` | Check OpenTelemetry collector health, Jaeger endpoint, and trace propagation status. |
 |  | `devops telemetry test [OPTIONS]` | Emit a test OpenTelemetry trace span and metric to the configured collector. |
 |  | `devops telemetry open-ui` | Print and show the Jaeger Query UI endpoint for inspecting traces. |
-| **otel** | `devops otel status` | Display OpenTelemetry collector endpoint, Jaeger UI URL, and connection health. |
+| **otel** | `devops otel status` | Check OpenTelemetry collector health, Jaeger endpoint, and trace propagation status. |
 |  | `devops otel test [OPTIONS]` | Emit a test OpenTelemetry trace span and metric to the configured collector. |
 |  | `devops otel open-ui` | Print and show the Jaeger Query UI endpoint for inspecting traces. |
 | **serve** | `devops serve [OPTIONS]` | FastAPI REST & OpenAPI Service Engine for remote automation, health probes, and metrics. |

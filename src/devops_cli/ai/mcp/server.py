@@ -461,7 +461,7 @@ def security_intel_package(package_name: str, version: str = "", ecosystem: str 
         _validate_mcp_arg("version", version)
     if ecosystem:
         _validate_mcp_arg("ecosystem", ecosystem)
-    from devops_cli.ai.tools.native import scan_osv
+    from devops_cli.ai.tools.builtin_tools import scan_osv
 
     return scan_osv(package_name=package_name, version=version, ecosystem=ecosystem)
 
@@ -470,7 +470,7 @@ def security_intel_package(package_name: str, version: str = "", ecosystem: str 
 def security_intel_network(target: str) -> str:
     """Check IP or domain threat intelligence via Shodan and Cloudflare Radar."""
     _validate_mcp_arg("target", target)
-    from devops_cli.ai.tools.native import check_threat_intel
+    from devops_cli.ai.tools.builtin_tools import check_threat_intel
 
     return check_threat_intel(target=target)
 
@@ -481,15 +481,9 @@ def scan_uv_audit(directory: str = ".", requirements_file: str = "") -> str:
     _validate_mcp_arg("directory", directory)
     if requirements_file:
         _validate_mcp_arg("requirements_file", requirements_file)
-    from devops_cli.ai.tools.native import scan_uv_audit as _native_uv_audit
+    from devops_cli.ai.tools.builtin_tools import scan_uv_audit as _native_uv_audit
 
     return _native_uv_audit(directory=directory, requirements_file=requirements_file)
-
-
-@mcp.tool()
-def audit_dependencies(directory: str = ".", requirements_file: str = "") -> str:
-    """Audit Python package dependencies for known vulnerabilities (alias for scan_uv_audit)."""
-    return scan_uv_audit(directory=directory, requirements_file=requirements_file)
 
 
 @mcp.tool()

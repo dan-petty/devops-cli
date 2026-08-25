@@ -17,8 +17,6 @@ from typing import Annotated, Final
 import httpx2
 import typer
 from pydantic import BaseModel, ConfigDict
-from rich import print as rprint
-from rich.console import Console
 from rich.table import Table
 
 from devops_cli.config.constants import (
@@ -40,12 +38,20 @@ from devops_cli.config.defaults import (
 from devops_cli.core.cli import new_typer
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.validation import validate_version_str
+from devops_cli.output import (
+    print_error,
+    print_info,
+    print_success,
+    print_table,
+    print_warning,
+)
 
 app = new_typer(help="Install and manage DevOps tool binaries.", no_args_is_help=True)
-console = Console()
 
 
-# ── Platform detection ────────────────────────────────────────────────────────
+# =============================================================================
+# Platform Detection & Binary Extension Helpers
+# =============================================================================
 
 
 def _sys_info() -> tuple[str, str]:
@@ -149,7 +155,7 @@ def _current_version(cmd: list[str]) -> str | None:
         )
         m = re.search(r"v?(\d+\.\d+[\.\d]*)", r.stdout + r.stderr)
         return f"v{m.group(1)}" if m else ("installed" if r.returncode == 0 else None)
-    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+    except FileNotFoundError, subprocess.TimeoutExpired, OSError:
         return None
 
 
@@ -238,72 +244,85 @@ def _install_rollouts(version: str, target_dir: Path) -> None:
     _write_binary(data, target_dir / f"kubectl-argo-rollouts{_EXE}")
 
 
+def _download_and_extract_tar_binary(
+    tar_url: str,
+    bin_name: str,
+    target_dir: Path,
+    *,
+    tar_name: str | None = None,
+    checksums_url: str | None = None,
+    member_path: str | None = None,
+) -> None:
+    """Download tar archive, verify checksum if provided, and extract binary."""
+    data = _download(tar_url)
+    if checksums_url and tar_name:
+        try:
+            expected = _parse_checksum_file(_download(checksums_url).decode(), tar_name)
+            _verify_sha256(data, expected)
+        except Exception:
+            pass
+    target_member = member_path or f"{bin_name}{_EXE}"
+    _extract_tar_member(data, target_member, target_dir / f"{bin_name}{_EXE}")
+
+
 def _install_trivy(version: str, target_dir: Path) -> None:
     v = _validate_version_str(version, "trivy")
     arch_str = "64bit" if _ARCH == "amd64" else "ARM64"
     tar_name = f"trivy_{v}_Linux-{arch_str}.tar.gz"
-    url = f"https://github.com/aquasecurity/trivy/releases/download/v{v}/{tar_name}"
-    checksums_url = (
-        f"https://github.com/aquasecurity/trivy/releases/download/v{v}/trivy_{v}_checksums.txt"
+    _download_and_extract_tar_binary(
+        f"https://github.com/aquasecurity/trivy/releases/download/v{v}/{tar_name}",
+        "trivy",
+        target_dir,
+        tar_name=tar_name,
+        checksums_url=f"https://github.com/aquasecurity/trivy/releases/download/v{v}/trivy_{v}_checksums.txt",
     )
-    data = _download(url)
-    try:
-        expected = _parse_checksum_file(_download(checksums_url).decode(), tar_name)
-        _verify_sha256(data, expected)
-    except Exception:
-        pass
-    _extract_tar_member(data, f"trivy{_EXE}", target_dir / f"trivy{_EXE}")
 
 
 def _install_kubelinter(version: str, target_dir: Path) -> None:
     v = version.lstrip("v")
     tar_name = f"kube-linter-linux-{_ARCH}.tar.gz"
-    url = f"https://github.com/stackrox/kube-linter/releases/download/v{v}/{tar_name}"
-    data = _download(url)
-    _extract_tar_member(data, f"kube-linter{_EXE}", target_dir / f"kube-linter{_EXE}")
+    _download_and_extract_tar_binary(
+        f"https://github.com/stackrox/kube-linter/releases/download/v{v}/{tar_name}",
+        "kube-linter",
+        target_dir,
+    )
 
 
 def _install_popeye(version: str, target_dir: Path) -> None:
     v = version.lstrip("v")
     tar_name = f"popeye_linux_{_ARCH}.tar.gz"
-    url = f"https://github.com/derailed/popeye/releases/download/v{v}/{tar_name}"
-    checksums_url = f"https://github.com/derailed/popeye/releases/download/v{v}/checksums.sha256"
-    data = _download(url)
-    try:
-        expected = _parse_checksum_file(_download(checksums_url).decode(), tar_name)
-        _verify_sha256(data, expected)
-    except Exception:
-        pass
-    _extract_tar_member(data, f"popeye{_EXE}", target_dir / f"popeye{_EXE}")
+    _download_and_extract_tar_binary(
+        f"https://github.com/derailed/popeye/releases/download/v{v}/{tar_name}",
+        "popeye",
+        target_dir,
+        tar_name=tar_name,
+        checksums_url=f"https://github.com/derailed/popeye/releases/download/v{v}/checksums.sha256",
+    )
 
 
 def _install_pluto(version: str, target_dir: Path) -> None:
     v = version.lstrip("v")
     tar_name = f"pluto_{v}_linux_{_ARCH}.tar.gz"
-    url = f"https://github.com/FairwindsOps/pluto/releases/download/v{v}/{tar_name}"
-    checksums_url = f"https://github.com/FairwindsOps/pluto/releases/download/v{v}/checksums.txt"
-    data = _download(url)
-    try:
-        expected = _parse_checksum_file(_download(checksums_url).decode(), tar_name)
-        _verify_sha256(data, expected)
-    except Exception:
-        pass
-    _extract_tar_member(data, f"pluto{_EXE}", target_dir / f"pluto{_EXE}")
+    _download_and_extract_tar_binary(
+        f"https://github.com/FairwindsOps/pluto/releases/download/v{v}/{tar_name}",
+        "pluto",
+        target_dir,
+        tar_name=tar_name,
+        checksums_url=f"https://github.com/FairwindsOps/pluto/releases/download/v{v}/checksums.txt",
+    )
 
 
 def _install_k9s(version: str, target_dir: Path) -> None:
     v = version if version.startswith("v") else f"v{version}"
     os_cap = "Linux" if _OS == "linux" else ("Darwin" if _OS == "darwin" else "Windows")
     tar_name = f"k9s_{os_cap}_{_ARCH}.tar.gz"
-    url = f"https://github.com/derailed/k9s/releases/download/{v}/{tar_name}"
-    checksums_url = f"https://github.com/derailed/k9s/releases/download/{v}/checksums.sha256"
-    data = _download(url)
-    try:
-        expected = _parse_checksum_file(_download(checksums_url).decode(), tar_name)
-        _verify_sha256(data, expected)
-    except Exception:
-        pass
-    _extract_tar_member(data, f"k9s{_EXE}", target_dir / f"k9s{_EXE}")
+    _download_and_extract_tar_binary(
+        f"https://github.com/derailed/k9s/releases/download/{v}/{tar_name}",
+        "k9s",
+        target_dir,
+        tar_name=tar_name,
+        checksums_url=f"https://github.com/derailed/k9s/releases/download/{v}/checksums.sha256",
+    )
 
 
 # ── Tool registry ─────────────────────────────────────────────────────────────
@@ -412,7 +431,9 @@ TOOLS: Final[dict[str, Tool]] = {
 }
 
 
-# ── Commands ──────────────────────────────────────────────────────────────────
+# =============================================================================
+# Command: devops install (install_all)
+# =============================================================================
 
 
 @app.callback(invoke_without_command=True)
@@ -431,11 +452,17 @@ def install_all(
         return
 
     if version and not re.match(r"^v?\d+\.\d+(\.\d+)*(-\w+)?$", version):
-        rprint(f"[red]Invalid version format '{version}'. Expected semver e.g. v1.30.0[/red]")
+        print_error(
+            f"Invalid version format '{version}'. Expected semver e.g. v1.30.0",
+            prefix=False,
+        )
         raise typer.Exit(1)
 
     if tool and tool not in TOOLS:
-        rprint(f"[red]Unknown tool '{tool}'. Available: {', '.join(TOOLS)}[/red]")
+        print_error(
+            f"Unknown tool '{tool}'. Available: {', '.join(TOOLS)}",
+            prefix=False,
+        )
         raise typer.Exit(1)
 
     targets = {tool: TOOLS[tool]} if tool else TOOLS
@@ -444,21 +471,26 @@ def install_all(
     for name, spec in targets.items():
         ver = version
         if not ver:
-            rprint(f"Fetching latest version for [cyan]{name}[/cyan]...")
+            print_info(f"Fetching latest version for [cyan]{name}[/cyan]...", prefix=False)
             try:
                 ver = spec.get_latest()
             except Exception as exc:
-                rprint(f"  [red]✗[/red] {name}: could not determine latest — {exc}")
+                print_error(f"{name}: could not determine latest — {exc}")
                 continue
 
-        rprint(f"Installing [cyan]{name}[/cyan] {ver}...")
+        print_info(f"Installing [cyan]{name}[/cyan] {ver}...", prefix=False)
         try:
             spec.install(ver, target_dir)
-            rprint(f"  [green]✓[/green] {target_dir / (spec.bin_name + _EXE)}")
+            print_success(str(target_dir / (spec.bin_name + _EXE)))
         except Exception as exc:
-            rprint(f"  [red]✗[/red] {name}: {exc}")
+            print_error(f"{name}: {exc}")
 
     _path_hint(target_dir)
+
+
+# =============================================================================
+# Command: devops install status
+# =============================================================================
 
 
 @app.command()
@@ -481,12 +513,18 @@ def status(
             latest = "unknown"
         table.add_row(name, spec.description, installed, latest)
 
-    console.print(table)
+    print_table(table)
+
+
+# =============================================================================
+# Path Configuration Hint Helper
+# =============================================================================
 
 
 def _path_hint(target_dir: Path) -> None:
     if str(target_dir) not in os.environ.get("PATH", "").split(os.pathsep):
-        rprint(
-            f"\n[yellow]Note:[/yellow] {target_dir} is not in your PATH.\n"
-            f'Add to your shell config:  [dim]export PATH="{target_dir}:$PATH"[/dim]'
+        print_warning(
+            f"Note: {target_dir} is not in your PATH.\n"
+            f'Add to your shell config:  export PATH="{target_dir}:$PATH"',
+            prefix=False,
         )

@@ -19,6 +19,7 @@ from devops_cli.ai.instruction_generator import (
 )
 from devops_cli.ai.personas import PERSONAS, Persona
 from devops_cli.ai.task_loader import load_task_prompt
+from devops_cli.commands.ai_cache import app as cache_app
 from devops_cli.commands.analyze import app as analyze_app
 from devops_cli.commands.benchmark import app as benchmark_app
 from devops_cli.commands.rag import app as rag_app
@@ -35,6 +36,7 @@ from devops_cli.config.settings import SecretStorageError, dotted_set
 from devops_cli.core.cli import new_typer
 from devops_cli.core.process import run_subprocess
 from devops_cli.lang import HELP
+from devops_cli.output import write_text_file
 
 app = new_typer(
     help=HELP.ai.app,
@@ -60,6 +62,11 @@ app.add_typer(
     name="benchmark",
     help=HELP.ai.benchmark,
 )
+app.add_typer(
+    cache_app,
+    name="cache",
+    help=HELP.ai.cache,
+)
 console = Console()
 
 
@@ -83,9 +90,11 @@ def ai_main(
         raise typer.Exit(0)
 
 
-_PROVIDERS = ("ollama", "claude", "copilot", "openai")
+# =============================================================================
+# Constants & File Targets
+# =============================================================================
 
-# ── Agent file targets ────────────────────────────────────────────────────────
+_PROVIDERS = ("ollama", "claude", "copilot", "openai")
 
 _AGENT_FILES: dict[str, str] = {
     CONST_AGENTS_MD_FILENAME: "Canonical agent instructions (single source of truth)",
@@ -95,6 +104,11 @@ _AGENT_FILES: dict[str, str] = {
 
 # Task-specific addendum appended to the architect persona when generating AGENTS.md
 _AGENTS_TASK_ADDENDUM = "\n" + load_task_prompt("generate_agents.md")
+
+
+# =============================================================================
+# Context Gathering & RAG Helpers
+# =============================================================================
 
 
 def _try_retrieve_rag_context(
@@ -172,7 +186,7 @@ def _collect_project_context(repo: Path) -> str:
         )
         clean_tree = _sanitize_prompt_boundary_tags(tree.stdout.strip())
         sections.append(f"## File tree\n```\n{clean_tree}\n```")
-    except (OSError, subprocess.SubprocessError):
+    except OSError, subprocess.SubprocessError:
         pass
 
     # .editorconfig
@@ -249,6 +263,11 @@ def _template_content(target_file: str, context_summary: dict[str, str] | Projec
 def _parse_pyproject(repo: Path) -> ProjectMetadata:
     """Extract structured fields from pyproject.toml and repo context."""
     return parse_project_metadata(repo)
+
+
+# =============================================================================
+# Command: devops ai config
+# =============================================================================
 
 
 @app.command()
@@ -353,6 +372,11 @@ def config(
     rprint("[green]✓[/green] AI configuration saved")
 
 
+# =============================================================================
+# Command: devops ai models
+# =============================================================================
+
+
 @app.command()
 def models() -> None:
     """List available models for the configured provider."""
@@ -374,6 +398,11 @@ def models() -> None:
     console.print(table)
 
 
+# =============================================================================
+# Command: devops ai preload
+# =============================================================================
+
+
 @app.command()
 def preload() -> None:
     """Preload configured model into VRAM across all configured Ollama servers."""
@@ -393,6 +422,79 @@ def preload() -> None:
         rprint(f"  {url}: {status}")
 
 
+# =============================================================================
+# Command: devops ai test
+# =============================================================================
+
+
+def _test_single_ollama_endpoint(
+    u: str, test_sys_prompt: str, prompt: str, settings: Any
+) -> tuple[str, bool, str, str]:
+    """Execute test chat prompt against a specific Ollama endpoint URL."""
+    from devops_cli.ai.client import LLMClient
+    from devops_cli.config.settings import get_ai_api_key
+
+    sub_cfg = settings.ai.model_copy(update={"ollama_urls": [u]})
+    sub_client = LLMClient(sub_cfg, api_key=get_ai_api_key(settings))
+    try:
+        resp = sub_client.chat(system=test_sys_prompt, user=prompt)
+        wall_sec = (
+            f"{resp.wall_seconds:.2f}s"
+            if getattr(resp, "wall_seconds", None) is not None
+            else "0.0s"
+        )
+        return (u, True, str(resp).strip(), wall_sec)
+    except Exception as exc:
+        return (u, False, str(exc), "0.0s")
+
+
+def _print_chat_thought(th: str) -> None:
+    """Print thinking block stream during interactive chat."""
+    from rich.markup import escape
+
+    rprint(
+        f"\n[dim cyan]💭 Thinking...[/dim cyan]\n"
+        f"[dim italic]{escape(th)}[/dim italic]\n"
+        f"[dim cyan]✓ Thought complete[/dim cyan]\n"
+    )
+
+
+def _print_chat_tool(t_name: str, t_args: dict[str, Any], t_res: Any) -> None:
+    """Print tool invocation and result during interactive chat."""
+    args_str = ", ".join(f"{k}={v!r}" for k, v in t_args.items())
+    if len(args_str) > 60:
+        args_str = args_str[:57] + "..."
+    rprint(f"\n[dim yellow]🔧 Tool: [bold]{t_name}[/bold]({args_str})[/dim yellow]")
+    res_str = str(t_res).strip()
+    if len(res_str) > 200:
+        res_str = res_str[:197] + "..."
+    rprint(f"[dim green]✓ Result: {res_str}[/dim green]\n")
+
+
+def _run_ollama_server_tests(
+    urls: list[str], test_sys_prompt: str, prompt: str, settings: Any
+) -> None:
+    """Execute parallel tests against multiple Ollama endpoints."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    all_passed = True
+    with ThreadPoolExecutor(max_workers=len(urls)) as executor:
+        futures = {
+            executor.submit(_test_single_ollama_endpoint, u, test_sys_prompt, prompt, settings): u
+            for u in urls
+        }
+        for f in as_completed(futures):
+            u, ok, ans, wall = f.result()
+            if ok:
+                rprint(f"  [cyan]{u}[/cyan]: [green]✓ {ans}[/green] [dim]({wall})[/dim]")
+            else:
+                all_passed = False
+                rprint(f"  [cyan]{u}[/cyan]: [red]✗ failed: {ans}[/red]")
+
+    if not all_passed:
+        raise typer.Exit(1)
+
+
 @app.command()
 def test(
     prompt: Annotated[
@@ -405,8 +507,6 @@ def test(
     ] = None,
 ) -> None:
     """Send a test prompt to verify AI provider connectivity across configured servers."""
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-
     from devops_cli.ai.client import LLMClient
     from devops_cli.config.settings import get_ai_api_key, load_settings
 
@@ -419,34 +519,7 @@ def test(
             rprint(
                 f"Testing Ollama servers ({len(urls)}) | model: [cyan]{settings.ai.model}[/cyan]..."
             )
-
-            def _test_single(u: str) -> tuple[str, bool, str, str]:
-                sub_cfg = settings.ai.model_copy(update={"ollama_urls": [u]})
-                sub_client = LLMClient(sub_cfg, api_key=get_ai_api_key(settings))
-                try:
-                    resp = sub_client.chat(system=test_sys_prompt, user=prompt)
-                    wall_sec = (
-                        f"{resp.wall_seconds:.2f}s"
-                        if getattr(resp, "wall_seconds", None) is not None
-                        else "0.0s"
-                    )
-                    return (u, True, str(resp).strip(), wall_sec)
-                except Exception as exc:
-                    return (u, False, str(exc), "0.0s")
-
-            all_passed = True
-            with ThreadPoolExecutor(max_workers=len(urls)) as executor:
-                futures = {executor.submit(_test_single, u): u for u in urls}
-                for f in as_completed(futures):
-                    u, ok, ans, wall = f.result()
-                    if ok:
-                        rprint(f"  [cyan]{u}[/cyan]: [green]✓ {ans}[/green] [dim]({wall})[/dim]")
-                    else:
-                        all_passed = False
-                        rprint(f"  [cyan]{u}[/cyan]: [red]✗ failed: {ans}[/red]")
-
-            if not all_passed:
-                raise typer.Exit(1)
+            _run_ollama_server_tests(urls, test_sys_prompt, prompt, settings)
             return
 
     client = LLMClient(settings.ai, api_key=get_ai_api_key(settings))
@@ -466,6 +539,11 @@ def test(
     except Exception as exc:
         rprint(f"[red]✗ AI provider test failed: {exc}[/red]")
         raise typer.Exit(1)
+
+
+# =============================================================================
+# Command: devops ai agents
+# =============================================================================
 
 
 @app.command()
@@ -532,14 +610,48 @@ def agents(
         else:
             content = _template_content(target, meta)
 
-        dest.parent.mkdir(parents=True, exist_ok=True)
         if not content.endswith("\n"):
             content += "\n"
-        dest.write_text(content, encoding="utf-8")
+        write_text_file(dest, content)
         rprint(MESSAGES.ai.written_file.format(path=dest.relative_to(repo)))
 
 
 _PERSONA_NAMES = [p.value for p in Persona]
+
+
+def _stream_interactive_chat_turn(
+    client: Any,
+    agent: Any,
+    thinking: bool,
+    effective_prompt: str,
+) -> None:
+    """Execute streaming response with live thinking and output filtering."""
+    from devops_cli.ai.thinking import ThinkingStreamProcessor, strip_think_blocks
+
+    processor = ThinkingStreamProcessor(
+        show_thinking=thinking,
+        console=console,
+    )
+    system_with_tools = agent._build_system_prompt_with_tools()
+    messages = agent.memory.to_chat_messages()
+    for chunk in client.chat_messages_stream(system_with_tools, messages, enable_thinking=thinking):
+        processor.feed(chunk)
+    processor.flush()
+    reply = processor.clean_content
+    if not reply.strip() and processor.thinking_content:
+        # Model put all output in thinking tags; retrieve summary
+        agent_res = agent.run(effective_prompt, enable_thinking=thinking)
+        reply = strip_think_blocks(agent_res.content)
+        if reply.strip():
+            rprint(f"{reply.strip()}\n")
+        return
+    rprint("\n")
+    agent.memory.add_interaction("assistant", reply)
+
+
+# =============================================================================
+# Command: devops ai chat
+# =============================================================================
 
 
 @app.command()
@@ -634,7 +746,7 @@ def chat(
     while True:
         try:
             user_input = console.input("[bold cyan]You:[/bold cyan] ").strip()
-        except (EOFError, KeyboardInterrupt):
+        except EOFError, KeyboardInterrupt:
             from devops_cli.lang import MESSAGES
 
             rprint(f"\n[dim]{MESSAGES.messages.goodbye}[/dim]")
@@ -659,59 +771,13 @@ def chat(
             from devops_cli.ai.thinking import strip_think_blocks
 
             if stream and not tools:
-                from devops_cli.ai.thinking import ThinkingStreamProcessor
-
-                processor = ThinkingStreamProcessor(
-                    show_thinking=thinking,
-                    console=console,
-                )
-                system_with_tools = agent._build_system_prompt_with_tools()
-                messages = agent.memory.to_chat_messages()
-                for chunk in client.chat_messages_stream(
-                    system_with_tools, messages, enable_thinking=thinking
-                ):
-                    processor.feed(chunk)
-                processor.flush()
-                reply = processor.clean_content
-                if not reply.strip() and processor.thinking_content:
-                    # Model put all output in thinking tags; retrieve summary
-                    agent_res = agent.run(effective_prompt, enable_thinking=thinking)
-                    reply = strip_think_blocks(agent_res.content)
-                    if reply.strip():
-                        rprint(f"{reply.strip()}\n")
-                else:
-                    rprint("\n")
-                    agent.memory.add_interaction("assistant", reply)
+                _stream_interactive_chat_turn(client, agent, thinking, effective_prompt)
             else:
-
-                def _print_thought(th: str) -> None:
-                    if thinking:
-                        from rich.markup import escape
-
-                        rprint(
-                            f"\n[dim cyan]💭 Thinking...[/dim cyan]\n"
-                            f"[dim italic]{escape(th)}[/dim italic]\n"
-                            f"[dim cyan]✓ Thought complete[/dim cyan]\n"
-                        )
-
-                def _print_tool(t_name: str, t_args: dict[str, Any], t_res: Any) -> None:
-                    args_str = ", ".join(f"{k}={v!r}" for k, v in t_args.items())
-                    if len(args_str) > 60:
-                        args_str = args_str[:57] + "..."
-                    tool_msg = (
-                        f"\n[dim yellow]🔧 Tool: [bold]{t_name}[/bold]({args_str})[/dim yellow]"
-                    )
-                    rprint(tool_msg)
-                    res_str = str(t_res).strip()
-                    if len(res_str) > 200:
-                        res_str = res_str[:197] + "..."
-                    rprint(f"[dim green]✓ Result: {res_str}[/dim green]\n")
-
                 agent_res = agent.run(
                     effective_prompt,
                     enable_thinking=thinking,
-                    on_thought=_print_thought if thinking else None,
-                    on_tool_call=_print_tool,
+                    on_thought=_print_chat_thought if thinking else None,
+                    on_tool_call=_print_chat_tool,
                 )
 
                 reply = strip_think_blocks(agent_res.content)
@@ -727,6 +793,11 @@ def chat(
             rprint("[dim]⚡ Long conversation memory consolidated into context summary.[/dim]")
 
 
+# =============================================================================
+# Command: devops ai bundle-models
+# =============================================================================
+
+
 @app.command("bundle-models")
 def bundle_models(
     output_dir: Annotated[
@@ -739,6 +810,11 @@ def bundle_models(
 
     count, manifest_path = bundle_ollama_models(output_dir=output_dir)
     rprint(f"[green]✓ Bundled {count} model(s) → [bold]{manifest_path}[/bold][/green]")
+
+
+# =============================================================================
+# Command: devops ai pipeline
+# =============================================================================
 
 
 @app.command("pipeline")
@@ -775,7 +851,8 @@ def pipeline(
     from devops_cli.ai.client import LLMClient
     from devops_cli.ai.tools import get_default_tools, get_persona_tools
     from devops_cli.config.settings import get_ai_api_key, load_settings
-    from devops_cli.dry_run import CommandDryRunResult, is_dry_run
+    from devops_cli.dry_run import is_dry_run
+    from devops_cli.output import render_dry_run_result
 
     persona_names = [p.strip().lower() for p in personas.split(",") if p.strip()]
     valid_personas: list[Persona] = []
@@ -786,7 +863,7 @@ def pipeline(
         valid_personas.append(Persona(name))
 
     if is_dry_run():
-        res = CommandDryRunResult(
+        render_dry_run_result(
             command="devops ai pipeline",
             target=prompt,
             action="multi_agent_pipeline_execution",
@@ -797,8 +874,6 @@ def pipeline(
                 "rag": rag,
             },
         )
-        rprint("[yellow][dry-run][/yellow] Command response:")
-        console.print_json(res.model_dump_json(indent=2))
         return
 
     settings = load_settings()

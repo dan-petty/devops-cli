@@ -56,18 +56,49 @@ _EXCLUDED_PUBLIC_REGISTRIES = {
     "schema.org",
     "w3.org",
     "json-schema.org",
+    "opencontainers.org",
     "github.com",
     "gitlab.com",
+    "bitbucket.org",
     "pypi.org",
+    "pypi.python.org",
+    "pythonhosted.org",
+    "files.pythonhosted.org",
     "npmjs.com",
+    "npmjs.org",
+    "registry.npmjs.org",
+    "yarnpkg.com",
+    "registry.yarnpkg.com",
     "crates.io",
+    "static.crates.io",
     "golang.org",
+    "pkg.go.dev",
+    "proxy.golang.org",
+    "sum.golang.org",
+    "rubygems.org",
+    "maven.org",
+    "apache.org",
+    "gradle.org",
+    "packagist.org",
+    "nuget.org",
     "google.com",
     "osv.dev",
     "nist.gov",
     "shodan.io",
     "cloudflare.com",
 }
+
+_PACKAGE_ARCHIVE_EXTENSIONS = (
+    ".whl",
+    ".tar.gz",
+    ".tgz",
+    ".crate",
+    ".nupkg",
+    ".gem",
+    ".jar",
+    ".war",
+    ".ear",
+)
 
 _WORKSPACE_SKIP_DIRS = {
     ".git",
@@ -92,7 +123,9 @@ __all__ = [
     "is_code_or_config_reference",
     "is_file_reference",
     "is_local_or_reserved_domain",
+    "is_lockfile_or_ignore_file",
     "is_network_domain",
+    "is_package_repository_asset",
     "is_private_or_local_ip",
     "is_public_ip",
 ]
@@ -232,11 +265,12 @@ def is_file_reference(target: str, source_file: str = "") -> bool:
         src = Path(source_file)
         if (src.parent / target_path).is_file():
             return True
-        if src.parent.is_dir():
-            for sibling in src.parent.iterdir():
-                if sibling.is_dir() and not sibling.name.startswith("."):
-                    if (sibling / target_path).is_file():
-                        return True
+        if src.parent.is_dir() and any(
+            (sibling / target_path).is_file()
+            for sibling in src.parent.iterdir()
+            if sibling.is_dir() and not sibling.name.startswith(".")
+        ):
+            return True
 
     # 5. Standard MIME type database resolution (for non-PSL domain formats like .py, .json, .xml)
     ext = _TLD_EXTRACTOR(clean)
@@ -379,11 +413,24 @@ def is_network_domain(target: str, source_file: str = "") -> bool:
     return True
 
 
-def _extract_python_literals_and_comments(content: str) -> list[tuple[str, int]]:
-    """Extract string constants and comments from Python source code via AST and tokenize."""
+def _parse_python_token_string(tok_string: str) -> str | None:
+    """Safely parse literal value or clean fallback from a Python string token."""
+    try:
+        val = ast.literal_eval(tok_string)
+        if isinstance(val, str):
+            return val
+    except Exception:
+        pass
+    clean_str = tok_string.strip("\"'")
+    return clean_str if clean_str else None
+
+
+def _extract_python_literals_and_comments(source: str) -> list[tuple[str, int]]:
+    """Extract string constants and comments from Python source code with line numbers."""
     literals: list[tuple[str, int]] = []
-    source = textwrap.dedent(content)
+    source = textwrap.dedent(source)
     parsed_ast = False
+
     try:
         tree = ast.parse(source)
         parsed_ast = True
@@ -391,7 +438,7 @@ def _extract_python_literals_and_comments(content: str) -> list[tuple[str, int]]
             if isinstance(node, ast.Constant) and isinstance(node.value, str):
                 line = getattr(node, "lineno", 1)
                 literals.append((node.value, line))
-    except (SyntaxError, IndentationError):
+    except SyntaxError, IndentationError:
         pass
 
     try:
@@ -402,15 +449,10 @@ def _extract_python_literals_and_comments(content: str) -> list[tuple[str, int]]
                 if comment_text:
                     literals.append((comment_text, tok.start[0]))
             elif tok.type == tokenize.STRING and not parsed_ast:
-                try:
-                    val = ast.literal_eval(tok.string)
-                    if isinstance(val, str):
-                        literals.append((val, tok.start[0]))
-                except Exception:
-                    clean_str = tok.string.strip("\"'")
-                    if clean_str:
-                        literals.append((clean_str, tok.start[0]))
-    except (tokenize.TokenError, IndentationError):
+                parsed_str = _parse_python_token_string(tok.string)
+                if parsed_str:
+                    literals.append((parsed_str, tok.start[0]))
+    except tokenize.TokenError, IndentationError:
         pass
 
     return literals
@@ -454,37 +496,41 @@ def _collect_scalar_strings(
             _collect_scalar_strings(item, out, default_line, is_yaml=is_yaml)
 
 
-def _extract_json_strings(content: str) -> list[tuple[str, int]]:
-    """Extract all string scalar values from valid JSON content."""
+def _extract_structured_strings(content: str, format_type: str = "json") -> list[tuple[str, int]]:
+    """Extract all string scalar values from structured JSON, TOML, or YAML content."""
     strings: list[tuple[str, int]] = []
     try:
-        data = json.loads(content)
-        _collect_scalar_strings(data, strings, is_yaml=False)
+        fmt = format_type.lower()
+        if fmt == "json":
+            data = json.loads(content)
+            is_yaml = False
+        elif fmt == "toml":
+            data = tomllib.loads(content)
+            is_yaml = False
+        elif fmt in ("yaml", "yml"):
+            data = yaml.safe_load(content)
+            is_yaml = True
+        else:
+            return strings
+        _collect_scalar_strings(data, strings, is_yaml=is_yaml)
     except Exception:
         pass
     return strings
+
+
+def _extract_json_strings(content: str) -> list[tuple[str, int]]:
+    """Extract all string scalar values from valid JSON content."""
+    return _extract_structured_strings(content, format_type="json")
 
 
 def _extract_toml_strings(content: str) -> list[tuple[str, int]]:
     """Extract all string scalar values from valid TOML content."""
-    strings: list[tuple[str, int]] = []
-    try:
-        data = tomllib.loads(content)
-        _collect_scalar_strings(data, strings, is_yaml=False)
-    except Exception:
-        pass
-    return strings
+    return _extract_structured_strings(content, format_type="toml")
 
 
 def _extract_yaml_strings(content: str) -> list[tuple[str, int]]:
     """Extract all string scalar values from YAML content."""
-    strings: list[tuple[str, int]] = []
-    try:
-        data = yaml.safe_load(content)
-        _collect_scalar_strings(data, strings, is_yaml=True)
-    except Exception:
-        pass
-    return strings
+    return _extract_structured_strings(content, format_type="yaml")
 
 
 def _get_target_segments(content: str, source_file: str) -> list[tuple[str, int]]:
@@ -498,16 +544,212 @@ def _get_target_segments(content: str, source_file: str) -> list[tuple[str, int]
         return _extract_hcl_literals_and_comments(content)
 
     if suffix == ".json":
-        return _extract_json_strings(content)
+        return _extract_structured_strings(content, format_type="json")
 
     if suffix == ".toml":
-        return _extract_toml_strings(content)
+        return _extract_structured_strings(content, format_type="toml")
 
     if suffix in (".yaml", ".yml"):
-        return _extract_yaml_strings(content)
+        return _extract_structured_strings(content, format_type="yaml")
 
     # Fallback to line-by-line scanning for markdown, text, or unparseable files
     return [(line, line_idx) for line_idx, line in enumerate(content.splitlines(), 1)]
+
+
+@functools.lru_cache(maxsize=1024)
+def is_lockfile_or_ignore_file(source_file: str) -> bool:
+    """Check if file is a package manager lockfile or ignore pattern file."""
+    if not source_file:
+        return False
+    src_name = Path(source_file).name.lower()
+    if src_name.endswith("ignore"):
+        return True
+    if src_name.endswith((".lock", ".lockb", ".lock.json", ".lock.yaml", ".lock.yml", ".lock.hcl")):
+        return True
+    return src_name in (
+        "package-lock.json",
+        "pnpm-lock.yaml",
+        "yarn.lock",
+        "cargo.lock",
+        "poetry.lock",
+        "uv.lock",
+        "gemfile.lock",
+        "composer.lock",
+        "pipfile.lock",
+        "packages.lock.json",
+        "flake.lock",
+        "go.sum",
+        "shrinkwrap.json",
+    )
+
+
+@functools.lru_cache(maxsize=4096)
+def is_package_repository_asset(url: str, host: str = "") -> bool:
+    """Check if a URL represents an individual package download asset from a package repository."""
+    try:
+        parsed = urllib.parse.urlsplit(url)
+        hostname = (host or parsed.hostname or "").lower()
+    except ValueError:
+        return False
+
+    if not hostname:
+        return False
+
+    # Check if host or registered domain is a package registry/distribution CDN
+    if hostname in _EXCLUDED_PUBLIC_REGISTRIES or any(
+        hostname.endswith("." + exc) for exc in _EXCLUDED_PUBLIC_REGISTRIES
+    ):
+        return True
+
+    path_lower = parsed.path.lower()
+    if path_lower.endswith(_PACKAGE_ARCHIVE_EXTENSIONS):
+        return True
+
+    if any(
+        segment in path_lower
+        for segment in (
+            "/packages/",
+            "/crates/",
+            "/v3-flatcontainer/",
+            "/downloads/",
+            "/repository/",
+        )
+    ):
+        return True
+
+    return False
+
+
+def _extract_url_reference(
+    clean_token: str, source_file: str, line_idx: int, include_local: bool
+) -> NetworkReference | None:
+    """Parse and validate URL network reference."""
+    if not clean_token.lower().startswith(("http://", "https://", "ftp://")):
+        return None
+    try:
+        parsed = urllib.parse.urlsplit(clean_token)
+        if not (parsed.scheme in ("http", "https") and parsed.netloc):
+            return None
+        host = (parsed.hostname or "").lower()
+        if is_package_repository_asset(clean_token, host):
+            return None
+        is_local_host = is_private_or_local_ip(host) or is_local_or_reserved_domain(host)
+        if is_local_host and not include_local:
+            return None
+        return NetworkReference(
+            target=clean_token,
+            reference_type="url",
+            source_file=source_file,
+            line_number=line_idx,
+            is_local=is_local_host,
+            scope="local" if is_local_host else "external",
+            security_status="✓ Safe (Local)" if is_local_host else "✓ Safe",
+        )
+    except ValueError:
+        return None
+
+
+def _extract_ip_reference(
+    clean_token: str, source_file: str, line_idx: int, include_local: bool
+) -> NetworkReference | None:
+    """Parse and validate IP address network reference."""
+    try:
+        ip = ipaddress.ip_address(clean_token)
+        ip_str = str(ip)
+        if is_public_ip(clean_token):
+            return NetworkReference(
+                target=ip_str,
+                reference_type="ip",
+                source_file=source_file,
+                line_number=line_idx,
+                is_local=False,
+                scope="external",
+                security_status="✓ Safe",
+            )
+        if is_private_or_local_ip(clean_token) and include_local:
+            return NetworkReference(
+                target=ip_str,
+                reference_type="ip",
+                source_file=source_file,
+                line_number=line_idx,
+                is_local=True,
+                scope="local",
+                security_status="✓ Safe (Local)",
+            )
+    except ValueError:
+        return None
+    return None
+
+
+def _extract_domain_reference(
+    clean_token: str,
+    text_segment: str,
+    source_file: str,
+    line_idx: int,
+    include_local: bool,
+) -> NetworkReference | None:
+    """Parse and validate domain/hostname network reference."""
+    if not (
+        "." in clean_token
+        and "/" not in clean_token
+        and "\\" not in clean_token
+        and "@" not in clean_token
+        and "$" not in clean_token
+        and "=" not in clean_token
+    ):
+        return None
+
+    domain_candidate = clean_token.lower()
+
+    # Validate hostname format via standard library urllib.parse
+    try:
+        parsed = urllib.parse.urlsplit(f"//{domain_candidate}")
+        hostname = parsed.hostname
+        if not hostname or hostname != domain_candidate:
+            return None
+    except ValueError:
+        return None
+
+    # Check programmatic function call indicators in original text segment
+    pos = text_segment.find(clean_token)
+    if pos != -1:
+        trailing = text_segment[pos + len(clean_token) :].lstrip()
+        if trailing.startswith(("(", "[", "=")):
+            return None
+        if pos > 0 and text_segment[pos - 1] in (".", "$", ">", ":", "\\"):
+            return None
+
+    if is_file_reference(domain_candidate, source_file=source_file):
+        return None
+
+    if is_code_or_config_reference(domain_candidate, source_file=source_file):
+        return None
+
+    if is_local_or_reserved_domain(domain_candidate):
+        if not include_local:
+            return None
+        return NetworkReference(
+            target=domain_candidate,
+            reference_type="domain",
+            source_file=source_file,
+            line_number=line_idx,
+            is_local=True,
+            scope="local",
+            security_status="✓ Safe (Local)",
+        )
+
+    if is_network_domain(domain_candidate, source_file=source_file):
+        return NetworkReference(
+            target=domain_candidate,
+            reference_type="domain",
+            source_file=source_file,
+            line_number=line_idx,
+            is_local=False,
+            scope="external",
+            security_status="✓ Safe",
+        )
+
+    return None
 
 
 def extract_network_references(
@@ -517,15 +759,9 @@ def extract_network_references(
     results: list[NetworkReference] = []
     seen: set[str] = set()
 
-    # Skip files that only list filenames or patterns
-    if source_file:
-        src_name = Path(source_file).name.lower()
-        if src_name.endswith("ignore") or src_name in (
-            "package-lock.json",
-            "cargo.lock",
-            "poetry.lock",
-        ):
-            return []
+    # Skip lockfiles and ignore files whose packages are checked by dependency scans
+    if is_lockfile_or_ignore_file(source_file):
+        return []
 
     target_segments = _get_target_segments(content, source_file)
 
@@ -540,147 +776,30 @@ def extract_network_references(
             if not clean_token:
                 continue
 
-            # 1. Extract URLs with standard urllib.parse validation
-            if clean_token.lower().startswith(("http://", "https://", "ftp://")):
-                try:
-                    parsed = urllib.parse.urlsplit(clean_token)
-                    if (
-                        parsed.scheme in ("http", "https")
-                        and parsed.netloc
-                        and clean_token not in seen
-                    ):
-                        seen.add(clean_token)
-                        host = parsed.hostname or ""
-                        is_local_host = is_private_or_local_ip(host) or is_local_or_reserved_domain(
-                            host
-                        )
-                        if is_local_host:
-                            if include_local:
-                                results.append(
-                                    NetworkReference(
-                                        target=clean_token,
-                                        reference_type="url",
-                                        source_file=source_file,
-                                        line_number=line_idx,
-                                        is_local=True,
-                                        scope="local",
-                                        security_status="✓ Safe (Local)",
-                                    )
-                                )
-                        else:
-                            results.append(
-                                NetworkReference(
-                                    target=clean_token,
-                                    reference_type="url",
-                                    source_file=source_file,
-                                    line_number=line_idx,
-                                    is_local=False,
-                                    scope="external",
-                                    security_status="✓ Safe",
-                                )
-                            )
-                except ValueError:
-                    pass
+            # 1. URL Reference
+            url_ref = _extract_url_reference(clean_token, source_file, line_idx, include_local)
+            if url_ref:
+                if url_ref.target not in seen:
+                    seen.add(url_ref.target)
+                    results.append(url_ref)
                 continue
 
-            # 2. Extract IP addresses with standard ipaddress parser
-            try:
-                ip = ipaddress.ip_address(clean_token)
-                ip_str = str(ip)
-                if ip_str not in seen:
-                    if is_public_ip(clean_token):
-                        seen.add(ip_str)
-                        results.append(
-                            NetworkReference(
-                                target=ip_str,
-                                reference_type="ip",
-                                source_file=source_file,
-                                line_number=line_idx,
-                                is_local=False,
-                                scope="external",
-                                security_status="✓ Safe",
-                            )
-                        )
-                    elif is_private_or_local_ip(clean_token) and include_local:
-                        seen.add(ip_str)
-                        results.append(
-                            NetworkReference(
-                                target=ip_str,
-                                reference_type="ip",
-                                source_file=source_file,
-                                line_number=line_idx,
-                                is_local=True,
-                                scope="local",
-                                security_status="✓ Safe (Local)",
-                            )
-                        )
+            # 2. IP Address Reference
+            ip_ref = _extract_ip_reference(clean_token, source_file, line_idx, include_local)
+            if ip_ref:
+                if ip_ref.target not in seen:
+                    seen.add(ip_ref.target)
+                    results.append(ip_ref)
                 continue
-            except ValueError:
-                pass
 
-            # 3. Extract Domains & Hostnames with standard urllib.parse and PSL introspection
-            if (
-                "." in clean_token
-                and "/" not in clean_token
-                and "\\" not in clean_token
-                and "@" not in clean_token
-                and "$" not in clean_token
-                and "=" not in clean_token
-            ):
-                domain_candidate = clean_token.lower()
-                if domain_candidate in seen:
-                    continue
-
-                # Validate hostname format via standard library urllib.parse
-                try:
-                    parsed = urllib.parse.urlsplit(f"//{domain_candidate}")
-                    hostname = parsed.hostname
-                    if not hostname or hostname != domain_candidate:
-                        continue
-                except ValueError:
-                    continue
-
-                # Check programmatic function call indicators in original text segment
-                pos = text_segment.find(clean_token)
-                if pos != -1:
-                    trailing = text_segment[pos + len(clean_token) :].lstrip()
-                    if trailing.startswith(("(", "[", "=")):
-                        continue
-                    if pos > 0 and text_segment[pos - 1] in (".", "$", ">", ":", "\\"):
-                        continue
-
-                if is_file_reference(domain_candidate, source_file=source_file):
-                    continue
-
-                if is_code_or_config_reference(domain_candidate, source_file=source_file):
-                    continue
-
-                if is_local_or_reserved_domain(domain_candidate) and include_local:
-                    seen.add(domain_candidate)
-                    results.append(
-                        NetworkReference(
-                            target=domain_candidate,
-                            reference_type="domain",
-                            source_file=source_file,
-                            line_number=line_idx,
-                            is_local=True,
-                            scope="local",
-                            security_status="✓ Safe (Local)",
-                        )
-                    )
-                elif is_network_domain(domain_candidate, source_file=source_file):
-                    seen.add(domain_candidate)
-                    results.append(
-                        NetworkReference(
-                            target=domain_candidate,
-                            reference_type="domain",
-                            source_file=source_file,
-                            line_number=line_idx,
-                            is_local=False,
-                            scope="external",
-                            security_status="✓ Safe",
-                        )
-                    )
+            # 3. Domain Reference
+            dom_ref = _extract_domain_reference(
+                clean_token, text_segment, source_file, line_idx, include_local
+            )
+            if dom_ref:
+                if dom_ref.target not in seen:
+                    seen.add(dom_ref.target)
+                    results.append(dom_ref)
 
     return results
 
@@ -693,144 +812,187 @@ def _find_package_line(lines: list[str], pkg_token: str) -> int | None:
     return None
 
 
+def _extract_pip_dependencies(content_lines: list[str], file_name: str) -> list[DependencySpec]:
+    """Parse dependencies from requirements.txt format."""
+    deps: list[DependencySpec] = []
+    for line_idx, line in enumerate(content_lines, start=1):
+        line = line.strip()
+        if not line or line.startswith(("#", "-", "--")):
+            continue
+        try:
+            req = Requirement(line)
+            version_spec = str(req.specifier) if str(req.specifier) else "*"
+            deps.append(
+                DependencySpec(
+                    name=req.name,
+                    version_range=version_spec,
+                    ecosystem="PyPI",
+                    source_file=file_name,
+                    line_number=line_idx,
+                )
+            )
+        except InvalidRequirement:
+            pass
+    return deps
+
+
+def _extract_pyproject_dependencies(
+    content: str, content_lines: list[str], file_name: str
+) -> list[DependencySpec]:
+    """Parse dependencies from pyproject.toml format."""
+    try:
+        data = tomllib.loads(content)
+    except Exception:
+        return []
+
+    req_strings: list[str] = []
+
+    # Standard PEP 621 project.dependencies
+    proj_deps = data.get("project", {}).get("dependencies", [])
+    if isinstance(proj_deps, list):
+        req_strings.extend(d for d in proj_deps if isinstance(d, str))
+
+    # Standard PEP 621 project.optional-dependencies
+    opt_deps = data.get("project", {}).get("optional-dependencies", {})
+    if isinstance(opt_deps, dict):
+        for opt_list in opt_deps.values():
+            if isinstance(opt_list, list):
+                req_strings.extend(d for d in opt_list if isinstance(d, str))
+
+    # PEP 735 dependency-groups
+    dep_groups = data.get("dependency-groups", {})
+    if isinstance(dep_groups, dict):
+        for grp_list in dep_groups.values():
+            if isinstance(grp_list, list):
+                req_strings.extend(d for d in grp_list if isinstance(d, str))
+
+    deps: list[DependencySpec] = []
+    for req_str in req_strings:
+        try:
+            req = Requirement(req_str)
+            line_no = _find_package_line(content_lines, req.name)
+            deps.append(
+                DependencySpec(
+                    name=req.name,
+                    version_range=str(req.specifier) if str(req.specifier) else "*",
+                    ecosystem="PyPI",
+                    source_file=file_name,
+                    line_number=line_no,
+                )
+            )
+        except InvalidRequirement:
+            pass
+    return deps
+
+
+def _extract_package_json_dependencies(
+    content: str, content_lines: list[str], file_name: str
+) -> list[DependencySpec]:
+    """Parse dependencies from package.json format."""
+    try:
+        data = json.loads(content)
+    except Exception:
+        return []
+
+    all_deps: dict[str, str] = {}
+    for section in (
+        "dependencies",
+        "devDependencies",
+        "peerDependencies",
+        "optionalDependencies",
+    ):
+        if section in data and isinstance(data[section], dict):
+            all_deps.update(data[section])
+
+    deps: list[DependencySpec] = []
+    for pkg, ver in all_deps.items():
+        line_no = _find_package_line(content_lines, f'"{pkg}"') or _find_package_line(
+            content_lines, pkg
+        )
+        deps.append(
+            DependencySpec(
+                name=pkg,
+                version_range=str(ver),
+                ecosystem="npm",
+                source_file=file_name,
+                line_number=line_no,
+            )
+        )
+    return deps
+
+
+def _extract_cargo_dependencies(
+    content: str, content_lines: list[str], file_name: str
+) -> list[DependencySpec]:
+    """Parse dependencies from Cargo.toml or Cargo.lock format."""
+    try:
+        data = tomllib.loads(content)
+    except Exception:
+        return []
+
+    cargo_deps = data.get("dependencies", {})
+    if not isinstance(cargo_deps, dict):
+        return []
+
+    deps: list[DependencySpec] = []
+    for pkg, ver in cargo_deps.items():
+        ver_str = ver if isinstance(ver, str) else ver.get("version", "*")
+        line_no = _find_package_line(content_lines, pkg)
+        deps.append(
+            DependencySpec(
+                name=pkg,
+                version_range=str(ver_str),
+                ecosystem="crates.io",
+                source_file=file_name,
+                line_number=line_no,
+            )
+        )
+    return deps
+
+
+def _extract_go_mod_dependencies(content_lines: list[str], file_name: str) -> list[DependencySpec]:
+    """Parse dependencies from go.mod format."""
+    deps: list[DependencySpec] = []
+    in_require_block = False
+    for line_idx, line in enumerate(content_lines, start=1):
+        line = line.strip()
+        if line.startswith("require ("):
+            in_require_block = True
+            continue
+        if in_require_block and line == ")":
+            in_require_block = False
+            continue
+        if not (in_require_block or line.startswith("require ")):
+            continue
+        raw = line.removeprefix("require").strip()
+        parts = raw.split()
+        if len(parts) >= 2:
+            deps.append(
+                DependencySpec(
+                    name=parts[0],
+                    version_range=parts[1],
+                    ecosystem="Go",
+                    source_file=file_name,
+                    line_number=line_idx,
+                )
+            )
+    return deps
+
+
 def extract_dependencies_from_text(content: str, file_name: str) -> list[DependencySpec]:
     """Extract dependency specifications from manifest file content using standard parsers."""
-    deps: list[DependencySpec] = []
     name_lower = Path(file_name).name.lower()
     content_lines = content.splitlines()
 
     if name_lower in ("requirements.txt", "requirements-dev.txt", "requirements.in"):
-        for line_idx, line in enumerate(content_lines, start=1):
-            line = line.strip()
-            if not line or line.startswith(("#", "-", "--")):
-                continue
-            try:
-                req = Requirement(line)
-                version_spec = str(req.specifier) if str(req.specifier) else "*"
-                deps.append(
-                    DependencySpec(
-                        name=req.name,
-                        version_range=version_spec,
-                        ecosystem="PyPI",
-                        source_file=file_name,
-                        line_number=line_idx,
-                    )
-                )
-            except InvalidRequirement:
-                pass
+        return _extract_pip_dependencies(content_lines, file_name)
+    if name_lower == "pyproject.toml":
+        return _extract_pyproject_dependencies(content, content_lines, file_name)
+    if name_lower == "package.json":
+        return _extract_package_json_dependencies(content, content_lines, file_name)
+    if name_lower in ("cargo.toml", "cargo.lock"):
+        return _extract_cargo_dependencies(content, content_lines, file_name)
+    if name_lower == "go.mod":
+        return _extract_go_mod_dependencies(content_lines, file_name)
 
-    elif name_lower == "pyproject.toml":
-        try:
-            data = tomllib.loads(content)
-            req_strings: list[str] = []
-
-            # Standard PEP 621 project.dependencies
-            proj_deps = data.get("project", {}).get("dependencies", [])
-            if isinstance(proj_deps, list):
-                req_strings.extend(d for d in proj_deps if isinstance(d, str))
-
-            # Standard PEP 621 project.optional-dependencies
-            opt_deps = data.get("project", {}).get("optional-dependencies", {})
-            if isinstance(opt_deps, dict):
-                for opt_list in opt_deps.values():
-                    if isinstance(opt_list, list):
-                        req_strings.extend(d for d in opt_list if isinstance(d, str))
-
-            # PEP 735 dependency-groups
-            dep_groups = data.get("dependency-groups", {})
-            if isinstance(dep_groups, dict):
-                for grp_list in dep_groups.values():
-                    if isinstance(grp_list, list):
-                        req_strings.extend(d for d in grp_list if isinstance(d, str))
-
-            for req_str in req_strings:
-                try:
-                    req = Requirement(req_str)
-                    line_no = _find_package_line(content_lines, req.name)
-                    deps.append(
-                        DependencySpec(
-                            name=req.name,
-                            version_range=str(req.specifier) if str(req.specifier) else "*",
-                            ecosystem="PyPI",
-                            source_file=file_name,
-                            line_number=line_no,
-                        )
-                    )
-                except InvalidRequirement:
-                    pass
-        except Exception:
-            pass
-
-    elif name_lower == "package.json":
-        try:
-            data = json.loads(content)
-            all_deps: dict[str, str] = {}
-            for section in (
-                "dependencies",
-                "devDependencies",
-                "peerDependencies",
-                "optionalDependencies",
-            ):
-                if section in data and isinstance(data[section], dict):
-                    all_deps.update(data[section])
-            for pkg, ver in all_deps.items():
-                line_no = _find_package_line(content_lines, f'"{pkg}"') or _find_package_line(
-                    content_lines, pkg
-                )
-                deps.append(
-                    DependencySpec(
-                        name=pkg,
-                        version_range=str(ver),
-                        ecosystem="npm",
-                        source_file=file_name,
-                        line_number=line_no,
-                    )
-                )
-        except Exception:
-            pass
-
-    elif name_lower in ("cargo.toml", "cargo.lock"):
-        try:
-            data = tomllib.loads(content)
-            cargo_deps = data.get("dependencies", {})
-            if isinstance(cargo_deps, dict):
-                for pkg, ver in cargo_deps.items():
-                    ver_str = ver if isinstance(ver, str) else ver.get("version", "*")
-                    line_no = _find_package_line(content_lines, pkg)
-                    deps.append(
-                        DependencySpec(
-                            name=pkg,
-                            version_range=str(ver_str),
-                            ecosystem="crates.io",
-                            source_file=file_name,
-                            line_number=line_no,
-                        )
-                    )
-        except Exception:
-            pass
-
-    elif name_lower == "go.mod":
-        in_require_block = False
-        for line_idx, line in enumerate(content_lines, start=1):
-            line = line.strip()
-            if line.startswith("require ("):
-                in_require_block = True
-                continue
-            if in_require_block and line == ")":
-                in_require_block = False
-                continue
-            if in_require_block or line.startswith("require "):
-                raw = line.removeprefix("require").strip()
-                parts = raw.split()
-                if len(parts) >= 2:
-                    deps.append(
-                        DependencySpec(
-                            name=parts[0],
-                            version_range=parts[1],
-                            ecosystem="Go",
-                            source_file=file_name,
-                            line_number=line_idx,
-                        )
-                    )
-
-    return deps
+    return []

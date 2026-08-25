@@ -6,8 +6,6 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
-from rich import print as rprint
-from rich.console import Console
 from rich.table import Table
 
 from devops_cli.config.constants import (
@@ -36,18 +34,30 @@ from devops_cli.crypto.tls_certificates import (
     inspect_certificate,
     verify_certificate,
 )
-from devops_cli.dry_run import CommandDryRunResult, is_dry_run
+from devops_cli.dry_run import is_dry_run
+from devops_cli.lang.en import MESSAGES
 from devops_cli.models.tls import KubernetesTLSSecretResult
+from devops_cli.output import (
+    print_error,
+    print_info,
+    print_success,
+    print_table,
+    render_dry_run_result,
+)
 
 app = new_typer(
     help="X.509 TLS certificate generation, inspection, verification, and Kubernetes secrets.",
     no_args_is_help=True,
 )
-console = Console()
+
+
+# =============================================================================
+# Command: devops tls ca
+# =============================================================================
 
 
 @app.command("ca")
-def generate_ca_cmd(
+def cmd_ca(
     output_dir: Annotated[
         Path,
         typer.Option("--output-dir", "-o", help="Directory to save CA certificate and key"),
@@ -74,12 +84,12 @@ def generate_ca_cmd(
     ] = DEFAULT_TLS_KEY_SIZE,
     overwrite: Annotated[
         bool,
-        typer.Option("--overwrite", "-f", help="Overwrite existing CA certificate and key"),
+        typer.Option("--overwrite", "-f", help="Overwrite existing files"),
     ] = False,
 ) -> None:
     """Generate a self-signed Root Certificate Authority (CA) key pair."""
     if is_dry_run():
-        res = CommandDryRunResult(
+        render_dry_run_result(
             command="devops tls ca",
             action="generate_root_ca",
             target=str(output_dir),
@@ -92,8 +102,6 @@ def generate_ca_cmd(
                 "ca_key": str(output_dir / CONST_CA_KEY_NAME),
             },
         )
-        rprint("[yellow][dry-run][/yellow] Command response:")
-        console.print_json(res.model_dump_json(indent=2))
         return
 
     ca_cert, ca_key = generate_ca_certificate(
@@ -123,7 +131,12 @@ def generate_ca_cmd(
     table.add_row("Key Size", f"{key_size}-bit RSA")
     table.add_row("SHA-256 Fingerprint", info.fingerprint_sha256[:32] + "...")
 
-    console.print(table)
+    print_table(table)
+
+
+# =============================================================================
+# Command: devops tls cert
+# =============================================================================
 
 
 @app.command("cert")
@@ -181,7 +194,7 @@ def generate_cert_cmd(
         san_list = [common_name, "127.0.0.1"]
 
     if is_dry_run():
-        res = CommandDryRunResult(
+        render_dry_run_result(
             command="devops tls cert",
             action="generate_tls_certificate",
             target=str(output_dir),
@@ -194,8 +207,6 @@ def generate_cert_cmd(
                 "key_path": str(output_dir / CONST_SERVER_KEY_NAME),
             },
         )
-        rprint("[yellow][dry-run][/yellow] Command response:")
-        console.print_json(res.model_dump_json(indent=2))
         return
 
     cert_path, key_path, fullchain = generate_server_certificate(
@@ -229,7 +240,12 @@ def generate_cert_cmd(
     )
     table.add_row("Fingerprint", info.fingerprint_sha256[:32] + "...")
 
-    console.print(table)
+    print_table(table)
+
+
+# =============================================================================
+# Command: devops tls homelab
+# =============================================================================
 
 
 @app.command("homelab")
@@ -253,7 +269,7 @@ def generate_homelab_cmd(
 ) -> None:
     """Generate complete Homelab TLS bundle (Root CA, Wildcard + Stack Services Cert)."""
     if is_dry_run():
-        res = CommandDryRunResult(
+        render_dry_run_result(
             command="devops tls homelab",
             action="generate_homelab_tls_bundle",
             target=str(output_dir),
@@ -265,8 +281,6 @@ def generate_homelab_cmd(
                 "default_ips": list(DEFAULT_HOMELAB_IPS),
             },
         )
-        rprint("[yellow][dry-run][/yellow] Command response:")
-        console.print_json(res.model_dump_json(indent=2))
         return
 
     summary = generate_homelab_tls_bundle(
@@ -287,12 +301,18 @@ def generate_homelab_cmd(
     table.add_row("Configured Services", ", ".join(summary.services_configured))
     table.add_row("Total SANs Included", str(len(summary.sans)))
 
-    console.print(table)
-    rprint(
+    print_table(table)
+    print_info(
         "\n[dim]To install CA trust on Linux: sudo cp "
         + summary.ca_cert_path
-        + " /usr/local/share/ca-certificates/ && sudo update-ca-certificates[/dim]"
+        + " /usr/local/share/ca-certificates/ && sudo update-ca-certificates[/dim]",
+        prefix=False,
     )
+
+
+# =============================================================================
+# Command: devops tls inspect
+# =============================================================================
 
 
 @app.command("inspect")
@@ -304,7 +324,7 @@ def inspect_cmd(
 ) -> None:
     """Inspect and display metadata of an X.509 certificate."""
     if not cert_path.exists():
-        rprint(f"[red]Error: Certificate file not found: {cert_path}[/red]")
+        print_error(f"Error: Certificate file not found: {cert_path}", prefix=False)
         raise typer.Exit(1)
 
     info = inspect_certificate(cert_path)
@@ -341,7 +361,12 @@ def inspect_cmd(
         table.add_row("IP SANs", ", ".join(info.sans_ip))
     table.add_row("SHA-256 Fingerprint", info.fingerprint_sha256)
 
-    console.print(table)
+    print_table(table)
+
+
+# =============================================================================
+# Command: devops tls verify
+# =============================================================================
 
 
 @app.command("verify")
@@ -357,24 +382,29 @@ def verify_cmd(
 ) -> None:
     """Verify an X.509 certificate cryptographic chain against a CA certificate."""
     if not cert_path.exists():
-        rprint(f"[red]Error: Certificate file not found: {cert_path}[/red]")
+        print_error(f"Error: Certificate file not found: {cert_path}", prefix=False)
         raise typer.Exit(1)
     if not ca_cert.exists():
-        rprint(f"[red]Error: CA certificate file not found: {ca_cert}[/red]")
+        print_error(f"Error: CA certificate file not found: {ca_cert}", prefix=False)
         raise typer.Exit(1)
 
     valid = verify_certificate(cert_path, ca_cert)
     if valid:
-        rprint(
-            f"[bold green]✓ Verified:[/bold green] [cyan]{cert_path.name}[/cyan] "
-            f"is valid and signed by [cyan]{ca_cert.name}[/cyan]"
+        print_success(
+            f"Verified: [cyan]{cert_path.name}[/cyan] is valid and signed by "
+            f"[cyan]{ca_cert.name}[/cyan]"
         )
     else:
-        rprint(
-            f"[bold red]✗ Verification Failed:[/bold red] [cyan]{cert_path.name}[/cyan] "
-            f"is invalid or not signed by [cyan]{ca_cert.name}[/cyan]"
+        print_error(
+            f"Verification Failed: [cyan]{cert_path.name}[/cyan] is invalid or not signed by "
+            f"[cyan]{ca_cert.name}[/cyan]"
         )
         raise typer.Exit(1)
+
+
+# =============================================================================
+# Command: devops tls enable-k8s
+# =============================================================================
 
 
 @app.command("enable-k8s")
@@ -412,7 +442,7 @@ def enable_k8s_cmd(
     key_path = tls_dir / CONST_SERVER_KEY_NAME
 
     if is_dry_run():
-        res = CommandDryRunResult(
+        render_dry_run_result(
             command="devops tls enable-k8s",
             action="apply_k8s_tls_secrets",
             target=context or "current-context",
@@ -423,18 +453,17 @@ def enable_k8s_cmd(
                 "key_path": str(key_path),
             },
         )
-        rprint("[yellow][dry-run][/yellow] Command response:")
-        console.print_json(res.model_dump_json(indent=2))
         return
 
     # Generate homelab bundle if certificates don't exist
     if not cert_path.exists() or not key_path.exists() or overwrite:
-        rprint("[bold]Generating homelab TLS bundle...[/bold]")
+        print_info(MESSAGES.tls.generating_bundle, prefix=False)
         generate_homelab_tls_bundle(output_dir=tls_dir, overwrite=overwrite)
 
-    rprint(
+    print_info(
         f"[bold]Deploying TLS secret '[cyan]{secret_name}[/cyan]' "
-        "to Kubernetes namespaces...[/bold]"
+        "to Kubernetes namespaces...[/bold]",
+        prefix=False,
     )
     results: list[KubernetesTLSSecretResult] = []
 
@@ -500,4 +529,4 @@ def enable_k8s_cmd(
         )
         table.add_row(r.namespace, r.secret_name, status_display)
 
-    console.print(table)
+    print_table(table)
