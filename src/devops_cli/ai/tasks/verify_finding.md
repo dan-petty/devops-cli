@@ -9,10 +9,13 @@ Execute a structured 4-step reasoning process to rigorously verify each reported
 
 ### Step 2: Guardrail, Lockfile & Invalidation Testing
 - Test all `invalidation_criteria` against surrounding context, caller validation, type guards, and architectural constraints.
+- Verify module import & attribute existence: Validate alleged missing imports, missing functions, or nonexistent attributes (e.g. `ImportError`, `AttributeError`) by checking the actual referenced target module source, AST symbol definitions, `__all__`, or `__getattr__`. If the symbol/attribute is defined or re-exported in the target module, immediately invalidate the finding as a false positive.
 - Verify path containment checks (`is_relative_to` or path bounds), file extension filters, and bounded loader guards.
 - Verify file permissions: Ensure sensitive cryptographic keys and private credentials enforce restricted permissions (0600) via atomic creation and explicit post-write `chmod`.
 - Verify command exit code conventions: Tools intentionally returning non-zero status for informational outcomes (e.g. `diff` returning 1 when differences exist) are expected behavior.
 - Verify target language features & formatter rules: Validate against standard language grammar and formatter conventions before flagging syntax issues.
+- Verify syntax errors & AST integrity: Validate alleged syntax errors (missing/unmatched parentheses, quotes, malformed comprehensions) against AST parsing (`ast.parse`) or compiler validity. If the code parses cleanly without syntax errors, immediately invalidate the finding.
+- Verify internal module introspection: Internal command registries and documentation generators that inspect trusted internal package modules (e.g. `devops_cli.commands.*`) are standard designs and not untrusted code injection.
 - Verify AST definitions: Confirm that alleged duplicate symbols or commands are actually defined multiple times.
 - Verify cryptographic lockfiles (`uv.lock`, `Cargo.lock`, `go.sum`, `package-lock.json`, `poetry.lock`) to disprove false unpinned package alerts.
 - Verify secure secret managers, vaults, or OS Keyrings to confirm rejection of unencrypted plaintext secrets.
@@ -27,7 +30,7 @@ Execute a structured 4-step reasoning process to rigorously verify each reported
 - Invalidation criterion satisfied, avoidance context detected, or mitigation present → `"status": "INVALIDATED" | "MITIGATED"`, `"verified": false`, `"reportable": false`.
 - Verification criteria satisfied without invalidation or mitigation → `"status": "VERIFIED"`, `"verified": true`, `"reportable": true`.
 - Inconclusive, theoretical, or unprovable finding → `"status": "UNVERIFIED"`, `"verified": false`, `"reportable": false`.
-- Synthesize an explicit causal explanation in `reason` detailing matched criteria for the feedback dataset.
+- Synthesize an explicit causal explanation in `reason` detailing matched criteria for the feedback fine-tuning dataset (`feedback_dataset.jsonl`), ensuring the review system continuously learns from invalidations and suppresses recurring false positives.
 
 ---
 

@@ -144,7 +144,7 @@ devops ci actionlint [OPTIONS]
 
 ## `devops ci docs`
 
-**Verify that documentation is up to date with CLI commands and configuration.**
+**Verify (or update with --fix) that documentation is up to date with CLI commands and configuration.**
 
 ```bash
 devops ci docs [OPTIONS]
@@ -154,6 +154,7 @@ devops ci docs [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
+| `--fix` | `boolean` | - | Synchronize Complete Command Matrix in README.md. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---

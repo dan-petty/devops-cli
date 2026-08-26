@@ -693,7 +693,7 @@ devops k8s port-forward [OPTIONS]
 | `--ollama-port` | `integer` | `11434` | Local port for Ollama |
 | `--open-webui-port` | `integer` | `3000` | Local port for Open-WebUI |
 | `--qdrant-port` | `integer` | `6333` | Local port for Qdrant HTTP |
-| `--valkey-port` | `integer` | `6379` | Local port for Valkey |
+| `--valkey-port` | `integer` | `<masked>` | Local port for Valkey |
 | `--address` | `string` | `127.0.0.1` | Local address to bind for port-forwarding |
 
 ### `devops k8s teardown-stack`
@@ -800,7 +800,7 @@ devops k8s create-tls-secret [OPTIONS] <secret_name>
 |---|---|---|---|
 | `--namespace`, `-n` | `string` | `default` | Target Kubernetes namespace |
 | `--cert` | `path` | `~/.config/devops-cli/tls/tls.crt` | Path to TLS certificate file (.crt or .pem) |
-| `--key` | `path` | `~/.config/devops-cli/tls/tls.key` | Path to TLS private key file (.key or .pem) |
+| `--key` | `path` | `<masked>` | Path to TLS private key file (.key or .pem) |
 | `--context`, `-c` | `string` | - | Kubernetes cluster context |
 
 ### `devops k8s enable-tls`
@@ -817,7 +817,7 @@ devops k8s enable-tls [OPTIONS]
 |---|---|---|---|
 | `--context`, `-c` | `string` | - | Kubernetes cluster context |
 | `--tls-dir` | `path` | `~/.config/devops-cli/tls` | Directory with generated TLS certificates |
-| `--secret-name` | `string` | `homelab-tls` | TLS secret name across namespaces |
+| `--secret-name` | `string` | `<masked>` | TLS secret name across namespaces |
 | `--stack`, `-s` | `string` | `all` | Stack to deploy TLS secrets into (infra, llm, all) |
 | `--overwrite`, `-f` | `boolean` | - | Regenerate certs if missing |
 
@@ -1584,7 +1584,7 @@ devops ci actionlint [OPTIONS]
 
 ### `devops ci docs`
 
-**Verify that documentation is up to date with CLI commands and configuration.**
+**Verify (or update with --fix) that documentation is up to date with CLI commands and configuration.**
 
 ```bash
 devops ci docs [OPTIONS]
@@ -1594,6 +1594,7 @@ devops ci docs [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
+| `--fix` | `boolean` | - | Synchronize Complete Command Matrix in README.md. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ci run`
@@ -2002,7 +2003,7 @@ devops ai route [OPTIONS] <task>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--tokens`, `-t` | `integer` | `1500` | Estimated tokens. |
+| `--tokens`, `-t` | `integer` | `<masked>` | Estimated tokens. |
 | `--frontier`, `-f` | `boolean` | - | Force routing to frontier tier models. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
@@ -3184,7 +3185,7 @@ devops tls ca [OPTIONS]
 | `--organization`, `-org` | `string` | `Homelab DevOps` | Organization name. |
 | `--country`, `-c` | `string` | `US` | 2-letter country code. |
 | `--validity-days`, `-d` | `integer` | `3650` | Validity period in days. |
-| `--key-size`, `-k` | `integer` | `2048` | RSA key size in bits (2048 or 4096). |
+| `--key-size`, `-k` | `integer` | `<masked>` | RSA key size in bits (2048 or 4096). |
 | `--overwrite`, `-f` | `boolean` | - | Overwrite existing files. |
 
 ### `devops tls cert`
@@ -3205,7 +3206,7 @@ devops tls cert [OPTIONS]
 | `--ca-key` | `path` | - | Path to signing CA private key (ca.key). |
 | `--output-dir`, `-o` | `path` | `~/.config/devops-cli/tls` | Directory to save certificate and key files. |
 | `--validity-days`, `-d` | `integer` | `365` | Validity period in days. |
-| `--key-size`, `-k` | `integer` | `2048` | RSA key size in bits (2048 or 4096). |
+| `--key-size`, `-k` | `integer` | `<masked>` | RSA key size in bits (2048 or 4096). |
 | `--organization`, `-org` | `string` | `Homelab DevOps` | Organization name. |
 | `--overwrite`, `-f` | `boolean` | - | Overwrite existing files. |
 
@@ -3274,7 +3275,7 @@ devops tls enable-k8s [OPTIONS]
 |---|---|---|---|
 | `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
 | `--tls-dir` | `path` | `~/.config/devops-cli/tls` | Directory with generated TLS certificates. |
-| `--secret-name` | `string` | `homelab-tls` | Kubernetes TLS secret name to create. |
+| `--secret-name` | `string` | `<masked>` | Kubernetes TLS secret name to create. |
 | `--namespace`, `-n` | `string` | - | Kubernetes namespace. |
 | `--overwrite`, `-f` | `boolean` | - | Overwrite existing files. |
 

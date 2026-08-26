@@ -187,7 +187,7 @@ devops ai route [OPTIONS] <task>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--tokens`, `-t` | `integer` | `1500` | Estimated tokens. |
+| `--tokens`, `-t` | `integer` | `<masked>` | Estimated tokens. |
 | `--frontier`, `-f` | `boolean` | - | Force routing to frontier tier models. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 

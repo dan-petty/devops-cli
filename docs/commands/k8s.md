@@ -163,7 +163,7 @@ devops k8s port-forward [OPTIONS]
 | `--ollama-port` | `integer` | `11434` | Local port for Ollama |
 | `--open-webui-port` | `integer` | `3000` | Local port for Open-WebUI |
 | `--qdrant-port` | `integer` | `6333` | Local port for Qdrant HTTP |
-| `--valkey-port` | `integer` | `6379` | Local port for Valkey |
+| `--valkey-port` | `integer` | `<masked>` | Local port for Valkey |
 | `--address` | `string` | `127.0.0.1` | Local address to bind for port-forwarding |
 
 ---
@@ -282,7 +282,7 @@ devops k8s create-tls-secret [OPTIONS] <secret_name>
 |---|---|---|---|
 | `--namespace`, `-n` | `string` | `default` | Target Kubernetes namespace |
 | `--cert` | `path` | `~/.config/devops-cli/tls/tls.crt` | Path to TLS certificate file (.crt or .pem) |
-| `--key` | `path` | `~/.config/devops-cli/tls/tls.key` | Path to TLS private key file (.key or .pem) |
+| `--key` | `path` | `<masked>` | Path to TLS private key file (.key or .pem) |
 | `--context`, `-c` | `string` | - | Kubernetes cluster context |
 
 ---
@@ -301,7 +301,7 @@ devops k8s enable-tls [OPTIONS]
 |---|---|---|---|
 | `--context`, `-c` | `string` | - | Kubernetes cluster context |
 | `--tls-dir` | `path` | `~/.config/devops-cli/tls` | Directory with generated TLS certificates |
-| `--secret-name` | `string` | `homelab-tls` | TLS secret name across namespaces |
+| `--secret-name` | `string` | `<masked>` | TLS secret name across namespaces |
 | `--stack`, `-s` | `string` | `all` | Stack to deploy TLS secrets into (infra, llm, all) |
 | `--overwrite`, `-f` | `boolean` | - | Regenerate certs if missing |
 

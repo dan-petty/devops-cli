@@ -12,6 +12,8 @@ Utilize security scanner tools (`scan_trivy`, `scan_kubelinter`, `scan_pluto`, `
   - OWASP Top 10 vulnerabilities, CWE guidelines, and defensive coding standards.
 - Context-Aware Calibration & Avoidance Grounding:
   - Do NOT flag documentation, architectural guides, security tutorials, knowledge base articles, test fixtures/mocks, or educational examples that explain known vulnerabilities or insecure configurations in the context of avoiding, preventing, testing, or mitigating them.
+  - Do NOT flag internal CLI command reflection/introspection or documentation generation loading trusted internal modules as arbitrary code execution.
+  - Validate alleged syntax errors against real language compiler/AST parsing before asserting syntax defects.
   - Verify every finding against concrete codebase evidence and provide self-contained, drop-in remediation code.
 
 Respond in this exact format:

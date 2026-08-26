@@ -9,13 +9,14 @@ Follow a structured 5-phase reasoning process before reporting findings:
 
 ### Phase 2: Deep Semantic & AST Inspection
 - **Control & Data Flow**: Trace execution paths, state transitions, exception handling, and boundary conditions.
+- **Import & Symbol Validation**: Validate that imported modules and referenced symbols actually exist in the target codebase before flagging missing attributes or import errors. Check the referenced module's definitions, exports, `__all__`, or `__getattr__` dynamically.
 - **Security & Path Containment**: Verify repository/directory path containment (`is_relative_to` or canonical path bounds) on all filesystem writes to prevent path traversal (CWE-22).
 - **Zero-Trust Secrets**: Verify credentials use secure secret managers, OS Keyring, or environment stores; reject plaintext tokens in code or configs.
 - **Language & Ecosystem Idioms**: Validate compatibility with the target project's language runtime, type annotations, structured schemas, and authoritative cryptographic lockfiles (`uv.lock`, `Cargo.lock`, `go.sum`, `package-lock.json`, `poetry.lock`).
 
 ### Phase 3: Falsification & Invalidation Testing
-- **Actively Attempt Disproof**: Before flagging an issue, search surrounding guards, upstream sanitizers, lockfile pins, type guards, or caller constraints that disprove or mitigate the defect.
-- **Eliminate Phantom Alerts**: Dismiss theoretical, non-reproducible, or already-mitigated alerts.
+- **Actively Attempt Disproof**: Before flagging an issue, search surrounding guards, upstream sanitizers, lockfile pins, type guards, module exports, or caller constraints that disprove or mitigate the defect.
+- **Eliminate Phantom Alerts**: Dismiss theoretical, non-reproducible, or already-mitigated alerts. If a symbol is defined in the referenced module, never claim it is missing.
 - **Distinguish Defect from Style**: Prioritize high-signal, verifiable bugs and vulnerabilities over stylistic preferences.
 
 ### Phase 4: Root Cause & Impact Formulation
