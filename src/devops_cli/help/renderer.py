@@ -55,8 +55,7 @@ _ROOT_HELP: Final[str] = """
 # Subcommand Help Templates
 _SUBCOMMAND_HELPS: Final[dict[str, str]] = {
     "ai": """
-
- Usage: root [OPTIONS] COMMAND [ARGS]...
+ Usage: devops ai [OPTIONS] COMMAND [ARGS]...
 
  Configure, test, chat, analyze, and review codebases (Ollama, Claude, Copilot).
 
@@ -89,8 +88,7 @@ _SUBCOMMAND_HELPS: Final[dict[str, str]] = {
 ╰────────────────────────────────────────────────────────────────────────────────────────────────────╯
 """,
     "argo": """
-
- Usage: root [OPTIONS] COMMAND [ARGS]...
+ Usage: devops argo [OPTIONS] COMMAND [ARGS]...
 
  Argo CD, Workflows, and Rollouts management.
 
@@ -107,8 +105,7 @@ _SUBCOMMAND_HELPS: Final[dict[str, str]] = {
 ╰────────────────────────────────────────────────────────────────────────────────────────────────────╯
 """,
     "branches": """
-
- Usage: root [OPTIONS] COMMAND [ARGS]...
+ Usage: devops branches [OPTIONS] COMMAND [ARGS]...
 
  Branch management and Jira workflows.
 
@@ -127,8 +124,7 @@ _SUBCOMMAND_HELPS: Final[dict[str, str]] = {
 ╰────────────────────────────────────────────────────────────────────────────────────────────────────╯
 """,
     "ci": """
-
- Usage: root [OPTIONS] COMMAND [ARGS]...
+ Usage: devops ci [OPTIONS] COMMAND [ARGS]...
 
  Run tests, linting, formatting, and type-checks.
 
@@ -152,8 +148,7 @@ _SUBCOMMAND_HELPS: Final[dict[str, str]] = {
 ╰────────────────────────────────────────────────────────────────────────────────────────────────────╯
 """,
     "config": """
-
- Usage: root [OPTIONS] COMMAND [ARGS]...
+ Usage: devops config [OPTIONS] COMMAND [ARGS]...
 
  Manage devops-cli configuration.
 
@@ -176,8 +171,7 @@ _SUBCOMMAND_HELPS: Final[dict[str, str]] = {
 ╰────────────────────────────────────────────────────────────────────────────────────────────────────╯
 """,
     "devcontainer": """
-
- Usage: root [OPTIONS] COMMAND [ARGS]...
+ Usage: devops devcontainer [OPTIONS] COMMAND [ARGS]...
 
  Manage devcontainer configurations.
 
@@ -200,8 +194,7 @@ _SUBCOMMAND_HELPS: Final[dict[str, str]] = {
 ╰────────────────────────────────────────────────────────────────────────────────────────────────────╯
 """,
     "docker": """
-
- Usage: root [OPTIONS] COMMAND [ARGS]...
+ Usage: devops docker [OPTIONS] COMMAND [ARGS]...
 
  Docker image management.
 
@@ -220,8 +213,7 @@ _SUBCOMMAND_HELPS: Final[dict[str, str]] = {
 ╰────────────────────────────────────────────────────────────────────────────────────────────────────╯
 """,
     "docs": """
-
- Usage: root [OPTIONS] COMMAND [ARGS]...
+ Usage: devops docs [OPTIONS] COMMAND [ARGS]...
 
  Generate and validate CLI and architecture documentation.
 
@@ -238,8 +230,7 @@ _SUBCOMMAND_HELPS: Final[dict[str, str]] = {
 ╰────────────────────────────────────────────────────────────────────────────────────────────────────╯
 """,
     "grafana": """
-
- Usage: root [OPTIONS] COMMAND [ARGS]...
+ Usage: devops grafana [OPTIONS] COMMAND [ARGS]...
 
  Grafana dashboard and alert management.
 
@@ -257,8 +248,7 @@ _SUBCOMMAND_HELPS: Final[dict[str, str]] = {
 ╰────────────────────────────────────────────────────────────────────────────────────────────────────╯
 """,
     "install-tools": """
-
- Usage: root [OPTIONS] COMMAND [ARGS]...
+ Usage: devops install-tools [OPTIONS] COMMAND [ARGS]...
 
  Install and manage DevOps tool binaries.
 
@@ -276,8 +266,7 @@ _SUBCOMMAND_HELPS: Final[dict[str, str]] = {
 ╰────────────────────────────────────────────────────────────────────────────────────────────────────╯
 """,
     "k8s": """
-
- Usage: root [OPTIONS] COMMAND [ARGS]...
+ Usage: devops k8s [OPTIONS] COMMAND [ARGS]...
 
  Kubernetes resource management.
 
@@ -312,8 +301,7 @@ _SUBCOMMAND_HELPS: Final[dict[str, str]] = {
 ╰────────────────────────────────────────────────────────────────────────────────────────────────────╯
 """,
     "kustomize": """
-
- Usage: root [OPTIONS] COMMAND [ARGS]...
+ Usage: devops kustomize [OPTIONS] COMMAND [ARGS]...
 
  Kustomize build and apply operations.
 
@@ -330,8 +318,7 @@ _SUBCOMMAND_HELPS: Final[dict[str, str]] = {
 ╰────────────────────────────────────────────────────────────────────────────────────────────────────╯
 """,
     "mcp": """
-
- Usage: mcp [OPTIONS] COMMAND [ARGS]...
+ Usage: devops mcp [OPTIONS] COMMAND [ARGS]...
 
  FastMCP server and Model Context Protocol integrations.
 
@@ -347,8 +334,7 @@ _SUBCOMMAND_HELPS: Final[dict[str, str]] = {
 ╰────────────────────────────────────────────────────────────────────────────────────────────────────╯
 """,
     "pr": """
-
- Usage: root [OPTIONS] COMMAND [ARGS]...
+ Usage: devops pr [OPTIONS] COMMAND [ARGS]...
 
  Manage GitHub pull requests, base branch targeting, and review gates.
 
@@ -367,8 +353,7 @@ _SUBCOMMAND_HELPS: Final[dict[str, str]] = {
 ╰────────────────────────────────────────────────────────────────────────────────────────────────────╯
 """,
     "prometheus": """
-
- Usage: root [OPTIONS] COMMAND [ARGS]...
+ Usage: devops prometheus [OPTIONS] COMMAND [ARGS]...
 
  Prometheus query and rule management.
 
@@ -386,8 +371,7 @@ _SUBCOMMAND_HELPS: Final[dict[str, str]] = {
 ╰────────────────────────────────────────────────────────────────────────────────────────────────────╯
 """,
     "release": """
-
- Usage: root [OPTIONS] COMMAND [ARGS]...
+ Usage: devops release [OPTIONS] COMMAND [ARGS]...
 
  Manage release cycles, version bumping, changelogs, and release verification.
 
@@ -407,8 +391,7 @@ _SUBCOMMAND_HELPS: Final[dict[str, str]] = {
 ╰────────────────────────────────────────────────────────────────────────────────────────────────────╯
 """,
     "repos": """
-
- Usage: root [OPTIONS] COMMAND [ARGS]...
+ Usage: devops repos [OPTIONS] COMMAND [ARGS]...
 
  Clone and manage repositories.
 
@@ -427,8 +410,7 @@ _SUBCOMMAND_HELPS: Final[dict[str, str]] = {
 ╰────────────────────────────────────────────────────────────────────────────────────────────────────╯
 """,
     "review": """
-
- Usage: root [OPTIONS] COMMAND [ARGS]...
+ Usage: devops review [OPTIONS] COMMAND [ARGS]...
 
  AI Code Review across branches, paths, and pull requests.
 
@@ -452,8 +434,7 @@ _SUBCOMMAND_HELPS: Final[dict[str, str]] = {
 ╰────────────────────────────────────────────────────────────────────────────────────────────────────╯
 """,
     "scan": """
-
- Usage: root [OPTIONS] COMMAND [ARGS]...
+ Usage: devops scan [OPTIONS] COMMAND [ARGS]...
 
  Security, vulnerability, secret, and AST scanner (Trivy, Semgrep, Gitleaks).
 
@@ -476,8 +457,7 @@ _SUBCOMMAND_HELPS: Final[dict[str, str]] = {
 ╰────────────────────────────────────────────────────────────────────────────────────────────────────╯
 """,
     "serve": """
-
- Usage: root [OPTIONS] COMMAND [ARGS]...
+ Usage: devops serve [OPTIONS] COMMAND [ARGS]...
 
  FastAPI REST & OpenAPI Service Engine for remote automation, health probes, and metrics.
 
@@ -500,8 +480,7 @@ _SUBCOMMAND_HELPS: Final[dict[str, str]] = {
 ╰────────────────────────────────────────────────────────────────────────────────────────────────────╯
 """,
     "ssh": """
-
- Usage: root [OPTIONS] COMMAND [ARGS]...
+ Usage: devops ssh [OPTIONS] COMMAND [ARGS]...
 
  SSH key generation, rotation, and GitHub registration.
 
@@ -521,8 +500,7 @@ _SUBCOMMAND_HELPS: Final[dict[str, str]] = {
 ╰────────────────────────────────────────────────────────────────────────────────────────────────────╯
 """,
     "telemetry": """
-
- Usage: root [OPTIONS] COMMAND [ARGS]...
+ Usage: devops telemetry [OPTIONS] COMMAND [ARGS]...
 
  OpenTelemetry observability, tracing, and metrics management.
 
@@ -539,8 +517,7 @@ _SUBCOMMAND_HELPS: Final[dict[str, str]] = {
 ╰────────────────────────────────────────────────────────────────────────────────────────────────────╯
 """,
     "tf": """
-
- Usage: root [OPTIONS] COMMAND [ARGS]...
+ Usage: devops tf [OPTIONS] COMMAND [ARGS]...
 
  OpenTofu and Terraform Infrastructure-as-Code operations.
 
@@ -564,8 +541,7 @@ _SUBCOMMAND_HELPS: Final[dict[str, str]] = {
 ╰────────────────────────────────────────────────────────────────────────────────────────────────────╯
 """,
     "tls": """
-
- Usage: root [OPTIONS] COMMAND [ARGS]...
+ Usage: devops tls [OPTIONS] COMMAND [ARGS]...
 
  X.509 TLS certificate generation, inspection, verification, and Kubernetes secrets.
 
@@ -585,8 +561,7 @@ _SUBCOMMAND_HELPS: Final[dict[str, str]] = {
 ╰────────────────────────────────────────────────────────────────────────────────────────────────────╯
 """,
     "uv": """
-
- Usage: root [OPTIONS] COMMAND [ARGS]...
+ Usage: devops uv [OPTIONS] COMMAND [ARGS]...
 
  uv dependency management proxies.
 
@@ -604,8 +579,7 @@ _SUBCOMMAND_HELPS: Final[dict[str, str]] = {
 ╰────────────────────────────────────────────────────────────────────────────────────────────────────╯
 """,
     "workspace": """
-
- Usage: root [OPTIONS] COMMAND [ARGS]...
+ Usage: devops workspace [OPTIONS] COMMAND [ARGS]...
 
  Manage multi-root VS Code workspace files (.code-workspace).
 
@@ -632,6 +606,11 @@ def is_help_requested(args: list[str]) -> bool:
         return True
     if len(args) == 1 and args[0] == "--dry-run":
         return True
+    # Fast path help ONLY applies to root help or 1st-level subcommand help (e.g. devops pr --help).
+    # Multi-level commands (e.g. devops pr view --help) must be handled by Typer to inspect their specific options/args.
+    non_flags = [a for a in args if not a.startswith("-")]
+    if len(non_flags) > 1:
+        return False
     return any(a in ("-h", "--help") for a in args)
 
 
@@ -645,9 +624,9 @@ def get_help_text(args: list[str]) -> str | None:
     if not args or (len(args) == 1 and args[0] in ("-h", "--help", "--dry-run")):
         return _ROOT_HELP
 
-    # Check for subcommand help (e.g. devops ai --help or devops --help ai)
+    # Check for top-level subcommand help (e.g. devops ai --help or devops --help ai)
     non_flags = [a for a in args if not a.startswith("-")]
-    if non_flags:
+    if len(non_flags) == 1:
         subcmd = non_flags[0]
         if subcmd in _SUBCOMMAND_HELPS and any(a in ("-h", "--help") for a in args):
             return _SUBCOMMAND_HELPS[subcmd]
