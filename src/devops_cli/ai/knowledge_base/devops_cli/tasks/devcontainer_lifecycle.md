@@ -13,19 +13,21 @@ graph TD
     A[devops devcontainer init] --> B[Scaffold devcontainer.json & mcp.json]
     B --> C[Scaffold AGENTS.md, CLAUDE.md, copilot-instructions.md]
     D[Container Start: postCreateCommand] --> E[devops devcontainer post-create]
-    E --> F[Persistent Bash/Zsh History & Path Setup]
-    E --> G[Config Prep ~/.gemini/config]
-    E --> H[Scaffold Missing Agent Instructions]
-    I[Container Run: postStartCommand] --> J[devops devcontainer post-start]
-    J --> K[Git Push Defaults & SSH Commit Signing]
-    J --> L[MCP Server Config Sync]
-    J --> M[Minikube Auto-start & Health Check]
+    E --> F[Volume Mount Permissions & Ownership: /tmp, .venv, caches]
+    E --> G[Persistent Bash/Zsh History & Path Setup]
+    E --> H[Config Prep ~/.gemini/config]
+    E --> I[Scaffold Missing Agent Instructions]
+    J[Container Run: postStartCommand] --> K[devops devcontainer post-start]
+    K --> L[Volume Mount Permissions & Ownership Validation]
+    K --> M[Git Push Defaults & SSH Commit Signing]
+    K --> N[MCP Server Config Sync]
+    K --> O[Minikube Auto-start & Health Check]
 ```
 
 - **Lifecycle Phases**:
   1. `init`: Scaffolds `.devcontainer/devcontainer.json`, `.vscode/mcp.json`, and agent instruction files.
-  2. `post-create`: Pure Python setup of persistent bash/zsh history, environment paths, config directories, and agent instructions.
-  3. `post-start`: Pure Python configuration of Git defaults, SSH key commit signing, MCP server JSON synchronization, and Minikube auto-start.
+  2. `post-create`: Pure Python setup of volume mount permissions (`/tmp` 1777, `.venv`/`.data`/caches user ownership), persistent bash/zsh history, environment paths, config directories, and agent instructions.
+  3. `post-start`: Pure Python verification of volume mount permissions, Git defaults, SSH key commit signing, MCP server JSON synchronization, and Minikube auto-start.
 
 ---
 

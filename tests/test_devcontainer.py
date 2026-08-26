@@ -549,3 +549,260 @@ class TestDevcontainerCli:
         res_val = runner.invoke(app, ["validate", "--workspace", str(tmp_path)])
         assert res_val.exit_code == 1
         assert "must be a JSON object" in res_val.output
+
+    def test_parse_mount_spec_and_extract_targets(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test mount spec parsing and target extraction with variable expansion."""
+        from devops_cli.commands.devcontainer import _extract_mount_targets, _parse_mount_spec
+
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        monkeypatch.setenv("HOME", str(fake_home))
+
+        # String format
+        spec_str = "source=test-venv,target=${containerWorkspaceFolder}/.venv,type=volume"
+        parsed_str = _parse_mount_spec(spec_str, tmp_path)
+        assert parsed_str is not None
+        assert parsed_str[0] == (tmp_path / ".venv").resolve()
+        assert parsed_str[1] == "volume"
+
+        # Dict format with ~ and HOME
+        spec_dict = {"source": "test-home", "target": "~/.custom_dir", "type": "volume"}
+        parsed_dict = _parse_mount_spec(spec_dict, tmp_path)
+        assert parsed_dict is not None
+        assert parsed_dict[0] == (fake_home / ".custom_dir").resolve()
+
+        # Invalid spec
+        assert _parse_mount_spec(123, tmp_path) is None  # type: ignore[arg-type]
+        assert _parse_mount_spec({}, tmp_path) is None
+
+        # Create devcontainer.json with mounts
+        dc_dir = tmp_path / ".devcontainer"
+        dc_dir.mkdir(parents=True)
+        manifest = {
+            "name": "test-mounts",
+            "mounts": [
+                "source=test-data,target=${containerWorkspaceFolder}/.data,type=volume",
+                "source=test-tmp,target=/tmp,type=volume",
+            ],
+        }
+        (dc_dir / "devcontainer.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+        targets = _extract_mount_targets(tmp_path)
+        paths = [t[0] for t in targets]
+        assert (tmp_path / ".data").resolve() in paths
+        assert Path("/tmp").resolve() in paths
+        assert (tmp_path / ".venv").resolve() in paths
+
+    def test_setup_volume_mount_permissions_and_lifecycle(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Verify volume mount permissions setup and reporting in post-create and post-start."""
+        from devops_cli.commands.devcontainer import (
+            _ensure_mount_permissions,
+            _setup_volume_mount_permissions,
+        )
+
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        fake_ssh = fake_home / ".ssh"
+        fake_ssh.mkdir()
+        monkeypatch.setenv("HOME", str(fake_home))
+        monkeypatch.setenv("DEVOPS_MINIKUBE_AUTOSTART", "false")
+        monkeypatch.setenv("DEVOPS_K8S_AUTO_DEPLOY", "false")
+        monkeypatch.setenv("DEVOPS_GIT_DAEMON_AUTOSTART", "false")
+
+        # Test dry-run permission setup
+        dry_actions = _setup_volume_mount_permissions(tmp_path, dry_run=True)
+        assert any("Configured volume mount permissions" in a for a in dry_actions)
+
+        # Test live permission setup on a custom directory
+        custom_dir = tmp_path / "custom_vol"
+        msg = _ensure_mount_permissions(custom_dir, "volume", dry_run=False)
+        assert msg is not None
+        assert custom_dir.exists()
+        assert "Configured volume mount permissions" in msg
+
+        # Test post-create includes volume mount configuration
+        res_create = runner.invoke(app, ["post-create", "--workspace", str(tmp_path)])
+        assert res_create.exit_code == 0
+        assert "Configured volume mount permissions" in res_create.output
+
+        # Test post-start includes volume mount configuration
+        res_start = runner.invoke(app, ["post-start", "--workspace", str(tmp_path)])
+        assert res_start.exit_code == 0
+        assert "Configured volume mount permissions" in res_start.output
+
+    def test_ensure_path_ownership_and_mount_edge_cases(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test edge cases in path ownership and mount permission setting."""
+        from devops_cli.commands.devcontainer import (
+            _ensure_mount_permissions,
+            _ensure_path_ownership,
+            _setup_volume_mount_permissions,
+        )
+
+        test_dir = tmp_path / "test_ownership"
+        test_dir.mkdir()
+        (test_dir / "subfile.txt").write_text("hello", encoding="utf-8")
+
+        # 1. Missing getuid / getgid
+        monkeypatch.setattr("os.getuid", lambda: None)
+        _ensure_path_ownership(test_dir)
+
+        # 2. Non-existent path in stat
+        non_existent = tmp_path / "non_existent"
+        monkeypatch.setattr("os.getuid", lambda: 1000)
+        monkeypatch.setattr("os.getgid", lambda: 1000)
+        _ensure_path_ownership(non_existent)
+
+        # 3. Ownership mismatch as root (uid=0)
+        monkeypatch.setattr("os.getuid", lambda: 0)
+        monkeypatch.setattr("os.getgid", lambda: 0)
+        chown_calls: list[tuple[str, int, int]] = []
+        monkeypatch.setattr("os.chown", lambda p, u, g: chown_calls.append((str(p), u, g)))
+        # Make stat return uid 1000 so mismatch is detected
+        fake_stat = type("Stat", (), {"st_uid": 1000, "st_gid": 1000})()
+        monkeypatch.setattr(Path, "stat", lambda self: fake_stat)
+        _ensure_path_ownership(test_dir)
+        assert len(chown_calls) > 0
+
+        # 4. Ownership mismatch as non-root with sudo
+        monkeypatch.setattr("os.getuid", lambda: 1000)
+        monkeypatch.setattr("os.getgid", lambda: 1000)
+        fake_stat_root = type("Stat", (), {"st_uid": 0, "st_gid": 0})()
+        monkeypatch.setattr(Path, "stat", lambda self: fake_stat_root)
+        sudo_calls: list[list[str]] = []
+
+        def mock_run_subprocess(cmd: list[str], **kwargs: object) -> object:
+            sudo_calls.append(cmd)
+            import subprocess
+
+            return subprocess.CompletedProcess(cmd, returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr("devops_cli.commands.devcontainer.run_subprocess", mock_run_subprocess)
+        monkeypatch.setattr("shutil.which", lambda prog: f"/usr/bin/{prog}")
+        _ensure_path_ownership(test_dir)
+        assert any("chown" in c for c in sudo_calls)
+
+        # 5. /tmp permission check
+        msg_tmp = _ensure_mount_permissions(Path("/tmp"), "volume", dry_run=False)
+        assert "1777" in (msg_tmp or "")
+
+        # 6. .ssh permission check
+        ssh_dir = tmp_path / ".ssh"
+        ssh_dir.mkdir()
+        (ssh_dir / "id_ed25519").write_text("dummy-key", encoding="utf-8")
+        msg_ssh = _ensure_mount_permissions(ssh_dir, "volume", dry_run=False)
+        assert "SSH" in (msg_ssh or "")
+
+        # 7. Setup permissions filtering root Path("/")
+        actions = _setup_volume_mount_permissions(tmp_path, dry_run=True)
+        assert isinstance(actions, list)
+
+    def test_additional_devcontainer_coverage_branches(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Cover additional branches in validation, listing, lifecycle, and permissions."""
+        from devops_cli.commands.devcontainer import (
+            _ensure_mount_permissions,
+            _extract_mount_targets,
+            _run_post_create_lifecycle,
+            _run_post_start_lifecycle,
+        )
+
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        monkeypatch.setenv("HOME", str(fake_home))
+
+        # 1. Corrupted devcontainer.json in _extract_mount_targets
+        dc_dir = tmp_path / ".devcontainer"
+        dc_dir.mkdir(parents=True, exist_ok=True)
+        (dc_dir / "devcontainer.json").write_text("invalid json content", encoding="utf-8")
+        targets = _extract_mount_targets(tmp_path)
+        assert len(targets) > 0  # Standard dirs still extracted
+
+        # 2. PermissionError on mkdir and chmod in _ensure_mount_permissions
+        new_target = tmp_path / "protected_target"
+        orig_mkdir = Path.mkdir
+        orig_chmod = Path.chmod
+
+        def raise_perm_err(*args: object, **kwargs: object) -> None:
+            raise PermissionError("Access denied")
+
+        monkeypatch.setattr(Path, "mkdir", raise_perm_err)
+        monkeypatch.setattr(Path, "chmod", raise_perm_err)
+        sudo_calls: list[list[str]] = []
+
+        def mock_run_subprocess(cmd: list[str], **kwargs: object) -> object:
+            sudo_calls.append(cmd)
+            import subprocess
+
+            return subprocess.CompletedProcess(cmd, returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr("devops_cli.commands.devcontainer.run_subprocess", mock_run_subprocess)
+        monkeypatch.setattr("shutil.which", lambda prog: f"/usr/bin/{prog}")
+        msg = _ensure_mount_permissions(new_target, "volume", dry_run=False)
+        assert msg is not None
+        assert any("mkdir" in c for c in sudo_calls)
+
+        # Restore original mkdir and chmod
+        monkeypatch.setattr(Path, "mkdir", orig_mkdir)
+        monkeypatch.setattr(Path, "chmod", orig_chmod)
+
+        # 3. Dry-run commands for post-create and post-start
+        res_pc_dry = runner.invoke(app, ["post-create", "--workspace", str(tmp_path), "--dry-run"])
+        assert res_pc_dry.exit_code == 0
+        assert "post_create_lifecycle" in res_pc_dry.output
+
+        res_ps_dry = runner.invoke(app, ["post-start", "--workspace", str(tmp_path), "--dry-run"])
+        assert res_ps_dry.exit_code == 0
+        assert "post_start_lifecycle" in res_ps_dry.output
+
+        # 4. run-lifecycle with flags
+        res_life_pc = runner.invoke(
+            app, ["run-lifecycle", "--workspace", str(tmp_path), "--post-create"]
+        )
+        assert res_life_pc.exit_code == 0
+
+        res_life_ps = runner.invoke(
+            app, ["run-lifecycle", "--workspace", str(tmp_path), "--post-start"]
+        )
+        assert res_life_ps.exit_code == 0
+
+        # 5. devcontainer list with missing base_dir
+        res_list_missing = runner.invoke(
+            app, ["list", "--base-dir", str(tmp_path / "non_existent_repos")]
+        )
+        assert res_list_missing.exit_code == 0
+        assert "not found" in res_list_missing.output
+
+        # 6. Validate with explicit config path and missing dockerFile
+        custom_dc = tmp_path / "custom-dc.json"
+        custom_dc.write_text(
+            json.dumps({"name": "custom", "dockerFile": "Dockerfile.missing"}), encoding="utf-8"
+        )
+        res_custom_val = runner.invoke(
+            app, ["validate", "--workspace", str(tmp_path), "--config", str(custom_dc)]
+        )
+        assert res_custom_val.exit_code == 1
+        assert "Referenced dockerFile does not exist" in res_custom_val.output
+
+        # 7. Post-create warning with non-existent DEVOPS_CLI_CONFIG
+        monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(tmp_path / "missing-config.yaml"))
+        actions_pc = _run_post_create_lifecycle(tmp_path, dry_run=False)
+        assert any("Specified DEVOPS_CLI_CONFIG file does not exist" in a for a in actions_pc)
+
+        # 8. Post-start skipping k8s auto-deploy when Minikube not running
+        monkeypatch.setenv("DEVOPS_MINIKUBE_AUTOSTART", "false")
+        monkeypatch.setenv("DEVOPS_K8S_AUTO_DEPLOY", "true")
+        actions_ps = _run_post_start_lifecycle(tmp_path, dry_run=False)
+        assert any("Minikube is not running" in a for a in actions_ps)
+
+        # 9. _validate_manifest_content root and name checks
+        from devops_cli.commands.devcontainer import _validate_manifest_content
+
+        assert "must be a JSON object" in _validate_manifest_content("string", tmp_path)[0]
+        assert "Missing or empty required field" in _validate_manifest_content({}, tmp_path)[0]

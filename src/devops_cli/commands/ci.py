@@ -57,8 +57,15 @@ def _get(name: str) -> Any:
 
 app = new_typer(help=HELP.ci.app)
 
-# Repo root: src/devops_cli/commands/ci.py -> parents[3]
-_ROOT = Path(__file__).resolve().parents[3]
+
+def _get_project_root() -> Path:
+    """Find repository root containing pyproject.toml or .git."""
+    from devops_cli.core.repo import find_top_level_repo_root
+
+    return find_top_level_repo_root()
+
+
+_ROOT = _get_project_root()
 
 
 @dataclass(frozen=True)
@@ -100,11 +107,12 @@ def _run(
     capture_output: bool = False,
 ) -> bool:
     """Run a CI check subprocess synchronously."""
+    root = _get_project_root()
     full_cmd = list(cmd)
     if full_cmd and full_cmd[0] == "uv" and "--preview-features" not in full_cmd:
         full_cmd[1:1] = ["--preview-features", "malware-check"]
     result = _get("run_subprocess")(
-        full_cmd, cwd=_ROOT, timeout=timeout, capture_output=capture_output
+        full_cmd, cwd=root, timeout=timeout, capture_output=capture_output
     )
     return bool(result.returncode == 0)
 
@@ -115,14 +123,16 @@ def _section(title: str) -> None:
 
 def _clean_coverage_artifacts() -> None:
     """Clean up residual temporary .coverage.* worker files from root workspace and .data/."""
-    for target_dir in (_ROOT, _ROOT / ".data"):
+    current_root = getattr(sys.modules[__name__], "_ROOT", _get_project_root())
+
+    for target_dir in (current_root, current_root / ".data"):
         if target_dir.exists():
             for path in target_dir.glob(".coverage*"):
                 try:
                     path.unlink(missing_ok=True)
                 except OSError:
                     pass
-    root_coverage_xml = _ROOT / "coverage.xml"
+    root_coverage_xml = current_root / "coverage.xml"
     if root_coverage_xml.exists():
         try:
             root_coverage_xml.unlink(missing_ok=True)
@@ -140,6 +150,7 @@ async def _execute_check_async(
 ) -> CheckResult:
     """Execute an individual CI verification step asynchronously and record telemetry."""
     t0 = time.perf_counter()
+    root = _get_project_root()
     full_cmd = list(cmd)
     if full_cmd and full_cmd[0] == "uv" and "--preview-features" not in full_cmd:
         full_cmd[1:1] = ["--preview-features", "malware-check"]
@@ -147,7 +158,7 @@ async def _execute_check_async(
     with _get("trace_span")(span_name):
         proc = await _get("run_subprocess_async")(
             full_cmd,
-            cwd=_ROOT,
+            cwd=root,
             timeout=timeout,
             capture_output=True,
         )

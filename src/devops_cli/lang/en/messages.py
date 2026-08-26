@@ -537,6 +537,10 @@ class DevcontainerMessages:
     post_start_start: str = "Running DevContainer post-start lifecycle for {workspace}..."
     post_start_ready: str = "✓ DevContainer post-start lifecycle complete."
     updated_image: str = "Updated image → python:{version}"
+    mount_permissions_configured: str = "Configured volume mount permissions at {path}"
+    temp_dir_permissions_configured: str = (
+        "Configured temporary directory permissions (1777) at {path}"
+    )
 
 
 @dataclass(frozen=True)

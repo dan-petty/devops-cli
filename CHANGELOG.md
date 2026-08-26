@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.3] - 2026-08-26
+
+### Added
+- **Centralized Parameter Defaults & Invariant Constants Architecture (`devops_cli.config.defaults`, `devops_cli.config.constants`)**:
+  - Centralized all inline parameter default values across functions and CLI subcommands into `src/devops_cli/config/defaults.py` and `src/devops_cli/config/constants.py`.
+  - Added declarative subprocess argument builders in `src/devops_cli/config/commands.py` (`build_kubectl_cmd`, `build_kustomize_build_cmd`, `build_bandit_cmd`, `build_trivy_scan_cmd`, `build_popeye_cmd`, `build_kubelinter_cmd`, `build_pluto_cmd`, `build_uv_audit_cmd`, `build_tf_cmd`, `build_tofu_cmd`, `build_gitleaks_cmd`, `build_semgrep_cmd`).
+- **Declarative Output Renderable Models (`devops_cli.output.models`)**:
+  - Implemented declarative Pydantic v2 schemas (`TablePayload`, `PanelPayload`, `MarkdownPayload`, `SyntaxPayload`, `RulePayload`, `KeyValuePayload`, `MessageLevel`) with encapsulated Rich console rendering in `devops_cli.output`.
+- **Comprehensive Domain Exception Taxonomy (`devops_cli.exceptions`)**:
+  - Standardized strongly typed exceptions under `src/devops_cli/exceptions/` (`DevOpsCLIError`, `GitOperationError`, `InvalidBranchNameError`, `InvalidURLError`, `SecurityValidationError`, `ToolExecutionError`, `AIProviderError`, `ConfigurationError`).
+  - Configured explicit POSIX exit codes, canonical machine-readable error codes, and structured error contexts project-wide.
+- **Fast Typer Startup & PEP 562 Lazy Loading**:
+  - Optimized CLI command dispatch with Typer lazy loading and stateless PEP 562 `__getattr__` / `_get` resolution across subcommands (`repos`, `branches`, `ci`, `mcp`, `release`, `uv`, `workspace`).
+
 ## [0.2.2] - 2026-08-25
 
 ### Added

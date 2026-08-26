@@ -376,11 +376,202 @@ def list_devcontainers(
 # =============================================================================
 
 
+def _parse_mount_spec(mount: str | dict[str, str], workspace_dir: Path) -> tuple[Path, str] | None:
+    """Parse a single mount definition into resolved target path and mount type."""
+    if isinstance(mount, str):
+        parts = [p.strip() for p in mount.split(",")]
+        kv = dict(p.split("=", 1) for p in parts if "=" in p)
+        raw_target = kv.get("target") or kv.get("dst") or kv.get("destination")
+        mount_type = kv.get("type", "volume")
+    elif isinstance(mount, dict):
+        raw_target = mount.get("target") or mount.get("dst") or mount.get("destination")
+        mount_type = mount.get("type", "volume")
+    else:
+        return None
+
+    if not raw_target or not isinstance(raw_target, str):
+        return None
+
+    resolved = (
+        raw_target.replace("${containerWorkspaceFolder}", str(workspace_dir))
+        .replace("${workspaceFolder}", str(workspace_dir))
+        .replace("${containerWorkspaceFolderBasename}", workspace_dir.name)
+        .replace("${workspaceFolderBasename}", workspace_dir.name)
+        .replace("${env:HOME}", str(Path.home()))
+        .replace("${localEnv:HOME}", str(Path.home()))
+        .replace("${localEnv:USERPROFILE}", str(Path.home()))
+    )
+    if resolved.startswith("~"):
+        resolved = str(Path.home() / resolved[1:].lstrip("/"))
+
+    return Path(resolved).resolve(), mount_type
+
+
+def _extract_mount_targets(workspace_dir: Path) -> list[tuple[Path, str]]:
+    """Extract resolved volume mount target paths and types from devcontainer manifest and standard dirs."""
+    targets: list[tuple[Path, str]] = []
+    seen: set[Path] = set()
+
+    candidates = [
+        workspace_dir / CONST_DEVCONTAINER_JSON_PATH,
+        workspace_dir / CONST_DEVCONTAINER_JSON_NAME,
+    ]
+    dc_file = next((c for c in candidates if c.exists()), None)
+
+    if dc_file:
+        try:
+            clean_text = _strip_json_comments(dc_file.read_text(encoding="utf-8"))
+            data = json.loads(clean_text)
+            mounts = data.get("mounts", [])
+            if isinstance(mounts, list):
+                for m in mounts:
+                    parsed = _parse_mount_spec(m, workspace_dir)
+                    if parsed and parsed[0] not in seen:
+                        seen.add(parsed[0])
+                        targets.append(parsed)
+        except Exception as exc:
+            logger.debug("Failed to extract mounts from %s: %s", dc_file, exc)
+
+    # Standard devcontainer cache / environment directories in workspace
+    for name in (".venv", ".data", ".mypy_cache", ".pytest_cache", ".ruff_cache"):
+        p = (workspace_dir / name).resolve()
+        if p not in seen:
+            seen.add(p)
+            targets.append((p, "volume"))
+
+    return targets
+
+
+def _ensure_path_ownership(target_path: Path) -> None:
+    """Ensure target path and subpaths are owned by current process user."""
+    get_uid = getattr(os, "getuid", None)
+    get_gid = getattr(os, "getgid", None)
+    if get_uid is None or get_gid is None:
+        return
+
+    current_uid = get_uid()
+    current_gid = get_gid()
+
+    try:
+        stat_info = target_path.stat()
+        if stat_info.st_uid == current_uid and stat_info.st_gid == current_gid:
+            return
+    except OSError:
+        return
+
+    if current_uid == 0:
+        try:
+            os.chown(str(target_path), current_uid, current_gid)
+            if target_path.is_dir():
+                for root, dirs, files in os.walk(target_path):
+                    for d in dirs:
+                        os.chown(os.path.join(root, d), current_uid, current_gid)
+                    for f in files:
+                        os.chown(os.path.join(root, f), current_uid, current_gid)
+        except OSError as exc:
+            logger.debug("Failed to chown %s: %s", target_path, exc)
+    elif shutil.which("sudo"):
+        run_subprocess(
+            ["sudo", "chown", "-R", f"{current_uid}:{current_gid}", str(target_path)],
+            check=False,
+            quiet=True,
+        )
+
+
+def _ensure_mount_permissions(
+    target_path: Path, mount_type: str, *, dry_run: bool = False
+) -> str | None:
+    """Ensure directory creation, ownership, and mode permissions for a volume mount."""
+    if target_path in (Path("/tmp"), Path("/var/tmp")):  # nosec B108
+        if not dry_run:
+            try:
+                target_path.chmod(0o1777)
+            except PermissionError, OSError:
+                if shutil.which("sudo"):
+                    run_subprocess(
+                        ["sudo", "chmod", "1777", str(target_path)], check=False, quiet=True
+                    )
+        return MESSAGES.devcontainer.temp_dir_permissions_configured.format(path=target_path)
+
+    if target_path.name == ".ssh" or str(target_path).endswith("/.ssh"):
+        if not dry_run and target_path.exists():
+            _ensure_path_ownership(target_path)
+            _chmod_ssh_dir_and_keys(target_path)
+        return f"Hardened SSH key permissions in {target_path}"
+
+    if not dry_run:
+        if not target_path.exists():
+            try:
+                target_path.mkdir(parents=True, exist_ok=True)
+            except PermissionError, OSError:
+                if shutil.which("sudo"):
+                    run_subprocess(
+                        ["sudo", "mkdir", "-p", str(target_path)], check=False, quiet=True
+                    )
+        if target_path.exists():
+            _ensure_path_ownership(target_path)
+            try:
+                target_path.chmod(0o755)
+            except PermissionError, OSError:
+                if shutil.which("sudo"):
+                    run_subprocess(
+                        ["sudo", "chmod", "755", str(target_path)], check=False, quiet=True
+                    )
+
+    return MESSAGES.devcontainer.mount_permissions_configured.format(path=target_path)
+
+
+def _setup_volume_mount_permissions(workspace_dir: Path, *, dry_run: bool = False) -> list[str]:
+    """Ensure all devcontainer volume mounts and workspace cache directories have proper permissions."""
+    actions: list[str] = []
+    targets = _extract_mount_targets(workspace_dir)
+    for target_path, mount_type in targets:
+        if target_path == Path("/"):
+            continue
+        msg = _ensure_mount_permissions(target_path, mount_type, dry_run=dry_run)
+        if msg:
+            actions.append(msg)
+    return actions
+
+
+def _link_workspace_binary(workspace_dir: Path, *, dry_run: bool = False) -> str | None:
+    """Link workspace .venv/bin/devops to /usr/local/bin/devops for consistent system-wide execution."""
+    venv_bin = workspace_dir / ".venv" / "bin" / "devops"
+    dest = Path("/usr/local/bin/devops")
+    if not venv_bin.exists():
+        return None
+
+    if not dry_run:
+        try:
+            if dest.is_symlink() and dest.resolve() == venv_bin.resolve():
+                return None
+            if shutil.which("sudo"):
+                run_subprocess(
+                    ["sudo", "ln", "-sf", str(venv_bin), str(dest)],
+                    check=False,
+                    quiet=True,
+                )
+            else:
+                dest.unlink(missing_ok=True)
+                dest.symlink_to(venv_bin)
+        except OSError as exc:
+            logger.debug("Failed to link %s to %s: %s", venv_bin, dest, exc)
+    return f"Linked workspace CLI binary to {dest}"
+
+
 def _run_post_create_lifecycle(workspace_dir: Path, *, dry_run: bool = False) -> list[str]:
     """Execute DevContainer post-create setup tasks in pure Python."""
     actions: list[str] = []
 
-    # 1. Bootstrap uv & tools if not present
+    # 1. Volume mount permissions & ownership
+    actions.extend(_setup_volume_mount_permissions(workspace_dir, dry_run=dry_run))
+
+    # 2. Workspace CLI binary link
+    link_action = _link_workspace_binary(workspace_dir, dry_run=dry_run)
+    if link_action:
+        actions.append(link_action)
+
+    # 3. Bootstrap uv & tools if not present
     if shutil.which("uv") is None and not dry_run:
         run_subprocess(
             ["sh", "-c", "curl -LsSf https://astral.sh/uv/install.sh | sh"],
@@ -389,7 +580,7 @@ def _run_post_create_lifecycle(workspace_dir: Path, *, dry_run: bool = False) ->
         )
         actions.append("Installed standalone uv binary into $HOME/.local/bin")
 
-    # 2. Persistent bash history
+    # 3. Persistent bash history
     hist_file = Path.home() / ".bash_history"
     if not dry_run:
         hist_file.touch(mode=0o600, exist_ok=True)
@@ -456,13 +647,13 @@ def _run_post_create_lifecycle(workspace_dir: Path, *, dry_run: bool = False) ->
             for addition in zshrc_additions:
                 file_handle.write(addition)
 
-    # 2. Config directory prep
+    # 4. Config directory prep
     gemini_cfg = Path.home() / ".gemini" / "config"
     if not dry_run:
         gemini_cfg.mkdir(parents=True, exist_ok=True)
     actions.append(f"Ensured config directory exists at {gemini_cfg}")
 
-    # 3. Agent instructions initialization
+    # 5. Agent instructions initialization
     agents_file = workspace_dir / CONST_AGENTS_MD_FILENAME
     if not agents_file.exists():
         if not dry_run:
@@ -528,7 +719,15 @@ def _run_post_start_lifecycle(workspace_dir: Path, *, dry_run: bool = False) -> 
     """Execute DevContainer post-start lifecycle tasks in pure Python."""
     actions: list[str] = []
 
-    # 1. Git defaults
+    # 1. Volume mount permissions & ownership
+    actions.extend(_setup_volume_mount_permissions(workspace_dir, dry_run=dry_run))
+
+    # 2. Workspace CLI binary link
+    link_action = _link_workspace_binary(workspace_dir, dry_run=dry_run)
+    if link_action:
+        actions.append(link_action)
+
+    # 3. Git defaults
     if not dry_run:
         run_subprocess(
             ["git", "config", "--global", "push.autoSetupRemote", "true"],
@@ -542,12 +741,11 @@ def _run_post_start_lifecycle(workspace_dir: Path, *, dry_run: bool = False) -> 
         )
     actions.append("Configured git push.autoSetupRemote=true and init.defaultBranch=main")
 
-    # 2. SSH key permissions & commit signing
+    # 3. SSH key permissions & commit signing
     ssh_dir = Path.home() / ".ssh"
     if ssh_dir.exists():
         if not dry_run:
             _chmod_ssh_dir_and_keys(ssh_dir)
-        actions.append(f"Hardened SSH key permissions in {ssh_dir}")
 
         keys = sorted(
             [p for p in ssh_dir.glob("id_*") if not p.name.endswith(".pub")],

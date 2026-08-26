@@ -87,7 +87,7 @@ def test_entry_main_version(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit):
         main(["devops", "--version"])
     captured = capsys.readouterr()
-    assert "0.2.2" in captured.out
+    assert "0.2.3" in captured.out
 
 
 def test_entry_main_help(capsys: pytest.CaptureFixture[str]) -> None:
@@ -101,7 +101,7 @@ def test_entry_main_binary_path_argv(capsys: pytest.CaptureFixture[str]) -> None
     with pytest.raises(SystemExit):
         main(["/usr/local/bin/devops", "--version"])
     captured = capsys.readouterr()
-    assert "0.2.2" in captured.out
+    assert "0.2.3" in captured.out
 
 
 def test_entry_main_dry_run_delegation() -> None:

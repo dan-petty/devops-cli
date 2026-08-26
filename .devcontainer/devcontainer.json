@@ -108,7 +108,7 @@
       "onAutoForward": "ignore"
     }
   },
-  "postCreateCommand": "uv sync && (command -v sudo >/dev/null && sudo ln -sf /workspaces/devops-cli/.venv/bin/devops /usr/local/bin/devops || true) && devops devcontainer post-create",
+  "postCreateCommand": "devops devcontainer post-create && uv sync && (command -v sudo >/dev/null && sudo ln -sf /workspaces/devops-cli/.venv/bin/devops /usr/local/bin/devops || true)",
   "postStartCommand": "devops devcontainer post-start",
   "customizations": {
     "vscode": {
