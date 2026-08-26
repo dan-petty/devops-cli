@@ -1,6 +1,6 @@
 # `devops workspace`
 
-Manage VS Code workspace files.
+Manage multi-root VS Code workspace files (.code-workspace).
 
 ## Commands
 
@@ -16,13 +16,13 @@ devops workspace add [OPTIONS] <repo_path>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<repo_path>` | `path` | Yes | Folder path to add |
+| `<repo_path>` | `path` | Yes | Add a repository folder into the VS Code workspace file. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--workspace`, `-w` | `path` | - | - |
+| `--workspace`, `-w` | `path` | - | Target VS Code workspace file (.code-workspace or .json). |
 
 ---
 
@@ -44,7 +44,7 @@ devops workspace remove [OPTIONS] <repo_path>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--workspace`, `-w` | `path` | - | - |
+| `--workspace`, `-w` | `path` | - | Target VS Code workspace file (.code-workspace or .json). |
 
 ---
 
@@ -60,8 +60,8 @@ devops workspace generate [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--base-dir`, `-d` | `path` | - | - |
-| `--workspace`, `-w` | `path` | - | - |
+| `--base-dir`, `-d` | `path` | - | Base repository root directory. |
+| `--workspace`, `-w` | `path` | - | Target VS Code workspace file (.code-workspace or .json). |
 
 ---
 
@@ -77,6 +77,23 @@ devops workspace open [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--workspace`, `-w` | `path` | - | - |
+| `--workspace`, `-w` | `path` | - | Target VS Code workspace file (.code-workspace or .json). |
+
+---
+
+## `devops workspace clean`
+
+**Clean stale review sessions, old analysis caches, and temporary traces under .data/.**
+
+```bash
+devops workspace clean [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--older-than`, `-d` | `integer` | `7` | Prune artifacts older than N days. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---

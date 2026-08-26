@@ -282,3 +282,67 @@ def test_ci_docs_command(runner: CliRunner) -> None:
         res = runner.invoke(ci_app, ["docs"])
         assert res.exit_code == 0
         mock_run.assert_called_once()
+
+
+def test_doc_generator_write_all_and_check(generator: DocGenerator, tmp_path: Path) -> None:
+    """Verify write_all_docs and check_docs."""
+    out_dir = tmp_path / "docs"
+    readme = tmp_path / "README.md"
+    readme.write_text(
+        "# Title\n\n## Complete Command Matrix\n\n| Command Group | Subcommand |\n|---|---|\n\n---\n",
+        encoding="utf-8",
+    )
+
+    written = generator.write_all_docs(out_dir, sync_readme_table=False)
+    assert len(written) > 0
+
+    ok = generator.sync_readme(readme)
+    assert ok is True
+
+    # Check docs with readme sync enabled
+    with patch.object(generator, "_find_readme", return_value=readme):
+        written_with_sync = generator.write_all_docs(out_dir, sync_readme_table=True)
+        assert len(written_with_sync) > 0
+
+        ok_check, check_errs = generator.check_docs(out_dir, check_readme_table=True)
+        assert ok_check is True
+
+    # Readme with no markers or table returns error in check_readme
+    empty_readme = tmp_path / "EMPTY.md"
+    empty_readme.write_text("# No matrix here\n", encoding="utf-8")
+    no_matrix_ok, no_matrix_err = generator.check_readme(empty_readme)
+    assert no_matrix_ok is False
+    assert "Could not find" in str(no_matrix_err)
+
+
+def test_docs_cli_dry_run_and_format_helpers(runner: CliRunner, tmp_path: Path) -> None:
+    """Verify dry-run execution for docs commands and helper formatters."""
+    from devops_cli.docs.generator import _clean_text, _format_type
+    from devops_cli.dry_run import set_dry_run
+
+    # Format type helper
+    assert _format_type(click.FLOAT) == "float"
+    assert _format_type(click.BOOL) == "boolean"
+    assert _format_type(click.INT) == "integer"
+    assert _format_type(click.Choice(["a", "b"])) == "choice (a|b)"
+    assert _clean_text("[bold red]Warning[/bold red]") == "Warning"
+
+    # Dry-run execution
+    set_dry_run(True)
+    try:
+        res_dry = runner.invoke(docs_app, ["generate", "--output-dir", str(tmp_path)])
+        assert res_dry.exit_code == 0
+        assert not (tmp_path / "CLI_REFERENCE.md").exists()
+
+        res_json_dry = runner.invoke(
+            docs_app,
+            ["generate", "--format", "json", "--output-dir", str(tmp_path)],
+        )
+        assert res_json_dry.exit_code == 0
+
+        readme = tmp_path / "README.md"
+        readme.write_text("# Readme\n", encoding="utf-8")
+        res_sync_dry = runner.invoke(docs_app, ["sync-readme", "--readme-path", str(readme)])
+        assert res_sync_dry.exit_code == 0
+    finally:
+        set_dry_run(False)

@@ -5,6 +5,8 @@ from __future__ import annotations
 import html
 import re
 
+from devops_cli.config.defaults import DEFAULT_PROMPT_CAP_CHARS
+
 _SECRET_PATTERNS = (
     (
         re.compile(
@@ -80,6 +82,11 @@ def _sanitize_prompt_boundary_tags(text: str) -> str:
         "untrusted_findings_input",
         "untrusted_segment_outputs",
         "review_metadata_context",
+        "untrusted_related_files",
+        "instruction",
+        "instructions",
+        "system",
+        "prompt",
     ]
     sanitized = text
     for tag in tags:
@@ -114,7 +121,7 @@ def _unique_preserve_order(items: list[str]) -> list[str]:
     return unique
 
 
-def _truncate_for_prompt(text: str, cap: int = 6000) -> str:
+def _truncate_for_prompt(text: str, cap: int = DEFAULT_PROMPT_CAP_CHARS) -> str:
     """Clip text to cap chars for prompt payloads, appending an ellipsis when truncated."""
     return text[:cap] + ("\u2026" if len(text) > cap else "")
 

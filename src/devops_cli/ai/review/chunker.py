@@ -13,9 +13,11 @@ from devops_cli.config.constants import (
     CONST_REVIEW_MAX_DIFF_CHARS,
 )
 from devops_cli.config.defaults import (
+    DEFAULT_MATCH_ALL_PATTERN,
     DEFAULT_REVIEW_OVERLAP_FACTOR,
     DEFAULT_REVIEW_WINDOW_SIZE_FACTOR,
 )
+from devops_cli.exceptions import SecurityError
 
 _CODE_LINE_SKIP_PREFIXES = ("diff --git", "index ", "--- ", "+++ ", "@@ ", "### File: ", "```")
 
@@ -280,7 +282,7 @@ def _diff_pages(
 
 def _find_repo_files(
     target: Path,
-    pattern: str = "*",
+    pattern: str = DEFAULT_MATCH_ALL_PATTERN,
     max_file_size: int = CONST_MAX_FILE_SIZE_BYTES,
     excluded_dirs: set[str] | None = None,
     repo_root: Path | None = None,
@@ -289,7 +291,7 @@ def _find_repo_files(
     root = (repo_root or target).resolve()
     target_resolved = target.resolve()
     if not target_resolved.is_relative_to(root):
-        raise ValueError("target must be a sub-path of the repository root")
+        raise SecurityError("target must be a sub-path of the repository root")
 
     ignore_set = excluded_dirs or set(CONST_GITIGNORE_DIRS)
     files: list[Path] = []

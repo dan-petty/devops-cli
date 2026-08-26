@@ -5,6 +5,16 @@ from __future__ import annotations
 from collections.abc import Sequence
 from pathlib import Path
 
+from devops_cli.config.defaults import (
+    DEFAULT_BANDIT_EXCLUDE_TESTS,
+    DEFAULT_FIND_MAX_DEPTH,
+    DEFAULT_GIT_LOG_COUNT,
+    DEFAULT_REST_HOST,
+    DEFAULT_SEMGREP_CONFIG,
+    DEFAULT_TRIVY_HIGH_SEVERITY,
+    DEFAULT_TRIVY_SCAN_TYPE,
+)
+
 # ── Binary Names ─────────────────────────────────────────────────────────────
 BIN_ACTIONLINT: str = "actionlint"
 BIN_ARGOCD: str = "argocd"
@@ -38,7 +48,9 @@ def build_git_diff_cmd(branch: str, base: str) -> list[str]:
     return [BIN_GIT, "diff", f"{base}...{branch}"]
 
 
-def build_git_log_cmd(count: int = 10, format_spec: str | None = None) -> list[str]:
+def build_git_log_cmd(
+    count: int = DEFAULT_GIT_LOG_COUNT, format_spec: str | None = None
+) -> list[str]:
     """Build a git log command."""
     cmd = [BIN_GIT, "log", f"-n{count}"]
     if format_spec:
@@ -53,7 +65,7 @@ def build_git_clone_cmd(repo_url: str, dest_dir: Path) -> list[str]:
 
 def build_find_files_cmd(
     target_dir: Path | str,
-    maxdepth: int = 3,
+    maxdepth: int = DEFAULT_FIND_MAX_DEPTH,
     exclude_paths: Sequence[str] | None = None,
 ) -> list[str]:
     """Build a find command with standard path exclusions."""
@@ -78,7 +90,7 @@ def build_kubectl_port_forward_cmd(
     local_port: int,
     remote_port: int,
     namespace: str,
-    address: str = "127.0.0.1",
+    address: str = DEFAULT_REST_HOST,
     context: str | None = None,
 ) -> list[str]:
     """Build a kubectl port-forward command."""
@@ -102,15 +114,17 @@ def build_kustomize_build_cmd(target_path: Path | str) -> list[str]:
     return [BIN_KUSTOMIZE, "build", str(target_path)]
 
 
-def build_bandit_cmd(target: Path | str, exclude_tests: str = "B608") -> list[str]:
+def build_bandit_cmd(
+    target: Path | str, exclude_tests: str = DEFAULT_BANDIT_EXCLUDE_TESTS
+) -> list[str]:
     """Build a bandit security scan command."""
     return [BIN_BANDIT, "-r", str(target), "-q", "-x", exclude_tests]
 
 
 def build_trivy_scan_cmd(
     target: Path | str,
-    scan_type: str = "fs",
-    severity: str = "HIGH,CRITICAL",
+    scan_type: str = DEFAULT_TRIVY_SCAN_TYPE,
+    severity: str = DEFAULT_TRIVY_HIGH_SEVERITY,
 ) -> list[str]:
     """Build an Aqua Trivy security scan command."""
     return [
@@ -179,7 +193,7 @@ def build_gitleaks_cmd(target_path: Path | str, no_git: bool = True) -> list[str
 
 def build_semgrep_cmd(
     target_path: Path | str,
-    config: str = "p/default",
+    config: str = DEFAULT_SEMGREP_CONFIG,
     exclude_paths: Sequence[str] | None = None,
 ) -> list[str]:
     """Build a Semgrep AST security and code quality scan command."""

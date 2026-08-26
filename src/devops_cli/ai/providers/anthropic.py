@@ -8,6 +8,11 @@ from typing import Any
 import httpx2
 
 from devops_cli.ai.providers.base import BaseLLMProvider
+from devops_cli.config.defaults import (
+    DEFAULT_AI_TIMEOUT_SECONDS,
+    DEFAULT_ANTHROPIC_MODEL,
+    DEFAULT_LLM_MAX_TOKENS,
+)
 from devops_cli.models.ai import ChatMessage
 
 logger = logging.getLogger(__name__)
@@ -32,7 +37,7 @@ class AnthropicProvider(BaseLLMProvider):
         stream: bool = False,
         **kwargs: Any,
     ) -> Any:
-        target_model = model or self.config.model or "claude-3-7-sonnet-20250219"
+        target_model = model or self.config.model or DEFAULT_ANTHROPIC_MODEL
         base_url = (self.config.api_base_url or "https://api.anthropic.com/v1").rstrip("/")
         headers = {
             "anthropic-version": "2023-06-01",
@@ -52,13 +57,13 @@ class AnthropicProvider(BaseLLMProvider):
             "model": target_model,
             "system": system_prompt.strip(),
             "messages": claude_messages,
-            "max_tokens": kwargs.get("max_tokens", 4096),
+            "max_tokens": kwargs.get("max_tokens", DEFAULT_LLM_MAX_TOKENS),
         }
         res = httpx2.post(
             f"{base_url}/messages",
             json=payload,
             headers=headers,
-            timeout=timeout or 60.0,
+            timeout=timeout or DEFAULT_AI_TIMEOUT_SECONDS,
         )
         res.raise_for_status()
         return res.json()

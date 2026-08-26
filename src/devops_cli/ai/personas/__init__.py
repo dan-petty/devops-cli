@@ -24,6 +24,8 @@ class Persona(StrEnum):
 
 
 class PersonaDefinition(BaseModel):
+    """Immutable Pydantic model for review and chat persona definitions."""
+
     model_config = ConfigDict(frozen=True)
 
     name: str
@@ -37,14 +39,19 @@ def _load(path: Path) -> str:
     return path.read_text(encoding="utf-8").rstrip()
 
 
-# ── Task prompts loaded once ────────────────────────────────────────────
+@lru_cache
+def _get_task_review() -> str:
+    return _load(_TASKS_DIR / "review.md")
 
-METADATA_SYSTEM_PROMPT: str = _load(_TASKS_DIR / "metadata.md")
-ANALYZE_PSEUDOCODE_SYSTEM_PROMPT: str = _load(_TASKS_DIR / "analyze_pseudocode_system.md")
-ANALYZE_PSEUDOCODE_TASK_PROMPT: str = _load(_TASKS_DIR / "analyze_pseudocode.md")
-_TASK_REVIEW: str = _load(_TASKS_DIR / "review.md")
-_TASK_CHAT: str = _load(_TASKS_DIR / "chat.md")
-_TASK_COMPOSE: str = _load(_TASKS_DIR / "compose.md")
+
+@lru_cache
+def _get_task_chat() -> str:
+    return _load(_TASKS_DIR / "chat.md")
+
+
+@lru_cache
+def _get_task_compose() -> str:
+    return _load(_TASKS_DIR / "compose.md")
 
 
 @lru_cache
@@ -62,10 +69,20 @@ def _load_persona(persona: Persona) -> PersonaDefinition:
     return PersonaDefinition(
         name=persona.value,
         title=names[persona],
-        system_prompt=role + "\n\n" + _TASK_REVIEW + "\n\n" + domain,
-        chat_prompt=role + "\n\n" + _TASK_CHAT,
-        compose_prompt=role + "\n\n" + _TASK_COMPOSE,
+        system_prompt=role + "\n\n" + _get_task_review() + "\n\n" + domain,
+        chat_prompt=role + "\n\n" + _get_task_chat(),
+        compose_prompt=role + "\n\n" + _get_task_compose(),
     )
+
+
+def __getattr__(name: str) -> str:
+    if name == "METADATA_SYSTEM_PROMPT":
+        return _load(_TASKS_DIR / "metadata.md")
+    if name == "ANALYZE_PSEUDOCODE_SYSTEM_PROMPT":
+        return _load(_TASKS_DIR / "analyze_pseudocode_system.md")
+    if name == "ANALYZE_PSEUDOCODE_TASK_PROMPT":
+        return _load(_TASKS_DIR / "analyze_pseudocode.md")
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 # ── Lazy-loading Registry ─────────────────────────────────────────────────────────────
@@ -130,7 +147,7 @@ def load_custom_repo_persona(repo_path: Path, persona_name: str) -> PersonaDefin
     return PersonaDefinition(
         name=safe_name,
         title=f"Custom Persona ({safe_name.title()})",
-        system_prompt=content + "\n\n" + _TASK_REVIEW,
-        chat_prompt=content + "\n\n" + _TASK_CHAT,
-        compose_prompt=content + "\n\n" + _TASK_COMPOSE,
+        system_prompt=content + "\n\n" + _get_task_review(),
+        chat_prompt=content + "\n\n" + _get_task_chat(),
+        compose_prompt=content + "\n\n" + _get_task_compose(),
     )

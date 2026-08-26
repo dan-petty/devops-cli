@@ -10,7 +10,11 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
-from devops_cli.config.constants import CONST_AUDIT_LOG_PATH, CONST_DATA_DIR
+from devops_cli.config.constants import (
+    CONST_AUDIT_LOG_PATH,
+    CONST_DATA_DIR,
+    CONST_STATUS_SUCCESS,
+)
 
 
 class AuditRecord(BaseModel):
@@ -26,7 +30,7 @@ class AuditRecord(BaseModel):
 
 def record_audit_event(
     command: str,
-    status: str = "SUCCESS",
+    status: str = CONST_STATUS_SUCCESS,
     duration_ms: float = 0.0,
     details: dict[str, Any] | None = None,
     log_file: Path | None = None,
@@ -66,7 +70,9 @@ def _resolve_audit_log_dest(log_file: Path | None) -> Path:
         candidate = Path(os.environ["DEVOPS_CLI_AUDIT_LOG_DEST"]).resolve()
         allowed_root = CONST_DATA_DIR.resolve()
         if not candidate.is_relative_to(allowed_root):
-            raise ValueError(
+            from devops_cli.exceptions import SecurityError
+
+            raise SecurityError(
                 f"DEVOPS_CLI_AUDIT_LOG_DEST must be within {allowed_root}; got {candidate}"
             )
         return candidate

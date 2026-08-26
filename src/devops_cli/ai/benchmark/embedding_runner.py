@@ -11,11 +11,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from rich import print as rprint
-from rich.console import Console
-from rich.panel import Panel
-from rich.table import Table
-
 from devops_cli.ai.benchmark.document_chunker import (
     SectionRetrievalTask,
     load_test_document_corpus,
@@ -53,9 +48,15 @@ from devops_cli.models.benchmark import (
     EmbeddingBenchmarkResult,
     EmbeddingServerSummary,
 )
+from devops_cli.output import (
+    print_info,
+    print_markdown,
+    print_panel,
+    print_table,
+    write_stdout,
+)
 
 logger = logging.getLogger(__name__)
-console = Console()
 
 
 def cosine_similarity(vec_a: list[float], vec_b: list[float]) -> float:
@@ -175,9 +176,10 @@ class EmbeddingBenchmarkRunner:
         clean_model = model_name.split("@")[0]
 
         with self._print_lock:
-            rprint(
+            print_info(
                 f"[bold cyan]⏳ Benchmarking:[/bold cyan] {clean_model} "
-                f"[dim]on {server_url}[/dim]..."
+                f"[dim]on {server_url}[/dim]...",
+                prefix=False,
             )
 
         if self.is_dry_run_active:
@@ -348,10 +350,11 @@ class EmbeddingBenchmarkRunner:
         mem_kb = round((dimension * 4) / 1024, 2)
 
         with self._print_lock:
-            rprint(
+            print_info(
                 f"  [bold green]✓[/bold green] {clean_model} on {server_url} | "
                 f"dim={dimension} | R@1={recall_1:.0f}% | MRR={mrr:.2f} | "
-                f"p50={p50_lat:.1f}ms | {items_per_sec:.1f} items/s → [bold]{overall:.1f}%[/bold]"
+                f"p50={p50_lat:.1f}ms | {items_per_sec:.1f} items/s → [bold]{overall:.1f}%[/bold]",
+                prefix=False,
             )
 
         return EmbeddingBenchmarkResult(
@@ -401,12 +404,13 @@ class EmbeddingBenchmarkRunner:
             self.document_path.name if self.document_path else "AGENTS.md & Workspace Specs"
         )
         total_words = sum(c.token_count for c in chunks)
-        rprint("\n[bold]⚡ DevOps CLI Embedding Model Benchmark Suite[/bold]")
-        rprint(
+        print_info("\n[bold]⚡ DevOps CLI Embedding Model Benchmark Suite[/bold]", prefix=False)
+        print_info(
             f"[dim]Session: {self.session_id} | Document: {doc_source} "
             f"({len(chunks)} chunks, ~{total_words} words) | "
             f"Evaluation Sections: {len(eval_tasks)} | Models: {len(self.models)} | "
-            f"Servers: {len(self.servers)} | Total Executions: {len(target_runs)}[/dim]\n"
+            f"Servers: {len(self.servers)} | Total Executions: {len(target_runs)}[/dim]\n",
+            prefix=False,
         )
 
         results: list[EmbeddingBenchmarkResult] = []
@@ -502,33 +506,30 @@ class EmbeddingBenchmarkRunner:
     def print_report(self, report: EmbeddingBenchmarkReport, format_type: str = "table") -> None:
         """Render the comprehensive benchmark report in the requested format."""
         if format_type.lower() == "json":
-            console.print(report.model_dump_json(indent=2))
+            write_stdout(report.model_dump_json(indent=2) + "\n")
             return
 
         if format_type.lower() == "markdown":
             md = self.generate_markdown(report)
-            console.print(md)
+            print_markdown(md)
             return
 
         # 1. Overall Leaderboard Table
-        table = Table(
-            title=f"⚡ Embedding Model Benchmark Leaderboard — {report.session_id}",
-            expand=True,
-            header_style="bold blue",
-        )
-        table.add_column("Rank", justify="center", style="dim")
-        table.add_column("Model", style="bold cyan")
-        table.add_column("Server", style="dim")
-        table.add_column("Dim", justify="right")
-        table.add_column("Recall@1", justify="right", style="green")
-        table.add_column("Recall@3", justify="right")
-        table.add_column("MRR", justify="right")
-        table.add_column("NDCG@5", justify="right")
-        table.add_column("Margin", justify="right")
-        table.add_column("p50 (ms)", justify="right")
-        table.add_column("Items/s", justify="right", style="yellow")
-        table.add_column("Score", justify="right", style="bold magenta")
-
+        columns = [
+            ("Rank", "dim"),
+            ("Model", "bold cyan"),
+            ("Server", "dim"),
+            "Dim",
+            ("Recall@1", "green"),
+            "Recall@3",
+            "MRR",
+            "NDCG@5",
+            "Margin",
+            "p50 (ms)",
+            ("Items/s", "yellow"),
+            ("Score", "bold magenta"),
+        ]
+        rows: list[list[str]] = []
         for rank, res in enumerate(report.models, 1):
             if rank == 1:
                 badge = "🥇"
@@ -539,85 +540,100 @@ class EmbeddingBenchmarkRunner:
             else:
                 badge = f"#{rank}"
 
-            table.add_row(
-                badge,
-                res.model,
-                res.server,
-                str(res.dimension),
-                f"{res.recall_at_1:.1f}%",
-                f"{res.recall_at_3:.1f}%",
-                f"{res.mrr:.3f}",
-                f"{res.ndcg_at_5:.3f}",
-                f"{res.mean_cosine_margin:+.3f}",
-                f"{res.latency_ms_p50:.1f}",
-                f"{res.throughput_items_per_sec:.1f}",
-                f"{res.overall_score:.1f}%",
+            rows.append(
+                [
+                    badge,
+                    res.model,
+                    res.server,
+                    str(res.dimension),
+                    f"{res.recall_at_1:.1f}%",
+                    f"{res.recall_at_3:.1f}%",
+                    f"{res.mrr:.3f}",
+                    f"{res.ndcg_at_5:.3f}",
+                    f"{res.mean_cosine_margin:+.3f}",
+                    f"{res.latency_ms_p50:.1f}",
+                    f"{res.throughput_items_per_sec:.1f}",
+                    f"{res.overall_score:.1f}%",
+                ]
             )
-        console.print(table)
+
+        print_table(
+            title=f"⚡ Embedding Model Benchmark Leaderboard — {report.session_id}",
+            columns=columns,
+            rows=rows,
+        )
 
         # 2. Domain Breakdown Table
         if report.models and any(r.category_accuracies for r in report.models):
-            cat_table = Table(
-                title="📂 Category & Domain Retrieval Accuracy (%)",
-                expand=True,
-                header_style="bold cyan",
-            )
-            cat_table.add_column("Model", style="bold")
-            cat_table.add_column("Server", style="dim")
-            cat_table.add_column("Security", justify="right")
-            cat_table.add_column("Kubernetes", justify="right")
-            cat_table.add_column("Architecture", justify="right")
-            cat_table.add_column("CI/CD", justify="right")
-            cat_table.add_column("Infrastructure", justify="right")
-
+            cat_cols = [
+                ("Model", "bold"),
+                ("Server", "dim"),
+                "Security",
+                "Kubernetes",
+                "Architecture",
+                "CI/CD",
+                "Infrastructure",
+            ]
+            cat_rows: list[list[str]] = []
             for res in report.models:
                 cats = res.category_accuracies
-                cat_table.add_row(
-                    res.model,
-                    res.server,
-                    f"{cats['security']:.0f}%" if "security" in cats else "-",
-                    f"{cats['kubernetes']:.0f}%" if "kubernetes" in cats else "-",
-                    f"{cats['architecture']:.0f}%" if "architecture" in cats else "-",
-                    f"{cats['ci_cd']:.0f}%" if "ci_cd" in cats else "-",
-                    f"{cats['infrastructure']:.0f}%" if "infrastructure" in cats else "-",
+                cat_rows.append(
+                    [
+                        res.model,
+                        res.server,
+                        f"{cats['security']:.0f}%" if "security" in cats else "-",
+                        f"{cats['kubernetes']:.0f}%" if "kubernetes" in cats else "-",
+                        f"{cats['architecture']:.0f}%" if "architecture" in cats else "-",
+                        f"{cats['ci_cd']:.0f}%" if "ci_cd" in cats else "-",
+                        f"{cats['infrastructure']:.0f}%" if "infrastructure" in cats else "-",
+                    ]
                 )
-            console.print(cat_table)
+            write_stdout("\n")
+            print_table(
+                title="📂 Category & Domain Retrieval Accuracy (%)",
+                columns=cat_cols,
+                rows=cat_rows,
+            )
 
         # 3. Server Performance Comparison (if multiple servers evaluated)
         if len(report.server_benchmarks) > 1:
-            srv_table = Table(
-                title="🖥️ Backend Server Hardware & Concurrency Performance",
-                expand=True,
-                header_style="bold green",
-            )
-            srv_table.add_column("Server Endpoint", style="bold")
-            srv_table.add_column("Models Evaluated", justify="center")
-            srv_table.add_column("Avg Latency (p50)", justify="right")
-            srv_table.add_column("Avg Throughput", justify="right")
-            srv_table.add_column("Fastest Model", style="cyan")
-            srv_table.add_column("Top Scoring Model", style="magenta")
-
+            srv_cols = [
+                ("Server Endpoint", "bold"),
+                "Models Evaluated",
+                "Avg Latency (p50)",
+                "Avg Throughput",
+                ("Fastest Model", "cyan"),
+                ("Top Scoring Model", "magenta"),
+            ]
+            srv_rows: list[list[str]] = []
             for srv in report.server_benchmarks:
-                srv_table.add_row(
-                    srv.server,
-                    str(srv.models_evaluated_count),
-                    f"{srv.avg_latency_p50_ms:.1f}ms",
-                    f"{srv.avg_throughput_items_per_sec:.1f} items/s",
-                    srv.fastest_model,
-                    srv.top_score_model,
+                srv_rows.append(
+                    [
+                        srv.server,
+                        str(srv.models_evaluated_count),
+                        f"{srv.avg_latency_p50_ms:.1f}ms",
+                        f"{srv.avg_throughput_items_per_sec:.1f} items/s",
+                        srv.fastest_model,
+                        srv.top_score_model,
+                    ]
                 )
-            console.print(srv_table)
+            write_stdout("\n")
+            print_table(
+                title="🖥️ Backend Server Hardware & Concurrency Performance",
+                columns=srv_cols,
+                rows=srv_rows,
+            )
 
         # 4. Actionable Recommendations Panel
         if report.recommendations:
             rec_text = "\n".join(f"• {rec}" for rec in report.recommendations)
-            console.print(
-                Panel(rec_text, title="💡 Architectural Insights & Recommendations", expand=True)
-            )
+            write_stdout("\n")
+            print_panel(rec_text, title="💡 Architectural Insights & Recommendations")
 
-        rprint(
+        print_info(
             f"\n[dim]Report persisted to .data/benchmarks/{report.session_id}/"
-            "embedding_report.json[/dim]"
+            "embedding_report.json[/dim]",
+            prefix=False,
         )
 
     def generate_markdown(self, report: EmbeddingBenchmarkReport) -> str:

@@ -1,5 +1,7 @@
 """MCP submodule for devops-cli FastMCP server integration."""
 
+from __future__ import annotations
+
 from devops_cli.ai.mcp.server import (
     argo_list,
     argo_status,

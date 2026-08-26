@@ -11,7 +11,9 @@ from pydantic import BaseModel, ConfigDict
 from devops_cli.config.constants import (
     CONST_FEEDBACK_DATASET_PATH,
     CONST_REVIEWS_DATA_DIR,
+    CONST_STATUS_INVALIDATED,
 )
+from devops_cli.exceptions import SecurityError
 
 
 class FeedbackRecord(BaseModel):
@@ -78,7 +80,7 @@ def _extract_session_feedback_records(
 def export_invalidated_feedback(
     reviews_dir: Path | None = None,
     output_file: Path | None = None,
-    status_filter: str | None = "INVALIDATED",
+    status_filter: str | None = CONST_STATUS_INVALIDATED,
 ) -> tuple[int, Path]:
     """Export findings matching status_filter (or all findings if None) into a JSONL dataset.
 
@@ -98,7 +100,7 @@ def export_invalidated_feedback(
 
         allowed_roots.append(Path(tempfile.gettempdir()).resolve())
         if not any(resolved_out.is_relative_to(root) for root in allowed_roots):
-            raise ValueError(f"Output path escapes allowed workspace directory: {output_file}")
+            raise SecurityError(f"Output path escapes allowed workspace directory: {output_file}")
         out_path = resolved_out
 
     if not r_dir.exists():

@@ -13,6 +13,7 @@ from devops_cli.config import settings as settings_mod
 from devops_cli.config.defaults import (
     DEFAULT_RAG_COLLECTION,
     DEFAULT_RAG_DOCS_COLLECTION,
+    DEFAULT_RAG_INVESTIGATION_MAX_CHARS,
     DEFAULT_RAG_SCORE_THRESHOLD,
     DEFAULT_RAG_TOP_K,
 )
@@ -90,7 +91,7 @@ def investigate_rag_context(
     language: str | None = None,
     category: str | None = None,
     file_filter: str | None = None,
-    max_chars: int = 12000,
+    max_chars: int = DEFAULT_RAG_INVESTIGATION_MAX_CHARS,
 ) -> RAGContext | None:
     """Execute a safe, non-blocking RAG investigation step to retrieve relevant context.
 

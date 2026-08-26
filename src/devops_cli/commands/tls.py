@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
-from rich.table import Table
 
 from devops_cli.config.constants import (
     CONST_CA_CERT_NAME,
@@ -16,12 +15,14 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.defaults import (
     DEFAULT_CA_VALIDITY_DAYS,
+    DEFAULT_CERT_COMMON_NAME,
     DEFAULT_HOMELAB_DOMAINS,
     DEFAULT_HOMELAB_IPS,
     DEFAULT_TLS_COUNTRY,
     DEFAULT_TLS_DIR,
     DEFAULT_TLS_KEY_SIZE,
     DEFAULT_TLS_ORGANIZATION,
+    DEFAULT_TLS_SECRET_NAME,
     DEFAULT_TLS_VALIDITY_DAYS,
 )
 from devops_cli.core.cli import new_typer
@@ -35,7 +36,7 @@ from devops_cli.crypto.tls_certificates import (
     verify_certificate,
 )
 from devops_cli.dry_run import is_dry_run
-from devops_cli.lang.en import MESSAGES
+from devops_cli.lang import HELP, MESSAGES
 from devops_cli.models.tls import KubernetesTLSSecretResult
 from devops_cli.output import (
     print_error,
@@ -46,7 +47,7 @@ from devops_cli.output import (
 )
 
 app = new_typer(
-    help="X.509 TLS certificate generation, inspection, verification, and Kubernetes secrets.",
+    help=HELP.tls.app,
     no_args_is_help=True,
 )
 
@@ -60,31 +61,31 @@ app = new_typer(
 def cmd_ca(
     output_dir: Annotated[
         Path,
-        typer.Option("--output-dir", "-o", help="Directory to save CA certificate and key"),
+        typer.Option("--output-dir", "-o", help=HELP.tls.output_dir),
     ] = DEFAULT_TLS_DIR,
     common_name: Annotated[
         str,
-        typer.Option("--common-name", "-cn", help="Common Name for the Root CA"),
+        typer.Option("--common-name", "-cn", help=HELP.tls.common_name),
     ] = f"{DEFAULT_TLS_ORGANIZATION} Root CA",
     organization: Annotated[
         str,
-        typer.Option("--organization", "-org", help="Organization name"),
+        typer.Option("--organization", "-org", help=HELP.tls.organization),
     ] = DEFAULT_TLS_ORGANIZATION,
     country: Annotated[
         str,
-        typer.Option("--country", "-c", help="2-letter country code"),
+        typer.Option("--country", "-c", help=HELP.tls.country),
     ] = DEFAULT_TLS_COUNTRY,
     validity_days: Annotated[
         int,
-        typer.Option("--validity-days", "-d", help="Validity period in days"),
+        typer.Option("--validity-days", "-d", help=HELP.tls.validity_days),
     ] = DEFAULT_CA_VALIDITY_DAYS,
     key_size: Annotated[
         int,
-        typer.Option("--key-size", "-k", help="RSA key size in bits (2048 or 4096)"),
+        typer.Option("--key-size", "-k", help=HELP.tls.key_size),
     ] = DEFAULT_TLS_KEY_SIZE,
     overwrite: Annotated[
         bool,
-        typer.Option("--overwrite", "-f", help="Overwrite existing files"),
+        typer.Option("--overwrite", "-f", help=HELP.tls.overwrite),
     ] = False,
 ) -> None:
     """Generate a self-signed Root Certificate Authority (CA) key pair."""
@@ -115,23 +116,23 @@ def cmd_ca(
     )
 
     info = inspect_certificate(ca_cert)
-
-    table = Table(title="Generated Root Certificate Authority (CA)", title_style="bold green")
-    table.add_column("Property", style="cyan")
-    table.add_column("Value", style="white")
-    table.add_row("CA Certificate", str(ca_cert))
-    table.add_row("CA Private Key (0600)", str(ca_key))
-    table.add_row("Common Name", common_name)
-    table.add_row("Organization", organization)
     expires_str = info.not_after.strftime("%Y-%m-%d") if info.not_after else "N/A"
-    table.add_row(
-        "Validity",
-        f"{validity_days} days (Expires {expires_str})",
-    )
-    table.add_row("Key Size", f"{key_size}-bit RSA")
-    table.add_row("SHA-256 Fingerprint", info.fingerprint_sha256[:32] + "...")
 
-    print_table(table)
+    rows = [
+        ["CA Certificate", str(ca_cert)],
+        ["CA Private Key (0600)", str(ca_key)],
+        ["Common Name", common_name],
+        ["Organization", organization],
+        ["Validity", f"{validity_days} days (Expires {expires_str})"],
+        ["Key Size", f"{key_size}-bit RSA"],
+        ["SHA-256 Fingerprint", info.fingerprint_sha256[:32] + "..."],
+    ]
+
+    print_table(
+        title="Generated Root Certificate Authority (CA)",
+        columns=[("Property", "cyan"), ("Value", "white")],
+        rows=rows,
+    )
 
 
 # =============================================================================
@@ -143,39 +144,39 @@ def cmd_ca(
 def generate_cert_cmd(
     common_name: Annotated[
         str,
-        typer.Option("--common-name", "-cn", help="Primary Common Name or domain"),
-    ] = "localhost",
+        typer.Option("--common-name", "-cn", help=HELP.tls.common_name),
+    ] = DEFAULT_CERT_COMMON_NAME,
     san: Annotated[
         list[str] | None,
-        typer.Option("--san", "-s", help="Subject Alternative Names (DNS names or IP addresses)"),
+        typer.Option("--san", "-s", help=HELP.tls.san),
     ] = None,
     ca_cert: Annotated[
         Path | None,
-        typer.Option("--ca-cert", help="Path to signing CA certificate (ca.crt)"),
+        typer.Option("--ca-cert", help=HELP.tls.ca_cert),
     ] = None,
     ca_key: Annotated[
         Path | None,
-        typer.Option("--ca-key", help="Path to signing CA private key (ca.key)"),
+        typer.Option("--ca-key", help=HELP.tls.ca_key),
     ] = None,
     output_dir: Annotated[
         Path,
-        typer.Option("--output-dir", "-o", help="Directory to save certificate and key"),
+        typer.Option("--output-dir", "-o", help=HELP.tls.output_dir),
     ] = DEFAULT_TLS_DIR,
     validity_days: Annotated[
         int,
-        typer.Option("--validity-days", "-d", help="Validity period in days"),
+        typer.Option("--validity-days", "-d", help=HELP.tls.validity_days),
     ] = DEFAULT_TLS_VALIDITY_DAYS,
     key_size: Annotated[
         int,
-        typer.Option("--key-size", "-k", help="RSA key size in bits (2048 or 4096)"),
+        typer.Option("--key-size", "-k", help=HELP.tls.key_size),
     ] = DEFAULT_TLS_KEY_SIZE,
     organization: Annotated[
         str,
-        typer.Option("--organization", "-org", help="Organization name"),
+        typer.Option("--organization", "-org", help=HELP.tls.organization),
     ] = DEFAULT_TLS_ORGANIZATION,
     overwrite: Annotated[
         bool,
-        typer.Option("--overwrite", "-f", help="Overwrite existing files"),
+        typer.Option("--overwrite", "-f", help=HELP.tls.overwrite),
     ] = False,
 ) -> None:
     """Generate an X.509 TLS certificate signed by local CA or self-signed."""
@@ -223,24 +224,28 @@ def generate_cert_cmd(
 
     info = inspect_certificate(cert_path)
 
-    table = Table(title="Generated TLS Certificate", title_style="bold green")
-    table.add_column("Property", style="cyan")
-    table.add_column("Value", style="white")
-    table.add_row("Server Certificate", str(cert_path))
-    table.add_row("Private Key (0600)", str(key_path))
-    if fullchain:
-        table.add_row("Full Chain Certificate", str(fullchain))
-    table.add_row("Common Name", common_name)
-    table.add_row("Subject Alternative Names", ", ".join(info.sans_dns + info.sans_ip))
-    table.add_row("Signed By", info.issuer.get("commonName", "Self-Signed"))
     expires_str = info.not_after.strftime("%Y-%m-%d") if info.not_after else "N/A"
-    table.add_row(
-        "Validity",
-        f"{validity_days} days (Expires {expires_str})",
+    rows = [
+        ["Server Certificate", str(cert_path)],
+        ["Private Key (0600)", str(key_path)],
+    ]
+    if fullchain:
+        rows.append(["Full Chain Certificate", str(fullchain)])
+    rows.extend(
+        [
+            ["Common Name", common_name],
+            ["Subject Alternative Names", ", ".join(info.sans_dns + info.sans_ip)],
+            ["Signed By", info.issuer.get("commonName", "Self-Signed")],
+            ["Validity", f"{validity_days} days (Expires {expires_str})"],
+            ["Fingerprint", info.fingerprint_sha256[:32] + "..."],
+        ]
     )
-    table.add_row("Fingerprint", info.fingerprint_sha256[:32] + "...")
 
-    print_table(table)
+    print_table(
+        title="Generated TLS Certificate",
+        columns=[("Property", "cyan"), ("Value", "white")],
+        rows=rows,
+    )
 
 
 # =============================================================================
@@ -252,19 +257,19 @@ def generate_cert_cmd(
 def generate_homelab_cmd(
     output_dir: Annotated[
         Path,
-        typer.Option("--output-dir", "-o", help="Directory to save certificates"),
+        typer.Option("--output-dir", "-o", help=HELP.tls.output_dir),
     ] = DEFAULT_TLS_DIR,
     domain: Annotated[
         list[str] | None,
-        typer.Option("--domain", "-d", help="Additional custom domains to include in SANs"),
+        typer.Option("--domain", "-d", help=HELP.tls.domain),
     ] = None,
     ip: Annotated[
         list[str] | None,
-        typer.Option("--ip", "-i", help="Additional custom IP addresses to include in SANs"),
+        typer.Option("--ip", "-i", help=HELP.tls.ip),
     ] = None,
     overwrite: Annotated[
         bool,
-        typer.Option("--overwrite", "-f", help="Regenerate all existing certificates"),
+        typer.Option("--overwrite", "-f", help=HELP.tls.overwrite),
     ] = False,
 ) -> None:
     """Generate complete Homelab TLS bundle (Root CA, Wildcard + Stack Services Cert)."""
@@ -290,18 +295,21 @@ def generate_homelab_cmd(
         overwrite=overwrite,
     )
 
-    table = Table(title="Homelab TLS Certificate Bundle Generated", title_style="bold blue")
-    table.add_column("Asset", style="cyan")
-    table.add_column("Path / Details", style="white")
-    table.add_row("Root CA Cert", summary.ca_cert_path)
-    table.add_row("Root CA Key", summary.ca_key_path)
-    table.add_row("Server Cert (tls.crt)", summary.server_cert_path)
-    table.add_row("Server Key (tls.key)", summary.server_key_path)
-    table.add_row("Full Chain (fullchain.crt)", summary.fullchain_path)
-    table.add_row("Configured Services", ", ".join(summary.services_configured))
-    table.add_row("Total SANs Included", str(len(summary.sans)))
+    rows = [
+        ["Root CA Cert", summary.ca_cert_path],
+        ["Root CA Key", summary.ca_key_path],
+        ["Server Cert (tls.crt)", summary.server_cert_path],
+        ["Server Key (tls.key)", summary.server_key_path],
+        ["Full Chain (fullchain.crt)", summary.fullchain_path],
+        ["Configured Services", ", ".join(summary.services_configured)],
+        ["Total SANs Included", str(len(summary.sans))],
+    ]
 
-    print_table(table)
+    print_table(
+        title="Homelab TLS Certificate Bundle Generated",
+        columns=[("Asset", "cyan"), ("Path / Details", "white")],
+        rows=rows,
+    )
     print_info(
         "\n[dim]To install CA trust on Linux: sudo cp "
         + summary.ca_cert_path
@@ -319,7 +327,7 @@ def generate_homelab_cmd(
 def inspect_cmd(
     cert_path: Annotated[
         Path,
-        typer.Argument(help="Path to X.509 certificate file (.crt or .pem)"),
+        typer.Argument(help=HELP.tls.cert_file),
     ],
 ) -> None:
     """Inspect and display metadata of an X.509 certificate."""
@@ -329,39 +337,38 @@ def inspect_cmd(
 
     info = inspect_certificate(cert_path)
 
-    table = Table(title=f"Certificate Inspection: {cert_path.name}", title_style="bold cyan")
-    table.add_column("Field", style="cyan")
-    table.add_column("Value", style="white")
-
     subject_str = ", ".join(f"{k}={v}" for k, v in info.subject.items())
     issuer_str = ", ".join(f"{k}={v}" for k, v in info.issuer.items())
-    table.add_row("Subject", subject_str)
-    table.add_row("Issuer", issuer_str)
-    table.add_row("Is Root CA", "[green]Yes[/green]" if info.is_ca else "No")
-    table.add_row("Serial Number", info.serial_number)
-    table.add_row(
-        "Not Before (UTC)",
-        info.not_before.strftime("%Y-%m-%d %H:%M:%S") if info.not_before else "N/A",
-    )
-    table.add_row(
-        "Not After (UTC)", info.not_after.strftime("%Y-%m-%d %H:%M:%S") if info.not_after else "N/A"
-    )
-
+    not_before_str = info.not_before.strftime("%Y-%m-%d %H:%M:%S") if info.not_before else "N/A"
+    not_after_str = info.not_after.strftime("%Y-%m-%d %H:%M:%S") if info.not_after else "N/A"
     status_str = (
         "[red]EXPIRED[/red]"
         if info.is_expired
         else f"[green]VALID[/green] ({info.days_remaining} days remaining)"
     )
-    table.add_row("Status", status_str)
-    table.add_row("Public Key", f"{info.key_size}-bit {info.key_type}")
-    table.add_row("Signature Algorithm", info.signature_algorithm)
-    if info.sans_dns:
-        table.add_row("DNS SANs", ", ".join(info.sans_dns))
-    if info.sans_ip:
-        table.add_row("IP SANs", ", ".join(info.sans_ip))
-    table.add_row("SHA-256 Fingerprint", info.fingerprint_sha256)
 
-    print_table(table)
+    rows = [
+        ["Subject", subject_str],
+        ["Issuer", issuer_str],
+        ["Is Root CA", "[green]Yes[/green]" if info.is_ca else "No"],
+        ["Serial Number", info.serial_number],
+        ["Not Before (UTC)", not_before_str],
+        ["Not After (UTC)", not_after_str],
+        ["Status", status_str],
+        ["Public Key", f"{info.key_size}-bit {info.key_type}"],
+        ["Signature Algorithm", info.signature_algorithm],
+    ]
+    if info.sans_dns:
+        rows.append(["DNS SANs", ", ".join(info.sans_dns)])
+    if info.sans_ip:
+        rows.append(["IP SANs", ", ".join(info.sans_ip)])
+    rows.append(["SHA-256 Fingerprint", info.fingerprint_sha256])
+
+    print_table(
+        title=f"Certificate Inspection: {cert_path.name}",
+        columns=[("Field", "cyan"), ("Value", "white")],
+        rows=rows,
+    )
 
 
 # =============================================================================
@@ -373,11 +380,11 @@ def inspect_cmd(
 def verify_cmd(
     cert_path: Annotated[
         Path,
-        typer.Argument(help="Path to leaf certificate file (.crt or .pem)"),
+        typer.Argument(help=HELP.tls.leaf_cert),
     ],
     ca_cert: Annotated[
         Path,
-        typer.Option("--ca-cert", "-ca", help="Path to Root CA certificate file (ca.crt)"),
+        typer.Option("--ca-cert", "-ca", help=HELP.tls.ca_cert),
     ] = DEFAULT_TLS_DIR / CONST_CA_CERT_NAME,
 ) -> None:
     """Verify an X.509 certificate cryptographic chain against a CA certificate."""
@@ -411,23 +418,23 @@ def verify_cmd(
 def enable_k8s_cmd(
     context: Annotated[
         str | None,
-        typer.Option("--context", "-c", help="Kubernetes cluster context (e.g. minikube, default)"),
+        typer.Option("--context", "-c", help=HELP.options.context),
     ] = None,
     tls_dir: Annotated[
         Path,
-        typer.Option("--tls-dir", help="Directory with generated TLS certificates"),
+        typer.Option("--tls-dir", help=HELP.tls.tls_dir),
     ] = DEFAULT_TLS_DIR,
     secret_name: Annotated[
         str,
-        typer.Option("--secret-name", help="Kubernetes TLS secret name to create"),
-    ] = "homelab-tls",
+        typer.Option("--secret-name", help=HELP.tls.secret_name),
+    ] = DEFAULT_TLS_SECRET_NAME,
     namespaces: Annotated[
         list[str] | None,
-        typer.Option("--namespace", "-n", help="Target namespaces to deploy TLS secret into"),
+        typer.Option("--namespace", "-n", help=HELP.options.namespace),
     ] = None,
     overwrite: Annotated[
         bool,
-        typer.Option("--overwrite", "-f", help="Regenerate certs if missing"),
+        typer.Option("--overwrite", "-f", help=HELP.tls.overwrite),
     ] = False,
 ) -> None:
     """Generate and apply TLS secrets (kubernetes.io/tls) across Kubernetes namespaces."""
@@ -518,15 +525,15 @@ def enable_k8s_cmd(
                 )
             )
 
-    table = Table(title="Kubernetes TLS Secret Deployment", title_style="bold blue")
-    table.add_column("Namespace", style="cyan")
-    table.add_column("Secret Name", style="white")
-    table.add_column("Status", style="bold")
-
+    rows: list[list[str]] = []
     for r in results:
         status_display = (
             "[green]✓ Created[/green]" if r.created else f"[red]✗ Failed: {r.error}[/red]"
         )
-        table.add_row(r.namespace, r.secret_name, status_display)
+        rows.append([r.namespace, r.secret_name, status_display])
 
-    print_table(table)
+    print_table(
+        title="Kubernetes TLS Secret Deployment",
+        columns=[("Namespace", "cyan"), ("Secret Name", "white"), ("Status", "bold")],
+        rows=rows,
+    )

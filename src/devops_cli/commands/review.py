@@ -2,183 +2,227 @@
 
 from __future__ import annotations
 
+import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
-from rich.rule import Rule
-from rich.table import Table
 
 from devops_cli.ai.personas import Persona
-from devops_cli.ai.review.chunker import (
-    _diff_pages,
-    _extract_code_lines,
-    _extract_segment_filenames,
-    _find_repo_files,
-    _is_generated_diff_block,
-    _paginate_file_diff_block,
-    _render_source_block,
-    _split_diff_into_file_blocks,
-    _split_source_file_blocks,
-    _split_text_lines,
-)
-from devops_cli.ai.review.exporter import export_invalidated_feedback
-from devops_cli.ai.review.patching import stage_finding_patch
-from devops_cli.ai.review.runner import (
-    ReviewClients,
-    _build_path_prompt,
-    _build_recompose_prompt,
-    _build_segment_review_prompt,
-    _collect_file_blocks,
-    _collect_files,
-    _debug_block,
-    _detect_base_branch,
-    _execute_review_workflow,
-    _fallback_join,
-    _find_session_dir,
-    _get_reviews_base_dir,
-    _git_repo_root,
-    _is_allowed_review_boundary,
-    _is_git_ignored,
-    _llm_request_preview,
-    _load_agents_md,
-    _make_review_clients,
-    _persona_format_section,
-    _persona_system_prompt,
-    _personas_to_run,
-    _prepare_branch_content,
-    _prepare_path_content,
-    _prepare_pr_content,
-    _print_analysis_metadata,
-    _print_review,
-    _resolve_review_clients,
-    _review_session_dir,
-    _review_to_markdown,
-    _run_persona_loop,
-    _run_review,
-    _save_findings_json,
-    _save_persona_review,
-    _save_segments,
-    _write_summary,
-)
-from devops_cli.ai.review.sanitization import (
-    _build_prompt,
-    _mask_secrets_in_content,
-    _sanitize_filename,
-    _sanitize_prompt_boundary_tags,
-    _truncate_for_prompt,
-    _unique_preserve_order,
-)
-from devops_cli.ai.review.verification import (
-    _build_validation_prompt,
-    _extract_location_context,
-    _find_related_file_metas,
-    _match_dep_to_filepath,
-    _merge_segment_results,
-    _reconcile_verified,
-    _validate_segment_findings,
-)
-from devops_cli.ai.review_schema import (
-    Finding,
-    ReviewResult,
-    ReviewSessionPayload,
-    SavedFinding,
-)
 from devops_cli.config.constants import (
     CONST_DATA_DIR,
+    CONST_GIT_MAIN_BRANCH,
     CONST_REVIEWS_DATA_DIR,
+    CONST_STATUS_INVALIDATED,
 )
-from devops_cli.config.settings import load_settings
+from devops_cli.config.defaults import (
+    DEFAULT_APPLY_PATCH_INDEX,
+    DEFAULT_MATCH_ALL_PATTERN,
+)
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import is_dry_run, set_dry_run
-from devops_cli.lang import MESSAGES
-from devops_cli.output import (
-    get_console,
-    print_error,
-    print_info,
-    print_success,
-    print_table,
-    print_warning,
-    write_json_file,
-)
+from devops_cli.lang import HELP, MESSAGES
 
 __all__ = [
-    "app",
-    "ReviewClients",
-    "Finding",
-    "ReviewResult",
-    "ReviewSessionPayload",
-    "SavedFinding",
     "CONST_DATA_DIR",
     "CONST_REVIEWS_DATA_DIR",
-    "_diff_pages",
-    "_extract_code_lines",
-    "_extract_segment_filenames",
-    "_find_repo_files",
-    "_is_generated_diff_block",
-    "_paginate_file_diff_block",
-    "_render_source_block",
-    "_split_diff_into_file_blocks",
-    "_split_source_file_blocks",
-    "_split_text_lines",
+    "app",
     "export_invalidated_feedback",
     "stage_finding_patch",
-    "_build_path_prompt",
-    "_build_recompose_prompt",
-    "_build_segment_review_prompt",
-    "_collect_file_blocks",
-    "_collect_files",
-    "_debug_block",
-    "_detect_base_branch",
-    "_execute_review_workflow",
-    "_fallback_join",
-    "_find_session_dir",
-    "_get_reviews_base_dir",
-    "_git_repo_root",
-    "_is_allowed_review_boundary",
-    "_is_git_ignored",
-    "_llm_request_preview",
-    "_load_agents_md",
-    "_make_review_clients",
-    "_persona_format_section",
-    "_persona_system_prompt",
-    "_personas_to_run",
-    "_prepare_branch_content",
-    "_prepare_path_content",
-    "_prepare_pr_content",
-    "_print_analysis_metadata",
-    "_print_review",
-    "_resolve_review_clients",
-    "_review_session_dir",
-    "_review_to_markdown",
-    "_run_persona_loop",
-    "_run_review",
-    "_save_findings_json",
-    "_save_persona_review",
-    "_save_segments",
-    "_write_summary",
-    "_build_prompt",
-    "_mask_secrets_in_content",
-    "_sanitize_filename",
-    "_sanitize_prompt_boundary_tags",
-    "_truncate_for_prompt",
-    "_unique_preserve_order",
-    "_build_validation_prompt",
-    "_extract_location_context",
-    "_find_related_file_metas",
-    "_match_dep_to_filepath",
-    "_merge_segment_results",
-    "_reconcile_verified",
-    "_validate_segment_findings",
-    "load_settings",
-    "is_dry_run",
-    "set_dry_run",
 ]
 
-app = new_typer(
-    help="AI Code Review across branches, paths, and pull requests.", no_args_is_help=True
-)
+
+def __getattr__(name: str) -> Any:
+    if name in {
+        "_diff_pages",
+        "_extract_code_lines",
+        "_extract_segment_filenames",
+        "_find_repo_files",
+        "_is_generated_diff_block",
+        "_paginate_file_diff_block",
+        "_render_source_block",
+        "_split_diff_into_file_blocks",
+        "_split_source_file_blocks",
+        "_split_text_lines",
+    }:
+        import devops_cli.ai.review.chunker
+
+        return getattr(devops_cli.ai.review.chunker, name)
+    if name == "export_invalidated_feedback":
+        import devops_cli.ai.review.exporter
+
+        return getattr(devops_cli.ai.review.exporter, name)
+    if name == "stage_finding_patch":
+        import devops_cli.ai.review.patching
+
+        return getattr(devops_cli.ai.review.patching, name)
+    if name in {
+        "ReviewClients",
+        "_build_path_prompt",
+        "_build_recompose_prompt",
+        "_build_segment_review_prompt",
+        "_collect_file_blocks",
+        "_collect_files",
+        "_debug_block",
+        "_detect_base_branch",
+        "_execute_review_workflow",
+        "_fallback_join",
+        "_find_session_dir",
+        "_get_reviews_base_dir",
+        "_git_repo_root",
+        "_is_allowed_review_boundary",
+        "_is_git_ignored",
+        "_llm_request_preview",
+        "_load_agents_md",
+        "_make_review_clients",
+        "_persona_format_section",
+        "_persona_system_prompt",
+        "_personas_to_run",
+        "_prepare_branch_content",
+        "_prepare_path_content",
+        "_prepare_pr_content",
+        "_print_analysis_metadata",
+        "_print_review",
+        "_resolve_review_clients",
+        "_review_session_dir",
+        "_review_to_markdown",
+        "_run_persona_loop",
+        "_run_review",
+        "_save_findings_json",
+        "_save_persona_review",
+        "_save_segments",
+        "_write_summary",
+    }:
+        import devops_cli.ai.review.runner
+
+        return getattr(devops_cli.ai.review.runner, name)
+    if name in {
+        "_build_prompt",
+        "_mask_secrets_in_content",
+        "_sanitize_filename",
+        "_sanitize_prompt_boundary_tags",
+        "_truncate_for_prompt",
+        "_unique_preserve_order",
+    }:
+        import devops_cli.ai.review.sanitization
+
+        return getattr(devops_cli.ai.review.sanitization, name)
+    if name in {
+        "_build_validation_prompt",
+        "_extract_location_context",
+        "_find_related_file_metas",
+        "_match_dep_to_filepath",
+        "_merge_segment_results",
+        "_reconcile_verified",
+        "_validate_segment_findings",
+    }:
+        import devops_cli.ai.review.verification
+
+        return getattr(devops_cli.ai.review.verification, name)
+    if name in {"Finding", "ReviewResult", "ReviewSessionPayload", "SavedFinding"}:
+        import devops_cli.ai.review_schema
+
+        return getattr(devops_cli.ai.review_schema, name)
+    if name in {
+        "print_error",
+        "print_info",
+        "print_section",
+        "print_success",
+        "print_table",
+        "print_warning",
+        "write_json_file",
+    }:
+        import devops_cli.output
+
+        return getattr(devops_cli.output, name)
+    if name == "load_settings":
+        from devops_cli.config.settings import load_settings
+
+        return load_settings
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def _get(name: str) -> Any:
+    mod_dict = sys.modules[__name__].__dict__
+    if name in mod_dict:
+        return mod_dict[name]
+    return getattr(sys.modules[__name__], name)
+
+
+def _prepare_path_content(*args: Any, **kwargs: Any) -> Any:
+    from devops_cli.ai.review.runner import _prepare_path_content as fn
+
+    return fn(*args, **kwargs)
+
+
+def _prepare_branch_content(*args: Any, **kwargs: Any) -> Any:
+    from devops_cli.ai.review.runner import _prepare_branch_content as fn
+
+    return fn(*args, **kwargs)
+
+
+def _prepare_pr_content(*args: Any, **kwargs: Any) -> Any:
+    from devops_cli.ai.review.runner import _prepare_pr_content as fn
+
+    return fn(*args, **kwargs)
+
+
+def _build_path_prompt(*args: Any, **kwargs: Any) -> Any:
+    from devops_cli.ai.review.runner import _build_path_prompt as fn
+
+    return fn(*args, **kwargs)
+
+
+def _make_review_clients(*args: Any, **kwargs: Any) -> Any:
+    from devops_cli.ai.review.runner import _make_review_clients as fn
+
+    return fn(*args, **kwargs)
+
+
+def _execute_review_workflow(*args: Any, **kwargs: Any) -> Any:
+    from devops_cli.ai.review.runner import _execute_review_workflow as fn
+
+    return fn(*args, **kwargs)
+
+
+def _find_session_dir(*args: Any, **kwargs: Any) -> Any:
+    from devops_cli.ai.review.runner import _find_session_dir as fn
+
+    return fn(*args, **kwargs)
+
+
+def _get_reviews_base_dir(*args: Any, **kwargs: Any) -> Any:
+    from devops_cli.ai.review.runner import _get_reviews_base_dir as fn
+
+    return fn(*args, **kwargs)
+
+
+def load_settings(*args: Any, **kwargs: Any) -> Any:
+    from devops_cli.config.settings import load_settings as fn
+
+    return fn(*args, **kwargs)
+
+
+def _build_prompt(*args: Any, **kwargs: Any) -> Any:
+    from devops_cli.ai.review.sanitization import _build_prompt as fn
+
+    return fn(*args, **kwargs)
+
+
+def stage_finding_patch(*args: Any, **kwargs: Any) -> Any:
+    from devops_cli.ai.review.patching import stage_finding_patch as fn
+
+    return fn(*args, **kwargs)
+
+
+def export_invalidated_feedback(*args: Any, **kwargs: Any) -> Any:
+    from devops_cli.ai.review.exporter import export_invalidated_feedback as fn
+
+    return fn(*args, **kwargs)
+
+
+app = new_typer(help=HELP.review.app, no_args_is_help=True)
 
 
 @app.callback(invoke_without_command=True)
@@ -186,9 +230,7 @@ def review_main(
     ctx: typer.Context,
     explain: Annotated[
         bool,
-        typer.Option(
-            "--explain", "-e", help="Explain code review personas, severity levels, and terminology"
-        ),
+        typer.Option("--explain", "-e", help=HELP.review.explain_review),
     ] = False,
 ) -> None:
     """Multi-persona AI code review with confidence calibration and finding verification."""
@@ -208,35 +250,31 @@ def review_main(
 def path(
     targets: Annotated[
         list[Path] | None,
-        typer.Argument(help="File(s) or directory(ies) to review"),
+        typer.Argument(help=HELP.review.target_path),
     ] = None,
     pattern: Annotated[
         str,
-        typer.Option("--pattern", "-g", help="Glob pattern for files (default: all files)"),
-    ] = "*",
+        typer.Option("--pattern", "-g", help=HELP.options.pattern),
+    ] = DEFAULT_MATCH_ALL_PATTERN,
     persona: Annotated[
         Persona | None,
-        typer.Option("--persona", "-p", help="Reviewer persona"),
+        typer.Option("--persona", "-p", help=HELP.options.persona),
     ] = None,
     all_personas: Annotated[
         bool,
-        typer.Option("--all", help="Run all four reviewer personas"),
+        typer.Option("--all", help=HELP.options.all_personas),
     ] = False,
     dry_run: Annotated[
         bool,
-        typer.Option("--dry-run", help="Print commands and AI request payloads without executing."),
+        typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
     summary: Annotated[
         bool,
-        typer.Option(
-            "--summary", "-s", help="Show segment metadata without running a full review."
-        ),
+        typer.Option("--summary", "-s", help=HELP.review.summary),
     ] = False,
     explain: Annotated[
         bool,
-        typer.Option(
-            "--explain", "-e", help="Explain code review personas, severity levels, and terminology"
-        ),
+        typer.Option("--explain", "-e", help=HELP.review.explain_review),
     ] = False,
 ) -> None:
     """Review source files directly (no git required)."""
@@ -300,39 +338,35 @@ def path(
 def branch(
     branch_name: Annotated[
         str | None,
-        typer.Argument(help="Branch to review (default: current branch)"),
+        typer.Argument(help=HELP.review.target_branch),
     ] = None,
     base: Annotated[
         str,
-        typer.Option("--base", "-b", help="Base branch to diff against"),
-    ] = "main",
+        typer.Option("--base", "-b", help=HELP.options.base_branch),
+    ] = CONST_GIT_MAIN_BRANCH,
     persona: Annotated[
         Persona | None,
-        typer.Option("--persona", "-p", help="Reviewer persona"),
+        typer.Option("--persona", "-p", help=HELP.options.persona),
     ] = None,
     all_personas: Annotated[
         bool,
-        typer.Option("--all", help="Run all four reviewer personas"),
+        typer.Option("--all", help=HELP.options.all_personas),
     ] = False,
     repo_path: Annotated[
         Path,
-        typer.Option("--repo", help="Path to the git repository"),
+        typer.Option("--repo", help=HELP.options.repo),
     ] = Path("."),
     dry_run: Annotated[
         bool,
-        typer.Option("--dry-run", help="Print commands and AI request payloads without executing."),
+        typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
     summary: Annotated[
         bool,
-        typer.Option(
-            "--summary", "-s", help="Show segment metadata without running a full review."
-        ),
+        typer.Option("--summary", "-s", help=HELP.review.summary),
     ] = False,
     explain: Annotated[
         bool,
-        typer.Option(
-            "--explain", "-e", help="Explain code review personas, severity levels, and terminology"
-        ),
+        typer.Option("--explain", "-e", help=HELP.review.explain_review),
     ] = False,
 ) -> None:
     """Review a git branch diff with one or all AI personas."""
@@ -367,38 +401,34 @@ def branch(
 
 @app.command()
 def pr(
-    number: Annotated[int, typer.Argument(help="Pull request number")],
+    number: Annotated[int, typer.Argument(help=HELP.review.pr_number)],
     repo: Annotated[
         str | None,
-        typer.Option("--repo", "-r", help="owner/repo (default: detected from git remote)"),
+        typer.Option("--repo", "-r", help=HELP.pr.target_repo),
     ] = None,
     persona: Annotated[
         Persona | None,
-        typer.Option("--persona", "-p", help="Reviewer persona"),
+        typer.Option("--persona", "-p", help=HELP.options.persona),
     ] = None,
     all_personas: Annotated[
         bool,
-        typer.Option("--all", help="Run all four reviewer personas"),
+        typer.Option("--all", help=HELP.options.all_personas),
     ] = False,
     post_comment: Annotated[
         bool,
-        typer.Option("--post", help="Post the review as a comment on the GitHub PR"),
+        typer.Option("--post", help=HELP.review.post_pr),
     ] = False,
     dry_run: Annotated[
         bool,
-        typer.Option("--dry-run", help="Print commands and AI request payloads without executing."),
+        typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
     summary: Annotated[
         bool,
-        typer.Option(
-            "--summary", "-s", help="Show segment metadata without running a full review."
-        ),
+        typer.Option("--summary", "-s", help=HELP.review.summary),
     ] = False,
     explain: Annotated[
         bool,
-        typer.Option(
-            "--explain", "-e", help="Explain code review personas, severity levels, and terminology"
-        ),
+        typer.Option("--explain", "-e", help=HELP.review.explain_review),
     ] = False,
 ) -> None:
     """Review a GitHub pull request with one or all AI personas."""
@@ -413,7 +443,7 @@ def pr(
     settings = load_settings()
     token = get_github_token(settings)
     if not token:
-        print_error(
+        _get("print_error")(
             MESSAGES.review.github_token_not_configured,
             prefix=False,
         )
@@ -436,6 +466,8 @@ def pr(
     )
 
     if post_comment and reviews:
+        from devops_cli.ai.review.runner import _review_to_markdown
+
         sections = "\n\n---\n\n".join(
             f"## Review by {pd.title}\n\n{_review_to_markdown(text)}" for pd, text in reviews
         )
@@ -447,10 +479,12 @@ def pr(
                 f"Would post PR comment on #{number}",
                 {"repo": repo_name, "pr_number": number, "comment_body": comment_body},
             )
-            print_warning(MESSAGES.dry_run.skipped_pr_comment.format(number=number), prefix=False)
+            _get("print_warning")(
+                MESSAGES.dry_run.skipped_pr_comment.format(number=number), prefix=False
+            )
             return
         pull.create_issue_comment(comment_body)
-        print_success(f"Review posted as comment on PR #{number}")
+        _get("print_success")(f"Review posted as comment on PR #{number}")
 
 
 # =============================================================================
@@ -462,34 +496,32 @@ def pr(
 def list_findings(
     session: Annotated[
         str | None,
-        typer.Option("--session", "-s", help="Session ID or substring (default: latest)"),
+        typer.Option("--session", "-s", help=HELP.review.session),
     ] = None,
     status_filter: Annotated[
         str | None,
-        typer.Option(
-            "--status", help="Filter by status: VERIFIED | UNVERIFIED | INVALIDATED | MITIGATED"
-        ),
+        typer.Option("--status", help=HELP.review.status_filter),
     ] = None,
-    unverified: Annotated[
-        bool, typer.Option("--unverified", help="Show unverified findings only")
-    ] = False,
+    unverified: Annotated[bool, typer.Option("--unverified", help=HELP.review.unverified)] = False,
     invalidated: Annotated[
-        bool, typer.Option("--invalidated", help="Show invalidated findings only")
+        bool, typer.Option("--invalidated", help=HELP.review.invalidated)
     ] = False,
-    verified: Annotated[
-        bool, typer.Option("--verified", help="Show verified findings only")
-    ] = False,
+    verified: Annotated[bool, typer.Option("--verified", help=HELP.review.verified)] = False,
 ) -> None:
     """Inspect structured findings for a review session."""
+    from devops_cli.ai.review.runner import _find_session_dir
+
     session_dir = _find_session_dir(session)
     if not session_dir:
-        print_warning("No review sessions found in .data/reviews/", prefix=False)
+        _get("print_warning")("No review sessions found in .data/reviews/", prefix=False)
         raise typer.Exit(0)
 
     findings_file = session_dir / "findings.json"
     if not findings_file.exists():
-        print_warning(f"No findings.json in session {session_dir.name}", prefix=False)
+        _get("print_warning")(f"No findings.json in session {session_dir.name}", prefix=False)
         raise typer.Exit(0)
+
+    from devops_cli.ai.review_schema import ReviewSessionPayload
 
     payload = ReviewSessionPayload.model_validate_json(findings_file.read_text(encoding="utf-8"))
     findings = payload.findings
@@ -505,16 +537,7 @@ def list_findings(
     if target_status:
         findings = [f for f in findings if f.status == target_status]
 
-    table = Table(title=f"Findings: {session_dir.name}")
-    table.add_column("#", justify="right", style="dim")
-    table.add_column("Persona", style="cyan")
-    table.add_column("Sev", style="bold")
-    table.add_column("Conf", justify="right")
-    table.add_column("Location", overflow="fold")
-    table.add_column("Title", overflow="fold")
-    table.add_column("Status")
-    table.add_column("Verified By / Reason", overflow="fold")
-
+    rows: list[list[str]] = []
     for i, f in enumerate(findings, 1):
         st = f.status
         if st == "VERIFIED":
@@ -531,18 +554,33 @@ def list_findings(
         info = f"{by}: {reason}".strip(": ") if (by or reason) else "—"
 
         conf_str = f"{f.confidence_score:.2f}" if f.confidence_score is not None else "N/A"
-        table.add_row(
-            str(i),
-            f.persona,
-            f.severity,
-            conf_str,
-            f.location,
-            f.title,
-            st_fmt,
-            info,
+        rows.append(
+            [
+                str(i),
+                f.persona,
+                f.severity,
+                conf_str,
+                f.location,
+                f.title,
+                st_fmt,
+                info,
+            ]
         )
 
-    print_table(table)
+    _get("print_table")(
+        title=f"Findings: {session_dir.name}",
+        columns=[
+            ("#", "right"),
+            ("Persona", "cyan"),
+            ("Sev", "bold"),
+            ("Conf", "right"),
+            "Location",
+            "Title",
+            "Status",
+            "Verified By / Reason",
+        ],
+        rows=rows,
+    )
 
 
 # =============================================================================
@@ -554,52 +592,54 @@ def list_findings(
 def verify_finding(
     session: Annotated[
         str | None,
-        typer.Argument(help="Session ID or substring (default: latest)"),
+        typer.Argument(help=HELP.review.session),
     ] = None,
     session_opt: Annotated[
         str | None,
-        typer.Option("--session", "-s", help="Session ID or substring"),
+        typer.Option("--session", "-s", help=HELP.review.session),
     ] = None,
     index: Annotated[
         int | None,
-        typer.Option("--index", "-i", help="1-based finding index in session to verify"),
+        typer.Option("--index", "-i", help=HELP.review.finding_index),
     ] = None,
     title_pattern: Annotated[
         str | None,
-        typer.Option("--title", "-t", help="Match finding by substring in title"),
+        typer.Option("--title", "-t", help=HELP.review.title_match),
     ] = None,
     status: Annotated[
         str,
-        typer.Option(
-            "--status", help="Target status: VERIFIED | INVALIDATED | MITIGATED | UNVERIFIED"
-        ),
-    ] = "INVALIDATED",
+        typer.Option("--status", help=HELP.review.status_target),
+    ] = CONST_STATUS_INVALIDATED,
     reason: Annotated[
         str,
-        typer.Option("--reason", "-r", help="Explanation or justification for the status change"),
+        typer.Option("--reason", "-r", help=HELP.review.reason),
     ] = "",
 ) -> None:
     """Validate or invalidate a review finding, persisting feedback reasons."""
+    from devops_cli.ai.review.runner import _find_session_dir
+
     target_session = session or session_opt
     session_dir = _find_session_dir(target_session)
     if not session_dir:
-        print_error(f"Session not found matching: {target_session}", prefix=False)
+        _get("print_error")(f"Session not found matching: {target_session}", prefix=False)
         raise typer.Exit(1)
 
     findings_file = session_dir / "findings.json"
     if not findings_file.exists():
-        print_error(f"No findings.json in {session_dir}", prefix=False)
+        _get("print_error")(f"No findings.json in {session_dir}", prefix=False)
         raise typer.Exit(1)
+
+    from devops_cli.ai.review_schema import ReviewSessionPayload
 
     payload = ReviewSessionPayload.model_validate_json(findings_file.read_text(encoding="utf-8"))
     if not payload.findings:
-        print_warning(MESSAGES.review.no_findings_to_update, prefix=False)
+        _get("print_warning")(MESSAGES.review.no_findings_to_update, prefix=False)
         raise typer.Exit(0)
 
     target_idx: int | None = None
     if index is not None:
         if index < 1 or index > len(payload.findings):
-            print_error(f"Index out of bounds (1-{len(payload.findings)})", prefix=False)
+            _get("print_error")(f"Index out of bounds (1-{len(payload.findings)})", prefix=False)
             raise typer.Exit(1)
         target_idx = index - 1
     elif title_pattern is not None:
@@ -609,12 +649,12 @@ def verify_finding(
                 break
 
     if target_idx is None:
-        print_error(MESSAGES.review.specify_index_or_title, prefix=False)
+        _get("print_error")(MESSAGES.review.specify_index_or_title, prefix=False)
         raise typer.Exit(1)
 
     new_status = status.upper().strip()
     if new_status not in {"VERIFIED", "INVALIDATED", "MITIGATED", "UNVERIFIED"}:
-        print_error(MESSAGES.review.invalid_status_choices, prefix=False)
+        _get("print_error")(MESSAGES.review.invalid_status_choices, prefix=False)
         raise typer.Exit(1)
 
     finding = payload.findings[target_idx]
@@ -626,8 +666,8 @@ def verify_finding(
     if reason:
         finding.invalidation_reason = reason
 
-    write_json_file(findings_file, payload)
-    print_success(f"Updated finding #{target_idx + 1} status → {new_status}")
+    _get("write_json_file")(findings_file, payload)
+    _get("print_success")(f"Updated finding #{target_idx + 1} status → {new_status}")
 
 
 # =============================================================================
@@ -639,18 +679,20 @@ def verify_finding(
 def review_stats(
     reviews_dir: Annotated[
         Path | None,
-        typer.Option("--reviews-dir", help="Directory containing review sessions"),
+        typer.Option("--reviews-dir", help=HELP.review.reviews_dir),
     ] = None,
 ) -> None:
     """Compute and display review accuracy statistics across saved sessions."""
+    from devops_cli.ai.review.runner import _get_reviews_base_dir
+
     r_dir = reviews_dir or _get_reviews_base_dir()
     if not r_dir.exists():
-        print_warning(MESSAGES.review.no_review_dir_found, prefix=False)
+        _get("print_warning")(MESSAGES.review.no_review_dir_found, prefix=False)
         raise typer.Exit(0)
 
     session_dirs = [d for d in r_dir.iterdir() if d.is_dir() and (d / "findings.json").exists()]
     if not session_dirs:
-        print_warning(MESSAGES.review.no_saved_sessions, prefix=False)
+        _get("print_warning")(MESSAGES.review.no_saved_sessions, prefix=False)
         raise typer.Exit(0)
 
     total_sessions = len(session_dirs)
@@ -658,6 +700,8 @@ def review_stats(
     by_status: dict[str, int] = {"VERIFIED": 0, "UNVERIFIED": 0, "INVALIDATED": 0, "MITIGATED": 0}
     by_persona_total: dict[str, int] = {}
     by_persona_invalidated: dict[str, int] = {}
+
+    from devops_cli.ai.review_schema import ReviewSessionPayload
 
     for d in session_dirs:
         try:
@@ -675,35 +719,38 @@ def review_stats(
         except Exception:
             continue
 
-    get_console().print(Rule(" AI Code Review Accuracy & Verification Stats ", style="bold cyan"))
-    print_info(f"[bold]Total Sessions:[/bold]  {total_sessions}", prefix=False)
-    print_info(f"[bold]Total Findings:[/bold]  {total_findings}\n", prefix=False)
+    _get("print_section")(" AI Code Review Accuracy & Verification Stats ", style="bold cyan")
+    _get("print_info")(f"[bold]Total Sessions:[/bold]  {total_sessions}", prefix=False)
+    _get("print_info")(f"[bold]Total Findings:[/bold]  {total_findings}\n", prefix=False)
 
-    table = Table(title="Finding Status Breakdown")
-    table.add_column("Status", style="cyan")
-    table.add_column("Count", justify="right")
-    table.add_column("Percentage", justify="right")
-
+    status_rows = []
     for st, count in by_status.items():
         pct = (count / total_findings * 100) if total_findings else 0.0
-        table.add_row(st, str(count), f"{pct:.1f}%")
+        status_rows.append([st, str(count), f"{pct:.1f}%"])
 
-    print_table(table)
-    get_console().print()
+    _get("print_table")(
+        title="Finding Status Breakdown",
+        columns=[("Status", "cyan"), ("Count", "right"), ("Percentage", "right")],
+        rows=status_rows,
+    )
 
     if by_persona_total:
-        ptable = Table(title="Persona False Positive Rate (Invalidated)")
-        ptable.add_column("Persona", style="magenta")
-        ptable.add_column("Total Findings", justify="right")
-        ptable.add_column("Invalidated", justify="right")
-        ptable.add_column("False-Positive Rate", justify="right")
-
+        persona_rows = []
         for persona, count in by_persona_total.items():
             inval = by_persona_invalidated.get(persona, 0)
             rate = (inval / count * 100) if count else 0.0
-            ptable.add_row(persona, str(count), str(inval), f"{rate:.1f}%")
+            persona_rows.append([persona, str(count), str(inval), f"{rate:.1f}%"])
 
-        print_table(ptable)
+        _get("print_table")(
+            title="Persona False Positive Rate (Invalidated)",
+            columns=[
+                ("Persona", "magenta"),
+                ("Total Findings", "right"),
+                ("Invalidated", "right"),
+                ("False-Positive Rate", "right"),
+            ],
+            rows=persona_rows,
+        )
 
 
 # =============================================================================
@@ -715,31 +762,35 @@ def review_stats(
 def export_feedback(
     output: Annotated[
         Path | None,
-        typer.Option("--output", "-o", help="Output JSONL path for benchmark feedback dataset"),
+        typer.Option("--output", "-o", help=HELP.review.output_feedback),
     ] = None,
     reviews_dir: Annotated[
         Path | None,
-        typer.Option("--reviews-dir", help="Directory containing review sessions"),
+        typer.Option("--reviews-dir", help=HELP.review.reviews_dir),
     ] = None,
     status: Annotated[
         str,
         typer.Option(
             "--status",
             "-s",
-            help="Finding status to export: INVALIDATED, VERIFIED, MITIGATED, or ALL",
+            help=HELP.review.status_export,
         ),
-    ] = "INVALIDATED",
+    ] = CONST_STATUS_INVALIDATED,
 ) -> None:
     """Export review findings into a JSONL benchmark dataset for prompt tuning and fine-tuning."""
     status_filter = None if status.upper() == "ALL" else status.upper()
+    from devops_cli.ai.review.exporter import export_invalidated_feedback
+
     count, out_path = export_invalidated_feedback(
         reviews_dir=reviews_dir, output_file=output, status_filter=status_filter
     )
     if count == 0:
         target_dir = reviews_dir or _get_reviews_base_dir()
-        print_warning(f"No {status} findings found to export under {target_dir}.", prefix=False)
+        _get("print_warning")(
+            f"No {status} findings found to export under {target_dir}.", prefix=False
+        )
     else:
-        print_success(f"Exported {count} {status} finding(s) → [bold]{out_path}[/bold]")
+        _get("print_success")(f"Exported {count} {status} finding(s) → [bold]{out_path}[/bold]")
 
 
 # =============================================================================
@@ -749,10 +800,12 @@ def export_feedback(
 
 @app.command("apply-patch")
 def apply_patch(
-    session: Annotated[str, typer.Argument(help="Review session ID")],
-    index: Annotated[int, typer.Option("--index", "-idx", help="Finding index (1-based)")] = 1,
+    session: Annotated[str, typer.Argument(help=HELP.review.session)],
+    index: Annotated[
+        int, typer.Option("--index", "-idx", help=HELP.review.finding_index)
+    ] = DEFAULT_APPLY_PATCH_INDEX,
     interactive: Annotated[
-        bool, typer.Option("--interactive", "-i", help="Preview patch diff interactively")
+        bool, typer.Option("--interactive", "-i", help=HELP.review.interactive_patch)
     ] = False,
 ) -> None:
     """Apply suggested LLM code fix for a verified finding (v0.1.3)."""

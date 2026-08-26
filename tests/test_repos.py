@@ -1,13 +1,23 @@
-"""Tests for repos commands."""
+"""Tests for repos commands and repository utilities."""
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 from typer.testing import CliRunner
 
+from devops_cli.commands.repos import app as repos_app
+from devops_cli.core.repo import (
+    find_repo_root,
+    find_top_level_repo_root,
+    get_repo_origin_name,
+    is_ignored_by_git,
+    list_repo_files,
+    read_gitignore_patterns,
+)
 from devops_cli.main import app
 
 runner = CliRunner()
@@ -210,3 +220,225 @@ def test_repos_update_no_repos(tmp_path: Path) -> None:
 
     assert result.exit_code == 0
     assert "No repositories" in result.output
+
+
+def test_repo_origin_and_git_ignore_helpers(tmp_path: Path) -> None:
+    """Verify get_repo_origin_name and is_ignored_by_git."""
+    (tmp_path / ".git").mkdir()
+    mock_proc = subprocess.CompletedProcess(
+        args=["git"], returncode=0, stdout="git@github.com:org/repo.git\n", stderr=""
+    )
+    with patch("devops_cli.core.repo.run_subprocess", return_value=mock_proc):
+        origin = get_repo_origin_name(tmp_path)
+        assert origin == "org/repo"
+
+    (tmp_path / ".gitignore").write_text("ignored.txt\n", encoding="utf-8")
+    assert is_ignored_by_git(tmp_path, tmp_path / "ignored.txt") is True
+    assert is_ignored_by_git(tmp_path, tmp_path / ".git" / "config") is True
+
+
+def test_core_repo_find_roots(tmp_path: Path) -> None:
+    """Verify finding repo roots in nested directories."""
+    sub = tmp_path / "a" / "b" / "c"
+    sub.mkdir(parents=True)
+    git_dir = tmp_path / "a" / ".git"
+    git_dir.mkdir()
+
+    root = find_repo_root(sub)
+    assert root == tmp_path / "a"
+
+    top_root = find_top_level_repo_root(sub)
+    assert top_root == tmp_path / "a"
+
+
+def test_core_repo_gitignore_and_files(tmp_path: Path) -> None:
+    """Verify gitignore parsing and listing repo files."""
+    gitignore = tmp_path / ".gitignore"
+    gitignore.write_text("*.tmp\nbuild/\n# comment\n", encoding="utf-8")
+
+    patterns = read_gitignore_patterns(tmp_path)
+    assert "*.tmp" in patterns
+    assert "build/" in patterns
+
+    (tmp_path / "app.py").write_text("print('hello')", encoding="utf-8")
+    (tmp_path / "test.tmp").write_text("temp", encoding="utf-8")
+    (tmp_path / "build").mkdir()
+    (tmp_path / "build" / "out.bin").write_text("bin", encoding="utf-8")
+
+    files = list_repo_files(tmp_path)
+    file_names = [f.name for f in files]
+    assert "app.py" in file_names
+    assert is_ignored_by_git(tmp_path, tmp_path / "test.tmp") is True
+    assert is_ignored_by_git(tmp_path, tmp_path / "app.py") is False
+
+    # Git check-ignore subprocess fallback
+    (tmp_path / ".git").mkdir(exist_ok=True)
+    with patch("devops_cli.core.repo.run_subprocess") as mock_proc:
+        mock_proc.return_value = subprocess.CompletedProcess(
+            args=["git"], returncode=0, stdout="", stderr=""
+        )
+        assert is_ignored_by_git(tmp_path, tmp_path / "dynamic_ignored.txt") is True
+
+    # Symlink outside repository root
+    outside_dir = tmp_path.parent / "outside_dir"
+    outside_dir.mkdir(exist_ok=True)
+    outside_file = outside_dir / "secret.txt"
+    outside_file.write_text("secret", encoding="utf-8")
+
+    symlink_file = tmp_path / "linked_secret.txt"
+    try:
+        symlink_file.symlink_to(outside_file)
+    except OSError:
+        pass
+
+    listed_files = list_repo_files(tmp_path)
+    assert outside_file not in listed_files
+
+
+def test_repos_commands_dry_run(tmp_path: Path) -> None:
+    """Verify repos list and sync in dry-run mode."""
+    with patch("devops_cli.dry_run.is_dry_run", return_value=True):
+        res_list = runner.invoke(repos_app, ["list", "--base-dir", str(tmp_path)])
+        assert res_list.exit_code == 0
+
+        res_sync = runner.invoke(repos_app, ["sync", "--base-dir", str(tmp_path)])
+        assert res_sync.exit_code == 0
+
+
+def test_repos_branch_and_workspace_helpers(tmp_path: Path) -> None:
+    """Verify _current_branch and _resolve_workspace_file."""
+    from devops_cli.commands.repos import _current_branch, _resolve_workspace_file
+    from devops_cli.config.constants import CONST_VSCODE_WORKSPACE_FILE
+
+    # Non-git directory returns "unknown"
+    assert _current_branch(tmp_path / "not_git") == "unknown"
+
+    # Workspace file resolution
+    abs_ws = (tmp_path / "custom.code-workspace").resolve()
+    assert _resolve_workspace_file(tmp_path, abs_ws) == abs_ws
+    assert (
+        _resolve_workspace_file(tmp_path, CONST_VSCODE_WORKSPACE_FILE)
+        == tmp_path.parent / CONST_VSCODE_WORKSPACE_FILE
+    )
+
+
+def test_repos_clone_invalid_arguments(tmp_path: Path) -> None:
+    """Verify repos clone rejects hyphenated URLs and existing directories."""
+    with patch("devops_cli.commands.repos.load_settings") as mock_load:
+        settings = MagicMock()
+        settings.repos.base_dir = tmp_path / "repos"
+        settings.workspace.file = tmp_path / ".code-workspace"
+        mock_load.return_value = settings
+
+        # Hyphen url
+        res_hyphen = runner.invoke(repos_app, ["clone", "--", "-invalid-url"])
+        assert res_hyphen.exit_code == 1
+
+        # Existing dir
+        existing_dir = tmp_path / "repos" / "_standalone" / "existing-repo"
+        existing_dir.mkdir(parents=True)
+        res_exists = runner.invoke(repos_app, ["clone", "https://github.com/org/existing-repo.git"])
+        assert res_exists.exit_code == 1
+
+
+def test_repos_sync_pull_and_errors(tmp_path: Path) -> None:
+    """Verify repos sync pulls tracking branches and handles git errors gracefully."""
+    repos_dir = tmp_path / "repos"
+    repo1 = repos_dir / "org" / "repo1"
+    repo1.mkdir(parents=True)
+    (repo1 / ".git").mkdir()
+
+    with (
+        patch("devops_cli.commands.repos.load_settings") as mock_load,
+        patch("devops_cli.commands.repos.iter_workspace_repos", return_value=[repo1]),
+        patch("devops_cli.commands.repos.fetch_all") as mock_fetch,
+        patch("devops_cli.commands.repos.pull_tracking") as mock_pull,
+        patch("devops_cli.commands.repos.sync_from_repos"),
+        patch("devops_cli.commands.repos._reload_workspace"),
+    ):
+        settings = MagicMock()
+        settings.repos.base_dir = repos_dir
+        settings.workspace.file = tmp_path / ".code-workspace"
+        mock_load.return_value = settings
+
+        # Normal pull
+        res = runner.invoke(repos_app, ["sync", "--pull"])
+        assert res.exit_code == 0
+        mock_fetch.assert_called_once_with(repo1)
+        mock_pull.assert_called_once_with(repo1)
+
+        # Fetch error handled gracefully
+        mock_fetch.side_effect = RuntimeError("Git network timeout")
+        res_err = runner.invoke(repos_app, ["sync"])
+        assert res_err.exit_code == 0
+
+
+def test_core_repo_safe_paths_and_tracked_files(tmp_path: Path) -> None:
+    """Verify is_safe_subpath, resolve_safe_subpath traversal guard, and git-tracked files."""
+    from devops_cli.core.repo import (
+        _list_git_tracked_files,
+        is_safe_subpath,
+        list_repo_files,
+        resolve_safe_subpath,
+    )
+    from devops_cli.exceptions import SecurityError
+
+    # 1. Path safety checks
+    base = tmp_path / "base"
+    base.mkdir()
+    child = base / "child" / "file.txt"
+
+    assert is_safe_subpath(base, "child/file.txt") is True
+    assert is_safe_subpath(base, child) is True
+    assert is_safe_subpath(base, "../outside.txt") is False
+
+    resolved = resolve_safe_subpath(base, "child/file.txt")
+    assert resolved == base / "child" / "file.txt"
+
+    with pytest.raises(SecurityError, match="Path traversal"):
+        resolve_safe_subpath(base, "../outside.txt")
+
+    # 2. _list_git_tracked_files
+    mock_proc = subprocess.CompletedProcess(
+        args=["git"], returncode=0, stdout="src/app.py\nREADME.md\nimage.png\n", stderr=""
+    )
+    (base / ".git").mkdir()
+    (base / "src").mkdir()
+    (base / "src" / "app.py").write_text("code", encoding="utf-8")
+    (base / "README.md").write_text("docs", encoding="utf-8")
+    (base / "image.png").write_text("binary", encoding="utf-8")
+
+    with patch("devops_cli.core.repo.run_subprocess", return_value=mock_proc):
+        tracked = _list_git_tracked_files(base, base)
+        assert tracked is not None
+        assert base / "src" / "app.py" in tracked
+        assert base / "image.png" not in tracked  # binary filtered
+
+    # 3. list_repo_files for single file, missing target, and directory walk fallback
+    single_f = base / "src" / "app.py"
+    files = list_repo_files(single_f)
+    assert files == [single_f]
+
+    assert list_repo_files(tmp_path / "non_existent_folder") == []
+
+    with patch("devops_cli.core.repo._list_git_tracked_files", return_value=None):
+        walked = list_repo_files(base)
+        assert base / "src" / "app.py" in walked
+
+    # 4. get_repo_origin_name parsing
+    from devops_cli.core.repo import get_repo_origin_name
+
+    mock_ssh_origin = subprocess.CompletedProcess(
+        args=["git"], returncode=0, stdout="git@github.com:dan-petty/devops-cli.git\n", stderr=""
+    )
+    with patch("devops_cli.core.repo.run_subprocess", return_value=mock_ssh_origin):
+        assert get_repo_origin_name(base) == "dan-petty/devops-cli"
+
+    mock_https_origin = subprocess.CompletedProcess(
+        args=["git"],
+        returncode=0,
+        stdout="https://github.com/dan-petty/devops-cli\n",
+        stderr="",
+    )
+    with patch("devops_cli.core.repo.run_subprocess", return_value=mock_https_origin):
+        assert get_repo_origin_name(base) == "dan-petty/devops-cli"

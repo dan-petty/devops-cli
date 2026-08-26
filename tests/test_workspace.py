@@ -1,4 +1,4 @@
-"""Tests for workspace file generation."""
+"""Tests for workspace subcommands and multi-root workspace file generation."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 
 from typer.testing import CliRunner
 
+from devops_cli.commands.workspace import app as workspace_app
 from devops_cli.commands.workspace import sync_from_repos
 from devops_cli.config.defaults import DEFAULT_SUBPROCESS_SHORT_TIMEOUT_SECONDS
 from devops_cli.main import app
@@ -83,3 +84,70 @@ def test_workspace_open_resolves_default_workspace_file_from_project_root(tmp_pa
         check=True,
         timeout=DEFAULT_SUBPROCESS_SHORT_TIMEOUT_SECONDS,
     )
+
+
+def test_workspace_add_remove_commands(tmp_path: Path) -> None:
+    """Verify workspace add, remove, and generate subcommands."""
+    ws_file = tmp_path / "test.code-workspace"
+    ws_file.write_text(json.dumps({"folders": [{"path": "."}]}), encoding="utf-8")
+
+    with patch("devops_cli.commands.workspace._PROJECT_ROOT", tmp_path):
+        res_add = runner.invoke(workspace_app, ["add", str(tmp_path), "--workspace", str(ws_file)])
+        assert res_add.exit_code == 0
+
+        res_remove = runner.invoke(
+            workspace_app, ["remove", str(tmp_path), "--workspace", str(ws_file)]
+        )
+        assert res_remove.exit_code == 0
+
+        res_gen = runner.invoke(workspace_app, ["generate", "--workspace", str(ws_file)])
+        assert res_gen.exit_code == 0
+
+
+def test_workspace_edge_cases_and_clean(tmp_path: Path) -> None:
+    """Verify duplicate add, missing remove, missing open, and clean subcommands."""
+    from devops_cli.core.cleanup import CleanupSummary
+
+    ws_file = tmp_path / "test.code-workspace"
+    ws_file.write_text(
+        json.dumps({"folders": [{"path": str(tmp_path.resolve())}]}), encoding="utf-8"
+    )
+
+    with patch("devops_cli.commands.workspace._PROJECT_ROOT", tmp_path):
+        # Add duplicate folder
+        res_dup = runner.invoke(workspace_app, ["add", str(tmp_path), "--workspace", str(ws_file)])
+        assert res_dup.exit_code == 0
+        assert "already" in res_dup.output.lower()
+
+        # Remove non-existent folder
+        res_not_pres = runner.invoke(
+            workspace_app, ["remove", "/nonexistent/path", "--workspace", str(ws_file)]
+        )
+        assert res_not_pres.exit_code == 0
+        assert "not found" in res_not_pres.output.lower()
+
+        # Open non-existent workspace file
+        res_open_err = runner.invoke(
+            workspace_app, ["open", "--workspace", "/nonexistent/file.code-workspace"]
+        )
+        assert res_open_err.exit_code != 0
+
+        # Clean with dry-run
+        res_clean_dry = runner.invoke(workspace_app, ["clean", "--dry-run", "--older-than", "5"])
+        assert res_clean_dry.exit_code == 0
+
+        # Clean when no artifacts
+        mock_empty_summary = CleanupSummary(freed_bytes=0, pruned_files=[], pruned_dirs=[])
+        with patch("devops_cli.core.cleanup.cleanup_data_tier", return_value=mock_empty_summary):
+            res_clean_empty = runner.invoke(workspace_app, ["clean"])
+            assert res_clean_empty.exit_code == 0
+            assert "clean" in res_clean_empty.output.lower()
+
+        # Clean with pruned artifacts
+        mock_summary = CleanupSummary(
+            freed_bytes=1048576, pruned_files=["a.json"], pruned_dirs=["old_dir"]
+        )
+        with patch("devops_cli.core.cleanup.cleanup_data_tier", return_value=mock_summary):
+            res_clean_pruned = runner.invoke(workspace_app, ["clean"])
+            assert res_clean_pruned.exit_code == 0
+            assert "Cleaned" in res_clean_pruned.output

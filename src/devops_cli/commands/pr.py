@@ -8,12 +8,12 @@ import shutil
 from typing import Annotated
 
 import typer
-from rich.table import Table
 
 from devops_cli.config.constants import CONST_GH_CLI
+from devops_cli.config.defaults import DEFAULT_PR_LIMIT, DEFAULT_PR_STATE
 from devops_cli.core.cli import new_typer
 from devops_cli.core.process import run_subprocess
-from devops_cli.lang import MESSAGES
+from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
     print_error,
     print_success,
@@ -22,7 +22,7 @@ from devops_cli.output import (
 )
 
 app = new_typer(
-    help="Manage GitHub pull requests, base branch targeting, and review gates.",
+    help=HELP.pr.app,
     no_args_is_help=True,
 )
 
@@ -74,15 +74,15 @@ def _detect_active_release_branch() -> str | None:
 def list_prs(
     state: Annotated[
         str,
-        typer.Option("--state", "-s", help="Filter by state (open, closed, merged, all)"),
-    ] = "open",
+        typer.Option("--state", "-s", help=HELP.pr.state_filter),
+    ] = DEFAULT_PR_STATE,
     limit: Annotated[
         int,
-        typer.Option("--limit", "-n", help="Maximum number of pull requests to display"),
-    ] = 10,
+        typer.Option("--limit", "-n", help=HELP.options.limit),
+    ] = DEFAULT_PR_LIMIT,
     repo: Annotated[
         str | None,
-        typer.Option("--repo", "-R", help="Target repository in OWNER/REPO format"),
+        typer.Option("--repo", "-R", help=HELP.pr.target_repo),
     ] = None,
 ) -> None:
     """List pull requests with base targeting and review status."""
@@ -115,15 +115,7 @@ def list_prs(
         print_warning(MESSAGES.pr.no_prs_found, prefix=False)
         return
 
-    table = Table(title=f"Pull Requests ({state})", title_style="bold")
-    table.add_column("#", justify="right", style="dim")
-    table.add_column("Title", style="bold")
-    table.add_column("Branch", style="cyan")
-    table.add_column("Base", style="magenta")
-    table.add_column("Author", style="dim")
-    table.add_column("Updated", style="dim")
-    table.add_column("URL", overflow="fold")
-
+    rows: list[list[str]] = []
     for pr in prs:
         number = str(pr.get("number", ""))
         title = str(pr.get("title", ""))
@@ -137,9 +129,21 @@ def list_prs(
         updated = str(pr.get("updatedAt", ""))[:10]
         url = str(pr.get("url", ""))
 
-        table.add_row(f"#{number}", title, head, base, author, updated, url)
+        rows.append([f"#{number}", title, head, base, author, updated, url])
 
-    print_table(table)
+    print_table(
+        title=f"Pull Requests ({state})",
+        columns=[
+            ("#", "right"),
+            ("Title", "bold"),
+            ("Branch", "cyan"),
+            ("Base", "magenta"),
+            ("Author", "dim"),
+            ("Updated", "dim"),
+            "URL",
+        ],
+        rows=rows,
+    )
 
 
 # =============================================================================
@@ -149,10 +153,10 @@ def list_prs(
 
 @app.command("view")
 def view_pr(
-    number: Annotated[int, typer.Argument(help="Pull request number")],
+    number: Annotated[int, typer.Argument(help=HELP.pr.number)],
     repo: Annotated[
         str | None,
-        typer.Option("--repo", "-R", help="Target repository in OWNER/REPO format"),
+        typer.Option("--repo", "-R", help=HELP.pr.target_repo),
     ] = None,
 ) -> None:
     """View details of a pull request."""
@@ -166,10 +170,10 @@ def view_pr(
 
 @app.command("checks")
 def pr_checks(
-    number: Annotated[int, typer.Argument(help="Pull request number")],
+    number: Annotated[int, typer.Argument(help=HELP.pr.number)],
     repo: Annotated[
         str | None,
-        typer.Option("--repo", "-R", help="Target repository in OWNER/REPO format"),
+        typer.Option("--repo", "-R", help=HELP.pr.target_repo),
     ] = None,
 ) -> None:
     """Check remote CI quality gate status on a pull request."""
@@ -183,22 +187,22 @@ def pr_checks(
 
 @app.command("edit")
 def edit_pr(
-    number: Annotated[int, typer.Argument(help="Pull request number")],
+    number: Annotated[int, typer.Argument(help=HELP.pr.number)],
     base: Annotated[
         str | None,
-        typer.Option("--base", "-B", help="Change the base branch for this pull request"),
+        typer.Option("--base", "-B", help=HELP.pr.edit_base),
     ] = None,
     title: Annotated[
         str | None,
-        typer.Option("--title", "-t", help="Set the new title"),
+        typer.Option("--title", "-t", help=HELP.pr.edit_title),
     ] = None,
     body: Annotated[
         str | None,
-        typer.Option("--body", "-b", help="Set the new body"),
+        typer.Option("--body", "-b", help=HELP.pr.edit_body),
     ] = None,
     repo: Annotated[
         str | None,
-        typer.Option("--repo", "-R", help="Target repository in OWNER/REPO format"),
+        typer.Option("--repo", "-R", help=HELP.pr.target_repo),
     ] = None,
 ) -> None:
     """Edit pull request base branch, title, or body."""
@@ -226,23 +230,23 @@ def edit_pr(
 
 @app.command("create")
 def create_pr(
-    title: Annotated[str, typer.Option("--title", "-t", help="Pull request title")],
-    body: Annotated[str, typer.Option("--body", "-b", help="Pull request body text")] = "",
+    title: Annotated[str, typer.Option("--title", "-t", help=HELP.options.title)],
+    body: Annotated[str, typer.Option("--body", "-b", help=HELP.options.body)] = "",
     base: Annotated[
         str | None,
         typer.Option(
             "--base",
             "-B",
-            help="Target base branch (defaults to active release branch)",
+            help=HELP.options.base_branch,
         ),
     ] = None,
     draft: Annotated[
         bool,
-        typer.Option("--draft", "-d", help="Create pull request as draft"),
+        typer.Option("--draft", "-d", help=HELP.options.draft),
     ] = False,
     repo: Annotated[
         str | None,
-        typer.Option("--repo", "-R", help="Target repository in OWNER/REPO format"),
+        typer.Option("--repo", "-R", help=HELP.pr.target_repo),
     ] = None,
 ) -> None:
     """Create a pull request with automatic release branch target validation."""

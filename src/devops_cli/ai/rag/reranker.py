@@ -5,6 +5,13 @@ from __future__ import annotations
 import re
 
 from devops_cli.ai.rag.models import SearchResult
+from devops_cli.config.defaults import (
+    DEFAULT_RERANKER_DECLARATION_BONUS,
+    DEFAULT_RERANKER_INTENT_BOOST,
+    DEFAULT_RERANKER_LEXICAL_WEIGHT,
+    DEFAULT_RERANKER_SYMBOL_BONUS,
+    DEFAULT_RERANKER_VECTOR_WEIGHT,
+)
 
 _DOC_INTENT_WORDS = {
     "how",
@@ -61,13 +68,13 @@ class SearchReranker:
 
     def __init__(
         self,
-        vector_weight: float = 0.50,
-        lexical_weight: float = 0.20,
-        symbol_bonus: float = 0.15,
-        declaration_bonus: float = 0.15,
-        doc_intent_boost: float = 0.10,
-        security_intent_boost: float = 0.10,
-        structural_intent_boost: float = 0.10,
+        vector_weight: float = DEFAULT_RERANKER_VECTOR_WEIGHT,
+        lexical_weight: float = DEFAULT_RERANKER_LEXICAL_WEIGHT,
+        symbol_bonus: float = DEFAULT_RERANKER_SYMBOL_BONUS,
+        declaration_bonus: float = DEFAULT_RERANKER_DECLARATION_BONUS,
+        doc_intent_boost: float = DEFAULT_RERANKER_INTENT_BOOST,
+        security_intent_boost: float = DEFAULT_RERANKER_INTENT_BOOST,
+        structural_intent_boost: float = DEFAULT_RERANKER_INTENT_BOOST,
     ) -> None:
         self.vector_weight = vector_weight
         self.lexical_weight = lexical_weight

@@ -256,3 +256,51 @@ def test_deploy_cloud_dry_run(temp_tf_dir: Path) -> None:
         result = runner.invoke(app, ["deploy-cloud", "--provider", "aws", "--auto-approve"])
         assert result.exit_code == 0
         mock_run.assert_not_called()
+
+
+def test_tf_subcommands_dry_run(temp_tf_dir: Path) -> None:
+    """Verify plan, apply, destroy, output, validate, and fmt in dry-run mode."""
+    with (
+        patch("devops_cli.commands.tf._resolve_tf_binary", return_value="tofu"),
+        patch("devops_cli.commands.tf.is_dry_run", return_value=True),
+        patch("subprocess.run") as mock_run,
+    ):
+        assert runner.invoke(app, ["plan", str(temp_tf_dir)]).exit_code == 0
+        assert runner.invoke(app, ["apply", str(temp_tf_dir)]).exit_code == 0
+        assert runner.invoke(app, ["destroy", str(temp_tf_dir)]).exit_code == 0
+        assert runner.invoke(app, ["output", str(temp_tf_dir)]).exit_code == 0
+        assert runner.invoke(app, ["validate", str(temp_tf_dir)]).exit_code == 0
+        assert runner.invoke(app, ["fmt", str(temp_tf_dir)]).exit_code == 0
+        mock_run.assert_not_called()
+
+
+def test_tf_lint_command(temp_tf_dir: Path) -> None:
+    """Verify devops tf lint subcommand."""
+    from devops_cli.ai.review_schema import Finding
+
+    mock_finding = Finding(
+        severity="HIGH",
+        location="main.tf:1",
+        title="Unused variable",
+        description="Var declared but not used",
+        fix="Remove var",
+    )
+
+    # Dry run
+    res_dry = runner.invoke(app, ["lint", str(temp_tf_dir), "--dry-run"])
+    assert res_dry.exit_code == 0
+
+    # With findings and JSON
+    with patch("devops_cli.security.tflint.run_tflint_scan", return_value=[mock_finding]):
+        res_json = runner.invoke(app, ["lint", str(temp_tf_dir), "--json"])
+        assert res_json.exit_code == 0
+        assert "Unused variable" in res_json.output
+
+        res_table = runner.invoke(app, ["lint", str(temp_tf_dir)])
+        assert res_table.exit_code == 0
+
+    # Clean
+    with patch("devops_cli.security.tflint.run_tflint_scan", return_value=[]):
+        res_clean = runner.invoke(app, ["lint", str(temp_tf_dir)])
+        assert res_clean.exit_code == 0
+        assert "No Terraform" in res_clean.output

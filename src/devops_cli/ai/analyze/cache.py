@@ -7,18 +7,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
-from rich import print as rprint
-from rich.console import Console
-from rich.table import Table
-
 from devops_cli.ai.analyze.scanner import sanitize_reference
 from devops_cli.config.constants import CONST_ANALYSIS_DATA_DIR
 from devops_cli.core.repo import find_top_level_repo_root
 from devops_cli.dry_run import is_dry_run
+from devops_cli.exceptions import SecurityError
 from devops_cli.lang import MESSAGES
 from devops_cli.models.ai import AnalysisMetadata, FileAnalysisMeta, ProjectAnalysisMeta
-
-console = Console()
+from devops_cli.output import print_info, print_success, print_table
 
 
 def save_analysis_metadata(
@@ -37,7 +33,7 @@ def save_analysis_metadata(
         analysis_dir.mkdir(parents=True, exist_ok=True)
     out_file = (analysis_dir / f"{target_type}-{sanitized_ref}-metadata.json").resolve()
     if not str(out_file).startswith(str(analysis_dir)):
-        raise ValueError(f"Target metadata path escapes analysis directory: {out_file}")
+        raise SecurityError(f"Target metadata path escapes analysis directory: {out_file}")
 
     total_files = len(files)
     total_lines = sum(f.line_count for f in files)
@@ -98,35 +94,34 @@ def save_analysis_metadata(
     if is_dry_run():
         from devops_cli.output import print_dry_run_result
 
-        rprint(MESSAGES.analyze.would_save_metadata.format(path=out_file))
+        print_info(MESSAGES.analyze.would_save_metadata.format(path=out_file), prefix=False)
         print_dry_run_result(payload)
     else:
         out_file.write_text(json.dumps(payload.model_dump(mode="json"), indent=2), encoding="utf-8")
-        rprint(MESSAGES.analyze.saved_metadata.format(path=out_file))
+        print_success(MESSAGES.analyze.saved_metadata.format(path=out_file))
 
     return out_file
 
 
 def _render_analysis_summary(payload: AnalysisMetadata, out_path: Path) -> None:
-    """Render a Rich summary table of the analysis metadata."""
+    """Render a summary table of the analysis metadata."""
     proj = payload.project
-    console.print(MESSAGES.analyze.analysis_complete.format(title=proj.title))
-    table = Table(show_header=False, box=None)
-    table.add_row(MESSAGES.analyze.lbl_target, f"{proj.target_type} ({proj.target_reference})")
-    table.add_row(MESSAGES.analyze.lbl_total_files, str(proj.total_files))
-    table.add_row(MESSAGES.analyze.lbl_total_lines, f"{proj.total_lines:,}")
-    table.add_row(MESSAGES.analyze.lbl_languages, ", ".join(proj.languages))
+    print_info(MESSAGES.analyze.analysis_complete.format(title=proj.title), prefix=False)
+    rows = [
+        [MESSAGES.analyze.lbl_target, f"{proj.target_type} ({proj.target_reference})"],
+        [MESSAGES.analyze.lbl_total_files, str(proj.total_files)],
+        [MESSAGES.analyze.lbl_total_lines, f"{proj.total_lines:,}"],
+        [MESSAGES.analyze.lbl_languages, ", ".join(proj.languages)],
+    ]
     if proj.enhanced:
-        table.add_row(
-            MESSAGES.analyze.lbl_enhanced,
-            MESSAGES.analyze.enhanced_enabled,
-        )
+        rows.append([MESSAGES.analyze.lbl_enhanced, MESSAGES.analyze.enhanced_enabled])
         conf_str = f"{proj.confidence_score:.2f}" if proj.confidence_score is not None else "N/A"
-        table.add_row("Confidence Score:", conf_str)
+        rows.append(["Confidence Score:", conf_str])
         qual_str = f"{proj.quality_score:.2f}" if proj.quality_score is not None else "N/A"
-        table.add_row("Quality Score:", qual_str)
-    table.add_row(MESSAGES.analyze.lbl_saved_to, f"[link=file://{out_path}]{out_path}[/link]")
-    console.print(table)
+        rows.append(["Quality Score:", qual_str])
+    rows.append([MESSAGES.analyze.lbl_saved_to, f"[link=file://{out_path}]{out_path}[/link]"])
+
+    print_table(columns=["Property", "Value"], rows=rows, border_style=None)
 
 
 def load_cached_analysis(repo_root: Path = Path(".")) -> AnalysisMetadata | None:

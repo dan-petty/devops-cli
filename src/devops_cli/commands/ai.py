@@ -8,18 +8,8 @@ from pathlib import Path
 from typing import Annotated, Any
 
 import typer
-from rich import print as rprint
-from rich.console import Console
-from rich.rule import Rule
-from rich.table import Table
 
-from devops_cli.ai.instruction_generator import (
-    ProjectMetadata,
-    generate_instruction_content,
-    parse_project_metadata,
-)
-from devops_cli.ai.personas import PERSONAS, Persona
-from devops_cli.ai.task_loader import load_task_prompt
+from devops_cli.ai.personas import Persona
 from devops_cli.commands.ai_cache import app as cache_app
 from devops_cli.commands.analyze import app as analyze_app
 from devops_cli.commands.benchmark import app as benchmark_app
@@ -30,14 +20,42 @@ from devops_cli.config.constants import (
     CONST_DEVCONTAINER_JSON_PATH,
     CONST_GIT_DIR_NAME,
 )
-from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
+from devops_cli.config.defaults import (
+    DEFAULT_AI_PIPELINE_MAX_TURNS,
+    DEFAULT_AI_PIPELINE_PERSONAS,
+    DEFAULT_AI_PIPELINE_PROMPT,
+    DEFAULT_AI_TEST_PROMPT,
+    DEFAULT_DIFF_CHUNK_BUDGET,
+    DEFAULT_ESTIMATED_PROMPT_TOKENS,
+    DEFAULT_RAG_TOP_K,
+    DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
+    DEFAULT_TIKTOKEN_MODEL,
+)
 from devops_cli.config.env import env_var_for_option
 from devops_cli.config.options import AI_API_KEY
-from devops_cli.config.settings import SecretStorageError, dotted_set
+from devops_cli.config.settings import (
+    SecretStorageError,
+    dotted_set,
+    get_ai_api_key,
+    load_settings,
+    save_settings,
+)
 from devops_cli.core.cli import new_typer
 from devops_cli.core.process import run_subprocess
 from devops_cli.lang import HELP
-from devops_cli.output import write_text_file
+from devops_cli.output import (
+    escape_text,
+    format_json,
+    get_console,
+    print_error,
+    print_info,
+    print_section,
+    print_success,
+    print_table,
+    print_warning,
+    write_stdout,
+    write_text_file,
+)
 
 app = new_typer(
     help=HELP.ai.app,
@@ -68,7 +86,6 @@ app.add_typer(
     name="cache",
     help=HELP.ai.cache,
 )
-console = Console()
 
 
 @app.callback(invoke_without_command=True)
@@ -79,7 +96,7 @@ def ai_main(
         typer.Option(
             "--explain",
             "-e",
-            help="Explain AI agent workflows, FastMCP tools, RAG terminology, and metrics",
+            help=HELP.ai.explain_all,
         ),
     ] = False,
 ) -> None:
@@ -103,8 +120,11 @@ _AGENT_FILES: dict[str, str] = {
     ".github/copilot-instructions.md": "Pointer stub redirecting GitHub Copilot to AGENTS.md",
 }
 
-# Task-specific addendum appended to the architect persona when generating AGENTS.md
-_AGENTS_TASK_ADDENDUM = "\n" + load_task_prompt("generate_agents.md")
+
+def _get_agents_task_addendum() -> str:
+    from devops_cli.ai.task_loader import load_task_prompt
+
+    return "\n" + load_task_prompt("generate_agents.md")
 
 
 # =============================================================================
@@ -118,7 +138,7 @@ def _try_retrieve_rag_context(
     persona: str | None = None,
     category: str | None = None,
     project: str | None = None,
-    top_k: int = 3,
+    top_k: int = DEFAULT_RAG_TOP_K,
 ) -> str | None:
     """Attempt to retrieve relevant semantic context from RAG vector store."""
     try:
@@ -247,8 +267,13 @@ def _pointer_stub(title: str, tool_name: str, filename: str, canonical_relpath: 
 """
 
 
-def _template_content(target_file: str, context_summary: dict[str, str] | ProjectMetadata) -> str:
+def _template_content(target_file: str, context_summary: dict[str, str] | Any) -> str:
     """Fallback template when no LLM is configured."""
+    from devops_cli.ai.instruction_generator import (
+        ProjectMetadata,
+        generate_instruction_content,
+    )
+
     if isinstance(context_summary, ProjectMetadata):
         meta = context_summary
     else:
@@ -261,8 +286,10 @@ def _template_content(target_file: str, context_summary: dict[str, str] | Projec
     return generate_instruction_content(target_file, meta)
 
 
-def _parse_pyproject(repo: Path) -> ProjectMetadata:
+def _parse_pyproject(repo: Path) -> Any:
     """Extract structured fields from pyproject.toml and repo context."""
+    from devops_cli.ai.instruction_generator import parse_project_metadata
+
     return parse_project_metadata(repo)
 
 
@@ -279,39 +306,33 @@ def config(
     ] = None,
     model: Annotated[
         str | None,
-        typer.Option("--model", "-m", help="Model name, e.g. gemma4:26b, claude-opus-4-5"),
+        typer.Option("--model", "-m", help=HELP.options.model),
     ] = None,
     ollama_urls: Annotated[
         str | None,
-        typer.Option("--ollama-urls", help="Ollama server base URLs (comma-separated)"),
+        typer.Option("--ollama-urls", help=HELP.ai.ollama_urls),
     ] = None,
     ollama_max_parallel: Annotated[
         int | None,
         typer.Option(
             "--ollama-max-parallel",
-            help="Maximum number of simultaneous requests allowed per Ollama server node",
+            help=HELP.ai.max_parallel,
         ),
     ] = None,
     api_base_url: Annotated[
         str | None,
-        typer.Option("--api-base-url", help="Override API base URL for any provider"),
+        typer.Option("--api-base-url", help=HELP.ai.api_base_url),
     ] = None,
     api_key: Annotated[
         str | None,
-        typer.Option("--api-key", help="API key — stored in OS keyring, not config file"),
+        typer.Option("--api-key", help=HELP.ai.api_key),
     ] = None,
     max_retries: Annotated[
         int | None,
-        typer.Option("--max-retries", help="Maximum retry count for AI requests upon failure"),
+        typer.Option("--max-retries", help=HELP.ai.max_retries),
     ] = None,
 ) -> None:
     """Show or update AI provider configuration."""
-    from devops_cli.config.settings import (
-        get_ai_api_key,
-        load_settings,
-        save_settings,
-    )
-
     settings = load_settings()
 
     if not any(
@@ -327,23 +348,28 @@ def config(
     ):
         ai = settings.ai
         current_key = get_ai_api_key(settings)
-        table = Table(title="AI Configuration")
-        table.add_column("Setting", style="cyan")
-        table.add_column("Value")
-        table.add_row("provider", ai.provider)
-        table.add_row("model", ai.model)
-        table.add_row("ollama_urls", ", ".join(ai.get_ollama_urls))
-        table.add_row("ollama_max_parallel", str(ai.ollama_max_parallel))
-        table.add_row("api_base_url", ai.api_base_url or "(default)")
         key_display = "[green]***set***[/green]" if current_key else "[dim](not set)[/dim]"
-        table.add_row("api_key", key_display)
-        table.add_row("max_retries", str(ai.max_retries))
-        console.print(table)
+        rows = [
+            ["provider", ai.provider],
+            ["model", ai.model],
+            ["ollama_urls", ", ".join(ai.get_ollama_urls)],
+            ["ollama_max_parallel", str(ai.ollama_max_parallel)],
+            ["api_base_url", ai.api_base_url or "(default)"],
+            ["api_key", key_display],
+            ["max_retries", str(ai.max_retries)],
+        ]
+        print_table(
+            title="AI Configuration",
+            columns=[("Setting", "cyan"), "Value"],
+            rows=rows,
+        )
         return
 
     if provider:
         if provider not in _PROVIDERS:
-            rprint(f"[red]Unknown provider {provider!r}. Choose: {', '.join(_PROVIDERS)}[/red]")
+            print_error(
+                f"Unknown provider {provider!r}. Choose: {', '.join(_PROVIDERS)}", prefix=False
+            )
             raise typer.Exit(1)
         settings.ai.provider = provider
     if model:
@@ -359,18 +385,19 @@ def config(
     if api_key:
         try:
             dotted_set(settings, AI_API_KEY, api_key)
-            rprint("[green]✓[/green] API key saved to keyring")
+            print_success("API key saved to keyring")
         except SecretStorageError as exc:
-            rprint(f"[red]Could not store ai.api_key: {exc}[/red]")
+            print_error(f"Could not store ai.api_key: {exc}", prefix=False)
             env_var = env_var_for_option(AI_API_KEY)
             if env_var:
-                rprint(
-                    f"[yellow]Use environment variable fallback: export {env_var}=<value>[/yellow]"
+                print_warning(
+                    f"Use environment variable fallback: export {env_var}=<value>",
+                    prefix=False,
                 )
             raise typer.Exit(1)
 
     save_settings(settings)
-    rprint("[green]✓[/green] AI configuration saved")
+    print_success("AI configuration saved")
 
 
 # =============================================================================
@@ -389,14 +416,14 @@ def models() -> None:
     try:
         model_list = client.list_models()
     except Exception as exc:
-        rprint(f"[red]Failed to list models: {exc}[/red]")
+        print_error(f"Failed to list models: {exc}", prefix=False)
         raise typer.Exit(1)
 
-    table = Table(title=f"Available Models — {settings.ai.provider}")
-    table.add_column("Model", style="cyan")
-    for m in model_list:
-        table.add_row(m)
-    console.print(table)
+    print_table(
+        title=f"Available Models — {settings.ai.provider}",
+        columns=[("Model", "cyan")],
+        rows=[[m] for m in model_list],
+    )
 
 
 # =============================================================================
@@ -413,14 +440,17 @@ def preload() -> None:
     settings = load_settings()
     if settings.ai.provider != "ollama":
         p = settings.ai.provider
-        rprint(f"[yellow]Model preloading is for Ollama provider (current: {p}).[/yellow]")
+        print_warning(f"Model preloading is for Ollama provider (current: {p}).", prefix=False)
         return
     client = LLMClient(settings.ai, api_key=get_ai_api_key(settings))
-    rprint(f"Preloading model [bold cyan]{settings.ai.model}[/bold cyan] across Ollama nodes...")
+    print_info(
+        f"Preloading model [bold cyan]{settings.ai.model}[/bold cyan] across Ollama nodes...",
+        prefix=False,
+    )
     results = client.preload_models()
     for url, ok in results.items():
         status = "[green]✓ preloaded[/green]" if ok else "[red]✗ failed[/red]"
-        rprint(f"  {url}: {status}")
+        print_info(f"  {url}: {status}", prefix=False)
 
 
 # =============================================================================
@@ -451,12 +481,11 @@ def _test_single_ollama_endpoint(
 
 def _print_chat_thought(th: str) -> None:
     """Print thinking block stream during interactive chat."""
-    from rich.markup import escape
-
-    rprint(
+    print_info(
         f"\n[dim cyan]💭 Thinking...[/dim cyan]\n"
-        f"[dim italic]{escape(th)}[/dim italic]\n"
-        f"[dim cyan]✓ Thought complete[/dim cyan]\n"
+        f"[dim italic]{escape_text(th)}[/dim italic]\n"
+        f"[dim cyan]✓ Thought complete[/dim cyan]\n",
+        prefix=False,
     )
 
 
@@ -465,11 +494,13 @@ def _print_chat_tool(t_name: str, t_args: dict[str, Any], t_res: Any) -> None:
     args_str = ", ".join(f"{k}={v!r}" for k, v in t_args.items())
     if len(args_str) > 60:
         args_str = args_str[:57] + "..."
-    rprint(f"\n[dim yellow]🔧 Tool: [bold]{t_name}[/bold]({args_str})[/dim yellow]")
+    print_info(
+        f"\n[dim yellow]🔧 Tool: [bold]{t_name}[/bold]({args_str})[/dim yellow]", prefix=False
+    )
     res_str = str(t_res).strip()
     if len(res_str) > 200:
         res_str = res_str[:197] + "..."
-    rprint(f"[dim green]✓ Result: {res_str}[/dim green]\n")
+    print_info(f"[dim green]✓ Result: {res_str}[/dim green]\n", prefix=False)
 
 
 def _run_ollama_server_tests(
@@ -487,10 +518,12 @@ def _run_ollama_server_tests(
         for f in as_completed(futures):
             u, ok, ans, wall = f.result()
             if ok:
-                rprint(f"  [cyan]{u}[/cyan]: [green]✓ {ans}[/green] [dim]({wall})[/dim]")
+                print_info(
+                    f"  [cyan]{u}[/cyan]: [green]✓ {ans}[/green] [dim]({wall})[/dim]", prefix=False
+                )
             else:
                 all_passed = False
-                rprint(f"  [cyan]{u}[/cyan]: [red]✗ failed: {ans}[/red]")
+                print_error(f"  [cyan]{u}[/cyan]: [red]✗ failed: {ans}[/red]", prefix=False)
 
     if not all_passed:
         raise typer.Exit(1)
@@ -500,15 +533,16 @@ def _run_ollama_server_tests(
 def test(
     prompt: Annotated[
         str,
-        typer.Option("--prompt", "-p", help="Test prompt to send to the provider"),
-    ] = "Reply with exactly one word: OK",
+        typer.Option("--prompt", "-p", help=HELP.ai.prompt),
+    ] = DEFAULT_AI_TEST_PROMPT,
     url: Annotated[
         str | None,
-        typer.Option("--url", "-u", help="Specific Ollama server URL to test"),
+        typer.Option("--url", "-u", help=HELP.ai.url),
     ] = None,
 ) -> None:
     """Send a test prompt to verify AI provider connectivity across configured servers."""
     from devops_cli.ai.client import LLMClient
+    from devops_cli.ai.task_loader import load_task_prompt
     from devops_cli.config.settings import get_ai_api_key, load_settings
 
     settings = load_settings()
@@ -517,16 +551,18 @@ def test(
     if settings.ai.provider == "ollama":
         urls = [url] if url else settings.ai.get_ollama_urls
         if len(urls) > 1:
-            rprint(
-                f"Testing Ollama servers ({len(urls)}) | model: [cyan]{settings.ai.model}[/cyan]..."
+            print_info(
+                f"Testing Ollama servers ({len(urls)}) | model: [cyan]{settings.ai.model}[/cyan]...",
+                prefix=False,
             )
             _run_ollama_server_tests(urls, test_sys_prompt, prompt, settings)
             return
 
     client = LLMClient(settings.ai, api_key=get_ai_api_key(settings))
-    rprint(
+    print_info(
         f"Testing provider: [cyan]{client.backend_info}[/cyan] | "
-        f"model: [cyan]{settings.ai.model}[/cyan]..."
+        f"model: [cyan]{settings.ai.model}[/cyan]...",
+        prefix=False,
     )
     try:
         resp = client.chat(system=test_sys_prompt, user=prompt)
@@ -536,9 +572,9 @@ def test(
             if getattr(resp, "wall_seconds", None) is not None
             else ""
         )
-        rprint(f"[green]✓ {str(resp).strip()}[/green] [dim](handled by {handled}{wall_sec})[/dim]")
+        print_success(f"{str(resp).strip()} [dim](handled by {handled}{wall_sec})[/dim]")
     except Exception as exc:
-        rprint(f"[red]✗ AI provider test failed: {exc}[/red]")
+        print_error(f"AI provider test failed: {exc}", prefix=False)
         raise typer.Exit(1)
 
 
@@ -551,15 +587,15 @@ def test(
 def agents(
     repo: Annotated[
         Path,
-        typer.Option("--repo", "-r", help="Repository root (default: current directory)"),
+        typer.Option("--repo", "-r", help=HELP.options.repo),
     ] = Path("."),
     template: Annotated[
         bool,
-        typer.Option("--template", help="Generate from built-in template without calling the LLM"),
+        typer.Option("--template", help=HELP.ai.template),
     ] = False,
     files: Annotated[
         list[str],
-        typer.Option("--file", "-f", help="Files to generate (repeatable)"),
+        typer.Option("--file", "-f", help=HELP.ai.generate_file),
     ] = list(_AGENT_FILES),
 ) -> None:
     """Generate LLM/Agent instruction files (AGENTS.md, CLAUDE.md, copilot-instructions.md)."""
@@ -578,7 +614,7 @@ def agents(
             client = LLMClient(settings.ai, api_key=get_ai_api_key(settings))
             context = _collect_project_context(repo)
         except Exception as exc:
-            rprint(f"[yellow]LLM unavailable ({exc}), falling back to template.[/yellow]")
+            print_warning(f"LLM unavailable ({exc}), falling back to template.", prefix=False)
             use_llm = False
 
     for target in files:
@@ -588,17 +624,21 @@ def agents(
         repo_resolved = repo.resolve()
         if not (dest == repo_resolved or dest.is_relative_to(repo_resolved)):
             msg = MESSAGES.messages.target_path_outside_repo.format(dest=dest)
-            rprint(f"[red]{msg}[/red]")
+            print_error(msg, prefix=False)
             continue
-        console.print(Rule(f" {target} ", style="cyan"))
+        print_section(f" {target} ", style="cyan")
 
         # Only the canonical file is worth spending an LLM call on — the others
         # are static pointers to it, so they always use the template.
         if target != CONST_AGENTS_MD_FILENAME:
             content = _template_content(target, meta)
         elif use_llm and client is not None:
-            rprint(MESSAGES.ai.generating_agents.format(target=f"[cyan]{target}[/cyan]"))
-            system = PERSONAS[Persona.ARCHITECT].system_prompt + _AGENTS_TASK_ADDENDUM
+            from devops_cli.ai.personas import PERSONAS, Persona
+
+            print_info(
+                MESSAGES.ai.generating_agents.format(target=f"[cyan]{target}[/cyan]"), prefix=False
+            )
+            system = PERSONAS[Persona.ARCHITECT].system_prompt + _get_agents_task_addendum()
             try:
                 content = client.chat(
                     system=system,
@@ -606,7 +646,7 @@ def agents(
                 )
             except Exception as exc:
                 msg = MESSAGES.messages.llm_failed_template_fallback.format(exc=exc)
-                rprint(f"[yellow]{msg}[/yellow]")
+                print_warning(msg, prefix=False)
                 content = _template_content(target, meta)
         else:
             content = _template_content(target, meta)
@@ -614,7 +654,7 @@ def agents(
         if not content.endswith("\n"):
             content += "\n"
         write_text_file(dest, content)
-        rprint(MESSAGES.ai.written_file.format(path=dest.relative_to(repo)))
+        print_info(MESSAGES.ai.written_file.format(path=dest.relative_to(repo)), prefix=False)
 
 
 _PERSONA_NAMES = [p.value for p in Persona]
@@ -631,7 +671,7 @@ def _stream_interactive_chat_turn(
 
     processor = ThinkingStreamProcessor(
         show_thinking=thinking,
-        console=console,
+        console=get_console(),
     )
     system_with_tools = agent._build_system_prompt_with_tools()
     messages = agent.memory.to_chat_messages()
@@ -644,9 +684,9 @@ def _stream_interactive_chat_turn(
         agent_res = agent.run(effective_prompt, enable_thinking=thinking)
         reply = strip_think_blocks(agent_res.content)
         if reply.strip():
-            rprint(f"{reply.strip()}\n")
+            print_info(f"{reply.strip()}\n", prefix=False)
         return
-    rprint("\n")
+    write_stdout("\n\n")
     agent.memory.add_interaction("assistant", reply)
 
 
@@ -670,29 +710,21 @@ def chat(
         typer.Option(
             "--context",
             "-c",
-            help="Optional file to inject as background context (e.g. AGENTS.md)",
+            help=HELP.ai.context_file,
             exists=True,
             readable=True,
         ),
     ] = None,
-    rag: Annotated[
-        bool, typer.Option("--rag/--no-rag", help="Retrieve relevant semantic RAG context")
-    ] = True,
-    stream: Annotated[
-        bool, typer.Option("--stream/--no-stream", help="Stream response tokens")
-    ] = True,
-    tools: Annotated[
-        bool, typer.Option("--tools/--no-tools", help="Enable DevOps agent tools")
-    ] = True,
+    rag: Annotated[bool, typer.Option("--rag/--no-rag", help=HELP.ai.rag_context)] = True,
+    stream: Annotated[bool, typer.Option("--stream/--no-stream", help=HELP.ai.stream)] = True,
+    tools: Annotated[bool, typer.Option("--tools/--no-tools", help=HELP.ai.tools)] = True,
     thinking: Annotated[
-        bool, typer.Option("--thinking/--no-thinking", help="Enable model reasoning/thinking")
+        bool, typer.Option("--thinking/--no-thinking", help=HELP.ai.thinking)
     ] = True,
-    prewarm: Annotated[
-        bool, typer.Option("--prewarm/--no-prewarm", help="Prewarm the model before starting chat")
-    ] = True,
+    prewarm: Annotated[bool, typer.Option("--prewarm/--no-prewarm", help=HELP.ai.prewarm)] = True,
     explain: Annotated[
         bool,
-        typer.Option("--explain", "-e", help="Explain chat personas, tools, and reasoning modes"),
+        typer.Option("--explain", "-e", help=HELP.ai.explain_chat),
     ] = False,
 ) -> None:
     """Start an interactive chat with a Pydantic AI persona (tools, thinking, streaming, RAG)."""
@@ -709,8 +741,12 @@ def chat(
     from devops_cli.config.settings import get_ai_api_key, load_settings
 
     if persona not in _PERSONA_NAMES:
-        rprint(f"[red]Unknown persona {persona!r}. Choose: {', '.join(_PERSONA_NAMES)}[/red]")
+        print_error(
+            f"Unknown persona {persona!r}. Choose: {', '.join(_PERSONA_NAMES)}", prefix=False
+        )
         raise typer.Exit(1)
+
+    from devops_cli.ai.personas import PERSONAS, Persona
 
     persona_def = PERSONAS[Persona(persona)]
     system = persona_def.chat_prompt
@@ -724,9 +760,10 @@ def chat(
         ollama_urls = client._config.get_ollama_urls
         if ollama_urls:
             n_nodes = len(ollama_urls)
-            rprint(
+            print_info(
                 f"[dim]Prewarming model '{settings.ai.model}' in background across "
-                f"{n_nodes} node(s)...[/dim]"
+                f"{n_nodes} node(s)...[/dim]",
+                prefix=False,
             )
             client.preload_models(blocking=False)
 
@@ -735,28 +772,29 @@ def chat(
         client=client, system_prompt=system, tools=agent_tools
     )
 
-    console.print(
-        Rule(
-            f" [cyan]{persona_def.title}[/cyan] (Pydantic Agent)  "
-            f"[dim]{client.backend_info} / {settings.ai.model}[/dim] ",
-            style="cyan",
-        )
+    print_section(
+        f" [cyan]{persona_def.title}[/cyan] (Pydantic Agent)  "
+        f"[dim]{client.backend_info} / {settings.ai.model}[/dim] ",
+        style="cyan",
     )
-    rprint("[dim]Type your message and press Enter. Ctrl+C or [bold]exit[/bold] to quit.[/dim]\n")
+    print_info(
+        "[dim]Type your message and press Enter. Ctrl+C or [bold]exit[/bold] to quit.[/dim]\n",
+        prefix=False,
+    )
 
     while True:
         try:
-            user_input = console.input("[bold cyan]You:[/bold cyan] ").strip()
+            user_input = get_console().input("[bold cyan]You:[/bold cyan] ").strip()
         except EOFError, KeyboardInterrupt:
             from devops_cli.lang import MESSAGES
 
-            rprint(f"\n[dim]{MESSAGES.messages.goodbye}[/dim]")
+            print_info(f"\n[dim]{MESSAGES.messages.goodbye}[/dim]", prefix=False)
             break
 
         if not user_input:
             continue
         if user_input.lower() in {"exit", "quit", "/exit", "/quit"}:
-            rprint("[dim]Goodbye.[/dim]")
+            print_info("[dim]Goodbye.[/dim]", prefix=False)
             break
 
         effective_prompt = user_input
@@ -766,7 +804,7 @@ def chat(
                 effective_prompt = f"{rag_snippet}\n\nUser Question: {user_input}"
 
         try:
-            rprint(f"\n[green]{persona_def.title}:[/green] ", end="")
+            write_stdout(f"\n{persona_def.title}: ")
             sys.stdout.flush()
 
             from devops_cli.ai.thinking import strip_think_blocks
@@ -782,16 +820,19 @@ def chat(
                 )
 
                 reply = strip_think_blocks(agent_res.content)
-                rprint(f"{reply.strip()}\n")
+                print_info(f"{reply.strip()}\n", prefix=False)
 
         except Exception as exc:
-            rprint(f"\n[red]Error: {exc}[/red]\n")
+            print_error(f"\nError: {exc}\n", prefix=False)
             if agent.memory.entries:
                 agent.memory.entries.pop()  # don't add failed turn to history
             continue
 
         if agent.memory.auto_summarize_if_needed(llm_client=client):
-            rprint("[dim]⚡ Long conversation memory consolidated into context summary.[/dim]")
+            print_info(
+                "[dim]⚡ Long conversation memory consolidated into context summary.[/dim]",
+                prefix=False,
+            )
 
 
 # =============================================================================
@@ -803,14 +844,14 @@ def chat(
 def bundle_models(
     output_dir: Annotated[
         Path | None,
-        typer.Option("--output", "-o", help="Output directory for model archive bundle"),
+        typer.Option("--output", "-o", help=HELP.options.output_dir),
     ] = None,
 ) -> None:
     """Bundle Ollama model metadata into tarball for air-gapped DevContainers."""
     from devops_cli.ai.bundle import bundle_ollama_models
 
     count, manifest_path = bundle_ollama_models(output_dir=output_dir)
-    rprint(f"[green]✓ Bundled {count} model(s) → [bold]{manifest_path}[/bold][/green]")
+    print_success(f"Bundled {count} model(s) → [bold]{manifest_path}[/bold]")
 
 
 # =============================================================================
@@ -823,33 +864,32 @@ def pipeline(
     prompt: Annotated[
         str,
         typer.Argument(
-            help="Initial goal or prompt for the multi-agent pipeline",
+            help=HELP.ai.goal,
         ),
-    ] = "Perform a multi-agent review of workspace security, architecture, and code quality.",
+    ] = DEFAULT_AI_PIPELINE_PROMPT,
     personas: Annotated[
         str,
         typer.Option(
             "--personas",
             "-p",
-            help="Comma-separated persona pipeline sequence (e.g. devsecops,architect,qa)",
+            help=HELP.ai.personas_seq,
         ),
-    ] = "devsecops,architect,qa",
+    ] = DEFAULT_AI_PIPELINE_PERSONAS,
     max_turns: Annotated[
         int,
-        typer.Option("--max-turns", help="Maximum tool turns per agent stage"),
-    ] = 5,
-    rag: Annotated[
-        bool, typer.Option("--rag/--no-rag", help="Retrieve relevant semantic RAG context")
-    ] = True,
+        typer.Option("--max-turns", help=HELP.ai.max_turns),
+    ] = DEFAULT_AI_PIPELINE_MAX_TURNS,
+    rag: Annotated[bool, typer.Option("--rag/--no-rag", help=HELP.ai.rag_context)] = True,
     thinking: Annotated[
         bool,
-        typer.Option("--thinking/--no-thinking", help="Enable reasoning/thinking per agent"),
+        typer.Option("--thinking/--no-thinking", help=HELP.ai.thinking),
     ] = True,
 ) -> None:
     """Run a multi-agent Pydantic pipeline with shared DevOps tools and RAG context."""
     from devops_cli.ai.agents import PydanticAgent
     from devops_cli.ai.agents.pipeline import MultiAgentPipeline
     from devops_cli.ai.client import LLMClient
+    from devops_cli.ai.personas import PERSONAS, Persona
     from devops_cli.ai.tools import get_default_tools, get_persona_tools
     from devops_cli.config.settings import get_ai_api_key, load_settings
     from devops_cli.dry_run import is_dry_run
@@ -859,7 +899,9 @@ def pipeline(
     valid_personas: list[Persona] = []
     for name in persona_names:
         if name not in _PERSONA_NAMES:
-            rprint(f"[red]Unknown persona {name!r}. Choose from: {', '.join(_PERSONA_NAMES)}[/red]")
+            print_error(
+                f"Unknown persona {name!r}. Choose from: {', '.join(_PERSONA_NAMES)}", prefix=False
+            )
             raise typer.Exit(1)
         valid_personas.append(Persona(name))
 
@@ -896,14 +938,12 @@ def pipeline(
         )
         pipeline_engine.add_agent(agent)
 
-    rprint(
-        Rule(
-            f" [cyan]Multi-Agent Pipeline ({len(valid_personas)} Stages)[/cyan]  "
-            f"[dim]{client.backend_info}[/dim] ",
-            style="cyan",
-        )
+    print_section(
+        f" [cyan]Multi-Agent Pipeline ({len(valid_personas)} Stages)[/cyan]  "
+        f"[dim]{client.backend_info}[/dim] ",
+        style="cyan",
     )
-    rprint(f"[bold]Initial Prompt:[/bold] {prompt}\n")
+    print_info(f"[bold]Initial Prompt:[/bold] {prompt}\n", prefix=False)
 
     effective_prompt = prompt
     if rag:
@@ -918,17 +958,16 @@ def pipeline(
     )
 
     for idx, step in enumerate(result.steps, 1):
-        rprint(Rule(f" Stage {idx}: {step.agent_name} ", style="bold green"))
+        print_section(f" Stage {idx}: {step.agent_name} ", style="bold green")
         if step.tool_calls:
-            rprint(f"[dim]Executed {len(step.tool_calls)} tool call(s):[/dim]")
+            print_info(f"[dim]Executed {len(step.tool_calls)} tool call(s):[/dim]", prefix=False)
             for tc in step.tool_calls:
-                rprint(f"  [yellow]⚡ {tc.tool_name}[/yellow]({tc.arguments})")
-        rprint(f"\n{step.content.strip()}\n")
+                print_info(f"  [yellow]⚡ {tc.tool_name}[/yellow]({tc.arguments})", prefix=False)
+        print_info(f"\n{step.content.strip()}\n", prefix=False)
 
-    rprint(
-        f"[bold green]✓ Multi-agent pipeline completed across {len(result.steps)} stage(s) "
+    print_success(
+        f"Multi-agent pipeline completed across {len(result.steps)} stage(s) "
         f"({result.total_turns} total turns, {len(result.all_tool_calls)} tool executions)."
-        "[/bold green]"
     )
 
 
@@ -941,24 +980,23 @@ def pipeline(
 def token_count(
     target: Annotated[
         str | None,
-        typer.Argument(help="File path or text string to calculate tokens for"),
+        typer.Argument(help=HELP.ai.token_target),
     ] = None,
     model: Annotated[
         str,
-        typer.Option("--model", "-m", help="Target model BPE tokenizer (e.g. gpt-4o, cl100k_base)"),
-    ] = "gpt-4o",
+        typer.Option("--model", "-m", help=HELP.options.model),
+    ] = DEFAULT_TIKTOKEN_MODEL,
     budget: Annotated[
         int,
-        typer.Option("--budget", "-b", help="Max context token budget limit"),
-    ] = 16384,
+        typer.Option("--budget", "-b", help=HELP.ai.budget),
+    ] = DEFAULT_DIFF_CHUNK_BUDGET,
     json_output: Annotated[
         bool,
-        typer.Option("--json", help="Output token budget analysis as JSON"),
+        typer.Option("--json", help=HELP.options.json_output),
     ] = False,
 ) -> Any:
     """Calculate exact BPE tokens for text or files using tiktoken context budgeting."""
     from devops_cli.ai.context_budget import TokenBudgetReport, count_file_tokens, count_tokens
-    from devops_cli.output import format_json, write_stdout
 
     content = target or ""
     p = Path(content)
@@ -985,15 +1023,66 @@ def token_count(
         write_stdout(format_json(report.model_dump()) + "\n")
         return report
 
-    table = Table(title="AI Context Token Budget Report", style="cyan")
-    table.add_column("Property", style="bold")
-    table.add_column("Value", style="green" if fits else "red")
-    table.add_row("Target", desc)
-    table.add_row("Model Encoding", model)
-    table.add_row("Character Length", str(raw_len))
-    table.add_row("Estimated Tokens", str(num_tokens))
-    table.add_row("Token Budget Limit", str(budget))
-    table.add_row("Fits Budget", "✓ Yes" if fits else "✗ No (Exceeds budget)")
+    rows = [
+        ["Target", desc],
+        ["Model Encoding", model],
+        ["Character Length", str(raw_len)],
+        ["Estimated Tokens", str(num_tokens)],
+        ["Token Budget Limit", str(budget)],
+        ["Fits Budget", "✓ Yes" if fits else "✗ No (Exceeds budget)"],
+    ]
 
-    rprint(table)
+    print_table(
+        title="AI Context Token Budget Report",
+        columns=[("Property", "bold"), ("Value", "green" if fits else "red")],
+        rows=rows,
+        border_style="cyan",
+    )
     return report
+
+
+# =============================================================================
+# Command: devops ai route
+# =============================================================================
+
+
+@app.command("route")
+def route_task(
+    task: Annotated[str, typer.Argument(help=HELP.ai.cost_task)],
+    tokens: Annotated[
+        int, typer.Option("--tokens", "-t", help=HELP.ai.est_tokens)
+    ] = DEFAULT_ESTIMATED_PROMPT_TOKENS,
+    frontier: Annotated[bool, typer.Option("--frontier", "-f", help=HELP.options.frontier)] = False,
+    json_output: Annotated[bool, typer.Option("--json", help=HELP.options.json_output)] = False,
+) -> None:
+    """Evaluate task complexity and determine the optimal LLM provider and model route."""
+    from devops_cli.ai.router import LLMRouter
+    from devops_cli.config.settings import load_settings
+
+    settings = load_settings()
+    router = LLMRouter(config=settings.ai)
+    decision = router.route_task(
+        task_name=task,
+        token_count=tokens,
+        requires_frontier=frontier,
+    )
+
+    if json_output:
+        write_stdout(format_json(decision.model_dump()) + "\n")
+        return
+
+    rows = [
+        ["Task Name", decision.task_name],
+        ["Complexity Tier", str(decision.complexity).upper()],
+        ["Selected Provider", decision.provider_name],
+        ["Target Model", decision.model_name],
+        ["Est. Turn Cost (USD)", f"${decision.estimated_cost_usd:.4f}"],
+        ["Routing Rationale", decision.rationale],
+    ]
+
+    print_table(
+        title="AI Task Dynamic Routing Decision",
+        columns=[("Property", "bold"), "Value"],
+        rows=rows,
+        border_style="magenta",
+    )

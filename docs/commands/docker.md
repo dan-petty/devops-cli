@@ -16,7 +16,7 @@ devops docker images [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--name`, `-n` | `string` | - | Filter by name |
+| `--name`, `-n` | `string` | - | Filter containers or images by name. |
 
 ---
 
@@ -32,15 +32,15 @@ devops docker build [OPTIONS] <context>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<context>` | `path` | No | Build context directory |
+| `<context>` | `path` | No | Build context directory. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--tag`, `-t` | `string` | - | - |
-| `--file`, `-f` | `path` | - | - |
-| `--no-cache` | `boolean` | - | - |
+| `--tag`, `-t` | `string` | - | Image tag name. |
+| `--file`, `-f` | `path` | - | Path to Dockerfile. |
+| `--no-cache` | `boolean` | - | Do not use cached image layers when building. |
 
 ---
 
@@ -56,7 +56,7 @@ devops docker push <image>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<image>` | `string` | Yes | Image name[:tag] to push |
+| `<image>` | `string` | Yes | Docker image name or repository tag. |
 
 ---
 
@@ -72,7 +72,30 @@ devops docker prune [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--volumes` | `boolean` | - | Also remove unused volumes |
-| `--force`, `-f` | `boolean` | - | Skip confirmation |
+| `--volumes` | `boolean` | - | Include or prune volumes. |
+| `--force`, `-f` | `boolean` | - | Force execution ignoring non-blocking warnings. |
+
+---
+
+## `devops docker analyze-layers`
+
+**Analyze container image layer efficiency and wasted space using Dive.**
+
+```bash
+devops docker analyze-layers [OPTIONS] <image>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<image>` | `string` | Yes | Docker image name or repository tag. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ---

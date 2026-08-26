@@ -8,11 +8,11 @@ from pathlib import Path
 from typing import Annotated, Any
 
 import typer
-from rich.table import Table
 
 from devops_cli.config.defaults import DEFAULT_DOCKER_TIMEOUT_SECONDS
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import is_dry_run
+from devops_cli.lang import ERRORS, HELP, MESSAGES
 from devops_cli.output import (
     print_error,
     print_info,
@@ -21,7 +21,7 @@ from devops_cli.output import (
     render_dry_run_result,
 )
 
-app = new_typer(help="Docker image management.", no_args_is_help=True)
+app = new_typer(help=HELP.docker.app, no_args_is_help=True)
 
 
 # =============================================================================
@@ -45,7 +45,7 @@ def _client() -> Any:
 
         return docker.from_env(timeout=int(DEFAULT_DOCKER_TIMEOUT_SECONDS))
     except (ImportError, DockerException, ValueError) as exc:
-        print_error(f"Cannot connect to Docker: {exc}", prefix=False)
+        print_error(ERRORS.docker.cannot_connect.format(exc=exc), prefix=False)
         raise typer.Exit(1)
 
 
@@ -56,7 +56,7 @@ def _client() -> Any:
 
 @app.command("images")
 def list_images(
-    name: Annotated[str | None, typer.Option("--name", "-n", help="Filter by name")] = None,
+    name: Annotated[str | None, typer.Option("--name", "-n", help=HELP.docker.name_filter)] = None,
 ) -> None:
     """List local Docker images."""
     if is_dry_run():
@@ -69,20 +69,19 @@ def list_images(
     client = _client()
     images = client.images.list(name=name)
 
-    table = Table(title="Docker Images")
-    table.add_column("Repository", style="cyan")
-    table.add_column("Tag")
-    table.add_column("ID")
-    table.add_column("Size")
-
+    rows: list[list[str]] = []
     for image in images:
         tags = image.tags or ["<none>:<none>"]
         for tag in tags:
             repo, _, t = tag.rpartition(":")
             size_mb = image.attrs.get("Size", 0) // (1024 * 1024)
-            table.add_row(repo or "<none>", t or "<none>", image.short_id, f"{size_mb} MB")
+            rows.append([repo or "<none>", t or "<none>", image.short_id, f"{size_mb} MB"])
 
-    print_table(table)
+    print_table(
+        title=MESSAGES.docker.table_title_images,
+        columns=[("Repository", "cyan"), "Tag", "ID", "Size"],
+        rows=rows,
+    )
 
 
 # =============================================================================
@@ -92,10 +91,12 @@ def list_images(
 
 @app.command()
 def build(
-    context: Annotated[Path, typer.Argument(help="Build context directory")] = Path("."),
-    tag: Annotated[str | None, typer.Option("--tag", "-t")] = None,
-    dockerfile: Annotated[Path | None, typer.Option("--file", "-f")] = None,
-    no_cache: Annotated[bool, typer.Option("--no-cache")] = False,
+    context: Annotated[Path, typer.Argument(help=HELP.docker.context_dir)] = Path("."),
+    tag: Annotated[str | None, typer.Option("--tag", "-t", help=HELP.docker.tag)] = None,
+    dockerfile: Annotated[
+        Path | None, typer.Option("--file", "-f", help=HELP.docker.dockerfile)
+    ] = None,
+    no_cache: Annotated[bool, typer.Option("--no-cache", help=HELP.docker.no_cache)] = False,
 ) -> None:
     """Build a Docker image."""
     if is_dry_run():
@@ -117,7 +118,7 @@ def build(
     if dockerfile:
         kwargs["dockerfile"] = str(dockerfile)
 
-    print_info(f"Building from [dim]{context}[/dim]...", prefix=False)
+    print_info(MESSAGES.docker.building_from.format(context=context), prefix=False)
     image, build_logs = client.images.build(**kwargs)
     for chunk in build_logs:
         if "stream" in chunk:
@@ -125,7 +126,7 @@ def build(
             if line:
                 print_info(line, prefix=False)
     tag_suffix = f" ({tag})" if tag else ""
-    print_success(f"Built: {image.short_id}{tag_suffix}")
+    print_success(MESSAGES.docker.built_image.format(short_id=image.short_id, suffix=tag_suffix))
 
 
 # =============================================================================
@@ -135,7 +136,7 @@ def build(
 
 @app.command()
 def push(
-    image: Annotated[str, typer.Argument(help="Image name[:tag] to push")],
+    image: Annotated[str, typer.Argument(help=HELP.docker.image_name)],
 ) -> None:
     """Push a Docker image to a registry."""
     if is_dry_run():
@@ -147,10 +148,10 @@ def push(
         )
         return
     if not re.match(r"^[a-zA-Z0-9_.-]+(?:/[a-zA-Z0-9_.-]+)*(?::[a-zA-Z0-9_.-]+)?$", image):
-        print_error(f"Invalid Docker image name format: '{image}'", prefix=False)
+        print_error(ERRORS.docker.invalid_image_name.format(image=image), prefix=False)
         raise typer.Exit(1)
     client = _client()
-    print_info(f"Pushing [dim]{image}[/dim]...", prefix=False)
+    print_info(MESSAGES.docker.pushing_image.format(image=image), prefix=False)
     for chunk in client.images.push(image, stream=True, decode=True):
         if "status" in chunk and "progressDetail" not in chunk:
             clean_status = re.sub(r"[\x00-\x1f\x7f]", "", str(chunk["status"]))
@@ -159,7 +160,7 @@ def push(
             clean_err = re.sub(r"[\x00-\x1f\x7f]", "", str(chunk["error"]))
             print_error(clean_err, prefix=False)
             raise typer.Exit(1)
-    print_success("Pushed.")
+    print_success(MESSAGES.docker.pushed_success)
 
 
 # =============================================================================
@@ -169,8 +170,8 @@ def push(
 
 @app.command()
 def prune(
-    volumes: Annotated[bool, typer.Option("--volumes", help="Also remove unused volumes")] = False,
-    force: Annotated[bool, typer.Option("--force", "-f", help="Skip confirmation")] = False,
+    volumes: Annotated[bool, typer.Option("--volumes", help=HELP.docker.volumes)] = False,
+    force: Annotated[bool, typer.Option("--force", "-f", help=HELP.options.force)] = False,
 ) -> None:
     """Remove unused containers, images, and networks."""
     if is_dry_run():
@@ -194,4 +195,56 @@ def prune(
     else:
         reclaimed_bytes = 0
     reclaimed_mb = reclaimed_bytes // (1024 * 1024)
-    print_success(f"Pruned. Space reclaimed: {reclaimed_mb} MB")
+    print_success(MESSAGES.docker.pruned_success.format(mb=reclaimed_mb))
+
+
+# =============================================================================
+# Command: devops docker analyze-layers
+# =============================================================================
+
+
+@app.command("analyze-layers")
+def analyze_layers(
+    image: Annotated[str, typer.Argument(help=HELP.docker.image_name)],
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
+    json_output: Annotated[bool, typer.Option("--json", help=HELP.options.json_output)] = False,
+) -> None:
+    """Analyze container image layer efficiency and wasted space using Dive."""
+    from devops_cli.output import format_json, print_muted, write_stdout
+    from devops_cli.security.dive import run_dive_analysis
+
+    if dry_run or is_dry_run():
+        render_dry_run_result(
+            command=f"devops docker analyze-layers {image}",
+            action="dive_layer_analysis",
+            target=image,
+        )
+        return
+
+    print_muted(MESSAGES.docker.analyzing_layers.format(image=image))
+    result = run_dive_analysis(image_name=image)
+
+    if json_output:
+        write_stdout(format_json(result.model_dump()) + "\n")
+        return
+
+    rows = []
+    for lyr in result.layers:
+        size_mb = f"{lyr.size_bytes / (1024 * 1024):.2f}"
+        wasted_mb = f"{lyr.wasted_bytes / (1024 * 1024):.2f}"
+        rows.append([str(lyr.index), size_mb, wasted_mb, lyr.command[:80]])
+
+    print_table(
+        title=MESSAGES.docker.table_title_layers.format(image=result.image_name),
+        columns=[
+            ("Layer", "right"),
+            ("Size (MB)", "right"),
+            ("Wasted (MB)", "right"),
+            "Command / Directive",
+        ],
+        rows=rows,
+    )
+    eff_pct = result.efficiency_score * 100
+    tot_mb = result.total_bytes / (1024 * 1024)
+    wst_mb = result.wasted_bytes / (1024 * 1024)
+    print_info(MESSAGES.docker.efficiency_summary.format(eff=eff_pct, size=tot_mb, wasted=wst_mb))

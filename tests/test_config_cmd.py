@@ -1,13 +1,16 @@
-"""Tests for devops config output / env subcommands."""
+"""Tests for devops config subcommands (show, get, set, output, env)."""
 
 from __future__ import annotations
 
 import json
+from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from typer.testing import CliRunner
 
 from devops_cli.commands.config import app
+from devops_cli.main import app as main_app
 
 runner = CliRunner(env={"COLUMNS": "250"})
 
@@ -73,7 +76,7 @@ def test_config_output_reflects_env_override(monkeypatch: pytest.MonkeyPatch) ->
 
 
 def test_config_show_includes_allow_private_network_and_active_path(
-    tmp_path: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     custom_cfg = tmp_path / "custom_config.yaml"
     custom_cfg.write_text(
@@ -102,3 +105,37 @@ def test_dotted_set_rejects_top_level_section_overwrite() -> None:
     settings = Settings()
     with pytest.raises(ValueError, match="Cannot set top-level section 'github' directly"):
         dotted_set(settings, "github", "invalid_string_overwrite")
+
+
+def test_config_commands_comprehensive(tmp_path: Path) -> None:
+    """Verify config show, get, set, output, env, auth-headless, audit-stream subcommands."""
+    cfg_file = tmp_path / "config.yaml"
+    with (
+        patch("devops_cli.config.settings.CONFIG_PATH", cfg_file),
+        patch("devops_cli.commands.config._gh_auth_status", return_value=True),
+        patch("devops_cli.commands.config._gh_auth_token", return_value="ghp_test"),
+    ):
+        res_show = runner.invoke(main_app, ["config", "show"])
+        assert res_show.exit_code == 0
+
+        res_get = runner.invoke(main_app, ["config", "get", "ai.provider"])
+        assert res_get.exit_code == 0
+
+        res_set = runner.invoke(main_app, ["config", "set", "ai.provider", "openai"])
+        assert res_set.exit_code == 0
+
+        res_out = runner.invoke(main_app, ["config", "output"])
+        assert res_out.exit_code == 0
+
+        res_env = runner.invoke(main_app, ["config", "env"])
+        assert res_env.exit_code == 0
+
+        res_headless = runner.invoke(app, ["auth-headless", "github.token", "ghp_mocktoken"])
+        assert res_headless.exit_code == 0
+
+        res_headless_bad = runner.invoke(app, ["auth-headless", "invalid_key", "val"])
+        assert res_headless_bad.exit_code == 1
+
+        with patch("devops_cli.core.audit.stream_audit_records", return_value=5):
+            res_stream = runner.invoke(app, ["audit-stream", "https://siem.example.com/ingest"])
+            assert res_stream.exit_code == 0

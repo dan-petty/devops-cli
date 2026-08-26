@@ -90,9 +90,50 @@ def test_validate_k8s_name() -> None:
         validate_k8s_name("INVALID_NAME!!")
 
 
+def test_validate_path_parameterized(tmp_path: Path) -> None:
+    d = tmp_path / "somedir"
+    d.mkdir()
+    f = d / "file.txt"
+    f.write_text("data", encoding="utf-8")
+
+    assert validate_path(d, kind="dir", label="Directory") == d
+    assert validate_path(f, kind="file", label="File") == f
+    assert validate_path("id_ed25519", kind="key", allow_traversal=False) == Path("id_ed25519")
+
+    with pytest.raises(typer.Exit):
+        validate_path("", label="Empty")
+
+    with pytest.raises(typer.Exit):
+        validate_path("../outside", allow_traversal=False)
+
+
 def test_validate_version_str() -> None:
     assert validate_version_str("v1.28.0") == "1.28.0"
     assert validate_version_str("2.0.1-rc1") == "2.0.1-rc1"
 
     with pytest.raises(ValueError, match="Invalid tool version string"):
         validate_version_str("invalid..version!!")
+
+
+def test_validate_ssrf_egress_and_dns_resolution(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify SSRF egress checks with public IP and DNS resolution."""
+    from unittest.mock import patch
+
+    from devops_cli.core.validation import _enforce_non_private_ssrf
+    from devops_cli.exceptions import SSRFBlockedError
+
+    # Public IP succeeds
+    _enforce_non_private_ssrf("http://8.8.8.8:8080", "8.8.8.8", "http", 8080, "test")
+
+    # Hostname resolving to private IP raises SSRFBlockedError
+    mock_addrinfo = [(2, 1, 6, "", ("192.168.1.50", 8080))]
+    with patch("socket.getaddrinfo", return_value=mock_addrinfo):
+        with pytest.raises(SSRFBlockedError):
+            _enforce_non_private_ssrf(
+                "http://internal.service.corp:8080", "internal.service.corp", "http", 8080, "test"
+            )
+
+    # Hostname resolving to public IP succeeds
+    mock_pub_addrinfo = [(2, 1, 6, "", ("93.184.216.34", 80))]
+    with patch("socket.getaddrinfo", return_value=mock_pub_addrinfo):
+        _enforce_non_private_ssrf("http://example.com", "example.com", "http", 80, "test")

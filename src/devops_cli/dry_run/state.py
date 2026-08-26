@@ -23,6 +23,11 @@ def is_dry_run() -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def is_dry_run_requested(args: list[str]) -> bool:
+    """Return True if --dry-run flag is present in argument list."""
+    return "--dry-run" in args
+
+
 def format_command(command: list[str], *, cwd: str | None = None) -> str:
     """Format shell command string for dry-run output."""
     rendered = shlex.join(command)

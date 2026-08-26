@@ -9,14 +9,17 @@ from typing import Annotated
 
 import httpx2
 import typer
-from rich.table import Table
 
 from devops_cli.config.constants import CONST_MAX_FILE_SIZE_BYTES
-from devops_cli.config.defaults import DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS
+from devops_cli.config.defaults import (
+    DEFAULT_GRAFANA_FOLDER_ID,
+    DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS,
+)
 from devops_cli.config.settings import Settings, get_grafana_token, load_settings
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
 from devops_cli.http.validation import validate_service_url
+from devops_cli.lang import ERRORS, HELP, MESSAGES
 from devops_cli.models.grafana import GrafanaAlertRule, GrafanaDashboard, GrafanaDatasource
 from devops_cli.output import (
     print_error,
@@ -26,9 +29,9 @@ from devops_cli.output import (
     write_json_file,
 )
 
-app = new_typer(help="Grafana dashboard and alert management.", no_args_is_help=True)
+app = new_typer(help=HELP.grafana.app, no_args_is_help=True)
 
-dashboards_app = new_typer(help="Manage Grafana dashboards.")
+dashboards_app = new_typer(help=HELP.grafana.dashboards)
 app.add_typer(dashboards_app, name="dashboards")
 
 
@@ -41,7 +44,7 @@ def _client_args(settings: Settings) -> tuple[str, dict[str, str]]:
     """Return (base_url, headers) for Grafana API requests."""
     if not settings.grafana.url:
         print_error(
-            "Grafana URL not configured. Run: devops config set grafana.url <url>",
+            MESSAGES.grafana.url_not_configured,
             prefix=False,
         )
         raise typer.Exit(1)
@@ -87,15 +90,15 @@ def dashboards_list() -> None:
         )
         response.raise_for_status()
 
-    table = Table(title="Grafana Dashboards")
-    table.add_column("UID", style="dim")
-    table.add_column("Title", style="cyan")
-    table.add_column("Folder")
-
+    rows: list[list[str]] = []
     for item in response.json():
         dash = GrafanaDashboard.model_validate(item)
-        table.add_row(dash.uid, dash.title, dash.folder_title)
-    print_table(table)
+        rows.append([dash.uid, dash.title, dash.folder_title])
+    print_table(
+        title=MESSAGES.grafana.table_title_dashboards,
+        columns=[("UID", "dim"), ("Title", "cyan"), "Folder"],
+        rows=rows,
+    )
 
 
 # =============================================================================
@@ -105,20 +108,20 @@ def dashboards_list() -> None:
 
 @dashboards_app.command("export")
 def dashboards_export(
-    uid: Annotated[str, typer.Argument(help="Dashboard UID")],
-    output: Annotated[Path | None, typer.Option("--output", "-o")] = None,
+    uid: Annotated[str, typer.Argument(help=HELP.grafana.uid)],
+    output: Annotated[Path | None, typer.Option("--output", "-o", help=HELP.options.output)] = None,
 ) -> None:
     """Export a dashboard to JSON."""
     if not re.match(r"^[a-zA-Z0-9_-]+$", uid):
         print_error(
-            "Invalid Dashboard UID: alphanumeric, hyphens, and underscores only.",
+            ERRORS.grafana.invalid_uid,
             prefix=False,
         )
         raise typer.Exit(1)
     if output is not None:
         resolved = output.resolve()
         if not resolved.is_relative_to(Path.cwd().resolve()):
-            print_error("Invalid output path: path traversal not allowed.", prefix=False)
+            print_error(ERRORS.grafana.invalid_output_path, prefix=False)
             raise typer.Exit(1)
     settings = load_settings()
     base, headers = _client_args(settings)
@@ -133,7 +136,7 @@ def dashboards_export(
 
     dest = output or Path(f"{uid}.json")
     write_json_file(dest, response.json())
-    print_success(f"Exported → {dest}")
+    print_success(MESSAGES.grafana.exported_success.format(dest=dest))
 
 
 # =============================================================================
@@ -143,8 +146,10 @@ def dashboards_export(
 
 @dashboards_app.command("import")
 def dashboards_import(
-    file: Annotated[Path, typer.Argument(help="Dashboard JSON file")],
-    folder_id: Annotated[int, typer.Option("--folder-id")] = 0,
+    file: Annotated[Path, typer.Argument(help=HELP.grafana.import_file)],
+    folder_id: Annotated[
+        int, typer.Option("--folder-id", help=HELP.grafana.folder_id)
+    ] = DEFAULT_GRAFANA_FOLDER_ID,
 ) -> None:
     """Import a dashboard from JSON."""
     settings = load_settings()
@@ -152,7 +157,7 @@ def dashboards_import(
 
     if file.stat().st_size > CONST_MAX_FILE_SIZE_BYTES:
         print_error(
-            f"File '{file}' exceeds maximum allowed size ({CONST_MAX_FILE_SIZE_BYTES} bytes).",
+            ERRORS.grafana.file_too_large.format(path=file, max_bytes=CONST_MAX_FILE_SIZE_BYTES),
             prefix=False,
         )
         raise typer.Exit(1)
@@ -160,11 +165,11 @@ def dashboards_import(
     try:
         raw = json.loads(file.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError) as exc:
-        print_error(f"Failed to parse dashboard JSON file '{file}': {exc}", prefix=False)
+        print_error(ERRORS.grafana.parse_failed.format(path=file, exc=exc), prefix=False)
         raise typer.Exit(1)
 
     if not isinstance(raw, dict):
-        print_error(f"Invalid dashboard JSON in '{file}': expected JSON object.", prefix=False)
+        print_error(ERRORS.grafana.invalid_json_object.format(path=file), prefix=False)
         raise typer.Exit(1)
 
     dashboard = raw.get("dashboard", raw)
@@ -190,7 +195,9 @@ def dashboards_import(
             timeout=DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS,
         )
         response.raise_for_status()
-    print_success(f"Imported: {response.json().get('slug', 'unknown')}")
+    print_success(
+        MESSAGES.grafana.imported_success.format(slug=response.json().get("slug", "unknown"))
+    )
 
 
 # =============================================================================
@@ -202,18 +209,18 @@ def dashboards_import(
 def dashboards_sync(
     dir_path: Annotated[
         Path | None,
-        typer.Option("--dir", "-d", help="Directory containing dashboard JSON files"),
+        typer.Option("--dir", "-d", help=HELP.grafana.dashboards_dir),
     ] = None,
 ) -> None:
     """Sync all bundled/local dashboards to Grafana."""
     search_dir = dir_path or Path("k8s/monitoring/dashboards")
     if not search_dir.exists():
-        print_warning(f"Dashboard directory '{search_dir}' not found.", prefix=False)
+        print_warning(MESSAGES.grafana.dir_not_found.format(path=search_dir), prefix=False)
         raise typer.Exit(1)
 
     json_files = sorted(search_dir.glob("*.json"))
     if not json_files:
-        print_warning(f"No dashboard JSON files found in '{search_dir}'.", prefix=False)
+        print_warning(MESSAGES.grafana.no_json_files.format(path=search_dir), prefix=False)
         return
 
     if is_dry_run():
@@ -242,13 +249,17 @@ def dashboards_sync(
                     timeout=DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS,
                 )
                 response.raise_for_status()
-                print_success(f"Synced dashboard: [bold]{title}[/bold] ({dash_file.name})")
+                print_success(
+                    MESSAGES.grafana.synced_dashboard.format(title=title, file=dash_file.name)
+                )
                 success_count += 1
             except Exception as exc:
-                print_error(f"Failed to sync '{dash_file.name}': {exc}", prefix=False)
+                print_error(
+                    ERRORS.grafana.sync_failed.format(file=dash_file.name, exc=exc), prefix=False
+                )
 
     print_success(
-        f"Dashboard sync completed: {success_count}/{len(json_files)} synced successfully."
+        MESSAGES.grafana.sync_completed.format(synced=success_count, total=len(json_files))
     )
 
 
@@ -259,7 +270,7 @@ def dashboards_sync(
 
 @app.command()
 def search(
-    query: Annotated[str, typer.Option("--query", "-q", help="Search query")] = "",
+    query: Annotated[str, typer.Option("--query", "-q", help=HELP.grafana.query)] = "",
 ) -> None:
     """Search Grafana dashboards and folders by query string."""
     settings = load_settings()
@@ -275,21 +286,24 @@ def search(
         )
         response.raise_for_status()
 
-    table = Table(title=f"Grafana Search: {query!r}" if query else "Grafana Search")
-    table.add_column("UID", style="dim")
-    table.add_column("Title", style="cyan")
-    table.add_column("Type")
-    table.add_column("Folder")
-
+    rows: list[list[str]] = []
     for item in response.json():
         dash = GrafanaDashboard.model_validate(item)
-        table.add_row(
-            dash.uid,
-            dash.title,
-            item.get("type", ""),  # type is not on GrafanaDashboard — keep raw
-            dash.folder_title,
+        rows.append(
+            [
+                dash.uid,
+                dash.title,
+                item.get("type", ""),  # type is not on GrafanaDashboard — keep raw
+                dash.folder_title,
+            ]
         )
-    print_table(table)
+    print_table(
+        title=MESSAGES.grafana.table_title_search.format(query=query)
+        if query
+        else "Grafana Search",
+        columns=[("UID", "dim"), ("Title", "cyan"), "Type", "Folder"],
+        rows=rows,
+    )
 
 
 # =============================================================================
@@ -311,21 +325,22 @@ def datasources() -> None:
         )
         response.raise_for_status()
 
-    table = Table(title="Grafana Datasources")
-    table.add_column("Name", style="cyan")
-    table.add_column("Type")
-    table.add_column("URL")
-    table.add_column("Default", justify="center")
-
+    rows: list[list[str]] = []
     for item in response.json():
         ds = GrafanaDatasource.model_validate(item)
-        table.add_row(
-            ds.name,
-            ds.type,
-            ds.url,
-            "[green]●[/green]" if ds.is_default else "",
+        rows.append(
+            [
+                ds.name,
+                ds.type,
+                ds.url,
+                "[green]●[/green]" if ds.is_default else "",
+            ]
         )
-    print_table(table)
+    print_table(
+        title=MESSAGES.grafana.table_title_datasources,
+        columns=[("Name", "cyan"), "Type", "URL", ("Default", "center")],
+        rows=rows,
+    )
 
 
 # =============================================================================
@@ -347,13 +362,12 @@ def alerts() -> None:
         )
         response.raise_for_status()
 
-    table = Table(title="Grafana Alert Rules")
-    table.add_column("UID", style="dim")
-    table.add_column("Title", style="cyan")
-    table.add_column("Folder")
-    table.add_column("Condition")
-
+    rows: list[list[str]] = []
     for item in response.json():
         rule = GrafanaAlertRule.model_validate(item)
-        table.add_row(rule.uid, rule.title, rule.folder_uid, rule.condition)
-    print_table(table)
+        rows.append([rule.uid, rule.title, rule.folder_uid, rule.condition])
+    print_table(
+        title=MESSAGES.grafana.table_title_alerts,
+        columns=[("UID", "dim"), ("Title", "cyan"), "Folder", "Condition"],
+        rows=rows,
+    )

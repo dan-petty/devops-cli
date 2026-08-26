@@ -212,3 +212,24 @@ def test_delete_merged_branches(tmp_path: Path) -> None:
         deleted_act = delete_merged_branches(tmp_path, dry_run=False)
         assert deleted_act == ["feat/merged"]
         mock_repo.delete_head.assert_called_once_with(mock_feat, force=False)
+
+
+def test_is_git_clean_and_get_latest_tag(tmp_path: Path) -> None:
+    """Verify is_git_clean and get_latest_git_tag."""
+    from devops_cli.git.operations import get_latest_git_tag, is_git_clean
+
+    mock_clean = MagicMock(returncode=0, stdout="")
+    with patch("devops_cli.git.operations.run_subprocess", return_value=mock_clean):
+        assert is_git_clean(tmp_path) is True
+
+    mock_dirty = MagicMock(returncode=0, stdout=" M file.py\n")
+    with patch("devops_cli.git.operations.run_subprocess", return_value=mock_dirty):
+        assert is_git_clean(tmp_path) is False
+
+    mock_tag = MagicMock(returncode=0, stdout="v0.2.1\n")
+    with patch("devops_cli.git.operations.run_subprocess", return_value=mock_tag):
+        assert get_latest_git_tag(tmp_path) == "v0.2.1"
+
+    mock_no_tag = MagicMock(returncode=128, stdout="")
+    with patch("devops_cli.git.operations.run_subprocess", return_value=mock_no_tag):
+        assert get_latest_git_tag(tmp_path) is None

@@ -2,17 +2,42 @@
 
 from __future__ import annotations
 
+import importlib
+import sys
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
-from rich import print as rprint
 
 from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.core.cli import new_typer
-from devops_cli.core.process import run_subprocess
 from devops_cli.lang import ERRORS, HELP
+
+_LAZY_OBJECT_MAPPING: dict[str, tuple[str, str]] = {
+    "run_subprocess": ("devops_cli.core.process", "run_subprocess"),
+    "print_error": ("devops_cli.output", "print_error"),
+}
+
+
+def __getattr__(name: str) -> Any:
+    if name in _LAZY_OBJECT_MAPPING:
+        mod_path, obj_name = _LAZY_OBJECT_MAPPING[name]
+        module = importlib.import_module(mod_path)
+        return getattr(module, obj_name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def _get(name: str) -> Any:
+    mod_dict = sys.modules[__name__].__dict__
+    if name in mod_dict:
+        return mod_dict[name]
+    if name in _LAZY_OBJECT_MAPPING:
+        mod_path, obj_name = _LAZY_OBJECT_MAPPING[name]
+        module = importlib.import_module(mod_path)
+        return getattr(module, obj_name)
+    return getattr(sys.modules[__name__], name)
+
 
 app = new_typer(help=HELP.uv.app, no_args_is_help=True)
 
@@ -24,7 +49,7 @@ def _run(cmd: Sequence[str]) -> None:
     full_cmd = list(cmd)
     if full_cmd and full_cmd[0] == "uv" and "--preview-features" not in full_cmd:
         full_cmd[1:1] = ["--preview-features", "malware-check"]
-    result = run_subprocess(
+    result = _get("run_subprocess")(
         full_cmd, cwd=_ROOT, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS, capture_output=False
     )
     if result.returncode != 0:
@@ -33,7 +58,7 @@ def _run(cmd: Sequence[str]) -> None:
 
 @app.command()
 def sync(
-    frozen: Annotated[bool, typer.Option("--frozen", help="Do not update lockfile")] = False,
+    frozen: Annotated[bool, typer.Option("--frozen", help=HELP.uv.frozen)] = False,
 ) -> None:
     """Sync project dependencies into the virtual environment."""
     cmd = ["uv", "sync"]
@@ -46,7 +71,7 @@ def sync(
 def lock(
     upgrade: Annotated[
         bool,
-        typer.Option("--upgrade", help="Upgrade dependencies while locking"),
+        typer.Option("--upgrade", help=HELP.uv.upgrade),
     ] = False,
 ) -> None:
     """Regenerate the uv lockfile."""
@@ -63,7 +88,7 @@ def python_install(
         typer.Option(
             "--version",
             "-v",
-            help="Python version to install (defaults to .python-version)",
+            help=HELP.uv.version,
         ),
     ] = None,
 ) -> None:
@@ -76,13 +101,13 @@ def python_install(
         )
 
     if not version:
-        rprint(f"[red]{ERRORS.uv.no_version_provided}[/red]")
+        _get("print_error")(ERRORS.uv.no_version_provided, prefix=False)
         raise typer.Exit(1)
 
     import re
 
     if not re.match(r"^\d+(\.\d+)*[a-zA-Z0-9._-]*$", version):
-        rprint(f"[red]{ERRORS.uv.invalid_version_format.format(version=version)}[/red]")
+        _get("print_error")(ERRORS.uv.invalid_version_format.format(version=version), prefix=False)
         raise typer.Exit(1)
 
     _run(["uv", "python", "install", version])
@@ -98,7 +123,7 @@ def run(ctx: typer.Context) -> None:
       devops uv run -- pytest -q
     """
     if not ctx.args:
-        rprint(f"[red]{ERRORS.uv.missing_command}[/red]")
+        _get("print_error")(ERRORS.uv.missing_command, prefix=False)
         raise typer.Exit(1)
 
     _run(["uv", "run", *ctx.args])

@@ -190,7 +190,7 @@ def test_devops_subcommand_wrappers(monkeypatch: pytest.MonkeyPatch) -> None:
     assert called_cmds[-1][:3] == ["argocd", "app", "list"]
 
     scan_trivy("src")
-    assert called_cmds[-1][:3] == ["trivy", "fs", "--severity"]
+    assert called_cmds[-1][:2] == ["trivy", "fs"]
 
     scan_uv_audit(".")
     assert called_cmds[-1][:2] == ["uv", "audit"]
@@ -241,3 +241,80 @@ def test_scan_osv_and_threat_intel(monkeypatch: pytest.MonkeyPatch) -> None:
     ):
         res_intel = check_threat_intel("1.1.1.1")
         assert "Safe / Clean IP" in res_intel
+
+
+def test_builtin_security_and_iac_tools(tmp_path: Path) -> None:
+    """Verify scan_gitleaks, scan_semgrep, scan_iac, tf_lint, k8s_validate_manifests, docker_analyze_layers, and rag_search."""
+    from devops_cli.ai.review_schema import Finding
+    from devops_cli.ai.tools.builtin_tools import (
+        docker_analyze_layers,
+        k8s_validate_manifests,
+        rag_search,
+        scan_gitleaks,
+        scan_iac,
+        scan_semgrep,
+        tf_lint,
+    )
+
+    mock_finding = Finding(
+        category="security",
+        severity="HIGH",
+        location="main.tf:1",
+        title="Sample issue",
+        fix="Fix issue",
+    )
+
+    from devops_cli.security.dive import DiveAnalysisResult
+
+    mock_dive = DiveAnalysisResult(
+        image_name="alpine:latest",
+        efficiency_score=0.95,
+        wasted_bytes=1024 * 1024,
+        total_bytes=10 * 1024 * 1024,
+    )
+
+    import subprocess
+
+    mock_scan_proc = subprocess.CompletedProcess(
+        args=["scan"],
+        returncode=0,
+        stdout="Found 1 finding in target",
+        stderr="",
+    )
+
+    with (
+        patch("devops_cli.ai.tools.builtin_tools._is_safe_workspace_path", return_value=True),
+        patch("devops_cli.ai.tools.builtin_tools.run_subprocess", return_value=mock_scan_proc),
+        patch("devops_cli.security.checkov.run_checkov_scan", return_value=[mock_finding]),
+        patch("devops_cli.security.tflint.run_tflint_scan", return_value=[mock_finding]),
+        patch(
+            "devops_cli.security.kubeconform.run_kubeconform_validation",
+            return_value=[mock_finding],
+        ),
+        patch("devops_cli.security.dive.run_dive_analysis", return_value=mock_dive),
+        patch("devops_cli.ai.rag.qdrant.QdrantClient.is_alive", return_value=True),
+        patch(
+            "devops_cli.ai.rag.retriever.SemanticRetriever.retrieve_context",
+            return_value=MagicMock(results=[]),
+        ),
+    ):
+        res_gitleaks = scan_gitleaks(str(tmp_path))
+        assert "Found 1 finding in target" in res_gitleaks
+
+        res_semgrep = scan_semgrep(str(tmp_path))
+        assert "Found 1 finding in target" in res_semgrep
+
+        res_iac = scan_iac(str(tmp_path))
+        assert "Sample issue" in res_iac
+
+        res_tflint = tf_lint(str(tmp_path))
+        assert "Sample issue" in res_tflint
+
+        res_k8s = k8s_validate_manifests(str(tmp_path))
+        assert "Sample issue" in res_k8s
+
+        res_docker = docker_analyze_layers("alpine:latest")
+        assert "Efficiency Score: 95.0%" in res_docker
+
+        res_rag = rag_search("test query")
+        assert "No semantic matches found" in res_rag

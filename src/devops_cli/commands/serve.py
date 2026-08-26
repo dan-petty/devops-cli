@@ -5,14 +5,21 @@ from __future__ import annotations
 import typer
 
 from devops_cli import __version__
+from devops_cli.config.defaults import (
+    DEFAULT_LOG_LEVEL,
+    DEFAULT_REST_HOST,
+    DEFAULT_REST_PORT,
+    DEFAULT_SERVER_WORKERS,
+)
 from devops_cli.core.cli import new_typer
+from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
     print_info,
     print_success,
 )
 
 app = new_typer(
-    help="FastAPI REST & OpenAPI Service Engine for remote automation, health probes, and metrics.",
+    help=HELP.serve.app,
     rich_markup_mode="rich",
 )
 
@@ -26,39 +33,39 @@ app = new_typer(
 def serve(
     ctx: typer.Context,
     host: str = typer.Option(
-        "127.0.0.1",
+        DEFAULT_REST_HOST,
         "--host",
         "-h",
-        help="Network interface host to bind the HTTP server.",
+        help=HELP.serve.host,
     ),
     port: int = typer.Option(
-        8000,
+        DEFAULT_REST_PORT,
         "--port",
         "-p",
-        help="TCP port to listen on.",
+        help=HELP.serve.port,
     ),
     reload: bool = typer.Option(
         False,
         "--reload",
         "-r",
-        help="Enable auto-reload on code changes (development mode).",
+        help=HELP.serve.reload,
     ),
     workers: int = typer.Option(
-        1,
+        DEFAULT_SERVER_WORKERS,
         "--workers",
         "-w",
-        help="Number of worker processes.",
+        help=HELP.serve.workers,
     ),
     log_level: str = typer.Option(
-        "info",
+        DEFAULT_LOG_LEVEL,
         "--log-level",
         "-l",
-        help="Logging level (debug, info, warning, error).",
+        help=HELP.serve.log_level,
     ),
     docs: bool = typer.Option(
         True,
         "--docs/--no-docs",
-        help="Enable or disable Swagger UI (/docs) and ReDoc (/redoc).",
+        help=HELP.serve.docs,
     ),
 ) -> None:
     """Start the asynchronous FastAPI REST service and OpenAPI engine."""
@@ -66,29 +73,29 @@ def serve(
         return
 
     print_success(
-        f"Starting DevOps CLI REST & OpenAPI Service v{__version__}",
+        MESSAGES.serve.starting_service.format(version=__version__),
         prefix=False,
     )
-    print_info(f"  [cyan]•[/cyan] Listening on: [bold]http://{host}:{port}[/bold]", prefix=False)
+    print_info(MESSAGES.serve.listening_on.format(host=host, port=port), prefix=False)
     if docs:
         print_info(
-            f"  [cyan]•[/cyan] Swagger UI:  [link=http://{host}:{port}/docs]http://{host}:{port}/docs[/link]",
+            MESSAGES.serve.swagger_ui.format(host=host, port=port),
             prefix=False,
         )
         print_info(
-            f"  [cyan]•[/cyan] ReDoc:       [link=http://{host}:{port}/redoc]http://{host}:{port}/redoc[/link]",
+            MESSAGES.serve.redoc.format(host=host, port=port),
             prefix=False,
         )
         print_info(
-            f"  [cyan]•[/cyan] OpenAPI JSON:[link=http://{host}:{port}/openapi.json]http://{host}:{port}/openapi.json[/link]",
+            MESSAGES.serve.openapi_json.format(host=host, port=port),
             prefix=False,
         )
     print_info(
-        f"  [cyan]•[/cyan] Health:      [link=http://{host}:{port}/health]http://{host}:{port}/health[/link]",
+        MESSAGES.serve.health_endpoint.format(host=host, port=port),
         prefix=False,
     )
     print_info(
-        f"  [cyan]•[/cyan] Metrics:     [link=http://{host}:{port}/metrics]http://{host}:{port}/metrics[/link]\n",
+        MESSAGES.serve.metrics_endpoint.format(host=host, port=port),
         prefix=False,
     )
 

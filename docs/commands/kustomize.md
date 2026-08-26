@@ -1,6 +1,6 @@
 # `devops kustomize`
 
-Kustomize operations.
+Kustomize build and apply operations.
 
 ## Commands
 
@@ -16,13 +16,13 @@ devops kustomize build [OPTIONS] <path>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<path>` | `path` | No | Path to kustomization directory |
+| `<path>` | `path` | No | Target kustomize directory path. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--output`, `-o` | `string` | - | Output file or directory |
+| `--output`, `-o` | `string` | - | Destination file or directory for generated manifests. |
 
 ---
 
@@ -38,7 +38,7 @@ devops kustomize diff <path>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<path>` | `path` | No | Path to kustomization directory |
+| `<path>` | `path` | No | Target kustomize directory path. |
 
 ---
 
@@ -54,13 +54,13 @@ devops kustomize apply [OPTIONS] <path>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<path>` | `path` | No | Path to kustomization directory |
+| `<path>` | `path` | No | Target kustomize directory path. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--dry-run` | `boolean` | - | - |
-| `--namespace`, `-n` | `string` | - | - |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--namespace`, `-n` | `string` | - | Kubernetes namespace. |
 
 ---

@@ -12,6 +12,7 @@ if TYPE_CHECKING:
 from devops_cli.config.constants import CONST_BINARY_EXTENSIONS
 from devops_cli.config.defaults import DEFAULT_SUBPROCESS_FAST_TIMEOUT_SECONDS
 from devops_cli.core.process import run_subprocess
+from devops_cli.exceptions import SecurityError
 
 
 @functools.lru_cache(maxsize=32)
@@ -22,7 +23,7 @@ def _get_pathspec_for_repo(repo_root_str: str) -> pathspec.PathSpec[Any] | None:
         return None
     import pathspec
 
-    return pathspec.PathSpec.from_lines("gitwildmatch", patterns)
+    return pathspec.PathSpec.from_lines("gitignore", patterns)
 
 
 def find_repo_root(start_path: Path | str | None = None) -> Path:
@@ -192,8 +193,6 @@ def get_repo_origin_name(repo_root: Path | None = None) -> str | None:
     """Extract owner/repo string from git remote origin URL (e.g. 'org/repo')."""
     import re
 
-    from devops_cli.core.process import run_subprocess
-
     root = repo_root or find_repo_root()
     if not (root / ".git").exists():
         return None
@@ -233,7 +232,7 @@ def resolve_safe_subpath(root: Path | str, target: Path | str) -> Path:
         (resolved_root / target_p).resolve() if not target_p.is_absolute() else target_p.resolve()
     )
     if not resolved_target.is_relative_to(resolved_root):
-        raise ValueError(
+        raise SecurityError(
             f"Path traversal detected: target '{resolved_target}' "
             f"resolves outside root '{resolved_root}'"
         )

@@ -1,6 +1,6 @@
 # `devops telemetry`
 
-OpenTelemetry observability, tracing, and metrics management.
+OpenTelemetry tracing, metrics, and Jaeger observability.
 
 ## Commands
 
@@ -26,7 +26,7 @@ devops telemetry test [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--name`, `-n` | `string` | `devops-cli.manual_test` | Name for test span |
+| `--name`, `-n` | `string` | `devops-cli.manual_test` | Name for test span. |
 
 ---
 

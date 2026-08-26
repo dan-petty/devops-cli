@@ -27,8 +27,8 @@ def test_get_knowledge_base_dir() -> None:
 
 def test_list_knowledge_base_articles_all() -> None:
     articles = list_knowledge_base_articles()
-    # 15 devops_cli (3 core + 12 tasks) + 34 it_domains (10 topics + 24 tools)
-    assert len(articles) == 49
+    # 15 devops_cli (3 core + 12 tasks) + 38 it_domains (10 topics + 28 tools)
+    assert len(articles) == 53
     assert all(a.suffix == ".md" for a in articles)
     assert all(a.name != "README.md" for a in articles)
 
@@ -38,7 +38,7 @@ def test_list_knowledge_base_articles_by_division() -> None:
     it_domains_articles = list_knowledge_base_articles("it_domains")
 
     assert len(devops_cli_articles) == 15  # 3 core + 12 tasks
-    assert len(it_domains_articles) == 34  # 10 topics + 24 tools
+    assert len(it_domains_articles) == 38  # 10 topics + 28 tools
 
 
 def test_list_knowledge_base_articles_by_category() -> None:
@@ -50,7 +50,7 @@ def test_list_knowledge_base_articles_by_category() -> None:
 
     tools = list_knowledge_base_articles("tools")
     tools_full = list_knowledge_base_articles("it_domains/tools")
-    assert len(tools) == 24
+    assert len(tools) == 28
     assert tools == tools_full
 
     tasks = list_knowledge_base_articles("tasks")
@@ -86,11 +86,11 @@ def test_get_knowledge_base_stats() -> None:
     stats = get_knowledge_base_stats()
     assert stats["exists"] is True
     assert stats["devops_cli_count"] == 15
-    assert stats["it_domains_count"] == 34
+    assert stats["it_domains_count"] == 38
     assert stats["topics_count"] == 10
-    assert stats["tools_count"] == 24
+    assert stats["tools_count"] == 28
     assert stats["tasks_count"] == 12
-    assert stats["total_articles"] == 49
+    assert stats["total_articles"] == 53
 
 
 def test_workspace_indexer_index_knowledge_base(tmp_path: Path) -> None:
@@ -112,3 +112,19 @@ def test_workspace_indexer_index_knowledge_base(tmp_path: Path) -> None:
     assert results["indexed_files"] >= 40
     assert results["total_chunks"] > 0
     assert "test_docs" in results["collections"]
+
+
+def test_kb_missing_directory_and_invalid_category(tmp_path: Path, monkeypatch) -> None:
+    """Verify list_knowledge_base_articles and stats when directory is missing."""
+    import devops_cli.ai.kb as kb_mod
+
+    # Non-existent category
+    assert list_knowledge_base_articles("nonexistent_category") == []
+
+    # Missing directory
+    monkeypatch.setattr(kb_mod, "_KB_DIR", tmp_path / "nonexistent_kb")
+    assert list_knowledge_base_articles() == []
+    assert load_kb_article("any.md") is None
+    stats = get_knowledge_base_stats()
+    assert stats["exists"] is False
+    assert stats["total_articles"] == 0

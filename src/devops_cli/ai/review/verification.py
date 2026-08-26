@@ -15,6 +15,11 @@ from devops_cli.ai.review.sanitization import (
 )
 from devops_cli.ai.review_schema import _SEVERITY_RANK, Finding, ReviewResult, extract_json_block
 from devops_cli.ai.task_loader import load_task_prompt
+from devops_cli.config.defaults import (
+    DEFAULT_DIFF_CONTEXT_LINES,
+    DEFAULT_MAX_RELATED_FILES,
+    DEFAULT_RELATED_FILE_MAX_CHARS,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +49,9 @@ def _is_secret_path(path_str: str) -> bool:
     return any(keyword in p_lower for keyword in _SECRET_PATH_KEYWORDS)
 
 
-def _extract_location_context(segment: str, location: str, context_lines: int = 12) -> str:
+def _extract_location_context(
+    segment: str, location: str, context_lines: int = DEFAULT_DIFF_CONTEXT_LINES
+) -> str:
     """Extract the referenced file+line range from a segment's markdown code blocks."""
     file_part = location.split(":")[0].strip()
     line_range: tuple[int, int] | None = None
@@ -97,7 +104,7 @@ def _find_related_file_metas(
     finding: Finding,
     finding_file: str,
     analysis_metas: dict[str, Any],
-    max_related: int = 3,
+    max_related: int = DEFAULT_MAX_RELATED_FILES,
 ) -> list[Any]:
     """Identify files in analysis_metas related to target finding for cross-file verification."""
     related: list[Any] = []
@@ -108,27 +115,16 @@ def _find_related_file_metas(
 
     if target_meta and getattr(target_meta, "dependencies", None):
         for dep in target_meta.dependencies:
-            matched_path = _match_dep_to_filepath(dep, all_paths)
-            if matched_path and matched_path not in seen and matched_path in analysis_metas:
-                related.append(analysis_metas[matched_path])
-                seen.add(matched_path)
-                if len(related) >= max_related:
-                    return related
-
-    finding_text = f"{finding.title} {finding.description} {finding.fix}".lower()
-    for rel_path, meta in analysis_metas.items():
-        if rel_path in seen:
-            continue
-        symbols = getattr(meta, "key_symbols", []) or []
-        for sym in symbols:
-            if sym and len(sym) > 3 and sym.lower() in finding_text:
+            match = _match_dep_to_filepath(dep, all_paths)
+            if match and match not in seen:
+                meta = analysis_metas[match]
                 related.append(meta)
-                seen.add(rel_path)
-                break
-        if len(related) >= max_related:
-            return related
+                seen.add(match)
+            if len(related) >= max_related:
+                return related
 
-    target_mod = finding_file.replace("/", ".").removesuffix(".py")
+    target_stem = Path(finding_file).stem
+    target_mod = target_stem.replace("/", ".")
     for rel_path, meta in analysis_metas.items():
         if rel_path in seen:
             continue
@@ -145,7 +141,9 @@ def _find_related_file_metas(
 
 
 def _read_and_mask_related_file(
-    repo_root: Path, rel_path: str, max_chars: int = 1500
+    repo_root: Path,
+    rel_path: str,
+    max_chars: int = DEFAULT_RELATED_FILE_MAX_CHARS,
 ) -> str | None:
     """Read a related file safely from repo_root, masking secrets and boundary tags."""
     if _is_secret_path(rel_path):

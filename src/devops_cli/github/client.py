@@ -97,7 +97,8 @@ class GitHubClient:
             "Authorization": f"Bearer {self._token}",
             "X-GitHub-Api-Version": "2022-11-28",
         }
-        with httpx2.Client(timeout=DEFAULT_HTTP_LONG_TIMEOUT_SECONDS, follow_redirects=False) as c:
+        client_timeout = httpx2.Timeout(DEFAULT_HTTP_LONG_TIMEOUT_SECONDS, connect=1.0)
+        with httpx2.Client(timeout=client_timeout, follow_redirects=False) as c:
             r = c.get(url, headers=headers)
             if r.is_redirect:
                 target_url = r.headers.get("location", "")

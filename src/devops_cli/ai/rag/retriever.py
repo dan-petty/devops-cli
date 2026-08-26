@@ -13,6 +13,8 @@ from devops_cli.ai.rag.reranker import SearchReranker
 from devops_cli.config.defaults import (
     DEFAULT_RAG_COLLECTION,
     DEFAULT_RAG_DOCS_COLLECTION,
+    DEFAULT_RAG_MAX_CHARS,
+    DEFAULT_RAG_MAX_CHUNKS_PER_FILE,
     DEFAULT_RAG_SCORE_THRESHOLD,
     DEFAULT_RAG_TOP_K,
 )
@@ -195,8 +197,8 @@ class SemanticRetriever:
         self,
         results: list[SearchResult],
         *,
-        max_chars: int = 15000,
-        max_per_file: int = 4,
+        max_chars: int = DEFAULT_RAG_MAX_CHARS,
+        max_per_file: int = DEFAULT_RAG_MAX_CHUNKS_PER_FILE,
     ) -> list[SearchResult]:
         """Deduplicate overlapping chunks, enforce file limits, and bound context size."""
         if not results:
@@ -257,7 +259,7 @@ class SemanticRetriever:
         category: str | None = None,
         file_filter: str | None = None,
         rerank: bool = True,
-        max_chars: int = 15000,
+        max_chars: int = DEFAULT_RAG_MAX_CHARS,
     ) -> RAGContext:
         """Search and format results into a validated, structured prompt context block."""
         results = self.search(

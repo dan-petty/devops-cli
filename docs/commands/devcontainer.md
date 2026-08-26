@@ -16,18 +16,18 @@ devops devcontainer init [OPTIONS] <repo_path>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<repo_path>` | `path` | No | Path to the repository |
+| `<repo_path>` | `path` | No | Path to the repository. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--name`, `-n` | `string` | - | Project name |
-| `--python` | `string` | `3.14` | Python version for base template |
-| `--image`, `-i` | `string` | - | Base container image (defaults to published devops-cli image) |
-| `--published`, `-p` | `boolean` | `True` | Use published GHCR image (defaults to True) |
-| `--home-volume` | `string` | - | Custom volume name for /home/vscode (defaults to <project_name>-home) |
-| `--force`, `-f` | `boolean` | - | Overwrite existing devcontainer.json and configurations |
+| `--name`, `-n` | `string` | - | Project name. |
+| `--python` | `string` | `3.14` | Python version for base template. |
+| `--image`, `-i` | `string` | - | Base container image (defaults to published devops-cli image). |
+| `--published`, `-p` | `boolean` | `True` | Use published GHCR image (defaults to True). |
+| `--home-volume` | `string` | - | Custom volume name for /home/vscode (defaults to <project_name>-home). |
+| `--force`, `-f` | `boolean` | - | Overwrite existing devcontainer.json and configurations. |
 
 ---
 
@@ -43,13 +43,13 @@ devops devcontainer update [OPTIONS] <repo_path>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<repo_path>` | `path` | No | Path to the repository |
+| `<repo_path>` | `path` | No | Path to the repository. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--python` | `string` | `3.14` | - |
+| `--python` | `string` | `3.14` | Python version for base template. |
 
 ---
 
@@ -65,9 +65,9 @@ devops devcontainer validate [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--workspace`, `-w` | `path` | `.` | Path to workspace directory containing .devcontainer |
-| `--config`, `-c` | `path` | - | Direct path to devcontainer.json |
-| `--dry-run` | `boolean` | - | Simulate DevContainer manifest validation |
+| `--workspace`, `-w` | `path` | `.` | Path to workspace directory containing .devcontainer. |
+| `--config`, `-c` | `path` | - | Direct path to devcontainer.json. |
+| `--dry-run` | `boolean` | - | Simulate DevContainer manifest validation. |
 
 ---
 
@@ -99,8 +99,8 @@ devops devcontainer post-create [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--workspace`, `-w` | `path` | `.` | Path to workspace directory |
-| `--dry-run` | `boolean` | - | Simulate execution without modifying files |
+| `--workspace`, `-w` | `path` | `.` | Workspace root directory path. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -116,8 +116,8 @@ devops devcontainer post-start [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--workspace`, `-w` | `path` | `.` | Path to workspace directory |
-| `--dry-run` | `boolean` | - | Simulate execution without modifying files |
+| `--workspace`, `-w` | `path` | `.` | Workspace root directory path. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -133,10 +133,10 @@ devops devcontainer run-lifecycle [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--workspace`, `-w` | `path` | `.` | Path to workspace directory |
-| `--post-create` | `boolean` | - | Execute post-create setup tasks |
-| `--post-start` | `boolean` | - | Execute post-start lifecycle tasks |
-| `--all`, `-a` | `boolean` | - | Execute all DevContainer lifecycle tasks |
-| `--dry-run` | `boolean` | - | Simulate execution without modifying files |
+| `--workspace`, `-w` | `path` | `.` | Workspace root directory path. |
+| `--post-create` | `boolean` | - | Execute post-create setup tasks. |
+| `--post-start` | `boolean` | - | Execute post-start lifecycle tasks. |
+| `--all`, `-a` | `boolean` | - | Execute all DevContainer lifecycle tasks. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---

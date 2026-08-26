@@ -2,20 +2,20 @@
 
 from __future__ import annotations
 
-from rich.console import Console
-from rich.markdown import Markdown
-from rich.markup import escape
-from rich.panel import Panel
-from rich.table import Table
-
 from devops_cli.ai.personas import PersonaDefinition
 from devops_cli.ai.review_schema import ReviewResult
-
-console = Console()
+from devops_cli.output import (
+    escape_text,
+    print_info,
+    print_markdown,
+    print_panel,
+    print_table,
+    write_stdout,
+)
 
 
 def _render_review_result(persona: PersonaDefinition, result: ReviewResult) -> None:
-    """Render a structured ReviewResult object using Rich tables and Markdown blocks."""
+    """Render a structured ReviewResult object using tables and Markdown blocks."""
     sev_color = {
         "CRITICAL": "red",
         "HIGH": "orange3",
@@ -25,16 +25,20 @@ def _render_review_result(persona: PersonaDefinition, result: ReviewResult) -> N
     }
     rec_color_map = {"APPROVE": "green", "REQUEST CHANGES": "yellow", "BLOCK": "red"}
     rec_color = rec_color_map.get(result.recommendation, "white")
-    console.print(f"[bold {rec_color}]\u25b6 {escape(result.recommendation)}[/bold {rec_color}]")
-    console.print()
+    print_info(
+        f"[bold {rec_color}]\u25b6 {escape_text(result.recommendation)}[/bold {rec_color}]\n",
+        prefix=False,
+    )
 
     findings = result.sorted_findings
     if findings:
-        table = Table(show_header=True, header_style="bold dim", box=None, padding=(0, 1))
-        table.add_column("Sev", no_wrap=True)
-        table.add_column("Location", style="dim")
-        table.add_column("Title")
-        table.add_column("\u2713", no_wrap=True)
+        columns = [
+            "Sev",
+            ("Location", "dim"),
+            "Title",
+            "\u2713",
+        ]
+        rows: list[list[str]] = []
         for f in findings:
             color = sev_color.get(f.severity, "white")
             mark = (
@@ -44,14 +48,16 @@ def _render_review_result(persona: PersonaDefinition, result: ReviewResult) -> N
                 if f.mitigated
                 else "[dim]?[/dim]"
             )
-            table.add_row(
-                f"[{color}]{escape(f.severity)}[/{color}]",
-                escape(f.location),
-                escape(f.title),
-                mark,
+            rows.append(
+                [
+                    f"[{color}]{escape_text(f.severity)}[/{color}]",
+                    escape_text(f.location),
+                    escape_text(f.title),
+                    mark,
+                ]
             )
-        console.print(table)
-        console.print()
+        print_table(columns=columns, rows=rows, border_style=None)
+        write_stdout("\n")
 
         for idx, f in enumerate(findings, 1):
             color = sev_color.get(f.severity, "white")
@@ -62,26 +68,30 @@ def _render_review_result(persona: PersonaDefinition, result: ReviewResult) -> N
                 if f.mitigated
                 else " [dim](unverified)[/dim]"
             )
-            sev_title = f"{idx}. {escape(f.severity)} — {escape(f.title)}"
-            console.print(f"[bold {color}]{sev_title}[/bold {color}]{unverified}")
-            console.print(f"[dim]Location:[/dim] {escape(f.location)}")
+            sev_title = f"{idx}. {escape_text(f.severity)} — {escape_text(f.title)}"
+            print_info(f"[bold {color}]{sev_title}[/bold {color}]{unverified}", prefix=False)
+            print_info(f"[dim]Location:[/dim] {escape_text(f.location)}", prefix=False)
             if f.description:
-                console.print(Markdown(f.description))
+                print_markdown(f.description)
             if f.fix:
-                console.print("[bold]Fix:[/bold]")
-                console.print(Markdown(f.fix))
+                print_info("[bold]Fix:[/bold]", prefix=False)
+                print_markdown(f.fix)
             if f.references:
-                console.print(f"[dim]References: {escape(', '.join(f.references))}[/dim]")
-            console.print()
+                print_info(
+                    f"[dim]References: {escape_text(', '.join(f.references))}[/dim]", prefix=False
+                )
+            write_stdout("\n")
 
     if result.external_dependencies:
-        dep_tbl = Table(title="External Dependencies Security Audit (OSV.dev & NVD)")
-        dep_tbl.add_column("Severity", justify="center", no_wrap=True)
-        dep_tbl.add_column("Dependency", style="bold cyan")
-        dep_tbl.add_column("Version Range")
-        dep_tbl.add_column("Ecosystem")
-        dep_tbl.add_column("Security Status")
-        dep_tbl.add_column("Location", style="dim")
+        dep_cols = [
+            "Severity",
+            ("Dependency", "bold cyan"),
+            "Version Range",
+            "Ecosystem",
+            "Security Status",
+            ("Location", "dim"),
+        ]
+        dep_rows: list[list[str]] = []
         for d in result.external_dependencies:
             sev_upper = d.severity.upper()
             if sev_upper == "CRITICAL":
@@ -100,56 +110,66 @@ def _render_review_result(persona: PersonaDefinition, result: ReviewResult) -> N
                 sev_str = "[green]CLEAN[/green]"
                 status_str = f"[green]{d.security_status}[/green]"
 
-            dep_tbl.add_row(
-                sev_str,
-                d.name,
-                d.version_range,
-                d.ecosystem,
-                status_str,
-                d.location or "—",
+            dep_rows.append(
+                [
+                    sev_str,
+                    d.name,
+                    d.version_range,
+                    d.ecosystem,
+                    status_str,
+                    d.location or "—",
+                ]
             )
-        console.print(dep_tbl)
-        console.print()
+        print_table(
+            title="External Dependencies Security Audit (OSV.dev & NVD)",
+            columns=dep_cols,
+            rows=dep_rows,
+        )
+        write_stdout("\n")
 
     if result.network_references:
-        net_tbl = Table(
-            title="Network References & Endpoints Security Audit (Shodan & Cloudflare Radar)"
-        )
-        net_tbl.add_column("Target", style="bold cyan")
-        net_tbl.add_column("Type")
-        net_tbl.add_column("Scope")
-        net_tbl.add_column("Security Status")
-        net_tbl.add_column("Location", style="dim")
+        net_cols = [
+            ("Target", "bold cyan"),
+            "Type",
+            "Scope",
+            "Security Status",
+            ("Location", "dim"),
+        ]
+        net_rows: list[list[str]] = []
         for n in result.network_references:
             scope_str = "[dim]Local[/dim]" if n.is_local else "[bold cyan]External[/bold cyan]"
             color = "red" if "⚠️" in n.security_status else ("cyan" if n.is_local else "green")
-            net_tbl.add_row(
-                n.target,
-                n.reference_type,
-                scope_str,
-                f"[{color}]{n.security_status}[/{color}]",
-                n.location or "—",
+            net_rows.append(
+                [
+                    n.target,
+                    n.reference_type,
+                    scope_str,
+                    f"[{color}]{n.security_status}[/{color}]",
+                    n.location or "—",
+                ]
             )
-        console.print(net_tbl)
-        console.print()
+        print_table(
+            title="Network References & Endpoints Security Audit (Shodan & Cloudflare Radar)",
+            columns=net_cols,
+            rows=net_rows,
+        )
+        write_stdout("\n")
 
     if result.positive_observations:
-        console.print("[bold green]Positive Observations[/bold green]")
+        print_info("[bold green]Positive Observations[/bold green]", prefix=False)
         for obs in result.positive_observations:
-            console.print(f"  [green]\u2713[/green] {escape(obs)}")
-        console.print()
+            print_info(f"  [green]\u2713[/green] {escape_text(obs)}", prefix=False)
+        write_stdout("\n")
 
     if result.summary:
-        console.print("[bold]Summary[/bold]")
-        console.print(Markdown(result.summary))
+        print_info("[bold]Summary[/bold]", prefix=False)
+        print_markdown(result.summary)
 
 
 def _render_review_raw(persona: PersonaDefinition, raw: str) -> None:
-    """Render a raw string response using Rich Panel and Markdown."""
-    console.print(
-        Panel(
-            Markdown(raw),
-            title=f"[bold cyan]{escape(persona.title)}[/bold cyan]",
-            border_style="cyan",
-        )
+    """Render a raw string response using Panel and Markdown."""
+    print_panel(
+        raw,
+        title=f"[bold cyan]{escape_text(persona.title)}[/bold cyan]",
+        border_style="cyan",
     )

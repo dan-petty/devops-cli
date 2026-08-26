@@ -1,6 +1,6 @@
 # `devops prometheus`
 
-Prometheus query and rule management.
+Prometheus metrics querying and analysis.
 
 ## Commands
 
@@ -16,13 +16,13 @@ devops prometheus query [OPTIONS] <expr>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<expr>` | `string` | Yes | PromQL expression |
+| `<expr>` | `string` | Yes | PromQL expression. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--time`, `-t` | `string` | - | Evaluation time (RFC3339 or Unix) |
+| `--time`, `-t` | `string` | - | Evaluation timestamp for instant vector query. |
 
 ---
 
@@ -38,15 +38,15 @@ devops prometheus query-range [OPTIONS] <expr>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<expr>` | `string` | Yes | PromQL expression |
+| `<expr>` | `string` | Yes | PromQL expression. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--start`, `-s` | `string` | `1h` | Start: duration ago (e.g. 1h) or Unix ts |
-| `--end`, `-e` | `string` | - | - |
-| `--step` | `string` | `60s` | - |
+| `--start`, `-s` | `string` | `1h` | Start: duration ago (e.g. 1h) or Unix ts. |
+| `--end`, `-e` | `string` | - | Query range end timestamp or relative duration. |
+| `--step` | `string` | `60s` | Query resolution step interval. |
 
 ---
 

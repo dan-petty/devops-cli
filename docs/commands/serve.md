@@ -1,6 +1,6 @@
 # `devops serve`
 
-FastAPI REST and OpenAPI service engine.
+FastAPI REST & OpenAPI Service Engine for remote automation, health probes, and metrics.
 
 ## Commands
 

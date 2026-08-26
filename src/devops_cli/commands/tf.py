@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
-from rich.table import Table
 
 from devops_cli.config.constants import (
     CONST_OPENTOFU_BINARIES,
@@ -22,7 +21,7 @@ from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import find_top_level_repo_root
 from devops_cli.core.validation import validate_dir
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
-from devops_cli.lang import MESSAGES
+from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
     print_error,
     print_info,
@@ -32,7 +31,7 @@ from devops_cli.output import (
 )
 
 app = new_typer(
-    help="OpenTofu and Terraform Infrastructure-as-Code operations.",
+    help=HELP.tf.app,
     no_args_is_help=True,
 )
 
@@ -91,15 +90,9 @@ def _get_default_var_file(cloud_provider: str, repo_root: Path) -> Path | None:
 
 @app.command()
 def init(
-    directory: Annotated[
-        Path, typer.Argument(help="Target directory containing OpenTofu configuration")
-    ] = Path("."),
-    upgrade: Annotated[
-        bool, typer.Option("--upgrade", "-u", help="Upgrade modules and plugins")
-    ] = False,
-    reconfigure: Annotated[
-        bool, typer.Option("--reconfigure", help="Reconfigure backend, ignoring existing state")
-    ] = False,
+    directory: Annotated[Path, typer.Argument(help=HELP.tf.target_dir)] = Path("."),
+    upgrade: Annotated[bool, typer.Option("--upgrade", "-u", help=HELP.tf.upgrade_modules)] = False,
+    reconfigure: Annotated[bool, typer.Option("--reconfigure", help=HELP.tf.reconfigure)] = False,
 ) -> None:
     """Initialize an OpenTofu working directory."""
     target = _validate_dir(directory)
@@ -137,18 +130,12 @@ def init(
 
 @app.command()
 def plan(
-    directory: Annotated[
-        Path, typer.Argument(help="Target directory containing OpenTofu configuration")
-    ] = Path("."),
+    directory: Annotated[Path, typer.Argument(help=HELP.tf.target_dir)] = Path("."),
     var_file: Annotated[
-        Path | None, typer.Option("--var-file", "-v", help="Path to variable definitions file")
+        Path | None, typer.Option("--var-file", "-v", help=HELP.tf.var_file)
     ] = None,
-    out: Annotated[
-        Path | None, typer.Option("--out", "-o", help="Write generated plan to file")
-    ] = None,
-    destroy: Annotated[
-        bool, typer.Option("--destroy", help="Generate a plan to destroy all resources")
-    ] = False,
+    out: Annotated[Path | None, typer.Option("--out", "-o", help=HELP.tf.out_plan)] = None,
+    destroy: Annotated[bool, typer.Option("--destroy", help=HELP.tf.destroy_plan)] = False,
 ) -> None:
     """Generate and show an OpenTofu execution plan."""
     target = _validate_dir(directory)
@@ -188,17 +175,15 @@ def plan(
 
 @app.command()
 def apply(
-    directory: Annotated[
-        Path, typer.Argument(help="Target directory containing OpenTofu configuration")
-    ] = Path("."),
+    directory: Annotated[Path, typer.Argument(help=HELP.tf.target_dir)] = Path("."),
     var_file: Annotated[
-        Path | None, typer.Option("--var-file", "-v", help="Path to variable definitions file")
+        Path | None, typer.Option("--var-file", "-v", help=HELP.tf.var_file)
     ] = None,
     plan_file: Annotated[
-        Path | None, typer.Option("--plan-file", "-p", help="Explicit plan file to apply")
+        Path | None, typer.Option("--plan-file", "-p", help=HELP.tf.plan_file)
     ] = None,
     auto_approve: Annotated[
-        bool, typer.Option("--auto-approve", help="Skip interactive approval before applying")
+        bool, typer.Option("--auto-approve", help=HELP.options.auto_approve)
     ] = False,
 ) -> None:
     """Create or update OpenTofu infrastructure."""
@@ -240,14 +225,12 @@ def apply(
 
 @app.command()
 def destroy(
-    directory: Annotated[
-        Path, typer.Argument(help="Target directory containing OpenTofu configuration")
-    ] = Path("."),
+    directory: Annotated[Path, typer.Argument(help=HELP.tf.target_dir)] = Path("."),
     var_file: Annotated[
-        Path | None, typer.Option("--var-file", "-v", help="Path to variable definitions file")
+        Path | None, typer.Option("--var-file", "-v", help=HELP.tf.var_file)
     ] = None,
     auto_approve: Annotated[
-        bool, typer.Option("--auto-approve", help="Skip interactive approval before destroying")
+        bool, typer.Option("--auto-approve", help=HELP.options.auto_approve)
     ] = False,
 ) -> None:
     """Destroy OpenTofu-managed infrastructure."""
@@ -286,15 +269,11 @@ def destroy(
 
 @app.command()
 def output(
-    directory: Annotated[
-        Path, typer.Argument(help="Target directory containing OpenTofu configuration")
-    ] = Path("."),
+    directory: Annotated[Path, typer.Argument(help=HELP.tf.target_dir)] = Path("."),
     json_output: Annotated[
-        bool, typer.Option("--json", "-j", help="Output values formatted as JSON")
+        bool, typer.Option("--json", "-j", help=HELP.options.json_output)
     ] = False,
-    raw: Annotated[
-        bool, typer.Option("--raw", "-r", help="Output raw string without shell escapes")
-    ] = False,
+    raw: Annotated[bool, typer.Option("--raw", "-r", help=HELP.options.raw)] = False,
 ) -> None:
     """Read an output variable from the OpenTofu state."""
     target = _validate_dir(directory)
@@ -332,10 +311,8 @@ def output(
 
 @app.command()
 def validate(
-    directory: Annotated[
-        Path, typer.Argument(help="Target directory containing OpenTofu configuration")
-    ] = Path("."),
-    no_color: Annotated[bool, typer.Option("--no-color", help="Disable color codes")] = False,
+    directory: Annotated[Path, typer.Argument(help=HELP.tf.target_dir)] = Path("."),
+    no_color: Annotated[bool, typer.Option("--no-color", help=HELP.tf.no_color)] = False,
 ) -> None:
     """Validate the OpenTofu configuration files in a directory."""
     target = _validate_dir(directory)
@@ -371,14 +348,10 @@ def validate(
 
 @app.command()
 def fmt(
-    directory: Annotated[
-        Path, typer.Argument(help="Target directory containing OpenTofu configuration")
-    ] = Path("."),
-    check: Annotated[
-        bool, typer.Option("--check", "-c", help="Check formatting without writing files")
-    ] = False,
+    directory: Annotated[Path, typer.Argument(help=HELP.tf.target_dir)] = Path("."),
+    check: Annotated[bool, typer.Option("--check", "-c", help=HELP.tf.check_fmt)] = False,
     recursive: Annotated[
-        bool, typer.Option("--recursive", "-r", help="Format subdirectories recursively")
+        bool, typer.Option("--recursive", "-r", help=HELP.tf.recursive_fmt)
     ] = True,
 ) -> None:
     """Rewrites OpenTofu configuration files to canonical format."""
@@ -417,9 +390,7 @@ def fmt(
 
 @app.command(name="status")
 def status_command(
-    directory: Annotated[
-        Path, typer.Argument(help="Target directory containing OpenTofu configuration")
-    ] = Path("."),
+    directory: Annotated[Path, typer.Argument(help=HELP.tf.target_dir)] = Path("."),
 ) -> None:
     """Show OpenTofu directory state, initialization status, and provider plugins."""
     target = _validate_dir(directory)
@@ -429,21 +400,20 @@ def status_command(
     lock_file = target / ".terraform.lock.hcl"
     state_file = target / "terraform.tfstate"
 
-    table = Table(
+    rows = [
+        ["Directory", str(target)],
+        ["Resolved Binary", binary],
+        ["Initialized (.terraform)", "✓ Yes" if tf_dir.exists() else "[red]✗ No[/red]"],
+        ["Lock File (.lock.hcl)", "✓ Yes" if lock_file.exists() else "[dim]None[/dim]"],
+        ["Local State File", "✓ Yes" if state_file.exists() else "[dim]None[/dim]"],
+    ]
+
+    print_table(
         title=f"OpenTofu Status — {target.name}",
+        columns=[("Property", "bold white"), ("Status / Value", "green")],
+        rows=rows,
         border_style="cyan",
-        header_style="bold magenta",
     )
-    table.add_column("Property", style="bold white")
-    table.add_column("Status / Value", style="green")
-
-    table.add_row("Directory", str(target))
-    table.add_row("Resolved Binary", binary)
-    table.add_row("Initialized (.terraform)", "✓ Yes" if tf_dir.exists() else "[red]✗ No[/red]")
-    table.add_row("Lock File (.lock.hcl)", "✓ Yes" if lock_file.exists() else "[dim]None[/dim]")
-    table.add_row("Local State File", "✓ Yes" if state_file.exists() else "[dim]None[/dim]")
-
-    print_table(table)
 
 
 # =============================================================================
@@ -453,14 +423,12 @@ def status_command(
 
 @app.command(name="deploy-cloud")
 def deploy_cloud(
-    provider: Annotated[
-        str, typer.Option("--provider", "-p", help="Target cloud provider: aws, azure, or gcp")
-    ],
+    provider: Annotated[str, typer.Option("--provider", "-p", help=HELP.options.provider)],
     auto_approve: Annotated[
-        bool, typer.Option("--auto-approve", help="Automatically approve apply without prompt")
+        bool, typer.Option("--auto-approve", help=HELP.options.auto_approve)
     ] = False,
     var_file: Annotated[
-        Path | None, typer.Option("--var-file", "-v", help="Path to custom tfvars file")
+        Path | None, typer.Option("--var-file", "-v", help=HELP.tf.var_file)
     ] = None,
 ) -> None:
     """Deploy cloud Kubernetes infrastructure for AWS, Azure, or GCP."""
@@ -513,3 +481,54 @@ def deploy_cloud(
     )
     msg = MESSAGES.tf.deploy_cloud_success.format(provider=provider.upper())
     print_success(msg)
+
+
+@app.command("lint")
+def tf_lint(
+    directory: Annotated[
+        Path,
+        typer.Argument(help=HELP.tf.target_dir),
+    ] = Path("."),
+    config: Annotated[
+        Path | None,
+        typer.Option("--config", "-c", help=HELP.tf.tflint_config),
+    ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.tf.tflint_dry_run),
+    ] = False,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help=HELP.options.json_output),
+    ] = False,
+) -> None:
+    """Run TFLint static analysis on Terraform/OpenTofu configurations."""
+    from devops_cli.output import format_json, print_muted
+    from devops_cli.security.tflint import run_tflint_scan
+
+    target_dir = directory.resolve()
+    if dry_run:
+        render_dry_run_result(
+            command=f"devops tf lint {directory}",
+            action="tflint",
+            target=str(target_dir),
+        )
+        return
+
+    print_muted(f"Executing TFLint static analysis on '{target_dir}'...")
+    findings = run_tflint_scan(target_dir=target_dir, config_file=config)
+
+    if json_output:
+        write_stdout(format_json([f.model_dump() for f in findings]) + "\n")
+        return
+
+    if not findings:
+        print_success("✓ No Terraform / OpenTofu lint issues detected.")
+        return
+
+    rows = [[f.severity, f.location, f.title, f.description] for f in findings]
+    print_table(
+        title=f"TFLint Findings: {target_dir.name or str(target_dir)}",
+        columns=[("Severity", "bold"), "Location", "Rule / Title", "Description"],
+        rows=rows,
+    )

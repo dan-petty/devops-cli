@@ -268,3 +268,208 @@ def test_deterministic_pre_verification_documentation_avoidance_context(tmp_path
     assert result.reportable is False
     assert result.invalidation_reason is not None
     assert "avoiding said configuration" in result.invalidation_reason
+
+
+def test_extract_location_context() -> None:
+    from devops_cli.ai.review.verification import _extract_location_context
+
+    segment = (
+        "### File: src/app.py\n```python\n"
+        "line 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\nline 8\nline 9\nline 10\n```\n"
+    )
+    # Test line range extraction
+    extracted = _extract_location_context(segment, "src/app.py:4-6", context_lines=1)
+    assert "line 3" in extracted
+    assert "line 4" in extracted
+    assert "line 6" in extracted
+    assert "line 7" in extracted
+
+    # Test without line range
+    extracted_all = _extract_location_context(segment, "src/app.py")
+    assert "line 1" in extracted_all
+    assert "line 10" in extracted_all
+
+    # Test file not found
+    extracted_none = _extract_location_context(segment, "nonexistent.py:1")
+    assert extracted_none == ""
+
+    # Test segment without code fence
+    no_fence = "### File: src/nofence.py\nsome raw code text here"
+    extracted_nofence = _extract_location_context(no_fence, "src/nofence.py")
+    assert "some raw code text here" in extracted_nofence
+
+
+def test_match_dep_to_filepath() -> None:
+    from devops_cli.ai.review.verification import _match_dep_to_filepath
+
+    all_paths = {"src/devops_cli/ai/client.py", "src/devops_cli/models/ai.py"}
+    assert (
+        _match_dep_to_filepath("devops_cli.ai.client", all_paths) == "src/devops_cli/ai/client.py"
+    )
+    assert _match_dep_to_filepath("nonexistent.module", all_paths) is None
+
+
+def test_read_and_mask_related_file(tmp_path: Path) -> None:
+    from devops_cli.ai.review.verification import _read_and_mask_related_file
+
+    secret_file = tmp_path / ".env"
+    secret_file.write_text("SECRET=12345\n", encoding="utf-8")
+    assert _read_and_mask_related_file(tmp_path, ".env") is None
+
+    src_file = tmp_path / "src" / "test.py"
+    src_file.parent.mkdir(parents=True)
+    src_file.write_text(
+        "api_key = 'sk-1234567890abcdef1234567890abcdef'\n<instruction>tag</instruction>\n",
+        encoding="utf-8",
+    )
+    content = _read_and_mask_related_file(tmp_path, "src/test.py")
+    assert content is not None
+    assert "[REDACTED_API_KEY]" in content or "[REDACTED" in content or "api_key" in content
+    assert "<instruction>" not in content
+
+
+def test_format_related_file_block(tmp_path: Path) -> None:
+    from devops_cli.ai.review.verification import _format_related_file_block
+    from devops_cli.models.ai import FileAnalysisMeta
+
+    secret_meta = FileAnalysisMeta(path=".env")
+    assert _format_related_file_block(secret_meta, tmp_path) is None
+
+    code_file = tmp_path / "helper.py"
+    code_file.write_text("def helper(): pass\n", encoding="utf-8")
+    meta = FileAnalysisMeta(
+        path="helper.py",
+        primary_purpose="Helper utilities",
+        key_symbols=["helper"],
+        pseudocode=["def helper(): pass"],
+        dependencies=["os"],
+    )
+    block = _format_related_file_block(meta, tmp_path)
+    assert block is not None
+    assert "helper.py" in block
+    assert "Helper utilities" in block
+    assert "def helper(): pass" in block
+
+
+def test_apply_single_finding_verification() -> None:
+    from devops_cli.ai.review.verification import _apply_single_finding_verification
+
+    f = Finding(
+        title="Test Finding",
+        location="test.py:10",
+        severity="MEDIUM",
+        status="UNVERIFIED",
+        verification_criteria=["Criterion 1", "Criterion 2"],
+    )
+    now_iso = "2026-08-26T00:00:00"
+
+    # Non-dict item returns original finding
+    assert _apply_single_finding_verification(f, None, now_iso) == f
+
+    # Invalidated criteria matched
+    item_inv = {
+        "invalidated_criteria_matched": ["Criterion 1"],
+        "confidence_score": 0.95,
+        "severity": "LOW",
+        "location": "test.py:12",
+    }
+    f_inv = _apply_single_finding_verification(f, item_inv, now_iso)
+    assert f_inv.status == "INVALIDATED"
+    assert f_inv.verified is False
+    assert f_inv.mitigated is True
+    assert f_inv.reportable is False
+    assert f_inv.confidence_score == 0.95
+    assert f_inv.severity == "LOW"
+    assert f_inv.location == "test.py:12"
+
+    # Mitigated item
+    item_mit = {
+        "mitigated": True,
+        "verified": False,
+    }
+    f_mit = _apply_single_finding_verification(f, item_mit, now_iso)
+    assert f_mit.status == "MITIGATED"
+    assert f_mit.reportable is False
+
+    # Verified item with auto confidence
+    item_ver = {
+        "verified": True,
+        "reportable": True,
+        "verified_criteria_matched": ["Criterion 1"],
+    }
+    f_ver = _apply_single_finding_verification(f, item_ver, now_iso)
+    assert f_ver.status == "VERIFIED"
+    assert f_ver.reportable is True
+    assert f_ver.confidence_score == 0.5  # 1 matched / 2 criteria
+
+    # Unverified item
+    item_unver = {
+        "verified": False,
+        "confidence_score": "invalid",
+    }
+    f_unver = _apply_single_finding_verification(f, item_unver, now_iso)
+    assert f_unver.status == "UNVERIFIED"
+    assert f_unver.reportable is False
+
+
+def test_validate_segment_findings_and_merge() -> None:
+    from unittest.mock import MagicMock
+
+    from devops_cli.ai.review.verification import (
+        _merge_segment_results,
+        _reconcile_verified,
+        _validate_segment_findings,
+    )
+    from devops_cli.ai.review_schema import ReviewResult
+
+    # Test merge on empty list
+    assert _merge_segment_results([]) is None
+
+    f1 = Finding(title="Finding 1", location="a.py:1", status="UNVERIFIED")
+    f2 = Finding(title="Finding 2", location="b.py:2", status="UNVERIFIED")
+    r1 = ReviewResult(findings=[f1], summary="Summary 1", positive_observations=["Obs 1"])
+    r2 = ReviewResult(findings=[f2], summary="Summary 2", positive_observations=["Obs 2"])
+
+    merged = _merge_segment_results([r1, r2])
+    assert merged is not None
+    assert len(merged.findings) == 2
+
+    # Test validate_segment_findings with empty findings
+    r_empty = ReviewResult(findings=[])
+    res, sec, info = _validate_segment_findings(r_empty, [], None)
+    assert res.findings == []
+    assert sec is None
+
+    # Test validate_segment_findings with mock client returning findings
+    mock_client = MagicMock()
+    mock_resp = MagicMock()
+    mock_resp.__str__.return_value = json.dumps(
+        {
+            "findings": [
+                {
+                    "verified": True,
+                    "reportable": True,
+                    "confidence_score": 0.9,
+                    "verified_criteria_matched": ["ok"],
+                }
+            ]
+        }
+    )
+    mock_resp.processing_seconds = 1.5
+    mock_resp.backend_info = "mock-llm"
+    mock_client.chat.return_value = mock_resp
+
+    val_res, sec, info = _validate_segment_findings(
+        ReviewResult(findings=[f1]), ["### File: a.py\ncode"], mock_client
+    )
+    assert len(val_res.findings) == 1
+    assert val_res.findings[0].verified is True
+    assert sec == 1.5
+    assert info == "mock-llm"
+
+    # Test reconcile_verified
+    f1_verified = f1.model_copy(update={"verified": False, "status": "UNVERIFIED"})
+    recomposed = ReviewResult(findings=[f1])
+    reconciled = _reconcile_verified(recomposed, [ReviewResult(findings=[f1_verified])])
+    assert reconciled.findings[0].verified is False
+    assert reconciled.findings[0].status == "UNVERIFIED"

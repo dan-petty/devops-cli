@@ -1,6 +1,6 @@
 # `devops uv`
 
-Run uv commands through devops.
+uv dependency management proxies.
 
 ## Commands
 
@@ -16,7 +16,7 @@ devops uv sync [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--frozen` | `boolean` | - | Do not update lockfile |
+| `--frozen` | `boolean` | - | Do not update lockfile. |
 
 ---
 
@@ -32,7 +32,7 @@ devops uv lock [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--upgrade` | `boolean` | - | Upgrade dependencies while locking |
+| `--upgrade` | `boolean` | - | Upgrade dependencies while locking. |
 
 ---
 
@@ -48,7 +48,7 @@ devops uv python-install [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--version`, `-v` | `string` | - | Python version to install (defaults to .python-version) |
+| `--version`, `-v` | `string` | - | Python version to install (defaults to .python-version). |
 
 ---
 

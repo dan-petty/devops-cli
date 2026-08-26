@@ -16,6 +16,7 @@ from devops_cli.models.ai import (
     MCPToolInfo,
     ProjectAnalysisMeta,
 )
+from devops_cli.models.argo import ArgoCDApp
 from devops_cli.models.benchmark import (
     BenchmarkCategory,
     BenchmarkReport,

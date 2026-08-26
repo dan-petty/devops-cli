@@ -32,6 +32,35 @@ def isolate_llm_response_cache(tmp_path: Path):
     reset_llm_response_cache()
 
 
+@pytest.fixture(scope="session")
+def session_isolated_config(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    config_dir = tmp_path_factory.mktemp("devops_cli_isolated_config")
+    dummy_config = config_dir / "config.yaml"
+    dummy_config.write_text(
+        "telemetry:\n  enabled: true\n  endpoint: http://localhost:4318\nai:\n  allow_private_network: true\n",
+        encoding="utf-8",
+    )
+    return dummy_config
+
+
+@pytest.fixture(autouse=True)
+def isolate_devops_cli_config(session_isolated_config: Path):
+    """Ensure tests do not load local workspace config.yaml with live network endpoints."""
+    from devops_cli.telemetry.tracer import reset_tracer
+
+    reset_tracer()
+    with patch.dict(
+        os.environ,
+        {
+            "DEVOPS_CLI_CONFIG": str(session_isolated_config),
+            "DEVOPS_OTEL_ENDPOINT": "http://localhost:4318",
+            "DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK": "true",
+        },
+    ):
+        yield
+    reset_tracer()
+
+
 @pytest.fixture
 def tmp_ssh_dir(tmp_path: Path) -> Path:
     ssh_dir = tmp_path / ".ssh"

@@ -16,7 +16,7 @@ devops grafana search [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--query`, `-q` | `string` | `` | Search query |
+| `--query`, `-q` | `string` | `` | Search query. |
 
 ---
 
@@ -42,8 +42,6 @@ devops grafana alerts
 
 ## `devops grafana dashboards`
 
-**Manage Grafana dashboards.**
-
 ```bash
 devops grafana dashboards COMMAND [ARGS]...
 ```
@@ -68,13 +66,13 @@ devops grafana dashboards export [OPTIONS] <uid>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<uid>` | `string` | Yes | Dashboard UID |
+| `<uid>` | `string` | Yes | Dashboard UID. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--output`, `-o` | `path` | - | - |
+| `--output`, `-o` | `path` | - | Destination path for output report or artifacts. |
 
 ### `devops grafana dashboards import`
 
@@ -88,13 +86,13 @@ devops grafana dashboards import [OPTIONS] <file>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<file>` | `path` | Yes | Dashboard JSON file |
+| `<file>` | `path` | Yes | Path to dashboard JSON file to import. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--folder-id` | `integer` | `0` | - |
+| `--folder-id` | `integer` | `0` | Target Grafana folder ID for dashboard import. |
 
 ### `devops grafana dashboards sync`
 
@@ -108,6 +106,6 @@ devops grafana dashboards sync [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--dir`, `-d` | `path` | - | Directory containing dashboard JSON files |
+| `--dir`, `-d` | `path` | - | Directory path containing dashboard definitions. |
 
 ---

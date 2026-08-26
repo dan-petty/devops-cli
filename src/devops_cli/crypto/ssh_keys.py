@@ -16,6 +16,7 @@ from cryptography.hazmat.primitives.serialization import (
 
 from devops_cli.config.constants import CONST_PERM_PRIVATE_KEY, CONST_PERM_PUBLIC_KEY
 from devops_cli.core.validation import validate_safe_key_path
+from devops_cli.exceptions import ValidationError
 from devops_cli.models.ssh import ManagedSSHKey
 
 # Matches id_ed25519-2024JAN15 or id_ed25519-2024JAN
@@ -80,7 +81,7 @@ def get_key_age_days(key_path: Path) -> int:
     """Return the key's age in days based on its filename date suffix."""
     key_date = parse_key_date(key_path)
     if key_date is None:
-        raise ValueError(f"Cannot parse date from key name: {key_path.name}")
+        raise ValidationError(f"Cannot parse date from key name: {key_path.name}", field="key_name")
     return max(0, (date.today() - key_date).days)
 
 

@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 from typer.testing import CliRunner
 
+from devops_cli.ai.rag.models import CodeChunk, SearchResult
 from devops_cli.commands.rag import app
 from devops_cli.main import app as main_app
 
@@ -64,3 +66,86 @@ def test_rag_clear_command(runner: CliRunner, monkeypatch: pytest.MonkeyPatch) -
     assert result.exit_code == 0
     assert "Cleared collection" in result.output
     assert len(deleted) >= 1
+
+
+def test_rag_index_and_query_execution(runner: CliRunner, tmp_path: Path) -> None:
+    """Test full rag index, index-kb, query, and explain subcommands."""
+    sample_file = tmp_path / "app.py"
+    sample_file.write_text("def run_app(): pass\n", encoding="utf-8")
+
+    mock_qdrant = MagicMock()
+    mock_qdrant.is_alive.return_value = True
+    mock_qdrant.collection_exists.return_value = True
+
+    mock_embedder = MagicMock()
+    mock_embedder.embed.return_value = [0.1] * 384
+    mock_embedder.embed_batch.return_value = [[0.1] * 384]
+
+    mock_chunk = SearchResult(
+        chunk=CodeChunk(
+            id="c1",
+            file_path="app.py",
+            start_line=1,
+            end_line=1,
+            content="def run_app(): pass",
+            language="python",
+            symbol_names=["run_app"],
+        ),
+        score=0.95,
+    )
+
+    mock_retriever = MagicMock()
+    mock_retriever.search.return_value = [mock_chunk]
+
+    with (
+        patch(
+            "devops_cli.commands.rag._get_rag_components",
+            return_value=(mock_qdrant, mock_embedder, "devops_code", "devops_docs"),
+        ),
+        patch(
+            "devops_cli.ai.rag.indexer.WorkspaceIndexer.index_workspace",
+            return_value={"files_indexed": 1, "chunks_indexed": 2, "pruned_chunks": 0},
+        ),
+        patch(
+            "devops_cli.ai.rag.indexer.WorkspaceIndexer.index_knowledge_base",
+            return_value={"indexed_files": 1, "total_chunks": 2},
+        ),
+        patch("devops_cli.ai.rag.retriever.SemanticRetriever", return_value=mock_retriever),
+    ):
+        res_idx = runner.invoke(app, ["index", str(tmp_path), "--project", "test_proj"])
+        assert res_idx.exit_code == 0
+
+        res_idx_kb = runner.invoke(app, ["index-kb"])
+        assert res_idx_kb.exit_code == 0
+
+        res_query = runner.invoke(app, ["query", "run_app", "--top-k", "3"])
+        assert res_query.exit_code == 0
+
+        res_query_cat = runner.invoke(app, ["query", "run_app", "--category", "code"])
+        assert res_query_cat.exit_code == 0
+
+        res_explain = runner.invoke(app, ["--explain"])
+        assert res_explain.exit_code == 0
+
+
+def test_rag_error_branches(runner: CliRunner, tmp_path: Path) -> None:
+    """Verify non-existent path and qdrant down error handling."""
+    # 1. Non-existent path
+    res_no_path = runner.invoke(app, ["index", str(tmp_path / "nonexistent_dir")])
+    assert res_no_path.exit_code == 1
+
+    # 2. Qdrant down
+    mock_down_qdrant = MagicMock()
+    mock_down_qdrant.is_alive.return_value = False
+    mock_down_qdrant.base_url = "http://localhost:6333"
+
+    mock_embed = MagicMock()
+    with patch(
+        "devops_cli.commands.rag._get_rag_components",
+        return_value=(mock_down_qdrant, mock_embed, "code", "docs"),
+    ):
+        res_idx_down = runner.invoke(app, ["index", str(tmp_path)])
+        assert res_idx_down.exit_code == 1
+
+        res_kb_down = runner.invoke(app, ["index-kb"])
+        assert res_kb_down.exit_code == 1

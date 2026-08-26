@@ -12,6 +12,7 @@ from typing import Any
 import click
 import typer
 
+from devops_cli.config.constants import CONST_MARKDOWN_HEADING_LEVEL
 from devops_cli.config.env import EnvVarSpec, get_all_env_var_specs
 from devops_cli.output import write_text_file
 
@@ -55,11 +56,11 @@ class ParamDoc:
 
     name: str
     kind: str  # "argument", "option", or "flag"
-    flags: list[str]
-    type_name: str
-    description: str
-    default: str | None
-    required: bool
+    flags: list[str] = field(default_factory=list)
+    type_name: str = "string"
+    description: str = ""
+    default: str | None = None
+    required: bool = False
     envvar: str | None = None
     hidden: bool = False
 
@@ -360,7 +361,12 @@ class DocGenerator:
 
         return "\n".join(lines)
 
-    def _render_command_markdown(self, cmd: CommandDoc, lines: list[str], level: int = 3) -> None:
+    def _render_command_markdown(
+        self,
+        cmd: CommandDoc,
+        lines: list[str],
+        level: int = CONST_MARKDOWN_HEADING_LEVEL,
+    ) -> None:
         """Render a single command or recursive subcommands into Markdown lines."""
         heading = "#" * level
         lines.append(f"{heading} `{cmd.full_path}`")
@@ -688,6 +694,6 @@ class DocGenerator:
         return {
             "version": "1.0",
             "groups": [asdict(g) for g in groups],
-            "env_vars": [e.model_dump() for e in env_specs],
+            "env_vars": [asdict(e) for e in env_specs],
             "mcp_tools": [asdict(t) for t in mcp_tools],
         }

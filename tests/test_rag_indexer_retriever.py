@@ -156,3 +156,41 @@ def test_index_and_index_kb_coexistence(tmp_path: Path) -> None:
     ws_stats2 = indexer.index_workspace(ws_dir, project="my-workspace")
     assert ws_stats2["removed_files"] == 0
     assert len(qdrant.collections.get(indexer.docs_collection, [])) >= 1
+
+
+def test_indexer_file_filters_and_gitignore(tmp_path: Path) -> None:
+    """Verify _load_gitignore_spec, _is_indexable_file, and collection stats."""
+    from devops_cli.ai.rag.indexer import (
+        _get_single_collection_stat,
+        _is_indexable_file,
+        _load_gitignore_spec,
+    )
+
+    # 1. _load_gitignore_spec
+    gi_file = tmp_path / ".gitignore"
+    gi_file.write_text("*.tmp\nbuild/\n", encoding="utf-8")
+    spec = _load_gitignore_spec(tmp_path)
+    assert spec is not None
+
+    assert _load_gitignore_spec(tmp_path / "nonexistent") is None
+
+    # 2. _is_indexable_file
+    code_f = tmp_path / "main.py"
+    code_f.write_text("print('hi')", encoding="utf-8")
+    assert _is_indexable_file(code_f, tmp_path, gitignore_spec=spec) is True
+
+    tmp_f = tmp_path / "test.tmp"
+    tmp_f.write_text("temp", encoding="utf-8")
+    assert _is_indexable_file(tmp_f, tmp_path, gitignore_spec=spec) is False
+
+    docker_f = tmp_path / "Dockerfile"
+    docker_f.write_text("FROM alpine", encoding="utf-8")
+    assert _is_indexable_file(docker_f, tmp_path) is True
+
+    # 3. _get_single_collection_stat
+    qdrant = FakeQdrantClient()
+    qdrant.collections["test_coll"] = [{"id": 1, "payload": {}}]
+    stat = _get_single_collection_stat(qdrant, "test_coll", cached_file_count=5)
+    assert stat is not None
+    assert stat.collection_name == "test_coll"
+    assert stat.total_vectors == 1

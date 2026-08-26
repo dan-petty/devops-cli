@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.2] - 2026-08-25
+
+### Added
+- **Checkov IaC Static Policy & Compliance Engine (`devops scan iac`, `devops scan checkov`, `devops_cli.security.checkov`)**:
+  - Implemented static compliance and policy security auditing across Terraform, CloudFormation, Kubernetes, and Dockerfile manifests.
+  - Added CLI subcommands `devops scan iac <target>` and `devops scan checkov <target>` with Rich table and JSON exports.
+  - Registered `scan_iac` native persona tool and bundled Knowledge Base manual: `it_domains/tools/checkov.md`.
+- **TFLint Cloud Provider Linter (`devops tf lint`, `devops_cli.security.tflint`)**:
+  - Implemented deep static Terraform/OpenTofu validation against cloud provider rules, deprecated syntax, and module variable constraints.
+  - Added CLI subcommand `devops tf lint <dir> [--config FILE] [--json]`.
+  - Registered `tf_lint` native persona tool and bundled Knowledge Base manual: `it_domains/tools/tflint.md`.
+- **Dive Docker Layer Efficiency Analyzer (`devops docker analyze-layers`, `devops_cli.security.dive`)**:
+  - Container image layer exploration and wasted space analysis computing efficiency scores and layer breakdowns.
+  - Added CLI subcommand `devops docker analyze-layers <image> [--json]`.
+  - Registered `docker_analyze_layers` native persona tool and bundled Knowledge Base manual: `it_domains/tools/dive.md`.
+- **Kubeconform Fast OpenAPI Schema Validator (`devops k8s validate`, `devops_cli.security.kubeconform`)**:
+  - Fast offline Kubernetes manifest validation against OpenAPI JSON schemas supporting arbitrary target Kubernetes versions and strict validation.
+  - Added CLI subcommand `devops k8s validate <target> [--kubernetes-version STR] [--strict] [--json]`.
+  - Registered `k8s_validate_manifests` native persona tool and bundled Knowledge Base manual: `it_domains/tools/kubeconform.md`.
+- **Dynamic Cost- & Latency-Aware LLM Router (`devops ai route`, `devops_cli.ai.router`)**:
+  - Task complexity classification and intelligent query steering between local Ollama models and frontier cloud models with estimated cost tracking.
+  - Added CLI subcommand `devops ai route <task> [--tokens INT] [--frontier] [--json]`.
+- **Automated Workspace & Data Tier Housekeeping Engine (`devops workspace clean`, `devops_cli.core.cleanup`)**:
+  - Added retention policy pruning for stale review runs, temporary analysis caches, and trace logs under `.data/`.
+  - Added CLI subcommand `devops workspace clean [--older-than INT] [--dry-run]` with top-level alias `devops clean`.
+
 ## [0.2.1] - 2026-08-25
 
 ### Added

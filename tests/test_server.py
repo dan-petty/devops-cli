@@ -90,8 +90,9 @@ def test_workspaces_endpoint_with_nested_repos(
     assert "owner_a/repo_1" in repo_names
 
 
-def test_config_endpoint_sanitization(client: TestClient) -> None:
+def test_config_endpoint_sanitization(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     """Test /api/v1/config returns sanitized configuration."""
+    monkeypatch.setenv("DEVOPS_CLI_GITHUB_TOKEN", "ghp_secret_token_12345")
     response = client.get("/api/v1/config")
     assert response.status_code == 200
     data = response.json()
@@ -101,6 +102,22 @@ def test_config_endpoint_sanitization(client: TestClient) -> None:
     assert "ssh" in cfg
     assert "repos" in cfg
     assert "workspace" in cfg
+    assert cfg.get("github", {}).get("token") in ("***REDACTED***", None)
+
+
+def test_workspaces_endpoint_empty_repos(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test /api/v1/workspaces when repos directory does not exist."""
+    fake_empty = tmp_path / "empty_workspace"
+    fake_empty.mkdir()
+    monkeypatch.setattr(
+        "devops_cli.server.routes.workspace.find_top_level_repo_root", lambda: fake_empty
+    )
+    response = client.get("/api/v1/workspaces")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["repositories"] == []
 
 
 def test_telemetry_endpoint(client: TestClient) -> None:

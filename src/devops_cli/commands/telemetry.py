@@ -6,13 +6,17 @@ import time
 from typing import Annotated
 
 import typer
-from rich.table import Table
 
+from devops_cli.config.defaults import DEFAULT_TELEMETRY_TEST_NAME
 from devops_cli.config.settings import load_settings
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import is_dry_run
-from devops_cli.lang.en import MESSAGES
+from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
+    format_code_span,
+    format_latency,
+    format_link,
+    format_status_badge,
     print_info,
     print_success,
     print_table,
@@ -25,7 +29,7 @@ from devops_cli.telemetry.tracer import (
 )
 
 app = new_typer(
-    help="OpenTelemetry observability, tracing, and metrics management.",
+    help=HELP.telemetry.app,
     no_args_is_help=True,
 )
 
@@ -70,26 +74,26 @@ def telemetry_status_cmd() -> None:
     # Probe OTel collector
     is_reachable, health_msg, latency_ms = tracer.test_connection(timeout=1.5)
 
-    table = Table(title="OpenTelemetry Observability Status", title_style="bold cyan")
-    table.add_column("Property", style="cyan")
-    table.add_column("Value", style="white")
-
-    table.add_row(
-        "Telemetry Enabled",
-        "[green]Yes (Active)[/green]" if enabled else "[yellow]Disabled[/yellow]",
+    print_table(
+        title="OpenTelemetry Observability Status",
+        columns=[("Property", "cyan"), ("Value", "white")],
+        rows=[
+            [
+                "Telemetry Enabled",
+                format_status_badge(enabled, label="Yes (Active)" if enabled else "Disabled"),
+            ],
+            ["OTLP Endpoint", endpoint],
+            ["Service Name", tracer.service_name],
+            ["Jaeger UI", format_link(jaeger_url)],
+            [
+                "Collector Health",
+                format_status_badge(True, label=f"✓ Connected ({format_latency(latency_ms)})")
+                if is_reachable
+                else format_status_badge(False, label=f"✗ Unreachable: {health_msg}"),
+            ],
+        ],
     )
-    table.add_row("OTLP Endpoint", endpoint)
-    table.add_row("Service Name", tracer.service_name)
-    table.add_row("Jaeger UI", jaeger_url)
-    table.add_row(
-        "Collector Health",
-        f"[green]✓ Connected ({latency_ms:.1f}ms)[/green]"
-        if is_reachable
-        else f"[red]✗ Unreachable: {health_msg}[/red]",
-    )
-
-    print_table(table)
-    print_info(f"\n[dim]To view traces in Jaeger UI: {jaeger_url}[/dim]", prefix=False)
+    print_info(f"\n[dim]To view traces in Jaeger UI: {format_link(jaeger_url)}[/dim]", prefix=False)
 
 
 # =============================================================================
@@ -101,8 +105,8 @@ def telemetry_status_cmd() -> None:
 def telemetry_test_cmd(
     name: Annotated[
         str,
-        typer.Option("--name", "-n", help="Name for test span"),
-    ] = "devops-cli.manual_test",
+        typer.Option("--name", "-n", help=HELP.telemetry.span_name),
+    ] = DEFAULT_TELEMETRY_TEST_NAME,
 ) -> None:
     """Emit a test OpenTelemetry trace span and metric to the configured collector."""
     tracer = get_tracer()
@@ -117,8 +121,8 @@ def telemetry_test_cmd(
         return
 
     print_info(
-        f"[bold]Emitting test trace span '[cyan]{name}[/cyan]' "
-        f"to [cyan]{tracer.endpoint}[/cyan]...[/bold]",
+        f"[bold]Emitting test trace span '{format_code_span(name)}' "
+        f"to {format_code_span(tracer.endpoint)}...[/bold]",
         prefix=False,
     )
     start = time.perf_counter()
@@ -131,7 +135,7 @@ def telemetry_test_cmd(
 
     print_success(
         f"Test span emitted successfully! "
-        f"(Span ID: [cyan]{span_id}[/cyan], Duration: {elapsed_ms:.1f}ms)"
+        f"(Span ID: {format_code_span(str(span_id))}, Duration: {format_latency(elapsed_ms)})"
     )
     settings = load_settings()
     jaeger_cfg = getattr(settings, "jaeger", None)
@@ -139,7 +143,8 @@ def telemetry_test_cmd(
         jaeger_cfg.url if jaeger_cfg and hasattr(jaeger_cfg, "url") else "http://localhost:16686"
     )
     print_info(
-        f"[dim]View in Jaeger: {jaeger_url} (Service: {tracer.service_name})[/dim]", prefix=False
+        f"[dim]View in Jaeger: {format_link(jaeger_url)} (Service: {tracer.service_name})[/dim]",
+        prefix=False,
     )
 
 
@@ -156,7 +161,5 @@ def telemetry_open_ui_cmd() -> None:
     jaeger_url = (
         jaeger_cfg.url if jaeger_cfg and hasattr(jaeger_cfg, "url") else "http://localhost:16686"
     )
-    print_info(
-        f"[bold]Jaeger Tracing UI:[/bold] [link={jaeger_url}]{jaeger_url}[/link]", prefix=False
-    )
+    print_info(f"[bold]Jaeger Tracing UI:[/bold] {format_link(jaeger_url)}", prefix=False)
     print_info(MESSAGES.telemetry.port_forward_tip, prefix=False)

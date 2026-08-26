@@ -9,7 +9,11 @@ from typing import Any
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.commands import build_trivy_scan_cmd
-from devops_cli.config.defaults import DEFAULT_TRIVY_TIMEOUT_SECONDS
+from devops_cli.config.defaults import (
+    DEFAULT_TRIVY_SCAN_TYPE,
+    DEFAULT_TRIVY_SEVERITIES,
+    DEFAULT_TRIVY_TIMEOUT_SECONDS,
+)
 from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run.state import is_dry_run
 
@@ -95,8 +99,8 @@ def parse_trivy_json(data: dict[str, Any], target_path: str = "") -> list[Findin
 
 def run_trivy_scan(
     target: Path = Path("."),
-    scan_type: str = "fs",
-    severity: str = "UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL",
+    scan_type: str = DEFAULT_TRIVY_SCAN_TYPE,
+    severity: str = DEFAULT_TRIVY_SEVERITIES,
 ) -> list[Finding]:
     """Execute Trivy scanner subprocess and return parsed findings."""
     from devops_cli.telemetry import trace_span

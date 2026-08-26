@@ -12,8 +12,7 @@ import typer
 from devops_cli import __version__
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import is_dry_run, set_dry_run
-from devops_cli.output import get_console, print_dry_run_command, print_muted
-from devops_cli.telemetry import record_metric, trace_span
+from devops_cli.lang import HELP
 
 _timing: dict[str, float] = {}
 
@@ -21,6 +20,8 @@ _timing: dict[str, float] = {}
 def _print_elapsed() -> None:
     if "start" in _timing:
         elapsed = time.monotonic() - _timing["start"]
+        from devops_cli.output import print_muted
+
         print_muted(f"Elapsed: {elapsed:.2f}s", to_stderr=True)
 
 
@@ -28,56 +29,38 @@ atexit.register(_print_elapsed)
 
 # command -> (module path, help text)
 _COMMAND_SPECS: Final[dict[str, tuple[str, str]]] = {
-    "repos": ("devops_cli.commands.repos", "Clone and manage repositories."),
-    "ssh": ("devops_cli.commands.ssh", "SSH key generation, rotation, and GitHub registration."),
-    "branches": ("devops_cli.commands.branches", "Branch management and Jira workflows."),
-    "devcontainer": ("devops_cli.commands.devcontainer", "Manage devcontainer configurations."),
-    "workspace": ("devops_cli.commands.workspace", "Manage VS Code workspace files."),
-    "install-tools": ("devops_cli.commands.install_tools", "Install DevOps tool binaries."),
-    "k8s": ("devops_cli.commands.k8s", "Kubernetes resource management."),
-    "kustomize": ("devops_cli.commands.kustomize", "Kustomize operations."),
-    "docker": ("devops_cli.commands.docker", "Docker image management."),
-    "grafana": ("devops_cli.commands.grafana", "Grafana dashboard and alert management."),
-    "prometheus": ("devops_cli.commands.prometheus", "Prometheus query and rule management."),
-    "argo": ("devops_cli.commands.argo", "Argo CD, Workflows, and Rollouts management."),
-    "config": ("devops_cli.commands.config", "Manage devops-cli configuration."),
-    "ci": ("devops_cli.commands.ci", "Run tests, linting, formatting, and type-checks."),
-    "uv": ("devops_cli.commands.uv", "Run uv commands through devops."),
-    "scan": ("devops_cli.commands.scan", "Security, vulnerability, secret, and IaC scanner."),
-    "ai": ("devops_cli.commands.ai", "Configure and test AI providers."),
-    "review": ("devops_cli.commands.review", "AI-powered code reviews using expert personas."),
-    "mcp": ("devops_cli.commands.mcp", "FastMCP server for Model Context Protocol integration."),
-    "docs": ("devops_cli.commands.docs", "Generate and validate CLI and API documentation."),
-    "release": (
-        "devops_cli.commands.release",
-        "Manage release cycles, version bumping, changelogs, and release verification.",
-    ),
-    "pr": (
-        "devops_cli.commands.pr",
-        "Manage GitHub pull requests and base branch targeting.",
-    ),
-    "tf": (
-        "devops_cli.commands.tf",
-        "OpenTofu and Terraform Infrastructure-as-Code operations.",
-    ),
-    "tls": (
-        "devops_cli.commands.tls",
-        "X.509 TLS certificate generation, inspection, verification, and Kubernetes secrets.",
-    ),
-    "telemetry": (
-        "devops_cli.commands.telemetry",
-        "OpenTelemetry observability, tracing, and metrics management.",
-    ),
-    "serve": (
-        "devops_cli.commands.serve",
-        "FastAPI REST and OpenAPI service engine.",
-    ),
+    "repos": ("devops_cli.commands.repos", HELP.repos.app),
+    "ssh": ("devops_cli.commands.ssh", HELP.ssh.app),
+    "branches": ("devops_cli.commands.branches", HELP.branches.app),
+    "devcontainer": ("devops_cli.commands.devcontainer", HELP.devcontainer.app),
+    "workspace": ("devops_cli.commands.workspace", HELP.workspace.app),
+    "install-tools": ("devops_cli.commands.install_tools", HELP.install.app),
+    "k8s": ("devops_cli.commands.k8s", HELP.k8s.app),
+    "kustomize": ("devops_cli.commands.kustomize", HELP.kustomize.app),
+    "docker": ("devops_cli.commands.docker", HELP.docker.app),
+    "grafana": ("devops_cli.commands.grafana", HELP.grafana.app),
+    "prometheus": ("devops_cli.commands.prometheus", HELP.prometheus.app),
+    "argo": ("devops_cli.commands.argo", HELP.argo.app),
+    "config": ("devops_cli.commands.config", HELP.config.app),
+    "ci": ("devops_cli.commands.ci", HELP.ci.app),
+    "uv": ("devops_cli.commands.uv", HELP.uv.app),
+    "scan": ("devops_cli.commands.scan", HELP.scan.app),
+    "ai": ("devops_cli.commands.ai", HELP.ai.app),
+    "review": ("devops_cli.commands.review", HELP.review.app),
+    "mcp": ("devops_cli.commands.mcp", HELP.mcp.app),
+    "docs": ("devops_cli.commands.docs", HELP.docs.app),
+    "release": ("devops_cli.commands.release", HELP.release.app),
+    "pr": ("devops_cli.commands.pr", HELP.pr.app),
+    "tf": ("devops_cli.commands.tf", HELP.tf.app),
+    "tls": ("devops_cli.commands.tls", HELP.tls.app),
+    "telemetry": ("devops_cli.commands.telemetry", HELP.telemetry.app),
+    "serve": ("devops_cli.commands.serve", HELP.serve.app),
 }
 
 
 app = new_typer(
     name="devops",
-    help="DevOps CLI — manage repos, SSH keys, Kubernetes, and more.",
+    help=HELP.main.app,
     no_args_is_help=True,
     rich_markup_mode="rich",
 )
@@ -87,6 +70,18 @@ def _delegate(module_path: str, command_name: str, args: list[str]) -> None:
     module = import_module(module_path)
     module_app = module.app
     command = typer.main.get_command(module_app)
+
+    # Fast dispatch for help queries to avoid importing telemetry/OTLP network exporters
+    if any(a in ("-h", "--help") for a in args):
+        command.main(
+            args=args,
+            prog_name=f"devops {command_name}",
+            standalone_mode=False,
+        )
+        return
+
+    from devops_cli.telemetry import record_metric, trace_span
+
     args_summary = " ".join(args) if args else ""
     t0 = time.perf_counter()
     with trace_span(
@@ -156,30 +151,14 @@ def _delegate(module_path: str, command_name: str, args: list[str]) -> None:
             raise typer.Exit(code) from exc
 
 
-def _register_command_proxy(name: str, module_path: str, help_text: str) -> None:
-    @app.command(
-        name=name,
-        help=help_text,
-        add_help_option=False,
-        context_settings={
-            "allow_extra_args": True,
-            "ignore_unknown_options": True,
-        },
-    )
-    def _proxy(ctx: typer.Context) -> None:
-        if is_dry_run():
-            args = ["devops", name, *list(ctx.args)]
-            print_dry_run_command(args, delegated=True)
-            return
-        _delegate(module_path, name, list(ctx.args))
-
-
 for _name, (_module_path, _help) in _COMMAND_SPECS.items():
-    _register_command_proxy(_name, _module_path, _help)
+    app.add_typer(f"{_module_path}:app", name=_name, help=_help)
 
 
 def _version_callback(value: bool) -> None:
     if value:
+        from devops_cli.output import get_console
+
         get_console().print(f"devops-cli [bold green]{__version__}[/bold green]")
         raise typer.Exit()
 
@@ -193,18 +172,22 @@ def main(
         "-v",
         callback=_version_callback,
         is_eager=True,
-        help="Show version and exit.",
+        help=HELP.main.version,
     ),
     dry_run: bool = typer.Option(
         False,
         "--dry-run",
-        help=(
-            "Show debug output of commands and AI requests without executing delegated "
-            "subcommands or external write actions."
-        ),
+        help=HELP.main.dry_run,
     ),
 ) -> None:
     """DevOps CLI — manage repos, SSH keys, Kubernetes, and more."""
     _timing["start"] = time.monotonic()
     set_dry_run(dry_run)
     ctx.obj = {"dry_run": dry_run}
+
+
+def main_entry() -> None:
+    """Fast CLI entrypoint dispatcher."""
+    from devops_cli.entry import main
+
+    main()

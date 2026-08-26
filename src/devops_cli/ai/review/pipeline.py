@@ -23,8 +23,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
-from rich import print as rprint
-
 from devops_cli.ai.agents.pipeline import MultiAgentPipeline
 from devops_cli.ai.agents.pydantic_agent import PydanticAgent
 from devops_cli.ai.analyze.cache import load_cached_analysis
@@ -61,6 +59,7 @@ from devops_cli.models.vulnerability import (
     NetworkReputationRecord,
     VulnerabilityRecord,
 )
+from devops_cli.output import print_info, print_success, print_table
 from devops_cli.security.reference_extractor import (
     extract_dependencies_from_text,
     extract_network_references,
@@ -609,7 +608,10 @@ class ReviewPipelineOrchestrator:
             target_abs = (
                 target_dir.resolve() if target_dir.is_absolute() else (repo / target_dir).resolve()
             )
-            rprint(f"[dim]Stage 1/6: Scanning pre-analysis metadata for '{target_ref}'...[/dim]")
+            print_info(
+                f"[dim]Stage 1/6: Scanning pre-analysis metadata for '{target_ref}'...[/dim]",
+                prefix=False,
+            )
 
             existing_file_metas: dict[str, FileAnalysisMeta] = {}
             cached_meta = load_cached_analysis(repo)
@@ -663,7 +665,10 @@ class ReviewPipelineOrchestrator:
 
             n_meta = len(metadata_by_path)
             status_msg = "refreshed with AI metadata" if updated_any else "up to date"
-            rprint(f"[dim]  ✓ Pre-analysis metadata {status_msg} for {n_meta} file(s)[/dim]")
+            print_info(
+                f"[dim]  ✓ Pre-analysis metadata {status_msg} for {n_meta} file(s)[/dim]",
+                prefix=False,
+            )
             return metadata_by_path
 
     def _find_matching_metadata(
@@ -692,9 +697,10 @@ class ReviewPipelineOrchestrator:
             from devops_cli.security.gitleaks import run_gitleaks_scan
             from devops_cli.security.semgrep import run_semgrep_scan
 
-            rprint(
+            print_info(
                 "  [cyan]• Running static security analyzers "
-                "(Bandit, Kube-linter, Pluto, Trivy, Semgrep, Gitleaks)...[/cyan]"
+                "(Bandit, Kube-linter, Pluto, Trivy, Semgrep, Gitleaks)...[/cyan]",
+                prefix=False,
             )
 
             with trace_span(
@@ -744,9 +750,10 @@ class ReviewPipelineOrchestrator:
                 }
                 sc_span.set_attributes(sc_attrs)
 
-            rprint(
+            print_info(
                 f"    [dim]✓ Static analyzers completed "
-                f"({len(all_static_findings)} finding(s) detected)[/dim]"
+                f"({len(all_static_findings)} finding(s) detected)[/dim]",
+                prefix=False,
             )
         except Exception as exc:
             logger.debug("Static security scanning failed or skipped: %s", exc)
@@ -762,9 +769,10 @@ class ReviewPipelineOrchestrator:
     ]:
         """Extract dependencies and network references across target files and dynamic probes."""
         n_paths = len(file_paths)
-        rprint(
+        print_info(
             f"  [cyan]• Extracting dependencies and network references across "
-            f"{n_paths} file(s)...[/cyan]"
+            f"{n_paths} file(s)...[/cyan]",
+            prefix=False,
         )
         raw_file_data: dict[str, tuple[list[DependencySpec], list[NetworkReference]]] = {}
         all_unique_deps: set[tuple[str, str, str]] = set()
@@ -817,9 +825,10 @@ class ReviewPipelineOrchestrator:
                 }
             )
 
-        rprint(
+        print_info(
             f"    [dim]✓ Extracted {len(all_unique_deps)} unique dependency(ies) and "
-            f"{len(all_unique_nets)} network target(s)[/dim]"
+            f"{len(all_unique_nets)} network target(s)[/dim]",
+            prefix=False,
         )
         return raw_file_data, all_unique_deps, all_unique_nets
 
@@ -863,9 +872,10 @@ class ReviewPipelineOrchestrator:
             except Exception:
                 return target, NetworkReputationRecord(target=target, ip="")
 
-        rprint(
+        print_info(
             "  [cyan]• Querying vulnerability databases & threat intelligence "
-            "(OSV, Shodan, Cloudflare)...[/cyan]"
+            "(OSV, Shodan, Cloudflare)...[/cyan]",
+            prefix=False,
         )
         with trace_span(
             "security.vulnerability_lookups",
@@ -880,7 +890,9 @@ class ReviewPipelineOrchestrator:
             if unique_nets:
                 with ThreadPoolExecutor(max_workers=8) as executor:
                     net_cache.update(dict(executor.map(_fetch_net, list(unique_nets))))
-        rprint("    [dim]✓ Completed vulnerability and threat reputation lookups[/dim]")
+        print_info(
+            "    [dim]✓ Completed vulnerability and threat reputation lookups[/dim]", prefix=False
+        )
 
         return dep_cache, net_cache
 
@@ -975,9 +987,10 @@ class ReviewPipelineOrchestrator:
     ) -> list[FileReviewPayload]:
         """Assemble FileReviewPayload models and persist tracking JSON files."""
         n_paths = len(file_paths)
-        rprint(
+        print_info(
             f"  [cyan]• Assembling payload tracking files & linking dependency graphs "
-            f"for {n_paths} file(s)...[/cyan]"
+            f"for {n_paths} file(s)...[/cyan]",
+            prefix=False,
         )
         payloads: list[FileReviewPayload] = []
         with trace_span("review.assemble_payloads", attributes={"file_count": n_paths}):
@@ -1016,9 +1029,10 @@ class ReviewPipelineOrchestrator:
                 except Exception as exc:
                     logger.error("Failed assembling payload for %s: %s", fpath, exc)
                     self.errored_files[fpath] = f"Stage 2 (Initialization): {exc}"
-                    rprint(
+                    print_info(
                         f"  [yellow]• [bold red]Skipped errored file during init:[/bold red] "
-                        f"[bold]{fpath}[/bold] [dim]({exc})[/dim][/yellow]"
+                        f"[bold]{fpath}[/bold] [dim]({exc})[/dim][/yellow]",
+                        prefix=False,
                     )
 
         return payloads
@@ -1035,7 +1049,10 @@ class ReviewPipelineOrchestrator:
 
         n_paths = len(file_paths)
         with trace_span("review.stage_2_init_payloads", attributes={"file_count": n_paths}):
-            rprint(f"[dim]Stage 2/6: Initializing payload tracking for {n_paths} file(s)...[/dim]")
+            print_info(
+                f"[dim]Stage 2/6: Initializing payload tracking for {n_paths} file(s)...[/dim]",
+                prefix=False,
+            )
 
             # Step 2a: Static security tool batch scanning
             static_findings_by_file = self._run_static_scanners(file_paths)
@@ -1060,8 +1077,9 @@ class ReviewPipelineOrchestrator:
                 net_cache=net_cache,
             )
 
-            rprint(
-                f"[dim]  ✓ Initialized {len(payloads)} file review payload tracking file(s)[/dim]"
+            print_info(
+                f"[dim]  ✓ Initialized {len(payloads)} file review payload tracking file(s)[/dim]",
+                prefix=False,
             )
             return payloads
 
@@ -1150,8 +1168,9 @@ class ReviewPipelineOrchestrator:
                     logger.debug("Failed reading file content for %s: %s", fpath, exc)
 
             if not content_or_diff:
-                rprint(
-                    f"[dim]  [{idx}/{total_files}] Skipping empty/unreadable file: {fpath}[/dim]"
+                print_info(
+                    f"[dim]  [{idx}/{total_files}] Skipping empty/unreadable file: {fpath}[/dim]",
+                    prefix=False,
                 )
                 return
 
@@ -1250,9 +1269,10 @@ class ReviewPipelineOrchestrator:
             except TypeError, ValueError:
                 sec_str = "0.0s"
 
-            rprint(
+            print_info(
                 f"[cyan][{idx}/{total_files}][/cyan] Reviewed [bold]{fpath}[/bold] "
-                f"({n_findings} finding(s)) [dim]handled by {handled_by} {sec_str}[/dim]"
+                f"({n_findings} finding(s)) [dim]handled by {handled_by} {sec_str}[/dim]",
+                prefix=False,
             )
 
     def execute_multi_persona_review(
@@ -1289,9 +1309,10 @@ class ReviewPipelineOrchestrator:
                 else f"Multi-persona ({', '.join(persona_titles)})"
             )
 
-            rprint(
+            print_info(
                 f"[dim]Stage 3/6: {persona_label} review for {total_files} file(s) "
-                f"-> Configured AI Server(s): {server_info}[/dim]"
+                f"-> Configured AI Server(s): {server_info}[/dim]",
+                prefix=False,
             )
 
             config = getattr(self.llm_client, "_config", None)
@@ -1328,10 +1349,11 @@ class ReviewPipelineOrchestrator:
                     payload.ai_scratchpad["stage"] = "failed"
                     payload.ai_scratchpad["error"] = str(exc)
                     self.errored_files[payload.file_path] = f"Stage 3 (Review): {exc}"
-                    rprint(
+                    print_info(
                         f"[yellow][{idx}/{total_files}][/yellow] "
                         f"[bold red]Skipped errored file:[/bold red] "
-                        f"[bold]{payload.file_path}[/bold] [dim]({exc})[/dim]"
+                        f"[bold]{payload.file_path}[/bold] [dim]({exc})[/dim]",
+                        prefix=False,
                     )
 
             if n_workers > 1:
@@ -1434,9 +1456,10 @@ class ReviewPipelineOrchestrator:
             except TypeError, ValueError:
                 sec_str = "0.0s"
 
-            rprint(
+            print_info(
                 f"[cyan][{idx}/{total_files}][/cyan] Verified [bold]{fpath}[/bold] "
-                f"({valid_cnt}/{tot_u} valid) [dim]handled by {handled_by} {sec_str}[/dim]"
+                f"({valid_cnt}/{tot_u} valid) [dim]handled by {handled_by} {sec_str}[/dim]",
+                prefix=False,
             )
 
     def execute_finding_verification(self, file_payloads: list[FileReviewPayload]) -> None:
@@ -1448,9 +1471,10 @@ class ReviewPipelineOrchestrator:
             "review.stage_4_verification",
             attributes={"review.total_files": total_files},
         ) as s4_span:
-            rprint(
+            print_info(
                 f"[dim]Stage 4/6: Verifying findings for {total_files} file(s) "
-                f"-> Configured AI Server(s): {server_info}[/dim]"
+                f"-> Configured AI Server(s): {server_info}[/dim]",
+                prefix=False,
             )
 
             payloads_with_findings = [
@@ -1461,7 +1485,7 @@ class ReviewPipelineOrchestrator:
             s4_span.set_attribute("review.files_with_findings", len(payloads_with_findings))
             if not payloads_with_findings:
                 s4_span.add_event("no_findings_to_verify")
-                rprint("[dim]  ✓ No findings to verify across files[/dim]")
+                print_info("[dim]  ✓ No findings to verify across files[/dim]", prefix=False)
                 return
 
             config = getattr(self.llm_client, "_config", None)
@@ -1491,10 +1515,11 @@ class ReviewPipelineOrchestrator:
                     payload.ai_scratchpad["stage"] = "failed"
                     payload.ai_scratchpad["error"] = str(exc)
                     self.errored_files[payload.file_path] = f"Stage 4 (Verification): {exc}"
-                    rprint(
+                    print_info(
                         f"[yellow][{idx}/{total_files}][/yellow] "
                         f"[bold red]Skipped verification on errored file:[/bold red] "
-                        f"[bold]{payload.file_path}[/bold] [dim]({exc})[/dim]"
+                        f"[bold]{payload.file_path}[/bold] [dim]({exc})[/dim]",
+                        prefix=False,
                     )
 
             if n_workers > 1:
@@ -1511,7 +1536,10 @@ class ReviewPipelineOrchestrator:
         with trace_span(
             "review.stage_5_reranking", attributes={"review.total_files": n_p}
         ) as s5_span:
-            rprint(f"[dim]Stage 5/6: Re-ranking and validating findings for {n_p} file(s)...[/dim]")
+            print_info(
+                f"[dim]Stage 5/6: Re-ranking and validating findings for {n_p} file(s)...[/dim]",
+                prefix=False,
+            )
             for payload in file_payloads:
                 if payload.file_path in self.errored_files:
                     continue
@@ -1546,7 +1574,10 @@ class ReviewPipelineOrchestrator:
             )
             s5_span.set_attribute("review.total_reportable", total_reportable)
             s5_span.add_event("reranking_completed", {"total_reportable": total_reportable})
-            rprint(f"[dim]  ✓ Re-ranked: {total_reportable} reportable finding(s) identified[/dim]")
+            print_info(
+                f"[dim]  ✓ Re-ranked: {total_reportable} reportable finding(s) identified[/dim]",
+                prefix=False,
+            )
 
     # ── Stage 6: Consolidated Report Generation ──────────────────────────────
     def _collect_and_deduplicate_findings(
@@ -1678,22 +1709,21 @@ class ReviewPipelineOrchestrator:
     def _render_console_findings_table(
         self, console: Any, reportable_findings: list[SavedFinding]
     ) -> None:
-        """Render Rich findings table to console."""
-        from rich.table import Table
-
+        """Render findings table to console."""
         if not reportable_findings:
-            rprint("[bold green]✓ No reportable findings across reviewed files.[/bold green]")
+            print_success("No reportable findings across reviewed files.")
             return
 
-        findings_tbl = Table(title="Code Review Findings")
-        findings_tbl.add_column("#", justify="right", style="dim", no_wrap=True)
-        findings_tbl.add_column("Severity", justify="center", no_wrap=True)
-        findings_tbl.add_column("Location", style="bold cyan", overflow="fold")
-        findings_tbl.add_column("Title", overflow="fold")
-        findings_tbl.add_column("Status", justify="center", no_wrap=True)
-        findings_tbl.add_column("Persona", style="dim")
-        findings_tbl.add_column("Conf", justify="right", style="dim", no_wrap=True)
-
+        columns = [
+            ("#", "dim"),
+            ("Severity", "center"),
+            ("Location", "bold cyan"),
+            "Title",
+            ("Status", "center"),
+            ("Persona", "dim"),
+            ("Conf", "dim"),
+        ]
+        rows: list[list[str]] = []
         for idx, f in enumerate(reportable_findings, 1):
             sev_upper = f.severity.upper()
             if sev_upper == "CRITICAL":
@@ -1725,30 +1755,32 @@ class ReviewPipelineOrchestrator:
                 f"{int(f.confidence_score * 100)}%" if f.confidence_score is not None else "—"
             )
 
-            findings_tbl.add_row(
-                str(idx),
-                sev_str,
-                f.location,
-                f.title.strip(),
-                st_str,
-                f.persona_title or f.persona,
-                conf_str,
+            rows.append(
+                [
+                    str(idx),
+                    sev_str,
+                    f.location,
+                    f.title.strip(),
+                    st_str,
+                    f.persona_title or f.persona,
+                    conf_str,
+                ]
             )
-        console.print(findings_tbl)
+        print_table(title="Code Review Findings", columns=columns, rows=rows, console=console)
 
     def _render_console_dependencies_table(
         self, console: Any, all_deps: list[DependencySpec]
     ) -> None:
-        """Render Rich external dependencies security audit table to console."""
-        from rich.table import Table
-
-        dep_tbl = Table(title="External Dependencies Security Audit (OSV.dev & NVD)")
-        dep_tbl.add_column("Severity", justify="center", no_wrap=True)
-        dep_tbl.add_column("Dependency", style="bold cyan")
-        dep_tbl.add_column("Version Range")
-        dep_tbl.add_column("Ecosystem")
-        dep_tbl.add_column("Security Status")
-        dep_tbl.add_column("Location", style="dim")
+        """Render external dependencies security audit table to console."""
+        columns = [
+            ("Severity", "center"),
+            ("Dependency", "bold cyan"),
+            "Version Range",
+            "Ecosystem",
+            "Security Status",
+            ("Location", "dim"),
+        ]
+        rows: list[list[str]] = []
         if all_deps:
             for d in all_deps:
                 sev_upper = d.severity.upper()
@@ -1768,70 +1800,91 @@ class ReviewPipelineOrchestrator:
                     sev_str = "[green]CLEAN[/green]"
                     status_str = f"[green]{d.security_status}[/green]"
 
-                dep_tbl.add_row(
-                    sev_str,
-                    d.name,
-                    d.version_range,
-                    d.ecosystem,
-                    status_str,
-                    d.location or "—",
+                rows.append(
+                    [
+                        sev_str,
+                        d.name,
+                        d.version_range,
+                        d.ecosystem,
+                        status_str,
+                        d.location or "—",
+                    ]
                 )
         else:
-            dep_tbl.add_row(
-                "[green]CLEAN[/green]",
-                "No external package dependencies declared in reviewed files",
-                "—",
-                "—",
-                "[green]✓ Clean (0 dependencies)[/green]",
-                "—",
+            rows.append(
+                [
+                    "[green]CLEAN[/green]",
+                    "No external package dependencies declared in reviewed files",
+                    "—",
+                    "—",
+                    "[green]✓ Clean (0 dependencies)[/green]",
+                    "—",
+                ]
             )
-        console.print(dep_tbl)
+        print_table(
+            title="External Dependencies Security Audit (OSV.dev & NVD)",
+            columns=columns,
+            rows=rows,
+            console=console,
+        )
 
     def _render_console_network_table(self, console: Any, all_nets: list[NetworkReference]) -> None:
-        """Render Rich network references and endpoints audit table to console."""
-        from rich.table import Table
-
-        net_tbl = Table(
-            title="Network References & Endpoints Security Audit (Shodan & Cloudflare Radar)"
-        )
-        net_tbl.add_column("Target", style="bold cyan")
-        net_tbl.add_column("Type")
-        net_tbl.add_column("Scope")
-        net_tbl.add_column("Security Status")
-        net_tbl.add_column("Location", style="dim")
+        """Render network references and endpoints audit table to console."""
+        columns = [
+            ("Target", "bold cyan"),
+            "Type",
+            "Scope",
+            "Security Status",
+            ("Location", "dim"),
+        ]
+        rows: list[list[str]] = []
         if all_nets:
             for n in all_nets:
                 scope_str = "[dim]Local[/dim]" if n.is_local else "[bold cyan]External[/bold cyan]"
                 color = "red" if "⚠️" in n.security_status else ("cyan" if n.is_local else "green")
-                net_tbl.add_row(
-                    n.target,
-                    n.reference_type,
-                    scope_str,
-                    f"[{color}]{n.security_status}[/{color}]",
-                    n.location or "—",
+                rows.append(
+                    [
+                        n.target,
+                        n.reference_type,
+                        scope_str,
+                        f"[{color}]{n.security_status}[/{color}]",
+                        n.location or "—",
+                    ]
                 )
         else:
-            net_tbl.add_row(
-                "No network endpoints or remote addresses referenced in reviewed files",
-                "—",
-                "—",
-                "[green]✓ Clean (0 endpoints)[/green]",
-                "—",
+            rows.append(
+                [
+                    "No network endpoints or remote addresses referenced in reviewed files",
+                    "—",
+                    "—",
+                    "[green]✓ Clean (0 endpoints)[/green]",
+                    "—",
+                ]
             )
-        console.print(net_tbl)
+        print_table(
+            title="Network References & Endpoints Security Audit (Shodan & Cloudflare Radar)",
+            columns=columns,
+            rows=rows,
+            console=console,
+        )
 
     def _render_console_errored_files_table(self, console: Any) -> None:
         """Render table of skipped/errored files to console."""
         if not self.errored_files:
             return
-        from rich.table import Table
 
-        err_tbl = Table(title="Skipped / Errored Files During Review", title_style="bold yellow")
-        err_tbl.add_column("File Path", style="bold red")
-        err_tbl.add_column("Stage / Error Details", style="yellow")
-        for fpath, reason in sorted(self.errored_files.items()):
-            err_tbl.add_row(fpath, reason)
-        console.print(err_tbl)
+        columns = [
+            ("File Path", "bold red"),
+            ("Stage / Error Details", "yellow"),
+        ]
+        rows = [[fpath, reason] for fpath, reason in sorted(self.errored_files.items())]
+        print_table(
+            title="Skipped / Errored Files During Review",
+            columns=columns,
+            rows=rows,
+            border_style="yellow",
+            console=console,
+        )
 
     def _render_console_summary_table(
         self,
@@ -1842,9 +1895,7 @@ class ReviewPipelineOrchestrator:
         all_deps: list[DependencySpec],
         all_nets: list[NetworkReference],
     ) -> None:
-        """Render Rich review summary table to console."""
-        from rich.table import Table
-
+        """Render review summary table to console."""
         crit_cnt = sum(1 for f in reportable_findings if f.severity.upper() == "CRITICAL")
         high_cnt = sum(1 for f in reportable_findings if f.severity.upper() == "HIGH")
         med_cnt = sum(1 for f in reportable_findings if f.severity.upper() == "MEDIUM")
@@ -1889,25 +1940,35 @@ class ReviewPipelineOrchestrator:
             else "0 detected"
         )
 
-        summary_tbl = Table(title="Review Summary", title_style="bold cyan")
-        summary_tbl.add_column("Metric", style="bold")
-        summary_tbl.add_column("Result")
-
-        summary_tbl.add_row("Session ID", f"[cyan]{session_id}[/cyan]")
-        summary_tbl.add_row("Files Reviewed", str(n_files))
+        rows = [
+            ["Session ID", f"[cyan]{session_id}[/cyan]"],
+            ["Files Reviewed", str(n_files)],
+        ]
         if self.errored_files:
-            summary_tbl.add_row(
-                "Skipped / Errored Files",
-                f"[bold red]{len(self.errored_files)} file(s) skipped[/bold red]",
+            rows.append(
+                [
+                    "Skipped / Errored Files",
+                    f"[bold red]{len(self.errored_files)} file(s) skipped[/bold red]",
+                ]
             )
-        summary_tbl.add_row("Reportable Findings", findings_summary_str)
-        summary_tbl.add_row("Verification Rate", ver_rate_str)
-        summary_tbl.add_row("Dependencies", deps_str)
-        summary_tbl.add_row("Network Endpoints", nets_str)
-        summary_tbl.add_row("Markdown Report", str(self.session_dir / "review.md"))
-        summary_tbl.add_row("Findings JSON", str(self.session_dir / "findings.json"))
+        rows.extend(
+            [
+                ["Reportable Findings", findings_summary_str],
+                ["Verification Rate", ver_rate_str],
+                ["Dependencies", deps_str],
+                ["Network Endpoints", nets_str],
+                ["Markdown Report", str(self.session_dir / "review.md")],
+                ["Findings JSON", str(self.session_dir / "findings.json")],
+            ]
+        )
 
-        console.print(summary_tbl)
+        print_table(
+            title="Review Summary",
+            columns=[("Metric", "bold"), "Result"],
+            rows=rows,
+            border_style="cyan",
+            console=console,
+        )
 
     def generate_consolidated_report(
         self, file_payloads: list[FileReviewPayload]
@@ -1917,7 +1978,10 @@ class ReviewPipelineOrchestrator:
             "review.stage_6_report_generation",
             attributes={"session_id": self.session_id, "review.total_files": len(file_payloads)},
         ) as report_span:
-            rprint(f"[dim]Stage 6/6: Generating report for session '{self.session_id}'...[/dim]")
+            print_info(
+                f"[dim]Stage 6/6: Generating report for session '{self.session_id}'...[/dim]",
+                prefix=False,
+            )
             all_findings = self._collect_and_deduplicate_findings(file_payloads)
             report_span.set_attribute("review.final_findings_count", len(all_findings))
             report_span.add_event(
@@ -1950,15 +2014,12 @@ class ReviewPipelineOrchestrator:
         )
         (self.session_dir / "review.md").write_text(report_md, encoding="utf-8")
 
-        from rich.console import Console
-
-        console = Console()
-        self._render_console_errored_files_table(console)
-        self._render_console_findings_table(console, reportable_findings)
-        self._render_console_dependencies_table(console, all_deps)
-        self._render_console_network_table(console, all_nets)
+        self._render_console_errored_files_table(None)
+        self._render_console_findings_table(None, reportable_findings)
+        self._render_console_dependencies_table(None, all_deps)
+        self._render_console_network_table(None, all_nets)
         self._render_console_summary_table(
-            console=console,
+            console=None,
             session_id=self.session_id,
             n_files=len(file_payloads),
             reportable_findings=reportable_findings,
@@ -1966,8 +2027,8 @@ class ReviewPipelineOrchestrator:
             all_nets=all_nets,
         )
 
-        rprint(
-            f"[green]✓ Consolidated review completed for session {self.session_id}[/green] "
+        print_success(
+            f"Consolidated review completed for session {self.session_id} "
             f"([bold]{len(all_findings)}[/bold] finding(s) saved to [dim]{self.session_dir}[/dim])"
         )
         return payload_out.model_dump(), report_md

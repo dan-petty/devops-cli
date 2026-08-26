@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import importlib.metadata
 from pathlib import Path
+
+import pytest
 
 from devops_cli import (
     ProjectMetadata,
@@ -13,6 +16,7 @@ from devops_cli import (
     get_version,
     load_project_metadata,
 )
+from devops_cli.config.metadata import _DEFAULT_METADATA, _parse_python_version
 
 
 def test_load_project_metadata_authoritative() -> None:
@@ -54,3 +58,35 @@ requires-python = ">=3.13"
     assert meta.description == "Custom Tool Description"
     assert meta.python_version == "3.13"
     assert meta.requires_python == ">=3.13"
+
+
+def test_parse_python_version() -> None:
+    """Verify _parse_python_version handling of various specifiers."""
+    assert _parse_python_version(">=3.14.0") == "3.14.0"
+    assert _parse_python_version("3.14") == "3.14"
+    assert _parse_python_version(">=3.13") == "3.13"
+    assert _parse_python_version("") == "3.14"
+
+
+def test_metadata_fallback_to_dist(tmp_path: Path) -> None:
+    """Verify metadata falls back to importlib.metadata when pyproject.toml is invalid."""
+    corrupt_toml = tmp_path / "pyproject.toml"
+    corrupt_toml.write_text("invalid [ [ [ toml syntax", encoding="utf-8")
+
+    meta = load_project_metadata(corrupt_toml)
+    assert meta.name == "devops-cli"
+    assert meta.version != ""
+
+
+def test_metadata_fallback_to_defaults(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify metadata falls back to default constant when both toml and dist fail."""
+    corrupt_toml = tmp_path / "pyproject.toml"
+    corrupt_toml.write_text("invalid [ [ [ toml syntax", encoding="utf-8")
+
+    def mock_metadata(name: str) -> None:
+        raise importlib.metadata.PackageNotFoundError("devops-cli")
+
+    monkeypatch.setattr(importlib.metadata, "metadata", mock_metadata)
+
+    meta = load_project_metadata(corrupt_toml)
+    assert meta == _DEFAULT_METADATA

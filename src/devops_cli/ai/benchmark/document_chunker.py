@@ -7,9 +7,10 @@ import math
 import random
 import re
 from collections import Counter
-from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
+
+from pydantic import BaseModel, ConfigDict
 
 from devops_cli.ai.kb import get_knowledge_base_dir, list_knowledge_base_articles
 from devops_cli.ai.task_loader import load_task_prompt
@@ -26,9 +27,10 @@ def get_builtin_test_document() -> str:
 BUILTIN_TEST_DOCUMENT: str = get_builtin_test_document()
 
 
-@dataclass(frozen=True)
-class DocumentSectionChunk:
+class DocumentSectionChunk(BaseModel):
     """A tokenized and chunked section of a test document."""
+
+    model_config = ConfigDict(frozen=True)
 
     id: str
     section_index: int
@@ -38,9 +40,10 @@ class DocumentSectionChunk:
     char_count: int
 
 
-@dataclass(frozen=True)
-class SectionRetrievalTask:
+class SectionRetrievalTask(BaseModel):
     """An evaluation retrieval task sampled from a document section."""
+
+    model_config = ConfigDict(frozen=True)
 
     id: str
     target_section_index: int

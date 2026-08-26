@@ -144,3 +144,68 @@ def test_verify_certificate_tampered(tmp_path: Path) -> None:
     # Valid against CA 1, invalid against CA 2
     assert verify_certificate(srv_cert, ca_cert_1) is True
     assert verify_certificate(srv_cert, ca_cert_2) is False
+
+
+def test_inspect_and_verify_certificate_sources_and_ips(tmp_path: Path) -> None:
+    """Verify inspect_certificate and verify_certificate with bytes, raw PEM strings, and IP SANs."""
+    ca_cert, ca_key = generate_ca_certificate(output_dir=tmp_path, common_name="IP CA")
+    srv_cert, _, _ = generate_server_certificate(
+        common_name="service.local",
+        sans=["service.local", "127.0.0.1", "10.0.0.1"],
+        ca_cert_path=ca_cert,
+        ca_key_path=ca_key,
+        output_dir=tmp_path,
+    )
+
+    # 1. Inspect with bytes and path string
+    cert_bytes = srv_cert.read_bytes()
+    info_bytes = inspect_certificate(cert_bytes)
+    assert "service.local" in info_bytes.sans_dns
+    assert "127.0.0.1" in info_bytes.sans_ip
+    assert info_bytes.is_ca is False
+    assert info_bytes.is_expired is False
+    assert info_bytes.days_remaining > 0
+
+    info_str = inspect_certificate(str(srv_cert))
+    assert info_str.serial_number == info_bytes.serial_number
+
+    # 2. Inspect with raw PEM text string
+    cert_pem_text = srv_cert.read_text(encoding="utf-8")
+    info_pem = inspect_certificate(cert_pem_text)
+    assert info_pem.fingerprint_sha256 == info_bytes.fingerprint_sha256
+
+    # 3. Verify with bytes and string sources
+    assert verify_certificate(cert_bytes, ca_cert.read_bytes()) is True
+    assert verify_certificate(str(srv_cert), str(ca_cert)) is True
+    assert verify_certificate(b"invalid pem bytes", ca_cert.read_bytes()) is False
+
+
+def test_tls_edge_cases_and_cached_returns(tmp_path: Path) -> None:
+    """Verify SAN deduplication, cached certificate returns, and verification edge cases."""
+    # 1. Existing CA without overwrite
+    ca_cert1, ca_key1 = generate_ca_certificate(output_dir=tmp_path, overwrite=False)
+    ca_cert2, ca_key2 = generate_ca_certificate(output_dir=tmp_path, overwrite=False)
+    assert ca_cert1 == ca_cert2
+    assert ca_key1 == ca_key2
+
+    # 2. Existing Server Cert without overwrite and with duplicate/empty SANs
+    sans_with_dups = ["", "test.local", "test.local", "127.0.0.1", "127.0.0.1"]
+    srv_cert1, srv_key1, chain1 = generate_server_certificate(
+        common_name="test.local",
+        sans=sans_with_dups,
+        ca_cert_path=ca_cert1,
+        ca_key_path=ca_key1,
+        output_dir=tmp_path,
+        overwrite=False,
+    )
+    srv_cert2, srv_key2, chain2 = generate_server_certificate(
+        common_name="test.local",
+        sans=sans_with_dups,
+        ca_cert_path=ca_cert1,
+        ca_key_path=ca_key1,
+        output_dir=tmp_path,
+        overwrite=False,
+    )
+    assert srv_cert1 == srv_cert2
+    assert srv_key1 == srv_key2
+    assert chain1 == chain2

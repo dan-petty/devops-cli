@@ -9,6 +9,7 @@ from devops_cli.ai.analyze.cache import load_cached_analysis
 from devops_cli.ai.analyze.outlines import analyze_single_file
 from devops_cli.ai.client import LLMClient
 from devops_cli.config.constants import CONST_MAX_FILE_SIZE_BYTES
+from devops_cli.config.defaults import DEFAULT_REVIEW_MAX_WORKERS
 from devops_cli.models.ai import FileAnalysisMeta
 from devops_cli.telemetry import ContextPropagatingThreadPoolExecutor as ThreadPoolExecutor
 from devops_cli.telemetry import trace_span
@@ -20,7 +21,7 @@ logger = logging.getLogger(__name__)
 def run_pre_analysis(
     target_dir: Path,
     llm_client: LLMClient | None = None,
-    max_workers: int = 4,
+    max_workers: int = DEFAULT_REVIEW_MAX_WORKERS,
 ) -> dict[str, FileAnalysisMeta]:
     """Refresh codebase analysis metadata for files in target_dir."""
     metadata_by_path: dict[str, FileAnalysisMeta] = {}

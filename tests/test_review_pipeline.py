@@ -787,3 +787,116 @@ def test_review_pipeline_skips_and_lists_errored_files(
     assert "## Skipped / Errored Files" in report_md
     assert "| `src/bad_syntax.py` | Stage 3 (Review): SyntaxError: invalid syntax |" in report_md
     assert "| `src/missing_file.py` | Stage 2 (Initialization): FileNotFoundError |" in report_md
+
+
+def test_review_pipeline_dependency_and_network_auditing() -> None:
+    """Verify linked files resolution, vulnerability auditing, and network reputation caching."""
+    from devops_cli.models.vulnerability import (
+        DependencySpec,
+        NetworkReference,
+        NetworkReputationRecord,
+        VulnerabilityRecord,
+    )
+
+    orchestrator = ReviewPipelineOrchestrator(session_id="audit-test")
+
+    # 1. Linked files
+    meta1 = FileAnalysisMeta(
+        path="src/a.py", key_symbols=["ServiceA"], dependencies=["devops_cli.b"]
+    )
+    meta2 = FileAnalysisMeta(
+        path="src/b.py", key_symbols=["ServiceB"], dependencies=["devops_cli.b"]
+    )
+    meta_dict = {"src/a.py": meta1, "src/b.py": meta2}
+
+    linked = orchestrator._find_linked_files("src/a.py", meta1, meta_dict)
+    assert len(linked) == 1
+    assert linked[0].path == "src/b.py"
+
+    # 2. Audit dependencies
+    dep_clean = DependencySpec(name="pydantic", version_range="2.11.0", ecosystem="PyPI")
+    dep_vuln = DependencySpec(name="requests", version_range="2.20.0", ecosystem="PyPI")
+    vuln_rec = VulnerabilityRecord(
+        id="CVE-2023-1234",
+        summary="Vuln in requests",
+        severity="CRITICAL",
+        fixed_version="2.31.0",
+    )
+    dep_cache = {("requests", "2.20.0", "PyPI"): [vuln_rec]}
+
+    findings = orchestrator._audit_file_dependencies("src/app.py", [dep_clean, dep_vuln], dep_cache)
+    assert dep_clean.severity == "CLEAN"
+    assert dep_vuln.severity == "CRITICAL"
+    assert len(findings) == 1
+    assert "CVE-2023-1234" in findings[0].title
+
+    # 3. Audit network references
+    net_clean = NetworkReference(target="127.0.0.1", reference_type="ipv4", is_local=True)
+    net_mal = NetworkReference(target="malicious-site.cc", reference_type="domain", is_local=False)
+    net_cache = {
+        "malicious-site.cc": NetworkReputationRecord(
+            target="malicious-site.cc",
+            ip="198.51.100.1",
+            is_malicious=True,
+            reputation_summary="C2 Server",
+        )
+    }
+
+    net_findings = orchestrator._audit_file_network_references(
+        "src/app.py", [net_clean, net_mal], net_cache
+    )
+    assert "Network Reference" in net_findings[0].title
+
+
+def test_review_pipeline_orchestrator_extended_helpers(tmp_path: Path) -> None:
+    """Verify ReviewPipelineOrchestrator path resolution, conventions, server info, and metadata matching."""
+    from devops_cli.ai.client import LLMClient
+    from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
+    from devops_cli.config.settings import AIConfig
+    from devops_cli.models.ai import FileAnalysisMeta
+
+    # 1. Target conventions with AGENTS.md
+    agents_f = tmp_path / "AGENTS.md"
+    agents_f.write_text("# Project Rules\nAlways use Pydantic v2.", encoding="utf-8")
+
+    orchestrator = ReviewPipelineOrchestrator(session_id="ext-test", target_dir=tmp_path)
+    conventions = orchestrator._read_target_conventions()
+    assert "Target Repository Conventions" in conventions
+    assert "Pydantic v2" in conventions
+
+    # 2. Path resolution
+    safe_rel = orchestrator._resolve_file_path("src/app.py")
+    assert str(tmp_path) in str(safe_rel)
+
+    traversal_p = orchestrator._resolve_file_path("../../outside.py")
+    assert str(tmp_path) in str(traversal_p)
+
+    # 3. Server info
+    cfg = AIConfig(provider="ollama", model="qwen2.5-coder:14b", ollama_urls=["http://node1:11434"])
+    client = LLMClient(cfg)
+    orchestrator_llm = ReviewPipelineOrchestrator(
+        session_id="llm-info-test", llm_client=client, target_dir=tmp_path
+    )
+    s_info = orchestrator_llm._get_server_info()
+    assert "qwen2.5-coder:14b" in s_info or "ollama" in s_info.lower()
+
+    # 4. Matching metadata
+    meta_exact = FileAnalysisMeta(path="src/utils/helpers.py", key_symbols=["help1"])
+    meta_dict = {"src/utils/helpers.py": meta_exact}
+
+    matched_exact = orchestrator._find_matching_metadata("src/utils/helpers.py", meta_dict)
+    assert matched_exact is not None and matched_exact.key_symbols == ["help1"]
+
+    matched_suffix = orchestrator._find_matching_metadata("utils/helpers.py", meta_dict)
+    assert matched_suffix is not None
+
+    matched_none = orchestrator._find_matching_metadata("nonexistent.py", meta_dict)
+    assert matched_none is None
+
+    # 5. Build multi-persona pipeline
+    pipe, lookup = orchestrator._build_multi_persona_pipeline(
+        ["devsecops", "architect", "unknown_p"], conventions
+    )
+    assert len(pipe.agents) == 3
+    assert "devsecops" in lookup
+    assert "architect" in lookup

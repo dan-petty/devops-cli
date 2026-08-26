@@ -9,16 +9,39 @@ from devops_cli.exceptions.ai import (
     PersonaExecutionError,
 )
 from devops_cli.exceptions.base import DevOpsCLIError
+from devops_cli.exceptions.config import ConfigurationError
+from devops_cli.exceptions.git import (
+    BranchAlreadyExistsError,
+    GitOperationError,
+    InvalidBranchNameError,
+)
 from devops_cli.exceptions.security import (
     KeyringUnavailableError,
     SecretExposureError,
     SecurityError,
     SSRFBlockedError,
 )
+from devops_cli.exceptions.tools import (
+    ChecksumMismatchError,
+    ToolDownloadError,
+    ToolExecutionError,
+)
+from devops_cli.exceptions.validation import (
+    InvalidURLError,
+    InvalidVersionError,
+    ValidationError,
+)
 
 __all__ = [
+    "BranchAlreadyExistsError",
+    "ChecksumMismatchError",
+    "ConfigurationError",
     "ContextBudgetExceededError",
     "DevOpsCLIError",
+    "GitOperationError",
+    "InvalidBranchNameError",
+    "InvalidURLError",
+    "InvalidVersionError",
     "KeyringUnavailableError",
     "LLMInferenceError",
     "ModelUnavailableError",
@@ -26,4 +49,7 @@ __all__ = [
     "SSRFBlockedError",
     "SecretExposureError",
     "SecurityError",
+    "ToolDownloadError",
+    "ToolExecutionError",
+    "ValidationError",
 ]

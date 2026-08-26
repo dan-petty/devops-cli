@@ -1,6 +1,6 @@
 # `devops k8s`
 
-Kubernetes resource management.
+Manage Kubernetes clusters, pods, services, and workloads.
 
 ## Commands
 
@@ -83,8 +83,8 @@ devops k8s logs [OPTIONS] <pod>
 |---|---|---|---|
 | `--container`, `-c` | `string` | - | - |
 | `--namespace`, `-n` | `string` | - | - |
-| `--follow`, `-f` | `boolean` | - | - |
-| `--tail` | `integer` | `100` | - |
+| `--follow`, `-f` | `boolean` | - | Follow stream or log output in real time. |
+| `--tail` | `integer` | `100` | Number of recent lines to display. |
 
 ---
 
@@ -304,5 +304,30 @@ devops k8s enable-tls [OPTIONS]
 | `--secret-name` | `string` | `homelab-tls` | TLS secret name across namespaces |
 | `--stack`, `-s` | `string` | `all` | Stack to deploy TLS secrets into (infra, llm, all) |
 | `--overwrite`, `-f` | `boolean` | - | Regenerate certs if missing |
+
+---
+
+## `devops k8s validate`
+
+**Validate Kubernetes YAML manifests against OpenAPI schemas using Kubeconform.**
+
+```bash
+devops k8s validate [OPTIONS] <manifest_path>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<manifest_path>` | `path` | No | Path to Kubernetes YAML manifest file or directory |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--kubernetes-version`, `-v` | `string` | `master` | Target Kubernetes OpenAPI version |
+| `--strict`, `--no-strict` | `boolean` | `True` | Disallow additional undeclared properties |
+| `--dry-run` | `boolean` | - | Simulate schema validation |
+| `--json` | `boolean` | - | Output findings as JSON |
 
 ---

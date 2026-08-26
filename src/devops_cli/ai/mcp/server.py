@@ -15,6 +15,7 @@ from devops_cli.config.defaults import (
     DEFAULT_MCP_TOOL_TIMEOUT_SECONDS,
 )
 from devops_cli.core.process import run_subprocess
+from devops_cli.exceptions import SecurityError, ValidationError
 from devops_cli.models.ai import MCPToolInfo
 
 mcp = FastMCP(
@@ -48,9 +49,10 @@ def _run_mcp_cmd(
 def _validate_mcp_arg(name: str, value: str) -> None:
     """Reject MCP tool arguments that start with a hyphen to prevent flag injection."""
     if value.startswith("-"):
-        raise ValueError(
+        raise ValidationError(
             f"Invalid value for '{name}': must not start with a hyphen. "
-            "Hyphen-prefixed values could be interpreted as flags by the underlying command."
+            "Hyphen-prefixed values could be interpreted as flags by the underlying command.",
+            field=name,
         )
 
 
@@ -636,7 +638,7 @@ def run_mcp_server(
     if transport == "sse":
         allowed_hosts = {"127.0.0.1", "::1", "localhost"}
         if not allow_remote and host not in allowed_hosts:
-            raise ValueError(
+            raise SecurityError(
                 f"Refusing to bind SSE transport to non-loopback host '{host}' by default. "
                 "Use allow_remote=True to permit external host binding."
             )

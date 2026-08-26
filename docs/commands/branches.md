@@ -16,7 +16,7 @@ devops branches update [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--base-dir`, `-d` | `path` | - | - |
+| `--base-dir`, `-d` | `path` | - | Base repository root directory. |
 
 ---
 
@@ -32,7 +32,7 @@ devops branches sync [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--base-dir`, `-d` | `path` | - | - |
+| `--base-dir`, `-d` | `path` | - | Base repository root directory. |
 
 ---
 
@@ -48,14 +48,14 @@ devops branches jira [OPTIONS] <ticket_id>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<ticket_id>` | `string` | Yes | Jira ticket ID, e.g. PROJ-123 |
+| `<ticket_id>` | `string` | Yes | Jira ticket ID, e.g. PROJ-123. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--slug`, `-s` | `string` | - | Short branch description |
-| `--repo`, `-r` | `path` | - | Target repo (default: cwd) |
+| `--slug`, `-s` | `string` | - | Short branch description. |
+| `--repo`, `-r` | `path` | - | Repository root directory (default: current directory). |
 
 ---
 
@@ -71,8 +71,8 @@ devops branches list [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--base-dir`, `-d` | `path` | - | - |
-| `--all`, `-a` | `boolean` | - | Include remote branches |
+| `--base-dir`, `-d` | `path` | - | Base repository root directory. |
+| `--all`, `-a` | `boolean` | - | Include remote branches. |
 
 ---
 
@@ -88,7 +88,7 @@ devops branches clean [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--base-dir`, `-d` | `path` | - | - |
-| `--dry-run`, `-n` | `boolean` | - | Show what would be deleted |
+| `--base-dir`, `-d` | `path` | - | Base repository root directory. |
+| `--dry-run`, `-n` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---

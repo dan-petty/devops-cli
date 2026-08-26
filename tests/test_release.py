@@ -291,3 +291,254 @@ def test_resolve_safe_project_path(sample_project_dir: Path) -> None:
 
     with pytest.raises(ValueError, match="Path traversal detected"):
         _resolve_safe_project_path(sample_project_dir, Path("..") / "sibling_repo" / "file.txt")
+
+
+def test_release_check_command(sample_project_dir: Path) -> None:
+    """Verify devops release check subcommand."""
+    # Dry run
+    from devops_cli.dry_run import set_dry_run
+
+    set_dry_run(True)
+    try:
+        with (
+            patch("devops_cli.commands.release._is_git_clean", return_value=True),
+            patch("devops_cli.commands.release.DocGenerator.check_docs", return_value=(True, [])),
+        ):
+            res_dry = runner.invoke(app, ["check", "--root", str(sample_project_dir)])
+            assert res_dry.exit_code == 0
+            assert "verify_release_readiness" in res_dry.output
+    finally:
+        set_dry_run(False)
+
+    # Docs out of sync
+    with (
+        patch("devops_cli.commands.release._is_git_clean", return_value=True),
+        patch(
+            "devops_cli.commands.release.DocGenerator.check_docs",
+            return_value=(False, ["README diff"]),
+        ),
+    ):
+        res_docs_err = runner.invoke(app, ["check", "--root", str(sample_project_dir), "--skip-ci"])
+        assert res_docs_err.exit_code == 1
+
+    # CI failure
+    mock_ci_fail = subprocess.CompletedProcess(
+        args=["ci"], returncode=1, stdout="", stderr="Lint error"
+    )
+    with (
+        patch("devops_cli.commands.release._is_git_clean", return_value=True),
+        patch("devops_cli.commands.release.DocGenerator.check_docs", return_value=(True, [])),
+        patch("devops_cli.commands.release.run_subprocess", return_value=mock_ci_fail),
+    ):
+        res_ci_fail = runner.invoke(app, ["check", "--root", str(sample_project_dir)])
+        assert res_ci_fail.exit_code == 1
+
+
+def test_release_notes_raw_and_missing(sample_project_dir: Path) -> None:
+    """Verify devops release notes subcommand."""
+    # Normal and raw
+    res_raw = runner.invoke(
+        app, ["notes", "--version", "0.1.7", "--raw", "--root", str(sample_project_dir)]
+    )
+    assert res_raw.exit_code == 0
+    assert "Native DevContainer Lifecycle" in res_raw.output
+
+    # Missing version notes
+    res_no_notes = runner.invoke(
+        app, ["notes", "--version", "9.9.9", "--root", str(sample_project_dir)]
+    )
+    assert res_no_notes.exit_code == 1
+
+
+def test_release_tag_push_and_errors(sample_project_dir: Path) -> None:
+    """Verify devops release tag push and error branches."""
+    # Dry run
+    from devops_cli.dry_run import set_dry_run
+
+    set_dry_run(True)
+    try:
+        res_tag_dry = runner.invoke(
+            app, ["tag", "--version", "0.1.7", "--push", "--root", str(sample_project_dir)]
+        )
+        assert res_tag_dry.exit_code == 0
+        assert "create_annotated_git_tag" in res_tag_dry.output
+    finally:
+        set_dry_run(False)
+
+    # Invalid version
+    res_inv = runner.invoke(
+        app, ["tag", "--version", "not-a-semver", "--root", str(sample_project_dir)]
+    )
+    assert res_inv.exit_code == 1
+
+    # Push tags success
+    mock_ok = subprocess.CompletedProcess(args=["git"], returncode=0, stdout="", stderr="")
+    with patch("devops_cli.commands.release.run_subprocess", return_value=mock_ok):
+        res_push = runner.invoke(
+            app, ["tag", "--version", "0.1.7", "--push", "--root", str(sample_project_dir)]
+        )
+        assert res_push.exit_code == 0
+
+
+def test_release_pr_labels_and_draft(sample_project_dir: Path) -> None:
+    """Verify devops release pr label validation and draft options."""
+
+    def mock_subproc(cmd, *args, **kwargs):
+        if "pr" in cmd and "create" in cmd:
+            return subprocess.CompletedProcess(
+                args=cmd, returncode=0, stdout="https://github.com/org/repo/pull/1\n", stderr=""
+            )
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+
+    with patch("devops_cli.commands.release.run_subprocess", side_effect=mock_subproc):
+        res_bad_lbl = runner.invoke(
+            app,
+            [
+                "pr",
+                "--version",
+                "0.1.8",
+                "--labels",
+                "bad;label",
+                "--root",
+                str(sample_project_dir),
+            ],
+        )
+        assert res_bad_lbl.exit_code == 1
+        assert "Invalid label" in res_bad_lbl.output
+
+        res_pr_ok = runner.invoke(
+            app,
+            [
+                "pr",
+                "--version",
+                "0.1.8",
+                "--labels",
+                "release, automated",
+                "--draft",
+                "--push",
+                "--root",
+                str(sample_project_dir),
+            ],
+        )
+        assert res_pr_ok.exit_code == 0
+        assert "Created Release Pull Request" in res_pr_ok.output
+
+        # Release check command
+        with patch("devops_cli.docs.generator.DocGenerator.check_docs", return_value=(True, [])):
+            res_check = runner.invoke(
+                app, ["check", "--skip-ci", "--allow-dirty", "--root", str(sample_project_dir)]
+            )
+            assert res_check.exit_code == 0
+            assert "release verification checks passed" in res_check.output.lower()
+
+
+def test_release_pr_error_branches_and_breaking(sample_project_dir: Path) -> None:
+    """Verify release pr branch failure, breaking flag, and gh create failure."""
+    # 1. Branch checkout failure
+    with patch(
+        "devops_cli.commands.release.run_subprocess",
+        return_value=subprocess.CompletedProcess(
+            args=[], returncode=1, stdout="", stderr="git checkout error"
+        ),
+    ):
+        res_br_fail = runner.invoke(
+            app, ["pr", "--version", "0.1.8", "--root", str(sample_project_dir)]
+        )
+        assert res_br_fail.exit_code == 1
+
+    # 2. Breaking change PR
+    def mock_breaking_subproc(cmd, *args, **kwargs):
+        if "pr" in cmd and "create" in cmd:
+            return subprocess.CompletedProcess(
+                args=cmd, returncode=0, stdout="https://github.com/org/repo/pull/2\n", stderr=""
+            )
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+
+    with patch("devops_cli.commands.release.run_subprocess", side_effect=mock_breaking_subproc):
+        res_breaking = runner.invoke(
+            app,
+            [
+                "pr",
+                "--version",
+                "1.0.0",
+                "--breaking",
+                "--root",
+                str(sample_project_dir),
+            ],
+        )
+        assert res_breaking.exit_code == 0
+        assert "Created Release Pull Request" in res_breaking.output
+
+    # 3. gh pr create failure
+    def mock_gh_fail_subproc(cmd, *args, **kwargs):
+        if "pr" in cmd and "create" in cmd:
+            return subprocess.CompletedProcess(
+                args=cmd, returncode=1, stdout="", stderr="gh: authentication required"
+            )
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+
+    with patch("devops_cli.commands.release.run_subprocess", side_effect=mock_gh_fail_subproc):
+        res_gh_fail = runner.invoke(
+            app, ["pr", "--version", "0.1.8", "--root", str(sample_project_dir)]
+        )
+        assert res_gh_fail.exit_code == 0
+        assert (
+            "authentication required" in res_gh_fail.output
+            or "Could not open PR" in res_gh_fail.output
+        )
+
+
+def test_release_notes_tag_and_check_extended(sample_project_dir: Path) -> None:
+    """Verify release notes formatting, tag creation/pushing, and check mismatch errors."""
+    # 1. release notes raw and formatted
+    res_notes_raw = runner.invoke(
+        app, ["notes", "--version", "0.1.7", "--raw", "--root", str(sample_project_dir)]
+    )
+    assert res_notes_raw.exit_code == 0
+    assert "Added" in res_notes_raw.output
+
+    res_notes_panel = runner.invoke(
+        app, ["notes", "--version", "0.1.7", "--root", str(sample_project_dir)]
+    )
+    assert res_notes_panel.exit_code == 0
+    assert "Release Notes" in res_notes_panel.output
+
+    res_notes_missing = runner.invoke(
+        app, ["notes", "--version", "9.9.9", "--root", str(sample_project_dir)]
+    )
+    assert res_notes_missing.exit_code == 1
+
+    # 2. release tag invalid version and dry run
+    res_tag_bad = runner.invoke(
+        app, ["tag", "--version", "bad-version", "--root", str(sample_project_dir)]
+    )
+    assert res_tag_bad.exit_code == 1
+
+    with patch("devops_cli.commands.release.is_dry_run", return_value=True):
+        res_tag_dry = runner.invoke(
+            app, ["tag", "--version", "0.1.8", "--root", str(sample_project_dir)]
+        )
+        assert res_tag_dry.exit_code == 0
+
+    # 3. release tag execution and push
+    called_cmds = []
+
+    def mock_tag_subproc(cmd, *args, **kwargs):
+        called_cmds.append(cmd)
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+
+    with patch("devops_cli.commands.release.run_subprocess", side_effect=mock_tag_subproc):
+        res_tag_ok = runner.invoke(
+            app, ["tag", "--version", "0.1.8", "--push", "--root", str(sample_project_dir)]
+        )
+        assert res_tag_ok.exit_code == 0
+        assert any("tag" in c and "-a" in c and "v0.1.8" in c for c in called_cmds)
+        assert any("push" in c and "--tags" in c for c in called_cmds)
+
+    # 4. release check version mismatch
+    pyproject_file = sample_project_dir / "pyproject.toml"
+    pyproject_file.write_text('[project]\nname = "test"\nversion = "0.9.0"\n', encoding="utf-8")
+
+    res_mismatch = runner.invoke(app, ["check", "--root", str(sample_project_dir)])
+    assert res_mismatch.exit_code == 1
+    assert "Version mismatch" in res_mismatch.output

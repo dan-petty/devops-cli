@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import subprocess
 import time
@@ -129,3 +130,141 @@ def run_subprocess(
             attributes={"bin": bin_name, "status": "ok" if ret_code == 0 else "error"},
         )
         return proc
+
+
+async def run_subprocess_async(
+    cmd: list[str],
+    *,
+    cwd: Path | None = None,
+    env: dict[str, str] | None = None,
+    capture_output: bool = True,
+    text: bool = True,
+    check: bool = False,
+    quiet: bool = False,
+    timeout: float = DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
+) -> subprocess.CompletedProcess[str]:
+    """Execute a subprocess command asynchronously with non-blocking I/O, unified timeout bounds,
+    dry-run reporting, W3C trace context propagation, and OpenTelemetry tracing."""
+    if getattr(subprocess.run, "__module__", "") != "subprocess":
+        return await asyncio.to_thread(
+            run_subprocess,
+            cmd,
+            cwd=cwd,
+            env=env,
+            capture_output=capture_output,
+            text=text,
+            check=check,
+            quiet=quiet,
+            timeout=timeout,
+        )
+
+    if is_dry_run() and not quiet and not _QUIET_SUBPROCESS_ARGS.intersection(cmd):
+        print_dry_run_command(cmd, cwd=str(cwd) if cwd else None)
+
+    bin_name = Path(cmd[0]).name if cmd else "unknown"
+    cmd_summary = " ".join(cmd[:8]) + ("..." if len(cmd) > 8 else "") if cmd else ""
+    t0 = time.perf_counter()
+
+    sub_env = dict(env or os.environ)
+
+    with trace_span(
+        f"subprocess.{bin_name}",
+        attributes={
+            "subprocess.bin": bin_name,
+            "subprocess.cmd": cmd_summary,
+            "subprocess.args_count": len(cmd),
+            "subprocess.cwd": str(cwd or ""),
+            "subprocess.timeout_seconds": timeout,
+            "process.executable.name": bin_name,
+            "process.command_line": cmd_summary,
+            "process.working_directory": str(cwd or ""),
+        },
+    ) as span_h:
+        get_tracer().inject_trace_context(sub_env)
+        stdout_pipe = asyncio.subprocess.PIPE if capture_output else None
+        stderr_pipe = asyncio.subprocess.PIPE if capture_output else None
+
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                cwd=cwd,
+                env=sub_env,
+                stdout=stdout_pipe,
+                stderr=stderr_pipe,
+            )
+            try:
+                stdout_bytes, stderr_bytes = await asyncio.wait_for(
+                    proc.communicate(), timeout=timeout
+                )
+            except TimeoutError:
+                proc.kill()
+                await proc.wait()
+                raise subprocess.TimeoutExpired(cmd, timeout) from None
+        except FileNotFoundError:
+            dur = time.perf_counter() - t0
+            span_h.set_attribute("subprocess.executable_found", False)
+            span_h.set_attribute("subprocess.exit_code", 127)
+            span_h.set_attribute("process.exit.code", 127)
+            span_h.set_attribute("subprocess.duration_seconds", dur)
+            span_h.set_attribute("subprocess.status", "not_found")
+            span_h.add_event("subprocess_not_found", {"bin": bin_name})
+            if check:
+                raise
+            return subprocess.CompletedProcess(
+                cmd,
+                returncode=127,
+                stdout="",
+                stderr=f"Executable '{bin_name}' not found in PATH",
+            )
+
+        ret_code = proc.returncode if proc.returncode is not None else 0
+        stdout_str = (
+            stdout_bytes.decode("utf-8", errors="replace")
+            if (text and stdout_bytes is not None)
+            else (stdout_bytes.decode("utf-8", errors="replace") if stdout_bytes else "")
+        )
+        stderr_str = (
+            stderr_bytes.decode("utf-8", errors="replace")
+            if (text and stderr_bytes is not None)
+            else (stderr_bytes.decode("utf-8", errors="replace") if stderr_bytes else "")
+        )
+
+        dur = time.perf_counter() - t0
+        span_h.set_attribute("subprocess.exit_code", ret_code)
+        span_h.set_attribute("process.exit.code", ret_code)
+        span_h.set_attribute("subprocess.duration_seconds", dur)
+        span_h.set_attribute("subprocess.status", "ok" if ret_code == 0 else "non_zero")
+
+        if stdout_bytes:
+            span_h.set_attribute("subprocess.stdout_bytes", len(stdout_bytes))
+        if stderr_bytes:
+            span_h.set_attribute("subprocess.stderr_bytes", len(stderr_bytes))
+
+        if ret_code != 0 and check:
+            span_h.set_attribute("error", True)
+            err_sample = (stderr_str or stdout_str or "")[:400]
+            if err_sample:
+                span_h.set_attribute("subprocess.error_sample", err_sample)
+            span_h.add_event(
+                "subprocess_failed",
+                {"exit_code": ret_code, "error_sample": err_sample},
+            )
+            raise subprocess.CalledProcessError(ret_code, cmd, output=stdout_str, stderr=stderr_str)
+
+        span_h.add_event(
+            "subprocess_completed",
+            {"exit_code": ret_code, "duration_seconds": dur},
+        )
+
+        record_metric(
+            "devops_cli_subprocess_seconds",
+            dur,
+            unit="s",
+            attributes={"bin": bin_name, "status": "ok" if ret_code == 0 else "error"},
+        )
+        return subprocess.CompletedProcess(
+            cmd,
+            returncode=ret_code,
+            stdout=stdout_str,
+            stderr=stderr_str,
+        )

@@ -27,6 +27,7 @@ from devops_cli.ai.agents.memory import AgentMemory
 from devops_cli.ai.client import LLMClient
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.defaults import DEFAULT_AGENT_MAX_TURNS
+from devops_cli.exceptions import SecurityError
 from devops_cli.models.ai import ChatMessage
 
 _TOOL_PROTOCOL_TEMPLATE = load_task_prompt("tool_execution_protocol.md")
@@ -43,7 +44,7 @@ def _check_path_traversal(key: str, value: Any) -> None:
     """Validate that path parameters do not contain traversal sequences."""
     if isinstance(value, str) and any(sub in key.lower() for sub in ("path", "file", "dest")):
         if ".." in value and not value.startswith("."):
-            raise ValueError(f"Path traversal sequence detected in parameter '{key}': {value}")
+            raise SecurityError(f"Path traversal sequence detected in parameter '{key}': {value}")
 
 
 class AgentTool(BaseModel):

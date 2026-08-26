@@ -10,13 +10,17 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from devops_cli.config.defaults import DEFAULT_DIFF_CHUNK_BUDGET, DEFAULT_MAX_CONTEXT_TOKENS
+from devops_cli.config.defaults import (
+    DEFAULT_DIFF_CHUNK_BUDGET,
+    DEFAULT_MAX_CONTEXT_TOKENS,
+    DEFAULT_TIKTOKEN_MODEL,
+)
 
 logger = logging.getLogger(__name__)
 
 
 @functools.lru_cache(maxsize=16)
-def _get_tiktoken_encoding(model: str = "gpt-4o") -> Any:
+def _get_tiktoken_encoding(model: str = DEFAULT_TIKTOKEN_MODEL) -> Any:
     """Retrieve cached tiktoken encoding instance with graceful fallback."""
     try:
         import tiktoken
@@ -30,7 +34,7 @@ def _get_tiktoken_encoding(model: str = "gpt-4o") -> Any:
         return None
 
 
-def count_tokens(text: str, model: str = "gpt-4o") -> int:
+def count_tokens(text: str, model: str = DEFAULT_TIKTOKEN_MODEL) -> int:
     """Count exact BPE tokens for text, with robust heuristic fallback."""
     if not text:
         return 0
@@ -46,7 +50,7 @@ def count_tokens(text: str, model: str = "gpt-4o") -> int:
     return max(1, math.ceil(len(text) / 4))
 
 
-def count_file_tokens(file_path: Path, model: str = "gpt-4o") -> int:
+def count_file_tokens(file_path: Path, model: str = DEFAULT_TIKTOKEN_MODEL) -> int:
     """Count token usage of a local file."""
     if not file_path.exists() or not file_path.is_file():
         return 0
@@ -61,7 +65,7 @@ def count_file_tokens(file_path: Path, model: str = "gpt-4o") -> int:
 def truncate_to_token_limit(
     text: str,
     max_tokens: int,
-    model: str = "gpt-4o",
+    model: str = DEFAULT_TIKTOKEN_MODEL,
     suffix: str = "\n...[truncated due to context budget]",
 ) -> str:
     """Truncate text to strictly fit within specified token budget."""

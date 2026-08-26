@@ -28,7 +28,12 @@
     "ghcr.io/devcontainers/features/github-cli:1": {}
   },
   "mounts": [
-    "source=global-devcontainer-tmp,target=/tmp,type=volume",
+    "source=devops-cli-tmp,target=/tmp,type=volume",
+    "source=devops-cli-data,target=${containerWorkspaceFolder}/.data,type=volume",
+    "source=devops-cli-venv,target=${containerWorkspaceFolder}/.venv,type=volume",
+    "source=devops-cli-mypy-cache,target=${containerWorkspaceFolder}/.mypy_cache,type=volume",
+    "source=devops-cli-pytest-cache,target=${containerWorkspaceFolder}/.pytest_cache,type=volume",
+    "source=devops-cli-ruff-cache,target=${containerWorkspaceFolder}/.ruff_cache,type=volume",
     "source=global-devcontainer-home,target=/home/vscode,type=volume",
     "source=${localEnv:USERPROFILE}/.ssh,target=/home/vscode/.ssh,type=bind,consistency=cached"
   ],

@@ -6,39 +6,30 @@ from pathlib import Path
 from typing import Annotated, Any
 
 import typer
-from rich.panel import Panel
-from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
-from rich.rule import Rule
-from rich.syntax import Syntax
-from rich.table import Table
 
-from devops_cli.ai.rag.embeddings import EmbeddingsEngine
-from devops_cli.ai.rag.indexer import WorkspaceIndexer
-from devops_cli.ai.rag.qdrant import QdrantClient
-from devops_cli.ai.rag.retriever import SemanticRetriever
 from devops_cli.config.defaults import (
     DEFAULT_RAG_COLLECTION,
     DEFAULT_RAG_DOCS_COLLECTION,
     DEFAULT_RAG_SCORE_THRESHOLD,
     DEFAULT_RAG_TOP_K,
 )
-from devops_cli.config.settings import get_ai_api_key, load_settings
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import is_dry_run
-from devops_cli.lang import MESSAGES
+from devops_cli.lang import ERRORS, HELP, MESSAGES
 from devops_cli.output import (
-    get_console,
     print_error,
     print_info,
-    print_panel,
+    print_section,
     print_success,
+    print_syntax_panel,
     print_table,
     print_warning,
+    progress_context,
     render_dry_run_result,
 )
 
 app = new_typer(
-    help="Manage RAG vector embeddings, indexing, and semantic code search (Qdrant).",
+    help=HELP.rag.app,
     no_args_is_help=True,
 )
 
@@ -51,7 +42,7 @@ def rag_main(
         typer.Option(
             "--explain",
             "-e",
-            help="Explain RAG vector embeddings, Qdrant indexing, and terminology",
+            help=HELP.rag.explain,
         ),
     ] = False,
 ) -> None:
@@ -68,8 +59,18 @@ def rag_main(
 # =============================================================================
 
 
-def _get_rag_components() -> tuple[QdrantClient, EmbeddingsEngine, str, str]:
+def load_settings(*args: Any, **kwargs: Any) -> Any:
+    from devops_cli.config.settings import load_settings as fn
+
+    return fn(*args, **kwargs)
+
+
+def _get_rag_components() -> tuple[Any, Any, str, str]:
     """Resolve configured Qdrant client, Embeddings engine, and collection names."""
+    from devops_cli.ai.rag.embeddings import EmbeddingsEngine
+    from devops_cli.ai.rag.qdrant import QdrantClient
+    from devops_cli.config.settings import get_ai_api_key, load_settings
+
     settings = load_settings()
     qdrant_url = settings.qdrant.url or "http://localhost:6333"
     prefix = settings.qdrant.collection_prefix or "devops"
@@ -97,34 +98,34 @@ def index_cmd(
     path: Annotated[
         Path,
         typer.Argument(
-            help="Directory or file to index into vector store",
+            help=HELP.rag.target,
         ),
     ] = Path("."),
     project: Annotated[
         str | None,
-        typer.Option("--project", "-p", help="Project / repository name override"),
+        typer.Option("--project", "-p", help=HELP.rag.project),
     ] = None,
     force: Annotated[
         bool,
-        typer.Option("--force", "-f", help="Re-index all files ignoring content hash cache"),
+        typer.Option("--force", "-f", help=HELP.options.force),
     ] = False,
     include_kb: Annotated[
         bool,
         typer.Option(
             "--include-kb/--no-include-kb",
-            help="Include bundled DevOps CLI Knowledge Base in docs collection",
+            help=HELP.rag.include_kb,
         ),
     ] = True,
     collection: Annotated[
         str | None,
-        typer.Option("--collection", "-c", help="Target collection override"),
+        typer.Option("--collection", "-c", help=HELP.rag.collection),
     ] = None,
     explain: Annotated[
         bool,
         typer.Option(
             "--explain",
             "-e",
-            help="Explain RAG vector embeddings, Qdrant indexing, and terminology",
+            help=HELP.rag.explain,
         ),
     ] = False,
 ) -> None:
@@ -136,7 +137,7 @@ def index_cmd(
         return
     target_path = path.resolve()
     if not target_path.exists():
-        print_error(f"Path not found: {target_path}", prefix=False)
+        print_error(ERRORS.rag.path_not_found.format(path=target_path), prefix=False)
         raise typer.Exit(1)
 
     if is_dry_run():
@@ -161,11 +162,12 @@ def index_cmd(
 
     if not qdrant.is_alive():
         print_error(
-            f"Cannot connect to Qdrant at [bold]{qdrant.base_url}[/bold]\n"
-            "Tip: Deploy or start Qdrant via 'devops k8s deploy-stack llm'",
+            MESSAGES.rag.cannot_connect_qdrant.format(url=qdrant.base_url),
             prefix=False,
         )
         raise typer.Exit(1)
+
+    from devops_cli.ai.rag.indexer import WorkspaceIndexer
 
     indexer = WorkspaceIndexer(
         qdrant=qdrant,
@@ -174,26 +176,17 @@ def index_cmd(
         docs_collection=docs_coll,
     )
 
-    get_console().print(
-        Rule(
-            f" [cyan]RAG Workspace Indexer[/cyan]  "
-            f"[dim]Qdrant: {qdrant.base_url} | Model: {embedder.model}[/dim] ",
-            style="cyan",
-        )
+    print_section(
+        f" [cyan]RAG Workspace Indexer[/cyan]  "
+        f"[dim]Qdrant: {qdrant.base_url} | Model: {embedder.model}[/dim] ",
+        style="cyan",
     )
 
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-        console=get_console(),
-    ) as progress:
-        task_id = progress.add_task("Indexing files...", total=100)
+    with progress_context("Indexing files...") as update_progress:
 
         def _on_progress(desc: str, current: int, total: int) -> None:
             pct = (current / max(1, total)) * 100
-            progress.update(task_id, description=f"{desc} ({current}/{total})", completed=pct)
+            update_progress(f"{desc} ({current}/{total})", pct)
 
         results = indexer.index_workspace(
             target_path,
@@ -204,14 +197,13 @@ def index_cmd(
         )
 
     removed_msg = (
-        f", removed [yellow]{results['removed_files']}[/yellow] outdated file(s)"
-        if results.get("removed_files")
+        f", pruned {results['pruned_chunks']} stale chunks"
+        if results.get("pruned_chunks", 0) > 0
         else ""
     )
     print_success(
-        f"Indexing complete! Indexed [cyan]{results['indexed_files']}[/cyan] file(s), "
-        f"upserted [cyan]{results['total_chunks']}[/cyan] chunk(s)"
-        f"{removed_msg} (skipped {results['skipped_files']} unchanged files)."
+        f"Indexed {results['files_indexed']} files ({results['chunks_indexed']} chunks) "
+        f"into '{code_coll}' & '{docs_coll}'{removed_msg}"
     )
 
 
@@ -224,18 +216,18 @@ def index_cmd(
 def index_kb_cmd(
     force: Annotated[
         bool,
-        typer.Option("--force", "-f", help="Re-index all KB files ignoring cache"),
+        typer.Option("--force", "-f", help=HELP.options.force),
     ] = False,
     collection: Annotated[
         str | None,
-        typer.Option("--collection", "-c", help="Target collection override"),
+        typer.Option("--collection", "-c", help=HELP.rag.collection),
     ] = None,
     explain: Annotated[
         bool,
         typer.Option(
             "--explain",
             "-e",
-            help="Explain RAG vector embeddings, Qdrant indexing, and terminology",
+            help=HELP.rag.explain,
         ),
     ] = False,
 ) -> None:
@@ -270,6 +262,8 @@ def index_kb_cmd(
         )
         raise typer.Exit(1)
 
+    from devops_cli.ai.rag.indexer import WorkspaceIndexer
+
     indexer = WorkspaceIndexer(
         qdrant=qdrant,
         embedder=embedder,
@@ -277,26 +271,17 @@ def index_kb_cmd(
         docs_collection=docs_coll,
     )
 
-    get_console().print(
-        Rule(
-            f" [cyan]RAG Knowledge Base Indexer[/cyan]  "
-            f"[dim]Qdrant: {qdrant.base_url} | Model: {embedder.model}[/dim] ",
-            style="cyan",
-        )
+    print_section(
+        f" [cyan]RAG Knowledge Base Indexer[/cyan]  "
+        f"[dim]Qdrant: {qdrant.base_url} | Model: {embedder.model}[/dim] ",
+        style="cyan",
     )
 
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-        console=get_console(),
-    ) as progress:
-        task_id = progress.add_task("Indexing knowledge base...", total=100)
+    with progress_context("Indexing knowledge base...") as update_progress:
 
         def _on_progress(desc: str, current: int, total: int) -> None:
             pct = (current / max(1, total)) * 100
-            progress.update(task_id, description=f"{desc} ({current}/{total})", completed=pct)
+            update_progress(f"{desc} ({current}/{total})", pct)
 
         results = indexer.index_knowledge_base(
             force=force,
@@ -319,38 +304,38 @@ def index_kb_cmd(
 @app.command("query")
 @app.command("search")
 def search(
-    query: Annotated[str, typer.Argument(help="Natural language query or code search term")],
+    query: Annotated[str, typer.Argument(help=HELP.rag.query)],
     project: Annotated[
         str | None,
-        typer.Option("--project", "-p", help="Filter results by project name"),
+        typer.Option("--project", "-p", help=HELP.rag.project),
     ] = None,
     language: Annotated[
         str | None,
-        typer.Option("--language", "-l", help="Filter results by programming language"),
+        typer.Option("--language", "-l", help=HELP.options.language),
     ] = None,
     category: Annotated[
         str | None,
-        typer.Option("--category", "-c", help="Filter by category (code, docs, topics, tasks)"),
+        typer.Option("--category", "-c", help=HELP.rag.category),
     ] = None,
     top_k: Annotated[
         int,
-        typer.Option("--top-k", "-k", help="Number of results to return"),
+        typer.Option("--top-k", "-k", help=HELP.rag.top_k),
     ] = DEFAULT_RAG_TOP_K,
     min_score: Annotated[
         float,
-        typer.Option("--min-score", "-s", help="Minimum similarity score (0.0 - 1.0)"),
+        typer.Option("--min-score", "-s", help=HELP.rag.min_score),
     ] = DEFAULT_RAG_SCORE_THRESHOLD,
     collection: Annotated[
         str | None,
-        typer.Option("--collection", help="Target Qdrant collection (default: auto)"),
+        typer.Option("--collection", help=HELP.rag.collection),
     ] = None,
     file_filter: Annotated[
         str | None,
-        typer.Option("--file", "-f", help="Filter by filepath glob pattern"),
+        typer.Option("--file", "-f", help=HELP.rag.file_filter),
     ] = None,
     explain: Annotated[
         bool,
-        typer.Option("--explain", help="Explain how RAG vector search works"),
+        typer.Option("--explain", help=HELP.rag.explain),
     ] = False,
 ) -> None:
     """Perform semantic search across indexed workspace code and documentation."""
@@ -383,6 +368,8 @@ def search(
         print_error(f"Cannot connect to Qdrant vector store at {qdrant.base_url}", prefix=False)
         raise typer.Exit(1)
 
+    from devops_cli.ai.rag.retriever import SemanticRetriever
+
     retriever = SemanticRetriever(
         qdrant=qdrant,
         embedder=embedder,
@@ -407,12 +394,10 @@ def search(
         print_warning(f"No matching code/documentation found for query: {query!r}", prefix=False)
         return
 
-    get_console().print(
-        Rule(
-            f" [cyan]RAG Semantic Search[/cyan]: '{query}' "
-            f"({len(results)} matches, min_score={min_score}) ",
-            style="cyan",
-        )
+    print_section(
+        f" [cyan]RAG Semantic Search[/cyan]: '{query}' "
+        f"({len(results)} matches, min_score={min_score}) ",
+        style="cyan",
     )
 
     for idx, r in enumerate(results, 1):
@@ -428,14 +413,14 @@ def search(
         elif chunk.symbol_names:
             title += f" [dim]symbols: {', '.join(chunk.symbol_names)}[/dim]"
 
-        syntax = Syntax(
+        print_syntax_panel(
             chunk.content,
-            chunk.language,
+            language=chunk.language,
+            title=title,
+            border_style="blue",
             line_numbers=True,
             start_line=chunk.start_line,
-            theme="monokai",
         )
-        print_panel(Panel(syntax, title=title, border_style="blue"))
 
 
 # =============================================================================
@@ -445,12 +430,7 @@ def search(
 
 def _render_collections_table(qdrant: Any, collections: list[str]) -> None:
     """Build and print summary table of active Qdrant vector collections."""
-    coll_table = Table(title="Active Vector Collections")
-    coll_table.add_column("Collection", style="cyan")
-    coll_table.add_column("Vectors Count", justify="right")
-    coll_table.add_column("Vector Size", justify="right")
-    coll_table.add_column("Status")
-
+    rows: list[list[str]] = []
     for coll_name in collections:
         info = qdrant.get_collection_info(coll_name)
         pts = (
@@ -463,9 +443,18 @@ def _render_collections_table(qdrant: Any, collections: list[str]) -> None:
         vec_params = params.get("vectors", {})
         v_size = vec_params.get("size", 0) if isinstance(vec_params, dict) else 0
         c_status = info.get("status", "ok")
-        coll_table.add_row(coll_name, str(pts), str(v_size), c_status)
+        rows.append([coll_name, str(pts), str(v_size), c_status])
 
-    print_table(coll_table)
+    print_table(
+        title="Active Vector Collections",
+        columns=[
+            ("Collection", "cyan"),
+            ("Vectors Count", "right"),
+            ("Vector Size", "right"),
+            "Status",
+        ],
+        rows=rows,
+    )
 
 
 @app.command("status")
@@ -477,19 +466,21 @@ def status_cmd() -> None:
     is_alive = qdrant.is_alive()
     status_str = "[green]✓ online[/green]" if is_alive else "[red]✗ offline[/red]"
 
-    table = Table(title="RAG Vector Store Status")
-    table.add_column("Setting", style="cyan")
-    table.add_column("Value")
+    rows = [
+        ["Qdrant Endpoint", qdrant.base_url],
+        ["Qdrant Status", status_str],
+        ["Embedding Provider", settings.ai.provider],
+        ["Embedding Model", embedder.model],
+        ["Code Collection", code_coll],
+        ["Docs Collection", docs_coll],
+        ["RAG Enabled", str(settings.ai.rag.enabled)],
+    ]
 
-    table.add_row("Qdrant Endpoint", qdrant.base_url)
-    table.add_row("Qdrant Status", status_str)
-    table.add_row("Embedding Provider", settings.ai.provider)
-    table.add_row("Embedding Model", embedder.model)
-    table.add_row("Code Collection", code_coll)
-    table.add_row("Docs Collection", docs_coll)
-    table.add_row("RAG Enabled", str(settings.ai.rag.enabled))
-
-    print_table(table)
+    print_table(
+        title="RAG Vector Store Status",
+        columns=[("Setting", "cyan"), "Value"],
+        rows=rows,
+    )
 
     if is_alive:
         try:
@@ -506,17 +497,15 @@ def status_cmd() -> None:
 
 
 @app.command("clear")
-@app.command(
-    "reset", help="Alias for clear — clear vector index collections and reset local cache."
-)
+@app.command("reset", help=HELP.rag.reset)
 def clear_cmd(
     collection: Annotated[
         str | None,
-        typer.Option("--collection", "-c", help="Specific collection to delete (default: all)"),
+        typer.Option("--collection", "-c", help=HELP.rag.collection),
     ] = None,
     force: Annotated[
         bool,
-        typer.Option("--force", "-f", help="Bypass confirmation prompt"),
+        typer.Option("--force", "-f", help=HELP.options.force),
     ] = False,
 ) -> None:
     """Clear vector index collections from Qdrant."""

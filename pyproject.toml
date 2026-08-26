@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "devops-cli"
-version = "0.2.1"
+version = "0.2.2"
 description = "DevOps CLI for managing repos, SSH keys, Kubernetes, and more"
 requires-python = ">=3.14"
 dependencies = [
@@ -32,10 +32,11 @@ dependencies = [
     "uvicorn>=0.30.0",
     "tiktoken>=0.8.0",
     "pydantic-ai>=2.0.0",
+    "opentelemetry-exporter-otlp-proto-grpc>=1.44.0",
 ]
 
 [project.scripts]
-devops = "devops_cli.main:app"
+devops = "devops_cli.entry:main"
 
 [dependency-groups]
 dev = [
@@ -62,7 +63,7 @@ exclude = ["repos"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP"]
-ignore = ["N818"]
+ignore = ["E501", "N818"]
 
 [tool.mypy]
 python_version = "3.14"
@@ -80,7 +81,7 @@ data_file = ".data/.coverage"
 parallel = true
 
 [tool.coverage.report]
-fail_under = 78
+fail_under = 90
 show_missing = true
 exclude_lines = [
     "pragma: no cover",
@@ -90,6 +91,15 @@ exclude_lines = [
     "if TYPE_CHECKING:",
     "@abstractmethod",
 ]
+
+[tool.coverage.xml]
+output = ".data/coverage.xml"
+
+[tool.coverage.html]
+directory = ".data/htmlcov"
+
+[tool.coverage.json]
+output = ".data/coverage.json"
 
 [tool.uv]
 preview-features = ["malware-check"]

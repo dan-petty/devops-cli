@@ -7,15 +7,17 @@ import importlib.metadata
 import logging
 import re
 import tomllib
-from dataclasses import dataclass
 from pathlib import Path
+
+from pydantic import BaseModel, ConfigDict
 
 logger = logging.getLogger(__name__)
 
 
-@dataclass(frozen=True)
-class ProjectMetadata:
+class ProjectMetadata(BaseModel):
     """Consolidated project metadata sourced from pyproject.toml or package distribution."""
+
+    model_config = ConfigDict(frozen=True)
 
     name: str
     version: str

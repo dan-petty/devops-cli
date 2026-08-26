@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from devops_cli.config.commands import (
     BIN_ACTIONLINT,
     BIN_ARGOCD,
@@ -208,30 +210,40 @@ from devops_cli.config.options import (
     SSH_ROTATION_DAYS,
     WORKSPACE_FILE,
 )
-from devops_cli.config.settings import (
-    _SECRET_FIELDS,
-    AIConfig,
-    AITaskOverride,
-    AITasksConfig,
-    ArgoCDConfig,
-    GitHubConfig,
-    GrafanaConfig,
-    PrometheusConfig,
-    ReposConfig,
-    SecretStorageError,
-    Settings,
-    SSHConfig,
-    WorkspaceConfig,
-    dotted_get,
-    dotted_set,
-    get_active_config_path,
-    get_ai_api_key,
-    get_argocd_token,
-    get_github_token,
-    get_grafana_token,
-    load_settings,
-    save_settings,
-)
+
+_SETTINGS_EXPORTS: set[str] = {
+    "_SECRET_FIELDS",
+    "AIConfig",
+    "AITaskOverride",
+    "AITasksConfig",
+    "ArgoCDConfig",
+    "GitHubConfig",
+    "GrafanaConfig",
+    "PrometheusConfig",
+    "ReposConfig",
+    "SecretStorageError",
+    "Settings",
+    "SSHConfig",
+    "WorkspaceConfig",
+    "dotted_get",
+    "dotted_set",
+    "get_active_config_path",
+    "get_ai_api_key",
+    "get_argocd_token",
+    "get_github_token",
+    "get_grafana_token",
+    "load_settings",
+    "save_settings",
+}
+
+
+def __getattr__(name: str) -> Any:
+    if name in _SETTINGS_EXPORTS:
+        from devops_cli.config import settings
+
+        return getattr(settings, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 __all__ = [
     "AI_ALLOW_PRIVATE_NETWORK",

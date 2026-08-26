@@ -1,6 +1,6 @@
 # `devops review`
 
-AI-powered code reviews using expert personas.
+AI-powered multi-persona code review and security audits.
 
 ## Commands
 
@@ -16,18 +16,18 @@ devops review path [OPTIONS] <targets>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<targets>` | `path` | No | File(s) or directory(ies) to review |
+| `<targets>` | `path` | No | File(s) or directory(ies) to review. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--pattern`, `-g` | `string` | `*` | Glob pattern for files (default: all files) |
-| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa)` | - | Reviewer persona |
-| `--all` | `boolean` | - | Run all four reviewer personas |
-| `--dry-run` | `boolean` | - | Print commands and AI request payloads without executing. |
+| `--pattern`, `-g` | `string` | `*` | Glob pattern for matching files. |
+| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa)` | - | Reviewer persona to activate (devsecops, architect, pm, auditor, qa). |
+| `--all` | `boolean` | - | Run all reviewer personas in sequence. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--summary`, `-s` | `boolean` | - | Show segment metadata without running a full review. |
-| `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology |
+| `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology. |
 
 ---
 
@@ -43,19 +43,19 @@ devops review branch [OPTIONS] <branch_name>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<branch_name>` | `string` | No | Branch to review (default: current branch) |
+| `<branch_name>` | `string` | No | Branch to review (default: current branch). |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--base`, `-b` | `string` | `main` | Base branch to diff against |
-| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa)` | - | Reviewer persona |
-| `--all` | `boolean` | - | Run all four reviewer personas |
-| `--repo` | `path` | `.` | Path to the git repository |
-| `--dry-run` | `boolean` | - | Print commands and AI request payloads without executing. |
+| `--base`, `-b` | `string` | `main` | Base git branch to diff against (default: main). |
+| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa)` | - | Reviewer persona to activate (devsecops, architect, pm, auditor, qa). |
+| `--all` | `boolean` | - | Run all reviewer personas in sequence. |
+| `--repo` | `path` | `.` | Repository root directory (default: current directory). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--summary`, `-s` | `boolean` | - | Show segment metadata without running a full review. |
-| `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology |
+| `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology. |
 
 ---
 
@@ -71,19 +71,19 @@ devops review pr [OPTIONS] <number>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<number>` | `integer` | Yes | Pull request number |
+| `<number>` | `integer` | Yes | Pull request number. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--repo`, `-r` | `string` | - | owner/repo (default: detected from git remote) |
-| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa)` | - | Reviewer persona |
-| `--all` | `boolean` | - | Run all four reviewer personas |
-| `--post` | `boolean` | - | Post the review as a comment on the GitHub PR |
-| `--dry-run` | `boolean` | - | Print commands and AI request payloads without executing. |
+| `--repo`, `-r` | `string` | - | Target repository in OWNER/REPO format. |
+| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa)` | - | Reviewer persona to activate (devsecops, architect, pm, auditor, qa). |
+| `--all` | `boolean` | - | Run all reviewer personas in sequence. |
+| `--post` | `boolean` | - | Post the review as a comment on the GitHub PR. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--summary`, `-s` | `boolean` | - | Show segment metadata without running a full review. |
-| `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology |
+| `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology. |
 
 ---
 
@@ -99,11 +99,11 @@ devops review findings [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--session`, `-s` | `string` | - | Session ID or substring (default: latest) |
-| `--status` | `string` | - | Filter by status: VERIFIED | UNVERIFIED | INVALIDATED | MITIGATED |
-| `--unverified` | `boolean` | - | Show unverified findings only |
-| `--invalidated` | `boolean` | - | Show invalidated findings only |
-| `--verified` | `boolean` | - | Show verified findings only |
+| `--session`, `-s` | `string` | - | Session ID or substring (default: latest). |
+| `--status` | `string` | - | Filter by status: VERIFIED | UNVERIFIED | INVALIDATED | MITIGATED. |
+| `--unverified` | `boolean` | - | Show unverified findings only. |
+| `--invalidated` | `boolean` | - | Show invalidated findings only. |
+| `--verified` | `boolean` | - | Show verified findings only. |
 
 ---
 
@@ -119,17 +119,17 @@ devops review verify [OPTIONS] <session>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<session>` | `string` | No | Session ID or substring (default: latest) |
+| `<session>` | `string` | No | Session ID or substring (default: latest). |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--session`, `-s` | `string` | - | Session ID or substring |
-| `--index`, `-i` | `integer` | - | 1-based finding index in session to verify |
-| `--title`, `-t` | `string` | - | Match finding by substring in title |
-| `--status` | `string` | `INVALIDATED` | Target status: VERIFIED | INVALIDATED | MITIGATED | UNVERIFIED |
-| `--reason`, `-r` | `string` | `` | Explanation or justification for the status change |
+| `--session`, `-s` | `string` | - | Session ID or substring (default: latest). |
+| `--index`, `-i` | `integer` | - | 1-based finding index in session to verify. |
+| `--title`, `-t` | `string` | - | Match finding by substring in title. |
+| `--status` | `string` | `INVALIDATED` | Target status: VERIFIED | INVALIDATED | MITIGATED | UNVERIFIED. |
+| `--reason`, `-r` | `string` | `` | Explanation or justification for the status change. |
 
 ---
 
@@ -145,7 +145,7 @@ devops review stats [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--reviews-dir` | `path` | - | Directory containing review sessions |
+| `--reviews-dir` | `path` | - | Directory containing review sessions. |
 
 ---
 
@@ -161,9 +161,9 @@ devops review export-feedback [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--output`, `-o` | `path` | - | Output JSONL path for benchmark feedback dataset |
-| `--reviews-dir` | `path` | - | Directory containing review sessions |
-| `--status`, `-s` | `string` | `INVALIDATED` | Finding status to export: INVALIDATED, VERIFIED, MITIGATED, or ALL |
+| `--output`, `-o` | `path` | - | Output JSONL path for benchmark feedback dataset. |
+| `--reviews-dir` | `path` | - | Directory containing review sessions. |
+| `--status`, `-s` | `string` | `INVALIDATED` | Finding status to export: INVALIDATED, VERIFIED, MITIGATED, or ALL. |
 
 ---
 
@@ -179,13 +179,13 @@ devops review apply-patch [OPTIONS] <session>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<session>` | `string` | Yes | Review session ID |
+| `<session>` | `string` | Yes | Session ID or substring (default: latest). |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--index`, `-idx` | `integer` | `1` | Finding index (1-based) |
-| `--interactive`, `-i` | `boolean` | - | Preview patch diff interactively |
+| `--index`, `-idx` | `integer` | `1` | 1-based finding index in session to verify. |
+| `--interactive`, `-i` | `boolean` | - | Preview patch diff interactively. |
 
 ---
