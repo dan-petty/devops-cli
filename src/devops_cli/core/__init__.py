@@ -8,6 +8,7 @@ from devops_cli.core.cli import new_typer, repo_label
 
 _CORE_EXPORTS: dict[str, tuple[str, str]] = {
     "run_subprocess": ("devops_cli.core.process", "run_subprocess"),
+    "run_subprocess_async": ("devops_cli.core.process", "run_subprocess_async"),
     "find_repo_root": ("devops_cli.core.repo", "find_repo_root"),
     "find_top_level_repo_root": ("devops_cli.core.repo", "find_top_level_repo_root"),
     "is_ignored_by_git": ("devops_cli.core.repo", "is_ignored_by_git"),
@@ -50,6 +51,7 @@ __all__ = [
     "read_gitignore_patterns",
     "repo_label",
     "run_subprocess",
+    "run_subprocess_async",
     "set_dry_run",
     "validate_dir",
     "validate_file",
