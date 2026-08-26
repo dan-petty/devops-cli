@@ -32,7 +32,7 @@ Return ONLY a valid JSON object matching:
   "findings": [
     {
       "severity": "CRITICAL" | "HIGH" | "MEDIUM" | "LOW",
-      "location": "path/to/file.py:start-end",
+      "location": "path/to/file.ext:start-end",
       "title": "Concise issue title",
       "description": "Root cause and impact analysis.",
       "fix": "Drop-in code or configuration remediation.",
