@@ -14,7 +14,7 @@ from devops_cli.models.ai import FileAnalysisMeta
 
 def test_review_pipeline_stages(tmp_path: Path, monkeypatch) -> None:
     """Test 6-stage review pipeline initialization and execution."""
-    monkeypatch.setattr("devops_cli.ai.review.pipeline.CONST_DATA_DIR", tmp_path)
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
 
     orchestrator = ReviewPipelineOrchestrator(session_id="test-session")
 
@@ -30,7 +30,7 @@ def test_review_pipeline_stages(tmp_path: Path, monkeypatch) -> None:
     assert "ai_scratchpad" in payloads[0].model_dump()
     assert payloads[0].ai_scratchpad["stage"] == "initialized"
 
-    file_json = tmp_path / "reviews" / "test-session" / "files" / "src_dummy_py.json"
+    file_json = orchestrator.files_dir / "src_dummy_py.json"
     assert file_json.exists()
 
     # Mock LLM response handler
@@ -76,8 +76,8 @@ def test_review_pipeline_stages(tmp_path: Path, monkeypatch) -> None:
     data_out, report_md = orchestrator.generate_consolidated_report(payloads)
     assert isinstance(data_out, dict)
     assert "Code Review Report" in report_md
-    assert (tmp_path / "reviews" / "test-session" / "findings.json").exists()
-    assert (tmp_path / "reviews" / "test-session" / "review.md").exists()
+    assert (orchestrator.session_dir / "findings.json").exists()
+    assert (orchestrator.session_dir / "review.md").exists()
 
 
 def test_get_server_info_formatting() -> None:
@@ -102,7 +102,7 @@ def test_get_server_info_formatting() -> None:
 
 def test_init_per_file_payloads_path_matching(tmp_path: Path, monkeypatch) -> None:
     """init_per_file_payloads matches metadata by exact and normalized suffix paths."""
-    monkeypatch.setattr("devops_cli.ai.review.pipeline.CONST_DATA_DIR", tmp_path)
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
     orchestrator = ReviewPipelineOrchestrator(session_id="test-path-matching")
 
     meta_full = FileAnalysisMeta(
@@ -171,7 +171,7 @@ def test_consolidated_report_findings_sorted_by_severity_and_confidence(
     """Findings in report_md and findings.json must be sorted by severity and confidence."""
     from devops_cli.ai.review_schema import FileReviewPayload, SavedFinding
 
-    monkeypatch.setattr("devops_cli.ai.review.pipeline.CONST_DATA_DIR", tmp_path)
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
     orchestrator = ReviewPipelineOrchestrator(session_id="sort-test-session")
 
     f_low = SavedFinding(
@@ -257,7 +257,7 @@ def test_consolidate_duplicate_findings_across_personas(tmp_path: Path, monkeypa
     """Duplicate findings across personas should be merged, retaining highest severity."""
     from devops_cli.ai.review_schema import FileReviewPayload, SavedFinding
 
-    monkeypatch.setattr("devops_cli.ai.review.pipeline.CONST_DATA_DIR", tmp_path)
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
     orchestrator = ReviewPipelineOrchestrator(session_id="dedup-test-session")
 
     # devsecops reports High severity finding
@@ -347,10 +347,7 @@ def test_criteria_based_verification_and_reportability(
     """Findings define verification and invalidation criteria that determine
     reportability and confidence.
     """
-    monkeypatch.setattr("devops_cli.config.constants.CONST_DATA_DIR", tmp_path / ".data")
-    monkeypatch.setattr(
-        "devops_cli.config.constants.CONST_REVIEWS_DATA_DIR", tmp_path / ".data" / "reviews"
-    )
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
 
     orchestrator = ReviewPipelineOrchestrator(session_id="criteria-test", llm_client=MagicMock())
 
@@ -422,10 +419,7 @@ def test_persona_and_persona_title_distinctness(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Verify that multi-persona reviews populate distinct short persona slug and full title."""
-    monkeypatch.setattr("devops_cli.config.constants.CONST_DATA_DIR", tmp_path / ".data")
-    monkeypatch.setattr(
-        "devops_cli.config.constants.CONST_REVIEWS_DATA_DIR", tmp_path / ".data" / "reviews"
-    )
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
 
     mock_client = MagicMock()
     # Mock pipeline result step
@@ -469,10 +463,7 @@ def test_ai_scratchpad_thoughts_collection_across_stages(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Verify that thoughts and LLM reasoning are accumulated into ai_scratchpad.thoughts."""
-    monkeypatch.setattr("devops_cli.config.constants.CONST_DATA_DIR", tmp_path / ".data")
-    monkeypatch.setattr(
-        "devops_cli.config.constants.CONST_REVIEWS_DATA_DIR", tmp_path / ".data" / "reviews"
-    )
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
 
     mock_client = MagicMock()
     step_mock = MagicMock()
@@ -522,10 +513,7 @@ def test_generate_consolidated_report_with_intelligence_tables(
     """Verify that dependencies and network references with security status are
     rendered in review report.
     """
-    monkeypatch.setattr("devops_cli.config.constants.CONST_DATA_DIR", tmp_path / ".data")
-    monkeypatch.setattr(
-        "devops_cli.config.constants.CONST_REVIEWS_DATA_DIR", tmp_path / ".data" / "reviews"
-    )
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
 
     from devops_cli.models.vulnerability import DependencySpec, NetworkReference
 
@@ -661,13 +649,14 @@ def test_generate_consolidated_report_prints_findings_and_review_summary(
     """Verify that generate_consolidated_report renders both the Code Review Findings
     table and the Review Summary table to console on review completion.
     """
-    monkeypatch.setattr("devops_cli.config.constants.CONST_DATA_DIR", tmp_path / ".data")
-    monkeypatch.setattr(
-        "devops_cli.config.constants.CONST_REVIEWS_DATA_DIR", tmp_path / ".data" / "reviews"
-    )
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
 
+    session_dir = tmp_path / ".data" / "reviews" / "summary-output-test"
+    session_dir.mkdir(parents=True, exist_ok=True)
     orchestrator = ReviewPipelineOrchestrator(
-        session_id="summary-output-test", llm_client=MagicMock()
+        session_id="summary-output-test",
+        session_dir=session_dir,
+        llm_client=MagicMock(),
     )
     finding = SavedFinding(
         severity="HIGH",
@@ -710,10 +699,7 @@ def test_generate_consolidated_report_clean_review_summary(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Verify clean review summary output when 0 reportable findings are generated."""
-    monkeypatch.setattr("devops_cli.config.constants.CONST_DATA_DIR", tmp_path / ".data")
-    monkeypatch.setattr(
-        "devops_cli.config.constants.CONST_REVIEWS_DATA_DIR", tmp_path / ".data" / "reviews"
-    )
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
 
     orchestrator = ReviewPipelineOrchestrator(
         session_id="clean-summary-test", llm_client=MagicMock()
@@ -741,10 +727,7 @@ def test_review_pipeline_skips_and_lists_errored_files(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Verify that any errored files across review stages are skipped and listed in output."""
-    monkeypatch.setattr("devops_cli.config.constants.CONST_DATA_DIR", tmp_path / ".data")
-    monkeypatch.setattr(
-        "devops_cli.config.constants.CONST_REVIEWS_DATA_DIR", tmp_path / ".data" / "reviews"
-    )
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
 
     orchestrator = ReviewPipelineOrchestrator(
         session_id="error-skip-test", llm_client=MagicMock(), target_dir=tmp_path

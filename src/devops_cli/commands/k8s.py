@@ -21,15 +21,17 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.defaults import (
     DEFAULT_ARGOCD_PORT,
+    DEFAULT_CURRENT_PATH,
     DEFAULT_GRAFANA_PORT,
     DEFAULT_HTTP_PROBE_TIMEOUT_SECONDS,
     DEFAULT_JAEGER_PORT,
+    DEFAULT_K8S_ALL_STACK,
     DEFAULT_K8S_DIR,
     DEFAULT_K8S_LOGS_TAIL,
-    DEFAULT_K8S_STACK_ALL,
-    DEFAULT_K8S_STACK_INFRA,
+    DEFAULT_K8S_NAMESPACE,
+    DEFAULT_K8S_STACK,
+    DEFAULT_K8S_TLS_SECRET_NAME,
     DEFAULT_KUBECONFORM_VERSION,
-    DEFAULT_KUBERNETES_NAMESPACE,
     DEFAULT_OLLAMA_PORT,
     DEFAULT_OPEN_WEBUI_PORT,
     DEFAULT_OTEL_PORT,
@@ -38,7 +40,6 @@ from devops_cli.config.defaults import (
     DEFAULT_REST_HOST,
     DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
     DEFAULT_TLS_DIR,
-    DEFAULT_TLS_SECRET_NAME,
     DEFAULT_VALKEY_PORT,
 )
 from devops_cli.core.cli import new_typer
@@ -311,8 +312,6 @@ _HELM_REPOS: dict[str, str] = {
     **_HELM_REPOS_BY_STACK["llm"],
 }
 
-_K8S_DIR = Path("k8s")
-
 
 _HELM_RELEASES_BY_STACK: dict[str, list[dict[str, str]]] = {
     "infra": [
@@ -320,19 +319,19 @@ _HELM_RELEASES_BY_STACK: dict[str, list[dict[str, str]]] = {
             "name": "argocd",
             "chart": "argo/argo-cd",
             "namespace": "argocd",
-            "values": str(_K8S_DIR / "argocd" / "values.yaml"),
+            "values": str(DEFAULT_K8S_DIR / "argocd" / "values.yaml"),
         },
         {
             "name": "kube-prometheus",
             "chart": "prometheus-community/kube-prometheus-stack",
             "namespace": "monitoring",
-            "values": str(_K8S_DIR / "monitoring" / "prometheus-values.yaml"),
+            "values": str(DEFAULT_K8S_DIR / "monitoring" / "prometheus-values.yaml"),
         },
         {
             "name": "otel-collector",
             "chart": "open-telemetry/opentelemetry-collector",
             "namespace": "otel",
-            "values": str(_K8S_DIR / "otel" / "values.yaml"),
+            "values": str(DEFAULT_K8S_DIR / "otel" / "values.yaml"),
         },
     ],
     "llm": [
@@ -340,13 +339,13 @@ _HELM_RELEASES_BY_STACK: dict[str, list[dict[str, str]]] = {
             "name": "open-webui",
             "chart": "open-webui/open-webui",
             "namespace": "llm",
-            "values": str(_K8S_DIR / "llm" / "values-open-webui.yaml"),
+            "values": str(DEFAULT_K8S_DIR / "llm" / "values-open-webui.yaml"),
         },
         {
             "name": "qdrant",
             "chart": "qdrant/qdrant",
             "namespace": "llm",
-            "values": str(_K8S_DIR / "llm" / "values-qdrant.yaml"),
+            "values": str(DEFAULT_K8S_DIR / "llm" / "values-qdrant.yaml"),
         },
     ],
 }
@@ -355,11 +354,11 @@ _HELM_RELEASES: list[dict[str, str]] = _HELM_RELEASES_BY_STACK["infra"]
 
 _MANIFESTS_BY_STACK: dict[str, list[Path]] = {
     "infra": [
-        _K8S_DIR / "otel" / "jaeger.yaml",
+        DEFAULT_K8S_DIR / "otel" / "jaeger.yaml",
     ],
     "llm": [
-        _K8S_DIR / "llm" / "valkey.yaml",
-        _K8S_DIR / "llm" / "ollama-daemonset.yaml",
+        DEFAULT_K8S_DIR / "llm" / "valkey.yaml",
+        DEFAULT_K8S_DIR / "llm" / "ollama-daemonset.yaml",
     ],
 }
 
@@ -438,7 +437,7 @@ def bootstrap(
     stack: Annotated[
         str,
         typer.Option("--stack", "-s", help="Stack to deploy after bootstrap: infra | llm | all"),
-    ] = DEFAULT_K8S_STACK_ALL,
+    ] = DEFAULT_K8S_ALL_STACK,
 ) -> None:
     """Bootstrap minikube Kubernetes cluster and deploy infrastructure/LLM stack."""
     selected_stacks = _resolve_stacks(stack)
@@ -550,10 +549,10 @@ def _adopt_helm_resource_if_conflict(
 def deploy_stack(
     k8s_dir: Annotated[
         Path, typer.Option("--k8s-dir", help="Path to k8s/ config directory")
-    ] = _K8S_DIR,
+    ] = DEFAULT_K8S_DIR,
     stack: Annotated[
         str, typer.Option("--stack", "-s", help="Stack to deploy (infra, llm, all)")
-    ] = DEFAULT_K8S_STACK_INFRA,
+    ] = DEFAULT_K8S_STACK,
     context: Annotated[
         str | None, typer.Option("--context", "-c", help="Kubernetes cluster context")
     ] = None,
@@ -721,8 +720,6 @@ def _extract_first_node_ip(item: dict[str, Any]) -> str | None:
 
 def _resolve_k8s_node_port_url(ctx_args: list[str], node_port: int) -> str | None:
     """Query Kubernetes nodes to find node IP and construct nodePort URL."""
-    from devops_cli.config.defaults import DEFAULT_SUBPROCESS_FAST_TIMEOUT_SECONDS
-
     try:
         nodes_res = run_subprocess(
             ["kubectl", "get", "nodes", "-o", "json"] + ctx_args,
@@ -730,7 +727,7 @@ def _resolve_k8s_node_port_url(ctx_args: list[str], node_port: int) -> str | Non
             text=True,
             check=False,
             quiet=True,
-            timeout=DEFAULT_SUBPROCESS_FAST_TIMEOUT_SECONDS,
+            timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
         )
         if nodes_res.returncode == 0 and nodes_res.stdout.strip():
             import json
@@ -747,8 +744,6 @@ def _resolve_k8s_node_port_url(ctx_args: list[str], node_port: int) -> str | Non
 
 def _detect_service_url(service: str, namespace: str, context: str | None = None) -> str | None:
     """Query service URL via minikube service or kubectl nodePort/cluster info."""
-    from devops_cli.config.defaults import DEFAULT_SUBPROCESS_FAST_TIMEOUT_SECONDS
-
     # 1. Try minikube service if context is not explicit non-minikube
     if not context or context == "minikube":
         try:
@@ -758,7 +753,7 @@ def _detect_service_url(service: str, namespace: str, context: str | None = None
                 text=True,
                 check=False,
                 quiet=True,
-                timeout=DEFAULT_SUBPROCESS_FAST_TIMEOUT_SECONDS,
+                timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
             )
             if res.returncode == 0 and res.stdout.strip():
                 url = _parse_minikube_service_url(res.stdout)
@@ -776,7 +771,7 @@ def _detect_service_url(service: str, namespace: str, context: str | None = None
             text=True,
             check=False,
             quiet=True,
-            timeout=DEFAULT_SUBPROCESS_FAST_TIMEOUT_SECONDS,
+            timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
         )
         if svc_res.returncode == 0 and svc_res.stdout.strip():
             import json
@@ -864,7 +859,7 @@ def _resolve_accessible_url(
 def configure_urls(
     stack: Annotated[
         str, typer.Option("--stack", "-s", help="Stack to configure URLs for (infra, llm, all)")
-    ] = DEFAULT_K8S_STACK_INFRA,
+    ] = DEFAULT_K8S_STACK,
     context: Annotated[
         str | None, typer.Option("--context", "-c", help="Kubernetes cluster context")
     ] = None,
@@ -990,7 +985,7 @@ def configure_urls(
 def port_forward(
     stack: Annotated[
         str, typer.Option("--stack", "-s", help="Stack services to port-forward (infra, llm, all)")
-    ] = DEFAULT_K8S_STACK_INFRA,
+    ] = DEFAULT_K8S_STACK,
     context: Annotated[
         str | None, typer.Option("--context", "-c", help="Kubernetes cluster context")
     ] = None,
@@ -1120,10 +1115,10 @@ def port_forward(
 def teardown_stack(
     k8s_dir: Annotated[
         Path, typer.Option("--k8s-dir", help="Path to k8s/ config directory")
-    ] = _K8S_DIR,
+    ] = DEFAULT_K8S_DIR,
     stack: Annotated[
         str, typer.Option("--stack", "-s", help="Stack to teardown (infra, llm, all)")
-    ] = DEFAULT_K8S_STACK_INFRA,
+    ] = DEFAULT_K8S_STACK,
     context: Annotated[
         str | None, typer.Option("--context", "-c", help="Kubernetes cluster context")
     ] = None,
@@ -1249,7 +1244,7 @@ def k8s_lint(
     target: Annotated[
         Path,
         typer.Argument(help="Target K8s manifest file or directory to lint"),
-    ] = Path("."),
+    ] = DEFAULT_CURRENT_PATH,
     dry_run: Annotated[
         bool,
         typer.Option("--dry-run", help="Simulate manifest linting."),
@@ -1352,7 +1347,7 @@ def k8s_check_deprecated(
     target: Annotated[
         Path,
         typer.Argument(help="Target manifest file or directory to scan for deprecated APIs"),
-    ] = Path("."),
+    ] = DEFAULT_CURRENT_PATH,
     dry_run: Annotated[
         bool,
         typer.Option("--dry-run", help="Simulate deprecated API detection."),
@@ -1410,7 +1405,7 @@ def create_tls_secret(
     namespace: Annotated[
         str,
         typer.Option("--namespace", "-n", help="Target Kubernetes namespace"),
-    ] = DEFAULT_KUBERNETES_NAMESPACE,
+    ] = DEFAULT_K8S_NAMESPACE,
     cert_path: Annotated[
         Path,
         typer.Option("--cert", help="Path to TLS certificate file (.crt or .pem)"),
@@ -1507,11 +1502,11 @@ def enable_tls_stack(
     secret_name: Annotated[
         str,
         typer.Option("--secret-name", help="TLS secret name across namespaces"),
-    ] = DEFAULT_TLS_SECRET_NAME,
+    ] = DEFAULT_K8S_TLS_SECRET_NAME,
     stack: Annotated[
         str,
         typer.Option("--stack", "-s", help="Stack to deploy TLS secrets into (infra, llm, all)"),
-    ] = DEFAULT_K8S_STACK_ALL,
+    ] = DEFAULT_K8S_ALL_STACK,
     overwrite: Annotated[
         bool,
         typer.Option("--overwrite", "-f", help="Regenerate certs if missing"),
@@ -1524,7 +1519,7 @@ def enable_tls_stack(
     selected_stacks = _resolve_stacks(stack)
 
     # Resolve target namespaces based on selected stacks
-    namespaces_to_target: list[str] = [DEFAULT_KUBERNETES_NAMESPACE]
+    namespaces_to_target: list[str] = [DEFAULT_K8S_NAMESPACE]
     if "infra" in selected_stacks:
         namespaces_to_target.extend(["argocd", "monitoring", "otel"])
     if "llm" in selected_stacks:
@@ -1625,7 +1620,7 @@ def k8s_validate(
     manifest_path: Annotated[
         Path,
         typer.Argument(help="Path to Kubernetes YAML manifest file or directory"),
-    ] = Path("."),
+    ] = DEFAULT_CURRENT_PATH,
     k8s_version: Annotated[
         str,
         typer.Option("--kubernetes-version", "-v", help="Target Kubernetes OpenAPI version"),

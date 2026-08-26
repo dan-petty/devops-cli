@@ -9,7 +9,7 @@ from pathlib import Path
 
 from devops_cli.config.constants import CONST_BINARY_EXTENSIONS
 from devops_cli.config.defaults import (
-    DEFAULT_KUBERNETES_NAMESPACE,
+    DEFAULT_K8S_NAMESPACE,
     DEFAULT_OBSERVABILITY_NAMESPACE,
     DEFAULT_PACKAGE_ECOSYSTEM,
     DEFAULT_RAG_TOP_K,
@@ -202,7 +202,7 @@ def search_code(query: str, directory: str = ".") -> list[str]:
     return matches
 
 
-def k8s_pods(namespace: str = DEFAULT_KUBERNETES_NAMESPACE) -> str:
+def k8s_pods(namespace: str = DEFAULT_K8S_NAMESPACE) -> str:
     """Query pods in a Kubernetes namespace."""
     return _run_tool_cmd(
         ["kubectl", "get", "pods", "-n", namespace],

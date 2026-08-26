@@ -33,26 +33,13 @@ def isolate_llm_response_cache(tmp_path: Path):
 
 
 @pytest.fixture(autouse=True)
-def clean_test_artifacts():
-    """Ensure any test output file artifacts created in workspace .data/ are cleaned up after every test."""
-    import shutil
-
-    from devops_cli.config.constants import CONST_DATA_DIR
-
-    yield
-
-    if CONST_DATA_DIR.exists() and CONST_DATA_DIR.is_dir():
-        for subdir_name in ["reviews", "analysis", "benchmarks", "cache", "logs"]:
-            sub = CONST_DATA_DIR / subdir_name
-            if sub.exists() and sub.is_dir():
-                for item in sub.iterdir():
-                    try:
-                        if item.is_file():
-                            item.unlink(missing_ok=True)
-                        elif item.is_dir():
-                            shutil.rmtree(item, ignore_errors=True)
-                    except Exception:
-                        pass
+def isolate_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Ensure tests run against an isolated temporary .data/ directory to protect user reviews."""
+    test_data_dir = tmp_path / ".data"
+    test_data_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(test_data_dir))
+    monkeypatch.setenv("DEVOPS_DATA_DIR", str(test_data_dir))
+    yield test_data_dir
 
 
 @pytest.fixture(scope="session")

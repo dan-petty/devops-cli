@@ -11,13 +11,12 @@ import typer
 
 from devops_cli.ai.personas import Persona
 from devops_cli.config.constants import (
-    CONST_DATA_DIR,
     CONST_GIT_MAIN_BRANCH,
-    CONST_REVIEWS_DATA_DIR,
     CONST_STATUS_INVALIDATED,
 )
 from devops_cli.config.defaults import (
     DEFAULT_APPLY_PATCH_INDEX,
+    DEFAULT_CURRENT_PATH,
     DEFAULT_MATCH_ALL_PATTERN,
 )
 from devops_cli.core.cli import new_typer
@@ -25,8 +24,6 @@ from devops_cli.dry_run import is_dry_run, set_dry_run
 from devops_cli.lang import HELP, MESSAGES
 
 __all__ = [
-    "CONST_DATA_DIR",
-    "CONST_REVIEWS_DATA_DIR",
     "app",
     "export_invalidated_feedback",
     "stage_finding_patch",
@@ -120,7 +117,13 @@ def __getattr__(name: str) -> Any:
         import devops_cli.ai.review.verification
 
         return getattr(devops_cli.ai.review.verification, name)
-    if name in {"Finding", "ReviewResult", "ReviewSessionPayload", "SavedFinding"}:
+    if name in {
+        "Finding",
+        "ReviewResult",
+        "ReviewSessionPayload",
+        "SavedFinding",
+        "format_clean_text_field",
+    }:
         import devops_cli.ai.review_schema
 
         return getattr(devops_cli.ai.review_schema, name)
@@ -288,25 +291,25 @@ def path(
     set_dry_run(dry_run)
     settings = load_settings()
     clients = _make_review_clients(settings)
-    path_targets = targets or [Path(".")]
+    path_targets = targets or [DEFAULT_CURRENT_PATH]
 
     if len(path_targets) == 1:
         target = path_targets[0]
         pages, title, agents_md = _prepare_path_content(target, pattern)
-        target_dir = target if target.is_dir() else Path(".")
+        target_dir = target if target.is_dir() else DEFAULT_CURRENT_PATH
         target_ref = str(target)
     else:
         all_pages: list[str] = []
         agents_md = ""
         target_names: list[str] = []
-        first_target_dir = Path(".")
+        first_target_dir = DEFAULT_CURRENT_PATH
         for t in path_targets:
             t_pages, _, t_agents = _prepare_path_content(t, pattern)
             all_pages.extend(t_pages)
             if not agents_md and t_agents:
                 agents_md = t_agents
             target_names.append(str(t))
-            if first_target_dir == Path(".") and t.exists() and t.is_dir():
+            if first_target_dir == DEFAULT_CURRENT_PATH and t.exists() and t.is_dir():
                 first_target_dir = t
 
         pages = all_pages
@@ -357,7 +360,7 @@ def branch(
     repo_path: Annotated[
         Path,
         typer.Option("--repo", help=HELP.options.repo),
-    ] = Path("."),
+    ] = DEFAULT_CURRENT_PATH,
     dry_run: Annotated[
         bool,
         typer.Option("--dry-run", help=HELP.options.dry_run),
@@ -620,9 +623,21 @@ def list_findings(
                 f"[bold]Location:[/bold] [cyan]{_get('escape_text')(f.location)}[/cyan]  |  [bold]Persona:[/bold] [magenta]{_get('escape_text')(persona_title)}[/magenta]",
             ]
             if f.description:
-                panel_lines.extend(["", "[bold]Description:[/bold]", f.description.strip()])
+                panel_lines.extend(
+                    [
+                        "",
+                        "[bold]Description:[/bold]",
+                        _get("format_clean_text_field")(f.description).strip(),
+                    ]
+                )
             if f.fix:
-                panel_lines.extend(["", "[bold]Suggested Fix:[/bold]", f.fix.strip()])
+                panel_lines.extend(
+                    [
+                        "",
+                        "[bold]Suggested Fix:[/bold]",
+                        _get("format_clean_text_field")(f.fix).strip(),
+                    ]
+                )
             if f.invalidation_reason:
                 panel_lines.extend(
                     [
@@ -631,8 +646,9 @@ def list_findings(
                     ]
                 )
             if f.references:
+                refs_list = f.references if isinstance(f.references, list) else [str(f.references)]
                 panel_lines.extend(
-                    ["", f"[dim]References: {_get('escape_text')(', '.join(f.references))}[/dim]"]
+                    ["", f"[dim]References: {_get('escape_text')(', '.join(refs_list))}[/dim]"]
                 )
 
             _get("print_panel")(

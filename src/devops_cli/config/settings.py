@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from devops_cli.config import options as opt
@@ -23,9 +23,6 @@ from devops_cli.config.constants import (
     CONST_KEYRING_SERVICE as KEYRING_SERVICE,
 )
 from devops_cli.config.constants import (
-    CONST_LLM_CACHE_DATA_DIR,
-)
-from devops_cli.config.constants import (
     CONST_PROJECT_CONFIG_ENV as PROJECT_CONFIG_ENV,
 )
 from devops_cli.config.constants import (
@@ -35,20 +32,31 @@ from devops_cli.config.defaults import (
     DEFAULT_AI_MAX_RETRIES,
     DEFAULT_AI_MODEL,
     DEFAULT_AI_PROVIDER,
+    DEFAULT_ANALYSIS_DATA_DIR,
+    DEFAULT_AUDIT_LOG_PATH,
+    DEFAULT_BENCHMARKS_DATA_DIR,
+    DEFAULT_CACHE_DATA_DIR,
+    DEFAULT_DATA_DIR,
+    DEFAULT_FEEDBACK_DATASET_PATH,
     DEFAULT_JAEGER_URL,
+    DEFAULT_LLM_CACHE_DATA_DIR,
     DEFAULT_LLM_CACHE_ENABLED,
     DEFAULT_LLM_CACHE_MAX_ENTRIES,
     DEFAULT_LLM_CACHE_TTL_SECONDS,
+    DEFAULT_LOGS_DATA_DIR,
+    DEFAULT_MODELS_DATA_DIR,
     DEFAULT_OLLAMA_MAX_PARALLEL,
     DEFAULT_OLLAMA_URLS,
     DEFAULT_OTEL_ENDPOINT,
     DEFAULT_QDRANT_URL,
     DEFAULT_RAG_CHUNK_OVERLAP,
     DEFAULT_RAG_CHUNK_SIZE,
+    DEFAULT_RAG_DATA_DIR,
     DEFAULT_RAG_EMBEDDING_MODEL,
     DEFAULT_RAG_SCORE_THRESHOLD,
     DEFAULT_RAG_TOP_K,
     DEFAULT_REPOS_BASE_DIR,
+    DEFAULT_REVIEWS_DATA_DIR,
     DEFAULT_SSH_KEY_DIR,
     DEFAULT_SSH_ROTATION_DAYS,
     DEFAULT_WORKSPACE_FILE,
@@ -150,7 +158,7 @@ class AIRAGConfig(BaseModel):
 class AICacheConfig(BaseModel):
     model_config = ConfigDict(frozen=False)
     enabled: bool = DEFAULT_LLM_CACHE_ENABLED
-    dir: Path = CONST_LLM_CACHE_DATA_DIR
+    dir: Path = DEFAULT_LLM_CACHE_DATA_DIR
     ttl_seconds: int = DEFAULT_LLM_CACHE_TTL_SECONDS
     max_entries: int = DEFAULT_LLM_CACHE_MAX_ENTRIES
 
@@ -215,6 +223,44 @@ class AIConfig(BaseModel):
         return self.model_copy(update=updates) if updates else self
 
 
+class DataConfig(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    dir: Path = Field(default_factory=lambda: DEFAULT_DATA_DIR)
+    analysis_dir: Path = Field(default_factory=lambda: DEFAULT_ANALYSIS_DATA_DIR)
+    reviews_dir: Path = Field(default_factory=lambda: DEFAULT_REVIEWS_DATA_DIR)
+    logs_dir: Path = Field(default_factory=lambda: DEFAULT_LOGS_DATA_DIR)
+    models_dir: Path = Field(default_factory=lambda: DEFAULT_MODELS_DATA_DIR)
+    cache_dir: Path = Field(default_factory=lambda: DEFAULT_CACHE_DATA_DIR)
+    benchmarks_dir: Path = Field(default_factory=lambda: DEFAULT_BENCHMARKS_DATA_DIR)
+    rag_dir: Path = Field(default_factory=lambda: DEFAULT_RAG_DATA_DIR)
+    audit_log_path: Path = Field(default_factory=lambda: DEFAULT_AUDIT_LOG_PATH)
+    feedback_dataset_path: Path = Field(default_factory=lambda: DEFAULT_FEEDBACK_DATASET_PATH)
+
+    @model_validator(mode="after")
+    def _rebase_child_paths_if_custom_dir(self) -> DataConfig:
+        if self.dir != DEFAULT_DATA_DIR:
+            if self.analysis_dir == DEFAULT_ANALYSIS_DATA_DIR:
+                self.analysis_dir = self.dir / "analysis"
+            if self.reviews_dir == DEFAULT_REVIEWS_DATA_DIR:
+                self.reviews_dir = self.dir / "reviews"
+            if self.logs_dir == DEFAULT_LOGS_DATA_DIR:
+                self.logs_dir = self.dir / "logs"
+            if self.models_dir == DEFAULT_MODELS_DATA_DIR:
+                self.models_dir = self.dir / "models"
+            if self.cache_dir == DEFAULT_CACHE_DATA_DIR:
+                self.cache_dir = self.dir / "cache"
+            if self.benchmarks_dir == DEFAULT_BENCHMARKS_DATA_DIR:
+                self.benchmarks_dir = self.dir / "benchmarks"
+            if self.rag_dir == DEFAULT_RAG_DATA_DIR:
+                self.rag_dir = self.dir / "rag"
+            if self.audit_log_path == DEFAULT_AUDIT_LOG_PATH:
+                self.audit_log_path = self.dir / "logs" / "audit.jsonl"
+            if self.feedback_dataset_path == DEFAULT_FEEDBACK_DATASET_PATH:
+                self.feedback_dataset_path = self.dir / "feedback_dataset.jsonl"
+        return self
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="DEVOPS_CLI_",
@@ -233,6 +279,7 @@ class Settings(BaseSettings):
     jaeger: JaegerConfig = JaegerConfig()
     telemetry: TelemetryConfig = TelemetryConfig()
     ai: AIConfig = AIConfig()
+    data: DataConfig = DataConfig()
 
 
 # TODO (v0.1.1 Feature): MemoryKeyringStore for headless CI environments lacking DBus/SecretService

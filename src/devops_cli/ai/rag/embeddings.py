@@ -10,7 +10,7 @@ from typing import Any
 import httpx2
 
 from devops_cli.config.defaults import (
-    DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS,
+    DEFAULT_HTTP_TIMEOUT_SECONDS,
     DEFAULT_RAG_EMBEDDING_MODEL,
 )
 from devops_cli.config.settings import AIConfig
@@ -37,7 +37,7 @@ class EmbeddingsEngine:
         ai_config: AIConfig | None = None,
         *,
         api_key: str | None = None,
-        timeout: float = DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS,
+        timeout: float = DEFAULT_HTTP_TIMEOUT_SECONDS,
     ) -> None:
         self.ai_config = ai_config or AIConfig()
         self.api_key = api_key

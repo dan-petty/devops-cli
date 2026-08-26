@@ -9,8 +9,7 @@ import httpx2
 import typer
 
 from devops_cli.config.defaults import (
-    DEFAULT_HTTP_LONG_TIMEOUT_SECONDS,
-    DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS,
+    DEFAULT_HTTP_TIMEOUT_SECONDS,
     DEFAULT_PROMETHEUS_QUERY_RANGE_START,
     DEFAULT_PROMETHEUS_QUERY_RANGE_STEP,
 )
@@ -127,7 +126,7 @@ def query(
         response = http_client.get(
             f"{base}/api/v1/query",
             params=params,
-            timeout=DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS,
+            timeout=DEFAULT_HTTP_TIMEOUT_SECONDS,
         )
         response.raise_for_status()
 
@@ -181,7 +180,7 @@ def query_range(
         response = http_client.get(
             f"{base}/api/v1/query_range",
             params=params,
-            timeout=DEFAULT_HTTP_LONG_TIMEOUT_SECONDS,
+            timeout=DEFAULT_HTTP_TIMEOUT_SECONDS,
         )
         response.raise_for_status()
 
@@ -217,7 +216,7 @@ def rules() -> None:
     with httpx2.Client() as http_client:
         response = http_client.get(
             f"{base}/api/v1/rules",
-            timeout=DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS,
+            timeout=DEFAULT_HTTP_TIMEOUT_SECONDS,
         )
         response.raise_for_status()
 
@@ -259,7 +258,7 @@ def targets() -> None:
     with httpx2.Client() as http_client:
         response = http_client.get(
             f"{base}/api/v1/targets",
-            timeout=DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS,
+            timeout=DEFAULT_HTTP_TIMEOUT_SECONDS,
         )
         response.raise_for_status()
 

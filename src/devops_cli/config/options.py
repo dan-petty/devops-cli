@@ -42,6 +42,17 @@ AI_RAG_EMBEDDING_MODEL = "ai.rag.embedding_model"
 AI_RAG_TOP_K = "ai.rag.top_k"
 AI_RAG_SCORE_THRESHOLD = "ai.rag.score_threshold"
 
+# Data Storage & Artifact Paths
+DATA_DIR = "data.dir"
+DATA_ANALYSIS_DIR = "data.analysis_dir"
+DATA_REVIEWS_DIR = "data.reviews_dir"
+DATA_LOGS_DIR = "data.logs_dir"
+DATA_MODELS_DIR = "data.models_dir"
+DATA_CACHE_DIR = "data.cache_dir"
+DATA_BENCHMARKS_DIR = "data.benchmarks_dir"
+DATA_AUDIT_LOG_PATH = "data.audit_log_path"
+DATA_FEEDBACK_DATASET_PATH = "data.feedback_dataset_path"
+
 # v0.1.1 Feature Flags
 FEATURE_PR_INLINE_COMMENTS = "features.pr_inline_comments"
 FEATURE_CUSTOM_PERSONAS = "features.custom_personas"
@@ -83,6 +94,15 @@ CONFIG_OPTIONS: tuple[str, ...] = (
     AI_RAG_EMBEDDING_MODEL,
     AI_RAG_TOP_K,
     AI_RAG_SCORE_THRESHOLD,
+    DATA_DIR,
+    DATA_ANALYSIS_DIR,
+    DATA_REVIEWS_DIR,
+    DATA_LOGS_DIR,
+    DATA_MODELS_DIR,
+    DATA_CACHE_DIR,
+    DATA_BENCHMARKS_DIR,
+    DATA_AUDIT_LOG_PATH,
+    DATA_FEEDBACK_DATASET_PATH,
 )
 
 SECRET_CONFIG_OPTIONS: frozenset[str] = frozenset(

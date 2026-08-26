@@ -10,10 +10,13 @@ from typing import Annotated, Any
 
 import typer
 
-from devops_cli.config.constants import CONST_VSCODE_CLI
+from devops_cli.config.constants import (
+    CONST_FORBIDDEN_SYSTEM_DIRS,
+    CONST_VSCODE_CLI,
+)
 from devops_cli.config.defaults import (
-    DEFAULT_CLEANUP_OLDER_THAN_DAYS,
-    DEFAULT_SUBPROCESS_SHORT_TIMEOUT_SECONDS,
+    DEFAULT_CLEAN_WORKSPACE_DAYS,
+    DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
 )
 from devops_cli.core.cli import new_typer
 from devops_cli.lang import ERRORS, HELP, MESSAGES
@@ -115,23 +118,12 @@ def _load(ws_file: Path) -> dict[str, Any]:
     return {"folders": [], "settings": {}}
 
 
-_FORBIDDEN_SYSTEM_DIRS = (
-    Path("/etc"),
-    Path("/usr"),
-    Path("/bin"),
-    Path("/sbin"),
-    Path("/var"),
-    Path("/sys"),
-    Path("/proc"),
-)
-
-
 # NOTE (Design Justification - OWASP A01:2021): _is_safe_workspace_file restricts
 # target workspace file writes to .code-workspace and .json filenames while blocking
-# system directories (_FORBIDDEN_SYSTEM_DIRS) to prevent unauthorized file creation.
+# system directories (CONST_FORBIDDEN_SYSTEM_DIRS) to prevent unauthorized file creation.
 def _is_safe_workspace_file(ws_file: Path) -> bool:
     resolved = ws_file.resolve()
-    for sys_dir in _FORBIDDEN_SYSTEM_DIRS:
+    for sys_dir in CONST_FORBIDDEN_SYSTEM_DIRS:
         if resolved == sys_dir or resolved.is_relative_to(sys_dir):
             return False
     return resolved.name.endswith((".code-workspace", ".json"))
@@ -274,7 +266,7 @@ def open_workspace(
     _get("run_subprocess")(
         [CONST_VSCODE_CLI, str(ws_file)],
         check=True,
-        timeout=DEFAULT_SUBPROCESS_SHORT_TIMEOUT_SECONDS,
+        timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
     )
 
 
@@ -288,7 +280,7 @@ def clean_workspace(
     older_than_days: Annotated[
         int,
         typer.Option("--older-than", "-d", help=HELP.workspace.older_than),
-    ] = DEFAULT_CLEANUP_OLDER_THAN_DAYS,
+    ] = DEFAULT_CLEAN_WORKSPACE_DAYS,
     dry_run: Annotated[
         bool,
         typer.Option("--dry-run", help=HELP.options.dry_run),

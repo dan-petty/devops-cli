@@ -14,11 +14,14 @@ from devops_cli.ai.analyze.cache import _render_analysis_summary, save_analysis_
 from devops_cli.ai.analyze.scanner import detect_language, sanitize_reference
 from devops_cli.ai.client import LLMClient
 from devops_cli.config.constants import (
-    CONST_ANALYSIS_DATA_DIR,
     CONST_GIT_MAIN_BRANCH,
     CONST_MAX_FILE_SIZE_BYTES,
 )
-from devops_cli.config.defaults import DEFAULT_MATCH_ALL_PATTERN
+from devops_cli.config.defaults import (
+    DEFAULT_ANALYSIS_DATA_DIR,
+    DEFAULT_CURRENT_PATH,
+    DEFAULT_MATCH_ALL_PATTERN,
+)
 from devops_cli.config.settings import get_ai_api_key, get_github_token, load_settings
 from devops_cli.core.cli import new_typer
 from devops_cli.core.repo import (
@@ -191,7 +194,7 @@ def analyze_main(
 
 @app.command(name="path")
 def analyze_path(
-    target: Annotated[Path, typer.Argument(help=HELP.analyze.target)] = Path("."),
+    target: Annotated[Path, typer.Argument(help=HELP.analyze.target)] = DEFAULT_CURRENT_PATH,
     pattern: Annotated[
         str,
         typer.Option("--pattern", "-g", help=HELP.options.pattern),
@@ -259,7 +262,7 @@ def analyze_path(
     sanitized_ref = sanitize_reference(ref_str, repo)
     existing_file_metas: dict[str, FileAnalysisMeta] = {}
     top_root = find_top_level_repo_root(repo)
-    out_file_path = top_root / CONST_ANALYSIS_DATA_DIR / f"path-{sanitized_ref}-metadata.json"
+    out_file_path = top_root / DEFAULT_ANALYSIS_DATA_DIR / f"path-{sanitized_ref}-metadata.json"
 
     if enhanced and not update_all and out_file_path.exists():
         try:
@@ -348,7 +351,7 @@ def analyze_branch(
     sanitized_ref = sanitize_reference(target_branch, repo)
     existing_file_metas: dict[str, FileAnalysisMeta] = {}
     top_root = find_top_level_repo_root(repo)
-    out_file_path = top_root / CONST_ANALYSIS_DATA_DIR / f"branch-{sanitized_ref}-metadata.json"
+    out_file_path = top_root / DEFAULT_ANALYSIS_DATA_DIR / f"branch-{sanitized_ref}-metadata.json"
 
     if enhanced and not update_all and out_file_path.exists():
         try:

@@ -10,7 +10,7 @@ if TYPE_CHECKING:
     import pathspec
 
 from devops_cli.config.constants import CONST_BINARY_EXTENSIONS
-from devops_cli.config.defaults import DEFAULT_SUBPROCESS_FAST_TIMEOUT_SECONDS
+from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions import SecurityError
 
@@ -108,7 +108,7 @@ def is_ignored_by_git(repo_root: Path, target_path: Path) -> bool:
                 capture_output=True,
                 check=False,
                 quiet=True,
-                timeout=DEFAULT_SUBPROCESS_FAST_TIMEOUT_SECONDS,
+                timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
             )
             if res.returncode == 0:
                 return True
@@ -142,7 +142,7 @@ def _list_git_tracked_files(repo_root: Path, resolved_target: Path) -> list[Path
             text=True,
             check=True,
             quiet=True,
-            timeout=DEFAULT_SUBPROCESS_FAST_TIMEOUT_SECONDS,
+            timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
         )
         files: list[Path] = []
         for line in proc.stdout.splitlines():

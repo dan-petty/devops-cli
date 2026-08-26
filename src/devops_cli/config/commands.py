@@ -6,8 +6,8 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from devops_cli.config.defaults import (
-    DEFAULT_BANDIT_EXCLUDE_TESTS,
-    DEFAULT_FIND_MAX_DEPTH,
+    DEFAULT_BANDIT_EXCLUDE,
+    DEFAULT_FIND_MAXDEPTH,
     DEFAULT_GIT_LOG_COUNT,
     DEFAULT_REST_HOST,
     DEFAULT_SEMGREP_CONFIG,
@@ -65,7 +65,7 @@ def build_git_clone_cmd(repo_url: str, dest_dir: Path) -> list[str]:
 
 def build_find_files_cmd(
     target_dir: Path | str,
-    maxdepth: int = DEFAULT_FIND_MAX_DEPTH,
+    maxdepth: int = DEFAULT_FIND_MAXDEPTH,
     exclude_paths: Sequence[str] | None = None,
 ) -> list[str]:
     """Build a find command with standard path exclusions."""
@@ -114,9 +114,7 @@ def build_kustomize_build_cmd(target_path: Path | str) -> list[str]:
     return [BIN_KUSTOMIZE, "build", str(target_path)]
 
 
-def build_bandit_cmd(
-    target: Path | str, exclude_tests: str = DEFAULT_BANDIT_EXCLUDE_TESTS
-) -> list[str]:
+def build_bandit_cmd(target: Path | str, exclude_tests: str = DEFAULT_BANDIT_EXCLUDE) -> list[str]:
     """Build a bandit security scan command."""
     return [BIN_BANDIT, "-r", str(target), "-q", "-x", exclude_tests]
 

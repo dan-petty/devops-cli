@@ -8,7 +8,7 @@ import httpx2
 from pydantic import BaseModel
 
 from devops_cli.config.constants import CONST_URL_GITHUB_API_BASE
-from devops_cli.config.defaults import DEFAULT_HTTP_LONG_TIMEOUT_SECONDS
+from devops_cli.config.defaults import DEFAULT_HTTP_TIMEOUT_SECONDS
 from devops_cli.models.github import SSHKeyInfo
 
 if TYPE_CHECKING:
@@ -97,7 +97,7 @@ class GitHubClient:
             "Authorization": f"Bearer {self._token}",
             "X-GitHub-Api-Version": "2022-11-28",
         }
-        client_timeout = httpx2.Timeout(DEFAULT_HTTP_LONG_TIMEOUT_SECONDS, connect=1.0)
+        client_timeout = httpx2.Timeout(DEFAULT_HTTP_TIMEOUT_SECONDS, connect=1.0)
         with httpx2.Client(timeout=client_timeout, follow_redirects=False) as c:
             r = c.get(url, headers=headers)
             if r.is_redirect:

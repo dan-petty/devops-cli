@@ -18,9 +18,9 @@ from devops_cli.ai.benchmark.document_chunker import (
 from devops_cli.ai.benchmark.embedding_tasks import (
     EmbeddingEvalPair,
 )
+from devops_cli.ai.benchmark.runner import _get_benchmarks_base_dir
 from devops_cli.ai.rag.embeddings import EmbeddingsEngine
 from devops_cli.config.constants import (
-    CONST_BENCHMARKS_DATA_DIR,
     CONST_EMBEDDING_REPORT_FILENAME,
     CONST_FP32_BYTES_PER_ELEMENT,
     CONST_KILOBYTE_BYTES,
@@ -522,7 +522,8 @@ class EmbeddingBenchmarkRunner:
 
     def _save_report(self, report: EmbeddingBenchmarkReport) -> None:
         """Save benchmark report to disk under .data/benchmarks/<session_id>/."""
-        bench_dir = CONST_BENCHMARKS_DATA_DIR / self.session_id
+        base_dir = _get_benchmarks_base_dir()
+        bench_dir = base_dir / self.session_id
         bench_dir.mkdir(parents=True, exist_ok=True)
         report_file = bench_dir / CONST_EMBEDDING_REPORT_FILENAME
         report_file.write_text(report.model_dump_json(indent=2), encoding="utf-8")

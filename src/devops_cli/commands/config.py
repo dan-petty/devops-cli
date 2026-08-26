@@ -12,7 +12,7 @@ import typer
 
 from devops_cli.config import options as opt
 from devops_cli.config.constants import CONST_CONFIG_PATH
-from devops_cli.config.defaults import DEFAULT_GH_AUTH_TIMEOUT_SECONDS
+from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.config.env import EnvVarSpec, env_var_for_option, get_all_env_var_specs
 from devops_cli.config.settings import (
     _SECRET_FIELDS,
@@ -60,14 +60,13 @@ def _render_secret_store_error(key: str, exc: SecretStorageError) -> None:
 
 
 def _gh_auth_status() -> bool:
-    from devops_cli.config.defaults import DEFAULT_GH_AUTH_TIMEOUT_SECONDS
     from devops_cli.core.process import run_subprocess
 
     try:
         result = run_subprocess(
             ["gh", "auth", "status"],
             quiet=True,
-            timeout=DEFAULT_GH_AUTH_TIMEOUT_SECONDS,
+            timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
         )
     except OSError, subprocess.SubprocessError:
         return False
@@ -75,14 +74,13 @@ def _gh_auth_status() -> bool:
 
 
 def _gh_auth_token() -> str | None:
-    from devops_cli.config.defaults import DEFAULT_GH_AUTH_TIMEOUT_SECONDS
     from devops_cli.core.process import run_subprocess
 
     try:
         result = run_subprocess(
             ["gh", "auth", "token"],
             quiet=True,
-            timeout=DEFAULT_GH_AUTH_TIMEOUT_SECONDS,
+            timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
         )
     except OSError, subprocess.SubprocessError:
         return None
@@ -214,7 +212,7 @@ def init() -> None:
                 ["gh", "auth", "login"],
                 check=False,
                 capture_output=False,
-                timeout=DEFAULT_GH_AUTH_TIMEOUT_SECONDS * 4,
+                timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS * 4,
             )
 
         gh_token = _gh_auth_token()

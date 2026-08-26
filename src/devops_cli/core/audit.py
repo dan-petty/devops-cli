@@ -11,9 +11,11 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict
 
 from devops_cli.config.constants import (
-    CONST_AUDIT_LOG_PATH,
-    CONST_DATA_DIR,
     CONST_STATUS_SUCCESS,
+)
+from devops_cli.config.defaults import (
+    DEFAULT_AUDIT_LOG_PATH,
+    DEFAULT_DATA_DIR,
 )
 
 
@@ -63,20 +65,23 @@ def record_audit_event(
 
 
 def _resolve_audit_log_dest(log_file: Path | None) -> Path:
-    """Resolve audit log destination path, validating env paths stay in CONST_DATA_DIR."""
+    """Resolve audit log destination path, validating env paths stay in data_dir."""
     if log_file is not None:
         return log_file.resolve()
     if "DEVOPS_CLI_AUDIT_LOG_DEST" in os.environ:
         candidate = Path(os.environ["DEVOPS_CLI_AUDIT_LOG_DEST"]).resolve()
-        allowed_root = CONST_DATA_DIR.resolve()
-        if not candidate.is_relative_to(allowed_root):
+        data_dir_env = os.environ.get("DEVOPS_CLI_DATA_DIR")
+        allowed_roots = [DEFAULT_DATA_DIR.resolve()]
+        if data_dir_env:
+            allowed_roots.append(Path(data_dir_env).resolve())
+        if not any(candidate.is_relative_to(root) for root in allowed_roots):
             from devops_cli.exceptions import SecurityError
 
             raise SecurityError(
-                f"DEVOPS_CLI_AUDIT_LOG_DEST must be within {allowed_root}; got {candidate}"
+                f"DEVOPS_CLI_AUDIT_LOG_DEST must be within {allowed_roots[0]}; got {candidate}"
             )
         return candidate
-    return CONST_AUDIT_LOG_PATH
+    return DEFAULT_AUDIT_LOG_PATH
 
 
 def stream_audit_records(destination_url: str, log_file: Path | None = None) -> int:
@@ -84,7 +89,7 @@ def stream_audit_records(destination_url: str, log_file: Path | None = None) -> 
 
     Returns streamed record count.
     """
-    dest = log_file or CONST_AUDIT_LOG_PATH
+    dest = log_file or DEFAULT_AUDIT_LOG_PATH
 
     if not dest.exists():
         return 0

@@ -11,7 +11,10 @@ from typing import Any
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.commands import build_gitleaks_cmd
-from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
+from devops_cli.config.defaults import (
+    DEFAULT_CURRENT_PATH,
+    DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
+)
 from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run.state import is_dry_run
 from devops_cli.telemetry import trace_span
@@ -133,7 +136,7 @@ def _resolve_scan_files(target: Path | list[Path]) -> list[Path]:
 
 
 def run_gitleaks_scan(
-    target: Path | list[Path] = Path("."),
+    target: Path | list[Path] = DEFAULT_CURRENT_PATH,
     no_git: bool = True,
 ) -> list[Finding]:
     """Execute Gitleaks secret scanner subprocess or fallback pattern scan."""

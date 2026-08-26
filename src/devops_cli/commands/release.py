@@ -11,7 +11,13 @@ from typing import Annotated, Any
 
 import typer
 
-from devops_cli.config.constants import CONST_GIT_MAIN_BRANCH
+from devops_cli.config.constants import (
+    CONST_DOCS_DIR_NAME,
+    CONST_GIT_MAIN_BRANCH,
+    CONST_INIT_PY_PATH,
+    CONST_PYPROJECT_FILENAME,
+    CONST_README_FILENAME,
+)
 from devops_cli.config.defaults import (
     DEFAULT_RELEASE_LABEL,
     DEFAULT_RELEASE_TYPE,
@@ -78,7 +84,7 @@ def _resolve_safe_project_path(root: Path, relative_name: str | Path) -> Path:
 
 def _get_pyproject_version(root: Path) -> str | None:
     """Read version string from pyproject.toml."""
-    pyproject_file = _resolve_safe_project_path(root, "pyproject.toml")
+    pyproject_file = _resolve_safe_project_path(root, CONST_PYPROJECT_FILENAME)
     if not pyproject_file.exists():
         return None
     content = pyproject_file.read_text(encoding="utf-8")
@@ -88,7 +94,7 @@ def _get_pyproject_version(root: Path) -> str | None:
 
 def _get_init_version(root: Path) -> str | None:
     """Read version from src/devops_cli/__init__.py or pyproject.toml."""
-    init_file = _resolve_safe_project_path(root, Path("src/devops_cli/__init__.py"))
+    init_file = _resolve_safe_project_path(root, CONST_INIT_PY_PATH)
     if not init_file.exists():
         return None
     content = init_file.read_text(encoding="utf-8")
@@ -145,7 +151,7 @@ def _update_pyproject_version(root: Path, new_version: str) -> bool:
     """Update version in pyproject.toml."""
     from devops_cli.output import write_text_file
 
-    pyproject_file = _resolve_safe_project_path(root, "pyproject.toml")
+    pyproject_file = _resolve_safe_project_path(root, CONST_PYPROJECT_FILENAME)
     if not pyproject_file.exists():
         return False
     content = pyproject_file.read_text(encoding="utf-8")
@@ -165,7 +171,7 @@ def _update_init_version(root: Path, new_version: str) -> bool:
     """Update __version__ in src/devops_cli/__init__.py if hardcoded, or return True."""
     from devops_cli.output import write_text_file
 
-    init_file = _resolve_safe_project_path(root, Path("src/devops_cli/__init__.py"))
+    init_file = _resolve_safe_project_path(root, CONST_INIT_PY_PATH)
     if not init_file.exists():
         return False
     content = init_file.read_text(encoding="utf-8")
@@ -360,7 +366,7 @@ def release_prepare(
             target=clean_version,
             details={
                 "version": clean_version,
-                "pyproject_target": str(repo_root / "pyproject.toml"),
+                "pyproject_target": str(repo_root / CONST_PYPROJECT_FILENAME),
                 "init_target": str(repo_root / "src/devops_cli/__init__.py"),
                 "sync_docs": sync_docs,
                 "update_changelog": update_changelog,
@@ -525,11 +531,11 @@ def release_pr(
         [
             "git",
             "add",
-            "pyproject.toml",
-            "src/devops_cli/__init__.py",
+            CONST_PYPROJECT_FILENAME,
+            str(CONST_INIT_PY_PATH),
             "CHANGELOG.md",
-            "README.md",
-            "docs/",
+            CONST_README_FILENAME,
+            f"{CONST_DOCS_DIR_NAME}/",
         ],
         cwd=repo_root,
     )
@@ -840,11 +846,11 @@ def release_tag(
         [
             "git",
             "add",
-            "pyproject.toml",
-            "src/devops_cli/__init__.py",
+            CONST_PYPROJECT_FILENAME,
+            str(CONST_INIT_PY_PATH),
             "CHANGELOG.md",
-            "README.md",
-            "docs/",
+            CONST_README_FILENAME,
+            f"{CONST_DOCS_DIR_NAME}/",
         ],
         cwd=repo_root,
     )

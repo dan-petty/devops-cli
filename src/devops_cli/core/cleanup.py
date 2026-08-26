@@ -9,7 +9,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from devops_cli.config.constants import CONST_DATA_DIR
+from devops_cli.config.defaults import DEFAULT_DATA_DIR
 from devops_cli.core.repo import find_top_level_repo_root
 from devops_cli.telemetry import trace_span
 
@@ -25,18 +25,6 @@ class CleanupSummary(BaseModel):
     dry_run: bool = False
 
 
-def _calculate_dir_size(d: Path) -> int:
-    """Calculate total size in bytes of all regular files in directory."""
-    total = 0
-    for sub_f in d.rglob("*"):
-        if sub_f.is_file():
-            try:
-                total += sub_f.stat().st_size
-            except OSError:
-                pass
-    return total
-
-
 def _prune_single_item(
     item: Path,
     top_root: Path,
@@ -44,27 +32,27 @@ def _prune_single_item(
     dry_run: bool,
     summary: CleanupSummary,
 ) -> None:
-    """Evaluate and prune a single file or directory older than cutoff_time."""
+    """Helper to evaluate and prune a single expired file or directory."""
     try:
         mtime = item.stat().st_mtime
         if mtime >= cutoff_time:
             return
 
-        rel_str = str(item.relative_to(top_root)) if item.is_relative_to(top_root) else item.name
+        rel_path = str(item.relative_to(top_root))
         if item.is_file():
             size = item.stat().st_size
-            summary.pruned_files.append(rel_str)
-            summary.freed_bytes += size
             if not dry_run:
                 item.unlink(missing_ok=True)
-        elif item.is_dir():
-            size = _calculate_dir_size(item)
-            summary.pruned_dirs.append(rel_str)
+            summary.pruned_files.append(rel_path)
             summary.freed_bytes += size
+        elif item.is_dir():
+            size = sum(f.stat().st_size for f in item.rglob("*") if f.is_file())
             if not dry_run:
                 shutil.rmtree(item, ignore_errors=True)
+            summary.pruned_dirs.append(rel_path)
+            summary.freed_bytes += size
     except Exception as exc:
-        logger.debug("Failed checking %s during cleanup: %s", item, exc)
+        logger.warning("Failed to prune cleanup candidate %s: %s", item, exc)
 
 
 @trace_span("workspace.cleanup")
@@ -75,7 +63,11 @@ def cleanup_data_tier(
 ) -> CleanupSummary:
     """Prune stale review runs, temporary metadata, and cached traces under .data/."""
     top_root = find_top_level_repo_root(repo_root)
-    data_dir = top_root / CONST_DATA_DIR
+    data_dir = (
+        (top_root / DEFAULT_DATA_DIR).resolve()
+        if top_root != Path(".")
+        else DEFAULT_DATA_DIR.resolve()
+    )
     summary = CleanupSummary(dry_run=dry_run)
 
     if not data_dir.exists() or not data_dir.is_dir():

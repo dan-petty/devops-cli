@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from devops_cli.core.audit import _resolve_audit_log_dest, record_audit_event
+from devops_cli.exceptions import SecurityError
 
 
 def test_record_audit_event(tmp_path: Path) -> None:
@@ -34,13 +35,14 @@ def test_record_audit_event(tmp_path: Path) -> None:
 
 def test_resolve_audit_log_dest(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify _resolve_audit_log_dest boundaries and safety checks."""
+    (tmp_path / ".data").mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
     monkeypatch.setenv("DEVOPS_CLI_AUDIT_LOG_DEST", str(tmp_path / ".data" / "custom.jsonl"))
-    monkeypatch.setattr("devops_cli.core.audit.CONST_DATA_DIR", tmp_path / ".data")
     dest = _resolve_audit_log_dest(None)
     assert dest == tmp_path / ".data" / "custom.jsonl"
 
     monkeypatch.setenv("DEVOPS_CLI_AUDIT_LOG_DEST", "/etc/passwd")
-    with pytest.raises(ValueError, match="must be within"):
+    with pytest.raises((ValueError, SecurityError), match="must be within"):
         _resolve_audit_log_dest(None)
 
     monkeypatch.delenv("DEVOPS_CLI_AUDIT_LOG_DEST", raising=False)

@@ -10,6 +10,7 @@ from typing import Any
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.commands import build_trivy_scan_cmd
 from devops_cli.config.defaults import (
+    DEFAULT_CURRENT_PATH,
     DEFAULT_TRIVY_SCAN_TYPE,
     DEFAULT_TRIVY_SEVERITIES,
     DEFAULT_TRIVY_TIMEOUT_SECONDS,
@@ -98,7 +99,7 @@ def parse_trivy_json(data: dict[str, Any], target_path: str = "") -> list[Findin
 
 
 def run_trivy_scan(
-    target: Path = Path("."),
+    target: Path = DEFAULT_CURRENT_PATH,
     scan_type: str = DEFAULT_TRIVY_SCAN_TYPE,
     severity: str = DEFAULT_TRIVY_SEVERITIES,
 ) -> list[Finding]:

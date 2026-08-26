@@ -18,11 +18,11 @@ from devops_cli.config.defaults import (
     DEFAULT_CERT_COMMON_NAME,
     DEFAULT_HOMELAB_DOMAINS,
     DEFAULT_HOMELAB_IPS,
+    DEFAULT_K8S_TLS_SECRET_NAME,
     DEFAULT_TLS_COUNTRY,
     DEFAULT_TLS_DIR,
     DEFAULT_TLS_KEY_SIZE,
     DEFAULT_TLS_ORGANIZATION,
-    DEFAULT_TLS_SECRET_NAME,
     DEFAULT_TLS_VALIDITY_DAYS,
 )
 from devops_cli.core.cli import new_typer
@@ -427,7 +427,7 @@ def enable_k8s_cmd(
     secret_name: Annotated[
         str,
         typer.Option("--secret-name", help=HELP.tls.secret_name),
-    ] = DEFAULT_TLS_SECRET_NAME,
+    ] = DEFAULT_K8S_TLS_SECRET_NAME,
     namespaces: Annotated[
         list[str] | None,
         typer.Option("--namespace", "-n", help=HELP.options.namespace),

@@ -115,7 +115,13 @@ def render_table(
     effective_border = getattr(title, "border_style", border_style)
     effective_box = getattr(title, "box_style", box_style)
 
-    table = Table(title=effective_title, border_style=effective_border, box=effective_box)
+    table = Table(
+        title=effective_title,
+        border_style=effective_border,
+        box=effective_box,
+        title_style="bold cyan",
+        header_style="bold",
+    )
     for col in effective_cols:
         if hasattr(col, "header"):
             # TableColumn Pydantic model

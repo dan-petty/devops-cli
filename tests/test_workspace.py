@@ -10,7 +10,7 @@ from typer.testing import CliRunner
 
 from devops_cli.commands.workspace import app as workspace_app
 from devops_cli.commands.workspace import sync_from_repos
-from devops_cli.config.defaults import DEFAULT_SUBPROCESS_SHORT_TIMEOUT_SECONDS
+from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.main import app
 
 runner = CliRunner()
@@ -82,7 +82,7 @@ def test_workspace_open_resolves_default_workspace_file_from_project_root(tmp_pa
     mock_run.assert_called_once_with(
         ["code", str(workspace_file)],
         check=True,
-        timeout=DEFAULT_SUBPROCESS_SHORT_TIMEOUT_SECONDS,
+        timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
     )
 
 

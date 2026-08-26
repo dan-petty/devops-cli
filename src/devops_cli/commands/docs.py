@@ -8,7 +8,14 @@ from typing import Annotated
 
 import typer
 
-from devops_cli.config.defaults import DEFAULT_DOCS_FORMAT
+from devops_cli.config.constants import (
+    CONST_DOCS_DIR_NAME,
+    CONST_PYPROJECT_FILENAME,
+)
+from devops_cli.config.defaults import (
+    DEFAULT_DOCS_DIR,
+    DEFAULT_DOCS_FORMAT,
+)
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
 from devops_cli.lang import HELP, MESSAGES
@@ -29,10 +36,10 @@ def _get_default_docs_dir() -> Path:
     """Find repository docs/ directory."""
     cur = Path(__file__).resolve().parent
     while cur != cur.parent:
-        if (cur / "pyproject.toml").exists():
-            return cur / "docs"
+        if (cur / CONST_PYPROJECT_FILENAME).exists():
+            return cur / CONST_DOCS_DIR_NAME
         cur = cur.parent
-    return Path("docs")
+    return DEFAULT_DOCS_DIR
 
 
 # =============================================================================

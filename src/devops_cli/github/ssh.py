@@ -9,8 +9,8 @@ import httpx2
 
 from devops_cli.config.constants import CONST_URL_GITHUB_API_BASE
 from devops_cli.config.defaults import (
-    DEFAULT_GH_AUTH_TIMEOUT_SECONDS,
-    DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS,
+    DEFAULT_HTTP_TIMEOUT_SECONDS,
+    DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
 )
 from devops_cli.core.process import run_subprocess
 from devops_cli.github.client import GitHubClient
@@ -71,7 +71,7 @@ def _gh_auth_ok() -> bool:
         result = run_subprocess(
             ["gh", "auth", "status"],
             quiet=True,
-            timeout=DEFAULT_GH_AUTH_TIMEOUT_SECONDS,
+            timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
         )
     except FileNotFoundError, OSError, subprocess.SubprocessError:
         return False
@@ -83,7 +83,7 @@ def _gh_list_keys(endpoint: str) -> set[str] | None:
         result = run_subprocess(
             ["gh", "api", endpoint],
             quiet=True,
-            timeout=DEFAULT_GH_AUTH_TIMEOUT_SECONDS,
+            timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
         )
     except FileNotFoundError, OSError, subprocess.SubprocessError:
         return None
@@ -126,7 +126,7 @@ def _gh_add_key(endpoint: str, pub_key: str, title: str) -> None:
             capture_output=True,
             text=True,
             check=False,
-            timeout=DEFAULT_GH_AUTH_TIMEOUT_SECONDS,
+            timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
         )
     except (FileNotFoundError, OSError, subprocess.SubprocessError) as exc:
         raise SSHRegistrationError(f"GitHub CLI key registration failed: {exc}") from exc
@@ -159,7 +159,7 @@ def _add_signing_key(token: str, pub_key: str, title: str) -> None:
                 "X-GitHub-Api-Version": "2022-11-28",
             },
             json={"title": title, "key": pub_key},
-            timeout=DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS,
+            timeout=DEFAULT_HTTP_TIMEOUT_SECONDS,
         )
         # 422 Unprocessable Entity means the key already exists — that's fine
         if resp.status_code not in (201, 422):

@@ -8,10 +8,12 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
+from devops_cli.ai.review.pipeline import _get_reviews_base_dir
 from devops_cli.config.constants import (
-    CONST_FEEDBACK_DATASET_PATH,
-    CONST_REVIEWS_DATA_DIR,
     CONST_STATUS_INVALIDATED,
+)
+from devops_cli.config.defaults import (
+    DEFAULT_FEEDBACK_DATASET_PATH,
 )
 from devops_cli.exceptions import SecurityError
 
@@ -86,13 +88,13 @@ def export_invalidated_feedback(
 
     Returns (count, output_path).
     """
-    r_dir = reviews_dir or CONST_REVIEWS_DATA_DIR
-    out_path = output_file or CONST_FEEDBACK_DATASET_PATH
+    r_dir = reviews_dir if reviews_dir is not None else _get_reviews_base_dir()
+    out_path = output_file or DEFAULT_FEEDBACK_DATASET_PATH
 
     if output_file is not None:
         resolved_out = output_file.resolve()
         workspace_root = Path.cwd().resolve()
-        data_root = CONST_REVIEWS_DATA_DIR.resolve().parent
+        data_root = _get_reviews_base_dir().resolve().parent
         allowed_roots = [workspace_root, data_root]
         if reviews_dir is not None:
             allowed_roots.append(reviews_dir.resolve().parent)

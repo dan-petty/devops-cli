@@ -8,8 +8,10 @@ from typing import Annotated, Any
 import typer
 
 from devops_cli.config.defaults import (
+    DEFAULT_CURRENT_PATH,
     DEFAULT_RAG_COLLECTION,
     DEFAULT_RAG_DOCS_COLLECTION,
+    DEFAULT_RAG_INDEX_CACHE_PATH,
     DEFAULT_RAG_SCORE_THRESHOLD,
     DEFAULT_RAG_TOP_K,
 )
@@ -100,7 +102,7 @@ def index_cmd(
         typer.Argument(
             help=HELP.rag.target,
         ),
-    ] = Path("."),
+    ] = DEFAULT_CURRENT_PATH,
     project: Annotated[
         str | None,
         typer.Option("--project", "-p", help=HELP.rag.project),
@@ -530,7 +532,7 @@ def clear_cmd(
         print_success(f"Cleared collection: {coll}")
 
     # Remove local cache
-    cache_file = Path(".data/rag/index_cache.json")
+    cache_file = DEFAULT_RAG_INDEX_CACHE_PATH
     if cache_file.exists():
         cache_file.unlink()
         print_success(MESSAGES.rag.reset_cache_success)

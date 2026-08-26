@@ -21,7 +21,14 @@ from devops_cli.config.constants import (
     CONST_DEVCONTAINER_JSON_NAME,
     CONST_DEVCONTAINER_JSON_PATH,
     CONST_DEVCONTAINER_PUBLISHED_IMAGE,
+    CONST_GLOBAL_BIN_PATH,
+    CONST_MCP_JSON_NAME,
+    CONST_PYPROJECT_FILENAME,
+    CONST_ROOT_DIR,
+    CONST_SYSTEM_TEMP_DIRS,
+    CONST_VSCODE_DIR_NAME,
 )
+from devops_cli.config.defaults import DEFAULT_CURRENT_PATH
 from devops_cli.config.metadata import get_project_python_version
 from devops_cli.config.settings import load_settings
 from devops_cli.core.cli import new_typer, repo_label
@@ -73,7 +80,9 @@ def _jinja_env() -> Environment:
 
 @app.command()
 def init(
-    repo_path: Annotated[Path, typer.Argument(help=HELP.devcontainer.repo_path)] = Path("."),
+    repo_path: Annotated[
+        Path, typer.Argument(help=HELP.devcontainer.repo_path)
+    ] = DEFAULT_CURRENT_PATH,
     project_name: Annotated[
         str | None, typer.Option("--name", "-n", help=HELP.devcontainer.project_name)
     ] = None,
@@ -146,8 +155,8 @@ def init(
     write_text_file(dc_file, rendered.strip() + "\n")
     print_success(MESSAGES.devcontainer.created_file.format(path=dc_file))
 
-    vscode_dir = repo_path / ".vscode"
-    mcp_file = vscode_dir / "mcp.json"
+    vscode_dir = repo_path / CONST_VSCODE_DIR_NAME
+    mcp_file = vscode_dir / CONST_MCP_JSON_NAME
     if not mcp_file.exists() or force:
         write_text_file(
             mcp_file,
@@ -168,7 +177,9 @@ def init(
 
 @app.command()
 def update(
-    repo_path: Annotated[Path, typer.Argument(help=HELP.devcontainer.repo_path)] = Path("."),
+    repo_path: Annotated[
+        Path, typer.Argument(help=HELP.devcontainer.repo_path)
+    ] = DEFAULT_CURRENT_PATH,
     python_version: Annotated[
         str, typer.Option("--python", help=HELP.devcontainer.python_version)
     ] = _project_python_version(),
@@ -260,7 +271,7 @@ def validate(
     workspace: Annotated[
         Path,
         typer.Option("--workspace", "-w", help=HELP.devcontainer.workspace_dir),
-    ] = Path("."),
+    ] = DEFAULT_CURRENT_PATH,
     config_path: Annotated[
         Path | None, typer.Option("--config", "-c", help=HELP.devcontainer.config_file)
     ] = None,
@@ -516,7 +527,7 @@ def _ensure_mount_permissions(
     target_path: Path, mount_type: str, *, dry_run: bool = False
 ) -> str | None:
     """Ensure directory creation, ownership, and mode permissions for a volume mount."""
-    if target_path in (Path("/tmp"), Path("/var/tmp")):  # nosec B108
+    if target_path in CONST_SYSTEM_TEMP_DIRS:  # nosec B108
         if not dry_run:
             _safe_chmod_path(target_path, 0o1777, "1777")
         return MESSAGES.devcontainer.temp_dir_permissions_configured.format(path=target_path)
@@ -542,7 +553,7 @@ def _setup_volume_mount_permissions(workspace_dir: Path, *, dry_run: bool = Fals
     actions: list[str] = []
     targets = _extract_mount_targets(workspace_dir)
     for target_path, mount_type in targets:
-        if target_path == Path("/"):
+        if target_path == CONST_ROOT_DIR:
             continue
         msg = _ensure_mount_permissions(target_path, mount_type, dry_run=dry_run)
         if msg:
@@ -553,7 +564,7 @@ def _setup_volume_mount_permissions(workspace_dir: Path, *, dry_run: bool = Fals
 def _link_workspace_binary(workspace_dir: Path, *, dry_run: bool = False) -> str | None:
     """Link workspace .venv/bin/devops to /usr/local/bin/devops for consistent system-wide execution."""
     venv_bin = workspace_dir / ".venv" / "bin" / "devops"
-    dest = Path("/usr/local/bin/devops")
+    dest = CONST_GLOBAL_BIN_PATH
     if not venv_bin.exists():
         return None
 
@@ -802,8 +813,8 @@ def _run_post_start_lifecycle(workspace_dir: Path, *, dry_run: bool = False) -> 
     actions.append(f"Initialized kubeconfig file at {kube_file}")
 
     # 4. MCP configuration sync
-    vscode_mcp = workspace_dir / ".vscode" / "mcp.json"
-    if not vscode_mcp.exists() and (workspace_dir / "pyproject.toml").exists():
+    vscode_mcp = workspace_dir / CONST_VSCODE_DIR_NAME / CONST_MCP_JSON_NAME
+    if not vscode_mcp.exists() and (workspace_dir / CONST_PYPROJECT_FILENAME).exists():
         if not dry_run:
             env = _jinja_env()
             raw_name = workspace_dir.name
@@ -995,7 +1006,7 @@ def _start_git_daemon(workspace_dir: Path, *, dry_run: bool = False) -> list[str
 def post_create(
     workspace: Annotated[
         Path, typer.Option("--workspace", "-w", help=HELP.options.workspace_dir)
-    ] = Path("."),
+    ] = DEFAULT_CURRENT_PATH,
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Execute DevContainer post-create setup tasks (history, shell completions, config prep)."""
@@ -1024,7 +1035,7 @@ def post_create(
 def post_start(
     workspace: Annotated[
         Path, typer.Option("--workspace", "-w", help=HELP.options.workspace_dir)
-    ] = Path("."),
+    ] = DEFAULT_CURRENT_PATH,
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Execute DevContainer post-start tasks (SSH keys, git defaults, kubeconfig, MCP sync)."""
@@ -1053,7 +1064,7 @@ def post_start(
 def run_lifecycle(
     workspace: Annotated[
         Path, typer.Option("--workspace", "-w", help=HELP.options.workspace_dir)
-    ] = Path("."),
+    ] = DEFAULT_CURRENT_PATH,
     post_create_flag: Annotated[
         bool, typer.Option("--post-create", help=HELP.devcontainer.run_post_create)
     ] = False,

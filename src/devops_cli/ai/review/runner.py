@@ -41,14 +41,14 @@ from devops_cli.ai.review_schema import (
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.constants import (
     CONST_AGENTS_MD_FILENAME,
-    CONST_DATA_DIR,
     CONST_GIT_MAIN_BRANCH,
     CONST_GITIGNORE_DIRS,
     CONST_REVIEW_GENERATED_FILES,
     CONST_REVIEW_MAX_DIFF_CHARS,
-    CONST_REVIEWS_DATA_DIR,
 )
 from devops_cli.config.defaults import (
+    DEFAULT_CURRENT_PATH,
+    DEFAULT_DATA_DIR,
     DEFAULT_REVIEW_TIMEOUT_SECONDS,
 )
 from devops_cli.config.settings import Settings, get_ai_api_key, load_settings
@@ -339,13 +339,14 @@ def _fallback_join(reviews: list[str]) -> str:
 
 
 def _get_reviews_base_dir() -> Path:
-    import devops_cli.commands.review as r_mod
-
-    data_dir = getattr(r_mod, "CONST_DATA_DIR", CONST_DATA_DIR)
-    reviews_data_dir = getattr(r_mod, "CONST_REVIEWS_DATA_DIR", CONST_REVIEWS_DATA_DIR)
-    if data_dir != reviews_data_dir.parent:
-        return data_dir / "reviews"
-    return reviews_data_dir
+    settings = load_settings()
+    d = (
+        settings.data.reviews_dir
+        if settings.data.dir == DEFAULT_DATA_DIR
+        else settings.data.dir / "reviews"
+    )
+    d.mkdir(parents=True, exist_ok=True)
+    return d
 
 
 def _find_session_dir(session_arg: str | None) -> Path | None:
@@ -1405,7 +1406,7 @@ def _execute_review_workflow(
     clients: ReviewClients,
     target_type: Literal["branch", "pr", "path"] = "path",
     target_ref: str = ".",
-    target_dir: Path = Path("."),
+    target_dir: Path = DEFAULT_CURRENT_PATH,
 ) -> list[tuple[PersonaDefinition, ReviewResult | str]]:
     """Common review execution workflow for path, branch, and PR reviews."""
     from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator

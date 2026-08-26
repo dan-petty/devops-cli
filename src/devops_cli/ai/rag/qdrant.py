@@ -15,7 +15,7 @@ from qdrant_client.http.exceptions import ResponseHandlingException
 
 from devops_cli.config.defaults import (
     DEFAULT_EMBEDDING_BATCH_SIZE,
-    DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS,
+    DEFAULT_HTTP_TIMEOUT_SECONDS,
     DEFAULT_MAX_RETRIES,
     DEFAULT_QDRANT_DISTANCE,
     DEFAULT_QDRANT_URL,
@@ -111,7 +111,7 @@ class QdrantClient:
         *,
         api_key: str | None = None,
         allow_private_network: bool = True,
-        timeout: float = DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS,
+        timeout: float = DEFAULT_HTTP_TIMEOUT_SECONDS,
     ) -> None:
         parsed = urllib.parse.urlparse(base_url)
         if not parsed.scheme or not parsed.netloc:

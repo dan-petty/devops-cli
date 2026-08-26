@@ -13,6 +13,7 @@ from devops_cli.ai.rag.chunker import SemanticChunker
 from devops_cli.ai.rag.embeddings import EmbeddingsEngine
 from devops_cli.ai.rag.models import CodeChunk, IndexStats
 from devops_cli.ai.rag.qdrant import QdrantClient
+from devops_cli.config.constants import CONST_INDEX_CACHE_FILENAME
 from devops_cli.config.defaults import (
     DEFAULT_RAG_CACHE_DIR,
     DEFAULT_RAG_CHUNK_OVERLAP,
@@ -315,7 +316,7 @@ class WorkspaceIndexer:
         self.code_collection = code_collection
         self.docs_collection = docs_collection
         self.cache_dir = cache_dir
-        self.cache_file = cache_dir / "index_cache.json"
+        self.cache_file = cache_dir / CONST_INDEX_CACHE_FILENAME
         self.chunker = SemanticChunker(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
 
     def _load_cache(self) -> dict[str, str]:

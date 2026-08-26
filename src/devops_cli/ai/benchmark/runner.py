@@ -15,7 +15,6 @@ from typing import Any
 from devops_cli.ai.client import LLMClient
 from devops_cli.ai.review_schema import extract_json_block
 from devops_cli.ai.task_loader import load_task_prompt
-from devops_cli.config.constants import CONST_DATA_DIR
 from devops_cli.config.settings import Settings, get_ai_api_key, load_settings
 from devops_cli.dry_run.state import is_dry_run
 from devops_cli.models.benchmark import (
@@ -31,6 +30,16 @@ from devops_cli.output import print_info, print_success, print_table, write_stdo
 logger = logging.getLogger(__name__)
 
 _GRADER_PROMPT_TEMPLATE = load_task_prompt("benchmark_peer_grader.md")
+
+
+def _get_benchmarks_base_dir() -> Path:
+    """Resolve benchmarks base directory dynamically from settings."""
+    settings = load_settings()
+    return (
+        settings.data.benchmarks_dir
+        if hasattr(settings.data, "benchmarks_dir") and settings.data.benchmarks_dir
+        else settings.data.dir / "benchmarks"
+    )
 
 
 def _format_model_peer_feedback(m: Any, peer_grades: list[Any]) -> list[str]:
@@ -969,7 +978,7 @@ class BenchmarkRunner:
 
     def _save_report(self, report: BenchmarkReport) -> Path:
         """Persist structured benchmark report to JSON artifact."""
-        out_dir = CONST_DATA_DIR / "benchmarks"
+        out_dir = _get_benchmarks_base_dir()
         out_dir.mkdir(parents=True, exist_ok=True)
         out_path = out_dir / f"{report.session_id}-benchmark.json"
         out_path.write_text(report.model_dump_json(indent=2), encoding="utf-8")
@@ -1027,7 +1036,8 @@ class BenchmarkRunner:
                 ]
             )
 
-        report_path = CONST_DATA_DIR / "benchmarks" / f"{report.session_id}-benchmark.json"
+        base_bench_dir = _get_benchmarks_base_dir()
+        report_path = base_bench_dir / f"{report.session_id}-benchmark.json"
         write_stdout("\n")
         print_table(
             title=f"AI Benchmark Leaderboard (Session {report.session_id})",

@@ -9,6 +9,7 @@ import typer
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.defaults import (
+    DEFAULT_CURRENT_PATH,
     DEFAULT_SEMGREP_CONFIG,
     DEFAULT_TRIVY_SCAN_TYPE,
     DEFAULT_TRIVY_SEVERITIES,
@@ -87,7 +88,7 @@ def callback(
 ) -> None:
     """Security, vulnerability, secret, and AST scanner (Trivy, Semgrep, Gitleaks)."""
     if ctx.invoked_subcommand is None:
-        scan_trivy(target=Path("."), dry_run=dry_run, json_output=json_output)
+        scan_trivy(target=DEFAULT_CURRENT_PATH, dry_run=dry_run, json_output=json_output)
 
 
 # =============================================================================
@@ -100,7 +101,7 @@ def scan_trivy(
     target: Annotated[
         Path,
         typer.Argument(help=HELP.scan.target),
-    ] = Path("."),
+    ] = DEFAULT_CURRENT_PATH,
     scan_type: Annotated[
         str,
         typer.Option("--type", "-t", help=HELP.scan.scan_type),
@@ -176,7 +177,7 @@ def scan_secrets(
     target: Annotated[
         Path,
         typer.Argument(help=HELP.scan.target_secrets),
-    ] = Path("."),
+    ] = DEFAULT_CURRENT_PATH,
     dry_run: Annotated[
         bool,
         typer.Option("--dry-run", help=HELP.options.dry_run),
@@ -238,7 +239,7 @@ def scan_gitleaks_cmd(
     target: Annotated[
         Path,
         typer.Argument(help=HELP.scan.target_secrets),
-    ] = Path("."),
+    ] = DEFAULT_CURRENT_PATH,
     dry_run: Annotated[
         bool,
         typer.Option("--dry-run", help=HELP.options.dry_run),
@@ -262,7 +263,7 @@ def scan_semgrep_cmd(
     target: Annotated[
         Path,
         typer.Argument(help=HELP.scan.target_semgrep),
-    ] = Path("."),
+    ] = DEFAULT_CURRENT_PATH,
     config: Annotated[
         str,
         typer.Option("--config", "-c", help=HELP.scan.semgrep_config),
@@ -285,7 +286,7 @@ def scan_sast(
     target: Annotated[
         Path,
         typer.Argument(help=HELP.scan.target_semgrep),
-    ] = Path("."),
+    ] = DEFAULT_CURRENT_PATH,
     config: Annotated[
         str,
         typer.Option("--config", "-c", help=HELP.scan.semgrep_config),
@@ -351,7 +352,7 @@ def scan_checkov(
     target: Annotated[
         Path,
         typer.Argument(help=HELP.scan.target_checkov),
-    ] = Path("."),
+    ] = DEFAULT_CURRENT_PATH,
     framework: Annotated[
         str | None,
         typer.Option("--framework", "-f", help=HELP.scan.framework),
@@ -374,7 +375,7 @@ def scan_iac(
     target: Annotated[
         Path,
         typer.Argument(help=HELP.scan.target_checkov),
-    ] = Path("."),
+    ] = DEFAULT_CURRENT_PATH,
     framework: Annotated[
         str | None,
         typer.Option("--framework", "-f", help=HELP.scan.framework),

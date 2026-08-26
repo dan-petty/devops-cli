@@ -9,7 +9,11 @@ from typing import Any
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.commands import BIN_BANDIT
-from devops_cli.config.defaults import DEFAULT_BANDIT_SEVERITY, DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
+from devops_cli.config.defaults import (
+    DEFAULT_BANDIT_SEVERITY,
+    DEFAULT_CURRENT_PATH,
+    DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
+)
 from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run.state import is_dry_run
 from devops_cli.telemetry import trace_span
@@ -51,7 +55,7 @@ def parse_bandit_json(data: dict[str, Any], target_path: str = "") -> list[Findi
 
 
 def run_bandit_scan(
-    target: Path | list[Path] = Path("."),
+    target: Path | list[Path] = DEFAULT_CURRENT_PATH,
     severity_level: str = DEFAULT_BANDIT_SEVERITY,
 ) -> list[Finding]:
     """Execute Bandit Python security scanner subprocess and return parsed findings."""
