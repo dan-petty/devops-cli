@@ -59,7 +59,7 @@ from devops_cli.models.vulnerability import (
     NetworkReputationRecord,
     VulnerabilityRecord,
 )
-from devops_cli.output import print_info, print_success, print_table
+from devops_cli.output import escape_text, print_info, print_panel, print_success, print_table
 from devops_cli.security.reference_extractor import (
     extract_dependencies_from_text,
     extract_network_references,
@@ -1767,6 +1767,57 @@ class ReviewPipelineOrchestrator:
                 ]
             )
         print_table(title="Code Review Findings", columns=columns, rows=rows, console=console)
+
+        for idx, f in enumerate(reportable_findings, 1):
+            sev_upper = f.severity.upper()
+            sev_color = {
+                "CRITICAL": "red",
+                "HIGH": "orange3",
+                "MEDIUM": "yellow",
+                "LOW": "cyan",
+                "INFO": "green",
+            }.get(sev_upper, "white")
+
+            st_badge = (
+                "[green]✓ VERIFIED[/green]"
+                if f.status.upper() == "VERIFIED"
+                else (
+                    "[cyan]~ MITIGATED[/cyan]"
+                    if f.status.upper() == "MITIGATED"
+                    else (
+                        "[red]✗ INVALIDATED[/red]"
+                        if f.status.upper() == "INVALIDATED"
+                        else f"[yellow]? {f.status}[/yellow]"
+                    )
+                )
+            )
+
+            title_header = f"[{sev_color} bold]Finding #{idx}: [{sev_upper}] {escape_text(f.title)}[/{sev_color} bold]  {st_badge}"
+            panel_lines = [
+                f"[bold]Location:[/bold] [cyan]{escape_text(f.location)}[/cyan]  |  [bold]Persona:[/bold] [magenta]{escape_text(f.persona_title or f.persona)}[/magenta]",
+            ]
+            if f.description:
+                panel_lines.extend(["", "[bold]Description:[/bold]", f.description.strip()])
+            if f.fix:
+                panel_lines.extend(["", "[bold]Suggested Fix:[/bold]", f.fix.strip()])
+            if f.invalidation_reason:
+                panel_lines.extend(
+                    [
+                        "",
+                        f"[bold yellow]Invalidation Reason:[/bold yellow] {f.invalidation_reason.strip()}",
+                    ]
+                )
+            if f.references:
+                panel_lines.extend(
+                    ["", f"[dim]References: {escape_text(', '.join(f.references))}[/dim]"]
+                )
+
+            print_panel(
+                "\n".join(panel_lines),
+                title=title_header,
+                border_style=sev_color,
+                console=console,
+            )
 
     def _render_console_dependencies_table(
         self, console: Any, all_deps: list[DependencySpec]

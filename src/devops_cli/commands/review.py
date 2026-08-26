@@ -125,8 +125,10 @@ def __getattr__(name: str) -> Any:
 
         return getattr(devops_cli.ai.review_schema, name)
     if name in {
+        "escape_text",
         "print_error",
         "print_info",
+        "print_panel",
         "print_section",
         "print_success",
         "print_table",
@@ -291,7 +293,7 @@ def path(
     if len(path_targets) == 1:
         target = path_targets[0]
         pages, title, agents_md = _prepare_path_content(target, pattern)
-        target_dir = target if target.is_dir() else target.parent
+        target_dir = target if target.is_dir() else Path(".")
         target_ref = str(target)
     else:
         all_pages: list[str] = []
@@ -304,8 +306,8 @@ def path(
             if not agents_md and t_agents:
                 agents_md = t_agents
             target_names.append(str(t))
-            if first_target_dir == Path(".") and t.exists():
-                first_target_dir = t if t.is_dir() else t.parent
+            if first_target_dir == Path(".") and t.exists() and t.is_dir():
+                first_target_dir = t
 
         pages = all_pages
         title = f"Multiple targets ({len(path_targets)} paths)"
@@ -507,6 +509,12 @@ def list_findings(
         bool, typer.Option("--invalidated", help=HELP.review.invalidated)
     ] = False,
     verified: Annotated[bool, typer.Option("--verified", help=HELP.review.verified)] = False,
+    details: Annotated[
+        bool,
+        typer.Option(
+            "--details", "-d", help="Display full finding descriptions and fix recommendations."
+        ),
+    ] = False,
 ) -> None:
     """Inspect structured findings for a review session."""
     from devops_cli.ai.review.runner import _find_session_dir
@@ -581,6 +589,57 @@ def list_findings(
         ],
         rows=rows,
     )
+
+    if details:
+        for idx, f in enumerate(findings, 1):
+            sev_upper = f.severity.upper()
+            sev_color = {
+                "CRITICAL": "red",
+                "HIGH": "orange3",
+                "MEDIUM": "yellow",
+                "LOW": "cyan",
+                "INFO": "green",
+            }.get(sev_upper, "white")
+
+            st_badge = (
+                "[green]✓ VERIFIED[/green]"
+                if f.status.upper() == "VERIFIED"
+                else (
+                    "[red]✗ INVALIDATED[/red]"
+                    if f.status.upper() == "INVALIDATED"
+                    else (
+                        "[cyan]~ MITIGATED[/cyan]"
+                        if f.status.upper() == "MITIGATED"
+                        else f"[yellow]? {f.status}[/yellow]"
+                    )
+                )
+            )
+
+            title_header = f"[{sev_color} bold]Finding #{idx}: [{sev_upper}] {_get('escape_text')(f.title)}[/{sev_color} bold]  {st_badge}"
+            panel_lines = [
+                f"[bold]Location:[/bold] [cyan]{_get('escape_text')(f.location)}[/cyan]  |  [bold]Persona:[/bold] [magenta]{_get('escape_text')(f.persona_title or f.persona)}[/magenta]",
+            ]
+            if f.description:
+                panel_lines.extend(["", "[bold]Description:[/bold]", f.description.strip()])
+            if f.fix:
+                panel_lines.extend(["", "[bold]Suggested Fix:[/bold]", f.fix.strip()])
+            if f.invalidation_reason:
+                panel_lines.extend(
+                    [
+                        "",
+                        f"[bold yellow]Invalidation Reason:[/bold yellow] {f.invalidation_reason.strip()}",
+                    ]
+                )
+            if f.references:
+                panel_lines.extend(
+                    ["", f"[dim]References: {_get('escape_text')(', '.join(f.references))}[/dim]"]
+                )
+
+            _get("print_panel")(
+                "\n".join(panel_lines),
+                title=title_header,
+                border_style=sev_color,
+            )
 
 
 # =============================================================================

@@ -369,3 +369,13 @@ def test_review_verify_stats_and_export_extended(tmp_path: Path) -> None:
     with patch("devops_cli.commands.review.stage_finding_patch", return_value=True):
         res_patch_ok = runner.invoke(review_app, ["apply-patch", "rev_sess_1", "--index", "1"])
         assert res_patch_ok.exit_code == 0
+
+    # 7. findings command with --details pretty formatting
+    with patch("devops_cli.ai.review.runner._find_session_dir", return_value=sess_dir):
+        res_details = runner.invoke(
+            review_app, ["findings", "--session", "rev_sess_1", "--details"]
+        )
+        assert res_details.exit_code == 0
+        assert "Finding #1" in res_details.output
+        assert "Hardcoded API Key" in res_details.output
+        assert "Found sensitive secret in source" in res_details.output

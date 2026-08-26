@@ -301,6 +301,7 @@ devops ai review findings [OPTIONS]
 | `--unverified` | `boolean` | - | Show unverified findings only. |
 | `--invalidated` | `boolean` | - | Show invalidated findings only. |
 | `--verified` | `boolean` | - | Show verified findings only. |
+| `--details`, `-d` | `boolean` | - | Display full finding descriptions and fix recommendations. |
 
 ### `devops ai review verify`
 
