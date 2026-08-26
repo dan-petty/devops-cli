@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from devops_cli.ai.personas import PersonaDefinition
-from devops_cli.ai.review_schema import ReviewResult
+from devops_cli.ai.review_schema import ReviewResult, format_clean_text_field
 from devops_cli.output import (
     escape_text,
     print_info,
@@ -72,12 +72,21 @@ def _render_review_result(persona: PersonaDefinition, result: ReviewResult) -> N
                 f"[bold]Location:[/bold] [cyan]{escape_text(f.location)}[/cyan]",
             ]
             if f.description:
-                panel_lines.extend(["", "[bold]Description:[/bold]", f.description.strip()])
-            if f.fix:
-                panel_lines.extend(["", "[bold]Suggested Fix:[/bold]", f.fix.strip()])
-            if f.references:
                 panel_lines.extend(
-                    ["", f"[dim]References: {escape_text(', '.join(f.references))}[/dim]"]
+                    [
+                        "",
+                        "[bold]Description:[/bold]",
+                        format_clean_text_field(f.description).strip(),
+                    ]
+                )
+            if f.fix:
+                panel_lines.extend(
+                    ["", "[bold]Suggested Fix:[/bold]", format_clean_text_field(f.fix).strip()]
+                )
+            if f.references:
+                refs_list = f.references if isinstance(f.references, list) else [str(f.references)]
+                panel_lines.extend(
+                    ["", f"[dim]References: {escape_text(', '.join(refs_list))}[/dim]"]
                 )
             print_panel(
                 "\n".join(panel_lines),

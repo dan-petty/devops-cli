@@ -66,20 +66,39 @@ def get_console(
     file: Any = None,
     color_system: Any = None,
     stderr: bool = False,
+    force_terminal: bool | None = None,
     **kwargs: Any,
-) -> Any:
+) -> _RichConsole:
     """Return a Console instance dynamically bound to output, stderr, or custom file stream."""
-    return _RichConsole(file=file, color_system=color_system, stderr=stderr, **kwargs)
+    global _CONSOLE, _STDERR_CONSOLE
+    if file is not None or kwargs or force_terminal is not None or color_system is not None:
+        return _RichConsole(
+            file=file,
+            color_system=color_system,
+            stderr=stderr,
+            force_terminal=force_terminal,
+            **kwargs,
+        )
+    if stderr:
+        if _STDERR_CONSOLE is None:
+            _STDERR_CONSOLE = _RichConsole(stderr=True)
+        return _STDERR_CONSOLE
+    if _CONSOLE is None:
+        _CONSOLE = _RichConsole()
+    return _CONSOLE
 
 
 def get_stderr_console(
     *,
     file: Any = None,
     color_system: Any = None,
+    force_terminal: bool | None = None,
     **kwargs: Any,
-) -> Any:
+) -> _RichConsole:
     """Return a Console instance dynamically bound to standard error stream."""
-    return _RichConsole(file=file, color_system=color_system, stderr=True, **kwargs)
+    return get_console(
+        file=file, color_system=color_system, stderr=True, force_terminal=force_terminal, **kwargs
+    )
 
 
 def write_stream(
@@ -146,7 +165,6 @@ def print_message(
     }
 
     def_style, def_prefix = defaults.get(level, ("white", ""))
-    active_style = style or def_style
 
     if isinstance(prefix, str):
         pre_str = prefix
@@ -155,10 +173,18 @@ def print_message(
     else:
         pre_str = ""
 
-    if active_style:
-        c.print(f"[{active_style}]{pre_str}{message}[/{active_style}]")
+    if style is not None:
+        c.print(f"[{style}]{pre_str}{message}[/{style}]")
+    elif prefix:
+        if level == "info":
+            c.print(f"[{def_style}]{pre_str}[/{def_style}]{message}")
+        else:
+            c.print(f"[{def_style}]{pre_str}{message}[/{def_style}]")
     else:
-        c.print(f"{pre_str}{message}")
+        if level in {"error", "warning", "muted", "success", "step"}:
+            c.print(f"[{def_style}]{message}[/{def_style}]")
+        else:
+            c.print(message)
 
 
 def print_success(

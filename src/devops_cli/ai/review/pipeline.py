@@ -43,15 +43,15 @@ from devops_cli.ai.review_schema import (
     ReviewSessionPayload,
     SavedFinding,
     consolidate_duplicate_findings,
+    format_clean_text_field,
     parse_review_response,
 )
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.ai.thinking import extract_think_blocks
 from devops_cli.config.constants import (
-    CONST_DATA_DIR,
     CONST_MAX_FILE_SIZE_BYTES,
-    CONST_REVIEWS_DATA_DIR,
 )
+from devops_cli.config.defaults import DEFAULT_CURRENT_PATH
 from devops_cli.models.ai import FileAnalysisMeta
 from devops_cli.models.vulnerability import (
     DependencySpec,
@@ -595,6 +595,17 @@ def _format_network_ref_table_row(n: NetworkReference) -> list[str]:
     ]
 
 
+def _get_reviews_base_dir() -> Path:
+    from devops_cli.config.settings import load_settings
+
+    settings = load_settings()
+    return (
+        settings.data.reviews_dir
+        if hasattr(settings.data, "reviews_dir") and settings.data.reviews_dir
+        else settings.data.dir / "reviews"
+    )
+
+
 class ReviewPipelineOrchestrator:
     """Orchestrates 6-stage multi-agent code reviews with per-file payloads and AI scratchpads."""
 
@@ -602,24 +613,24 @@ class ReviewPipelineOrchestrator:
         self,
         session_id: str | None = None,
         llm_client: LLMClient | None = None,
-        target_dir: Path = Path("."),
+        target_dir: Path = DEFAULT_CURRENT_PATH,
         session_dir: Path | None = None,
     ) -> None:
         self.session_id = session_id or datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+        self.target_dir = target_dir
         if session_dir is not None:
             self.session_dir = session_dir
         else:
             base_dir = (
-                CONST_DATA_DIR / "reviews"
-                if CONST_DATA_DIR != CONST_REVIEWS_DATA_DIR.parent
-                else CONST_REVIEWS_DATA_DIR
+                (target_dir / _get_reviews_base_dir()).resolve()
+                if target_dir != DEFAULT_CURRENT_PATH
+                else _get_reviews_base_dir().resolve()
             )
             self.session_dir = base_dir / self.session_id
         self.files_dir = self.session_dir / "files"
         self.session_dir.mkdir(parents=True, exist_ok=True)
         self.files_dir.mkdir(parents=True, exist_ok=True)
         self.llm_client = llm_client or LLMClient()
-        self.target_dir = target_dir
         self.errored_files: dict[str, str] = {}
 
     def _resolve_file_path(self, fpath: str) -> Path:
@@ -657,7 +668,7 @@ class ReviewPipelineOrchestrator:
     # ── Stage 1: Pre-Analysis & Metadata Refresh ──────────────────────────────
     def run_pre_analysis_refresh(
         self,
-        target_dir: Path = Path("."),
+        target_dir: Path = DEFAULT_CURRENT_PATH,
         target_type: Literal["branch", "pr", "path"] = "path",
         target_ref: str = ".",
         force_refresh: bool = False,
@@ -767,8 +778,8 @@ class ReviewPipelineOrchestrator:
             from devops_cli.security.bandit import run_bandit_scan
 
             print_info(
-                "  [cyan]• Running static security analyzers "
-                "(Bandit, Kube-linter, Pluto, Trivy, Semgrep, Gitleaks)...[/cyan]",
+                "  • Running static security analyzers "
+                "(Bandit, Kube-linter, Pluto, Trivy, Semgrep, Gitleaks)...",
                 prefix=False,
             )
 
@@ -830,8 +841,7 @@ class ReviewPipelineOrchestrator:
         """Extract dependencies and network references across target files and dynamic probes."""
         n_paths = len(file_paths)
         print_info(
-            f"  [cyan]• Extracting dependencies and network references across "
-            f"{n_paths} file(s)...[/cyan]",
+            f"  • Extracting dependencies and network references across {n_paths} file(s)...",
             prefix=False,
         )
         raw_file_data: dict[str, tuple[list[DependencySpec], list[NetworkReference]]] = {}
@@ -932,8 +942,8 @@ class ReviewPipelineOrchestrator:
                 return target, NetworkReputationRecord(target=target, ip="")
 
         print_info(
-            "  [cyan]• Querying vulnerability databases & threat intelligence "
-            "(OSV, Shodan, Cloudflare)...[/cyan]",
+            "  • Querying vulnerability databases & threat intelligence "
+            "(OSV, Shodan, Cloudflare)...",
             prefix=False,
         )
         with trace_span(
@@ -1109,7 +1119,7 @@ class ReviewPipelineOrchestrator:
         """Assemble FileReviewPayload models and persist tracking JSON files."""
         n_paths = len(file_paths)
         print_info(
-            f"  [cyan]• Assembling payload tracking files & linking dependency graphs for {n_paths} file(s)...[/cyan]",
+            f"  • Assembling payload tracking files & linking dependency graphs for {n_paths} file(s)...",
             prefix=False,
         )
         payloads: list[FileReviewPayload] = []
@@ -1361,7 +1371,7 @@ class ReviewPipelineOrchestrator:
                 sec_str = "0.0s"
 
             print_info(
-                f"[cyan][{idx}/{total_files}][/cyan] Reviewed [bold]{fpath}[/bold] "
+                f"[{idx}/{total_files}] Reviewed [bold]{fpath}[/bold] "
                 f"({n_findings} finding(s)) [dim]handled by {handled_by} {sec_str}[/dim]",
                 prefix=False,
             )
@@ -1536,6 +1546,7 @@ class ReviewPipelineOrchestrator:
                 result=ReviewResult(findings=findings_to_verify),
                 all_segments=[context],
                 client=self.llm_client,
+                repo_root=self.target_dir,
             )
             elapsed_sec = proc_sec if proc_sec is not None else (time.monotonic() - t_start)
             verified_list = review_res.findings
@@ -1589,7 +1600,7 @@ class ReviewPipelineOrchestrator:
                 sec_str = "0.0s"
 
             print_info(
-                f"[cyan][{idx}/{total_files}][/cyan] Verified [bold]{fpath}[/bold] "
+                f"[{idx}/{total_files}] Verified [bold]{fpath}[/bold] "
                 f"({valid_cnt}/{tot_u} valid) [dim]handled by {handled_by} {sec_str}[/dim]",
                 prefix=False,
             )
@@ -1899,15 +1910,24 @@ class ReviewPipelineOrchestrator:
                 f"[bold]Location:[/bold] [cyan]{escape_text(f.location)}[/cyan]  |  [bold]Persona:[/bold] [magenta]{escape_text(f.persona_title or f.persona)}[/magenta]",
             ]
             if f.description:
-                panel_lines.extend(["", "[bold]Description:[/bold]", f.description.strip()])
+                panel_lines.extend(
+                    [
+                        "",
+                        "[bold]Description:[/bold]",
+                        format_clean_text_field(f.description).strip(),
+                    ]
+                )
             if f.fix:
-                panel_lines.extend(["", "[bold]Suggested Fix:[/bold]", f.fix.strip()])
+                panel_lines.extend(
+                    ["", "[bold]Suggested Fix:[/bold]", format_clean_text_field(f.fix).strip()]
+                )
             if f.invalidation_reason:
                 inv_text = f"[bold yellow]Invalidation Reason:[/bold yellow] {f.invalidation_reason.strip()}"
                 panel_lines.extend(["", inv_text])
             if f.references:
+                refs_list = f.references if isinstance(f.references, list) else [str(f.references)]
                 panel_lines.extend(
-                    ["", f"[dim]References: {escape_text(', '.join(f.references))}[/dim]"]
+                    ["", f"[dim]References: {escape_text(', '.join(refs_list))}[/dim]"]
                 )
 
             print_panel(
