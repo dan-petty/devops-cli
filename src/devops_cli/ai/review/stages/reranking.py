@@ -1,33 +1,41 @@
-"""Finding Deduplication, Severity Re-Ranking & Group Consolidation."""
+"""Cross-persona deduplication, severity calibration, and confidence ranking."""
 
 from __future__ import annotations
 
-import logging
+from devops_cli.ai.review_schema import SavedFinding
+from devops_cli.output import print_info
+from devops_cli.telemetry.tracer import trace_span
 
-from devops_cli.ai.review_schema import (
-    FileReviewPayload,
-    SavedFinding,
-    _parse_location,
-    consolidate_duplicate_findings,
-)
-from devops_cli.telemetry import trace_span
-
-logger = logging.getLogger(__name__)
+SEVERITY_ORDER = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3, "INFO": 4}
 
 
-@trace_span("review.stage.reranking")
-def run_reranking(payload: FileReviewPayload) -> list[SavedFinding]:
-    """Consolidate duplicate findings, re-rank by severity, and sort by location."""
-    if not payload.findings:
-        return []
+def run_reranking_stage(findings: list[SavedFinding]) -> list[SavedFinding]:
+    """Execute finding re-ranking, deduplication, and confidence calibration."""
+    with trace_span("review.reranking", attributes={"input_findings": len(findings)}):
+        print_info(
+            f"Re-ranking and calibrating {len(findings)} finding(s)...",
+            prefix=False,
+        )
 
-    # Consolidate duplicates across personas
-    consolidated = consolidate_duplicate_findings(payload.findings)
+        # Deduplicate by normalized (location, title)
+        seen: set[tuple[str, str]] = set()
+        deduped: list[SavedFinding] = []
+        for f in findings:
+            key = (f.location.strip(), f.title.strip().lower())
+            if key not in seen:
+                seen.add(key)
+                deduped.append(f)
 
-    # Sort deterministically by line number extracted from location
-    def _line_sort_key(f: SavedFinding) -> int:
-        _, s_line, _ = _parse_location(f.location)
-        return s_line if s_line is not None else 0
+        # Sort by severity rank, then location
+        deduped.sort(
+            key=lambda x: (
+                SEVERITY_ORDER.get(x.severity.upper(), 99),
+                x.location,
+            )
+        )
 
-    consolidated.sort(key=_line_sort_key)
-    return consolidated
+        print_info(
+            f"    ✓ Finding re-ranking completed ({len(deduped)} unique finding(s))",
+            prefix=False,
+        )
+        return deduped

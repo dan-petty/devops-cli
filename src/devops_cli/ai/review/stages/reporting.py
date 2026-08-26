@@ -1,67 +1,58 @@
-"""Consolidated Markdown Reporting, Terminal Output & Feedback Dataset Logging."""
+"""Consolidated markdown, JSON artifact, and console table report generation."""
 
 from __future__ import annotations
 
-import logging
-from collections.abc import Sequence
+import json
+from pathlib import Path
 
-from devops_cli.ai.review_schema import FileReviewPayload, Finding, ReviewResult
-from devops_cli.telemetry import trace_span
+from devops_cli.ai.review_schema import SavedFinding
+from devops_cli.models.vulnerability import DependencySpec, NetworkReference
+from devops_cli.output import print_info, print_success
+from devops_cli.telemetry.tracer import trace_span
 
-logger = logging.getLogger(__name__)
 
-
-@trace_span("review.stage.reporting")
-def run_reporting(
-    payloads: Sequence[FileReviewPayload],
+def run_reporting_stage(
     session_id: str,
-    errored_files: dict[str, str] | None = None,
-) -> tuple[ReviewResult, str]:
-    """Generate consolidated ReviewResult and Markdown report string from completed payloads."""
-    all_findings: list[Finding] = []
-    for p in payloads:
-        if p.findings:
-            all_findings.extend(p.findings)
-
-    total_files = len(payloads)
-
-    result = ReviewResult(
-        findings=all_findings,
-        summary=f"Reviewed {total_files} files with {len(all_findings)} findings across personas.",
-    )
-
-    # Build Markdown report lines
-    report_lines: list[str] = [
-        f"# AI Code Review Report — Session `{session_id}`",
-        "",
-        f"- **Files Reviewed**: {total_files}",
-        f"- **Total Findings**: {len(all_findings)}",
-        "",
-    ]
-
-    if errored_files:
-        report_lines.extend(
-            [
-                "## Skipped / Errored Files",
-                "",
-            ]
+    session_dir: Path,
+    reportable_findings: list[SavedFinding],
+    all_deps: list[DependencySpec],
+    all_nets: list[NetworkReference],
+    n_files: int,
+) -> Path:
+    """Execute consolidated report generation and persistence."""
+    with trace_span("review.reporting", attributes={"session_id": session_id}):
+        print_info(
+            f"Generating report for session '{session_id}'...",
+            prefix=False,
         )
-        for fpath, err_msg in errored_files.items():
-            report_lines.append(f"- `{fpath}`: {err_msg}")
-        report_lines.append("")
 
-    if not all_findings:
-        report_lines.append("✅ **No issues or security vulnerabilities detected.**\n")
-    else:
-        report_lines.append("## Findings Summary\n")
-        for f in all_findings:
-            loc = f.location or "unknown"
-            report_lines.append(f"### [{f.severity.upper()}] {f.title}")
-            report_lines.append(f"- **Location**: `{loc}`")
-            report_lines.append(f"- **Description**: {f.description}")
-            if f.fix:
-                report_lines.append(f"- **Suggested Fix**: {f.fix}")
-            report_lines.append("")
+        session_dir.mkdir(parents=True, exist_ok=True)
+        report_path = session_dir / "review_report.md"
+        findings_json_path = session_dir / "findings.json"
 
-    report_md = "\n".join(report_lines)
-    return result, report_md
+        # 1. Save findings JSON
+        findings_data = [f.model_dump() for f in reportable_findings]
+        findings_json_path.write_text(json.dumps(findings_data, indent=2), encoding="utf-8")
+
+        # 2. Save Markdown Report
+        md_lines = [
+            f"# Consolidated Code Review Report — Session {session_id}",
+            "",
+            f"- **Files Reviewed:** {n_files}",
+            f"- **Total Findings:** {len(reportable_findings)}",
+            "",
+            "## Findings Summary",
+            "",
+            "| # | Severity | Location | Title | Status |",
+            "| :--- | :--- | :--- | :--- | :--- |",
+        ]
+        for idx, f in enumerate(reportable_findings, 1):
+            md_lines.append(f"| {idx} | {f.severity} | `{f.location}` | {f.title} | {f.status} |")
+
+        report_path.write_text("\n".join(md_lines) + "\n", encoding="utf-8")
+
+        print_success(
+            f"Consolidated review completed for session {session_id} "
+            f"({len(reportable_findings)} finding(s) saved to {session_dir})"
+        )
+        return report_path

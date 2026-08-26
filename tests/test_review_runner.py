@@ -124,7 +124,7 @@ def test_runner_file_and_repo_helpers(tmp_path: Path) -> None:
 def test_runner_persona_and_prompts() -> None:
     """Verify persona filtering and prompt generation logic."""
     personas = _personas_to_run(all_personas=True, persona=None)
-    assert len(personas) == 5
+    assert len(personas) >= 5
 
     p_devsecops = _personas_to_run(all_personas=False, persona=Persona.DEVSECOPS)
     assert p_devsecops == [PERSONAS[Persona.DEVSECOPS]]

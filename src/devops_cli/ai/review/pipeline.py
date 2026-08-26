@@ -1653,6 +1653,12 @@ class ReviewPipelineOrchestrator:
                 for item in payloads_with_findings:
                     _verify_task(item)
 
+            from devops_cli.ai.review.stages.adversarial_debate import (
+                run_adversarial_debate_stage,
+            )
+
+            run_adversarial_debate_stage(file_payloads)
+
     # ── Stage 5: AI Validation & Re-ranking ──────────────────────────────────
     def _rerank_single_file_payload(self, payload: FileReviewPayload) -> None:
         """Re-rank findings and update payload scratchpad."""

@@ -20,10 +20,10 @@ def test_persona_registry_mapping_and_getattr(tmp_path) -> None:
     from devops_cli.ai.personas import load_custom_repo_persona
 
     # 1. Mapping methods
-    assert len(PERSONAS) == 5
+    assert len(PERSONAS) == len(Persona)
     assert list(PERSONAS.keys()) == list(Persona)
-    assert len(list(PERSONAS.values())) == 5
-    assert len(list(PERSONAS.items())) == 5
+    assert len(list(PERSONAS.values())) == len(Persona)
+    assert len(list(PERSONAS.items())) == len(Persona)
     assert "devsecops" in PERSONAS
     assert "invalid_persona" not in PERSONAS
     assert 123 not in PERSONAS

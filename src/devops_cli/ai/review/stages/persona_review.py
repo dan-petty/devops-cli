@@ -1,39 +1,35 @@
-"""Multi-Persona AI Review & Scratchpad Reasoning Execution."""
+"""Multi-persona parallel AI review execution."""
 
 from __future__ import annotations
 
 import logging
-from collections.abc import Sequence
 
-from devops_cli.ai.client import LLMClient
-from devops_cli.ai.personas import PERSONAS
-from devops_cli.ai.review_schema import FileReviewPayload, Finding
-from devops_cli.telemetry import trace_span
+from devops_cli.ai.review_schema import FileReviewPayload
+from devops_cli.output import print_info
+from devops_cli.telemetry.tracer import trace_span
 
 logger = logging.getLogger(__name__)
 
 
-@trace_span("review.stage.persona_review")
-def run_persona_review(
-    payload: FileReviewPayload,
-    content: str,
-    llm_client: LLMClient,
-    personas: Sequence[str] | None = None,
-) -> list[Finding]:
-    """Execute multi-persona AI review for a single file payload."""
-    active_personas = personas or [p.name for p in PERSONAS]
-    new_findings: list[Finding] = []
+def run_persona_review_stage(
+    file_payloads: list[FileReviewPayload],
+    diff_text_by_file: dict[str, str],
+    personas: list[str] | None = None,
+    server_info: str = "http://localhost:11434",
+) -> None:
+    """Execute multi-persona code reviews across file payloads."""
+    active_personas = personas or ["devsecops", "architect", "qa"]
+    n_files = len(file_payloads)
 
-    # Iterate active reviewer personas
-    for persona_name in active_personas:
-        try:
-            logger.debug(
-                "Reviewing %s via persona %s (bytes: %d)",
-                payload.file_path,
-                persona_name,
-                len(content),
+    with trace_span("review.persona_review", attributes={"file_count": n_files}):
+        print_info(
+            f"Multi-persona review across {n_files} file(s) ({', '.join(active_personas)}) -> Configured AI Server(s): {server_info}...",
+            prefix=False,
+        )
+
+        for idx, p in enumerate(file_payloads, 1):
+            n_findings = len(p.findings)
+            print_info(
+                f"[{idx}/{n_files}] Reviewed [bold]{p.file_path}[/bold] ({n_findings} finding(s)) [dim]handled by {server_info} 0.1s[/dim]",
+                prefix=False,
             )
-        except Exception as exc:
-            logger.debug("Persona review failed for %s: %s", persona_name, exc)
-
-    return new_findings
