@@ -188,7 +188,9 @@ async def _execute_check_async(
 # =============================================================================
 
 
-async def _run_all_checks_async(*, lint_fix: bool, format_fix: bool) -> list[CheckResult]:
+async def _run_all_checks_async(
+    *, lint_fix: bool, format_fix: bool, docs_fix: bool = False
+) -> list[CheckResult]:
     """Execute all CI verification gates concurrently using asyncio."""
     _clean_coverage_artifacts()
 
@@ -224,9 +226,25 @@ async def _run_all_checks_async(*, lint_fix: bool, format_fix: bool) -> list[Che
             "ci.step.lint_fix",
             "lint_fix",
         )
+    if docs_fix:
+        from devops_cli.config.defaults import DEFAULT_DOCS_DIR
+        from devops_cli.docs.generator import DocGenerator
+
+        generator = DocGenerator()
+        docs_target = _get_project_root() / DEFAULT_DOCS_DIR
+        docs_up_to_date, _ = generator.check_docs(docs_target, check_readme_table=True)
+        if not docs_up_to_date:
+            await _execute_check_async(
+                "docs_fix",
+                MESSAGES.ci.docs_validation,
+                ["uv", "run", "devops", "docs", "generate", "--sync-readme"],
+                "ci.step.docs_fix",
+                "docs_fix",
+            )
 
     with _get("trace_span")(
-        "ci.run_pipeline", attributes={"lint_fix": lint_fix, "format_fix": format_fix}
+        "ci.run_pipeline",
+        attributes={"lint_fix": lint_fix, "format_fix": format_fix, "docs_fix": docs_fix},
     ):
         tasks = [
             _execute_check_async(
@@ -320,9 +338,13 @@ async def _run_all_checks_async(*, lint_fix: bool, format_fix: bool) -> list[Che
         return [py_result, test_result, coverage_result] + list(raw_results[1:])
 
 
-def _run_all_checks(*, lint_fix: bool, format_fix: bool) -> list[tuple[str, bool]]:
+def _run_all_checks(
+    *, lint_fix: bool, format_fix: bool, docs_fix: bool = False
+) -> list[tuple[str, bool]]:
     """Synchronous entrypoint for executing CI pipeline."""
-    results = asyncio.run(_run_all_checks_async(lint_fix=lint_fix, format_fix=format_fix))
+    results = asyncio.run(
+        _run_all_checks_async(lint_fix=lint_fix, format_fix=format_fix, docs_fix=docs_fix)
+    )
     _print_failures(results)
     return [(res.name, res.passed) for res in results]
 
@@ -373,7 +395,7 @@ def all_checks(
         set_dry_run(True)
 
     t0 = time.perf_counter()
-    results = asyncio.run(_run_all_checks_async(lint_fix=fix, format_fix=fix))
+    results = asyncio.run(_run_all_checks_async(lint_fix=fix, format_fix=fix, docs_fix=fix))
     _print_failures(results)
     _print_summary(results, total_elapsed=time.perf_counter() - t0)
 
@@ -577,16 +599,23 @@ def actionlint(
 
 @app.command()
 def docs(
+    fix: Annotated[
+        bool,
+        typer.Option("--fix", help=HELP.docs.sync_readme),
+    ] = False,
     dry_run: Annotated[
         bool,
         typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
 ) -> None:
-    """Verify that documentation is up to date with CLI commands and configuration."""
+    """Verify (or update with --fix) that documentation is up to date with CLI commands and configuration."""
     if dry_run:
         set_dry_run(True)
     if not _verify_python_314_environment():
         raise typer.Exit(1)
+    if fix:
+        if not _run(["uv", "run", "devops", "docs", "generate", "--sync-readme"]):
+            raise typer.Exit(1)
     if not _run(["uv", "run", "devops", "docs", "check"]):
         raise typer.Exit(1)
 
@@ -606,7 +635,7 @@ def run(
     if dry_run:
         set_dry_run(True)
     t0 = time.perf_counter()
-    results = asyncio.run(_run_all_checks_async(lint_fix=fix, format_fix=fix))
+    results = asyncio.run(_run_all_checks_async(lint_fix=fix, format_fix=fix, docs_fix=fix))
     _print_failures(results)
     _print_summary(results, total_elapsed=time.perf_counter() - t0)
     if not all(res.passed for res in results):

@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 from typer.testing import CliRunner
 
-from devops_cli.commands.ci import app
+from devops_cli.commands.ci import CheckResult, app
 
 runner = CliRunner()
 
@@ -19,11 +19,7 @@ def test_ci_audit_command(monkeypatch) -> None:
 
     def mock_run(cmd, *args, **kwargs):
         called.append(cmd)
-
-        class Res:
-            returncode = 0
-
-        return Res()
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
 
     monkeypatch.setattr("subprocess.run", mock_run)
 
@@ -37,11 +33,7 @@ def test_ci_coverage_command(monkeypatch) -> None:
 
     def mock_run(cmd, *args, **kwargs):
         called.append(cmd)
-
-        class Res:
-            returncode = 0
-
-        return Res()
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
 
     monkeypatch.setattr("subprocess.run", mock_run)
 
@@ -55,11 +47,7 @@ def test_ci_security_command(monkeypatch) -> None:
 
     def mock_run(cmd, *args, **kwargs):
         called.append(cmd)
-
-        class Res:
-            returncode = 0
-
-        return Res()
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
 
     monkeypatch.setattr("subprocess.run", mock_run)
 
@@ -73,11 +61,7 @@ def test_ci_actionlint_command(monkeypatch) -> None:
 
     def mock_run(cmd, *args, **kwargs):
         called.append(cmd)
-
-        class Res:
-            returncode = 0
-
-        return Res()
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
 
     monkeypatch.setattr("subprocess.run", mock_run)
 
@@ -91,11 +75,7 @@ def test_ci_lint_command(monkeypatch) -> None:
 
     def mock_run(cmd, *args, **kwargs):
         called.append(cmd)
-
-        class Res:
-            returncode = 0
-
-        return Res()
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
 
     monkeypatch.setattr("subprocess.run", mock_run)
 
@@ -109,11 +89,7 @@ def test_ci_format_command(monkeypatch) -> None:
 
     def mock_run(cmd, *args, **kwargs):
         called.append(cmd)
-
-        class Res:
-            returncode = 0
-
-        return Res()
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
 
     monkeypatch.setattr("subprocess.run", mock_run)
 
@@ -127,11 +103,7 @@ def test_ci_typecheck_command(monkeypatch) -> None:
 
     def mock_run(cmd, *args, **kwargs):
         called.append(cmd)
-
-        class Res:
-            returncode = 0
-
-        return Res()
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
 
     monkeypatch.setattr("subprocess.run", mock_run)
 
@@ -145,11 +117,7 @@ def test_ci_test_command(monkeypatch) -> None:
 
     def mock_run(cmd, *args, **kwargs):
         called.append(cmd)
-
-        class Res:
-            returncode = 0
-
-        return Res()
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
 
     monkeypatch.setattr("subprocess.run", mock_run)
 
@@ -163,11 +131,7 @@ def test_ci_docs_command(monkeypatch) -> None:
 
     def mock_run(cmd, *args, **kwargs):
         called.append(cmd)
-
-        class Res:
-            returncode = 0
-
-        return Res()
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
 
     monkeypatch.setattr("subprocess.run", mock_run)
 
@@ -189,11 +153,7 @@ def test_ci_all_checks_includes_audit_coverage_and_security(monkeypatch) -> None
 
     def mock_run(cmd, *args, **kwargs):
         called.append(cmd)
-
-        class Res:
-            returncode = 0
-
-        return Res()
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
 
     monkeypatch.setattr("subprocess.run", mock_run)
 
@@ -236,11 +196,7 @@ def test_ci_additional_subcommands(monkeypatch) -> None:
 
     def mock_run(cmd, *args, **kwargs):
         called.append(cmd)
-
-        class Res:
-            returncode = 0
-
-        return Res()
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
 
     monkeypatch.setattr("subprocess.run", mock_run)
 
@@ -259,9 +215,17 @@ def test_ci_additional_subcommands(monkeypatch) -> None:
     assert res_docs.exit_code == 0
 
     # 4. run subcommand with --fix
-    with patch(
-        "devops_cli.commands.ci.run_subprocess",
-        return_value=subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr=""),
+    with (
+        patch(
+            "devops_cli.commands.ci._execute_check_async",
+            return_value=CheckResult(
+                name="mock",
+                display_title="Mock",
+                passed=True,
+                duration_seconds=0.01,
+            ),
+        ),
+        patch("devops_cli.docs.generator.DocGenerator.check_docs", return_value=(True, [])),
     ):
         res_run_fix = runner.invoke(app, ["run", "--fix"])
         assert res_run_fix.exit_code == 0
@@ -369,3 +333,39 @@ def test_ci_clean_coverage_and_extended_options(tmp_path: Path) -> None:
         res_test_k = runner.invoke(app, ["test", "-k", "unit_test"])
         assert res_test_k.exit_code == 0
         assert any("-k" in c and "unit_test" in c for c in called)
+
+        # docs with --fix
+        called.clear()
+        res_docs_fix = runner.invoke(app, ["docs", "--fix"])
+        assert res_docs_fix.exit_code == 0
+        assert any("generate" in c for c in called)
+        assert any("check" in c for c in called)
+
+
+def test_ci_run_docs_fix_when_needed() -> None:
+    """Verify that CI fix pipeline triggers doc generation when docs check fails."""
+    import asyncio
+
+    from devops_cli.commands.ci import CheckResult, _run_all_checks_async
+
+    called_cmds = []
+
+    async def mock_execute(name, title, cmd, span, metric, timeout=None):
+        called_cmds.append(cmd)
+        return CheckResult(
+            name=name,
+            display_title=title,
+            passed=True,
+            duration_seconds=0.01,
+        )
+
+    with (
+        patch("devops_cli.commands.ci._execute_check_async", side_effect=mock_execute),
+        patch(
+            "devops_cli.docs.generator.DocGenerator.check_docs",
+            return_value=(False, ["Out of sync"]),
+        ),
+    ):
+        results = asyncio.run(_run_all_checks_async(lint_fix=True, format_fix=True, docs_fix=True))
+        assert any("generate" in cmd for cmd in called_cmds)
+        assert any(r.name == "docs" for r in results)
