@@ -60,7 +60,9 @@ uv audit
 3. **Repository Path Boundary Containment**: Enforce strict filesystem boundary validation (`resolved_path.is_relative_to(repo_root)`) on all file writing and reading helpers to mitigate path traversal (CWE-22) vulnerabilities.
 4. **Use Ed25519 Keys**: Use modern Ed25519 keys for SSH authentication and Git commit signing (`devops ssh generate --type ed25519`).
 5. **Automate Pre-Commit Scanning**: Enforce security linting (`bandit`, `actionlint`) in pre-commit hooks to catch security issues before remote push.
-6. **Mask Output Logs**: Ensure string representations (`__repr__`) and telemetry exporters mask sensitive variables matching `*token*`, `*key*`, `*secret*`.
+6. **Explicit Post-Write Permission Enforcement (`chmod`)**: When generating, updating, or rewriting private cryptographic keys or sensitive certificates, always execute explicit `os.chmod(file_path, mode)` (e.g. `0600` for private keys) immediately after writing. Standard file creation flags (e.g. `os.open` with `O_CREAT|O_TRUNC`) only apply permission modes upon initial file creation; if the target file already exists, kernel semantics retain pre-existing permissions, creating permission bypass risks (CWE-284).
+7. **Directory Containment & Path Traversal Prevention**: Enforce strict path validation (`validate_safe_directory_path`) on all user-supplied output directories to prevent relative path traversal (`..`) from writing keys or certificates to unintended system locations (CWE-22).
+8. **Mask Output Logs**: Ensure string representations (`__repr__`) and telemetry exporters mask sensitive variables matching `*token*`, `*key*`, `*secret*`.
 
 ---
 
@@ -75,8 +77,8 @@ uv audit
 
 ## 6. General Standards & Engineering Guidelines
 
-- **File Permissions**: `0600` for private keys / config secrets, `0644` for public keys, `0700` for `~/.ssh` directory.
-- **Compliance Frameworks**: CIS Benchmarks, OWASP Top 10, NIST SP 800-53.
+- **File Permissions**: `0600` for private keys / config secrets (enforced via explicit `chmod`), `0644` for public keys / certificates, `0700` for `~/.ssh` and TLS storage directories.
+- **Compliance Frameworks**: CIS Benchmarks, OWASP Top 10, NIST SP 800-53, CWE-284, CWE-22.
 
 ---
 

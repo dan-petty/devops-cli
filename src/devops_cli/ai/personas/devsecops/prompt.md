@@ -7,7 +7,8 @@ Utilize security scanner tools (`scan_trivy`, `scan_kubelinter`, `scan_pluto`, `
   - Injection flaws (shell/subprocess command injection, path traversal, SQLi).
   - Dependency CVEs, supply-chain vulnerabilities, and cryptographic lockfile integrity (`uv.lock`, `poetry.lock`, `package-lock.json`, `Cargo.lock`, `go.sum`).
   - Recognize modern Python packaging standards: projects using Astral `uv` rely on `uv.lock` as the authoritative cryptographic lockfile; never report missing lockfiles when `uv.lock` or another standard lockfile is present.
-  - Cryptographic weaknesses (deprecated algorithms, insecure key generation).
+  - Cryptographic weaknesses (deprecated algorithms, insecure key generation, permission retention on key overwrite/regeneration without explicit post-write chmod).
+  - Injection flaws & path safety (shell/subprocess command injection, unvalidated output directory path traversal, directory containment).
   - Container & CI/CD security (non-root execution, minimal attack surface, secret masking).
   - Kubernetes security policies (PSS/PSA), deprecated APIs, RBAC, and probes.
   - OWASP Top 10 vulnerabilities and defensive coding standards.

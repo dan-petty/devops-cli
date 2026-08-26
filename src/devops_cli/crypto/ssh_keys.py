@@ -45,6 +45,7 @@ def generate_ed25519_key(key_path: Path, comment: str = "") -> None:
     fd = _os.open(key_path, _os.O_WRONLY | _os.O_CREAT | _os.O_TRUNC, CONST_PERM_PRIVATE_KEY)
     with _os.fdopen(fd, "wb") as file_handle:
         file_handle.write(private_bytes)
+    _os.chmod(key_path, CONST_PERM_PRIVATE_KEY)
 
     pub_raw = (
         private_key.public_key()
@@ -60,6 +61,7 @@ def generate_ed25519_key(key_path: Path, comment: str = "") -> None:
     pub_fd = _os.open(pub_path, _os.O_WRONLY | _os.O_CREAT | _os.O_TRUNC, CONST_PERM_PUBLIC_KEY)
     with _os.fdopen(pub_fd, "w", encoding="utf-8") as pub_fh:
         pub_fh.write(pub_line)
+    _os.chmod(pub_path, CONST_PERM_PUBLIC_KEY)
 
 
 def parse_key_date(key_path: Path) -> date | None:
