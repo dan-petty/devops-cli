@@ -100,9 +100,11 @@ def _process_single_repo_file_meta(
     ai_client: LLMClient | None,
 ) -> FileAnalysisMeta | None:
     """Analyze a single file for repository-wide or path analysis."""
-    if p.stat().st_size > CONST_MAX_FILE_SIZE_BYTES:
-        return None
     try:
+        if not p.resolve().is_relative_to(repo.resolve()):
+            return None
+        if p.stat().st_size > CONST_MAX_FILE_SIZE_BYTES:
+            return None
         rel_str = str(p.relative_to(repo)) if p.is_relative_to(repo) else str(p)
         file_mtime = datetime.fromtimestamp(p.stat().st_mtime, UTC)
 
@@ -140,6 +142,10 @@ def _process_single_branch_file_meta(
         return _create_deleted_file_meta(rel_path)
 
     try:
+        if not file_path.resolve().is_relative_to(repo.resolve()):
+            return None
+        if file_path.stat().st_size > CONST_MAX_FILE_SIZE_BYTES:
+            return None
         file_mtime = datetime.fromtimestamp(file_path.stat().st_mtime, UTC)
         if enhanced and rel_path in existing_file_metas:
             reused = _try_reuse_cached_file_meta(existing_file_metas[rel_path], file_mtime)

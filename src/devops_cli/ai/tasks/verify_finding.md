@@ -10,6 +10,10 @@ Execute a structured, 4-step chain-of-thought verification procedure for each re
 ### Step 2: Guardrail, Lockfile & Invalidation Testing
 - Test all `invalidation_criteria` against surrounding context, caller validation, type guards, and architectural constraints.
 - Verify path containment checks (`Path.is_relative_to`), file extension filters, and bounded loader guards.
+- Verify file permissions: atomic file creation with restricted mode via `os.open(..., O_CREAT, 0o600)` completely fulfills private key/credential security without requiring a redundant post-creation `chmod` call.
+- Verify command exit code conventions: tools like `diff` and `kubectl diff` intentionally return exit code 1 when differences are found, so omitting `check=True` for diff operations is expected behavior and not a defect.
+- Verify Python 3.14+ runtime features & formatter rules: modern Python 3.14 grammar and Ruff formatting allow and normalize comma-separated exception types in `except A, B:` clauses when omitting an alias variable. Never flag standard Ruff-formatted Python 3.14 exception lists as syntax errors.
+- Verify AST definitions: confirm that alleged duplicate functions or commands are actually defined multiple times before flagging duplication.
 - Verify cryptographic lockfiles (`uv.lock`, `poetry.lock`, `package-lock.json`, `Cargo.lock`, `go.sum`) to disprove false missing-pin alerts.
 - Verify secure OS Keyring usage and confirm rejection of insecure, zero-priority, or unencrypted backends (e.g. `keyrings.alt`, `FailKeyring`).
 - Check if the flagged code is documentation, tutorials, knowledge base guides, test assertions/fixtures, test mocks, template files, or prompt tasks explaining known vulnerabilities in the context of avoiding, explaining, or mitigating them.
