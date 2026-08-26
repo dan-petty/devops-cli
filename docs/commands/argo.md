@@ -14,7 +14,7 @@ devops argo cd COMMAND [ARGS]...
 
 ### `devops argo cd apps`
 
-**Manage ArgoCD applications.**
+**ArgoCD application management.**
 
 ```bash
 devops argo cd apps COMMAND [ARGS]...

@@ -37,6 +37,8 @@ Complete command-line reference for `devops-cli`, automatically generated from C
 
 Clone and manage repositories.
 
+Clone, synchronize, and manage organization repositories.
+
 ### `devops repos clone-org`
 
 **Clone all repos from a GitHub org into repos/<org>/.**
@@ -128,6 +130,8 @@ devops repos sync [OPTIONS]
 ## devops ssh
 
 SSH key generation, rotation, and GitHub registration.
+
+Generate, rotate, audit, and register Ed25519 SSH keypairs.
 
 ### `devops ssh generate`
 
@@ -1113,6 +1117,8 @@ devops grafana dashboards sync [OPTIONS]
 
 Prometheus query and rule management.
 
+Prometheus metrics querying and analysis.
+
 ### `devops prometheus query`
 
 **Execute an instant PromQL query.**
@@ -1187,7 +1193,7 @@ devops argo cd COMMAND [ARGS]...
 
 #### `devops argo cd apps`
 
-**Manage ArgoCD applications.**
+**ArgoCD application management.**
 
 ```bash
 devops argo cd apps COMMAND [ARGS]...
@@ -2468,7 +2474,7 @@ devops ai cache clear
 
 AI-powered code reviews using expert personas.
 
-AI Code Review across branches, paths, and pull requests.
+AI-powered multi-persona code review and security audits.
 
 ### `devops review path`
 
@@ -2734,6 +2740,8 @@ devops docs sync-readme [OPTIONS]
 
 Manage release cycles, version bumping, changelogs, and release verification.
 
+Automate version bumps, changelogs, tags, and GitHub releases.
+
 ### `devops release status`
 
 **Display current release status, versions, tags, changelog, and docs state.**
@@ -2851,7 +2859,7 @@ devops release tag [OPTIONS]
 
 Manage GitHub pull requests and base branch targeting.
 
-Manage GitHub pull requests, base branch targeting, and review gates.
+GitHub Pull Request workflows and reviews.
 
 ### `devops pr list`
 
@@ -3162,6 +3170,8 @@ devops tf lint [OPTIONS] <directory>
 
 X.509 TLS certificate generation, inspection, verification, and Kubernetes secrets.
 
+Generate and manage homelab TLS certificates and CAs.
+
 ### `devops tls ca`
 
 **Generate a self-signed Root Certificate Authority (CA) key pair.**
@@ -3278,6 +3288,8 @@ devops tls enable-k8s [OPTIONS]
 ## devops telemetry
 
 OpenTelemetry observability, tracing, and metrics management.
+
+OpenTelemetry tracing, metrics, and Jaeger observability.
 
 ### `devops telemetry status`
 
