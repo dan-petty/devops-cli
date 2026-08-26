@@ -9,9 +9,9 @@ Execute a structured, 4-step chain-of-thought verification procedure for each re
 
 ### Step 2: Guardrail, Lockfile & Invalidation Testing
 - Test all `invalidation_criteria` against surrounding context, caller validation, type guards, and architectural constraints.
-- Verify path containment checks (`Path.is_relative_to`) and boundary enforcement.
+- Verify path containment checks (`Path.is_relative_to`), file extension filters, and bounded loader guards.
 - Verify cryptographic lockfiles (`uv.lock`, `poetry.lock`, `package-lock.json`, `Cargo.lock`, `go.sum`) to disprove false missing-pin alerts.
-- Verify secure OS Keyring usage and confirm absence of insecure unencrypted packages (e.g. `keyrings.alt`).
+- Verify secure OS Keyring usage and confirm rejection of insecure, zero-priority, or unencrypted backends (e.g. `keyrings.alt`, `FailKeyring`).
 - Check if the flagged code is documentation, tutorials, knowledge base guides, test assertions/fixtures, test mocks, template files, or prompt tasks explaining known vulnerabilities in the context of avoiding, explaining, or mitigating them.
 - Check if the flagged item is a source code identifier, OpenTelemetry attribute, or file name rather than an actual unauthenticated external network endpoint.
 
@@ -19,10 +19,11 @@ Execute a structured, 4-step chain-of-thought verification procedure for each re
 - Trace the proposed `fix` against the codebase.
 - Confirm the fix directly remediates the root cause without introducing secondary flaws, type errors, or breaking API contracts.
 
-### Step 4: Confidence Calibration & Causal Status Determination
+### Step 4: Confidence Calibration, Causal Status & Feedback Synthesis
 - Any invalidation criterion satisfied, avoidance context detected, or mitigation present → `"status": "INVALIDATED" | "MITIGATED"`, `"verified": false`, `"reportable": false`.
 - Verification criteria satisfied without invalidation or mitigation → `"status": "VERIFIED"`, `"verified": true`, `"reportable": true`.
 - Inconclusive, theoretical, or unprovable finding → `"status": "UNVERIFIED"`, `"verified": false`, `"reportable": false`.
+- Synthesize an explicit, audit-grade causal explanation in `reason` detailing matched criteria and root cause for the feedback dataset.
 
 ---
 

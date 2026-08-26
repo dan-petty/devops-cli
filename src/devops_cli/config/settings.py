@@ -65,11 +65,23 @@ class SecretStorageError(RuntimeError):
 
 
 def _ensure_keyring_backend() -> bool:
-    """Ensure keyring has a usable, encrypted backend."""
+    """Ensure keyring has a usable, encrypted backend and reject unencrypted backends."""
     import keyring
     from keyring.backends.fail import Keyring as FailKeyring
 
-    return not isinstance(keyring.get_keyring(), FailKeyring)
+    backend = keyring.get_keyring()
+    if backend is None or isinstance(backend, FailKeyring):
+        return False
+
+    # Check priority and reject known unencrypted/insecure backends
+    backend_class_name = type(backend).__name__
+    backend_module = type(backend).__module__
+
+    if "Plaintext" in backend_class_name or "keyrings.alt" in backend_module:
+        return False
+
+    priority = getattr(backend, "priority", 0)
+    return bool(priority > 0)
 
 
 class GitHubConfig(BaseModel):

@@ -41,22 +41,22 @@ graph TD
 ### Review & Feedback Commands
 ```bash
 # Review active working directory git diff (staged + unstaged)
-devops review branch
+devops ai review branch
 
 # Review an entire target path or child repository
-devops review path repos/my-org/my-project
+devops ai review path repos/my-org/my-project
 
 # Review a specific GitHub pull request by number
-devops review pr 17
+devops ai review pr 22
 
 # Review using a specific persona and provider
-devops review branch --persona devsecops --provider ollama --model qwen2.5-coder:14b
+devops ai review branch --persona devsecops --provider ollama --model qwen2.5-coder:14b
 
 # Export review report to markdown
-devops review branch --export-md .data/reviews/review-report.md
+devops ai review branch --export-md .data/reviews/review-report.md
 
 # Export invalidated and verified feedback dataset for model tuning/RAG
-devops review export-feedback --status-filter ALL --output .data/reviews/feedback_dataset.jsonl
+devops ai review export-feedback --status ALL --output .data/reviews/feedback_dataset.jsonl
 ```
 
 ---

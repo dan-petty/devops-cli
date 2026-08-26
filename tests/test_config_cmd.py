@@ -139,3 +139,34 @@ def test_config_commands_comprehensive(tmp_path: Path) -> None:
         with patch("devops_cli.core.audit.stream_audit_records", return_value=5):
             res_stream = runner.invoke(app, ["audit-stream", "https://siem.example.com/ingest"])
             assert res_stream.exit_code == 0
+
+
+def test_ensure_keyring_backend_validation(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify _ensure_keyring_backend properly rejects FailKeyring and insecure backends."""
+    import keyring
+    from keyring.backends.fail import Keyring as FailKeyring
+
+    from devops_cli.config.settings import _ensure_keyring_backend
+
+    # 1. FailKeyring
+    monkeypatch.setattr(keyring, "get_keyring", lambda: FailKeyring())
+    assert _ensure_keyring_backend() is False
+
+    # 2. None
+    monkeypatch.setattr(keyring, "get_keyring", lambda: None)
+    assert _ensure_keyring_backend() is False
+
+    # 3. Plaintext backend
+    fake_plaintext = type("PlaintextKeyring", (), {"priority": 1})()
+    monkeypatch.setattr(keyring, "get_keyring", lambda: fake_plaintext)
+    assert _ensure_keyring_backend() is False
+
+    # 4. Zero priority backend
+    fake_zero_pri = type("CustomKeyring", (), {"priority": 0})()
+    monkeypatch.setattr(keyring, "get_keyring", lambda: fake_zero_pri)
+    assert _ensure_keyring_backend() is False
+
+    # 5. Valid encrypted backend
+    fake_secure = type("EncryptedKeyring", (), {"priority": 5})()
+    monkeypatch.setattr(keyring, "get_keyring", lambda: fake_secure)
+    assert _ensure_keyring_backend() is True

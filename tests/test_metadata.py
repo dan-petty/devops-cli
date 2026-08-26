@@ -90,3 +90,18 @@ def test_metadata_fallback_to_defaults(tmp_path: Path, monkeypatch: pytest.Monke
 
     meta = load_project_metadata(corrupt_toml)
     assert meta == _DEFAULT_METADATA
+
+
+def test_metadata_rejects_non_toml_paths(tmp_path: Path) -> None:
+    """Verify metadata loader rejects non-.toml files and safely falls back."""
+    non_toml_file = tmp_path / "passwd.txt"
+    non_toml_file.write_text("root:x:0:0:root:/root:/bin/bash\n", encoding="utf-8")
+
+    meta = load_project_metadata(non_toml_file)
+    assert meta.name == "devops-cli"
+
+
+def test_metadata_rejects_directory_path(tmp_path: Path) -> None:
+    """Verify metadata loader rejects directory paths."""
+    meta = load_project_metadata(tmp_path)
+    assert meta.name == "devops-cli"

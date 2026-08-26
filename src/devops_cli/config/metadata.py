@@ -61,7 +61,7 @@ def load_project_metadata(pyproject_path: Path | None = None) -> ProjectMetadata
     """
     target_path = pyproject_path or _find_pyproject_path()
 
-    if target_path and target_path.exists():
+    if target_path and target_path.is_file() and target_path.suffix == ".toml":
         try:
             with target_path.open("rb") as f:
                 data = tomllib.load(f)

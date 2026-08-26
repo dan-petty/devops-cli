@@ -31,27 +31,27 @@ class FeedbackRecord(BaseModel):
     confidence_score: float | None = None
     fix: str | None = None
     invalidation_reason: str | None = None
-    verified_at: str = ""
-    verified_by: str = "human"
+    verified_at: str | None = None
+    verified_by: str | None = "human"
 
 
 def _build_feedback_record(f: dict[str, Any], session_id: str, f_status: str) -> FeedbackRecord:
     """Construct FeedbackRecord from finding dictionary."""
     return FeedbackRecord(
         session_id=session_id,
-        persona=f.get("persona", "unknown"),
-        title=f.get("title", ""),
-        severity=f.get("severity", "medium"),
-        location=f.get("location", ""),
-        description=f.get("description", ""),
+        persona=str(f.get("persona") or "unknown"),
+        title=str(f.get("title") or ""),
+        severity=str(f.get("severity") or "medium"),
+        location=str(f.get("location") or ""),
+        description=str(f.get("description") or ""),
         status=f_status,
         verified=bool(f.get("verified", False)),
         mitigated=bool(f.get("mitigated", False)),
         confidence_score=f.get("confidence_score"),
         fix=f.get("fix"),
         invalidation_reason=f.get("invalidation_reason"),
-        verified_at=f.get("verified_at", ""),
-        verified_by=f.get("verified_by", "human"),
+        verified_at=f.get("verified_at"),
+        verified_by=f.get("verified_by") or "human",
     )
 
 
