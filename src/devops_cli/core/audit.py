@@ -17,6 +17,7 @@ from devops_cli.config.defaults import (
     DEFAULT_AUDIT_LOG_PATH,
     DEFAULT_DATA_DIR,
 )
+from devops_cli.telemetry.tracer import get_current_span_context
 
 
 class AuditRecord(BaseModel):
@@ -28,6 +29,8 @@ class AuditRecord(BaseModel):
     status: str
     duration_ms: float
     details: dict[str, Any]
+    trace_id: str | None = None
+    span_id: str | None = None
 
 
 def record_audit_event(
@@ -44,6 +47,9 @@ def record_audit_event(
 
     user = getpass.getuser()
     now_str = datetime.now(UTC).isoformat()
+    ctx = get_current_span_context()
+    trace_id = ctx.get("trace_id") if ctx else None
+    span_id = ctx.get("span_id") if ctx else None
 
     record = AuditRecord(
         timestamp=now_str,
@@ -52,6 +58,8 @@ def record_audit_event(
         status=status,
         duration_ms=duration_ms,
         details=details or {},
+        trace_id=trace_id,
+        span_id=span_id,
     )
 
     if not dest.exists():

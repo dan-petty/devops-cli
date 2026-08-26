@@ -77,6 +77,14 @@ CONST_DEVCONTAINER_POST_CREATE_PATH = (
 CONST_DEVCONTAINER_IMAGE_PREFIX = "mcr.microsoft.com/devcontainers/python:"
 CONST_DEVCONTAINER_PUBLISHED_IMAGE = "ghcr.io/dan-petty/devops-cli/devcontainer:latest"
 
+# ── Specifications, Load Testing & Chaos ──────────────────────────────────────
+CONST_SPECS_DIR_NAME = ".devops/specs"
+CONST_SPECS_DIR_PATH = Path(CONST_SPECS_DIR_NAME)
+CONST_CHAOS_DIR_NAME = "k8s/chaos"
+CONST_CHAOS_DIR_PATH = Path(CONST_CHAOS_DIR_NAME)
+CONST_LOAD_TESTS_DIR_NAME = "tests/load"
+CONST_LOAD_TESTS_DIR_PATH = Path(CONST_LOAD_TESTS_DIR_NAME)
+
 # ── OpenTofu & Infrastructure ──────────────────────────────────────────────────
 CONST_TF_DIR_NAME = "tf"
 CONST_TF_DIR_PATH = Path(CONST_TF_DIR_NAME)

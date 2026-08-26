@@ -315,6 +315,9 @@ class CICommandHelp:
     format_fix: str = "Apply formatting changes in-place."
     min_severity: str = "Minimum severity threshold (low, medium, high)."
     fix_all: str = "Auto-fix lint/format before reporting status."
+    maintain: str = (
+        "Run automated toolchain, dependency freshness, and lockfile maintenance checks."
+    )
 
 
 @dataclass(frozen=True)
@@ -642,6 +645,18 @@ class RAGCommandHelp:
 
 
 @dataclass(frozen=True)
+class TestCommandHelp:
+    app: str = "Performance, smoke, and load testing."
+    load: str = "Execute developer-centric load and latency tests against services using k6."
+
+
+@dataclass(frozen=True)
+class PipelineCommandHelp:
+    app: str = "Programmable containerized pipeline execution (Dagger)."
+    run: str = "Execute reproducible, containerized developer pipelines with Dagger."
+
+
+@dataclass(frozen=True)
 class HelpCatalog:
     main: MainHelp = field(default_factory=MainHelp)
     options: OptionHelp = field(default_factory=OptionHelp)
@@ -676,6 +691,8 @@ class HelpCatalog:
     analyze: AnalyzeCommandHelp = field(default_factory=AnalyzeCommandHelp)
     prometheus: PrometheusCommandHelp = field(default_factory=PrometheusCommandHelp)
     rag: RAGCommandHelp = field(default_factory=RAGCommandHelp)
+    test: TestCommandHelp = field(default_factory=TestCommandHelp)
+    pipeline: PipelineCommandHelp = field(default_factory=PipelineCommandHelp)
 
 
 HELP = HelpCatalog()

@@ -6,6 +6,11 @@ from devops_cli.telemetry.context import (
     extract_traceparent,
     inject_traceparent_headers,
 )
+from devops_cli.telemetry.logging_bridge import (
+    TraceCorrelationFilter,
+    attach_trace_correlation_filter,
+    get_current_trace_correlation,
+)
 from devops_cli.telemetry.metrics import (
     GLOBAL_METRICS,
     InMemoryMetricsRegistry,
@@ -27,8 +32,11 @@ __all__ = [
     "ContextPropagatingThreadPoolExecutor",
     "InMemoryMetricsRegistry",
     "OTelTelemetryClient",
+    "TraceCorrelationFilter",
+    "attach_trace_correlation_filter",
     "extract_traceparent",
     "get_current_span_context",
+    "get_current_trace_correlation",
     "get_tracer",
     "inject_trace_context",
     "inject_traceparent_headers",

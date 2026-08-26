@@ -12,6 +12,7 @@ class PersonaTitles:
     pm: str = "Enterprise Project Manager"
     auditor: str = "NIST/PCI/SOC Auditor"
     qa: str = "Senior Test Engineer"
+    challenger: str = "Principal Adversarial Challenger"
 
 
 @dataclass(frozen=True)
