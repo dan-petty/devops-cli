@@ -82,7 +82,7 @@ def cleanup_data_tier(
         return summary
 
     cutoff_time = time.time() - older_than_seconds
-    subdirs_to_check = ["reviews", "analysis", "logs", "traces"]
+    subdirs_to_check = ["reviews", "analysis", "logs", "traces", "benchmarks", "cache"]
 
     for subdir_name in subdirs_to_check:
         target_sub = data_dir / subdir_name
