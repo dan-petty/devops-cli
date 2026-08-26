@@ -210,6 +210,10 @@ codebase or reviewing target repositories.
 - **Knowledge Base Consultation**: Always consult project documentation and knowledge base
   guides (`src/devops_cli/ai/knowledge_base/` or `docs/`) before designing, implementing, or
   modifying system components.
+- **Never Lower Security Standards or Quality Thresholds**: AI agents and assistants must never
+  lower, relax, disable, bypass, or weaken security standards, quality thresholds (such as minimum
+  code coverage requirements like 90%, strict static type checks, or lint rules), or compliance
+  validations unless explicitly instructed to do so by the user.
 
 
 
