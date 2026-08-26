@@ -15,15 +15,16 @@ from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.core.cli import new_typer
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.validation import validate_path
+from devops_cli.lang import HELP
 
-app = new_typer(help="Kustomize build and apply operations.", no_args_is_help=True)
+app = new_typer(help=HELP.kustomize.app, no_args_is_help=True)
 
 
 def _validate_path(path: Path) -> Path:
     return validate_path(path, must_exist=True)
 
 
-@app.command()
+@app.command(help=HELP.kustomize.build)
 def build(
     path: Annotated[Path, typer.Argument(help="Path to kustomization directory")] = Path("."),
     output: Annotated[
@@ -40,7 +41,7 @@ def build(
     )
 
 
-@app.command()
+@app.command(help=HELP.kustomize.diff)
 def diff(
     path: Annotated[Path, typer.Argument(help="Path to kustomization directory")] = Path("."),
 ) -> None:
@@ -50,7 +51,7 @@ def diff(
     run_subprocess(cmd, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS, capture_output=False)
 
 
-@app.command()
+@app.command(help=HELP.kustomize.apply)
 def apply(
     path: Annotated[Path, typer.Argument(help="Path to kustomization directory")] = Path("."),
     dry_run: Annotated[bool, typer.Option("--dry-run")] = False,

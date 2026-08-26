@@ -13,6 +13,7 @@ from rich.table import Table
 from devops_cli.config.defaults import DEFAULT_DOCKER_TIMEOUT_SECONDS
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import is_dry_run
+from devops_cli.lang import ERRORS, HELP, MESSAGES
 from devops_cli.output import (
     print_error,
     print_info,
@@ -21,7 +22,7 @@ from devops_cli.output import (
     render_dry_run_result,
 )
 
-app = new_typer(help="Docker image management.", no_args_is_help=True)
+app = new_typer(help=HELP.docker.app, no_args_is_help=True)
 
 
 # =============================================================================
@@ -45,7 +46,7 @@ def _client() -> Any:
 
         return docker.from_env(timeout=int(DEFAULT_DOCKER_TIMEOUT_SECONDS))
     except (ImportError, DockerException, ValueError) as exc:
-        print_error(f"Cannot connect to Docker: {exc}", prefix=False)
+        print_error(ERRORS.docker.cannot_connect.format(exc=exc), prefix=False)
         raise typer.Exit(1)
 
 
@@ -69,7 +70,7 @@ def list_images(
     client = _client()
     images = client.images.list(name=name)
 
-    table = Table(title="Docker Images")
+    table = Table(title=MESSAGES.docker.table_title_images)
     table.add_column("Repository", style="cyan")
     table.add_column("Tag")
     table.add_column("ID")
@@ -117,7 +118,7 @@ def build(
     if dockerfile:
         kwargs["dockerfile"] = str(dockerfile)
 
-    print_info(f"Building from [dim]{context}[/dim]...", prefix=False)
+    print_info(MESSAGES.docker.building_from.format(context=context), prefix=False)
     image, build_logs = client.images.build(**kwargs)
     for chunk in build_logs:
         if "stream" in chunk:
@@ -125,7 +126,7 @@ def build(
             if line:
                 print_info(line, prefix=False)
     tag_suffix = f" ({tag})" if tag else ""
-    print_success(f"Built: {image.short_id}{tag_suffix}")
+    print_success(MESSAGES.docker.built_image.format(short_id=image.short_id, suffix=tag_suffix))
 
 
 # =============================================================================
@@ -147,10 +148,10 @@ def push(
         )
         return
     if not re.match(r"^[a-zA-Z0-9_.-]+(?:/[a-zA-Z0-9_.-]+)*(?::[a-zA-Z0-9_.-]+)?$", image):
-        print_error(f"Invalid Docker image name format: '{image}'", prefix=False)
+        print_error(ERRORS.docker.invalid_image_name.format(image=image), prefix=False)
         raise typer.Exit(1)
     client = _client()
-    print_info(f"Pushing [dim]{image}[/dim]...", prefix=False)
+    print_info(MESSAGES.docker.pushing_image.format(image=image), prefix=False)
     for chunk in client.images.push(image, stream=True, decode=True):
         if "status" in chunk and "progressDetail" not in chunk:
             clean_status = re.sub(r"[\x00-\x1f\x7f]", "", str(chunk["status"]))
@@ -159,7 +160,7 @@ def push(
             clean_err = re.sub(r"[\x00-\x1f\x7f]", "", str(chunk["error"]))
             print_error(clean_err, prefix=False)
             raise typer.Exit(1)
-    print_success("Pushed.")
+    print_success(MESSAGES.docker.pushed_success)
 
 
 # =============================================================================
@@ -194,7 +195,7 @@ def prune(
     else:
         reclaimed_bytes = 0
     reclaimed_mb = reclaimed_bytes // (1024 * 1024)
-    print_success(f"Pruned. Space reclaimed: {reclaimed_mb} MB")
+    print_success(MESSAGES.docker.pruned_success.format(mb=reclaimed_mb))
 
 
 # =============================================================================
@@ -220,14 +221,14 @@ def analyze_layers(
         )
         return
 
-    print_muted(f"Analyzing container image layers for '{image}' via Dive...")
+    print_muted(MESSAGES.docker.analyzing_layers.format(image=image))
     result = run_dive_analysis(image_name=image)
 
     if json_output:
         write_stdout(format_json(result.model_dump()) + "\n")
         return
 
-    table = Table(title=f"Container Layer Efficiency: {result.image_name}")
+    table = Table(title=MESSAGES.docker.table_title_layers.format(image=result.image_name))
     table.add_column("Layer", justify="right")
     table.add_column("Size (MB)", justify="right")
     table.add_column("Wasted (MB)", justify="right")
@@ -242,4 +243,4 @@ def analyze_layers(
     eff_pct = result.efficiency_score * 100
     tot_mb = result.total_bytes / (1024 * 1024)
     wst_mb = result.wasted_bytes / (1024 * 1024)
-    print_info(f"Efficiency: {eff_pct:.1f}% | Size: {tot_mb:.1f} MB | Wasted: {wst_mb:.1f} MB")
+    print_info(MESSAGES.docker.efficiency_summary.format(eff=eff_pct, size=tot_mb, wasted=wst_mb))

@@ -27,7 +27,7 @@ from devops_cli.git.operations import (
     iter_workspace_repos,
     pull_tracking,
 )
-from devops_cli.lang import MESSAGES
+from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
     print_error,
     print_info,
@@ -40,7 +40,7 @@ from devops_cli.output import (
 if TYPE_CHECKING:
     from devops_cli.github.client import GitHubClient
 
-app = new_typer(help="Clone and manage repositories.", no_args_is_help=True)
+app = new_typer(help=HELP.repos.app, no_args_is_help=True)
 
 
 # =============================================================================

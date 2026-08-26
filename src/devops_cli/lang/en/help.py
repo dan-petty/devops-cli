@@ -128,6 +128,184 @@ class ToolDocHelp:
 
 
 @dataclass(frozen=True)
+class ArgoCommandHelp:
+    app: str = "Argo CD, Workflows, and Rollouts management."
+    cd: str = "ArgoCD application management."
+    workflows: str = "Argo Workflows management."
+    rollouts: str = "Argo Rollouts management."
+    apps_list: str = "List all ArgoCD applications."
+    apps_sync: str = "Trigger sync for an ArgoCD application."
+    apps_get: str = "Get details of an ArgoCD application."
+
+
+@dataclass(frozen=True)
+class CICommandHelp:
+    app: str = "Run tests, linting, formatting, and type-checks."
+    remote: str = "Inspect and watch remote GitHub Actions CI workflow runs."
+
+
+@dataclass(frozen=True)
+class DevcontainerCommandHelp:
+    app: str = "Manage devcontainer configurations."
+    init: str = "Scaffold .devcontainer/ using the published DevOps CLI devcontainer image."
+    update: str = "Update the Python image version in an existing devcontainer.json."
+    validate: str = (
+        "Validate .devcontainer/devcontainer.json manifest syntax and configuration schema."
+    )
+    list_cmd: str = "List repos with their devcontainer status."
+    post_create: str = (
+        "Execute DevContainer post-create setup tasks (history, shell completions, config prep)."
+    )
+    post_start: str = "Execute DevContainer post-start lifecycle tasks."
+
+
+@dataclass(frozen=True)
+class DockerCommandHelp:
+    app: str = "Docker image management."
+    images: str = "List local Docker images."
+    build: str = "Build a Docker image."
+    push: str = "Push a Docker image to a registry."
+    prune: str = "Remove unused containers, images, and networks."
+    analyze_layers: str = "Analyze container image layer efficiency and wasted space using Dive."
+
+
+@dataclass(frozen=True)
+class GrafanaCommandHelp:
+    app: str = "Grafana dashboard and alert management."
+    dashboards: str = "Manage Grafana dashboards."
+    search: str = "Search Grafana dashboards and folders by query string."
+    datasources: str = "List configured datasources."
+    alerts: str = "List alert rules (Grafana 9+ unified alerting)."
+
+
+@dataclass(frozen=True)
+class MCPCommandHelp:
+    app: str = "FastMCP server and Model Context Protocol integrations."
+    serve: str = "Launch FastMCP server to expose devops-cli tools to MCP clients."
+    tools: str = "List all registered FastMCP tools and descriptions."
+
+
+@dataclass(frozen=True)
+class ServeCommandHelp:
+    app: str = (
+        "FastAPI REST & OpenAPI Service Engine for remote automation, health probes, and metrics."
+    )
+
+
+@dataclass(frozen=True)
+class DocsCommandHelp:
+    app: str = "Generate and synchronize CLI documentation and markdown matrices."
+    generate: str = "Generate reference documentation and sync command matrix in README.md."
+    check: str = "Verify that documentation is strictly up to date with CLI code."
+
+
+@dataclass(frozen=True)
+class PRCommandHelp:
+    app: str = "GitHub Pull Request workflows and reviews."
+    list_prs: str = "List pull requests matching filters."
+    create_pr: str = "Create a new pull request."
+    checks: str = "View status of remote CI checks on a pull request."
+
+
+@dataclass(frozen=True)
+class ReleaseCommandHelp:
+    app: str = "Automate version bumps, changelogs, tags, and GitHub releases."
+    status: str = "Check working tree status and latest release tags."
+    prepare: str = "Prepare a release version bump and synchronize changelog and docs."
+    tag: str = "Create and push a git release tag."
+    pr: str = "Open a release Pull Request targeting main."
+
+
+@dataclass(frozen=True)
+class ReviewCommandHelp:
+    app: str = "AI-powered multi-persona code review and security audits."
+    path_cmd: str = "Review local files or directory changes."
+    branch_cmd: str = "Review diff between branches."
+    pr_cmd: str = "Review a GitHub Pull Request."
+    findings: str = "Manage and update review findings."
+    stats: str = "Show review sessions and findings statistics."
+    export_feedback: str = "Export review findings to structured feedback files."
+
+
+@dataclass(frozen=True)
+class ScanCommandHelp:
+    app: str = "Security scanner suite: Trivy, Gitleaks, Semgrep, Checkov, Kubeconform."
+    trivy: str = "Run Trivy security scan."
+    gitleaks: str = "Run Gitleaks secret detection scan."
+    semgrep: str = "Run Semgrep static analysis."
+    checkov: str = "Run Checkov Infrastructure as Code security scan."
+    kubeconform: str = "Run Kubeconform Kubernetes manifest validation."
+    kubelinter: str = "Run KubeLinter security audit on Kubernetes manifests."
+    pluto: str = "Run Pluto Kubernetes deprecated API check."
+    popeye: str = "Run Popeye Kubernetes cluster sanitizer."
+    dive: str = "Run Dive container image layer analysis."
+
+
+@dataclass(frozen=True)
+class TelemetryCommandHelp:
+    app: str = "OpenTelemetry tracing, metrics, and Jaeger observability."
+    status: str = "Show telemetry collector connectivity and service configuration."
+    test_span: str = "Emit a synthetic test span to verify Jaeger tracing collector."
+
+
+@dataclass(frozen=True)
+class TLSCommandHelp:
+    app: str = "Generate and manage homelab TLS certificates and CAs."
+    generate_ca: str = "Generate a self-signed Root CA certificate."
+    generate_cert: str = "Generate a TLS leaf certificate signed by a CA."
+    inspect: str = "Inspect TLS certificate metadata and expiration."
+    verify: str = "Verify certificate chain against CA."
+    bundle: str = "Generate full homelab TLS certificate bundle."
+    k8s_secret: str = "Create Kubernetes TLS secret in cluster namespaces."
+
+
+@dataclass(frozen=True)
+class ConfigCommandHelp:
+    app: str = "Show, set, get, or initialize CLI configuration."
+    show: str = "Display current configuration settings."
+    get: str = "Get a specific configuration value."
+    set_cmd: str = "Set a configuration value (stored in config file or OS Keyring)."
+    init_cmd: str = "Interactive configuration wizard."
+
+
+@dataclass(frozen=True)
+class InstallCommandHelp:
+    app: str = "Install and manage DevOps tool binaries."
+    all_cmd: str = "Install all required DevOps CLI binaries."
+    status: str = "Check installed DevOps toolchain versions."
+
+
+@dataclass(frozen=True)
+class BenchmarkCommandHelp:
+    app: str = "Benchmark, evaluate, and peer-grade candidate AI models across engineering tasks."
+
+
+@dataclass(frozen=True)
+class AnalyzeCommandHelp:
+    app: str = (
+        "Analyze codebases and create/update structured metadata files under .data/analysis/."
+    )
+
+
+@dataclass(frozen=True)
+class PrometheusCommandHelp:
+    app: str = "Prometheus metrics querying and analysis."
+    query: str = "Execute an instant PromQL query."
+    query_range: str = "Execute a range PromQL query."
+
+
+@dataclass(frozen=True)
+class RAGCommandHelp:
+    app: str = "Manage RAG vector embeddings, indexing, and semantic search (Qdrant)."
+    index: str = "Index codebase files into Qdrant vector database."
+    index_kb: str = "Index DevOps CLI Knowledge Base into Qdrant."
+    search: str = "Search indexed codebase using semantic similarity."
+    collections: str = "List Qdrant vector collections and metrics."
+    clear: str = "Clear a Qdrant vector collection."
+    reset_cache: str = "Reset local RAG indexing cache."
+
+
+@dataclass(frozen=True)
 class HelpCatalog:
     options: OptionHelp = field(default_factory=OptionHelp)
     ai: AICommandHelp = field(default_factory=AICommandHelp)
@@ -140,6 +318,26 @@ class HelpCatalog:
     tf: TfCommandHelp = field(default_factory=TfCommandHelp)
     kustomize: KustomizeCommandHelp = field(default_factory=KustomizeCommandHelp)
     tools: ToolDocHelp = field(default_factory=ToolDocHelp)
+    argo: ArgoCommandHelp = field(default_factory=ArgoCommandHelp)
+    ci: CICommandHelp = field(default_factory=CICommandHelp)
+    devcontainer: DevcontainerCommandHelp = field(default_factory=DevcontainerCommandHelp)
+    docker: DockerCommandHelp = field(default_factory=DockerCommandHelp)
+    grafana: GrafanaCommandHelp = field(default_factory=GrafanaCommandHelp)
+    mcp: MCPCommandHelp = field(default_factory=MCPCommandHelp)
+    serve: ServeCommandHelp = field(default_factory=ServeCommandHelp)
+    docs: DocsCommandHelp = field(default_factory=DocsCommandHelp)
+    pr: PRCommandHelp = field(default_factory=PRCommandHelp)
+    release: ReleaseCommandHelp = field(default_factory=ReleaseCommandHelp)
+    review: ReviewCommandHelp = field(default_factory=ReviewCommandHelp)
+    scan: ScanCommandHelp = field(default_factory=ScanCommandHelp)
+    telemetry: TelemetryCommandHelp = field(default_factory=TelemetryCommandHelp)
+    tls: TLSCommandHelp = field(default_factory=TLSCommandHelp)
+    config: ConfigCommandHelp = field(default_factory=ConfigCommandHelp)
+    install: InstallCommandHelp = field(default_factory=InstallCommandHelp)
+    benchmark: BenchmarkCommandHelp = field(default_factory=BenchmarkCommandHelp)
+    analyze: AnalyzeCommandHelp = field(default_factory=AnalyzeCommandHelp)
+    prometheus: PrometheusCommandHelp = field(default_factory=PrometheusCommandHelp)
+    rag: RAGCommandHelp = field(default_factory=RAGCommandHelp)
 
 
 HELP = HelpCatalog()

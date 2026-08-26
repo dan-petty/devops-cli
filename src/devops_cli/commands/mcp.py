@@ -8,6 +8,7 @@ import typer
 
 from devops_cli.ai.mcp import list_mcp_tools, run_mcp_server
 from devops_cli.core.cli import new_typer
+from devops_cli.lang import ERRORS, HELP, MESSAGES
 from devops_cli.output import (
     print_error,
     print_info,
@@ -16,10 +17,10 @@ from devops_cli.output import (
     write_stderr,
 )
 
-app = new_typer(name="mcp", help="FastMCP server and Model Context Protocol integrations.")
+app = new_typer(name="mcp", help=HELP.mcp.app)
 
 
-@app.command("serve")
+@app.command("serve", help=HELP.mcp.serve)
 def serve_cmd(
     transport: Annotated[
         str,
@@ -55,14 +56,14 @@ def serve_cmd(
 ) -> None:
     """Launch FastMCP server to expose devops-cli tools to MCP clients."""
     if transport not in {"stdio", "sse"}:
-        print_error(f"Invalid transport '{transport}'. Choose 'stdio' or 'sse'.")
+        print_error(ERRORS.mcp.invalid_transport.format(transport=transport))
         raise typer.Exit(1)
 
     if transport == "sse":
-        print_info(f"Starting FastMCP server (SSE) on http://{host}:{port}...")
+        print_info(MESSAGES.mcp.starting_sse.format(host=host, port=port))
     else:
         # For stdio, stdout must carry ONLY MCP JSON-RPC. Write status to stderr.
-        write_stderr("Starting FastMCP server (stdio) — devops-cli\n")
+        write_stderr(MESSAGES.mcp.starting_stdio)
 
     try:
         run_mcp_server(transport=transport, host=host, port=port, allow_remote=allow_remote)
@@ -71,13 +72,13 @@ def serve_cmd(
         raise typer.Exit(1)
 
 
-@app.command("tools")
+@app.command("tools", help=HELP.mcp.tools)
 def tools_cmd() -> None:
     """List all registered FastMCP tools and descriptions."""
     tools = list_mcp_tools()
     table = render_table(
-        title="Registered FastMCP Tools (devops-cli)",
-        columns=[("MCP Tool Name", "cyan"), ("Description", "white")],
+        title=MESSAGES.mcp.table_title_tools,
+        columns=[(MESSAGES.mcp.col_tool_name, "cyan"), (MESSAGES.mcp.col_description, "white")],
         rows=[[t["name"], t["description"]] for t in tools],
     )
     print_table(table)

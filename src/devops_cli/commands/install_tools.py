@@ -38,6 +38,7 @@ from devops_cli.config.defaults import (
 from devops_cli.core.cli import new_typer
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.validation import validate_version_str
+from devops_cli.lang import HELP
 from devops_cli.output import (
     print_error,
     print_info,
@@ -46,7 +47,7 @@ from devops_cli.output import (
     print_warning,
 )
 
-app = new_typer(help="Install and manage DevOps tool binaries.", no_args_is_help=True)
+app = new_typer(help=HELP.install.app, no_args_is_help=True)
 
 
 # =============================================================================

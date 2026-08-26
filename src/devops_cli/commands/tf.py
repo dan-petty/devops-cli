@@ -22,7 +22,7 @@ from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import find_top_level_repo_root
 from devops_cli.core.validation import validate_dir
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
-from devops_cli.lang import MESSAGES
+from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
     print_error,
     print_info,
@@ -32,7 +32,7 @@ from devops_cli.output import (
 )
 
 app = new_typer(
-    help="OpenTofu and Terraform Infrastructure-as-Code operations.",
+    help=HELP.tf.app,
     no_args_is_help=True,
 )
 

@@ -18,7 +18,7 @@ from devops_cli.core.repo import find_top_level_repo_root, resolve_safe_subpath
 from devops_cli.docs.generator import DocGenerator
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
 from devops_cli.git.operations import get_latest_git_tag, is_git_clean
-from devops_cli.lang import MESSAGES
+from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
     print_error,
     print_info,
@@ -30,9 +30,7 @@ from devops_cli.output import (
     write_text_file,
 )
 
-app = new_typer(
-    help="Manage release cycles, version bumping, changelogs, and release verification."
-)
+app = new_typer(help=HELP.release.app)
 
 _SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$")
 

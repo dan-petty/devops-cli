@@ -20,7 +20,7 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import is_dry_run
-from devops_cli.lang import MESSAGES
+from devops_cli.lang import ERRORS, HELP, MESSAGES
 from devops_cli.output import (
     get_console,
     print_error,
@@ -33,7 +33,7 @@ from devops_cli.output import (
 )
 
 app = new_typer(
-    help="Manage RAG vector embeddings, indexing, and semantic code search (Qdrant).",
+    help=HELP.rag.app,
     no_args_is_help=True,
 )
 
@@ -141,7 +141,7 @@ def index_cmd(
         return
     target_path = path.resolve()
     if not target_path.exists():
-        print_error(f"Path not found: {target_path}", prefix=False)
+        print_error(ERRORS.rag.path_not_found.format(path=target_path), prefix=False)
         raise typer.Exit(1)
 
     if is_dry_run():
@@ -166,8 +166,7 @@ def index_cmd(
 
     if not qdrant.is_alive():
         print_error(
-            f"Cannot connect to Qdrant at [bold]{qdrant.base_url}[/bold]\n"
-            "Tip: Deploy or start Qdrant via 'devops k8s deploy-stack llm'",
+            MESSAGES.rag.cannot_connect_qdrant.format(url=qdrant.base_url),
             prefix=False,
         )
         raise typer.Exit(1)
@@ -216,9 +215,12 @@ def index_cmd(
         else ""
     )
     print_success(
-        f"Indexing complete! Indexed [cyan]{results['indexed_files']}[/cyan] file(s), "
-        f"upserted [cyan]{results['total_chunks']}[/cyan] chunk(s)"
-        f"{removed_msg} (skipped {results['skipped_files']} unchanged files)."
+        MESSAGES.rag.indexing_complete.format(
+            indexed=results["indexed_files"],
+            chunks=results["total_chunks"],
+            removed=removed_msg,
+            skipped=results["skipped_files"],
+        )
     )
 
 

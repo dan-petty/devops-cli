@@ -123,7 +123,7 @@ def scan_trivy(
     target_abs = target.resolve() if target.exists() else target
 
     if not is_dry_run():
-        print_muted(f"Executing Trivy security scan on '{target_abs}' (type: {scan_type})...")
+        print_muted(MESSAGES.scan.trivy_executing.format(target=target_abs, scan_type=scan_type))
 
     findings = run_trivy_scan(target=target_abs, scan_type=scan_type, severity=severity)
 
@@ -191,7 +191,7 @@ def scan_secrets(
     target_abs = target.resolve() if target.exists() else target
 
     if not is_dry_run():
-        print_muted(f"Executing Gitleaks secret scan on '{target_abs}'...")
+        print_muted(MESSAGES.scan.gitleaks_executing.format(target=target_abs))
 
     findings = run_gitleaks_scan(target=target_abs)
 
@@ -208,7 +208,7 @@ def scan_secrets(
         return None
 
     if not findings:
-        print_success("✓ No secrets or credential leaks detected.")
+        print_success(MESSAGES.scan.gitleaks_passed)
         if is_dry_run():
             return CommandDryRunResult(
                 command=f"devops scan secrets {target}",
@@ -308,7 +308,7 @@ def scan_sast(
     target_abs = target.resolve() if target.exists() else target
 
     if not is_dry_run():
-        print_muted(f"Executing Semgrep AST scan on '{target_abs}' (config: {config})...")
+        print_muted(MESSAGES.scan.semgrep_executing.format(target=target_abs, config=config))
 
     findings = run_semgrep_scan(target=target_abs, config=config)
 
@@ -325,7 +325,7 @@ def scan_sast(
         return None
 
     if not findings:
-        print_success("✓ No static AST pattern flaws detected.")
+        print_success(MESSAGES.scan.semgrep_passed)
         if is_dry_run():
             return CommandDryRunResult(
                 command=f"devops scan sast {target} --config {config}",
@@ -397,7 +397,7 @@ def scan_iac(
     target_abs = target.resolve() if target.exists() else target
 
     if not is_dry_run():
-        print_muted(f"Executing Checkov IaC scan on '{target_abs}'...")
+        print_muted(MESSAGES.scan.checkov_executing.format(target=target_abs))
 
     findings = run_checkov_scan(target_path=target_abs, framework=framework)
 
@@ -414,7 +414,7 @@ def scan_iac(
         return None
 
     if not findings:
-        print_success("✓ No IaC policy violations detected.")
+        print_success(MESSAGES.scan.checkov_passed)
         if is_dry_run():
             return CommandDryRunResult(
                 command=f"devops scan iac {target}",

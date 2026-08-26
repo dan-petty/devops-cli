@@ -17,6 +17,7 @@ from devops_cli.config.settings import Settings, get_grafana_token, load_setting
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
 from devops_cli.http.validation import validate_service_url
+from devops_cli.lang import ERRORS, HELP, MESSAGES
 from devops_cli.models.grafana import GrafanaAlertRule, GrafanaDashboard, GrafanaDatasource
 from devops_cli.output import (
     print_error,
@@ -26,9 +27,9 @@ from devops_cli.output import (
     write_json_file,
 )
 
-app = new_typer(help="Grafana dashboard and alert management.", no_args_is_help=True)
+app = new_typer(help=HELP.grafana.app, no_args_is_help=True)
 
-dashboards_app = new_typer(help="Manage Grafana dashboards.")
+dashboards_app = new_typer(help=HELP.grafana.dashboards)
 app.add_typer(dashboards_app, name="dashboards")
 
 
@@ -41,7 +42,7 @@ def _client_args(settings: Settings) -> tuple[str, dict[str, str]]:
     """Return (base_url, headers) for Grafana API requests."""
     if not settings.grafana.url:
         print_error(
-            "Grafana URL not configured. Run: devops config set grafana.url <url>",
+            MESSAGES.grafana.url_not_configured,
             prefix=False,
         )
         raise typer.Exit(1)
@@ -87,7 +88,7 @@ def dashboards_list() -> None:
         )
         response.raise_for_status()
 
-    table = Table(title="Grafana Dashboards")
+    table = Table(title=MESSAGES.grafana.table_title_dashboards)
     table.add_column("UID", style="dim")
     table.add_column("Title", style="cyan")
     table.add_column("Folder")
@@ -111,14 +112,14 @@ def dashboards_export(
     """Export a dashboard to JSON."""
     if not re.match(r"^[a-zA-Z0-9_-]+$", uid):
         print_error(
-            "Invalid Dashboard UID: alphanumeric, hyphens, and underscores only.",
+            ERRORS.grafana.invalid_uid,
             prefix=False,
         )
         raise typer.Exit(1)
     if output is not None:
         resolved = output.resolve()
         if not resolved.is_relative_to(Path.cwd().resolve()):
-            print_error("Invalid output path: path traversal not allowed.", prefix=False)
+            print_error(ERRORS.grafana.invalid_output_path, prefix=False)
             raise typer.Exit(1)
     settings = load_settings()
     base, headers = _client_args(settings)
@@ -133,7 +134,7 @@ def dashboards_export(
 
     dest = output or Path(f"{uid}.json")
     write_json_file(dest, response.json())
-    print_success(f"Exported → {dest}")
+    print_success(MESSAGES.grafana.exported_success.format(dest=dest))
 
 
 # =============================================================================
@@ -152,7 +153,7 @@ def dashboards_import(
 
     if file.stat().st_size > CONST_MAX_FILE_SIZE_BYTES:
         print_error(
-            f"File '{file}' exceeds maximum allowed size ({CONST_MAX_FILE_SIZE_BYTES} bytes).",
+            ERRORS.grafana.file_too_large.format(path=file, max_bytes=CONST_MAX_FILE_SIZE_BYTES),
             prefix=False,
         )
         raise typer.Exit(1)
@@ -160,11 +161,11 @@ def dashboards_import(
     try:
         raw = json.loads(file.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError) as exc:
-        print_error(f"Failed to parse dashboard JSON file '{file}': {exc}", prefix=False)
+        print_error(ERRORS.grafana.parse_failed.format(path=file, exc=exc), prefix=False)
         raise typer.Exit(1)
 
     if not isinstance(raw, dict):
-        print_error(f"Invalid dashboard JSON in '{file}': expected JSON object.", prefix=False)
+        print_error(ERRORS.grafana.invalid_json_object.format(path=file), prefix=False)
         raise typer.Exit(1)
 
     dashboard = raw.get("dashboard", raw)
@@ -190,7 +191,9 @@ def dashboards_import(
             timeout=DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS,
         )
         response.raise_for_status()
-    print_success(f"Imported: {response.json().get('slug', 'unknown')}")
+    print_success(
+        MESSAGES.grafana.imported_success.format(slug=response.json().get("slug", "unknown"))
+    )
 
 
 # =============================================================================
@@ -208,12 +211,12 @@ def dashboards_sync(
     """Sync all bundled/local dashboards to Grafana."""
     search_dir = dir_path or Path("k8s/monitoring/dashboards")
     if not search_dir.exists():
-        print_warning(f"Dashboard directory '{search_dir}' not found.", prefix=False)
+        print_warning(MESSAGES.grafana.dir_not_found.format(path=search_dir), prefix=False)
         raise typer.Exit(1)
 
     json_files = sorted(search_dir.glob("*.json"))
     if not json_files:
-        print_warning(f"No dashboard JSON files found in '{search_dir}'.", prefix=False)
+        print_warning(MESSAGES.grafana.no_json_files.format(path=search_dir), prefix=False)
         return
 
     if is_dry_run():
@@ -242,13 +245,17 @@ def dashboards_sync(
                     timeout=DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS,
                 )
                 response.raise_for_status()
-                print_success(f"Synced dashboard: [bold]{title}[/bold] ({dash_file.name})")
+                print_success(
+                    MESSAGES.grafana.synced_dashboard.format(title=title, file=dash_file.name)
+                )
                 success_count += 1
             except Exception as exc:
-                print_error(f"Failed to sync '{dash_file.name}': {exc}", prefix=False)
+                print_error(
+                    ERRORS.grafana.sync_failed.format(file=dash_file.name, exc=exc), prefix=False
+                )
 
     print_success(
-        f"Dashboard sync completed: {success_count}/{len(json_files)} synced successfully."
+        MESSAGES.grafana.sync_completed.format(synced=success_count, total=len(json_files))
     )
 
 
@@ -275,7 +282,9 @@ def search(
         )
         response.raise_for_status()
 
-    table = Table(title=f"Grafana Search: {query!r}" if query else "Grafana Search")
+    table = Table(
+        title=MESSAGES.grafana.table_title_search.format(query=query) if query else "Grafana Search"
+    )
     table.add_column("UID", style="dim")
     table.add_column("Title", style="cyan")
     table.add_column("Type")
@@ -311,7 +320,7 @@ def datasources() -> None:
         )
         response.raise_for_status()
 
-    table = Table(title="Grafana Datasources")
+    table = Table(title=MESSAGES.grafana.table_title_datasources)
     table.add_column("Name", style="cyan")
     table.add_column("Type")
     table.add_column("URL")
@@ -347,7 +356,7 @@ def alerts() -> None:
         )
         response.raise_for_status()
 
-    table = Table(title="Grafana Alert Rules")
+    table = Table(title=MESSAGES.grafana.table_title_alerts)
     table.add_column("UID", style="dim")
     table.add_column("Title", style="cyan")
     table.add_column("Folder")

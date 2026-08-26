@@ -13,7 +13,7 @@ from rich.table import Table
 from devops_cli.config.constants import CONST_GH_CLI
 from devops_cli.core.cli import new_typer
 from devops_cli.core.process import run_subprocess
-from devops_cli.lang import MESSAGES
+from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
     print_error,
     print_success,
@@ -22,7 +22,7 @@ from devops_cli.output import (
 )
 
 app = new_typer(
-    help="Manage GitHub pull requests, base branch targeting, and review gates.",
+    help=HELP.pr.app,
     no_args_is_help=True,
 )
 

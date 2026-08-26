@@ -11,7 +11,7 @@ from rich.table import Table
 from devops_cli.config.settings import load_settings
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import is_dry_run
-from devops_cli.lang.en import MESSAGES
+from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
     print_info,
     print_success,
@@ -25,7 +25,7 @@ from devops_cli.telemetry.tracer import (
 )
 
 app = new_typer(
-    help="OpenTelemetry observability, tracing, and metrics management.",
+    help=HELP.telemetry.app,
     no_args_is_help=True,
 )
 

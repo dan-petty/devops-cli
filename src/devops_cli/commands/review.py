@@ -17,7 +17,7 @@ from devops_cli.config.constants import (
 )
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import is_dry_run, set_dry_run
-from devops_cli.lang import MESSAGES
+from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
     get_console,
     print_error,
@@ -207,9 +207,7 @@ def export_invalidated_feedback(*args: Any, **kwargs: Any) -> Any:
     return fn(*args, **kwargs)
 
 
-app = new_typer(
-    help="AI Code Review across branches, paths, and pull requests.", no_args_is_help=True
-)
+app = new_typer(help=HELP.review.app, no_args_is_help=True)
 
 
 @app.callback(invoke_without_command=True)

@@ -31,6 +31,7 @@ from devops_cli.core.cli import new_typer, repo_label
 from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
 from devops_cli.git.operations import iter_workspace_repos
+from devops_cli.lang import ERRORS, HELP, MESSAGES
 from devops_cli.output import (
     print_error,
     print_success,
@@ -40,7 +41,7 @@ from devops_cli.output import (
 
 logger = logging.getLogger(__name__)
 
-app = new_typer(help="Manage devcontainer configurations.", no_args_is_help=True)
+app = new_typer(help=HELP.devcontainer.app, no_args_is_help=True)
 console = Console()
 
 _TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
@@ -115,7 +116,7 @@ def init(
     dc_file = dc_dir / CONST_DEVCONTAINER_JSON_NAME
 
     if dc_file.exists() and not force:
-        rprint(f"[yellow]devcontainer.json already exists: {dc_file}[/yellow]")
+        rprint(f"[yellow]{MESSAGES.devcontainer.already_exists.format(path=dc_file)}[/yellow]")
         raise typer.Exit(1)
 
     raw_name = project_name or repo_path.resolve().name
@@ -142,7 +143,7 @@ def init(
         home_volume=resolved_home_vol,
     )
     write_text_file(dc_file, rendered.strip() + "\n")
-    print_success(f"Created: {dc_file}")
+    print_success(MESSAGES.devcontainer.created_file.format(path=dc_file))
 
     vscode_dir = repo_path / ".vscode"
     mcp_file = vscode_dir / "mcp.json"
@@ -151,12 +152,12 @@ def init(
             mcp_file,
             env.get_template("mcp.json.j2").render(project_name=name),
         )
-        print_success(f"Created: {mcp_file}")
+        print_success(MESSAGES.devcontainer.created_file.format(path=mcp_file))
 
     # Scaffold AI agent instruction files (AGENTS.md, CLAUDE.md, .github/copilot-instructions.md)
     agent_files = scaffold_agent_instructions(repo_path, force=force, template=True)
     for af in agent_files:
-        print_success(f"Created: {af}")
+        print_success(MESSAGES.devcontainer.created_file.format(path=af))
 
 
 # =============================================================================
@@ -172,17 +173,17 @@ def update(
     """Update the Python image version in an existing devcontainer.json."""
     dc_file = repo_path / CONST_DEVCONTAINER_JSON_PATH
     if not dc_file.exists():
-        print_error(f"No devcontainer.json found: {dc_file}")
+        print_error(MESSAGES.devcontainer.no_manifest_found.format(path=dc_file))
         raise typer.Exit(1)
 
     try:
         data = json.loads(dc_file.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
-        print_error(f"Invalid JSON in {dc_file}: {exc}")
+        print_error(ERRORS.devcontainer.invalid_json.format(path=dc_file, exc=exc))
         raise typer.Exit(1)
     data["image"] = f"{CONST_DEVCONTAINER_IMAGE_PREFIX}{python_version}"
     write_json_file(dc_file, data)
-    print_success(f"Updated image → python:{python_version}")
+    print_success(MESSAGES.devcontainer.updated_image.format(version=python_version))
 
 
 # =============================================================================
@@ -290,7 +291,7 @@ def validate(
         return
 
     if not dc_file.exists():
-        rprint(f"[red]DevContainer manifest not found: {dc_file}[/red]")
+        rprint(f"[red]{ERRORS.devcontainer.manifest_not_found.format(path=dc_file)}[/red]")
         raise typer.Exit(1)
 
     try:
@@ -298,12 +299,14 @@ def validate(
         clean_text = _strip_json_comments(raw_text)
         data = json.loads(clean_text)
     except Exception as exc:
-        rprint(f"[red]Failed to parse DevContainer manifest JSON in {dc_file}: {exc}[/red]")
+        rprint(f"[red]{ERRORS.devcontainer.parse_failed.format(path=dc_file, exc=exc)}[/red]")
         raise typer.Exit(1)
 
     errors = _validate_manifest_content(data, dc_file.parent)
     if errors:
-        rprint(f"[bold red]✗ DevContainer manifest validation failed for {dc_file}:[/bold red]")
+        rprint(
+            f"[bold red]{MESSAGES.devcontainer.manifest_validation_failed.format(path=dc_file)}[/bold red]"
+        )
         for err in errors:
             rprint(f"  [red]• {err}[/red]")
         raise typer.Exit(1)
@@ -346,18 +349,20 @@ def list_devcontainers(
     root = base_dir or settings.repos.base_dir
 
     if not root.exists():
-        rprint(f"[yellow]Repos directory not found: {root}[/yellow]")
+        rprint(f"[yellow]{MESSAGES.repos.repos_dir_not_found.format(root=root)}[/yellow]")
         raise typer.Exit(0)
 
-    table = Table(title="Devcontainer Status")
-    table.add_column("Repository", style="cyan")
+    table = Table(title=MESSAGES.devcontainer.status_table_title)
+    table.add_column(MESSAGES.devcontainer.col_repository, style="cyan")
     table.add_column(CONST_DEVCONTAINER_JSON_NAME)
 
     for repo_dir in iter_workspace_repos(root):
         dc_ok = (repo_dir / CONST_DEVCONTAINER_JSON_PATH).exists()
         table.add_row(
             repo_label(repo_dir),
-            "[green]✓ configured[/green]" if dc_ok else "[yellow]✗ missing[/yellow]",
+            MESSAGES.devcontainer.status_configured
+            if dc_ok
+            else MESSAGES.devcontainer.status_missing,
         )
 
     console.print(table)
@@ -788,11 +793,11 @@ def post_create(
         )
         return
 
-    rprint(f"[cyan]Running DevContainer post-create setup for {ws}...[/cyan]")
+    rprint(f"[cyan]{MESSAGES.devcontainer.post_create_start.format(workspace=ws)}[/cyan]")
     actions = _run_post_create_lifecycle(ws, dry_run=False)
     for action in actions:
         rprint(f"  [green]✓[/green] {action}")
-    rprint("[bold green]✓ DevContainer post-create setup ready.[/bold green]")
+    rprint(f"[bold green]{MESSAGES.devcontainer.post_create_ready}[/bold green]")
 
 
 # =============================================================================
@@ -819,11 +824,11 @@ def post_start(
         )
         return
 
-    rprint(f"[cyan]Running DevContainer post-start lifecycle for {ws}...[/cyan]")
+    rprint(f"[cyan]{MESSAGES.devcontainer.post_start_start.format(workspace=ws)}[/cyan]")
     actions = _run_post_start_lifecycle(ws, dry_run=False)
     for action in actions:
         rprint(f"  [green]✓[/green] {action}")
-    rprint("[bold green]✓ DevContainer post-start lifecycle complete.[/bold green]")
+    rprint(f"[bold green]{MESSAGES.devcontainer.post_start_ready}[/bold green]")
 
 
 # =============================================================================

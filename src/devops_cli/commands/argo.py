@@ -26,6 +26,7 @@ from devops_cli.core.process import run_subprocess
 from devops_cli.core.validation import validate_k8s_name
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
 from devops_cli.http.validation import validate_service_url
+from devops_cli.lang import HELP, MESSAGES
 from devops_cli.models.argo import ArgoCDApp
 from devops_cli.output import (
     print_error,
@@ -34,18 +35,18 @@ from devops_cli.output import (
     print_table,
 )
 
-app = new_typer(help="Argo CD, Workflows, and Rollouts management.", no_args_is_help=True)
+app = new_typer(help=HELP.argo.app, no_args_is_help=True)
 
 # ── Sub-groups ────────────────────────────────────────────────────────────────
-cd_app = new_typer(help="ArgoCD application management.")
-workflows_app = new_typer(help="Argo Workflows management.")
-rollouts_app = new_typer(help="Argo Rollouts management.")
+cd_app = new_typer(help=HELP.argo.cd)
+workflows_app = new_typer(help=HELP.argo.workflows)
+rollouts_app = new_typer(help=HELP.argo.rollouts)
 
 app.add_typer(cd_app, name="cd")
 app.add_typer(workflows_app, name="workflows")
 app.add_typer(rollouts_app, name="rollouts")
 
-cd_apps_app = new_typer(help="Manage ArgoCD applications.")
+cd_apps_app = new_typer(help=HELP.argo.cd)
 cd_app.add_typer(cd_apps_app, name="apps")
 
 
@@ -64,7 +65,7 @@ def _argocd(settings: Any) -> tuple[str, dict[str, str]]:
 
     if not settings.argocd.url:
         print_error(
-            "ArgoCD URL not configured. Run: devops config set argocd.url <url>",
+            MESSAGES.argo.url_not_configured,
             prefix=False,
         )
         raise typer.Exit(1)
@@ -107,7 +108,7 @@ def cd_apps_list() -> None:
         )
         resp.raise_for_status()
 
-    table = Table(title="ArgoCD Applications")
+    table = Table(title=MESSAGES.argo.table_title_apps)
     table.add_column("Name", style="cyan")
     table.add_column("Project")
     table.add_column("Sync")
@@ -154,7 +155,7 @@ def cd_apps_sync(
             timeout=DEFAULT_HTTP_LONG_TIMEOUT_SECONDS,
         )
         resp.raise_for_status()
-    print_success(f"Sync triggered: {name}")
+    print_success(MESSAGES.argo.sync_triggered.format(name=name))
 
 
 # =============================================================================

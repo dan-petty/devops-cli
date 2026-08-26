@@ -53,6 +53,15 @@ class ReviewMessages:
     )
     no_review_dir_found: str = "No review directory found."
     no_saved_sessions: str = "No saved review sessions found."
+    updated_finding_status: str = "Updated finding #{index} status → {status}"
+    total_sessions_count: str = "[bold]Total Sessions:[/bold]  {count}"
+    total_findings_count: str = "[bold]Total Findings:[/bold]  {count}\n"
+    review_posted_pr: str = "Review posted as comment on PR #{number}"
+    no_findings_session: str = "No findings.json in session {name}"
+    session_not_found: str = "Session not found matching: {session}"
+    no_findings_to_export: str = "No {status} findings found to export under {target}."
+    exported_findings: str = "Exported {count} {status} finding(s) → [bold]{path}[/bold]"
+    index_out_of_bounds: str = "Index out of bounds (1-{max_index})"
 
 
 @dataclass(frozen=True)
@@ -65,6 +74,12 @@ class AIMessages:
     interactive_prompt_header: str = "devops ai chat ({provider} / {model})"
     interactive_prompt_help: str = "Type your message and press Enter. Ctrl+C or exit to quit.\n"
     you_prompt: str = "You: "
+
+
+@dataclass(frozen=True)
+class BenchmarkMessages:
+    evaluating_model: str = "Evaluating {model} across {task_count} benchmarks..."
+    benchmark_complete: str = "Benchmark evaluation completed for {model}."
 
 
 @dataclass(frozen=True)
@@ -108,6 +123,7 @@ class GeneralMessages:
         "Refusing non-public {purpose} URL. "
         "Set DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true to override."
     )
+    elapsed_time: str = "Elapsed: {elapsed:.2f}s"
 
 
 @dataclass(frozen=True)
@@ -120,12 +136,19 @@ class BranchMessages:
 
 @dataclass(frozen=True)
 class WorkspaceMessages:
+    workspace_synced: str = "Workspace file synchronized with all cloned repositories: {path}"
     generated_workspace: str = "✓ Generated multi-root workspace file at {path}"
     synced_repos: str = "✓ Synced workspace with {count} repo(s)"
     no_repos_found: str = "No cloned repos found under {base_dir}."
     added_folder: str = "Added: {path}"
     removed_folder: str = "Removed: {path}"
     generated_with_count: str = "Generated {ws_file} with {count} folders."
+    pruning_stale: str = "Pruning artifacts older than {days} days under .data/..."
+    cleaned_artifacts: str = (
+        "✓ Cleaned {files} files and {dirs} directories ({freed_mb:.2f} MB freed)."
+    )
+    data_tier_clean: str = "✓ Data tier is clean; no stale artifacts found."
+    outside_boundary: str = "Cannot write workspace file '{path}' outside boundary."
 
 
 @dataclass(frozen=True)
@@ -143,6 +166,13 @@ class RepoMessages:
     invalid_url_hyphen: str = "Invalid repository URL: must not start with a hyphen."
     no_repos_found: str = "No repositories found."
     done: str = "Done."
+    cloning_repo: str = "Cloning [dim]{url}[/dim] → [dim]{dest}[/dim]"
+    already_exists: str = "Repository already exists at {dest}"
+    repos_dir_not_found: str = "Repos directory not found: {root}"
+    skip_path_traversal: str = "skip {name} (path traversal detected)"
+    skip_already_exists: str = "skip {name} (already exists)"
+    sync_done: str = "done {name}"
+    sync_fail: str = "fail {name}: {exc}"
 
 
 @dataclass(frozen=True)
@@ -166,6 +196,14 @@ class K8sMessages:
     popeye_passed: str = "Popeye cluster audit passed: no health warnings."
     pluto_passed: str = "Pluto API check passed: no deprecated K8s APIs."
     generating_homelab_tls: str = "[bold]Generating Homelab TLS certificate bundle...[/bold]"
+    applying_tls_secret: str = (
+        "[bold]Applying TLS secret '[cyan]{secret}[/cyan]' across cluster namespaces...[/bold]"
+    )
+    validating_manifests: str = (
+        "Validating Kubernetes manifests at '{path}' (k8s: {k8s_version})..."
+    )
+    applying_manifest: str = "[bold]Applying manifest {name}...[/bold]"
+    installing_release: str = "[bold]Installing {name}...[/bold]"
 
 
 @dataclass(frozen=True)
@@ -220,6 +258,7 @@ class DocsMessages:
 
 @dataclass(frozen=True)
 class ReleaseMessages:
+    bumped_version: str = "Bumped version to {version}"
     status_header: str = "DevOps CLI Release Status"
     current_version: str = "Current Version"
     latest_tag: str = "Latest Git Tag"
@@ -253,6 +292,16 @@ class ReleaseMessages:
         "[yellow][dry-run][/yellow] Would create release branch {branch}, "
         "commit release files, and open Pull Request for v{version}"
     )
+    branch_ready: str = "Branch '{branch}' is ready. You can manually open the PR on GitHub."
+    changelog_version_diff: str = "Warning: Latest CHANGELOG.md version ({changelog_ver}) differs from pyproject version ({pyproject_ver})"
+    working_tree_dirty: str = (
+        "Git working directory is dirty. Commit or stash changes before releasing."
+    )
+    docs_out_of_sync: str = "Documentation is out of sync. Run 'devops release prepare' or 'devops docs generate --sync-readme'"
+    running_ci_gate: str = "Running CI quality gate..."
+    ci_gate_failed: str = "CI Quality Gate checks failed. Resolve errors before releasing."
+    cannot_determine_version: str = "Could not determine target release version."
+    push_branch_failed: str = "Warning: Could not push branch to remote: {stderr}"
 
 
 @dataclass(frozen=True)
@@ -279,6 +328,8 @@ class TfMessages:
         "Deploying {provider} cloud infrastructure from [cyan]{path}[/cyan]..."
     )
     deploy_cloud_success: str = "✓ {provider} cloud infrastructure deployed successfully."
+    tflint_executing: str = "Executing TFLint static analysis on '{target}'..."
+    tflint_passed: str = "✓ No Terraform / OpenTofu lint issues detected."
 
 
 @dataclass(frozen=True)
@@ -305,6 +356,10 @@ class PRMessages:
         "GitHub CLI ('gh') is required for pull request operations. "
         "Please install gh or ensure it is in PATH."
     )
+    pr_created_success: str = (
+        "Pull request created successfully targeting base [bold]{target}[/bold]: {url}"
+    )
+    pr_updated_success: str = "Successfully updated PR #{number}"
 
 
 @dataclass(frozen=True)
@@ -329,26 +384,63 @@ class TelemetryMessages:
     port_forward_tip: str = (
         "[dim]Port-forward if running in cluster: devops k8s port-forward otel[/dim]"
     )
+    view_traces_jaeger: str = "\n[dim]To view traces in Jaeger UI: {url}[/dim]"
+    emitting_span: str = (
+        "[bold]Emitting test trace span '[cyan]{name}[/cyan]' to [cyan]{endpoint}[/cyan]...[/bold]"
+    )
+    span_emitted_success: str = "Test span emitted successfully! (Span ID: [cyan]{span_id}[/cyan], Duration: {elapsed_ms:.1f}ms)"
+    view_jaeger_service: str = "[dim]View in Jaeger: {url} (Service: {service})[/dim]"
+    jaeger_ui_link: str = "[bold]Jaeger Tracing UI:[/bold] [link={url}]{url}[/link]"
 
 
 @dataclass(frozen=True)
 class ScanMessages:
     no_flaws_found: str = "No security vulnerabilities, secrets, or flaws found."
+    trivy_executing: str = "Executing Trivy security scan on '{target}' (type: {scan_type})..."
+    trivy_passed: str = "✓ No vulnerabilities, secrets, or flaws found by Trivy."
+    gitleaks_executing: str = "Executing Gitleaks secret scan on '{target}'..."
+    gitleaks_passed: str = "✓ No secrets or credential leaks detected."
+    semgrep_executing: str = "Executing Semgrep AST scan on '{target}' (config: {config})..."
+    semgrep_passed: str = "✓ No static AST pattern flaws detected."
+    checkov_executing: str = "Executing Checkov IaC scan on '{target}'..."
+    checkov_passed: str = "✓ No IaC policy violations detected."
 
 
 @dataclass(frozen=True)
 class RAGMessages:
     operation_cancelled: str = "[dim]Operation cancelled.[/dim]"
     reset_cache_success: str = "Reset local indexing cache"
+    cannot_connect_qdrant: str = (
+        "Cannot connect to Qdrant at [bold]{url}[/bold]\n"
+        "Tip: Deploy or start Qdrant via 'devops k8s deploy-stack llm'"
+    )
+    searching_qdrant: str = "Searching Qdrant ({coll}) for query: '{query}' (limit: {limit})..."
+    indexing_complete: str = (
+        "Indexing complete! Indexed [cyan]{indexed}[/cyan] file(s), "
+        "upserted [cyan]{chunks}[/cyan] chunk(s)"
+        "{removed} (skipped {skipped} unchanged files)."
+    )
+    kb_indexing_complete: str = (
+        "Knowledge Base indexing complete! Indexed [cyan]{files}[/cyan] KB file(s), "
+        "upserted [cyan]{chunks}[/cyan] chunk(s) into [magenta]{coll}[/magenta]."
+    )
+    cleared_collection: str = "Cleared collection: {coll}"
+    no_matching_query: str = "No matching code/documentation found for query: {query}"
 
 
 @dataclass(frozen=True)
 class TLSMessages:
+    cert_generated: str = "Generated leaf certificate: {cert}"
     generating_bundle: str = "[bold]Generating homelab TLS bundle...[/bold]"
+    deploying_secret: str = (
+        "[bold]Deploying TLS secret '[cyan]{secret}[/cyan]' to Kubernetes namespaces...[/bold]"
+    )
+    verified_valid: str = "Verified: [cyan]{cert}[/cyan] is valid and signed by [cyan]{ca}[/cyan]"
 
 
 @dataclass(frozen=True)
 class SSHMessages:
+    key_generated: str = "Generated Ed25519 SSH keypair: {path}"
     no_managed_keys: str = "No managed SSH keys found. Run 'devops ssh generate' first."
     no_managed_keys_pattern: str = "No managed SSH keys found (expected: id_ed25519-YYYYMMMDD)."
     registered_and_configured: str = "Registered new key and updated git signing config."
@@ -359,14 +451,29 @@ class SSHMessages:
         "Configured [dim]gpg.format=ssh[/dim] and [dim]commit.gpgsign=true[/dim]"
     )
     register_tip: str = "\nRun [bold]devops ssh register[/bold] to add it to GitHub."
+    registered_on_github: str = "Registered [bold]{title}[/bold] on GitHub (auth + signing)."
+    key_age_status: str = "Active key:  [bold cyan]{name}[/bold cyan]"
+    key_age_days: str = "Age:         [bold]{age}[/bold] days"
+    rotation_needed: str = "Key is {age} days old — rotating..."
+    rotation_not_needed: str = (
+        "Key is {age} days old (rotation at {rotation_days}d). No rotation needed."
+    )
+    days_remaining: str = "Rotation:    {days} days remaining"
+    rotation_overdue: str = "Rotation:    overdue by {days} days — run 'devops ssh rotate'"
+    grace_period_notice: str = "\nOld key {name} remains active for {grace_days} grace days. Remove manually from GitHub when ready."
+    new_key_already_exists: str = "New key already exists: {path}"
 
 
 @dataclass(frozen=True)
 class PrometheusMessages:
+    query_instant_header: str = "Prometheus Instant Query: '{query}'"
     url_not_configured: str = (
         "Prometheus URL not configured. Run: devops config set prometheus.url <url>"
     )
     no_results: str = "No results."
+    expr_header: str = "[bold]{expr}[/bold]"
+    series_points_count: str = "{series_count} series, {points_count} total data points"
+    series_item: str = "  [cyan]{label}[/cyan]: {points_count} points"
 
 
 @dataclass(frozen=True)
@@ -379,11 +486,115 @@ class ToolMessages:
 
 
 @dataclass(frozen=True)
+class ArgoMessages:
+    url_not_configured: str = "ArgoCD URL not configured. Run: devops config set argocd.url <url>"
+    no_apps_found: str = "No ArgoCD applications found."
+    app_not_found: str = "Application '{name}' not found."
+    sync_triggered: str = "Sync triggered for '{name}'."
+    workflow_submitted: str = "Workflow submitted: {name}"
+    workflow_resumed: str = "Workflow resumed: {name}"
+    workflow_stopped: str = "Workflow stopped: {name}"
+    rollout_restarted: str = "Rollout restarted: {name}"
+    rollout_unpaused: str = "Rollout unpaused: {name}"
+    rollout_aborted: str = "Rollout aborted: {name}"
+    rollout_retry_initiated: str = "Rollout retry initiated: {name}"
+    table_title_apps: str = "ArgoCD Applications"
+    table_title_workflows: str = "Argo Workflows"
+    table_title_rollouts: str = "Argo Rollouts"
+
+
+@dataclass(frozen=True)
+class CIMessages:
+    python_version_check: str = "python version check (3.14+)"
+    pytest_coverage: str = "pytest & coverage"
+    ruff_check: str = "ruff check"
+    ruff_format: str = "ruff format"
+    mypy_check: str = "mypy (py314 strict)"
+    uv_audit: str = "uv audit"
+    bandit_scan: str = "bandit security scan"
+    actionlint: str = "actionlint (github workflows)"
+    docs_validation: str = "docs validation"
+    ci_summary_title: str = "CI Summary"
+    col_check: str = "Check"
+    col_result: str = "Result"
+    python_version_fail: str = "Strict Python {required}+ requirement failed. Current: {current}"
+
+
+@dataclass(frozen=True)
+class DevcontainerMessages:
+    already_exists: str = "devcontainer.json already exists: {path}"
+    created_file: str = "Created: {path}"
+    no_manifest_found: str = "No devcontainer.json found: {path}"
+    manifest_valid: str = "✓ DevContainer manifest is valid: {path}"
+    manifest_validation_failed: str = "✗ DevContainer manifest validation failed for {path}:"
+    status_table_title: str = "Devcontainer Status"
+    col_repository: str = "Repository"
+    status_configured: str = "✓ configured"
+    status_missing: str = "✗ missing"
+    post_create_start: str = "Running DevContainer post-create setup for {workspace}..."
+    post_create_ready: str = "✓ DevContainer post-create setup ready."
+    post_start_start: str = "Running DevContainer post-start lifecycle for {workspace}..."
+    post_start_ready: str = "✓ DevContainer post-start lifecycle complete."
+    updated_image: str = "Updated image → python:{version}"
+
+
+@dataclass(frozen=True)
+class DockerMessages:
+    table_title_images: str = "Docker Images"
+    building_from: str = "Building from [dim]{context}[/dim]..."
+    built_image: str = "Built: {short_id}{suffix}"
+    pushing_image: str = "Pushing [dim]{image}[/dim]..."
+    pushed_success: str = "Pushed."
+    pruned_success: str = "Pruned. Space reclaimed: {mb} MB"
+    analyzing_layers: str = "Analyzing container image layers for '{image}' via Dive..."
+    efficiency_summary: str = (
+        "Efficiency: {eff:.1f}% | Size: {size:.1f} MB | Wasted: {wasted:.1f} MB"
+    )
+    table_title_layers: str = "Container Layer Efficiency: {image}"
+
+
+@dataclass(frozen=True)
+class GrafanaMessages:
+    url_not_configured: str = "Grafana URL not configured. Run: devops config set grafana.url <url>"
+    table_title_dashboards: str = "Grafana Dashboards"
+    exported_success: str = "Exported → {dest}"
+    imported_success: str = "Imported: {slug}"
+    dir_not_found: str = "Dashboard directory '{path}' not found."
+    no_json_files: str = "No dashboard JSON files found in '{path}'."
+    synced_dashboard: str = "Synced dashboard: [bold]{title}[/bold] ({file})"
+    sync_completed: str = "Dashboard sync completed: {synced}/{total} synced successfully."
+    table_title_search: str = "Grafana Search: {query}"
+    table_title_datasources: str = "Grafana Datasources"
+    table_title_alerts: str = "Grafana Alert Rules"
+
+
+@dataclass(frozen=True)
+class MCPMessages:
+    starting_sse: str = "Starting FastMCP server (SSE) on http://{host}:{port}..."
+    starting_stdio: str = "Starting FastMCP server (stdio) — devops-cli\n"
+    table_title_tools: str = "Registered FastMCP Tools (devops-cli)"
+    col_tool_name: str = "MCP Tool Name"
+    col_description: str = "Description"
+
+
+@dataclass(frozen=True)
+class ServeMessages:
+    starting_service: str = "Starting DevOps CLI REST & OpenAPI Service v{version}"
+    listening_on: str = "  [cyan]•[/cyan] Listening on: [bold]http://{host}:{port}[/bold]"
+    swagger_ui: str = "  [cyan]•[/cyan] Swagger UI:  [link=http://{host}:{port}/docs]http://{host}:{port}/docs[/link]"
+    redoc: str = "  [cyan]•[/cyan] ReDoc:       [link=http://{host}:{port}/redoc]http://{host}:{port}/redoc[/link]"
+    openapi_json: str = "  [cyan]•[/cyan] OpenAPI JSON:[link=http://{host}:{port}/openapi.json]http://{host}:{port}/openapi.json[/link]"
+    health_endpoint: str = "  [cyan]•[/cyan] Health:      [link=http://{host}:{port}/health]http://{host}:{port}/health[/link]"
+    metrics_endpoint: str = "  [cyan]•[/cyan] Metrics:     [link=http://{host}:{port}/metrics]http://{host}:{port}/metrics[/link]\n"
+
+
+@dataclass(frozen=True)
 class LanguageCatalog:
     persona_titles: PersonaTitles = field(default_factory=PersonaTitles)
     messages: GeneralMessages = field(default_factory=GeneralMessages)
     review: ReviewMessages = field(default_factory=ReviewMessages)
     ai: AIMessages = field(default_factory=AIMessages)
+    benchmark: BenchmarkMessages = field(default_factory=BenchmarkMessages)
     config: ConfigMessages = field(default_factory=ConfigMessages)
     install: InstallMessages = field(default_factory=InstallMessages)
     branches: BranchMessages = field(default_factory=BranchMessages)
@@ -406,6 +617,13 @@ class LanguageCatalog:
     ssh: SSHMessages = field(default_factory=SSHMessages)
     prometheus: PrometheusMessages = field(default_factory=PrometheusMessages)
     tools: ToolMessages = field(default_factory=ToolMessages)
+    argo: ArgoMessages = field(default_factory=ArgoMessages)
+    ci: CIMessages = field(default_factory=CIMessages)
+    devcontainer: DevcontainerMessages = field(default_factory=DevcontainerMessages)
+    docker: DockerMessages = field(default_factory=DockerMessages)
+    grafana: GrafanaMessages = field(default_factory=GrafanaMessages)
+    mcp: MCPMessages = field(default_factory=MCPMessages)
+    serve: ServeMessages = field(default_factory=ServeMessages)
 
 
 MESSAGES = LanguageCatalog()

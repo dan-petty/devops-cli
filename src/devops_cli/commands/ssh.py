@@ -11,7 +11,7 @@ from rich.table import Table
 
 from devops_cli.config.constants import CONST_SSH_GRACE_DAYS
 from devops_cli.core.cli import new_typer
-from devops_cli.lang import MESSAGES
+from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
     print_error,
     print_info,
@@ -22,7 +22,7 @@ from devops_cli.output import (
 )
 
 app = new_typer(
-    help="SSH key generation, rotation, and GitHub registration.",
+    help=HELP.ssh.app,
     no_args_is_help=True,
 )
 

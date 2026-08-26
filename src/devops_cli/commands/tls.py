@@ -35,7 +35,7 @@ from devops_cli.crypto.tls_certificates import (
     verify_certificate,
 )
 from devops_cli.dry_run import is_dry_run
-from devops_cli.lang.en import MESSAGES
+from devops_cli.lang import HELP, MESSAGES
 from devops_cli.models.tls import KubernetesTLSSecretResult
 from devops_cli.output import (
     print_error,
@@ -46,7 +46,7 @@ from devops_cli.output import (
 )
 
 app = new_typer(
-    help="X.509 TLS certificate generation, inspection, verification, and Kubernetes secrets.",
+    help=HELP.tls.app,
     no_args_is_help=True,
 )
 

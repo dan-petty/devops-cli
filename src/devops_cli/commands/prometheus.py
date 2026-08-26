@@ -17,7 +17,7 @@ from devops_cli.config.settings import Settings, load_settings
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
 from devops_cli.http.validation import validate_service_url
-from devops_cli.lang import MESSAGES
+from devops_cli.lang import ERRORS, HELP, MESSAGES
 from devops_cli.models.prometheus import PrometheusQueryResult
 from devops_cli.output import (
     print_error,
@@ -26,7 +26,7 @@ from devops_cli.output import (
     print_warning,
 )
 
-app = new_typer(help="Prometheus query and rule management.", no_args_is_help=True)
+app = new_typer(help=HELP.prometheus.app, no_args_is_help=True)
 
 _MAX_PROMQL_LEN = 4096
 
@@ -56,7 +56,7 @@ def _base_url(settings: Settings) -> str:
 def _validate_expr(expr: str) -> None:
     if len(expr) > _MAX_PROMQL_LEN:
         print_error(
-            f"PromQL expression exceeds maximum length of {_MAX_PROMQL_LEN} characters.",
+            ERRORS.prometheus.expr_too_long.format(max_len=_MAX_PROMQL_LEN),
             prefix=False,
         )
         raise typer.Exit(1)
@@ -87,7 +87,7 @@ def _read_json(response: httpx2.Response) -> dict[str, Any]:
     content_type = response.headers.get("content-type", "")
     if "application/json" not in content_type:
         print_error(
-            f"Unexpected Content-Type '{content_type}' from Prometheus API endpoint.",
+            ERRORS.prometheus.unexpected_content_type.format(content_type=content_type),
             prefix=False,
         )
         raise typer.Exit(1)
