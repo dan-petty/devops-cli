@@ -407,6 +407,23 @@ def _parse_mount_spec(mount: str | dict[str, str], workspace_dir: Path) -> tuple
     return Path(resolved).resolve(), mount_type
 
 
+def _extract_dc_mounts(dc_file: Path, workspace_dir: Path) -> list[tuple[Path, str]]:
+    """Extract mount specs from a devcontainer.json configuration."""
+    results: list[tuple[Path, str]] = []
+    try:
+        clean_text = _strip_json_comments(dc_file.read_text(encoding="utf-8"))
+        data = json.loads(clean_text)
+        mounts = data.get("mounts", [])
+        if isinstance(mounts, list):
+            for m in mounts:
+                parsed = _parse_mount_spec(m, workspace_dir)
+                if parsed:
+                    results.append(parsed)
+    except Exception as exc:
+        logger.debug("Failed to extract mounts from %s: %s", dc_file, exc)
+    return results
+
+
 def _extract_mount_targets(workspace_dir: Path) -> list[tuple[Path, str]]:
     """Extract resolved volume mount target paths and types from devcontainer manifest and standard dirs."""
     targets: list[tuple[Path, str]] = []
@@ -417,20 +434,11 @@ def _extract_mount_targets(workspace_dir: Path) -> list[tuple[Path, str]]:
         workspace_dir / CONST_DEVCONTAINER_JSON_NAME,
     ]
     dc_file = next((c for c in candidates if c.exists()), None)
-
     if dc_file:
-        try:
-            clean_text = _strip_json_comments(dc_file.read_text(encoding="utf-8"))
-            data = json.loads(clean_text)
-            mounts = data.get("mounts", [])
-            if isinstance(mounts, list):
-                for m in mounts:
-                    parsed = _parse_mount_spec(m, workspace_dir)
-                    if parsed and parsed[0] not in seen:
-                        seen.add(parsed[0])
-                        targets.append(parsed)
-        except Exception as exc:
-            logger.debug("Failed to extract mounts from %s: %s", dc_file, exc)
+        for parsed in _extract_dc_mounts(dc_file, workspace_dir):
+            if parsed[0] not in seen:
+                seen.add(parsed[0])
+                targets.append(parsed)
 
     # Standard devcontainer cache / environment directories in workspace
     for name in (".venv", ".data", ".mypy_cache", ".pytest_cache", ".ruff_cache"):
@@ -440,6 +448,21 @@ def _extract_mount_targets(workspace_dir: Path) -> list[tuple[Path, str]]:
             targets.append((p, "volume"))
 
     return targets
+
+
+def _chown_recursive_as_root(target_path: Path, uid: int, gid: int) -> None:
+    """Recursively chown directory tree when running as root."""
+    try:
+        os.chown(str(target_path), uid, gid)
+        if not target_path.is_dir():
+            return
+        for root, dirs, files in os.walk(target_path):
+            for d in dirs:
+                os.chown(os.path.join(root, d), uid, gid)
+            for f in files:
+                os.chown(os.path.join(root, f), uid, gid)
+    except OSError as exc:
+        logger.debug("Failed to chown %s: %s", target_path, exc)
 
 
 def _ensure_path_ownership(target_path: Path) -> None:
@@ -460,16 +483,7 @@ def _ensure_path_ownership(target_path: Path) -> None:
         return
 
     if current_uid == 0:
-        try:
-            os.chown(str(target_path), current_uid, current_gid)
-            if target_path.is_dir():
-                for root, dirs, files in os.walk(target_path):
-                    for d in dirs:
-                        os.chown(os.path.join(root, d), current_uid, current_gid)
-                    for f in files:
-                        os.chown(os.path.join(root, f), current_uid, current_gid)
-        except OSError as exc:
-            logger.debug("Failed to chown %s: %s", target_path, exc)
+        _chown_recursive_as_root(target_path, current_uid, current_gid)
     elif shutil.which("sudo"):
         run_subprocess(
             ["sudo", "chown", "-R", f"{current_uid}:{current_gid}", str(target_path)],
@@ -478,19 +492,33 @@ def _ensure_path_ownership(target_path: Path) -> None:
         )
 
 
+def _safe_chmod_path(target_path: Path, mode: int, sudo_mode_str: str) -> None:
+    """Apply chmod with sudo fallback on PermissionError."""
+    try:
+        target_path.chmod(mode)
+    except PermissionError, OSError:
+        if shutil.which("sudo"):
+            run_subprocess(
+                ["sudo", "chmod", sudo_mode_str, str(target_path)], check=False, quiet=True
+            )
+
+
+def _safe_mkdir_path(target_path: Path) -> None:
+    """Create directory with sudo fallback on PermissionError."""
+    try:
+        target_path.mkdir(parents=True, exist_ok=True)
+    except PermissionError, OSError:
+        if shutil.which("sudo"):
+            run_subprocess(["sudo", "mkdir", "-p", str(target_path)], check=False, quiet=True)
+
+
 def _ensure_mount_permissions(
     target_path: Path, mount_type: str, *, dry_run: bool = False
 ) -> str | None:
     """Ensure directory creation, ownership, and mode permissions for a volume mount."""
     if target_path in (Path("/tmp"), Path("/var/tmp")):  # nosec B108
         if not dry_run:
-            try:
-                target_path.chmod(0o1777)
-            except PermissionError, OSError:
-                if shutil.which("sudo"):
-                    run_subprocess(
-                        ["sudo", "chmod", "1777", str(target_path)], check=False, quiet=True
-                    )
+            _safe_chmod_path(target_path, 0o1777, "1777")
         return MESSAGES.devcontainer.temp_dir_permissions_configured.format(path=target_path)
 
     if target_path.name == ".ssh" or str(target_path).endswith("/.ssh"):
@@ -501,22 +529,10 @@ def _ensure_mount_permissions(
 
     if not dry_run:
         if not target_path.exists():
-            try:
-                target_path.mkdir(parents=True, exist_ok=True)
-            except PermissionError, OSError:
-                if shutil.which("sudo"):
-                    run_subprocess(
-                        ["sudo", "mkdir", "-p", str(target_path)], check=False, quiet=True
-                    )
+            _safe_mkdir_path(target_path)
         if target_path.exists():
             _ensure_path_ownership(target_path)
-            try:
-                target_path.chmod(0o755)
-            except PermissionError, OSError:
-                if shutil.which("sudo"):
-                    run_subprocess(
-                        ["sudo", "chmod", "755", str(target_path)], check=False, quiet=True
-                    )
+            _safe_chmod_path(target_path, 0o755, "755")
 
     return MESSAGES.devcontainer.mount_permissions_configured.format(path=target_path)
 

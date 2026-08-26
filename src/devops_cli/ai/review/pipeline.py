@@ -528,6 +528,73 @@ def _collect_paths_to_analyze(
     return paths_to_analyze
 
 
+def _scan_gitleaks_and_semgrep(all_resolved: list[Path]) -> list[SavedFinding]:
+    """Run Gitleaks secret and Semgrep AST static analysis."""
+    if not all_resolved:
+        return []
+    from devops_cli.security.gitleaks import run_gitleaks_scan
+    from devops_cli.security.semgrep import run_semgrep_scan
+
+    findings: list[SavedFinding] = []
+    findings.extend(_wrap_static_findings(run_gitleaks_scan(all_resolved)))
+    findings.extend(_wrap_static_findings(run_semgrep_scan(all_resolved)))
+    return findings
+
+
+def _get_finding_status_badge(status: str) -> str:
+    """Return color-styled badge for finding verification status."""
+    st_upper = status.upper()
+    if st_upper == "VERIFIED":
+        return "[green]✓ VERIFIED[/green]"
+    if st_upper == "MITIGATED":
+        return "[cyan]~ MITIGATED[/cyan]"
+    if st_upper == "INVALIDATED":
+        return "[red]✗ INVALIDATED[/red]"
+    return f"[yellow]? {status}[/yellow]"
+
+
+def _format_dependency_table_row(d: DependencySpec) -> list[str]:
+    """Format a single dependency specification into table cell strings."""
+    sev_upper = d.severity.upper()
+    if sev_upper == "CRITICAL":
+        sev_str = "[bold red]CRITICAL[/bold red]"
+        status_str = f"[bold red]{d.security_status}[/bold red]"
+    elif sev_upper == "HIGH":
+        sev_str = "[red]HIGH[/red]"
+        status_str = f"[red]{d.security_status}[/red]"
+    elif sev_upper == "MEDIUM":
+        sev_str = "[yellow]MEDIUM[/yellow]"
+        status_str = f"[yellow]{d.security_status}[/yellow]"
+    elif sev_upper == "LOW":
+        sev_str = "[cyan]LOW[/cyan]"
+        status_str = f"[cyan]{d.security_status}[/cyan]"
+    else:
+        sev_str = "[green]CLEAN[/green]"
+        status_str = f"[green]{d.security_status}[/green]"
+
+    return [
+        sev_str,
+        d.name,
+        d.version_range,
+        d.ecosystem,
+        status_str,
+        d.location or "—",
+    ]
+
+
+def _format_network_ref_table_row(n: NetworkReference) -> list[str]:
+    """Format a single network reference into table cell strings."""
+    scope_str = "[dim]Local[/dim]" if n.is_local else "[bold cyan]External[/bold cyan]"
+    color = "red" if "⚠️" in n.security_status else ("cyan" if n.is_local else "green")
+    return [
+        n.target,
+        n.reference_type,
+        scope_str,
+        f"[{color}]{n.security_status}[/{color}]",
+        n.location or "—",
+    ]
+
+
 class ReviewPipelineOrchestrator:
     """Orchestrates 6-stage multi-agent code reviews with per-file payloads and AI scratchpads."""
 
@@ -694,8 +761,6 @@ class ReviewPipelineOrchestrator:
         n_paths = len(file_paths)
         try:
             from devops_cli.security.bandit import run_bandit_scan
-            from devops_cli.security.gitleaks import run_gitleaks_scan
-            from devops_cli.security.semgrep import run_semgrep_scan
 
             print_info(
                 "  [cyan]• Running static security analyzers "
@@ -726,17 +791,8 @@ class ReviewPipelineOrchestrator:
                 ]
                 all_static_findings.extend(_scan_container_and_lockfiles(docker_lock_paths))
 
-                # 4. Gitleaks secret pre-filter scan
-                if all_resolved:
-                    all_static_findings.extend(
-                        _wrap_static_findings(run_gitleaks_scan(all_resolved))
-                    )
-
-                # 5. Semgrep AST pattern match scan
-                if all_resolved:
-                    all_static_findings.extend(
-                        _wrap_static_findings(run_semgrep_scan(all_resolved))
-                    )
+                # 4. Gitleaks & Semgrep scans
+                all_static_findings.extend(_scan_gitleaks_and_semgrep(all_resolved))
 
                 static_findings_by_file = _match_static_findings_to_files(
                     all_static_findings, file_paths
@@ -799,9 +855,8 @@ class ReviewPipelineOrchestrator:
             with ThreadPoolExecutor(max_workers=min(16, (os.cpu_count() or 4) * 2)) as executor:
                 for fpath, file_deps, file_nets in executor.map(_extract_single_file, file_paths):
                     raw_file_data[fpath] = (file_deps, file_nets)
-                    all_unique_deps.update(
-                        (d.name, d.version_range, d.ecosystem) for d in file_deps
-                    )
+                    dep_tuples = ((d.name, d.version_range, d.ecosystem) for d in file_deps)
+                    all_unique_deps.update(dep_tuples)
                     all_unique_nets.update((n.target, n.reference_type) for n in file_nets)
 
             # Dynamically discover project manifests and configuration files via
@@ -976,6 +1031,68 @@ class ReviewPipelineOrchestrator:
                 findings.append(_build_malicious_network_finding(fpath, net, rep))
         return findings
 
+    def _build_and_persist_single_payload(
+        self,
+        fpath: str,
+        metadata_by_path: dict[str, FileAnalysisMeta],
+        static_findings_by_file: dict[str, list[SavedFinding]],
+        raw_file_data: dict[str, tuple[list[DependencySpec], list[NetworkReference]]],
+        dep_cache: dict[tuple[str, str, str], list[VulnerabilityRecord]],
+        net_cache: dict[str, NetworkReputationRecord],
+    ) -> FileReviewPayload:
+        """Construct, validate, and write a single file review tracking JSON payload."""
+        fmeta = self._find_matching_metadata(fpath, metadata_by_path) or FileAnalysisMeta(
+            path=fpath
+        )
+        linked = self._find_linked_files(fpath, fmeta, metadata_by_path)
+        file_deps, file_nets = raw_file_data.get(fpath, ([], []))
+
+        initial_findings = list(static_findings_by_file.get(fpath, []))
+        initial_findings.extend(self._audit_file_dependencies(fpath, file_deps, dep_cache))
+        initial_findings.extend(self._audit_file_network_references(fpath, file_nets, net_cache))
+
+        sanitized_name = _sanitize_filename(fpath) + ".json"
+        json_file = self.files_dir / sanitized_name
+        json_file.parent.mkdir(parents=True, exist_ok=True)
+
+        payload = FileReviewPayload(
+            file_path=fpath,
+            metadata=fmeta,
+            linked_files=linked,
+            findings=initial_findings,
+            external_dependencies=file_deps,
+            network_references=file_nets,
+            ai_scratchpad=_create_initial_scratchpad(fpath, len(initial_findings)),
+        )
+        json_file.write_text(payload.model_dump_json(indent=2), encoding="utf-8")
+        return payload
+
+    def _assemble_single_file_payload(
+        self,
+        fpath: str,
+        metadata_by_path: dict[str, FileAnalysisMeta],
+        static_findings_by_file: dict[str, list[SavedFinding]],
+        raw_file_data: dict[str, tuple[list[DependencySpec], list[NetworkReference]]],
+        dep_cache: dict[tuple[str, str, str], list[VulnerabilityRecord]],
+        net_cache: dict[str, NetworkReputationRecord],
+    ) -> FileReviewPayload | None:
+        """Safely build and persist single file payload with error logging."""
+        try:
+            return self._build_and_persist_single_payload(
+                fpath,
+                metadata_by_path,
+                static_findings_by_file,
+                raw_file_data,
+                dep_cache,
+                net_cache,
+            )
+        except Exception as exc:
+            logger.error("Failed assembling payload for %s: %s", fpath, exc)
+            self.errored_files[fpath] = f"Stage 2 (Initialization): {exc}"
+            warn_msg = f"  [yellow]• [bold red]Skipped errored file during init:[/bold red] [bold]{fpath}[/bold] [dim]({exc})[/dim][/yellow]"
+            print_info(warn_msg, prefix=False)
+            return None
+
     def _assemble_and_persist_payloads(
         self,
         file_paths: list[str],
@@ -988,52 +1105,22 @@ class ReviewPipelineOrchestrator:
         """Assemble FileReviewPayload models and persist tracking JSON files."""
         n_paths = len(file_paths)
         print_info(
-            f"  [cyan]• Assembling payload tracking files & linking dependency graphs "
-            f"for {n_paths} file(s)...[/cyan]",
+            f"  [cyan]• Assembling payload tracking files & linking dependency graphs for {n_paths} file(s)...[/cyan]",
             prefix=False,
         )
         payloads: list[FileReviewPayload] = []
         with trace_span("review.assemble_payloads", attributes={"file_count": n_paths}):
             for fpath in file_paths:
-                try:
-                    fmeta = self._find_matching_metadata(
-                        fpath, metadata_by_path
-                    ) or FileAnalysisMeta(path=fpath)
-                    linked = self._find_linked_files(fpath, fmeta, metadata_by_path)
-                    file_deps, file_nets = raw_file_data.get(fpath, ([], []))
-
-                    initial_findings = list(static_findings_by_file.get(fpath, []))
-                    initial_findings.extend(
-                        self._audit_file_dependencies(fpath, file_deps, dep_cache)
-                    )
-                    initial_findings.extend(
-                        self._audit_file_network_references(fpath, file_nets, net_cache)
-                    )
-
-                    sanitized_name = _sanitize_filename(fpath) + ".json"
-                    json_file = self.files_dir / sanitized_name
-                    json_file.parent.mkdir(parents=True, exist_ok=True)
-
-                    payload = FileReviewPayload(
-                        file_path=fpath,
-                        metadata=fmeta,
-                        linked_files=linked,
-                        findings=initial_findings,
-                        external_dependencies=file_deps,
-                        network_references=file_nets,
-                        ai_scratchpad=_create_initial_scratchpad(fpath, len(initial_findings)),
-                    )
-
-                    json_file.write_text(payload.model_dump_json(indent=2), encoding="utf-8")
-                    payloads.append(payload)
-                except Exception as exc:
-                    logger.error("Failed assembling payload for %s: %s", fpath, exc)
-                    self.errored_files[fpath] = f"Stage 2 (Initialization): {exc}"
-                    print_info(
-                        f"  [yellow]• [bold red]Skipped errored file during init:[/bold red] "
-                        f"[bold]{fpath}[/bold] [dim]({exc})[/dim][/yellow]",
-                        prefix=False,
-                    )
+                p = self._assemble_single_file_payload(
+                    fpath,
+                    metadata_by_path,
+                    static_findings_by_file,
+                    raw_file_data,
+                    dep_cache,
+                    net_cache,
+                )
+                if p is not None:
+                    payloads.append(p)
 
         return payloads
 
@@ -1275,6 +1362,39 @@ class ReviewPipelineOrchestrator:
                 prefix=False,
             )
 
+    def _safe_review_file_payload(
+        self,
+        idx: int,
+        total_files: int,
+        payload: FileReviewPayload,
+        diff_text_by_file: dict[str, str],
+        active_personas: list[str],
+        server_info: str,
+    ) -> None:
+        """Safely execute review on single file payload with error capture."""
+        if payload.file_path in self.errored_files:
+            return
+        try:
+            self._review_single_file_payload(
+                idx=idx,
+                total_files=total_files,
+                payload=payload,
+                diff_text_by_file=diff_text_by_file,
+                active_personas=active_personas,
+                server_info=server_info,
+            )
+        except Exception as exc:
+            logger.error("Error reviewing file %s: %s", payload.file_path, exc)
+            payload.findings = []
+            payload.ai_scratchpad["stage"] = "failed"
+            payload.ai_scratchpad["error"] = str(exc)
+            self.errored_files[payload.file_path] = f"Stage 3 (Review): {exc}"
+            print_info(
+                f"[yellow][{idx}/{total_files}][/yellow] [bold red]Skipped errored file:[/bold red] "
+                f"[bold]{payload.file_path}[/bold] [dim]({exc})[/dim]",
+                prefix=False,
+            )
+
     def execute_multi_persona_review(
         self,
         file_payloads: list[FileReviewPayload],
@@ -1332,29 +1452,9 @@ class ReviewPipelineOrchestrator:
 
             def _review_task(arg: tuple[int, FileReviewPayload]) -> None:
                 idx, payload = arg
-                if payload.file_path in self.errored_files:
-                    return
-                try:
-                    self._review_single_file_payload(
-                        idx=idx,
-                        total_files=total_files,
-                        payload=payload,
-                        diff_text_by_file=diff_text_by_file,
-                        active_personas=active_personas,
-                        server_info=server_info,
-                    )
-                except Exception as exc:
-                    logger.error("Error reviewing file %s: %s", payload.file_path, exc)
-                    payload.findings = []
-                    payload.ai_scratchpad["stage"] = "failed"
-                    payload.ai_scratchpad["error"] = str(exc)
-                    self.errored_files[payload.file_path] = f"Stage 3 (Review): {exc}"
-                    print_info(
-                        f"[yellow][{idx}/{total_files}][/yellow] "
-                        f"[bold red]Skipped errored file:[/bold red] "
-                        f"[bold]{payload.file_path}[/bold] [dim]({exc})[/dim]",
-                        prefix=False,
-                    )
+                self._safe_review_file_payload(
+                    idx, total_files, payload, diff_text_by_file, active_personas, server_info
+                )
 
             if n_workers > 1:
                 with ThreadPoolExecutor(max_workers=n_workers) as executor:
@@ -1364,6 +1464,34 @@ class ReviewPipelineOrchestrator:
                     _review_task(item)
 
     # ── Stage 4: Cross-Referencing Verification & Reasoning ─────────────────
+    def _safe_verify_file_payload(
+        self,
+        idx: int,
+        total_files: int,
+        payload: FileReviewPayload,
+        server_info: str,
+    ) -> None:
+        """Safely execute finding verification on single file payload with error capture."""
+        if payload.file_path in self.errored_files:
+            return
+        try:
+            self._verify_single_file_payload(
+                idx=idx,
+                total_files=total_files,
+                payload=payload,
+                server_info=server_info,
+            )
+        except Exception as exc:
+            logger.error("Error verifying file %s: %s", payload.file_path, exc)
+            payload.ai_scratchpad["stage"] = "failed"
+            payload.ai_scratchpad["error"] = str(exc)
+            self.errored_files[payload.file_path] = f"Stage 4 (Verification): {exc}"
+            print_info(
+                f"[yellow][{idx}/{total_files}][/yellow] [bold red]Skipped verification on errored file:[/bold red] "
+                f"[bold]{payload.file_path}[/bold] [dim]({exc})[/dim]",
+                prefix=False,
+            )
+
     def _verify_single_file_payload(
         self,
         idx: int,
@@ -1501,26 +1629,7 @@ class ReviewPipelineOrchestrator:
 
             def _verify_task(arg: tuple[int, FileReviewPayload]) -> None:
                 idx, payload = arg
-                if payload.file_path in self.errored_files:
-                    return
-                try:
-                    self._verify_single_file_payload(
-                        idx=idx,
-                        total_files=total_files,
-                        payload=payload,
-                        server_info=server_info,
-                    )
-                except Exception as exc:
-                    logger.error("Error verifying file %s: %s", payload.file_path, exc)
-                    payload.ai_scratchpad["stage"] = "failed"
-                    payload.ai_scratchpad["error"] = str(exc)
-                    self.errored_files[payload.file_path] = f"Stage 4 (Verification): {exc}"
-                    print_info(
-                        f"[yellow][{idx}/{total_files}][/yellow] "
-                        f"[bold red]Skipped verification on errored file:[/bold red] "
-                        f"[bold]{payload.file_path}[/bold] [dim]({exc})[/dim]",
-                        prefix=False,
-                    )
+                self._safe_verify_file_payload(idx, total_files, payload, server_info)
 
             if n_workers > 1:
                 with ThreadPoolExecutor(max_workers=n_workers) as executor:
@@ -1530,6 +1639,26 @@ class ReviewPipelineOrchestrator:
                     _verify_task(item)
 
     # ── Stage 5: AI Validation & Re-ranking ──────────────────────────────────
+    def _rerank_single_file_payload(self, payload: FileReviewPayload) -> None:
+        """Re-rank findings and update payload scratchpad."""
+        valid_findings = [f for f in payload.findings if f.reportable and f.status != "INVALIDATED"]
+        payload.reportable = any(
+            f.reportable and f.status != "INVALIDATED" for f in payload.findings
+        )
+        payload.ai_scratchpad["stage"] = "reranked"
+        payload.ai_scratchpad["reportable_count"] = len(valid_findings)
+
+        thoughts_list = payload.ai_scratchpad.setdefault("thoughts", [])
+        thoughts_list.append(
+            f"[Stage 5 Re-ranking] Identified {len(valid_findings)} reportable "
+            f"finding(s) from {len(payload.findings)} total candidate(s)"
+        )
+
+        sanitized_name = _sanitize_filename(payload.file_path) + ".json"
+        json_target = self.files_dir / sanitized_name
+        json_target.parent.mkdir(parents=True, exist_ok=True)
+        json_target.write_text(payload.model_dump_json(indent=2), encoding="utf-8")
+
     def execute_finding_reranking(self, file_payloads: list[FileReviewPayload]) -> None:
         """Validate and re-rank all findings into reportable vs non-reportable."""
         n_p = len(file_payloads)
@@ -1544,25 +1673,7 @@ class ReviewPipelineOrchestrator:
                 if payload.file_path in self.errored_files:
                     continue
                 try:
-                    valid_findings = [
-                        f for f in payload.findings if f.reportable and f.status != "INVALIDATED"
-                    ]
-                    payload.reportable = any(
-                        f.reportable and f.status != "INVALIDATED" for f in payload.findings
-                    )
-                    payload.ai_scratchpad["stage"] = "reranked"
-                    payload.ai_scratchpad["reportable_count"] = len(valid_findings)
-
-                    thoughts_list = payload.ai_scratchpad.setdefault("thoughts", [])
-                    thoughts_list.append(
-                        f"[Stage 5 Re-ranking] Identified {len(valid_findings)} reportable "
-                        f"finding(s) from {len(payload.findings)} total candidate(s)"
-                    )
-
-                    sanitized_name = _sanitize_filename(payload.file_path) + ".json"
-                    json_target = self.files_dir / sanitized_name
-                    json_target.parent.mkdir(parents=True, exist_ok=True)
-                    json_target.write_text(payload.model_dump_json(indent=2), encoding="utf-8")
+                    self._rerank_single_file_payload(payload)
                 except Exception as exc:
                     logger.error("Error re-ranking findings for %s: %s", payload.file_path, exc)
                     self.errored_files[payload.file_path] = f"Stage 5 (Reranking): {exc}"
@@ -1778,20 +1889,7 @@ class ReviewPipelineOrchestrator:
                 "INFO": "green",
             }.get(sev_upper, "white")
 
-            st_badge = (
-                "[green]✓ VERIFIED[/green]"
-                if f.status.upper() == "VERIFIED"
-                else (
-                    "[cyan]~ MITIGATED[/cyan]"
-                    if f.status.upper() == "MITIGATED"
-                    else (
-                        "[red]✗ INVALIDATED[/red]"
-                        if f.status.upper() == "INVALIDATED"
-                        else f"[yellow]? {f.status}[/yellow]"
-                    )
-                )
-            )
-
+            st_badge = _get_finding_status_badge(f.status)
             title_header = f"[{sev_color} bold]Finding #{idx}: [{sev_upper}] {escape_text(f.title)}[/{sev_color} bold]  {st_badge}"
             panel_lines = [
                 f"[bold]Location:[/bold] [cyan]{escape_text(f.location)}[/cyan]  |  [bold]Persona:[/bold] [magenta]{escape_text(f.persona_title or f.persona)}[/magenta]",
@@ -1801,12 +1899,8 @@ class ReviewPipelineOrchestrator:
             if f.fix:
                 panel_lines.extend(["", "[bold]Suggested Fix:[/bold]", f.fix.strip()])
             if f.invalidation_reason:
-                panel_lines.extend(
-                    [
-                        "",
-                        f"[bold yellow]Invalidation Reason:[/bold yellow] {f.invalidation_reason.strip()}",
-                    ]
-                )
+                inv_text = f"[bold yellow]Invalidation Reason:[/bold yellow] {f.invalidation_reason.strip()}"
+                panel_lines.extend(["", inv_text])
             if f.references:
                 panel_lines.extend(
                     ["", f"[dim]References: {escape_text(', '.join(f.references))}[/dim]"]
@@ -1834,33 +1928,7 @@ class ReviewPipelineOrchestrator:
         rows: list[list[str]] = []
         if all_deps:
             for d in all_deps:
-                sev_upper = d.severity.upper()
-                if sev_upper == "CRITICAL":
-                    sev_str = "[bold red]CRITICAL[/bold red]"
-                    status_str = f"[bold red]{d.security_status}[/bold red]"
-                elif sev_upper == "HIGH":
-                    sev_str = "[red]HIGH[/red]"
-                    status_str = f"[red]{d.security_status}[/red]"
-                elif sev_upper == "MEDIUM":
-                    sev_str = "[yellow]MEDIUM[/yellow]"
-                    status_str = f"[yellow]{d.security_status}[/yellow]"
-                elif sev_upper == "LOW":
-                    sev_str = "[cyan]LOW[/cyan]"
-                    status_str = f"[cyan]{d.security_status}[/cyan]"
-                else:
-                    sev_str = "[green]CLEAN[/green]"
-                    status_str = f"[green]{d.security_status}[/green]"
-
-                rows.append(
-                    [
-                        sev_str,
-                        d.name,
-                        d.version_range,
-                        d.ecosystem,
-                        status_str,
-                        d.location or "—",
-                    ]
-                )
+                rows.append(_format_dependency_table_row(d))
         else:
             rows.append(
                 [
@@ -1891,17 +1959,7 @@ class ReviewPipelineOrchestrator:
         rows: list[list[str]] = []
         if all_nets:
             for n in all_nets:
-                scope_str = "[dim]Local[/dim]" if n.is_local else "[bold cyan]External[/bold cyan]"
-                color = "red" if "⚠️" in n.security_status else ("cyan" if n.is_local else "green")
-                rows.append(
-                    [
-                        n.target,
-                        n.reference_type,
-                        scope_str,
-                        f"[{color}]{n.security_status}[/{color}]",
-                        n.location or "—",
-                    ]
-                )
+                rows.append(_format_network_ref_table_row(n))
         else:
             rows.append(
                 [

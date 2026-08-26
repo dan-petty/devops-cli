@@ -230,6 +230,72 @@ def _get_single_collection_stat(
     )
 
 
+def _purge_deleted_vectors(
+    qdrant: QdrantClient,
+    cache: dict[str, str],
+    file_hashes: dict[str, str],
+    code_collection: str,
+    docs_collection: str,
+    save_cache_fn: Callable[[dict[str, str]], None],
+) -> int:
+    """Purge obsolete points from Qdrant when files are deleted on disk."""
+    scanned_projects = {k.partition(":")[0] for k in file_hashes.keys()}
+    current_keys = set(file_hashes.keys())
+    deleted_keys = [
+        k for k in cache if k.partition(":")[0] in scanned_projects and k not in current_keys
+    ]
+    removed_count = 0
+    for dkey in deleted_keys:
+        dproj, _, d_rel_path = dkey.partition(":")
+        if d_rel_path:
+            qdrant.delete_points_by_file(code_collection, d_rel_path, project_name=dproj)
+            qdrant.delete_points_by_file(docs_collection, d_rel_path, project_name=dproj)
+            removed_count += 1
+        del cache[dkey]
+    if deleted_keys:
+        save_cache_fn(cache)
+    return removed_count
+
+
+def _purge_obsolete_points(
+    qdrant: QdrantClient,
+    files_to_reindex: list[tuple[Path, str, str]],
+    code_collection: str,
+    docs_collection: str,
+) -> None:
+    """Purge existing vectors for files that are about to be re-indexed."""
+    for _, rel_fpath, fproj in files_to_reindex:
+        try:
+            qdrant.delete_points_by_file(code_collection, rel_fpath, project_name=fproj)
+            qdrant.delete_points_by_file(docs_collection, rel_fpath, project_name=fproj)
+        except Exception as exc:
+            logger.debug(
+                "Failed to delete obsolete points for %s (%s): %s",
+                rel_fpath,
+                fproj,
+                exc,
+            )
+
+
+def _build_chunk_point(chunk: CodeChunk, vector: list[float]) -> dict[str, Any]:
+    """Construct Qdrant point dictionary with vector and chunk metadata payload."""
+    payload = {
+        "file_path": chunk.file_path,
+        "start_line": chunk.start_line,
+        "end_line": chunk.end_line,
+        "content": chunk.content,
+        "language": chunk.language,
+        "doc_type": chunk.doc_type,
+        "category": chunk.category,
+        "project_name": chunk.project_name,
+        "section_path": chunk.section_path,
+        "symbol_names": chunk.symbol_names,
+        "metadata": chunk.metadata,
+        "content_hash": chunk.content_hash,
+    }
+    return {"id": chunk.id, "vector": vector, "payload": payload}
+
+
 class WorkspaceIndexer:
     """Discovers, chunks, embeds, and indexes workspace source code and docs into Qdrant."""
 
@@ -356,17 +422,18 @@ class WorkspaceIndexer:
 
             kb_dir = get_knowledge_base_dir().resolve()
 
+            def _is_kb_file(f_path: Path) -> bool:
+                try:
+                    return kb_dir.is_dir() and f_path.is_relative_to(kb_dir)
+                except Exception:
+                    return False
+
             for idx, file_path in enumerate(files, 1):
                 if progress_callback:
                     progress_callback("Scanning files", idx, len(files))
 
                 f_resolved = file_path.resolve()
-                is_kb = False
-                try:
-                    if kb_dir.is_dir() and f_resolved.is_relative_to(kb_dir):
-                        is_kb = True
-                except Exception:
-                    pass
+                is_kb = _is_kb_file(f_resolved)
 
                 if is_kb:
                     proj_name = "devops-cli-kb"
@@ -401,26 +468,14 @@ class WorkspaceIndexer:
             # Purge files deleted from disk since last index (scoped to scanned projects)
             removed_files_count = 0
             if not force:
-                scanned_projects = {k.partition(":")[0] for k in file_hashes.keys()}
-                current_keys = set(file_hashes.keys())
-                deleted_keys = [
-                    k
-                    for k in cache
-                    if k.partition(":")[0] in scanned_projects and k not in current_keys
-                ]
-                for dkey in deleted_keys:
-                    dproj, _, d_rel_path = dkey.partition(":")
-                    if d_rel_path:
-                        self.qdrant.delete_points_by_file(
-                            self.code_collection, d_rel_path, project_name=dproj
-                        )
-                        self.qdrant.delete_points_by_file(
-                            self.docs_collection, d_rel_path, project_name=dproj
-                        )
-                        removed_files_count += 1
-                    del cache[dkey]
-                if deleted_keys:
-                    self._save_cache(cache)
+                removed_files_count = _purge_deleted_vectors(
+                    self.qdrant,
+                    cache,
+                    file_hashes,
+                    self.code_collection,
+                    self.docs_collection,
+                    self._save_cache,
+                )
 
             if not all_chunks:
                 root_span.set_attribute("rag.indexed_files", 0)
@@ -436,21 +491,12 @@ class WorkspaceIndexer:
                 }
 
             # Purge obsolete vectors for files that are being re-indexed (scoped to project)
-            for fpath, rel_fpath, fproj in files_to_reindex:
-                try:
-                    self.qdrant.delete_points_by_file(
-                        self.code_collection, rel_fpath, project_name=fproj
-                    )
-                    self.qdrant.delete_points_by_file(
-                        self.docs_collection, rel_fpath, project_name=fproj
-                    )
-                except Exception as exc:
-                    logger.debug(
-                        "Failed to delete obsolete points for %s (%s): %s",
-                        rel_fpath,
-                        fproj,
-                        exc,
-                    )
+            _purge_obsolete_points(
+                self.qdrant,
+                files_to_reindex,
+                self.code_collection,
+                self.docs_collection,
+            )
 
             # Separate code vs doc chunks
             code_chunks: list[CodeChunk] = []
@@ -462,35 +508,31 @@ class WorkspaceIndexer:
                 else:
                     code_chunks.append(chunk)
 
-            # Ensure collections exist in Qdrant with appropriate vector size
-            sample_emb = self.embedder.embed_query("test dimension probe")
-            dim = len(sample_emb)
-
+            # Upsert chunks to their respective collections with batch embeddings
             if code_chunks:
-                self.qdrant.ensure_collection(self.code_collection, vector_size=dim)
-                self._upsert_chunk_batch(
+                self._upsert_chunks(
                     self.code_collection,
                     code_chunks,
-                    progress_title="Indexing code chunks",
+                    cache,
+                    file_hashes,
                     progress_callback=progress_callback,
-                    cache=cache,
-                    file_hashes=file_hashes,
+                    progress_title="Embedding code",
                 )
-
             if doc_chunks:
-                self.qdrant.ensure_collection(self.docs_collection, vector_size=dim)
-                self._upsert_chunk_batch(
+                self._upsert_chunks(
                     self.docs_collection,
                     doc_chunks,
-                    progress_title="Indexing doc chunks",
+                    cache,
+                    file_hashes,
                     progress_callback=progress_callback,
-                    cache=cache,
-                    file_hashes=file_hashes,
+                    progress_title="Embedding docs",
                 )
 
             self._save_cache(cache)
-            record_metric("rag.indexed_chunks_count", float(len(all_chunks)), unit="1")
-            record_metric("rag.indexed_files_count", float(len(files_to_reindex)), unit="1")
+
+            record_metric("rag.indexed_files", len(files) - len(files_to_reindex))
+            record_metric("rag.total_chunks", len(all_chunks))
+
             root_span.set_attribute("rag.indexed_files", len(files_to_reindex))
             root_span.set_attribute("rag.total_chunks", len(all_chunks))
             root_span.set_attribute("rag.code_chunks", len(code_chunks))
@@ -506,22 +548,24 @@ class WorkspaceIndexer:
                 "collections": [self.code_collection, self.docs_collection],
             }
 
-    def _upsert_chunk_batch(
+    def _upsert_chunks(
         self,
         collection_name: str,
         chunks: list[CodeChunk],
-        *,
-        batch_size: int = 32,
-        progress_title: str = "Indexing",
+        cache: dict[str, str],
+        file_hashes: dict[str, str],
         progress_callback: Callable[[str, int, int], None] | None = None,
-        cache: dict[str, str] | None = None,
-        file_hashes: dict[str, str] | None = None,
+        progress_title: str = "Embedding",
     ) -> None:
-        """Embed text and upsert points in batches into Qdrant, saving incremental cache."""
+        """Embed and upsert a list of chunks in batches."""
+        if not chunks:
+            return
+
         total = len(chunks)
-        ai_cfg = getattr(self.embedder, "ai_config", None)
+        batch_size = getattr(self.embedder, "batch_size", 32)
         try:
-            raw_urls = getattr(ai_cfg, "get_ollama_urls", None)
+            ai_cfg = getattr(self.embedder, "config", None)
+            raw_urls = getattr(ai_cfg, "ollama_server_urls", ["http://localhost:11434"])
             urls = raw_urls if isinstance(raw_urls, list) else ["http://localhost:11434"]
             raw_par = getattr(ai_cfg, "ollama_max_parallel", 2)
             is_numeric = isinstance(raw_par, (int, float, str)) and not isinstance(raw_par, bool)
@@ -544,25 +588,10 @@ class WorkspaceIndexer:
             ):
                 texts = [c.content for c in batch]
                 embeddings = self.embedder.embed_texts(texts)
-
-                points: list[dict[str, Any]] = []
-                for chunk, vec in zip(batch, embeddings, strict=False):
-                    payload = {
-                        "file_path": chunk.file_path,
-                        "start_line": chunk.start_line,
-                        "end_line": chunk.end_line,
-                        "content": chunk.content,
-                        "language": chunk.language,
-                        "doc_type": chunk.doc_type,
-                        "category": chunk.category,
-                        "project_name": chunk.project_name,
-                        "section_path": chunk.section_path,
-                        "symbol_names": chunk.symbol_names,
-                        "metadata": chunk.metadata,
-                        "content_hash": chunk.content_hash,
-                    }
-                    points.append({"id": chunk.id, "vector": vec, "payload": payload})
-
+                points = [
+                    _build_chunk_point(chunk, vec)
+                    for chunk, vec in zip(batch, embeddings, strict=False)
+                ]
                 self.qdrant.upsert_points(collection_name, points)
 
                 # Persist incremental progress to cache

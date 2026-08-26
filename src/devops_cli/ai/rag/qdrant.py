@@ -90,6 +90,18 @@ def _format_query_hits(points: list[Any]) -> list[dict[str, Any]]:
     return [{"id": hit.id, "score": hit.score, "payload": hit.payload or {}} for hit in points]
 
 
+def _log_retry_warning(op_desc: str, attempt: int, max_attempts: int, exc: Exception) -> None:
+    """Log transient Qdrant warning and apply exponential backoff sleep."""
+    logger.warning(
+        "Transient error in Qdrant %s (attempt %d/%d): %s. Reconnecting...",
+        op_desc,
+        attempt,
+        max_attempts,
+        exc,
+    )
+    time.sleep(0.5 * attempt)
+
+
 class QdrantClient:
     """Client for Qdrant vector database using official Qdrant Python SDK."""
 
@@ -137,14 +149,7 @@ class QdrantClient:
                 return fn(client)
             except Exception as exc:
                 if attempt < max_attempts and _is_transient_qdrant_error(exc):
-                    logger.warning(
-                        "Transient error in Qdrant %s (attempt %d/%d): %s. Reconnecting...",
-                        op_desc,
-                        attempt,
-                        max_attempts,
-                        exc,
-                    )
-                    time.sleep(0.5 * attempt)
+                    _log_retry_warning(op_desc, attempt, max_attempts, exc)
                     continue
                 raise
 
@@ -289,31 +294,29 @@ class QdrantClient:
         filter_payload: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         """Search nearest vector points in the specified collection."""
+        query_filter = _build_payload_filter(filter_payload)
+
+        def _query_op(c: NativeQdrantClient) -> Any:
+            return c.query_points(
+                collection_name=name,
+                query=query_vector,
+                limit=limit,
+                score_threshold=score_threshold,
+                query_filter=query_filter,
+                with_payload=True,
+            )
+
         with trace_span(
-            "qdrant.search_points",
+            "ai.rag.qdrant_search",
             attributes={
                 "db.system": "qdrant",
-                "db.operation": "search_points",
-                "db.collection.name": name,
-                "collection": name,
-                "server.address": str(self.base_url),
+                "db.operation": "query_points",
+                "collection.name": name,
                 "limit": limit,
             },
         ) as q_span:
-            query_filter = _build_payload_filter(filter_payload)
-
             try:
-                res = self._execute_with_retry(
-                    lambda c: c.query_points(
-                        collection_name=name,
-                        query=query_vector,
-                        limit=limit,
-                        score_threshold=score_threshold,
-                        query_filter=query_filter,
-                        with_payload=True,
-                    ),
-                    f"search_points({name})",
-                )
+                res = self._execute_with_retry(_query_op, f"search_points({name})")
                 hits = _format_query_hits(res.points)
                 q_span.set_attribute("db.response.returned_points", len(hits))
                 if hits:

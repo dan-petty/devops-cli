@@ -110,6 +110,35 @@ class EmbeddingsEngine:
             return [t if t.startswith(("query: ", "passage: ")) else f"{prefix}{t}" for t in texts]
         return texts
 
+    def _fetch_fallback_single_embeddings(
+        self, client: httpx2.Client, base_url: str, batch_texts: list[str]
+    ) -> list[list[float]] | None:
+        """Sequential single-prompt embedding fallback for legacy Ollama versions."""
+        embs_fallback: list[list[float]] = []
+        for t in batch_texts:
+            endpoint = f"{base_url}/api/embeddings"
+            payload = {"model": self.model, "prompt": t}
+            res = client.post(endpoint, json=payload)
+            if res.status_code != 200:
+                return None
+            single_emb = res.json().get("embedding", [])
+            if not single_emb:
+                return None
+            embs_fallback.append(single_emb)
+        return embs_fallback if len(embs_fallback) == len(batch_texts) else None
+
+    def _try_batch_embed_endpoint(
+        self, client: httpx2.Client, base_url: str, batch_texts: list[str]
+    ) -> list[list[float]] | None:
+        """Attempt /api/embed batch endpoint."""
+        alt_payload = {"model": self.model, "input": batch_texts}
+        alt_res = client.post(f"{base_url}/api/embed", json=alt_payload)
+        if alt_res.status_code == 200:
+            embs = alt_res.json().get("embeddings", [])
+            if embs and isinstance(embs, list) and len(embs) == len(batch_texts):
+                return embs
+        return None
+
     def _query_ollama_node_batch(
         self, base_url: str, batch_texts: list[str]
     ) -> list[list[float]] | None:
@@ -125,30 +154,10 @@ class EmbeddingsEngine:
         ):
             client_timeout = httpx2.Timeout(self.timeout, connect=1.0)
             with httpx2.Client(timeout=client_timeout) as client:
-                alt_endpoint = f"{base_url}/api/embed"
-                alt_payload = {"model": self.model, "input": batch_texts}
-                alt_res = client.post(alt_endpoint, json=alt_payload)
-                if alt_res.status_code == 200:
-                    embs = alt_res.json().get("embeddings", [])
-                    if embs and isinstance(embs, list) and len(embs) == len(batch_texts):
-                        return embs
-
-                # Fallback for single /api/embeddings endpoint
-                embs_fallback: list[list[float]] = []
-                for t in batch_texts:
-                    endpoint = f"{base_url}/api/embeddings"
-                    payload = {"model": self.model, "prompt": t}
-                    res = client.post(endpoint, json=payload)
-                    if res.status_code != 200:
-                        break
-                    single_emb = res.json().get("embedding", [])
-                    if not single_emb:
-                        break
-                    embs_fallback.append(single_emb)
-
-                if len(embs_fallback) == len(batch_texts):
-                    return embs_fallback
-            return None
+                embs = self._try_batch_embed_endpoint(client, base_url, batch_texts)
+                if embs is not None:
+                    return embs
+                return self._fetch_fallback_single_embeddings(client, base_url, batch_texts)
 
     def _embed_ollama(self, texts: list[str]) -> list[list[float]]:
         """Compute Ollama embeddings with multi-node round-robin distribution and batching."""

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import Any
 
 from devops_cli.ai.analyze.cache import load_cached_analysis
 from devops_cli.ai.analyze.outlines import analyze_single_file
@@ -15,6 +16,20 @@ from devops_cli.telemetry import ContextPropagatingThreadPoolExecutor as ThreadP
 from devops_cli.telemetry import trace_span
 
 logger = logging.getLogger(__name__)
+
+
+def _collect_analysis_results(
+    future_to_path: dict[Any, str],
+    metadata_by_path: dict[str, FileAnalysisMeta],
+) -> None:
+    """Safely resolve background file analysis futures and populate metadata dict."""
+    for future, rel_path in future_to_path.items():
+        try:
+            meta = future.result()
+            if meta:
+                metadata_by_path[rel_path] = meta
+        except Exception as exc:
+            logger.debug("Stage analysis failed for %s: %s", rel_path, exc)
 
 
 @trace_span("review.stage.pre_analysis")
@@ -70,13 +85,6 @@ def run_pre_analysis(
                 ): rel_path
                 for fpath, rel_path in paths_to_analyze
             }
-            for future in future_to_path:
-                rel_path = future_to_path[future]
-                try:
-                    meta = future.result()
-                    if meta:
-                        metadata_by_path[rel_path] = meta
-                except Exception as exc:
-                    logger.debug("Stage analysis failed for %s: %s", rel_path, exc)
+            _collect_analysis_results(future_to_path, metadata_by_path)
 
     return metadata_by_path

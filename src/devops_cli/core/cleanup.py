@@ -25,6 +25,48 @@ class CleanupSummary(BaseModel):
     dry_run: bool = False
 
 
+def _calculate_dir_size(d: Path) -> int:
+    """Calculate total size in bytes of all regular files in directory."""
+    total = 0
+    for sub_f in d.rglob("*"):
+        if sub_f.is_file():
+            try:
+                total += sub_f.stat().st_size
+            except OSError:
+                pass
+    return total
+
+
+def _prune_single_item(
+    item: Path,
+    top_root: Path,
+    cutoff_time: float,
+    dry_run: bool,
+    summary: CleanupSummary,
+) -> None:
+    """Evaluate and prune a single file or directory older than cutoff_time."""
+    try:
+        mtime = item.stat().st_mtime
+        if mtime >= cutoff_time:
+            return
+
+        rel_str = str(item.relative_to(top_root)) if item.is_relative_to(top_root) else item.name
+        if item.is_file():
+            size = item.stat().st_size
+            summary.pruned_files.append(rel_str)
+            summary.freed_bytes += size
+            if not dry_run:
+                item.unlink(missing_ok=True)
+        elif item.is_dir():
+            size = _calculate_dir_size(item)
+            summary.pruned_dirs.append(rel_str)
+            summary.freed_bytes += size
+            if not dry_run:
+                shutil.rmtree(item, ignore_errors=True)
+    except Exception as exc:
+        logger.debug("Failed checking %s during cleanup: %s", item, exc)
+
+
 @trace_span("workspace.cleanup")
 def cleanup_data_tier(
     repo_root: Path = Path("."),
@@ -40,34 +82,13 @@ def cleanup_data_tier(
         return summary
 
     cutoff_time = time.time() - older_than_seconds
-
-    # Target candidate subdirectories
     subdirs_to_check = ["reviews", "analysis", "logs", "traces"]
+
     for subdir_name in subdirs_to_check:
         target_sub = data_dir / subdir_name
         if not target_sub.exists() or not target_sub.is_dir():
             continue
-
         for item in target_sub.iterdir():
-            try:
-                mtime = item.stat().st_mtime
-                if mtime < cutoff_time:
-                    size = 0
-                    if item.is_file():
-                        size = item.stat().st_size
-                        summary.pruned_files.append(str(item.relative_to(top_root)))
-                        summary.freed_bytes += size
-                        if not dry_run:
-                            item.unlink(missing_ok=True)
-                    elif item.is_dir():
-                        for sub_f in item.rglob("*"):
-                            if sub_f.is_file():
-                                size += sub_f.stat().st_size
-                        summary.pruned_dirs.append(str(item.relative_to(top_root)))
-                        summary.freed_bytes += size
-                        if not dry_run:
-                            shutil.rmtree(item, ignore_errors=True)
-            except Exception as exc:
-                logger.debug("Failed checking %s during cleanup: %s", item, exc)
+            _prune_single_item(item, top_root, cutoff_time, dry_run, summary)
 
     return summary

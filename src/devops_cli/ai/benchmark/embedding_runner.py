@@ -81,6 +81,31 @@ def compute_ndcg_at_k(ranked_indices: list[int], target_idx: int, k: int = 5) ->
     return 0.0
 
 
+def _format_category_accuracy_row(res: Any, cats: dict[str, float]) -> list[str]:
+    """Format category domain accuracy row."""
+    return [
+        res.model,
+        res.server,
+        f"{cats['security']:.0f}%" if "security" in cats else "-",
+        f"{cats['kubernetes']:.0f}%" if "kubernetes" in cats else "-",
+        f"{cats['architecture']:.0f}%" if "architecture" in cats else "-",
+        f"{cats['ci_cd']:.0f}%" if "ci_cd" in cats else "-",
+        f"{cats['infrastructure']:.0f}%" if "infrastructure" in cats else "-",
+    ]
+
+
+def _format_server_perf_row(srv: Any) -> list[str]:
+    """Format server performance row."""
+    return [
+        srv.server,
+        str(srv.models_evaluated_count),
+        f"{srv.avg_latency_p50_ms:.1f}ms",
+        f"{srv.avg_throughput_items_per_sec:.1f} items/s",
+        srv.fastest_model,
+        srv.top_score_model,
+    ]
+
+
 class EmbeddingBenchmarkRunner:
     """Orchestrates comprehensive multi-model, multi-server vector embedding benchmarks."""
 
@@ -574,20 +599,9 @@ class EmbeddingBenchmarkRunner:
                 "CI/CD",
                 "Infrastructure",
             ]
-            cat_rows: list[list[str]] = []
-            for res in report.models:
-                cats = res.category_accuracies
-                cat_rows.append(
-                    [
-                        res.model,
-                        res.server,
-                        f"{cats['security']:.0f}%" if "security" in cats else "-",
-                        f"{cats['kubernetes']:.0f}%" if "kubernetes" in cats else "-",
-                        f"{cats['architecture']:.0f}%" if "architecture" in cats else "-",
-                        f"{cats['ci_cd']:.0f}%" if "ci_cd" in cats else "-",
-                        f"{cats['infrastructure']:.0f}%" if "infrastructure" in cats else "-",
-                    ]
-                )
+            cat_rows: list[list[str]] = [
+                _format_category_accuracy_row(res, res.category_accuracies) for res in report.models
+            ]
             write_stdout("\n")
             print_table(
                 title="📂 Category & Domain Retrieval Accuracy (%)",
@@ -605,18 +619,9 @@ class EmbeddingBenchmarkRunner:
                 ("Fastest Model", "cyan"),
                 ("Top Scoring Model", "magenta"),
             ]
-            srv_rows: list[list[str]] = []
-            for srv in report.server_benchmarks:
-                srv_rows.append(
-                    [
-                        srv.server,
-                        str(srv.models_evaluated_count),
-                        f"{srv.avg_latency_p50_ms:.1f}ms",
-                        f"{srv.avg_throughput_items_per_sec:.1f} items/s",
-                        srv.fastest_model,
-                        srv.top_score_model,
-                    ]
-                )
+            srv_rows: list[list[str]] = [
+                _format_server_perf_row(srv) for srv in report.server_benchmarks
+            ]
             write_stdout("\n")
             print_table(
                 title="🖥️ Backend Server Hardware & Concurrency Performance",

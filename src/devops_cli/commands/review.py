@@ -494,6 +494,18 @@ def pr(
 # =============================================================================
 
 
+def _render_finding_badge(status: str) -> str:
+    """Format finding verification status badge."""
+    st = status.upper()
+    if st == "VERIFIED":
+        return "[green]✓ VERIFIED[/green]"
+    if st == "INVALIDATED":
+        return "[red]✗ INVALIDATED[/red]"
+    if st == "MITIGATED":
+        return "[cyan]~ MITIGATED[/cyan]"
+    return f"[yellow]? {status}[/yellow]"
+
+
 @app.command("findings")
 def list_findings(
     session: Annotated[
@@ -601,23 +613,11 @@ def list_findings(
                 "INFO": "green",
             }.get(sev_upper, "white")
 
-            st_badge = (
-                "[green]✓ VERIFIED[/green]"
-                if f.status.upper() == "VERIFIED"
-                else (
-                    "[red]✗ INVALIDATED[/red]"
-                    if f.status.upper() == "INVALIDATED"
-                    else (
-                        "[cyan]~ MITIGATED[/cyan]"
-                        if f.status.upper() == "MITIGATED"
-                        else f"[yellow]? {f.status}[/yellow]"
-                    )
-                )
-            )
-
+            st_badge = _render_finding_badge(f.status)
             title_header = f"[{sev_color} bold]Finding #{idx}: [{sev_upper}] {_get('escape_text')(f.title)}[/{sev_color} bold]  {st_badge}"
+            persona_title = f.persona_title or f.persona
             panel_lines = [
-                f"[bold]Location:[/bold] [cyan]{_get('escape_text')(f.location)}[/cyan]  |  [bold]Persona:[/bold] [magenta]{_get('escape_text')(f.persona_title or f.persona)}[/magenta]",
+                f"[bold]Location:[/bold] [cyan]{_get('escape_text')(f.location)}[/cyan]  |  [bold]Persona:[/bold] [magenta]{_get('escape_text')(persona_title)}[/magenta]",
             ]
             if f.description:
                 panel_lines.extend(["", "[bold]Description:[/bold]", f.description.strip()])
