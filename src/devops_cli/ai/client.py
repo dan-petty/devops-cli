@@ -32,6 +32,7 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.defaults import DEFAULT_HTTP_TIMEOUT_SECONDS
 from devops_cli.config.settings import AIConfig
+from devops_cli.exceptions import LLMInferenceError
 from devops_cli.http.client import request_timeout
 from devops_cli.models.ai import ChatMessage
 from devops_cli.telemetry import ContextPropagatingThreadPoolExecutor as ThreadPoolExecutor
@@ -41,7 +42,7 @@ MAX_STREAM_BYTES = 50 * 1024 * 1024  # 50MB maximum streamed response size
 logger = logging.getLogger(__name__)
 
 
-class AIClientError(RuntimeError):
+class AIClientError(LLMInferenceError, RuntimeError):
     """Raised when an AI provider request fails with a user-actionable message."""
 
 
@@ -512,8 +513,9 @@ class LLMClient:
             elif p in ("copilot", "openai"):
                 res = self._openai_compat_messages(system, messages)
             else:
-                raise ValueError(
-                    f"Unknown provider: {p!r}. Choose: ollama, claude, copilot, openai"
+                raise LLMInferenceError(
+                    f"Unknown provider: {p!r}. Choose: ollama, claude, copilot, openai",
+                    provider=p,
                 )
 
             if res.backend_info:
@@ -798,7 +800,9 @@ class LLMClient:
             return self._claude_stream(system, messages)
         if p in ("copilot", "openai"):
             return self._openai_compat_stream(system, messages)
-        raise ValueError(f"Unknown provider: {p!r}. Choose: ollama, claude, copilot, openai")
+        raise LLMInferenceError(
+            f"Unknown provider: {p!r}. Choose: ollama, claude, copilot, openai", provider=p
+        )
 
     def chat_stream(
         self, system: str, user: str, *, enable_thinking: bool = True

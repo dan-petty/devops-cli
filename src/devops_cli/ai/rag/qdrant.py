@@ -14,13 +14,14 @@ from qdrant_client.http import models as qmodels
 from qdrant_client.http.exceptions import ResponseHandlingException
 
 from devops_cli.config.defaults import DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS
+from devops_cli.exceptions import DevOpsCLIError, InvalidURLError
 from devops_cli.http.validation import validate_service_url
 from devops_cli.telemetry import record_metric, trace_span
 
 logger = logging.getLogger(__name__)
 
 
-class QdrantClientError(RuntimeError):
+class QdrantClientError(DevOpsCLIError, RuntimeError):
     """Raised when an interaction with Qdrant fails."""
 
 
@@ -95,7 +96,7 @@ class QdrantClient:
     ) -> None:
         parsed = urllib.parse.urlparse(base_url)
         if not parsed.scheme or not parsed.netloc:
-            raise ValueError(f"Invalid base_url: missing scheme or host in '{base_url}'")
+            raise InvalidURLError(base_url, reason="missing scheme or host")
         self.base_url = urllib.parse.urlunparse(parsed).rstrip("/")
         self.api_key = api_key
         self.allow_private_network = allow_private_network

@@ -66,7 +66,9 @@ def _resolve_audit_log_dest(log_file: Path | None) -> Path:
         candidate = Path(os.environ["DEVOPS_CLI_AUDIT_LOG_DEST"]).resolve()
         allowed_root = CONST_DATA_DIR.resolve()
         if not candidate.is_relative_to(allowed_root):
-            raise ValueError(
+            from devops_cli.exceptions import SecurityError
+
+            raise SecurityError(
                 f"DEVOPS_CLI_AUDIT_LOG_DEST must be within {allowed_root}; got {candidate}"
             )
         return candidate

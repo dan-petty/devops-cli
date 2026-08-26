@@ -15,6 +15,7 @@ from devops_cli.ai.analyze.scanner import sanitize_reference
 from devops_cli.config.constants import CONST_ANALYSIS_DATA_DIR
 from devops_cli.core.repo import find_top_level_repo_root
 from devops_cli.dry_run import is_dry_run
+from devops_cli.exceptions import SecurityError
 from devops_cli.lang import MESSAGES
 from devops_cli.models.ai import AnalysisMetadata, FileAnalysisMeta, ProjectAnalysisMeta
 
@@ -37,7 +38,7 @@ def save_analysis_metadata(
         analysis_dir.mkdir(parents=True, exist_ok=True)
     out_file = (analysis_dir / f"{target_type}-{sanitized_ref}-metadata.json").resolve()
     if not str(out_file).startswith(str(analysis_dir)):
-        raise ValueError(f"Target metadata path escapes analysis directory: {out_file}")
+        raise SecurityError(f"Target metadata path escapes analysis directory: {out_file}")
 
     total_files = len(files)
     total_lines = sum(f.line_count for f in files)

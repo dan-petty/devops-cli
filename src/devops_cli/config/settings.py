@@ -54,6 +54,7 @@ from devops_cli.config.defaults import (
     DEFAULT_WORKSPACE_FILE,
 )
 from devops_cli.config.env import OPTION_TO_ENV_VAR
+from devops_cli.exceptions import ConfigurationError
 
 _SECRET_FIELDS: frozenset[str] = opt.SECRET_CONFIG_OPTIONS
 _KEYRING_KEYS: dict[str, str] = opt.KEYRING_KEYS
@@ -386,9 +387,10 @@ def dotted_set(settings: Settings, key: str, value: str) -> None:
     if len(parts) == 1:
         target = getattr(settings, parts[0], None)
         if isinstance(target, BaseModel):
-            raise ValueError(
+            raise ConfigurationError(
                 f"Cannot set top-level section '{parts[0]}' directly to a string. "
-                f"Use dotted key (e.g. '{parts[0]}.<field>')."
+                f"Use dotted key (e.g. '{parts[0]}.<field>').",
+                key=parts[0],
             )
         setattr(settings, parts[0], value)
         return

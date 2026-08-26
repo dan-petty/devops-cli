@@ -12,6 +12,7 @@ if TYPE_CHECKING:
 from devops_cli.config.constants import CONST_BINARY_EXTENSIONS
 from devops_cli.config.defaults import DEFAULT_SUBPROCESS_FAST_TIMEOUT_SECONDS
 from devops_cli.core.process import run_subprocess
+from devops_cli.exceptions import SecurityError
 
 
 @functools.lru_cache(maxsize=32)
@@ -233,7 +234,7 @@ def resolve_safe_subpath(root: Path | str, target: Path | str) -> Path:
         (resolved_root / target_p).resolve() if not target_p.is_absolute() else target_p.resolve()
     )
     if not resolved_target.is_relative_to(resolved_root):
-        raise ValueError(
+        raise SecurityError(
             f"Path traversal detected: target '{resolved_target}' "
             f"resolves outside root '{resolved_root}'"
         )

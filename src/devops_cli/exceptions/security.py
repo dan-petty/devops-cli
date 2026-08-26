@@ -7,7 +7,7 @@ from typing import Any
 from devops_cli.exceptions.base import DevOpsCLIError
 
 
-class SecurityError(DevOpsCLIError):
+class SecurityError(DevOpsCLIError, ValueError):
     """Base exception for all security, policy, and egress violations."""
 
     def __init__(

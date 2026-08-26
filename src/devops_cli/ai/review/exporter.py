@@ -12,6 +12,7 @@ from devops_cli.config.constants import (
     CONST_FEEDBACK_DATASET_PATH,
     CONST_REVIEWS_DATA_DIR,
 )
+from devops_cli.exceptions import SecurityError
 
 
 class FeedbackRecord(BaseModel):
@@ -98,7 +99,7 @@ def export_invalidated_feedback(
 
         allowed_roots.append(Path(tempfile.gettempdir()).resolve())
         if not any(resolved_out.is_relative_to(root) for root in allowed_roots):
-            raise ValueError(f"Output path escapes allowed workspace directory: {output_file}")
+            raise SecurityError(f"Output path escapes allowed workspace directory: {output_file}")
         out_path = resolved_out
 
     if not r_dir.exists():

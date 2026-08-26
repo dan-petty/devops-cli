@@ -17,6 +17,12 @@ from devops_cli.config.constants import (
     CONST_K8S_SUBDOMAIN_RE,
 )
 from devops_cli.config.defaults import DEFAULT_DNS_TIMEOUT_SECONDS
+from devops_cli.exceptions import (
+    InvalidURLError,
+    InvalidVersionError,
+    SSRFBlockedError,
+    ValidationError,
+)
 from devops_cli.lang import MESSAGES
 
 _ALLOW_PRIVATE_NETWORK_ENV = "DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK"
@@ -28,14 +34,16 @@ def is_non_public_ip(addr: ipaddress.IPv4Address | ipaddress.IPv6Address) -> boo
 
 
 def validate_service_url(url: str, purpose: str = "service", *, allow: bool = False) -> None:
-    """Raise ValueError for non-http/https or unauthorized private-network URLs.
+    """Raise ValidationError for non-http/https or unauthorized private-network URLs.
 
     Private-network targets are permitted when allow=True or
     DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true is set in the environment.
     """
     parsed = urlparse(url)
     if parsed.scheme not in {"http", "https"} or not parsed.hostname:
-        raise ValueError(MESSAGES.messages.invalid_url_scheme.format(purpose=purpose))
+        raise InvalidURLError(
+            url, reason=MESSAGES.messages.invalid_url_scheme.format(purpose=purpose)
+        )
 
     allow_private = allow or os.environ.get(_ALLOW_PRIVATE_NETWORK_ENV, "").strip().lower() in {
         "1",
@@ -52,7 +60,9 @@ def validate_service_url(url: str, purpose: str = "service", *, allow: bool = Fa
 
     if literal_ip is not None:
         if is_non_public_ip(literal_ip) and not allow_private:
-            raise ValueError(MESSAGES.messages.refusing_non_public_url.format(purpose=purpose))
+            raise SSRFBlockedError(
+                url, reason=MESSAGES.messages.refusing_non_public_url.format(purpose=purpose)
+            )
         return
 
     old_timeout = socket.getdefaulttimeout()
@@ -74,7 +84,9 @@ def validate_service_url(url: str, purpose: str = "service", *, allow: bool = Fa
             continue
 
     if resolved_ips and any(is_non_public_ip(ip) for ip in resolved_ips) and not allow_private:
-        raise ValueError(MESSAGES.messages.refusing_non_public_url.format(purpose=purpose))
+        raise SSRFBlockedError(
+            url, reason=MESSAGES.messages.refusing_non_public_url.format(purpose=purpose)
+        )
 
 
 def validate_url(url: str, purpose: str = "service", *, allow_private: bool = True) -> str:
@@ -85,9 +97,14 @@ def validate_url(url: str, purpose: str = "service", *, allow_private: bool = Tr
     clean_url = str(url).strip()
     parsed = urlparse(clean_url)
     if parsed.scheme not in ("http", "https"):
-        raise ValueError(f"Invalid {purpose} URL scheme '{parsed.scheme}': must be http or https")
+        raise InvalidURLError(
+            clean_url,
+            reason=f"Invalid {purpose} URL scheme '{parsed.scheme}': must be http or https",
+        )
     if not parsed.hostname:
-        raise ValueError(f"{purpose.capitalize()} URL '{url}' missing valid hostname")
+        raise InvalidURLError(
+            clean_url, reason=f"{purpose.capitalize()} URL '{url}' missing valid hostname"
+        )
     if not allow_private:
         validate_service_url(clean_url, purpose, allow=False)
     return clean_url
@@ -128,7 +145,7 @@ def validate_safe_key_path(key_path: Path | str) -> Path:
     """Validate an SSH key path, preventing path traversal or blank names."""
     p = Path(key_path)
     if ".." in str(key_path) or not p.name.strip():
-        raise ValueError(f"Invalid SSH key path: {key_path}")
+        raise ValidationError(f"Invalid SSH key path: {key_path}", field="key_path")
     return p
 
 
@@ -145,13 +162,13 @@ def validate_version_str(version: str, tool_name: str = "tool") -> str:
     """Validate that a version string matches standard PEP 440 / SemVer pattern."""
     clean_version = version.strip()
     if not clean_version:
-        raise ValueError(f"Invalid {tool_name} version string: {version!r}")
+        raise InvalidVersionError(version, tool_name=tool_name)
     try:
         from packaging.version import InvalidVersion, Version
 
         Version(clean_version.lstrip("v"))
     except (InvalidVersion, ValueError) as exc:
-        raise ValueError(f"Invalid {tool_name} version string: {version!r}") from exc
+        raise InvalidVersionError(version, tool_name=tool_name) from exc
     return clean_version.lstrip("v")
 
 
@@ -159,5 +176,7 @@ def validate_session_id(session_id: str) -> str:
     """Validate that a review session ID conforms to safe alphanumeric identifier format."""
     clean_id = session_id.strip()
     if not clean_id or not re.match(r"^[A-Za-z0-9_-]+$", clean_id) or ".." in clean_id:
-        raise ValueError(f"Invalid review session identifier: {session_id!r}")
+        raise ValidationError(
+            f"Invalid review session identifier: {session_id!r}", field="session_id"
+        )
     return clean_id

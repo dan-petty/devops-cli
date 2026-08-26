@@ -38,6 +38,12 @@ from devops_cli.config.defaults import (
 from devops_cli.core.cli import new_typer
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.validation import validate_version_str
+from devops_cli.exceptions import (
+    ChecksumMismatchError,
+    ToolDownloadError,
+    ToolExecutionError,
+    ValidationError,
+)
 from devops_cli.lang import HELP
 from devops_cli.output import (
     print_error,
@@ -87,7 +93,7 @@ def _download(url: str) -> bytes:
     from devops_cli.http.validation import validate_service_url
 
     if not url.startswith("https://"):
-        raise ValueError(f"Only HTTPS URLs are permitted for tool downloads, got: {url!r}")
+        raise ToolDownloadError(url, reason="Only HTTPS URLs are permitted for tool downloads")
     validate_service_url(url, purpose="tool download")
     with httpx2.Client(follow_redirects=True) as c:
         r = c.get(url, timeout=DEFAULT_HTTP_DOWNLOAD_TIMEOUT_SECONDS)
@@ -96,10 +102,12 @@ def _download(url: str) -> bytes:
 
 
 def _verify_sha256(data: bytes, expected_hex: str) -> None:
-    """Raise ValueError if SHA-256 of data doesn't match expected_hex."""
+    """Raise ChecksumMismatchError if SHA-256 of data doesn't match expected_hex."""
     actual = hashlib.sha256(data).hexdigest().lower()
     if actual != expected_hex.strip().lower():
-        raise ValueError(f"SHA-256 checksum mismatch (got {actual[:16]}…)")
+        raise ChecksumMismatchError(
+            "tool_archive", actual_checksum=actual, expected_checksum=expected_hex
+        )
 
 
 def _parse_checksum_file(text: str, filename: str) -> str:
@@ -111,7 +119,7 @@ def _parse_checksum_file(text: str, filename: str) -> str:
         parts = line.split()
         if len(parts) >= 2 and parts[1].lstrip("*").strip() == filename:
             return parts[0].strip()
-    raise ValueError(f"No checksum entry found for {filename!r}")
+    raise ValidationError(f"No checksum entry found for {filename!r}", field="checksum")
 
 
 def _write_binary(data: bytes, dest: Path) -> None:
@@ -125,7 +133,7 @@ def _extract_tar_member(data: bytes, member: str, dest: Path) -> None:
     import shutil
 
     if member.startswith("/") or ".." in Path(member).parts:
-        raise ValueError(f"Path traversal detected in archive member '{member}'")
+        raise ToolExecutionError(f"Path traversal detected in archive member '{member}'")
 
     dest.parent.mkdir(parents=True, exist_ok=True)
     with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as tf:
@@ -140,7 +148,9 @@ def _extract_tar_member(data: bytes, member: str, dest: Path) -> None:
     target_dir = dest.parent.resolve()
     if os.path.commonpath([resolved, target_dir]) != str(target_dir):
         dest.unlink(missing_ok=True)
-        raise ValueError(f"Extracted path '{resolved}' escapes target directory '{target_dir}'")
+        raise ToolExecutionError(
+            f"Extracted path '{resolved}' escapes target directory '{target_dir}'"
+        )
 
     dest.chmod(CONST_PERM_EXEC)
 
