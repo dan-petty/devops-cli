@@ -1,6 +1,6 @@
 # `devops install-tools`
 
-Install DevOps tool binaries.
+Install and manage DevOps tool binaries.
 
 ## Commands
 

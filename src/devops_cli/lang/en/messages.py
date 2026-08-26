@@ -482,6 +482,7 @@ class ToolMessages:
     no_unstaged_changes: str = "No unstaged changes."
     no_pods_in_namespace: str = "No pods found in namespace {namespace}."
     no_argo_apps: str = "No ArgoCD applications found."
+    argo_app_not_found: str = "ArgoCD application '{app_name}' not found."
     no_trivy_flaws: str = "No vulnerabilities, secrets, or flaws found by Trivy."
 
 

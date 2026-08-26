@@ -1,6 +1,6 @@
 # `devops k8s`
 
-Kubernetes resource management.
+Manage Kubernetes clusters, pods, services, and workloads.
 
 ## Commands
 
@@ -83,8 +83,8 @@ devops k8s logs [OPTIONS] <pod>
 |---|---|---|---|
 | `--container`, `-c` | `string` | - | - |
 | `--namespace`, `-n` | `string` | - | - |
-| `--follow`, `-f` | `boolean` | - | - |
-| `--tail` | `integer` | `100` | - |
+| `--follow`, `-f` | `boolean` | - | Follow stream or log output in real time. |
+| `--tail` | `integer` | `100` | Number of recent lines to display. |
 
 ---
 

@@ -47,7 +47,7 @@ def run_benchmark(
         typer.Option(
             "--models",
             "-m",
-            help="Comma-separated candidate models (e.g. 'qwen2.5:0.5b,llama3.1:8b@http://gpu2:11434')",
+            help=HELP.benchmark.models,
         ),
     ] = None,
     servers: Annotated[
@@ -55,19 +55,19 @@ def run_benchmark(
         typer.Option(
             "--servers",
             "--ollama-urls",
-            help="Comma-separated Ollama server URLs for concurrent execution (e.g. 'http://node1:11434,http://node2:11434')",
+            help=HELP.benchmark.ollama_urls,
         ),
     ] = None,
     provider: Annotated[
         str | None,
-        typer.Option("--provider", "-p", help="AI provider (ollama, claude, copilot, openai)"),
+        typer.Option("--provider", "-p", help=HELP.options.provider),
     ] = None,
     benchmark_type: Annotated[
         str,
         typer.Option(
             "--type",
             "--mode",
-            help=f"Benchmark mode: 'auto', 'chat', 'embedding' (default: {DEFAULT_BENCHMARK_TYPE})",
+            help=HELP.benchmark.mode,
         ),
     ] = DEFAULT_BENCHMARK_TYPE,
     tasks_filter: Annotated[
@@ -75,7 +75,7 @@ def run_benchmark(
         typer.Option(
             "--tasks",
             "-t",
-            help="Filter specific task categories or IDs (e.g. 'security,kubernetes')",
+            help=HELP.benchmark.tasks,
         ),
     ] = None,
     concurrency: Annotated[
@@ -83,27 +83,27 @@ def run_benchmark(
         typer.Option(
             "--concurrency",
             "-c",
-            help="Number of concurrent model server workers (default: automatic per model count)",
+            help=HELP.benchmark.workers,
         ),
     ] = DEFAULT_BENCHMARK_CONCURRENCY,
     output: Annotated[
         Path | None,
-        typer.Option("--output", "-o", help="Destination JSON report filepath"),
+        typer.Option("--output", "-o", help=HELP.options.output),
     ] = None,
     format_type: Annotated[
         str,
-        typer.Option("--format", "-f", help="Output format: table, json, markdown"),
+        typer.Option("--format", "-f", help=HELP.options.format_type),
     ] = DEFAULT_BENCHMARK_FORMAT,
     dry_run: Annotated[
         bool,
-        typer.Option("--dry-run", help="Simulate benchmark without sending remote LLM requests"),
+        typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
     explain: Annotated[
         bool,
         typer.Option(
             "--explain",
             "-e",
-            help="Explain benchmark metrics, terminology, and mathematical formulas",
+            help=HELP.benchmark.explain,
         ),
     ] = False,
     document: Annotated[
@@ -111,16 +111,14 @@ def run_benchmark(
         typer.Option(
             "--document",
             "-d",
-            help="Path to large test document for in-memory tokenization and section retrieval",
+            help=HELP.benchmark.test_doc,
             exists=True,
             readable=True,
         ),
     ] = None,
     samples: Annotated[
         int,
-        typer.Option(
-            "--samples", help="Number of random sections to sample for retrieval evaluation"
-        ),
+        typer.Option("--samples", help=HELP.benchmark.samples),
     ] = DEFAULT_BENCHMARK_SAMPLES,
 ) -> None:
     """Run benchmark tasks across candidate models and execute cross-model peer grading."""

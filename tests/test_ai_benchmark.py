@@ -369,3 +369,274 @@ def test_benchmark_scaled_judge_weights_and_self_assessment_incorporation() -> N
 
     # Bad model's score stays low (~30.6%) despite giving itself 95%
     assert bad_sum.overall_percentage <= 31.0
+
+
+def test_benchmark_to_markdown_and_print_report(tmp_path: Path) -> None:
+    """Verify Markdown generation and terminal table formatting for multi-task multi-server reports."""
+    from devops_cli.models.benchmark import ServerBenchmarkSummary
+
+    tasks = BENCHMARK_TASKS[:2]
+    models = ["model-a", "model-b"]
+    b_runner = BenchmarkRunner(
+        models=models, tasks=tasks, servers=["http://node1:11434", "http://node2:11434"]
+    )
+
+    sum_a = ModelBenchmarkSummary(
+        model="model-a",
+        provider="ollama",
+        overall_percentage=92.0,
+        peer_only_percentage=90.0,
+        accuracy_avg=9.2,
+        security_avg=9.5,
+        completeness_avg=9.0,
+        clarity_avg=9.1,
+        judge_weight=1.0,
+        average_duration_seconds=1.5,
+        self_preference_bias=2.0,
+        category_scores={"security": 95.0, "kubernetes": 89.0},
+    )
+    sum_b = ModelBenchmarkSummary(
+        model="model-b",
+        provider="ollama",
+        overall_percentage=85.0,
+        peer_only_percentage=84.0,
+        accuracy_avg=8.5,
+        security_avg=8.0,
+        completeness_avg=8.7,
+        clarity_avg=8.8,
+        judge_weight=0.9,
+        average_duration_seconds=2.1,
+        self_preference_bias=1.0,
+        category_scores={"security": 80.0, "kubernetes": 90.0},
+    )
+
+    srv_1 = ServerBenchmarkSummary(
+        server="http://node1:11434",
+        generation_duration_avg=1.5,
+        total_duration_seconds=3.0,
+        tasks_generated_count=2,
+        avg_score_awarded=88.0,
+        server_score_bias=1.0,
+        model_latencies={"model-a": 1.5},
+    )
+    srv_2 = ServerBenchmarkSummary(
+        server="http://node2:11434",
+        generation_duration_avg=2.1,
+        total_duration_seconds=4.2,
+        tasks_generated_count=2,
+        avg_score_awarded=87.0,
+        server_score_bias=-1.0,
+        model_latencies={"model-b": 2.1},
+    )
+
+    grade = PeerGrade(
+        task_id=tasks[0].id,
+        candidate_model="model-a",
+        evaluator_model="model-b",
+        accuracy_score=9.0,
+        security_score=9.0,
+        completeness_score=9.0,
+        clarity_score=9.0,
+        total_score=36.0,
+        percentage=90.0,
+        strengths=["Clear logic"],
+        weaknesses=["None"],
+        feedback="Great work",
+    )
+
+    report = BenchmarkReport(
+        session_id="20260826-test",
+        models_evaluated=models,
+        tasks_run=tasks,
+        responses=[],
+        peer_grades=[grade],
+        leaderboard=[sum_a, sum_b],
+        server_benchmarks=[srv_1, srv_2],
+    )
+
+    # Markdown export
+    md = b_runner.to_markdown(report)
+    assert "# AI Benchmark Report" in md
+    assert "Leaderboard" in md
+    assert "Domain Category Breakdown" in md
+    assert "Server Performance & Score Bias" in md
+    assert "Model Strengths & Improvement Areas" in md
+
+    # Render results and save
+    b_runner.render_results(report)
+    saved_path = b_runner._save_report(report)
+    assert saved_path.exists()
+
+
+def test_embedding_benchmark_runner_and_metrics(tmp_path: Path) -> None:
+    """Verify embedding math functions, dry run execution, markdown rendering, and reports."""
+    from devops_cli.ai.benchmark.embedding_runner import (
+        EmbeddingBenchmarkRunner,
+        compute_ndcg_at_k,
+        cosine_similarity,
+    )
+
+    # 1. cosine_similarity edge cases
+    assert cosine_similarity([1.0, 0.0], [1.0, 0.0]) == pytest.approx(1.0)
+    assert cosine_similarity([1.0, 0.0], [0.0, 1.0]) == pytest.approx(0.0)
+    assert cosine_similarity([0.0, 0.0], [1.0, 1.0]) == 0.0
+    assert cosine_similarity([1.0], [1.0, 2.0]) == 0.0
+    assert cosine_similarity([], []) == 0.0
+
+    # 2. compute_ndcg_at_k
+    assert compute_ndcg_at_k([0, 1, 2], target_idx=0, k=3) == pytest.approx(1.0)
+    assert compute_ndcg_at_k([1, 2, 0], target_idx=0, k=3) > 0.0
+    assert compute_ndcg_at_k([1, 2, 3], target_idx=0, k=3) == 0.0
+
+    # 3. EmbeddingBenchmarkRunner in dry-run mode
+    emb_runner = EmbeddingBenchmarkRunner(
+        models=["nomic-embed-text", "all-minilm"],
+        servers=["http://server1:11434", "http://server2:11434"],
+        is_dry_run=True,
+    )
+    report = emb_runner.run()
+    assert report.is_dry_run is True
+    assert len(report.models) >= 2
+
+    md = emb_runner.generate_markdown(report)
+    assert "# Embedding Model Benchmark Report" in md
+    assert "Leaderboard Summary" in md
+    assert "Server Hardware Comparison" in md
+
+    emb_runner.print_report(report)
+    emb_runner.print_report(report, format_type="json")
+    emb_runner.print_report(report, format_type="markdown")
+    emb_runner._save_report(report)
+
+
+def test_embedding_benchmark_runner_mock_engine() -> None:
+    """Verify embedding benchmark evaluation with mocked EmbeddingsEngine."""
+    from devops_cli.ai.benchmark.embedding_runner import EmbeddingBenchmarkRunner, EmbeddingEvalPair
+
+    mock_engine = MagicMock()
+    # 2 docs in corpus, 2 queries
+    mock_engine.embed_texts.side_effect = [
+        [[1.0, 0.0]],  # latency query 1
+        [[0.0, 1.0]],  # latency query 2
+        [[1.0, 0.0], [0.0, 1.0]],  # corpus vectors
+        [[1.0, 0.0], [0.0, 1.0]],  # query vectors
+    ]
+
+    emb_runner = EmbeddingBenchmarkRunner(
+        models=["custom-model@http://localhost:11434"],
+        is_dry_run=False,
+    )
+    with patch.object(emb_runner, "_engine_for_model", return_value=mock_engine):
+        pairs = [
+            EmbeddingEvalPair(
+                id="eval-1", query="query 1", target_passage="doc 1", category="security"
+            ),
+            EmbeddingEvalPair(
+                id="eval-2", query="query 2", target_passage="doc 2", category="kubernetes"
+            ),
+        ]
+        corpus = ["doc 1", "doc 2"]
+        res = emb_runner.evaluate_model("custom-model", pairs, corpus)
+        assert res.model == "custom-model"
+        assert res.recall_at_1 > 0.0
+        assert res.dimension == 2
+
+
+def test_embedding_benchmark_runner_full_run() -> None:
+    """Verify full embedding benchmark suite orchestration with multiple models."""
+    from devops_cli.ai.benchmark.embedding_runner import EmbeddingBenchmarkRunner
+    from devops_cli.models.benchmark import EmbeddingBenchmarkResult
+
+    mock_res_1 = EmbeddingBenchmarkResult(
+        model="model-a",
+        server="http://server1:11434",
+        dimension=384,
+        recall_at_1=90.0,
+        recall_at_3=95.0,
+        recall_at_5=98.0,
+        mrr=0.92,
+        ndcg_at_5=0.94,
+        mean_cosine_margin=0.3,
+        separation_score=0.4,
+        latency_ms_p50=12.5,
+        latency_ms_p95=25.0,
+        throughput_items_per_sec=150.0,
+        throughput_chars_per_sec=50000.0,
+        overall_score=92.5,
+        is_normalized=True,
+    )
+    mock_res_2 = EmbeddingBenchmarkResult(
+        model="model-b",
+        server="http://server2:11434",
+        dimension=768,
+        recall_at_1=80.0,
+        recall_at_3=88.0,
+        recall_at_5=92.0,
+        mrr=0.85,
+        ndcg_at_5=0.87,
+        mean_cosine_margin=0.25,
+        separation_score=0.35,
+        latency_ms_p50=20.0,
+        latency_ms_p95=35.0,
+        throughput_items_per_sec=100.0,
+        throughput_chars_per_sec=35000.0,
+        overall_score=84.0,
+        is_normalized=True,
+    )
+
+    runner = EmbeddingBenchmarkRunner(
+        models=["model-a", "model-b"],
+        servers=["http://server1:11434", "http://server2:11434"],
+        is_dry_run=False,
+    )
+    mock_task = MagicMock()
+    mock_chunk = MagicMock(token_count=10)
+    with (
+        patch(
+            "devops_cli.ai.benchmark.embedding_runner.load_test_document_corpus",
+            return_value=([mock_task], ["c1"], [mock_chunk]),
+        ),
+        patch.object(
+            runner,
+            "evaluate_model_on_server",
+            side_effect=[mock_res_1, mock_res_2, mock_res_1, mock_res_2],
+        ),
+    ):
+        report = runner.run()
+        assert len(report.models) == 4
+        assert len(report.recommendations) >= 3
+        assert len(report.server_benchmarks) >= 2
+
+
+def test_embedding_eval_dataset_parsers() -> None:
+    """Verify parsing embedding eval pairs and distractors."""
+    from devops_cli.ai.benchmark.embedding_tasks import (
+        _parse_embedding_distractors,
+        _parse_embedding_eval_pairs,
+        get_embedding_eval_dataset,
+    )
+
+    sample_md = """## pair-1
+- **Category:** test_cat
+- **Query:** how to configure ingress?
+- **Target Passage:** ingress configuration requires annotations and rules.
+
+## pair-2
+- **Category:** test_sec
+- **Query:** how to prevent ssrf?
+- **Target Passage:** validate all egress IPs against private network ranges.
+"""
+    pairs = _parse_embedding_eval_pairs(sample_md)
+    assert len(pairs) == 2
+    assert pairs[0].id == "pair-1"
+    assert pairs[1].category == "test_sec"
+
+    distractor_md = """- Distractor passage 1
+- Distractor passage 2
+"""
+    distractors = _parse_embedding_distractors(distractor_md)
+    assert len(distractors) == 2
+
+    all_pairs, corpus = get_embedding_eval_dataset()
+    assert len(all_pairs) > 0
+    assert len(corpus) >= len(all_pairs)

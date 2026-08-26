@@ -5,6 +5,12 @@ from __future__ import annotations
 import typer
 
 from devops_cli import __version__
+from devops_cli.config.defaults import (
+    DEFAULT_LOG_LEVEL,
+    DEFAULT_REST_HOST,
+    DEFAULT_REST_PORT,
+    DEFAULT_SERVER_WORKERS,
+)
 from devops_cli.core.cli import new_typer
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
@@ -27,39 +33,39 @@ app = new_typer(
 def serve(
     ctx: typer.Context,
     host: str = typer.Option(
-        "127.0.0.1",
+        DEFAULT_REST_HOST,
         "--host",
         "-h",
-        help="Network interface host to bind the HTTP server.",
+        help=HELP.serve.host,
     ),
     port: int = typer.Option(
-        8000,
+        DEFAULT_REST_PORT,
         "--port",
         "-p",
-        help="TCP port to listen on.",
+        help=HELP.serve.port,
     ),
     reload: bool = typer.Option(
         False,
         "--reload",
         "-r",
-        help="Enable auto-reload on code changes (development mode).",
+        help=HELP.serve.reload,
     ),
     workers: int = typer.Option(
-        1,
+        DEFAULT_SERVER_WORKERS,
         "--workers",
         "-w",
-        help="Number of worker processes.",
+        help=HELP.serve.workers,
     ),
     log_level: str = typer.Option(
-        "info",
+        DEFAULT_LOG_LEVEL,
         "--log-level",
         "-l",
-        help="Logging level (debug, info, warning, error).",
+        help=HELP.serve.log_level,
     ),
     docs: bool = typer.Option(
         True,
         "--docs/--no-docs",
-        help="Enable or disable Swagger UI (/docs) and ReDoc (/redoc).",
+        help=HELP.serve.docs,
     ),
 ) -> None:
     """Start the asynchronous FastAPI REST service and OpenAPI engine."""

@@ -108,7 +108,7 @@ def test_dotted_set_rejects_top_level_section_overwrite() -> None:
 
 
 def test_config_commands_comprehensive(tmp_path: Path) -> None:
-    """Verify config show, get, set, output, env subcommands."""
+    """Verify config show, get, set, output, env, auth-headless, audit-stream subcommands."""
     cfg_file = tmp_path / "config.yaml"
     with (
         patch("devops_cli.config.settings.CONFIG_PATH", cfg_file),
@@ -129,3 +129,13 @@ def test_config_commands_comprehensive(tmp_path: Path) -> None:
 
         res_env = runner.invoke(main_app, ["config", "env"])
         assert res_env.exit_code == 0
+
+        res_headless = runner.invoke(app, ["auth-headless", "github.token", "ghp_mocktoken"])
+        assert res_headless.exit_code == 0
+
+        res_headless_bad = runner.invoke(app, ["auth-headless", "invalid_key", "val"])
+        assert res_headless_bad.exit_code == 1
+
+        with patch("devops_cli.core.audit.stream_audit_records", return_value=5):
+            res_stream = runner.invoke(app, ["audit-stream", "https://siem.example.com/ingest"])
+            assert res_stream.exit_code == 0

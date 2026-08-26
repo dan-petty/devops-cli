@@ -14,24 +14,42 @@ from pathlib import Path
 from typing import Annotated, Any
 
 import typer
-from rich.table import Table
 
 from devops_cli.config.constants import (
     CONST_SERVER_CERT_NAME,
     CONST_SERVER_KEY_NAME,
 )
 from devops_cli.config.defaults import (
+    DEFAULT_ARGOCD_PORT,
+    DEFAULT_GRAFANA_PORT,
+    DEFAULT_HTTP_PROBE_TIMEOUT_SECONDS,
+    DEFAULT_JAEGER_PORT,
+    DEFAULT_K8S_DIR,
+    DEFAULT_K8S_LOGS_TAIL,
+    DEFAULT_K8S_STACK_ALL,
+    DEFAULT_K8S_STACK_INFRA,
+    DEFAULT_KUBECONFORM_VERSION,
+    DEFAULT_KUBERNETES_NAMESPACE,
+    DEFAULT_OLLAMA_PORT,
+    DEFAULT_OPEN_WEBUI_PORT,
+    DEFAULT_OTEL_PORT,
+    DEFAULT_PROMETHEUS_PORT,
+    DEFAULT_QDRANT_PORT,
+    DEFAULT_REST_HOST,
     DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
     DEFAULT_TLS_DIR,
+    DEFAULT_TLS_SECRET_NAME,
+    DEFAULT_VALKEY_PORT,
 )
 from devops_cli.core.cli import new_typer
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.validation import validate_k8s_name
 from devops_cli.crypto.tls_certificates import generate_homelab_tls_bundle
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
-from devops_cli.lang import MESSAGES
+from devops_cli.lang import HELP, MESSAGES
 from devops_cli.models.tls import KubernetesTLSSecretResult
 from devops_cli.output import (
+    Table,
     print_error,
     print_info,
     print_success,
@@ -236,8 +254,8 @@ def logs(
     pod: Annotated[str, typer.Argument(help="Pod name")],
     container: Annotated[str | None, typer.Option("--container", "-c")] = None,
     namespace: Annotated[str | None, typer.Option("--namespace", "-n")] = None,
-    follow: Annotated[bool, typer.Option("--follow", "-f")] = False,
-    tail: Annotated[int, typer.Option("--tail")] = 100,
+    follow: Annotated[bool, typer.Option("--follow", "-f", help=HELP.options.follow)] = False,
+    tail: Annotated[int, typer.Option("--tail", help=HELP.options.tail)] = DEFAULT_K8S_LOGS_TAIL,
 ) -> None:
     """Stream pod logs (delegates to kubectl)."""
     _validate_k8s_identifier(pod, "pod name")
@@ -413,14 +431,14 @@ def _cluster_reachable(context: str | None = None) -> bool:
 def bootstrap(
     k8s_dir: Annotated[
         Path, typer.Option("--dir", "-d", help="Directory containing Kubernetes manifests")
-    ] = Path("k8s"),
+    ] = DEFAULT_K8S_DIR,
     auto_start: Annotated[
         bool, typer.Option("--auto-start/--no-auto-start", help="Auto-start minikube if stopped")
     ] = True,
     stack: Annotated[
         str,
         typer.Option("--stack", "-s", help="Stack to deploy after bootstrap: infra | llm | all"),
-    ] = "all",
+    ] = DEFAULT_K8S_STACK_ALL,
 ) -> None:
     """Bootstrap minikube Kubernetes cluster and deploy infrastructure/LLM stack."""
     selected_stacks = _resolve_stacks(stack)
@@ -535,7 +553,7 @@ def deploy_stack(
     ] = _K8S_DIR,
     stack: Annotated[
         str, typer.Option("--stack", "-s", help="Stack to deploy (infra, llm, all)")
-    ] = "infra",
+    ] = DEFAULT_K8S_STACK_INFRA,
     context: Annotated[
         str | None, typer.Option("--context", "-c", help="Kubernetes cluster context")
     ] = None,
@@ -787,7 +805,7 @@ def _detect_service_url(service: str, namespace: str, context: str | None = None
     return None
 
 
-def _verify_url_reachability(url: str, timeout: float = 0.8) -> bool:
+def _verify_url_reachability(url: str, timeout: float = DEFAULT_HTTP_PROBE_TIMEOUT_SECONDS) -> bool:
     """Check if target HTTP URL host and port can accept socket connections."""
     import socket
     from urllib.parse import urlparse
@@ -846,7 +864,7 @@ def _resolve_accessible_url(
 def configure_urls(
     stack: Annotated[
         str, typer.Option("--stack", "-s", help="Stack to configure URLs for (infra, llm, all)")
-    ] = "infra",
+    ] = DEFAULT_K8S_STACK_INFRA,
     context: Annotated[
         str | None, typer.Option("--context", "-c", help="Kubernetes cluster context")
     ] = None,
@@ -972,36 +990,40 @@ def configure_urls(
 def port_forward(
     stack: Annotated[
         str, typer.Option("--stack", "-s", help="Stack services to port-forward (infra, llm, all)")
-    ] = "infra",
+    ] = DEFAULT_K8S_STACK_INFRA,
     context: Annotated[
         str | None, typer.Option("--context", "-c", help="Kubernetes cluster context")
     ] = None,
-    argocd_port: Annotated[int, typer.Option("--argocd-port", help="Local port for ArgoCD")] = 8080,
+    argocd_port: Annotated[
+        int, typer.Option("--argocd-port", help="Local port for ArgoCD")
+    ] = DEFAULT_ARGOCD_PORT,
     grafana_port: Annotated[
         int, typer.Option("--grafana-port", help="Local port for Grafana")
-    ] = 8030,
+    ] = DEFAULT_GRAFANA_PORT,
     prometheus_port: Annotated[
         int, typer.Option("--prometheus-port", help="Local port for Prometheus")
-    ] = 8090,
+    ] = DEFAULT_PROMETHEUS_PORT,
     jaeger_port: Annotated[
         int, typer.Option("--jaeger-port", help="Local port for Jaeger Query UI")
-    ] = 16686,
+    ] = DEFAULT_JAEGER_PORT,
     otel_port: Annotated[
         int, typer.Option("--otel-port", help="Local port for OpenTelemetry OTLP Traces (HTTP)")
-    ] = 4318,
+    ] = DEFAULT_OTEL_PORT,
     ollama_port: Annotated[
         int, typer.Option("--ollama-port", help="Local port for Ollama")
-    ] = 11434,
+    ] = DEFAULT_OLLAMA_PORT,
     open_webui_port: Annotated[
         int, typer.Option("--open-webui-port", help="Local port for Open-WebUI")
-    ] = 3000,
+    ] = DEFAULT_OPEN_WEBUI_PORT,
     qdrant_port: Annotated[
         int, typer.Option("--qdrant-port", help="Local port for Qdrant HTTP")
-    ] = 6333,
-    valkey_port: Annotated[int, typer.Option("--valkey-port", help="Local port for Valkey")] = 6379,
+    ] = DEFAULT_QDRANT_PORT,
+    valkey_port: Annotated[
+        int, typer.Option("--valkey-port", help="Local port for Valkey")
+    ] = DEFAULT_VALKEY_PORT,
     address: Annotated[
         str, typer.Option("--address", help="Local address to bind for port-forwarding")
-    ] = "127.0.0.1",
+    ] = DEFAULT_REST_HOST,
 ) -> None:
     """Port-forward k8s monitoring / LLM stack services to localhost ports and update CLI config."""
     import time
@@ -1101,7 +1123,7 @@ def teardown_stack(
     ] = _K8S_DIR,
     stack: Annotated[
         str, typer.Option("--stack", "-s", help="Stack to teardown (infra, llm, all)")
-    ] = "infra",
+    ] = DEFAULT_K8S_STACK_INFRA,
     context: Annotated[
         str | None, typer.Option("--context", "-c", help="Kubernetes cluster context")
     ] = None,
@@ -1388,7 +1410,7 @@ def create_tls_secret(
     namespace: Annotated[
         str,
         typer.Option("--namespace", "-n", help="Target Kubernetes namespace"),
-    ] = "default",
+    ] = DEFAULT_KUBERNETES_NAMESPACE,
     cert_path: Annotated[
         Path,
         typer.Option("--cert", help="Path to TLS certificate file (.crt or .pem)"),
@@ -1472,8 +1494,6 @@ def create_tls_secret(
 # =============================================================================
 # Command: devops k8s enable-tls
 # =============================================================================
-
-
 @app.command("enable-tls")
 def enable_tls_stack(
     context: Annotated[
@@ -1487,11 +1507,11 @@ def enable_tls_stack(
     secret_name: Annotated[
         str,
         typer.Option("--secret-name", help="TLS secret name across namespaces"),
-    ] = "homelab-tls",
+    ] = DEFAULT_TLS_SECRET_NAME,
     stack: Annotated[
         str,
         typer.Option("--stack", "-s", help="Stack to deploy TLS secrets into (infra, llm, all)"),
-    ] = "all",
+    ] = DEFAULT_K8S_STACK_ALL,
     overwrite: Annotated[
         bool,
         typer.Option("--overwrite", "-f", help="Regenerate certs if missing"),
@@ -1504,16 +1524,11 @@ def enable_tls_stack(
     selected_stacks = _resolve_stacks(stack)
 
     # Resolve target namespaces based on selected stacks
-    namespaces_to_target: list[str] = ["default"]
+    namespaces_to_target: list[str] = [DEFAULT_KUBERNETES_NAMESPACE]
     if "infra" in selected_stacks:
         namespaces_to_target.extend(["argocd", "monitoring", "otel"])
     if "llm" in selected_stacks:
         namespaces_to_target.extend(["llm"])
-
-    target_namespaces = list(dict.fromkeys(namespaces_to_target))
-
-    cert_path = tls_dir / CONST_SERVER_CERT_NAME
-    key_path = tls_dir / CONST_SERVER_KEY_NAME
 
     if is_dry_run():
         render_dry_run_result(
@@ -1521,36 +1536,48 @@ def enable_tls_stack(
             target=stack,
             action="enable_k8s_tls_stack",
             details={
-                "stack": stack,
-                "stacks": selected_stacks,
+                "tls_dir": str(tls_dir),
                 "secret_name": secret_name,
-                "namespaces": target_namespaces,
-                "cert_path": str(cert_path),
-                "key_path": str(key_path),
+                "stack": stack,
+                "namespaces": namespaces_to_target,
                 "context": context,
             },
         )
         return
 
-    # Generate certificates bundle if needed
-    if not cert_path.exists() or not key_path.exists() or overwrite:
-        print_info(MESSAGES.k8s.generating_homelab_tls, prefix=False)
+    # Check if certificates exist; if not and overwrite is requested, generate bundle
+    cert_path = tls_dir / CONST_SERVER_CERT_NAME
+    key_path = tls_dir / CONST_SERVER_KEY_NAME
+
+    if not (cert_path.exists() and key_path.exists()):
+        print_info(f"Certificates missing under {tls_dir}. Generating bundle...")
         generate_homelab_tls_bundle(output_dir=tls_dir, overwrite=overwrite)
 
-    kubectl_ctx = ["--context", context] if context else []
     results: list[KubernetesTLSSecretResult] = []
+    kubectl_ctx = ["--context", context] if context else []
 
-    print_info(
-        f"[bold]Applying TLS secret '[cyan]{secret_name}[/cyan]' "
-        f"across {len(target_namespaces)} namespace(s)...[/bold]",
-        prefix=False,
-    )
-    for ns in target_namespaces:
+    for ns in namespaces_to_target:
+        # Check if namespace exists before attempting secret creation
         ns_check = _run_cmd(["kubectl", "get", "namespace", ns] + kubectl_ctx, check=False)
         if ns_check.returncode != 0:
-            _run_cmd(["kubectl", "create", "namespace", ns] + kubectl_ctx, check=False)
+            results.append(
+                KubernetesTLSSecretResult(
+                    secret_name=secret_name,
+                    namespace=ns,
+                    created=False,
+                    cert_path=str(cert_path),
+                    key_path=str(key_path),
+                    error=f"Namespace {ns} does not exist in cluster",
+                )
+            )
+            continue
 
-        _run_cmd(["kubectl", "delete", "secret", secret_name, "-n", ns] + kubectl_ctx, check=False)
+        # Delete existing secret if overwrite requested
+        if overwrite:
+            _run_cmd(
+                ["kubectl", "delete", "secret", secret_name, "-n", ns] + kubectl_ctx,
+                check=False,
+            )
 
         create_cmd = [
             "kubectl",
@@ -1602,7 +1629,7 @@ def k8s_validate(
     k8s_version: Annotated[
         str,
         typer.Option("--kubernetes-version", "-v", help="Target Kubernetes OpenAPI version"),
-    ] = "master",
+    ] = DEFAULT_KUBECONFORM_VERSION,
     strict: Annotated[
         bool,
         typer.Option("--strict/--no-strict", help="Disallow additional undeclared properties"),

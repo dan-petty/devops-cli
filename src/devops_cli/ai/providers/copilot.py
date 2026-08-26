@@ -6,6 +6,7 @@ import logging
 from typing import Any
 
 from devops_cli.ai.providers.base import BaseLLMProvider
+from devops_cli.config.defaults import DEFAULT_GITHUB_COPILOT_MODEL
 from devops_cli.models.ai import ChatMessage
 
 logger = logging.getLogger(__name__)
@@ -30,5 +31,5 @@ class CopilotProvider(BaseLLMProvider):
         stream: bool = False,
         **kwargs: Any,
     ) -> Any:
-        target_model = model or self.config.model or "gpt-4o"
+        target_model = model or self.config.model or DEFAULT_GITHUB_COPILOT_MODEL
         return {"model": target_model, "messages": messages}

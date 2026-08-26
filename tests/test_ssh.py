@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from typer.testing import CliRunner
@@ -112,7 +112,7 @@ def test_list_managed_keys_filters_correctly(tmp_path: Path) -> None:
 
 
 def test_ssh_commands(tmp_path: Path) -> None:
-    """Verify ssh generate, status, audit, and register subcommands."""
+    """Verify ssh generate, status, audit, register, and rotate subcommands."""
     mock_key_info = ManagedSSHKey(
         path=tmp_path / "id_ed25519-2024JAN15",
         key_date=date(2024, 1, 15),
@@ -123,10 +123,15 @@ def test_ssh_commands(tmp_path: Path) -> None:
     priv_file.write_text("private", encoding="utf-8")
     pub_file.write_text("ssh-ed25519 AAAA test@domain.com", encoding="utf-8")
 
+    def mock_gen_key(path: Path, *args: object, **kwargs: object) -> None:
+        Path(path).write_text("private", encoding="utf-8")
+        Path(f"{path}.pub").write_text("ssh-ed25519 AAAA test@domain.com", encoding="utf-8")
+
     with (
         patch("devops_cli.crypto.ssh_keys.list_managed_keys_info", return_value=[mock_key_info]),
-        patch("devops_cli.crypto.ssh_keys.generate_ed25519_key"),
+        patch("devops_cli.crypto.ssh_keys.generate_ed25519_key", side_effect=mock_gen_key),
         patch("devops_cli.crypto.ssh_keys.find_newest_key", return_value=priv_file),
+        patch("devops_cli.crypto.ssh_keys.get_key_age_days", return_value=10),
         patch("devops_cli.github.ssh.register_key_on_github", return_value=True),
         patch("devops_cli.config.settings.get_github_token", return_value="ghp_test"),
         patch("devops_cli.commands.ssh._configure_git_signing"),
@@ -146,3 +151,135 @@ def test_ssh_commands(tmp_path: Path) -> None:
             ssh_app, ["register", "--key-file", str(priv_file), "--title", "My Key"]
         )
         assert res_reg.exit_code == 0
+
+        res_rot = runner.invoke(ssh_app, ["rotate", "--key-dir", str(tmp_path)])
+        assert res_rot.exit_code == 0
+
+        res_rot_force = runner.invoke(ssh_app, ["rotate", "--key-dir", str(tmp_path), "--force"])
+        assert res_rot_force.exit_code == 0
+
+
+def test_ssh_error_and_dry_run_branches(tmp_path: Path) -> None:
+    """Verify ssh dry-run, missing keys, registration errors, and age buckets."""
+    from devops_cli.github.ssh import SSHRegistrationError
+
+    # 1. Dry run
+    with patch("devops_cli.dry_run.is_dry_run", return_value=True):
+        assert runner.invoke(ssh_app, ["generate", "--key-dir", str(tmp_path)]).exit_code == 0
+        assert runner.invoke(ssh_app, ["register"]).exit_code == 0
+        assert runner.invoke(ssh_app, ["rotate"]).exit_code == 0
+        assert runner.invoke(ssh_app, ["audit"]).exit_code == 0
+        assert runner.invoke(ssh_app, ["status"]).exit_code == 0
+
+    # 2. Generate key collision (exists)
+    with (
+        patch("devops_cli.commands.ssh._date_suffix", return_value="2026JAN01"),
+        patch("devops_cli.config.settings.load_settings") as mock_load,
+    ):
+        settings = MagicMock()
+        settings.ssh.key_dir = tmp_path
+        mock_load.return_value = settings
+        (tmp_path / "id_ed25519-2026JAN01").touch()
+        res_exist = runner.invoke(ssh_app, ["generate"])
+        assert res_exist.exit_code == 1
+
+    # 3. Register missing key or pub
+    with (
+        patch("devops_cli.crypto.ssh_keys.find_newest_key", return_value=None),
+        patch("devops_cli.config.settings.load_settings") as mock_load,
+    ):
+        settings = MagicMock()
+        settings.ssh.key_dir = tmp_path
+        mock_load.return_value = settings
+        res_no_key = runner.invoke(ssh_app, ["register"])
+        assert res_no_key.exit_code == 1
+
+    # Missing .pub
+    priv = tmp_path / "custom_priv"
+    priv.touch()
+    res_no_pub = runner.invoke(ssh_app, ["register", "--key-file", str(priv)])
+    assert res_no_pub.exit_code == 1
+
+    # SSHRegistrationError in register
+    (tmp_path / "custom_priv.pub").write_text("ssh-ed25519 AAAA", encoding="utf-8")
+    with (
+        patch(
+            "devops_cli.github.ssh.register_key_on_github",
+            side_effect=SSHRegistrationError("API error"),
+        ),
+        patch("devops_cli.config.settings.get_github_token", return_value="token"),
+    ):
+        res_reg_err = runner.invoke(ssh_app, ["register", "--key-file", str(priv)])
+        assert res_reg_err.exit_code == 1
+
+    # 4. Status age checks (>7, <=7, overdue)
+    with (
+        patch("devops_cli.crypto.ssh_keys.find_newest_key", return_value=priv),
+        patch("devops_cli.config.settings.load_settings") as mock_load,
+    ):
+        settings = MagicMock()
+        settings.ssh.key_dir = tmp_path
+        settings.ssh.rotation_days = 90
+        mock_load.return_value = settings
+
+        with patch("devops_cli.crypto.ssh_keys.get_key_age_days", return_value=85):
+            res_stat_warn = runner.invoke(ssh_app, ["status"])
+            assert res_stat_warn.exit_code == 0
+            assert "5 days remaining" in res_stat_warn.output
+
+        with patch("devops_cli.crypto.ssh_keys.get_key_age_days", return_value=100):
+            res_stat_overdue = runner.invoke(ssh_app, ["status"])
+            assert res_stat_overdue.exit_code == 0
+            assert "overdue by 10 days" in res_stat_overdue.output
+
+    # 5. Audit age buckets
+    from devops_cli.crypto.ssh_keys import ManagedSSHKey
+
+    keys = [
+        ManagedSSHKey(path=tmp_path / "k1", key_date=date.today(), age_days=110),
+        ManagedSSHKey(path=tmp_path / "k2", key_date=date.today(), age_days=95),
+        ManagedSSHKey(path=tmp_path / "k3", key_date=date.today(), age_days=85),
+        ManagedSSHKey(path=tmp_path / "k4", key_date=date.today(), age_days=10),
+    ]
+    with (
+        patch("devops_cli.crypto.ssh_keys.list_managed_keys_info", return_value=keys),
+        patch("devops_cli.config.settings.load_settings") as mock_load,
+    ):
+        settings = MagicMock()
+        settings.ssh.key_dir = tmp_path
+        settings.ssh.rotation_days = 90
+        mock_load.return_value = settings
+
+        res_audit = runner.invoke(ssh_app, ["audit"])
+        assert res_audit.exit_code == 0
+
+
+def test_list_managed_keys_info_and_find_newest(tmp_path: Path) -> None:
+    """Verify list_managed_keys_info and find_newest_key directly against filesystem."""
+    from devops_cli.crypto.ssh_keys import (
+        find_newest_key,
+        list_managed_keys,
+        list_managed_keys_info,
+    )
+
+    # 1. Empty dir
+    assert list_managed_keys(tmp_path / "empty") == []
+    assert find_newest_key(tmp_path / "empty") is None
+
+    # 2. Populated dir
+    k1 = tmp_path / "id_ed25519-2024JAN15"
+    k1.write_text("priv1", encoding="utf-8")
+    k2 = tmp_path / "id_ed25519-2024DEC01"
+    k2.write_text("priv2", encoding="utf-8")
+    unmanaged = tmp_path / "id_rsa"
+    unmanaged.write_text("rsa", encoding="utf-8")
+
+    keys_info = list_managed_keys_info(tmp_path)
+    assert len(keys_info) == 2
+    paths = [k.path for k in keys_info]
+    assert k1 in paths
+    assert k2 in paths
+    assert all(k.age_days is not None for k in keys_info)
+
+    newest = find_newest_key(tmp_path)
+    assert newest == k2

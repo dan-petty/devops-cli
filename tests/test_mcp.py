@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import subprocess
 from typing import TYPE_CHECKING
 from unittest.mock import patch
 
@@ -10,7 +11,18 @@ import pytest
 from typer.testing import CliRunner
 
 from devops_cli.ai.mcp import list_mcp_tools, mcp, run_mcp_server
+from devops_cli.ai.mcp.server import (
+    _run_mcp_cmd,
+    _validate_mcp_arg,
+    review_branch,
+    review_findings,
+    review_path,
+    review_pr,
+    review_stats,
+    verify_finding,
+)
 from devops_cli.commands.mcp import app
+from devops_cli.exceptions import ValidationError
 
 if TYPE_CHECKING:
     pass
@@ -298,3 +310,43 @@ class TestAllMcpToolsDirectly:
             assert k8s_enable_tls(stack="all", secret_name="web-tls") == "mock_output"
             assert telemetry_status() == "mock_output"
             assert telemetry_test_span(name="test") == "mock_output"
+
+
+def test_mcp_helpers_and_error_branches() -> None:
+    """Verify _run_mcp_cmd timeout, error exit code, _validate_mcp_arg, and review tool calls."""
+    # 1. _validate_mcp_arg
+    with pytest.raises(ValidationError, match="must not start with a hyphen"):
+        _validate_mcp_arg("target", "--malicious-flag")
+
+    _validate_mcp_arg("target", "src/main.py")
+
+    # 2. _run_mcp_cmd timeout
+    with patch(
+        "devops_cli.ai.mcp.server.run_subprocess",
+        side_effect=subprocess.TimeoutExpired(cmd=["uv"], timeout=5.0),
+    ):
+        res_to = _run_mcp_cmd(["uv", "run", "devops"], timeout=5.0)
+        assert "timed out after 5.0 seconds" in res_to
+
+    # 3. _run_mcp_cmd OSError
+    with patch("devops_cli.ai.mcp.server.run_subprocess", side_effect=OSError("binary not found")):
+        res_os = _run_mcp_cmd(["uv"])
+        assert "Execution failed" in res_os
+
+    # 4. _run_mcp_cmd non-zero exit code
+    mock_fail = subprocess.CompletedProcess(
+        args=["uv"], returncode=2, stdout="bad input", stderr="error details"
+    )
+    with patch("devops_cli.ai.mcp.server.run_subprocess", return_value=mock_fail):
+        res_fail = _run_mcp_cmd(["uv"])
+        assert "Command exited with status 2" in res_fail
+        assert "error details" in res_fail
+
+    # 5. Review tools
+    with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="Review Output"):
+        assert review_path("src", "*.py", "architect") == "Review Output"
+        assert review_branch("feat/new", "main", "devsecops") == "Review Output"
+        assert review_pr(42, post=True, persona="qa") == "Review Output"
+        assert review_findings("20260826-session", status="verified") == "Review Output"
+        assert verify_finding("20260826-session", 1, "VALIDATED", "Fixed in PR") == "Review Output"
+        assert review_stats() == "Review Output"

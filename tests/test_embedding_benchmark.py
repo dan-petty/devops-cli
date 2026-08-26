@@ -214,3 +214,132 @@ def test_infer_category_exact_word_boundaries_and_domain_classification() -> Non
         "OpenTofu State", "Provision S3 backend with DynamoDB locking and Jaeger tracing."
     )
     assert infra_cat == "infrastructure"
+
+
+def test_embedding_engine_resolution_and_live_eval(tmp_path: Path) -> None:
+    """Verify _engine_for_model endpoint resolution and evaluate_model execution with mocked embeddings."""
+    from devops_cli.ai.benchmark.embedding_tasks import EmbeddingEvalPair
+
+    runner = EmbeddingBenchmarkRunner(
+        models=["custom-model@http://localhost:11434"],
+        servers=["http://localhost:11434"],
+        is_dry_run=False,
+    )
+    runner.settings.ai.allow_private_network = True
+
+    # 1. Engine resolution
+    engine = runner._engine_for_model("custom-model@http://localhost:11434")
+    assert engine.model == "custom-model"
+
+    # 2. evaluate_model with mocked embeddings
+    mock_vec = [0.1] * 384
+    with (
+        patch("devops_cli.ai.rag.embeddings.EmbeddingsEngine.embed_query", return_value=mock_vec),
+        patch(
+            "devops_cli.ai.rag.embeddings.EmbeddingsEngine.embed_texts",
+            return_value=[mock_vec, mock_vec],
+        ),
+    ):
+        pair = EmbeddingEvalPair(
+            id="eval-1",
+            query="test query",
+            target_passage="target passage text for evaluation",
+            category="security",
+        )
+
+        res = runner.evaluate_model(
+            "test-embed",
+            [pair],
+            ["target passage text for evaluation", "distractor text"],
+            server_url="http://localhost:11434",
+        )
+        assert res.model == "test-embed"
+        assert res.dimension == 384
+        assert res.recall_at_1 >= 0.0
+
+
+def test_compute_ndcg_and_report_rendering() -> None:
+    """Verify compute_ndcg_at_k with rank outside k and full report print rendering."""
+    from devops_cli.ai.benchmark.embedding_runner import compute_ndcg_at_k
+    from devops_cli.models.benchmark import EmbeddingServerSummary
+
+    # 1. compute_ndcg_at_k
+    assert compute_ndcg_at_k([0, 1, 2], target_idx=0, k=5) == 1.0
+    assert compute_ndcg_at_k([1, 2, 3, 4, 5, 0], target_idx=0, k=5) == 0.0
+
+    # 2. EmbeddingBenchmarkRunner.print_report with server summaries and categories
+    runner = EmbeddingBenchmarkRunner(models=["m1", "m2"], is_dry_run=True)
+    res_1 = EmbeddingBenchmarkResult(
+        model="m1",
+        server="http://node1:11434",
+        dimension=768,
+        recall_at_1=90.0,
+        recall_at_3=95.0,
+        recall_at_5=100.0,
+        mrr=0.95,
+        ndcg_at_5=0.98,
+        mean_cosine_margin=0.45,
+        separation_score=0.50,
+        latency_ms_p50=12.5,
+        latency_ms_p95=25.0,
+        throughput_items_per_sec=80.0,
+        throughput_chars_per_sec=15000.0,
+        overall_score=92.5,
+        is_normalized=True,
+        category_accuracies={
+            "security": 100.0,
+            "kubernetes": 85.0,
+            "architecture": 90.0,
+            "ci_cd": 95.0,
+            "infrastructure": 92.0,
+        },
+        memory_kb_per_vector=3.0,
+    )
+    res_2 = EmbeddingBenchmarkResult(
+        model="m2",
+        server="http://node2:11434",
+        dimension=384,
+        recall_at_1=80.0,
+        recall_at_3=90.0,
+        recall_at_5=95.0,
+        mrr=0.88,
+        ndcg_at_5=0.91,
+        mean_cosine_margin=0.35,
+        separation_score=0.40,
+        latency_ms_p50=8.0,
+        latency_ms_p95=16.0,
+        throughput_items_per_sec=120.0,
+        throughput_chars_per_sec=22000.0,
+        overall_score=88.0,
+        is_normalized=True,
+        category_accuracies={"security": 80.0, "kubernetes": 80.0},
+        memory_kb_per_vector=1.5,
+    )
+    srv_1 = EmbeddingServerSummary(
+        server="http://node1:11434",
+        avg_latency_p50_ms=12.5,
+        avg_throughput_items_per_sec=80.0,
+        models_evaluated_count=1,
+        fastest_model="m1",
+        top_score_model="m1",
+    )
+    srv_2 = EmbeddingServerSummary(
+        server="http://node2:11434",
+        avg_latency_p50_ms=8.0,
+        avg_throughput_items_per_sec=120.0,
+        models_evaluated_count=1,
+        fastest_model="m2",
+        top_score_model="m2",
+    )
+    rep = EmbeddingBenchmarkReport(
+        session_id="20260826-sess",
+        models=[res_1, res_2],
+        server_benchmarks=[srv_1, srv_2],
+        recommendations=["Deploy m1 on node1 for security-critical retrieval."],
+        is_dry_run=True,
+    )
+
+    runner.print_report(rep, format_type="table")
+    md = runner.generate_markdown(rep)
+    assert "Server Hardware Comparison" in md
+    assert "Key Recommendations" in md

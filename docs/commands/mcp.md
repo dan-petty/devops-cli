@@ -1,6 +1,6 @@
 # `devops mcp`
 
-FastMCP server for Model Context Protocol integration.
+FastMCP server and Model Context Protocol integrations.
 
 ## Commands
 

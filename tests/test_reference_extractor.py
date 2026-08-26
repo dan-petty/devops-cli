@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from devops_cli.security.reference_extractor import (
     extract_dependencies_from_text,
     extract_network_references,
@@ -551,3 +553,279 @@ def test_extract_network_references_file_extensions_and_code_properties() -> Non
     assert "host.name" not in targets
     assert "process.pid" not in targets
     assert "concurrency.group" not in targets
+
+
+def test_is_file_reference_and_code_config_reference(tmp_path: Path) -> None:
+    """Verify is_file_reference and is_code_or_config_reference detection."""
+    from devops_cli.security.reference_extractor import (
+        is_code_or_config_reference,
+        is_file_reference,
+    )
+
+    # Empty target
+    assert not is_file_reference("")
+
+    # Relative paths and extensions
+    assert is_file_reference("src/devops_cli/main.py")
+    assert is_file_reference("config.yaml")
+    assert is_file_reference("./script.sh")
+    assert is_file_reference("schema.sql")
+    assert is_file_reference(".env.local")
+
+    # Code / config references
+    assert is_code_or_config_reference("foo.bar()")
+    assert is_code_or_config_reference("my_func_call")
+    assert is_code_or_config_reference("-invalid-hostname-")
+    assert is_code_or_config_reference("self.client")
+    assert is_code_or_config_reference("os.path")
+    assert is_code_or_config_reference("m.group")
+    assert is_code_or_config_reference("x.y")
+    assert not is_code_or_config_reference("api.example.com")
+
+
+def test_extract_dependencies_various_ecosystems() -> None:
+    """Verify requirements-dev.txt, requirements.in, invalid json/toml error fallbacks, and unsupported manifests."""
+    # requirements-dev.txt
+    req_dev = "ruff>=0.9.0\nmypy>=1.14.0\n"
+    dev_deps = extract_dependencies_from_text(req_dev, "requirements-dev.txt")
+    assert len(dev_deps) == 2
+
+    # requirements.in
+    req_in = "fastapi\nuvicorn\n"
+    in_deps = extract_dependencies_from_text(req_in, "requirements.in")
+    assert len(in_deps) == 2
+
+    # Invalid package.json
+    assert extract_dependencies_from_text("{invalid json", "package.json") == []
+
+    # Invalid Cargo.toml
+    assert extract_dependencies_from_text("invalid [toml", "Cargo.toml") == []
+
+    # Unsupported manifest
+    assert extract_dependencies_from_text("some content", "unknown.manifest") == []
+
+
+def test_is_network_domain_and_token_parsing() -> None:
+    """Verify is_network_domain edge cases, reserved domains, and token string parsing."""
+    from devops_cli.security.reference_extractor import (
+        _parse_python_token_string,
+        is_network_domain,
+    )
+
+    # 1. is_network_domain
+    assert is_network_domain("api.datadoghq.com") is True
+    assert is_network_domain("auth0.com") is True
+    assert not is_network_domain("api.prod.example.com")  # reserved RFC domain
+    assert not is_network_domain("")
+    assert not is_network_domain("no-dots")
+    assert not is_network_domain("domain.com/with/path")
+    assert not is_network_domain("192.168.1.1")
+    assert not is_network_domain("10.0.0.1")
+    assert not is_network_domain("func_call(arg)")
+    assert not is_network_domain("test.example")  # reserved RFC domain
+    assert not is_network_domain("localhost")
+
+    # 2. _parse_python_token_string
+    assert _parse_python_token_string('"hello"') == "hello"
+    assert _parse_python_token_string("'world'") == "world"
+    assert _parse_python_token_string('"""multi"""') == "multi"
+    assert _parse_python_token_string("raw_identifier") == "raw_identifier"
+
+
+def test_reference_extractor_language_parsers() -> None:
+    """Verify literal and comment extraction for Python, HCL, and YAML scalars."""
+    from devops_cli.security.reference_extractor import (
+        _clean_yaml_scalar,
+        _extract_hcl_literals_and_comments,
+        _extract_python_literals_and_comments,
+    )
+
+    # 1. Python literals & comments
+    py_src = """
+    # Security header
+    API_URL = "https://api.segment.io/v1"
+    # End of file
+    """
+    py_lits = _extract_python_literals_and_comments(py_src)
+    assert any("api.segment.io" in lit[0] for lit in py_lits)
+    assert any("Security header" in lit[0] for lit in py_lits)
+
+    # 2. HCL literals & comments
+    hcl_src = """
+    # Terraform VPC config
+    resource "aws_security_group" "sg" {
+        cidr_blocks = ["198.51.100.0/24"] // public CIDR
+        /* Multi-line
+           comment */
+    }
+    """
+    hcl_lits = _extract_hcl_literals_and_comments(hcl_src)
+    assert any("198.51.100.0/24" in lit[0] for lit in hcl_lits)
+    assert any("Terraform VPC config" in lit[0] for lit in hcl_lits)
+
+    # 3. YAML scalar cleaner
+    cleaned = _clean_yaml_scalar(
+        "curl -H 'Authorization: ${{ secrets.TOKEN }}' https://api.site.com"
+    )
+    assert "${{" not in cleaned
+    assert "https://api.site.com" in cleaned
+
+
+def test_reference_extractor_extended_network_and_lockfiles() -> None:
+    """Verify lockfile detection, package asset filtering, and structured string extractions."""
+    from devops_cli.security.reference_extractor import (
+        _extract_ip_reference,
+        _extract_json_strings,
+        _extract_toml_strings,
+        _extract_url_reference,
+        _extract_yaml_strings,
+        is_local_or_reserved_domain,
+        is_lockfile_or_ignore_file,
+        is_package_repository_asset,
+    )
+
+    # 1. Lockfiles and ignore files
+    assert is_lockfile_or_ignore_file("poetry.lock") is True
+    assert is_lockfile_or_ignore_file("pnpm-lock.yaml") is True
+    assert is_lockfile_or_ignore_file(".dockerignore") is True
+    assert is_lockfile_or_ignore_file("main.py") is False
+
+    # 2. Package repository assets
+    assert (
+        is_package_repository_asset("https://registry.npmjs.org/express/-/express-4.18.2.tgz")
+        is True
+    )
+    assert (
+        is_package_repository_asset("https://crates.io/api/v1/crates/tokio/1.0.0/download") is True
+    )
+    assert is_package_repository_asset("https://app.datadoghq.com/api/v1/query") is False
+
+    # 3. Local/reserved domain checks
+    assert is_local_or_reserved_domain("service.cluster.local") is True
+    assert is_local_or_reserved_domain("database.svc") is True
+    assert is_local_or_reserved_domain("router.lan") is True
+    assert is_local_or_reserved_domain("node.internal") is True
+    assert is_local_or_reserved_domain("api.datadoghq.com") is False
+
+    # 4. URL and IP reference extractors
+    url_local = _extract_url_reference(
+        "http://192.168.1.100:8080/api", "config.py", 5, include_local=True
+    )
+    assert url_local is not None and url_local.is_local is True
+
+    url_local_skip = _extract_url_reference(
+        "http://192.168.1.100:8080/api", "config.py", 5, include_local=False
+    )
+    assert url_local_skip is None
+
+    ip_pub = _extract_ip_reference("8.8.8.8", "config.py", 12, include_local=False)
+    assert ip_pub is not None and ip_pub.is_local is False
+
+    # 5. Structured string extraction
+    json_strs = _extract_json_strings('{"server": "https://api.example.com", "port": 8080}')
+    assert any("https://api.example.com" in s[0] for s in json_strs)
+
+    toml_strs = _extract_toml_strings('[tool.poetry]\nname = "my-tool"\n')
+    assert any("my-tool" in s[0] for s in toml_strs)
+
+    yaml_strs = _extract_yaml_strings("services:\n  web:\n    image: nginx:alpine\n")
+    assert any("nginx:alpine" in s[0] for s in yaml_strs)
+
+
+def test_extract_network_references_from_various_files() -> None:
+    """Verify network reference extraction across Go, Rust, and Dockerfile contents."""
+    from devops_cli.security.reference_extractor import extract_network_references
+
+    go_content = 'package main\nconst ApiUrl = "https://api.datadoghq.com/api/v1/query"\n'
+    go_refs = extract_network_references(go_content, "main.go", include_local=True)
+    assert any("api.datadoghq.com" in r.target for r in go_refs)
+
+    rs_content = 'pub const ENDPOINT: &str = "https://api.auth0.com/oauth/token";\n'
+    rs_refs = extract_network_references(rs_content, "lib.rs", include_local=True)
+    assert any("auth0.com" in r.target for r in rs_refs)
+
+    docker_content = (
+        "FROM alpine:3.19\nRUN curl -fsSL https://app.datadoghq.com/agent -o agent.sh\n"
+    )
+    docker_refs = extract_network_references(docker_content, "Dockerfile", include_local=True)
+    assert any("app.datadoghq.com" in r.target for r in docker_refs)
+
+
+def test_dependency_extractors_cargo_go_and_package_assets() -> None:
+    """Verify Cargo.toml, go.mod, and package asset parsers."""
+    from devops_cli.security.reference_extractor import (
+        _extract_cargo_dependencies,
+        _extract_go_mod_dependencies,
+        is_package_repository_asset,
+    )
+
+    # Cargo dependencies
+    cargo_toml = (
+        '[dependencies]\nserde = "1.0"\ntokio = { version = "1.28", features = ["full"] }\n'
+    )
+    cargo_lines = cargo_toml.splitlines()
+    cargo_deps = _extract_cargo_dependencies(cargo_toml, cargo_lines, "Cargo.toml")
+    assert len(cargo_deps) == 2
+    assert any(d.name == "serde" for d in cargo_deps)
+    assert any(d.name == "tokio" for d in cargo_deps)
+
+    # Go mod dependencies
+    go_mod = """module example.com/app
+
+go 1.22
+
+require (
+\tgithub.com/gin-gonic/gin v1.9.1
+\tgithub.com/google/uuid v1.6.0
+)
+
+require golang.org/x/crypto v0.21.0
+"""
+    go_lines = go_mod.splitlines()
+    go_deps = _extract_go_mod_dependencies(go_lines, "go.mod")
+    assert len(go_deps) == 3
+    assert any("gin" in d.name for d in go_deps)
+
+    # Package repository asset checks
+    assert (
+        is_package_repository_asset("https://files.pythonhosted.org/packages/package.whl") is True
+    )
+    assert (
+        is_package_repository_asset("https://crates.io/api/v1/crates/tokio/1.28.0/download") is True
+    )
+    assert is_package_repository_asset("https://api.github.com/repos/org/repo/releases") is True
+
+
+def test_extract_package_json_and_manifest_dispatch() -> None:
+    """Verify package.json parsing and general manifest dispatcher."""
+    import json
+
+    from devops_cli.security.reference_extractor import (
+        _extract_cargo_dependencies,
+        _extract_package_json_dependencies,
+        extract_dependencies_from_text,
+    )
+
+    pkg_json = json.dumps(
+        {
+            "dependencies": {"react": "^18.2.0"},
+            "devDependencies": {"typescript": "^5.0.0"},
+            "peerDependencies": {"react-dom": "^18.2.0"},
+            "optionalDependencies": {"fsevents": "^2.3.2"},
+        }
+    )
+    deps = _extract_package_json_dependencies(pkg_json, pkg_json.splitlines(), "package.json")
+    assert len(deps) == 4
+    assert any(d.name == "react" for d in deps)
+    assert any(d.name == "typescript" for d in deps)
+
+    # Invalid JSON
+    assert _extract_package_json_dependencies("invalid json", [], "package.json") == []
+
+    # Invalid Cargo TOML
+    assert _extract_cargo_dependencies("invalid = [toml", [], "Cargo.toml") == []
+
+    # Dispatcher
+    pypi_deps = extract_dependencies_from_text("typer>=0.9.0\npydantic\n", "requirements.txt")
+    assert len(pypi_deps) == 2
+    assert extract_dependencies_from_text("foo", "unknown.manifest") == []

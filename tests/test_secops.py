@@ -145,3 +145,100 @@ def test_devops_scan_dry_run() -> None:
     res = scan_main(target=Path("."), scan_type="fs", dry_run=True)
     assert res is not None
     assert res.status == "DRY_RUN"
+
+
+def test_secops_scanners_mocked_execution(tmp_path: Path) -> None:
+    """Verify kubelinter, pluto, popeye, and trivy execution with mocked subprocess output and return codes."""
+    import json
+    import subprocess
+    from unittest.mock import patch
+
+    # 1. Kubelinter subprocess execution
+    kl_json = json.dumps(
+        {
+            "Reports": [
+                {
+                    "Diagnostic": {"Message": "no runAsNonRoot", "Check": "run-as-non-root"},
+                    "Object": {
+                        "K8sObject": {"Kind": "Deployment", "Name": "web", "Namespace": "prod"}
+                    },
+                }
+            ]
+        }
+    )
+    mock_kl_proc = subprocess.CompletedProcess(
+        args=["kube-linter"], returncode=0, stdout=kl_json, stderr=""
+    )
+    with patch("devops_cli.security.kubelinter.run_subprocess", return_value=mock_kl_proc):
+        kl_findings = run_kubelinter_scan(tmp_path)
+        assert len(kl_findings) == 1
+        assert "run-as-non-root" in kl_findings[0].title
+
+    # Kubelinter 127 (not installed)
+    mock_127 = subprocess.CompletedProcess(
+        args=["cmd"], returncode=127, stdout="", stderr="not found"
+    )
+    with patch("devops_cli.security.kubelinter.run_subprocess", return_value=mock_127):
+        assert run_kubelinter_scan(tmp_path) == []
+
+    # 2. Pluto subprocess execution
+    pluto_json = json.dumps(
+        {
+            "items": [
+                {
+                    "name": "ingress-lb",
+                    "kind": "Ingress",
+                    "apiVersion": "extensions/v1beta1",
+                    "replacement": "networking.k8s.io/v1",
+                    "deprecated": True,
+                    "removed": True,
+                }
+            ]
+        }
+    )
+    mock_pluto_proc = subprocess.CompletedProcess(
+        args=["pluto"], returncode=0, stdout=pluto_json, stderr=""
+    )
+    with patch("devops_cli.security.pluto.run_subprocess", return_value=mock_pluto_proc):
+        pluto_findings = run_pluto_scan(tmp_path)
+        assert len(pluto_findings) == 1
+        assert pluto_findings[0].severity == "HIGH"
+
+    # Pluto 127
+    with patch("devops_cli.security.pluto.run_subprocess", return_value=mock_127):
+        assert run_pluto_scan(tmp_path) == []
+
+    # 3. Popeye subprocess execution
+    popeye_json = json.dumps(
+        {
+            "popeye": {
+                "sanitizers": [
+                    {
+                        "sanitizer": "pods",
+                        "issues": {"default/pod-1": [{"level": 3, "message": "No CPU limit"}]},
+                    }
+                ]
+            }
+        }
+    )
+    mock_popeye_proc = subprocess.CompletedProcess(
+        args=["popeye"], returncode=0, stdout=popeye_json, stderr=""
+    )
+    with patch("devops_cli.security.popeye.run_subprocess", return_value=mock_popeye_proc):
+        popeye_findings = run_popeye_scan()
+        assert len(popeye_findings) == 1
+        assert popeye_findings[0].severity == "HIGH"
+
+    # Popeye 127
+    with patch("devops_cli.security.popeye.run_subprocess", return_value=mock_127):
+        assert run_popeye_scan() == []
+
+    # 4. Dry run branches
+    with patch("devops_cli.security.kubelinter.is_dry_run", return_value=True):
+        assert len(run_kubelinter_scan(tmp_path)) == 1
+
+    with patch("devops_cli.security.pluto.is_dry_run", return_value=True):
+        assert len(run_pluto_scan(tmp_path)) == 1
+
+    with patch("devops_cli.security.popeye.is_dry_run", return_value=True):
+        assert len(run_popeye_scan()) == 1

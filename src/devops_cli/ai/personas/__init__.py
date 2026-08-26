@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import ItemsView, Iterator, KeysView, Mapping, ValuesView
-from dataclasses import dataclass
 from enum import StrEnum
 from functools import lru_cache
 from pathlib import Path
+
+from pydantic import BaseModel, ConfigDict
 
 from devops_cli.lang import MESSAGES
 
@@ -22,8 +23,11 @@ class Persona(StrEnum):
     QA = "qa"
 
 
-@dataclass(frozen=True)
-class PersonaDefinition:
+class PersonaDefinition(BaseModel):
+    """Immutable Pydantic model for review and chat persona definitions."""
+
+    model_config = ConfigDict(frozen=True)
+
     name: str
     title: str
     system_prompt: str  # tasks/review.md + prompt.md

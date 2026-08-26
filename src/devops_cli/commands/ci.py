@@ -3,33 +3,68 @@
 from __future__ import annotations
 
 import asyncio
+import importlib
+import sys
 import time
 from dataclasses import dataclass
-from typing import Annotated
+from pathlib import Path
+from typing import Annotated, Any
 
 import typer
-from rich.console import Console
-from rich.rule import Rule
-from rich.table import Table
 
 from devops_cli.config.defaults import (
+    DEFAULT_BANDIT_SEVERITY,
+    DEFAULT_PYTEST_NUMPROCESSES,
     DEFAULT_PYTHON_VERSION,
     DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
 )
 from devops_cli.core.cli import new_typer
-from devops_cli.core.process import run_subprocess, run_subprocess_async
-from devops_cli.core.repo import find_top_level_repo_root
+from devops_cli.dry_run import set_dry_run
 from devops_cli.lang import HELP, MESSAGES
-from devops_cli.telemetry import record_metric, trace_span
+
+_LAZY_OBJECT_MAPPING: dict[str, tuple[str, str]] = {
+    "run_subprocess": ("devops_cli.core.process", "run_subprocess"),
+    "run_subprocess_async": ("devops_cli.core.process", "run_subprocess_async"),
+    "record_metric": ("devops_cli.telemetry", "record_metric"),
+    "trace_span": ("devops_cli.telemetry", "trace_span"),
+    "print_error": ("devops_cli.output", "print_error"),
+    "print_muted": ("devops_cli.output", "print_muted"),
+    "print_section": ("devops_cli.output", "print_section"),
+    "print_table": ("devops_cli.output", "print_table"),
+    "write_stderr": ("devops_cli.output", "write_stderr"),
+    "write_stdout": ("devops_cli.output", "write_stdout"),
+}
+
+
+def __getattr__(name: str) -> Any:
+    if name in _LAZY_OBJECT_MAPPING:
+        mod_path, obj_name = _LAZY_OBJECT_MAPPING[name]
+        module = importlib.import_module(mod_path)
+        return getattr(module, obj_name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def _get(name: str) -> Any:
+    mod_dict = sys.modules[__name__].__dict__
+    if name in mod_dict:
+        return mod_dict[name]
+    if name in _LAZY_OBJECT_MAPPING:
+        mod_path, obj_name = _LAZY_OBJECT_MAPPING[name]
+        module = importlib.import_module(mod_path)
+        return getattr(module, obj_name)
+    return getattr(sys.modules[__name__], name)
+
 
 app = new_typer(help=HELP.ci.app)
-console = Console()
 
-_ROOT = find_top_level_repo_root(__file__)
+# Repo root: src/devops_cli/commands/ci.py -> parents[3]
+_ROOT = Path(__file__).resolve().parents[3]
 
 
 @dataclass(frozen=True)
 class CheckResult:
+    """Immutable result record for a single CI pipeline check."""
+
     name: str
     display_title: str
     passed: bool
@@ -49,8 +84,11 @@ def _verify_python_314_environment() -> bool:
 
     if sys.version_info < (3, 14):  # noqa: UP036
         ver_str = sys.version.split()[0]
-        console.print(
-            f"[red]{MESSAGES.ci.python_version_fail.format(required=DEFAULT_PYTHON_VERSION, current=ver_str)}[/red]"
+        _get("print_error")(
+            MESSAGES.ci.python_version_fail.format(
+                required=DEFAULT_PYTHON_VERSION, current=ver_str
+            ),
+            prefix=False,
         )
         return False
     return True
@@ -65,19 +103,29 @@ def _run(
     full_cmd = list(cmd)
     if full_cmd and full_cmd[0] == "uv" and "--preview-features" not in full_cmd:
         full_cmd[1:1] = ["--preview-features", "malware-check"]
-    result = run_subprocess(full_cmd, cwd=_ROOT, timeout=timeout, capture_output=capture_output)
-    return result.returncode == 0
+    result = _get("run_subprocess")(
+        full_cmd, cwd=_ROOT, timeout=timeout, capture_output=capture_output
+    )
+    return bool(result.returncode == 0)
 
 
 def _section(title: str) -> None:
-    console.print(Rule(f" {title} ", style="cyan"))
+    _get("print_section")(f" {title} ", style="cyan")
 
 
 def _clean_coverage_artifacts() -> None:
-    """Clean up residual temporary .coverage.* worker files from root workspace."""
-    for path in _ROOT.glob(".coverage*"):
+    """Clean up residual temporary .coverage.* worker files from root workspace and .data/."""
+    for target_dir in (_ROOT, _ROOT / ".data"):
+        if target_dir.exists():
+            for path in target_dir.glob(".coverage*"):
+                try:
+                    path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+    root_coverage_xml = _ROOT / "coverage.xml"
+    if root_coverage_xml.exists():
         try:
-            path.unlink(missing_ok=True)
+            root_coverage_xml.unlink(missing_ok=True)
         except OSError:
             pass
 
@@ -96,8 +144,8 @@ async def _execute_check_async(
     if full_cmd and full_cmd[0] == "uv" and "--preview-features" not in full_cmd:
         full_cmd[1:1] = ["--preview-features", "malware-check"]
 
-    with trace_span(span_name):
-        proc = await run_subprocess_async(
+    with _get("trace_span")(span_name):
+        proc = await _get("run_subprocess_async")(
             full_cmd,
             cwd=_ROOT,
             timeout=timeout,
@@ -105,7 +153,9 @@ async def _execute_check_async(
         )
         passed = proc.returncode == 0
         dur = time.perf_counter() - t0
-        record_metric("ci.step_pass", 1.0 if passed else 0.0, attributes={"step": metric_step})
+        _get("record_metric")(
+            "ci.step_pass", 1.0 if passed else 0.0, attributes={"step": metric_step}
+        )
         stdout_val = getattr(proc, "stdout", "") or ""
         stderr_val = getattr(proc, "stderr", "") or ""
         return CheckResult(
@@ -134,8 +184,15 @@ async def _run_all_checks_async(*, lint_fix: bool, format_fix: bool) -> list[Che
     py_t0 = time.perf_counter()
     py_ok = _verify_python_314_environment()
     py_dur = time.perf_counter() - py_t0
-    record_metric("ci.step_pass", 1.0 if py_ok else 0.0, attributes={"step": "python_version"})
-    py_result = CheckResult("python_version", MESSAGES.ci.python_version_check, py_ok, py_dur)
+    _get("record_metric")(
+        "ci.step_pass", 1.0 if py_ok else 0.0, attributes={"step": "python_version"}
+    )
+    py_result = CheckResult(
+        name="python_version",
+        display_title=MESSAGES.ci.python_version_check,
+        passed=py_ok,
+        duration_seconds=py_dur,
+    )
     if not py_ok:
         return [py_result]
 
@@ -157,7 +214,9 @@ async def _run_all_checks_async(*, lint_fix: bool, format_fix: bool) -> list[Che
             "lint_fix",
         )
 
-    with trace_span("ci.run_pipeline", attributes={"lint_fix": lint_fix, "format_fix": format_fix}):
+    with _get("trace_span")(
+        "ci.run_pipeline", attributes={"lint_fix": lint_fix, "format_fix": format_fix}
+    ):
         tasks = [
             _execute_check_async(
                 "test",
@@ -263,33 +322,47 @@ def _print_failures(results: list[CheckResult]) -> None:
         if not res.passed and (res.stdout or res.stderr):
             _section(res.display_title)
             if res.stdout:
-                console.print(res.stdout.rstrip())
+                _get("write_stdout")(res.stdout.rstrip() + "\n")
             if res.stderr:
-                console.print(res.stderr.rstrip(), style="red")
+                _get("write_stderr")(res.stderr.rstrip() + "\n")
 
 
 def _print_summary(results: list[CheckResult], total_elapsed: float) -> None:
     """Render the final formatted CI Summary table."""
-    table = Table(title=MESSAGES.ci.ci_summary_title, title_style="bold")
-    table.add_column(MESSAGES.ci.col_check, style="cyan")
-    table.add_column(MESSAGES.ci.col_result)
-    table.add_column("Duration", style="dim", justify="right")
+    rows: list[list[str]] = []
     for res in results:
         status_text = "[green]✓ pass[/green]" if res.passed else "[red]✗ fail[/red]"
         dur_text = f"{res.duration_seconds:.2f}s" if res.duration_seconds > 0 else "<0.01s"
-        table.add_row(res.name, status_text, dur_text)
-    console.print(table)
-    console.print(f"[dim]Total Elapsed: {total_elapsed:.2f}s (concurrent async execution)[/dim]\n")
+        rows.append([res.name, status_text, dur_text])
+
+    _get("print_table")(
+        title=MESSAGES.ci.ci_summary_title,
+        columns=[(MESSAGES.ci.col_check, "cyan"), MESSAGES.ci.col_result, ("Duration", "dim")],
+        rows=rows,
+    )
+    _get("print_muted")(f"Total Elapsed: {total_elapsed:.2f}s (concurrent async execution)\n")
 
 
 @app.callback(invoke_without_command=True)
-def all_checks(ctx: typer.Context) -> None:
+def all_checks(
+    ctx: typer.Context,
+    fix: Annotated[
+        bool,
+        typer.Option("--fix/--no-fix", help=HELP.ci.fix_all),
+    ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+) -> None:
     """Run all CI checks concurrently in parallel with non-blocking async execution."""
     if ctx.invoked_subcommand is not None:
         return
+    if dry_run:
+        set_dry_run(True)
 
     t0 = time.perf_counter()
-    results = asyncio.run(_run_all_checks_async(lint_fix=False, format_fix=False))
+    results = asyncio.run(_run_all_checks_async(lint_fix=fix, format_fix=fix))
     _print_failures(results)
     _print_summary(results, total_elapsed=time.perf_counter() - t0)
 
@@ -304,14 +377,20 @@ def all_checks(ctx: typer.Context) -> None:
 
 @app.command()
 def test(
-    verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Verbose output")] = False,
-    k: Annotated[str | None, typer.Option("-k", help="Filter tests by keyword expression")] = None,
-    x: Annotated[bool, typer.Option("-x", help="Stop after first failure")] = False,
+    verbose: Annotated[bool, typer.Option("--verbose", "-v", help=HELP.options.verbose)] = False,
+    k: Annotated[str | None, typer.Option("-k", help=HELP.ci.filter_keyword)] = None,
+    x: Annotated[bool, typer.Option("-x", help=HELP.ci.stop_fail)] = False,
     numprocesses: Annotated[
-        str, typer.Option("-n", "--numprocesses", help="Number of parallel worker processes")
-    ] = "auto",
+        str, typer.Option("-n", "--numprocesses", help=HELP.ci.num_workers)
+    ] = DEFAULT_PYTEST_NUMPROCESSES,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Run the pytest test suite in parallel leveraging all CPU cores."""
+    if dry_run:
+        set_dry_run(True)
     if not _verify_python_314_environment():
         raise typer.Exit(1)
     cmd = ["uv", "run", "pytest", "-n", numprocesses]
@@ -319,7 +398,7 @@ def test(
         cmd.append("-v")
     if k:
         if k.startswith("-"):
-            console.print("[red]Invalid keyword filter expression.[/red]")
+            _get("print_error")("Invalid keyword filter expression.", prefix=False)
             raise typer.Exit(1)
         cmd.extend(["-k", k])
     if x:
@@ -330,14 +409,19 @@ def test(
 
 @app.command()
 def coverage(
-    html: Annotated[
-        bool, typer.Option("--html", help="Generate HTML coverage report in htmlcov/")
-    ] = False,
+    html: Annotated[bool, typer.Option("--html", help=HELP.ci.html_report)] = False,
+    xml: Annotated[bool, typer.Option("--xml", help=HELP.ci.xml_report)] = False,
     numprocesses: Annotated[
-        str, typer.Option("-n", "--numprocesses", help="Number of parallel worker processes")
-    ] = "auto",
+        str, typer.Option("-n", "--numprocesses", help=HELP.ci.num_workers)
+    ] = DEFAULT_PYTEST_NUMPROCESSES,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Run pytest with parallel code coverage analysis over src/."""
+    if dry_run:
+        set_dry_run(True)
     if not _verify_python_314_environment():
         raise typer.Exit(1)
     cmd = [
@@ -351,15 +435,23 @@ def coverage(
     ]
     if html:
         cmd.append("--cov-report=html")
+    if xml:
+        cmd.append("--cov-report=xml")
     if not _run(cmd):
         raise typer.Exit(1)
 
 
 @app.command()
 def lint(
-    fix: Annotated[bool, typer.Option("--fix", help="Auto-fix violations where possible")] = False,
+    fix: Annotated[bool, typer.Option("--fix", help=HELP.ci.auto_fix)] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Run ruff linter across the project."""
+    if dry_run:
+        set_dry_run(True)
     if not _verify_python_314_environment():
         raise typer.Exit(1)
     cmd = ["uv", "run", "ruff", "check", "."]
@@ -371,9 +463,15 @@ def lint(
 
 @app.command(name="format")
 def fmt(
-    fix: Annotated[bool, typer.Option("--fix", help="Apply formatting changes in-place")] = False,
+    fix: Annotated[bool, typer.Option("--fix", help=HELP.ci.format_fix)] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Check (or apply) code formatting with ruff format."""
+    if dry_run:
+        set_dry_run(True)
     if not _verify_python_314_environment():
         raise typer.Exit(1)
     cmd = ["uv", "run", "ruff", "format"]
@@ -385,8 +483,15 @@ def fmt(
 
 
 @app.command()
-def typecheck() -> None:
+def typecheck(
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+) -> None:
     """Run mypy static type-checker strictly targeting Python 3.14 over src/."""
+    if dry_run:
+        set_dry_run(True)
     if not _verify_python_314_environment():
         raise typer.Exit(1)
     if not _run(
@@ -404,8 +509,15 @@ def typecheck() -> None:
 
 
 @app.command()
-def audit() -> None:
+def audit(
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+) -> None:
     """Run uv audit to check for known package vulnerabilities."""
+    if dry_run:
+        set_dry_run(True)
     if not _verify_python_314_environment():
         raise typer.Exit(1)
     if not _run(["uv", "audit"]):
@@ -416,10 +528,16 @@ def audit() -> None:
 def security(
     severity: Annotated[
         str,
-        typer.Option("--severity", "-s", help="Minimum severity threshold (low, medium, high)"),
-    ] = "medium",
+        typer.Option("--severity", "-s", help=HELP.ci.min_severity),
+    ] = DEFAULT_BANDIT_SEVERITY,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Run bandit static security vulnerability analysis over src/."""
+    if dry_run:
+        set_dry_run(True)
     if not _verify_python_314_environment():
         raise typer.Exit(1)
     level_flag = (
@@ -431,8 +549,15 @@ def security(
 
 
 @app.command()
-def actionlint() -> None:
+def actionlint(
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+) -> None:
     """Run actionlint to validate GitHub Actions workflows for syntax and schema errors."""
+    if dry_run:
+        set_dry_run(True)
     if not _verify_python_314_environment():
         raise typer.Exit(1)
     if not _run(["uv", "run", "actionlint"]):
@@ -440,8 +565,15 @@ def actionlint() -> None:
 
 
 @app.command()
-def docs() -> None:
+def docs(
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+) -> None:
     """Verify that documentation is up to date with CLI commands and configuration."""
+    if dry_run:
+        set_dry_run(True)
     if not _verify_python_314_environment():
         raise typer.Exit(1)
     if not _run(["uv", "run", "devops", "docs", "check"]):
@@ -452,10 +584,16 @@ def docs() -> None:
 def run(
     fix: Annotated[
         bool,
-        typer.Option("--fix/--no-fix", help="Auto-fix lint/format before reporting status"),
+        typer.Option("--fix/--no-fix", help=HELP.ci.fix_all),
     ] = True,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Run full CI and return a single pass/fail status."""
+    if dry_run:
+        set_dry_run(True)
     t0 = time.perf_counter()
     results = asyncio.run(_run_all_checks_async(lint_fix=fix, format_fix=fix))
     _print_failures(results)

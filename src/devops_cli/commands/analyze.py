@@ -15,17 +15,25 @@ from devops_cli.ai.analyze.scanner import detect_language, sanitize_reference
 from devops_cli.ai.client import LLMClient
 from devops_cli.config.constants import (
     CONST_ANALYSIS_DATA_DIR,
+    CONST_GIT_MAIN_BRANCH,
     CONST_MAX_FILE_SIZE_BYTES,
 )
+from devops_cli.config.defaults import DEFAULT_MATCH_ALL_PATTERN
+from devops_cli.config.settings import get_ai_api_key, get_github_token, load_settings
 from devops_cli.core.cli import new_typer
-from devops_cli.core.repo import find_repo_root, find_top_level_repo_root, list_repo_files
+from devops_cli.core.repo import (
+    find_repo_root,
+    find_top_level_repo_root,
+    get_repo_origin_name,
+    list_repo_files,
+)
 from devops_cli.dry_run import is_dry_run
-from devops_cli.lang import MESSAGES
+from devops_cli.lang import HELP, MESSAGES
 from devops_cli.models.ai import AnalysisMetadata, FileAnalysisMeta
 from devops_cli.output.console import print_error, print_info
 
 app = new_typer(
-    help=MESSAGES.analyze.app_help,
+    help=HELP.analyze.app,
     no_args_is_help=True,
 )
 
@@ -159,9 +167,7 @@ def analyze_main(
     ctx: typer.Context,
     explain: Annotated[
         bool,
-        typer.Option(
-            "--explain", "-x", help="Explain static code analysis metrics and terminology"
-        ),
+        typer.Option("--explain", "-x", help=HELP.analyze.explain),
     ] = False,
 ) -> None:
     """Analyze repository source code structure, dependencies, and cyclomatic complexity."""
@@ -179,17 +185,17 @@ def analyze_main(
 
 @app.command(name="path")
 def analyze_path(
-    target: Annotated[Path, typer.Argument(help="File or directory path to analyze")] = Path("."),
+    target: Annotated[Path, typer.Argument(help=HELP.analyze.target)] = Path("."),
     pattern: Annotated[
         str,
-        typer.Option("--pattern", "-g", help="Glob pattern for files (default: all files)"),
-    ] = "*",
+        typer.Option("--pattern", "-g", help=HELP.options.pattern),
+    ] = DEFAULT_MATCH_ALL_PATTERN,
     enhanced: Annotated[
         bool,
         typer.Option(
             "--enhanced/--no-enhanced",
             "-e",
-            help="Generate AI-enhanced metadata (pseudocode, complexity, last_updated)",
+            help=HELP.analyze.enhanced,
         ),
     ] = True,
     update_all: Annotated[
@@ -197,14 +203,12 @@ def analyze_path(
         typer.Option(
             "--update-all",
             "-u",
-            help="Regenerate all enhanced metadata fields regardless of last_* timestamps",
+            help=HELP.analyze.force,
         ),
     ] = False,
     explain: Annotated[
         bool,
-        typer.Option(
-            "--explain", "-x", help="Explain static code analysis metrics and terminology"
-        ),
+        typer.Option("--explain", "-x", help=HELP.analyze.explain),
     ] = False,
 ) -> None:
     """Analyze all repository files under target path and save metadata to .data/analysis/."""
@@ -280,16 +284,16 @@ def analyze_path(
 
 @app.command(name="branch")
 def analyze_branch(
-    branch: Annotated[
-        str | None, typer.Argument(help="Branch to analyze (default: active branch)")
-    ] = None,
-    base: Annotated[str, typer.Option("--base", "-b", help="Base branch for diff")] = "main",
+    branch: Annotated[str | None, typer.Argument(help=HELP.analyze.target_branch)] = None,
+    base: Annotated[
+        str, typer.Option("--base", "-b", help=HELP.options.base_branch)
+    ] = CONST_GIT_MAIN_BRANCH,
     enhanced: Annotated[
         bool,
         typer.Option(
             "--enhanced/--no-enhanced",
             "-e",
-            help="Generate AI-enhanced metadata (pseudocode, complexity, last_updated)",
+            help=HELP.analyze.enhanced,
         ),
     ] = True,
     update_all: Annotated[
@@ -297,14 +301,12 @@ def analyze_branch(
         typer.Option(
             "--update-all",
             "-u",
-            help="Regenerate all enhanced metadata fields regardless of last_* timestamps",
+            help=HELP.analyze.force,
         ),
     ] = False,
     explain: Annotated[
         bool,
-        typer.Option(
-            "--explain", "-x", help="Explain static code analysis metrics and terminology"
-        ),
+        typer.Option("--explain", "-x", help=HELP.analyze.explain),
     ] = False,
 ) -> None:
     """Analyze a git branch diff against base and save metadata to .data/analysis/."""
@@ -394,13 +396,13 @@ def analyze_branch(
 
 @app.command(name="pr")
 def analyze_pr(
-    pr_number: Annotated[int, typer.Argument(help="GitHub PR number to analyze")],
+    pr_number: Annotated[int, typer.Argument(help=HELP.analyze.pr_number)],
     enhanced: Annotated[
         bool,
         typer.Option(
             "--enhanced/--no-enhanced",
             "-e",
-            help="Generate AI-enhanced metadata (pseudocode, complexity, last_updated)",
+            help=HELP.analyze.enhanced,
         ),
     ] = True,
     update_all: Annotated[
@@ -408,14 +410,12 @@ def analyze_pr(
         typer.Option(
             "--update-all",
             "-u",
-            help="Regenerate all enhanced metadata fields regardless of last_* timestamps",
+            help=HELP.analyze.force,
         ),
     ] = False,
     explain: Annotated[
         bool,
-        typer.Option(
-            "--explain", "-x", help="Explain static code analysis metrics and terminology"
-        ),
+        typer.Option("--explain", "-x", help=HELP.analyze.explain),
     ] = False,
 ) -> None:
     """Analyze a GitHub Pull Request and save metadata to .data/analysis/."""
@@ -424,12 +424,15 @@ def analyze_pr(
 
         render_explanation("analyze")
         return
-    from devops_cli.config.settings import get_github_token, load_settings
     from devops_cli.github.client import GitHubClient
 
     repo = find_repo_root()
     settings = load_settings()
     token = get_github_token(settings)
+    if not token:
+        from devops_cli.config.settings import get_github_token as _get_token
+
+        token = _get_token(settings)
     if not token:
         print_error(MESSAGES.analyze.github_token_required, prefix=False)
         raise typer.Exit(1)
@@ -437,9 +440,6 @@ def analyze_pr(
     ai_client = None
     if enhanced and not is_dry_run():
         try:
-            from devops_cli.ai.client import LLMClient
-            from devops_cli.config.settings import get_ai_api_key, load_settings
-
             settings = load_settings()
             ai_client = LLMClient(settings.ai, api_key=get_ai_api_key(settings))
             print_info(
@@ -449,9 +449,11 @@ def analyze_pr(
         except Exception:
             ai_client = None
 
-    from devops_cli.core.repo import get_repo_origin_name
-
     repo_name = get_repo_origin_name(repo)
+    if not repo_name:
+        from devops_cli.core.repo import get_repo_origin_name as _get_origin
+
+        repo_name = _get_origin(repo)
     if not repo_name:
         print_error(MESSAGES.analyze.github_origin_failed, prefix=False)
         raise typer.Exit(1)

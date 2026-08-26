@@ -112,3 +112,19 @@ def test_workspace_indexer_index_knowledge_base(tmp_path: Path) -> None:
     assert results["indexed_files"] >= 40
     assert results["total_chunks"] > 0
     assert "test_docs" in results["collections"]
+
+
+def test_kb_missing_directory_and_invalid_category(tmp_path: Path, monkeypatch) -> None:
+    """Verify list_knowledge_base_articles and stats when directory is missing."""
+    import devops_cli.ai.kb as kb_mod
+
+    # Non-existent category
+    assert list_knowledge_base_articles("nonexistent_category") == []
+
+    # Missing directory
+    monkeypatch.setattr(kb_mod, "_KB_DIR", tmp_path / "nonexistent_kb")
+    assert list_knowledge_base_articles() == []
+    assert load_kb_article("any.md") is None
+    stats = get_knowledge_base_stats()
+    assert stats["exists"] is False
+    assert stats["total_articles"] == 0

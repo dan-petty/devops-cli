@@ -14,6 +14,7 @@ _CORE_EXPORTS: dict[str, tuple[str, str]] = {
     "is_ignored_by_git": ("devops_cli.core.repo", "is_ignored_by_git"),
     "list_repo_files": ("devops_cli.core.repo", "list_repo_files"),
     "read_gitignore_patterns": ("devops_cli.core.repo", "read_gitignore_patterns"),
+    "PathKind": ("devops_cli.core.validation", "PathKind"),
     "is_non_public_ip": ("devops_cli.core.validation", "is_non_public_ip"),
     "validate_dir": ("devops_cli.core.validation", "validate_dir"),
     "validate_file": ("devops_cli.core.validation", "validate_file"),
@@ -40,6 +41,7 @@ def __getattr__(name: str) -> Any:
 
 
 __all__ = [
+    "PathKind",
     "find_repo_root",
     "find_top_level_repo_root",
     "format_command",

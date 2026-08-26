@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from typer.testing import CliRunner
 
@@ -167,3 +167,75 @@ def test_tls_commands_mocked(tmp_path: Path) -> None:
         )
         res_insp = runner.invoke(app, ["inspect", str(srv_cert)])
         assert res_insp.exit_code == 0
+
+
+def test_tls_dry_runs_and_verification_failures(tmp_path: Path) -> None:
+    """Verify tls cert & homelab dry-runs, and verify errors."""
+    from devops_cli.dry_run import set_dry_run
+
+    # 1. Cert & homelab dry runs
+    set_dry_run(True)
+    try:
+        res_cert_dry = runner.invoke(
+            app, ["cert", "--common-name", "test.local", "--output-dir", str(tmp_path)]
+        )
+        assert res_cert_dry.exit_code == 0
+        assert "generate_tls_certificate" in res_cert_dry.output
+
+        res_homelab_dry = runner.invoke(app, ["homelab", "--output-dir", str(tmp_path)])
+        assert res_homelab_dry.exit_code == 0
+        assert "generate_homelab_tls_bundle" in res_homelab_dry.output
+    finally:
+        set_dry_run(False)
+
+    # 2. Verify command error branches
+    # Missing cert
+    res_no_cert = runner.invoke(
+        app, ["verify", "/nonexistent/cert.crt", "--ca-cert", "/nonexistent/ca.crt"]
+    )
+    assert res_no_cert.exit_code == 1
+
+    # Missing CA
+    cert_file = tmp_path / "valid.crt"
+    cert_file.touch()
+    res_no_ca = runner.invoke(app, ["verify", str(cert_file), "--ca-cert", "/nonexistent/ca.crt"])
+    assert res_no_ca.exit_code == 1
+
+    # Failed verification
+    ca_file = tmp_path / "fake_ca.crt"
+    ca_file.touch()
+    with patch("devops_cli.commands.tls.verify_certificate", return_value=False):
+        res_fail = runner.invoke(app, ["verify", str(cert_file), "--ca-cert", str(ca_file)])
+        assert res_fail.exit_code == 1
+
+
+def test_tls_enable_k8s_execution(tmp_path: Path) -> None:
+    """Verify devops tls enable-k8s non-dry-run subprocess execution."""
+    cert_file = tmp_path / "tls.crt"
+    key_file = tmp_path / "tls.key"
+    cert_file.touch()
+    key_file.touch()
+
+    mock_proc_ok = MagicMock(returncode=0, stderr="")
+    mock_proc_fail = MagicMock(returncode=1, stderr="PermissionDenied")
+
+    # Both namespace exists & secret creates successfully
+    with patch("devops_cli.commands.tls.run_subprocess", return_value=mock_proc_ok):
+        res_ok = runner.invoke(
+            app, ["enable-k8s", "--tls-dir", str(tmp_path), "--namespace", "default"]
+        )
+        assert res_ok.exit_code == 0
+        assert "Created" in res_ok.output
+
+    # Create fails
+    def mock_subprocess_selective(cmd, *args, **kwargs):
+        if "create" in cmd and "secret" in cmd:
+            return mock_proc_fail
+        return mock_proc_ok
+
+    with patch("devops_cli.commands.tls.run_subprocess", side_effect=mock_subprocess_selective):
+        res_fail = runner.invoke(
+            app, ["enable-k8s", "--tls-dir", str(tmp_path), "--namespace", "default"]
+        )
+        assert res_fail.exit_code == 0
+        assert "Failed" in res_fail.output

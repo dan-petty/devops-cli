@@ -496,3 +496,56 @@ class TestDevcontainerCli:
         assert result.exit_code == 0
         assert "Git daemon is already running on port 9418" in result.output
         assert not any(c[:2] == ["git", "daemon"] for c in calls)
+
+    def test_post_start_autodeploy_k8s_stack(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """devops devcontainer post-start with DEVOPS_K8S_AUTO_DEPLOY autodeploys stack."""
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        monkeypatch.setenv("HOME", str(fake_home))
+        monkeypatch.setenv("DEVOPS_MINIKUBE_AUTOSTART", "true")
+        monkeypatch.setenv("DEVOPS_K8S_AUTO_DEPLOY", "true")
+        monkeypatch.setenv("DEVOPS_K8S_STACK", "observability")
+
+        def mock_run_subprocess(cmd: list[str], **kwargs: object) -> object:
+            import subprocess
+
+            if cmd[:2] == ["minikube", "status"]:
+                return subprocess.CompletedProcess(cmd, returncode=0, stdout="Running", stderr="")
+            return subprocess.CompletedProcess(cmd, returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr("devops_cli.commands.devcontainer.run_subprocess", mock_run_subprocess)
+        monkeypatch.setattr("shutil.which", lambda prog: f"/usr/local/bin/{prog}")
+        result = runner.invoke(app, ["post-start", "--workspace", str(tmp_path)])
+        assert result.exit_code == 0
+        assert "Auto-deployed Kubernetes stack 'observability'" in result.output
+
+    def test_devcontainer_update_and_validate_edge_cases(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        """Verify update error branches and validation errors for invalid types."""
+        # 1. Update missing manifest
+        res_no_man = runner.invoke(app, ["update", str(tmp_path)])
+        assert res_no_man.exit_code == 1
+
+        # 2. Update invalid JSON
+        dc_dir = tmp_path / ".devcontainer"
+        dc_dir.mkdir(parents=True)
+        (dc_dir / "devcontainer.json").write_text("{ invalid json", encoding="utf-8")
+        res_bad_json = runner.invoke(app, ["update", str(tmp_path)])
+        assert res_bad_json.exit_code == 1
+
+        # 3. Validate with invalid feature/mount/port types
+        bad_manifest = {
+            "name": "bad-types",
+            "image": "python:3.14",
+            "features": "not a dict",
+            "mounts": "not a list",
+            "forwardPorts": "not a list",
+            "customizations": "not a dict",
+        }
+        (dc_dir / "devcontainer.json").write_text(json.dumps(bad_manifest), encoding="utf-8")
+        res_val = runner.invoke(app, ["validate", "--workspace", str(tmp_path)])
+        assert res_val.exit_code == 1
+        assert "must be a JSON object" in res_val.output

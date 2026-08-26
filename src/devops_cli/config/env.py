@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
-from typing import Any
+from dataclasses import dataclass
 
 from devops_cli.config import options as opt
 
@@ -93,13 +92,9 @@ class EnvVarSpec:
     """Metadata specification for a devops-cli environment variable."""
 
     env_var: str
-    option_key: str | None
-    is_secret: bool
-    description: str
-
-    def model_dump(self) -> dict[str, Any]:
-        """Convert dataclass to dictionary for backward compatibility."""
-        return asdict(self)
+    option_key: str | None = None
+    is_secret: bool = False
+    description: str = ""
 
 
 def env_var_for_option(option_key: str) -> str | None:

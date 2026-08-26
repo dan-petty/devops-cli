@@ -4,6 +4,12 @@ from __future__ import annotations
 
 from typing import Any
 
+from devops_cli.config.constants import (
+    CONST_ERROR_CODE_SECURITY,
+    CONST_EXIT_FAILURE,
+    CONST_MSG_KEYRING_UNAVAILABLE,
+    CONST_MSG_SSRF_RESOLVES_PRIVATE,
+)
 from devops_cli.exceptions.base import DevOpsCLIError
 
 
@@ -14,8 +20,8 @@ class SecurityError(DevOpsCLIError, ValueError):
         self,
         message: str,
         *,
-        exit_code: int = 1,
-        error_code: str = "SECURITY_ERROR",
+        exit_code: int = CONST_EXIT_FAILURE,
+        error_code: str = CONST_ERROR_CODE_SECURITY,
         details: dict[str, Any] | None = None,
     ) -> None:
         super().__init__(message, exit_code=exit_code, error_code=error_code, details=details)
@@ -28,7 +34,7 @@ class SSRFBlockedError(SecurityError):
         self,
         target_url: str,
         *,
-        reason: str = "Target resolves to a private or loopback network endpoint",
+        reason: str = CONST_MSG_SSRF_RESOLVES_PRIVATE,
         details: dict[str, Any] | None = None,
     ) -> None:
         msg = f"SSRF blocked: {target_url} ({reason})"
@@ -48,7 +54,7 @@ class KeyringUnavailableError(SecurityError):
 
     def __init__(
         self,
-        message: str = "OS Keyring service is unavailable; run in headless CI mode",
+        message: str = CONST_MSG_KEYRING_UNAVAILABLE,
         *,
         details: dict[str, Any] | None = None,
     ) -> None:

@@ -143,8 +143,11 @@ def test_tool_exceptions() -> None:
 
 
 def test_config_exceptions() -> None:
-    cfg_err = ConfigurationError("Config key missing", key="telemetry.endpoint")
+    cfg_err = ConfigurationError(
+        "Config key missing", key="telemetry.endpoint", details={"extra": "val"}
+    )
     assert isinstance(cfg_err, DevOpsCLIError)
     assert isinstance(cfg_err, ValueError)
     assert cfg_err.error_code == "CONFIGURATION_ERROR"
     assert cfg_err.details["key"] == "telemetry.endpoint"
+    assert cfg_err.details["extra"] == "val"

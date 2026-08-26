@@ -16,14 +16,14 @@ devops tf init [OPTIONS] <directory>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<directory>` | `path` | No | Target directory containing OpenTofu configuration |
+| `<directory>` | `path` | No | Target directory containing OpenTofu configuration. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--upgrade`, `-u` | `boolean` | - | Upgrade modules and plugins |
-| `--reconfigure` | `boolean` | - | Reconfigure backend, ignoring existing state |
+| `--upgrade`, `-u` | `boolean` | - | Upgrade modules and plugins. |
+| `--reconfigure` | `boolean` | - | Reconfigure backend, ignoring existing state. |
 
 ---
 
@@ -39,15 +39,15 @@ devops tf plan [OPTIONS] <directory>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<directory>` | `path` | No | Target directory containing OpenTofu configuration |
+| `<directory>` | `path` | No | Target directory containing OpenTofu configuration. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--var-file`, `-v` | `path` | - | Path to variable definitions file |
-| `--out`, `-o` | `path` | - | Write generated plan to file |
-| `--destroy` | `boolean` | - | Generate a plan to destroy all resources |
+| `--var-file`, `-v` | `path` | - | Path to variable definitions file. |
+| `--out`, `-o` | `path` | - | Write generated plan to file. |
+| `--destroy` | `boolean` | - | Generate a plan to destroy all resources. |
 
 ---
 
@@ -63,15 +63,15 @@ devops tf apply [OPTIONS] <directory>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<directory>` | `path` | No | Target directory containing OpenTofu configuration |
+| `<directory>` | `path` | No | Target directory containing OpenTofu configuration. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--var-file`, `-v` | `path` | - | Path to variable definitions file |
-| `--plan-file`, `-p` | `path` | - | Explicit plan file to apply |
-| `--auto-approve` | `boolean` | - | Skip interactive approval before applying |
+| `--var-file`, `-v` | `path` | - | Path to variable definitions file. |
+| `--plan-file`, `-p` | `path` | - | Explicit plan file to apply. |
+| `--auto-approve` | `boolean` | - | Skip interactive confirmation prompts. |
 
 ---
 
@@ -87,14 +87,14 @@ devops tf destroy [OPTIONS] <directory>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<directory>` | `path` | No | Target directory containing OpenTofu configuration |
+| `<directory>` | `path` | No | Target directory containing OpenTofu configuration. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--var-file`, `-v` | `path` | - | Path to variable definitions file |
-| `--auto-approve` | `boolean` | - | Skip interactive approval before destroying |
+| `--var-file`, `-v` | `path` | - | Path to variable definitions file. |
+| `--auto-approve` | `boolean` | - | Skip interactive confirmation prompts. |
 
 ---
 
@@ -110,14 +110,14 @@ devops tf output [OPTIONS] <directory>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<directory>` | `path` | No | Target directory containing OpenTofu configuration |
+| `<directory>` | `path` | No | Target directory containing OpenTofu configuration. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--json`, `-j` | `boolean` | - | Output values formatted as JSON |
-| `--raw`, `-r` | `boolean` | - | Output raw string without shell escapes |
+| `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
+| `--raw`, `-r` | `boolean` | - | Output raw string without formatting or shell escapes. |
 
 ---
 
@@ -133,13 +133,13 @@ devops tf validate [OPTIONS] <directory>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<directory>` | `path` | No | Target directory containing OpenTofu configuration |
+| `<directory>` | `path` | No | Target directory containing OpenTofu configuration. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--no-color` | `boolean` | - | Disable color codes |
+| `--no-color` | `boolean` | - | Disable color codes. |
 
 ---
 
@@ -155,14 +155,14 @@ devops tf fmt [OPTIONS] <directory>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<directory>` | `path` | No | Target directory containing OpenTofu configuration |
+| `<directory>` | `path` | No | Target directory containing OpenTofu configuration. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--check`, `-c` | `boolean` | - | Check formatting without writing files |
-| `--recursive`, `-r` | `boolean` | `True` | Format subdirectories recursively |
+| `--check`, `-c` | `boolean` | - | Check formatting without writing files. |
+| `--recursive`, `-r` | `boolean` | `True` | Format subdirectories recursively. |
 
 ---
 
@@ -178,7 +178,7 @@ devops tf status <directory>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<directory>` | `path` | No | Target directory containing OpenTofu configuration |
+| `<directory>` | `path` | No | Target directory containing OpenTofu configuration. |
 
 ---
 
@@ -194,9 +194,9 @@ devops tf deploy-cloud [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--provider`, `-p` | `string` | - | Target cloud provider: aws, azure, or gcp |
-| `--auto-approve` | `boolean` | - | Automatically approve apply without prompt |
-| `--var-file`, `-v` | `path` | - | Path to custom tfvars file |
+| `--provider`, `-p` | `string` | - | AI or cloud provider. |
+| `--auto-approve` | `boolean` | - | Skip interactive confirmation prompts. |
+| `--var-file`, `-v` | `path` | - | Path to variable definitions file. |
 
 ---
 
@@ -212,14 +212,14 @@ devops tf lint [OPTIONS] <directory>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<directory>` | `path` | No | Target directory containing Terraform / OpenTofu files |
+| `<directory>` | `path` | No | Target directory containing OpenTofu configuration. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--config`, `-c` | `path` | - | Path to .tflint.hcl config file |
-| `--dry-run` | `boolean` | - | Simulate TFLint execution |
-| `--json` | `boolean` | - | Output findings as JSON |
+| `--config`, `-c` | `path` | - | Path to .tflint.hcl config file. |
+| `--dry-run` | `boolean` | - | Simulate TFLint execution. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ---

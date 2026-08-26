@@ -4,7 +4,7 @@ Generate a comprehensive `AGENTS.md` file providing structured guidance and engi
 - Analyze the project runtime (Python 3.14+, Astral `uv`, lockfiles, build systems) and core libraries.
 
 ### Step 2: Verification & Workflow Scaffolding
-- Detail the progressive testing strategy: fast isolated checks (`uv run pytest`, `ruff check`, `mypy`) vs full CI gates (`devops ci`).
+- Detail the progressive testing strategy and mandatory iterative CI loop: make all planned code changes, run `devops ci`, fix reported issues, and run `devops ci` again until passing, avoiding redundant separate tooling already covered by `devops ci`.
 - Define Git hygiene: topic branch hierarchy (`feat/*`, `fix/*` targeting `release/v*`), Conventional Commits, and remote CI checks monitoring.
 
 ### Step 3: Architecture & Security Synthesis

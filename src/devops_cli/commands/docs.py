@@ -7,19 +7,17 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
-from rich.console import Console
 
+from devops_cli.config.defaults import DEFAULT_DOCS_FORMAT
 from devops_cli.core.cli import new_typer
-from devops_cli.docs.generator import DocGenerator
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
-from devops_cli.lang import MESSAGES
+from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import print_error, print_info, print_success, write_text_file
 
 app = new_typer(
-    help="Generate and validate CLI and architecture documentation.",
+    help=HELP.docs.app,
     no_args_is_help=True,
 )
-console = Console()
 
 
 # =============================================================================
@@ -49,7 +47,7 @@ def generate(
         typer.Option(
             "--output-dir",
             "-o",
-            help="Target directory for generated documentation files (default: docs/).",
+            help=HELP.docs.output_dir,
         ),
     ] = None,
     format_type: Annotated[
@@ -57,26 +55,28 @@ def generate(
         typer.Option(
             "--format",
             "-f",
-            help="Documentation output format ('markdown' or 'json').",
+            help=HELP.options.format_type,
         ),
-    ] = "markdown",
+    ] = DEFAULT_DOCS_FORMAT,
     sync_readme: Annotated[
         bool,
         typer.Option(
             "--sync-readme/--no-sync-readme",
-            help="Synchronize Complete Command Matrix in README.md.",
+            help=HELP.docs.sync_readme,
         ),
     ] = True,
     check: Annotated[
         bool,
         typer.Option(
             "--check",
-            help="Validate that existing documentation is up to date without writing files.",
+            help=HELP.docs.check,
         ),
     ] = False,
 ) -> None:
     """Generate comprehensive Markdown or JSON documentation for all CLI commands and tools."""
     target_dir = (output_dir or _get_default_docs_dir()).resolve()
+    from devops_cli.docs.generator import DocGenerator
+
     generator = DocGenerator()
 
     if format_type.lower() == "json":
@@ -150,19 +150,21 @@ def check(
         typer.Option(
             "--output-dir",
             "-o",
-            help="Directory containing documentation to check (default: docs/).",
+            help=HELP.docs.output_dir,
         ),
     ] = None,
     check_readme: Annotated[
         bool,
         typer.Option(
             "--check-readme/--no-check-readme",
-            help="Verify README.md Command Matrix synchronization as well.",
+            help=HELP.docs.sync_readme,
         ),
     ] = True,
 ) -> None:
     """Check that generated documentation and README.md are up to date with codebase."""
     target_dir = (output_dir or _get_default_docs_dir()).resolve()
+    from devops_cli.docs.generator import DocGenerator
+
     generator = DocGenerator()
     ok, errors = generator.check_docs(target_dir, check_readme_table=check_readme)
     if not ok:
@@ -185,18 +187,20 @@ def sync_readme_cmd(
         typer.Option(
             "--readme-path",
             "-r",
-            help="Path to README.md file (default: workspace root README.md).",
+            help=HELP.docs.readme_path,
         ),
     ] = None,
     check: Annotated[
         bool,
         typer.Option(
             "--check",
-            help="Verify README.md table is synchronized without writing changes.",
+            help=HELP.docs.check,
         ),
     ] = False,
 ) -> None:
     """Synchronize the Complete Command Matrix table in README.md with live CLI commands."""
+    from devops_cli.docs.generator import DocGenerator
+
     generator = DocGenerator()
     if check:
         ok, err = generator.check_readme(readme_path)

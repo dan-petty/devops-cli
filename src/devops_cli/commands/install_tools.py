@@ -17,7 +17,6 @@ from typing import Annotated, Final
 import httpx2
 import typer
 from pydantic import BaseModel, ConfigDict
-from rich.table import Table
 
 from devops_cli.config.constants import (
     CONST_PERM_EXEC,
@@ -450,13 +449,11 @@ TOOLS: Final[dict[str, Tool]] = {
 @app.callback(invoke_without_command=True)
 def install_all(
     ctx: typer.Context,
-    tool: Annotated[
-        str | None, typer.Option("--tool", "-t", help="Install a specific tool")
-    ] = None,
-    version: Annotated[
-        str | None, typer.Option("--version", help="Specific version, e.g. v1.30.0")
-    ] = None,
-    target_dir: Annotated[Path, typer.Option("--target-dir", "-d")] = DEFAULT_LOCAL_BIN_DIR,
+    tool: Annotated[str | None, typer.Option("--tool", "-t", help=HELP.install.tool)] = None,
+    version: Annotated[str | None, typer.Option("--version", help=HELP.install.version)] = None,
+    target_dir: Annotated[
+        Path, typer.Option("--target-dir", "-d", help=HELP.options.target_dir)
+    ] = DEFAULT_LOCAL_BIN_DIR,
 ) -> None:
     """Install DevOps tool binaries. Without --tool, installs all tools."""
     if ctx.invoked_subcommand is not None:
@@ -509,12 +506,7 @@ def status(
     target_dir: Annotated[Path, typer.Option("--target-dir", "-d")] = DEFAULT_LOCAL_BIN_DIR,
 ) -> None:
     """Show installation status and versions for all managed tools."""
-    table = Table(title="DevOps Tool Status")
-    table.add_column("Tool", style="cyan")
-    table.add_column("Description")
-    table.add_column("Installed")
-    table.add_column("Latest", style="dim")
-
+    rows: list[list[str]] = []
     for name, spec in TOOLS.items():
         current = _current_version(spec.version_cmd)
         installed = f"[green]{current}[/green]" if current else "[red]not installed[/red]"
@@ -522,9 +514,13 @@ def status(
             latest = spec.get_latest()
         except Exception:
             latest = "unknown"
-        table.add_row(name, spec.description, installed, latest)
+        rows.append([name, spec.description, installed, latest])
 
-    print_table(table)
+    print_table(
+        title="DevOps Tool Status",
+        columns=[("Tool", "cyan"), "Description", "Installed", ("Latest", "dim")],
+        rows=rows,
+    )
 
 
 # =============================================================================

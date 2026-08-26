@@ -9,6 +9,7 @@ import subprocess
 from pathlib import Path
 
 from devops_cli.ai.review_schema import Finding
+from devops_cli.config.defaults import DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS
 from devops_cli.telemetry import trace_span
 
 logger = logging.getLogger(__name__)
@@ -51,7 +52,7 @@ def _run_native_fallback_tf_lint(target_dir: Path) -> list[Finding]:
 def run_tflint_scan(
     target_dir: Path,
     config_file: Path | None = None,
-    timeout: float = 30.0,
+    timeout: float = DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
 ) -> list[Finding]:
     """Execute TFLint static analysis on target_dir and return normalized findings."""
     tflint_bin = shutil.which("tflint")

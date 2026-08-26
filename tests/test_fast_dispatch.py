@@ -18,73 +18,7 @@ from devops_cli.dry_run.state import (
     set_dry_run,
 )
 from devops_cli.entry import main
-from devops_cli.help.renderer import (
-    get_help_text,
-    is_help_requested,
-    is_version_requested,
-    show_help,
-    show_version,
-)
-from devops_cli.main import _show_fast_help, _show_fast_version, main_entry
-
-
-def test_is_version_requested() -> None:
-    assert is_version_requested(["--version"]) is True
-    assert is_version_requested(["-v"]) is True
-    assert is_version_requested(["repos", "-v"]) is False
-    assert is_version_requested(["repos", "list"]) is False
-    assert is_version_requested([]) is False
-
-
-def test_is_help_requested() -> None:
-    assert is_help_requested(["--help"]) is True
-    assert is_help_requested(["-h"]) is True
-    assert is_help_requested(["--dry-run"]) is True
-    assert is_help_requested(["repos", "--help"]) is True
-    assert is_help_requested(["repos", "-h"]) is True
-    assert is_help_requested(["repos", "list"]) is False
-    assert is_help_requested([]) is True
-
-
-def test_show_version(capsys: pytest.CaptureFixture[str]) -> None:
-    show_version()
-    captured = capsys.readouterr()
-    assert "0.2.2" in captured.out
-
-
-def test_show_help_root(capsys: pytest.CaptureFixture[str]) -> None:
-    assert show_help([]) is True
-    captured = capsys.readouterr()
-    assert "DevOps CLI" in captured.out
-    assert "repos" in captured.out
-
-
-def test_show_help_subcommands(capsys: pytest.CaptureFixture[str]) -> None:
-    subcommands = [
-        "ai",
-        "repos",
-        "scan",
-        "tf",
-        "workspace",
-    ]
-    for subcmd in subcommands:
-        res = show_help([subcmd, "--help"])
-        assert res is True
-        captured = capsys.readouterr()
-        assert len(captured.out) > 0
-
-
-def test_show_help_unknown_subcommand(capsys: pytest.CaptureFixture[str]) -> None:
-    assert show_help(["nonexistent_subcommand", "--help"]) is False
-    captured = capsys.readouterr()
-    assert captured.out == ""
-
-
-def test_get_help_text_branches() -> None:
-    assert get_help_text(["--dry-run"]) is not None
-    assert get_help_text(["--help"]) is not None
-    assert get_help_text([]) is not None
-    assert get_help_text(["unknown", "foo"]) is None
+from devops_cli.main import main_entry
 
 
 def test_is_dry_run_requested() -> None:
@@ -143,34 +77,29 @@ def test_core_getattr_exports() -> None:
         _ = getattr(devops_cli.core, "nonexistent_core_attr")
 
 
-def test_main_helpers_and_entrypoint(capsys: pytest.CaptureFixture[str]) -> None:
-    _show_fast_version()
-    captured_v = capsys.readouterr()
-    assert "0.2.2" in captured_v.out
-
-    _show_fast_help()
-    captured_h = capsys.readouterr()
-    assert "DevOps CLI" in captured_h.out
-
+def test_main_helpers_and_entrypoint() -> None:
     with patch("devops_cli.entry.main") as mock_main:
         main_entry()
         mock_main.assert_called_once()
 
 
 def test_entry_main_version(capsys: pytest.CaptureFixture[str]) -> None:
-    main(["devops", "--version"])
+    with pytest.raises(SystemExit):
+        main(["devops", "--version"])
     captured = capsys.readouterr()
     assert "0.2.2" in captured.out
 
 
 def test_entry_main_help(capsys: pytest.CaptureFixture[str]) -> None:
-    main(["devops", "--help"])
+    with pytest.raises(SystemExit):
+        main(["devops", "--help"])
     captured = capsys.readouterr()
     assert "DevOps CLI" in captured.out
 
 
 def test_entry_main_binary_path_argv(capsys: pytest.CaptureFixture[str]) -> None:
-    main(["/usr/local/bin/devops", "--version"])
+    with pytest.raises(SystemExit):
+        main(["/usr/local/bin/devops", "--version"])
     captured = capsys.readouterr()
     assert "0.2.2" in captured.out
 
@@ -181,10 +110,34 @@ def test_entry_main_dry_run_delegation() -> None:
         set_dry_run(False)
         main(["devops", "--dry-run", "repos", "status"])
         assert is_dry_run() is True
-        mock_app.assert_called_once_with(["--dry-run", "repos", "status"])
+        mock_app.assert_called_once_with(["--dry-run", "repos", "status"], prog_name="devops")
         set_dry_run(False)
 
 
 def test_entry_main_default_sys_argv() -> None:
     with patch("sys.argv", ["devops", "--version"]):
-        main()
+        with pytest.raises(SystemExit):
+            main()
+
+
+def test_entrypoint_flows(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test fast CLI entrypoint flows including shell completion, version, help, and dry-run."""
+    from devops_cli.entry import is_completion_requested
+
+    # 1. Shell completion detection and dispatch
+    monkeypatch.setenv("_DEVOPS_COMPLETE", "complete_zsh")
+    assert is_completion_requested() is True
+    with patch("devops_cli.main.app") as mock_complete_app:
+        main(["repos"])
+        mock_complete_app.assert_called_once()
+    monkeypatch.delenv("_DEVOPS_COMPLETE", raising=False)
+
+    monkeypatch.setenv("_TYPER_COMPLETE_ARGS", "devops repos")
+    assert is_completion_requested() is True
+    monkeypatch.delenv("_TYPER_COMPLETE_ARGS", raising=False)
+    assert is_completion_requested() is False
+
+    # 2. Subcommand without devops prefix
+    with patch("devops_cli.main.app") as mock_app:
+        main(["repos", "list", "--dry-run"])
+        mock_app.assert_called_once()

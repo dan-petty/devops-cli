@@ -4,6 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from devops_cli.config.constants import (
+    CONST_ERROR_CODE_GIT,
+    CONST_EXIT_FAILURE,
+    CONST_MSG_BRANCH_INVALID,
+)
 from devops_cli.exceptions.base import DevOpsCLIError
 
 
@@ -15,8 +20,8 @@ class GitOperationError(DevOpsCLIError, ValueError):
         message: str,
         *,
         operation: str | None = None,
-        exit_code: int = 1,
-        error_code: str = "GIT_OPERATION_ERROR",
+        exit_code: int = CONST_EXIT_FAILURE,
+        error_code: str = CONST_ERROR_CODE_GIT,
         details: dict[str, Any] | None = None,
     ) -> None:
         err_details = {"operation": operation} if operation else {}
@@ -31,7 +36,7 @@ class InvalidBranchNameError(GitOperationError):
     def __init__(
         self,
         branch_name: str,
-        reason: str = "Branch name is invalid",
+        reason: str = CONST_MSG_BRANCH_INVALID,
         *,
         details: dict[str, Any] | None = None,
     ) -> None:
@@ -42,7 +47,7 @@ class InvalidBranchNameError(GitOperationError):
         super().__init__(
             msg,
             operation="branch_validation",
-            exit_code=1,
+            exit_code=CONST_EXIT_FAILURE,
             error_code="INVALID_BRANCH_NAME",
             details=err_details,
         )

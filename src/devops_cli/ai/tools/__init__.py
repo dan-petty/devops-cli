@@ -1,5 +1,7 @@
 """Agent tools submodule for devops-cli."""
 
+from __future__ import annotations
+
 from devops_cli.ai.tools.builtin_tools import (
     argo_apps,
     check_threat_intel,

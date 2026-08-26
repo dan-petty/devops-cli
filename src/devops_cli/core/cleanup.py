@@ -5,8 +5,9 @@ from __future__ import annotations
 import logging
 import shutil
 import time
-from dataclasses import dataclass, field
 from pathlib import Path
+
+from pydantic import BaseModel, Field
 
 from devops_cli.config.constants import CONST_DATA_DIR
 from devops_cli.core.repo import find_top_level_repo_root
@@ -15,12 +16,11 @@ from devops_cli.telemetry import trace_span
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class CleanupSummary:
+class CleanupSummary(BaseModel):
     """Summary of cleaned files and directories."""
 
-    pruned_files: list[str] = field(default_factory=list)
-    pruned_dirs: list[str] = field(default_factory=list)
+    pruned_files: list[str] = Field(default_factory=list)
+    pruned_dirs: list[str] = Field(default_factory=list)
     freed_bytes: int = 0
     dry_run: bool = False
 

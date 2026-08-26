@@ -15,12 +15,23 @@ import time
 from collections.abc import Callable, Generator
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextvars import ContextVar
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import Any, TypeVar
 
-if TYPE_CHECKING:
-    import httpx2
+import httpx2
 
-from devops_cli.config.defaults import DEFAULT_OTEL_HTTP_TIMEOUT_SECONDS
+from devops_cli.config.constants import (
+    CONST_OTEL_METRIC_UNIT_ONE,
+    CONST_OTEL_SCOPE_NAME,
+    CONST_OTEL_SERVICE_NAME,
+    CONST_OTEL_SPAN_KIND_INTERNAL,
+)
+from devops_cli.config.defaults import (
+    DEFAULT_OTEL_COUNTER_AMOUNT,
+    DEFAULT_OTEL_ENDPOINT,
+    DEFAULT_OTEL_HTTP_TIMEOUT_SECONDS,
+    DEFAULT_OTEL_SHUTDOWN_TIMEOUT_MS,
+    DEFAULT_OTEL_TEST_TIMEOUT,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -59,22 +70,34 @@ def _to_otlp_any_value(val: Any) -> dict[str, Any]:
     return {"stringValue": str(val)}
 
 
+_SPAN_KINDS: dict[str, str] = {
+    "internal": "SPAN_KIND_INTERNAL",
+    "server": "SPAN_KIND_SERVER",
+    "client": "SPAN_KIND_CLIENT",
+    "producer": "SPAN_KIND_PRODUCER",
+    "consumer": "SPAN_KIND_CONSUMER",
+}
+
+
 class SpanHandle(str):
-    """Handle yielded by trace_span allowing dynamic attribute updates and event logging while
+    """Handle yielded by trace_span allowing dynamic attribute updates, links, and event logging while
     behaving as span_id string."""
 
     _attributes: dict[str, Any]
     _events: list[dict[str, Any]]
+    _links: list[dict[str, Any]]
 
     def __new__(
         cls,
         span_id: str,
         attributes: dict[str, Any] | None = None,
         events: list[dict[str, Any]] | None = None,
+        links: list[dict[str, Any]] | None = None,
     ) -> SpanHandle:
         obj = str.__new__(cls, span_id)
         obj._attributes = attributes if attributes is not None else {}
         obj._events = events if events is not None else []
+        obj._links = links if links is not None else []
         return obj
 
     def set_attribute(self, key: str, value: Any) -> None:
@@ -100,6 +123,24 @@ class SpanHandle(str):
             {
                 "timeUnixNano": str(t_nano),
                 "name": name,
+                "attributes": attr_list,
+            }
+        )
+
+    def add_link(
+        self,
+        trace_id: str,
+        span_id: str,
+        attributes: dict[str, Any] | None = None,
+    ) -> None:
+        """Add a causal span link to correlate with external or asynchronous trace contexts."""
+        attr_list = [
+            {"key": k, "value": _to_otlp_any_value(v)} for k, v in (attributes or {}).items()
+        ]
+        self._links.append(
+            {
+                "traceId": trace_id,
+                "spanId": span_id,
                 "attributes": attr_list,
             }
         )
@@ -162,6 +203,7 @@ _ATTRIBUTE_NORMALIZATION: dict[str, str] = {
     "cli.command": "process.command_line",
     "cli.function": "code.function",
     "file_path": "code.filepath",
+    "file.path": "code.filepath",
     "subprocess.bin": "process.executable.name",
     "subprocess.cmd": "process.command_line",
     "subprocess.cwd": "process.working_directory",
@@ -170,6 +212,13 @@ _ATTRIBUTE_NORMALIZATION: dict[str, str] = {
     "http.status_code": "http.response.status_code",
     "http.url": "url.full",
     "http.route": "url.path",
+    "git.branch": "vcs.branch",
+    "git.commit": "vcs.commit",
+    "git.operation": "vcs.operation",
+    "k8s.namespace": "k8s.namespace.name",
+    "k8s.pod": "k8s.pod.name",
+    "k8s.deployment": "k8s.deployment.name",
+    "argo.app": "argo.application.name",
 }
 
 
@@ -182,21 +231,46 @@ class OTelTelemetryClient:
 
     def __init__(
         self,
-        endpoint: str = "http://localhost:4318",
+        endpoint: str = DEFAULT_OTEL_ENDPOINT,
         *,
-        service_name: str = "devops-cli",
+        protocol: str | None = None,
+        service_name: str = CONST_OTEL_SERVICE_NAME,
         service_version: str | None = None,
         enabled: bool = True,
     ) -> None:
         self.endpoint = endpoint.rstrip("/")
+        env_protocol = os.getenv("OTEL_EXPORTER_OTLP_PROTOCOL")
+        self.protocol = (
+            protocol
+            or env_protocol
+            or (
+                "grpc"
+                if (":4317" in self.endpoint or self.endpoint.startswith("grpc://"))
+                else "http/json"
+            )
+        )
         self.service_name = service_name
         self.service_version = service_version or self._detect_version()
         self.host_name = platform.node() or "localhost"
         self.os_type = platform.system().lower() or "linux"
         self.enabled = enabled
         self._http_client: httpx2.Client | None = None
+        self._grpc_exporter: Any = None
         self._executor: ContextPropagatingThreadPoolExecutor | None = None
         self._client_lock = threading.Lock()
+
+        # Cache pre-computed resource attributes for zero-allocation reuse across all spans and metrics
+        self._cached_resource_attributes: list[dict[str, Any]] = [
+            {"key": "service.name", "value": {"stringValue": self.service_name}},
+            {"key": "service.version", "value": {"stringValue": self.service_version}},
+            {"key": "host.name", "value": {"stringValue": self.host_name}},
+            {"key": "os.type", "value": {"stringValue": self.os_type}},
+            {"key": "process.pid", "value": {"stringValue": str(os.getpid())}},
+            {"key": "process.runtime.name", "value": {"stringValue": "cpython"}},
+            {"key": "process.runtime.version", "value": {"stringValue": platform.python_version()}},
+            {"key": "telemetry.sdk.name", "value": {"stringValue": "devops-cli-otel"}},
+            {"key": "telemetry.sdk.language", "value": {"stringValue": "python"}},
+        ]
 
     @staticmethod
     def _detect_version() -> str:
@@ -209,17 +283,7 @@ class OTelTelemetryClient:
 
     def _get_resource_attributes(self) -> list[dict[str, Any]]:
         """Return standardized OpenTelemetry resource attributes."""
-        return [
-            {"key": "service.name", "value": {"stringValue": self.service_name}},
-            {"key": "service.version", "value": {"stringValue": self.service_version}},
-            {"key": "host.name", "value": {"stringValue": self.host_name}},
-            {"key": "os.type", "value": {"stringValue": self.os_type}},
-            {"key": "process.pid", "value": {"stringValue": str(os.getpid())}},
-            {"key": "process.runtime.name", "value": {"stringValue": "cpython"}},
-            {"key": "process.runtime.version", "value": {"stringValue": platform.python_version()}},
-            {"key": "telemetry.sdk.name", "value": {"stringValue": "devops-cli-otel"}},
-            {"key": "telemetry.sdk.language", "value": {"stringValue": "python"}},
-        ]
+        return self._cached_resource_attributes
 
     @property
     def current_trace_id(self) -> str | None:
@@ -285,7 +349,7 @@ class OTelTelemetryClient:
         self,
         spans: list[dict[str, Any]],
         resource_attributes: list[dict[str, Any]] | None = None,
-        scope_name: str = "devops-cli.telemetry",
+        scope_name: str = CONST_OTEL_SCOPE_NAME,
     ) -> dict[str, Any]:
         """Build structured OTLP resourceSpans payload."""
         res_attrs = resource_attributes or self._get_resource_attributes()
@@ -303,7 +367,7 @@ class OTelTelemetryClient:
         name: str,
         value: float,
         *,
-        unit: str = "1",
+        unit: str = CONST_OTEL_METRIC_UNIT_ONE,
         attributes: dict[str, Any] | None = None,
     ) -> None:
         """Emit a metric data point to OTLP collector asynchronously."""
@@ -320,9 +384,9 @@ class OTelTelemetryClient:
     def increment_counter(
         self,
         name: str,
-        amount: float = 1.0,
+        amount: float = DEFAULT_OTEL_COUNTER_AMOUNT,
         *,
-        unit: str = "1",
+        unit: str = CONST_OTEL_METRIC_UNIT_ONE,
         attributes: dict[str, Any] | None = None,
     ) -> None:
         """Convenience method to record an incremented counter metric."""
@@ -334,6 +398,8 @@ class OTelTelemetryClient:
         name: str,
         attributes: dict[str, Any] | None = None,
         *,
+        kind: str = CONST_OTEL_SPAN_KIND_INTERNAL,
+        links: list[dict[str, Any]] | None = None,
         parent_context: dict[str, str] | None = None,
         parent_trace_id: str | None = None,
         parent_span_id: str | None = None,
@@ -376,6 +442,7 @@ class OTelTelemetryClient:
         handle = SpanHandle(span_id, attrs)
         status_code = "STATUS_CODE_OK"
         error_msg = ""
+        span_kind = _SPAN_KINDS.get(kind.lower(), "SPAN_KIND_INTERNAL")
 
         try:
             yield handle
@@ -412,7 +479,7 @@ class OTelTelemetryClient:
                 "traceId": trace_id,
                 "spanId": span_id,
                 "name": name,
-                "kind": "SPAN_KIND_INTERNAL",
+                "kind": span_kind,
                 "startTimeUnixNano": str(start_nano),
                 "endTimeUnixNano": str(end_nano),
                 "attributes": [
@@ -422,15 +489,64 @@ class OTelTelemetryClient:
             }
             if handle._events:
                 span_data["events"] = handle._events
+            if handle._links:
+                span_data["links"] = handle._links
+            elif links:
+                span_data["links"] = links
             if parent_id and parent_id != span_id:
                 span_data["parentSpanId"] = parent_id
 
             payload = self._build_traces_payload([span_data])
             self._send_payload("/v1/traces", payload)
 
-    def test_connection(self, timeout: float = 1.0) -> tuple[bool, str, float]:
+    def _get_grpc_exporter(self) -> Any:
+        """Get or initialize thread-safe gRPC span exporter with persistent multiplexed connection."""
+        with self._client_lock:
+            if self._grpc_exporter is None:
+                from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
+                    OTLPSpanExporter,
+                )
+
+                clean_ep = (
+                    self.endpoint.replace("http://", "")
+                    .replace("https://", "")
+                    .replace("grpc://", "")
+                )
+                if not clean_ep:
+                    clean_ep = "localhost:4317"
+                insecure = not self.endpoint.startswith("https://")
+                self._grpc_exporter = OTLPSpanExporter(
+                    endpoint=clean_ep,
+                    insecure=insecure,
+                    timeout=DEFAULT_OTEL_HTTP_TIMEOUT_SECONDS,
+                )
+            return self._grpc_exporter
+
+    def test_connection(
+        self, timeout: float = DEFAULT_OTEL_TEST_TIMEOUT
+    ) -> tuple[bool, str, float]:
         """Test reachability of the OTLP collector endpoint and measure latency."""
         start = time.perf_counter()
+        if self.protocol == "grpc" or ":4317" in self.endpoint:
+            try:
+                import socket
+
+                clean_ep = (
+                    self.endpoint.replace("http://", "")
+                    .replace("https://", "")
+                    .replace("grpc://", "")
+                )
+                host, _, port_str = clean_ep.partition(":")
+                port = int(port_str) if port_str else 4317
+                sock = socket.create_connection((host, port), timeout=timeout)
+                sock.close()
+                elapsed_ms = (time.perf_counter() - start) * 1000
+                return True, "gRPC connection OK", elapsed_ms
+            except Exception as exc:
+                logger.debug("OTel gRPC probe failed to %s: %s", self.endpoint, exc)
+                elapsed_ms = (time.perf_counter() - start) * 1000
+                return False, f"gRPC probe failed: {exc}", elapsed_ms
+
         try:
             url = f"{self.endpoint}/v1/traces"
             test_trace_id = _generate_trace_id()
@@ -440,6 +556,7 @@ class OTelTelemetryClient:
                 "traceId": test_trace_id,
                 "spanId": test_span_id,
                 "name": "ping",
+                "kind": "SPAN_KIND_INTERNAL",
                 "startTimeUnixNano": now_nano,
                 "endTimeUnixNano": now_nano,
                 "status": {"code": "STATUS_CODE_OK"},
@@ -515,8 +632,8 @@ class OTelTelemetryClient:
         except Exception as exc:
             logger.debug("Failed submitting OTel payload to executor: %s", exc)
 
-    def shutdown(self) -> None:
-        """Cleanly close background executor and pooled HTTP transport with bounded drain timeout."""
+    def shutdown(self, timeout_millis: int = DEFAULT_OTEL_SHUTDOWN_TIMEOUT_MS) -> None:
+        """Cleanly close background executor, gRPC exporter, and pooled HTTP transport with bounded drain timeout."""
         with self._client_lock:
             if self._executor is not None:
                 try:
@@ -524,7 +641,13 @@ class OTelTelemetryClient:
                 except Exception as exc:
                     logger.debug("Failed closing OTel executor: %s", exc)
                 self._executor = None
-            if self._http_client is not None and not getattr(self._http_client, "is_closed", False):
+            if self._grpc_exporter is not None:
+                try:
+                    self._grpc_exporter.shutdown()
+                except Exception as exc:
+                    logger.debug("Failed shutting down gRPC exporter: %s", exc)
+                self._grpc_exporter = None
+            if self._http_client is not None:
                 try:
                     self._http_client.close()
                 except Exception as exc:
@@ -533,42 +656,59 @@ class OTelTelemetryClient:
 
 
 _GLOBAL_TRACER: OTelTelemetryClient | None = None
+_GLOBAL_TRACER_LOCK = threading.Lock()
 
 
 def get_tracer() -> OTelTelemetryClient:
-    """Return the global singleton OTelTelemetryClient instance."""
+    """Return the thread-safe global OTelTelemetryClient singleton instance."""
     global _GLOBAL_TRACER
-    if _GLOBAL_TRACER is None:
-        from devops_cli.config.settings import load_settings
-
-        try:
-            settings = load_settings()
-            telemetry_cfg = getattr(settings, "telemetry", None) or getattr(settings, "otel", None)
-            cfg_endpoint = (
-                telemetry_cfg.endpoint
-                if telemetry_cfg and hasattr(telemetry_cfg, "endpoint")
-                else None
+    with _GLOBAL_TRACER_LOCK:
+        if _GLOBAL_TRACER is None:
+            endpoint = (
+                os.getenv("DEVOPS_OTEL_ENDPOINT")
+                or os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+                or os.getenv("DEVOPS_CLI_OTEL_ENDPOINT")
             )
-            cfg_enabled = (
-                telemetry_cfg.enabled
-                if telemetry_cfg and hasattr(telemetry_cfg, "enabled")
-                else True
-            )
-        except Exception:
-            cfg_endpoint = None
-            cfg_enabled = True
+            env_enabled = os.getenv("DEVOPS_TELEMETRY_ENABLED")
 
-        endpoint = os.getenv("DEVOPS_OTEL_ENDPOINT") or cfg_endpoint or "http://localhost:4318"
-        env_enabled = os.getenv("DEVOPS_TELEMETRY_ENABLED")
-        enabled = (
-            (env_enabled.lower() in ("true", "1")) if env_enabled is not None else bool(cfg_enabled)
-        )
-        _GLOBAL_TRACER = OTelTelemetryClient(endpoint=endpoint, enabled=enabled)
-    return _GLOBAL_TRACER
+            if endpoint is None or env_enabled is None:
+                try:
+                    from devops_cli.config.settings import load_settings
+
+                    settings = load_settings()
+                    telemetry_cfg = getattr(settings, "telemetry", None) or getattr(
+                        settings, "otel", None
+                    )
+                    if endpoint is None and telemetry_cfg and hasattr(telemetry_cfg, "endpoint"):
+                        endpoint = telemetry_cfg.endpoint
+                    if env_enabled is None and telemetry_cfg and hasattr(telemetry_cfg, "enabled"):
+                        cfg_enabled = telemetry_cfg.enabled
+                    else:
+                        cfg_enabled = True
+                except Exception:
+                    cfg_enabled = True
+            else:
+                cfg_enabled = True
+
+            final_endpoint = endpoint or DEFAULT_OTEL_ENDPOINT
+            if env_enabled is not None:
+                is_enabled = env_enabled.lower() in ("true", "1")
+            else:
+                is_enabled = bool(cfg_enabled)
+
+            service_name = os.getenv("OTEL_SERVICE_NAME", CONST_OTEL_SERVICE_NAME)
+            protocol = os.getenv("OTEL_EXPORTER_OTLP_PROTOCOL")
+            _GLOBAL_TRACER = OTelTelemetryClient(
+                endpoint=final_endpoint,
+                service_name=service_name,
+                protocol=protocol,
+                enabled=is_enabled,
+            )
+        return _GLOBAL_TRACER
 
 
 def reset_tracer() -> None:
-    """Reset global singleton tracer instance (useful in tests)."""
+    """Reset the global tracer instance (used for testing)."""
     global _GLOBAL_TRACER
     _GLOBAL_TRACER = None
 
@@ -577,17 +717,31 @@ def reset_tracer() -> None:
 def trace_span(
     name: str,
     attributes: dict[str, Any] | None = None,
+    *,
+    kind: str = CONST_OTEL_SPAN_KIND_INTERNAL,
+    links: list[dict[str, Any]] | None = None,
+    parent_context: dict[str, str] | None = None,
+    parent_trace_id: str | None = None,
+    parent_span_id: str | None = None,
 ) -> Generator[SpanHandle]:
-    """Convenience context manager for tracing a block of execution."""
+    """Convenience context manager for tracing a block of execution with span kind and optional links."""
     tracer = get_tracer()
-    with tracer.span(name, attributes=attributes) as handle:
+    with tracer.span(
+        name,
+        attributes=attributes,
+        kind=kind,
+        links=links,
+        parent_context=parent_context,
+        parent_trace_id=parent_trace_id,
+        parent_span_id=parent_span_id,
+    ) as handle:
         yield handle
 
 
 def record_metric(
     name: str,
     value: float,
-    unit: str = "1",
+    unit: str = CONST_OTEL_METRIC_UNIT_ONE,
     attributes: dict[str, Any] | None = None,
 ) -> None:
     """Convenience function to record a metric data point."""
@@ -602,6 +756,8 @@ def inject_trace_context(headers: dict[str, str] | None = None) -> dict[str, str
 def traced(
     name: str | None = None,
     attributes: dict[str, Any] | None = None,
+    *,
+    kind: str = CONST_OTEL_SPAN_KIND_INTERNAL,
 ) -> Callable[[F], F]:
     """Decorator to trace a function execution as an OpenTelemetry span."""
 
@@ -610,7 +766,7 @@ def traced(
 
         @functools.wraps(fn)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
-            with trace_span(span_name, attributes=attributes):
+            with trace_span(span_name, attributes=attributes, kind=kind):
                 return fn(*args, **kwargs)
 
         return wrapper  # type: ignore[return-value]
@@ -626,11 +782,11 @@ def get_current_span_context() -> dict[str, str | None]:
     }
 
 
-def shutdown_tracer() -> None:
-    """Flush and shut down global tracer instance."""
+def shutdown_tracer(timeout_millis: int = DEFAULT_OTEL_SHUTDOWN_TIMEOUT_MS) -> None:
+    """Flush and shut down global tracer instance with bounded timeout."""
     global _GLOBAL_TRACER
     if _GLOBAL_TRACER is not None:
-        _GLOBAL_TRACER.shutdown()
+        _GLOBAL_TRACER.shutdown(timeout_millis=timeout_millis)
 
 
 atexit.register(shutdown_tracer)

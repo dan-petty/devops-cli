@@ -19,6 +19,11 @@ This document provides foundational context, architectural principles, and opera
   - Enforce subprocess safety with explicit command argument lists, bounded timeouts, and error handling.
 - **Never Lower Security Standards or Quality Thresholds**:
   - AI agents and assistants must never lower, relax, disable, bypass, or weaken security standards, quality thresholds (such as minimum code coverage requirements like 90%, strict static type checks, or lint rules), or compliance validations unless explicitly instructed to do so by the user.
+- **Continuous Standards Compliance & Solution Refinement**:
+  - AI agents and assistants must always check that any proposed solution, design, code change, or architecture meets all project standards and conventions (including modular organization, domain-driven naming, standard library composition, zero boilerplate, Pydantic v2 schemas, strict type annotations, canonical location formatting, and zero hardcoded metrics).
+  - AI agents must update and refine the solution whenever necessary until every project standard is met or exceeded.
+- **Mandatory Documentation Synchronization After Every Change**:
+  - AI agents and assistants must always update project documents, architecture references, command documentation, and README files (`devops docs generate --sync-readme`, `docs/`, `AGENTS.md`, and relevant knowledge base task manuals) after every change to maintain 100% documentation integrity and prevent documentation drift.
 
 ## 2. Development Workflow & Progressive Verification
 
@@ -30,8 +35,8 @@ Before planning, implementing, debugging, refactoring, or reviewing code, archit
 - **IT Domain-Specific Information ([`src/devops_cli/ai/knowledge_base/it_domains/`](src/devops_cli/ai/knowledge_base/README.md#-division-2-information-technology-domain-specific-information-it_domains))**: Consult for deep architectural patterns and standards across 10 IT domain topic guides (`it_domains/topics/`) and 20 integrated tool reference manuals (`it_domains/tools/`).
 
 ### Verification Strategy & CI Quality Gate
-- **Primary CI Verification Gate**: AI agents should simply run `devops ci` (or `uv run devops ci`) to comprehensively validate changes instead of running a fragmented series of individual checks (ruff, mypy, pytest, actionlint, security audit, docs check) that are already automatically executed and aggregated by `devops ci`. Enforces a strict minimum 90% code coverage requirement across `src/`.
-- **Targeted Iterative Checks**: If isolating a specific failing test or debugging a single file during active editing, run targeted checks (e.g. `uv run pytest tests/test_<feature>.py`). Once edits are complete, always run `devops ci` to verify all 10 quality gates pass together.
+- **Primary CI Verification Gate**: AI agents must simply run `devops ci` (or `uv run devops ci`) to comprehensively validate changes. AI agents should not run any other tooling (such as standalone ruff, mypy, pytest, actionlint, bandit, trivy, pip-audit, or docs checks) that is already automatically executed and aggregated by `devops ci`. Enforces a strict minimum 90% code coverage requirement across `src/`.
+- **Mandatory Iterative CI Loop**: AI agents must always make all planned code changes, run `devops ci`, fix all reported issues, and run `devops ci` again, iteratively fixing issues and running `devops ci` until all quality gates pass cleanly.
 
 ### Build, Lint & Test Commands
 | Operation | Command | Purpose |

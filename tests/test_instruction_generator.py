@@ -149,9 +149,13 @@ def test_devcontainer_init_scaffolds_agent_instructions(runner: CliRunner, tmp_p
 
 
 def test_devcontainer_post_create_scaffolds_agent_instructions(
-    runner: CliRunner, tmp_path: Path
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Verify devops devcontainer post-create scaffolds missing agent instructions."""
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    monkeypatch.setenv("HOME", str(fake_home))
+
     (tmp_path / "pyproject.toml").write_text(
         '[project]\nname = "post-create-proj"\n', encoding="utf-8"
     )
@@ -188,3 +192,40 @@ def test_ai_agents_command_scaffolds_instructions(runner: CliRunner, tmp_path: P
     assert (tmp_path / "CLAUDE.md").exists()
     assert (tmp_path / ".github" / "copilot-instructions.md").exists()
     assert "Testing AI agents generation" in (tmp_path / "AGENTS.md").read_text(encoding="utf-8")
+
+
+def test_instruction_generator_devops_cli_and_force_modes(tmp_path: Path) -> None:
+    """Verify devops-cli project metadata AGENTS.md template and scaffold force/skip behavior."""
+    # 1. DevOps CLI specific AGENTS.md
+    devops_meta = ProjectMetadata(
+        name="devops-cli",
+        description="DevOps CLI Automation Tool",
+        version="0.1.8",
+        requires_python=">=3.14",
+        is_devops_cli=True,
+    )
+    agents_doc = generate_agents_md(devops_meta)
+    assert "devops ci" in agents_doc
+    assert "Knowledge Base" in agents_doc or "DevOps CLI" in agents_doc
+
+    # 2. Corrupt pyproject.toml handling
+    bad_proj = tmp_path / "bad_proj"
+    bad_proj.mkdir()
+    (bad_proj / "pyproject.toml").write_text("invalid [toml content", encoding="utf-8")
+    meta_corrupt = parse_project_metadata(bad_proj)
+    assert meta_corrupt.name == "bad_proj"
+
+    # 3. scaffold_agent_instructions force vs skip
+    target_dir = tmp_path / "scaffold_test"
+    target_dir.mkdir()
+    (target_dir / "AGENTS.md").write_text("Existing AGENTS.md", encoding="utf-8")
+
+    # Without force -> skip
+    written_skip = scaffold_agent_instructions(target_dir, files=["AGENTS.md"], force=False)
+    assert len(written_skip) == 0
+    assert (target_dir / "AGENTS.md").read_text(encoding="utf-8") == "Existing AGENTS.md"
+
+    # With force -> overwrite
+    written_force = scaffold_agent_instructions(target_dir, files=["AGENTS.md"], force=True)
+    assert len(written_force) == 1
+    assert "AI Agent Instructions" in (target_dir / "AGENTS.md").read_text(encoding="utf-8")

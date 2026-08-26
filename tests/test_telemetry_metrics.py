@@ -67,3 +67,10 @@ def test_w3c_traceparent_helpers() -> None:
     headers: dict[str, str] = {}
     injected = inject_traceparent_headers(headers)
     assert isinstance(injected, dict)
+
+    from devops_cli.telemetry.tracer import trace_span
+
+    with trace_span("test_span_inject"):
+        injected_active = inject_traceparent_headers({"Custom": "1"})
+        assert "traceparent" in injected_active
+        assert injected_active["traceparent"].startswith("00-")

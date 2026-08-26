@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from devops_cli.config.constants import CONST_ERROR_CODE_LLM_INFERENCE, CONST_EXIT_ERROR_INFERENCE
 from devops_cli.exceptions.base import DevOpsCLIError
 
 
@@ -16,8 +17,8 @@ class LLMInferenceError(DevOpsCLIError, ValueError):
         *,
         provider: str | None = None,
         model: str | None = None,
-        exit_code: int = 10,
-        error_code: str = "LLM_INFERENCE_ERROR",
+        exit_code: int = CONST_EXIT_ERROR_INFERENCE,
+        error_code: str = CONST_ERROR_CODE_LLM_INFERENCE,
         details: dict[str, Any] | None = None,
     ) -> None:
         err_details = {"provider": provider, "model": model}

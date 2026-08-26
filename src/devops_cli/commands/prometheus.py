@@ -7,11 +7,12 @@ from typing import Annotated, Any
 
 import httpx2
 import typer
-from rich.table import Table
 
 from devops_cli.config.defaults import (
     DEFAULT_HTTP_LONG_TIMEOUT_SECONDS,
     DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS,
+    DEFAULT_PROMETHEUS_QUERY_RANGE_START,
+    DEFAULT_PROMETHEUS_QUERY_RANGE_STEP,
 )
 from devops_cli.config.settings import Settings, load_settings
 from devops_cli.core.cli import new_typer
@@ -102,10 +103,8 @@ def _read_json(response: httpx2.Response) -> dict[str, Any]:
 
 @app.command()
 def query(
-    expr: Annotated[str, typer.Argument(help="PromQL expression")],
-    at: Annotated[
-        str | None, typer.Option("--time", "-t", help="Evaluation time (RFC3339 or Unix)")
-    ] = None,
+    expr: Annotated[str, typer.Argument(help=HELP.prometheus.expr)],
+    at: Annotated[str | None, typer.Option("--time", "-t", help=HELP.prometheus.time_at)] = None,
 ) -> None:
     """Execute an instant PromQL query."""
     if is_dry_run():
@@ -141,13 +140,12 @@ def query(
         print_warning(MESSAGES.prometheus.no_results, prefix=False)
         return
 
-    table = Table(title=expr[:80])
-    table.add_column("Labels", style="dim")
-    table.add_column("Value", style="cyan")
-
-    for series in result.series:
-        table.add_row(series.label_str or "(no labels)", series.value)
-    print_table(table)
+    rows = [[series.label_str or "(no labels)", series.value] for series in result.series]
+    print_table(
+        title=expr[:80],
+        columns=[("Labels", "dim"), ("Value", "cyan")],
+        rows=rows,
+    )
 
 
 # =============================================================================
@@ -157,12 +155,14 @@ def query(
 
 @app.command("query-range")
 def query_range(
-    expr: Annotated[str, typer.Argument(help="PromQL expression")],
+    expr: Annotated[str, typer.Argument(help=HELP.prometheus.expr)],
     start: Annotated[
-        str, typer.Option("--start", "-s", help="Start: duration ago (e.g. 1h) or Unix ts")
-    ] = "1h",
-    end: Annotated[str | None, typer.Option("--end", "-e")] = None,
-    step: Annotated[str, typer.Option("--step")] = "60s",
+        str, typer.Option("--start", "-s", help=HELP.prometheus.start_time)
+    ] = DEFAULT_PROMETHEUS_QUERY_RANGE_START,
+    end: Annotated[str | None, typer.Option("--end", "-e", help=HELP.prometheus.end_time)] = None,
+    step: Annotated[
+        str, typer.Option("--step", help=HELP.prometheus.step)
+    ] = DEFAULT_PROMETHEUS_QUERY_RANGE_STEP,
 ) -> None:
     """Execute a range PromQL query and summarise the result."""
     _validate_expr(expr)
@@ -221,25 +221,28 @@ def rules() -> None:
         )
         response.raise_for_status()
 
-    table = Table(title="Prometheus Rules")
-    table.add_column("Group", style="cyan")
-    table.add_column("Name")
-    table.add_column("Type")
-    table.add_column("Health")
-
+    rows: list[list[str]] = []
     data = _read_json(response) if response.content else {}
     groups = data.get("data", {}).get("groups", []) if isinstance(data, dict) else []
     for group in groups:
         for rule in group.get("rules", []):
             name = rule.get("name") or rule.get("alert", "")
             health = rule.get("health", "")
-            table.add_row(
-                group.get("name", ""),
-                name,
-                rule.get("type", ""),
-                "[green]ok[/green]" if health == "ok" else f"[red]{health}[/red]",
+            health_str = "[green]ok[/green]" if health == "ok" else f"[red]{health}[/red]"
+            rows.append(
+                [
+                    group.get("name", ""),
+                    name,
+                    rule.get("type", ""),
+                    health_str,
+                ]
             )
-    print_table(table)
+
+    print_table(
+        title="Prometheus Rules",
+        columns=[("Group", "cyan"), "Name", "Type", "Health"],
+        rows=rows,
+    )
 
 
 # =============================================================================
@@ -260,20 +263,22 @@ def targets() -> None:
         )
         response.raise_for_status()
 
-    table = Table(title="Prometheus Scrape Targets")
-    table.add_column("Job", style="cyan")
-    table.add_column("Instance")
-    table.add_column("State")
-    table.add_column("Last Scrape")
-
+    rows: list[list[str]] = []
     data = _read_json(response)
     for target in data.get("data", {}).get("activeTargets", []):
         up = target.get("health", "unknown") == "up"
         labels = target.get("labels") or {}
-        table.add_row(
-            labels.get("job", ""),
-            labels.get("instance", ""),
-            "[green]up[/green]" if up else "[red]down[/red]",
-            target.get("lastScrape", "")[:19],
+        rows.append(
+            [
+                labels.get("job", ""),
+                labels.get("instance", ""),
+                "[green]up[/green]" if up else "[red]down[/red]",
+                target.get("lastScrape", "")[:19],
+            ]
         )
-    print_table(table)
+
+    print_table(
+        title="Prometheus Scrape Targets",
+        columns=[("Job", "cyan"), "Instance", "State", "Last Scrape"],
+        rows=rows,
+    )

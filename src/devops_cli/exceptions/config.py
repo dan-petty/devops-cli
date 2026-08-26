@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from devops_cli.config.constants import CONST_ERROR_CODE_CONFIG, CONST_EXIT_FAILURE
 from devops_cli.exceptions.base import DevOpsCLIError
 
 
@@ -15,8 +16,8 @@ class ConfigurationError(DevOpsCLIError, ValueError):
         message: str,
         *,
         key: str | None = None,
-        exit_code: int = 1,
-        error_code: str = "CONFIGURATION_ERROR",
+        exit_code: int = CONST_EXIT_FAILURE,
+        error_code: str = CONST_ERROR_CODE_CONFIG,
         details: dict[str, Any] | None = None,
     ) -> None:
         err_details = {"key": key} if key else {}

@@ -5,17 +5,19 @@ from __future__ import annotations
 import threading
 import time
 from collections import defaultdict
-from dataclasses import dataclass, field
+
+from pydantic import BaseModel, Field
+
+from devops_cli.config.defaults import DEFAULT_OTEL_COUNTER_AMOUNT
 
 
-@dataclass
-class MetricSample:
+class MetricSample(BaseModel):
     """Individual metric sample with name, labels, and value."""
 
     name: str
-    labels: dict[str, str]
+    labels: dict[str, str] = Field(default_factory=dict)
     value: float
-    timestamp: float = field(default_factory=time.time)
+    timestamp: float = Field(default_factory=time.time)
 
 
 class InMemoryMetricsRegistry:
@@ -41,7 +43,7 @@ class InMemoryMetricsRegistry:
     def increment_counter(
         self,
         name: str,
-        value: float = 1.0,
+        value: float = DEFAULT_OTEL_COUNTER_AMOUNT,
         labels: dict[str, str] | None = None,
     ) -> None:
         """Increment a counter by the specified value (default 1.0)."""

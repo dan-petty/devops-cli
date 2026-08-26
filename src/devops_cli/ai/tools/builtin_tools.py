@@ -9,6 +9,12 @@ from pathlib import Path
 
 from devops_cli.config.constants import CONST_BINARY_EXTENSIONS
 from devops_cli.config.defaults import (
+    DEFAULT_KUBERNETES_NAMESPACE,
+    DEFAULT_OBSERVABILITY_NAMESPACE,
+    DEFAULT_PACKAGE_ECOSYSTEM,
+    DEFAULT_RAG_TOP_K,
+    DEFAULT_SEMGREP_CONFIG,
+    DEFAULT_SRC_DIR,
     DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
     DEFAULT_TOOL_BUFFER_CHUNK_SIZE,
     DEFAULT_TOOL_DIFF_MAX_CHARS,
@@ -196,7 +202,7 @@ def search_code(query: str, directory: str = ".") -> list[str]:
     return matches
 
 
-def k8s_pods(namespace: str = "default") -> str:
+def k8s_pods(namespace: str = DEFAULT_KUBERNETES_NAMESPACE) -> str:
     """Query pods in a Kubernetes namespace."""
     return _run_tool_cmd(
         ["kubectl", "get", "pods", "-n", namespace],
@@ -204,7 +210,7 @@ def k8s_pods(namespace: str = "default") -> str:
     )
 
 
-def k8s_jaeger_status(namespace: str = "observability") -> str:
+def k8s_jaeger_status(namespace: str = DEFAULT_OBSERVABILITY_NAMESPACE) -> str:
     """Check Jaeger distributed tracing backend deployment status in cluster."""
     return _run_tool_cmd(
         ["kubectl", "get", "jaegers,deployments,services", "-n", namespace],
@@ -217,6 +223,14 @@ def argo_apps() -> str:
     return _run_tool_cmd(
         ["argocd", "app", "list"],
         fallback_msg=MESSAGES.tools.no_argo_apps,
+    )
+
+
+def argo_app_status(app_name: str) -> str:
+    """Get detailed health and sync status for a specific ArgoCD application."""
+    return _run_tool_cmd(
+        ["argocd", "app", "get", app_name],
+        fallback_msg=MESSAGES.tools.argo_app_not_found.format(app_name=app_name),
     )
 
 
@@ -246,52 +260,49 @@ def _run_workspace_security_scan(
 
 
 def scan_trivy(target: str = ".") -> str:
-    """Run Trivy filesystem security scanner for CVEs and configuration misconfigurations."""
+    """Run Aqua Trivy filesystem security scanner for CVEs, secrets, and misconfigurations."""
     return _run_workspace_security_scan(
         target,
-        lambda p: ["trivy", "fs", "--severity", "HIGH,CRITICAL", str(p)],
-        fallback_msg="No HIGH/CRITICAL vulnerabilities detected by Trivy.",
+        lambda p: ["trivy", "fs", str(p), "--format", "json", "--quiet"],
+        fallback_msg="No security vulnerabilities or misconfigurations detected by Trivy.",
+        missing_tool_name="trivy",
     )
 
 
 def scan_uv_audit(directory: str = ".", requirements_file: str = "") -> str:
-    """Audit Python dependencies for known CVEs using uv audit / PyPI advisory database."""
-    target_dir = Path(directory).resolve()
-    if not _is_safe_workspace_path(target_dir):
-        return f"Access Denied: {directory} is outside workspace."
-    cmd = ["uv", "audit"]
-    if requirements_file:
-        req_path = Path(requirements_file).resolve()
-        if not _is_safe_workspace_path(req_path):
-            return f"Access Denied: {requirements_file} is outside workspace."
-        cmd.extend(["-r", str(req_path)])
-    return _run_tool_cmd(
-        cmd,
-        cwd=target_dir,
-        fallback_msg="No dependency vulnerabilities detected by uv audit.",
-        max_chars=DEFAULT_TOOL_DIFF_MAX_CHARS,
+    """Audit Python dependency security vulnerabilities and CVE advisories using uv pip audit."""
+    return _run_workspace_security_scan(
+        directory,
+        lambda p: (
+            ["uv", "audit"]
+            if not requirements_file
+            else ["uv", "pip", "audit", "-r", str(p / requirements_file)]
+        ),
+        fallback_msg="No known security vulnerabilities identified by uv audit.",
+        missing_tool_name="uv",
     )
 
 
 def scan_kubelinter(target: str = ".") -> str:
-    """Run Red Hat Kube-linter static security and best-practice analysis on K8s manifests."""
+    """Run kube-linter static security and linting analysis across Kubernetes YAML manifests."""
     return _run_workspace_security_scan(
         target,
-        lambda p: ["kube-linter", "lint", str(p)],
-        fallback_msg="No K8s manifest lint errors detected by Kube-linter.",
+        lambda p: ["kube-linter", "lint", str(p), "--format", "json"],
+        fallback_msg="No Kubernetes manifest linting violations found.",
+        missing_tool_name="kube-linter",
     )
 
 
 def scan_pluto(target: str = ".") -> str:
-    """Run Fairwinds Pluto to detect deprecated and removed Kubernetes API versions."""
+    """Detect deprecated and removed Kubernetes API versions in Helm charts and manifests."""
     return _run_workspace_security_scan(
         target,
-        lambda p: ["pluto", "detect-files", "-f" if p.is_file() else "-d", str(p)],
+        lambda p: ["pluto", "detect-files", "-d", str(p), "-o", "json"],
         fallback_msg="No deprecated Kubernetes APIs detected by Pluto.",
     )
 
 
-def scan_bandit(target: str = "src") -> str:
+def scan_bandit(target: str = DEFAULT_SRC_DIR) -> str:
     """Run PyCQA Bandit static security vulnerability analysis on Python source files."""
     return _run_workspace_security_scan(
         target,
@@ -323,7 +334,7 @@ def scan_gitleaks(target: str = ".") -> str:
     )
 
 
-def scan_semgrep(target: str = ".", config: str = "p/default") -> str:
+def scan_semgrep(target: str = ".", config: str = DEFAULT_SEMGREP_CONFIG) -> str:
     """Run Semgrep multilingual static AST pattern matching scan."""
     return _run_workspace_security_scan(
         target,
@@ -335,7 +346,7 @@ def scan_semgrep(target: str = ".", config: str = "p/default") -> str:
 
 def rag_search(
     query: str,
-    top_k: int = 5,
+    top_k: int = DEFAULT_RAG_TOP_K,
     project: str | None = None,
     language: str | None = None,
     category: str | None = None,
@@ -378,7 +389,9 @@ def rag_search(
         return f"RAG search error: {exc}"
 
 
-def scan_osv(package_name: str, version: str = "", ecosystem: str = "PyPI") -> str:
+def scan_osv(
+    package_name: str, version: str = "", ecosystem: str = DEFAULT_PACKAGE_ECOSYSTEM
+) -> str:
     """Query OSV.dev and NVD vulnerability databases for known package security flaws."""
     try:
         from devops_cli.security.vulnerability_lookup import OSVClient

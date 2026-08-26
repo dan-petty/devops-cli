@@ -45,3 +45,28 @@ def test_cleanup_data_tier_dry_run(tmp_path: Path) -> None:
 
     assert len(summary.pruned_files) == 1
     assert old_file.exists()  # Kept in dry-run mode
+
+
+def test_cleanup_data_tier_directory_pruning_and_missing_dir(tmp_path: Path) -> None:
+    """Verify cleanup_data_tier handles directory pruning and non-existent data_dir."""
+    # 1. Non-existent .data dir
+    empty_summary = cleanup_data_tier(repo_root=tmp_path / "nonexistent")
+    assert len(empty_summary.pruned_files) == 0
+    assert len(empty_summary.pruned_dirs) == 0
+
+    # 2. Directory pruning
+    data_dir = tmp_path / ".data" / "reviews"
+    data_dir.mkdir(parents=True)
+    old_dir = data_dir / "20260101-session"
+    old_dir.mkdir()
+    sub_file = old_dir / "findings.json"
+    sub_file.write_text('{"findings": []}', encoding="utf-8")
+
+    ten_days_ago = time.time() - (10 * 86400)
+    os.utime(old_dir, (ten_days_ago, ten_days_ago))
+
+    summary = cleanup_data_tier(repo_root=tmp_path, older_than_seconds=7 * 86400, dry_run=False)
+    assert len(summary.pruned_dirs) == 1
+    assert "20260101-session" in summary.pruned_dirs[0]
+    assert not old_dir.exists()
+    assert summary.freed_bytes > 0

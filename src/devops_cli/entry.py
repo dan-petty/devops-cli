@@ -1,24 +1,20 @@
-"""Fast CLI entrypoint dispatcher optimized for sub-100ms startup.
-
-Dispatches help, version, and dry-run flows via dedicated fast-path modules
-before importing heavy runtime frameworks or CLI command packages.
-"""
+"""CLI entrypoint dispatcher for devops-cli."""
 
 from __future__ import annotations
 
+import os
 import sys
 
 from devops_cli.dry_run.state import is_dry_run_requested, set_dry_run
-from devops_cli.help import (
-    is_help_requested,
-    is_version_requested,
-    show_help,
-    show_version,
-)
+
+
+def is_completion_requested() -> bool:
+    """Return True if Typer/Click shell completion is being requested via environment variables."""
+    return "_DEVOPS_COMPLETE" in os.environ or "_TYPER_COMPLETE_ARGS" in os.environ
 
 
 def main(argv: list[str] | None = None) -> None:
-    """Execute devops CLI command with sub-100ms fast-paths for help, version, and dry-run."""
+    """Execute devops CLI command with Typer."""
     if argv is None:
         raw_args = sys.argv[1:]
     else:
@@ -29,24 +25,21 @@ def main(argv: list[str] | None = None) -> None:
         else:
             raw_args = list(argv)
 
-    # 1. Sub-10ms fast-path: Version queries (-v / --version)
-    if is_version_requested(raw_args):
-        show_version()
+    # 1. Shell completion fast-dispatch to Typer/Click engine
+    if is_completion_requested():
+        from devops_cli.main import app
+
+        app(raw_args, prog_name="devops")
         return
 
-    # 2. Sub-10ms fast-path: Root and Subcommand Help queries (-h / --help)
-    if is_help_requested(raw_args):
-        if show_help(raw_args):
-            return
-
-    # 3. Dry-run state activation (ensures live model structures and message syntax are preserved)
+    # 2. Dry-run state activation
     if is_dry_run_requested(raw_args):
         set_dry_run(True)
 
-    # 4. Standard Typer execution for delegated subcommands
+    # 3. Standard Typer execution for delegated subcommands and help
     from devops_cli.main import app
 
-    app(raw_args)
+    app(raw_args, prog_name="devops")
 
 
 if __name__ == "__main__":

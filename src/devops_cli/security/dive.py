@@ -9,6 +9,7 @@ import subprocess
 
 from pydantic import BaseModel, Field
 
+from devops_cli.config.defaults import DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS
 from devops_cli.telemetry import trace_span
 
 logger = logging.getLogger(__name__)
@@ -37,7 +38,7 @@ class DiveAnalysisResult(BaseModel):
 @trace_span("docker.dive")
 def run_dive_analysis(
     image_name: str,
-    timeout: float = 60.0,
+    timeout: float = DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
 ) -> DiveAnalysisResult:
     """Analyze container image layers using Dive CLI or fallback inspect."""
     dive_bin = shutil.which("dive")

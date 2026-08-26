@@ -12,9 +12,6 @@ from typing import Annotated
 
 import typer
 from jinja2 import Environment, FileSystemLoader, select_autoescape
-from rich import print as rprint
-from rich.console import Console
-from rich.table import Table
 
 from devops_cli.ai.instruction_generator import scaffold_agent_instructions
 from devops_cli.config.constants import (
@@ -34,7 +31,10 @@ from devops_cli.git.operations import iter_workspace_repos
 from devops_cli.lang import ERRORS, HELP, MESSAGES
 from devops_cli.output import (
     print_error,
+    print_info,
     print_success,
+    print_table,
+    print_warning,
     write_json_file,
     write_text_file,
 )
@@ -42,7 +42,6 @@ from devops_cli.output import (
 logger = logging.getLogger(__name__)
 
 app = new_typer(help=HELP.devcontainer.app, no_args_is_help=True)
-console = Console()
 
 _TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -74,17 +73,19 @@ def _jinja_env() -> Environment:
 
 @app.command()
 def init(
-    repo_path: Annotated[Path, typer.Argument(help="Path to the repository")] = Path("."),
-    project_name: Annotated[str | None, typer.Option("--name", "-n", help="Project name")] = None,
+    repo_path: Annotated[Path, typer.Argument(help=HELP.devcontainer.repo_path)] = Path("."),
+    project_name: Annotated[
+        str | None, typer.Option("--name", "-n", help=HELP.devcontainer.project_name)
+    ] = None,
     python_version: Annotated[
-        str, typer.Option("--python", help="Python version for base template")
+        str, typer.Option("--python", help=HELP.devcontainer.python_version)
     ] = _project_python_version(),
     image: Annotated[
         str | None,
         typer.Option(
             "--image",
             "-i",
-            help="Base container image (defaults to published devops-cli image)",
+            help=HELP.devcontainer.image,
         ),
     ] = None,
     published: Annotated[
@@ -92,14 +93,14 @@ def init(
         typer.Option(
             "--published",
             "-p",
-            help="Use published GHCR image (defaults to True)",
+            help=HELP.devcontainer.published,
         ),
     ] = True,
     home_volume: Annotated[
         str | None,
         typer.Option(
             "--home-volume",
-            help="Custom volume name for /home/vscode (defaults to <project_name>-home)",
+            help=HELP.devcontainer.volume_name,
         ),
     ] = None,
     force: Annotated[
@@ -107,7 +108,7 @@ def init(
         typer.Option(
             "--force",
             "-f",
-            help="Overwrite existing devcontainer.json and configurations",
+            help=HELP.devcontainer.overwrite,
         ),
     ] = False,
 ) -> None:
@@ -116,7 +117,7 @@ def init(
     dc_file = dc_dir / CONST_DEVCONTAINER_JSON_NAME
 
     if dc_file.exists() and not force:
-        rprint(f"[yellow]{MESSAGES.devcontainer.already_exists.format(path=dc_file)}[/yellow]")
+        print_warning(MESSAGES.devcontainer.already_exists.format(path=dc_file), prefix=False)
         raise typer.Exit(1)
 
     raw_name = project_name or repo_path.resolve().name
@@ -167,8 +168,10 @@ def init(
 
 @app.command()
 def update(
-    repo_path: Annotated[Path, typer.Argument(help="Path to the repository")] = Path("."),
-    python_version: Annotated[str, typer.Option("--python")] = _project_python_version(),
+    repo_path: Annotated[Path, typer.Argument(help=HELP.devcontainer.repo_path)] = Path("."),
+    python_version: Annotated[
+        str, typer.Option("--python", help=HELP.devcontainer.python_version)
+    ] = _project_python_version(),
 ) -> None:
     """Update the Python image version in an existing devcontainer.json."""
     dc_file = repo_path / CONST_DEVCONTAINER_JSON_PATH
@@ -256,15 +259,13 @@ def _validate_manifest_content(data: object, base_dir: Path) -> list[str]:
 def validate(
     workspace: Annotated[
         Path,
-        typer.Option(
-            "--workspace", "-w", help="Path to workspace directory containing .devcontainer"
-        ),
+        typer.Option("--workspace", "-w", help=HELP.devcontainer.workspace_dir),
     ] = Path("."),
     config_path: Annotated[
-        Path | None, typer.Option("--config", "-c", help="Direct path to devcontainer.json")
+        Path | None, typer.Option("--config", "-c", help=HELP.devcontainer.config_file)
     ] = None,
     dry_run: Annotated[
-        bool, typer.Option("--dry-run", help="Simulate DevContainer manifest validation")
+        bool, typer.Option("--dry-run", help=HELP.devcontainer.validate_dry_run)
     ] = False,
 ) -> None:
     """Validate .devcontainer/devcontainer.json manifest syntax and configuration schema."""
@@ -291,7 +292,7 @@ def validate(
         return
 
     if not dc_file.exists():
-        rprint(f"[red]{ERRORS.devcontainer.manifest_not_found.format(path=dc_file)}[/red]")
+        print_error(ERRORS.devcontainer.manifest_not_found.format(path=dc_file), prefix=False)
         raise typer.Exit(1)
 
     try:
@@ -299,16 +300,17 @@ def validate(
         clean_text = _strip_json_comments(raw_text)
         data = json.loads(clean_text)
     except Exception as exc:
-        rprint(f"[red]{ERRORS.devcontainer.parse_failed.format(path=dc_file, exc=exc)}[/red]")
+        print_error(ERRORS.devcontainer.parse_failed.format(path=dc_file, exc=exc), prefix=False)
         raise typer.Exit(1)
 
     errors = _validate_manifest_content(data, dc_file.parent)
     if errors:
-        rprint(
-            f"[bold red]{MESSAGES.devcontainer.manifest_validation_failed.format(path=dc_file)}[/bold red]"
+        print_error(
+            MESSAGES.devcontainer.manifest_validation_failed.format(path=dc_file),
+            prefix=False,
         )
         for err in errors:
-            rprint(f"  [red]• {err}[/red]")
+            print_error(f"  • {err}", prefix=False)
         raise typer.Exit(1)
 
     name = data.get("name", "unknown")
@@ -319,12 +321,12 @@ def validate(
     n_mounts = len(data.get("mounts", [])) if isinstance(data.get("mounts"), list) else 0
     n_ports = len(data.get("forwardPorts", [])) if isinstance(data.get("forwardPorts"), list) else 0
 
-    rprint(f"[bold green]✓ DevContainer manifest is valid:[/bold green] [cyan]{dc_file}[/cyan]")
-    rprint(f"  [dim]Name:[/dim] [bold]{name}[/bold]")
-    rprint(f"  [dim]Base:[/dim] {base}")
-    rprint(f"  [dim]Features:[/dim] {n_features} configured")
-    rprint(f"  [dim]Mounts:[/dim] {n_mounts} configured")
-    rprint(f"  [dim]Forward Ports:[/dim] {n_ports} configured")
+    print_success(f"DevContainer manifest is valid: {dc_file}")
+    print_info(f"  Name: {name}", prefix=False)
+    print_info(f"  Base: {base}", prefix=False)
+    print_info(f"  Features: {n_features} configured", prefix=False)
+    print_info(f"  Mounts: {n_mounts} configured", prefix=False)
+    print_info(f"  Forward Ports: {n_ports} configured", prefix=False)
 
 
 # =============================================================================
@@ -349,23 +351,24 @@ def list_devcontainers(
     root = base_dir or settings.repos.base_dir
 
     if not root.exists():
-        rprint(f"[yellow]{MESSAGES.repos.repos_dir_not_found.format(root=root)}[/yellow]")
+        print_warning(MESSAGES.repos.repos_dir_not_found.format(root=root), prefix=False)
         raise typer.Exit(0)
 
-    table = Table(title=MESSAGES.devcontainer.status_table_title)
-    table.add_column(MESSAGES.devcontainer.col_repository, style="cyan")
-    table.add_column(CONST_DEVCONTAINER_JSON_NAME)
-
-    for repo_dir in iter_workspace_repos(root):
-        dc_ok = (repo_dir / CONST_DEVCONTAINER_JSON_PATH).exists()
-        table.add_row(
+    rows = [
+        [
             repo_label(repo_dir),
             MESSAGES.devcontainer.status_configured
-            if dc_ok
+            if (repo_dir / CONST_DEVCONTAINER_JSON_PATH).exists()
             else MESSAGES.devcontainer.status_missing,
-        )
+        ]
+        for repo_dir in iter_workspace_repos(root)
+    ]
 
-    console.print(table)
+    print_table(
+        title=MESSAGES.devcontainer.status_table_title,
+        columns=[(MESSAGES.devcontainer.col_repository, "cyan"), CONST_DEVCONTAINER_JSON_NAME],
+        rows=rows,
+    )
 
 
 # =============================================================================
@@ -777,11 +780,9 @@ def _start_git_daemon(workspace_dir: Path, *, dry_run: bool = False) -> list[str
 @app.command("post-create")
 def post_create(
     workspace: Annotated[
-        Path, typer.Option("--workspace", "-w", help="Path to workspace directory")
+        Path, typer.Option("--workspace", "-w", help=HELP.options.workspace_dir)
     ] = Path("."),
-    dry_run: Annotated[
-        bool, typer.Option("--dry-run", help="Simulate execution without modifying files")
-    ] = False,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Execute DevContainer post-create setup tasks (history, shell completions, config prep)."""
     ws = workspace.resolve()
@@ -793,11 +794,11 @@ def post_create(
         )
         return
 
-    rprint(f"[cyan]{MESSAGES.devcontainer.post_create_start.format(workspace=ws)}[/cyan]")
+    print_info(MESSAGES.devcontainer.post_create_start.format(workspace=ws), prefix=False)
     actions = _run_post_create_lifecycle(ws, dry_run=False)
     for action in actions:
-        rprint(f"  [green]✓[/green] {action}")
-    rprint(f"[bold green]{MESSAGES.devcontainer.post_create_ready}[/bold green]")
+        print_info(f"  [green]✓[/green] {action}", prefix=False)
+    print_success(MESSAGES.devcontainer.post_create_ready, prefix=False)
 
 
 # =============================================================================
@@ -808,11 +809,9 @@ def post_create(
 @app.command("post-start")
 def post_start(
     workspace: Annotated[
-        Path, typer.Option("--workspace", "-w", help="Path to workspace directory")
+        Path, typer.Option("--workspace", "-w", help=HELP.options.workspace_dir)
     ] = Path("."),
-    dry_run: Annotated[
-        bool, typer.Option("--dry-run", help="Simulate execution without modifying files")
-    ] = False,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Execute DevContainer post-start tasks (SSH keys, git defaults, kubeconfig, MCP sync)."""
     ws = workspace.resolve()
@@ -824,11 +823,11 @@ def post_start(
         )
         return
 
-    rprint(f"[cyan]{MESSAGES.devcontainer.post_start_start.format(workspace=ws)}[/cyan]")
+    print_info(MESSAGES.devcontainer.post_start_start.format(workspace=ws), prefix=False)
     actions = _run_post_start_lifecycle(ws, dry_run=False)
     for action in actions:
-        rprint(f"  [green]✓[/green] {action}")
-    rprint(f"[bold green]{MESSAGES.devcontainer.post_start_ready}[/bold green]")
+        print_info(f"  [green]✓[/green] {action}", prefix=False)
+    print_success(MESSAGES.devcontainer.post_start_ready, prefix=False)
 
 
 # =============================================================================
@@ -839,20 +838,16 @@ def post_start(
 @app.command("run-lifecycle")
 def run_lifecycle(
     workspace: Annotated[
-        Path, typer.Option("--workspace", "-w", help="Path to workspace directory")
+        Path, typer.Option("--workspace", "-w", help=HELP.options.workspace_dir)
     ] = Path("."),
     post_create_flag: Annotated[
-        bool, typer.Option("--post-create", help="Execute post-create setup tasks")
+        bool, typer.Option("--post-create", help=HELP.devcontainer.run_post_create)
     ] = False,
     post_start_flag: Annotated[
-        bool, typer.Option("--post-start", help="Execute post-start lifecycle tasks")
+        bool, typer.Option("--post-start", help=HELP.devcontainer.run_post_start)
     ] = False,
-    all_flag: Annotated[
-        bool, typer.Option("--all", "-a", help="Execute all DevContainer lifecycle tasks")
-    ] = False,
-    dry_run: Annotated[
-        bool, typer.Option("--dry-run", help="Simulate execution without modifying files")
-    ] = False,
+    all_flag: Annotated[bool, typer.Option("--all", "-a", help=HELP.devcontainer.run_all)] = False,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Run specified DevContainer lifecycle hook tasks natively in Python."""
     ws = workspace.resolve()

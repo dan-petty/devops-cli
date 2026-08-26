@@ -4,38 +4,36 @@ Complete command-line reference for `devops-cli`, automatically generated from C
 
 ## Command Groups
 
-- [`devops repos`](#devops-repos) — Clone and manage repositories.
-- [`devops ssh`](#devops-ssh) — SSH key generation, rotation, and GitHub registration.
+- [`devops repos`](#devops-repos) — Clone, synchronize, and manage organization repositories.
+- [`devops ssh`](#devops-ssh) — Generate, rotate, audit, and register Ed25519 SSH keypairs.
 - [`devops branches`](#devops-branches) — Branch management and Jira workflows.
 - [`devops devcontainer`](#devops-devcontainer) — Manage devcontainer configurations.
-- [`devops workspace`](#devops-workspace) — Manage VS Code workspace files.
-- [`devops install-tools`](#devops-install-tools) — Install DevOps tool binaries.
-- [`devops k8s`](#devops-k8s) — Kubernetes resource management.
-- [`devops kustomize`](#devops-kustomize) — Kustomize operations.
+- [`devops workspace`](#devops-workspace) — Manage multi-root VS Code workspace files (.code-workspace).
+- [`devops install-tools`](#devops-install-tools) — Install and manage DevOps tool binaries.
+- [`devops k8s`](#devops-k8s) — Manage Kubernetes clusters, pods, services, and workloads.
+- [`devops kustomize`](#devops-kustomize) — Kustomize build and apply operations.
 - [`devops docker`](#devops-docker) — Docker image management.
 - [`devops grafana`](#devops-grafana) — Grafana dashboard and alert management.
-- [`devops prometheus`](#devops-prometheus) — Prometheus query and rule management.
+- [`devops prometheus`](#devops-prometheus) — Prometheus metrics querying and analysis.
 - [`devops argo`](#devops-argo) — Argo CD, Workflows, and Rollouts management.
-- [`devops config`](#devops-config) — Manage devops-cli configuration.
+- [`devops config`](#devops-config) — Show, set, get, or initialize CLI configuration.
 - [`devops ci`](#devops-ci) — Run tests, linting, formatting, and type-checks.
-- [`devops uv`](#devops-uv) — Run uv commands through devops.
-- [`devops scan`](#devops-scan) — Security, vulnerability, secret, and IaC scanner.
-- [`devops ai`](#devops-ai) — Configure and test AI providers.
-- [`devops review`](#devops-review) — AI-powered code reviews using expert personas.
-- [`devops mcp`](#devops-mcp) — FastMCP server for Model Context Protocol integration.
-- [`devops docs`](#devops-docs) — Generate and validate CLI and API documentation.
-- [`devops release`](#devops-release) — Manage release cycles, version bumping, changelogs, and release verification.
-- [`devops pr`](#devops-pr) — Manage GitHub pull requests and base branch targeting.
+- [`devops uv`](#devops-uv) — uv dependency management proxies.
+- [`devops scan`](#devops-scan) — Security scanner suite: Trivy, Gitleaks, Semgrep, Checkov, Kubeconform.
+- [`devops ai`](#devops-ai) — Configure, test, chat, analyze, and review codebases (Ollama, Claude, Copilot).
+- [`devops review`](#devops-review) — AI-powered multi-persona code review and security audits.
+- [`devops mcp`](#devops-mcp) — FastMCP server and Model Context Protocol integrations.
+- [`devops docs`](#devops-docs) — Generate and validate CLI and architecture documentation.
+- [`devops release`](#devops-release) — Automate version bumps, changelogs, tags, and GitHub releases.
+- [`devops pr`](#devops-pr) — GitHub Pull Request workflows and reviews.
 - [`devops tf`](#devops-tf) — OpenTofu and Terraform Infrastructure-as-Code operations.
-- [`devops tls`](#devops-tls) — X.509 TLS certificate generation, inspection, verification, and Kubernetes secrets.
-- [`devops telemetry`](#devops-telemetry) — OpenTelemetry observability, tracing, and metrics management.
-- [`devops serve`](#devops-serve) — FastAPI REST and OpenAPI service engine.
+- [`devops tls`](#devops-tls) — Generate and manage homelab TLS certificates and CAs.
+- [`devops telemetry`](#devops-telemetry) — OpenTelemetry tracing, metrics, and Jaeger observability.
+- [`devops serve`](#devops-serve) — FastAPI REST & OpenAPI Service Engine for remote automation, health probes, and metrics.
 
 ---
 
 ## devops repos
-
-Clone and manage repositories.
 
 Clone, synchronize, and manage organization repositories.
 
@@ -51,13 +49,13 @@ devops repos clone-org [OPTIONS] <org>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<org>` | `string` | No | GitHub organisation name |
+| `<org>` | `string` | No | GitHub organisation name. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--base-dir`, `-d` | `path` | - | - |
+| `--base-dir`, `-d` | `path` | - | Base repository root directory. |
 | `--private`, `--no-private` | `boolean` | `True` | - |
 | `--forks`, `--no-forks` | `boolean` | - | - |
 
@@ -73,13 +71,13 @@ devops repos clone [OPTIONS] <url>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<url>` | `string` | Yes | Repository URL (SSH or HTTPS) |
+| `<url>` | `string` | Yes | Repository URL (SSH or HTTPS). |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--base-dir`, `-d` | `path` | - | - |
+| `--base-dir`, `-d` | `path` | - | Base repository root directory. |
 
 ### `devops repos list`
 
@@ -129,8 +127,6 @@ devops repos sync [OPTIONS]
 
 ## devops ssh
 
-SSH key generation, rotation, and GitHub registration.
-
 Generate, rotate, audit, and register Ed25519 SSH keypairs.
 
 ### `devops ssh generate`
@@ -145,8 +141,8 @@ devops ssh generate [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--key-dir` | `path` | - | - |
-| `--comment`, `-c` | `string` | `` | - |
+| `--key-dir` | `path` | - | Directory where SSH keys are stored. |
+| `--comment`, `-c` | `string` | `` | Comment to include in public key. |
 
 ### `devops ssh register`
 
@@ -158,8 +154,8 @@ devops ssh register [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--key-file`, `-k` | `path` | - | Path to private key |
-| `--title` | `string` | - | - |
+| `--key-file`, `-k` | `path` | - | Path to private key. |
+| `--title` | `string` | - | Title for the item or entity. |
 
 ### `devops ssh rotate`
 
@@ -177,8 +173,8 @@ devops ssh rotate [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--key-dir` | `path` | - | - |
-| `--force`, `-f` | `boolean` | - | Rotate even if not yet due |
+| `--key-dir` | `path` | - | Directory where SSH keys are stored. |
+| `--force`, `-f` | `boolean` | - | Rotate even if not yet due. |
 
 ### `devops ssh list`
 
@@ -192,7 +188,7 @@ devops ssh list [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--key-dir` | `path` | - | - |
+| `--key-dir` | `path` | - | Directory where SSH keys are stored. |
 
 ### `devops ssh audit`
 
@@ -206,7 +202,7 @@ devops ssh audit [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--key-dir` | `path` | - | - |
+| `--key-dir` | `path` | - | Directory where SSH keys are stored. |
 
 ### `devops ssh status`
 
@@ -220,7 +216,7 @@ devops ssh status [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--key-dir` | `path` | - | - |
+| `--key-dir` | `path` | - | Directory where SSH keys are stored. |
 
 ---
 
@@ -240,7 +236,7 @@ devops branches update [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--base-dir`, `-d` | `path` | - | - |
+| `--base-dir`, `-d` | `path` | - | Base repository root directory. |
 
 ### `devops branches sync`
 
@@ -254,7 +250,7 @@ devops branches sync [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--base-dir`, `-d` | `path` | - | - |
+| `--base-dir`, `-d` | `path` | - | Base repository root directory. |
 
 ### `devops branches jira`
 
@@ -268,14 +264,14 @@ devops branches jira [OPTIONS] <ticket_id>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<ticket_id>` | `string` | Yes | Jira ticket ID, e.g. PROJ-123 |
+| `<ticket_id>` | `string` | Yes | Jira ticket ID, e.g. PROJ-123. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--slug`, `-s` | `string` | - | Short branch description |
-| `--repo`, `-r` | `path` | - | Target repo (default: cwd) |
+| `--slug`, `-s` | `string` | - | Short branch description. |
+| `--repo`, `-r` | `path` | - | Repository root directory (default: current directory). |
 
 ### `devops branches list`
 
@@ -289,8 +285,8 @@ devops branches list [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--base-dir`, `-d` | `path` | - | - |
-| `--all`, `-a` | `boolean` | - | Include remote branches |
+| `--base-dir`, `-d` | `path` | - | Base repository root directory. |
+| `--all`, `-a` | `boolean` | - | Include remote branches. |
 
 ### `devops branches clean`
 
@@ -304,8 +300,8 @@ devops branches clean [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--base-dir`, `-d` | `path` | - | - |
-| `--dry-run`, `-n` | `boolean` | - | Show what would be deleted |
+| `--base-dir`, `-d` | `path` | - | Base repository root directory. |
+| `--dry-run`, `-n` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -325,18 +321,18 @@ devops devcontainer init [OPTIONS] <repo_path>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<repo_path>` | `path` | No | Path to the repository |
+| `<repo_path>` | `path` | No | Path to the repository. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--name`, `-n` | `string` | - | Project name |
-| `--python` | `string` | `3.14` | Python version for base template |
-| `--image`, `-i` | `string` | - | Base container image (defaults to published devops-cli image) |
-| `--published`, `-p` | `boolean` | `True` | Use published GHCR image (defaults to True) |
-| `--home-volume` | `string` | - | Custom volume name for /home/vscode (defaults to <project_name>-home) |
-| `--force`, `-f` | `boolean` | - | Overwrite existing devcontainer.json and configurations |
+| `--name`, `-n` | `string` | - | Project name. |
+| `--python` | `string` | `3.14` | Python version for base template. |
+| `--image`, `-i` | `string` | - | Base container image (defaults to published devops-cli image). |
+| `--published`, `-p` | `boolean` | `True` | Use published GHCR image (defaults to True). |
+| `--home-volume` | `string` | - | Custom volume name for /home/vscode (defaults to <project_name>-home). |
+| `--force`, `-f` | `boolean` | - | Overwrite existing devcontainer.json and configurations. |
 
 ### `devops devcontainer update`
 
@@ -350,13 +346,13 @@ devops devcontainer update [OPTIONS] <repo_path>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<repo_path>` | `path` | No | Path to the repository |
+| `<repo_path>` | `path` | No | Path to the repository. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--python` | `string` | `3.14` | - |
+| `--python` | `string` | `3.14` | Python version for base template. |
 
 ### `devops devcontainer validate`
 
@@ -370,9 +366,9 @@ devops devcontainer validate [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--workspace`, `-w` | `path` | `.` | Path to workspace directory containing .devcontainer |
-| `--config`, `-c` | `path` | - | Direct path to devcontainer.json |
-| `--dry-run` | `boolean` | - | Simulate DevContainer manifest validation |
+| `--workspace`, `-w` | `path` | `.` | Path to workspace directory containing .devcontainer. |
+| `--config`, `-c` | `path` | - | Direct path to devcontainer.json. |
+| `--dry-run` | `boolean` | - | Simulate DevContainer manifest validation. |
 
 ### `devops devcontainer list`
 
@@ -400,8 +396,8 @@ devops devcontainer post-create [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--workspace`, `-w` | `path` | `.` | Path to workspace directory |
-| `--dry-run` | `boolean` | - | Simulate execution without modifying files |
+| `--workspace`, `-w` | `path` | `.` | Workspace root directory path. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops devcontainer post-start`
 
@@ -415,8 +411,8 @@ devops devcontainer post-start [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--workspace`, `-w` | `path` | `.` | Path to workspace directory |
-| `--dry-run` | `boolean` | - | Simulate execution without modifying files |
+| `--workspace`, `-w` | `path` | `.` | Workspace root directory path. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops devcontainer run-lifecycle`
 
@@ -430,17 +426,15 @@ devops devcontainer run-lifecycle [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--workspace`, `-w` | `path` | `.` | Path to workspace directory |
-| `--post-create` | `boolean` | - | Execute post-create setup tasks |
-| `--post-start` | `boolean` | - | Execute post-start lifecycle tasks |
-| `--all`, `-a` | `boolean` | - | Execute all DevContainer lifecycle tasks |
-| `--dry-run` | `boolean` | - | Simulate execution without modifying files |
+| `--workspace`, `-w` | `path` | `.` | Workspace root directory path. |
+| `--post-create` | `boolean` | - | Execute post-create setup tasks. |
+| `--post-start` | `boolean` | - | Execute post-start lifecycle tasks. |
+| `--all`, `-a` | `boolean` | - | Execute all DevContainer lifecycle tasks. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
 ## devops workspace
-
-Manage VS Code workspace files.
 
 Manage multi-root VS Code workspace files (.code-workspace).
 
@@ -456,13 +450,13 @@ devops workspace add [OPTIONS] <repo_path>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<repo_path>` | `path` | Yes | Folder path to add |
+| `<repo_path>` | `path` | Yes | Add a repository folder into the VS Code workspace file. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--workspace`, `-w` | `path` | - | - |
+| `--workspace`, `-w` | `path` | - | Target VS Code workspace file (.code-workspace or .json). |
 
 ### `devops workspace remove`
 
@@ -482,7 +476,7 @@ devops workspace remove [OPTIONS] <repo_path>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--workspace`, `-w` | `path` | - | - |
+| `--workspace`, `-w` | `path` | - | Target VS Code workspace file (.code-workspace or .json). |
 
 ### `devops workspace generate`
 
@@ -496,8 +490,8 @@ devops workspace generate [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--base-dir`, `-d` | `path` | - | - |
-| `--workspace`, `-w` | `path` | - | - |
+| `--base-dir`, `-d` | `path` | - | Base repository root directory. |
+| `--workspace`, `-w` | `path` | - | Target VS Code workspace file (.code-workspace or .json). |
 
 ### `devops workspace open`
 
@@ -511,7 +505,7 @@ devops workspace open [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--workspace`, `-w` | `path` | - | - |
+| `--workspace`, `-w` | `path` | - | Target VS Code workspace file (.code-workspace or .json). |
 
 ### `devops workspace clean`
 
@@ -525,14 +519,12 @@ devops workspace clean [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--older-than`, `-d` | `integer` | `7` | Prune artifacts older than N days |
-| `--dry-run` | `boolean` | - | Simulate pruning without deleting files |
+| `--older-than`, `-d` | `integer` | `7` | Prune artifacts older than N days. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
 ## devops install-tools
-
-Install DevOps tool binaries.
 
 Install and manage DevOps tool binaries.
 
@@ -553,6 +545,8 @@ devops install-tools status [OPTIONS]
 ---
 
 ## devops k8s
+
+Manage Kubernetes clusters, pods, services, and workloads.
 
 Kubernetes resource management.
 
@@ -627,8 +621,8 @@ devops k8s logs [OPTIONS] <pod>
 |---|---|---|---|
 | `--container`, `-c` | `string` | - | - |
 | `--namespace`, `-n` | `string` | - | - |
-| `--follow`, `-f` | `boolean` | - | - |
-| `--tail` | `integer` | `100` | - |
+| `--follow`, `-f` | `boolean` | - | Follow stream or log output in real time. |
+| `--tail` | `integer` | `100` | Number of recent lines to display. |
 
 ### `devops k8s bootstrap`
 
@@ -854,8 +848,6 @@ devops k8s validate [OPTIONS] <manifest_path>
 
 ## devops kustomize
 
-Kustomize operations.
-
 Kustomize build and apply operations.
 
 ### `devops kustomize build`
@@ -870,13 +862,13 @@ devops kustomize build [OPTIONS] <path>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<path>` | `path` | No | Path to kustomization directory |
+| `<path>` | `path` | No | Target kustomize directory path. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--output`, `-o` | `string` | - | Output file or directory |
+| `--output`, `-o` | `string` | - | Destination file or directory for generated manifests. |
 
 ### `devops kustomize diff`
 
@@ -890,7 +882,7 @@ devops kustomize diff <path>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<path>` | `path` | No | Path to kustomization directory |
+| `<path>` | `path` | No | Target kustomize directory path. |
 
 ### `devops kustomize apply`
 
@@ -904,14 +896,14 @@ devops kustomize apply [OPTIONS] <path>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<path>` | `path` | No | Path to kustomization directory |
+| `<path>` | `path` | No | Target kustomize directory path. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--dry-run` | `boolean` | - | - |
-| `--namespace`, `-n` | `string` | - | - |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--namespace`, `-n` | `string` | - | Kubernetes namespace. |
 
 ---
 
@@ -931,7 +923,7 @@ devops docker images [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--name`, `-n` | `string` | - | Filter by name |
+| `--name`, `-n` | `string` | - | Filter containers or images by name. |
 
 ### `devops docker build`
 
@@ -945,15 +937,15 @@ devops docker build [OPTIONS] <context>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<context>` | `path` | No | Build context directory |
+| `<context>` | `path` | No | Build context directory. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--tag`, `-t` | `string` | - | - |
-| `--file`, `-f` | `path` | - | - |
-| `--no-cache` | `boolean` | - | - |
+| `--tag`, `-t` | `string` | - | Image tag name. |
+| `--file`, `-f` | `path` | - | Path to Dockerfile. |
+| `--no-cache` | `boolean` | - | Do not use cached image layers when building. |
 
 ### `devops docker push`
 
@@ -967,7 +959,7 @@ devops docker push <image>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<image>` | `string` | Yes | Image name[:tag] to push |
+| `<image>` | `string` | Yes | Docker image name or repository tag. |
 
 ### `devops docker prune`
 
@@ -981,8 +973,8 @@ devops docker prune [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--volumes` | `boolean` | - | Also remove unused volumes |
-| `--force`, `-f` | `boolean` | - | Skip confirmation |
+| `--volumes` | `boolean` | - | Include or prune volumes. |
+| `--force`, `-f` | `boolean` | - | Force execution ignoring non-blocking warnings. |
 
 ### `devops docker analyze-layers`
 
@@ -996,14 +988,14 @@ devops docker analyze-layers [OPTIONS] <image>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<image>` | `string` | Yes | Container image tag or ID to analyze |
+| `<image>` | `string` | Yes | Docker image name or repository tag. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--dry-run` | `boolean` | - | Simulate layer analysis |
-| `--json` | `boolean` | - | Output metrics as JSON |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ---
 
@@ -1023,7 +1015,7 @@ devops grafana search [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--query`, `-q` | `string` | `` | Search query |
+| `--query`, `-q` | `string` | `` | Search query. |
 
 ### `devops grafana datasources`
 
@@ -1042,8 +1034,6 @@ devops grafana alerts
 ```
 
 ### `devops grafana dashboards`
-
-**Manage Grafana dashboards.**
 
 ```bash
 devops grafana dashboards COMMAND [ARGS]...
@@ -1069,13 +1059,13 @@ devops grafana dashboards export [OPTIONS] <uid>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<uid>` | `string` | Yes | Dashboard UID |
+| `<uid>` | `string` | Yes | Dashboard UID. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--output`, `-o` | `path` | - | - |
+| `--output`, `-o` | `path` | - | Destination path for output report or artifacts. |
 
 #### `devops grafana dashboards import`
 
@@ -1089,13 +1079,13 @@ devops grafana dashboards import [OPTIONS] <file>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<file>` | `path` | Yes | Dashboard JSON file |
+| `<file>` | `path` | Yes | Path to dashboard JSON file to import. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--folder-id` | `integer` | `0` | - |
+| `--folder-id` | `integer` | `0` | Target Grafana folder ID for dashboard import. |
 
 #### `devops grafana dashboards sync`
 
@@ -1109,13 +1099,11 @@ devops grafana dashboards sync [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--dir`, `-d` | `path` | - | Directory containing dashboard JSON files |
+| `--dir`, `-d` | `path` | - | Directory path containing dashboard definitions. |
 
 ---
 
 ## devops prometheus
-
-Prometheus query and rule management.
 
 Prometheus metrics querying and analysis.
 
@@ -1131,13 +1119,13 @@ devops prometheus query [OPTIONS] <expr>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<expr>` | `string` | Yes | PromQL expression |
+| `<expr>` | `string` | Yes | PromQL expression. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--time`, `-t` | `string` | - | Evaluation time (RFC3339 or Unix) |
+| `--time`, `-t` | `string` | - | Evaluation timestamp for instant vector query. |
 
 ### `devops prometheus query-range`
 
@@ -1151,15 +1139,15 @@ devops prometheus query-range [OPTIONS] <expr>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<expr>` | `string` | Yes | PromQL expression |
+| `<expr>` | `string` | Yes | PromQL expression. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--start`, `-s` | `string` | `1h` | Start: duration ago (e.g. 1h) or Unix ts |
-| `--end`, `-e` | `string` | - | - |
-| `--step` | `string` | `60s` | - |
+| `--start`, `-s` | `string` | `1h` | Start: duration ago (e.g. 1h) or Unix ts. |
+| `--end`, `-e` | `string` | - | Query range end timestamp or relative duration. |
+| `--step` | `string` | `60s` | Query resolution step interval. |
 
 ### `devops prometheus rules`
 
@@ -1185,15 +1173,11 @@ Argo CD, Workflows, and Rollouts management.
 
 ### `devops argo cd`
 
-**ArgoCD application management.**
-
 ```bash
 devops argo cd COMMAND [ARGS]...
 ```
 
 #### `devops argo cd apps`
-
-**ArgoCD application management.**
 
 ```bash
 devops argo cd apps COMMAND [ARGS]...
@@ -1219,14 +1203,14 @@ devops argo cd apps sync [OPTIONS] <name>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<name>` | `string` | Yes | Application name |
+| `<name>` | `string` | Yes | Application name. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--prune` | `boolean` | - | - |
-| `--force` | `boolean` | - | - |
+| `--prune` | `boolean` | - | Allow deletion of resources omitted from the source repository. |
+| `--force` | `boolean` | - | Force execution ignoring non-blocking warnings. |
 
 ##### `devops argo cd apps status`
 
@@ -1240,11 +1224,9 @@ devops argo cd apps status <name>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<name>` | `string` | Yes | Application name |
+| `<name>` | `string` | Yes | Application name. |
 
 ### `devops argo workflows`
-
-**Argo Workflows management.**
 
 ```bash
 devops argo workflows COMMAND [ARGS]...
@@ -1262,7 +1244,7 @@ devops argo workflows list [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--namespace`, `-n` | `string` | - | - |
+| `--namespace`, `-n` | `string` | - | Kubernetes namespace. |
 
 #### `devops argo workflows submit`
 
@@ -1276,14 +1258,14 @@ devops argo workflows submit [OPTIONS] <file>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<file>` | `path` | Yes | Workflow YAML file |
+| `<file>` | `path` | Yes | Workflow YAML file. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--namespace`, `-n` | `string` | - | - |
-| `--wait`, `-w` | `boolean` | - | - |
+| `--namespace`, `-n` | `string` | - | Kubernetes namespace. |
+| `--wait`, `-w` | `boolean` | - | Wait for sync operation to finish. |
 
 #### `devops argo workflows logs`
 
@@ -1297,18 +1279,16 @@ devops argo workflows logs [OPTIONS] <name>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<name>` | `string` | Yes | Workflow name |
+| `<name>` | `string` | Yes | Workflow name. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--namespace`, `-n` | `string` | - | - |
-| `--follow`, `-f` | `boolean` | - | - |
+| `--namespace`, `-n` | `string` | - | Kubernetes namespace. |
+| `--follow`, `-f` | `boolean` | - | Stream workflow execution logs. |
 
 ### `devops argo rollouts`
-
-**Argo Rollouts management.**
 
 ```bash
 devops argo rollouts COMMAND [ARGS]...
@@ -1326,7 +1306,7 @@ devops argo rollouts list [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--namespace`, `-n` | `string` | - | - |
+| `--namespace`, `-n` | `string` | - | Kubernetes namespace. |
 
 #### `devops argo rollouts status`
 
@@ -1340,20 +1320,20 @@ devops argo rollouts status [OPTIONS] <name>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<name>` | `string` | Yes | Rollout name |
+| `<name>` | `string` | Yes | Rollout name. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--namespace`, `-n` | `string` | - | - |
-| `--watch`, `-w` | `boolean` | - | - |
+| `--namespace`, `-n` | `string` | - | Kubernetes namespace. |
+| `--watch`, `-w` | `boolean` | - | Watch application status changes live. |
 
 ---
 
 ## devops config
 
-Manage devops-cli configuration.
+Show, set, get, or initialize CLI configuration.
 
 ### `devops config show`
 
@@ -1375,7 +1355,7 @@ devops config get <key>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<key>` | `string` | Yes | Dotted config key, e.g. github.default_org |
+| `<key>` | `string` | Yes | Dotted config key, e.g. github.default_org. |
 
 ### `devops config set`
 
@@ -1389,8 +1369,8 @@ devops config set <key> <value>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<key>` | `string` | Yes | Dotted config key, e.g. github.token |
-| `<value>` | `string` | Yes | Value to set |
+| `<key>` | `string` | Yes | Dotted config key, e.g. github.default_org. |
+| `<value>` | `string` | Yes | Value to set. |
 
 ### `devops config init`
 
@@ -1457,8 +1437,8 @@ devops config auth-headless <key> <token>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<key>` | `string` | Yes | Dotted secret key, e.g. github.token |
-| `<token>` | `string` | Yes | Secret token string |
+| `<key>` | `string` | Yes | Dotted secret key, e.g. github.token. |
+| `<token>` | `string` | Yes | Secret token string. |
 
 ### `devops config audit-stream`
 
@@ -1472,7 +1452,7 @@ devops config audit-stream <destination>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<destination>` | `string` | Yes | Destination Syslog or HTTP URL |
+| `<destination>` | `string` | Yes | Destination Syslog or HTTP URL. |
 
 ---
 
@@ -1492,10 +1472,11 @@ devops ci test [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--verbose`, `-v` | `boolean` | - | Verbose output |
-| `-k` | `string` | - | Filter tests by keyword expression |
-| `-x` | `boolean` | - | Stop after first failure |
-| `-n`, `--numprocesses` | `string` | `auto` | Number of parallel worker processes |
+| `--verbose`, `-v` | `boolean` | - | Enable detailed logging output. |
+| `-k` | `string` | - | Filter tests by keyword expression. |
+| `-x` | `boolean` | - | Stop after first failure. |
+| `-n`, `--numprocesses` | `string` | `auto` | Number of parallel worker processes. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ci coverage`
 
@@ -1509,8 +1490,10 @@ devops ci coverage [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--html` | `boolean` | - | Generate HTML coverage report in htmlcov/ |
-| `-n`, `--numprocesses` | `string` | `auto` | Number of parallel worker processes |
+| `--html` | `boolean` | - | Generate HTML coverage report in .data/htmlcov/. |
+| `--xml` | `boolean` | - | Generate XML coverage report in .data/coverage.xml. |
+| `-n`, `--numprocesses` | `string` | `auto` | Number of parallel worker processes. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ci lint`
 
@@ -1524,7 +1507,8 @@ devops ci lint [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--fix` | `boolean` | - | Auto-fix violations where possible |
+| `--fix` | `boolean` | - | Auto-fix violations where possible. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ci format`
 
@@ -1538,23 +1522,36 @@ devops ci format [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--fix` | `boolean` | - | Apply formatting changes in-place |
+| `--fix` | `boolean` | - | Apply formatting changes in-place. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ci typecheck`
 
 **Run mypy static type-checker strictly targeting Python 3.14 over src/.**
 
 ```bash
-devops ci typecheck
+devops ci typecheck [OPTIONS]
 ```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ci audit`
 
 **Run uv audit to check for known package vulnerabilities.**
 
 ```bash
-devops ci audit
+devops ci audit [OPTIONS]
 ```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ci security`
 
@@ -1568,23 +1565,36 @@ devops ci security [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--severity`, `-s` | `string` | `medium` | Minimum severity threshold (low, medium, high) |
+| `--severity`, `-s` | `string` | `medium` | Minimum severity threshold (low, medium, high). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ci actionlint`
 
 **Run actionlint to validate GitHub Actions workflows for syntax and schema errors.**
 
 ```bash
-devops ci actionlint
+devops ci actionlint [OPTIONS]
 ```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ci docs`
 
 **Verify that documentation is up to date with CLI commands and configuration.**
 
 ```bash
-devops ci docs
+devops ci docs [OPTIONS]
 ```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ci run`
 
@@ -1598,13 +1608,12 @@ devops ci run [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--fix`, `--no-fix` | `boolean` | `True` | Auto-fix lint/format before reporting status |
+| `--fix`, `--no-fix` | `boolean` | `True` | Auto-fix lint/format before reporting status. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
 ## devops uv
-
-Run uv commands through devops.
 
 uv dependency management proxies.
 
@@ -1620,7 +1629,7 @@ devops uv sync [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--frozen` | `boolean` | - | Do not update lockfile |
+| `--frozen` | `boolean` | - | Do not update lockfile. |
 
 ### `devops uv lock`
 
@@ -1634,7 +1643,7 @@ devops uv lock [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--upgrade` | `boolean` | - | Upgrade dependencies while locking |
+| `--upgrade` | `boolean` | - | Upgrade dependencies while locking. |
 
 ### `devops uv python-install`
 
@@ -1648,7 +1657,7 @@ devops uv python-install [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--version`, `-v` | `string` | - | Python version to install (defaults to .python-version) |
+| `--version`, `-v` | `string` | - | Python version to install (defaults to .python-version). |
 
 ### `devops uv run`
 
@@ -1667,9 +1676,7 @@ devops uv run
 
 ## devops scan
 
-Security, vulnerability, secret, and IaC scanner.
-
-Security, vulnerability, secret, and AST scanner (Trivy, Semgrep, Gitleaks).
+Security scanner suite: Trivy, Gitleaks, Semgrep, Checkov, Kubeconform.
 
 ### `devops scan trivy`
 
@@ -1683,16 +1690,16 @@ devops scan trivy [OPTIONS] <target>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<target>` | `path` | No | Target directory, file, or repository to scan |
+| `<target>` | `path` | No | Target directory, file, or repository to scan. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--type`, `-t` | `string` | `fs` | Trivy scan mode: fs, image, iac, repo |
-| `--severity`, `-s` | `string` | `UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL` | Comma-separated severity levels to include |
-| `--dry-run` | `boolean` | - | Simulate security scan execution. |
-| `--json` | `boolean` | - | Output raw findings as JSON |
+| `--type`, `-t` | `string` | `fs` | Trivy scan mode: fs, image, iac, repo. |
+| `--severity`, `-s` | `string` | `UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL` | Comma-separated severity levels to include. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ### `devops scan secrets`
 
@@ -1706,14 +1713,14 @@ devops scan secrets [OPTIONS] <target>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<target>` | `path` | No | Target directory or file to scan for secrets |
+| `<target>` | `path` | No | Target directory or file to scan for secrets. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--dry-run` | `boolean` | - | Simulate secret scan execution. |
-| `--json` | `boolean` | - | Output raw findings as JSON |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ### `devops scan gitleaks`
 
@@ -1727,14 +1734,14 @@ devops scan gitleaks [OPTIONS] <target>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<target>` | `path` | No | Target directory or file to scan for secrets |
+| `<target>` | `path` | No | Target directory or file to scan for secrets. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--dry-run` | `boolean` | - | Simulate secret scan execution. |
-| `--json` | `boolean` | - | Output raw findings as JSON |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ### `devops scan semgrep`
 
@@ -1748,15 +1755,15 @@ devops scan semgrep [OPTIONS] <target>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<target>` | `path` | No | Target directory or file to scan with Semgrep AST rules |
+| `<target>` | `path` | No | Target directory or file to scan with Semgrep AST rules. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--config`, `-c` | `string` | `p/default` | Semgrep ruleset config (e.g. p/default, p/security-audit) |
-| `--dry-run` | `boolean` | - | Simulate Semgrep scan execution. |
-| `--json` | `boolean` | - | Output raw findings as JSON |
+| `--config`, `-c` | `string` | `p/default` | Semgrep ruleset config (e.g. p/default, p/security-audit). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ### `devops scan sast`
 
@@ -1770,15 +1777,15 @@ devops scan sast [OPTIONS] <target>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<target>` | `path` | No | Target directory or file to scan with Semgrep AST rules |
+| `<target>` | `path` | No | Target directory or file to scan with Semgrep AST rules. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--config`, `-c` | `string` | `p/default` | Semgrep ruleset config (e.g. p/default, p/security-audit) |
-| `--dry-run` | `boolean` | - | Simulate Semgrep scan execution. |
-| `--json` | `boolean` | - | Output raw findings as JSON |
+| `--config`, `-c` | `string` | `p/default` | Semgrep ruleset config (e.g. p/default, p/security-audit). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ### `devops scan checkov`
 
@@ -1792,15 +1799,15 @@ devops scan checkov [OPTIONS] <target>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<target>` | `path` | No | Target directory or file to scan with Checkov IaC rules |
+| `<target>` | `path` | No | Target directory or file to scan with Checkov IaC rules. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--framework`, `-f` | `string` | - | Specific IaC framework (e.g. terraform) |
-| `--dry-run` | `boolean` | - | Simulate Checkov IaC scan execution. |
-| `--json` | `boolean` | - | Output raw findings as JSON |
+| `--framework`, `-f` | `string` | - | Specific IaC framework (e.g. terraform). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ### `devops scan iac`
 
@@ -1814,21 +1821,19 @@ devops scan iac [OPTIONS] <target>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<target>` | `path` | No | Target directory or file to scan with Checkov IaC rules |
+| `<target>` | `path` | No | Target directory or file to scan with Checkov IaC rules. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--framework`, `-f` | `string` | - | Specific IaC framework (e.g. terraform) |
-| `--dry-run` | `boolean` | - | Simulate Checkov IaC scan execution. |
-| `--json` | `boolean` | - | Output raw findings as JSON |
+| `--framework`, `-f` | `string` | - | Specific IaC framework (e.g. terraform). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ---
 
 ## devops ai
-
-Configure and test AI providers.
 
 Configure, test, chat, analyze, and review codebases (Ollama, Claude, Copilot).
 
@@ -1845,12 +1850,12 @@ devops ai config [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--provider`, `-p` | `string` | - | Provider: ollama, claude, copilot, openai |
-| `--model`, `-m` | `string` | - | Model name, e.g. gemma4:26b, claude-opus-4-5 |
-| `--ollama-urls` | `string` | - | Ollama server base URLs (comma-separated) |
-| `--ollama-max-parallel` | `integer` | - | Maximum number of simultaneous requests allowed per Ollama server node |
-| `--api-base-url` | `string` | - | Override API base URL for any provider |
-| `--api-key` | `string` | - | API key — stored in OS keyring, not config file |
-| `--max-retries` | `integer` | - | Maximum retry count for AI requests upon failure |
+| `--model`, `-m` | `string` | - | AI model identifier. |
+| `--ollama-urls` | `string` | - | Ollama server base URLs (comma-separated). |
+| `--ollama-max-parallel` | `integer` | - | Maximum number of simultaneous requests allowed per Ollama server node. |
+| `--api-base-url` | `string` | - | Override API base URL for any provider. |
+| `--api-key` | `string` | - | API key — stored in OS keyring, not config file. |
+| `--max-retries` | `integer` | - | Maximum retry count for AI requests upon failure. |
 
 ### `devops ai models`
 
@@ -1880,8 +1885,8 @@ devops ai test [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--prompt`, `-p` | `string` | `Reply with exactly one word: OK` | Test prompt to send to the provider |
-| `--url`, `-u` | `string` | - | Specific Ollama server URL to test |
+| `--prompt`, `-p` | `string` | `Hello, world!` | Test prompt to send to the provider. |
+| `--url`, `-u` | `string` | - | Specific Ollama server URL to test. |
 
 ### `devops ai agents`
 
@@ -1895,9 +1900,9 @@ devops ai agents [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--repo`, `-r` | `path` | `.` | Repository root (default: current directory) |
-| `--template` | `boolean` | - | Generate from built-in template without calling the LLM |
-| `--file`, `-f` | `string` | `['AGENTS.md', 'CLAUDE.md', '.github/copilot-instructions.md']` | Files to generate (repeatable) |
+| `--repo`, `-r` | `path` | `.` | Repository root directory (default: current directory). |
+| `--template` | `boolean` | - | Generate from built-in template without calling the LLM. |
+| `--file`, `-f` | `string` | `['AGENTS.md', 'CLAUDE.md', '.github/copilot-instructions.md']` | Files to generate (repeatable). |
 
 ### `devops ai chat`
 
@@ -1912,13 +1917,13 @@ devops ai chat [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--persona`, `-p` | `string` | `architect` | Persona to chat with: devsecops, architect, pm, auditor, qa |
-| `--context`, `-c` | `path` | - | Optional file to inject as background context (e.g. AGENTS.md) |
-| `--rag`, `--no-rag` | `boolean` | `True` | Retrieve relevant semantic RAG context |
-| `--stream`, `--no-stream` | `boolean` | `True` | Stream response tokens |
-| `--tools`, `--no-tools` | `boolean` | `True` | Enable DevOps agent tools |
-| `--thinking`, `--no-thinking` | `boolean` | `True` | Enable model reasoning/thinking |
-| `--prewarm`, `--no-prewarm` | `boolean` | `True` | Prewarm the model before starting chat |
-| `--explain`, `-e` | `boolean` | - | Explain chat personas, tools, and reasoning modes |
+| `--context`, `-c` | `path` | - | Optional file to inject as background context (e.g. AGENTS.md). |
+| `--rag`, `--no-rag` | `boolean` | `True` | Retrieve relevant semantic RAG context. |
+| `--stream`, `--no-stream` | `boolean` | `True` | Stream response tokens. |
+| `--tools`, `--no-tools` | `boolean` | `True` | Enable DevOps agent tools. |
+| `--thinking`, `--no-thinking` | `boolean` | `True` | Enable model reasoning/thinking. |
+| `--prewarm`, `--no-prewarm` | `boolean` | `True` | Prewarm the model before starting chat. |
+| `--explain`, `-e` | `boolean` | - | Explain chat personas, tools, and reasoning modes. |
 
 ### `devops ai bundle-models`
 
@@ -1932,7 +1937,7 @@ devops ai bundle-models [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--output`, `-o` | `path` | - | Output directory for model archive bundle |
+| `--output`, `-o` | `path` | - | Directory path for generated output files. |
 
 ### `devops ai pipeline`
 
@@ -1946,16 +1951,16 @@ devops ai pipeline [OPTIONS] <prompt>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<prompt>` | `string` | No | Initial goal or prompt for the multi-agent pipeline |
+| `<prompt>` | `string` | No | Initial goal or prompt for the multi-agent pipeline. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--personas`, `-p` | `string` | `devsecops,architect,qa` | Comma-separated persona pipeline sequence (e.g. devsecops,architect,qa) |
-| `--max-turns` | `integer` | `5` | Maximum tool turns per agent stage |
-| `--rag`, `--no-rag` | `boolean` | `True` | Retrieve relevant semantic RAG context |
-| `--thinking`, `--no-thinking` | `boolean` | `True` | Enable reasoning/thinking per agent |
+| `--personas`, `-p` | `string` | `devsecops,architect,qa` | Comma-separated persona pipeline sequence (e.g. devsecops,architect,qa). |
+| `--max-turns` | `integer` | `5` | Maximum tool turns per agent stage. |
+| `--rag`, `--no-rag` | `boolean` | `True` | Retrieve relevant semantic RAG context. |
+| `--thinking`, `--no-thinking` | `boolean` | `True` | Enable model reasoning/thinking. |
 
 ### `devops ai token-count`
 
@@ -1969,15 +1974,15 @@ devops ai token-count [OPTIONS] <target>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<target>` | `string` | No | File path or text string to calculate tokens for |
+| `<target>` | `string` | No | File path or text string to calculate tokens for. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--model`, `-m` | `string` | `gpt-4o` | Target model BPE tokenizer (e.g. gpt-4o, cl100k_base) |
-| `--budget`, `-b` | `integer` | `16384` | Max context token budget limit |
-| `--json` | `boolean` | - | Output token budget analysis as JSON |
+| `--model`, `-m` | `string` | `gpt-4o` | AI model identifier. |
+| `--budget`, `-b` | `integer` | `8192` | Max context token budget limit. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ### `devops ai route`
 
@@ -1991,15 +1996,15 @@ devops ai route [OPTIONS] <task>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<task>` | `string` | Yes | Task name (e.g. review, scan) |
+| `<task>` | `string` | Yes | Task name (e.g. review, scan). |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--tokens`, `-t` | `integer` | `1000` | Estimated tokens |
-| `--frontier`, `-f` | `boolean` | - | - |
-| `--json` | `boolean` | - | Output JSON |
+| `--tokens`, `-t` | `integer` | `1500` | Estimated tokens. |
+| `--frontier`, `-f` | `boolean` | - | Force routing to frontier tier models. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ### `devops ai review`
 
@@ -2013,7 +2018,7 @@ devops ai review [OPTIONS] COMMAND [ARGS]...
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology |
+| `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology. |
 
 #### `devops ai review path`
 
@@ -2027,18 +2032,18 @@ devops ai review path [OPTIONS] <targets>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<targets>` | `path` | No | File(s) or directory(ies) to review |
+| `<targets>` | `path` | No | File(s) or directory(ies) to review. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--pattern`, `-g` | `string` | `*` | Glob pattern for files (default: all files) |
-| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa)` | - | Reviewer persona |
-| `--all` | `boolean` | - | Run all four reviewer personas |
-| `--dry-run` | `boolean` | - | Print commands and AI request payloads without executing. |
+| `--pattern`, `-g` | `string` | `*` | Glob pattern for matching files. |
+| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa)` | - | Reviewer persona to activate (devsecops, architect, pm, auditor, qa). |
+| `--all` | `boolean` | - | Run all reviewer personas in sequence. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--summary`, `-s` | `boolean` | - | Show segment metadata without running a full review. |
-| `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology |
+| `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology. |
 
 #### `devops ai review branch`
 
@@ -2052,19 +2057,19 @@ devops ai review branch [OPTIONS] <branch_name>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<branch_name>` | `string` | No | Branch to review (default: current branch) |
+| `<branch_name>` | `string` | No | Branch to review (default: current branch). |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--base`, `-b` | `string` | `main` | Base branch to diff against |
-| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa)` | - | Reviewer persona |
-| `--all` | `boolean` | - | Run all four reviewer personas |
-| `--repo` | `path` | `.` | Path to the git repository |
-| `--dry-run` | `boolean` | - | Print commands and AI request payloads without executing. |
+| `--base`, `-b` | `string` | `main` | Base git branch to diff against (default: main). |
+| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa)` | - | Reviewer persona to activate (devsecops, architect, pm, auditor, qa). |
+| `--all` | `boolean` | - | Run all reviewer personas in sequence. |
+| `--repo` | `path` | `.` | Repository root directory (default: current directory). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--summary`, `-s` | `boolean` | - | Show segment metadata without running a full review. |
-| `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology |
+| `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology. |
 
 #### `devops ai review pr`
 
@@ -2078,19 +2083,19 @@ devops ai review pr [OPTIONS] <number>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<number>` | `integer` | Yes | Pull request number |
+| `<number>` | `integer` | Yes | Pull request number. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--repo`, `-r` | `string` | - | owner/repo (default: detected from git remote) |
-| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa)` | - | Reviewer persona |
-| `--all` | `boolean` | - | Run all four reviewer personas |
-| `--post` | `boolean` | - | Post the review as a comment on the GitHub PR |
-| `--dry-run` | `boolean` | - | Print commands and AI request payloads without executing. |
+| `--repo`, `-r` | `string` | - | Target repository in OWNER/REPO format. |
+| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa)` | - | Reviewer persona to activate (devsecops, architect, pm, auditor, qa). |
+| `--all` | `boolean` | - | Run all reviewer personas in sequence. |
+| `--post` | `boolean` | - | Post the review as a comment on the GitHub PR. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--summary`, `-s` | `boolean` | - | Show segment metadata without running a full review. |
-| `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology |
+| `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology. |
 
 #### `devops ai review findings`
 
@@ -2104,11 +2109,11 @@ devops ai review findings [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--session`, `-s` | `string` | - | Session ID or substring (default: latest) |
-| `--status` | `string` | - | Filter by status: VERIFIED | UNVERIFIED | INVALIDATED | MITIGATED |
-| `--unverified` | `boolean` | - | Show unverified findings only |
-| `--invalidated` | `boolean` | - | Show invalidated findings only |
-| `--verified` | `boolean` | - | Show verified findings only |
+| `--session`, `-s` | `string` | - | Session ID or substring (default: latest). |
+| `--status` | `string` | - | Filter by status: VERIFIED | UNVERIFIED | INVALIDATED | MITIGATED. |
+| `--unverified` | `boolean` | - | Show unverified findings only. |
+| `--invalidated` | `boolean` | - | Show invalidated findings only. |
+| `--verified` | `boolean` | - | Show verified findings only. |
 
 #### `devops ai review verify`
 
@@ -2122,17 +2127,17 @@ devops ai review verify [OPTIONS] <session>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<session>` | `string` | No | Session ID or substring (default: latest) |
+| `<session>` | `string` | No | Session ID or substring (default: latest). |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--session`, `-s` | `string` | - | Session ID or substring |
-| `--index`, `-i` | `integer` | - | 1-based finding index in session to verify |
-| `--title`, `-t` | `string` | - | Match finding by substring in title |
-| `--status` | `string` | `INVALIDATED` | Target status: VERIFIED | INVALIDATED | MITIGATED | UNVERIFIED |
-| `--reason`, `-r` | `string` | `` | Explanation or justification for the status change |
+| `--session`, `-s` | `string` | - | Session ID or substring (default: latest). |
+| `--index`, `-i` | `integer` | - | 1-based finding index in session to verify. |
+| `--title`, `-t` | `string` | - | Match finding by substring in title. |
+| `--status` | `string` | `INVALIDATED` | Target status: VERIFIED | INVALIDATED | MITIGATED | UNVERIFIED. |
+| `--reason`, `-r` | `string` | `` | Explanation or justification for the status change. |
 
 #### `devops ai review stats`
 
@@ -2146,7 +2151,7 @@ devops ai review stats [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--reviews-dir` | `path` | - | Directory containing review sessions |
+| `--reviews-dir` | `path` | - | Directory containing review sessions. |
 
 #### `devops ai review export-feedback`
 
@@ -2160,9 +2165,9 @@ devops ai review export-feedback [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--output`, `-o` | `path` | - | Output JSONL path for benchmark feedback dataset |
-| `--reviews-dir` | `path` | - | Directory containing review sessions |
-| `--status`, `-s` | `string` | `INVALIDATED` | Finding status to export: INVALIDATED, VERIFIED, MITIGATED, or ALL |
+| `--output`, `-o` | `path` | - | Output JSONL path for benchmark feedback dataset. |
+| `--reviews-dir` | `path` | - | Directory containing review sessions. |
+| `--status`, `-s` | `string` | `INVALIDATED` | Finding status to export: INVALIDATED, VERIFIED, MITIGATED, or ALL. |
 
 #### `devops ai review apply-patch`
 
@@ -2176,14 +2181,14 @@ devops ai review apply-patch [OPTIONS] <session>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<session>` | `string` | Yes | Review session ID |
+| `<session>` | `string` | Yes | Session ID or substring (default: latest). |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--index`, `-idx` | `integer` | `1` | Finding index (1-based) |
-| `--interactive`, `-i` | `boolean` | - | Preview patch diff interactively |
+| `--index`, `-idx` | `integer` | `1` | 1-based finding index in session to verify. |
+| `--interactive`, `-i` | `boolean` | - | Preview patch diff interactively. |
 
 ### `devops ai analyze`
 
@@ -2197,7 +2202,7 @@ devops ai analyze [OPTIONS] COMMAND [ARGS]...
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--explain`, `-x` | `boolean` | - | Explain static code analysis metrics and terminology |
+| `--explain`, `-x` | `boolean` | - | Explain static code analysis metrics and terminology. |
 
 #### `devops ai analyze path`
 
@@ -2211,16 +2216,16 @@ devops ai analyze path [OPTIONS] <target>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<target>` | `path` | No | File or directory path to analyze |
+| `<target>` | `path` | No | File or directory path to analyze. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--pattern`, `-g` | `string` | `*` | Glob pattern for files (default: all files) |
-| `--enhanced`, `-e`, `--no-enhanced` | `boolean` | `True` | Generate AI-enhanced metadata (pseudocode, complexity, last_updated) |
-| `--update-all`, `-u` | `boolean` | - | Regenerate all enhanced metadata fields regardless of last_* timestamps |
-| `--explain`, `-x` | `boolean` | - | Explain static code analysis metrics and terminology |
+| `--pattern`, `-g` | `string` | `*` | Glob pattern for matching files. |
+| `--enhanced`, `-e`, `--no-enhanced` | `boolean` | `True` | Generate AI-enhanced metadata (pseudocode, complexity, last_updated). |
+| `--update-all`, `-u` | `boolean` | - | Regenerate all enhanced metadata fields regardless of last_* timestamps. |
+| `--explain`, `-x` | `boolean` | - | Explain static code analysis metrics and terminology. |
 
 #### `devops ai analyze branch`
 
@@ -2234,16 +2239,16 @@ devops ai analyze branch [OPTIONS] <branch>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<branch>` | `string` | No | Branch to analyze (default: active branch) |
+| `<branch>` | `string` | No | Branch to analyze (default: active branch). |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--base`, `-b` | `string` | `main` | Base branch for diff |
-| `--enhanced`, `-e`, `--no-enhanced` | `boolean` | `True` | Generate AI-enhanced metadata (pseudocode, complexity, last_updated) |
-| `--update-all`, `-u` | `boolean` | - | Regenerate all enhanced metadata fields regardless of last_* timestamps |
-| `--explain`, `-x` | `boolean` | - | Explain static code analysis metrics and terminology |
+| `--base`, `-b` | `string` | `main` | Base git branch to diff against (default: main). |
+| `--enhanced`, `-e`, `--no-enhanced` | `boolean` | `True` | Generate AI-enhanced metadata (pseudocode, complexity, last_updated). |
+| `--update-all`, `-u` | `boolean` | - | Regenerate all enhanced metadata fields regardless of last_* timestamps. |
+| `--explain`, `-x` | `boolean` | - | Explain static code analysis metrics and terminology. |
 
 #### `devops ai analyze pr`
 
@@ -2257,15 +2262,15 @@ devops ai analyze pr [OPTIONS] <pr_number>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<pr_number>` | `integer` | Yes | GitHub PR number to analyze |
+| `<pr_number>` | `integer` | Yes | GitHub PR number to analyze. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--enhanced`, `-e`, `--no-enhanced` | `boolean` | `True` | Generate AI-enhanced metadata (pseudocode, complexity, last_updated) |
-| `--update-all`, `-u` | `boolean` | - | Regenerate all enhanced metadata fields regardless of last_* timestamps |
-| `--explain`, `-x` | `boolean` | - | Explain static code analysis metrics and terminology |
+| `--enhanced`, `-e`, `--no-enhanced` | `boolean` | `True` | Generate AI-enhanced metadata (pseudocode, complexity, last_updated). |
+| `--update-all`, `-u` | `boolean` | - | Regenerate all enhanced metadata fields regardless of last_* timestamps. |
+| `--explain`, `-x` | `boolean` | - | Explain static code analysis metrics and terminology. |
 
 ### `devops ai rag`
 
@@ -2279,7 +2284,7 @@ devops ai rag [OPTIONS] COMMAND [ARGS]...
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--explain`, `-e` | `boolean` | - | Explain RAG vector embeddings, Qdrant indexing, and terminology |
+| `--explain`, `-e` | `boolean` | - | Explain RAG vector embeddings, Qdrant indexing, and terminology. |
 
 #### `devops ai rag index`
 
@@ -2293,17 +2298,17 @@ devops ai rag index [OPTIONS] <path>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<path>` | `path` | No | Directory or file to index into vector store |
+| `<path>` | `path` | No | Directory or file to index into vector store. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--project`, `-p` | `string` | - | Project / repository name override |
-| `--force`, `-f` | `boolean` | - | Re-index all files ignoring content hash cache |
-| `--include-kb`, `--no-include-kb` | `boolean` | `True` | Include bundled DevOps CLI Knowledge Base in docs collection |
-| `--collection`, `-c` | `string` | - | Target collection override |
-| `--explain`, `-e` | `boolean` | - | Explain RAG vector embeddings, Qdrant indexing, and terminology |
+| `--project`, `-p` | `string` | - | Project / repository name override. |
+| `--force`, `-f` | `boolean` | - | Force execution ignoring non-blocking warnings. |
+| `--include-kb`, `--no-include-kb` | `boolean` | `True` | Include bundled DevOps CLI Knowledge Base in docs collection. |
+| `--collection`, `-c` | `string` | - | Target collection override. |
+| `--explain`, `-e` | `boolean` | - | Explain RAG vector embeddings, Qdrant indexing, and terminology. |
 
 #### `devops ai rag index-kb`
 
@@ -2317,9 +2322,9 @@ devops ai rag index-kb [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--force`, `-f` | `boolean` | - | Re-index all KB files ignoring cache |
-| `--collection`, `-c` | `string` | - | Target collection override |
-| `--explain`, `-e` | `boolean` | - | Explain RAG vector embeddings, Qdrant indexing, and terminology |
+| `--force`, `-f` | `boolean` | - | Force execution ignoring non-blocking warnings. |
+| `--collection`, `-c` | `string` | - | Target collection override. |
+| `--explain`, `-e` | `boolean` | - | Explain RAG vector embeddings, Qdrant indexing, and terminology. |
 
 #### `devops ai rag search`
 
@@ -2333,20 +2338,20 @@ devops ai rag search [OPTIONS] <query>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<query>` | `string` | Yes | Natural language query or code search term |
+| `<query>` | `string` | Yes | Natural language query or code search term. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--project`, `-p` | `string` | - | Filter results by project name |
-| `--language`, `-l` | `string` | - | Filter results by programming language |
-| `--category`, `-c` | `string` | - | Filter by category (code, docs, topics, tasks) |
-| `--top-k`, `-k` | `integer` | `5` | Number of results to return |
-| `--min-score`, `-s` | `float` | `0.35` | Minimum similarity score (0.0 - 1.0) |
-| `--collection` | `string` | - | Target Qdrant collection (default: auto) |
-| `--file`, `-f` | `string` | - | Filter by filepath glob pattern |
-| `--explain` | `boolean` | - | Explain how RAG vector search works |
+| `--project`, `-p` | `string` | - | Project / repository name override. |
+| `--language`, `-l` | `string` | - | Filter or target specific programming language. |
+| `--category`, `-c` | `string` | - | Filter by category (code, docs, topics, tasks). |
+| `--top-k`, `-k` | `integer` | `5` | Number of results to return. |
+| `--min-score`, `-s` | `float` | `0.35` | Minimum similarity score (0.0 - 1.0). |
+| `--collection` | `string` | - | Target collection override. |
+| `--file`, `-f` | `string` | - | Filter by filepath glob pattern. |
+| `--explain` | `boolean` | - | Explain RAG vector embeddings, Qdrant indexing, and terminology. |
 
 #### `devops ai rag query`
 
@@ -2360,20 +2365,20 @@ devops ai rag query [OPTIONS] <query>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<query>` | `string` | Yes | Natural language query or code search term |
+| `<query>` | `string` | Yes | Natural language query or code search term. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--project`, `-p` | `string` | - | Filter results by project name |
-| `--language`, `-l` | `string` | - | Filter results by programming language |
-| `--category`, `-c` | `string` | - | Filter by category (code, docs, topics, tasks) |
-| `--top-k`, `-k` | `integer` | `5` | Number of results to return |
-| `--min-score`, `-s` | `float` | `0.35` | Minimum similarity score (0.0 - 1.0) |
-| `--collection` | `string` | - | Target Qdrant collection (default: auto) |
-| `--file`, `-f` | `string` | - | Filter by filepath glob pattern |
-| `--explain` | `boolean` | - | Explain how RAG vector search works |
+| `--project`, `-p` | `string` | - | Project / repository name override. |
+| `--language`, `-l` | `string` | - | Filter or target specific programming language. |
+| `--category`, `-c` | `string` | - | Filter by category (code, docs, topics, tasks). |
+| `--top-k`, `-k` | `integer` | `5` | Number of results to return. |
+| `--min-score`, `-s` | `float` | `0.35` | Minimum similarity score (0.0 - 1.0). |
+| `--collection` | `string` | - | Target collection override. |
+| `--file`, `-f` | `string` | - | Filter by filepath glob pattern. |
+| `--explain` | `boolean` | - | Explain RAG vector embeddings, Qdrant indexing, and terminology. |
 
 #### `devops ai rag status`
 
@@ -2395,8 +2400,8 @@ devops ai rag reset [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--collection`, `-c` | `string` | - | Specific collection to delete (default: all) |
-| `--force`, `-f` | `boolean` | - | Bypass confirmation prompt |
+| `--collection`, `-c` | `string` | - | Target collection override. |
+| `--force`, `-f` | `boolean` | - | Force execution ignoring non-blocking warnings. |
 
 #### `devops ai rag clear`
 
@@ -2410,8 +2415,8 @@ devops ai rag clear [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--collection`, `-c` | `string` | - | Specific collection to delete (default: all) |
-| `--force`, `-f` | `boolean` | - | Bypass confirmation prompt |
+| `--collection`, `-c` | `string` | - | Target collection override. |
+| `--force`, `-f` | `boolean` | - | Force execution ignoring non-blocking warnings. |
 
 ### `devops ai benchmark`
 
@@ -2425,18 +2430,18 @@ devops ai benchmark [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--models`, `-m` | `string` | - | Comma-separated candidate models (e.g. 'qwen2.5:0.5b,llama3.1:8b@http://gpu2:11434') |
-| `--servers`, `--ollama-urls` | `string` | - | Comma-separated Ollama server URLs for concurrent execution (e.g. 'http://node1:11434,http://node2:11434') |
-| `--provider`, `-p` | `string` | - | AI provider (ollama, claude, copilot, openai) |
-| `--type`, `--mode` | `string` | `auto` | Benchmark mode: 'auto', 'chat', 'embedding' (default: auto) |
-| `--tasks`, `-t` | `string` | - | Filter specific task categories or IDs (e.g. 'security,kubernetes') |
-| `--concurrency`, `-c` | `integer` | `4` | Number of concurrent model server workers (default: automatic per model count) |
-| `--output`, `-o` | `path` | - | Destination JSON report filepath |
-| `--format`, `-f` | `string` | `table` | Output format: table, json, markdown |
-| `--dry-run` | `boolean` | - | Simulate benchmark without sending remote LLM requests |
-| `--explain`, `-e` | `boolean` | - | Explain benchmark metrics, terminology, and mathematical formulas |
-| `--document`, `-d` | `path` | - | Path to large test document for in-memory tokenization and section retrieval |
-| `--samples` | `integer` | `5` | Number of random sections to sample for retrieval evaluation |
+| `--models`, `-m` | `string` | - | Comma-separated candidate models (e.g. 'qwen2.5:0.5b,llama3.1:8b@http://gpu2:11434'). |
+| `--servers`, `--ollama-urls` | `string` | - | Comma-separated Ollama server URLs for concurrent execution (e.g. 'http://node1:11434,http://node2:11434'). |
+| `--provider`, `-p` | `string` | - | AI or cloud provider. |
+| `--type`, `--mode` | `string` | `auto` | Benchmark mode: 'auto', 'chat', 'embedding'. |
+| `--tasks`, `-t` | `string` | - | Filter specific task categories or IDs (e.g. 'security,kubernetes'). |
+| `--concurrency`, `-c` | `integer` | `4` | Number of concurrent model server workers (default: automatic per model count). |
+| `--output`, `-o` | `path` | - | Destination path for output report or artifacts. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--explain`, `-e` | `boolean` | - | Explain benchmark metrics, terminology, and mathematical formulas. |
+| `--document`, `-d` | `path` | - | Path to large test document for in-memory tokenization and section retrieval. |
+| `--samples` | `integer` | `5` | Number of random sections to sample for retrieval evaluation. |
 
 ### `devops ai cache`
 
@@ -2458,7 +2463,7 @@ devops ai cache status [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--format`, `-f` | `string` | `table` | Output format: table, json |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 
 #### `devops ai cache clear`
 
@@ -2471,8 +2476,6 @@ devops ai cache clear
 ---
 
 ## devops review
-
-AI-powered code reviews using expert personas.
 
 AI-powered multi-persona code review and security audits.
 
@@ -2488,18 +2491,18 @@ devops review path [OPTIONS] <targets>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<targets>` | `path` | No | File(s) or directory(ies) to review |
+| `<targets>` | `path` | No | File(s) or directory(ies) to review. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--pattern`, `-g` | `string` | `*` | Glob pattern for files (default: all files) |
-| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa)` | - | Reviewer persona |
-| `--all` | `boolean` | - | Run all four reviewer personas |
-| `--dry-run` | `boolean` | - | Print commands and AI request payloads without executing. |
+| `--pattern`, `-g` | `string` | `*` | Glob pattern for matching files. |
+| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa)` | - | Reviewer persona to activate (devsecops, architect, pm, auditor, qa). |
+| `--all` | `boolean` | - | Run all reviewer personas in sequence. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--summary`, `-s` | `boolean` | - | Show segment metadata without running a full review. |
-| `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology |
+| `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology. |
 
 ### `devops review branch`
 
@@ -2513,19 +2516,19 @@ devops review branch [OPTIONS] <branch_name>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<branch_name>` | `string` | No | Branch to review (default: current branch) |
+| `<branch_name>` | `string` | No | Branch to review (default: current branch). |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--base`, `-b` | `string` | `main` | Base branch to diff against |
-| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa)` | - | Reviewer persona |
-| `--all` | `boolean` | - | Run all four reviewer personas |
-| `--repo` | `path` | `.` | Path to the git repository |
-| `--dry-run` | `boolean` | - | Print commands and AI request payloads without executing. |
+| `--base`, `-b` | `string` | `main` | Base git branch to diff against (default: main). |
+| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa)` | - | Reviewer persona to activate (devsecops, architect, pm, auditor, qa). |
+| `--all` | `boolean` | - | Run all reviewer personas in sequence. |
+| `--repo` | `path` | `.` | Repository root directory (default: current directory). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--summary`, `-s` | `boolean` | - | Show segment metadata without running a full review. |
-| `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology |
+| `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology. |
 
 ### `devops review pr`
 
@@ -2539,19 +2542,19 @@ devops review pr [OPTIONS] <number>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<number>` | `integer` | Yes | Pull request number |
+| `<number>` | `integer` | Yes | Pull request number. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--repo`, `-r` | `string` | - | owner/repo (default: detected from git remote) |
-| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa)` | - | Reviewer persona |
-| `--all` | `boolean` | - | Run all four reviewer personas |
-| `--post` | `boolean` | - | Post the review as a comment on the GitHub PR |
-| `--dry-run` | `boolean` | - | Print commands and AI request payloads without executing. |
+| `--repo`, `-r` | `string` | - | Target repository in OWNER/REPO format. |
+| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa)` | - | Reviewer persona to activate (devsecops, architect, pm, auditor, qa). |
+| `--all` | `boolean` | - | Run all reviewer personas in sequence. |
+| `--post` | `boolean` | - | Post the review as a comment on the GitHub PR. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--summary`, `-s` | `boolean` | - | Show segment metadata without running a full review. |
-| `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology |
+| `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology. |
 
 ### `devops review findings`
 
@@ -2565,11 +2568,11 @@ devops review findings [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--session`, `-s` | `string` | - | Session ID or substring (default: latest) |
-| `--status` | `string` | - | Filter by status: VERIFIED | UNVERIFIED | INVALIDATED | MITIGATED |
-| `--unverified` | `boolean` | - | Show unverified findings only |
-| `--invalidated` | `boolean` | - | Show invalidated findings only |
-| `--verified` | `boolean` | - | Show verified findings only |
+| `--session`, `-s` | `string` | - | Session ID or substring (default: latest). |
+| `--status` | `string` | - | Filter by status: VERIFIED | UNVERIFIED | INVALIDATED | MITIGATED. |
+| `--unverified` | `boolean` | - | Show unverified findings only. |
+| `--invalidated` | `boolean` | - | Show invalidated findings only. |
+| `--verified` | `boolean` | - | Show verified findings only. |
 
 ### `devops review verify`
 
@@ -2583,17 +2586,17 @@ devops review verify [OPTIONS] <session>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<session>` | `string` | No | Session ID or substring (default: latest) |
+| `<session>` | `string` | No | Session ID or substring (default: latest). |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--session`, `-s` | `string` | - | Session ID or substring |
-| `--index`, `-i` | `integer` | - | 1-based finding index in session to verify |
-| `--title`, `-t` | `string` | - | Match finding by substring in title |
-| `--status` | `string` | `INVALIDATED` | Target status: VERIFIED | INVALIDATED | MITIGATED | UNVERIFIED |
-| `--reason`, `-r` | `string` | `` | Explanation or justification for the status change |
+| `--session`, `-s` | `string` | - | Session ID or substring (default: latest). |
+| `--index`, `-i` | `integer` | - | 1-based finding index in session to verify. |
+| `--title`, `-t` | `string` | - | Match finding by substring in title. |
+| `--status` | `string` | `INVALIDATED` | Target status: VERIFIED | INVALIDATED | MITIGATED | UNVERIFIED. |
+| `--reason`, `-r` | `string` | `` | Explanation or justification for the status change. |
 
 ### `devops review stats`
 
@@ -2607,7 +2610,7 @@ devops review stats [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--reviews-dir` | `path` | - | Directory containing review sessions |
+| `--reviews-dir` | `path` | - | Directory containing review sessions. |
 
 ### `devops review export-feedback`
 
@@ -2621,9 +2624,9 @@ devops review export-feedback [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--output`, `-o` | `path` | - | Output JSONL path for benchmark feedback dataset |
-| `--reviews-dir` | `path` | - | Directory containing review sessions |
-| `--status`, `-s` | `string` | `INVALIDATED` | Finding status to export: INVALIDATED, VERIFIED, MITIGATED, or ALL |
+| `--output`, `-o` | `path` | - | Output JSONL path for benchmark feedback dataset. |
+| `--reviews-dir` | `path` | - | Directory containing review sessions. |
+| `--status`, `-s` | `string` | `INVALIDATED` | Finding status to export: INVALIDATED, VERIFIED, MITIGATED, or ALL. |
 
 ### `devops review apply-patch`
 
@@ -2637,20 +2640,18 @@ devops review apply-patch [OPTIONS] <session>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<session>` | `string` | Yes | Review session ID |
+| `<session>` | `string` | Yes | Session ID or substring (default: latest). |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--index`, `-idx` | `integer` | `1` | Finding index (1-based) |
-| `--interactive`, `-i` | `boolean` | - | Preview patch diff interactively |
+| `--index`, `-idx` | `integer` | `1` | 1-based finding index in session to verify. |
+| `--interactive`, `-i` | `boolean` | - | Preview patch diff interactively. |
 
 ---
 
 ## devops mcp
-
-FastMCP server for Model Context Protocol integration.
 
 FastMCP server and Model Context Protocol integrations.
 
@@ -2683,8 +2684,6 @@ devops mcp tools
 
 ## devops docs
 
-Generate and validate CLI and API documentation.
-
 Generate and validate CLI and architecture documentation.
 
 ### `devops docs generate`
@@ -2700,9 +2699,9 @@ devops docs generate [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--output-dir`, `-o` | `path` | - | Target directory for generated documentation files (default: docs/). |
-| `--format`, `-f` | `string` | `markdown` | Documentation output format ('markdown' or 'json'). |
+| `--format`, `-f` | `string` | `markdown` | Output format type (table, json, yaml, markdown). |
 | `--sync-readme`, `--no-sync-readme` | `boolean` | `True` | Synchronize Complete Command Matrix in README.md. |
-| `--check` | `boolean` | - | Validate that existing documentation is up to date without writing files. |
+| `--check` | `boolean` | - | Verify that documentation is strictly up to date with CLI code. |
 
 ### `devops docs check`
 
@@ -2716,8 +2715,8 @@ devops docs check [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--output-dir`, `-o` | `path` | - | Directory containing documentation to check (default: docs/). |
-| `--check-readme`, `--no-check-readme` | `boolean` | `True` | Verify README.md Command Matrix synchronization as well. |
+| `--output-dir`, `-o` | `path` | - | Target directory for generated documentation files (default: docs/). |
+| `--check-readme`, `--no-check-readme` | `boolean` | `True` | Synchronize Complete Command Matrix in README.md. |
 
 ### `devops docs sync-readme`
 
@@ -2732,13 +2731,11 @@ devops docs sync-readme [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--readme-path`, `-r` | `path` | - | Path to README.md file (default: workspace root README.md). |
-| `--check` | `boolean` | - | Verify README.md table is synchronized without writing changes. |
+| `--check` | `boolean` | - | Verify that documentation is strictly up to date with CLI code. |
 
 ---
 
 ## devops release
-
-Manage release cycles, version bumping, changelogs, and release verification.
 
 Automate version bumps, changelogs, tags, and GitHub releases.
 
@@ -2754,7 +2751,7 @@ devops release status [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--root`, `-r` | `path` | - | Project repository root directory |
+| `--root`, `-r` | `path` | - | Project repository root directory. |
 
 ### `devops release prepare`
 
@@ -2768,18 +2765,18 @@ devops release prepare [OPTIONS] <version>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<version>` | `string` | Yes | Target semantic version (e.g., 0.1.8) |
+| `<version>` | `string` | Yes | Target semantic version (e.g., 0.1.8). |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--sync-docs`, `--no-sync-docs` | `boolean` | `True` | Regenerate CLI reference docs and sync README matrix |
-| `--changelog`, `--no-changelog` | `boolean` | `True` | Ensure CHANGELOG.md contains release header with current date |
-| `--create-pr`, `-p` | `boolean` | - | Create release branch, commit changes, and open a GitHub Release PR |
-| `--type`, `-t` | `string` | `feat` | Conventional commit prefix (feat or fix) |
-| `--breaking`, `-b` | `boolean` | - | Flag release as containing breaking changes (!) |
-| `--root`, `-r` | `path` | - | Project repository root directory |
+| `--sync-docs`, `--no-sync-docs` | `boolean` | `True` | Regenerate CLI reference docs and sync README matrix. |
+| `--changelog`, `--no-changelog` | `boolean` | `True` | Ensure CHANGELOG.md contains release header with current date. |
+| `--create-pr`, `-p` | `boolean` | - | Create release branch, commit changes, and open a GitHub Release PR. |
+| `--type`, `-t` | `string` | `feat` | Conventional commit prefix (feat or fix). |
+| `--breaking`, `-b` | `boolean` | - | Flag release as containing breaking changes (!). |
+| `--root`, `-r` | `path` | - | Project repository root directory. |
 
 ### `devops release pr`
 
@@ -2793,14 +2790,14 @@ devops release pr [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--version`, `-v` | `string` | - | Target release version (defaults to pyproject.toml) |
-| `--base`, `-b` | `string` | `main` | Target base branch for Pull Request |
-| `--draft` | `boolean` | - | Create Pull Request as a draft |
-| `--labels`, `-l` | `string` | `release` | Comma-separated labels to attach to PR |
-| `--push`, `--no-push` | `boolean` | `True` | Push release branch to origin |
-| `--type`, `-t` | `string` | `feat` | Conventional commit prefix (feat or fix) |
-| `--breaking`, `-b` | `boolean` | - | Flag release as containing breaking changes (!) |
-| `--root`, `-r` | `path` | - | Project repository root directory |
+| `--version`, `-v` | `string` | - | Target version string. |
+| `--base`, `-b` | `string` | `main` | Base git branch to diff against (default: main). |
+| `--draft` | `boolean` | - | Create pull request or entity as draft. |
+| `--labels`, `-l` | `string` | `release` | Comma-separated labels to attach. |
+| `--push`, `--no-push` | `boolean` | `True` | Push commits or tags to git remote. |
+| `--type`, `-t` | `string` | `feat` | Conventional commit prefix (feat or fix). |
+| `--breaking`, `-b` | `boolean` | - | Flag release as containing breaking changes (!). |
+| `--root`, `-r` | `path` | - | Project repository root directory. |
 
 ### `devops release check`
 
@@ -2814,9 +2811,9 @@ devops release check [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--skip-ci` | `boolean` | - | Skip running the 7-gate CI test suite |
-| `--allow-dirty` | `boolean` | - | Allow uncommitted changes in git repository |
-| `--root`, `-r` | `path` | - | Project repository root directory |
+| `--skip-ci` | `boolean` | - | Skip running the 7-gate CI test suite. |
+| `--allow-dirty` | `boolean` | - | Allow uncommitted changes in git repository. |
+| `--root`, `-r` | `path` | - | Project repository root directory. |
 
 ### `devops release notes`
 
@@ -2830,9 +2827,9 @@ devops release notes [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--version`, `-v` | `string` | - | Release version to extract notes for |
-| `--raw` | `boolean` | - | Output raw markdown text without formatting panel |
-| `--root`, `-r` | `path` | - | Project repository root directory |
+| `--version`, `-v` | `string` | - | Target version string. |
+| `--raw` | `boolean` | - | Output raw string without formatting or shell escapes. |
+| `--root`, `-r` | `path` | - | Project repository root directory. |
 
 ### `devops release tag`
 
@@ -2846,18 +2843,16 @@ devops release tag [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--version`, `-v` | `string` | - | Release version (defaults to pyproject.toml) |
-| `--push`, `-p` | `boolean` | - | Push release commit and git tag to origin |
-| `--type`, `-t` | `string` | `feat` | Conventional commit prefix (feat or fix) |
-| `--breaking`, `-b` | `boolean` | - | Flag release as containing breaking changes (!) |
-| `--message`, `-m` | `string` | - | Custom tag annotation message |
-| `--root`, `-r` | `path` | - | Project repository root directory |
+| `--version`, `-v` | `string` | - | Target version string. |
+| `--push`, `-p` | `boolean` | - | Push commits or tags to git remote. |
+| `--type`, `-t` | `string` | `feat` | Conventional commit prefix (feat or fix). |
+| `--breaking`, `-b` | `boolean` | - | Flag release as containing breaking changes (!). |
+| `--message`, `-m` | `string` | - | Custom tag annotation message. |
+| `--root`, `-r` | `path` | - | Project repository root directory. |
 
 ---
 
 ## devops pr
-
-Manage GitHub pull requests and base branch targeting.
 
 GitHub Pull Request workflows and reviews.
 
@@ -2873,9 +2868,9 @@ devops pr list [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--state`, `-s` | `string` | `open` | Filter by state (open, closed, merged, all) |
-| `--limit`, `-n` | `integer` | `10` | Maximum number of pull requests to display |
-| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format |
+| `--state`, `-s` | `string` | `open` | Filter by state (open, closed, merged, all). |
+| `--limit`, `-n` | `integer` | `30` | Maximum number of items to return or display. |
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 
 ### `devops pr view`
 
@@ -2889,13 +2884,13 @@ devops pr view [OPTIONS] <number>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<number>` | `integer` | Yes | Pull request number |
+| `<number>` | `integer` | Yes | Pull request number. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format |
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 
 ### `devops pr checks`
 
@@ -2909,13 +2904,13 @@ devops pr checks [OPTIONS] <number>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<number>` | `integer` | Yes | Pull request number |
+| `<number>` | `integer` | Yes | Pull request number. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format |
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 
 ### `devops pr edit`
 
@@ -2929,16 +2924,16 @@ devops pr edit [OPTIONS] <number>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<number>` | `integer` | Yes | Pull request number |
+| `<number>` | `integer` | Yes | Pull request number. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--base`, `-B` | `string` | - | Change the base branch for this pull request |
-| `--title`, `-t` | `string` | - | Set the new title |
-| `--body`, `-b` | `string` | - | Set the new body |
-| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format |
+| `--base`, `-B` | `string` | - | Change the base branch for this pull request. |
+| `--title`, `-t` | `string` | - | Set the new title. |
+| `--body`, `-b` | `string` | - | Set the new body. |
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 
 ### `devops pr create`
 
@@ -2952,11 +2947,11 @@ devops pr create [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--title`, `-t` | `string` | - | Pull request title |
-| `--body`, `-b` | `string` | `` | Pull request body text |
-| `--base`, `-B` | `string` | - | Target base branch (defaults to active release branch) |
-| `--draft`, `-d` | `boolean` | - | Create pull request as draft |
-| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format |
+| `--title`, `-t` | `string` | - | Title for the item or entity. |
+| `--body`, `-b` | `string` | `` | Body or description text. |
+| `--base`, `-B` | `string` | - | Base git branch to diff against (default: main). |
+| `--draft`, `-d` | `boolean` | - | Create pull request or entity as draft. |
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 
 ---
 
@@ -2976,14 +2971,14 @@ devops tf init [OPTIONS] <directory>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<directory>` | `path` | No | Target directory containing OpenTofu configuration |
+| `<directory>` | `path` | No | Target directory containing OpenTofu configuration. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--upgrade`, `-u` | `boolean` | - | Upgrade modules and plugins |
-| `--reconfigure` | `boolean` | - | Reconfigure backend, ignoring existing state |
+| `--upgrade`, `-u` | `boolean` | - | Upgrade modules and plugins. |
+| `--reconfigure` | `boolean` | - | Reconfigure backend, ignoring existing state. |
 
 ### `devops tf plan`
 
@@ -2997,15 +2992,15 @@ devops tf plan [OPTIONS] <directory>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<directory>` | `path` | No | Target directory containing OpenTofu configuration |
+| `<directory>` | `path` | No | Target directory containing OpenTofu configuration. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--var-file`, `-v` | `path` | - | Path to variable definitions file |
-| `--out`, `-o` | `path` | - | Write generated plan to file |
-| `--destroy` | `boolean` | - | Generate a plan to destroy all resources |
+| `--var-file`, `-v` | `path` | - | Path to variable definitions file. |
+| `--out`, `-o` | `path` | - | Write generated plan to file. |
+| `--destroy` | `boolean` | - | Generate a plan to destroy all resources. |
 
 ### `devops tf apply`
 
@@ -3019,15 +3014,15 @@ devops tf apply [OPTIONS] <directory>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<directory>` | `path` | No | Target directory containing OpenTofu configuration |
+| `<directory>` | `path` | No | Target directory containing OpenTofu configuration. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--var-file`, `-v` | `path` | - | Path to variable definitions file |
-| `--plan-file`, `-p` | `path` | - | Explicit plan file to apply |
-| `--auto-approve` | `boolean` | - | Skip interactive approval before applying |
+| `--var-file`, `-v` | `path` | - | Path to variable definitions file. |
+| `--plan-file`, `-p` | `path` | - | Explicit plan file to apply. |
+| `--auto-approve` | `boolean` | - | Skip interactive confirmation prompts. |
 
 ### `devops tf destroy`
 
@@ -3041,14 +3036,14 @@ devops tf destroy [OPTIONS] <directory>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<directory>` | `path` | No | Target directory containing OpenTofu configuration |
+| `<directory>` | `path` | No | Target directory containing OpenTofu configuration. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--var-file`, `-v` | `path` | - | Path to variable definitions file |
-| `--auto-approve` | `boolean` | - | Skip interactive approval before destroying |
+| `--var-file`, `-v` | `path` | - | Path to variable definitions file. |
+| `--auto-approve` | `boolean` | - | Skip interactive confirmation prompts. |
 
 ### `devops tf output`
 
@@ -3062,14 +3057,14 @@ devops tf output [OPTIONS] <directory>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<directory>` | `path` | No | Target directory containing OpenTofu configuration |
+| `<directory>` | `path` | No | Target directory containing OpenTofu configuration. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--json`, `-j` | `boolean` | - | Output values formatted as JSON |
-| `--raw`, `-r` | `boolean` | - | Output raw string without shell escapes |
+| `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
+| `--raw`, `-r` | `boolean` | - | Output raw string without formatting or shell escapes. |
 
 ### `devops tf validate`
 
@@ -3083,13 +3078,13 @@ devops tf validate [OPTIONS] <directory>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<directory>` | `path` | No | Target directory containing OpenTofu configuration |
+| `<directory>` | `path` | No | Target directory containing OpenTofu configuration. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--no-color` | `boolean` | - | Disable color codes |
+| `--no-color` | `boolean` | - | Disable color codes. |
 
 ### `devops tf fmt`
 
@@ -3103,14 +3098,14 @@ devops tf fmt [OPTIONS] <directory>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<directory>` | `path` | No | Target directory containing OpenTofu configuration |
+| `<directory>` | `path` | No | Target directory containing OpenTofu configuration. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--check`, `-c` | `boolean` | - | Check formatting without writing files |
-| `--recursive`, `-r` | `boolean` | `True` | Format subdirectories recursively |
+| `--check`, `-c` | `boolean` | - | Check formatting without writing files. |
+| `--recursive`, `-r` | `boolean` | `True` | Format subdirectories recursively. |
 
 ### `devops tf status`
 
@@ -3124,7 +3119,7 @@ devops tf status <directory>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<directory>` | `path` | No | Target directory containing OpenTofu configuration |
+| `<directory>` | `path` | No | Target directory containing OpenTofu configuration. |
 
 ### `devops tf deploy-cloud`
 
@@ -3138,9 +3133,9 @@ devops tf deploy-cloud [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--provider`, `-p` | `string` | - | Target cloud provider: aws, azure, or gcp |
-| `--auto-approve` | `boolean` | - | Automatically approve apply without prompt |
-| `--var-file`, `-v` | `path` | - | Path to custom tfvars file |
+| `--provider`, `-p` | `string` | - | AI or cloud provider. |
+| `--auto-approve` | `boolean` | - | Skip interactive confirmation prompts. |
+| `--var-file`, `-v` | `path` | - | Path to variable definitions file. |
 
 ### `devops tf lint`
 
@@ -3154,21 +3149,19 @@ devops tf lint [OPTIONS] <directory>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<directory>` | `path` | No | Target directory containing Terraform / OpenTofu files |
+| `<directory>` | `path` | No | Target directory containing OpenTofu configuration. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--config`, `-c` | `path` | - | Path to .tflint.hcl config file |
-| `--dry-run` | `boolean` | - | Simulate TFLint execution |
-| `--json` | `boolean` | - | Output findings as JSON |
+| `--config`, `-c` | `path` | - | Path to .tflint.hcl config file. |
+| `--dry-run` | `boolean` | - | Simulate TFLint execution. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ---
 
 ## devops tls
-
-X.509 TLS certificate generation, inspection, verification, and Kubernetes secrets.
 
 Generate and manage homelab TLS certificates and CAs.
 
@@ -3184,13 +3177,13 @@ devops tls ca [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--output-dir`, `-o` | `path` | `~/.config/devops-cli/tls` | Directory to save CA certificate and key |
-| `--common-name`, `-cn` | `string` | `Homelab DevOps Root CA` | Common Name for the Root CA |
-| `--organization`, `-org` | `string` | `Homelab DevOps` | Organization name |
-| `--country`, `-c` | `string` | `US` | 2-letter country code |
-| `--validity-days`, `-d` | `integer` | `3650` | Validity period in days |
-| `--key-size`, `-k` | `integer` | `2048` | RSA key size in bits (2048 or 4096) |
-| `--overwrite`, `-f` | `boolean` | - | Overwrite existing files |
+| `--output-dir`, `-o` | `path` | `~/.config/devops-cli/tls` | Directory to save certificate and key files. |
+| `--common-name`, `-cn` | `string` | `Homelab DevOps Root CA` | Common Name for the certificate (e.g. *.local.lan). |
+| `--organization`, `-org` | `string` | `Homelab DevOps` | Organization name. |
+| `--country`, `-c` | `string` | `US` | 2-letter country code. |
+| `--validity-days`, `-d` | `integer` | `3650` | Validity period in days. |
+| `--key-size`, `-k` | `integer` | `2048` | RSA key size in bits (2048 or 4096). |
+| `--overwrite`, `-f` | `boolean` | - | Overwrite existing files. |
 
 ### `devops tls cert`
 
@@ -3204,15 +3197,15 @@ devops tls cert [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--common-name`, `-cn` | `string` | `localhost` | Primary Common Name or domain |
-| `--san`, `-s` | `string` | - | Subject Alternative Names (DNS names or IP addresses) |
-| `--ca-cert` | `path` | - | Path to signing CA certificate (ca.crt) |
-| `--ca-key` | `path` | - | Path to signing CA private key (ca.key) |
-| `--output-dir`, `-o` | `path` | `~/.config/devops-cli/tls` | Directory to save certificate and key |
-| `--validity-days`, `-d` | `integer` | `365` | Validity period in days |
-| `--key-size`, `-k` | `integer` | `2048` | RSA key size in bits (2048 or 4096) |
-| `--organization`, `-org` | `string` | `Homelab DevOps` | Organization name |
-| `--overwrite`, `-f` | `boolean` | - | Overwrite existing files |
+| `--common-name`, `-cn` | `string` | `homelab.local` | Common Name for the certificate (e.g. *.local.lan). |
+| `--san`, `-s` | `string` | - | Subject Alternative Names (DNS names or IP addresses). |
+| `--ca-cert` | `path` | - | Path to signing CA certificate (ca.crt). |
+| `--ca-key` | `path` | - | Path to signing CA private key (ca.key). |
+| `--output-dir`, `-o` | `path` | `~/.config/devops-cli/tls` | Directory to save certificate and key files. |
+| `--validity-days`, `-d` | `integer` | `365` | Validity period in days. |
+| `--key-size`, `-k` | `integer` | `2048` | RSA key size in bits (2048 or 4096). |
+| `--organization`, `-org` | `string` | `Homelab DevOps` | Organization name. |
+| `--overwrite`, `-f` | `boolean` | - | Overwrite existing files. |
 
 ### `devops tls homelab`
 
@@ -3226,10 +3219,10 @@ devops tls homelab [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--output-dir`, `-o` | `path` | `~/.config/devops-cli/tls` | Directory to save certificates |
-| `--domain`, `-d` | `string` | - | Additional custom domains to include in SANs |
-| `--ip`, `-i` | `string` | - | Additional custom IP addresses to include in SANs |
-| `--overwrite`, `-f` | `boolean` | - | Regenerate all existing certificates |
+| `--output-dir`, `-o` | `path` | `~/.config/devops-cli/tls` | Directory to save certificate and key files. |
+| `--domain`, `-d` | `string` | - | Additional custom domains to include in SANs. |
+| `--ip`, `-i` | `string` | - | Additional custom IP addresses to include in SANs. |
+| `--overwrite`, `-f` | `boolean` | - | Overwrite existing files. |
 
 ### `devops tls inspect`
 
@@ -3243,7 +3236,7 @@ devops tls inspect <cert_path>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<cert_path>` | `path` | Yes | Path to X.509 certificate file (.crt or .pem) |
+| `<cert_path>` | `path` | Yes | Path to X.509 certificate file (.crt or .pem). |
 
 ### `devops tls verify`
 
@@ -3257,13 +3250,13 @@ devops tls verify [OPTIONS] <cert_path>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<cert_path>` | `path` | Yes | Path to leaf certificate file (.crt or .pem) |
+| `<cert_path>` | `path` | Yes | Path to leaf certificate file (.crt or .pem). |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--ca-cert`, `-ca` | `path` | `~/.config/devops-cli/tls/ca.crt` | Path to Root CA certificate file (ca.crt) |
+| `--ca-cert`, `-ca` | `path` | `~/.config/devops-cli/tls/ca.crt` | Path to signing CA certificate (ca.crt). |
 
 ### `devops tls enable-k8s`
 
@@ -3277,17 +3270,15 @@ devops tls enable-k8s [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--context`, `-c` | `string` | - | Kubernetes cluster context (e.g. minikube, default) |
-| `--tls-dir` | `path` | `~/.config/devops-cli/tls` | Directory with generated TLS certificates |
-| `--secret-name` | `string` | `homelab-tls` | Kubernetes TLS secret name to create |
-| `--namespace`, `-n` | `string` | - | Target namespaces to deploy TLS secret into |
-| `--overwrite`, `-f` | `boolean` | - | Regenerate certs if missing |
+| `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
+| `--tls-dir` | `path` | `~/.config/devops-cli/tls` | Directory with generated TLS certificates. |
+| `--secret-name` | `string` | `homelab-tls` | Kubernetes TLS secret name to create. |
+| `--namespace`, `-n` | `string` | - | Kubernetes namespace. |
+| `--overwrite`, `-f` | `boolean` | - | Overwrite existing files. |
 
 ---
 
 ## devops telemetry
-
-OpenTelemetry observability, tracing, and metrics management.
 
 OpenTelemetry tracing, metrics, and Jaeger observability.
 
@@ -3311,7 +3302,7 @@ devops telemetry test [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--name`, `-n` | `string` | `devops-cli.manual_test` | Name for test span |
+| `--name`, `-n` | `string` | `devops-cli.manual_test` | Name for test span. |
 
 ### `devops telemetry open-ui`
 
@@ -3324,8 +3315,6 @@ devops telemetry open-ui
 ---
 
 ## devops serve
-
-FastAPI REST and OpenAPI service engine.
 
 FastAPI REST & OpenAPI Service Engine for remote automation, health probes, and metrics.
 

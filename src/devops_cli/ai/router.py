@@ -9,8 +9,9 @@ Intelligently steers tasks based on complexity, token budget, and latency requir
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
 from enum import StrEnum
+
+from pydantic import BaseModel, ConfigDict
 
 from devops_cli.config.settings import AIConfig
 
@@ -25,9 +26,10 @@ class TaskComplexity(StrEnum):
     HIGH = "high"  # Multi-file architecture review, threat modeling, code patching
 
 
-@dataclass(frozen=True)
-class ModelRouteDecision:
+class ModelRouteDecision(BaseModel):
     """Routing decision outcome containing target provider, model, and rationale."""
+
+    model_config = ConfigDict(frozen=True)
 
     task_name: str
     complexity: TaskComplexity

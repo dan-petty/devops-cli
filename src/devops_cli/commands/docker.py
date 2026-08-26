@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Annotated, Any
 
 import typer
-from rich.table import Table
 
 from devops_cli.config.defaults import DEFAULT_DOCKER_TIMEOUT_SECONDS
 from devops_cli.core.cli import new_typer
@@ -57,7 +56,7 @@ def _client() -> Any:
 
 @app.command("images")
 def list_images(
-    name: Annotated[str | None, typer.Option("--name", "-n", help="Filter by name")] = None,
+    name: Annotated[str | None, typer.Option("--name", "-n", help=HELP.docker.name_filter)] = None,
 ) -> None:
     """List local Docker images."""
     if is_dry_run():
@@ -70,20 +69,19 @@ def list_images(
     client = _client()
     images = client.images.list(name=name)
 
-    table = Table(title=MESSAGES.docker.table_title_images)
-    table.add_column("Repository", style="cyan")
-    table.add_column("Tag")
-    table.add_column("ID")
-    table.add_column("Size")
-
+    rows: list[list[str]] = []
     for image in images:
         tags = image.tags or ["<none>:<none>"]
         for tag in tags:
             repo, _, t = tag.rpartition(":")
             size_mb = image.attrs.get("Size", 0) // (1024 * 1024)
-            table.add_row(repo or "<none>", t or "<none>", image.short_id, f"{size_mb} MB")
+            rows.append([repo or "<none>", t or "<none>", image.short_id, f"{size_mb} MB"])
 
-    print_table(table)
+    print_table(
+        title=MESSAGES.docker.table_title_images,
+        columns=[("Repository", "cyan"), "Tag", "ID", "Size"],
+        rows=rows,
+    )
 
 
 # =============================================================================
@@ -93,10 +91,12 @@ def list_images(
 
 @app.command()
 def build(
-    context: Annotated[Path, typer.Argument(help="Build context directory")] = Path("."),
-    tag: Annotated[str | None, typer.Option("--tag", "-t")] = None,
-    dockerfile: Annotated[Path | None, typer.Option("--file", "-f")] = None,
-    no_cache: Annotated[bool, typer.Option("--no-cache")] = False,
+    context: Annotated[Path, typer.Argument(help=HELP.docker.context_dir)] = Path("."),
+    tag: Annotated[str | None, typer.Option("--tag", "-t", help=HELP.docker.tag)] = None,
+    dockerfile: Annotated[
+        Path | None, typer.Option("--file", "-f", help=HELP.docker.dockerfile)
+    ] = None,
+    no_cache: Annotated[bool, typer.Option("--no-cache", help=HELP.docker.no_cache)] = False,
 ) -> None:
     """Build a Docker image."""
     if is_dry_run():
@@ -136,7 +136,7 @@ def build(
 
 @app.command()
 def push(
-    image: Annotated[str, typer.Argument(help="Image name[:tag] to push")],
+    image: Annotated[str, typer.Argument(help=HELP.docker.image_name)],
 ) -> None:
     """Push a Docker image to a registry."""
     if is_dry_run():
@@ -170,8 +170,8 @@ def push(
 
 @app.command()
 def prune(
-    volumes: Annotated[bool, typer.Option("--volumes", help="Also remove unused volumes")] = False,
-    force: Annotated[bool, typer.Option("--force", "-f", help="Skip confirmation")] = False,
+    volumes: Annotated[bool, typer.Option("--volumes", help=HELP.docker.volumes)] = False,
+    force: Annotated[bool, typer.Option("--force", "-f", help=HELP.options.force)] = False,
 ) -> None:
     """Remove unused containers, images, and networks."""
     if is_dry_run():
@@ -205,9 +205,9 @@ def prune(
 
 @app.command("analyze-layers")
 def analyze_layers(
-    image: Annotated[str, typer.Argument(help="Container image tag or ID to analyze")],
-    dry_run: Annotated[bool, typer.Option("--dry-run", help="Simulate layer analysis")] = False,
-    json_output: Annotated[bool, typer.Option("--json", help="Output metrics as JSON")] = False,
+    image: Annotated[str, typer.Argument(help=HELP.docker.image_name)],
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
+    json_output: Annotated[bool, typer.Option("--json", help=HELP.options.json_output)] = False,
 ) -> None:
     """Analyze container image layer efficiency and wasted space using Dive."""
     from devops_cli.output import format_json, print_muted, write_stdout
@@ -228,18 +228,22 @@ def analyze_layers(
         write_stdout(format_json(result.model_dump()) + "\n")
         return
 
-    table = Table(title=MESSAGES.docker.table_title_layers.format(image=result.image_name))
-    table.add_column("Layer", justify="right")
-    table.add_column("Size (MB)", justify="right")
-    table.add_column("Wasted (MB)", justify="right")
-    table.add_column("Command / Directive")
-
+    rows = []
     for lyr in result.layers:
         size_mb = f"{lyr.size_bytes / (1024 * 1024):.2f}"
         wasted_mb = f"{lyr.wasted_bytes / (1024 * 1024):.2f}"
-        table.add_row(str(lyr.index), size_mb, wasted_mb, lyr.command[:80])
+        rows.append([str(lyr.index), size_mb, wasted_mb, lyr.command[:80]])
 
-    print_table(table)
+    print_table(
+        title=MESSAGES.docker.table_title_layers.format(image=result.image_name),
+        columns=[
+            ("Layer", "right"),
+            ("Size (MB)", "right"),
+            ("Wasted (MB)", "right"),
+            "Command / Directive",
+        ],
+        rows=rows,
+    )
     eff_pct = result.efficiency_score * 100
     tot_mb = result.total_bytes / (1024 * 1024)
     wst_mb = result.wasted_bytes / (1024 * 1024)

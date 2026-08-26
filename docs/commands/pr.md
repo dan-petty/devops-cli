@@ -1,6 +1,6 @@
 # `devops pr`
 
-Manage GitHub pull requests and base branch targeting.
+GitHub Pull Request workflows and reviews.
 
 ## Commands
 
@@ -16,9 +16,9 @@ devops pr list [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--state`, `-s` | `string` | `open` | Filter by state (open, closed, merged, all) |
-| `--limit`, `-n` | `integer` | `10` | Maximum number of pull requests to display |
-| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format |
+| `--state`, `-s` | `string` | `open` | Filter by state (open, closed, merged, all). |
+| `--limit`, `-n` | `integer` | `30` | Maximum number of items to return or display. |
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 
 ---
 
@@ -34,13 +34,13 @@ devops pr view [OPTIONS] <number>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<number>` | `integer` | Yes | Pull request number |
+| `<number>` | `integer` | Yes | Pull request number. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format |
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 
 ---
 
@@ -56,13 +56,13 @@ devops pr checks [OPTIONS] <number>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<number>` | `integer` | Yes | Pull request number |
+| `<number>` | `integer` | Yes | Pull request number. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format |
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 
 ---
 
@@ -78,16 +78,16 @@ devops pr edit [OPTIONS] <number>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<number>` | `integer` | Yes | Pull request number |
+| `<number>` | `integer` | Yes | Pull request number. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--base`, `-B` | `string` | - | Change the base branch for this pull request |
-| `--title`, `-t` | `string` | - | Set the new title |
-| `--body`, `-b` | `string` | - | Set the new body |
-| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format |
+| `--base`, `-B` | `string` | - | Change the base branch for this pull request. |
+| `--title`, `-t` | `string` | - | Set the new title. |
+| `--body`, `-b` | `string` | - | Set the new body. |
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 
 ---
 
@@ -103,10 +103,10 @@ devops pr create [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--title`, `-t` | `string` | - | Pull request title |
-| `--body`, `-b` | `string` | `` | Pull request body text |
-| `--base`, `-B` | `string` | - | Target base branch (defaults to active release branch) |
-| `--draft`, `-d` | `boolean` | - | Create pull request as draft |
-| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format |
+| `--title`, `-t` | `string` | - | Title for the item or entity. |
+| `--body`, `-b` | `string` | `` | Body or description text. |
+| `--base`, `-B` | `string` | - | Base git branch to diff against (default: main). |
+| `--draft`, `-d` | `boolean` | - | Create pull request or entity as draft. |
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 
 ---

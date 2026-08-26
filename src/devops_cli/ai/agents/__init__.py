@@ -1,3 +1,7 @@
+"""Multi-agent orchestrator, memory management, and structured Pydantic agent models."""
+
+from __future__ import annotations
+
 from devops_cli.ai.agents.memory import AgentMemory, MemoryEntry
 from devops_cli.ai.agents.pipeline import (
     MultiAgentPipeline,

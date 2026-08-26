@@ -14,6 +14,7 @@ import subprocess
 from pathlib import Path
 
 from devops_cli.ai.review_schema import Finding
+from devops_cli.config.defaults import DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS
 from devops_cli.telemetry import trace_span
 
 logger = logging.getLogger(__name__)
@@ -89,7 +90,7 @@ def _run_native_fallback_iac_checks(target_path: Path) -> list[Finding]:
 def run_checkov_scan(
     target_path: Path,
     framework: str | None = None,
-    timeout: float = 60.0,
+    timeout: float = DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
 ) -> list[Finding]:
     """Execute Checkov IaC security scanner on target_path and return normalized findings."""
     checkov_bin = shutil.which("checkov")

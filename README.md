@@ -113,7 +113,7 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 |  | `devops repos update [OPTIONS]` | Fetch (and optionally pull) all tracking branches across repos. |
 |  | `devops repos sync [OPTIONS]` | Fetch (and optionally pull) all tracking branches across repos. |
 | **ssh** | `devops ssh generate [OPTIONS]` | Generate a new Ed25519 SSH key with today's date suffix. |
-|  | `devops ssh register [OPTIONS]` | SSH key generation, rotation, and GitHub registration. |
+|  | `devops ssh register [OPTIONS]` | Generate, rotate, audit, and register Ed25519 SSH keypairs. |
 |  | `devops ssh rotate [OPTIONS]` | Rotate keys older than rotation_days (default 90). |
 |  | `devops ssh list [OPTIONS]` | List all managed SSH keys with their age and rotation status. |
 |  | `devops ssh audit [OPTIONS]` | List all managed SSH keys with their age and rotation status. |
@@ -164,14 +164,14 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 | **grafana** | `devops grafana search [OPTIONS]` | Search Grafana dashboards and folders by query string. |
 |  | `devops grafana datasources` | List configured datasources. |
 |  | `devops grafana alerts` | List alert rules (Grafana 9+ unified alerting). |
-|  | `devops grafana dashboards COMMAND [ARGS]...` | Manage Grafana dashboards. |
+|  | `devops grafana dashboards COMMAND [ARGS]...` | Grafana dashboard and alert management. |
 | **prometheus** | `devops prometheus query [OPTIONS] <expr>` | Execute an instant PromQL query. |
 |  | `devops prometheus query-range [OPTIONS] <expr>` | Execute a range PromQL query and summarise the result. |
 |  | `devops prometheus rules` | List Prometheus recording and alerting rules. |
 |  | `devops prometheus targets` | List active Prometheus scrape targets. |
-| **argo** | `devops argo cd COMMAND [ARGS]...` | ArgoCD application management. |
-|  | `devops argo workflows COMMAND [ARGS]...` | Argo Workflows management. |
-|  | `devops argo rollouts COMMAND [ARGS]...` | Argo Rollouts management. |
+| **argo** | `devops argo cd COMMAND [ARGS]...` | Argo CD, Workflows, and Rollouts management. |
+|  | `devops argo workflows COMMAND [ARGS]...` | Argo CD, Workflows, and Rollouts management. |
+|  | `devops argo rollouts COMMAND [ARGS]...` | Argo CD, Workflows, and Rollouts management. |
 | **config** | `devops config show` | Print all configuration values, masking secrets. |
 |  | `devops config get <key>` | Print a single configuration value. |
 |  | `devops config set <key> <value>` | Set a configuration value. Tokens are stored in the OS keyring. |
@@ -185,11 +185,11 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 |  | `devops ci coverage [OPTIONS]` | Run pytest with parallel code coverage analysis over src/. |
 |  | `devops ci lint [OPTIONS]` | Run ruff linter across the project. |
 |  | `devops ci format [OPTIONS]` | Check (or apply) code formatting with ruff format. |
-|  | `devops ci typecheck` | Run mypy static type-checker strictly targeting Python 3.14 over src/. |
-|  | `devops ci audit` | Run uv audit to check for known package vulnerabilities. |
+|  | `devops ci typecheck [OPTIONS]` | Run mypy static type-checker strictly targeting Python 3.14 over src/. |
+|  | `devops ci audit [OPTIONS]` | Run uv audit to check for known package vulnerabilities. |
 |  | `devops ci security [OPTIONS]` | Run bandit static security vulnerability analysis over src/. |
-|  | `devops ci actionlint` | Run actionlint to validate GitHub Actions workflows for syntax and schema errors. |
-|  | `devops ci docs` | Verify that documentation is up to date with CLI commands and configuration. |
+|  | `devops ci actionlint [OPTIONS]` | Run actionlint to validate GitHub Actions workflows for syntax and schema errors. |
+|  | `devops ci docs [OPTIONS]` | Verify that documentation is up to date with CLI commands and configuration. |
 |  | `devops ci run [OPTIONS]` | Run full CI and return a single pass/fail status. |
 | **uv** | `devops uv sync [OPTIONS]` | Sync project dependencies into the virtual environment. |
 |  | `devops uv lock [OPTIONS]` | Regenerate the uv lockfile. |

@@ -1,6 +1,6 @@
 # `devops scan`
 
-Security, vulnerability, secret, and IaC scanner.
+Security scanner suite: Trivy, Gitleaks, Semgrep, Checkov, Kubeconform.
 
 ## Commands
 
@@ -16,16 +16,16 @@ devops scan trivy [OPTIONS] <target>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<target>` | `path` | No | Target directory, file, or repository to scan |
+| `<target>` | `path` | No | Target directory, file, or repository to scan. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--type`, `-t` | `string` | `fs` | Trivy scan mode: fs, image, iac, repo |
-| `--severity`, `-s` | `string` | `UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL` | Comma-separated severity levels to include |
-| `--dry-run` | `boolean` | - | Simulate security scan execution. |
-| `--json` | `boolean` | - | Output raw findings as JSON |
+| `--type`, `-t` | `string` | `fs` | Trivy scan mode: fs, image, iac, repo. |
+| `--severity`, `-s` | `string` | `UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL` | Comma-separated severity levels to include. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ---
 
@@ -41,14 +41,14 @@ devops scan secrets [OPTIONS] <target>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<target>` | `path` | No | Target directory or file to scan for secrets |
+| `<target>` | `path` | No | Target directory or file to scan for secrets. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--dry-run` | `boolean` | - | Simulate secret scan execution. |
-| `--json` | `boolean` | - | Output raw findings as JSON |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ---
 
@@ -64,14 +64,14 @@ devops scan gitleaks [OPTIONS] <target>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<target>` | `path` | No | Target directory or file to scan for secrets |
+| `<target>` | `path` | No | Target directory or file to scan for secrets. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--dry-run` | `boolean` | - | Simulate secret scan execution. |
-| `--json` | `boolean` | - | Output raw findings as JSON |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ---
 
@@ -87,15 +87,15 @@ devops scan semgrep [OPTIONS] <target>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<target>` | `path` | No | Target directory or file to scan with Semgrep AST rules |
+| `<target>` | `path` | No | Target directory or file to scan with Semgrep AST rules. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--config`, `-c` | `string` | `p/default` | Semgrep ruleset config (e.g. p/default, p/security-audit) |
-| `--dry-run` | `boolean` | - | Simulate Semgrep scan execution. |
-| `--json` | `boolean` | - | Output raw findings as JSON |
+| `--config`, `-c` | `string` | `p/default` | Semgrep ruleset config (e.g. p/default, p/security-audit). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ---
 
@@ -111,15 +111,15 @@ devops scan sast [OPTIONS] <target>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<target>` | `path` | No | Target directory or file to scan with Semgrep AST rules |
+| `<target>` | `path` | No | Target directory or file to scan with Semgrep AST rules. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--config`, `-c` | `string` | `p/default` | Semgrep ruleset config (e.g. p/default, p/security-audit) |
-| `--dry-run` | `boolean` | - | Simulate Semgrep scan execution. |
-| `--json` | `boolean` | - | Output raw findings as JSON |
+| `--config`, `-c` | `string` | `p/default` | Semgrep ruleset config (e.g. p/default, p/security-audit). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ---
 
@@ -135,15 +135,15 @@ devops scan checkov [OPTIONS] <target>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<target>` | `path` | No | Target directory or file to scan with Checkov IaC rules |
+| `<target>` | `path` | No | Target directory or file to scan with Checkov IaC rules. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--framework`, `-f` | `string` | - | Specific IaC framework (e.g. terraform) |
-| `--dry-run` | `boolean` | - | Simulate Checkov IaC scan execution. |
-| `--json` | `boolean` | - | Output raw findings as JSON |
+| `--framework`, `-f` | `string` | - | Specific IaC framework (e.g. terraform). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ---
 
@@ -159,14 +159,14 @@ devops scan iac [OPTIONS] <target>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<target>` | `path` | No | Target directory or file to scan with Checkov IaC rules |
+| `<target>` | `path` | No | Target directory or file to scan with Checkov IaC rules. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--framework`, `-f` | `string` | - | Specific IaC framework (e.g. terraform) |
-| `--dry-run` | `boolean` | - | Simulate Checkov IaC scan execution. |
-| `--json` | `boolean` | - | Output raw findings as JSON |
+| `--framework`, `-f` | `string` | - | Specific IaC framework (e.g. terraform). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ---

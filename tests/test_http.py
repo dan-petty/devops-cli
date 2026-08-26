@@ -1,9 +1,10 @@
-"""Tests for shared HTTP utilities."""
+"""Tests for shared HTTP utilities and client configurations."""
 
 from __future__ import annotations
 
 import pytest
 
+from devops_cli.http.client import new_http_client, request_timeout
 from devops_cli.http.validation import validate_service_url
 
 
@@ -57,3 +58,18 @@ def test_private_ip_allowed_when_env_set(override: str, monkeypatch: pytest.Monk
 def test_invalid_scheme_rejected(url: str) -> None:
     with pytest.raises(ValueError):
         validate_service_url(url, "test")
+
+
+def test_http_client_options() -> None:
+    """Test request_timeout and new_http_client with varied timeout specifications."""
+    t1 = request_timeout(read=30.0)
+    assert t1.read == 30.0
+
+    c1 = new_http_client(read_timeout=15.0)
+    assert c1.timeout.read == 15.0
+
+    c2 = new_http_client(timeout=10.0)
+    assert c2.timeout.read == 10.0
+
+    c3 = new_http_client(timeout=t1)
+    assert c3.timeout.read == 30.0

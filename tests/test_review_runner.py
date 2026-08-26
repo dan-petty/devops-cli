@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+from typer.testing import CliRunner
+
 from devops_cli.ai.personas import PERSONAS, Persona
 from devops_cli.ai.review.rendering import (
     _render_review_raw,
@@ -40,7 +42,10 @@ from devops_cli.ai.review.runner import (
 from devops_cli.ai.review_schema import (
     Finding,
     ReviewResult,
+    ReviewSessionPayload,
+    SavedFinding,
 )
+from devops_cli.commands.review import app as review_app
 from devops_cli.config.settings import Settings
 from devops_cli.models.vulnerability import DependencySpec, NetworkReference
 
@@ -266,3 +271,257 @@ def test_run_review_and_persona_loop(tmp_path: Path) -> None:
         persona=Persona.DEVSECOPS,
     )
     assert len(completed_list) == 1
+
+
+def test_review_runner_extended_branches(tmp_path: Path) -> None:
+    """Verify session lookup, markdown formatting, fallback join, and multi-segment review."""
+    from devops_cli.ai.review.runner import (
+        _fallback_join,
+        _find_session_dir,
+        _log_segment_empty,
+        _log_segment_error,
+        _print_review,
+        _review_to_markdown,
+    )
+
+    # 1. Fallback join deduplication
+    assert _fallback_join(["line 1\nline 2", "line 2\nline 3"]) == "line 1\nline 2\n\nline 3"
+
+    # 2. Review to markdown with unverified and mitigated findings
+    finding_mit = Finding(
+        severity="HIGH",
+        title="Mitigated Vuln",
+        description="Desc",
+        location="src/main.py:10",
+        mitigated=True,
+    )
+    finding_unver = Finding(
+        severity="LOW",
+        title="Unverified Vuln",
+        description="Desc",
+        location="src/main.py:20",
+        verified=False,
+    )
+    res_mit = ReviewResult(
+        persona=Persona.DEVSECOPS,
+        findings=[finding_mit, finding_unver],
+        positive_observations=["Good architecture"],
+        summary="Review complete",
+    )
+    md = _review_to_markdown(res_mit)
+    assert "*(mitigated)*" in md
+    assert "*(unverified)*" in md
+    assert "Good architecture" in md
+
+    # 3. Print review helpers
+    pd = PERSONAS[Persona.DEVSECOPS]
+    _print_review(pd, "")
+    _print_review(pd, "## Plain markdown review")
+
+    # 4. Log helpers
+    _log_segment_error("file.py", 1.0, " [ollama]", 1)
+    _log_segment_error("file.py", 1.0, " [ollama]", 3)
+    _log_segment_empty("file.py", 1.0, " [ollama]", 1)
+    _log_segment_empty("file.py", 1.0, " [ollama]", 3)
+
+    # 5. Session directory lookup
+    with patch("devops_cli.ai.review.runner._get_reviews_base_dir", return_value=tmp_path):
+        s1 = tmp_path / "20260826-120000-session1"
+        s1.mkdir()
+        (s1 / "findings.json").write_text("{}", encoding="utf-8")
+        found = _find_session_dir("session1")
+        assert found == s1
+
+
+def test_review_runner_dry_run_and_summary_metas(tmp_path: Path) -> None:
+    """Verify dry-run mock constructors, summary generation with file metadata, and error branches."""
+    from devops_cli.ai.analyze.outlines import FileAnalysisMeta
+    from devops_cli.ai.review.runner import (
+        _build_dry_run_persona_result,
+        _build_dry_run_segment_result,
+        _write_summary,
+    )
+
+    # 1. Dry run constructors
+    seg_res = _build_dry_run_segment_result("app.py", "app.py analysis")
+    assert seg_res.recommendation == "APPROVE"
+    assert len(seg_res.findings) == 1
+    assert "[dry-run]" in seg_res.findings[0].title
+
+    persona_res = _build_dry_run_persona_result("Review Title", "devsecops", 3)
+    assert persona_res.recommendation == "APPROVE"
+    assert len(persona_res.findings) == 1
+
+    # 2. Write summary with analysis metadata
+    meta = FileAnalysisMeta(
+        path="src/app.py",
+        language="python",
+        primary_purpose="Main web entry point",
+        complexity_score="medium",
+        key_symbols=["App", "main", "run_server"],
+    )
+    analysis_metas = {"src/app.py": meta}
+    pd = PERSONAS[Persona.DEVSECOPS]
+
+    session_dir = tmp_path / "session_with_metas"
+    session_dir.mkdir()
+
+    _write_summary(
+        title="Meta Review",
+        session_dir=session_dir,
+        pages=["segment 1 content", "segment 2 content"],
+        completed=[(pd, persona_res)],
+        analysis_metas=analysis_metas,
+    )
+
+    summary_text = (session_dir / "summary.md").read_text(encoding="utf-8")
+    assert "Analysis Metadata" in summary_text
+    assert "Main web entry point" in summary_text
+    assert "src/app.py" in summary_text
+    assert "Symbols: App, main, run_server" in summary_text
+
+
+def test_review_cli_commands(tmp_path: Path) -> None:
+    """Verify review findings, verify, stats, and export-feedback commands."""
+    runner = CliRunner()
+    session_dir = tmp_path / "20260826-000000-sample-session"
+    session_dir.mkdir(parents=True)
+
+    findings = [
+        SavedFinding(
+            id=1,
+            title="Insecure Port Binding",
+            severity="HIGH",
+            location="src/app.py:10",
+            status="UNVERIFIED",
+            persona="devsecops",
+            persona_title="Principal DevSecOps Engineer",
+            recommendation="REQUEST CHANGES",
+            confidence_score=0.90,
+        ),
+        SavedFinding(
+            id=2,
+            title="Missing Docstring",
+            severity="LOW",
+            location="src/app.py:20",
+            status="VERIFIED",
+            persona="qa",
+            persona_title="Senior QA Engineer",
+            recommendation="COMMENT",
+            confidence_score=0.80,
+        ),
+    ]
+    payload = ReviewSessionPayload(
+        session_id="sample-session",
+        created_at="2026-08-26T00:00:00",
+        target_type="path",
+        target="src/",
+        findings=findings,
+    )
+    (session_dir / "findings.json").write_text(payload.model_dump_json(indent=2), encoding="utf-8")
+
+    with patch("devops_cli.ai.review.runner._get_reviews_base_dir", return_value=tmp_path):
+        # 1. Findings table
+        res_find = runner.invoke(review_app, ["findings", "--session", "sample-session"])
+        assert res_find.exit_code == 0
+        assert "Insecure Port Binding" in res_find.output
+
+        # 2. Findings filter
+        res_find_unver = runner.invoke(
+            review_app, ["findings", "--session", "sample-session", "--unverified"]
+        )
+        assert res_find_unver.exit_code == 0
+
+        # 3. Verify finding by index
+        res_ver_idx = runner.invoke(
+            review_app,
+            [
+                "verify",
+                "sample-session",
+                "--index",
+                "1",
+                "--status",
+                "INVALIDATED",
+                "--reason",
+                "False positive",
+            ],
+        )
+        assert res_ver_idx.exit_code == 0
+        assert "Updated finding #1" in res_ver_idx.output
+
+        # 4. Verify finding by title
+        res_ver_title = runner.invoke(
+            review_app,
+            ["verify", "sample-session", "--title", "Missing Docstring", "--status", "MITIGATED"],
+        )
+        assert res_ver_title.exit_code == 0
+
+        # 5. Review stats
+        res_stats = runner.invoke(review_app, ["stats"])
+        assert res_stats.exit_code == 0
+        assert "devsecops" in res_stats.output
+
+        # 6. Export feedback
+        res_exp = runner.invoke(
+            review_app, ["export-feedback", "--output", str(tmp_path / "feedback.json")]
+        )
+        assert res_exp.exit_code == 0
+
+
+def test_review_runner_extended_functions(tmp_path: Path) -> None:
+    """Verify base branch detection, markdown generation, fallback joining, and boundary isolation."""
+    from devops_cli.ai.review.runner import (
+        _detect_base_branch,
+        _fallback_join,
+        _is_allowed_review_boundary,
+        _make_review_clients,
+        _review_to_markdown,
+    )
+    from devops_cli.config.settings import Settings
+
+    # 1. _detect_base_branch
+    with patch("devops_cli.ai.review.runner._run_subprocess") as mock_sub:
+        mock_sub.return_value = MagicMock(returncode=0, stdout="origin/release/v0.2.0\n")
+        b = _detect_base_branch(tmp_path, preferred_base="release/v0.2.0")
+        assert "release/v0.2.0" in b
+
+        mock_sub.return_value = MagicMock(returncode=1, stdout="", stderr="err")
+        b_fallback = _detect_base_branch(tmp_path)
+        assert b_fallback in ("main", "master")
+
+    # 2. _fallback_join
+    joined = _fallback_join(["item 1", "item 2", "item 3"])
+    assert "item 1" in joined and "item 2" in joined
+
+    # 3. _is_allowed_review_boundary
+    st = Settings()
+    assert _is_allowed_review_boundary(Path("src/app.py"), st) is True
+    assert _is_allowed_review_boundary(Path("/etc/shadow"), st) is False
+    assert _is_allowed_review_boundary(Path("/etc/passwd"), st) is False
+
+    # 4. _review_to_markdown
+    f = Finding(
+        severity="MEDIUM",
+        title="Tight Coupling",
+        description="Service couples DB and API layers",
+        location="src/service.py:15-30",
+        fix="Extract repository layer",
+    )
+
+    res = ReviewResult(
+        persona=Persona.ARCHITECT,
+        recommendation="COMMENT",
+        findings=[f],
+        positive_observations=["Clean typing"],
+        summary="Architecture is mostly sound.",
+    )
+    md = _review_to_markdown(res)
+    assert "Tight Coupling" in md
+    assert "Clean typing" in md
+    assert "Architecture is mostly sound" in md
+
+    # 5. _make_review_clients
+    st = Settings()
+    clients = _make_review_clients(st)
+    assert clients.analysis is not None
+    assert clients.compose is not None

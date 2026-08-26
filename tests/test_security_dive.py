@@ -46,3 +46,17 @@ def test_dive_mocked_binary_execution() -> None:
             assert result.wasted_bytes == 1000000
             assert len(result.layers) == 1
             assert result.layers[0].digest == "sha256:1234"
+
+
+def test_dive_empty_output_and_exception() -> None:
+    """Test empty stdout and exception handling in Dive analyzer."""
+    mock_empty = MagicMock(stdout="")
+    with patch("shutil.which", return_value="/usr/local/bin/dive"):
+        with patch("subprocess.run", return_value=mock_empty):
+            res_empty = run_dive_analysis("empty-img:v1")
+            assert res_empty.image_name == "empty-img:v1"
+            assert res_empty.efficiency_score == 1.0
+
+        with patch("subprocess.run", side_effect=RuntimeError("Dive failure")):
+            res_err = run_dive_analysis("err-img:v1")
+            assert res_err.image_name == "err-img:v1"

@@ -1,6 +1,6 @@
 # `devops ai`
 
-Configure and test AI providers.
+Configure, test, chat, analyze, and review codebases (Ollama, Claude, Copilot).
 
 ## Commands
 
@@ -17,12 +17,12 @@ devops ai config [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--provider`, `-p` | `string` | - | Provider: ollama, claude, copilot, openai |
-| `--model`, `-m` | `string` | - | Model name, e.g. gemma4:26b, claude-opus-4-5 |
-| `--ollama-urls` | `string` | - | Ollama server base URLs (comma-separated) |
-| `--ollama-max-parallel` | `integer` | - | Maximum number of simultaneous requests allowed per Ollama server node |
-| `--api-base-url` | `string` | - | Override API base URL for any provider |
-| `--api-key` | `string` | - | API key — stored in OS keyring, not config file |
-| `--max-retries` | `integer` | - | Maximum retry count for AI requests upon failure |
+| `--model`, `-m` | `string` | - | AI model identifier. |
+| `--ollama-urls` | `string` | - | Ollama server base URLs (comma-separated). |
+| `--ollama-max-parallel` | `integer` | - | Maximum number of simultaneous requests allowed per Ollama server node. |
+| `--api-base-url` | `string` | - | Override API base URL for any provider. |
+| `--api-key` | `string` | - | API key — stored in OS keyring, not config file. |
+| `--max-retries` | `integer` | - | Maximum retry count for AI requests upon failure. |
 
 ---
 
@@ -58,8 +58,8 @@ devops ai test [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--prompt`, `-p` | `string` | `Reply with exactly one word: OK` | Test prompt to send to the provider |
-| `--url`, `-u` | `string` | - | Specific Ollama server URL to test |
+| `--prompt`, `-p` | `string` | `Hello, world!` | Test prompt to send to the provider. |
+| `--url`, `-u` | `string` | - | Specific Ollama server URL to test. |
 
 ---
 
@@ -75,9 +75,9 @@ devops ai agents [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--repo`, `-r` | `path` | `.` | Repository root (default: current directory) |
-| `--template` | `boolean` | - | Generate from built-in template without calling the LLM |
-| `--file`, `-f` | `string` | `['AGENTS.md', 'CLAUDE.md', '.github/copilot-instructions.md']` | Files to generate (repeatable) |
+| `--repo`, `-r` | `path` | `.` | Repository root directory (default: current directory). |
+| `--template` | `boolean` | - | Generate from built-in template without calling the LLM. |
+| `--file`, `-f` | `string` | `['AGENTS.md', 'CLAUDE.md', '.github/copilot-instructions.md']` | Files to generate (repeatable). |
 
 ---
 
@@ -94,13 +94,13 @@ devops ai chat [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--persona`, `-p` | `string` | `architect` | Persona to chat with: devsecops, architect, pm, auditor, qa |
-| `--context`, `-c` | `path` | - | Optional file to inject as background context (e.g. AGENTS.md) |
-| `--rag`, `--no-rag` | `boolean` | `True` | Retrieve relevant semantic RAG context |
-| `--stream`, `--no-stream` | `boolean` | `True` | Stream response tokens |
-| `--tools`, `--no-tools` | `boolean` | `True` | Enable DevOps agent tools |
-| `--thinking`, `--no-thinking` | `boolean` | `True` | Enable model reasoning/thinking |
-| `--prewarm`, `--no-prewarm` | `boolean` | `True` | Prewarm the model before starting chat |
-| `--explain`, `-e` | `boolean` | - | Explain chat personas, tools, and reasoning modes |
+| `--context`, `-c` | `path` | - | Optional file to inject as background context (e.g. AGENTS.md). |
+| `--rag`, `--no-rag` | `boolean` | `True` | Retrieve relevant semantic RAG context. |
+| `--stream`, `--no-stream` | `boolean` | `True` | Stream response tokens. |
+| `--tools`, `--no-tools` | `boolean` | `True` | Enable DevOps agent tools. |
+| `--thinking`, `--no-thinking` | `boolean` | `True` | Enable model reasoning/thinking. |
+| `--prewarm`, `--no-prewarm` | `boolean` | `True` | Prewarm the model before starting chat. |
+| `--explain`, `-e` | `boolean` | - | Explain chat personas, tools, and reasoning modes. |
 
 ---
 
@@ -116,7 +116,7 @@ devops ai bundle-models [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--output`, `-o` | `path` | - | Output directory for model archive bundle |
+| `--output`, `-o` | `path` | - | Directory path for generated output files. |
 
 ---
 
@@ -132,16 +132,16 @@ devops ai pipeline [OPTIONS] <prompt>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<prompt>` | `string` | No | Initial goal or prompt for the multi-agent pipeline |
+| `<prompt>` | `string` | No | Initial goal or prompt for the multi-agent pipeline. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--personas`, `-p` | `string` | `devsecops,architect,qa` | Comma-separated persona pipeline sequence (e.g. devsecops,architect,qa) |
-| `--max-turns` | `integer` | `5` | Maximum tool turns per agent stage |
-| `--rag`, `--no-rag` | `boolean` | `True` | Retrieve relevant semantic RAG context |
-| `--thinking`, `--no-thinking` | `boolean` | `True` | Enable reasoning/thinking per agent |
+| `--personas`, `-p` | `string` | `devsecops,architect,qa` | Comma-separated persona pipeline sequence (e.g. devsecops,architect,qa). |
+| `--max-turns` | `integer` | `5` | Maximum tool turns per agent stage. |
+| `--rag`, `--no-rag` | `boolean` | `True` | Retrieve relevant semantic RAG context. |
+| `--thinking`, `--no-thinking` | `boolean` | `True` | Enable model reasoning/thinking. |
 
 ---
 
@@ -157,15 +157,15 @@ devops ai token-count [OPTIONS] <target>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<target>` | `string` | No | File path or text string to calculate tokens for |
+| `<target>` | `string` | No | File path or text string to calculate tokens for. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--model`, `-m` | `string` | `gpt-4o` | Target model BPE tokenizer (e.g. gpt-4o, cl100k_base) |
-| `--budget`, `-b` | `integer` | `16384` | Max context token budget limit |
-| `--json` | `boolean` | - | Output token budget analysis as JSON |
+| `--model`, `-m` | `string` | `gpt-4o` | AI model identifier. |
+| `--budget`, `-b` | `integer` | `8192` | Max context token budget limit. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ---
 
@@ -181,15 +181,15 @@ devops ai route [OPTIONS] <task>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<task>` | `string` | Yes | Task name (e.g. review, scan) |
+| `<task>` | `string` | Yes | Task name (e.g. review, scan). |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--tokens`, `-t` | `integer` | `1000` | Estimated tokens |
-| `--frontier`, `-f` | `boolean` | - | - |
-| `--json` | `boolean` | - | Output JSON |
+| `--tokens`, `-t` | `integer` | `1500` | Estimated tokens. |
+| `--frontier`, `-f` | `boolean` | - | Force routing to frontier tier models. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ---
 
@@ -205,7 +205,7 @@ devops ai review [OPTIONS] COMMAND [ARGS]...
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology |
+| `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology. |
 
 ### `devops ai review path`
 
@@ -219,18 +219,18 @@ devops ai review path [OPTIONS] <targets>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<targets>` | `path` | No | File(s) or directory(ies) to review |
+| `<targets>` | `path` | No | File(s) or directory(ies) to review. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--pattern`, `-g` | `string` | `*` | Glob pattern for files (default: all files) |
-| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa)` | - | Reviewer persona |
-| `--all` | `boolean` | - | Run all four reviewer personas |
-| `--dry-run` | `boolean` | - | Print commands and AI request payloads without executing. |
+| `--pattern`, `-g` | `string` | `*` | Glob pattern for matching files. |
+| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa)` | - | Reviewer persona to activate (devsecops, architect, pm, auditor, qa). |
+| `--all` | `boolean` | - | Run all reviewer personas in sequence. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--summary`, `-s` | `boolean` | - | Show segment metadata without running a full review. |
-| `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology |
+| `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology. |
 
 ### `devops ai review branch`
 
@@ -244,19 +244,19 @@ devops ai review branch [OPTIONS] <branch_name>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<branch_name>` | `string` | No | Branch to review (default: current branch) |
+| `<branch_name>` | `string` | No | Branch to review (default: current branch). |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--base`, `-b` | `string` | `main` | Base branch to diff against |
-| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa)` | - | Reviewer persona |
-| `--all` | `boolean` | - | Run all four reviewer personas |
-| `--repo` | `path` | `.` | Path to the git repository |
-| `--dry-run` | `boolean` | - | Print commands and AI request payloads without executing. |
+| `--base`, `-b` | `string` | `main` | Base git branch to diff against (default: main). |
+| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa)` | - | Reviewer persona to activate (devsecops, architect, pm, auditor, qa). |
+| `--all` | `boolean` | - | Run all reviewer personas in sequence. |
+| `--repo` | `path` | `.` | Repository root directory (default: current directory). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--summary`, `-s` | `boolean` | - | Show segment metadata without running a full review. |
-| `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology |
+| `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology. |
 
 ### `devops ai review pr`
 
@@ -270,19 +270,19 @@ devops ai review pr [OPTIONS] <number>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<number>` | `integer` | Yes | Pull request number |
+| `<number>` | `integer` | Yes | Pull request number. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--repo`, `-r` | `string` | - | owner/repo (default: detected from git remote) |
-| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa)` | - | Reviewer persona |
-| `--all` | `boolean` | - | Run all four reviewer personas |
-| `--post` | `boolean` | - | Post the review as a comment on the GitHub PR |
-| `--dry-run` | `boolean` | - | Print commands and AI request payloads without executing. |
+| `--repo`, `-r` | `string` | - | Target repository in OWNER/REPO format. |
+| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa)` | - | Reviewer persona to activate (devsecops, architect, pm, auditor, qa). |
+| `--all` | `boolean` | - | Run all reviewer personas in sequence. |
+| `--post` | `boolean` | - | Post the review as a comment on the GitHub PR. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--summary`, `-s` | `boolean` | - | Show segment metadata without running a full review. |
-| `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology |
+| `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology. |
 
 ### `devops ai review findings`
 
@@ -296,11 +296,11 @@ devops ai review findings [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--session`, `-s` | `string` | - | Session ID or substring (default: latest) |
-| `--status` | `string` | - | Filter by status: VERIFIED | UNVERIFIED | INVALIDATED | MITIGATED |
-| `--unverified` | `boolean` | - | Show unverified findings only |
-| `--invalidated` | `boolean` | - | Show invalidated findings only |
-| `--verified` | `boolean` | - | Show verified findings only |
+| `--session`, `-s` | `string` | - | Session ID or substring (default: latest). |
+| `--status` | `string` | - | Filter by status: VERIFIED | UNVERIFIED | INVALIDATED | MITIGATED. |
+| `--unverified` | `boolean` | - | Show unverified findings only. |
+| `--invalidated` | `boolean` | - | Show invalidated findings only. |
+| `--verified` | `boolean` | - | Show verified findings only. |
 
 ### `devops ai review verify`
 
@@ -314,17 +314,17 @@ devops ai review verify [OPTIONS] <session>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<session>` | `string` | No | Session ID or substring (default: latest) |
+| `<session>` | `string` | No | Session ID or substring (default: latest). |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--session`, `-s` | `string` | - | Session ID or substring |
-| `--index`, `-i` | `integer` | - | 1-based finding index in session to verify |
-| `--title`, `-t` | `string` | - | Match finding by substring in title |
-| `--status` | `string` | `INVALIDATED` | Target status: VERIFIED | INVALIDATED | MITIGATED | UNVERIFIED |
-| `--reason`, `-r` | `string` | `` | Explanation or justification for the status change |
+| `--session`, `-s` | `string` | - | Session ID or substring (default: latest). |
+| `--index`, `-i` | `integer` | - | 1-based finding index in session to verify. |
+| `--title`, `-t` | `string` | - | Match finding by substring in title. |
+| `--status` | `string` | `INVALIDATED` | Target status: VERIFIED | INVALIDATED | MITIGATED | UNVERIFIED. |
+| `--reason`, `-r` | `string` | `` | Explanation or justification for the status change. |
 
 ### `devops ai review stats`
 
@@ -338,7 +338,7 @@ devops ai review stats [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--reviews-dir` | `path` | - | Directory containing review sessions |
+| `--reviews-dir` | `path` | - | Directory containing review sessions. |
 
 ### `devops ai review export-feedback`
 
@@ -352,9 +352,9 @@ devops ai review export-feedback [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--output`, `-o` | `path` | - | Output JSONL path for benchmark feedback dataset |
-| `--reviews-dir` | `path` | - | Directory containing review sessions |
-| `--status`, `-s` | `string` | `INVALIDATED` | Finding status to export: INVALIDATED, VERIFIED, MITIGATED, or ALL |
+| `--output`, `-o` | `path` | - | Output JSONL path for benchmark feedback dataset. |
+| `--reviews-dir` | `path` | - | Directory containing review sessions. |
+| `--status`, `-s` | `string` | `INVALIDATED` | Finding status to export: INVALIDATED, VERIFIED, MITIGATED, or ALL. |
 
 ### `devops ai review apply-patch`
 
@@ -368,14 +368,14 @@ devops ai review apply-patch [OPTIONS] <session>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<session>` | `string` | Yes | Review session ID |
+| `<session>` | `string` | Yes | Session ID or substring (default: latest). |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--index`, `-idx` | `integer` | `1` | Finding index (1-based) |
-| `--interactive`, `-i` | `boolean` | - | Preview patch diff interactively |
+| `--index`, `-idx` | `integer` | `1` | 1-based finding index in session to verify. |
+| `--interactive`, `-i` | `boolean` | - | Preview patch diff interactively. |
 
 ---
 
@@ -391,7 +391,7 @@ devops ai analyze [OPTIONS] COMMAND [ARGS]...
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--explain`, `-x` | `boolean` | - | Explain static code analysis metrics and terminology |
+| `--explain`, `-x` | `boolean` | - | Explain static code analysis metrics and terminology. |
 
 ### `devops ai analyze path`
 
@@ -405,16 +405,16 @@ devops ai analyze path [OPTIONS] <target>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<target>` | `path` | No | File or directory path to analyze |
+| `<target>` | `path` | No | File or directory path to analyze. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--pattern`, `-g` | `string` | `*` | Glob pattern for files (default: all files) |
-| `--enhanced`, `-e`, `--no-enhanced` | `boolean` | `True` | Generate AI-enhanced metadata (pseudocode, complexity, last_updated) |
-| `--update-all`, `-u` | `boolean` | - | Regenerate all enhanced metadata fields regardless of last_* timestamps |
-| `--explain`, `-x` | `boolean` | - | Explain static code analysis metrics and terminology |
+| `--pattern`, `-g` | `string` | `*` | Glob pattern for matching files. |
+| `--enhanced`, `-e`, `--no-enhanced` | `boolean` | `True` | Generate AI-enhanced metadata (pseudocode, complexity, last_updated). |
+| `--update-all`, `-u` | `boolean` | - | Regenerate all enhanced metadata fields regardless of last_* timestamps. |
+| `--explain`, `-x` | `boolean` | - | Explain static code analysis metrics and terminology. |
 
 ### `devops ai analyze branch`
 
@@ -428,16 +428,16 @@ devops ai analyze branch [OPTIONS] <branch>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<branch>` | `string` | No | Branch to analyze (default: active branch) |
+| `<branch>` | `string` | No | Branch to analyze (default: active branch). |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--base`, `-b` | `string` | `main` | Base branch for diff |
-| `--enhanced`, `-e`, `--no-enhanced` | `boolean` | `True` | Generate AI-enhanced metadata (pseudocode, complexity, last_updated) |
-| `--update-all`, `-u` | `boolean` | - | Regenerate all enhanced metadata fields regardless of last_* timestamps |
-| `--explain`, `-x` | `boolean` | - | Explain static code analysis metrics and terminology |
+| `--base`, `-b` | `string` | `main` | Base git branch to diff against (default: main). |
+| `--enhanced`, `-e`, `--no-enhanced` | `boolean` | `True` | Generate AI-enhanced metadata (pseudocode, complexity, last_updated). |
+| `--update-all`, `-u` | `boolean` | - | Regenerate all enhanced metadata fields regardless of last_* timestamps. |
+| `--explain`, `-x` | `boolean` | - | Explain static code analysis metrics and terminology. |
 
 ### `devops ai analyze pr`
 
@@ -451,15 +451,15 @@ devops ai analyze pr [OPTIONS] <pr_number>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<pr_number>` | `integer` | Yes | GitHub PR number to analyze |
+| `<pr_number>` | `integer` | Yes | GitHub PR number to analyze. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--enhanced`, `-e`, `--no-enhanced` | `boolean` | `True` | Generate AI-enhanced metadata (pseudocode, complexity, last_updated) |
-| `--update-all`, `-u` | `boolean` | - | Regenerate all enhanced metadata fields regardless of last_* timestamps |
-| `--explain`, `-x` | `boolean` | - | Explain static code analysis metrics and terminology |
+| `--enhanced`, `-e`, `--no-enhanced` | `boolean` | `True` | Generate AI-enhanced metadata (pseudocode, complexity, last_updated). |
+| `--update-all`, `-u` | `boolean` | - | Regenerate all enhanced metadata fields regardless of last_* timestamps. |
+| `--explain`, `-x` | `boolean` | - | Explain static code analysis metrics and terminology. |
 
 ---
 
@@ -475,7 +475,7 @@ devops ai rag [OPTIONS] COMMAND [ARGS]...
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--explain`, `-e` | `boolean` | - | Explain RAG vector embeddings, Qdrant indexing, and terminology |
+| `--explain`, `-e` | `boolean` | - | Explain RAG vector embeddings, Qdrant indexing, and terminology. |
 
 ### `devops ai rag index`
 
@@ -489,17 +489,17 @@ devops ai rag index [OPTIONS] <path>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<path>` | `path` | No | Directory or file to index into vector store |
+| `<path>` | `path` | No | Directory or file to index into vector store. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--project`, `-p` | `string` | - | Project / repository name override |
-| `--force`, `-f` | `boolean` | - | Re-index all files ignoring content hash cache |
-| `--include-kb`, `--no-include-kb` | `boolean` | `True` | Include bundled DevOps CLI Knowledge Base in docs collection |
-| `--collection`, `-c` | `string` | - | Target collection override |
-| `--explain`, `-e` | `boolean` | - | Explain RAG vector embeddings, Qdrant indexing, and terminology |
+| `--project`, `-p` | `string` | - | Project / repository name override. |
+| `--force`, `-f` | `boolean` | - | Force execution ignoring non-blocking warnings. |
+| `--include-kb`, `--no-include-kb` | `boolean` | `True` | Include bundled DevOps CLI Knowledge Base in docs collection. |
+| `--collection`, `-c` | `string` | - | Target collection override. |
+| `--explain`, `-e` | `boolean` | - | Explain RAG vector embeddings, Qdrant indexing, and terminology. |
 
 ### `devops ai rag index-kb`
 
@@ -513,9 +513,9 @@ devops ai rag index-kb [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--force`, `-f` | `boolean` | - | Re-index all KB files ignoring cache |
-| `--collection`, `-c` | `string` | - | Target collection override |
-| `--explain`, `-e` | `boolean` | - | Explain RAG vector embeddings, Qdrant indexing, and terminology |
+| `--force`, `-f` | `boolean` | - | Force execution ignoring non-blocking warnings. |
+| `--collection`, `-c` | `string` | - | Target collection override. |
+| `--explain`, `-e` | `boolean` | - | Explain RAG vector embeddings, Qdrant indexing, and terminology. |
 
 ### `devops ai rag search`
 
@@ -529,20 +529,20 @@ devops ai rag search [OPTIONS] <query>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<query>` | `string` | Yes | Natural language query or code search term |
+| `<query>` | `string` | Yes | Natural language query or code search term. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--project`, `-p` | `string` | - | Filter results by project name |
-| `--language`, `-l` | `string` | - | Filter results by programming language |
-| `--category`, `-c` | `string` | - | Filter by category (code, docs, topics, tasks) |
-| `--top-k`, `-k` | `integer` | `5` | Number of results to return |
-| `--min-score`, `-s` | `float` | `0.35` | Minimum similarity score (0.0 - 1.0) |
-| `--collection` | `string` | - | Target Qdrant collection (default: auto) |
-| `--file`, `-f` | `string` | - | Filter by filepath glob pattern |
-| `--explain` | `boolean` | - | Explain how RAG vector search works |
+| `--project`, `-p` | `string` | - | Project / repository name override. |
+| `--language`, `-l` | `string` | - | Filter or target specific programming language. |
+| `--category`, `-c` | `string` | - | Filter by category (code, docs, topics, tasks). |
+| `--top-k`, `-k` | `integer` | `5` | Number of results to return. |
+| `--min-score`, `-s` | `float` | `0.35` | Minimum similarity score (0.0 - 1.0). |
+| `--collection` | `string` | - | Target collection override. |
+| `--file`, `-f` | `string` | - | Filter by filepath glob pattern. |
+| `--explain` | `boolean` | - | Explain RAG vector embeddings, Qdrant indexing, and terminology. |
 
 ### `devops ai rag query`
 
@@ -556,20 +556,20 @@ devops ai rag query [OPTIONS] <query>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<query>` | `string` | Yes | Natural language query or code search term |
+| `<query>` | `string` | Yes | Natural language query or code search term. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--project`, `-p` | `string` | - | Filter results by project name |
-| `--language`, `-l` | `string` | - | Filter results by programming language |
-| `--category`, `-c` | `string` | - | Filter by category (code, docs, topics, tasks) |
-| `--top-k`, `-k` | `integer` | `5` | Number of results to return |
-| `--min-score`, `-s` | `float` | `0.35` | Minimum similarity score (0.0 - 1.0) |
-| `--collection` | `string` | - | Target Qdrant collection (default: auto) |
-| `--file`, `-f` | `string` | - | Filter by filepath glob pattern |
-| `--explain` | `boolean` | - | Explain how RAG vector search works |
+| `--project`, `-p` | `string` | - | Project / repository name override. |
+| `--language`, `-l` | `string` | - | Filter or target specific programming language. |
+| `--category`, `-c` | `string` | - | Filter by category (code, docs, topics, tasks). |
+| `--top-k`, `-k` | `integer` | `5` | Number of results to return. |
+| `--min-score`, `-s` | `float` | `0.35` | Minimum similarity score (0.0 - 1.0). |
+| `--collection` | `string` | - | Target collection override. |
+| `--file`, `-f` | `string` | - | Filter by filepath glob pattern. |
+| `--explain` | `boolean` | - | Explain RAG vector embeddings, Qdrant indexing, and terminology. |
 
 ### `devops ai rag status`
 
@@ -591,8 +591,8 @@ devops ai rag reset [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--collection`, `-c` | `string` | - | Specific collection to delete (default: all) |
-| `--force`, `-f` | `boolean` | - | Bypass confirmation prompt |
+| `--collection`, `-c` | `string` | - | Target collection override. |
+| `--force`, `-f` | `boolean` | - | Force execution ignoring non-blocking warnings. |
 
 ### `devops ai rag clear`
 
@@ -606,8 +606,8 @@ devops ai rag clear [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--collection`, `-c` | `string` | - | Specific collection to delete (default: all) |
-| `--force`, `-f` | `boolean` | - | Bypass confirmation prompt |
+| `--collection`, `-c` | `string` | - | Target collection override. |
+| `--force`, `-f` | `boolean` | - | Force execution ignoring non-blocking warnings. |
 
 ---
 
@@ -623,18 +623,18 @@ devops ai benchmark [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--models`, `-m` | `string` | - | Comma-separated candidate models (e.g. 'qwen2.5:0.5b,llama3.1:8b@http://gpu2:11434') |
-| `--servers`, `--ollama-urls` | `string` | - | Comma-separated Ollama server URLs for concurrent execution (e.g. 'http://node1:11434,http://node2:11434') |
-| `--provider`, `-p` | `string` | - | AI provider (ollama, claude, copilot, openai) |
-| `--type`, `--mode` | `string` | `auto` | Benchmark mode: 'auto', 'chat', 'embedding' (default: auto) |
-| `--tasks`, `-t` | `string` | - | Filter specific task categories or IDs (e.g. 'security,kubernetes') |
-| `--concurrency`, `-c` | `integer` | `4` | Number of concurrent model server workers (default: automatic per model count) |
-| `--output`, `-o` | `path` | - | Destination JSON report filepath |
-| `--format`, `-f` | `string` | `table` | Output format: table, json, markdown |
-| `--dry-run` | `boolean` | - | Simulate benchmark without sending remote LLM requests |
-| `--explain`, `-e` | `boolean` | - | Explain benchmark metrics, terminology, and mathematical formulas |
-| `--document`, `-d` | `path` | - | Path to large test document for in-memory tokenization and section retrieval |
-| `--samples` | `integer` | `5` | Number of random sections to sample for retrieval evaluation |
+| `--models`, `-m` | `string` | - | Comma-separated candidate models (e.g. 'qwen2.5:0.5b,llama3.1:8b@http://gpu2:11434'). |
+| `--servers`, `--ollama-urls` | `string` | - | Comma-separated Ollama server URLs for concurrent execution (e.g. 'http://node1:11434,http://node2:11434'). |
+| `--provider`, `-p` | `string` | - | AI or cloud provider. |
+| `--type`, `--mode` | `string` | `auto` | Benchmark mode: 'auto', 'chat', 'embedding'. |
+| `--tasks`, `-t` | `string` | - | Filter specific task categories or IDs (e.g. 'security,kubernetes'). |
+| `--concurrency`, `-c` | `integer` | `4` | Number of concurrent model server workers (default: automatic per model count). |
+| `--output`, `-o` | `path` | - | Destination path for output report or artifacts. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--explain`, `-e` | `boolean` | - | Explain benchmark metrics, terminology, and mathematical formulas. |
+| `--document`, `-d` | `path` | - | Path to large test document for in-memory tokenization and section retrieval. |
+| `--samples` | `integer` | `5` | Number of random sections to sample for retrieval evaluation. |
 
 ---
 
@@ -658,7 +658,7 @@ devops ai cache status [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--format`, `-f` | `string` | `table` | Output format: table, json |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 
 ### `devops ai cache clear`
 

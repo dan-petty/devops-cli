@@ -1,6 +1,6 @@
 # `devops docs`
 
-Generate and validate CLI and API documentation.
+Generate and validate CLI and architecture documentation.
 
 ## Commands
 
@@ -17,9 +17,9 @@ devops docs generate [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--output-dir`, `-o` | `path` | - | Target directory for generated documentation files (default: docs/). |
-| `--format`, `-f` | `string` | `markdown` | Documentation output format ('markdown' or 'json'). |
+| `--format`, `-f` | `string` | `markdown` | Output format type (table, json, yaml, markdown). |
 | `--sync-readme`, `--no-sync-readme` | `boolean` | `True` | Synchronize Complete Command Matrix in README.md. |
-| `--check` | `boolean` | - | Validate that existing documentation is up to date without writing files. |
+| `--check` | `boolean` | - | Verify that documentation is strictly up to date with CLI code. |
 
 ---
 
@@ -35,8 +35,8 @@ devops docs check [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--output-dir`, `-o` | `path` | - | Directory containing documentation to check (default: docs/). |
-| `--check-readme`, `--no-check-readme` | `boolean` | `True` | Verify README.md Command Matrix synchronization as well. |
+| `--output-dir`, `-o` | `path` | - | Target directory for generated documentation files (default: docs/). |
+| `--check-readme`, `--no-check-readme` | `boolean` | `True` | Synchronize Complete Command Matrix in README.md. |
 
 ---
 
@@ -53,6 +53,6 @@ devops docs sync-readme [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--readme-path`, `-r` | `path` | - | Path to README.md file (default: workspace root README.md). |
-| `--check` | `boolean` | - | Verify README.md table is synchronized without writing changes. |
+| `--check` | `boolean` | - | Verify that documentation is strictly up to date with CLI code. |
 
 ---

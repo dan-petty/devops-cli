@@ -148,7 +148,8 @@ def test_ollama_multiserver_failover(monkeypatch: pytest.MonkeyPatch) -> None:
     requested_urls: list[str] = []
 
     def fake_post(_client: object, url: str, **kwargs: object) -> httpx2.Response:
-        requested_urls.append(url)
+        if "1143" in url:
+            requested_urls.append(url)
         if "11434" in url:
             raise httpx2.ConnectError("Connection refused", request=httpx2.Request("POST", url))
         return httpx2.Response(

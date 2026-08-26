@@ -6,48 +6,94 @@ import json
 import os
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 
+from devops_cli.config.defaults import (
+    DEFAULT_FILE_ENCODING,
+    DEFAULT_FILE_FORMAT_AUTO,
+    DEFAULT_FORMAT_TYPE,
+    DEFAULT_JSON_INDENT,
+)
 
-def write_text_file(
+FileFormat = Literal["text", "bytes", "json", "yaml", "yml", "auto"]
+
+
+def write_file(
     path: Path | str,
-    content: str,
+    content: Any,
     *,
+    format_type: FileFormat = DEFAULT_FILE_FORMAT_AUTO,
     atomic: bool = True,
-    encoding: str = "utf-8",
+    encoding: str = DEFAULT_FILE_ENCODING,
+    indent: int = DEFAULT_JSON_INDENT,
     mode: int | None = None,
 ) -> Path:
-    """Write text content to a file with directory creation and optional atomic replacement.
+    """Write text, binary, JSON, or YAML content to a file with directory creation and atomic replacement.
 
     Args:
-        path: Target file path.
-        content: String content to write.
+        path: Target destination file path.
+        content: Data content to write (str, bytes, Pydantic model, dict, list, or primitive).
+        format_type: Serialization or content format ('text', 'bytes', 'json', 'yaml', or 'auto').
         atomic: If True, writes via temporary file and atomic replace to prevent partial writes.
-        encoding: File character encoding (default utf-8).
-        mode: Optional octal file permission mode (e.g. 0o600 for secrets, 0o644 for public docs).
+        encoding: File character encoding for text formats (default utf-8).
+        indent: JSON indentation spaces.
+        mode: Optional octal file permission mode (e.g. 0o600 for secrets, 0o644 for public files).
 
     Returns:
         The resolved Path to the written file.
     """
     target_path = Path(path).resolve()
     target_path.parent.mkdir(parents=True, exist_ok=True)
-
     file_mode = mode if mode is not None else 0o644
+
+    fmt = format_type.lower()
+    if fmt == "auto":
+        if isinstance(content, bytes):
+            fmt = "bytes"
+        elif isinstance(content, (dict, list)) or hasattr(content, "model_dump"):
+            ext = target_path.suffix.lower()
+            fmt = "yaml" if ext in (".yaml", ".yml") else "json"
+        else:
+            fmt = "text"
+
+    is_binary = fmt == "bytes" or isinstance(content, bytes)
+
+    if fmt in ("yaml", "yml"):
+        dump_data = content.model_dump() if hasattr(content, "model_dump") else content
+        if isinstance(dump_data, list):
+            dump_data = [i.model_dump() if hasattr(i, "model_dump") else i for i in dump_data]
+        text_payload = yaml.dump(dump_data, sort_keys=False, default_flow_style=False)
+    elif fmt == "json":
+        dump_data = content.model_dump() if hasattr(content, "model_dump") else content
+        if isinstance(dump_data, list):
+            dump_data = [i.model_dump() if hasattr(i, "model_dump") else i for i in dump_data]
+        text_payload = json.dumps(dump_data, indent=indent, default=str) + "\n"
+    elif is_binary:
+        byte_payload = content if isinstance(content, bytes) else str(content).encode(encoding)
+    else:
+        text_payload = str(content)
 
     if atomic:
         temp_dir = target_path.parent
-        with tempfile.NamedTemporaryFile(
-            mode="w",
-            dir=temp_dir,
-            encoding=encoding,
-            delete=False,
-            prefix=f".tmp_{target_path.name}_",
-        ) as tmp:
+        write_mode = "wb" if is_binary else "w"
+        open_kwargs: dict[str, Any] = {
+            "mode": write_mode,
+            "dir": temp_dir,
+            "delete": False,
+            "prefix": f".tmp_{target_path.name}_",
+        }
+        if not is_binary:
+            open_kwargs["encoding"] = encoding
+
+        with tempfile.NamedTemporaryFile(**open_kwargs) as tmp:
             if mode is not None:
                 os.chmod(tmp.name, mode)
-            tmp.write(content)
+            if is_binary:
+                tmp.write(byte_payload)
+            else:
+                tmp.write(text_payload)
             tmp_path = Path(tmp.name)
 
         if mode is not None:
@@ -55,50 +101,56 @@ def write_text_file(
         os.replace(tmp_path, target_path)
     else:
         fd = os.open(target_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, file_mode)
-        with os.fdopen(fd, "w", encoding=encoding) as fh:
-            fh.write(content)
+        if is_binary:
+            with os.fdopen(fd, "wb") as fh:
+                fh.write(byte_payload)
+        else:
+            with os.fdopen(fd, "w", encoding=encoding) as fh:
+                fh.write(text_payload)
         if mode is not None:
             target_path.chmod(mode)
 
     return target_path
 
 
+def write_text_file(
+    path: Path | str,
+    content: str,
+    *,
+    atomic: bool = True,
+    encoding: str = DEFAULT_FILE_ENCODING,
+    mode: int | None = None,
+) -> Path:
+    """Write text content to a file with directory creation and optional atomic replacement."""
+    return write_file(
+        path, content, format_type="text", atomic=atomic, encoding=encoding, mode=mode
+    )
+
+
 def write_serialized_file(
     path: Path | str,
     data: Any,
-    format_type: str = "json",
+    format_type: str = DEFAULT_FORMAT_TYPE,
     *,
-    indent: int = 2,
+    indent: int = DEFAULT_JSON_INDENT,
     atomic: bool = True,
     mode: int | None = None,
 ) -> Path:
     """Serialize data as JSON or YAML and write to file with optional atomic replacement."""
-    if hasattr(data, "model_dump"):
-        data = data.model_dump()
-    elif isinstance(data, list):
-        data = [item.model_dump() if hasattr(item, "model_dump") else item for item in data]
-
-    fmt = format_type.lower()
-    if fmt in ("yaml", "yml"):
-        content = yaml.dump(data, sort_keys=False, default_flow_style=False)
-    else:
-        content = json.dumps(data, indent=indent, default=str) + "\n"
-
-    return write_text_file(path, content, atomic=atomic, mode=mode)
+    fmt: FileFormat = "yaml" if format_type.lower() in ("yaml", "yml") else "json"
+    return write_file(path, data, format_type=fmt, indent=indent, atomic=atomic, mode=mode)
 
 
 def write_json_file(
     path: Path | str,
     data: Any,
     *,
-    indent: int = 2,
+    indent: int = DEFAULT_JSON_INDENT,
     atomic: bool = True,
     mode: int | None = None,
 ) -> Path:
     """Serialize data as structured JSON and write to file."""
-    return write_serialized_file(
-        path, data, format_type="json", indent=indent, atomic=atomic, mode=mode
-    )
+    return write_file(path, data, format_type="json", indent=indent, atomic=atomic, mode=mode)
 
 
 def write_yaml_file(
@@ -109,7 +161,7 @@ def write_yaml_file(
     mode: int | None = None,
 ) -> Path:
     """Serialize data as YAML and write to file."""
-    return write_serialized_file(path, data, format_type="yaml", atomic=atomic, mode=mode)
+    return write_file(path, data, format_type="yaml", atomic=atomic, mode=mode)
 
 
 def write_bytes_file(
@@ -120,32 +172,4 @@ def write_bytes_file(
     mode: int | None = None,
 ) -> Path:
     """Write binary data to file with directory creation and optional atomic replacement."""
-    target_path = Path(path).resolve()
-    target_path.parent.mkdir(parents=True, exist_ok=True)
-
-    file_mode = mode if mode is not None else 0o644
-
-    if atomic:
-        temp_dir = target_path.parent
-        with tempfile.NamedTemporaryFile(
-            mode="wb",
-            dir=temp_dir,
-            delete=False,
-            prefix=f".tmp_{target_path.name}_",
-        ) as tmp:
-            if mode is not None:
-                os.chmod(tmp.name, mode)
-            tmp.write(data)
-            tmp_path = Path(tmp.name)
-
-        if mode is not None:
-            tmp_path.chmod(mode)
-        os.replace(tmp_path, target_path)
-    else:
-        fd = os.open(target_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, file_mode)
-        with os.fdopen(fd, "wb") as fh:
-            fh.write(data)
-        if mode is not None:
-            target_path.chmod(mode)
-
-    return target_path
+    return write_file(path, data, format_type="bytes", atomic=atomic, mode=mode)

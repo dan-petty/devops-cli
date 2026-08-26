@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from devops_cli.config.constants import CONST_ERROR_CODE_DEVOPS_CLI, CONST_EXIT_FAILURE
+
 
 class DevOpsCLIError(Exception):
     """Root base exception for all domain-specific errors in devops-cli.
@@ -19,8 +21,8 @@ class DevOpsCLIError(Exception):
         self,
         message: str,
         *,
-        exit_code: int = 1,
-        error_code: str = "DEVOPS_CLI_ERROR",
+        exit_code: int = CONST_EXIT_FAILURE,
+        error_code: str = CONST_ERROR_CODE_DEVOPS_CLI,
         details: dict[str, Any] | None = None,
     ) -> None:
         super().__init__(message)

@@ -7,12 +7,12 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
-from rich.table import Table
 
 from devops_cli.config.constants import CONST_SSH_GRACE_DAYS
 from devops_cli.core.cli import new_typer
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
+    format_status_badge,
     print_error,
     print_info,
     print_success,
@@ -57,8 +57,8 @@ def _configure_git_signing(key_path: Path) -> None:
 
 @app.command()
 def generate(
-    key_dir: Annotated[Path | None, typer.Option("--key-dir")] = None,
-    comment: Annotated[str, typer.Option("--comment", "-c")] = "",
+    key_dir: Annotated[Path | None, typer.Option("--key-dir", help=HELP.ssh.key_dir)] = None,
+    comment: Annotated[str, typer.Option("--comment", "-c", help=HELP.ssh.comment)] = "",
 ) -> None:
     """Generate a new Ed25519 SSH key with today's date suffix."""
     from devops_cli.config.settings import load_settings
@@ -97,9 +97,9 @@ def generate(
 @app.command()
 def register(
     key_file: Annotated[
-        Path | None, typer.Option("--key-file", "-k", help="Path to private key")
+        Path | None, typer.Option("--key-file", "-k", help=HELP.ssh.key_file)
     ] = None,
-    title: Annotated[str | None, typer.Option("--title")] = None,
+    title: Annotated[str | None, typer.Option("--title", help=HELP.options.title)] = None,
 ) -> None:
     from devops_cli.config.settings import get_github_token, load_settings
     from devops_cli.crypto.ssh_keys import find_newest_key
@@ -153,10 +153,8 @@ def register(
 
 @app.command()
 def rotate(
-    key_dir: Annotated[Path | None, typer.Option("--key-dir")] = None,
-    force: Annotated[
-        bool, typer.Option("--force", "-f", help="Rotate even if not yet due")
-    ] = False,
+    key_dir: Annotated[Path | None, typer.Option("--key-dir", help=HELP.ssh.key_dir)] = None,
+    force: Annotated[bool, typer.Option("--force", "-f", help=HELP.ssh.force_rotate)] = False,
 ) -> None:
     """Rotate keys older than rotation_days (default 90).
 
@@ -231,7 +229,7 @@ def rotate(
 @app.command("audit")
 @app.command("list")
 def list_keys(
-    key_dir: Annotated[Path | None, typer.Option("--key-dir")] = None,
+    key_dir: Annotated[Path | None, typer.Option("--key-dir", help=HELP.ssh.key_dir)] = None,
 ) -> None:
     """List all managed SSH keys with their age and rotation status."""
     from devops_cli.config.settings import load_settings
@@ -255,24 +253,25 @@ def list_keys(
         raise typer.Exit(0)
 
     rotation_days = settings.ssh.rotation_days
-    table = Table(title="Managed SSH Keys")
-    table.add_column("Key", style="cyan")
-    table.add_column("Age (days)", justify="right")
-    table.add_column("Status")
+    rows: list[list[str]] = []
 
     for key in keys:
         age = key.age_days if key.age_days is not None else 0
         if age > rotation_days + CONST_SSH_GRACE_DAYS:
-            status_text = "[red]overdue for deletion[/red]"
+            status_text = format_status_badge("overdue for deletion")
         elif age > rotation_days:
-            status_text = "[yellow]grace period[/yellow]"
+            status_text = format_status_badge("grace period", warn_color="yellow")
         elif age > rotation_days - 7:
-            status_text = "[yellow]rotation soon[/yellow]"
+            status_text = format_status_badge("rotation soon", warn_color="yellow")
         else:
-            status_text = "[green]active[/green]"
-        table.add_row(key.path.name, str(age), status_text)
+            status_text = format_status_badge("active")
+        rows.append([key.path.name, str(age), status_text])
 
-    print_table(table)
+    print_table(
+        title="Managed SSH Keys",
+        columns=[("Key", "cyan"), ("Age (days)", "right"), "Status"],
+        rows=rows,
+    )
 
 
 # =============================================================================
@@ -282,7 +281,7 @@ def list_keys(
 
 @app.command()
 def status(
-    key_dir: Annotated[Path | None, typer.Option("--key-dir")] = None,
+    key_dir: Annotated[Path | None, typer.Option("--key-dir", help=HELP.ssh.key_dir)] = None,
 ) -> None:
     """Show the active SSH key and days until rotation."""
     from devops_cli.config.settings import load_settings

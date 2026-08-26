@@ -12,10 +12,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from rich import print as rprint
-from rich.console import Console
-from rich.table import Table
-
 from devops_cli.ai.client import LLMClient
 from devops_cli.ai.review_schema import extract_json_block
 from devops_cli.ai.task_loader import load_task_prompt
@@ -30,9 +26,9 @@ from devops_cli.models.benchmark import (
     ServerBenchmarkSummary,
     TaskResponse,
 )
+from devops_cli.output import print_info, print_success, print_table, write_stdout
 
 logger = logging.getLogger(__name__)
-console = Console()
 
 _GRADER_PROMPT_TEMPLATE = load_task_prompt("benchmark_peer_grader.md")
 
@@ -240,10 +236,11 @@ class BenchmarkRunner:
     ) -> TaskResponse:
         """Generate response for a single task and return TaskResponse."""
         with self._print_lock:
-            rprint(
+            print_info(
                 f"  ⏳ task=[cyan]{task.id}[/cyan] | "
                 f"model=[bold]{model_name}[/bold] | "
-                f"backend=[dim]{backend}[/dim] [dim](generating...)[/dim]"
+                f"backend=[dim]{backend}[/dim] [dim](generating...)[/dim]",
+                prefix=False,
             )
         t0 = time.monotonic()
         try:
@@ -268,11 +265,12 @@ class BenchmarkRunner:
             )
             duration = time.monotonic() - t0
             with self._print_lock:
-                rprint(
+                print_info(
                     f"  ✓ task=[cyan]{task.id}[/cyan] | "
                     f"model=[bold]{model_name}[/bold] | "
                     f"backend=[dim]{backend}[/dim] | "
-                    f"[yellow]{duration:.1f}s[/yellow]"
+                    f"[yellow]{duration:.1f}s[/yellow]",
+                    prefix=False,
                 )
             return TaskResponse(
                 task_id=task.id,
@@ -286,11 +284,12 @@ class BenchmarkRunner:
             duration = time.monotonic() - t0
             logger.warning("Model %s failed on task %s: %s", model_name, task.id, exc)
             with self._print_lock:
-                rprint(
+                print_info(
                     f"  ✗ task=[cyan]{task.id}[/cyan] | "
                     f"model=[bold]{model_name}[/bold] | "
                     f"backend=[dim]{backend}[/dim] | "
-                    f"[yellow]{duration:.1f}s[/yellow] (failed)"
+                    f"[yellow]{duration:.1f}s[/yellow] (failed)",
+                    prefix=False,
                 )
             return TaskResponse(
                 task_id=task.id,
@@ -313,8 +312,9 @@ class BenchmarkRunner:
         backend = client.backend_info if client else (server_url or self.provider)
 
         with self._print_lock:
-            rprint(
-                f"[bold]Evaluating model:[/bold] [cyan]{model_name}[/cyan] [dim]({backend})[/dim]"
+            print_info(
+                f"[bold]Evaluating model:[/bold] [cyan]{model_name}[/cyan] [dim]({backend})[/dim]",
+                prefix=False,
             )
 
         for task in self.tasks:
@@ -327,7 +327,7 @@ class BenchmarkRunner:
                     f"backend=[dim]{backend}[/dim] | [yellow]0.8s[/yellow]"
                 )
                 with self._print_lock:
-                    rprint(msg)
+                    print_info(msg, prefix=False)
                 continue
 
             assert client is not None
@@ -374,33 +374,36 @@ class BenchmarkRunner:
                 task, candidate_model, evaluator_model, server_url=server_url
             )
             with self._print_lock:
-                rprint(
+                print_info(
                     f"  ✓ task=[cyan]{task.id}[/cyan] | "
                     f"judge=[bold]{evaluator_model}[/bold] | "
                     f"candidate=[dim]{candidate_model}[/dim] | "
                     f"backend=[dim]{backend}[/dim] | "
-                    f"[yellow]0.4s[/yellow] → [bold]{grade.percentage:.1f}%[/bold]"
+                    f"[yellow]0.4s[/yellow] → [bold]{grade.percentage:.1f}%[/bold]",
+                    prefix=False,
                 )
             return grade
 
         with self._print_lock:
-            rprint(
+            print_info(
                 f"  ⏳ task=[cyan]{task.id}[/cyan] | "
                 f"judge=[bold]{evaluator_model}[/bold] | "
                 f"candidate=[dim]{candidate_model}[/dim] | "
-                f"backend=[dim]{backend}[/dim] [dim](grading...)[/dim]"
+                f"backend=[dim]{backend}[/dim] [dim](grading...)[/dim]",
+                prefix=False,
             )
         t0 = time.monotonic()
         grade = self._evaluate_response(task, c_resp, evaluator_model, client=client)
         grade.server = server_url or ""
         grade_dur = time.monotonic() - t0
         with self._print_lock:
-            rprint(
+            print_info(
                 f"  ✓ task=[cyan]{task.id}[/cyan] | "
                 f"judge=[bold]{evaluator_model}[/bold] | "
                 f"candidate=[dim]{candidate_model}[/dim] | "
                 f"backend=[dim]{backend}[/dim] | "
-                f"[yellow]{grade_dur:.1f}s[/yellow] → [bold]{grade.percentage:.1f}%[/bold]"
+                f"[yellow]{grade_dur:.1f}s[/yellow] → [bold]{grade.percentage:.1f}%[/bold]",
+                prefix=False,
             )
         return grade
 
@@ -419,9 +422,10 @@ class BenchmarkRunner:
         backend = client.backend_info if client else (server_url or self.provider)
 
         with self._print_lock:
-            rprint(
+            print_info(
                 f"[bold]Evaluator judge:[/bold] [cyan]{evaluator_model}[/cyan] "
-                f"[dim]({backend})[/dim]"
+                f"[dim]({backend})[/dim]",
+                prefix=False,
             )
 
         for task in self.tasks:
@@ -471,20 +475,23 @@ class BenchmarkRunner:
         grades: list[PeerGrade] = []
 
         num_workers = max(1, len(self.servers))
-        rprint(
+        print_info(
             f"\n[bold blue]=== Starting AI Model Benchmark "
-            f"(Session {self.session_id}) ===[/bold blue]"
+            f"(Session {self.session_id}) ===[/bold blue]",
+            prefix=False,
         )
         server_labels = ", ".join(self.servers) if self.servers else "default"
-        rprint(
+        print_info(
             f"[dim]Models: {len(self.models)} | Tasks: {len(self.tasks)} | "
-            f"Workers: {num_workers} ({server_labels})[/dim]\n"
+            f"Workers: {num_workers} ({server_labels})[/dim]\n",
+            prefix=False,
         )
 
         # ── Step 1: Generate Model Responses across all workers ───────────────
-        rprint(
+        print_info(
             f"[dim]Step 1/2: Generating candidate responses on all workers "
-            f"(simultaneous across {num_workers} servers)...[/dim]"
+            f"(simultaneous across {num_workers} servers)...[/dim]",
+            prefix=False,
         )
         if num_workers > 1:
             with ThreadPoolExecutor(max_workers=num_workers) as pool:
@@ -498,9 +505,10 @@ class BenchmarkRunner:
             responses.extend(resps)
 
         # ── Step 2: Peer Grading Matrix across all workers ────────────────────
-        rprint(
+        print_info(
             f"\n[dim]Step 2/2: Cross-model blind peer grading on all workers "
-            f"(simultaneous across {num_workers} servers)...[/dim]"
+            f"(simultaneous across {num_workers} servers)...[/dim]",
+            prefix=False,
         )
         resp_map = {(r.task_id, r.model): r for r in responses}
         if num_workers > 1:
@@ -937,24 +945,22 @@ class BenchmarkRunner:
         return out_path
 
     def render_results(self, report: BenchmarkReport) -> None:
-        """Print rich summary tables and leaderboards to console."""
-        table = Table(
-            title=f"AI Benchmark Leaderboard (Session {report.session_id})",
-            header_style="bold magenta",
-        )
-        table.add_column("Rank", justify="center", style="bold")
-        table.add_column("Model", style="cyan")
-        table.add_column("Score", justify="right", style="bold green")
-        table.add_column("Peer Score", justify="right", style="green")
-        table.add_column("Accuracy", justify="right")
-        table.add_column("Security", justify="right")
-        table.add_column("Complete", justify="right")
-        table.add_column("Clarity", justify="right")
-        table.add_column("Judge Wt", justify="right", style="magenta")
-        table.add_column("Latency", justify="right", style="dim")
-        table.add_column("Bias (Judge)", justify="right", style="dim")
-        table.add_column("Self-Bias", justify="right", style="yellow")
-
+        """Print summary tables and leaderboards to console."""
+        columns = [
+            ("Rank", "bold"),
+            ("Model", "cyan"),
+            ("Score", "bold green"),
+            ("Peer Score", "green"),
+            "Accuracy",
+            "Security",
+            "Complete",
+            "Clarity",
+            ("Judge Wt", "magenta"),
+            ("Latency", "dim"),
+            ("Bias (Judge)", "dim"),
+            ("Self-Bias", "yellow"),
+        ]
+        rows: list[list[str]] = []
         for idx, m in enumerate(report.leaderboard, start=1):
             rank_badge = (
                 "🥇" if idx == 1 else ("🥈" if idx == 2 else ("🥉" if idx == 3 else f"#{idx}"))
@@ -972,58 +978,63 @@ class BenchmarkRunner:
                 self_bias_str = f"+{m.self_preference_bias:.1f}%"
             else:
                 self_bias_str = f"{m.self_preference_bias:.1f}%"
-            table.add_row(
-                rank_badge,
-                m.model,
-                f"{m.overall_percentage:.1f}%",
-                f"{m.peer_only_percentage:.1f}%",
-                f"{m.accuracy_avg * 10.0:.1f}%",
-                f"{m.security_avg * 10.0:.1f}%",
-                f"{m.completeness_avg * 10.0:.1f}%",
-                f"{m.clarity_avg * 10.0:.1f}%",
-                f"{m.judge_weight:.2f}",
-                f"{m.average_duration_seconds:.1f}s",
-                bias_str,
-                self_bias_str,
+            rows.append(
+                [
+                    rank_badge,
+                    m.model,
+                    f"{m.overall_percentage:.1f}%",
+                    f"{m.peer_only_percentage:.1f}%",
+                    f"{m.accuracy_avg * 10.0:.1f}%",
+                    f"{m.security_avg * 10.0:.1f}%",
+                    f"{m.completeness_avg * 10.0:.1f}%",
+                    f"{m.clarity_avg * 10.0:.1f}%",
+                    f"{m.judge_weight:.2f}",
+                    f"{m.average_duration_seconds:.1f}s",
+                    bias_str,
+                    self_bias_str,
+                ]
             )
 
         report_path = CONST_DATA_DIR / "benchmarks" / f"{report.session_id}-benchmark.json"
-        console.print()
-        console.print(table)
+        write_stdout("\n")
+        print_table(
+            title=f"AI Benchmark Leaderboard (Session {report.session_id})",
+            columns=columns,
+            rows=rows,
+        )
 
         if len(report.tasks_run) > 1:
             categories = sorted({t.category for t in report.tasks_run})
-            cat_table = Table(
-                title=f"Domain Category Breakdown (Session {report.session_id})",
-                header_style="bold cyan",
-            )
-            cat_table.add_column("Model", style="cyan")
+            cat_cols: list[Any] = [("Model", "cyan")]
             for cat in categories:
-                cat_table.add_column(cat.capitalize(), justify="right")
+                cat_cols.append(cat.capitalize())
 
+            cat_rows: list[list[str]] = []
             for m in report.leaderboard:
-                row = [m.model]
+                r = [m.model]
                 for cat in categories:
                     score = m.category_scores.get(cat, 0.0)
-                    row.append(f"{score:.1f}%")
-                cat_table.add_row(*row)
+                    r.append(f"{score:.1f}%")
+                cat_rows.append(r)
 
-            console.print()
-            console.print(cat_table)
+            write_stdout("\n")
+            print_table(
+                title=f"Domain Category Breakdown (Session {report.session_id})",
+                columns=cat_cols,
+                rows=cat_rows,
+            )
 
         if report.server_benchmarks:
-            server_table = Table(
-                title=f"Ollama Server Hardware & Node Performance (Session {report.session_id})",
-                header_style="bold green",
-            )
-            server_table.add_column("Server / Worker Node", style="cyan")
-            server_table.add_column("Avg Latency", justify="right", style="bold yellow")
-            server_table.add_column("Speed Factor", justify="right", style="magenta")
-            server_table.add_column("Total Time", justify="right", style="dim")
-            server_table.add_column("Tasks", justify="right", style="dim")
-            server_table.add_column("Avg Score Given", justify="right", style="magenta")
-            server_table.add_column("Server Bias", justify="right")
-            server_table.add_column("Per-Model Latency Breakdown", style="dim")
+            server_cols: list[Any] = [
+                ("Server / Worker Node", "cyan"),
+                ("Avg Latency", "bold yellow"),
+                ("Speed Factor", "magenta"),
+                ("Total Time", "dim"),
+                ("Tasks", "dim"),
+                ("Avg Score Given", "magenta"),
+                "Server Bias",
+                ("Per-Model Latency Breakdown", "dim"),
+            ]
 
             fastest_latency = min(
                 (
@@ -1034,6 +1045,7 @@ class BenchmarkRunner:
                 default=0.0,
             )
 
+            server_rows: list[list[str]] = []
             for s in report.server_benchmarks:
                 bias_str = (
                     f"+{s.server_score_bias:.1f}%"
@@ -1055,21 +1067,27 @@ class BenchmarkRunner:
                 else:
                     speed_str = "1.00x"
 
-                server_table.add_row(
-                    s.server,
-                    f"{s.generation_duration_avg:.1f}s",
-                    speed_str,
-                    f"{s.total_duration_seconds:.1f}s",
-                    str(s.tasks_generated_count),
-                    f"{s.avg_score_awarded:.1f}%",
-                    bias_str,
-                    lat_breakdown or "-",
+                server_rows.append(
+                    [
+                        s.server,
+                        f"{s.generation_duration_avg:.1f}s",
+                        speed_str,
+                        f"{s.total_duration_seconds:.1f}s",
+                        str(s.tasks_generated_count),
+                        f"{s.avg_score_awarded:.1f}%",
+                        bias_str,
+                        lat_breakdown or "-",
+                    ]
                 )
 
-            console.print()
-            console.print(server_table)
+            write_stdout("\n")
+            print_table(
+                title=f"Ollama Server Hardware & Node Performance (Session {report.session_id})",
+                columns=server_cols,
+                rows=server_rows,
+            )
 
-        rprint(f"\n[dim]✓ Detailed benchmark report saved → [/dim][cyan]{report_path}[/cyan]\n")
+        print_success(f"Detailed benchmark report saved → [cyan]{report_path}[/cyan]")
 
     def to_markdown(self, report: BenchmarkReport) -> str:
         """Generate a clean GitHub-flavored Markdown benchmark report."""

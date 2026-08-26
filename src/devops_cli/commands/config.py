@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import os
 import shutil
 import subprocess
@@ -10,7 +9,6 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
-from rich.table import Table
 
 from devops_cli.config import options as opt
 from devops_cli.config.constants import CONST_CONFIG_PATH
@@ -32,16 +30,18 @@ from devops_cli.config.settings import (
 )
 from devops_cli.core.process import run_subprocess
 from devops_cli.http.validation import validate_service_url
+from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
-    get_console,
+    format_json,
     print_error,
     print_info,
     print_success,
     print_table,
     print_warning,
+    write_stdout,
 )
 
-app = typer.Typer(help="Manage devops-cli configuration.", no_args_is_help=True)
+app = typer.Typer(help=HELP.config.app, no_args_is_help=True)
 
 
 # =============================================================================
@@ -103,11 +103,7 @@ def show() -> None:
     """Print all configuration values, masking secrets."""
     settings = load_settings()
 
-    from devops_cli.lang import MESSAGES
-
-    table = Table(title=MESSAGES.config.header, show_header=True, header_style="bold")
-    table.add_column(MESSAGES.config.key_col, style="bold cyan", no_wrap=True)
-    table.add_column(MESSAGES.config.val_col)
+    rows: list[list[str]] = []
 
     def _row(key: str, value: object, secret: bool = False) -> None:
         not_set_str = f"[dim]{MESSAGES.config.not_set}[/dim]"
@@ -117,7 +113,7 @@ def show() -> None:
             display = ", ".join(str(v) for v in value) if value else not_set_str
         else:
             display = str(value) if value is not None else not_set_str
-        table.add_row(key, display)
+        rows.append([key, display])
 
     _row(opt.GITHUB_TOKEN, get_github_token(settings), secret=True)
     _row(opt.GITHUB_DEFAULT_ORG, settings.github.default_org)
@@ -137,7 +133,11 @@ def show() -> None:
     _row(opt.AI_ALLOW_PRIVATE_NETWORK, settings.ai.allow_private_network)
     _row(opt.AI_API_KEY, get_ai_api_key(settings), secret=True)
 
-    print_table(table)
+    print_table(
+        title=MESSAGES.config.header,
+        columns=[(MESSAGES.config.key_col, "bold cyan"), MESSAGES.config.val_col],
+        rows=rows,
+    )
     print_info(f"\nConfig file: [dim]{get_active_config_path()}[/dim]", prefix=False)
 
 
@@ -148,7 +148,7 @@ def show() -> None:
 
 @app.command("get")
 def get_value(
-    key: Annotated[str, typer.Argument(help="Dotted config key, e.g. github.default_org")],
+    key: Annotated[str, typer.Argument(help=HELP.config.key)],
 ) -> None:
     """Print a single configuration value."""
     if key in _SECRET_FIELDS:
@@ -172,8 +172,8 @@ def get_value(
 
 @app.command("set")
 def set_value(
-    key: Annotated[str, typer.Argument(help="Dotted config key, e.g. github.token")],
-    value: Annotated[str, typer.Argument(help="Value to set")],
+    key: Annotated[str, typer.Argument(help=HELP.config.key)],
+    value: Annotated[str, typer.Argument(help=HELP.config.value)],
 ) -> None:
     """Set a configuration value. Tokens are stored in the OS keyring."""
     settings = load_settings()
@@ -341,7 +341,7 @@ def output_env_vars(
         typer.Option(
             "--export",
             "-e",
-            help="Print environment variables as shell export statements.",
+            help=HELP.config.export_env,
         ),
     ] = False,
     json_output: Annotated[
@@ -349,7 +349,7 @@ def output_env_vars(
         typer.Option(
             "--json",
             "-j",
-            help="Print environment variables as JSON.",
+            help=HELP.config.json_env,
         ),
     ] = False,
 ) -> None:
@@ -374,7 +374,7 @@ def output_env_vars(
                     "description": spec.description,
                 }
             )
-        get_console().print(json.dumps(data, indent=2))
+        write_stdout(format_json(data) + "\n")
         return
 
     if export:
@@ -394,12 +394,7 @@ def output_env_vars(
                 print_info(f'# export {spec.env_var}=""  # {spec.description}', prefix=False)
         return
 
-    table = Table(title="devops-cli environment variables", show_header=True, header_style="bold")
-    table.add_column("Environment Variable", style="bold cyan", no_wrap=True)
-    table.add_column("Config Key", style="dim", no_wrap=True)
-    table.add_column("Current Value", overflow="fold")
-    table.add_column("Description", overflow="fold")
-
+    rows: list[list[str]] = []
     for spec in specs:
         val, is_from_env = _resolve_env_spec_value(spec, settings)
         key_display = spec.option_key or "[dim](config file)[/dim]"
@@ -412,9 +407,18 @@ def output_env_vars(
         else:
             val_display = "[dim]not set[/dim]"
 
-        table.add_row(spec.env_var, key_display, val_display, spec.description)
+        rows.append([spec.env_var, key_display, val_display, spec.description])
 
-    print_table(table)
+    print_table(
+        title="devops-cli environment variables",
+        columns=[
+            ("Environment Variable", "bold cyan"),
+            ("Config Key", "dim"),
+            "Current Value",
+            "Description",
+        ],
+        rows=rows,
+    )
 
 
 # =============================================================================
@@ -426,8 +430,8 @@ def output_env_vars(
 # for loading session tokens into ephemeral memory for headless Linux CI environments lacking DBus.
 @app.command("auth-headless")
 def auth_headless(
-    key: Annotated[str, typer.Argument(help="Dotted secret key, e.g. github.token")],
-    token: Annotated[str, typer.Argument(help="Secret token string")],
+    key: Annotated[str, typer.Argument(help=HELP.config.secret_key)],
+    token: Annotated[str, typer.Argument(help=HELP.config.secret_token)],
 ) -> None:
     """Load secret tokens into ephemeral memory for headless CI environments lacking DBus."""
     # TODO (v0.1.1 Feature): Implement memory-backed fallback secret storage for headless CI runners
@@ -453,7 +457,7 @@ def auth_headless(
 
 @app.command("audit-stream")
 def audit_stream(
-    destination: Annotated[str, typer.Argument(help="Destination Syslog or HTTP URL")],
+    destination: Annotated[str, typer.Argument(help=HELP.config.destination)],
 ) -> None:
     """Stream stored audit records to SIEM destination URL."""
     from devops_cli.core.audit import stream_audit_records

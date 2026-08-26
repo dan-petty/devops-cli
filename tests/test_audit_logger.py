@@ -42,3 +42,21 @@ def test_resolve_audit_log_dest(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setenv("DEVOPS_CLI_AUDIT_LOG_DEST", "/etc/passwd")
     with pytest.raises(ValueError, match="must be within"):
         _resolve_audit_log_dest(None)
+
+    monkeypatch.delenv("DEVOPS_CLI_AUDIT_LOG_DEST", raising=False)
+    assert _resolve_audit_log_dest(None) is not None
+
+
+def test_stream_audit_records(tmp_path: Path) -> None:
+    """Verify stream_audit_records counts."""
+    from devops_cli.core.audit import stream_audit_records
+
+    # Missing file returns 0
+    assert stream_audit_records("http://example.com/siem", tmp_path / "nonexistent.jsonl") == 0
+
+    log_file = tmp_path / "audit.jsonl"
+    record_audit_event("devops repos list", log_file=log_file)
+    record_audit_event("devops repos sync", log_file=log_file)
+
+    count = stream_audit_records("http://example.com/siem", log_file)
+    assert count == 2

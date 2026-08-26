@@ -32,6 +32,7 @@ dependencies = [
     "uvicorn>=0.30.0",
     "tiktoken>=0.8.0",
     "pydantic-ai>=2.0.0",
+    "opentelemetry-exporter-otlp-proto-grpc>=1.44.0",
 ]
 
 [project.scripts]
@@ -90,6 +91,15 @@ exclude_lines = [
     "if TYPE_CHECKING:",
     "@abstractmethod",
 ]
+
+[tool.coverage.xml]
+output = ".data/coverage.xml"
+
+[tool.coverage.html]
+directory = ".data/htmlcov"
+
+[tool.coverage.json]
+output = ".data/coverage.json"
 
 [tool.uv]
 preview-features = ["malware-check"]

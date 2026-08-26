@@ -38,7 +38,29 @@ def test_kubeconform_mocked_binary(tmp_path: Path) -> None:
 
     with patch("shutil.which", return_value="/usr/local/bin/kubeconform"):
         with patch("subprocess.run", return_value=mock_proc):
-            findings = run_kubeconform_validation(tmp_path)
+            findings = run_kubeconform_validation(tmp_path, strict=False)
             assert len(findings) == 1
             assert "Kubeconform Schema Validation Error" in findings[0].title
             assert findings[0].location == "service.yaml:1"
+
+        # Non-json and invalid json lines
+        mock_proc.stdout = "not json\n{invalid json\n" + json.dumps({"status": "valid"}) + "\n"
+        with patch("subprocess.run", return_value=mock_proc):
+            findings_non_json = run_kubeconform_validation(tmp_path)
+            assert len(findings_non_json) == 0
+
+        # Empty output
+        mock_proc.stdout = ""
+        with patch("subprocess.run", return_value=mock_proc):
+            findings_empty = run_kubeconform_validation(tmp_path)
+            assert len(findings_empty) == 0
+
+        # Subprocess exception fallback
+        with patch("subprocess.run", side_effect=Exception("Timeout")):
+            findings_exc = run_kubeconform_validation(tmp_path)
+            assert isinstance(findings_exc, list)
+
+    # When kubeconform binary not in PATH
+    with patch("shutil.which", return_value=None):
+        findings_nobin = run_kubeconform_validation(tmp_path)
+        assert isinstance(findings_nobin, list)

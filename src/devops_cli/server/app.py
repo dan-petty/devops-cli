@@ -10,6 +10,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from devops_cli import __version__
+from devops_cli.config.defaults import (
+    DEFAULT_SERVER_DESCRIPTION,
+    DEFAULT_SERVER_DOCS_URL,
+    DEFAULT_SERVER_OPENAPI_URL,
+    DEFAULT_SERVER_REDOC_URL,
+    DEFAULT_SERVER_TITLE,
+)
 from devops_cli.server.routes.health import router as health_router
 from devops_cli.server.routes.status import router as status_router
 from devops_cli.server.routes.telemetry import router as telemetry_router
@@ -19,14 +26,11 @@ from devops_cli.telemetry.tracer import get_tracer
 
 def create_app(
     *,
-    title: str = "DevOps CLI REST & OpenAPI Service",
-    description: str = (
-        "Asynchronous REST API and OpenAPI service engine for workstation automation, "
-        "Kubernetes management, AI code reviews, and distributed telemetry."
-    ),
-    docs_url: str | None = "/docs",
-    redoc_url: str | None = "/redoc",
-    openapi_url: str | None = "/openapi.json",
+    title: str = DEFAULT_SERVER_TITLE,
+    description: str = DEFAULT_SERVER_DESCRIPTION,
+    docs_url: str | None = DEFAULT_SERVER_DOCS_URL,
+    redoc_url: str | None = DEFAULT_SERVER_REDOC_URL,
+    openapi_url: str | None = DEFAULT_SERVER_OPENAPI_URL,
 ) -> FastAPI:
     """Create and configure a production-ready FastAPI application."""
     app = FastAPI(
@@ -56,6 +60,7 @@ def create_app(
 
         with tracer.span(
             span_name,
+            kind="server",
             attributes={
                 "http.request.method": request.method,
                 "url.full": str(request.url),
@@ -71,6 +76,12 @@ def create_app(
             process_time = time.perf_counter() - start_time
             response.headers["X-Process-Time"] = f"{process_time:.4f}s"
             response.headers["X-DevOps-Version"] = __version__
+            curr_trace = tracer.current_trace_id
+            curr_span = tracer.current_span_id
+            if curr_trace:
+                response.headers["X-Trace-ID"] = curr_trace
+                if curr_span:
+                    response.headers["traceparent"] = f"00-{curr_trace}-{curr_span}-01"
             handle.set_attribute("http.response.status_code", response.status_code)
             handle.set_attribute("http.status_code", response.status_code)
             return response

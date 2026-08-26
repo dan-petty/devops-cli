@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
 from functools import lru_cache
+
+from pydantic import BaseModel, ConfigDict
 
 from devops_cli.ai.task_loader import load_task_prompt
 
 
-@dataclass(frozen=True)
-class EmbeddingEvalPair:
+class EmbeddingEvalPair(BaseModel):
     """Query, matching target document passage, and metadata category."""
+
+    model_config = ConfigDict(frozen=True)
 
     id: str
     category: str

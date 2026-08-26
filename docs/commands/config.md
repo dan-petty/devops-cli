@@ -1,6 +1,6 @@
 # `devops config`
 
-Manage devops-cli configuration.
+Show, set, get, or initialize CLI configuration.
 
 ## Commands
 
@@ -26,7 +26,7 @@ devops config get <key>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<key>` | `string` | Yes | Dotted config key, e.g. github.default_org |
+| `<key>` | `string` | Yes | Dotted config key, e.g. github.default_org. |
 
 ---
 
@@ -42,8 +42,8 @@ devops config set <key> <value>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<key>` | `string` | Yes | Dotted config key, e.g. github.token |
-| `<value>` | `string` | Yes | Value to set |
+| `<key>` | `string` | Yes | Dotted config key, e.g. github.default_org. |
+| `<value>` | `string` | Yes | Value to set. |
 
 ---
 
@@ -120,8 +120,8 @@ devops config auth-headless <key> <token>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<key>` | `string` | Yes | Dotted secret key, e.g. github.token |
-| `<token>` | `string` | Yes | Secret token string |
+| `<key>` | `string` | Yes | Dotted secret key, e.g. github.token. |
+| `<token>` | `string` | Yes | Secret token string. |
 
 ---
 
@@ -137,6 +137,6 @@ devops config audit-stream <destination>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<destination>` | `string` | Yes | Destination Syslog or HTTP URL |
+| `<destination>` | `string` | Yes | Destination Syslog or HTTP URL. |
 
 ---

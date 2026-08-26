@@ -24,6 +24,7 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.defaults import (
     DEFAULT_CA_VALIDITY_DAYS,
+    DEFAULT_CERT_COMMON_NAME,
     DEFAULT_HOMELAB_DOMAINS,
     DEFAULT_HOMELAB_IPS,
     DEFAULT_TLS_COUNTRY,
@@ -158,7 +159,7 @@ def generate_ca_certificate(
 
 
 def generate_server_certificate(
-    common_name: str = "localhost",
+    common_name: str = DEFAULT_CERT_COMMON_NAME,
     sans: list[str] | None = None,
     ca_cert_path: Path | None = None,
     ca_key_path: Path | None = None,

@@ -9,6 +9,10 @@ import subprocess
 from pathlib import Path
 
 from devops_cli.ai.review_schema import Finding
+from devops_cli.config.defaults import (
+    DEFAULT_KUBECONFORM_VERSION,
+    DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+)
 from devops_cli.telemetry import trace_span
 
 logger = logging.getLogger(__name__)
@@ -21,7 +25,7 @@ def _run_native_fallback_k8s_validation(manifest_path: Path) -> list[Finding]:
     files = list(resolved.rglob("*.yaml")) if resolved.is_dir() else [resolved]
 
     for f in files:
-        if not f.is_file() or f.name.startswith("."):
+        if not f.is_file() or any(part.startswith(".") for part in f.parts):
             continue
         try:
             rel_str = str(f.relative_to(resolved if resolved.is_dir() else resolved.parent))
@@ -48,9 +52,9 @@ def _run_native_fallback_k8s_validation(manifest_path: Path) -> list[Finding]:
 @trace_span("k8s.kubeconform")
 def run_kubeconform_validation(
     manifest_path: Path,
-    k8s_version: str = "master",
+    k8s_version: str = DEFAULT_KUBECONFORM_VERSION,
     strict: bool = True,
-    timeout: float = 30.0,
+    timeout: float = DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
 ) -> list[Finding]:
     """Validate Kubernetes manifests against target version schema using Kubeconform."""
     kubeconform_bin = shutil.which("kubeconform")

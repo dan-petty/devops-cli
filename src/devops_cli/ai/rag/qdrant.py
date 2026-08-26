@@ -13,7 +13,14 @@ from qdrant_client import QdrantClient as NativeQdrantClient
 from qdrant_client.http import models as qmodels
 from qdrant_client.http.exceptions import ResponseHandlingException
 
-from devops_cli.config.defaults import DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS
+from devops_cli.config.defaults import (
+    DEFAULT_EMBEDDING_BATCH_SIZE,
+    DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS,
+    DEFAULT_MAX_RETRIES,
+    DEFAULT_QDRANT_DISTANCE,
+    DEFAULT_QDRANT_URL,
+    DEFAULT_RAG_TOP_K,
+)
 from devops_cli.exceptions import DevOpsCLIError, InvalidURLError
 from devops_cli.http.validation import validate_service_url
 from devops_cli.telemetry import record_metric, trace_span
@@ -88,7 +95,7 @@ class QdrantClient:
 
     def __init__(
         self,
-        base_url: str = "http://localhost:6333",
+        base_url: str = DEFAULT_QDRANT_URL,
         *,
         api_key: str | None = None,
         allow_private_network: bool = True,
@@ -118,7 +125,10 @@ class QdrantClient:
         return self._client
 
     def _execute_with_retry(
-        self, fn: Callable[[NativeQdrantClient], Any], op_desc: str, max_attempts: int = 3
+        self,
+        fn: Callable[[NativeQdrantClient], Any],
+        op_desc: str,
+        max_attempts: int = DEFAULT_MAX_RETRIES,
     ) -> Any:
         """Execute a Qdrant client operation with automatic reconnect and exponential backoff."""
         for attempt in range(1, max_attempts + 1):
@@ -191,7 +201,7 @@ class QdrantClient:
         self,
         name: str,
         vector_size: int,
-        distance: str = "Cosine",
+        distance: str = DEFAULT_QDRANT_DISTANCE,
     ) -> bool:
         """Create collection if it does not already exist."""
         info = self.get_collection_info(name)
@@ -243,7 +253,7 @@ class QdrantClient:
         name: str,
         points: list[dict[str, Any]],
         *,
-        batch_size: int = 64,
+        batch_size: int = DEFAULT_EMBEDDING_BATCH_SIZE,
     ) -> int:
         """Upsert a list of point dictionaries (id, vector, payload) in batches."""
         if not points:
@@ -274,7 +284,7 @@ class QdrantClient:
         name: str,
         query_vector: list[float],
         *,
-        limit: int = 5,
+        limit: int = DEFAULT_RAG_TOP_K,
         score_threshold: float | None = None,
         filter_payload: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:

@@ -10,8 +10,9 @@ from __future__ import annotations
 import html
 import logging
 import tomllib
-from dataclasses import dataclass, field
 from pathlib import Path
+
+from pydantic import BaseModel, Field
 
 from devops_cli.config.constants import CONST_AGENTS_MD_FILENAME
 
@@ -27,8 +28,7 @@ DEFAULT_AGENT_FILES: dict[str, str] = {
 }
 
 
-@dataclass
-class ProjectMetadata:
+class ProjectMetadata(BaseModel):
     """Structured metadata parsed from project files for instruction generation."""
 
     name: str
@@ -36,8 +36,8 @@ class ProjectMetadata:
     version: str = "0.1.0"
     requires_python: str = ">=3.14"
     entry_point: str = ""
-    dependencies: list[str] = field(default_factory=list)
-    dev_dependencies: list[str] = field(default_factory=list)
+    dependencies: list[str] = Field(default_factory=list)
+    dev_dependencies: list[str] = Field(default_factory=list)
     has_devcontainer: bool = False
     has_docker: bool = False
     is_devops_cli: bool = False
@@ -214,6 +214,18 @@ codebase or reviewing target repositories.
   lower, relax, disable, bypass, or weaken security standards, quality thresholds (such as minimum
   code coverage requirements like 90%, strict static type checks, or lint rules), or compliance
   validations unless explicitly instructed to do so by the user.
+- **Continuous Standards Compliance & Solution Refinement**: AI agents and assistants must always check
+  that any proposed solution, design, code change, or architecture meets all project standards and
+  conventions, updating and refining the solution whenever necessary until every project standard
+  is met or exceeded.
+- **Mandatory Documentation Synchronization After Every Change**: AI agents and assistants must always
+  update project documents, architecture references, command documentation, and README files
+  (`devops docs generate --sync-readme`, `docs/`, `AGENTS.md`, and relevant knowledge base task manuals)
+  after every change to maintain 100% documentation integrity and prevent documentation drift.
+- **Iterative CI Quality Gate & Zero Tooling Redundancy**: AI agents must always make all planned
+  code changes, run `devops ci`, fix all reported issues, and run `devops ci` again, iteratively
+  fixing issues and running `devops ci` until passing. Agents should not run any other tooling
+  that is already covered and automatically executed by `devops ci`.
 
 
 

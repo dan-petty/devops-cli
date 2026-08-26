@@ -9,7 +9,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from typer.testing import CliRunner
 
-from devops_cli.commands.grafana import app
+from devops_cli.commands.grafana import app as grafana_app
+from devops_cli.config.settings import Settings
 from devops_cli.main import app as main_app
 
 runner = CliRunner()
@@ -42,8 +43,6 @@ def test_grafana_dashboards_sync_success(monkeypatch: pytest.MonkeyPatch) -> Non
     """Verify successful sync of dashboards with mock Grafana API."""
     import httpx2
 
-    from devops_cli.config.settings import Settings
-
     mock_settings = Settings()
     mock_settings.grafana.url = "http://localhost:3000"
     mock_settings.ai.allow_private_network = True
@@ -53,7 +52,7 @@ def test_grafana_dashboards_sync_success(monkeypatch: pytest.MonkeyPatch) -> Non
         def raise_for_status(self) -> None:
             pass
 
-        def json(self) -> dict:
+        def json(self) -> dict[str, str]:
             return {"slug": "test-dashboard", "status": "success"}
 
     class DummyClient:
@@ -68,13 +67,13 @@ def test_grafana_dashboards_sync_success(monkeypatch: pytest.MonkeyPatch) -> Non
 
     monkeypatch.setattr(httpx2, "Client", lambda *args, **kwargs: DummyClient())
 
-    result = runner.invoke(app, ["dashboards", "sync"])
+    result = runner.invoke(grafana_app, ["dashboards", "sync"])
     assert result.exit_code == 0
     assert "Dashboard sync completed" in result.output
 
 
-def test_grafana_commands_execution(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify grafana dashboards list and sync execution via main CLI."""
+def test_grafana_commands_execution(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify grafana dashboards list, export, import, search, datasources, and alerts execution."""
     monkeypatch.setattr(
         "devops_cli.core.validation.validate_service_url", lambda *args, **kwargs: None
     )
@@ -82,17 +81,100 @@ def test_grafana_commands_execution(monkeypatch: pytest.MonkeyPatch) -> None:
         {
             "uid": "cluster-overview",
             "title": "Cluster Overview",
+            "folderTitle": "General",
             "url": "/d/cluster",
             "type": "dash-db",
         }
     ]
-    mock_resp = MagicMock()
-    mock_resp.status_code = 200
-    mock_resp.json.return_value = mock_dashboards
+    mock_datasources = [
+        {
+            "name": "Prometheus",
+            "type": "prometheus",
+            "url": "http://prometheus:9090",
+            "isDefault": True,
+        }
+    ]
+    mock_alerts = [
+        {
+            "uid": "alert-1",
+            "title": "High CPU",
+            "folderUID": "general",
+            "condition": "A",
+        }
+    ]
+    mock_dashboard_detail = {
+        "dashboard": {
+            "title": "Exported Dash",
+            "panels": [],
+        },
+        "meta": {},
+    }
 
-    with patch("devops_cli.commands.grafana.httpx2.get", return_value=mock_resp):
-        res_dash = runner.invoke(main_app, ["--dry-run", "grafana", "dashboards"])
-        assert res_dash.exit_code == 0
+    mock_settings = Settings()
+    mock_settings.grafana.url = "http://localhost:3000"
+    mock_settings.ai.allow_private_network = True
 
-        res_sync = runner.invoke(main_app, ["--dry-run", "grafana", "sync"])
-        assert res_sync.exit_code == 0
+    def mock_get(*args: object, **kwargs: object) -> MagicMock:
+        resp = MagicMock()
+        resp.status_code = 200
+        url_str = ""
+        for a in args:
+            if isinstance(a, str) and ("http" in a or "/api/" in a):
+                url_str = a
+                break
+        if not url_str and "url" in kwargs:
+            url_str = str(kwargs["url"])
+
+        if "dashboards/uid" in url_str:
+            resp.json.return_value = mock_dashboard_detail
+        elif "search" in url_str:
+            resp.json.return_value = mock_dashboards
+        elif "datasources" in url_str:
+            resp.json.return_value = mock_datasources
+        elif "alert-rules" in url_str:
+            resp.json.return_value = mock_alerts
+        else:
+            resp.json.return_value = []
+        return resp
+
+    def mock_post(*args: object, **kwargs: object) -> MagicMock:
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.json.return_value = {"slug": "imported-dash", "status": "success"}
+        return resp
+
+    sample_dash_file = tmp_path / "dash.json"
+    sample_dash_file.write_text(
+        json.dumps({"title": "Sample Dashboard", "panels": []}), encoding="utf-8"
+    )
+
+    with (
+        patch("devops_cli.commands.grafana.httpx2.Client.get", side_effect=mock_get),
+        patch("devops_cli.commands.grafana.httpx2.Client.post", side_effect=mock_post),
+        patch("devops_cli.commands.grafana.load_settings", return_value=mock_settings),
+    ):
+        res_list = runner.invoke(grafana_app, ["dashboards", "list"])
+        assert res_list.exit_code == 0
+        export_out = Path("test_exported.json")
+        try:
+            res_export = runner.invoke(
+                grafana_app,
+                ["dashboards", "export", "cluster-overview", "--output", str(export_out)],
+            )
+            assert res_export.exit_code == 0
+            assert export_out.exists()
+        finally:
+            if export_out.exists():
+                export_out.unlink()
+
+        res_import = runner.invoke(grafana_app, ["dashboards", "import", str(sample_dash_file)])
+        assert res_import.exit_code == 0
+
+        res_search = runner.invoke(grafana_app, ["search", "--query", "cluster"])
+        assert res_search.exit_code == 0
+
+        res_ds = runner.invoke(grafana_app, ["datasources"])
+        assert res_ds.exit_code == 0
+
+        res_alerts = runner.invoke(grafana_app, ["alerts"])
+        assert res_alerts.exit_code == 0

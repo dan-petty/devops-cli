@@ -23,7 +23,7 @@ def _get_pathspec_for_repo(repo_root_str: str) -> pathspec.PathSpec[Any] | None:
         return None
     import pathspec
 
-    return pathspec.PathSpec.from_lines("gitwildmatch", patterns)
+    return pathspec.PathSpec.from_lines("gitignore", patterns)
 
 
 def find_repo_root(start_path: Path | str | None = None) -> Path:
@@ -192,8 +192,6 @@ def list_repo_files(target: Path | str = ".") -> list[Path]:
 def get_repo_origin_name(repo_root: Path | None = None) -> str | None:
     """Extract owner/repo string from git remote origin URL (e.g. 'org/repo')."""
     import re
-
-    from devops_cli.core.process import run_subprocess
 
     root = repo_root or find_repo_root()
     if not (root / ".git").exists():

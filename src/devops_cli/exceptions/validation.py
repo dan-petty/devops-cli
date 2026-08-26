@@ -4,6 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from devops_cli.config.constants import (
+    CONST_ERROR_CODE_VALIDATION,
+    CONST_EXIT_FAILURE,
+    CONST_MSG_URL_INVALID,
+)
 from devops_cli.exceptions.base import DevOpsCLIError
 
 
@@ -15,8 +20,8 @@ class ValidationError(DevOpsCLIError, ValueError):
         message: str,
         *,
         field: str | None = None,
-        exit_code: int = 1,
-        error_code: str = "VALIDATION_ERROR",
+        exit_code: int = CONST_EXIT_FAILURE,
+        error_code: str = CONST_ERROR_CODE_VALIDATION,
         details: dict[str, Any] | None = None,
     ) -> None:
         err_details = {"field": field} if field else {}
@@ -31,7 +36,7 @@ class InvalidURLError(ValidationError):
     def __init__(
         self,
         url: str,
-        reason: str = "Invalid URL format or scheme",
+        reason: str = CONST_MSG_URL_INVALID,
         *,
         details: dict[str, Any] | None = None,
     ) -> None:
@@ -42,7 +47,7 @@ class InvalidURLError(ValidationError):
         super().__init__(
             msg,
             field="url",
-            exit_code=1,
+            exit_code=CONST_EXIT_FAILURE,
             error_code="INVALID_URL",
             details=err_details,
         )

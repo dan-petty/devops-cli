@@ -8,6 +8,7 @@ from typing import Any
 import httpx2
 
 from devops_cli.ai.providers.base import BaseLLMProvider
+from devops_cli.config.defaults import DEFAULT_AI_TIMEOUT_SECONDS, DEFAULT_OPENAI_MODEL
 from devops_cli.models.ai import ChatMessage
 
 logger = logging.getLogger(__name__)
@@ -32,7 +33,7 @@ class OpenAIProvider(BaseLLMProvider):
         stream: bool = False,
         **kwargs: Any,
     ) -> Any:
-        target_model = model or self.config.model or "gpt-4o"
+        target_model = model or self.config.model or DEFAULT_OPENAI_MODEL
         base_url = (self.config.api_base_url or "https://api.openai.com/v1").rstrip("/")
         payload = {
             "model": target_model,
@@ -42,7 +43,7 @@ class OpenAIProvider(BaseLLMProvider):
         res = httpx2.post(
             f"{base_url}/chat/completions",
             json=payload,
-            timeout=timeout or 60.0,
+            timeout=timeout or DEFAULT_AI_TIMEOUT_SECONDS,
         )
         res.raise_for_status()
         return res.json()

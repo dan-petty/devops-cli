@@ -199,3 +199,46 @@ def test_create_pr_review_comment() -> None:
     assert called_kwargs["commit"] == "sha-123"
     assert called_kwargs["path"] == "src/main.py"
     assert called_kwargs["line"] == 15
+
+
+def test_get_pr_diff_normal_and_redirect(monkeypatch) -> None:
+    """Verify get_pr_diff fetches unified diff with and without redirect."""
+    import httpx2
+
+    client = GitHubClient("token123")
+
+    class MockDiffResponse:
+        def __init__(self, text: str, is_redirect: bool = False, location: str = ""):
+            self.text = text
+            self.is_redirect = is_redirect
+            self.headers = {"location": location} if location else {}
+
+        def raise_for_status(self) -> None:
+            pass
+
+    # 1. Direct diff response
+    monkeypatch.setattr(
+        httpx2.Client,
+        "get",
+        lambda self, url, **kwargs: MockDiffResponse("diff --git a/foo b/foo\n+line"),
+    )
+    diff = client.get_pr_diff("octo/repo", 42)
+    assert "diff --git a/foo b/foo" in diff
+
+    # 2. Redirected diff response
+    calls = []
+
+    def mock_redirect_get(self, url, **kwargs):
+        calls.append(url)
+        if len(calls) == 1:
+            return MockDiffResponse(
+                "",
+                is_redirect=True,
+                location="https://api.github.com/repos/octo/repo/pulls/42/diff",
+            )
+        return MockDiffResponse("diff --git a/redirected b/redirected\n+newline")
+
+    monkeypatch.setattr(httpx2.Client, "get", mock_redirect_get)
+    diff_redir = client.get_pr_diff("octo/repo", 42)
+    assert "diff --git a/redirected" in diff_redir
+    assert len(calls) == 2

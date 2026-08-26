@@ -6,15 +6,11 @@ Argo CD, Workflows, and Rollouts management.
 
 ## `devops argo cd`
 
-**ArgoCD application management.**
-
 ```bash
 devops argo cd COMMAND [ARGS]...
 ```
 
 ### `devops argo cd apps`
-
-**ArgoCD application management.**
 
 ```bash
 devops argo cd apps COMMAND [ARGS]...
@@ -40,14 +36,14 @@ devops argo cd apps sync [OPTIONS] <name>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<name>` | `string` | Yes | Application name |
+| `<name>` | `string` | Yes | Application name. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--prune` | `boolean` | - | - |
-| `--force` | `boolean` | - | - |
+| `--prune` | `boolean` | - | Allow deletion of resources omitted from the source repository. |
+| `--force` | `boolean` | - | Force execution ignoring non-blocking warnings. |
 
 #### `devops argo cd apps status`
 
@@ -61,13 +57,11 @@ devops argo cd apps status <name>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<name>` | `string` | Yes | Application name |
+| `<name>` | `string` | Yes | Application name. |
 
 ---
 
 ## `devops argo workflows`
-
-**Argo Workflows management.**
 
 ```bash
 devops argo workflows COMMAND [ARGS]...
@@ -85,7 +79,7 @@ devops argo workflows list [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--namespace`, `-n` | `string` | - | - |
+| `--namespace`, `-n` | `string` | - | Kubernetes namespace. |
 
 ### `devops argo workflows submit`
 
@@ -99,14 +93,14 @@ devops argo workflows submit [OPTIONS] <file>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<file>` | `path` | Yes | Workflow YAML file |
+| `<file>` | `path` | Yes | Workflow YAML file. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--namespace`, `-n` | `string` | - | - |
-| `--wait`, `-w` | `boolean` | - | - |
+| `--namespace`, `-n` | `string` | - | Kubernetes namespace. |
+| `--wait`, `-w` | `boolean` | - | Wait for sync operation to finish. |
 
 ### `devops argo workflows logs`
 
@@ -120,20 +114,18 @@ devops argo workflows logs [OPTIONS] <name>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<name>` | `string` | Yes | Workflow name |
+| `<name>` | `string` | Yes | Workflow name. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--namespace`, `-n` | `string` | - | - |
-| `--follow`, `-f` | `boolean` | - | - |
+| `--namespace`, `-n` | `string` | - | Kubernetes namespace. |
+| `--follow`, `-f` | `boolean` | - | Stream workflow execution logs. |
 
 ---
 
 ## `devops argo rollouts`
-
-**Argo Rollouts management.**
 
 ```bash
 devops argo rollouts COMMAND [ARGS]...
@@ -151,7 +143,7 @@ devops argo rollouts list [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--namespace`, `-n` | `string` | - | - |
+| `--namespace`, `-n` | `string` | - | Kubernetes namespace. |
 
 ### `devops argo rollouts status`
 
@@ -165,13 +157,13 @@ devops argo rollouts status [OPTIONS] <name>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<name>` | `string` | Yes | Rollout name |
+| `<name>` | `string` | Yes | Rollout name. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--namespace`, `-n` | `string` | - | - |
-| `--watch`, `-w` | `boolean` | - | - |
+| `--namespace`, `-n` | `string` | - | Kubernetes namespace. |
+| `--watch`, `-w` | `boolean` | - | Watch application status changes live. |
 
 ---

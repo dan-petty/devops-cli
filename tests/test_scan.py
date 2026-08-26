@@ -61,3 +61,48 @@ def test_scan_individual_tools(tmp_path: Path) -> None:
 
         res_iac = runner.invoke(scan_app, ["iac", str(tmp_path)])
         assert res_iac.exit_code == 0
+
+        res_gitleaks_alias = runner.invoke(scan_app, ["gitleaks", str(tmp_path), "--dry-run"])
+        assert res_gitleaks_alias.exit_code == 0
+
+        res_checkov_alias = runner.invoke(
+            scan_app, ["checkov", str(tmp_path), "--framework", "terraform", "--dry-run"]
+        )
+        assert res_checkov_alias.exit_code == 0
+
+
+def test_scan_clean_and_dry_run(tmp_path: Path) -> None:
+    """Verify scan tool dispatching when no findings are detected."""
+    with (
+        patch("devops_cli.commands.scan.run_trivy_scan", return_value=[]),
+        patch("devops_cli.commands.scan.run_gitleaks_scan", return_value=[]),
+        patch("devops_cli.commands.scan.run_semgrep_scan", return_value=[]),
+        patch("devops_cli.commands.scan.run_checkov_scan", return_value=[]),
+    ):
+        res_trivy_clean = runner.invoke(scan_app, ["trivy", str(tmp_path), "--dry-run"])
+        assert res_trivy_clean.exit_code == 0
+
+        res_secrets_clean = runner.invoke(scan_app, ["secrets", str(tmp_path), "--dry-run"])
+        assert res_secrets_clean.exit_code == 0
+
+        res_sast_clean = runner.invoke(scan_app, ["sast", str(tmp_path), "--dry-run"])
+        assert res_sast_clean.exit_code == 0
+
+        res_iac_clean = runner.invoke(scan_app, ["iac", str(tmp_path), "--dry-run"])
+        assert res_iac_clean.exit_code == 0
+
+        res_trivy_json_dry = runner.invoke(
+            scan_app, ["trivy", str(tmp_path), "--json", "--dry-run"]
+        )
+        assert res_trivy_json_dry.exit_code == 0
+
+        res_secrets_json_dry = runner.invoke(
+            scan_app, ["secrets", str(tmp_path), "--json", "--dry-run"]
+        )
+        assert res_secrets_json_dry.exit_code == 0
+
+        res_sast_json_dry = runner.invoke(scan_app, ["sast", str(tmp_path), "--json", "--dry-run"])
+        assert res_sast_json_dry.exit_code == 0
+
+        res_iac_json_dry = runner.invoke(scan_app, ["iac", str(tmp_path), "--json", "--dry-run"])
+        assert res_iac_json_dry.exit_code == 0

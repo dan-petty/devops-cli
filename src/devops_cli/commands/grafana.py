@@ -9,10 +9,12 @@ from typing import Annotated
 
 import httpx2
 import typer
-from rich.table import Table
 
 from devops_cli.config.constants import CONST_MAX_FILE_SIZE_BYTES
-from devops_cli.config.defaults import DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS
+from devops_cli.config.defaults import (
+    DEFAULT_GRAFANA_FOLDER_ID,
+    DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS,
+)
 from devops_cli.config.settings import Settings, get_grafana_token, load_settings
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
@@ -88,15 +90,15 @@ def dashboards_list() -> None:
         )
         response.raise_for_status()
 
-    table = Table(title=MESSAGES.grafana.table_title_dashboards)
-    table.add_column("UID", style="dim")
-    table.add_column("Title", style="cyan")
-    table.add_column("Folder")
-
+    rows: list[list[str]] = []
     for item in response.json():
         dash = GrafanaDashboard.model_validate(item)
-        table.add_row(dash.uid, dash.title, dash.folder_title)
-    print_table(table)
+        rows.append([dash.uid, dash.title, dash.folder_title])
+    print_table(
+        title=MESSAGES.grafana.table_title_dashboards,
+        columns=[("UID", "dim"), ("Title", "cyan"), "Folder"],
+        rows=rows,
+    )
 
 
 # =============================================================================
@@ -106,8 +108,8 @@ def dashboards_list() -> None:
 
 @dashboards_app.command("export")
 def dashboards_export(
-    uid: Annotated[str, typer.Argument(help="Dashboard UID")],
-    output: Annotated[Path | None, typer.Option("--output", "-o")] = None,
+    uid: Annotated[str, typer.Argument(help=HELP.grafana.uid)],
+    output: Annotated[Path | None, typer.Option("--output", "-o", help=HELP.options.output)] = None,
 ) -> None:
     """Export a dashboard to JSON."""
     if not re.match(r"^[a-zA-Z0-9_-]+$", uid):
@@ -144,8 +146,10 @@ def dashboards_export(
 
 @dashboards_app.command("import")
 def dashboards_import(
-    file: Annotated[Path, typer.Argument(help="Dashboard JSON file")],
-    folder_id: Annotated[int, typer.Option("--folder-id")] = 0,
+    file: Annotated[Path, typer.Argument(help=HELP.grafana.import_file)],
+    folder_id: Annotated[
+        int, typer.Option("--folder-id", help=HELP.grafana.folder_id)
+    ] = DEFAULT_GRAFANA_FOLDER_ID,
 ) -> None:
     """Import a dashboard from JSON."""
     settings = load_settings()
@@ -205,7 +209,7 @@ def dashboards_import(
 def dashboards_sync(
     dir_path: Annotated[
         Path | None,
-        typer.Option("--dir", "-d", help="Directory containing dashboard JSON files"),
+        typer.Option("--dir", "-d", help=HELP.grafana.dashboards_dir),
     ] = None,
 ) -> None:
     """Sync all bundled/local dashboards to Grafana."""
@@ -266,7 +270,7 @@ def dashboards_sync(
 
 @app.command()
 def search(
-    query: Annotated[str, typer.Option("--query", "-q", help="Search query")] = "",
+    query: Annotated[str, typer.Option("--query", "-q", help=HELP.grafana.query)] = "",
 ) -> None:
     """Search Grafana dashboards and folders by query string."""
     settings = load_settings()
@@ -282,23 +286,24 @@ def search(
         )
         response.raise_for_status()
 
-    table = Table(
-        title=MESSAGES.grafana.table_title_search.format(query=query) if query else "Grafana Search"
-    )
-    table.add_column("UID", style="dim")
-    table.add_column("Title", style="cyan")
-    table.add_column("Type")
-    table.add_column("Folder")
-
+    rows: list[list[str]] = []
     for item in response.json():
         dash = GrafanaDashboard.model_validate(item)
-        table.add_row(
-            dash.uid,
-            dash.title,
-            item.get("type", ""),  # type is not on GrafanaDashboard — keep raw
-            dash.folder_title,
+        rows.append(
+            [
+                dash.uid,
+                dash.title,
+                item.get("type", ""),  # type is not on GrafanaDashboard — keep raw
+                dash.folder_title,
+            ]
         )
-    print_table(table)
+    print_table(
+        title=MESSAGES.grafana.table_title_search.format(query=query)
+        if query
+        else "Grafana Search",
+        columns=[("UID", "dim"), ("Title", "cyan"), "Type", "Folder"],
+        rows=rows,
+    )
 
 
 # =============================================================================
@@ -320,21 +325,22 @@ def datasources() -> None:
         )
         response.raise_for_status()
 
-    table = Table(title=MESSAGES.grafana.table_title_datasources)
-    table.add_column("Name", style="cyan")
-    table.add_column("Type")
-    table.add_column("URL")
-    table.add_column("Default", justify="center")
-
+    rows: list[list[str]] = []
     for item in response.json():
         ds = GrafanaDatasource.model_validate(item)
-        table.add_row(
-            ds.name,
-            ds.type,
-            ds.url,
-            "[green]●[/green]" if ds.is_default else "",
+        rows.append(
+            [
+                ds.name,
+                ds.type,
+                ds.url,
+                "[green]●[/green]" if ds.is_default else "",
+            ]
         )
-    print_table(table)
+    print_table(
+        title=MESSAGES.grafana.table_title_datasources,
+        columns=[("Name", "cyan"), "Type", "URL", ("Default", "center")],
+        rows=rows,
+    )
 
 
 # =============================================================================
@@ -356,13 +362,12 @@ def alerts() -> None:
         )
         response.raise_for_status()
 
-    table = Table(title=MESSAGES.grafana.table_title_alerts)
-    table.add_column("UID", style="dim")
-    table.add_column("Title", style="cyan")
-    table.add_column("Folder")
-    table.add_column("Condition")
-
+    rows: list[list[str]] = []
     for item in response.json():
         rule = GrafanaAlertRule.model_validate(item)
-        table.add_row(rule.uid, rule.title, rule.folder_uid, rule.condition)
-    print_table(table)
+        rows.append([rule.uid, rule.title, rule.folder_uid, rule.condition])
+    print_table(
+        title=MESSAGES.grafana.table_title_alerts,
+        columns=[("UID", "dim"), ("Title", "cyan"), "Folder", "Condition"],
+        rows=rows,
+    )

@@ -4,12 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from rich import box
-from rich.console import Console
-from rich.panel import Panel
-from rich.table import Table
-
-console = Console()
+from devops_cli.output import print_panel, print_table, write_stdout
 
 _BENCHMARK_SECTIONS: list[dict[str, Any]] = [
     {
@@ -355,43 +350,36 @@ EXPLANATIONS: dict[str, dict[str, Any]] = {
 }
 
 
-def render_explanation(topic: str, console_instance: Console | None = None) -> None:
-    """Render a comprehensive Rich explanation panel for the requested topic."""
-    c = console_instance or console
+def render_explanation(topic: str, console_instance: Any = None) -> None:
+    """Render a comprehensive explanation panel for the requested topic."""
     data = EXPLANATIONS.get(topic.lower())
     if not data:
         data = EXPLANATIONS["benchmark"]
 
     panel_title = f"[bold white]{data['title']}[/bold white]"
-    c.print()
-    c.print(
-        Panel(
-            f"[dim]{data['description']}[/dim]",
-            title=panel_title,
-            title_align="left",
-            border_style="cyan",
-            expand=True,
-        )
+    write_stdout("\n")
+    print_panel(
+        f"[dim]{data['description']}[/dim]",
+        title=panel_title,
+        border_style="cyan",
+        console=console_instance,
     )
-    c.print()
+    write_stdout("\n")
 
     for sec in data["sections"]:
-        table = Table(
+        rows = [[term, definition, formula] for term, definition, formula in sec["items"]]
+        print_table(
             title=sec["name"],
-            box=box.ROUNDED,
-            expand=True,
-            header_style="bold cyan",
+            columns=[
+                ("Term / Metric", "bold white"),
+                ("Definition & Operational Purpose", "dim white"),
+                ("Formula / Guideline", "yellow"),
+            ],
+            rows=rows,
             border_style="dim",
+            console=console_instance,
         )
-        table.add_column("Term / Metric", style="bold white", width=28)
-        table.add_column("Definition & Operational Purpose", style="dim white", width=50)
-        table.add_column("Formula / Guideline", style="yellow")
-
-        for term, definition, formula in sec["items"]:
-            table.add_row(term, definition, formula)
-
-        c.print(table)
-        c.print()
+        write_stdout("\n")
 
 
 def get_explanation_markdown(topic: str) -> str:

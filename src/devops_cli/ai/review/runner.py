@@ -12,9 +12,6 @@ from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
-from rich import print as rprint
-from rich.console import Console
-from rich.rule import Rule
 
 from devops_cli.ai.analyze.cache import _load_file_analysis_metas
 from devops_cli.ai.client import AIClientError, LLMClient
@@ -45,6 +42,7 @@ from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.constants import (
     CONST_AGENTS_MD_FILENAME,
     CONST_DATA_DIR,
+    CONST_GIT_MAIN_BRANCH,
     CONST_GITIGNORE_DIRS,
     CONST_REVIEW_GENERATED_FILES,
     CONST_REVIEW_MAX_DIFF_CHARS,
@@ -58,11 +56,19 @@ from devops_cli.core.process import run_subprocess as _run_subprocess
 from devops_cli.core.repo import find_repo_root, is_ignored_by_git, is_safe_subpath
 from devops_cli.dry_run import is_dry_run
 from devops_cli.models.ai import FileAnalysisMeta
+from devops_cli.output import (
+    print_error,
+    print_info,
+    print_markdown,
+    print_muted,
+    print_section,
+    print_table,
+    print_warning,
+)
 from devops_cli.telemetry import ContextPropagatingThreadPoolExecutor as ThreadPoolExecutor
 from devops_cli.telemetry import trace_span
 
 logger = logging.getLogger(__name__)
-console = Console()
 
 _MAX_DIFF_CHARS = CONST_REVIEW_MAX_DIFF_CHARS
 _MAX_SEGMENT_RETRIES = 2
@@ -92,7 +98,7 @@ def _personas_to_run(all_personas: bool, persona: Persona | None) -> list[Person
 def _debug_block(title: str, payload: dict[str, Any]) -> None:
     from devops_cli.output import print_dry_run_result
 
-    rprint(f"[yellow][dry-run][/yellow] {title}")
+    print_warning(f"[dry-run] {title}", prefix=False)
     print_dry_run_result(payload)
 
 
@@ -404,10 +410,10 @@ def _save_findings_json(
             encoding="utf-8",
         )
         if show_status:
-            rprint(f"[dim]  ✓ findings saved → {target}[/dim]")
+            print_muted(f"  ✓ findings saved → {target}")
         return True
     except OSError as exc:
-        rprint(f"[yellow]Warning: failed to write findings.json: {exc}[/yellow]")
+        print_warning(f"Warning: failed to write findings.json: {exc}")
         return False
 
 
@@ -483,15 +489,24 @@ def _write_summary(
             )
             if fmeta.key_symbols:
                 lines.append(f"> Symbols: {', '.join(fmeta.key_symbols[:10])}")
-            if fmeta.dependencies:
-                lines.append(f"> Dependencies: {', '.join(fmeta.dependencies[:10])}")
-            lines.append("")
+        lines.append("| File Path | Language | Purpose | Complexity |")
+        lines.append("|---|---|---|---|")
+        for path, fmeta in analysis_metas.items():
+            clean_p = path.replace("|", "\\|").replace("\n", " ").strip()
+            clean_purp = (
+                (fmeta.primary_purpose or "—").replace("|", "\\|").replace("\n", " ").strip()
+            )
+            clean_comp = (
+                (fmeta.complexity_score or "—").replace("|", "\\|").replace("\n", " ").strip()
+            )
+            lines.append(f"| `{clean_p}` | {fmeta.language} | {clean_purp} | {clean_comp} |")
+        lines.append("")
     if completed:
-        lines.append("## Reviews\n")
-        lines.append("| Persona | Recommendation | File |")
-        lines.append("|---------|---------------|------|")
-        for pd, review in completed:
-            rec = review.recommendation if isinstance(review, ReviewResult) else "—"
+        lines.append("## Personas\n")
+        lines.append("| Persona | Recommendation | Report |")
+        lines.append("|---|---|---|")
+        for pd, rev in completed:
+            rec = rev.recommendation if isinstance(rev, ReviewResult) else "—"
             clean_title = pd.title.replace("\\", "\\\\").replace("|", "\\|").replace("\n", "<br>")
             clean_rec = rec.replace("\\", "\\\\").replace("|", "\\|").replace("\n", "<br>")
             lines.append(
@@ -507,7 +522,7 @@ def _write_summary(
         lines.append("")
     (session_dir / "summary.md").write_text("\n".join(lines), encoding="utf-8")
     if completed:
-        rprint(f"[dim]Review saved → {session_dir}[/dim]")
+        print_info(f"[dim]Review saved → {session_dir}[/dim]", prefix=False)
 
 
 def _build_dry_run_segment_result(file_label: str, title: str) -> ReviewResult:
@@ -535,14 +550,16 @@ def _log_segment_error(
 ) -> None:
     """Log segment failure or retry message."""
     if attempt <= _MAX_SEGMENT_RETRIES:
-        rprint(
-            f"[yellow]  ✗ {file_label} error in {seg_elapsed:.1f}s"
-            f"{fail_backend} (attempt {attempt}), retrying...[/yellow]"
+        print_warning(
+            f"  ✗ {file_label} error in {seg_elapsed:.1f}s"
+            f"{fail_backend} (attempt {attempt}), retrying...",
+            prefix=False,
         )
     else:
-        rprint(
-            f"[yellow]  ✗ {file_label} failed in {seg_elapsed:.1f}s after "
-            f"{_MAX_SEGMENT_RETRIES + 1} attempt(s); skipping.{fail_backend}[/yellow]"
+        print_warning(
+            f"  ✗ {file_label} failed in {seg_elapsed:.1f}s after "
+            f"{_MAX_SEGMENT_RETRIES + 1} attempt(s); skipping.{fail_backend}",
+            prefix=False,
         )
 
 
@@ -551,14 +568,16 @@ def _log_segment_empty(
 ) -> None:
     """Log empty segment response or retry message."""
     if attempt <= _MAX_SEGMENT_RETRIES:
-        rprint(
-            f"[yellow]  ✗ {file_label} empty in {seg_elapsed:.1f}s"
-            f"{req_backend_str} (attempt {attempt}), retrying...[/yellow]"
+        print_warning(
+            f"  ✗ {file_label} empty in {seg_elapsed:.1f}s"
+            f"{req_backend_str} (attempt {attempt}), retrying...",
+            prefix=False,
         )
     else:
-        rprint(
-            f"[yellow]Warning: {file_label} still empty in {seg_elapsed:.1f}s "
-            f"after {_MAX_SEGMENT_RETRIES + 1} attempt(s).{req_backend_str}[/yellow]"
+        print_warning(
+            f"Warning: {file_label} still empty in {seg_elapsed:.1f}s "
+            f"after {_MAX_SEGMENT_RETRIES + 1} attempt(s).{req_backend_str}",
+            prefix=False,
         )
 
 
@@ -614,17 +633,21 @@ def _run_review(
 
     if prebuilt_metadata is not None:
         count = len(prebuilt_metadata)
-        rprint(f"[dim]Step 1/4: Reusing pre-computed analysis metadata for {count} file(s).[/dim]")
+        print_info(
+            f"[dim]Step 1/4: Reusing pre-computed analysis metadata for {count} file(s).[/dim]",
+            prefix=False,
+        )
         metadata = prebuilt_metadata
     else:
         all_files = sorted(list({fn for page in pages for fn in _extract_segment_filenames(page)}))
-        rprint(
+        print_info(
             f"[dim]Step 1/4: Loading analysis metadata for {total} file(s)..."
-            f"{analysis_suffix}[/dim]"
+            f"{analysis_suffix}[/dim]",
+            prefix=False,
         )
         metadata = _load_file_analysis_metas(all_files, repo_root=repo_target)
 
-    rprint(f"[dim]Step 2/4: Reviewing {total} file(s)...{analysis_suffix}[/dim]")
+    print_info(f"[dim]Step 2/4: Reviewing {total} file(s)...{analysis_suffix}[/dim]", prefix=False)
     t2 = time.monotonic()
     responses: list[str] = []
 
@@ -684,9 +707,10 @@ def _run_review(
                     continue
             else:
                 retry_note = f" (attempt {attempt})" if attempt > 1 else ""
-                rprint(
+                print_info(
                     f"[dim]  ✓ {file_label} in {seg_elapsed:.1f}s"
-                    f"{req_backend_str}{retry_note}[/dim]"
+                    f"{req_backend_str}{retry_note}[/dim]",
+                    prefix=False,
                 )
             break
         return (i, result_text)
@@ -707,7 +731,7 @@ def _run_review(
             _, res = _review_segment(i, page)
             responses.append(res)
     if not is_dry_run():
-        rprint(f"[dim]  total {time.monotonic() - t2:.1f}s[/dim]")
+        print_info(f"[dim]  total {time.monotonic() - t2:.1f}s[/dim]", prefix=False)
 
     non_empty = [r for r in responses if r.strip()]
     if not non_empty:
@@ -715,7 +739,10 @@ def _run_review(
 
     segment_results: list[ReviewResult | None] = [parse_review_response(r) for r in responses]
     if not is_dry_run():
-        rprint(f"[dim]Step 3/4: Validating findings for {total} file(s)...{analysis_suffix}[/dim]")
+        print_info(
+            f"[dim]Step 3/4: Validating findings for {total} file(s)...{analysis_suffix}[/dim]",
+            prefix=False,
+        )
         t3 = time.monotonic()
         try:
             from devops_cli.core.repo import find_repo_root
@@ -737,7 +764,7 @@ def _run_review(
                 file_label = f"segment {i}/{total}"
 
             if parsed is None or not parsed.findings:
-                rprint(f"[dim]  ✓ {file_label}: 0 finding(s) to verify[/dim]")
+                print_info(f"[dim]  ✓ {file_label}: 0 finding(s) to verify[/dim]", prefix=False)
                 return (i, parsed)
             val_start = time.monotonic()
             validated, proc_sec, _ = _validate_segment_findings(
@@ -750,7 +777,10 @@ def _run_review(
             val_elapsed = proc_sec if proc_sec is not None else (time.monotonic() - val_start)
             n_verified = sum(1 for f in validated.findings if f.verified)
             v_count = f"{n_verified}/{len(validated.findings)} finding(s) verified"
-            rprint(f"[dim]  ✓ {file_label} in {val_elapsed:.1f}s: {v_count}{analysis_suffix}[/dim]")
+            print_info(
+                f"[dim]  ✓ {file_label} in {val_elapsed:.1f}s: {v_count}{analysis_suffix}[/dim]",
+                prefix=False,
+            )
             return (i, validated)
 
         if total > 1:
@@ -774,12 +804,12 @@ def _run_review(
                 _, val_res = _validate_single_segment((i, page, parsed))
                 segment_results[i - 1] = val_res
 
-        rprint(f"[dim]  total {time.monotonic() - t3:.1f}s[/dim]")
+        print_info(f"[dim]  total {time.monotonic() - t3:.1f}s[/dim]", prefix=False)
 
     if total == 1:
         return segment_results[0] if segment_results[0] is not None else responses[0]
 
-    rprint(f"[dim]Step 4/4: Composing final review...{compose_suffix}[/dim]")
+    print_info(f"[dim]Step 4/4: Composing final review...{compose_suffix}[/dim]", prefix=False)
     recompose_prompt = _build_recompose_prompt(title, metadata, responses, persona, segment_results)
     if is_dry_run():
         _debug_block(
@@ -799,7 +829,7 @@ def _run_review(
                 validator=lambda text: parse_review_response(text) is not None,
             )
         )
-        rprint(f"[dim]  ✓ {time.monotonic() - t4:.1f}s{compose_suffix}[/dim]")
+        print_info(f"[dim]  ✓ {time.monotonic() - t4:.1f}s{compose_suffix}[/dim]", prefix=False)
         if not raw.strip():
             return _merge_segment_results(segment_results) or _fallback_join(non_empty)
         parsed = parse_review_response(raw)
@@ -831,17 +861,19 @@ def _run_persona_loop(
         ollama_urls = getattr(config, "get_ollama_urls", [])
         if ollama_urls:
             n = len(ollama_urls)
-            rprint(
+            print_info(
                 f"[dim]Warming up model '{model_name}' in background across "
-                f"{n} Ollama node(s)...[/dim]"
+                f"{n} Ollama node(s)...[/dim]",
+                prefix=False,
             )
             clients.analysis.preload_models(blocking=False)
 
     analysis_info = getattr(clients.analysis, "backend_info", "")
     analysis_suffix = f" [{analysis_info}]" if analysis_info else ""
     n_files = len(pages)
-    rprint(
-        f"[dim]Step 1/4: Loading analysis metadata for {n_files} file(s)...{analysis_suffix}[/dim]"
+    print_info(
+        f"[dim]Step 1/4: Loading analysis metadata for {n_files} file(s)...{analysis_suffix}[/dim]",
+        prefix=False,
     )
     try:
         from devops_cli.core.repo import find_repo_root
@@ -860,7 +892,7 @@ def _run_persona_loop(
     try:
 
         def _execute_persona(pd: PersonaDefinition) -> tuple[PersonaDefinition, ReviewResult | str]:
-            rprint(f"Reviewing as [bold magenta]{pd.title}[/bold magenta]...")
+            print_info(f"Reviewing as [bold magenta]{pd.title}[/bold magenta]...", prefix=False)
             review_text = _run_review(
                 pages,
                 title,
@@ -897,7 +929,7 @@ def _run_persona_loop(
                 pd, review_text = _execute_persona(pd)
                 _record_result(pd, review_text)
     except AIClientError as exc:
-        rprint(f"[red]AI provider error:[/red] {exc}")
+        print_error(f"AI provider error: {exc}")
         raise
     finally:
         if session_dir and completed:
@@ -907,21 +939,19 @@ def _run_persona_loop(
 
 
 def _print_review(persona: PersonaDefinition, review: ReviewResult | str) -> None:
-    console.print()
-    console.print(Rule(f" {persona.title} ", style="bold magenta"))
+    print_section(f"{persona.title}", style="bold magenta")
     if isinstance(review, ReviewResult):
         _render_review_result(persona, review)
         return
     if not review.strip():
-        rprint("[yellow]No review content returned by the model.[/yellow]")
+        print_warning("No review content returned by the model.", prefix=False)
         return
     parsed = parse_review_response(review)
     if parsed:
         _render_review_result(persona, parsed)
         return
-    from rich.markdown import Markdown
 
-    console.print(Markdown(review))
+    print_markdown(review)
 
 
 def _resolve_review_clients(settings: Settings | None = None) -> ReviewClients:
@@ -1077,29 +1107,27 @@ def _build_path_prompt(content: str, title: str) -> str:
 
 
 def _print_analysis_metadata(analysis_metas: dict[str, FileAnalysisMeta], title: str) -> None:
-    """Render a Rich summary table of file analysis metadata."""
-    from rich.table import Table
-
-    console.print()
-    console.print(Rule(f" Analysis Metadata — {title} ", style="bold cyan"))
+    """Render a summary table of file analysis metadata."""
+    print_section(f"Analysis Metadata — {title}", style="bold cyan")
     if not analysis_metas:
-        console.print("[yellow]No analysis metadata found for files in scope.[/yellow]")
+        print_warning("No analysis metadata found for files in scope.", prefix=False)
         return
-    table = Table(box=None)
-    table.add_column("File Path", style="cyan")
-    table.add_column("Language", style="green")
-    table.add_column("Purpose", style="white")
-    table.add_column("Complexity", style="magenta")
-
-    for path, fmeta in analysis_metas.items():
-        table.add_row(
+    columns = [
+        ("File Path", "cyan"),
+        ("Language", "green"),
+        ("Purpose", "white"),
+        ("Complexity", "magenta"),
+    ]
+    rows = [
+        [
             path,
             fmeta.language or "text",
             fmeta.primary_purpose or "—",
             fmeta.complexity_score or "—",
-        )
-    console.print(table)
-    console.print()
+        ]
+        for path, fmeta in analysis_metas.items()
+    ]
+    print_table(columns=columns, rows=rows)
 
 
 def _make_review_clients(settings: Any) -> ReviewClients:
@@ -1133,7 +1161,7 @@ def _is_allowed_review_boundary(target: Path, settings: Settings) -> bool:
     return any(is_safe_subpath(root, target_resolved) for root in allowed_roots)
 
 
-def _detect_base_branch(repo_path: Path, preferred_base: str = "main") -> str:
+def _detect_base_branch(repo_path: Path, preferred_base: str = CONST_GIT_MAIN_BRANCH) -> str:
     """Return preferred_base if it exists, otherwise detect master/main/origin default."""
     res = _run_subprocess(
         ["git", "rev-parse", "--verify", "--quiet", f"refs/heads/{preferred_base}"],
@@ -1205,7 +1233,7 @@ def _prepare_path_content(target: Path, pattern: str) -> tuple[list[str], str, s
     target_resolved = target.resolve()
     if not _is_allowed_review_boundary(target, settings):
         err_msg = MESSAGES.review.outside_boundary.format(target=target_resolved)
-        rprint(f"[red]{err_msg}[/red]")
+        print_error(err_msg, prefix=False)
         raise typer.Exit(1)
     if target_resolved.is_file():
         if target_resolved.stat().st_size > CONST_MAX_FILE_SIZE_BYTES:
@@ -1213,7 +1241,7 @@ def _prepare_path_content(target: Path, pattern: str) -> tuple[list[str], str, s
             err_size = MESSAGES.review.exceeds_max_size.format(
                 target=target_resolved, max_mb=max_mb
             )
-            rprint(f"[red]{err_size}[/red]")
+            print_error(err_size, prefix=False)
             raise typer.Exit(0)
         repo_root = _git_repo_root(target_resolved)
         file_label = (
@@ -1229,12 +1257,12 @@ def _prepare_path_content(target: Path, pattern: str) -> tuple[list[str], str, s
         collecting_msg = MESSAGES.review.collecting_files.format(
             pattern=f"[cyan]{pattern}[/cyan]", target=f"[dim]{target_resolved}[/dim]"
         )
-        rprint(collecting_msg)
+        print_info(collecting_msg, prefix=False)
         blocks = _collect_file_blocks(target_resolved, pattern)
         title = str(target_resolved)
 
     if not blocks:
-        rprint(f"[yellow]{MESSAGES.review.no_files_found}[/yellow]")
+        print_warning(MESSAGES.review.no_files_found, prefix=False)
         raise typer.Exit(0)
 
     pages = [_mask_secrets_in_content(p) for p in blocks]
@@ -1257,7 +1285,7 @@ def _prepare_branch_content(
     repo_resolved = repo_path.resolve()
     if not _is_allowed_review_boundary(repo_resolved, settings):
         err_msg = MESSAGES.review.outside_boundary.format(target=repo_resolved)
-        rprint(f"[red]{err_msg}[/red]")
+        print_error(err_msg, prefix=False)
         raise typer.Exit(1)
 
     effective_base = _detect_base_branch(repo_path, base)
@@ -1274,13 +1302,13 @@ def _prepare_branch_content(
             or not (branch_name := proc.stdout.strip())
             or branch_name == "HEAD"
         ):
-            rprint(f"[red]{MESSAGES.review.detect_branch_failed}[/red]")
+            print_error(MESSAGES.review.detect_branch_failed, prefix=False)
             raise typer.Exit(1)
 
     diffing_msg = MESSAGES.review.diffing_branches.format(
         branch=f"[cyan]{branch_name}[/cyan]", base=f"[cyan]{effective_base}[/cyan]"
     )
-    rprint(diffing_msg)
+    print_info(diffing_msg, prefix=False)
 
     diff_proc = _run_subprocess(
         ["git", "diff", f"{effective_base}...{branch_name}"],
@@ -1297,10 +1325,10 @@ def _prepare_branch_content(
         )
     if diff_proc.returncode != 0:
         diff_err = MESSAGES.review.git_diff_failed.format(error=diff_proc.stderr.strip())
-        rprint(f"[red]{diff_err}[/red]")
+        print_error(diff_err, prefix=False)
         raise typer.Exit(1)
     if not diff_proc.stdout.strip():
-        rprint(f"[yellow]{MESSAGES.review.no_diff_found}[/yellow]")
+        print_warning(MESSAGES.review.no_diff_found, prefix=False)
         raise typer.Exit(0)
 
     title = f"Branch `{branch_name}` vs `{effective_base}`"
@@ -1326,11 +1354,11 @@ def _prepare_pr_content(
         repo = get_repo_origin_name()
         if not repo:
             parse_err = MESSAGES.review.github_repo_parse_failed.format(raw="")
-            rprint(f"[red]{parse_err}[/red]")
+            print_error(parse_err, prefix=False)
             raise typer.Exit(1)
 
     fetch_msg = MESSAGES.review.fetching_pr.format(number=number, repo=f"[cyan]{repo}[/cyan]")
-    rprint(fetch_msg)
+    print_info(fetch_msg, prefix=False)
     gh = GitHubClient(token)
     pull = gh.get_pull(repo, number)
     diff = gh.get_pr_diff(repo, number)
@@ -1385,7 +1413,7 @@ def _execute_review_workflow(
 
     if len(pages) > 1:
         spans_msg = MESSAGES.review.spans_pages.format(count=len(pages))
-        rprint(f"[dim]{spans_msg}[/dim]")
+        print_info(f"[dim]{spans_msg}[/dim]", prefix=False)
 
     all_files = sorted(list({fn for page in pages for fn in _extract_segment_filenames(page)}))
     orchestrator = ReviewPipelineOrchestrator(llm_client=clients.analysis, target_dir=target_dir)
@@ -1405,9 +1433,10 @@ def _execute_review_workflow(
                 "personas": ", ".join(active_p),
             },
         ):
-            rprint(
+            print_info(
                 f"[bold cyan]Initializing review pipeline session '{orchestrator.session_id}' "
-                f"for {n_af} file(s) via {server_info}...[/bold cyan]"
+                f"for {n_af} file(s) via {server_info}...[/bold cyan]",
+                prefix=False,
             )
             metadata_by_path = orchestrator.run_pre_analysis_refresh(
                 target_dir=target_dir,
@@ -1426,7 +1455,7 @@ def _execute_review_workflow(
                 )
 
     if summary_only:
-        rprint(f"[dim]{MESSAGES.review.generating_metadata}[/dim]")
+        print_info(f"[dim]{MESSAGES.review.generating_metadata}[/dim]", prefix=False)
         try:
             from devops_cli.core.repo import find_repo_root
 

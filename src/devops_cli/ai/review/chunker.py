@@ -13,6 +13,7 @@ from devops_cli.config.constants import (
     CONST_REVIEW_MAX_DIFF_CHARS,
 )
 from devops_cli.config.defaults import (
+    DEFAULT_MATCH_ALL_PATTERN,
     DEFAULT_REVIEW_OVERLAP_FACTOR,
     DEFAULT_REVIEW_WINDOW_SIZE_FACTOR,
 )
@@ -281,7 +282,7 @@ def _diff_pages(
 
 def _find_repo_files(
     target: Path,
-    pattern: str = "*",
+    pattern: str = DEFAULT_MATCH_ALL_PATTERN,
     max_file_size: int = CONST_MAX_FILE_SIZE_BYTES,
     excluded_dirs: set[str] | None = None,
     repo_root: Path | None = None,

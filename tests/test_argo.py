@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import json
-import subprocess
-from unittest.mock import patch
+from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 import typer
@@ -12,20 +11,10 @@ from typer.testing import CliRunner
 
 from devops_cli.commands.argo import _validate_k8s_name
 from devops_cli.commands.argo import app as argo_app
+from devops_cli.config.settings import Settings
 from devops_cli.main import app as main_app
 
 runner = CliRunner()
-
-
-def _mock_proc(
-    returncode: int = 0, stdout: str = "", stderr: str = ""
-) -> subprocess.CompletedProcess[str]:
-    return subprocess.CompletedProcess(
-        args=["argocd"],
-        returncode=returncode,
-        stdout=stdout,
-        stderr=stderr,
-    )
 
 
 @pytest.mark.parametrize(
@@ -95,7 +84,6 @@ def test_argocd_app_from_api_item() -> None:
     """Verify ArgoCDApp parses full and partial API responses."""
     from devops_cli.models.argo import ArgoCDApp
 
-    # Full item
     item = {
         "metadata": {"name": "frontend-app"},
         "spec": {"project": "default", "source": {"repoURL": "https://github.com/org/repo.git"}},
@@ -112,41 +100,124 @@ def test_argocd_app_from_api_item() -> None:
     assert app_obj.repo_url == "https://github.com/org/repo.git"
     assert app_obj.revision == "abcdef12"
 
-    # Empty / malformed item defaults safely
     empty_app = ArgoCDApp.from_api_item({})
     assert empty_app.name == ""
     assert empty_app.sync_status == "Unknown"
     assert empty_app.health_status == "Unknown"
 
+    non_dict_item = {
+        "metadata": "invalid_meta",
+        "spec": 123,
+        "status": False,
+    }
+    non_dict_app = ArgoCDApp.from_api_item(non_dict_item)  # type: ignore[arg-type]
+    assert non_dict_app.name == ""
+    assert non_dict_app.project == ""
 
-def test_argo_commands_execution() -> None:
-    """Verify argo list and status subcommands."""
+    nested_non_dict_item = {
+        "metadata": {},
+        "spec": {"source": "invalid_source"},
+        "status": {"sync": "invalid_sync", "health": "invalid_health"},
+    }
+    nested_app = ArgoCDApp.from_api_item(nested_non_dict_item)  # type: ignore[arg-type]
+    assert nested_app.repo_url == ""
+    assert nested_app.sync_status == "Unknown"
+    assert nested_app.health_status == "Unknown"
+
+
+def test_argo_commands_execution(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify argo cd, workflows, and rollouts subcommands."""
+    monkeypatch.setattr(
+        "devops_cli.http.validation.validate_service_url", lambda *args, **kwargs: None
+    )
     mock_apps = {
         "items": [
             {
                 "metadata": {"name": "guestbook", "namespace": "argocd"},
+                "spec": {
+                    "project": "default",
+                    "source": {"repoURL": "https://github.com/org/repo.git"},
+                },
                 "status": {"sync": {"status": "Synced"}, "health": {"status": "Healthy"}},
             }
         ]
     }
+    mock_app_detail = {
+        "metadata": {"name": "guestbook", "namespace": "argocd"},
+        "spec": {"project": "default", "source": {"repoURL": "https://github.com/org/repo.git"}},
+        "status": {
+            "sync": {"status": "Synced", "revision": "12345678"},
+            "health": {"status": "Healthy"},
+        },
+    }
+
+    mock_settings = Settings()
+    mock_settings.argocd.url = "http://localhost:8080"
+    mock_settings.ai.allow_private_network = True
+
+    def mock_get(*args: object, **kwargs: object) -> MagicMock:
+        resp = MagicMock()
+        resp.status_code = 200
+        url_str = ""
+        for a in args:
+            if isinstance(a, str) and ("http" in a or "/api/" in a):
+                url_str = a
+                break
+        if not url_str and "url" in kwargs:
+            url_str = str(kwargs["url"])
+
+        if url_str.endswith("/applications"):
+            resp.json.return_value = mock_apps
+        else:
+            resp.json.return_value = mock_app_detail
+        return resp
+
+    def mock_post(*args: object, **kwargs: object) -> MagicMock:
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.json.return_value = {"status": "Synced"}
+        return resp
+
+    sample_wf = tmp_path / "workflow.yaml"
+    sample_wf.write_text("apiVersion: argoproj.io/v1alpha1\nkind: Workflow\n", encoding="utf-8")
+
     with (
-        patch(
-            "devops_cli.core.process.run_subprocess",
-            return_value=_mock_proc(0, json.dumps(mock_apps)),
-        ),
-        patch(
-            "devops_cli.commands.argo.run_subprocess",
-            return_value=_mock_proc(0, "OK"),
-        ),
+        patch("devops_cli.commands.argo.httpx2.Client.get", side_effect=mock_get),
+        patch("devops_cli.commands.argo.httpx2.Client.post", side_effect=mock_post),
+        patch("devops_cli.commands.argo.load_settings", return_value=mock_settings),
+        patch("devops_cli.commands.argo.run_subprocess") as mock_subproc,
     ):
-        res_list = runner.invoke(main_app, ["--dry-run", "argo", "list"])
+        mock_subproc.return_value = MagicMock(returncode=0)
+
+        res_dry_main = runner.invoke(main_app, ["--dry-run", "argo", "cd", "apps", "list"])
+        assert res_dry_main.exit_code == 0
+
+        res_list = runner.invoke(argo_app, ["cd", "apps", "list"])
         assert res_list.exit_code == 0
 
-        res_status = runner.invoke(main_app, ["--dry-run", "argo", "status", "guestbook"])
+        res_status = runner.invoke(argo_app, ["cd", "apps", "status", "guestbook"])
         assert res_status.exit_code == 0
 
-        res_workflows = runner.invoke(argo_app, ["workflows", "list"])
-        assert res_workflows.exit_code == 0
+        res_sync = runner.invoke(argo_app, ["cd", "apps", "sync", "guestbook"])
+        assert res_sync.exit_code == 0
 
-        res_rollouts = runner.invoke(argo_app, ["rollouts", "list"])
-        assert res_rollouts.exit_code == 0
+        res_wf_list = runner.invoke(argo_app, ["workflows", "list", "--namespace", "argocd"])
+        assert res_wf_list.exit_code == 0
+
+        res_wf_submit = runner.invoke(
+            argo_app, ["workflows", "submit", str(sample_wf), "--namespace", "argocd", "--wait"]
+        )
+        assert res_wf_submit.exit_code == 0
+
+        res_wf_logs = runner.invoke(
+            argo_app, ["workflows", "logs", "my-wf", "--namespace", "argocd", "--follow"]
+        )
+        assert res_wf_logs.exit_code == 0
+
+        res_ro_list = runner.invoke(argo_app, ["rollouts", "list", "--namespace", "argocd"])
+        assert res_ro_list.exit_code == 0
+
+        res_ro_status = runner.invoke(
+            argo_app, ["rollouts", "status", "my-rollout", "--namespace", "argocd", "--watch"]
+        )
+        assert res_ro_status.exit_code == 0

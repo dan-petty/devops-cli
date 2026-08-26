@@ -10,7 +10,6 @@ import pytest
 from typer.testing import CliRunner
 
 from devops_cli.commands.branches import app as branches_app
-from devops_cli.main import app as main_app
 
 runner = CliRunner()
 
@@ -62,21 +61,32 @@ def test_branch_name_generation(ticket_id: str, slug: str | None, expected: str)
 
 
 def test_branches_commands(tmp_path: Path) -> None:
-    """Verify branches list and delete-merged subcommands."""
-    (tmp_path / ".git").mkdir()
+    """Verify branches list, clean, jira, and update subcommands."""
+    repo_dir = tmp_path / "my-repo"
+    repo_dir.mkdir()
+    (repo_dir / ".git").mkdir()
+
     with (
-        patch("devops_cli.core.repo.find_repo_root", return_value=tmp_path),
+        patch("devops_cli.commands.branches.iter_workspace_repos", return_value=[repo_dir]),
         patch(
-            "devops_cli.git.operations.list_branches",
+            "devops_cli.commands.branches.list_branches",
             return_value=MagicMock(branches=["main", "feat/test"], current="main"),
         ),
-        patch("devops_cli.git.operations.delete_merged_branches", return_value=["feat/test"]),
+        patch("devops_cli.commands.branches.delete_merged_branches", return_value=["feat/test"]),
+        patch("devops_cli.commands.branches.fetch_all"),
+        patch("devops_cli.commands.branches.pull_tracking"),
+        patch("devops_cli.commands.branches.create_branch"),
     ):
-        res_list = runner.invoke(main_app, ["--dry-run", "branches", "list"])
+        res_list = runner.invoke(branches_app, ["list", "--all"])
         assert res_list.exit_code == 0
 
-        res_del = runner.invoke(main_app, ["--dry-run", "branches", "delete-merged"])
-        assert res_del.exit_code == 0
+        res_clean = runner.invoke(branches_app, ["clean", "--dry-run"])
+        assert res_clean.exit_code == 0
 
-        res_direct = runner.invoke(branches_app, ["list"])
-        assert res_direct.exit_code == 0
+        res_update = runner.invoke(branches_app, ["update"])
+        assert res_update.exit_code == 0
+
+        res_jira = runner.invoke(
+            branches_app, ["jira", "PROJ-123", "--slug", "my-feature", "--repo", str(repo_dir)]
+        )
+        assert res_jira.exit_code == 0

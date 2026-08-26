@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import re
-import sys
 from collections.abc import Callable
+from typing import Any
 
-from rich.console import Console
+from devops_cli.output import escape_text, get_console
 
 
 def strip_think_blocks(text: str) -> str:
@@ -49,7 +49,7 @@ class ThinkingStreamProcessor:
     def __init__(
         self,
         show_thinking: bool = True,
-        console: Console | None = None,
+        console: Any = None,
         on_think_start: Callable[[], None] | None = None,
         on_think_chunk: Callable[[str], None] | None = None,
         on_think_end: Callable[[], None] | None = None,
@@ -75,8 +75,8 @@ class ThinkingStreamProcessor:
             if self.on_think_start:
                 self.on_think_start()
             elif self.show_thinking:
-                out = self.console.print if self.console else print
-                out("[dim cyan]💭 Thinking...[/dim cyan]")
+                c = self.console or get_console()
+                c.print("[dim cyan]💭 Thinking...[/dim cyan]")
 
     def _handle_stream_chunk(self, chunk: str, is_thinking: bool = False) -> None:
         """Append stream chunk to appropriate buffer and dispatch to callback or console."""
@@ -97,13 +97,8 @@ class ThinkingStreamProcessor:
         if callback:
             callback(chunk)
         elif should_emit:
-            if self.console:
-                from rich.markup import escape
-
-                self.console.print(format_spec.format(escape(chunk)), end="")
-            else:
-                sys.stdout.write(chunk)
-                sys.stdout.flush()
+            c = self.console or get_console()
+            c.print(format_spec.format(escape_text(chunk)), end="")
 
     def _handle_think_chunk(self, chunk: str) -> None:
         self._handle_stream_chunk(chunk, is_thinking=True)
@@ -117,8 +112,8 @@ class ThinkingStreamProcessor:
             if self.on_think_end:
                 self.on_think_end()
             elif self.show_thinking:
-                out = self.console.print if self.console else print
-                out("\n[dim cyan]✓ Thought complete[/dim cyan]\n")
+                c = self.console or get_console()
+                c.print("\n[dim cyan]✓ Thought complete[/dim cyan]\n")
 
     def _handle_content_chunk(self, chunk: str) -> None:
         self._handle_stream_chunk(chunk, is_thinking=False)

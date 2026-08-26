@@ -44,19 +44,28 @@ spec:
 
 def test_run_checkov_scan_mocked_binary(tmp_path: Path) -> None:
     fake_output = json.dumps(
-        {
-            "results": {
-                "failed_checks": [
-                    {
-                        "check_id": "CKV_AWS_1",
-                        "check_name": "S3 bucket has public read policy",
-                        "file_path": "main.tf",
-                        "file_line_range": [10, 20],
-                        "guideline": "Restrict public access to S3.",
-                    }
-                ]
+        [
+            {
+                "results": {
+                    "failed_checks": [
+                        {
+                            "check_id": "CKV_AWS_1",
+                            "check_name": "CRITICAL S3 bucket has public read policy",
+                            "file_path": "/main.tf",
+                            "file_line_range": [10, 20],
+                            "guideline": "Restrict public access to S3.",
+                        },
+                        {
+                            "check_id": "CKV_AWS_2",
+                            "check_name": "LOW S3 bucket tagging missing",
+                            "file_path": "",
+                            "file_line_range": [],
+                            "guideline": "",
+                        },
+                    ]
+                }
             }
-        }
+        ]
     )
 
     mock_proc = MagicMock()
@@ -64,7 +73,49 @@ def test_run_checkov_scan_mocked_binary(tmp_path: Path) -> None:
 
     with patch("shutil.which", return_value="/usr/local/bin/checkov"):
         with patch("subprocess.run", return_value=mock_proc):
-            findings = run_checkov_scan(tmp_path)
-            assert len(findings) == 1
-            assert findings[0].title == "[CKV_AWS_1] S3 bucket has public read policy"
+            findings = run_checkov_scan(tmp_path, framework="terraform")
+            assert len(findings) == 2
+            assert findings[0].severity == "CRITICAL"
             assert findings[0].location == "main.tf:10"
+        # Single dict output format
+        single_dict_output = json.dumps(
+            {
+                "results": {
+                    "failed_checks": [
+                        {
+                            "check_id": "CKV_DOCKER_1",
+                            "check_name": "Ensure container has healthcheck",
+                            "file_path": "/Dockerfile",
+                            "file_line_range": [1, 2],
+                            "guideline": "Add HEALTHCHECK instruction.",
+                        }
+                    ]
+                }
+            }
+        )
+        mock_proc.stdout = single_dict_output
+        with patch("subprocess.run", return_value=mock_proc):
+            findings_dict = run_checkov_scan(tmp_path)
+            assert len(findings_dict) == 1
+
+        # Invalid json output
+        mock_proc.stdout = "invalid json checkov output"
+        with patch("subprocess.run", return_value=mock_proc):
+            findings_invalid = run_checkov_scan(tmp_path)
+            assert isinstance(findings_invalid, list)
+
+        # Empty output
+        mock_proc.stdout = ""
+        with patch("subprocess.run", return_value=mock_proc):
+            findings_empty = run_checkov_scan(tmp_path)
+            assert len(findings_empty) == 0
+
+        # Exception fallback
+        with patch("subprocess.run", side_effect=Exception("Execution failed")):
+            findings_fb = run_checkov_scan(tmp_path)
+            assert isinstance(findings_fb, list)
+
+    # When checkov binary not in PATH
+    with patch("shutil.which", return_value=None):
+        findings_nobin = run_checkov_scan(tmp_path)
+        assert isinstance(findings_nobin, list)

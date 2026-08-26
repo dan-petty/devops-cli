@@ -13,7 +13,6 @@ from typing import Annotated, Any
 
 import httpx2
 import typer
-from rich.table import Table
 
 from devops_cli.config import load_settings
 from devops_cli.config.defaults import (
@@ -108,27 +107,27 @@ def cd_apps_list() -> None:
         )
         resp.raise_for_status()
 
-    table = Table(title=MESSAGES.argo.table_title_apps)
-    table.add_column("Name", style="cyan")
-    table.add_column("Project")
-    table.add_column("Sync")
-    table.add_column("Health")
-    table.add_column("Repo", style="dim")
-
+    rows: list[list[str]] = []
     data = resp.json()
     items = data.get("items", []) if isinstance(data, dict) else []
     for item in items:
         app_info = ArgoCDApp.from_api_item(item)
         sync_c = "green" if app_info.sync_status == "Synced" else "yellow"
         health_c = "green" if app_info.health_status == "Healthy" else "red"
-        table.add_row(
-            app_info.name,
-            app_info.project,
-            f"[{sync_c}]{app_info.sync_status}[/{sync_c}]",
-            f"[{health_c}]{app_info.health_status}[/{health_c}]",
-            app_info.repo_url,
+        rows.append(
+            [
+                app_info.name,
+                app_info.project,
+                f"[{sync_c}]{app_info.sync_status}[/{sync_c}]",
+                f"[{health_c}]{app_info.health_status}[/{health_c}]",
+                app_info.repo_url,
+            ]
         )
-    print_table(table)
+    print_table(
+        title=MESSAGES.argo.table_title_apps,
+        columns=[("Name", "cyan"), "Project", "Sync", "Health", ("Repo", "dim")],
+        rows=rows,
+    )
 
 
 # =============================================================================
@@ -138,9 +137,9 @@ def cd_apps_list() -> None:
 
 @cd_apps_app.command("sync")
 def cd_apps_sync(
-    name: Annotated[str, typer.Argument(help="Application name")],
-    prune: Annotated[bool, typer.Option("--prune")] = False,
-    force: Annotated[bool, typer.Option("--force")] = False,
+    name: Annotated[str, typer.Argument(help=HELP.argo.app_name)],
+    prune: Annotated[bool, typer.Option("--prune", help=HELP.argo.prune)] = False,
+    force: Annotated[bool, typer.Option("--force", help=HELP.options.force)] = False,
 ) -> None:
     """Trigger a sync for an ArgoCD application."""
     _validate_k8s_name(name, "application name")
@@ -165,7 +164,7 @@ def cd_apps_sync(
 
 @cd_apps_app.command("status")
 def cd_apps_status(
-    name: Annotated[str, typer.Argument(help="Application name")],
+    name: Annotated[str, typer.Argument(help=HELP.argo.app_name)],
 ) -> None:
     """Show sync and health status for an ArgoCD application."""
     _validate_k8s_name(name, "application name")
@@ -196,7 +195,9 @@ def cd_apps_status(
 
 @workflows_app.command("list")
 def workflows_list(
-    namespace: Annotated[str | None, typer.Option("--namespace", "-n")] = None,
+    namespace: Annotated[
+        str | None, typer.Option("--namespace", "-n", help=HELP.options.namespace)
+    ] = None,
 ) -> None:
     """List Argo Workflows."""
     if namespace:
@@ -211,9 +212,11 @@ def workflows_list(
 
 @workflows_app.command("submit")
 def workflows_submit(
-    file: Annotated[Path, typer.Argument(help="Workflow YAML file")],
-    namespace: Annotated[str | None, typer.Option("--namespace", "-n")] = None,
-    wait: Annotated[bool, typer.Option("--wait", "-w")] = False,
+    file: Annotated[Path, typer.Argument(help=HELP.argo.workflow_file)],
+    namespace: Annotated[
+        str | None, typer.Option("--namespace", "-n", help=HELP.options.namespace)
+    ] = None,
+    wait: Annotated[bool, typer.Option("--wait", "-w", help=HELP.argo.wait)] = False,
 ) -> None:
     """Submit an Argo Workflow from a YAML file."""
     if namespace:
@@ -230,9 +233,11 @@ def workflows_submit(
 
 @workflows_app.command("logs")
 def workflows_logs(
-    name: Annotated[str, typer.Argument(help="Workflow name")],
-    namespace: Annotated[str | None, typer.Option("--namespace", "-n")] = None,
-    follow: Annotated[bool, typer.Option("--follow", "-f")] = False,
+    name: Annotated[str, typer.Argument(help=HELP.argo.workflow_name)],
+    namespace: Annotated[
+        str | None, typer.Option("--namespace", "-n", help=HELP.options.namespace)
+    ] = None,
+    follow: Annotated[bool, typer.Option("--follow", "-f", help=HELP.argo.follow)] = False,
 ) -> None:
     """Stream logs for an Argo Workflow."""
     _validate_k8s_name(name, "workflow name")
@@ -255,7 +260,9 @@ def workflows_logs(
 
 @rollouts_app.command("list")
 def rollouts_list(
-    namespace: Annotated[str | None, typer.Option("--namespace", "-n")] = None,
+    namespace: Annotated[
+        str | None, typer.Option("--namespace", "-n", help=HELP.options.namespace)
+    ] = None,
 ) -> None:
     """List Argo Rollouts."""
     if namespace:
@@ -270,9 +277,11 @@ def rollouts_list(
 
 @rollouts_app.command("status")
 def rollouts_status(
-    name: Annotated[str, typer.Argument(help="Rollout name")],
-    namespace: Annotated[str | None, typer.Option("--namespace", "-n")] = None,
-    watch: Annotated[bool, typer.Option("--watch", "-w")] = False,
+    name: Annotated[str, typer.Argument(help=HELP.argo.rollout_name)],
+    namespace: Annotated[
+        str | None, typer.Option("--namespace", "-n", help=HELP.options.namespace)
+    ] = None,
+    watch: Annotated[bool, typer.Option("--watch", "-w", help=HELP.argo.watch)] = False,
 ) -> None:
     """Show status for an Argo Rollout."""
     _validate_k8s_name(name, "rollout name")

@@ -25,6 +25,8 @@ import tldextract
 import yaml
 from packaging.requirements import InvalidRequirement, Requirement
 
+from devops_cli.config.constants import CONST_DEFAULT_LINE_NUMBER
+from devops_cli.config.defaults import DEFAULT_FORMAT_TYPE
 from devops_cli.models.vulnerability import DependencySpec, NetworkReference
 
 logger = logging.getLogger(__name__)
@@ -603,7 +605,10 @@ def _clean_yaml_scalar(text: str) -> str:
 
 
 def _collect_scalar_strings(
-    data: Any, out: list[tuple[str, int]], default_line: int = 1, is_yaml: bool = False
+    data: Any,
+    out: list[tuple[str, int]],
+    default_line: int = CONST_DEFAULT_LINE_NUMBER,
+    is_yaml: bool = False,
 ) -> None:
     """Recursively collect string values from parsed structured data."""
     if isinstance(data, str):
@@ -617,7 +622,9 @@ def _collect_scalar_strings(
             _collect_scalar_strings(item, out, default_line, is_yaml=is_yaml)
 
 
-def _extract_structured_strings(content: str, format_type: str = "json") -> list[tuple[str, int]]:
+def _extract_structured_strings(
+    content: str, format_type: str = DEFAULT_FORMAT_TYPE
+) -> list[tuple[str, int]]:
     """Extract all string scalar values from structured JSON, TOML, or YAML content."""
     strings: list[tuple[str, int]] = []
     try:

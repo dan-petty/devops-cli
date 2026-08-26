@@ -1,6 +1,6 @@
 # `devops repos`
 
-Clone and manage repositories.
+Clone, synchronize, and manage organization repositories.
 
 ## Commands
 
@@ -16,13 +16,13 @@ devops repos clone-org [OPTIONS] <org>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<org>` | `string` | No | GitHub organisation name |
+| `<org>` | `string` | No | GitHub organisation name. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--base-dir`, `-d` | `path` | - | - |
+| `--base-dir`, `-d` | `path` | - | Base repository root directory. |
 | `--private`, `--no-private` | `boolean` | `True` | - |
 | `--forks`, `--no-forks` | `boolean` | - | - |
 
@@ -40,13 +40,13 @@ devops repos clone [OPTIONS] <url>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<url>` | `string` | Yes | Repository URL (SSH or HTTPS) |
+| `<url>` | `string` | Yes | Repository URL (SSH or HTTPS). |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--base-dir`, `-d` | `path` | - | - |
+| `--base-dir`, `-d` | `path` | - | Base repository root directory. |
 
 ---
 

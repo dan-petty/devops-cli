@@ -1,6 +1,6 @@
 # `devops ssh`
 
-SSH key generation, rotation, and GitHub registration.
+Generate, rotate, audit, and register Ed25519 SSH keypairs.
 
 ## Commands
 
@@ -16,8 +16,8 @@ devops ssh generate [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--key-dir` | `path` | - | - |
-| `--comment`, `-c` | `string` | `` | - |
+| `--key-dir` | `path` | - | Directory where SSH keys are stored. |
+| `--comment`, `-c` | `string` | `` | Comment to include in public key. |
 
 ---
 
@@ -31,8 +31,8 @@ devops ssh register [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--key-file`, `-k` | `path` | - | Path to private key |
-| `--title` | `string` | - | - |
+| `--key-file`, `-k` | `path` | - | Path to private key. |
+| `--title` | `string` | - | Title for the item or entity. |
 
 ---
 
@@ -52,8 +52,8 @@ devops ssh rotate [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--key-dir` | `path` | - | - |
-| `--force`, `-f` | `boolean` | - | Rotate even if not yet due |
+| `--key-dir` | `path` | - | Directory where SSH keys are stored. |
+| `--force`, `-f` | `boolean` | - | Rotate even if not yet due. |
 
 ---
 
@@ -69,7 +69,7 @@ devops ssh list [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--key-dir` | `path` | - | - |
+| `--key-dir` | `path` | - | Directory where SSH keys are stored. |
 
 ---
 
@@ -85,7 +85,7 @@ devops ssh audit [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--key-dir` | `path` | - | - |
+| `--key-dir` | `path` | - | Directory where SSH keys are stored. |
 
 ---
 
@@ -101,6 +101,6 @@ devops ssh status [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--key-dir` | `path` | - | - |
+| `--key-dir` | `path` | - | Directory where SSH keys are stored. |
 
 ---
