@@ -1676,3 +1676,224 @@ def k8s_validate(
     for f in findings:
         table.add_row(f.severity, f.location, f.title, f.fix or f.description)
     print_table(table)
+
+
+# =============================================================================
+# Command: devops k8s validate-policy
+# =============================================================================
+
+
+@app.command(name="validate-policy")
+def validate_policy_cmd(
+    manifest_path: Annotated[
+        Path,
+        typer.Argument(help="Path to Kubernetes YAML manifest file or directory"),
+    ] = DEFAULT_CURRENT_PATH,
+    policy_path: Annotated[
+        Path | None,
+        typer.Option("--policy", "-p", help="Path to Kyverno policy or OPA rule file"),
+    ] = None,
+    engine: Annotated[
+        str,
+        typer.Option("--engine", "-e", help="Policy evaluation engine (kyverno, opa)"),
+    ] = "kyverno",
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Simulate admission policy validation"),
+    ] = False,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Output validation report as JSON"),
+    ] = False,
+) -> None:
+    """Validate Kubernetes manifests against Kyverno or OPA admission policies."""
+    from devops_cli.k8s.policy import validate_k8s_policy
+    from devops_cli.output import format_json
+
+    report = validate_k8s_policy(
+        manifest_path=manifest_path.resolve(),
+        policy_path=policy_path.resolve() if policy_path else None,
+        engine=engine,
+        dry_run=dry_run,
+    )
+
+    if dry_run or is_dry_run():
+        return
+
+    if json_output:
+        write_stdout(format_json(report.model_dump()) + "\n")
+        return
+
+    if report.failed_count == 0:
+        print_success(
+            f"✓ All manifests passed {report.engine.upper()} policy evaluation ({report.passed_count} rules passed)."
+        )
+        return
+
+    t = Table(title=f"Kubernetes Policy Violations ({report.engine.upper()})")
+    t.add_column("Policy")
+    t.add_column("Rule")
+    t.add_column("Resource")
+    t.add_column("Status", style="bold red")
+    t.add_column("Message")
+
+    for r in report.rule_results:
+        st_style = "green" if r.status in ("pass", "success") else "bold red"
+        t.add_row(
+            r.policy_name,
+            r.rule_name,
+            f"{r.resource_kind}/{r.resource_name}",
+            f"[{st_style}]{r.status}[/{st_style}]",
+            r.message,
+        )
+
+    print_table(t)
+    raise typer.Exit(1)
+
+
+# =============================================================================
+# Command: devops k8s stream-logs
+# =============================================================================
+
+
+@app.command(name="stream-logs")
+def stream_logs_cmd(
+    pod_query: Annotated[
+        str,
+        typer.Argument(help="Regex pattern or query to match pod names"),
+    ],
+    namespace: Annotated[
+        str | None,
+        typer.Option("--namespace", "-n", help="Target Kubernetes namespace"),
+    ] = None,
+    container: Annotated[
+        str | None,
+        typer.Option("--container", "-c", help="Target container name within matched pods"),
+    ] = None,
+    tail: Annotated[
+        int,
+        typer.Option("--tail", "-t", help="Number of historical log lines to stream"),
+    ] = 100,
+    follow: Annotated[
+        bool,
+        typer.Option("--follow/--no-follow", "-f", help="Continuously stream live log output"),
+    ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Simulate multi-pod log streaming"),
+    ] = False,
+) -> None:
+    """Stream logs across multiple pods in parallel using Stern or kubectl."""
+    from devops_cli.k8s.logs import stream_multi_pod_logs
+
+    rc = stream_multi_pod_logs(
+        pod_query=pod_query,
+        namespace=namespace,
+        container=container,
+        tail_lines=tail,
+        follow=follow,
+        dry_run=dry_run,
+    )
+    if rc != 0 and not (dry_run or is_dry_run()):
+        raise typer.Exit(rc)
+
+
+# =============================================================================
+# Command: devops k8s diff-helm
+# =============================================================================
+
+
+@app.command(name="diff-helm")
+def diff_helm_cmd(
+    release_name: Annotated[
+        str,
+        typer.Argument(help="Name of deployed Helm release"),
+    ],
+    chart_path: Annotated[
+        Path,
+        typer.Argument(help="Path to local Helm chart directory or packaged archive"),
+    ] = DEFAULT_CURRENT_PATH,
+    namespace: Annotated[
+        str | None,
+        typer.Option("--namespace", "-n", help="Target Kubernetes namespace"),
+    ] = None,
+    values: Annotated[
+        list[Path] | None,
+        typer.Option("--values", "-f", help="Values YAML files to override release defaults"),
+    ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Simulate Helm diff preview"),
+    ] = False,
+) -> None:
+    """Preview Kubernetes manifest diffs before executing a Helm upgrade."""
+    from devops_cli.k8s.diff import diff_helm_release
+
+    rc, diff_output = diff_helm_release(
+        release_name=release_name,
+        chart_path=chart_path.resolve(),
+        namespace=namespace,
+        values_files=[v.resolve() for v in values] if values else None,
+        dry_run=dry_run,
+    )
+    if dry_run or is_dry_run():
+        return
+
+    if diff_output.strip():
+        write_stdout(diff_output + "\n")
+    if rc not in (0, 2):
+        raise typer.Exit(rc)
+
+
+# =============================================================================
+# Command: devops k8s chaos
+# =============================================================================
+
+
+@app.command(name="chaos")
+def chaos_cmd(
+    experiment: Annotated[
+        str,
+        typer.Argument(help="Resilience experiment name (e.g., pod-kill, latency-inject)"),
+    ] = "pod-kill",
+    deployment: Annotated[
+        str,
+        typer.Option("--deployment", "-d", help="Target deployment to disrupt"),
+    ] = "sample-app",
+    namespace: Annotated[
+        str,
+        typer.Option("--namespace", "-n", help="Target Kubernetes namespace"),
+    ] = DEFAULT_K8S_NAMESPACE,
+    duration: Annotated[
+        int,
+        typer.Option("--duration", help="Reconciliation monitoring window in seconds"),
+    ] = 30,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Simulate chaos experiment execution"),
+    ] = False,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Output experiment result as JSON"),
+    ] = False,
+) -> None:
+    """Run resilience and chaos experiments against Kubernetes workloads."""
+    from devops_cli.k8s.chaos import execute_chaos_experiment
+    from devops_cli.output import format_json
+
+    result = execute_chaos_experiment(
+        experiment_name=experiment,
+        target_deployment=deployment,
+        namespace=namespace,
+        duration_seconds=duration,
+        dry_run=dry_run,
+    )
+    if dry_run or is_dry_run():
+        return
+
+    if json_output:
+        write_stdout(format_json(result.model_dump()) + "\n")
+        return
+
+    if not result.recovered_successfully:
+        raise typer.Exit(1)
