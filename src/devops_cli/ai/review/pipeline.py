@@ -603,14 +603,18 @@ class ReviewPipelineOrchestrator:
         session_id: str | None = None,
         llm_client: LLMClient | None = None,
         target_dir: Path = Path("."),
+        session_dir: Path | None = None,
     ) -> None:
         self.session_id = session_id or datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
-        base_dir = (
-            CONST_DATA_DIR / "reviews"
-            if CONST_DATA_DIR != CONST_REVIEWS_DATA_DIR.parent
-            else CONST_REVIEWS_DATA_DIR
-        )
-        self.session_dir = base_dir / self.session_id
+        if session_dir is not None:
+            self.session_dir = session_dir
+        else:
+            base_dir = (
+                CONST_DATA_DIR / "reviews"
+                if CONST_DATA_DIR != CONST_REVIEWS_DATA_DIR.parent
+                else CONST_REVIEWS_DATA_DIR
+            )
+            self.session_dir = base_dir / self.session_id
         self.files_dir = self.session_dir / "files"
         self.session_dir.mkdir(parents=True, exist_ok=True)
         self.files_dir.mkdir(parents=True, exist_ok=True)

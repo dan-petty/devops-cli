@@ -32,6 +32,29 @@ def isolate_llm_response_cache(tmp_path: Path):
     reset_llm_response_cache()
 
 
+@pytest.fixture(autouse=True)
+def clean_test_artifacts():
+    """Ensure any test output file artifacts created in workspace .data/ are cleaned up after every test."""
+    import shutil
+
+    from devops_cli.config.constants import CONST_DATA_DIR
+
+    yield
+
+    if CONST_DATA_DIR.exists() and CONST_DATA_DIR.is_dir():
+        for subdir_name in ["reviews", "analysis", "benchmarks", "cache", "logs"]:
+            sub = CONST_DATA_DIR / subdir_name
+            if sub.exists() and sub.is_dir():
+                for item in sub.iterdir():
+                    try:
+                        if item.is_file():
+                            item.unlink(missing_ok=True)
+                        elif item.is_dir():
+                            shutil.rmtree(item, ignore_errors=True)
+                    except Exception:
+                        pass
+
+
 @pytest.fixture(scope="session")
 def session_isolated_config(tmp_path_factory: pytest.TempPathFactory) -> Path:
     config_dir = tmp_path_factory.mktemp("devops_cli_isolated_config")
