@@ -331,3 +331,105 @@ devops k8s validate [OPTIONS] <manifest_path>
 | `--json` | `boolean` | - | Output findings as JSON |
 
 ---
+
+## `devops k8s validate-policy`
+
+**Validate Kubernetes manifests against Kyverno or OPA admission policies.**
+
+```bash
+devops k8s validate-policy [OPTIONS] <manifest_path>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<manifest_path>` | `path` | No | Path to Kubernetes YAML manifest file or directory |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--policy`, `-p` | `path` | - | Path to Kyverno policy or OPA rule file |
+| `--engine`, `-e` | `string` | `kyverno` | Policy evaluation engine (kyverno, opa) |
+| `--dry-run` | `boolean` | - | Simulate admission policy validation |
+| `--json` | `boolean` | - | Output validation report as JSON |
+
+---
+
+## `devops k8s stream-logs`
+
+**Stream logs across multiple pods in parallel using Stern or kubectl.**
+
+```bash
+devops k8s stream-logs [OPTIONS] <pod_query>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<pod_query>` | `string` | Yes | Regex pattern or query to match pod names |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--namespace`, `-n` | `string` | - | Target Kubernetes namespace |
+| `--container`, `-c` | `string` | - | Target container name within matched pods |
+| `--tail`, `-t` | `integer` | `100` | Number of historical log lines to stream |
+| `--follow`, `-f`, `--no-follow` | `boolean` | - | Continuously stream live log output |
+| `--dry-run` | `boolean` | - | Simulate multi-pod log streaming |
+
+---
+
+## `devops k8s diff-helm`
+
+**Preview Kubernetes manifest diffs before executing a Helm upgrade.**
+
+```bash
+devops k8s diff-helm [OPTIONS] <release_name> <chart_path>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<release_name>` | `string` | Yes | Name of deployed Helm release |
+| `<chart_path>` | `path` | No | Path to local Helm chart directory or packaged archive |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--namespace`, `-n` | `string` | - | Target Kubernetes namespace |
+| `--values`, `-f` | `path` | - | Values YAML files to override release defaults |
+| `--dry-run` | `boolean` | - | Simulate Helm diff preview |
+
+---
+
+## `devops k8s chaos`
+
+**Run resilience and chaos experiments against Kubernetes workloads.**
+
+```bash
+devops k8s chaos [OPTIONS] <experiment>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<experiment>` | `string` | No | Resilience experiment name (e.g., pod-kill, latency-inject) |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--deployment`, `-d` | `string` | `sample-app` | Target deployment to disrupt |
+| `--namespace`, `-n` | `string` | `default` | Target Kubernetes namespace |
+| `--duration` | `integer` | `30` | Reconciliation monitoring window in seconds |
+| `--dry-run` | `boolean` | - | Simulate chaos experiment execution |
+| `--json` | `boolean` | - | Output experiment result as JSON |
+
+---

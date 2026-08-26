@@ -116,20 +116,20 @@ High-density product roadmap and open-source integration strategy for `devops-cl
 - [x] **Automated Workspace & Data Tier Cleanup Engine (`devops workspace clean`, `devops clean`)**: Housekeeping command pruning stale `.data/reviews/`, `.data/analysis/`, and temporary traces with configurable retention policies (`--older-than`, `--dry-run`).
 - [x] **Knowledge Base & Documentation Freshness Linter (`devops docs lint`)**: Automated static validation ensuring 100% command and option parity across CLI entry points, Knowledge Base manuals (`src/devops_cli/ai/knowledge_base/`), and markdown references.
 
-### Declarative Policy, Programmable CI & Resiliency (v0.2.3 - In Progress / Up Next)
-- [ ] **Kyverno & OPA Gatekeeper K8s Policy Validator (`kyverno-cli`, `opa`)**: `devops k8s validate-policy` for pre-deployment admission policy validation (`ClusterPolicy`, `ConstraintTemplate`) in CI and local workflows.
-- [ ] **Multi-Agent Adversarial Debate (MAD) Verification Stage**: Adversarial challenger persona eliminating hallucinated security alerts, false positives, and stylistic noise.
-- [ ] **Spec-Driven Architecture & Contract Verification (`devops ai spec`)**: Executable markdown specification contracts (`.devops/specs/*.spec.md`) verifying code against architectural invariants and API schemas.
-- [ ] **Stern Multi-Pod Live Log Streamer (`stern`)**: `devops k8s stream-logs` for regex-based live multi-container log streaming across replica sets.
-- [ ] **Helm Diff Deployment Impact Previewer (`helm-diff`)**: `devops k8s diff-helm` previewing manifest changes prior to Helm upgrades.
-- [ ] **Difftastic Structural Syntax-Aware AST Diff Provider (`difft`)**: Syntax-aware AST diffing feeding clean, whitespace-invariant diffs into LLM review stages.
-- [ ] **Dagger Programmable Python Pipeline Engine (`dagger-io`)**: `devops pipeline run` for containerized, reproducible Python-driven pipeline execution with built-in caching and isolated client execution.
-- [ ] **k6 Cloud-Native Load & Latency Tester (`k6`)**: `devops test load` executing developer-centric smoke, spike, and load tests against Kubernetes services and LLM inference endpoints.
-- [ ] **Chaos Engineering & Resilience Validator (`chaos`)**: `devops k8s chaos run` orchestrating pod disruption, network latency injection, and partition resilience experiments.
-- [ ] **Review Pipeline Modular Decomposition (`devops_cli.ai.review.stages`)**: Refactor monolithic `pipeline.py` into dedicated, single-responsibility stage modules (`stage1_pre_analysis`, `stage2_static_scan`, `stage3_persona_review`, `stage4_verification`, `stage5_reranking`, `stage6_reporting`).
-- [ ] **OpenTelemetry Log Correlation Bridge (`opentelemetry-appender-logging`)**: Inject active `trace_id` and `span_id` context into standard library logging and JSON SIEM audit trails (`.data/logs/audit.jsonl`).
-- [ ] **Dead Code & Unused Symbol Pruning (`vulture` / AST Audit)**: Project-wide static dead code, orphaned import, and unused test fixture sweeps to maintain zero boilerplate.
-- [ ] **Toolchain & Lockfile Maintenance Review Gate (`devops ci maintain`)**: Automated weekly dependency freshness scans, lockfile synchronization, and devcontainer binary validation.
+### Declarative Policy, Programmable CI & Resiliency (v0.2.3 - Released)
+- [x] **Kyverno & OPA Gatekeeper K8s Policy Validator (`kyverno-cli`, `opa`)**: `devops k8s validate-policy` for pre-deployment admission policy validation (`ClusterPolicy`, `ConstraintTemplate`) in CI and local workflows.
+- [x] **Multi-Agent Adversarial Debate (MAD) Verification Stage**: Adversarial challenger persona eliminating hallucinated security alerts, false positives, and stylistic noise.
+- [x] **Spec-Driven Architecture & Contract Verification (`devops ai spec`)**: Executable markdown specification contracts (`.devops/specs/*.spec.md`) verifying code against architectural invariants and API schemas.
+- [x] **Stern Multi-Pod Live Log Streamer (`stern`)**: `devops k8s stream-logs` for regex-based live multi-container log streaming across replica sets.
+- [x] **Helm Diff Deployment Impact Previewer (`helm-diff`)**: `devops k8s diff-helm` previewing manifest changes prior to Helm upgrades.
+- [x] **Difftastic Structural Syntax-Aware AST Diff Provider (`difft`)**: Syntax-aware AST diffing feeding clean, whitespace-invariant diffs into LLM review stages.
+- [x] **Dagger Programmable Python Pipeline Engine (`dagger-io`)**: `devops pipeline run` for containerized, reproducible Python-driven pipeline execution with built-in caching and isolated client execution.
+- [x] **k6 Cloud-Native Load & Latency Tester (`k6`)**: `devops test load` executing developer-centric smoke, spike, and load tests against Kubernetes services and LLM inference endpoints.
+- [x] **Chaos Engineering & Resilience Validator (`chaos`)**: `devops k8s chaos run` orchestrating pod disruption, network latency injection, and partition resilience experiments.
+- [x] **Review Pipeline Modular Decomposition (`devops_cli.ai.review.stages`)**: Refactor monolithic `pipeline.py` into dedicated, single-responsibility stage modules (`stage1_pre_analysis`, `stage2_static_scan`, `stage3_persona_review`, `stage4_verification`, `stage5_reranking`, `stage6_reporting`).
+- [x] **OpenTelemetry Log Correlation Bridge (`opentelemetry-appender-logging`)**: Inject active `trace_id` and `span_id` context into standard library logging and JSON SIEM audit trails (`.data/logs/audit.jsonl`).
+- [x] **Dead Code & Unused Symbol Pruning (`vulture` / AST Audit)**: Project-wide static dead code, orphaned import, and unused test fixture sweeps to maintain zero boilerplate.
+- [x] **Toolchain & Lockfile Maintenance Review Gate (`devops ci maintain`)**: Automated weekly dependency freshness scans, lockfile synchronization, and devcontainer binary validation.
 
 ### Real-Time Agent Streaming & Diagram Generation (v0.2.4 - Scheduled)
 - [ ] **Streaming SSE / WebSocket Agent Reasoning Feed (`devops serve /stream`)**: Server-Sent Events (SSE) and WebSocket streams delivering real-time LLM token generation, multi-agent reasoning steps, and scratchpad updates to IDE extensions and web UIs.

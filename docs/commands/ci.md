@@ -159,6 +159,23 @@ devops ci docs [OPTIONS]
 
 ---
 
+## `devops ci maintain`
+
+**Run automated toolchain, dependency freshness, and lockfile maintenance checks.**
+
+```bash
+devops ci maintain [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--fix` | `boolean` | - | Automatically synchronize dependencies and lockfile |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---
+
 ## `devops ci run`
 
 **Run full CI and return a single pass/fail status.**

@@ -30,6 +30,8 @@ Complete command-line reference for `devops-cli`, automatically generated from C
 - [`devops tls`](#devops-tls) — Generate and manage homelab TLS certificates and CAs.
 - [`devops telemetry`](#devops-telemetry) — OpenTelemetry tracing, metrics, and Jaeger observability.
 - [`devops serve`](#devops-serve) — FastAPI REST & OpenAPI Service Engine for remote automation, health probes, and metrics.
+- [`devops test`](#devops-test) — Performance, smoke, and load testing.
+- [`devops pipeline`](#devops-pipeline) — Programmable containerized pipeline execution (Dagger).
 
 ---
 
@@ -844,6 +846,100 @@ devops k8s validate [OPTIONS] <manifest_path>
 | `--dry-run` | `boolean` | - | Simulate schema validation |
 | `--json` | `boolean` | - | Output findings as JSON |
 
+### `devops k8s validate-policy`
+
+**Validate Kubernetes manifests against Kyverno or OPA admission policies.**
+
+```bash
+devops k8s validate-policy [OPTIONS] <manifest_path>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<manifest_path>` | `path` | No | Path to Kubernetes YAML manifest file or directory |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--policy`, `-p` | `path` | - | Path to Kyverno policy or OPA rule file |
+| `--engine`, `-e` | `string` | `kyverno` | Policy evaluation engine (kyverno, opa) |
+| `--dry-run` | `boolean` | - | Simulate admission policy validation |
+| `--json` | `boolean` | - | Output validation report as JSON |
+
+### `devops k8s stream-logs`
+
+**Stream logs across multiple pods in parallel using Stern or kubectl.**
+
+```bash
+devops k8s stream-logs [OPTIONS] <pod_query>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<pod_query>` | `string` | Yes | Regex pattern or query to match pod names |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--namespace`, `-n` | `string` | - | Target Kubernetes namespace |
+| `--container`, `-c` | `string` | - | Target container name within matched pods |
+| `--tail`, `-t` | `integer` | `100` | Number of historical log lines to stream |
+| `--follow`, `-f`, `--no-follow` | `boolean` | - | Continuously stream live log output |
+| `--dry-run` | `boolean` | - | Simulate multi-pod log streaming |
+
+### `devops k8s diff-helm`
+
+**Preview Kubernetes manifest diffs before executing a Helm upgrade.**
+
+```bash
+devops k8s diff-helm [OPTIONS] <release_name> <chart_path>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<release_name>` | `string` | Yes | Name of deployed Helm release |
+| `<chart_path>` | `path` | No | Path to local Helm chart directory or packaged archive |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--namespace`, `-n` | `string` | - | Target Kubernetes namespace |
+| `--values`, `-f` | `path` | - | Values YAML files to override release defaults |
+| `--dry-run` | `boolean` | - | Simulate Helm diff preview |
+
+### `devops k8s chaos`
+
+**Run resilience and chaos experiments against Kubernetes workloads.**
+
+```bash
+devops k8s chaos [OPTIONS] <experiment>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<experiment>` | `string` | No | Resilience experiment name (e.g., pod-kill, latency-inject) |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--deployment`, `-d` | `string` | `sample-app` | Target deployment to disrupt |
+| `--namespace`, `-n` | `string` | `default` | Target Kubernetes namespace |
+| `--duration` | `integer` | `30` | Reconciliation monitoring window in seconds |
+| `--dry-run` | `boolean` | - | Simulate chaos experiment execution |
+| `--json` | `boolean` | - | Output experiment result as JSON |
+
 ---
 
 ## devops kustomize
@@ -1597,6 +1693,21 @@ devops ci docs [OPTIONS]
 | `--fix` | `boolean` | - | Synchronize Complete Command Matrix in README.md. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
+### `devops ci maintain`
+
+**Run automated toolchain, dependency freshness, and lockfile maintenance checks.**
+
+```bash
+devops ci maintain [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--fix` | `boolean` | - | Automatically synchronize dependencies and lockfile |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
 ### `devops ci run`
 
 **Run full CI and return a single pass/fail status.**
@@ -1917,7 +2028,7 @@ devops ai chat [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--persona`, `-p` | `string` | `architect` | Persona to chat with: devsecops, architect, pm, auditor, qa |
+| `--persona`, `-p` | `string` | `architect` | Persona to chat with: devsecops, architect, pm, auditor, qa, challenger |
 | `--context`, `-c` | `path` | - | Optional file to inject as background context (e.g. AGENTS.md). |
 | `--rag`, `--no-rag` | `boolean` | `True` | Retrieve relevant semantic RAG context. |
 | `--stream`, `--no-stream` | `boolean` | `True` | Stream response tokens. |
@@ -2007,6 +2118,28 @@ devops ai route [OPTIONS] <task>
 | `--frontier`, `-f` | `boolean` | - | Force routing to frontier tier models. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
+### `devops ai spec`
+
+**Verify codebase against executable markdown architecture specification contracts.**
+
+```bash
+devops ai spec [OPTIONS] <spec_path>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<spec_path>` | `path` | No | Path to markdown architecture specification contract |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--target`, `-t` | `path` | - | Target source directory to verify |
+| `--dry-run` | `boolean` | - | Simulate architecture spec verification |
+| `--json` | `boolean` | - | Output specification verification report as JSON |
+
 ### `devops ai review`
 
 **AI-powered multi-persona code review system.**
@@ -2040,7 +2173,7 @@ devops ai review path [OPTIONS] <targets>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--pattern`, `-g` | `string` | `*` | Glob pattern for matching files. |
-| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa)` | - | Reviewer persona to activate (devsecops, architect, pm, auditor, qa). |
+| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Reviewer persona to activate (devsecops, architect, pm, auditor, qa). |
 | `--all` | `boolean` | - | Run all reviewer personas in sequence. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--summary`, `-s` | `boolean` | - | Show segment metadata without running a full review. |
@@ -2065,7 +2198,7 @@ devops ai review branch [OPTIONS] <branch_name>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--base`, `-b` | `string` | `main` | Base git branch to diff against (default: main). |
-| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa)` | - | Reviewer persona to activate (devsecops, architect, pm, auditor, qa). |
+| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Reviewer persona to activate (devsecops, architect, pm, auditor, qa). |
 | `--all` | `boolean` | - | Run all reviewer personas in sequence. |
 | `--repo` | `path` | `.` | Repository root directory (default: current directory). |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
@@ -2091,7 +2224,7 @@ devops ai review pr [OPTIONS] <number>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--repo`, `-r` | `string` | - | Target repository in OWNER/REPO format. |
-| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa)` | - | Reviewer persona to activate (devsecops, architect, pm, auditor, qa). |
+| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Reviewer persona to activate (devsecops, architect, pm, auditor, qa). |
 | `--all` | `boolean` | - | Run all reviewer personas in sequence. |
 | `--post` | `boolean` | - | Post the review as a comment on the GitHub PR. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
@@ -2500,7 +2633,7 @@ devops review path [OPTIONS] <targets>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--pattern`, `-g` | `string` | `*` | Glob pattern for matching files. |
-| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa)` | - | Reviewer persona to activate (devsecops, architect, pm, auditor, qa). |
+| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Reviewer persona to activate (devsecops, architect, pm, auditor, qa). |
 | `--all` | `boolean` | - | Run all reviewer personas in sequence. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--summary`, `-s` | `boolean` | - | Show segment metadata without running a full review. |
@@ -2525,7 +2658,7 @@ devops review branch [OPTIONS] <branch_name>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--base`, `-b` | `string` | `main` | Base git branch to diff against (default: main). |
-| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa)` | - | Reviewer persona to activate (devsecops, architect, pm, auditor, qa). |
+| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Reviewer persona to activate (devsecops, architect, pm, auditor, qa). |
 | `--all` | `boolean` | - | Run all reviewer personas in sequence. |
 | `--repo` | `path` | `.` | Repository root directory (default: current directory). |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
@@ -2551,7 +2684,7 @@ devops review pr [OPTIONS] <number>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--repo`, `-r` | `string` | - | Target repository in OWNER/REPO format. |
-| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa)` | - | Reviewer persona to activate (devsecops, architect, pm, auditor, qa). |
+| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Reviewer persona to activate (devsecops, architect, pm, auditor, qa). |
 | `--all` | `boolean` | - | Run all reviewer personas in sequence. |
 | `--post` | `boolean` | - | Post the review as a comment on the GitHub PR. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
@@ -3339,5 +3472,66 @@ devops serve [OPTIONS]
 | `--workers`, `-w` | `integer` | `1` | Number of worker processes. |
 | `--log-level`, `-l` | `string` | `info` | Logging level (debug, info, warning, error). |
 | `--docs`, `--no-docs` | `boolean` | `True` | Enable or disable Swagger UI (/docs) and ReDoc (/redoc). |
+
+---
+
+## devops test
+
+Performance, smoke, and load testing.
+
+Execute developer-centric load, spike, and latency tests against services using k6.
+
+### `devops test`
+
+**Execute developer-centric load, spike, and latency tests against services using k6.**
+
+```bash
+devops test [OPTIONS] <script_path>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<script_path>` | `path` | No | Path to k6 JavaScript test script or endpoint definition |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--vus`, `-u` | `integer` | `10` | Number of concurrent virtual users (VUs) |
+| `--duration`, `-d` | `string` | `30s` | Test execution duration (e.g. 30s, 1m) |
+| `--summary-export`, `-s` | `path` | - | Path to export JSON summary metrics |
+| `--dry-run` | `boolean` | - | Simulate load test execution |
+
+---
+
+## devops pipeline
+
+Programmable containerized pipeline execution (Dagger).
+
+Execute reproducible, containerized developer pipelines with Dagger.
+
+### `devops pipeline`
+
+**Execute reproducible, containerized developer pipelines with Dagger.**
+
+```bash
+devops pipeline [OPTIONS] <pipeline_path>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<pipeline_path>` | `path` | No | Path to Dagger module directory or pipeline script |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--function`, `-f` | `string` | - | Target pipeline function to call |
+| `--args`, `-a` | `string` | - | Arguments to forward to the pipeline execution |
+| `--dry-run` | `boolean` | - | Simulate pipeline execution |
 
 ---
