@@ -55,17 +55,21 @@ def session_isolated_config(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 @pytest.fixture(autouse=True)
 def isolate_devops_cli_config(session_isolated_config: Path):
-    """Ensure tests do not load local workspace config.yaml with live network endpoints."""
+    """Ensure tests do not load or mutate local workspace config.yaml or ~/.config."""
     from devops_cli.telemetry.tracer import reset_tracer
 
     reset_tracer()
-    with patch.dict(
-        os.environ,
-        {
-            "DEVOPS_CLI_CONFIG": str(session_isolated_config),
-            "DEVOPS_OTEL_ENDPOINT": "http://localhost:4318",
-            "DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK": "true",
-        },
+    with (
+        patch.dict(
+            os.environ,
+            {
+                "DEVOPS_CLI_CONFIG": str(session_isolated_config),
+                "DEVOPS_OTEL_ENDPOINT": "http://localhost:4318",
+                "DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK": "true",
+            },
+        ),
+        patch("devops_cli.config.settings.CONFIG_PATH", session_isolated_config),
+        patch("devops_cli.config.settings.CONFIG_DIR", session_isolated_config.parent),
     ):
         yield
     reset_tracer()

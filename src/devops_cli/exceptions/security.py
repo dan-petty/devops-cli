@@ -37,8 +37,15 @@ class SSRFBlockedError(SecurityError):
         reason: str = CONST_MSG_SSRF_RESOLVES_PRIVATE,
         details: dict[str, Any] | None = None,
     ) -> None:
-        msg = f"SSRF blocked: {target_url} ({reason})"
-        err_details = {"target_url": target_url, "reason": reason}
+        from urllib.parse import urlparse
+
+        parsed = urlparse(target_url)
+        safe_host = "<masked>" if parsed.hostname else "<invalid-target>"
+        port_str = f":{parsed.port}" if parsed.port else ""
+        scheme_str = f"{parsed.scheme}://" if parsed.scheme else ""
+        safe_url = f"{scheme_str}{safe_host}{port_str}{parsed.path or ''}"
+        msg = f"SSRF blocked: {safe_url} ({reason})"
+        err_details: dict[str, Any] = {"target_url": target_url, "reason": reason}
         if details:
             err_details.update(details)
         super().__init__(
