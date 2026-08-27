@@ -187,6 +187,7 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 |  | `devops config output [OPTIONS]` | Output environment variables available for devops-cli configuration. |
 |  | `devops config auth-headless <key> <token>` | Load secret tokens into ephemeral memory for headless CI environments lacking DBus. |
 |  | `devops config audit-stream <destination>` | Stream stored audit records to SIEM destination URL. |
+|  | `devops config audit-keys [OPTIONS]` | Audit OS Keyring token health, backend status, and zero-plaintext secret compliance. |
 | **ci** | `devops ci test [OPTIONS]` | Run the pytest test suite in parallel leveraging all CPU cores. |
 |  | `devops ci coverage [OPTIONS]` | Run pytest with parallel code coverage analysis over src/. |
 |  | `devops ci lint [OPTIONS]` | Run ruff linter across the project. |
@@ -220,6 +221,10 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 |  | `devops ai token-count [OPTIONS] <target>` | Calculate exact BPE tokens for text or files using tiktoken context budgeting. |
 |  | `devops ai route [OPTIONS] <task>` | Evaluate task complexity and determine the optimal LLM provider and model route. |
 |  | `devops ai spec [OPTIONS] <spec_path>` | Verify codebase against executable markdown architecture specification contracts. |
+|  | `devops ai repomap [OPTIONS]` | Generate compact whole-repository AST symbol and relationship map. |
+|  | `devops ai diagram [OPTIONS] <diagram_type>` | Generate visual Mermaid architecture topology or STRIDE threat modeling diagrams. |
+|  | `devops ai prompt-eval [OPTIONS]` | Benchmark persona prompt variations against verified review feedback datasets. |
+|  | `devops ai test-gen [OPTIONS] <target_file>` | Synthesize isolated pytest unit test suites for functions or source files. |
 |  | `devops ai review [OPTIONS] COMMAND [ARGS]...` | AI-powered multi-persona code review system. |
 |  | `devops ai analyze [OPTIONS] COMMAND [ARGS]...` | Analyze codebase metadata and generate structural outlines. |
 |  | `devops ai rag [OPTIONS] COMMAND [ARGS]...` | Manage RAG vector embeddings, indexing, and semantic search (Qdrant). |
@@ -233,6 +238,7 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 |  | `devops review stats [OPTIONS]` | Compute and display review accuracy statistics across saved sessions. |
 |  | `devops review export-feedback [OPTIONS]` | Export review findings into a JSONL benchmark dataset for prompt tuning and fine-tuning. |
 |  | `devops review apply-patch [OPTIONS] <session>` | Apply suggested LLM code fix for a verified finding (v0.1.3). |
+|  | `devops review auto-fix [OPTIONS] <finding_id>` | Create a corrective topic branch with verified unit test patch for an approved finding. |
 | **mcp** | `devops mcp serve [OPTIONS]` | Launch FastMCP server to expose devops-cli tools to MCP clients. |
 |  | `devops mcp tools` | List all registered FastMCP tools and descriptions. |
 | **docs** | `devops docs generate [OPTIONS]` | Generate comprehensive Markdown or JSON documentation for all CLI commands and tools. |
@@ -259,6 +265,7 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 |  | `devops tf status <directory>` | Show OpenTofu directory state, initialization status, and provider plugins. |
 |  | `devops tf deploy-cloud [OPTIONS]` | Deploy cloud Kubernetes infrastructure for AWS, Azure, or GCP. |
 |  | `devops tf lint [OPTIONS] <directory>` | Run TFLint static analysis on Terraform/OpenTofu configurations. |
+|  | `devops tf notify-plan [OPTIONS]` | Format and post structured, collapsible OpenTofu/Terraform plan diffs to PR comments. |
 | **tls** | `devops tls ca [OPTIONS]` | Generate a self-signed Root Certificate Authority (CA) key pair. |
 |  | `devops tls cert [OPTIONS]` | Generate an X.509 TLS certificate signed by local CA or self-signed. |
 |  | `devops tls homelab [OPTIONS]` | Generate complete Homelab TLS bundle (Root CA, Wildcard + Stack Services Cert). |
@@ -267,6 +274,7 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 |  | `devops tls enable-k8s [OPTIONS]` | Generate and apply TLS secrets (kubernetes.io/tls) across Kubernetes namespaces. |
 | **telemetry** | `devops telemetry status` | Check OpenTelemetry collector health, Jaeger endpoint, and trace propagation status. |
 |  | `devops telemetry test [OPTIONS]` | Emit a test OpenTelemetry trace span and metric to the configured collector. |
+|  | `devops telemetry profile [OPTIONS] <command>` | Display terminal-rendered waterfall breakdown and latency heatmap of OpenTelemetry spans. |
 |  | `devops telemetry open-ui` | Print and show the Jaeger Query UI endpoint for inspecting traces. |
 | **serve** | `devops serve [OPTIONS]` | FastAPI REST & OpenAPI Service Engine for remote automation, health probes, and metrics. |
 | **test** | `devops test [OPTIONS] <script_path>` | Execute developer-centric load, spike, and latency tests against services using k6. |
@@ -296,31 +304,9 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 
 ---
 
-## Strategic Prioritization Matrix (Value vs. Effort)
+## Strategic Prioritization Matrix & Product Roadmap
 
-| Priority Category | Feature / Focus | Value | Effort | Status |
-|---|---|---|---|---|
-| **Quick Wins** | RFC 1123 Input Sanitization & Path Traversal Guards | High | Low | ✅ Completed |
-| | Human Finding Verification CLI & Accuracy Stats | High | Low | ✅ Completed |
-| | Fast Deterministic Static Segment Metadata (`SegmentMeta`) | High | Low | ✅ Completed |
-| | Prompt Isolation Guardrails & Boundary Tag Sanitization | High | Low | ✅ Completed |
-| | `devops config output` Env Var Specification Command | High | Low | ✅ Completed |
-| | Trivy Vulnerability & Misconfig Engine (`devops scan`) | High | Low | ✅ Completed (v0.1.6) |
-| | Kube-linter Manifest Auditor (`devops k8s lint`) | High | Low | ✅ Completed (v0.1.6) |
-| | Popeye K8s Cluster Sanitizer (`devops k8s audit`) | High | Low | ✅ Completed (v0.1.6) |
-| | Pluto K8s Deprecated API Scanner (`devops k8s check-deprecated`) | High | Low | ✅ Completed (v0.1.6) |
-| **Strategic Investments** | Minikube Service Auto-Config & 7-Gate CI | High | High | ✅ Completed (v0.1.5) |
-| | DevContainer Shell Script Replacement Engine | High | Medium | ✅ Completed (v0.1.7) |
-| | Enhanced AI/LLM Scratchpad Reasoning Buffer | High | Medium | ✅ Completed (v0.1.7) |
-| | AI/LLM Prompt Token & Latency Optimization | High | Medium | ✅ Completed (v0.1.7) |
-| | AI Agent Pipeline Framework Evaluation & Benchmark | High | Medium | 🔄 Scheduled (v0.1.7) |
-| | OpenTelemetry, Prometheus, Grafana & Jaeger via Minikube | High | High | 🔄 Scheduled (v0.1.7) |
-| | Line-Level GitHub PR Inline Comments | High | High | ✅ Completed (v0.1.1) |
-| | Human Invalidation Feedback Dataset Exporter | High | Medium | ✅ Completed (v0.1.1) |
-| | Custom Team Persona Prompt Overrides (`.devops/personas/`) | High | Medium | ✅ Completed (v0.1.1) |
-| **Fill-ins** | Non-Interactive GitHub CLI Timeout Config | Medium | Low | ℹ️ Mitigated via Env Var |
-| | Ephemeral Headless Keyring Fallback Auth | Medium | Medium | ✅ Completed (v0.1.1) |
-| **De-prioritized** | Bare-Metal OS Installers | Low | High | ❌ Rejected (Devcontainer native) |
+The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliverables (`v0.2.4` through `v0.3.0`), architectural principles, and continuous release schedules are actively managed in the dedicated [Product Roadmap](docs/ROADMAP.md).
 
 ---
 

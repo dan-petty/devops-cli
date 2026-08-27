@@ -521,6 +521,14 @@ class TelemetryCommandHelp:
     status: str = "Show telemetry collector connectivity and service configuration."
     test_span: str = "Emit a synthetic test span to verify Jaeger tracing collector."
     span_name: str = "Name for test span."
+    profile: str = (
+        "Display terminal-rendered waterfall breakdown and latency heatmap of OpenTelemetry spans."
+    )
+    command_to_profile: str = (
+        "CLI command string to profile and render waterfall for (e.g. 'devops k8s contexts')."
+    )
+    trace_id: str = "Specific trace ID to visualize from in-memory span buffer."
+    last: str = "Render waterfall for the most recently executed command trace."
 
 
 @dataclass(frozen=True)
@@ -557,6 +565,9 @@ class ConfigCommandHelp:
     get: str = "Get a specific configuration value."
     set_cmd: str = "Set a configuration value (stored in config file or OS Keyring)."
     init_cmd: str = "Interactive configuration wizard."
+    audit_keys: str = (
+        "Audit OS Keyring token health, backend status, and zero-plaintext secret compliance."
+    )
     key: str = "Dotted config key, e.g. github.default_org."
     value: str = "Value to set."
     export_env: str = "Print environment variables as shell export statements."

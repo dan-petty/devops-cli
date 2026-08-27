@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.4] - 2026-08-27
+
+### Added
+- **Trace Waterfall Visualizer CLI (`devops telemetry profile`, `devops_cli.telemetry.tracer`)**:
+  - Implemented interactive terminal waterfall breakdown and latency heatmap of OpenTelemetry spans.
+  - Added subcommands for span filtering by trace ID, last recorded trace, and direct command execution profiling.
+- **Keyring Token Housekeeping & Secret Health Auditor (`devops config audit-keys`, `devops_cli.commands.config`)**:
+  - Implemented OS Keyring backend health auditing, token state verification, and zero-plaintext file scanning.
+- **FastMCP Tool Schema Contract Regression Suite (`tests/test_fastmcp_contracts.py`)**:
+  - Added regression test suite verifying tool registration, parameter descriptions, typed signatures, and flag injection defenses across all 35+ FastMCP tools.
+- **Aider-Style AST Repository Map Generator (`devops ai repomap`, `devops_cli.ai.repomap`)**:
+  - Compact whole-repo symbol and relationship map generator parsing AST signatures and docstrings without context window overflow.
+- **Architecture & Threat Modeling Diagram Synthesis (`devops ai diagram`, `devops_cli.ai.diagram`)**:
+  - Automated Mermaid architecture topology (`graph TD`) and STRIDE zero-trust threat flowcharts (`graph LR`).
+- **Prompt Mutation Testing & Benchmark Guardrails (`devops ai prompt-eval`, `devops_cli.ai.prompt_eval`)**:
+  - Mutation benchmark suite evaluating persona prompt variations against ground truth feedback datasets.
+- **Automated Unit Test Synthesizer (`devops ai test-gen`, `devops_cli.ai.test_gen`)**:
+  - Synthesizes isolated pytest test suites from AST signatures and uncommitted diffs.
+- **Automated PR Remediation Branch Generator (`devops ai review auto-fix`, `devops_cli.ai.review.auto_fix`)**:
+  - Generates corrective topic branches (`fix/finding-<id>`) with staged patches and unit test verifications.
+- **tfcmt Automated PR Plan Notifier (`devops tf notify-plan`, `devops_cli.commands.tf`)**:
+  - Formats structured, collapsible OpenTofu/Terraform plan diff summaries for automated PR comments.
+- **Streaming SSE / WebSocket Agent Reasoning Feed (`devops serve /stream` & `/ws`, `devops_cli.server.routes.stream`)**:
+  - Server-Sent Events (SSE) and duplex WebSocket feeds streaming real-time LLM token generation and reasoning scratchpad updates.
+- **Hybrid Dense-Sparse RAG Tier (BM25 + Qdrant RRF, `devops_cli.ai.rag.retriever`)**:
+  - Reciprocal Rank Fusion (RRF) combining dense embeddings with sparse keyword search scores.
+- **Async HTTP/2 Connection Pooling & Client Reuse (`devops_cli.http.client`)**:
+  - Added `new_async_http_client` with HTTP/2 support and connection pooling.
+
 ## [0.2.3] - 2026-08-26
 
 ### Added

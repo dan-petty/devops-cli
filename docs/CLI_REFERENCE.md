@@ -1550,6 +1550,21 @@ devops config audit-stream <destination>
 |---|---|---|---|
 | `<destination>` | `string` | Yes | Destination Syslog or HTTP URL. |
 
+### `devops config audit-keys`
+
+**Audit OS Keyring token health, backend status, and zero-plaintext secret compliance.**
+
+```bash
+devops config audit-keys [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
 ---
 
 ## devops ci
@@ -2140,6 +2155,85 @@ devops ai spec [OPTIONS] <spec_path>
 | `--dry-run` | `boolean` | - | Simulate architecture spec verification |
 | `--json` | `boolean` | - | Output specification verification report as JSON |
 
+### `devops ai repomap`
+
+**Generate compact whole-repository AST symbol and relationship map.**
+
+```bash
+devops ai repomap [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--target`, `-t` | `path` | - | Target root directory to generate symbol map for |
+| `--max-files`, `-n` | `integer` | `100` | Maximum source files to include |
+| `--include-tests` | `boolean` | - | Include test modules in symbol map |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+### `devops ai diagram`
+
+**Generate visual Mermaid architecture topology or STRIDE threat modeling diagrams.**
+
+```bash
+devops ai diagram [OPTIONS] <diagram_type>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<diagram_type>` | `string` | No | Diagram type: 'arch' for architecture topology, 'threat' for STRIDE model |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--target`, `-t` | `path` | - | Target root directory to analyze |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+### `devops ai prompt-eval`
+
+**Benchmark persona prompt variations against verified review feedback datasets.**
+
+```bash
+devops ai prompt-eval [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--persona`, `-p` | `string` | `devsecops` | Review persona to benchmark |
+| `--dataset`, `-d` | `path` | - | Path to feedback dataset jsonl |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+### `devops ai test-gen`
+
+**Synthesize isolated pytest unit test suites for functions or source files.**
+
+```bash
+devops ai test-gen [OPTIONS] <target_file>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<target_file>` | `path` | Yes | Target source file to synthesize unit tests for |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--function`, `-f` | `string` | - | Specific function to synthesize tests for |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
 ### `devops ai review`
 
 **AI-powered multi-persona code review system.**
@@ -2324,6 +2418,29 @@ devops ai review apply-patch [OPTIONS] <session>
 |---|---|---|---|
 | `--index`, `-idx` | `integer` | `1` | 1-based finding index in session to verify. |
 | `--interactive`, `-i` | `boolean` | - | Preview patch diff interactively. |
+
+#### `devops ai review auto-fix`
+
+**Create a corrective topic branch with verified unit test patch for an approved finding.**
+
+```bash
+devops ai review auto-fix [OPTIONS] <finding_id>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<finding_id>` | `string` | Yes | Finding ID or title to create remediation branch for |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--file`, `-f` | `string` | `src/devops_cli/main.py` | Target source file to apply fix to |
+| `--branch`, `-b` | `string` | - | Custom topic branch name |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ### `devops ai analyze`
 
@@ -2784,6 +2901,29 @@ devops review apply-patch [OPTIONS] <session>
 |---|---|---|---|
 | `--index`, `-idx` | `integer` | `1` | 1-based finding index in session to verify. |
 | `--interactive`, `-i` | `boolean` | - | Preview patch diff interactively. |
+
+### `devops review auto-fix`
+
+**Create a corrective topic branch with verified unit test patch for an approved finding.**
+
+```bash
+devops review auto-fix [OPTIONS] <finding_id>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<finding_id>` | `string` | Yes | Finding ID or title to create remediation branch for |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--file`, `-f` | `string` | `src/devops_cli/main.py` | Target source file to apply fix to |
+| `--branch`, `-b` | `string` | - | Custom topic branch name |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ---
 
@@ -3295,6 +3435,23 @@ devops tf lint [OPTIONS] <directory>
 | `--dry-run` | `boolean` | - | Simulate TFLint execution. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
+### `devops tf notify-plan`
+
+**Format and post structured, collapsible OpenTofu/Terraform plan diffs to PR comments.**
+
+```bash
+devops tf notify-plan [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--plan-file`, `-p` | `path` | - | Path to raw plan output or log file |
+| `--pr` | `integer` | - | Pull Request number to post plan comment to |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+
 ---
 
 ## devops tls
@@ -3439,6 +3596,29 @@ devops telemetry test [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--name`, `-n` | `string` | `devops-cli.manual_test` | Name for test span. |
+
+### `devops telemetry profile`
+
+**Display terminal-rendered waterfall breakdown and latency heatmap of OpenTelemetry spans.**
+
+```bash
+devops telemetry profile [OPTIONS] <command>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<command>` | `string` | No | CLI command string to profile and render waterfall for (e.g. 'devops k8s contexts'). |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--trace-id`, `-t` | `string` | - | Specific trace ID to visualize from in-memory span buffer. |
+| `--last`, `-l` | `boolean` | - | Render waterfall for the most recently executed command trace. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops telemetry open-ui`
 
