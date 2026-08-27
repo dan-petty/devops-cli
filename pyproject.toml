@@ -4,35 +4,35 @@ build-backend = "hatchling.build"
 
 [project]
 name = "devops-cli"
-version = "0.2.3"
+version = "0.2.4"
 description = "DevOps CLI for managing repos, SSH keys, Kubernetes, and more"
 requires-python = ">=3.14"
 dependencies = [
     "click==8.4.2",
-    "typer>=0.12",
-    "rich>=13",
-    "pydantic>=2",
-    "PyGithub>=2",
-    "gitpython>=3",
-    "cryptography>=43",
+    "typer==0.27.1",
+    "rich==15.0.0",
+    "pydantic==2.13.4",
+    "PyGithub==2.10.0",
+    "gitpython==3.1.60",
+    "cryptography==50.0.1",
     "httpx2==2.9.0",
-    "keyring>=25",
-    "PyYAML>=6",
-    "jinja2>=3",
-    "kubernetes>=30",
-    "docker>=7",
-    "fastmcp>=0.4.0",
-    "qdrant-client>=1.11.0",
-    "pydantic-settings>=2.4.0",
-    "json-repair>=0.63.3",
-    "tldextract>=5.3.2",
-    "pathspec>=0.12.1",
-    "packaging>=24.0",
-    "fastapi>=0.110.0",
-    "uvicorn>=0.30.0",
-    "tiktoken>=0.8.0",
-    "pydantic-ai>=2.0.0",
-    "opentelemetry-exporter-otlp-proto-grpc>=1.44.0",
+    "keyring==25.7.0",
+    "PyYAML==6.0.3",
+    "jinja2==3.1.6",
+    "kubernetes==36.0.3",
+    "docker==7.2.0",
+    "fastmcp==3.4.7",
+    "qdrant-client==1.19.0",
+    "pydantic-settings==2.15.0",
+    "json-repair==0.63.4",
+    "tldextract==5.3.2",
+    "pathspec==1.1.1",
+    "packaging==26.3",
+    "fastapi==0.141.1",
+    "uvicorn==0.52.4",
+    "tiktoken==0.14.0",
+    "pydantic-ai==2.35.0",
+    "opentelemetry-exporter-otlp-proto-grpc==1.44.0",
 ]
 
 [project.scripts]
@@ -40,17 +40,17 @@ devops = "devops_cli.entry:main"
 
 [dependency-groups]
 dev = [
-    "pytest>=8",
-    "pytest-asyncio>=0.23",
-    "pytest-mock>=3",
-    "ruff>=0.9",
-    "mypy>=1.11",
-    "types-PyYAML>=6",
-    "pytest-cov>=7.1.0",
-    "pytest-xdist>=3.6.0",
-    "bandit>=1.9.4",
-    "actionlint-py>=1.7.12",
-    "pre-commit>=4.0.0",
+    "pytest==9.1.1",
+    "pytest-asyncio==1.4.0",
+    "pytest-mock==3.15.1",
+    "ruff==0.16.4",
+    "mypy==2.3.1",
+    "types-PyYAML==6.0.12.20260815",
+    "pytest-cov==7.1.0",
+    "pytest-xdist==3.8.0",
+    "bandit==1.9.4",
+    "actionlint-py==1.7.12.24",
+    "pre-commit==4.6.2",
 ]
 
 [tool.hatch.build.targets.wheel]
