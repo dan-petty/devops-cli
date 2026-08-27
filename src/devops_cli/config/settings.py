@@ -363,6 +363,9 @@ def load_settings() -> Settings:
             # Ignore invalid or unknown env overrides and keep existing settings.
             continue
 
+    # Rebase child paths if data.dir was customized via environment variables
+    settings.data = DataConfig.model_validate(settings.data.model_dump())
+
     return settings
 
 

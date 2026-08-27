@@ -12,9 +12,6 @@ from devops_cli.ai.review.pipeline import _get_reviews_base_dir
 from devops_cli.config.constants import (
     CONST_STATUS_INVALIDATED,
 )
-from devops_cli.config.defaults import (
-    DEFAULT_FEEDBACK_DATASET_PATH,
-)
 from devops_cli.exceptions import SecurityError
 
 
@@ -89,7 +86,16 @@ def export_invalidated_feedback(
     Returns (count, output_path).
     """
     r_dir = reviews_dir if reviews_dir is not None else _get_reviews_base_dir()
-    out_path = output_file or DEFAULT_FEEDBACK_DATASET_PATH
+    if output_file is not None:
+        out_path = output_file
+    else:
+        from devops_cli.config.settings import load_settings
+        from devops_cli.core.repo import find_top_level_repo_root
+
+        settings = load_settings()
+        out_path = settings.data.feedback_dataset_path
+        if not out_path.is_absolute():
+            out_path = (find_top_level_repo_root() / out_path).resolve()
 
     if output_file is not None:
         resolved_out = output_file.resolve()

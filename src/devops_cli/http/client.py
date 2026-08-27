@@ -40,3 +40,23 @@ def new_http_client(
         )
     )
     return httpx2.Client(timeout=client_timeout, **kwargs)
+
+
+def new_async_http_client(
+    *,
+    read_timeout: float | None = None,
+    timeout: httpx2.Timeout | float | None = None,
+    http2: bool = True,
+    **kwargs: Any,
+) -> httpx2.AsyncClient:
+    """Create a new async httpx2.AsyncClient configured with HTTP/2 and resilient timeouts."""
+    client_timeout = (
+        timeout
+        if isinstance(timeout, httpx2.Timeout)
+        else (
+            httpx2.Timeout(timeout, connect=DEFAULT_CONNECT_TIMEOUT_SECONDS)
+            if isinstance(timeout, (int, float))
+            else request_timeout(read=read_timeout)
+        )
+    )
+    return httpx2.AsyncClient(timeout=client_timeout, http2=http2, **kwargs)

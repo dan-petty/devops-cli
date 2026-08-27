@@ -11,7 +11,6 @@ from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
     DEFAULT_RAG_COLLECTION,
     DEFAULT_RAG_DOCS_COLLECTION,
-    DEFAULT_RAG_INDEX_CACHE_PATH,
     DEFAULT_RAG_SCORE_THRESHOLD,
     DEFAULT_RAG_TOP_K,
 )
@@ -532,7 +531,14 @@ def clear_cmd(
         print_success(f"Cleared collection: {coll}")
 
     # Remove local cache
-    cache_file = DEFAULT_RAG_INDEX_CACHE_PATH
+    from devops_cli.config.constants import CONST_INDEX_CACHE_FILENAME
+    from devops_cli.config.settings import load_settings
+    from devops_cli.core.repo import find_top_level_repo_root
+
+    rag_dir = load_settings().data.rag_dir
+    if not rag_dir.is_absolute():
+        rag_dir = (find_top_level_repo_root() / rag_dir).resolve()
+    cache_file = rag_dir / CONST_INDEX_CACHE_FILENAME
     if cache_file.exists():
         cache_file.unlink()
         print_success(MESSAGES.rag.reset_cache_success)

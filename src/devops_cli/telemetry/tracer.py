@@ -15,6 +15,7 @@ import time
 from collections.abc import Callable, Generator
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextvars import ContextVar
+from dataclasses import dataclass, field
 from typing import Any, TypeVar
 
 import httpx2
@@ -77,6 +78,173 @@ _SPAN_KINDS: dict[str, str] = {
     "producer": "SPAN_KIND_PRODUCER",
     "consumer": "SPAN_KIND_CONSUMER",
 }
+
+
+@dataclass
+class SpanWaterfallNode:
+    """Hierarchical node representing a completed OpenTelemetry span for visual profiling."""
+
+    span_id: str
+    trace_id: str
+    name: str
+    parent_id: str | None
+    start_time_ns: int
+    end_time_ns: int
+    duration_ms: float
+    status_code: str
+    status_message: str
+    attributes: dict[str, Any]
+    depth: int = 0
+    relative_offset_pct: float = 0.0
+    relative_duration_pct: float = 0.0
+    children: list[SpanWaterfallNode] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize waterfall node into dictionary structure."""
+        return {
+            "span_id": self.span_id,
+            "trace_id": self.trace_id,
+            "name": self.name,
+            "parent_id": self.parent_id,
+            "duration_ms": round(self.duration_ms, 2),
+            "status_code": self.status_code,
+            "status_message": self.status_message,
+            "depth": self.depth,
+            "relative_offset_pct": round(self.relative_offset_pct, 2),
+            "relative_duration_pct": round(self.relative_duration_pct, 2),
+            "attributes": self.attributes,
+            "children": [c.to_dict() for c in self.children],
+        }
+
+
+_SPANS_BUFFER_LOCK = threading.Lock()
+_COMPLETED_SPANS_BUFFER: list[dict[str, Any]] = []
+_MAX_SPANS_BUFFER_SIZE = 1000
+
+
+def record_completed_span(span_data: dict[str, Any]) -> None:
+    """Store completed span in thread-safe in-memory ring buffer."""
+    with _SPANS_BUFFER_LOCK:
+        if len(_COMPLETED_SPANS_BUFFER) >= _MAX_SPANS_BUFFER_SIZE:
+            _COMPLETED_SPANS_BUFFER.pop(0)
+        _COMPLETED_SPANS_BUFFER.append(dict(span_data))
+
+
+def get_recent_spans() -> list[dict[str, Any]]:
+    """Retrieve copy of all buffered completed spans."""
+    with _SPANS_BUFFER_LOCK:
+        return [dict(s) for s in _COMPLETED_SPANS_BUFFER]
+
+
+def clear_span_buffer() -> None:
+    """Clear in-memory span buffer (used in tests and profiling)."""
+    with _SPANS_BUFFER_LOCK:
+        _COMPLETED_SPANS_BUFFER.clear()
+
+
+def get_trace_spans(trace_id: str | None = None) -> list[dict[str, Any]]:
+    """Retrieve spans for a specific trace_id, or the latest recorded trace if None."""
+    with _SPANS_BUFFER_LOCK:
+        if not _COMPLETED_SPANS_BUFFER:
+            return []
+        if trace_id is None:
+            target_trace_id = _COMPLETED_SPANS_BUFFER[-1].get("traceId")
+        else:
+            target_trace_id = trace_id
+        return [s for s in _COMPLETED_SPANS_BUFFER if s.get("traceId") == target_trace_id]
+
+
+def _from_otlp_any_value(val: dict[str, Any]) -> Any:
+    """Extract Python scalar or sequence from an OpenTelemetry AnyValue dict."""
+    if "stringValue" in val:
+        return val["stringValue"]
+    elif "boolValue" in val:
+        return val["boolValue"]
+    elif "intValue" in val:
+        try:
+            return int(val["intValue"])
+        except ValueError:
+            return val["intValue"]
+    elif "doubleValue" in val:
+        return float(val["doubleValue"])
+    elif "arrayValue" in val:
+        return [_from_otlp_any_value(v) for v in val["arrayValue"].get("values", [])]
+    elif "kvlistValue" in val:
+        return {
+            item["key"]: _from_otlp_any_value(item["value"])
+            for item in val["kvlistValue"].get("values", [])
+            if "key" in item and "value" in item
+        }
+    return str(val)
+
+
+def build_span_waterfall_tree(spans: list[dict[str, Any]]) -> list[SpanWaterfallNode]:
+    """Convert raw span dicts into a structured hierarchy with relative waterfall offsets and percentage durations."""
+    if not spans:
+        return []
+
+    nodes: dict[str, SpanWaterfallNode] = {}
+    for s in spans:
+        span_id = str(s.get("spanId", ""))
+        trace_id = str(s.get("traceId", ""))
+        name = str(s.get("name", "unknown"))
+        parent_id = s.get("parentSpanId")
+        start_ns = int(s.get("startTimeUnixNano", 0))
+        end_ns = int(s.get("endTimeUnixNano", start_ns))
+        dur_ms = max(0.0, (end_ns - start_ns) / 1e6)
+        status_info = s.get("status", {})
+        status_code = status_info.get("code", "STATUS_CODE_OK")
+        status_msg = status_info.get("message", "")
+
+        attrs: dict[str, Any] = {}
+        for attr in s.get("attributes", []):
+            k = attr.get("key")
+            v = attr.get("value")
+            if k and v:
+                attrs[k] = _from_otlp_any_value(v)
+
+        nodes[span_id] = SpanWaterfallNode(
+            span_id=span_id,
+            trace_id=trace_id,
+            name=name,
+            parent_id=str(parent_id) if parent_id else None,
+            start_time_ns=start_ns,
+            end_time_ns=end_ns,
+            duration_ms=dur_ms,
+            status_code=status_code,
+            status_message=status_msg,
+            attributes=attrs,
+        )
+
+    min_start_ns = min(n.start_time_ns for n in nodes.values())
+    max_end_ns = max(n.end_time_ns for n in nodes.values())
+    total_span_ns = max(1, max_end_ns - min_start_ns)
+
+    for n in nodes.values():
+        offset_ns = max(0, n.start_time_ns - min_start_ns)
+        dur_ns = max(0, n.end_time_ns - n.start_time_ns)
+        n.relative_offset_pct = (offset_ns / total_span_ns) * 100.0
+        n.relative_duration_pct = max(1.0, (dur_ns / total_span_ns) * 100.0)
+
+    roots: list[SpanWaterfallNode] = []
+    for n in nodes.values():
+        if n.parent_id and n.parent_id in nodes and n.parent_id != n.span_id:
+            parent_node = nodes[n.parent_id]
+            parent_node.children.append(n)
+        else:
+            roots.append(n)
+
+    def _assign_depth(node: SpanWaterfallNode, current_depth: int) -> None:
+        node.depth = current_depth
+        node.children.sort(key=lambda x: x.start_time_ns)
+        for child in node.children:
+            _assign_depth(child, current_depth + 1)
+
+    roots.sort(key=lambda x: x.start_time_ns)
+    for root in roots:
+        _assign_depth(root, 0)
+
+    return roots
 
 
 class SpanHandle(str):
@@ -495,6 +663,8 @@ class OTelTelemetryClient:
                 span_data["links"] = links
             if parent_id and parent_id != span_id:
                 span_data["parentSpanId"] = parent_id
+
+            record_completed_span(span_data)
 
             payload = self._build_traces_payload([span_data])
             self._send_payload("/v1/traces", payload)

@@ -78,11 +78,11 @@ class GitHubClient:
 
     def add_user_ssh_key(self, title: str, key: str) -> int:
         user = self._gh.get_user()
-        created = user.create_key(title=title, key=key)  # type: ignore[union-attr]
+        created = user.create_key(title=title, key=key)
         return created.id
 
     def delete_user_ssh_key(self, key_id: int) -> None:
-        self._gh.get_user().get_key(key_id).delete()  # type: ignore[union-attr]
+        self._gh.get_user().get_key(key_id).delete()
 
     # ── Pull requests ─────────────────────────────────────────────────────────
 

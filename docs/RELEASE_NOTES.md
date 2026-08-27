@@ -1,6 +1,30 @@
-# Release Notes — devops-cli v0.1.13
+# Release Notes — devops-cli v0.2.4
 
 Workstation-native DevOps CLI for managing repositories, SSH keys, Kubernetes clusters, Kustomize, ArgoCD, Grafana, Prometheus, Docker, workspace files, vector embedding benchmarks, TLS certificate automation, OpenTelemetry observability, and multi-persona AI code reviews.
+
+---
+
+## 🚀 Highlights of v0.2.4
+
+### 📊 Trace Waterfall Visualizer CLI (`devops telemetry profile`)
+- **Visual Span Waterfall**: Interactive terminal waterfall timeline with latency heatmaps and status badges.
+- **Granular Command Profiling**: Inspect span trees by `--trace-id`, inspect `--last` trace, or profile arbitrary subcommands directly.
+
+### 🔒 Keyring Secret Health Auditor (`devops config audit-keys`)
+- **Zero-Plaintext Validation**: Audits OS Keyring backend health and scans project configuration files for accidental plaintext token leaks.
+
+### 🤖 AI Developer Tooling & Real-Time Streams
+- **AST Repository Map Generator (`devops ai repomap`)**: Whole-repo symbol hierarchy extraction for compact LLM context without token overflow.
+- **Architecture & Threat Modeling Diagrams (`devops ai diagram`)**: Generates visual Mermaid architecture and STRIDE threat flowcharts.
+- **Streaming SSE & WebSocket Feeds (`devops serve /stream` & `/ws`)**: Live Server-Sent Events and duplex WebSocket feeds delivering real-time agent token and reasoning traces.
+- **Prompt Mutation Benchmarks (`devops ai prompt-eval`)**: Automated evaluation framework benchmarking persona prompt variations against ground truth feedback datasets.
+- **Automated Unit Test Synthesizer (`devops ai test-gen`)**: Generates isolated pytest suites for active file diffs.
+- **PR Remediation Branch Generator (`devops ai review auto-fix`)**: Autonomous creation of `fix/finding-<id>` topic branches with staged patches.
+
+### ⚡ Infrastructure, Semantic RAG & HTTP/2
+- **tfcmt PR Plan Notifier (`devops tf notify-plan`)**: Posts structured, collapsible OpenTofu/Terraform plan diff summaries to pull requests.
+- **Hybrid Dense-Sparse RAG Tier**: Reciprocal Rank Fusion (BM25 + Qdrant RRF) for high-precision code retrieval.
+- **Async HTTP/2 Connection Pooling**: Native async client reuse mitigating socket exhaustion.
 
 ---
 

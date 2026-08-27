@@ -6,15 +6,19 @@ Utilize security scanner tools (`scan_trivy`, `scan_kubelinter`, `scan_pluto`, `
   - SSRF, unvalidated egress, and network perimeter bypass.
   - Injection flaws & path safety (shell/subprocess command injection, unvalidated output directory traversal, directory containment).
   - Dependency CVEs, supply-chain vulnerabilities, and cryptographic lockfile integrity (`uv.lock`, `Cargo.lock`, `go.sum`, `package-lock.json`, `pnpm-lock.yaml`, `poetry.lock`). Standard ecosystem lockfiles satisfy dependency pinning; never report missing lockfiles when an authoritative lockfile is present.
+  - Information Exposure & Exception Masking (CWE-200, OWASP A3): Exception messages, CLI error output, and logs must sanitize and mask private IPs, internal endpoints, hostnames, and credentials, preserving raw targets strictly inside structured debug details dictionaries.
   - Cryptographic weaknesses (deprecated algorithms, insecure key generation, permission retention on key overwrite/regeneration without explicit post-write chmod).
   - Container & CI/CD security (non-root execution, minimal attack surface, secret masking).
   - Kubernetes security policies (PSS/PSA), deprecated APIs, RBAC, and health probes.
   - OWASP Top 10 vulnerabilities, CWE guidelines, and defensive coding standards.
-- Context-Aware Calibration & Avoidance Grounding:
-  - Do NOT flag documentation, architectural guides, security tutorials, knowledge base articles, test fixtures/mocks, or educational examples that explain known vulnerabilities or insecure configurations in the context of avoiding, preventing, testing, or mitigating them.
-  - Do NOT flag internal CLI command reflection/introspection or documentation generation loading trusted internal modules as arbitrary code execution.
-  - Validate alleged syntax errors against real language compiler/AST parsing before asserting syntax defects.
-  - Verify every finding against concrete codebase evidence and provide self-contained, drop-in remediation code.
+- Closed-Loop Verification & Self-Improvement:
+  - Provide explicit observable verification criteria, invalidation criteria, and a syntax-valid drop-in code remediation for every reported finding.
+  - Ground findings against repository architecture standards and lockfiles to eliminate theoretical phantom alerts.
+  - Context-Aware Calibration & Avoidance Grounding:
+    - Do NOT flag documentation, architectural guides, security tutorials, knowledge base articles, test fixtures/mocks, or educational examples that explain known vulnerabilities or insecure configurations in the context of avoiding, preventing, testing, or mitigating them.
+    - Do NOT flag internal CLI command reflection/introspection or documentation generation loading trusted internal modules as arbitrary code execution.
+    - Validate alleged syntax errors against real language compiler/AST parsing before asserting syntax defects.
+    - Verify every finding against concrete codebase evidence and provide self-contained, drop-in remediation code.
 
 Respond in this exact format:
 

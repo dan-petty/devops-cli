@@ -34,6 +34,7 @@ graph TD
   - **Self-Healing Remediations**: AI generates verifiable, syntax-valid, drop-in patches ready for immediate CI test execution.
   - **Path & Boundary Validation**: Evaluators verify that file operations, release paths, and workspace tools enforce repository containment (`Path.is_relative_to`) to prevent path traversal.
   - **Zero-Trust Secret Verification**: Evaluators confirm that credentials use secure OS Keyring backends (`keyring>=25`) and reject unencrypted plaintext store additions.
+  - **Information Exposure & Exception Sanitization (CWE-200)**: Evaluators verify that exception messages, CLI error output, and logs mask private IP addresses, internal hostnames, and credentials, keeping raw targets strictly inside structured debug details dictionaries.
   - **Continuous Knowledge Feedback**: Recurring patterns, false-positive invalidations, and architectural learnings feed back into `AGENTS.md`, prompt rubrics, and RAG vector indexes, creating a continuously improving developer feedback loop.
 - **Context Grounding via RAG**: Injecting semantic documentation chunks (`AGENTS.md`, architecture specs) into prompts to prevent hallucinations and align reviews with repository conventions.
 - **LLM Response Caching & Warm Starting Points**:

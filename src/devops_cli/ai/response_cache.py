@@ -13,7 +13,6 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from devops_cli.config.defaults import (
-    DEFAULT_LLM_CACHE_DATA_DIR,
     DEFAULT_LLM_CACHE_ENABLED,
     DEFAULT_LLM_CACHE_MAX_ENTRIES,
     DEFAULT_LLM_CACHE_TTL_SECONDS,
@@ -126,7 +125,13 @@ class LLMResponseCache:
         ttl_seconds: float = float(DEFAULT_LLM_CACHE_TTL_SECONDS),
         max_entries: int = DEFAULT_LLM_CACHE_MAX_ENTRIES,
     ) -> None:
-        self.cache_dir = cache_dir or DEFAULT_LLM_CACHE_DATA_DIR
+        if cache_dir is not None:
+            self.cache_dir = cache_dir
+        else:
+            from devops_cli.config.constants import CONST_LLM_CACHE_DIR_NAME
+            from devops_cli.config.settings import load_settings
+
+            self.cache_dir = load_settings().data.cache_dir / CONST_LLM_CACHE_DIR_NAME
         self.enabled = enabled
         self.ttl_seconds = float(ttl_seconds)
         self.max_entries = max_entries

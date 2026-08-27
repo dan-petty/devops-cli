@@ -45,7 +45,8 @@ def test_ssrf_blocked_error() -> None:
     err = SSRFBlockedError("http://192.168.1.1:8000/api")
     assert err.exit_code == 2
     assert err.error_code == "SSRF_BLOCKED"
-    assert "192.168.1.1" in str(err)
+    assert "<masked>" in str(err)
+    assert "192.168.1.1" not in str(err)
     assert err.details["target_url"] == "http://192.168.1.1:8000/api"
 
 

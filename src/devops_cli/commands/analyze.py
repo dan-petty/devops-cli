@@ -18,7 +18,6 @@ from devops_cli.config.constants import (
     CONST_MAX_FILE_SIZE_BYTES,
 )
 from devops_cli.config.defaults import (
-    DEFAULT_ANALYSIS_DATA_DIR,
     DEFAULT_CURRENT_PATH,
     DEFAULT_MATCH_ALL_PATTERN,
 )
@@ -262,7 +261,15 @@ def analyze_path(
     sanitized_ref = sanitize_reference(ref_str, repo)
     existing_file_metas: dict[str, FileAnalysisMeta] = {}
     top_root = find_top_level_repo_root(repo)
-    out_file_path = top_root / DEFAULT_ANALYSIS_DATA_DIR / f"path-{sanitized_ref}-metadata.json"
+    from devops_cli.config.settings import load_settings
+
+    settings = load_settings()
+    analysis_dir = settings.data.analysis_dir
+    if not analysis_dir.is_absolute():
+        analysis_dir = (top_root / analysis_dir).resolve()
+    else:
+        analysis_dir = analysis_dir.resolve()
+    out_file_path = analysis_dir / f"path-{sanitized_ref}-metadata.json"
 
     if enhanced and not update_all and out_file_path.exists():
         try:
@@ -351,7 +358,15 @@ def analyze_branch(
     sanitized_ref = sanitize_reference(target_branch, repo)
     existing_file_metas: dict[str, FileAnalysisMeta] = {}
     top_root = find_top_level_repo_root(repo)
-    out_file_path = top_root / DEFAULT_ANALYSIS_DATA_DIR / f"branch-{sanitized_ref}-metadata.json"
+    from devops_cli.config.settings import load_settings
+
+    settings = load_settings()
+    analysis_dir = settings.data.analysis_dir
+    if not analysis_dir.is_absolute():
+        analysis_dir = (top_root / analysis_dir).resolve()
+    else:
+        analysis_dir = analysis_dir.resolve()
+    out_file_path = analysis_dir / f"branch-{sanitized_ref}-metadata.json"
 
     if enhanced and not update_all and out_file_path.exists():
         try:

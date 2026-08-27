@@ -126,5 +126,7 @@ Before planning, implementing, debugging, refactoring, or reviewing code, archit
 - **Context-Aware Documentation & Anti-Pattern Evaluation**: AI review systems and coding assistants must **never** flag documentation, architectural guides, security tutorials, knowledge base articles, prompt benchmarks, test assertions/fixtures, test mocks, template files (`*.example.*`), or explanatory comments that describe known vulnerabilities, attack vectors, or insecure configurations in the context of avoiding, mitigating, warning against, or explaining said configurations.
 - **Closed-Loop Review & Self-Improvement Cycle**:
   - **Deduplication & Calibration**: Calibrate confidence scores and test explicit verification/invalidation criteria to eliminate phantom alerts.
+  - **Information Exposure & Exception Sanitization (CWE-200)**: Exception messages, CLI error output, and logs must sanitize and mask private IP addresses, internal hostnames, and credentials, preserving raw targets strictly inside structured debug details dictionaries.
   - **Self-Healing & Patch Application**: Review findings should provide drop-in remediations verifiable by unit tests and automated CI gates.
+  - **Feedback Dataset Export & RAG Grounding**: Export verified and invalidated review findings to structured datasets (`devops review export-feedback`) to continuously ground RAG retrieval and refine LLM evaluation prompts.
   - **Continuous Knowledge Feedback**: Synthesize recurrent patterns into repository architecture guidelines and targeted test fixtures.

@@ -78,6 +78,35 @@ def _search_collections(
     return raw_results
 
 
+def reciprocal_rank_fusion(
+    dense_results: list[SearchResult],
+    sparse_results: list[SearchResult],
+    k: int = 60,
+) -> list[SearchResult]:
+    """Combine dense vector and sparse keyword results using Reciprocal Rank Fusion (RRF)."""
+    scores: dict[str, float] = {}
+    chunk_map: dict[str, SearchResult] = {}
+
+    for rank, res in enumerate(dense_results):
+        cid = res.chunk.id or f"{res.chunk.file_path}:{res.chunk.start_line}"
+        scores[cid] = scores.get(cid, 0.0) + (1.0 / (k + rank + 1))
+        chunk_map[cid] = res
+
+    for rank, res in enumerate(sparse_results):
+        cid = res.chunk.id or f"{res.chunk.file_path}:{res.chunk.start_line}"
+        scores[cid] = scores.get(cid, 0.0) + (1.0 / (k + rank + 1))
+        if cid not in chunk_map:
+            chunk_map[cid] = res
+
+    sorted_ids = sorted(scores.keys(), key=lambda x: scores[x], reverse=True)
+    fused: list[SearchResult] = []
+    for cid in sorted_ids:
+        item = chunk_map[cid]
+        item.score = scores[cid]
+        fused.append(item)
+    return fused
+
+
 class SemanticRetriever:
     """Retrieves relevant code and documentation chunks to augment LLM prompts."""
 

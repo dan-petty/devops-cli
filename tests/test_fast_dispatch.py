@@ -84,10 +84,12 @@ def test_main_helpers_and_entrypoint() -> None:
 
 
 def test_entry_main_version(capsys: pytest.CaptureFixture[str]) -> None:
+    from devops_cli import __version__
+
     with pytest.raises(SystemExit):
         main(["devops", "--version"])
     captured = capsys.readouterr()
-    assert "0.2.3" in captured.out
+    assert __version__ in captured.out
 
 
 def test_entry_main_help(capsys: pytest.CaptureFixture[str]) -> None:
@@ -98,10 +100,12 @@ def test_entry_main_help(capsys: pytest.CaptureFixture[str]) -> None:
 
 
 def test_entry_main_binary_path_argv(capsys: pytest.CaptureFixture[str]) -> None:
+    from devops_cli import __version__
+
     with pytest.raises(SystemExit):
         main(["/usr/local/bin/devops", "--version"])
     captured = capsys.readouterr()
-    assert "0.2.3" in captured.out
+    assert __version__ in captured.out
 
 
 def test_entry_main_dry_run_delegation() -> None:

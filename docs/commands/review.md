@@ -190,3 +190,28 @@ devops review apply-patch [OPTIONS] <session>
 | `--interactive`, `-i` | `boolean` | - | Preview patch diff interactively. |
 
 ---
+
+## `devops review auto-fix`
+
+**Create a corrective topic branch with verified unit test patch for an approved finding.**
+
+```bash
+devops review auto-fix [OPTIONS] <finding_id>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<finding_id>` | `string` | Yes | Finding ID or title to create remediation branch for |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--file`, `-f` | `string` | `src/devops_cli/main.py` | Target source file to apply fix to |
+| `--branch`, `-b` | `string` | - | Custom topic branch name |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+
+---

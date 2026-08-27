@@ -74,6 +74,7 @@ devops ai review export-feedback --status ALL --output .data/reviews/feedback_da
 ## 5. Security Recommendations & Zero-Trust Policies
 
 - **Secret Masking & Path Filtering**: All diffs and source excerpts pass through `_mask_secrets_in_content` before transmission to LLM providers. Secret-containing paths (`.env*`, `.pem`, `*.key`, `*secret*`) are excluded from validation prompt injection.
+- **Information Exposure & Exception Sanitization (CWE-200)**: Exception messages, log streams, and CLI diagnostic output must sanitize and mask private IPs, internal endpoints, hostnames, and credentials, preserving raw target URLs strictly inside structured debug details dictionaries.
 - **Prompt Injection Defense**: Boundary closing tags and diff titles are escaped to prevent prompt manipulation.
 - **Path Traversal Protection**: Directory traversal routines strictly enforce repository boundaries and skip symlinked files.
 - **Offline Review Option**: For proprietary or air-gapped environments, use `--provider ollama` to keep all code analysis strictly on the local machine.

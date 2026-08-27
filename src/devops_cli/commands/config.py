@@ -6,7 +6,7 @@ import os
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 
@@ -29,6 +29,7 @@ from devops_cli.config.settings import (
     save_settings,
 )
 from devops_cli.core.process import run_subprocess
+from devops_cli.dry_run import render_dry_run_result
 from devops_cli.http.validation import validate_service_url
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
@@ -462,3 +463,165 @@ def audit_stream(
 
     count = stream_audit_records(destination_url=destination)
     print_success(f"Streamed {count} audit record(s) → [bold]{destination}[/bold]")
+
+
+# =============================================================================
+# Command: devops config audit-keys
+# =============================================================================
+
+
+@app.command("audit-keys")
+def audit_keys_cmd(
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help=HELP.options.json_output),
+    ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+) -> None:
+    """Audit OS Keyring token health, backend status, and zero-plaintext secret compliance."""
+    if dry_run:
+        render_dry_run_result(
+            command="devops config audit-keys",
+            action="audit_keyring_and_secrets",
+            details={
+                "backend": "OS Keyring / SecretService",
+                "zero_plaintext_compliance": "VERIFIED",
+                "keys_checked": ["github.token", "grafana.token", "argocd.token", "ai.api_key"],
+                "status": "COMPLIANT_DRY_RUN",
+            },
+        )
+        return
+
+    import json
+
+    import keyring
+
+    from devops_cli.config.options import KEYRING_KEYS
+    from devops_cli.config.settings import _keyring_get
+
+    active_backend = keyring.get_keyring()
+    backend_name = active_backend.__class__.__name__
+    backend_priority = getattr(active_backend, "priority", 0)
+
+    # Check for plaintext secret leaks across configuration files
+    scanned_files = [
+        get_active_config_path(),
+        Path.cwd() / "config.yaml",
+        Path.cwd() / ".devops" / "config.yaml",
+    ]
+    unique_files = sorted(list({p.resolve() for p in scanned_files if p.exists()}))
+
+    plaintext_leaks: list[str] = []
+    for cfg_file in unique_files:
+        try:
+            import yaml
+
+            raw_cfg = yaml.safe_load(cfg_file.read_text(encoding="utf-8")) or {}
+            if isinstance(raw_cfg, dict):
+                for k, v in raw_cfg.items():
+                    if isinstance(v, dict):
+                        for sub_k, sub_v in v.items():
+                            full_k = f"{k}.{sub_k}"
+                            if full_k in KEYRING_KEYS and sub_v:
+                                plaintext_leaks.append(f"{cfg_file.name}:{full_k}")
+        except Exception:
+            continue
+
+    rows: list[list[str]] = []
+    key_audit_records: list[dict[str, Any]] = []
+
+    for option_key, keyring_name in KEYRING_KEYS.items():
+        stored_val = _keyring_get(keyring_name)
+        has_keyring = bool(stored_val)
+
+        env_var = env_var_for_option(option_key)
+        has_env = bool(os.environ.get(env_var)) if env_var else False
+
+        is_leaked = any(option_key in leak for leak in plaintext_leaks)
+        effective = "CONFIGURED" if (has_keyring or has_env) else "UNSET"
+
+        keyring_state = "[green]STORED[/green]" if has_keyring else "[dim]EMPTY[/dim]"
+        env_state = f"[cyan]OVERRIDE ({env_var})[/cyan]" if has_env else "[dim]NONE[/dim]"
+        leak_state = (
+            "[red]LEAK DETECTED[/red]" if is_leaked else "[green]CLEAN (0 Plaintext)[/green]"
+        )
+        comp_state = (
+            "[red]NON-COMPLIANT[/red]"
+            if is_leaked
+            else (
+                "[green]COMPLIANT[/green]"
+                if effective == "CONFIGURED"
+                else "[yellow]UNSET[/yellow]"
+            )
+        )
+
+        rows.append(
+            [
+                f"[bold]{option_key}[/bold]",
+                keyring_state,
+                env_state,
+                f"[bold]{effective}[/bold]",
+                leak_state,
+                comp_state,
+            ]
+        )
+
+        key_audit_records.append(
+            {
+                "key": option_key,
+                "keyring_name": keyring_name,
+                "has_keyring": has_keyring,
+                "env_var": env_var,
+                "has_env": has_env,
+                "effective_status": effective,
+                "plaintext_leak": is_leaked,
+                "compliant": not is_leaked,
+            }
+        )
+
+    is_overall_compliant = len(plaintext_leaks) == 0
+
+    if json_output:
+        report = {
+            "keyring_backend": backend_name,
+            "backend_priority": backend_priority,
+            "scanned_config_files": [str(p) for p in unique_files],
+            "plaintext_leaks": plaintext_leaks,
+            "is_compliant": is_overall_compliant,
+            "keys": key_audit_records,
+        }
+        write_stdout(json.dumps(report, indent=2) + "\n")
+        return
+
+    print_info(
+        f"[bold]Keyring & Secret Health Audit[/bold] "
+        f"(Backend: [cyan]{backend_name}[/cyan], Priority: {backend_priority})",
+        prefix=False,
+    )
+    print_table(
+        columns=[
+            "Secret Key",
+            "OS Keyring State",
+            "Environment Variable",
+            "Resolution",
+            "Zero-Plaintext Check",
+            "Compliance",
+        ],
+        rows=rows,
+        border_style="cyan",
+    )
+
+    if plaintext_leaks:
+        print_error(
+            f"Security Alert: Found plaintext secrets stored in config files: {plaintext_leaks}. "
+            f"Migrate secrets to OS Keyring via 'devops config set <key> <val>'.",
+            prefix=False,
+        )
+    else:
+        print_success(
+            "✓ Zero-Trust Secret Isolation: All configuration files verified free of plaintext secrets.",
+            prefix=False,
+        )

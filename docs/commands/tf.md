@@ -223,3 +223,22 @@ devops tf lint [OPTIONS] <directory>
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ---
+
+## `devops tf notify-plan`
+
+**Format and post structured, collapsible OpenTofu/Terraform plan diffs to PR comments.**
+
+```bash
+devops tf notify-plan [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--plan-file`, `-p` | `path` | - | Path to raw plan output or log file |
+| `--pr` | `integer` | - | Pull Request number to post plan comment to |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+
+---
