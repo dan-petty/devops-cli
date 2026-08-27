@@ -138,7 +138,7 @@ def run_static_scan_stage(
                 logger.debug("Extraction failed for %s: %s", vp, exc)
 
         print_info(
-            f"    ✓ Extracted {len(all_deps)} unique dependency(ies) and {len(all_nets)} network target(s)",
+            f"    ✓ Extracted {len(all_deps)} in-file dependency(ies) and {len(all_nets)} in-file network target(s)",
             prefix=False,
         )
         print_info(

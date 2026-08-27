@@ -456,6 +456,36 @@ def _probe_network_refs_in_dirs(
             break
 
 
+def _format_extraction_summary(
+    direct_deps_count: int,
+    direct_nets_count: int,
+    probed_deps_count: int,
+    probed_nets_count: int,
+) -> str:
+    """Format summary string distinguishing in-file references from probed workspace references."""
+    if probed_deps_count == 0 and probed_nets_count == 0:
+        return (
+            f"{direct_deps_count} unique dependency(ies) and {direct_nets_count} network target(s)"
+        )
+
+    probed_parts: list[str] = []
+    if probed_deps_count > 0:
+        probed_parts.append(
+            f"{probed_deps_count} project dependencies probed from workspace manifests"
+        )
+    if probed_nets_count > 0:
+        probed_parts.append(f"{probed_nets_count} network targets probed from workspace configs")
+    probed_summary = ", ".join(probed_parts)
+
+    if direct_deps_count == 0 and direct_nets_count == 0:
+        return f"0 in-file references ({probed_summary})"
+
+    return (
+        f"{direct_deps_count} in-file dependency(ies) and {direct_nets_count} in-file network target(s) "
+        f"({probed_summary})"
+    )
+
+
 def _execute_pre_analysis_batch(
     paths_to_analyze: list[tuple[Path, str]],
     repo: Path,
@@ -889,6 +919,9 @@ class ReviewPipelineOrchestrator:
                     all_unique_deps.update(dep_tuples)
                     all_unique_nets.update((n.target, n.reference_type) for n in file_nets)
 
+            direct_deps_count = len(all_unique_deps)
+            direct_nets_count = len(all_unique_nets)
+
             # Dynamically discover project manifests and configuration files via
             # filesystem inspection if none were directly present in reviewed file paths
             probe_dirs: list[Path] = []
@@ -903,16 +936,28 @@ class ReviewPipelineOrchestrator:
             if not all_unique_nets:
                 _probe_network_refs_in_dirs(probe_dirs, raw_file_data, all_unique_nets)
 
+            probed_deps_count = len(all_unique_deps) - direct_deps_count
+            probed_nets_count = len(all_unique_nets) - direct_nets_count
+
             ref_span.set_attributes(
                 {
                     "unique_deps_count": len(all_unique_deps),
                     "unique_nets_count": len(all_unique_nets),
+                    "direct_deps_count": direct_deps_count,
+                    "direct_nets_count": direct_nets_count,
+                    "probed_deps_count": probed_deps_count,
+                    "probed_nets_count": probed_nets_count,
                 }
             )
 
+        summary_str = _format_extraction_summary(
+            direct_deps_count,
+            direct_nets_count,
+            probed_deps_count,
+            probed_nets_count,
+        )
         print_info(
-            f"    [dim]✓ Extracted {len(all_unique_deps)} unique dependency(ies) and "
-            f"{len(all_unique_nets)} network target(s)[/dim]",
+            f"    [dim]✓ Extracted {summary_str}[/dim]",
             prefix=False,
         )
         return raw_file_data, all_unique_deps, all_unique_nets

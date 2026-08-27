@@ -903,3 +903,53 @@ def test_orchestrator_session_directory_resolution(tmp_path: Path) -> None:
     reviews_base = _get_reviews_base_dir().resolve()
     assert orch.session_dir.parent == reviews_base
     assert not (sub_target / ".data").exists()
+
+
+def test_format_extraction_summary_distinguishes_probed_references() -> None:
+    """Verify _format_extraction_summary distinguishes in-file vs workspace probed references."""
+    from devops_cli.ai.review.pipeline import _format_extraction_summary
+
+    # Case 1: Purely in-file references, 0 probed
+    res_direct = _format_extraction_summary(
+        direct_deps_count=5,
+        direct_nets_count=2,
+        probed_deps_count=0,
+        probed_nets_count=0,
+    )
+    assert res_direct == "5 unique dependency(ies) and 2 network target(s)"
+
+    # Case 2: 0 in-file references, both deps and nets probed
+    res_probed_all = _format_extraction_summary(
+        direct_deps_count=0,
+        direct_nets_count=0,
+        probed_deps_count=36,
+        probed_nets_count=21,
+    )
+    assert res_probed_all == (
+        "0 in-file references (36 project dependencies probed from workspace manifests, "
+        "21 network targets probed from workspace configs)"
+    )
+
+    # Case 3: 0 in-file references, only deps probed
+    res_probed_deps = _format_extraction_summary(
+        direct_deps_count=0,
+        direct_nets_count=0,
+        probed_deps_count=12,
+        probed_nets_count=0,
+    )
+    assert (
+        res_probed_deps
+        == "0 in-file references (12 project dependencies probed from workspace manifests)"
+    )
+
+    # Case 4: Partial in-file references with probed supplementary references
+    res_mixed = _format_extraction_summary(
+        direct_deps_count=2,
+        direct_nets_count=1,
+        probed_deps_count=0,
+        probed_nets_count=8,
+    )
+    assert res_mixed == (
+        "2 in-file dependency(ies) and 1 in-file network target(s) "
+        "(8 network targets probed from workspace configs)"
+    )
