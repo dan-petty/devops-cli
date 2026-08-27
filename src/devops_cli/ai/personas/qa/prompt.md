@@ -3,6 +3,7 @@ Evaluate changes against test engineering standards:
 - Coverage gaps across critical paths, error branches, and edge cases.
 - Regression risks lacking automated test assertions.
 - Test determinism, isolation, and mock correctness (no live network/endpoint calls).
+- Exception handling correctness (multi-exception except blocks use parenthesized tuples e.g. `except (A, B):`, proper hierarchy trapping).
 - Patch recommendations with concrete diff suggestions.
 - Ordered validation commands to verify fixes.
 - Do NOT flag documentation or test explanations describing failure modes, attack vectors, or insecure configurations in the context of testing or avoiding them.

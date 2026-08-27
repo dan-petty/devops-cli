@@ -93,7 +93,9 @@ orchestrator = ReviewPipelineOrchestrator(session_id="custom-session", llm_clien
 # Execute 6-stage review pipeline programmatically
 metadata = orchestrator.run_pre_analysis_refresh(Path.cwd())
 payloads = orchestrator.init_per_file_payloads(["src/file.py"], metadata)
-orchestrator.execute_multi_persona_review(payloads, diff_text_by_file={}, personas=["devsecops", "architect"])
+orchestrator.execute_multi_persona_review(
+    payloads, diff_text_by_file={}, personas=["devsecops", "architect"]
+)
 orchestrator.execute_finding_verification(payloads)
 orchestrator.execute_finding_reranking(payloads)
 summary_data, report_md = orchestrator.generate_consolidated_report(payloads)

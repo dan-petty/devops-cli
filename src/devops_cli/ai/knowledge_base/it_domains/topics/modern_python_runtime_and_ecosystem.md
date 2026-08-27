@@ -22,6 +22,7 @@ graph LR
   - Native union syntax (`int | str`) replacing legacy `Union[int, str]`.
   - Built-in generic collection types (`list[str]`, `dict[str, Any]`, `set[Path]`).
   - Abstract base collections from `collections.abc` (`Sequence`, `Mapping`, `Callable`).
+  - Modern Exception Tuples: When catching multiple exception types, always use parenthesized tuple syntax (`except (Exc1, Exc2):`) rather than bare commas to ensure standard multi-exception trapping behavior.
 - **Cryptographic Lockfile & Packaging Governance**:
   - `uv.lock` serves as the authoritative, cross-platform cryptographic lockfile providing deterministic SHA-256 integrity verification across dependencies.
   - `[build-system]` declarations in `pyproject.toml` should specify explicit version bounds (e.g. `requires = ["hatchling>=1.26.0"]`) to protect build environments against dependency confusion and supply-chain drift.
