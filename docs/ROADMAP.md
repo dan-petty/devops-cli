@@ -154,30 +154,36 @@ High-density product roadmap, engineering milestones, and open-source integratio
 
 ### Live State Watchers, Continuous Automation & Declarative Command Pipeline (v0.2.6 - Scheduled)
 - [ ] **Continuous Live Resource & State Watchers (`--watch` / `-w`)**: Real-time terminal auto-refresh and live event streaming across `devops k8s pods --watch`, `devops argo status --watch`, `devops docker stats --watch`, and `devops release status --watch` utilizing `rich.live.Live` with configurable intervals (`--interval`).
-- [ ] **Continuous IDE File Watcher & Instant AI Review (`devops ai review path --watch`)**: Inotify/watchdog-backed background listener executing automated incremental multi-persona reviews on active file changes.
+- [ ] **Interactive Terminal UI Dashboard (`devops dashboard` / `devops tui`)**: Full-screen terminal dashboard powered by `Textual` providing responsive tabs for live Kubernetes pods, Minikube services, Docker container metrics, OpenTelemetry span waterfalls, and active AI review findings with keyboard navigation (`1-5`, `q`, `r`).
+- [ ] **Continuous IDE File Watcher & Instant AI Review (`devops ai review path --watch`)**: Inotify/watchdog-backed background listener executing automated incremental multi-persona reviews on active file changes with configurable debounce windows (`--debounce-ms`).
 - [ ] **Declarative CLI Command Dispatch & Output Presenter Engine (`@cli_command_handler`)**: Universal decorator eliminating boilerplate formatting, dry-run routing, OpenTelemetry span creation, and multi-format serialization (`json|yaml|table|markdown`) across all 30+ Typer subcommands.
 - [ ] **Universal Subprocess Execution & SIEM Audit Pipeline (`ProcessExecutionPipeline`)**: Centralized command runner enforcing strict argument list sanitization, bounded timeouts, non-root safety, traceparent propagation, and structured audit trail recording (`.data/logs/audit.jsonl`).
 - [ ] **Static Code Complexity & Cyclomatic Depth Linter (`devops scan complexity`)**: Automated AST scanner enforcing maximum cyclomatic complexity (< 10) and strict nesting limits across the codebase.
-- [ ] **Deterministic Async Memory & Connection Pool Profiler (`devops test profile-memory`)**: Memory leak detection and async socket lifecycle validation across background daemons and MCP workers.
+- [ ] **Deterministic Async Memory & Connection Pool Profiler (`devops test profile-memory`)**: Memory leak detection and async socket lifecycle validation across background daemons and MCP workers using `asyncio` and `tracemalloc`.
 - [ ] **Sigstore Cosign Container Provenance (`cosign`)**: Keyless container image and manifest signing (`devops docker sign|verify`) integrating with OS Keyring and OIDC tokens for verifiable supply-chain provenance.
-- [ ] **Syft & Grype Automated SBOM & Vulnerability Scanning (`syft`, `grype`)**: Automated Software Bill of Materials (SBOM) generation (`devops scan sbom`) in CycloneDX/SPDX formats and Grype container runtime vulnerability auditing.
+- [ ] **Syft & Grype Automated SBOM & Vulnerability Scanning (`syft`, `grype`)**: Automated Software Bill of Materials (SBOM) generation (`devops scan sbom`) in CycloneDX/SPDX formats and Grype container runtime vulnerability auditing with configurable severity thresholds (`--fail-on high|critical`).
 - [ ] **Infracost FinOps Cloud Cost Engine (`infracost`)**: `devops tf cost` integrating Infracost CLI to evaluate cloud financial impacts on Terraform/OpenTofu diffs, enriching `pm` & `architect` review personas with monthly cost deltas.
-- [ ] **Falco eBPF Runtime Security & Anomaly Streamer (`devops k8s security-stream`)**: Real-time streaming kernel anomaly and container syscall events.
+- [ ] **Falco eBPF Runtime Security & Anomaly Streamer (`devops k8s security-stream`)**: Real-time streaming kernel anomaly and container syscall events via eBPF probes.
 - [ ] **Multi-Cluster ArgoCD Fleet Sync & Rollouts (`devops argo sync --fleet`)**: Advanced canary and blue-green rollout management with Prometheus metric-based rollback gates.
 
 ### Universal Workflow Protocols, Secret Brokering & Semantic Search (v0.2.7 - Scheduled)
 - [ ] **Universal Multi-Stage Workflow Orchestration Protocol (`StagePipeline[ContextT, ResultT]`)**: Standardized 6-stage lifecycle abstraction (`pre_analysis`, `static_scan`, `persona_review`, `verification`, `reranking`, `reporting`) with unified lifecycle hooks and scratchpad reasoning handoffs across all agentic AI subcommands.
 - [ ] **Unified Async HTTP/2 Connection & Security Broker (`HttpClientBroker`)**: Centralized connection pool manager providing persistent keepalive, backoff retry policies, SSRF private network isolation, and traceparent propagation across all external API clients (LLMs, OSV, Shodan, Cloudflare, GitHub).
+- [ ] **Automated Dependency Vulnerability Remediation Engine (`devops scan fix`)**: Autonomous patching and version bumping in `pyproject.toml`, `requirements.txt`, `package.json`, and `Dockerfile` with automated pytest/CI gate validation and branch staging.
 - [ ] **Zero-Allocation Tokenizer & AST Stream Parser**: Zero-copy tokenizer stream processing for large diffs (> 500KB) reducing peak RSS memory by up to 60%.
 - [ ] **Cross-Encoder Context Re-Ranker & Deep Semantic RAG Optimization**: Two-stage dense-sparse retrieval with local cross-encoder re-ranking and vector index compaction.
+- [ ] **Local Kubernetes Chaos & Fault Injection Engine (`devops k8s chaos run`)**: Automated pod disruption budgets, network latency injection (`tc`/`netem`), packet drops, and CPU throttling to validate service resilience and auto-recovery.
 - [ ] **Vault & Cloud KMS Enterprise Secret Broker (`hvac`, `aws-kms`, `gcp-kms`)**: Dynamic secret leases, key rotation, and envelope encryption for enterprise teams beyond OS Keyring.
 - [ ] **Trace-Driven Automated Performance Regression Detection**: Continuous performance baseline tracking comparing OTel spans across PRs to flag latency regressions before production merges.
 - [ ] **Automated Vector Storage Compaction & Point Pruning**: Scheduled Qdrant collection compaction and stale embedding point pruning for long-running workstation instances.
 
 ### Multi-Cloud Mesh & Production Ecosystem (v0.3.0 - Future Vision)
-- [ ] **Multi-Region Workstation Mesh & Cluster Federation**: Distributed cluster management across hybrid on-prem homelab and multi-cloud Kubernetes clusters.
+- [ ] **Multi-Region Workstation Mesh & Cluster Federation**: Distributed cluster management across hybrid on-prem homelab and multi-cloud Kubernetes clusters with automatic service mesh routing.
 - [ ] **Autonomous Self-Healing Agent Pipeline**: Closed-loop diagnostic engine capable of discovering cluster incidents, generating corrective patches, running CI gates, and executing rollback.
+- [ ] **Cloud-Native Ephemeral Test Environment Provisioner (`devops env ephemeral up/down`)**: Automated provisioning of isolated namespace staging environments with seeded mock databases, synthetic datasets, and TLS ingresses on minikube or cloud clusters.
+- [ ] **Zero-Trust Git Commit & Tag Cryptographic Verification (`devops release verify-signatures`)**: Automated verification of SSH/GPG and Sigstore keyless commit signatures across repository history and pull requests.
 - [ ] **Distributed Multi-Cluster Telemetry & OTel Egress Mesh**: Global trace and metric federation across hybrid workstation topologies with automated anomaly alerting.
+- [ ] **Distributed Cache & Shared Semantic Embeddings Sync (`devops ai cache sync`)**: S3 / OCI-backed shared LLM response and vector embedding cache for remote engineering teams.
 - [ ] **JIT Python 3.14 Tail-Call & Bytecode Optimization Benchmarking**: Comprehensive runtime benchmarks utilizing Python 3.14+ specialization and JIT compiler tiers.
 
 ---
@@ -228,6 +234,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
 | | Static Code Complexity & Cyclomatic Depth Linter | AST / Standard Library | High | Low | v0.2.6 | 📋 Scheduled |
 | | Deterministic Async Memory & Pool Profiler | `asyncio` / `tracemalloc` | Medium | Low | v0.2.6 | 📋 Scheduled |
 | | Zero-Allocation Tokenizer & AST Stream Parser | `tokenize` / Generator | High | Low | v0.2.7 | 📋 Scheduled |
+| | Zero-Trust Git Commit & Tag Signature Verifier | `git`, GPG, Sigstore | High | Low | v0.3.0 | 💡 Future Vision |
 | | JIT Python 3.14 Bytecode Optimization Benchmarking | `pytest-benchmark` / JIT | Medium | Low | v0.3.0 | 💡 Future Vision |
 | **Strategic Investments** | OpenTofu Multi-Cloud IaC Modules (`tf/`) | OpenTofu / AWS / Azure / GCP | High | High | v0.1.9 | ✅ Completed |
 | | Minikube Service Auto-Config & 7-Gate CI | Minikube / GitHub Actions | High | High | v0.1.5 | ✅ Completed |
@@ -245,6 +252,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
 | | Aider-Style Tree-Sitter / AST Repository Map Generator | AST / Pydantic | High | Medium | v0.2.4 | ✅ Completed |
 | | Hybrid Dense-Sparse RAG Search (BM25 + Qdrant) | Qdrant / RRF | High | Medium | v0.2.4 | ✅ Completed |
 | | Continuous Live Resource & State Watchers (`--watch`) | `rich.live.Live` | High | Medium | v0.2.6 | 📋 Scheduled |
+| | Interactive Terminal UI Dashboard (`devops dashboard`) | `textual` TUI | High | Medium | v0.2.6 | 📋 Scheduled |
 | | Continuous IDE File Watcher & Instant AI Review | `watchdog` / AST | High | Medium | v0.2.6 | 📋 Scheduled |
 | | Declarative CLI Command Dispatch Engine | Typer / Python Decorators | High | Medium | v0.2.6 | 📋 Scheduled |
 | | Universal Subprocess Execution Pipeline | Python Subprocess / OTel | High | Medium | v0.2.6 | 📋 Scheduled |
@@ -255,13 +263,17 @@ High-density product roadmap, engineering milestones, and open-source integratio
 | | Falco eBPF Runtime Security & Anomaly Streamer | `falco` / eBPF | High | Medium | v0.2.6 | 📋 Scheduled |
 | | Universal Multi-Stage Workflow Orchestration Protocol | Python Generics / Pydantic | High | Medium | v0.2.7 | 📋 Scheduled |
 | | Unified Async HTTP/2 Connection & Security Broker | `httpx2` / SSRF Guard | High | Medium | v0.2.7 | 📋 Scheduled |
+| | Automated Vulnerability Remediation PR Engine | AST / Pytest / Git | High | Medium | v0.2.7 | 📋 Scheduled |
 | | Cross-Encoder Context Re-Ranker & Deep Semantic RAG | Cross-Encoder / Qdrant | High | Medium | v0.2.7 | 📋 Scheduled |
+| | Local Kubernetes Chaos & Fault Injection Engine | `chaos-mesh` / `tc` | High | Medium | v0.2.7 | 📋 Scheduled |
 | | Enterprise Vault & KMS Secret Broker | `hvac`, Cloud KMS SDKs | Medium | High | v0.2.7 | 📋 Scheduled |
 | | Trace-Driven Automated Performance Regression Detection | OTel / Prometheus | High | Medium | v0.2.7 | 📋 Scheduled |
 | | Automated Vector Storage Compaction & Pruning | Qdrant Client / SQLite | Medium | Medium | v0.2.7 | 📋 Scheduled |
 | | Multi-Region Workstation Mesh & Cluster Federation | Kubernetes / Fleet | High | High | v0.3.0 | 💡 Future Vision |
 | | Autonomous Self-Healing Agent Pipeline | PydanticAI / Diagnostic | High | High | v0.3.0 | 💡 Future Vision |
+| | Cloud-Native Ephemeral Test Environment Engine | Minikube / Helm / Ingress | High | Medium | v0.3.0 | 💡 Future Vision |
 | | Distributed Multi-Cluster Telemetry & OTel Egress Mesh | OTel Collector / Prometheus | High | High | v0.3.0 | 💡 Future Vision |
+| | Distributed Cache & Shared Semantic Embeddings Sync | S3 / OCI / SQLite | High | Medium | v0.3.0 | 💡 Future Vision |
 | **Tactical Additions** | Line-Level GitHub PR Inline Comments | PyGithub / GitHub REST API | High | High | v0.1.1 | ✅ Completed |
 | | Human Feedback Dataset Exporter | JSONL / Pydantic | High | Medium | v0.1.1 | ✅ Completed |
 | | Custom Team Persona Overrides (`.devops/personas/`) | Jinja2 / Markdown | High | Medium | v0.1.1 | ✅ Completed |
