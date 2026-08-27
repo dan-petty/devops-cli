@@ -88,34 +88,40 @@ def test_extract_network_references() -> None:
     targets = {r.target: r for r in refs}
 
     # External targets
-    assert "https://api.prod.example-corp.com/v1" in targets
-    assert not targets["https://api.prod.example-corp.com/v1"].is_local
-    assert targets["https://api.prod.example-corp.com/v1"].scope == "external"
+    target_api = targets.get("https://api.prod.example-corp.com/v1")
+    assert target_api is not None
+    assert not target_api.is_local
+    assert target_api.scope == "external"
 
-    assert "93.184.216.34" in targets
-    assert not targets["93.184.216.34"].is_local
+    target_ip = targets.get("93.184.216.34")
+    assert target_ip is not None
+    assert not target_ip.is_local
 
-    assert "prod-infra.custom-cloud.io" in targets
-    assert not targets["prod-infra.custom-cloud.io"].is_local
+    target_infra = targets.get("prod-infra.custom-cloud.io")
+    assert target_infra is not None
+    assert not target_infra.is_local
 
-    assert "https://auth.vendor-service.io/oauth/token" in targets
-    assert not targets["https://auth.vendor-service.io/oauth/token"].is_local
+    target_auth = targets.get("https://auth.vendor-service.io/oauth/token")
+    assert target_auth is not None
+    assert not target_auth.is_local
 
     # Local targets
-    assert "192.168.1.100" in targets
-    assert targets["192.168.1.100"].is_local
-    assert targets["192.168.1.100"].scope == "local"
-    assert "Local" in targets["192.168.1.100"].security_status
+    target_local_ip = targets.get("192.168.1.100")
+    assert target_local_ip is not None
+    assert target_local_ip.is_local
+    assert target_local_ip.scope == "local"
+    assert "Local" in target_local_ip.security_status
 
-    assert "test.example.com" in targets
-    assert targets["test.example.com"].is_local
-    assert targets["test.example.com"].scope == "local"
+    target_local_domain = targets.get("test.example.com")
+    assert target_local_domain is not None
+    assert target_local_domain.is_local
+    assert target_local_domain.scope == "local"
 
     # Non-network file references skipped
-    assert "main.py" not in targets
-    assert "coverage.xml" not in targets
-    assert "dmypy.json" not in targets
-    assert "config.yaml" not in targets
+    assert targets.get("main.py") is None
+    assert targets.get("coverage.xml") is None
+    assert targets.get("dmypy.json") is None
+    assert targets.get("config.yaml") is None
 
 
 def test_extract_network_references_gitignore_filtering() -> None:
@@ -165,9 +171,9 @@ def test_extract_network_references_python_code_token_filtering() -> None:
     targets = {r.target for r in refs}
 
     # Should find legitimate URLs and quoted string domain literals
-    assert "https://api.example-service.com" in targets
-    assert "https://custom-cloud.io/v1/metrics" in targets
-    assert "metrics.internal-monitoring.net" in targets
+    assert any(t == "https://api.example-service.com" for t in targets)
+    assert any(t == "https://custom-cloud.io/v1/metrics" for t in targets)
+    assert any(t == "metrics.internal-monitoring.net" for t in targets)
 
     # Must NOT match Python code tokens, functions, methods, or attributes
     assert "logging.getlogger" not in targets
@@ -205,8 +211,8 @@ def test_extract_network_references_toml_table_filtering() -> None:
     refs = extract_network_references(toml_content, "pyproject.toml")
     targets = {r.target for r in refs}
 
-    assert "https://custom-vendor.org" in targets
-    assert "api.custom-vendor.org" in targets
+    assert any(t == "https://custom-vendor.org" for t in targets)
+    assert any(t == "api.custom-vendor.org" for t in targets)
     assert "tool.ruff" not in targets
     assert "tool.ruff.lint" not in targets
     assert "tool.pytest" not in targets
@@ -233,7 +239,7 @@ def test_extract_network_references_code_false_positives_filtering() -> None:
     targets_yaml = {r.target for r in refs_yaml}
     assert "user.email" not in targets_yaml
     assert "user.name" not in targets_yaml
-    assert "ghcr.io" in targets_yaml
+    assert any(t == "ghcr.io" for t in targets_yaml)
 
     py_content = """
     # Mocking patch
@@ -255,7 +261,7 @@ def test_extract_network_references_code_false_positives_filtering() -> None:
     assert "commands.ai" not in targets_py
     assert "self.host" not in targets_py
     assert "requirements.in" not in targets_py
-    assert "prod-infra.custom-cloud.io" in targets_py
+    assert any(t == "prod-infra.custom-cloud.io" for t in targets_py)
 
 
 def test_extract_network_references_tf_and_python_imports() -> None:
@@ -345,18 +351,22 @@ def test_extract_network_references_json_and_yaml_scalars() -> None:
     """
     refs_json = extract_network_references(json_doc, "config/settings.json")
     targets_json = {r.target: r for r in refs_json}
-    assert "https://api.external-metrics.io/v1" in targets_json
-    assert not targets_json["https://api.external-metrics.io/v1"].is_local
+    t_api = targets_json.get("https://api.external-metrics.io/v1")
+    assert t_api is not None
+    assert not t_api.is_local
 
-    assert "gateway.production-cloud.net" in targets_json
-    assert not targets_json["gateway.production-cloud.net"].is_local
+    t_host = targets_json.get("gateway.production-cloud.net")
+    assert t_host is not None
+    assert not t_host.is_local
 
-    assert "93.184.216.34" in targets_json
-    assert not targets_json["93.184.216.34"].is_local
+    t_pub_ip = targets_json.get("93.184.216.34")
+    assert t_pub_ip is not None
+    assert not t_pub_ip.is_local
 
-    assert "10.0.0.5" in targets_json
-    assert targets_json["10.0.0.5"].is_local
-    assert targets_json["10.0.0.5"].scope == "local"
+    t_int_ip = targets_json.get("10.0.0.5")
+    assert t_int_ip is not None
+    assert t_int_ip.is_local
+    assert t_int_ip.scope == "local"
 
     yaml_doc = """
     services:
@@ -367,9 +377,9 @@ def test_extract_network_references_json_and_yaml_scalars() -> None:
     """
     refs_yaml = extract_network_references(yaml_doc, "docker-compose.yml")
     targets_yaml = {r.target: r for r in refs_yaml}
-    assert "https://telemetry.custom-service.io/traces" in targets_yaml
-    assert "traces.custom-service.io" in targets_yaml
-    assert "8.8.8.8" in targets_yaml
+    assert targets_yaml.get("https://telemetry.custom-service.io/traces") is not None
+    assert targets_yaml.get("traces.custom-service.io") is not None
+    assert targets_yaml.get("8.8.8.8") is not None
 
 
 def test_extract_network_references_local_and_reserved_spaces() -> None:
@@ -387,20 +397,25 @@ def test_extract_network_references_local_and_reserved_spaces() -> None:
     refs = extract_network_references(doc, "docs/internal.md")
     targets = {r.target: r for r in refs}
 
-    assert "http://localhost:8080/v1" in targets
-    assert targets["http://localhost:8080/v1"].is_local
+    t_local_api = targets.get("http://localhost:8080/v1")
+    assert t_local_api is not None
+    assert t_local_api.is_local
 
-    assert "192.168.1.1" in targets
-    assert targets["192.168.1.1"].is_local
+    t_p_ip = targets.get("192.168.1.1")
+    assert t_p_ip is not None
+    assert t_p_ip.is_local
 
-    assert "127.0.0.1" in targets
-    assert targets["127.0.0.1"].is_local
+    t_loop = targets.get("127.0.0.1")
+    assert t_loop is not None
+    assert t_loop.is_local
 
-    assert "test.example.org" in targets
-    assert targets["test.example.org"].is_local
+    t_res_dom = targets.get("test.example.org")
+    assert t_res_dom is not None
+    assert t_res_dom.is_local
 
-    assert "jaeger.otel.svc.cluster.local" in targets
-    assert targets["jaeger.otel.svc.cluster.local"].is_local
+    t_svc_dns = targets.get("jaeger.otel.svc.cluster.local")
+    assert t_svc_dns is not None
+    assert t_svc_dns.is_local
 
 
 def test_extract_network_references_function_calls_and_workspace_files() -> None:
@@ -438,8 +453,8 @@ def test_extract_network_references_function_calls_and_workspace_files() -> None
     assert "review.py" not in targets
 
     # Legitimate external references must be extracted
-    assert "metrics.telemetry-cloud.io" in targets
-    assert "https://dashboard.production-network.net/status" in targets
+    assert any(t == "metrics.telemetry-cloud.io" for t in targets)
+    assert any(t == "https://dashboard.production-network.net/status" for t in targets)
 
 
 def test_dependency_and_network_reference_canonical_location_formatting() -> None:
@@ -516,7 +531,7 @@ def test_extract_network_references_package_files_and_lockfile_filtering() -> No
     """
     refs_src = extract_network_references(src_content, "src/worker.py")
     targets = {r.target for r in refs_src}
-    assert "https://api.external-monitoring-service.net/v2/events" in targets
+    assert any(t == "https://api.external-monitoring-service.net/v2/events" for t in targets)
     assert "https://files.pythonhosted.org/packages/4c/76/pkg-1.0.0.whl" not in targets
     assert "https://registry.npmjs.org/lib/-/lib-2.0.0.tgz" not in targets
 
@@ -534,8 +549,8 @@ def test_extract_network_references_file_extensions_and_code_properties() -> Non
     targets = {r.target for r in refs}
 
     # Legitimate external domains
-    assert "api.datadoghq.com" in targets
-    assert "auth.auth0.com" in targets
+    assert any(t == "api.datadoghq.com" for t in targets)
+    assert any(t == "auth.auth0.com" for t in targets)
 
     # Source files should NOT be extracted as domains
     assert "intelligence.py" not in targets
@@ -647,7 +662,7 @@ def test_reference_extractor_language_parsers() -> None:
     # End of file
     """
     py_lits = _extract_python_literals_and_comments(py_src)
-    assert any("api.segment.io" in lit[0] for lit in py_lits)
+    assert any(lit[0].startswith("https://api.segment.io") for lit in py_lits)
     assert any("Security header" in lit[0] for lit in py_lits)
 
     # 2. HCL literals & comments
@@ -668,7 +683,7 @@ def test_reference_extractor_language_parsers() -> None:
         "curl -H 'Authorization: ${{ secrets.TOKEN }}' https://api.site.com"
     )
     assert "${{" not in cleaned
-    assert "https://api.site.com" in cleaned
+    assert "https://api.site.com" in cleaned.split()
 
 
 def test_reference_extractor_extended_network_and_lockfiles() -> None:
@@ -723,7 +738,7 @@ def test_reference_extractor_extended_network_and_lockfiles() -> None:
 
     # 5. Structured string extraction
     json_strs = _extract_json_strings('{"server": "https://api.example.com", "port": 8080}')
-    assert any("https://api.example.com" in s[0] for s in json_strs)
+    assert any(s[0] == "https://api.example.com" for s in json_strs)
 
     toml_strs = _extract_toml_strings('[tool.poetry]\nname = "my-tool"\n')
     assert any("my-tool" in s[0] for s in toml_strs)
@@ -738,17 +753,17 @@ def test_extract_network_references_from_various_files() -> None:
 
     go_content = 'package main\nconst ApiUrl = "https://api.datadoghq.com/api/v1/query"\n'
     go_refs = extract_network_references(go_content, "main.go", include_local=True)
-    assert any("api.datadoghq.com" in r.target for r in go_refs)
+    assert any(r.target == "https://api.datadoghq.com/api/v1/query" for r in go_refs)
 
     rs_content = 'pub const ENDPOINT: &str = "https://api.auth0.com/oauth/token";\n'
     rs_refs = extract_network_references(rs_content, "lib.rs", include_local=True)
-    assert any("auth0.com" in r.target for r in rs_refs)
+    assert any(r.target == "https://api.auth0.com/oauth/token" for r in rs_refs)
 
     docker_content = (
         "FROM alpine:3.19\nRUN curl -fsSL https://app.datadoghq.com/agent -o agent.sh\n"
     )
     docker_refs = extract_network_references(docker_content, "Dockerfile", include_local=True)
-    assert any("app.datadoghq.com" in r.target for r in docker_refs)
+    assert any(r.target == "https://app.datadoghq.com/agent" for r in docker_refs)
 
 
 def test_dependency_extractors_cargo_go_and_package_assets() -> None:

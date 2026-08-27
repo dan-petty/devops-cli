@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import urllib.parse
 from typing import TYPE_CHECKING, Any
 
 import httpx2
@@ -102,9 +103,8 @@ class GitHubClient:
             r = c.get(url, headers=headers)
             if r.is_redirect:
                 target_url = r.headers.get("location", "")
-                if target_url.startswith(CONST_URL_GITHUB_API_BASE) or target_url.startswith(
-                    "https://github.com"
-                ):
+                parsed = urllib.parse.urlparse(target_url)
+                if parsed.scheme == "https" and parsed.netloc in ("api.github.com", "github.com"):
                     r = c.get(target_url, headers=headers)
             r.raise_for_status()
             return r.text

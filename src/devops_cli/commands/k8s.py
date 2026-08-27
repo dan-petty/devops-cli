@@ -16,6 +16,7 @@ from typing import Annotated, Any
 import typer
 
 from devops_cli.config.constants import (
+    CONST_K8S_NODE_ROLE_LABEL_PREFIX,
     CONST_SERVER_CERT_NAME,
     CONST_SERVER_KEY_NAME,
 )
@@ -195,9 +196,9 @@ def status() -> None:
         )
         roles = (
             ", ".join(
-                label_key.replace("node-role.kubernetes.io/", "")
+                label_key.removeprefix(CONST_K8S_NODE_ROLE_LABEL_PREFIX)
                 for label_key in (node.metadata.labels or {})
-                if label_key.startswith("node-role.kubernetes.io/")
+                if label_key.startswith(CONST_K8S_NODE_ROLE_LABEL_PREFIX)
             )
             or "worker"
         )

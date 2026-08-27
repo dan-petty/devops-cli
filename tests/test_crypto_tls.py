@@ -119,8 +119,8 @@ def test_generate_homelab_tls_bundle(tmp_path: Path) -> None:
         assert svc in summary.services_configured
 
     # Verify custom additions
-    assert "custom.myhome.net" in summary.sans
-    assert "10.0.0.15" in summary.sans
+    assert any(san == "custom.myhome.net" for san in summary.sans)
+    assert any(san == "10.0.0.15" for san in summary.sans)
 
     # Cryptographically verify the server cert against the generated CA
     assert verify_certificate(summary.server_cert_path, summary.ca_cert_path) is True

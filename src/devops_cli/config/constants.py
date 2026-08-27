@@ -170,6 +170,7 @@ CONST_URL_GITHUB_ARGO_ROLLOUTS_RELEASES_BASE = (
 # ── Kubernetes & RFC 1123 Patterns ────────────────────────────────────────────
 CONST_K8S_LABEL_RE: re.Pattern[str] = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
 CONST_K8S_SUBDOMAIN_RE: re.Pattern[str] = re.compile(r"^[a-z0-9]([a-z0-9.\-]{0,251}[a-z0-9])?$")
+CONST_K8S_NODE_ROLE_LABEL_PREFIX = "node-role.kubernetes.io/"
 
 # ── File Permissions ──────────────────────────────────────────────────────────
 CONST_PERM_DIR = 0o700
