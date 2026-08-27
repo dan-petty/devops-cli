@@ -46,6 +46,12 @@ def test_fastmcp_tools_registration() -> None:
         "review_export_feedback",
         "telemetry_status",
         "telemetry_test_span",
+        "ai_repomap",
+        "ai_diagram",
+        "ai_test_gen",
+        "config_audit_keys",
+        "telemetry_profile",
+        "tf_notify_plan",
     }
 
     for expected in expected_core_tools:
