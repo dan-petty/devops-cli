@@ -5,7 +5,10 @@ from __future__ import annotations
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any
+
+if TYPE_CHECKING:
+    pass
 
 import typer
 
@@ -509,6 +512,39 @@ def _render_finding_badge(status: str) -> str:
     return f"[yellow]? {status}[/yellow]"
 
 
+def _build_finding_panel_lines(f: Any) -> list[str]:
+    """Format rich text lines for an individual finding panel."""
+    persona_title = getattr(f, "persona_title", None) or getattr(f, "persona", "")
+    persona_badge = (
+        f"  |  [bold]Persona:[/bold] [magenta]{_get('escape_text')(persona_title)}[/magenta]"
+        if persona_title
+        else ""
+    )
+    lines = [
+        f"[bold]Location:[/bold] [cyan]{_get('escape_text')(f.location)}[/cyan]{persona_badge}",
+    ]
+    if f.description:
+        lines.extend(
+            [
+                "",
+                "[bold]Description:[/bold]",
+                _get("format_clean_text_field")(f.description).strip(),
+            ]
+        )
+    if f.fix:
+        lines.extend(
+            ["", "[bold]Suggested Fix:[/bold]", _get("format_clean_text_field")(f.fix).strip()]
+        )
+    if f.invalidation_reason:
+        lines.extend(
+            ["", f"[bold yellow]Invalidation Reason:[/bold yellow] {f.invalidation_reason.strip()}"]
+        )
+    if f.references:
+        refs_list = f.references if isinstance(f.references, list) else [str(f.references)]
+        lines.extend(["", f"[dim]References: {_get('escape_text')(', '.join(refs_list))}[/dim]"])
+    return lines
+
+
 @app.command("findings")
 def list_findings(
     session: Annotated[
@@ -618,38 +654,7 @@ def list_findings(
 
             st_badge = _render_finding_badge(f.status)
             title_header = f"[{sev_color} bold]Finding #{idx}: [{sev_upper}] {_get('escape_text')(f.title)}[/{sev_color} bold]  {st_badge}"
-            persona_title = f.persona_title or f.persona
-            panel_lines = [
-                f"[bold]Location:[/bold] [cyan]{_get('escape_text')(f.location)}[/cyan]  |  [bold]Persona:[/bold] [magenta]{_get('escape_text')(persona_title)}[/magenta]",
-            ]
-            if f.description:
-                panel_lines.extend(
-                    [
-                        "",
-                        "[bold]Description:[/bold]",
-                        _get("format_clean_text_field")(f.description).strip(),
-                    ]
-                )
-            if f.fix:
-                panel_lines.extend(
-                    [
-                        "",
-                        "[bold]Suggested Fix:[/bold]",
-                        _get("format_clean_text_field")(f.fix).strip(),
-                    ]
-                )
-            if f.invalidation_reason:
-                panel_lines.extend(
-                    [
-                        "",
-                        f"[bold yellow]Invalidation Reason:[/bold yellow] {f.invalidation_reason.strip()}",
-                    ]
-                )
-            if f.references:
-                refs_list = f.references if isinstance(f.references, list) else [str(f.references)]
-                panel_lines.extend(
-                    ["", f"[dim]References: {_get('escape_text')(', '.join(refs_list))}[/dim]"]
-                )
+            panel_lines = _build_finding_panel_lines(f)
 
             _get("print_panel")(
                 "\n".join(panel_lines),

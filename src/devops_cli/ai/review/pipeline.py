@@ -620,11 +620,7 @@ def _get_reviews_base_dir() -> Path:
     from devops_cli.core.repo import find_top_level_repo_root
 
     settings = load_settings()
-    d = (
-        settings.data.reviews_dir
-        if hasattr(settings.data, "reviews_dir") and settings.data.reviews_dir
-        else settings.data.dir / "reviews"
-    )
+    d = settings.data.reviews_dir
     if not d.is_absolute():
         d = (find_top_level_repo_root() / d).resolve()
     d.mkdir(parents=True, exist_ok=True)

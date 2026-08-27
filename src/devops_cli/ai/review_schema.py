@@ -86,6 +86,20 @@ def normalize_unicode_text(text: str) -> str:
     return normalized.translate(_TRANSLATE_TABLE)
 
 
+def _parse_stringified_collection(s: str) -> list[Any] | None:
+    """Attempt parsing a stringified Python/JSON list or tuple."""
+    if not ((s.startswith("[") and s.endswith("]")) or (s.startswith("(") and s.endswith(")"))):
+        return None
+    for parser in (ast.literal_eval, json.loads):
+        try:
+            parsed = parser(s)
+            if isinstance(parsed, (list, tuple, set)):
+                return list(parsed)
+        except Exception:
+            continue
+    return None
+
+
 def format_clean_text_field(val: Any) -> str:
     """Normalize strings, lists, or stringified Python/JSON lists into clean, readable text."""
     if val is None:
@@ -94,18 +108,9 @@ def format_clean_text_field(val: Any) -> str:
         return "\n".join(str(item).strip() for item in val if str(item).strip())
     if isinstance(val, str):
         s = val.strip()
-        if (s.startswith("[") and s.endswith("]")) or (s.startswith("(") and s.endswith(")")):
-            try:
-                parsed = ast.literal_eval(s)
-                if isinstance(parsed, (list, tuple, set)):
-                    return "\n".join(str(item).strip() for item in parsed if str(item).strip())
-            except Exception:
-                try:
-                    parsed = json.loads(s)
-                    if isinstance(parsed, (list, tuple, set)):
-                        return "\n".join(str(item).strip() for item in parsed if str(item).strip())
-                except Exception:
-                    pass
+        coll = _parse_stringified_collection(s)
+        if coll is not None:
+            return "\n".join(str(item).strip() for item in coll if str(item).strip())
         return s
     return str(val)
 

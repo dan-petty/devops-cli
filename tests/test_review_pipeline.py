@@ -147,22 +147,25 @@ def test_deterministic_pre_verification_syntax_hallucination(tmp_path: Path) -> 
     assert "Syntax validation passed" in str(result.invalidation_reason)
 
 
-def test_deterministic_pre_verification_template_placeholder(tmp_path: Path) -> None:
-    """_deterministic_pre_verification marks example secret templates as mitigated."""
+def test_deterministic_pre_verification_line_boundary_out_of_bounds(tmp_path: Path) -> None:
+    """_deterministic_pre_verification invalidates findings referencing lines beyond file length."""
     from devops_cli.ai.review.verification import _deterministic_pre_verification
     from devops_cli.ai.review_schema import Finding
 
+    test_file = tmp_path / "main.py"
+    test_file.write_text("print('test')\n", encoding="utf-8")
+
     finding = Finding(
         severity="HIGH",
-        location="config.example.yaml:12",
-        title="Plaintext secret token detected",
-        description="YOUR_TOKEN placeholder in config.example.yaml",
-        fix="Use keyring",
+        location="main.py:250",
+        title="Out of bounds statement",
+        description="Line 250 references undefined variable",
+        fix="Fix line 250",
     )
     result = _deterministic_pre_verification(finding, repo_root=tmp_path)
     assert result.verified is False
-    assert result.mitigated is True
-    assert result.status == "MITIGATED"
+    assert result.status == "INVALIDATED"
+    assert "exceeds total file lines" in str(result.invalidation_reason)
 
 
 def test_consolidated_report_findings_sorted_by_severity_and_confidence(

@@ -35,7 +35,9 @@ All configuration options for `devops-cli` can be overridden via environment var
 | `DEVOPS_CLI_DATA_FEEDBACK_DATASET_PATH` | `data.feedback_dataset_path` | No | Path to feedback fine-tuning dataset JSONL file |
 | `DEVOPS_CLI_DATA_LOGS_DIR` | `data.logs_dir` | No | Storage directory for CLI execution and SIEM audit logs |
 | `DEVOPS_CLI_DATA_MODELS_DIR` | `data.models_dir` | No | Storage directory for local model checkpoints and weights |
+| `DEVOPS_CLI_DATA_RAG_DIR` | `data.rag_dir` | No | Storage directory for local vector embedding index cache and retrieval data |
 | `DEVOPS_CLI_DATA_REVIEWS_DIR` | `data.reviews_dir` | No | Storage directory for review session finding reports and artifacts |
+| `DEVOPS_CLI_DATA_TLS_DIR` | `data.tls_dir` | No | Storage directory for generated local CA and TLS certificates |
 | `DEVOPS_CLI_GITHUB_DEFAULT_ORG` | `github.default_org` | No | Default GitHub organization |
 | `DEVOPS_CLI_GITHUB_TOKEN` | `github.token` | 🔒 Yes | GitHub Personal Access Token (stored in OS keyring) |
 | `DEVOPS_CLI_GRAFANA_TOKEN` | `grafana.token` | 🔒 Yes | Grafana API token (stored in OS keyring) |

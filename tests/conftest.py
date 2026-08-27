@@ -39,19 +39,6 @@ def isolate_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     test_data_dir.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(test_data_dir))
     monkeypatch.setenv("DEVOPS_DATA_DIR", str(test_data_dir))
-    monkeypatch.setenv("DEVOPS_CLI_DATA_REVIEWS_DIR", str(test_data_dir / "reviews"))
-    monkeypatch.setenv("DEVOPS_CLI_DATA_ANALYSIS_DIR", str(test_data_dir / "analysis"))
-    monkeypatch.setenv("DEVOPS_CLI_DATA_LOGS_DIR", str(test_data_dir / "logs"))
-    monkeypatch.setenv("DEVOPS_CLI_DATA_MODELS_DIR", str(test_data_dir / "models"))
-    monkeypatch.setenv("DEVOPS_CLI_DATA_CACHE_DIR", str(test_data_dir / "cache"))
-    monkeypatch.setenv("DEVOPS_CLI_DATA_BENCHMARKS_DIR", str(test_data_dir / "benchmarks"))
-    monkeypatch.setenv("DEVOPS_CLI_DATA_RAG_DIR", str(test_data_dir / "rag"))
-    monkeypatch.setenv(
-        "DEVOPS_CLI_DATA_AUDIT_LOG_PATH", str(test_data_dir / "logs" / "audit.jsonl")
-    )
-    monkeypatch.setenv(
-        "DEVOPS_CLI_DATA_FEEDBACK_DATASET_PATH", str(test_data_dir / "feedback_dataset.jsonl")
-    )
     yield test_data_dir
 
 

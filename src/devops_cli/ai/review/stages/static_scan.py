@@ -34,6 +34,49 @@ def _wrap_findings(findings: list[Finding]) -> list[SavedFinding]:
     ]
 
 
+def _scan_bandit(py_files: list[Path], findings_map: dict[str, list[SavedFinding]]) -> None:
+    if not py_files:
+        return
+    try:
+        from devops_cli.security.bandit import run_bandit_scan
+
+        bandit_findings = run_bandit_scan(py_files)
+        for sf in _wrap_findings(bandit_findings):
+            fpath = sf.location.split(":")[0]
+            if fpath in findings_map:
+                findings_map[fpath].append(sf)
+    except Exception as exc:
+        logger.debug("Bandit scan skipped: %s", exc)
+
+
+def _scan_k8s_manifests(
+    yaml_files: list[Path], findings_map: dict[str, list[SavedFinding]]
+) -> None:
+    for yf in yaml_files:
+        try:
+            pluto_res = run_pluto_scan(yf)
+            kl_res = run_kubelinter_scan(yf)
+            rel = str(yf)
+            if rel in findings_map:
+                findings_map[rel].extend(_wrap_findings(pluto_res + kl_res))
+        except Exception as exc:
+            logger.debug("K8s manifest scan skipped: %s", exc)
+
+
+def _scan_universal_analyzers(
+    paths: list[Path], findings_map: dict[str, list[SavedFinding]]
+) -> None:
+    for vp in paths:
+        try:
+            gl_res = run_gitleaks_scan(vp)
+            sg_res = run_semgrep_scan(vp)
+            rel = str(vp)
+            if rel in findings_map:
+                findings_map[rel].extend(_wrap_findings(gl_res + sg_res))
+        except Exception as exc:
+            logger.debug("Gitleaks/Semgrep scan skipped: %s", exc)
+
+
 def run_static_scan_stage(
     file_paths: list[str],
     target_dir: Path,
@@ -64,42 +107,14 @@ def run_static_scan_stage(
 
         # 1. Bandit for Python
         py_files = [p for p in valid_paths if p.suffix == ".py"]
-        if py_files:
-            try:
-                from devops_cli.security.bandit import run_bandit_scan
-
-                bandit_findings = run_bandit_scan(py_files)
-                for sf in _wrap_findings(bandit_findings):
-                    fpath = sf.location.split(":")[0]
-                    if fpath in all_static_findings:
-                        all_static_findings[fpath].append(sf)
-            except Exception as exc:
-                logger.debug("Bandit scan skipped: %s", exc)
+        _scan_bandit(py_files, all_static_findings)
 
         # 2. Pluto & Kube-linter for YAML
         yaml_files = [p for p in valid_paths if p.suffix in (".yaml", ".yml")]
-        if yaml_files:
-            try:
-                for yf in yaml_files:
-                    pluto_res = run_pluto_scan(yf)
-                    kl_res = run_kubelinter_scan(yf)
-                    rel = str(yf)
-                    if rel in all_static_findings:
-                        all_static_findings[rel].extend(_wrap_findings(pluto_res + kl_res))
-            except Exception as exc:
-                logger.debug("K8s manifest scan skipped: %s", exc)
+        _scan_k8s_manifests(yaml_files, all_static_findings)
 
         # 3. Gitleaks & Semgrep
-        if valid_paths:
-            try:
-                for vp in valid_paths:
-                    gl_res = run_gitleaks_scan(vp)
-                    sg_res = run_semgrep_scan(vp)
-                    rel = str(vp)
-                    if rel in all_static_findings:
-                        all_static_findings[rel].extend(_wrap_findings(gl_res + sg_res))
-            except Exception as exc:
-                logger.debug("Gitleaks/Semgrep scan skipped: %s", exc)
+        _scan_universal_analyzers(valid_paths, all_static_findings)
 
         tot_findings = sum(len(v) for v in all_static_findings.values())
         print_info(

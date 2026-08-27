@@ -59,6 +59,7 @@ from devops_cli.config.defaults import (
     DEFAULT_REVIEWS_DATA_DIR,
     DEFAULT_SSH_KEY_DIR,
     DEFAULT_SSH_ROTATION_DAYS,
+    DEFAULT_TLS_DATA_DIR,
     DEFAULT_WORKSPACE_FILE,
 )
 from devops_cli.config.env import OPTION_TO_ENV_VAR
@@ -234,6 +235,7 @@ class DataConfig(BaseModel):
     cache_dir: Path = Field(default_factory=lambda: DEFAULT_CACHE_DATA_DIR)
     benchmarks_dir: Path = Field(default_factory=lambda: DEFAULT_BENCHMARKS_DATA_DIR)
     rag_dir: Path = Field(default_factory=lambda: DEFAULT_RAG_DATA_DIR)
+    tls_dir: Path = Field(default_factory=lambda: DEFAULT_TLS_DATA_DIR)
     audit_log_path: Path = Field(default_factory=lambda: DEFAULT_AUDIT_LOG_PATH)
     feedback_dataset_path: Path = Field(default_factory=lambda: DEFAULT_FEEDBACK_DATASET_PATH)
 
@@ -254,6 +256,8 @@ class DataConfig(BaseModel):
                 self.benchmarks_dir = self.dir / "benchmarks"
             if self.rag_dir == DEFAULT_RAG_DATA_DIR:
                 self.rag_dir = self.dir / "rag"
+            if self.tls_dir == DEFAULT_TLS_DATA_DIR:
+                self.tls_dir = self.dir / "tls"
             if self.audit_log_path == DEFAULT_AUDIT_LOG_PATH:
                 self.audit_log_path = self.dir / "logs" / "audit.jsonl"
             if self.feedback_dataset_path == DEFAULT_FEEDBACK_DATASET_PATH:
@@ -350,6 +354,11 @@ def load_settings() -> Settings:
 
     settings = Settings.model_validate(raw)
 
+    # Check for DEVOPS_DATA_DIR fallback alias if DEVOPS_CLI_DATA_DIR not present
+    env_data_dir = os.environ.get("DEVOPS_CLI_DATA_DIR") or os.environ.get("DEVOPS_DATA_DIR")
+    if env_data_dir:
+        settings.data.dir = Path(env_data_dir)
+
     # Allow devcontainer and shell environment variables to override file config.
     for option_key, env_var in OPTION_TO_ENV_VAR.items():
         if option_key in _SECRET_FIELDS:
@@ -363,8 +372,30 @@ def load_settings() -> Settings:
             # Ignore invalid or unknown env overrides and keep existing settings.
             continue
 
-    # Rebase child paths if data.dir was customized via environment variables
-    settings.data = DataConfig.model_validate(settings.data.model_dump())
+    # Rebase child paths if data.dir was customized via environment variables or settings
+    raw_data = raw.get("data", {}) if isinstance(raw.get("data"), dict) else {}
+    explicit_data: dict[str, Any] = {"dir": settings.data.dir}
+
+    child_env_map = {
+        "analysis_dir": "DEVOPS_CLI_DATA_ANALYSIS_DIR",
+        "reviews_dir": "DEVOPS_CLI_DATA_REVIEWS_DIR",
+        "logs_dir": "DEVOPS_CLI_DATA_LOGS_DIR",
+        "models_dir": "DEVOPS_CLI_DATA_MODELS_DIR",
+        "cache_dir": "DEVOPS_CLI_DATA_CACHE_DIR",
+        "benchmarks_dir": "DEVOPS_CLI_DATA_BENCHMARKS_DIR",
+        "rag_dir": "DEVOPS_CLI_DATA_RAG_DIR",
+        "tls_dir": "DEVOPS_CLI_DATA_TLS_DIR",
+        "audit_log_path": "DEVOPS_CLI_DATA_AUDIT_LOG_PATH",
+        "feedback_dataset_path": "DEVOPS_CLI_DATA_FEEDBACK_DATASET_PATH",
+    }
+    for field_name, env_v in child_env_map.items():
+        env_val = os.environ.get(env_v)
+        if env_val:
+            explicit_data[field_name] = Path(env_val)
+        elif field_name in raw_data:
+            explicit_data[field_name] = Path(raw_data[field_name])
+
+    settings.data = DataConfig.model_validate(explicit_data)
 
     return settings
 

@@ -4,26 +4,26 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from devops_cli.commands.config import _find_plaintext_config_leaks
+from devops_cli.commands.config import _detect_keyring_secret_leaks
 from devops_cli.exceptions.security import InsecureConfigError
 
 
 def test_find_plaintext_config_leaks_detects_secrets(tmp_path: Path) -> None:
-    """Ensure _find_plaintext_config_leaks detects unencrypted tokens in yaml."""
+    """Ensure _detect_keyring_secret_leaks detects unencrypted tokens in yaml."""
     leak_file = tmp_path / "config.yaml"
     leak_file.write_text("github:\n  token: ghp_1234567890abcdef\nai:\n  provider: openai\n")
 
-    leaks = _find_plaintext_config_leaks([leak_file])
+    leaks = _detect_keyring_secret_leaks([leak_file])
     assert len(leaks) == 1
     assert "config.yaml:github.token" in leaks[0]
 
 
 def test_find_plaintext_config_leaks_clean_file(tmp_path: Path) -> None:
-    """Ensure _find_plaintext_config_leaks returns empty for clean configs."""
+    """Ensure _detect_keyring_secret_leaks returns empty for clean configs."""
     clean_file = tmp_path / "config.yaml"
     clean_file.write_text("github:\n  owner: dan-petty\nai:\n  provider: openai\n")
 
-    leaks = _find_plaintext_config_leaks([clean_file])
+    leaks = _detect_keyring_secret_leaks([clean_file])
     assert leaks == []
 
 
@@ -34,7 +34,7 @@ def test_zero_plaintext_in_workspace_configs() -> None:
         Path(".devops/config.yaml"),
         Path(".data/config.yaml"),
     ]
-    leaks = _find_plaintext_config_leaks(scanned_files)
+    leaks = _detect_keyring_secret_leaks(scanned_files)
     assert leaks == [], f"Found plaintext secrets in configuration files: {leaks}"
 
 

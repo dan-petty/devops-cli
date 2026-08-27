@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import mimetypes
 import re
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -180,20 +181,19 @@ def _extract_ast_symbols(body: list[ast.stmt]) -> list[str]:
     return symbols
 
 
-def _extract_ast_imports(tree: ast.AST, std_modules: set[str]) -> list[str]:
+def _extract_ast_imports(tree: ast.AST, std_modules: frozenset[str]) -> list[str]:
     """Extract non-stdlib imports from AST tree."""
     imports: list[str] = []
     for node in ast.walk(tree):
-        match node:
-            case ast.Import(names=names):
-                for alias in names:
-                    root = alias.name.split(".")[0]
-                    if root not in std_modules and alias.name not in imports:
-                        imports.append(alias.name)
-            case ast.ImportFrom(module=module) if module:
-                root = module.split(".")[0]
-                if root not in std_modules and module not in imports:
-                    imports.append(module)
+        candidates = (
+            [a.name for a in node.names]
+            if isinstance(node, ast.Import)
+            else ([node.module] if isinstance(node, ast.ImportFrom) and node.module else [])
+        )
+        for name in candidates:
+            root = name.split(".")[0]
+            if root not in std_modules and name not in imports:
+                imports.append(name)
     return imports
 
 
@@ -207,21 +207,7 @@ def _analyze_python_ast(content: str) -> tuple[str | None, list[str], list[str]]
     docstring = ast.get_docstring(tree)
     first_doc = docstring.strip().split("\n")[0].rstrip(".") if docstring else None
 
-    std_modules = {
-        "sys",
-        "os",
-        "re",
-        "json",
-        "typing",
-        "pathlib",
-        "datetime",
-        "functools",
-        "collections",
-        "subprocess",
-        "ast",
-        "mimetypes",
-        "fnmatch",
-    }
+    std_modules = sys.stdlib_module_names
     symbols = _extract_ast_symbols(tree.body)
     imports = _extract_ast_imports(tree, std_modules)
 

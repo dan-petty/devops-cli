@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -71,32 +72,34 @@ def _parse_kyverno_output(raw_stdout: str) -> list[PolicyRuleResult]:
     return results
 
 
-def _parse_opa_output(raw_stdout: str) -> list[PolicyRuleResult]:
-    """Parse JSON output from OPA CLI eval."""
-    if not raw_stdout.strip():
+def _parse_opa_eval_entry(entry: dict[str, Any]) -> list[PolicyRuleResult]:
+    """Parse a single OPA eval result entry into PolicyRuleResult objects."""
+    bindings = entry.get("expressions", [{}])[0].get("value", {})
+    if not isinstance(bindings, dict):
         return []
+    return [
+        PolicyRuleResult(
+            policy_name="opa-gatekeeper",
+            rule_name=rule_k,
+            resource_kind="Manifest",
+            resource_name="input",
+            status="fail" if rule_v else "pass",
+            message=f"OPA evaluated rule: {rule_k}",
+        )
+        for rule_k, rule_v in bindings.items()
+    ]
+
+
+def _parse_opa_output(stdout: str) -> list[PolicyRuleResult]:
+    """Parse JSON output from OPA CLI eval."""
     try:
-        data = json.loads(raw_stdout)
+        data = json.loads(stdout)
     except json.JSONDecodeError:
         return []
 
     results: list[PolicyRuleResult] = []
-    eval_results = data.get("result", [])
-    for entry in eval_results:
-        bindings = entry.get("expressions", [{}])[0].get("value", {})
-        if isinstance(bindings, dict):
-            for rule_k, rule_v in bindings.items():
-                status = "fail" if rule_v else "pass"
-                results.append(
-                    PolicyRuleResult(
-                        policy_name="opa-gatekeeper",
-                        rule_name=rule_k,
-                        resource_kind="Manifest",
-                        resource_name="input",
-                        status=status,
-                        message=f"OPA evaluated rule: {rule_k}",
-                    )
-                )
+    for entry in data.get("result", []):
+        results.extend(_parse_opa_eval_entry(entry))
     return results
 
 

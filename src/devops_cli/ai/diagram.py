@@ -32,17 +32,15 @@ def generate_architecture_diagram(root_dir: Path | None = None) -> DiagramResult
     base_root = root_dir or find_top_level_repo_root(Path.cwd())
     src_dir = base_root / "src" / "devops_cli"
 
-    components: list[dict[str, Any]] = []
-    if src_dir.is_dir():
-        for sub in sorted(src_dir.iterdir()):
-            if sub.is_dir() and not sub.name.startswith((".", "_")):
-                components.append(
-                    {
-                        "name": sub.name,
-                        "type": "subsystem",
-                        "path": f"src/devops_cli/{sub.name}",
-                    }
-                )
+    components: list[dict[str, Any]] = (
+        [
+            {"name": sub.name, "type": "subsystem", "path": f"src/devops_cli/{sub.name}"}
+            for sub in sorted(src_dir.iterdir())
+            if sub.is_dir() and not sub.name.startswith((".", "_"))
+        ]
+        if src_dir.is_dir()
+        else []
+    )
 
     mermaid_lines = [
         "graph TD",

@@ -272,28 +272,44 @@ def _build_validation_prompt(
     )
 
 
-_DOC_INVALIDATION_REASON = (
-    "Documentation explaining patterns in context of avoiding said configuration"
-)
-_SYNTAX_INVALIDATION_REASON = "Syntax validation passed cleanly via ast.parse"
-_TEMPLATE_INVALIDATION_REASON = "Placeholder in example configuration template"
+_SYNTAX_INVALIDATION_REASON = "Syntax validation passed cleanly via language parser"
 
 
 def _check_syntax_error_hallucination(finding: Finding, file_path: Path) -> Finding | None:
-    """Deterministically invalidate syntax error claims if standard AST parser succeeds."""
-    if file_path.suffix.lower() != ".py" or not (file_path.exists() and file_path.is_file()):
+    """Deterministically invalidate syntax error claims if standard parser succeeds."""
+    if not (file_path.exists() and file_path.is_file()):
         return None
+
     title_lower = finding.title.lower()
     desc_lower = (finding.description or "").lower()
     is_syntax_claim = any(
         kw in title_lower or kw in desc_lower
-        for kw in ("syntax error", "invalid syntax", "parse error", "syntaxerror")
+        for kw in ("syntax error", "invalid syntax", "parse error", "syntaxerror", "syntax_error")
     )
     if not is_syntax_claim:
         return None
+
+    suffix = file_path.suffix.lower()
+    content = file_path.read_text(encoding="utf-8", errors="replace")
+
     try:
-        code_content = file_path.read_text(encoding="utf-8", errors="replace")
-        ast.parse(code_content)
+        if suffix == ".py":
+            ast.parse(content)
+        elif suffix == ".json":
+            import json
+
+            json.loads(content)
+        elif suffix in {".yaml", ".yml"}:
+            import yaml
+
+            yaml.safe_load(content)
+        elif suffix == ".toml":
+            import tomllib
+
+            tomllib.loads(content)
+        else:
+            return None
+
         return finding.model_copy(
             update={
                 "verified": False,
@@ -303,45 +319,8 @@ def _check_syntax_error_hallucination(finding: Finding, file_path: Path) -> Find
                 "invalidation_reason": _SYNTAX_INVALIDATION_REASON,
             }
         )
-    except SyntaxError:
+    except Exception:
         return None
-
-
-def _check_template_placeholder(finding: Finding, loc_file: str) -> Finding | None:
-    """Mitigate findings that flag placeholder credentials in template/example files."""
-    p = Path(loc_file)
-    name_lower = p.name.lower()
-    is_example = "example" in name_lower or "template" in name_lower
-    if is_example:
-        return finding.model_copy(
-            update={
-                "verified": False,
-                "mitigated": True,
-                "reportable": False,
-                "status": "MITIGATED",
-                "invalidation_reason": _TEMPLATE_INVALIDATION_REASON,
-            }
-        )
-    return None
-
-
-def _check_documentation_avoidance(finding: Finding, loc_file: str) -> Finding | None:
-    """Invalidate findings raised against documentation and guides."""
-    p = Path(loc_file)
-    is_doc = p.suffix.lower() in {".md", ".rst", ".adoc", ".txt"} or any(
-        part in {"docs", "knowledge_base", "tutorials"} for part in p.parts
-    )
-    if is_doc:
-        return finding.model_copy(
-            update={
-                "verified": False,
-                "mitigated": True,
-                "reportable": False,
-                "status": "INVALIDATED",
-                "invalidation_reason": _DOC_INVALIDATION_REASON,
-            }
-        )
-    return None
 
 
 def _check_line_boundaries(finding: Finding, file_path: Path) -> Finding | None:
@@ -372,29 +351,8 @@ def _check_line_boundaries(finding: Finding, file_path: Path) -> Finding | None:
     return None
 
 
-def _check_lockfile_or_trivial_metadata(finding: Finding, loc_file: str) -> Finding | None:
-    """Mitigate or invalidate non-functional findings against lockfiles or dotfiles."""
-    p = Path(loc_file)
-    name_lower = p.name.lower()
-    if (
-        name_lower.endswith("-lock.json")
-        or name_lower.endswith(".lock")
-        or name_lower in {".gitattributes", ".python-version"}
-    ):
-        return finding.model_copy(
-            update={
-                "verified": False,
-                "mitigated": True,
-                "reportable": False,
-                "status": "MITIGATED",
-                "invalidation_reason": "Generated lockfile / static toolchain metadata",
-            }
-        )
-    return None
-
-
 def _deterministic_pre_verification(finding: Finding, repo_root: Path | None = None) -> Finding:
-    """Run local deterministic AST/syntax/rule checks to invalidate obvious false positives."""
+    """Run local deterministic parser and structural checks to invalidate obvious false positives."""
     if not repo_root:
         return finding
 
@@ -414,18 +372,6 @@ def _deterministic_pre_verification(finding: Finding, repo_root: Path | None = N
     line_res = _check_line_boundaries(finding, file_path)
     if line_res:
         return line_res
-
-    doc_res = _check_documentation_avoidance(finding, loc_file)
-    if doc_res:
-        return doc_res
-
-    tmpl_res = _check_template_placeholder(finding, loc_file)
-    if tmpl_res:
-        return tmpl_res
-
-    lock_res = _check_lockfile_or_trivial_metadata(finding, loc_file)
-    if lock_res:
-        return lock_res
 
     syntax_res = _check_syntax_error_hallucination(finding, file_path)
     if syntax_res:

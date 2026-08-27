@@ -15,7 +15,6 @@ from typing import Any
 from devops_cli.ai.client import LLMClient
 from devops_cli.ai.review_schema import extract_json_block
 from devops_cli.ai.task_loader import load_task_prompt
-from devops_cli.config.defaults import DEFAULT_DATA_DIR
 from devops_cli.config.settings import Settings, get_ai_api_key, load_settings
 from devops_cli.dry_run.state import is_dry_run
 from devops_cli.models.benchmark import (
@@ -38,11 +37,7 @@ def _get_benchmarks_base_dir() -> Path:
     from devops_cli.core.repo import find_top_level_repo_root
 
     settings = load_settings()
-    d = (
-        settings.data.benchmarks_dir
-        if settings.data.dir == DEFAULT_DATA_DIR
-        else settings.data.dir / "benchmarks"
-    )
+    d = settings.data.benchmarks_dir
     if not d.is_absolute():
         d = (find_top_level_repo_root() / d).resolve()
     d.mkdir(parents=True, exist_ok=True)

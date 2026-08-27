@@ -470,27 +470,32 @@ def audit_stream(
 # =============================================================================
 
 
-def _find_plaintext_config_leaks(scanned_files: list[Path]) -> list[str]:
-    """Scan candidate YAML configuration files for plaintext secret keys."""
+def _scan_yaml_for_secret_keys(cfg_file: Path) -> list[str]:
     import yaml
 
     from devops_cli.config.options import KEYRING_KEYS
 
-    leaks: list[str] = []
+    try:
+        raw_cfg = yaml.safe_load(cfg_file.read_text(encoding="utf-8")) or {}
+        if not isinstance(raw_cfg, dict):
+            return []
+        return [
+            f"{cfg_file.name}:{k}.{sub_k}"
+            for k, v in raw_cfg.items()
+            if isinstance(v, dict)
+            for sub_k, sub_v in v.items()
+            if f"{k}.{sub_k}" in KEYRING_KEYS and sub_v
+        ]
+    except Exception:
+        return []
+
+
+def _detect_keyring_secret_leaks(scanned_files: list[Path]) -> list[str]:
+    """Find any plaintext secret values saved in YAML configs instead of OS Keyring."""
     unique_files = sorted(list({p.resolve() for p in scanned_files if p.exists()}))
+    leaks: list[str] = []
     for cfg_file in unique_files:
-        try:
-            raw_cfg = yaml.safe_load(cfg_file.read_text(encoding="utf-8")) or {}
-            if isinstance(raw_cfg, dict):
-                for k, v in raw_cfg.items():
-                    if isinstance(v, dict):
-                        leaks.extend(
-                            f"{cfg_file.name}:{k}.{sub_k}"
-                            for sub_k, sub_v in v.items()
-                            if f"{k}.{sub_k}" in KEYRING_KEYS and sub_v
-                        )
-        except Exception:
-            continue
+        leaks.extend(_scan_yaml_for_secret_keys(cfg_file))
     return leaks
 
 
@@ -536,7 +541,7 @@ def audit_keys_cmd(
         Path.cwd() / ".devops" / "config.yaml",
     ]
     unique_files = sorted(list({p.resolve() for p in scanned_files if p.exists()}))
-    plaintext_leaks = _find_plaintext_config_leaks(scanned_files)
+    plaintext_leaks = _detect_keyring_secret_leaks(scanned_files)
 
     rows: list[list[str]] = []
     key_audit_records: list[dict[str, Any]] = []
