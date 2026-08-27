@@ -93,3 +93,27 @@ class SecretExposureError(SecurityError):
             error_code="SECRET_EXPOSURE_DETECTED",
             details=err_details,
         )
+
+
+class InsecureConfigError(SecurityError):
+    """Raised when an unencrypted plaintext secret token is found in configuration files."""
+
+    def __init__(
+        self,
+        option_key: str,
+        reason: str = "Plaintext secret detected in config file",
+        path: Any = None,
+        *,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        path_str = str(path) if path else "config"
+        msg = f"Insecure configuration ({option_key}) at {path_str}: {reason}"
+        err_details = {"option_key": option_key, "reason": reason, "path": path_str}
+        if details:
+            err_details.update(details)
+        super().__init__(
+            msg,
+            exit_code=126,
+            error_code="E_INSECURE_CONFIG",
+            details=err_details,
+        )
