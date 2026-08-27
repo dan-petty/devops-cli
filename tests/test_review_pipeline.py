@@ -883,3 +883,20 @@ def test_review_pipeline_orchestrator_extended_helpers(tmp_path: Path) -> None:
     assert len(pipe.agents) == 3
     assert "devsecops" in lookup
     assert "architect" in lookup
+
+
+def test_orchestrator_session_directory_resolution(tmp_path: Path) -> None:
+    """Verify session_dir resolution uses central data directory and does not contaminate subdirectories."""
+    from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator, _get_reviews_base_dir
+
+    sub_target = tmp_path / "src" / "exceptions"
+    sub_target.mkdir(parents=True, exist_ok=True)
+
+    orch = ReviewPipelineOrchestrator(
+        session_id="20260827-test-session",
+        target_dir=sub_target,
+    )
+
+    reviews_base = _get_reviews_base_dir().resolve()
+    assert orch.session_dir.parent == reviews_base
+    assert not (sub_target / ".data").exists()

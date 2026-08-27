@@ -597,13 +597,18 @@ def _format_network_ref_table_row(n: NetworkReference) -> list[str]:
 
 def _get_reviews_base_dir() -> Path:
     from devops_cli.config.settings import load_settings
+    from devops_cli.core.repo import find_top_level_repo_root
 
     settings = load_settings()
-    return (
+    d = (
         settings.data.reviews_dir
         if hasattr(settings.data, "reviews_dir") and settings.data.reviews_dir
         else settings.data.dir / "reviews"
     )
+    if not d.is_absolute():
+        d = (find_top_level_repo_root() / d).resolve()
+    d.mkdir(parents=True, exist_ok=True)
+    return d
 
 
 class ReviewPipelineOrchestrator:
@@ -621,11 +626,7 @@ class ReviewPipelineOrchestrator:
         if session_dir is not None:
             self.session_dir = session_dir
         else:
-            base_dir = (
-                (target_dir / _get_reviews_base_dir()).resolve()
-                if target_dir != DEFAULT_CURRENT_PATH
-                else _get_reviews_base_dir().resolve()
-            )
+            base_dir = _get_reviews_base_dir().resolve()
             self.session_dir = base_dir / self.session_id
         self.files_dir = self.session_dir / "files"
         self.session_dir.mkdir(parents=True, exist_ok=True)

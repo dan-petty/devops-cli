@@ -339,12 +339,16 @@ def _fallback_join(reviews: list[str]) -> str:
 
 
 def _get_reviews_base_dir() -> Path:
+    from devops_cli.core.repo import find_top_level_repo_root
+
     settings = load_settings()
     d = (
         settings.data.reviews_dir
         if settings.data.dir == DEFAULT_DATA_DIR
         else settings.data.dir / "reviews"
     )
+    if not d.is_absolute():
+        d = (find_top_level_repo_root() / d).resolve()
     d.mkdir(parents=True, exist_ok=True)
     return d
 
