@@ -140,3 +140,20 @@ devops config audit-stream <destination>
 | `<destination>` | `string` | Yes | Destination Syslog or HTTP URL. |
 
 ---
+
+## `devops config audit-keys`
+
+**Audit OS Keyring token health, backend status, and zero-plaintext secret compliance.**
+
+```bash
+devops config audit-keys [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---
