@@ -681,6 +681,45 @@ def tf_notify_plan(plan_file: str = "tfplan.json") -> str:
     )
 
 
+# ── FastMCP Dynamic System State Resources ───────────────────────────────────
+
+
+@mcp.resource("resource://workspace/status")
+def get_workspace_resource() -> str:
+    """Return live workspace inventory and repository statuses."""
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "workspace", "list"],
+        timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.resource("resource://config/active")
+def get_config_resource() -> str:
+    """Return active configuration settings."""
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "config", "show"],
+        timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.resource("resource://telemetry/status")
+def get_telemetry_resource() -> str:
+    """Return OpenTelemetry distributed tracing and Prometheus metrics status."""
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "telemetry", "status"],
+        timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.resource("resource://release/status")
+def get_release_resource() -> str:
+    """Return current project version, git tags, and release readiness."""
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "release", "status"],
+        timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+    )
+
+
 def list_mcp_tools() -> list[MCPToolInfo]:
     """Return a list of tool names and descriptions registered on the FastMCP server."""
     tools = asyncio.run(mcp.list_tools())

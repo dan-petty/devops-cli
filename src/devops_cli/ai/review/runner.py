@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 from collections.abc import Callable
 from concurrent.futures import as_completed
@@ -358,10 +359,15 @@ def _fallback_join(reviews: list[str]) -> str:
 def _get_reviews_base_dir() -> Path:
     from devops_cli.core.repo import find_top_level_repo_root
 
-    settings = load_settings()
-    d = settings.data.reviews_dir
+    env_data_dir = os.environ.get("DEVOPS_CLI_DATA_DIR") or os.environ.get("DEVOPS_DATA_DIR")
+    if env_data_dir:
+        d = Path(env_data_dir) / "reviews"
+    else:
+        settings = load_settings()
+        d = settings.data.reviews_dir
     if not d.is_absolute():
-        d = (find_top_level_repo_root() / d).resolve()
+        d = find_top_level_repo_root() / d
+    d = d.resolve()
     d.mkdir(parents=True, exist_ok=True)
     return d
 
