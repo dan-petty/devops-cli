@@ -4,6 +4,7 @@ Review and remediate the following Python HTTP webhook dispatcher against Server
 ```python
 import httpx
 
+
 def dispatch_webhook(url: str, payload: dict) -> int:
     # Sends a webhook notification
     with httpx.Client() as client:

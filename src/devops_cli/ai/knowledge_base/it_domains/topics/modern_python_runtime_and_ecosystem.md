@@ -57,6 +57,7 @@ uv run mypy src/devops_cli/server/
 import tomllib
 from pathlib import Path
 
+
 def inspect_project_metadata(repo_path: Path) -> dict[str, str]:
     pyproject = repo_path / "pyproject.toml"
     if pyproject.is_file():
