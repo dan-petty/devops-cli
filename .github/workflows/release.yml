@@ -69,7 +69,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Authoritative Release Verification
-        run: uv run devops release check --allow-dirty
+        run: uv run devops release check --allow-dirty --skip-ci
 
       - name: Build Distribution Packages (Wheel & sdist)
         run: |

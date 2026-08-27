@@ -702,6 +702,7 @@ def release_check(
         proc = _get("run_subprocess")(
             ["uv", "run", "devops", "ci", "run"],
             cwd=repo_root,
+            capture_output=False,
             timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS * 4,
         )
         if proc.returncode != 0:
