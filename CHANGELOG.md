@@ -8,7 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.2.5] - 2026-08-27
 
 ### Added
-- Release version 0.2.5.
+- **Zero-Plaintext Invariant & Keyring Egress Security Audit (`tests/test_zero_plaintext_invariants.py`, `devops_cli.exceptions.security`)**:
+  - Automated continuous regression suite verifying zero unencrypted secrets, tokens, or private keys exist across configuration files, `.data/`, `.devops/`, test fixtures, or docs.
+  - Added `InsecureConfigError` with canonical exit code `126` (`E_INSECURE_CONFIG`) and contextual path masking.
+- **FastMCP Tool Schema Completeness & Strict Type Validation (`tests/test_fastmcp_contracts.py`, `devops_cli.ai.mcp.server`)**:
+  - Registered 6 new FastMCP tools (`ai_repomap`, `ai_diagram`, `ai_test_gen`, `config_audit_keys`, `telemetry_profile`, `tf_notify_plan`), bringing total registered tools to 40.
+  - Verified 100% parameter descriptions, strict type annotations, structured JSON schemas, and flag injection defenses across all tools.
+
+### Changed
+- **AST Structural Standardization & Strict Indentation Budgeting**:
+  - Audited project-wide control flow and refactored all functions exceeding indentation depth limits, achieving **0** functions with depth $\ge 6$ across the entire repository.
+  - Refactored `_render_review_result` in `rendering.py`, `_analyze_python_ast` in `scanner.py`, `_find_plaintext_config_leaks` in `config.py`, `chunk_file` in `chunker.py`, `Finding._pre_validate_finding` in `review_schema.py`, `_from_otlp_any_value` in `tracer.py`, and `render_table` in `formatter.py` into dedicated functional pipelines and standard library helpers.
+- **Cold Import Latency Optimization & Lazy Loader Consolidation**:
+  - Verified CLI cold import isolation, keeping `devops_cli.main` load overhead sub-second and deferring heavy third-party packages (`kubernetes`, `fastmcp`, `boto3`, `trivy`, `pydantic_ai`) to command execution time.
 
 ## [0.2.4] - 2026-08-27
 

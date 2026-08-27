@@ -144,12 +144,12 @@ High-density product roadmap, engineering milestones, and open-source integratio
 
 ---
 
-### Enterprise Stability, Performance & Quality Hardening (v0.2.5 - Scheduled)
-- [ ] **Cold Import Latency Optimization & Lazy Loader Consolidation**: Defer heavy third-party dependencies (`kubernetes`, `fastmcp`, `boto3`, `trivy`) to command execution time to maintain sub-50ms CLI startup.
-- [ ] **AST Structural Standardization & Strict Indentation Budgeting**: Audit project-wide control flow to ensure zero functions exceed 5 levels of indentation, decomposing nested loops into standard library functional pipelines.
-- [ ] **Zero-Plaintext Invariant & Keyring Egress Security Audit**: Automated test scanner ensuring zero plaintext secrets, tokens, or credentials exist across `.data/`, `.devops/`, test fixtures, or docs.
-- [ ] **FastMCP Tool Schema Completeness & Strict Type Validation**: Ensure 100% parameter descriptions, strict type annotations, and structured JSON schemas across all FastMCP tools.
-- [ ] **Unified Domain Exception & POSIX Error Code Taxonomy**: Audit all error paths to ensure strongly typed domain exceptions inheriting from `DevOpsCLIError` with canonical error codes and masked paths.
+### Enterprise Stability, Performance & Quality Hardening (v0.2.5 - Current Release)
+- [x] **Cold Import Latency Optimization & Lazy Loader Consolidation**: Defer heavy third-party dependencies (`kubernetes`, `fastmcp`, `boto3`, `trivy`) to command execution time to maintain sub-second CLI startup.
+- [x] **AST Structural Standardization & Strict Indentation Budgeting**: Audited project-wide control flow to ensure zero functions exceed 5 levels of indentation, decomposing nested loops into standard library functional pipelines.
+- [x] **Zero-Plaintext Invariant & Keyring Egress Security Audit**: Automated test scanner ensuring zero plaintext secrets, tokens, or credentials exist across `.data/`, `.devops/`, test fixtures, or docs.
+- [x] **FastMCP Tool Schema Completeness & Strict Type Validation**: Ensure 100% parameter descriptions, strict type annotations, and structured JSON schemas across 40 FastMCP tools.
+- [x] **Unified Domain Exception & POSIX Error Code Taxonomy**: Audit all error paths to ensure strongly typed domain exceptions inheriting from `DevOpsCLIError` with canonical error codes and masked paths.
 
 ### Live State Watchers & Continuous AI Automation (v0.2.6 - Scheduled)
 - [ ] **Continuous Live Resource & State Watchers (`--watch` / `-w`)**: Real-time terminal auto-refresh and live event streaming across `devops k8s pods --watch`, `devops argo status --watch`, `devops docker stats --watch`, and `devops release status --watch` utilizing `rich.live.Live` with configurable intervals (`--interval`).

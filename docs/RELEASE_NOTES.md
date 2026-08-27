@@ -1,6 +1,22 @@
-# Release Notes — devops-cli v0.2.4
+# Release Notes — devops-cli v0.2.5
 
 Workstation-native DevOps CLI for managing repositories, SSH keys, Kubernetes clusters, Kustomize, ArgoCD, Grafana, Prometheus, Docker, workspace files, vector embedding benchmarks, TLS certificate automation, OpenTelemetry observability, and multi-persona AI code reviews.
+
+---
+
+## 🚀 Highlights of v0.2.5
+
+### 🔒 Zero-Plaintext Invariant & Secret Compliance
+- **Continuous Secret Regression Audit (`tests/test_zero_plaintext_invariants.py`)**: Automated verification ensuring zero plaintext tokens, passwords, or credentials exist across `.data/`, `.devops/`, config files, test fixtures, or docs.
+- **Unified Domain Exception Taxonomy (`devops_cli.exceptions`)**: Standardized strongly typed exceptions (`InsecureConfigError`, `KeyringUnavailableError`, `SSRFBlockedError`) with explicit POSIX exit codes, canonical machine-readable codes, and sanitized target paths.
+
+### ⚡ Code Structure Standardization & Indentation Limits
+- **Strict AST Indentation Budgeting**: Audited and refactored project-wide control flow to ensure **0** functions exceed 5 levels of indentation, decomposing nested loops into standard library functional pipelines.
+- **Cold Import Optimization**: Verified sub-second CLI entry overhead with lazy loading of all heavy third-party packages (`kubernetes`, `fastmcp`, `boto3`, `trivy`).
+
+### 🛠️ FastMCP Toolset Expansion (40 Tools)
+- **FastMCP Schema Completeness**: 100% parameter descriptions, strict type annotations, structured JSON schemas, and flag injection defenses across 40 registered tools.
+- **New Tools Registered**: `ai_repomap`, `ai_diagram`, `ai_test_gen`, `config_audit_keys`, `telemetry_profile`, and `tf_notify_plan`.
 
 ---
 
