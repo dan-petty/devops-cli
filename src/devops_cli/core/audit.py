@@ -14,7 +14,6 @@ from devops_cli.config.constants import (
     CONST_STATUS_SUCCESS,
 )
 from devops_cli.config.defaults import (
-    DEFAULT_AUDIT_LOG_PATH,
     DEFAULT_DATA_DIR,
 )
 from devops_cli.telemetry.tracer import get_current_span_context
@@ -89,7 +88,13 @@ def _resolve_audit_log_dest(log_file: Path | None) -> Path:
                 f"DEVOPS_CLI_AUDIT_LOG_DEST must be within {allowed_roots[0]}; got {candidate}"
             )
         return candidate
-    return DEFAULT_AUDIT_LOG_PATH
+    from devops_cli.config.settings import load_settings
+    from devops_cli.core.repo import find_top_level_repo_root
+
+    dest = load_settings().data.audit_log_path
+    if not dest.is_absolute():
+        dest = (find_top_level_repo_root() / dest).resolve()
+    return dest
 
 
 def stream_audit_records(destination_url: str, log_file: Path | None = None) -> int:
@@ -97,7 +102,15 @@ def stream_audit_records(destination_url: str, log_file: Path | None = None) -> 
 
     Returns streamed record count.
     """
-    dest = log_file or DEFAULT_AUDIT_LOG_PATH
+    if log_file is not None:
+        dest = log_file
+    else:
+        from devops_cli.config.settings import load_settings
+        from devops_cli.core.repo import find_top_level_repo_root
+
+        dest = load_settings().data.audit_log_path
+        if not dest.is_absolute():
+            dest = (find_top_level_repo_root() / dest).resolve()
 
     if not dest.exists():
         return 0
