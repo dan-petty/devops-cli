@@ -15,6 +15,7 @@ from typing import Any
 from devops_cli.ai.client import LLMClient
 from devops_cli.ai.review_schema import extract_json_block
 from devops_cli.ai.task_loader import load_task_prompt
+from devops_cli.config.defaults import DEFAULT_DATA_DIR
 from devops_cli.config.settings import Settings, get_ai_api_key, load_settings
 from devops_cli.dry_run.state import is_dry_run
 from devops_cli.models.benchmark import (
@@ -34,12 +35,18 @@ _GRADER_PROMPT_TEMPLATE = load_task_prompt("benchmark_peer_grader.md")
 
 def _get_benchmarks_base_dir() -> Path:
     """Resolve benchmarks base directory dynamically from settings."""
+    from devops_cli.core.repo import find_top_level_repo_root
+
     settings = load_settings()
-    return (
+    d = (
         settings.data.benchmarks_dir
-        if hasattr(settings.data, "benchmarks_dir") and settings.data.benchmarks_dir
+        if settings.data.dir == DEFAULT_DATA_DIR
         else settings.data.dir / "benchmarks"
     )
+    if not d.is_absolute():
+        d = (find_top_level_repo_root() / d).resolve()
+    d.mkdir(parents=True, exist_ok=True)
+    return d
 
 
 def _format_model_peer_feedback(m: Any, peer_grades: list[Any]) -> list[str]:

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 
 def test_default_data_constants_and_settings() -> None:
     """Verify DEFAULT data constants, DataConfig model, and Settings defaults."""
@@ -83,3 +85,17 @@ def test_data_config_cascades_custom_base_dir() -> None:
     assert cfg_explicit.dir == custom_base
     assert cfg_explicit.reviews_dir == explicit_reviews
     assert cfg_explicit.benchmarks_dir == custom_base / "benchmarks"
+
+
+def test_get_benchmarks_base_dir_isolation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify _get_benchmarks_base_dir routes to isolated data dir."""
+    from devops_cli.ai.benchmark.runner import _get_benchmarks_base_dir
+
+    isolated_data = tmp_path / "custom_data_agent"
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(isolated_data))
+
+    bench_dir = _get_benchmarks_base_dir()
+    assert bench_dir.is_absolute()
+    assert str(bench_dir).startswith(str(isolated_data))
+    assert bench_dir == isolated_data / "benchmarks"
+    assert bench_dir.exists()
