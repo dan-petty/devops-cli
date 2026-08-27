@@ -662,7 +662,7 @@ def test_reference_extractor_language_parsers() -> None:
     # End of file
     """
     py_lits = _extract_python_literals_and_comments(py_src)
-    assert any(lit[0].startswith("https://api.segment.io") for lit in py_lits)
+    assert any(lit[0] == "https://api.segment.io/v1" for lit in py_lits)
     assert any("Security header" in lit[0] for lit in py_lits)
 
     # 2. HCL literals & comments
@@ -683,7 +683,7 @@ def test_reference_extractor_language_parsers() -> None:
         "curl -H 'Authorization: ${{ secrets.TOKEN }}' https://api.site.com"
     )
     assert "${{" not in cleaned
-    assert "https://api.site.com" in cleaned.split()
+    assert any(token == "https://api.site.com" for token in cleaned.split())
 
 
 def test_reference_extractor_extended_network_and_lockfiles() -> None:
