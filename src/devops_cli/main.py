@@ -55,6 +55,8 @@ _COMMAND_SPECS: Final[dict[str, tuple[str, str]]] = {
     "tls": ("devops_cli.commands.tls", HELP.tls.app),
     "telemetry": ("devops_cli.commands.telemetry", HELP.telemetry.app),
     "serve": ("devops_cli.commands.serve", HELP.serve.app),
+    "test": ("devops_cli.commands.test_cmd", HELP.test.app),
+    "pipeline": ("devops_cli.commands.pipeline", HELP.pipeline.app),
 }
 
 

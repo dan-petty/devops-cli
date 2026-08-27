@@ -46,6 +46,17 @@ ENV_AI_RAG_EMBEDDING_MODEL = "DEVOPS_CLI_AI_RAG_EMBEDDING_MODEL"
 ENV_AI_RAG_TOP_K = "DEVOPS_CLI_AI_RAG_TOP_K"
 ENV_AI_RAG_SCORE_THRESHOLD = "DEVOPS_CLI_AI_RAG_SCORE_THRESHOLD"
 
+# Data Storage & Artifact Path environment variables
+ENV_DATA_DIR = "DEVOPS_CLI_DATA_DIR"
+ENV_DATA_ANALYSIS_DIR = "DEVOPS_CLI_DATA_ANALYSIS_DIR"
+ENV_DATA_REVIEWS_DIR = "DEVOPS_CLI_DATA_REVIEWS_DIR"
+ENV_DATA_LOGS_DIR = "DEVOPS_CLI_DATA_LOGS_DIR"
+ENV_DATA_MODELS_DIR = "DEVOPS_CLI_DATA_MODELS_DIR"
+ENV_DATA_CACHE_DIR = "DEVOPS_CLI_DATA_CACHE_DIR"
+ENV_DATA_BENCHMARKS_DIR = "DEVOPS_CLI_DATA_BENCHMARKS_DIR"
+ENV_DATA_AUDIT_LOG_PATH = "DEVOPS_CLI_DATA_AUDIT_LOG_PATH"
+ENV_DATA_FEEDBACK_DATASET_PATH = "DEVOPS_CLI_DATA_FEEDBACK_DATASET_PATH"
+
 OPTION_TO_ENV_VAR: dict[str, str] = {
     opt.GITHUB_TOKEN: ENV_GITHUB_TOKEN,
     opt.GITHUB_DEFAULT_ORG: ENV_GITHUB_DEFAULT_ORG,
@@ -82,6 +93,15 @@ OPTION_TO_ENV_VAR: dict[str, str] = {
     opt.AI_RAG_EMBEDDING_MODEL: ENV_AI_RAG_EMBEDDING_MODEL,
     opt.AI_RAG_TOP_K: ENV_AI_RAG_TOP_K,
     opt.AI_RAG_SCORE_THRESHOLD: ENV_AI_RAG_SCORE_THRESHOLD,
+    opt.DATA_DIR: ENV_DATA_DIR,
+    opt.DATA_ANALYSIS_DIR: ENV_DATA_ANALYSIS_DIR,
+    opt.DATA_REVIEWS_DIR: ENV_DATA_REVIEWS_DIR,
+    opt.DATA_LOGS_DIR: ENV_DATA_LOGS_DIR,
+    opt.DATA_MODELS_DIR: ENV_DATA_MODELS_DIR,
+    opt.DATA_CACHE_DIR: ENV_DATA_CACHE_DIR,
+    opt.DATA_BENCHMARKS_DIR: ENV_DATA_BENCHMARKS_DIR,
+    opt.DATA_AUDIT_LOG_PATH: ENV_DATA_AUDIT_LOG_PATH,
+    opt.DATA_FEEDBACK_DATASET_PATH: ENV_DATA_FEEDBACK_DATASET_PATH,
 }
 
 ENV_VAR_TO_OPTION: dict[str, str] = {v: k for k, v in OPTION_TO_ENV_VAR.items()}
@@ -296,5 +316,59 @@ def get_all_env_var_specs() -> list[EnvVarSpec]:
             opt.AI_TASK_COMPOSE_OLLAMA_URLS,
             False,
             "Ollama URLs override for compose task",
+        ),
+        EnvVarSpec(
+            ENV_DATA_DIR,
+            opt.DATA_DIR,
+            False,
+            "Root data directory for local reviews, cache, logs, and artifacts (default: ./.data)",
+        ),
+        EnvVarSpec(
+            ENV_DATA_ANALYSIS_DIR,
+            opt.DATA_ANALYSIS_DIR,
+            False,
+            "Storage directory for pre-analysis metadata JSON files",
+        ),
+        EnvVarSpec(
+            ENV_DATA_REVIEWS_DIR,
+            opt.DATA_REVIEWS_DIR,
+            False,
+            "Storage directory for review session finding reports and artifacts",
+        ),
+        EnvVarSpec(
+            ENV_DATA_LOGS_DIR,
+            opt.DATA_LOGS_DIR,
+            False,
+            "Storage directory for CLI execution and SIEM audit logs",
+        ),
+        EnvVarSpec(
+            ENV_DATA_MODELS_DIR,
+            opt.DATA_MODELS_DIR,
+            False,
+            "Storage directory for local model checkpoints and weights",
+        ),
+        EnvVarSpec(
+            ENV_DATA_CACHE_DIR,
+            opt.DATA_CACHE_DIR,
+            False,
+            "Storage directory for local response and retrieval cache",
+        ),
+        EnvVarSpec(
+            ENV_DATA_BENCHMARKS_DIR,
+            opt.DATA_BENCHMARKS_DIR,
+            False,
+            "Storage directory for benchmark test runs and embedding leaderboard reports",
+        ),
+        EnvVarSpec(
+            ENV_DATA_AUDIT_LOG_PATH,
+            opt.DATA_AUDIT_LOG_PATH,
+            False,
+            "Path to structured audit JSONL log file",
+        ),
+        EnvVarSpec(
+            ENV_DATA_FEEDBACK_DATASET_PATH,
+            opt.DATA_FEEDBACK_DATASET_PATH,
+            False,
+            "Path to feedback fine-tuning dataset JSONL file",
         ),
     ]

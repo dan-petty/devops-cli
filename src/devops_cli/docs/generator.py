@@ -161,6 +161,11 @@ def _render_mcp_param_row(p: dict[str, Any]) -> str:
     return f"| `{p_name}` | `{p_type}` | {req_str} | {def_str} | {p_desc} |"
 
 
+_SENSITIVE_PARAM_KEYWORDS: frozenset[str] = frozenset(
+    {"SECRET", "TOKEN", "PASSWORD", "KEY", "AUTH", "CREDENTIAL", "APIKEY", "PASSPHRASE"}
+)
+
+
 class DocGenerator:
     """Introspects Typer / Click CLI trees and generates Markdown documentation."""
 
@@ -190,6 +195,13 @@ class DocGenerator:
         default_str: str | None = None
         if default_val is not None and not (kind == "flag" and default_val is False):
             default_str = _format_param_default_str(default_val, self.root_dir)
+
+        is_sensitive = any(
+            kw in (param.name or "").upper() or (envvar is not None and kw in envvar.upper())
+            for kw in _SENSITIVE_PARAM_KEYWORDS
+        )
+        if is_sensitive and default_str and default_str not in ("None", "False", "True", "0", ""):
+            default_str = "<masked>"
 
         return ParamDoc(
             name=param.name or "",
@@ -259,6 +271,8 @@ class DocGenerator:
         self, name: str, module_path: str, summary: str
     ) -> CommandGroupDoc | None:
         """Introspect a single command module and construct CommandGroupDoc."""
+        if not module_path.startswith("devops_cli.commands."):
+            return None
         try:
             module = import_module(module_path)
             app_obj = getattr(module, "app", None)

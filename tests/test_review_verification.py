@@ -63,7 +63,7 @@ def test_review_findings_list_command(tmp_path: Path, monkeypatch: pytest.Monkey
     }
     (session_dir / "findings.json").write_text(json.dumps(findings_payload), encoding="utf-8")
 
-    monkeypatch.setattr("devops_cli.commands.review.CONST_DATA_DIR", tmp_path)
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path))
 
     res = runner.invoke(app, ["findings", "--session", "test-repo"], env={"COLUMNS": "160"})
     assert res.exit_code == 0
@@ -96,7 +96,7 @@ def test_review_verify_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     findings_file = session_dir / "findings.json"
     findings_file.write_text(json.dumps(findings_payload), encoding="utf-8")
 
-    monkeypatch.setattr("devops_cli.commands.review.CONST_DATA_DIR", tmp_path)
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path))
 
     res = runner.invoke(
         app,
@@ -150,7 +150,7 @@ def test_review_stats_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     }
     (session_dir / "findings.json").write_text(json.dumps(findings_payload), encoding="utf-8")
 
-    monkeypatch.setattr("devops_cli.commands.review.CONST_DATA_DIR", tmp_path)
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path))
 
     res = runner.invoke(app, ["stats"])
     assert res.exit_code == 0
@@ -473,3 +473,52 @@ def test_validate_segment_findings_and_merge() -> None:
     reconciled = _reconcile_verified(recomposed, [ReviewResult(findings=[f1_verified])])
     assert reconciled.findings[0].verified is False
     assert reconciled.findings[0].status == "UNVERIFIED"
+    assert reconciled.findings[0].reportable is False
+
+
+def test_deterministic_pre_verification_invalidates_hallucinated_syntax_errors(
+    tmp_path: Path,
+) -> None:
+    """Verify that deterministic AST verification invalidates false positive syntax error findings."""
+    from devops_cli.ai.review.verification import _deterministic_pre_verification
+
+    valid_py = tmp_path / "valid_code.py"
+    valid_py.write_text(
+        'sec_opts = list(getattr(param, "secondary_opts", []))\ndefault_val = getattr(param, "default", None)\n',
+        encoding="utf-8",
+    )
+
+    finding_syntax = Finding(
+        title="Syntax error: missing closing parenthesis in `introspect_param`",
+        location="valid_code.py:1-2",
+        description="The assignment contains an extra closing parenthesis.",
+        severity="CRITICAL",
+        status="UNVERIFIED",
+    )
+
+    checked = _deterministic_pre_verification(finding_syntax, repo_root=tmp_path)
+    assert checked.status == "INVALIDATED"
+    assert checked.verified is False
+    assert checked.reportable is False
+    assert "ast.parse" in (checked.invalidation_reason or "")
+
+
+def test_deterministic_pre_verification_handles_template_files(tmp_path: Path) -> None:
+    """Verify that template and example configuration files with placeholders are marked MITIGATED."""
+    from devops_cli.ai.review.verification import _deterministic_pre_verification
+
+    example_file = tmp_path / "config.example.yaml"
+    example_file.write_text("api_key: YOUR_API_KEY_HERE\n", encoding="utf-8")
+
+    finding_secret = Finding(
+        title="Hardcoded API Secret in config",
+        location="config.example.yaml:1",
+        description="Hardcoded secret token in configuration",
+        severity="HIGH",
+        status="UNVERIFIED",
+    )
+
+    checked = _deterministic_pre_verification(finding_secret, repo_root=tmp_path)
+    assert checked.status == "MITIGATED"
+    assert checked.reportable is False
+    assert checked.mitigated is True

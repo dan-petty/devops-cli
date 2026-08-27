@@ -369,3 +369,44 @@ def test_review_verify_stats_and_export_extended(tmp_path: Path) -> None:
     with patch("devops_cli.commands.review.stage_finding_patch", return_value=True):
         res_patch_ok = runner.invoke(review_app, ["apply-patch", "rev_sess_1", "--index", "1"])
         assert res_patch_ok.exit_code == 0
+
+    # 7. findings command with --details pretty formatting
+    with patch("devops_cli.ai.review.runner._find_session_dir", return_value=sess_dir):
+        res_details = runner.invoke(
+            review_app, ["findings", "--session", "rev_sess_1", "--details"]
+        )
+        assert res_details.exit_code == 0
+        assert "Finding #1" in res_details.output
+        assert "Hardcoded API Key" in res_details.output
+        assert "Found sensitive secret in source" in res_details.output
+
+
+def test_format_clean_text_field_and_finding_unwrapping() -> None:
+    """Verify that format_clean_text_field unwraps raw lists, tuples, and stringified Python lists."""
+    from devops_cli.ai.review_schema import Finding, format_clean_text_field
+
+    # Test raw list of strings
+    raw_list = ["Step 1: Validate input", "Step 2: Apply boundary check"]
+    assert (
+        format_clean_text_field(raw_list) == "Step 1: Validate input\nStep 2: Apply boundary check"
+    )
+
+    # Test stringified Python list
+    stringified_list = "['Validate module path prefix', 'Reject untrusted modules']"
+    cleaned = format_clean_text_field(stringified_list)
+    assert cleaned == "Validate module path prefix\nReject untrusted modules"
+    assert "['" not in cleaned
+
+    # Test Finding initialization with list fix and description
+    finding_dict = {
+        "title": ["Insecure", "Deserialization"],
+        "location": "src/loader.py:10",
+        "description": ["Avoid pickle.loads", "Use json.loads instead"],
+        "fix": ["Replace pickle with json", "Add schema validation"],
+        "references": "['https://cwe.mitre.org/995', 'https://owasp.org']",
+    }
+    f = Finding(**finding_dict)  # type: ignore[arg-type]
+    assert f.title == "Insecure Deserialization"
+    assert f.description == "Avoid pickle.loads\nUse json.loads instead"
+    assert f.fix == "Replace pickle with json\nAdd schema validation"
+    assert f.references == ["https://cwe.mitre.org/995", "https://owasp.org"]

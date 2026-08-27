@@ -153,6 +153,10 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 |  | `devops k8s create-tls-secret [OPTIONS] <secret_name>` | Create or update a kubernetes.io/tls secret from certificate and private key files. |
 |  | `devops k8s enable-tls [OPTIONS]` | Generate Homelab certificates and apply TLS secrets across Kubernetes cluster namespaces. |
 |  | `devops k8s validate [OPTIONS] <manifest_path>` | Validate Kubernetes YAML manifests against OpenAPI schemas using Kubeconform. |
+|  | `devops k8s validate-policy [OPTIONS] <manifest_path>` | Validate Kubernetes manifests against Kyverno or OPA admission policies. |
+|  | `devops k8s stream-logs [OPTIONS] <pod_query>` | Stream logs across multiple pods in parallel using Stern or kubectl. |
+|  | `devops k8s diff-helm [OPTIONS] <release_name> <chart_path>` | Preview Kubernetes manifest diffs before executing a Helm upgrade. |
+|  | `devops k8s chaos [OPTIONS] <experiment>` | Run resilience and chaos experiments against Kubernetes workloads. |
 | **kustomize** | `devops kustomize build [OPTIONS] <path>` | Build kustomize overlays (delegates to kustomize build). |
 |  | `devops kustomize diff <path>` | Show a diff of pending changes (delegates to kubectl diff -k). |
 |  | `devops kustomize apply [OPTIONS] <path>` | Apply a kustomization (delegates to kubectl apply -k). |
@@ -189,7 +193,8 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 |  | `devops ci audit [OPTIONS]` | Run uv audit to check for known package vulnerabilities. |
 |  | `devops ci security [OPTIONS]` | Run bandit static security vulnerability analysis over src/. |
 |  | `devops ci actionlint [OPTIONS]` | Run actionlint to validate GitHub Actions workflows for syntax and schema errors. |
-|  | `devops ci docs [OPTIONS]` | Verify that documentation is up to date with CLI commands and configuration. |
+|  | `devops ci docs [OPTIONS]` | Verify (or update with --fix) that documentation is up to date with CLI commands and configuration. |
+|  | `devops ci maintain [OPTIONS]` | Run automated toolchain, dependency freshness, and lockfile maintenance checks. |
 |  | `devops ci run [OPTIONS]` | Run full CI and return a single pass/fail status. |
 | **uv** | `devops uv sync [OPTIONS]` | Sync project dependencies into the virtual environment. |
 |  | `devops uv lock [OPTIONS]` | Regenerate the uv lockfile. |
@@ -212,6 +217,7 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 |  | `devops ai pipeline [OPTIONS] <prompt>` | Run a multi-agent Pydantic pipeline with shared DevOps tools and RAG context. |
 |  | `devops ai token-count [OPTIONS] <target>` | Calculate exact BPE tokens for text or files using tiktoken context budgeting. |
 |  | `devops ai route [OPTIONS] <task>` | Evaluate task complexity and determine the optimal LLM provider and model route. |
+|  | `devops ai spec [OPTIONS] <spec_path>` | Verify codebase against executable markdown architecture specification contracts. |
 |  | `devops ai review [OPTIONS] COMMAND [ARGS]...` | AI-powered multi-persona code review system. |
 |  | `devops ai analyze [OPTIONS] COMMAND [ARGS]...` | Analyze codebase metadata and generate structural outlines. |
 |  | `devops ai rag [OPTIONS] COMMAND [ARGS]...` | Manage RAG vector embeddings, indexing, and semantic search (Qdrant). |
@@ -261,6 +267,8 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 |  | `devops telemetry test [OPTIONS]` | Emit a test OpenTelemetry trace span and metric to the configured collector. |
 |  | `devops telemetry open-ui` | Print and show the Jaeger Query UI endpoint for inspecting traces. |
 | **serve** | `devops serve [OPTIONS]` | FastAPI REST & OpenAPI Service Engine for remote automation, health probes, and metrics. |
+| **test** | `devops test [OPTIONS] <script_path>` | Execute developer-centric load, spike, and latency tests against services using k6. |
+| **pipeline** | `devops pipeline [OPTIONS] <pipeline_path>` | Execute reproducible, containerized developer pipelines with Dagger. |
 <!-- COMMAND_MATRIX_END -->
 
 ---

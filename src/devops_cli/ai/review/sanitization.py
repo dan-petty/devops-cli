@@ -5,7 +5,7 @@ from __future__ import annotations
 import html
 import re
 
-from devops_cli.config.defaults import DEFAULT_PROMPT_CAP_CHARS
+from devops_cli.config.defaults import DEFAULT_PROMPT_TRUNCATION_CAP
 
 _SECRET_PATTERNS = (
     (
@@ -121,7 +121,7 @@ def _unique_preserve_order(items: list[str]) -> list[str]:
     return unique
 
 
-def _truncate_for_prompt(text: str, cap: int = DEFAULT_PROMPT_CAP_CHARS) -> str:
+def _truncate_for_prompt(text: str, cap: int = DEFAULT_PROMPT_TRUNCATION_CAP) -> str:
     """Clip text to cap chars for prompt payloads, appending an ellipsis when truncated."""
     return text[:cap] + ("\u2026" if len(text) > cap else "")
 

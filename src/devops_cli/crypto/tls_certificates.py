@@ -33,7 +33,7 @@ from devops_cli.config.defaults import (
     DEFAULT_TLS_ORGANIZATION,
     DEFAULT_TLS_VALIDITY_DAYS,
 )
-from devops_cli.core.validation import validate_safe_key_path
+from devops_cli.core.validation import validate_safe_directory_path, validate_safe_key_path
 from devops_cli.models.tls import CertificateInfo, TLSEnablementSummary
 
 
@@ -48,6 +48,7 @@ def _write_restricted_file(
     fd = os.open(valid_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
     with os.fdopen(fd, "wb") as fh:
         fh.write(data)
+    os.chmod(valid_path, mode)
 
 
 def _build_san_extension(sans: list[str]) -> x509.SubjectAlternativeName:
@@ -89,7 +90,7 @@ def generate_ca_certificate(
     Returns:
         tuple[Path, Path]: (ca_cert_path, ca_key_path)
     """
-    out = output_dir or DEFAULT_TLS_DIR
+    out = validate_safe_directory_path(output_dir or DEFAULT_TLS_DIR)
     out.mkdir(parents=True, exist_ok=True)
 
     cert_path = out / CONST_CA_CERT_NAME
@@ -177,7 +178,7 @@ def generate_server_certificate(
     Returns:
         tuple[Path, Path, Path | None]: (cert_path, key_path, fullchain_path)
     """
-    out = output_dir or DEFAULT_TLS_DIR
+    out = validate_safe_directory_path(output_dir or DEFAULT_TLS_DIR)
     out.mkdir(parents=True, exist_ok=True)
 
     cert_path = out / CONST_SERVER_CERT_NAME
@@ -305,7 +306,7 @@ def generate_homelab_tls_bundle(
     - K8s cluster internal FQDNs (*.svc.cluster.local, etc.)
     - Local & Minikube IPs (127.0.0.1, ::1, 192.168.49.2)
     """
-    out = output_dir or DEFAULT_TLS_DIR
+    out = validate_safe_directory_path(output_dir or DEFAULT_TLS_DIR)
     out.mkdir(parents=True, exist_ok=True)
 
     # 1. Generate or load Root CA

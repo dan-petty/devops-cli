@@ -22,6 +22,11 @@ This document provides foundational context, architectural principles, and opera
 - **Continuous Standards Compliance & Solution Refinement**:
   - AI agents and assistants must always check that any proposed solution, design, code change, or architecture meets all project standards and conventions (including modular organization, domain-driven naming, standard library composition, zero boilerplate, Pydantic v2 schemas, strict type annotations, canonical location formatting, and zero hardcoded metrics).
   - AI agents must update and refine the solution whenever necessary until every project standard is met or exceeded.
+- **Clean Solutions Over Legacy Remnants (Zero-Tolerance for Zombie Code)**:
+  - When modifying, refactoring, or replacing features, schemas, configurations, or interfaces, AI agents must implement clean, complete solutions and ruthlessly remove old, obsolete, or superseded code, variables, aliases, fallback shims, and legacy workarounds across the codebase.
+  - Never leave remnants, vestigial aliases, deprecated fallback paths, or ghost implementations for backward compatibility unless explicitly requested to do so by the user.
+- **Dedicated Agent Workspace Data Isolation (`DEVOPS_CLI_DATA_DIR=./.data/agent`)**:
+  - AI agents executing CLI review sessions, background benchmarks, analysis scans, test executions, or temporary operational tasks must configure and isolate agent data artifacts under `./.data/agent` (via `DEVOPS_CLI_DATA_DIR=./.data/agent`) to separate agent-generated reviews, logs, traces, and metadata from the primary user workspace data tier.
 - **Mandatory Documentation Synchronization After Every Change**:
   - AI agents and assistants must always update project documents, architecture references, command documentation, and README files (`devops docs generate --sync-readme`, `docs/`, `AGENTS.md`, and relevant knowledge base task manuals) after every change to maintain 100% documentation integrity and prevent documentation drift.
 
@@ -84,10 +89,13 @@ Before planning, implementing, debugging, refactoring, or reviewing code, archit
   - Unit tests must isolate external dependencies (network, LLM providers, subprocesses) using mocks (`unittest.mock`, `pytest-mock`).
   - Never hardcode real user credentials or live environment endpoints in test suites.
 - **Comprehensive, Robust Implementations Over Brittle Literal Collections**:
-  - **Strict Prohibition on Incomplete Literal Collections**: Never rely on partial iterable collections of string literals, ad-hoc lists of file extensions, arbitrary keyword/attribute sets, or fragile regex substring matching for domain logic, syntax analysis, file classification, or security filtering.
-  - **Why Incomplete Collections Fail**: Subsets of string literals (e.g. hardcoded lists of extensions or directory names) inevitably introduce random inconsistencies, false positives, fragile edge cases, and high maintenance debt when encountering valid languages, frameworks, or domain structures outside the hardcoded subset.
+  - **Strict Prohibition on Incomplete Literal Collections (Zero-Tolerance Policy)**: Never rely on partial iterable collections of string literals, ad-hoc lists of file extensions, arbitrary keyword/attribute sets, or fragile regex substring matching for domain logic, syntax analysis, file classification, or security filtering. Using a list of strings that represents an incomplete subset of possibilities for code logic is strictly prohibited and considered a firable offense for AI agents.
+  - **Why Incomplete Collections Fail**: Subsets of string literals (e.g. hardcoded lists of extensions, directory names, or error keywords) inevitably introduce random inconsistencies, false positives, fragile edge cases, and severe maintenance debt when encountering valid languages, frameworks, or domain structures outside the hardcoded subset.
   - **Always Use Standard Parsers & Dynamic Introspection**: Use established language-agnostic code quality standards, standard library parsers (`ast`, `tokenize`, `json`, `tomllib`, `yaml`, `urllib.parse`, `ipaddress`, `mimetypes`, `functools.lru_cache`), official specifications (e.g. Public Suffix List via `tldextract`, PEP 508 `packaging.requirements`), dynamic filesystem queries (`Path.iterdir()`), and syntactic/structural analysis over matching against a hardcoded subset of possibilities.
   - **Target-Agnostic & Language-Agnostic Design**: DevOps automation and AI developer tooling must remain robust and resilient across any software ecosystem (Python, Go, Rust, TypeScript, Java, C#, HCL, Kubernetes, Docker) without hardcoding runtime assumptions or brittle token subsets.
+- **Pure Markdown Prompt Tasks & Zero Inline LLM Prompts (Zero-Tolerance Policy)**:
+  - All LLM system prompts, task instructions, guardrails, evaluation rubrics, benchmark prompts, and reference criteria MUST reside in dedicated Markdown files (`.md`) under `src/devops_cli/ai/`.
+  - Cramming AI/LLM prompts, multi-line instructions, evaluation text, or prompt templates inline into Python code logic is strictly prohibited and considered a firable offense for AI agents. Python code must only load prompts via `load_task_prompt()`.
 - **Documentation Integrity**:
   - Keep CLI documentation, option help text, environment variable tables, and architecture guides synchronized with source code via `devops docs generate --sync-readme`.
 - **Canonical Location Formatting (`filename.ext:n-n`)**:

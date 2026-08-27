@@ -16,9 +16,31 @@ CONST_PROJECT_CONFIG_ENV = "DEVOPS_CLI_CONFIG"  # absolute path overrides CWD lo
 CONST_VSCODE_WORKSPACE_FILE = Path(".code-workspace")
 CONST_VSCODE_CLI = "code"
 CONST_AGENTS_MD_FILENAME = "AGENTS.md"
+CONST_PYPROJECT_FILENAME = "pyproject.toml"
+CONST_README_FILENAME = "README.md"
+CONST_INIT_PY_PATH = Path("src/devops_cli/__init__.py")
+CONST_CURRENT_DIR = Path(".")
+CONST_ROOT_DIR = Path("/")
+CONST_SRC_DIR_NAME = "src"
+CONST_DOCS_DIR_NAME = "docs"
+CONST_DOCS_DIR_PATH = Path(CONST_DOCS_DIR_NAME)
+CONST_TESTS_DIR_NAME = "tests"
+CONST_TESTS_DIR_PATH = Path(CONST_TESTS_DIR_NAME)
+CONST_VSCODE_DIR_NAME = ".vscode"
+CONST_MCP_JSON_NAME = "mcp.json"
+CONST_GLOBAL_BIN_PATH = Path("/usr/local/bin/devops")
+CONST_SYSTEM_TEMP_DIRS: tuple[Path, ...] = (Path("/tmp"), Path("/var/tmp"))  # nosec B108
+CONST_FORBIDDEN_SYSTEM_DIRS: tuple[Path, ...] = (
+    Path("/etc"),
+    Path("/usr"),
+    Path("/bin"),
+    Path("/sbin"),
+    Path("/var"),
+    Path("/sys"),
+    Path("/proc"),
+)
 
 # ── Data Directories & Artifact Paths ─────────────────────────────────────────
-CONST_DATA_DIR = Path(".data")
 CONST_ANALYSIS_DIR_NAME = "analysis"
 CONST_REVIEWS_DIR_NAME = "reviews"
 CONST_LOGS_DIR_NAME = "logs"
@@ -29,24 +51,15 @@ CONST_BENCHMARKS_DIR_NAME = "benchmarks"
 CONST_AUDIT_LOG_NAME = "audit.jsonl"
 CONST_FEEDBACK_DATASET_NAME = "feedback_dataset.jsonl"
 CONST_EMBEDDING_REPORT_FILENAME = "embedding_report.json"
-
-CONST_ANALYSIS_DATA_DIR = CONST_DATA_DIR / CONST_ANALYSIS_DIR_NAME
-CONST_REVIEWS_DATA_DIR = CONST_DATA_DIR / CONST_REVIEWS_DIR_NAME
-CONST_LOGS_DATA_DIR = CONST_DATA_DIR / CONST_LOGS_DIR_NAME
-CONST_MODELS_DATA_DIR = CONST_DATA_DIR / CONST_MODELS_DIR_NAME
-CONST_CACHE_DATA_DIR = CONST_DATA_DIR / CONST_CACHE_DIR_NAME
-CONST_LLM_CACHE_DATA_DIR = CONST_CACHE_DATA_DIR / CONST_LLM_CACHE_DIR_NAME
-CONST_BENCHMARKS_DATA_DIR = CONST_DATA_DIR / CONST_BENCHMARKS_DIR_NAME
-CONST_AUDIT_LOG_PATH = CONST_LOGS_DATA_DIR / CONST_AUDIT_LOG_NAME
-CONST_FEEDBACK_DATASET_PATH = CONST_DATA_DIR / CONST_FEEDBACK_DATASET_NAME
+CONST_TLS_DIR_NAME = "tls"
+CONST_RAG_DIR_NAME = "rag"
+CONST_INDEX_CACHE_FILENAME = "index_cache.json"
 
 # ── Memory & Byte Sizing Constants ────────────────────────────────────────────
 CONST_FP32_BYTES_PER_ELEMENT: int = 4
 CONST_KILOBYTE_BYTES: int = 1024
 
 # ── TLS & Cryptographic Certificates ──────────────────────────────────────────
-CONST_TLS_DIR_NAME = "tls"
-CONST_TLS_DATA_DIR = CONST_DATA_DIR / CONST_TLS_DIR_NAME
 CONST_CA_CERT_NAME = "ca.crt"
 CONST_CA_KEY_NAME = "ca.key"
 CONST_SERVER_CERT_NAME = "tls.crt"
@@ -63,6 +76,14 @@ CONST_DEVCONTAINER_POST_CREATE_PATH = (
 )
 CONST_DEVCONTAINER_IMAGE_PREFIX = "mcr.microsoft.com/devcontainers/python:"
 CONST_DEVCONTAINER_PUBLISHED_IMAGE = "ghcr.io/dan-petty/devops-cli/devcontainer:latest"
+
+# ── Specifications, Load Testing & Chaos ──────────────────────────────────────
+CONST_SPECS_DIR_NAME = ".devops/specs"
+CONST_SPECS_DIR_PATH = Path(CONST_SPECS_DIR_NAME)
+CONST_CHAOS_DIR_NAME = "k8s/chaos"
+CONST_CHAOS_DIR_PATH = Path(CONST_CHAOS_DIR_NAME)
+CONST_LOAD_TESTS_DIR_NAME = "tests/load"
+CONST_LOAD_TESTS_DIR_PATH = Path(CONST_LOAD_TESTS_DIR_NAME)
 
 # ── OpenTofu & Infrastructure ──────────────────────────────────────────────────
 CONST_TF_DIR_NAME = "tf"
@@ -149,16 +170,7 @@ CONST_URL_GITHUB_ARGO_ROLLOUTS_RELEASES_BASE = (
 # ── Kubernetes & RFC 1123 Patterns ────────────────────────────────────────────
 CONST_K8S_LABEL_RE: re.Pattern[str] = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
 CONST_K8S_SUBDOMAIN_RE: re.Pattern[str] = re.compile(r"^[a-z0-9]([a-z0-9.\-]{0,251}[a-z0-9])?$")
-
-CONST_PORT_ARGOCD = 8080
-CONST_PORT_GRAFANA_LOCAL = 8030
-CONST_PORT_GRAFANA = 3000
-CONST_PORT_PROMETHEUS_LOCAL = 8090
-CONST_PORT_PROMETHEUS = 9090
-CONST_PORT_OLLAMA = 11434
-CONST_PORT_OPEN_WEBUI = 8080
-CONST_PORT_QDRANT = 6333
-CONST_PORT_VALKEY = 6379
+CONST_K8S_NODE_ROLE_LABEL_PREFIX = "node-role.kubernetes.io/"
 
 # ── File Permissions ──────────────────────────────────────────────────────────
 CONST_PERM_DIR = 0o700
@@ -170,9 +182,6 @@ CONST_MAX_FILE_SIZE_BYTES = 200 * 1024 * 1024
 
 # ── Code Review & Analysis ────────────────────────────────────────────────────
 CONST_REVIEW_MAX_DIFF_CHARS = 24000
-CONST_REVIEW_WINDOW_SIZE_FACTOR = 0.8
-CONST_REVIEW_OVERLAP_FACTOR = 0.1
-CONST_REVIEW_TIMEOUT_SECONDS = 1200
 CONST_REVIEW_GENERATED_FILES = frozenset(
     {
         "uv.lock",

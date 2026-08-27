@@ -14,11 +14,14 @@ from devops_cli.ai.analyze.cache import _render_analysis_summary, save_analysis_
 from devops_cli.ai.analyze.scanner import detect_language, sanitize_reference
 from devops_cli.ai.client import LLMClient
 from devops_cli.config.constants import (
-    CONST_ANALYSIS_DATA_DIR,
     CONST_GIT_MAIN_BRANCH,
     CONST_MAX_FILE_SIZE_BYTES,
 )
-from devops_cli.config.defaults import DEFAULT_MATCH_ALL_PATTERN
+from devops_cli.config.defaults import (
+    DEFAULT_ANALYSIS_DATA_DIR,
+    DEFAULT_CURRENT_PATH,
+    DEFAULT_MATCH_ALL_PATTERN,
+)
 from devops_cli.config.settings import get_ai_api_key, get_github_token, load_settings
 from devops_cli.core.cli import new_typer
 from devops_cli.core.repo import (
@@ -100,9 +103,11 @@ def _process_single_repo_file_meta(
     ai_client: LLMClient | None,
 ) -> FileAnalysisMeta | None:
     """Analyze a single file for repository-wide or path analysis."""
-    if p.stat().st_size > CONST_MAX_FILE_SIZE_BYTES:
-        return None
     try:
+        if not p.resolve().is_relative_to(repo.resolve()):
+            return None
+        if p.stat().st_size > CONST_MAX_FILE_SIZE_BYTES:
+            return None
         rel_str = str(p.relative_to(repo)) if p.is_relative_to(repo) else str(p)
         file_mtime = datetime.fromtimestamp(p.stat().st_mtime, UTC)
 
@@ -140,6 +145,10 @@ def _process_single_branch_file_meta(
         return _create_deleted_file_meta(rel_path)
 
     try:
+        if not file_path.resolve().is_relative_to(repo.resolve()):
+            return None
+        if file_path.stat().st_size > CONST_MAX_FILE_SIZE_BYTES:
+            return None
         file_mtime = datetime.fromtimestamp(file_path.stat().st_mtime, UTC)
         if enhanced and rel_path in existing_file_metas:
             reused = _try_reuse_cached_file_meta(existing_file_metas[rel_path], file_mtime)
@@ -185,7 +194,7 @@ def analyze_main(
 
 @app.command(name="path")
 def analyze_path(
-    target: Annotated[Path, typer.Argument(help=HELP.analyze.target)] = Path("."),
+    target: Annotated[Path, typer.Argument(help=HELP.analyze.target)] = DEFAULT_CURRENT_PATH,
     pattern: Annotated[
         str,
         typer.Option("--pattern", "-g", help=HELP.options.pattern),
@@ -253,7 +262,7 @@ def analyze_path(
     sanitized_ref = sanitize_reference(ref_str, repo)
     existing_file_metas: dict[str, FileAnalysisMeta] = {}
     top_root = find_top_level_repo_root(repo)
-    out_file_path = top_root / CONST_ANALYSIS_DATA_DIR / f"path-{sanitized_ref}-metadata.json"
+    out_file_path = top_root / DEFAULT_ANALYSIS_DATA_DIR / f"path-{sanitized_ref}-metadata.json"
 
     if enhanced and not update_all and out_file_path.exists():
         try:
@@ -342,7 +351,7 @@ def analyze_branch(
     sanitized_ref = sanitize_reference(target_branch, repo)
     existing_file_metas: dict[str, FileAnalysisMeta] = {}
     top_root = find_top_level_repo_root(repo)
-    out_file_path = top_root / CONST_ANALYSIS_DATA_DIR / f"branch-{sanitized_ref}-metadata.json"
+    out_file_path = top_root / DEFAULT_ANALYSIS_DATA_DIR / f"branch-{sanitized_ref}-metadata.json"
 
     if enhanced and not update_all and out_file_path.exists():
         try:

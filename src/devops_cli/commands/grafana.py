@@ -12,8 +12,9 @@ import typer
 
 from devops_cli.config.constants import CONST_MAX_FILE_SIZE_BYTES
 from devops_cli.config.defaults import (
+    DEFAULT_GRAFANA_DASHBOARDS_DIR,
     DEFAULT_GRAFANA_FOLDER_ID,
-    DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS,
+    DEFAULT_HTTP_TIMEOUT_SECONDS,
 )
 from devops_cli.config.settings import Settings, get_grafana_token, load_settings
 from devops_cli.core.cli import new_typer
@@ -86,7 +87,7 @@ def dashboards_list() -> None:
             f"{base}/api/search",
             headers=headers,
             params={"type": "dash-db"},
-            timeout=DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS,
+            timeout=DEFAULT_HTTP_TIMEOUT_SECONDS,
         )
         response.raise_for_status()
 
@@ -130,7 +131,7 @@ def dashboards_export(
         response = http_client.get(
             f"{base}/api/dashboards/uid/{uid}",
             headers=headers,
-            timeout=DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS,
+            timeout=DEFAULT_HTTP_TIMEOUT_SECONDS,
         )
         response.raise_for_status()
 
@@ -192,7 +193,7 @@ def dashboards_import(
             f"{base}/api/dashboards/db",
             headers=headers,
             json={"dashboard": dashboard, "folderId": folder_id, "overwrite": True},
-            timeout=DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS,
+            timeout=DEFAULT_HTTP_TIMEOUT_SECONDS,
         )
         response.raise_for_status()
     print_success(
@@ -213,7 +214,7 @@ def dashboards_sync(
     ] = None,
 ) -> None:
     """Sync all bundled/local dashboards to Grafana."""
-    search_dir = dir_path or Path("k8s/monitoring/dashboards")
+    search_dir = dir_path or DEFAULT_GRAFANA_DASHBOARDS_DIR
     if not search_dir.exists():
         print_warning(MESSAGES.grafana.dir_not_found.format(path=search_dir), prefix=False)
         raise typer.Exit(1)
@@ -246,7 +247,7 @@ def dashboards_sync(
                     f"{base}/api/dashboards/db",
                     headers=headers,
                     json={"dashboard": dashboard, "overwrite": True},
-                    timeout=DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS,
+                    timeout=DEFAULT_HTTP_TIMEOUT_SECONDS,
                 )
                 response.raise_for_status()
                 print_success(
@@ -282,7 +283,7 @@ def search(
             f"{base}/api/search",
             headers=headers,
             params=params,
-            timeout=DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS,
+            timeout=DEFAULT_HTTP_TIMEOUT_SECONDS,
         )
         response.raise_for_status()
 
@@ -321,7 +322,7 @@ def datasources() -> None:
         response = http_client.get(
             f"{base}/api/datasources",
             headers=headers,
-            timeout=DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS,
+            timeout=DEFAULT_HTTP_TIMEOUT_SECONDS,
         )
         response.raise_for_status()
 
@@ -358,7 +359,7 @@ def alerts() -> None:
         response = http_client.get(
             f"{base}/api/v1/provisioning/alert-rules",
             headers=headers,
-            timeout=DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS,
+            timeout=DEFAULT_HTTP_TIMEOUT_SECONDS,
         )
         response.raise_for_status()
 

@@ -38,8 +38,8 @@ class TelemetryStatusResponse(BaseModel):
 async def get_telemetry() -> dict[str, Any]:
     """Inspect OpenTelemetry configuration and ping the OTLP collector endpoint."""
     tracer = get_tracer()
-    ok, msg, latency = tracer.test_connection(timeout=2.0)
-    safe_msg = msg if ok else "Collector probe failed or unreachable"
+    ok, _msg, latency = tracer.test_connection(timeout=2.0)
+    safe_msg = "Connected successfully" if ok else "Collector probe failed or unreachable"
     return {
         "enabled": tracer.enabled,
         "endpoint": tracer.endpoint,

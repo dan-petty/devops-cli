@@ -21,6 +21,7 @@ class Persona(StrEnum):
     PM = "pm"
     AUDITOR = "auditor"
     QA = "qa"
+    CHALLENGER = "challenger"
 
 
 class PersonaDefinition(BaseModel):
@@ -63,6 +64,7 @@ def _load_persona(persona: Persona) -> PersonaDefinition:
         Persona.PM: MESSAGES.persona_titles.pm,
         Persona.AUDITOR: MESSAGES.persona_titles.auditor,
         Persona.QA: MESSAGES.persona_titles.qa,
+        Persona.CHALLENGER: MESSAGES.persona_titles.challenger,
     }
     role = _load(d / "role.md")
     domain = _load(d / "prompt.md")

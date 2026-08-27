@@ -119,8 +119,8 @@ def test_generate_homelab_tls_bundle(tmp_path: Path) -> None:
         assert svc in summary.services_configured
 
     # Verify custom additions
-    assert "custom.myhome.net" in summary.sans
-    assert "10.0.0.15" in summary.sans
+    assert any(san == "custom.myhome.net" for san in summary.sans)
+    assert any(san == "10.0.0.15" for san in summary.sans)
 
     # Cryptographically verify the server cert against the generated CA
     assert verify_certificate(summary.server_cert_path, summary.ca_cert_path) is True
@@ -209,3 +209,39 @@ def test_tls_edge_cases_and_cached_returns(tmp_path: Path) -> None:
     assert srv_cert1 == srv_cert2
     assert srv_key1 == srv_key2
     assert chain1 == chain2
+
+
+def test_tls_output_dir_path_traversal_prevention() -> None:
+    """Verify that path traversal in output_dir is prevented with ValidationError."""
+    import pytest
+
+    from devops_cli.exceptions import ValidationError
+
+    with pytest.raises(ValidationError, match="Path traversal"):
+        generate_ca_certificate(output_dir=Path("../../../../tmp/etc"))
+
+    with pytest.raises(ValidationError, match="Path traversal"):
+        generate_server_certificate(output_dir=Path("../../../../tmp/etc"))
+
+    with pytest.raises(ValidationError, match="Path traversal"):
+        generate_homelab_tls_bundle(output_dir=Path("../../../../tmp/etc"))
+
+
+def test_tls_overwriting_insecure_permissions(tmp_path: Path) -> None:
+    """Verify that regenerating TLS certs/keys resets file permissions to 0600 (key) / 0644 (cert)."""
+    import os
+
+    k_file = tmp_path / CONST_CA_KEY_NAME
+    c_file = tmp_path / CONST_CA_CERT_NAME
+
+    k_file.write_text("old_insecure_key")
+    os.chmod(k_file, 0o666)
+    c_file.write_text("old_cert")
+    os.chmod(c_file, 0o666)
+
+    generate_ca_certificate(output_dir=tmp_path, overwrite=True)
+
+    priv_mode = os.stat(k_file).st_mode & 0o777
+    pub_mode = os.stat(c_file).st_mode & 0o777
+    assert priv_mode == 0o600
+    assert pub_mode == 0o644

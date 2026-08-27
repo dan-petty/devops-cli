@@ -15,7 +15,10 @@ from devops_cli.config.constants import (
     CONST_TF_ENVIRONMENTS_DIR,
     CONST_TF_GCP_DIR,
 )
-from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
+from devops_cli.config.defaults import (
+    DEFAULT_CURRENT_PATH,
+    DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
+)
 from devops_cli.core.cli import new_typer
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import find_top_level_repo_root
@@ -88,9 +91,9 @@ def _get_default_var_file(cloud_provider: str, repo_root: Path) -> Path | None:
 # =============================================================================
 
 
-@app.command()
-def init(
-    directory: Annotated[Path, typer.Argument(help=HELP.tf.target_dir)] = Path("."),
+@app.command("init")
+def tf_init(
+    directory: Annotated[Path, typer.Argument(help=HELP.tf.target_dir)] = DEFAULT_CURRENT_PATH,
     upgrade: Annotated[bool, typer.Option("--upgrade", "-u", help=HELP.tf.upgrade_modules)] = False,
     reconfigure: Annotated[bool, typer.Option("--reconfigure", help=HELP.tf.reconfigure)] = False,
 ) -> None:
@@ -128,9 +131,9 @@ def init(
 # =============================================================================
 
 
-@app.command()
-def plan(
-    directory: Annotated[Path, typer.Argument(help=HELP.tf.target_dir)] = Path("."),
+@app.command("plan")
+def tf_plan(
+    directory: Annotated[Path, typer.Argument(help=HELP.tf.target_dir)] = DEFAULT_CURRENT_PATH,
     var_file: Annotated[
         Path | None, typer.Option("--var-file", "-v", help=HELP.tf.var_file)
     ] = None,
@@ -173,9 +176,9 @@ def plan(
 # =============================================================================
 
 
-@app.command()
-def apply(
-    directory: Annotated[Path, typer.Argument(help=HELP.tf.target_dir)] = Path("."),
+@app.command("apply")
+def tf_apply(
+    directory: Annotated[Path, typer.Argument(help=HELP.tf.target_dir)] = DEFAULT_CURRENT_PATH,
     var_file: Annotated[
         Path | None, typer.Option("--var-file", "-v", help=HELP.tf.var_file)
     ] = None,
@@ -223,9 +226,9 @@ def apply(
 # =============================================================================
 
 
-@app.command()
-def destroy(
-    directory: Annotated[Path, typer.Argument(help=HELP.tf.target_dir)] = Path("."),
+@app.command("destroy")
+def tf_destroy(
+    directory: Annotated[Path, typer.Argument(help=HELP.tf.target_dir)] = DEFAULT_CURRENT_PATH,
     var_file: Annotated[
         Path | None, typer.Option("--var-file", "-v", help=HELP.tf.var_file)
     ] = None,
@@ -267,9 +270,9 @@ def destroy(
 # =============================================================================
 
 
-@app.command()
-def output(
-    directory: Annotated[Path, typer.Argument(help=HELP.tf.target_dir)] = Path("."),
+@app.command("output")
+def tf_output(
+    directory: Annotated[Path, typer.Argument(help=HELP.tf.target_dir)] = DEFAULT_CURRENT_PATH,
     json_output: Annotated[
         bool, typer.Option("--json", "-j", help=HELP.options.json_output)
     ] = False,
@@ -309,9 +312,9 @@ def output(
 # =============================================================================
 
 
-@app.command()
-def validate(
-    directory: Annotated[Path, typer.Argument(help=HELP.tf.target_dir)] = Path("."),
+@app.command("validate")
+def tf_validate(
+    directory: Annotated[Path, typer.Argument(help=HELP.tf.target_dir)] = DEFAULT_CURRENT_PATH,
     no_color: Annotated[bool, typer.Option("--no-color", help=HELP.tf.no_color)] = False,
 ) -> None:
     """Validate the OpenTofu configuration files in a directory."""
@@ -346,9 +349,9 @@ def validate(
 # =============================================================================
 
 
-@app.command()
-def fmt(
-    directory: Annotated[Path, typer.Argument(help=HELP.tf.target_dir)] = Path("."),
+@app.command("fmt")
+def tf_fmt(
+    directory: Annotated[Path, typer.Argument(help=HELP.tf.target_dir)] = DEFAULT_CURRENT_PATH,
     check: Annotated[bool, typer.Option("--check", "-c", help=HELP.tf.check_fmt)] = False,
     recursive: Annotated[
         bool, typer.Option("--recursive", "-r", help=HELP.tf.recursive_fmt)
@@ -390,7 +393,7 @@ def fmt(
 
 @app.command(name="status")
 def status_command(
-    directory: Annotated[Path, typer.Argument(help=HELP.tf.target_dir)] = Path("."),
+    directory: Annotated[Path, typer.Argument(help=HELP.tf.target_dir)] = DEFAULT_CURRENT_PATH,
 ) -> None:
     """Show OpenTofu directory state, initialization status, and provider plugins."""
     target = _validate_dir(directory)
@@ -488,7 +491,7 @@ def tf_lint(
     directory: Annotated[
         Path,
         typer.Argument(help=HELP.tf.target_dir),
-    ] = Path("."),
+    ] = DEFAULT_CURRENT_PATH,
     config: Annotated[
         Path | None,
         typer.Option("--config", "-c", help=HELP.tf.tflint_config),

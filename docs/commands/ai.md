@@ -93,7 +93,7 @@ devops ai chat [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--persona`, `-p` | `string` | `architect` | Persona to chat with: devsecops, architect, pm, auditor, qa |
+| `--persona`, `-p` | `string` | `architect` | Persona to chat with: devsecops, architect, pm, auditor, qa, challenger |
 | `--context`, `-c` | `path` | - | Optional file to inject as background context (e.g. AGENTS.md). |
 | `--rag`, `--no-rag` | `boolean` | `True` | Retrieve relevant semantic RAG context. |
 | `--stream`, `--no-stream` | `boolean` | `True` | Stream response tokens. |
@@ -187,9 +187,33 @@ devops ai route [OPTIONS] <task>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--tokens`, `-t` | `integer` | `1500` | Estimated tokens. |
+| `--tokens`, `-t` | `integer` | `<masked>` | Estimated tokens. |
 | `--frontier`, `-f` | `boolean` | - | Force routing to frontier tier models. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
+
+---
+
+## `devops ai spec`
+
+**Verify codebase against executable markdown architecture specification contracts.**
+
+```bash
+devops ai spec [OPTIONS] <spec_path>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<spec_path>` | `path` | No | Path to markdown architecture specification contract |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--target`, `-t` | `path` | - | Target source directory to verify |
+| `--dry-run` | `boolean` | - | Simulate architecture spec verification |
+| `--json` | `boolean` | - | Output specification verification report as JSON |
 
 ---
 
@@ -226,7 +250,7 @@ devops ai review path [OPTIONS] <targets>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--pattern`, `-g` | `string` | `*` | Glob pattern for matching files. |
-| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa)` | - | Reviewer persona to activate (devsecops, architect, pm, auditor, qa). |
+| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Reviewer persona to activate (devsecops, architect, pm, auditor, qa). |
 | `--all` | `boolean` | - | Run all reviewer personas in sequence. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--summary`, `-s` | `boolean` | - | Show segment metadata without running a full review. |
@@ -251,7 +275,7 @@ devops ai review branch [OPTIONS] <branch_name>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--base`, `-b` | `string` | `main` | Base git branch to diff against (default: main). |
-| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa)` | - | Reviewer persona to activate (devsecops, architect, pm, auditor, qa). |
+| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Reviewer persona to activate (devsecops, architect, pm, auditor, qa). |
 | `--all` | `boolean` | - | Run all reviewer personas in sequence. |
 | `--repo` | `path` | `.` | Repository root directory (default: current directory). |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
@@ -277,7 +301,7 @@ devops ai review pr [OPTIONS] <number>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--repo`, `-r` | `string` | - | Target repository in OWNER/REPO format. |
-| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa)` | - | Reviewer persona to activate (devsecops, architect, pm, auditor, qa). |
+| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Reviewer persona to activate (devsecops, architect, pm, auditor, qa). |
 | `--all` | `boolean` | - | Run all reviewer personas in sequence. |
 | `--post` | `boolean` | - | Post the review as a comment on the GitHub PR. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
@@ -301,6 +325,7 @@ devops ai review findings [OPTIONS]
 | `--unverified` | `boolean` | - | Show unverified findings only. |
 | `--invalidated` | `boolean` | - | Show invalidated findings only. |
 | `--verified` | `boolean` | - | Show verified findings only. |
+| `--details`, `-d` | `boolean` | - | Display full finding descriptions and fix recommendations. |
 
 ### `devops ai review verify`
 

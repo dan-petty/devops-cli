@@ -29,10 +29,9 @@ from devops_cli.config.constants import (
     CONST_URL_K8S_DOWNLOAD_BASE,
 )
 from devops_cli.config.defaults import (
-    DEFAULT_HTTP_DOWNLOAD_TIMEOUT_SECONDS,
-    DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS,
+    DEFAULT_HTTP_TIMEOUT_SECONDS,
     DEFAULT_LOCAL_BIN_DIR,
-    DEFAULT_SUBPROCESS_FAST_TIMEOUT_SECONDS,
+    DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
 )
 from devops_cli.core.cli import new_typer
 from devops_cli.core.process import run_subprocess
@@ -82,7 +81,7 @@ def _gh_latest(repo: str) -> str:
         r = c.get(
             f"{CONST_URL_GITHUB_API_BASE}/repos/{repo}/releases/latest",
             headers={"Accept": "application/vnd.github+json"},
-            timeout=DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS,
+            timeout=DEFAULT_HTTP_TIMEOUT_SECONDS,
         )
         r.raise_for_status()
         return str(r.json()["tag_name"])
@@ -95,7 +94,7 @@ def _download(url: str) -> bytes:
         raise ToolDownloadError(url, reason="Only HTTPS URLs are permitted for tool downloads")
     validate_service_url(url, purpose="tool download")
     with httpx2.Client(follow_redirects=True) as c:
-        r = c.get(url, timeout=DEFAULT_HTTP_DOWNLOAD_TIMEOUT_SECONDS)
+        r = c.get(url, timeout=DEFAULT_HTTP_TIMEOUT_SECONDS)
         r.raise_for_status()
         return r.content
 
@@ -161,7 +160,7 @@ def _current_version(cmd: list[str]) -> str | None:
             capture_output=True,
             text=True,
             quiet=True,
-            timeout=DEFAULT_SUBPROCESS_FAST_TIMEOUT_SECONDS,
+            timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
         )
         m = re.search(r"v?(\d+\.\d+[\.\d]*)", r.stdout + r.stderr)
         return f"v{m.group(1)}" if m else ("installed" if r.returncode == 0 else None)
@@ -190,7 +189,7 @@ def _latest_kubectl() -> str:
     with httpx2.Client(follow_redirects=True) as c:
         r = c.get(
             f"{CONST_URL_K8S_DOWNLOAD_BASE}/release/stable.txt",
-            timeout=DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS,
+            timeout=DEFAULT_HTTP_TIMEOUT_SECONDS,
         )
         r.raise_for_status()
         return r.text.strip()

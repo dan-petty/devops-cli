@@ -6,8 +6,8 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from devops_cli.config.defaults import (
-    DEFAULT_BANDIT_EXCLUDE_TESTS,
-    DEFAULT_FIND_MAX_DEPTH,
+    DEFAULT_BANDIT_EXCLUDE,
+    DEFAULT_FIND_MAXDEPTH,
     DEFAULT_GIT_LOG_COUNT,
     DEFAULT_REST_HOST,
     DEFAULT_SEMGREP_CONFIG,
@@ -19,16 +19,23 @@ from devops_cli.config.defaults import (
 BIN_ACTIONLINT: str = "actionlint"
 BIN_ARGOCD: str = "argocd"
 BIN_BANDIT: str = "bandit"
+BIN_DAGGER: str = "dagger"
+BIN_DIFFT: str = "difft"
 BIN_DOCKER: str = "docker"
 BIN_FIND: str = "find"
 BIN_GIT: str = "git"
 BIN_GITLEAKS: str = "gitleaks"
+BIN_HELM: str = "helm"
+BIN_K6: str = "k6"
 BIN_KUBECTL: str = "kubectl"
 BIN_KUBELINTER: str = "kube-linter"
 BIN_KUSTOMIZE: str = "kustomize"
+BIN_KYVERNO: str = "kyverno"
+BIN_OPA: str = "opa"
 BIN_PLUTO: str = "pluto"
 BIN_POPEYE: str = "popeye"
 BIN_SEMGREP: str = "semgrep"
+BIN_STERN: str = "stern"
 BIN_TERRAFORM: str = "terraform"
 BIN_TOFU: str = "tofu"
 BIN_TRIVY: str = "trivy"
@@ -65,7 +72,7 @@ def build_git_clone_cmd(repo_url: str, dest_dir: Path) -> list[str]:
 
 def build_find_files_cmd(
     target_dir: Path | str,
-    maxdepth: int = DEFAULT_FIND_MAX_DEPTH,
+    maxdepth: int = DEFAULT_FIND_MAXDEPTH,
     exclude_paths: Sequence[str] | None = None,
 ) -> list[str]:
     """Build a find command with standard path exclusions."""
@@ -114,9 +121,7 @@ def build_kustomize_build_cmd(target_path: Path | str) -> list[str]:
     return [BIN_KUSTOMIZE, "build", str(target_path)]
 
 
-def build_bandit_cmd(
-    target: Path | str, exclude_tests: str = DEFAULT_BANDIT_EXCLUDE_TESTS
-) -> list[str]:
+def build_bandit_cmd(target: Path | str, exclude_tests: str = DEFAULT_BANDIT_EXCLUDE) -> list[str]:
     """Build a bandit security scan command."""
     return [BIN_BANDIT, "-r", str(target), "-q", "-x", exclude_tests]
 
@@ -202,4 +207,108 @@ def build_semgrep_cmd(
         for p in exclude_paths:
             cmd.extend(["--exclude", p])
     cmd.append(str(target_path))
+    return cmd
+
+
+def build_kyverno_validate_cmd(
+    manifest_path: Path | str,
+    policy_path: Path | str | None = None,
+) -> list[str]:
+    """Build a Kyverno CLI validate command for Kubernetes admission policies."""
+    cmd = [BIN_KYVERNO, "apply"]
+    if policy_path:
+        cmd.append(str(policy_path))
+    cmd.extend(["--resource", str(manifest_path), "--output", "json"])
+    return cmd
+
+
+def build_opa_eval_cmd(
+    data_path: Path | str,
+    input_path: Path | str | None = None,
+    query: str = "data",
+) -> list[str]:
+    """Build an Open Policy Agent (OPA) eval command."""
+    cmd = [BIN_OPA, "eval", "--data", str(data_path), "--format", "json"]
+    if input_path:
+        cmd.extend(["--input", str(input_path)])
+    cmd.append(query)
+    return cmd
+
+
+def build_stern_cmd(
+    pod_query: str,
+    namespace: str | None = None,
+    container: str | None = None,
+    tail_lines: int | None = None,
+    follow: bool = False,
+) -> list[str]:
+    """Build a Stern multi-pod log streamer command."""
+    cmd = [BIN_STERN, pod_query]
+    if namespace:
+        cmd.extend(["-n", namespace])
+    if container:
+        cmd.extend(["-c", container])
+    if tail_lines is not None:
+        cmd.extend(["--tail", str(tail_lines)])
+    if not follow:
+        cmd.append("--no-follow")
+    return cmd
+
+
+def build_helm_diff_cmd(
+    release_name: str,
+    chart_path: Path | str,
+    namespace: str | None = None,
+    values_files: Sequence[Path | str] | None = None,
+) -> list[str]:
+    """Build a Helm Diff plugin command."""
+    cmd = [BIN_HELM, "diff", "upgrade", release_name, str(chart_path)]
+    if namespace:
+        cmd.extend(["-n", namespace])
+    if values_files:
+        for v in values_files:
+            cmd.extend(["-f", str(v)])
+    return cmd
+
+
+def build_difft_cmd(
+    path_a: Path | str,
+    path_b: Path | str | None = None,
+) -> list[str]:
+    """Build a Difftastic structural AST diff command."""
+    cmd = [BIN_DIFFT, "--color", "never"]
+    cmd.append(str(path_a))
+    if path_b:
+        cmd.append(str(path_b))
+    return cmd
+
+
+def build_k6_cmd(
+    script_path: Path | str,
+    vus: int | None = None,
+    duration: str | None = None,
+    summary_export: Path | str | None = None,
+) -> list[str]:
+    """Build a k6 load test command."""
+    cmd = [BIN_K6, "run", str(script_path)]
+    if vus is not None:
+        cmd.extend(["--vus", str(vus)])
+    if duration is not None:
+        cmd.extend(["--duration", duration])
+    if summary_export is not None:
+        cmd.extend(["--summary-export", str(summary_export)])
+    return cmd
+
+
+def build_dagger_cmd(
+    pipeline_path: Path | str,
+    function_name: str | None = None,
+    args: Sequence[str] | None = None,
+) -> list[str]:
+    """Build a Dagger pipeline execution command."""
+    cmd = [BIN_DAGGER, "call", "-m", str(pipeline_path)]
+    if function_name:
+        cmd.append(function_name)
+    if args:
+        cmd.extend(args)
     return cmd

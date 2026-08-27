@@ -11,7 +11,10 @@ from typing import Any
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.commands import build_gitleaks_cmd
-from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
+from devops_cli.config.defaults import (
+    DEFAULT_CURRENT_PATH,
+    DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
+)
 from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run.state import is_dry_run
 from devops_cli.telemetry import trace_span
@@ -53,87 +56,98 @@ _FALLBACK_SECRET_PATTERNS: tuple[tuple[str, str, re.Pattern[str]], ...] = (
 )
 
 
+def _scan_line_for_secrets(line: str, file_path: Path, line_idx: int) -> list[Finding]:
+    """Test line against fallback secret patterns and return matching findings."""
+    matches: list[Finding] = []
+    fix_msg = "Revoke and rotate secret immediately. Move credentials to OS Keyring or environment variables."
+    for desc, sev, pattern in _FALLBACK_SECRET_PATTERNS:
+        if pattern.search(line):
+            matches.append(
+                Finding(
+                    severity=sev,
+                    location=f"{file_path}:{line_idx}",
+                    title=f"[GITLEAKS] Secret detected: {desc}",
+                    description=f"Potential uncommitted {desc} pattern identified at line {line_idx}.",
+                    fix=fix_msg,
+                    confidence_score=None,
+                )
+            )
+    return matches
+
+
 def _scan_file_native_secrets(file_path: Path) -> list[Finding]:
     """Fallback scanner using built-in high-precision secret patterns."""
-    findings: list[Finding] = []
     if not file_path.exists() or not file_path.is_file():
-        return findings
+        return []
 
     try:
         content = file_path.read_text(encoding="utf-8", errors="replace")
     except Exception as exc:
         logger.debug("Failed reading %s for native secret scan: %s", file_path, exc)
-        return findings
+        return []
 
+    findings: list[Finding] = []
     for line_idx, line in enumerate(content.splitlines(), start=1):
-        for desc, sev, pattern in _FALLBACK_SECRET_PATTERNS:
-            if pattern.search(line):
-                findings.append(
-                    Finding(
-                        severity=sev,
-                        location=f"{file_path}:{line_idx}",
-                        title=f"[GITLEAKS] Secret detected: {desc}",
-                        description=(
-                            f"Potential uncommitted {desc} pattern identified at line {line_idx}."
-                        ),
-                        fix=(
-                            "Revoke and rotate secret immediately. "
-                            "Move credentials to OS Keyring or environment variables."
-                        ),
-                        confidence_score=None,
-                    )
-                )
+        findings.extend(_scan_line_for_secrets(line, file_path, line_idx))
     return findings
+
+
+def _parse_single_gitleaks_item(item: dict[str, Any]) -> Finding:
+    """Transform raw Gitleaks JSON item into a structured Finding model."""
+    rule_id = item.get("RuleID") or item.get("Description") or "secret"
+    desc = item.get("Description") or rule_id
+    file_path = item.get("File") or "workspace"
+    start_line = item.get("StartLine") or item.get("Line")
+    secret_match = item.get("Match") or ""
+    masked_secret = secret_match[:4] + "..." if len(secret_match) > 4 else "***"
+
+    loc = f"{file_path}:{start_line}" if start_line else file_path
+    is_critical = any(
+        k in rule_id.lower() for k in ("key", "token", "pat", "secret", "password", "cred")
+    )
+    return Finding(
+        severity="CRITICAL" if is_critical else "HIGH",
+        location=loc,
+        title=f"[GITLEAKS:{rule_id}] {desc}",
+        description=f"Gitleaks detected secret match ({masked_secret}) at {loc}: {desc}",
+        fix="Remove plaintext credentials from source control and store securely in OS Keyring.",
+        confidence_score=None,
+    )
 
 
 def parse_gitleaks_json(data: list[dict[str, Any]]) -> list[Finding]:
     """Parse Gitleaks JSON report into canonical Finding models."""
-    findings: list[Finding] = []
-    for item in data:
-        rule_id = item.get("RuleID") or item.get("Description") or "secret"
-        desc = item.get("Description") or rule_id
-        file_path = item.get("File") or "workspace"
-        start_line = item.get("StartLine") or item.get("Line")
-        secret_match = item.get("Match") or ""
-        masked_secret = secret_match[:4] + "..." if len(secret_match) > 4 else "***"
+    return [_parse_single_gitleaks_item(item) for item in data]
 
-        loc = f"{file_path}:{start_line}" if start_line else file_path
-        is_critical = any(
-            k in rule_id.lower() for k in ("key", "token", "pat", "secret", "password", "cred")
-        )
-        findings.append(
-            Finding(
-                severity="CRITICAL" if is_critical else "HIGH",
-                location=loc,
-                title=f"[GITLEAKS:{rule_id}] {desc}",
-                description=(f"Gitleaks detected secret match ({masked_secret}) at {loc}: {desc}"),
-                fix=(
-                    "Remove plaintext credentials from source control "
-                    "and store securely in OS Keyring."
-                ),
-                confidence_score=None,
-            )
-        )
-    return findings
+
+def _resolve_scan_files(target: Path | list[Path]) -> list[Path]:
+    """Resolve flat list of regular non-hidden files from target path or list."""
+    if isinstance(target, list):
+        return [p for p in target if p.exists() and p.is_file()]
+    if not target.exists():
+        return []
+    if target.is_file():
+        return [target]
+    return [
+        p
+        for p in target.rglob("*")
+        if p.is_file() and not any(part.startswith(".") for part in p.parts)
+    ]
 
 
 def run_gitleaks_scan(
-    target: Path | list[Path] = Path("."),
+    target: Path | list[Path] = DEFAULT_CURRENT_PATH,
     no_git: bool = True,
 ) -> list[Finding]:
     """Execute Gitleaks secret scanner subprocess or fallback pattern scan."""
     target_desc = str(target[0]) if isinstance(target, list) and target else str(target)
 
-    with trace_span(
-        "security.scan.gitleaks",
-        attributes={"target": target_desc},
-    ) as span_h:
+    with trace_span("security.scan.gitleaks", attributes={"target": target_desc}) as span_h:
         if is_dry_run():
-            target_str = str(target[0]) if isinstance(target, list) and target else str(target)
             return [
                 Finding(
                     severity="CRITICAL",
-                    location=f"{target_str}:1",
+                    location=f"{target_desc}:1",
                     title="[GITLEAKS:simulated-secret] [DRY-RUN] Simulated Secret Detection",
                     description="Gitleaks secret pre-filter simulation mode active.",
                     fix="Revoke simulated test secret (dry-run mode)",
@@ -141,22 +155,10 @@ def run_gitleaks_scan(
                 )
             ]
 
-        # Determine target file list or directory
-        files_to_scan: list[Path] = []
-        if isinstance(target, list):
-            files_to_scan = [p for p in target if p.exists() and p.is_file()]
-        elif target.exists():
-            if target.is_file():
-                files_to_scan = [target]
-            else:
-                files_to_scan = [
-                    p
-                    for p in target.rglob("*")
-                    if p.is_file() and not any(part.startswith(".") for part in p.parts)
-                ]
+        files_to_scan = _resolve_scan_files(target)
+        cmd_target = target if isinstance(target, Path) else target[0]
+        cmd = build_gitleaks_cmd(cmd_target, no_git=no_git)
 
-        # Try executing CLI binary
-        cmd = build_gitleaks_cmd(target if isinstance(target, Path) else target[0], no_git=no_git)
         try:
             proc = run_subprocess(cmd, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS, check=False)
             if proc.stdout and proc.stdout.strip().startswith(("[", "{")):
@@ -170,7 +172,6 @@ def run_gitleaks_scan(
         except Exception as exc:
             logger.debug("Gitleaks execution skipped or failed: %s", exc)
 
-        # Fallback to native regex scanner across targets
         findings: list[Finding] = []
         for fp in files_to_scan:
             findings.extend(_scan_file_native_secrets(fp))

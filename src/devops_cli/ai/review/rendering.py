@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from devops_cli.ai.personas import PersonaDefinition
-from devops_cli.ai.review_schema import ReviewResult
+from devops_cli.ai.review_schema import ReviewResult, format_clean_text_field
 from devops_cli.output import (
     escape_text,
     print_info,
@@ -60,27 +60,40 @@ def _render_review_result(persona: PersonaDefinition, result: ReviewResult) -> N
         write_stdout("\n")
 
         for idx, f in enumerate(findings, 1):
-            color = sev_color.get(f.severity, "white")
-            unverified = (
-                ""
+            sev_upper = f.severity.upper()
+            color = sev_color.get(sev_upper, "white")
+            st_badge = (
+                "[green]✓ VERIFIED[/green]"
                 if f.verified and not f.mitigated
-                else " [dim](mitigated)[/dim]"
-                if f.mitigated
-                else " [dim](unverified)[/dim]"
+                else ("[cyan]~ MITIGATED[/cyan]" if f.mitigated else "[dim]? UNVERIFIED[/dim]")
             )
-            sev_title = f"{idx}. {escape_text(f.severity)} — {escape_text(f.title)}"
-            print_info(f"[bold {color}]{sev_title}[/bold {color}]{unverified}", prefix=False)
-            print_info(f"[dim]Location:[/dim] {escape_text(f.location)}", prefix=False)
+            title_header = f"[{color} bold]Finding #{idx}: [{sev_upper}] {escape_text(f.title)}[/{color} bold]  {st_badge}"
+            panel_lines = [
+                f"[bold]Location:[/bold] [cyan]{escape_text(f.location)}[/cyan]",
+            ]
             if f.description:
-                print_markdown(f.description)
-            if f.fix:
-                print_info("[bold]Fix:[/bold]", prefix=False)
-                print_markdown(f.fix)
-            if f.references:
-                print_info(
-                    f"[dim]References: {escape_text(', '.join(f.references))}[/dim]", prefix=False
+                panel_lines.extend(
+                    [
+                        "",
+                        "[bold]Description:[/bold]",
+                        format_clean_text_field(f.description).strip(),
+                    ]
                 )
-            write_stdout("\n")
+            if f.fix:
+                panel_lines.extend(
+                    ["", "[bold]Suggested Fix:[/bold]", format_clean_text_field(f.fix).strip()]
+                )
+            if f.references:
+                refs_list = f.references if isinstance(f.references, list) else [str(f.references)]
+                panel_lines.extend(
+                    ["", f"[dim]References: {escape_text(', '.join(refs_list))}[/dim]"]
+                )
+            print_panel(
+                "\n".join(panel_lines),
+                title=title_header,
+                border_style=color,
+            )
+        write_stdout("\n")
 
     if result.external_dependencies:
         dep_cols = [

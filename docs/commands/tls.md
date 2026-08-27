@@ -21,7 +21,7 @@ devops tls ca [OPTIONS]
 | `--organization`, `-org` | `string` | `Homelab DevOps` | Organization name. |
 | `--country`, `-c` | `string` | `US` | 2-letter country code. |
 | `--validity-days`, `-d` | `integer` | `3650` | Validity period in days. |
-| `--key-size`, `-k` | `integer` | `2048` | RSA key size in bits (2048 or 4096). |
+| `--key-size`, `-k` | `integer` | `<masked>` | RSA key size in bits (2048 or 4096). |
 | `--overwrite`, `-f` | `boolean` | - | Overwrite existing files. |
 
 ---
@@ -44,7 +44,7 @@ devops tls cert [OPTIONS]
 | `--ca-key` | `path` | - | Path to signing CA private key (ca.key). |
 | `--output-dir`, `-o` | `path` | `~/.config/devops-cli/tls` | Directory to save certificate and key files. |
 | `--validity-days`, `-d` | `integer` | `365` | Validity period in days. |
-| `--key-size`, `-k` | `integer` | `2048` | RSA key size in bits (2048 or 4096). |
+| `--key-size`, `-k` | `integer` | `<masked>` | RSA key size in bits (2048 or 4096). |
 | `--organization`, `-org` | `string` | `Homelab DevOps` | Organization name. |
 | `--overwrite`, `-f` | `boolean` | - | Overwrite existing files. |
 
@@ -121,7 +121,7 @@ devops tls enable-k8s [OPTIONS]
 |---|---|---|---|
 | `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
 | `--tls-dir` | `path` | `~/.config/devops-cli/tls` | Directory with generated TLS certificates. |
-| `--secret-name` | `string` | `homelab-tls` | Kubernetes TLS secret name to create. |
+| `--secret-name` | `string` | `<masked>` | Kubernetes TLS secret name to create. |
 | `--namespace`, `-n` | `string` | - | Kubernetes namespace. |
 | `--overwrite`, `-f` | `boolean` | - | Overwrite existing files. |
 

@@ -19,8 +19,9 @@ from devops_cli.config.defaults import (
     DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
 )
 from devops_cli.core.cli import new_typer
-from devops_cli.dry_run import set_dry_run
+from devops_cli.dry_run import is_dry_run, render_dry_run_result, set_dry_run
 from devops_cli.lang import HELP, MESSAGES
+from devops_cli.output import print_error, print_info, print_success
 
 _LAZY_OBJECT_MAPPING: dict[str, tuple[str, str]] = {
     "run_subprocess": ("devops_cli.core.process", "run_subprocess"),
@@ -33,6 +34,8 @@ _LAZY_OBJECT_MAPPING: dict[str, tuple[str, str]] = {
     "print_table": ("devops_cli.output", "print_table"),
     "write_stderr": ("devops_cli.output", "write_stderr"),
     "write_stdout": ("devops_cli.output", "write_stdout"),
+    "is_dry_run": ("devops_cli.dry_run", "is_dry_run"),
+    "render_dry_run_result": ("devops_cli.dry_run", "render_dry_run_result"),
 }
 
 
@@ -57,8 +60,15 @@ def _get(name: str) -> Any:
 
 app = new_typer(help=HELP.ci.app)
 
-# Repo root: src/devops_cli/commands/ci.py -> parents[3]
-_ROOT = Path(__file__).resolve().parents[3]
+
+def _get_project_root() -> Path:
+    """Find repository root containing pyproject.toml or .git."""
+    from devops_cli.core.repo import find_top_level_repo_root
+
+    return find_top_level_repo_root()
+
+
+_ROOT = _get_project_root()
 
 
 @dataclass(frozen=True)
@@ -100,11 +110,12 @@ def _run(
     capture_output: bool = False,
 ) -> bool:
     """Run a CI check subprocess synchronously."""
+    root = _get_project_root()
     full_cmd = list(cmd)
     if full_cmd and full_cmd[0] == "uv" and "--preview-features" not in full_cmd:
         full_cmd[1:1] = ["--preview-features", "malware-check"]
     result = _get("run_subprocess")(
-        full_cmd, cwd=_ROOT, timeout=timeout, capture_output=capture_output
+        full_cmd, cwd=root, timeout=timeout, capture_output=capture_output
     )
     return bool(result.returncode == 0)
 
@@ -115,14 +126,16 @@ def _section(title: str) -> None:
 
 def _clean_coverage_artifacts() -> None:
     """Clean up residual temporary .coverage.* worker files from root workspace and .data/."""
-    for target_dir in (_ROOT, _ROOT / ".data"):
+    current_root = getattr(sys.modules[__name__], "_ROOT", _get_project_root())
+
+    for target_dir in (current_root, current_root / ".data"):
         if target_dir.exists():
             for path in target_dir.glob(".coverage*"):
                 try:
                     path.unlink(missing_ok=True)
                 except OSError:
                     pass
-    root_coverage_xml = _ROOT / "coverage.xml"
+    root_coverage_xml = current_root / "coverage.xml"
     if root_coverage_xml.exists():
         try:
             root_coverage_xml.unlink(missing_ok=True)
@@ -140,6 +153,7 @@ async def _execute_check_async(
 ) -> CheckResult:
     """Execute an individual CI verification step asynchronously and record telemetry."""
     t0 = time.perf_counter()
+    root = _get_project_root()
     full_cmd = list(cmd)
     if full_cmd and full_cmd[0] == "uv" and "--preview-features" not in full_cmd:
         full_cmd[1:1] = ["--preview-features", "malware-check"]
@@ -147,7 +161,7 @@ async def _execute_check_async(
     with _get("trace_span")(span_name):
         proc = await _get("run_subprocess_async")(
             full_cmd,
-            cwd=_ROOT,
+            cwd=root,
             timeout=timeout,
             capture_output=True,
         )
@@ -177,7 +191,9 @@ async def _execute_check_async(
 # =============================================================================
 
 
-async def _run_all_checks_async(*, lint_fix: bool, format_fix: bool) -> list[CheckResult]:
+async def _run_all_checks_async(
+    *, lint_fix: bool, format_fix: bool, docs_fix: bool = False
+) -> list[CheckResult]:
     """Execute all CI verification gates concurrently using asyncio."""
     _clean_coverage_artifacts()
 
@@ -213,9 +229,25 @@ async def _run_all_checks_async(*, lint_fix: bool, format_fix: bool) -> list[Che
             "ci.step.lint_fix",
             "lint_fix",
         )
+    if docs_fix:
+        from devops_cli.config.defaults import DEFAULT_DOCS_DIR
+        from devops_cli.docs.generator import DocGenerator
+
+        generator = DocGenerator()
+        docs_target = _get_project_root() / DEFAULT_DOCS_DIR
+        docs_up_to_date, _ = generator.check_docs(docs_target, check_readme_table=True)
+        if not docs_up_to_date:
+            await _execute_check_async(
+                "docs_fix",
+                MESSAGES.ci.docs_validation,
+                ["uv", "run", "devops", "docs", "generate", "--sync-readme"],
+                "ci.step.docs_fix",
+                "docs_fix",
+            )
 
     with _get("trace_span")(
-        "ci.run_pipeline", attributes={"lint_fix": lint_fix, "format_fix": format_fix}
+        "ci.run_pipeline",
+        attributes={"lint_fix": lint_fix, "format_fix": format_fix, "docs_fix": docs_fix},
     ):
         tasks = [
             _execute_check_async(
@@ -309,9 +341,13 @@ async def _run_all_checks_async(*, lint_fix: bool, format_fix: bool) -> list[Che
         return [py_result, test_result, coverage_result] + list(raw_results[1:])
 
 
-def _run_all_checks(*, lint_fix: bool, format_fix: bool) -> list[tuple[str, bool]]:
+def _run_all_checks(
+    *, lint_fix: bool, format_fix: bool, docs_fix: bool = False
+) -> list[tuple[str, bool]]:
     """Synchronous entrypoint for executing CI pipeline."""
-    results = asyncio.run(_run_all_checks_async(lint_fix=lint_fix, format_fix=format_fix))
+    results = asyncio.run(
+        _run_all_checks_async(lint_fix=lint_fix, format_fix=format_fix, docs_fix=docs_fix)
+    )
     _print_failures(results)
     return [(res.name, res.passed) for res in results]
 
@@ -362,7 +398,7 @@ def all_checks(
         set_dry_run(True)
 
     t0 = time.perf_counter()
-    results = asyncio.run(_run_all_checks_async(lint_fix=fix, format_fix=fix))
+    results = asyncio.run(_run_all_checks_async(lint_fix=fix, format_fix=fix, docs_fix=fix))
     _print_failures(results)
     _print_summary(results, total_elapsed=time.perf_counter() - t0)
 
@@ -566,18 +602,75 @@ def actionlint(
 
 @app.command()
 def docs(
+    fix: Annotated[
+        bool,
+        typer.Option("--fix", help=HELP.docs.sync_readme),
+    ] = False,
     dry_run: Annotated[
         bool,
         typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
 ) -> None:
-    """Verify that documentation is up to date with CLI commands and configuration."""
+    """Verify (or update with --fix) that documentation is up to date with CLI commands and configuration."""
     if dry_run:
         set_dry_run(True)
     if not _verify_python_314_environment():
         raise typer.Exit(1)
+    if fix:
+        if not _run(["uv", "run", "devops", "docs", "generate", "--sync-readme"]):
+            raise typer.Exit(1)
     if not _run(["uv", "run", "devops", "docs", "check"]):
         raise typer.Exit(1)
+
+
+@app.command()
+def maintain(
+    fix: Annotated[
+        bool,
+        typer.Option("--fix", help="Automatically synchronize dependencies and lockfile"),
+    ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+) -> None:
+    """Run automated toolchain, dependency freshness, and lockfile maintenance checks."""
+    if dry_run or is_dry_run():
+        render_dry_run_result(
+            command="devops ci maintain",
+            action="run_maintenance_checks",
+            details={
+                "lockfile_status": "VALID",
+                "dependency_freshness": "UP_TO_DATE",
+                "devcontainer_manifest": "VALID",
+            },
+        )
+        return
+
+    if not _verify_python_314_environment():
+        raise typer.Exit(1)
+
+    print_info("Running toolchain and dependency maintenance checks...", prefix=False)
+
+    if fix:
+        print_info("Synchronizing dependencies and lockfile with 'uv lock'...", prefix=False)
+        if not _run(["uv", "lock"]):
+            raise typer.Exit(1)
+
+    # 1. Lockfile consistency check
+    if not _run(["uv", "lock", "--check"]):
+        print_error(
+            "Lockfile is out of sync with pyproject.toml. Run 'uv lock' or 'devops ci maintain --fix'.",
+            prefix=False,
+        )
+        raise typer.Exit(1)
+
+    # 2. Dependency security audit
+    if not _run(["uv", "run", "pip-audit"]):
+        print_error("Dependency audit found vulnerabilities.", prefix=False)
+        raise typer.Exit(1)
+
+    print_success("✓ Toolchain and lockfile maintenance checks passed.")
 
 
 @app.command()
@@ -595,7 +688,7 @@ def run(
     if dry_run:
         set_dry_run(True)
     t0 = time.perf_counter()
-    results = asyncio.run(_run_all_checks_async(lint_fix=fix, format_fix=fix))
+    results = asyncio.run(_run_all_checks_async(lint_fix=fix, format_fix=fix, docs_fix=fix))
     _print_failures(results)
     _print_summary(results, total_elapsed=time.perf_counter() - t0)
     if not all(res.passed for res in results):

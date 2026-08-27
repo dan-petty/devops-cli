@@ -132,7 +132,7 @@ def test_telemetry_endpoint(client: TestClient) -> None:
         assert "enabled" in data
         assert "endpoint" in data
         assert data["ping_ok"] is True
-        assert data["ping_message"] == "HTTP 200 OK"
+        assert data["ping_message"] == "Connected successfully"
         assert data["ping_latency_ms"] == 5.0
 
 

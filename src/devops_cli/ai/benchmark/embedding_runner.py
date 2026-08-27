@@ -18,9 +18,9 @@ from devops_cli.ai.benchmark.document_chunker import (
 from devops_cli.ai.benchmark.embedding_tasks import (
     EmbeddingEvalPair,
 )
+from devops_cli.ai.benchmark.runner import _get_benchmarks_base_dir
 from devops_cli.ai.rag.embeddings import EmbeddingsEngine
 from devops_cli.config.constants import (
-    CONST_BENCHMARKS_DATA_DIR,
     CONST_EMBEDDING_REPORT_FILENAME,
     CONST_FP32_BYTES_PER_ELEMENT,
     CONST_KILOBYTE_BYTES,
@@ -79,6 +79,31 @@ def compute_ndcg_at_k(ranked_indices: list[int], target_idx: int, k: int = 5) ->
             idcg = 1.0 / math.log2(1 + 1)
             return float(dcg / idcg)
     return 0.0
+
+
+def _format_category_accuracy_row(res: Any, cats: dict[str, float]) -> list[str]:
+    """Format category domain accuracy row."""
+    return [
+        res.model,
+        res.server,
+        f"{cats['security']:.0f}%" if "security" in cats else "-",
+        f"{cats['kubernetes']:.0f}%" if "kubernetes" in cats else "-",
+        f"{cats['architecture']:.0f}%" if "architecture" in cats else "-",
+        f"{cats['ci_cd']:.0f}%" if "ci_cd" in cats else "-",
+        f"{cats['infrastructure']:.0f}%" if "infrastructure" in cats else "-",
+    ]
+
+
+def _format_server_perf_row(srv: Any) -> list[str]:
+    """Format server performance row."""
+    return [
+        srv.server,
+        str(srv.models_evaluated_count),
+        f"{srv.avg_latency_p50_ms:.1f}ms",
+        f"{srv.avg_throughput_items_per_sec:.1f} items/s",
+        srv.fastest_model,
+        srv.top_score_model,
+    ]
 
 
 class EmbeddingBenchmarkRunner:
@@ -497,7 +522,8 @@ class EmbeddingBenchmarkRunner:
 
     def _save_report(self, report: EmbeddingBenchmarkReport) -> None:
         """Save benchmark report to disk under .data/benchmarks/<session_id>/."""
-        bench_dir = CONST_BENCHMARKS_DATA_DIR / self.session_id
+        base_dir = _get_benchmarks_base_dir()
+        bench_dir = base_dir / self.session_id
         bench_dir.mkdir(parents=True, exist_ok=True)
         report_file = bench_dir / CONST_EMBEDDING_REPORT_FILENAME
         report_file.write_text(report.model_dump_json(indent=2), encoding="utf-8")
@@ -574,20 +600,9 @@ class EmbeddingBenchmarkRunner:
                 "CI/CD",
                 "Infrastructure",
             ]
-            cat_rows: list[list[str]] = []
-            for res in report.models:
-                cats = res.category_accuracies
-                cat_rows.append(
-                    [
-                        res.model,
-                        res.server,
-                        f"{cats['security']:.0f}%" if "security" in cats else "-",
-                        f"{cats['kubernetes']:.0f}%" if "kubernetes" in cats else "-",
-                        f"{cats['architecture']:.0f}%" if "architecture" in cats else "-",
-                        f"{cats['ci_cd']:.0f}%" if "ci_cd" in cats else "-",
-                        f"{cats['infrastructure']:.0f}%" if "infrastructure" in cats else "-",
-                    ]
-                )
+            cat_rows: list[list[str]] = [
+                _format_category_accuracy_row(res, res.category_accuracies) for res in report.models
+            ]
             write_stdout("\n")
             print_table(
                 title="📂 Category & Domain Retrieval Accuracy (%)",
@@ -605,18 +620,9 @@ class EmbeddingBenchmarkRunner:
                 ("Fastest Model", "cyan"),
                 ("Top Scoring Model", "magenta"),
             ]
-            srv_rows: list[list[str]] = []
-            for srv in report.server_benchmarks:
-                srv_rows.append(
-                    [
-                        srv.server,
-                        str(srv.models_evaluated_count),
-                        f"{srv.avg_latency_p50_ms:.1f}ms",
-                        f"{srv.avg_throughput_items_per_sec:.1f} items/s",
-                        srv.fastest_model,
-                        srv.top_score_model,
-                    ]
-                )
+            srv_rows: list[list[str]] = [
+                _format_server_perf_row(srv) for srv in report.server_benchmarks
+            ]
             write_stdout("\n")
             print_table(
                 title="🖥️ Backend Server Hardware & Concurrency Performance",

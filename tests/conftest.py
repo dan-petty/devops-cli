@@ -32,6 +32,16 @@ def isolate_llm_response_cache(tmp_path: Path):
     reset_llm_response_cache()
 
 
+@pytest.fixture(autouse=True)
+def isolate_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Ensure tests run against an isolated temporary .data/ directory to protect user reviews."""
+    test_data_dir = tmp_path / ".data"
+    test_data_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(test_data_dir))
+    monkeypatch.setenv("DEVOPS_DATA_DIR", str(test_data_dir))
+    yield test_data_dir
+
+
 @pytest.fixture(scope="session")
 def session_isolated_config(tmp_path_factory: pytest.TempPathFactory) -> Path:
     config_dir = tmp_path_factory.mktemp("devops_cli_isolated_config")

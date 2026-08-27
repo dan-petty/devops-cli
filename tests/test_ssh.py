@@ -283,3 +283,26 @@ def test_list_managed_keys_info_and_find_newest(tmp_path: Path) -> None:
 
     newest = find_newest_key(tmp_path)
     assert newest == k2
+
+
+def test_generate_ed25519_key_overwriting_insecure_permissions(tmp_path: Path) -> None:
+    """Verify that overwriting pre-existing keys resets permissions to 0600 / 0644."""
+    import os
+
+    k_path = tmp_path / "id_ed25519-2025JAN01"
+    pub_path = tmp_path / "id_ed25519-2025JAN01.pub"
+
+    # Pre-create files with overly permissive permissions (0666 / 0644)
+    k_path.write_text("old_insecure_private_key")
+    os.chmod(k_path, 0o666)
+    pub_path.write_text("old_public_key")
+    os.chmod(pub_path, 0o666)
+
+    # Regenerate key pair
+    generate_ed25519_key(k_path, comment="test-regen")
+
+    # Assert permissions were clamped to 0600 for private and 0644 for public
+    priv_mode = os.stat(k_path).st_mode & 0o777
+    pub_mode = os.stat(pub_path).st_mode & 0o777
+    assert priv_mode == 0o600
+    assert pub_mode == 0o644

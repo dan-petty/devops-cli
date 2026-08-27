@@ -163,7 +163,7 @@ devops k8s port-forward [OPTIONS]
 | `--ollama-port` | `integer` | `11434` | Local port for Ollama |
 | `--open-webui-port` | `integer` | `3000` | Local port for Open-WebUI |
 | `--qdrant-port` | `integer` | `6333` | Local port for Qdrant HTTP |
-| `--valkey-port` | `integer` | `6379` | Local port for Valkey |
+| `--valkey-port` | `integer` | `<masked>` | Local port for Valkey |
 | `--address` | `string` | `127.0.0.1` | Local address to bind for port-forwarding |
 
 ---
@@ -282,7 +282,7 @@ devops k8s create-tls-secret [OPTIONS] <secret_name>
 |---|---|---|---|
 | `--namespace`, `-n` | `string` | `default` | Target Kubernetes namespace |
 | `--cert` | `path` | `~/.config/devops-cli/tls/tls.crt` | Path to TLS certificate file (.crt or .pem) |
-| `--key` | `path` | `~/.config/devops-cli/tls/tls.key` | Path to TLS private key file (.key or .pem) |
+| `--key` | `path` | `<masked>` | Path to TLS private key file (.key or .pem) |
 | `--context`, `-c` | `string` | - | Kubernetes cluster context |
 
 ---
@@ -301,7 +301,7 @@ devops k8s enable-tls [OPTIONS]
 |---|---|---|---|
 | `--context`, `-c` | `string` | - | Kubernetes cluster context |
 | `--tls-dir` | `path` | `~/.config/devops-cli/tls` | Directory with generated TLS certificates |
-| `--secret-name` | `string` | `homelab-tls` | TLS secret name across namespaces |
+| `--secret-name` | `string` | `<masked>` | TLS secret name across namespaces |
 | `--stack`, `-s` | `string` | `all` | Stack to deploy TLS secrets into (infra, llm, all) |
 | `--overwrite`, `-f` | `boolean` | - | Regenerate certs if missing |
 
@@ -329,5 +329,107 @@ devops k8s validate [OPTIONS] <manifest_path>
 | `--strict`, `--no-strict` | `boolean` | `True` | Disallow additional undeclared properties |
 | `--dry-run` | `boolean` | - | Simulate schema validation |
 | `--json` | `boolean` | - | Output findings as JSON |
+
+---
+
+## `devops k8s validate-policy`
+
+**Validate Kubernetes manifests against Kyverno or OPA admission policies.**
+
+```bash
+devops k8s validate-policy [OPTIONS] <manifest_path>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<manifest_path>` | `path` | No | Path to Kubernetes YAML manifest file or directory |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--policy`, `-p` | `path` | - | Path to Kyverno policy or OPA rule file |
+| `--engine`, `-e` | `string` | `kyverno` | Policy evaluation engine (kyverno, opa) |
+| `--dry-run` | `boolean` | - | Simulate admission policy validation |
+| `--json` | `boolean` | - | Output validation report as JSON |
+
+---
+
+## `devops k8s stream-logs`
+
+**Stream logs across multiple pods in parallel using Stern or kubectl.**
+
+```bash
+devops k8s stream-logs [OPTIONS] <pod_query>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<pod_query>` | `string` | Yes | Regex pattern or query to match pod names |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--namespace`, `-n` | `string` | - | Target Kubernetes namespace |
+| `--container`, `-c` | `string` | - | Target container name within matched pods |
+| `--tail`, `-t` | `integer` | `100` | Number of historical log lines to stream |
+| `--follow`, `-f`, `--no-follow` | `boolean` | - | Continuously stream live log output |
+| `--dry-run` | `boolean` | - | Simulate multi-pod log streaming |
+
+---
+
+## `devops k8s diff-helm`
+
+**Preview Kubernetes manifest diffs before executing a Helm upgrade.**
+
+```bash
+devops k8s diff-helm [OPTIONS] <release_name> <chart_path>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<release_name>` | `string` | Yes | Name of deployed Helm release |
+| `<chart_path>` | `path` | No | Path to local Helm chart directory or packaged archive |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--namespace`, `-n` | `string` | - | Target Kubernetes namespace |
+| `--values`, `-f` | `path` | - | Values YAML files to override release defaults |
+| `--dry-run` | `boolean` | - | Simulate Helm diff preview |
+
+---
+
+## `devops k8s chaos`
+
+**Run resilience and chaos experiments against Kubernetes workloads.**
+
+```bash
+devops k8s chaos [OPTIONS] <experiment>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<experiment>` | `string` | No | Resilience experiment name (e.g., pod-kill, latency-inject) |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--deployment`, `-d` | `string` | `sample-app` | Target deployment to disrupt |
+| `--namespace`, `-n` | `string` | `default` | Target Kubernetes namespace |
+| `--duration` | `integer` | `30` | Reconciliation monitoring window in seconds |
+| `--dry-run` | `boolean` | - | Simulate chaos experiment execution |
+| `--json` | `boolean` | - | Output experiment result as JSON |
 
 ---

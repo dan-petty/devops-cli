@@ -8,8 +8,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict
 
 from devops_cli import __version__
-from devops_cli.config.constants import CONST_MODELS_DATA_DIR
-from devops_cli.config.defaults import DEFAULT_BUNDLE_MODELS
+from devops_cli.config.defaults import DEFAULT_BUNDLE_MODELS, DEFAULT_MODELS_DATA_DIR
 
 
 class ModelBundleManifest(BaseModel):
@@ -29,7 +28,7 @@ def bundle_ollama_models(
 
     Returns (count, bundle_path).
     """
-    target = output_dir or CONST_MODELS_DATA_DIR
+    target = output_dir or DEFAULT_MODELS_DATA_DIR
     target.mkdir(parents=True, exist_ok=True)
 
     model_list = models or list(DEFAULT_BUNDLE_MODELS)

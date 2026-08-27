@@ -16,20 +16,23 @@ from typing import Annotated, Any
 import typer
 
 from devops_cli.config.constants import (
+    CONST_K8S_NODE_ROLE_LABEL_PREFIX,
     CONST_SERVER_CERT_NAME,
     CONST_SERVER_KEY_NAME,
 )
 from devops_cli.config.defaults import (
     DEFAULT_ARGOCD_PORT,
+    DEFAULT_CURRENT_PATH,
     DEFAULT_GRAFANA_PORT,
     DEFAULT_HTTP_PROBE_TIMEOUT_SECONDS,
     DEFAULT_JAEGER_PORT,
+    DEFAULT_K8S_ALL_STACK,
     DEFAULT_K8S_DIR,
     DEFAULT_K8S_LOGS_TAIL,
-    DEFAULT_K8S_STACK_ALL,
-    DEFAULT_K8S_STACK_INFRA,
+    DEFAULT_K8S_NAMESPACE,
+    DEFAULT_K8S_STACK,
+    DEFAULT_K8S_TLS_SECRET_NAME,
     DEFAULT_KUBECONFORM_VERSION,
-    DEFAULT_KUBERNETES_NAMESPACE,
     DEFAULT_OLLAMA_PORT,
     DEFAULT_OPEN_WEBUI_PORT,
     DEFAULT_OTEL_PORT,
@@ -38,7 +41,6 @@ from devops_cli.config.defaults import (
     DEFAULT_REST_HOST,
     DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
     DEFAULT_TLS_DIR,
-    DEFAULT_TLS_SECRET_NAME,
     DEFAULT_VALKEY_PORT,
 )
 from devops_cli.core.cli import new_typer
@@ -194,9 +196,9 @@ def status() -> None:
         )
         roles = (
             ", ".join(
-                label_key.replace("node-role.kubernetes.io/", "")
+                label_key.removeprefix(CONST_K8S_NODE_ROLE_LABEL_PREFIX)
                 for label_key in (node.metadata.labels or {})
-                if label_key.startswith("node-role.kubernetes.io/")
+                if label_key.startswith(CONST_K8S_NODE_ROLE_LABEL_PREFIX)
             )
             or "worker"
         )
@@ -311,8 +313,6 @@ _HELM_REPOS: dict[str, str] = {
     **_HELM_REPOS_BY_STACK["llm"],
 }
 
-_K8S_DIR = Path("k8s")
-
 
 _HELM_RELEASES_BY_STACK: dict[str, list[dict[str, str]]] = {
     "infra": [
@@ -320,19 +320,19 @@ _HELM_RELEASES_BY_STACK: dict[str, list[dict[str, str]]] = {
             "name": "argocd",
             "chart": "argo/argo-cd",
             "namespace": "argocd",
-            "values": str(_K8S_DIR / "argocd" / "values.yaml"),
+            "values": str(DEFAULT_K8S_DIR / "argocd" / "values.yaml"),
         },
         {
             "name": "kube-prometheus",
             "chart": "prometheus-community/kube-prometheus-stack",
             "namespace": "monitoring",
-            "values": str(_K8S_DIR / "monitoring" / "prometheus-values.yaml"),
+            "values": str(DEFAULT_K8S_DIR / "monitoring" / "prometheus-values.yaml"),
         },
         {
             "name": "otel-collector",
             "chart": "open-telemetry/opentelemetry-collector",
             "namespace": "otel",
-            "values": str(_K8S_DIR / "otel" / "values.yaml"),
+            "values": str(DEFAULT_K8S_DIR / "otel" / "values.yaml"),
         },
     ],
     "llm": [
@@ -340,13 +340,13 @@ _HELM_RELEASES_BY_STACK: dict[str, list[dict[str, str]]] = {
             "name": "open-webui",
             "chart": "open-webui/open-webui",
             "namespace": "llm",
-            "values": str(_K8S_DIR / "llm" / "values-open-webui.yaml"),
+            "values": str(DEFAULT_K8S_DIR / "llm" / "values-open-webui.yaml"),
         },
         {
             "name": "qdrant",
             "chart": "qdrant/qdrant",
             "namespace": "llm",
-            "values": str(_K8S_DIR / "llm" / "values-qdrant.yaml"),
+            "values": str(DEFAULT_K8S_DIR / "llm" / "values-qdrant.yaml"),
         },
     ],
 }
@@ -355,11 +355,11 @@ _HELM_RELEASES: list[dict[str, str]] = _HELM_RELEASES_BY_STACK["infra"]
 
 _MANIFESTS_BY_STACK: dict[str, list[Path]] = {
     "infra": [
-        _K8S_DIR / "otel" / "jaeger.yaml",
+        DEFAULT_K8S_DIR / "otel" / "jaeger.yaml",
     ],
     "llm": [
-        _K8S_DIR / "llm" / "valkey.yaml",
-        _K8S_DIR / "llm" / "ollama-daemonset.yaml",
+        DEFAULT_K8S_DIR / "llm" / "valkey.yaml",
+        DEFAULT_K8S_DIR / "llm" / "ollama-daemonset.yaml",
     ],
 }
 
@@ -438,7 +438,7 @@ def bootstrap(
     stack: Annotated[
         str,
         typer.Option("--stack", "-s", help="Stack to deploy after bootstrap: infra | llm | all"),
-    ] = DEFAULT_K8S_STACK_ALL,
+    ] = DEFAULT_K8S_ALL_STACK,
 ) -> None:
     """Bootstrap minikube Kubernetes cluster and deploy infrastructure/LLM stack."""
     selected_stacks = _resolve_stacks(stack)
@@ -550,10 +550,10 @@ def _adopt_helm_resource_if_conflict(
 def deploy_stack(
     k8s_dir: Annotated[
         Path, typer.Option("--k8s-dir", help="Path to k8s/ config directory")
-    ] = _K8S_DIR,
+    ] = DEFAULT_K8S_DIR,
     stack: Annotated[
         str, typer.Option("--stack", "-s", help="Stack to deploy (infra, llm, all)")
-    ] = DEFAULT_K8S_STACK_INFRA,
+    ] = DEFAULT_K8S_STACK,
     context: Annotated[
         str | None, typer.Option("--context", "-c", help="Kubernetes cluster context")
     ] = None,
@@ -721,8 +721,6 @@ def _extract_first_node_ip(item: dict[str, Any]) -> str | None:
 
 def _resolve_k8s_node_port_url(ctx_args: list[str], node_port: int) -> str | None:
     """Query Kubernetes nodes to find node IP and construct nodePort URL."""
-    from devops_cli.config.defaults import DEFAULT_SUBPROCESS_FAST_TIMEOUT_SECONDS
-
     try:
         nodes_res = run_subprocess(
             ["kubectl", "get", "nodes", "-o", "json"] + ctx_args,
@@ -730,7 +728,7 @@ def _resolve_k8s_node_port_url(ctx_args: list[str], node_port: int) -> str | Non
             text=True,
             check=False,
             quiet=True,
-            timeout=DEFAULT_SUBPROCESS_FAST_TIMEOUT_SECONDS,
+            timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
         )
         if nodes_res.returncode == 0 and nodes_res.stdout.strip():
             import json
@@ -747,8 +745,6 @@ def _resolve_k8s_node_port_url(ctx_args: list[str], node_port: int) -> str | Non
 
 def _detect_service_url(service: str, namespace: str, context: str | None = None) -> str | None:
     """Query service URL via minikube service or kubectl nodePort/cluster info."""
-    from devops_cli.config.defaults import DEFAULT_SUBPROCESS_FAST_TIMEOUT_SECONDS
-
     # 1. Try minikube service if context is not explicit non-minikube
     if not context or context == "minikube":
         try:
@@ -758,7 +754,7 @@ def _detect_service_url(service: str, namespace: str, context: str | None = None
                 text=True,
                 check=False,
                 quiet=True,
-                timeout=DEFAULT_SUBPROCESS_FAST_TIMEOUT_SECONDS,
+                timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
             )
             if res.returncode == 0 and res.stdout.strip():
                 url = _parse_minikube_service_url(res.stdout)
@@ -776,7 +772,7 @@ def _detect_service_url(service: str, namespace: str, context: str | None = None
             text=True,
             check=False,
             quiet=True,
-            timeout=DEFAULT_SUBPROCESS_FAST_TIMEOUT_SECONDS,
+            timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
         )
         if svc_res.returncode == 0 and svc_res.stdout.strip():
             import json
@@ -864,7 +860,7 @@ def _resolve_accessible_url(
 def configure_urls(
     stack: Annotated[
         str, typer.Option("--stack", "-s", help="Stack to configure URLs for (infra, llm, all)")
-    ] = DEFAULT_K8S_STACK_INFRA,
+    ] = DEFAULT_K8S_STACK,
     context: Annotated[
         str | None, typer.Option("--context", "-c", help="Kubernetes cluster context")
     ] = None,
@@ -990,7 +986,7 @@ def configure_urls(
 def port_forward(
     stack: Annotated[
         str, typer.Option("--stack", "-s", help="Stack services to port-forward (infra, llm, all)")
-    ] = DEFAULT_K8S_STACK_INFRA,
+    ] = DEFAULT_K8S_STACK,
     context: Annotated[
         str | None, typer.Option("--context", "-c", help="Kubernetes cluster context")
     ] = None,
@@ -1120,10 +1116,10 @@ def port_forward(
 def teardown_stack(
     k8s_dir: Annotated[
         Path, typer.Option("--k8s-dir", help="Path to k8s/ config directory")
-    ] = _K8S_DIR,
+    ] = DEFAULT_K8S_DIR,
     stack: Annotated[
         str, typer.Option("--stack", "-s", help="Stack to teardown (infra, llm, all)")
-    ] = DEFAULT_K8S_STACK_INFRA,
+    ] = DEFAULT_K8S_STACK,
     context: Annotated[
         str | None, typer.Option("--context", "-c", help="Kubernetes cluster context")
     ] = None,
@@ -1249,7 +1245,7 @@ def k8s_lint(
     target: Annotated[
         Path,
         typer.Argument(help="Target K8s manifest file or directory to lint"),
-    ] = Path("."),
+    ] = DEFAULT_CURRENT_PATH,
     dry_run: Annotated[
         bool,
         typer.Option("--dry-run", help="Simulate manifest linting."),
@@ -1352,7 +1348,7 @@ def k8s_check_deprecated(
     target: Annotated[
         Path,
         typer.Argument(help="Target manifest file or directory to scan for deprecated APIs"),
-    ] = Path("."),
+    ] = DEFAULT_CURRENT_PATH,
     dry_run: Annotated[
         bool,
         typer.Option("--dry-run", help="Simulate deprecated API detection."),
@@ -1410,7 +1406,7 @@ def create_tls_secret(
     namespace: Annotated[
         str,
         typer.Option("--namespace", "-n", help="Target Kubernetes namespace"),
-    ] = DEFAULT_KUBERNETES_NAMESPACE,
+    ] = DEFAULT_K8S_NAMESPACE,
     cert_path: Annotated[
         Path,
         typer.Option("--cert", help="Path to TLS certificate file (.crt or .pem)"),
@@ -1507,11 +1503,11 @@ def enable_tls_stack(
     secret_name: Annotated[
         str,
         typer.Option("--secret-name", help="TLS secret name across namespaces"),
-    ] = DEFAULT_TLS_SECRET_NAME,
+    ] = DEFAULT_K8S_TLS_SECRET_NAME,
     stack: Annotated[
         str,
         typer.Option("--stack", "-s", help="Stack to deploy TLS secrets into (infra, llm, all)"),
-    ] = DEFAULT_K8S_STACK_ALL,
+    ] = DEFAULT_K8S_ALL_STACK,
     overwrite: Annotated[
         bool,
         typer.Option("--overwrite", "-f", help="Regenerate certs if missing"),
@@ -1524,7 +1520,7 @@ def enable_tls_stack(
     selected_stacks = _resolve_stacks(stack)
 
     # Resolve target namespaces based on selected stacks
-    namespaces_to_target: list[str] = [DEFAULT_KUBERNETES_NAMESPACE]
+    namespaces_to_target: list[str] = [DEFAULT_K8S_NAMESPACE]
     if "infra" in selected_stacks:
         namespaces_to_target.extend(["argocd", "monitoring", "otel"])
     if "llm" in selected_stacks:
@@ -1625,7 +1621,7 @@ def k8s_validate(
     manifest_path: Annotated[
         Path,
         typer.Argument(help="Path to Kubernetes YAML manifest file or directory"),
-    ] = Path("."),
+    ] = DEFAULT_CURRENT_PATH,
     k8s_version: Annotated[
         str,
         typer.Option("--kubernetes-version", "-v", help="Target Kubernetes OpenAPI version"),
@@ -1681,3 +1677,224 @@ def k8s_validate(
     for f in findings:
         table.add_row(f.severity, f.location, f.title, f.fix or f.description)
     print_table(table)
+
+
+# =============================================================================
+# Command: devops k8s validate-policy
+# =============================================================================
+
+
+@app.command(name="validate-policy")
+def validate_policy_cmd(
+    manifest_path: Annotated[
+        Path,
+        typer.Argument(help="Path to Kubernetes YAML manifest file or directory"),
+    ] = DEFAULT_CURRENT_PATH,
+    policy_path: Annotated[
+        Path | None,
+        typer.Option("--policy", "-p", help="Path to Kyverno policy or OPA rule file"),
+    ] = None,
+    engine: Annotated[
+        str,
+        typer.Option("--engine", "-e", help="Policy evaluation engine (kyverno, opa)"),
+    ] = "kyverno",
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Simulate admission policy validation"),
+    ] = False,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Output validation report as JSON"),
+    ] = False,
+) -> None:
+    """Validate Kubernetes manifests against Kyverno or OPA admission policies."""
+    from devops_cli.k8s.policy import validate_k8s_policy
+    from devops_cli.output import format_json
+
+    report = validate_k8s_policy(
+        manifest_path=manifest_path.resolve(),
+        policy_path=policy_path.resolve() if policy_path else None,
+        engine=engine,
+        dry_run=dry_run,
+    )
+
+    if dry_run or is_dry_run():
+        return
+
+    if json_output:
+        write_stdout(format_json(report.model_dump()) + "\n")
+        return
+
+    if report.failed_count == 0:
+        print_success(
+            f"✓ All manifests passed {report.engine.upper()} policy evaluation ({report.passed_count} rules passed)."
+        )
+        return
+
+    t = Table(title=f"Kubernetes Policy Violations ({report.engine.upper()})")
+    t.add_column("Policy")
+    t.add_column("Rule")
+    t.add_column("Resource")
+    t.add_column("Status", style="bold red")
+    t.add_column("Message")
+
+    for r in report.rule_results:
+        st_style = "green" if r.status in ("pass", "success") else "bold red"
+        t.add_row(
+            r.policy_name,
+            r.rule_name,
+            f"{r.resource_kind}/{r.resource_name}",
+            f"[{st_style}]{r.status}[/{st_style}]",
+            r.message,
+        )
+
+    print_table(t)
+    raise typer.Exit(1)
+
+
+# =============================================================================
+# Command: devops k8s stream-logs
+# =============================================================================
+
+
+@app.command(name="stream-logs")
+def stream_logs_cmd(
+    pod_query: Annotated[
+        str,
+        typer.Argument(help="Regex pattern or query to match pod names"),
+    ],
+    namespace: Annotated[
+        str | None,
+        typer.Option("--namespace", "-n", help="Target Kubernetes namespace"),
+    ] = None,
+    container: Annotated[
+        str | None,
+        typer.Option("--container", "-c", help="Target container name within matched pods"),
+    ] = None,
+    tail: Annotated[
+        int,
+        typer.Option("--tail", "-t", help="Number of historical log lines to stream"),
+    ] = 100,
+    follow: Annotated[
+        bool,
+        typer.Option("--follow/--no-follow", "-f", help="Continuously stream live log output"),
+    ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Simulate multi-pod log streaming"),
+    ] = False,
+) -> None:
+    """Stream logs across multiple pods in parallel using Stern or kubectl."""
+    from devops_cli.k8s.logs import stream_multi_pod_logs
+
+    rc = stream_multi_pod_logs(
+        pod_query=pod_query,
+        namespace=namespace,
+        container=container,
+        tail_lines=tail,
+        follow=follow,
+        dry_run=dry_run,
+    )
+    if rc != 0 and not (dry_run or is_dry_run()):
+        raise typer.Exit(rc)
+
+
+# =============================================================================
+# Command: devops k8s diff-helm
+# =============================================================================
+
+
+@app.command(name="diff-helm")
+def diff_helm_cmd(
+    release_name: Annotated[
+        str,
+        typer.Argument(help="Name of deployed Helm release"),
+    ],
+    chart_path: Annotated[
+        Path,
+        typer.Argument(help="Path to local Helm chart directory or packaged archive"),
+    ] = DEFAULT_CURRENT_PATH,
+    namespace: Annotated[
+        str | None,
+        typer.Option("--namespace", "-n", help="Target Kubernetes namespace"),
+    ] = None,
+    values: Annotated[
+        list[Path] | None,
+        typer.Option("--values", "-f", help="Values YAML files to override release defaults"),
+    ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Simulate Helm diff preview"),
+    ] = False,
+) -> None:
+    """Preview Kubernetes manifest diffs before executing a Helm upgrade."""
+    from devops_cli.k8s.diff import diff_helm_release
+
+    rc, diff_output = diff_helm_release(
+        release_name=release_name,
+        chart_path=chart_path.resolve(),
+        namespace=namespace,
+        values_files=[v.resolve() for v in values] if values else None,
+        dry_run=dry_run,
+    )
+    if dry_run or is_dry_run():
+        return
+
+    if diff_output.strip():
+        write_stdout(diff_output + "\n")
+    if rc not in (0, 2):
+        raise typer.Exit(rc)
+
+
+# =============================================================================
+# Command: devops k8s chaos
+# =============================================================================
+
+
+@app.command(name="chaos")
+def chaos_cmd(
+    experiment: Annotated[
+        str,
+        typer.Argument(help="Resilience experiment name (e.g., pod-kill, latency-inject)"),
+    ] = "pod-kill",
+    deployment: Annotated[
+        str,
+        typer.Option("--deployment", "-d", help="Target deployment to disrupt"),
+    ] = "sample-app",
+    namespace: Annotated[
+        str,
+        typer.Option("--namespace", "-n", help="Target Kubernetes namespace"),
+    ] = DEFAULT_K8S_NAMESPACE,
+    duration: Annotated[
+        int,
+        typer.Option("--duration", help="Reconciliation monitoring window in seconds"),
+    ] = 30,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Simulate chaos experiment execution"),
+    ] = False,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Output experiment result as JSON"),
+    ] = False,
+) -> None:
+    """Run resilience and chaos experiments against Kubernetes workloads."""
+    from devops_cli.k8s.chaos import execute_chaos_experiment
+    from devops_cli.output import format_json
+
+    result = execute_chaos_experiment(
+        experiment_name=experiment,
+        target_deployment=deployment,
+        namespace=namespace,
+        duration_seconds=duration,
+        dry_run=dry_run,
+    )
+    if dry_run or is_dry_run():
+        return
+
+    if json_output:
+        write_stdout(format_json(result.model_dump()) + "\n")
+        return
+
+    if not result.recovered_successfully:
+        raise typer.Exit(1)

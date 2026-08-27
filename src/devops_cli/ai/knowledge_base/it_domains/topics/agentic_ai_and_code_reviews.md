@@ -54,10 +54,13 @@ AI assistants operate best when provided with a single authoritative source of t
 ### Common Commands
 ```bash
 # Review active working directory git diff with DevSecOps persona
-devops review branch --persona devsecops
+devops ai review branch --persona devsecops
 
 # Review an entire target project path
-devops review path repos/my-org/my-project
+devops ai review path repos/my-org/my-project
+
+# Export review feedback dataset for continuous alignment and prompt tuning
+devops ai review export-feedback --status ALL --output .data/reviews/feedback_dataset.jsonl
 
 # Check LLM response cache performance and hit rates
 devops ai cache status
@@ -69,7 +72,7 @@ devops ai cache clear
 devops ai agents --repo repos/my-org/my-project --template
 
 # Index codebase documentation into local RAG vector store
-devops rag index docs/
+devops ai rag index docs/
 ```
 
 ---

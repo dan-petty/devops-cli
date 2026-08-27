@@ -1,10 +1,11 @@
-"""In-memory Prometheus metric collector and recorder for devops-cli telemetry."""
+"""In-Memory Metrics Registry and Prometheus Text Formatter."""
 
 from __future__ import annotations
 
 import threading
 import time
 from collections import defaultdict
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -18,6 +19,15 @@ class MetricSample(BaseModel):
     labels: dict[str, str] = Field(default_factory=dict)
     value: float
     timestamp: float = Field(default_factory=time.time)
+
+
+def _format_prometheus_labels(labels_items: Any) -> str:
+    """Format label pairs into Prometheus {k="v",...} string."""
+    if not labels_items:
+        return ""
+    items_iter = labels_items.items() if hasattr(labels_items, "items") else labels_items
+    items = [f'{k}="{v}"' for k, v in items_iter]
+    return "{" + ",".join(items) + "}" if items else ""
 
 
 class InMemoryMetricsRegistry:
@@ -57,7 +67,7 @@ class InMemoryMetricsRegistry:
         value: float,
         labels: dict[str, str] | None = None,
     ) -> None:
-        """Set the absolute value of a gauge."""
+        """Set a gauge value for a metric."""
         key = self._freeze_labels(labels)
         with self._lock:
             self._gauges[name][key] = value
@@ -68,22 +78,34 @@ class InMemoryMetricsRegistry:
         value: float,
         labels: dict[str, str] | None = None,
     ) -> None:
-        """Record an observation value in a histogram."""
+        """Record an observation in a histogram."""
         key = self._freeze_labels(labels)
         with self._lock:
             self._histograms[name][key].append(value)
 
-    def get_counter_value(self, name: str, labels: dict[str, str] | None = None) -> float:
-        """Retrieve current value for a counter."""
+    def get_counter(
+        self,
+        name: str,
+        labels: dict[str, str] | None = None,
+    ) -> float:
+        """Retrieve counter value."""
         key = self._freeze_labels(labels)
         with self._lock:
             return self._counters.get(name, {}).get(key, 0.0)
 
-    def get_gauge_value(self, name: str, labels: dict[str, str] | None = None) -> float:
-        """Retrieve current value for a gauge."""
+    get_counter_value = get_counter
+
+    def get_gauge(
+        self,
+        name: str,
+        labels: dict[str, str] | None = None,
+    ) -> float:
+        """Retrieve gauge value."""
         key = self._freeze_labels(labels)
         with self._lock:
             return self._gauges.get(name, {}).get(key, 0.0)
+
+    get_gauge_value = get_gauge
 
     def get_histogram_samples(
         self,
@@ -109,32 +131,19 @@ class InMemoryMetricsRegistry:
             for name, counter_dict in self._counters.items():
                 lines.append(f"# TYPE {name} counter")
                 for key, val in counter_dict.items():
-                    label_str = ""
-                    if key:
-                        items = [f'{k}="{v}"' for k, v in key]
-                        label_str = "{" + ",".join(items) + "}"
-                    lines.append(f"{name}{label_str} {val}")
+                    lines.append(f"{name}{_format_prometheus_labels(key)} {val}")
 
             for name, gauge_dict in self._gauges.items():
                 lines.append(f"# TYPE {name} gauge")
                 for key, val in gauge_dict.items():
-                    label_str = ""
-                    if key:
-                        items = [f'{k}="{v}"' for k, v in key]
-                        label_str = "{" + ",".join(items) + "}"
-                    lines.append(f"{name}{label_str} {val}")
+                    lines.append(f"{name}{_format_prometheus_labels(key)} {val}")
 
             for name, hist_dict in self._histograms.items():
                 lines.append(f"# TYPE {name} histogram")
                 for key, observations in hist_dict.items():
-                    label_base = dict(key)
                     count = len(observations)
                     total = sum(observations)
-                    labels_count = dict(label_base)
-                    label_str = ""
-                    if labels_count:
-                        items = [f'{k}="{v}"' for k, v in labels_count.items()]
-                        label_str = "{" + ",".join(items) + "}"
+                    label_str = _format_prometheus_labels(dict(key))
                     lines.append(f"{name}_count{label_str} {count}")
                     lines.append(f"{name}_sum{label_str} {total}")
 

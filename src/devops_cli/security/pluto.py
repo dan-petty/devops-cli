@@ -9,7 +9,10 @@ from typing import Any
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.commands import BIN_PLUTO
-from devops_cli.config.defaults import DEFAULT_PLUTO_TIMEOUT_SECONDS
+from devops_cli.config.defaults import (
+    DEFAULT_CURRENT_PATH,
+    DEFAULT_PLUTO_TIMEOUT_SECONDS,
+)
 from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run.state import is_dry_run
 
@@ -50,7 +53,7 @@ def parse_pluto_json(data: dict[str, Any], target_path: str = "") -> list[Findin
     return findings
 
 
-def run_pluto_scan(target: Path = Path(".")) -> list[Finding]:
+def run_pluto_scan(target: Path = DEFAULT_CURRENT_PATH) -> list[Finding]:
     """Execute Pluto deprecated API scanner subprocess and return parsed findings."""
     from devops_cli.telemetry import trace_span
 

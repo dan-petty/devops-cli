@@ -659,9 +659,26 @@ _GLOBAL_TRACER: OTelTelemetryClient | None = None
 _GLOBAL_TRACER_LOCK = threading.Lock()
 
 
+def _resolve_telemetry_settings() -> tuple[str | None, bool]:
+    """Inspect application settings for OTel endpoint and enabled status."""
+    try:
+        from devops_cli.config.settings import load_settings
+
+        settings = load_settings()
+        telemetry_cfg = getattr(settings, "telemetry", None) or getattr(settings, "otel", None)
+        endpoint = getattr(telemetry_cfg, "endpoint", None) if telemetry_cfg else None
+        enabled = bool(getattr(telemetry_cfg, "enabled", True)) if telemetry_cfg else True
+        return endpoint, enabled
+    except Exception:
+        return None, True
+
+
 def get_tracer() -> OTelTelemetryClient:
-    """Return the thread-safe global OTelTelemetryClient singleton instance."""
+    """Retrieve or lazily initialize the singleton OTelTelemetryClient instance."""
     global _GLOBAL_TRACER
+    if _GLOBAL_TRACER is not None:
+        return _GLOBAL_TRACER
+
     with _GLOBAL_TRACER_LOCK:
         if _GLOBAL_TRACER is None:
             endpoint = (
@@ -672,21 +689,9 @@ def get_tracer() -> OTelTelemetryClient:
             env_enabled = os.getenv("DEVOPS_TELEMETRY_ENABLED")
 
             if endpoint is None or env_enabled is None:
-                try:
-                    from devops_cli.config.settings import load_settings
-
-                    settings = load_settings()
-                    telemetry_cfg = getattr(settings, "telemetry", None) or getattr(
-                        settings, "otel", None
-                    )
-                    if endpoint is None and telemetry_cfg and hasattr(telemetry_cfg, "endpoint"):
-                        endpoint = telemetry_cfg.endpoint
-                    if env_enabled is None and telemetry_cfg and hasattr(telemetry_cfg, "enabled"):
-                        cfg_enabled = telemetry_cfg.enabled
-                    else:
-                        cfg_enabled = True
-                except Exception:
-                    cfg_enabled = True
+                cfg_endpoint, cfg_enabled = _resolve_telemetry_settings()
+                if endpoint is None:
+                    endpoint = cfg_endpoint
             else:
                 cfg_enabled = True
 

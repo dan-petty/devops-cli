@@ -16,8 +16,7 @@ import typer
 
 from devops_cli.config import load_settings
 from devops_cli.config.defaults import (
-    DEFAULT_HTTP_LONG_TIMEOUT_SECONDS,
-    DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS,
+    DEFAULT_HTTP_TIMEOUT_SECONDS,
     DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
 )
 from devops_cli.core.cli import new_typer
@@ -103,7 +102,7 @@ def cd_apps_list() -> None:
         resp = c.get(
             f"{base}/api/v1/applications",
             headers=headers,
-            timeout=DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS,
+            timeout=DEFAULT_HTTP_TIMEOUT_SECONDS,
         )
         resp.raise_for_status()
 
@@ -151,7 +150,7 @@ def cd_apps_sync(
             f"{base}/api/v1/applications/{name}/sync",
             headers=headers,
             json={"sync": {"prune": prune, "force": force}},
-            timeout=DEFAULT_HTTP_LONG_TIMEOUT_SECONDS,
+            timeout=DEFAULT_HTTP_TIMEOUT_SECONDS,
         )
         resp.raise_for_status()
     print_success(MESSAGES.argo.sync_triggered.format(name=name))
@@ -175,7 +174,7 @@ def cd_apps_status(
         resp = c.get(
             f"{base}/api/v1/applications/{name}",
             headers=headers,
-            timeout=DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS,
+            timeout=DEFAULT_HTTP_TIMEOUT_SECONDS,
         )
         resp.raise_for_status()
 

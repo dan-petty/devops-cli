@@ -41,8 +41,12 @@ def _get(name: str) -> Any:
 
 app = new_typer(help=HELP.uv.app, no_args_is_help=True)
 
-# Repo root: src/devops_cli/commands/uv.py -> parents[3]
-_ROOT = Path(__file__).resolve().parents[3]
+
+def _get_project_root() -> Path:
+    """Find repository root containing pyproject.toml or .git."""
+    from devops_cli.core.repo import find_top_level_repo_root
+
+    return find_top_level_repo_root()
 
 
 def _run(cmd: Sequence[str]) -> None:
@@ -50,7 +54,10 @@ def _run(cmd: Sequence[str]) -> None:
     if full_cmd and full_cmd[0] == "uv" and "--preview-features" not in full_cmd:
         full_cmd[1:1] = ["--preview-features", "malware-check"]
     result = _get("run_subprocess")(
-        full_cmd, cwd=_ROOT, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS, capture_output=False
+        full_cmd,
+        cwd=_get_project_root(),
+        timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
+        capture_output=False,
     )
     if result.returncode != 0:
         raise typer.Exit(result.returncode)
@@ -93,10 +100,11 @@ def python_install(
     ] = None,
 ) -> None:
     """Install project Python version with uv."""
+    root = _get_project_root()
     if version is None:
         version = (
-            (_ROOT / ".python-version").read_text(encoding="utf-8").strip()
-            if (_ROOT / ".python-version").exists()
+            (root / ".python-version").read_text(encoding="utf-8").strip()
+            if (root / ".python-version").exists()
             else None
         )
 

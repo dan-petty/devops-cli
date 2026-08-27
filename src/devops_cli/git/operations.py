@@ -25,7 +25,7 @@ from devops_cli.config.constants import (
     CONST_URL_SCHEME_HTTP,
     CONST_URL_SCHEME_HTTPS,
 )
-from devops_cli.config.defaults import DEFAULT_SUBPROCESS_FAST_TIMEOUT_SECONDS
+from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions import BranchAlreadyExistsError, InvalidBranchNameError
 from devops_cli.models.git import BranchListing
@@ -70,7 +70,7 @@ def _ensure_known_host(hostname: str = CONST_GITHUB_HOST) -> None:
             text=True,
             check=False,
             quiet=True,
-            timeout=DEFAULT_SUBPROCESS_FAST_TIMEOUT_SECONDS,
+            timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
         )
         if result.returncode == 0:
             return
@@ -81,7 +81,7 @@ def _ensure_known_host(hostname: str = CONST_GITHUB_HOST) -> None:
         text=True,
         check=False,
         quiet=True,
-        timeout=DEFAULT_SUBPROCESS_FAST_TIMEOUT_SECONDS,
+        timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
     )
     if result.returncode != 0 or not result.stdout.strip() or hostname not in result.stdout:
         return

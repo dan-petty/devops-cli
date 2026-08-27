@@ -1086,3 +1086,65 @@ def route_task(
         rows=rows,
         border_style="magenta",
     )
+
+
+# =============================================================================
+# Command: devops ai spec
+# =============================================================================
+
+
+@app.command("spec")
+def spec_verify_cmd(
+    spec_path: Annotated[
+        Path | None,
+        typer.Argument(help="Path to markdown architecture specification contract"),
+    ] = None,
+    target_dir: Annotated[
+        Path | None,
+        typer.Option("--target", "-t", help="Target source directory to verify"),
+    ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Simulate architecture spec verification"),
+    ] = False,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Output specification verification report as JSON"),
+    ] = False,
+) -> None:
+    """Verify codebase against executable markdown architecture specification contracts."""
+    from devops_cli.ai.spec import verify_architecture_spec
+    from devops_cli.dry_run import is_dry_run
+
+    report = verify_architecture_spec(
+        spec_path=spec_path,
+        target_dir=target_dir,
+        dry_run=dry_run,
+    )
+
+    if dry_run or is_dry_run():
+        return
+
+    if json_output:
+        write_stdout(format_json(report.model_dump()) + "\n")
+        return
+
+    if report.failed_rules == 0:
+        print_success(
+            f"✓ Architecture specification verified: {report.passed_rules} invariants satisfied."
+        )
+        return
+
+    rows = []
+    for r in report.rule_results:
+        st_style = "green" if r.passed else "bold red"
+        st_text = "PASS" if r.passed else "FAIL"
+        rows.append([r.name, r.target_path, f"[{st_style}]{st_text}[/{st_style}]", r.details])
+
+    print_table(
+        title=f"Architecture Spec Invariants: {report.spec_name}",
+        columns=["Rule", "Location", "Status", "Details"],
+        rows=rows,
+        border_style="red",
+    )
+    raise typer.Exit(1)

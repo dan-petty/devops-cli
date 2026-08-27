@@ -210,6 +210,19 @@ def validate_safe_key_path(key_path: Path | str, *, label: str = "SSH key path")
     return validate_path(key_path, must_exist=False, kind="key", allow_traversal=False, label=label)
 
 
+def validate_safe_directory_path(dir_path: Path | str, *, label: str = "Directory path") -> Path:
+    """Validate a directory path preventing relative path traversal or blank names."""
+    raw_str = str(dir_path).strip()
+    if not raw_str:
+        raise ValidationError(f"Invalid directory path: {dir_path}", field="dir_path")
+    if ".." in raw_str:
+        raise ValidationError(
+            f"Path traversal ('..') is not permitted in {label.lower()}: '{dir_path}'",
+            field="dir_path",
+        )
+    return Path(dir_path)
+
+
 def validate_k8s_name(value: str, label: str = "resource", *, namespace: bool = False) -> str:
     """Validate that a string conforms to Kubernetes RFC 1123 naming rules."""
     pattern = CONST_K8S_LABEL_RE if namespace else CONST_K8S_SUBDOMAIN_RE

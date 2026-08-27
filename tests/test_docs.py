@@ -346,3 +346,49 @@ def test_docs_cli_dry_run_and_format_helpers(runner: CliRunner, tmp_path: Path) 
         assert res_sync_dry.exit_code == 0
     finally:
         set_dry_run(False)
+
+
+def test_doc_generator_masks_sensitive_param_defaults(generator: DocGenerator) -> None:
+    """Verify that parameters with names or envvars indicating secrets mask default values."""
+    # Sensitive option name
+    secret_opt = click.Option(
+        ["--api-key"],
+        type=click.STRING,
+        default="secret_live_api_key_12345",
+        help="API secret token.",
+    )
+    doc_secret = generator.introspect_param(secret_opt)
+    assert doc_secret.default == "<masked>"
+
+    # Sensitive envvar
+    token_opt = click.Option(
+        ["--auth"],
+        type=click.STRING,
+        default="ghp_token_xyz",
+        envvar="DEVOPS_AUTH_TOKEN",
+        help="Auth credential.",
+    )
+    doc_token = generator.introspect_param(token_opt)
+    assert doc_token.default == "<masked>"
+
+    # Non-sensitive option preserves normal default
+    normal_opt = click.Option(
+        ["--port"],
+        type=click.INT,
+        default=8080,
+        help="Service port.",
+    )
+    doc_normal = generator.introspect_param(normal_opt)
+    assert doc_normal.default == "8080"
+
+
+def test_doc_generator_introspect_single_group_untrusted_prefix_rejected(
+    generator: DocGenerator,
+) -> None:
+    """_introspect_single_group must reject module paths outside devops_cli.commands."""
+    untrusted_res = generator._introspect_single_group(
+        name="malicious",
+        module_path="os.system",
+        summary="Untrusted module",
+    )
+    assert untrusted_res is None

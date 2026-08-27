@@ -9,7 +9,10 @@ from typing import Annotated, Any
 
 import typer
 
-from devops_cli.config.defaults import DEFAULT_DOCKER_TIMEOUT_SECONDS
+from devops_cli.config.defaults import (
+    DEFAULT_CURRENT_PATH,
+    DEFAULT_DOCKER_TIMEOUT_SECONDS,
+)
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import is_dry_run
 from devops_cli.lang import ERRORS, HELP, MESSAGES
@@ -91,7 +94,7 @@ def list_images(
 
 @app.command()
 def build(
-    context: Annotated[Path, typer.Argument(help=HELP.docker.context_dir)] = Path("."),
+    context: Annotated[Path, typer.Argument(help=HELP.docker.context_dir)] = DEFAULT_CURRENT_PATH,
     tag: Annotated[str | None, typer.Option("--tag", "-t", help=HELP.docker.tag)] = None,
     dockerfile: Annotated[
         Path | None, typer.Option("--file", "-f", help=HELP.docker.dockerfile)

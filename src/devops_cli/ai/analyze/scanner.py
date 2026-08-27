@@ -8,6 +8,8 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from devops_cli.config.defaults import DEFAULT_CURRENT_PATH
+
 if TYPE_CHECKING:
     from devops_cli.models.ai import FileAnalysisMeta
 
@@ -305,7 +307,7 @@ def _extract_file_purpose(rel_path: str, content: str, lang: str, symbols: list[
     return f"Provides module implementation for {clean_stem}"
 
 
-def scan_directory(target_dir: Path = Path(".")) -> list[FileAnalysisMeta]:
+def scan_directory(target_dir: Path = DEFAULT_CURRENT_PATH) -> list[FileAnalysisMeta]:
     """Scan directory and return basic FileAnalysisMeta for each file."""
     from devops_cli.ai.analyze.outlines import analyze_single_file
     from devops_cli.core.repo import find_repo_root, list_repo_files

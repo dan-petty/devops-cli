@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import ast
+import json
 import re
 import unicodedata
 from typing import Any
@@ -84,6 +86,30 @@ def normalize_unicode_text(text: str) -> str:
     return normalized.translate(_TRANSLATE_TABLE)
 
 
+def format_clean_text_field(val: Any) -> str:
+    """Normalize strings, lists, or stringified Python/JSON lists into clean, readable text."""
+    if val is None:
+        return ""
+    if isinstance(val, (list, tuple, set)):
+        return "\n".join(str(item).strip() for item in val if str(item).strip())
+    if isinstance(val, str):
+        s = val.strip()
+        if (s.startswith("[") and s.endswith("]")) or (s.startswith("(") and s.endswith(")")):
+            try:
+                parsed = ast.literal_eval(s)
+                if isinstance(parsed, (list, tuple, set)):
+                    return "\n".join(str(item).strip() for item in parsed if str(item).strip())
+            except Exception:
+                try:
+                    parsed = json.loads(s)
+                    if isinstance(parsed, (list, tuple, set)):
+                        return "\n".join(str(item).strip() for item in parsed if str(item).strip())
+                except Exception:
+                    pass
+        return s
+    return str(val)
+
+
 def _tokenize_title(title: str) -> set[str]:
     """Tokenize finding title into lowercase word tokens."""
     words = re.findall(r"\b[a-zA-Z0-9_]+\b", title.lower())
@@ -134,45 +160,69 @@ class Finding(BaseModel):
             return {"title": "", "location": "", "description": ""}
         if isinstance(data, dict):
             d = dict(data)
-            # Map alternative field names produced by varied LLM personas
-            if not d.get("title"):
-                d["title"] = (
-                    d.get("issue")
-                    or d.get("problem")
-                    or d.get("name")
-                    or d.get("summary")
-                    or d.get("heading")
-                    or d.get("finding")
-                    or ""
-                )
-            if not d.get("description"):
-                d["description"] = (
-                    d.get("details")
-                    or d.get("detail")
-                    or d.get("impact")
-                    or d.get("explanation")
-                    or d.get("message")
-                    or d.get("body")
-                    or ""
-                )
-            if not d.get("location"):
-                d["location"] = (
-                    d.get("file")
-                    or d.get("path")
-                    or d.get("target")
-                    or d.get("line")
-                    or d.get("lines")
-                    or ""
-                )
-            if not d.get("fix"):
-                d["fix"] = (
-                    d.get("remediation")
-                    or d.get("recommendation")
-                    or d.get("suggested_fix")
-                    or d.get("solution")
-                    or d.get("patch")
-                    or ""
-                )
+            title_val = (
+                d.get("title")
+                or d.get("issue")
+                or d.get("problem")
+                or d.get("name")
+                or d.get("summary")
+                or d.get("heading")
+                or d.get("finding")
+                or ""
+            )
+            if isinstance(title_val, (list, tuple, set)):
+                d["title"] = " ".join(str(item).strip() for item in title_val if str(item).strip())
+            else:
+                d["title"] = format_clean_text_field(title_val)
+
+            desc_val = (
+                d.get("description")
+                or d.get("details")
+                or d.get("detail")
+                or d.get("impact")
+                or d.get("explanation")
+                or d.get("message")
+                or d.get("body")
+                or ""
+            )
+            d["description"] = format_clean_text_field(desc_val)
+
+            loc_val = (
+                d.get("location")
+                or d.get("file")
+                or d.get("path")
+                or d.get("target")
+                or d.get("line")
+                or d.get("lines")
+                or ""
+            )
+            d["location"] = format_clean_text_field(loc_val)
+
+            fix_val = (
+                d.get("fix")
+                or d.get("remediation")
+                or d.get("recommendation")
+                or d.get("suggested_fix")
+                or d.get("solution")
+                or d.get("patch")
+                or ""
+            )
+            d["fix"] = format_clean_text_field(fix_val)
+
+            if "references" in d:
+                raw_ref = d["references"]
+                if isinstance(raw_ref, str):
+                    if raw_ref.startswith("[") and raw_ref.endswith("]"):
+                        try:
+                            parsed_refs = ast.literal_eval(raw_ref)
+                            if isinstance(parsed_refs, list):
+                                d["references"] = [
+                                    str(r).strip() for r in parsed_refs if str(r).strip()
+                                ]
+                        except Exception:
+                            d["references"] = [r.strip() for r in raw_ref.split(",") if r.strip()]
+                    else:
+                        d["references"] = [r.strip() for r in raw_ref.split(",") if r.strip()]
             if not d.get("verification_criteria") and d.get("verification"):
                 d["verification_criteria"] = d.get("verification")
             if not d.get("invalidation_criteria") and d.get("invalidation"):

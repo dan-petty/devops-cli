@@ -12,7 +12,7 @@ from devops_cli.core.cleanup import cleanup_data_tier
 def test_cleanup_data_tier_pruning(tmp_path: Path) -> None:
     data_dir = tmp_path / ".data"
     reviews_dir = data_dir / "reviews"
-    reviews_dir.mkdir(parents=True)
+    reviews_dir.mkdir(parents=True, exist_ok=True)
 
     old_file = reviews_dir / "old_review.json"
     old_file.write_text('{"status": "ok"}', encoding="utf-8")
@@ -34,7 +34,7 @@ def test_cleanup_data_tier_pruning(tmp_path: Path) -> None:
 
 def test_cleanup_data_tier_dry_run(tmp_path: Path) -> None:
     data_dir = tmp_path / ".data" / "analysis"
-    data_dir.mkdir(parents=True)
+    data_dir.mkdir(parents=True, exist_ok=True)
 
     old_file = data_dir / "old_analysis.json"
     old_file.write_text("{}", encoding="utf-8")
@@ -56,9 +56,9 @@ def test_cleanup_data_tier_directory_pruning_and_missing_dir(tmp_path: Path) -> 
 
     # 2. Directory pruning
     data_dir = tmp_path / ".data" / "reviews"
-    data_dir.mkdir(parents=True)
+    data_dir.mkdir(parents=True, exist_ok=True)
     old_dir = data_dir / "20260101-session"
-    old_dir.mkdir()
+    old_dir.mkdir(exist_ok=True)
     sub_file = old_dir / "findings.json"
     sub_file.write_text('{"findings": []}', encoding="utf-8")
 

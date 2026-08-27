@@ -15,7 +15,6 @@ from typing import Any
 from devops_cli.ai.client import LLMClient
 from devops_cli.ai.review_schema import extract_json_block
 from devops_cli.ai.task_loader import load_task_prompt
-from devops_cli.config.constants import CONST_DATA_DIR
 from devops_cli.config.settings import Settings, get_ai_api_key, load_settings
 from devops_cli.dry_run.state import is_dry_run
 from devops_cli.models.benchmark import (
@@ -31,6 +30,16 @@ from devops_cli.output import print_info, print_success, print_table, write_stdo
 logger = logging.getLogger(__name__)
 
 _GRADER_PROMPT_TEMPLATE = load_task_prompt("benchmark_peer_grader.md")
+
+
+def _get_benchmarks_base_dir() -> Path:
+    """Resolve benchmarks base directory dynamically from settings."""
+    settings = load_settings()
+    return (
+        settings.data.benchmarks_dir
+        if hasattr(settings.data, "benchmarks_dir") and settings.data.benchmarks_dir
+        else settings.data.dir / "benchmarks"
+    )
 
 
 def _format_model_peer_feedback(m: Any, peer_grades: list[Any]) -> list[str]:
@@ -105,6 +114,38 @@ def _extract_peer_grade_scores(data: dict[str, Any]) -> tuple[float, float, floa
     comp = round(min(10.0, max(0.0, raw_comp)), 1)
     clar = round(min(10.0, max(0.0, raw_clar)), 1)
     return acc, sec, comp, clar
+
+
+def _format_server_hardware_row(
+    s: Any,
+    fastest_latency: float,
+    multi_server: bool,
+) -> list[str]:
+    """Format single server hardware performance row."""
+    bias_str = (
+        f"+{s.server_score_bias:.1f}%" if s.server_score_bias > 0 else f"{s.server_score_bias:.1f}%"
+    )
+    lat_breakdown = ", ".join(f"{m.split(':')[0]}: {dur}s" for m, dur in s.model_latencies.items())
+    is_fastest = (
+        multi_server and fastest_latency > 0 and s.generation_duration_avg == fastest_latency
+    )
+    if is_fastest:
+        speed_str = "[bold green]1.00x (fastest)[/bold green]"
+    elif multi_server and fastest_latency > 0:
+        speed_str = f"{s.generation_duration_avg / fastest_latency:.2f}x slower"
+    else:
+        speed_str = "1.00x"
+
+    return [
+        s.server,
+        f"{s.generation_duration_avg:.1f}s",
+        speed_str,
+        f"{s.total_duration_seconds:.1f}s",
+        str(s.tasks_generated_count),
+        f"{s.avg_score_awarded:.1f}%",
+        bias_str,
+        lat_breakdown or "-",
+    ]
 
 
 class BenchmarkRunner:
@@ -937,7 +978,7 @@ class BenchmarkRunner:
 
     def _save_report(self, report: BenchmarkReport) -> Path:
         """Persist structured benchmark report to JSON artifact."""
-        out_dir = CONST_DATA_DIR / "benchmarks"
+        out_dir = _get_benchmarks_base_dir()
         out_dir.mkdir(parents=True, exist_ok=True)
         out_path = out_dir / f"{report.session_id}-benchmark.json"
         out_path.write_text(report.model_dump_json(indent=2), encoding="utf-8")
@@ -995,7 +1036,8 @@ class BenchmarkRunner:
                 ]
             )
 
-        report_path = CONST_DATA_DIR / "benchmarks" / f"{report.session_id}-benchmark.json"
+        base_bench_dir = _get_benchmarks_base_dir()
+        report_path = base_bench_dir / f"{report.session_id}-benchmark.json"
         write_stdout("\n")
         print_table(
             title=f"AI Benchmark Leaderboard (Session {report.session_id})",
@@ -1046,39 +1088,9 @@ class BenchmarkRunner:
             )
 
             server_rows: list[list[str]] = []
+            multi_server = len(report.server_benchmarks) > 1
             for s in report.server_benchmarks:
-                bias_str = (
-                    f"+{s.server_score_bias:.1f}%"
-                    if s.server_score_bias > 0
-                    else f"{s.server_score_bias:.1f}%"
-                )
-                lat_breakdown = ", ".join(
-                    f"{m.split(':')[0]}: {dur}s" for m, dur in s.model_latencies.items()
-                )
-                is_fastest = (
-                    len(report.server_benchmarks) > 1
-                    and fastest_latency > 0
-                    and s.generation_duration_avg == fastest_latency
-                )
-                if is_fastest:
-                    speed_str = "[bold green]1.00x (fastest)[/bold green]"
-                elif len(report.server_benchmarks) > 1 and fastest_latency > 0:
-                    speed_str = f"{s.generation_duration_avg / fastest_latency:.2f}x slower"
-                else:
-                    speed_str = "1.00x"
-
-                server_rows.append(
-                    [
-                        s.server,
-                        f"{s.generation_duration_avg:.1f}s",
-                        speed_str,
-                        f"{s.total_duration_seconds:.1f}s",
-                        str(s.tasks_generated_count),
-                        f"{s.avg_score_awarded:.1f}%",
-                        bias_str,
-                        lat_breakdown or "-",
-                    ]
-                )
+                server_rows.append(_format_server_hardware_row(s, fastest_latency, multi_server))
 
             write_stdout("\n")
             print_table(
