@@ -19,6 +19,7 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.server.routes.health import router as health_router
 from devops_cli.server.routes.status import router as status_router
+from devops_cli.server.routes.stream import router as stream_router
 from devops_cli.server.routes.telemetry import router as telemetry_router
 from devops_cli.server.routes.workspace import router as workspace_router
 from devops_cli.telemetry.tracer import get_tracer
@@ -105,5 +106,6 @@ def create_app(
     app.include_router(status_router)
     app.include_router(workspace_router)
     app.include_router(telemetry_router)
+    app.include_router(stream_router)
 
     return app
