@@ -887,3 +887,57 @@ def apply_patch(
     ok = stage_finding_patch(session=session, index=index, interactive=interactive)
     if not ok:
         raise typer.Exit(1)
+
+
+# =============================================================================
+# Command: devops review auto-fix
+# =============================================================================
+
+
+@app.command("auto-fix")
+def auto_fix_cmd(
+    finding_id: Annotated[
+        str,
+        typer.Argument(help="Finding ID or title to create remediation branch for"),
+    ],
+    target_file: Annotated[
+        str,
+        typer.Option("--file", "-f", help="Target source file to apply fix to"),
+    ] = "src/devops_cli/main.py",
+    branch_name: Annotated[
+        str | None,
+        typer.Option("--branch", "-b", help="Custom topic branch name"),
+    ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help=HELP.options.json_output),
+    ] = False,
+) -> None:
+    """Create a corrective topic branch with verified unit test patch for an approved finding."""
+    import json
+
+    from devops_cli.ai.review.auto_fix import generate_remediation_branch
+    from devops_cli.dry_run import is_dry_run
+
+    res = generate_remediation_branch(
+        finding_id=finding_id,
+        target_file=target_file,
+        branch_name=branch_name,
+        dry_run=dry_run or is_dry_run(),
+    )
+
+    if json_output:
+        _get("write_stdout")(json.dumps(res.to_dict(), indent=2) + "\n")
+        return
+
+    if res.applied:
+        _get("print_success")(
+            f"✓ Created remediation topic branch [bold]{res.branch_name}[/bold] for finding '{res.finding_id}'."
+        )
+    else:
+        _get("print_error")(f"Failed to create remediation branch: {res.message}")
+        raise typer.Exit(1)
