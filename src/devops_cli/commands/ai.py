@@ -1148,3 +1148,227 @@ def spec_verify_cmd(
         border_style="red",
     )
     raise typer.Exit(1)
+
+
+# =============================================================================
+# Command: devops ai repomap
+# =============================================================================
+
+
+@app.command("repomap")
+def repomap_cmd(
+    target_dir: Annotated[
+        Path | None,
+        typer.Option("--target", "-t", help="Target root directory to generate symbol map for"),
+    ] = None,
+    max_files: Annotated[
+        int,
+        typer.Option("--max-files", "-n", help="Maximum source files to include"),
+    ] = 100,
+    include_tests: Annotated[
+        bool,
+        typer.Option("--include-tests", help="Include test modules in symbol map"),
+    ] = False,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help=HELP.options.json_output),
+    ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+) -> None:
+    """Generate compact whole-repository AST symbol and relationship map."""
+    import json
+
+    from devops_cli.ai.repomap import generate_repo_map, render_repo_map_text
+    from devops_cli.dry_run import is_dry_run, render_dry_run_result
+
+    if dry_run or is_dry_run():
+        render_dry_run_result(
+            command="devops ai repomap",
+            action="generate_symbol_map",
+            details={
+                "max_files": max_files,
+                "include_tests": include_tests,
+                "status": "DRY_RUN_MAPPED",
+            },
+        )
+        return
+
+    maps = generate_repo_map(target_dir, max_files=max_files, include_tests=include_tests)
+    if json_output:
+        payload = {"files_count": len(maps), "files": [f.to_dict() for f in maps]}
+        write_stdout(json.dumps(payload, indent=2) + "\n")
+        return
+
+    text = render_repo_map_text(maps)
+    print_info(
+        f"[bold]Repository AST Symbol Map[/bold] ({len(maps)} files mapped):\n",
+        prefix=False,
+    )
+    write_stdout(text + "\n")
+
+
+# =============================================================================
+# Command: devops ai diagram
+# =============================================================================
+
+
+@app.command("diagram")
+def diagram_cmd(
+    diagram_type: Annotated[
+        str,
+        typer.Argument(
+            help="Diagram type: 'arch' for architecture topology, 'threat' for STRIDE model"
+        ),
+    ] = "arch",
+    target_dir: Annotated[
+        Path | None,
+        typer.Option("--target", "-t", help="Target root directory to analyze"),
+    ] = None,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help=HELP.options.json_output),
+    ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+) -> None:
+    """Generate visual Mermaid architecture topology or STRIDE threat modeling diagrams."""
+    import json
+
+    from devops_cli.ai.diagram import generate_architecture_diagram, generate_threat_diagram
+    from devops_cli.dry_run import is_dry_run, render_dry_run_result
+
+    if dry_run or is_dry_run():
+        render_dry_run_result(
+            command=f"devops ai diagram {diagram_type}",
+            action="generate_diagram",
+            details={"type": diagram_type, "status": "DRY_RUN_DIAGRAM_GENERATED"},
+        )
+        return
+
+    if diagram_type.lower() == "threat":
+        diag = generate_threat_diagram(target_dir)
+    else:
+        diag = generate_architecture_diagram(target_dir)
+
+    if json_output:
+        write_stdout(json.dumps(diag.to_dict(), indent=2) + "\n")
+        return
+
+    print_info(f"[bold]{diag.title}[/bold] (Mermaid Diagram):\n", prefix=False)
+    write_stdout(f"```mermaid\n{diag.mermaid_code}\n```\n")
+
+
+# =============================================================================
+# Command: devops ai prompt-eval
+# =============================================================================
+
+
+@app.command("prompt-eval")
+def prompt_eval_cmd(
+    persona: Annotated[
+        str,
+        typer.Option("--persona", "-p", help="Review persona to benchmark"),
+    ] = "devsecops",
+    dataset: Annotated[
+        Path | None,
+        typer.Option("--dataset", "-d", help="Path to feedback dataset jsonl"),
+    ] = None,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help=HELP.options.json_output),
+    ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+) -> None:
+    """Benchmark persona prompt variations against verified review feedback datasets."""
+    import json
+
+    from devops_cli.ai.prompt_eval import evaluate_persona_prompts
+    from devops_cli.dry_run import is_dry_run, render_dry_run_result
+
+    if dry_run or is_dry_run():
+        render_dry_run_result(
+            command="devops ai prompt-eval",
+            action="benchmark_prompts",
+            details={"persona": persona, "status": "BENCHMARK_DRY_RUN"},
+        )
+        return
+
+    res = evaluate_persona_prompts(persona=persona, dataset_path=dataset)
+    if json_output:
+        write_stdout(json.dumps(res.to_dict(), indent=2) + "\n")
+        return
+
+    print_info(
+        f"[bold]Prompt Mutation Benchmark — Persona: {res.persona}[/bold] (Cases: {res.total_cases})",
+        prefix=False,
+    )
+    print_table(
+        columns=["Metric", "Result"],
+        rows=[
+            ["Total Test Cases", str(res.total_cases)],
+            ["Verified Matches", str(res.verified_matches)],
+            ["Invalid Rejections", str(res.invalidated_rejections)],
+            ["False Positive Rate", f"{res.false_positive_rate:.1%}"],
+            ["Accuracy Score", f"[green]{res.accuracy_score:.1%}[/green]"],
+        ],
+        border_style="cyan",
+    )
+
+
+# =============================================================================
+# Command: devops ai test-gen
+# =============================================================================
+
+
+@app.command("test-gen")
+def test_gen_cmd(
+    target_file: Annotated[
+        Path,
+        typer.Argument(help="Target source file to synthesize unit tests for"),
+    ],
+    function_name: Annotated[
+        str | None,
+        typer.Option("--function", "-f", help="Specific function to synthesize tests for"),
+    ] = None,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help=HELP.options.json_output),
+    ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+) -> None:
+    """Synthesize isolated pytest unit test suites for functions or source files."""
+    import json
+
+    from devops_cli.ai.test_gen import synthesize_unit_tests
+    from devops_cli.dry_run import is_dry_run, render_dry_run_result
+
+    if dry_run or is_dry_run():
+        render_dry_run_result(
+            command="devops ai test-gen",
+            action="synthesize_unit_tests",
+            details={
+                "target_file": str(target_file),
+                "function": function_name,
+                "status": "SYNTHESIZED_DRY_RUN",
+            },
+        )
+        return
+
+    res = synthesize_unit_tests(target_file, function_filter=function_name)
+    if json_output:
+        write_stdout(json.dumps(res.to_dict(), indent=2) + "\n")
+        return
+
+    print_success(f"✓ Synthesized {res.test_count} unit test(s) for {res.target_file}:")
+    write_stdout(f"```python\n{res.test_code}\n```\n")
