@@ -1857,33 +1857,23 @@ class ReviewPipelineOrchestrator:
             ("Conf", "dim"),
         ]
         rows: list[list[str]] = []
+        sev_badges = {
+            "CRITICAL": "[bold red]CRITICAL[/bold red]",
+            "HIGH": "[red]HIGH[/red]",
+            "MEDIUM": "[yellow]MEDIUM[/yellow]",
+            "LOW": "[cyan]LOW[/cyan]",
+            "INFO": "[green]INFO[/green]",
+        }
+        st_badges = {
+            "VERIFIED": "[green]VERIFIED[/green]",
+            "FLAGGED": "[yellow]FLAGGED[/yellow]",
+            "MITIGATED": "[cyan]MITIGATED[/cyan]",
+            "INVALIDATED": "[red]INVALIDATED[/red]",
+        }
+
         for idx, f in enumerate(reportable_findings, 1):
-            sev_upper = f.severity.upper()
-            if sev_upper == "CRITICAL":
-                sev_str = "[bold red]CRITICAL[/bold red]"
-            elif sev_upper == "HIGH":
-                sev_str = "[red]HIGH[/red]"
-            elif sev_upper == "MEDIUM":
-                sev_str = "[yellow]MEDIUM[/yellow]"
-            elif sev_upper == "LOW":
-                sev_str = "[cyan]LOW[/cyan]"
-            elif sev_upper == "INFO":
-                sev_str = "[green]INFO[/green]"
-            else:
-                sev_str = f"[white]{f.severity}[/white]"
-
-            st_upper = f.status.upper()
-            if st_upper == "VERIFIED":
-                st_str = "[green]VERIFIED[/green]"
-            elif st_upper == "FLAGGED":
-                st_str = "[yellow]FLAGGED[/yellow]"
-            elif st_upper == "MITIGATED":
-                st_str = "[cyan]MITIGATED[/cyan]"
-            elif st_upper == "INVALIDATED":
-                st_str = "[red]INVALIDATED[/red]"
-            else:
-                st_str = f"[dim]{f.status}[/dim]"
-
+            sev_str = sev_badges.get(f.severity.upper(), f"[white]{f.severity}[/white]")
+            st_str = st_badges.get(f.status.upper(), f"[dim]{f.status}[/dim]")
             conf_str = (
                 f"{int(f.confidence_score * 100)}%" if f.confidence_score is not None else "—"
             )

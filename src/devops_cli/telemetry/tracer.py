@@ -158,18 +158,18 @@ def _from_otlp_any_value(val: dict[str, Any]) -> Any:
     """Extract Python scalar or sequence from an OpenTelemetry AnyValue dict."""
     if "stringValue" in val:
         return val["stringValue"]
-    elif "boolValue" in val:
+    if "boolValue" in val:
         return val["boolValue"]
-    elif "intValue" in val:
+    if "intValue" in val:
         try:
             return int(val["intValue"])
         except ValueError:
             return val["intValue"]
-    elif "doubleValue" in val:
+    if "doubleValue" in val:
         return float(val["doubleValue"])
-    elif "arrayValue" in val:
+    if "arrayValue" in val:
         return [_from_otlp_any_value(v) for v in val["arrayValue"].get("values", [])]
-    elif "kvlistValue" in val:
+    if "kvlistValue" in val:
         return {
             item["key"]: _from_otlp_any_value(item["value"])
             for item in val["kvlistValue"].get("values", [])

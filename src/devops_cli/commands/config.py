@@ -470,6 +470,30 @@ def audit_stream(
 # =============================================================================
 
 
+def _find_plaintext_config_leaks(scanned_files: list[Path]) -> list[str]:
+    """Scan candidate YAML configuration files for plaintext secret keys."""
+    import yaml
+
+    from devops_cli.config.options import KEYRING_KEYS
+
+    leaks: list[str] = []
+    unique_files = sorted(list({p.resolve() for p in scanned_files if p.exists()}))
+    for cfg_file in unique_files:
+        try:
+            raw_cfg = yaml.safe_load(cfg_file.read_text(encoding="utf-8")) or {}
+            if isinstance(raw_cfg, dict):
+                for k, v in raw_cfg.items():
+                    if isinstance(v, dict):
+                        leaks.extend(
+                            f"{cfg_file.name}:{k}.{sub_k}"
+                            for sub_k, sub_v in v.items()
+                            if f"{k}.{sub_k}" in KEYRING_KEYS and sub_v
+                        )
+        except Exception:
+            continue
+    return leaks
+
+
 @app.command("audit-keys")
 def audit_keys_cmd(
     json_output: Annotated[
@@ -506,29 +530,13 @@ def audit_keys_cmd(
     backend_name = active_backend.__class__.__name__
     backend_priority = getattr(active_backend, "priority", 0)
 
-    # Check for plaintext secret leaks across configuration files
     scanned_files = [
         get_active_config_path(),
         Path.cwd() / "config.yaml",
         Path.cwd() / ".devops" / "config.yaml",
     ]
     unique_files = sorted(list({p.resolve() for p in scanned_files if p.exists()}))
-
-    plaintext_leaks: list[str] = []
-    for cfg_file in unique_files:
-        try:
-            import yaml
-
-            raw_cfg = yaml.safe_load(cfg_file.read_text(encoding="utf-8")) or {}
-            if isinstance(raw_cfg, dict):
-                for k, v in raw_cfg.items():
-                    if isinstance(v, dict):
-                        for sub_k, sub_v in v.items():
-                            full_k = f"{k}.{sub_k}"
-                            if full_k in KEYRING_KEYS and sub_v:
-                                plaintext_leaks.append(f"{cfg_file.name}:{full_k}")
-        except Exception:
-            continue
+    plaintext_leaks = _find_plaintext_config_leaks(scanned_files)
 
     rows: list[list[str]] = []
     key_audit_records: list[dict[str, Any]] = []

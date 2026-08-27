@@ -76,6 +76,34 @@ def format_yaml(data: Any) -> str:
     return format_serialized(data, format_type="yaml")
 
 
+def _add_table_column(table: Any, col: Any) -> None:
+    """Add a column to a Rich Table instance handling models, tuples, and strings."""
+    if hasattr(col, "header"):
+        table.add_column(
+            col.header,
+            style=col.style,
+            justify=getattr(col, "justify", "left"),
+            width=getattr(col, "width", None),
+            no_wrap=getattr(col, "no_wrap", False),
+        )
+        return
+
+    if isinstance(col, (tuple, list)):
+        if len(col) >= 2:
+            name, style = col[0], col[1]
+            if isinstance(style, int):
+                table.add_column(str(name), width=style)
+            elif str(style).lower() in ("left", "center", "right", "full"):
+                table.add_column(str(name), justify=str(style).lower())
+            else:
+                table.add_column(str(name), style=str(style))
+        elif len(col) == 1:
+            table.add_column(str(col[0]))
+        return
+
+    table.add_column(str(col))
+
+
 def render_table(
     title: str | Any = "",
     columns: Sequence[Any] | None = None,
@@ -123,28 +151,7 @@ def render_table(
         header_style="bold",
     )
     for col in effective_cols:
-        if hasattr(col, "header"):
-            # TableColumn Pydantic model
-            table.add_column(
-                col.header,
-                style=col.style,
-                justify=getattr(col, "justify", "left"),
-                width=getattr(col, "width", None),
-                no_wrap=getattr(col, "no_wrap", False),
-            )
-        elif isinstance(col, (tuple, list)):
-            if len(col) >= 2:
-                name, style = col[0], col[1]
-                if isinstance(style, int):
-                    table.add_column(str(name), width=style)
-                elif str(style).lower() in ("left", "center", "right", "full"):
-                    table.add_column(str(name), justify=str(style).lower())  # type: ignore[arg-type]
-                else:
-                    table.add_column(str(name), style=str(style))
-            elif len(col) == 1:
-                table.add_column(str(col[0]))
-        else:
-            table.add_column(str(col))
+        _add_table_column(table, col)
 
     for row in effective_rows:
         table.add_row(*[str(cell) for cell in row])

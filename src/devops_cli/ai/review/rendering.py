@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from devops_cli.ai.personas import PersonaDefinition
 from devops_cli.ai.review_schema import ReviewResult, format_clean_text_field
 from devops_cli.output import (
@@ -13,160 +15,157 @@ from devops_cli.output import (
     write_stdout,
 )
 
+SEV_COLOR_MAP: dict[str, str] = {
+    "CRITICAL": "red",
+    "HIGH": "orange3",
+    "MEDIUM": "yellow",
+    "LOW": "blue",
+    "INFO": "green",
+}
+
+RECOMMENDATION_COLOR_MAP: dict[str, str] = {
+    "APPROVE": "green",
+    "REQUEST CHANGES": "yellow",
+    "BLOCK": "red",
+}
+
+
+def _render_findings_table(findings: list[Any]) -> None:
+    """Render compact tabular view of review findings."""
+    columns = ["Sev", ("Location", "dim"), "Title", "\u2713"]
+    rows: list[list[str]] = []
+    for f in findings:
+        color = SEV_COLOR_MAP.get(f.severity, "white")
+        mark = (
+            "[green]✓[/green]"
+            if f.verified and not f.mitigated
+            else "[yellow]~[/yellow]"
+            if f.mitigated
+            else "[dim]?[/dim]"
+        )
+        rows.append(
+            [
+                f"[{color}]{escape_text(f.severity)}[/{color}]",
+                escape_text(f.location),
+                escape_text(f.title),
+                mark,
+            ]
+        )
+    print_table(columns=columns, rows=rows, border_style=None)
+    write_stdout("\n")
+
+
+def _render_finding_panels(findings: list[Any]) -> None:
+    """Render expanded Rich panels with description and remediation for findings."""
+    for idx, f in enumerate(findings, 1):
+        sev_upper = f.severity.upper()
+        color = SEV_COLOR_MAP.get(sev_upper, "white")
+        st_badge = (
+            "[green]✓ VERIFIED[/green]"
+            if f.verified and not f.mitigated
+            else ("[cyan]~ MITIGATED[/cyan]" if f.mitigated else "[dim]? UNVERIFIED[/dim]")
+        )
+        title_header = f"[{color} bold]Finding #{idx}: [{sev_upper}] {escape_text(f.title)}[/{color} bold]  {st_badge}"
+        panel_lines = [f"[bold]Location:[/bold] [cyan]{escape_text(f.location)}[/cyan]"]
+        if f.description:
+            panel_lines.extend(
+                ["", "[bold]Description:[/bold]", format_clean_text_field(f.description).strip()]
+            )
+        if f.fix:
+            panel_lines.extend(
+                ["", "[bold]Suggested Fix:[/bold]", format_clean_text_field(f.fix).strip()]
+            )
+        if f.references:
+            refs_list = f.references if isinstance(f.references, list) else [str(f.references)]
+            panel_lines.extend(["", f"[dim]References: {escape_text(', '.join(refs_list))}[/dim]"])
+        print_panel("\n".join(panel_lines), title=title_header, border_style=color)
+    write_stdout("\n")
+
+
+def _render_dependencies_table(deps: list[Any]) -> None:
+    """Render external dependencies audit table."""
+    dep_cols = [
+        "Severity",
+        ("Dependency", "bold cyan"),
+        "Version Range",
+        "Ecosystem",
+        "Security Status",
+        ("Location", "dim"),
+    ]
+    dep_rows: list[list[str]] = []
+    for d in deps:
+        sev_upper = d.severity.upper()
+        color = SEV_COLOR_MAP.get(sev_upper, "green")
+        dep_rows.append(
+            [
+                f"[{color}]{sev_upper}[/{color}]",
+                escape_text(getattr(d, "name", str(d))),
+                escape_text(getattr(d, "version_range", "any")),
+                escape_text(getattr(d, "ecosystem", "-")),
+                f"[{color}]{escape_text(getattr(d, 'security_status', 'Clean'))}[/{color}]",
+                escape_text(getattr(d, "location", "-")),
+            ]
+        )
+    print_table(
+        columns=dep_cols,
+        rows=dep_rows,
+        title="[bold yellow]External Dependencies Audit[/bold yellow]",
+    )
+    write_stdout("\n")
+
+
+def _render_network_references_table(refs: list[Any]) -> None:
+    """Render network and external egress references audit table."""
+    net_cols = [
+        "Status",
+        ("Target / Reference", "bold cyan"),
+        "Type",
+        "Scope",
+        ("Location", "dim"),
+    ]
+    net_rows: list[list[str]] = []
+    for n in refs:
+        scope_str = (
+            "[dim]Local[/dim]"
+            if getattr(n, "is_local", False)
+            else "[bold cyan]External[/bold cyan]"
+        )
+        status_val = getattr(n, "security_status", "Safe")
+        color = "red" if "⚠️" in status_val or "RISK" in status_val.upper() else "green"
+        net_rows.append(
+            [
+                f"[{color}]{escape_text(status_val)}[/{color}]",
+                escape_text(getattr(n, "target", str(n))),
+                escape_text(getattr(n, "reference_type", "domain")),
+                scope_str,
+                escape_text(getattr(n, "location", "-")),
+            ]
+        )
+    print_table(
+        columns=net_cols,
+        rows=net_rows,
+        title="[bold yellow]Network & Egress References Audit[/bold yellow]",
+    )
+    write_stdout("\n")
+
 
 def _render_review_result(persona: PersonaDefinition, result: ReviewResult) -> None:
     """Render a structured ReviewResult object using tables and Markdown blocks."""
-    sev_color = {
-        "CRITICAL": "red",
-        "HIGH": "orange3",
-        "MEDIUM": "yellow",
-        "LOW": "blue",
-        "INFO": "green",
-    }
-    rec_color_map = {"APPROVE": "green", "REQUEST CHANGES": "yellow", "BLOCK": "red"}
-    rec_color = rec_color_map.get(result.recommendation, "white")
+    rec_color = RECOMMENDATION_COLOR_MAP.get(result.recommendation, "white")
     print_info(
         f"[bold {rec_color}]\u25b6 {escape_text(result.recommendation)}[/bold {rec_color}]\n",
         prefix=False,
     )
 
-    findings = result.sorted_findings
-    if findings:
-        columns = [
-            "Sev",
-            ("Location", "dim"),
-            "Title",
-            "\u2713",
-        ]
-        rows: list[list[str]] = []
-        for f in findings:
-            color = sev_color.get(f.severity, "white")
-            mark = (
-                "[green]✓[/green]"
-                if f.verified and not f.mitigated
-                else "[yellow]~[/yellow]"
-                if f.mitigated
-                else "[dim]?[/dim]"
-            )
-            rows.append(
-                [
-                    f"[{color}]{escape_text(f.severity)}[/{color}]",
-                    escape_text(f.location),
-                    escape_text(f.title),
-                    mark,
-                ]
-            )
-        print_table(columns=columns, rows=rows, border_style=None)
-        write_stdout("\n")
-
-        for idx, f in enumerate(findings, 1):
-            sev_upper = f.severity.upper()
-            color = sev_color.get(sev_upper, "white")
-            st_badge = (
-                "[green]✓ VERIFIED[/green]"
-                if f.verified and not f.mitigated
-                else ("[cyan]~ MITIGATED[/cyan]" if f.mitigated else "[dim]? UNVERIFIED[/dim]")
-            )
-            title_header = f"[{color} bold]Finding #{idx}: [{sev_upper}] {escape_text(f.title)}[/{color} bold]  {st_badge}"
-            panel_lines = [
-                f"[bold]Location:[/bold] [cyan]{escape_text(f.location)}[/cyan]",
-            ]
-            if f.description:
-                panel_lines.extend(
-                    [
-                        "",
-                        "[bold]Description:[/bold]",
-                        format_clean_text_field(f.description).strip(),
-                    ]
-                )
-            if f.fix:
-                panel_lines.extend(
-                    ["", "[bold]Suggested Fix:[/bold]", format_clean_text_field(f.fix).strip()]
-                )
-            if f.references:
-                refs_list = f.references if isinstance(f.references, list) else [str(f.references)]
-                panel_lines.extend(
-                    ["", f"[dim]References: {escape_text(', '.join(refs_list))}[/dim]"]
-                )
-            print_panel(
-                "\n".join(panel_lines),
-                title=title_header,
-                border_style=color,
-            )
-        write_stdout("\n")
+    if result.sorted_findings:
+        _render_findings_table(result.sorted_findings)
+        _render_finding_panels(result.sorted_findings)
 
     if result.external_dependencies:
-        dep_cols = [
-            "Severity",
-            ("Dependency", "bold cyan"),
-            "Version Range",
-            "Ecosystem",
-            "Security Status",
-            ("Location", "dim"),
-        ]
-        dep_rows: list[list[str]] = []
-        for d in result.external_dependencies:
-            sev_upper = d.severity.upper()
-            if sev_upper == "CRITICAL":
-                sev_str = "[bold red]CRITICAL[/bold red]"
-                status_str = f"[bold red]{d.security_status}[/bold red]"
-            elif sev_upper == "HIGH":
-                sev_str = "[red]HIGH[/red]"
-                status_str = f"[red]{d.security_status}[/red]"
-            elif sev_upper == "MEDIUM":
-                sev_str = "[yellow]MEDIUM[/yellow]"
-                status_str = f"[yellow]{d.security_status}[/yellow]"
-            elif sev_upper == "LOW":
-                sev_str = "[cyan]LOW[/cyan]"
-                status_str = f"[cyan]{d.security_status}[/cyan]"
-            else:
-                sev_str = "[green]CLEAN[/green]"
-                status_str = f"[green]{d.security_status}[/green]"
-
-            dep_rows.append(
-                [
-                    sev_str,
-                    d.name,
-                    d.version_range,
-                    d.ecosystem,
-                    status_str,
-                    d.location or "—",
-                ]
-            )
-        print_table(
-            title="External Dependencies Security Audit (OSV.dev & NVD)",
-            columns=dep_cols,
-            rows=dep_rows,
-        )
-        write_stdout("\n")
+        _render_dependencies_table(result.external_dependencies)
 
     if result.network_references:
-        net_cols = [
-            ("Target", "bold cyan"),
-            "Type",
-            "Scope",
-            "Security Status",
-            ("Location", "dim"),
-        ]
-        net_rows: list[list[str]] = []
-        for n in result.network_references:
-            scope_str = "[dim]Local[/dim]" if n.is_local else "[bold cyan]External[/bold cyan]"
-            color = "red" if "⚠️" in n.security_status else ("cyan" if n.is_local else "green")
-            net_rows.append(
-                [
-                    n.target,
-                    n.reference_type,
-                    scope_str,
-                    f"[{color}]{n.security_status}[/{color}]",
-                    n.location or "—",
-                ]
-            )
-        print_table(
-            title="Network References & Endpoints Security Audit (Shodan & Cloudflare Radar)",
-            columns=net_cols,
-            rows=net_rows,
-        )
-        write_stdout("\n")
+        _render_network_references_table(result.network_references)
 
     if result.positive_observations:
         print_info("[bold green]Positive Observations[/bold green]", prefix=False)

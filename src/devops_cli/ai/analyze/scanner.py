@@ -153,6 +153,50 @@ def detect_language(filepath: Path | str, content: str | None = None) -> str:
     return _EXT_LANG_FALLBACK.get(ext, "plaintext")
 
 
+def _extract_ast_symbols(body: list[ast.stmt]) -> list[str]:
+    """Extract class, function, and constant symbol names from Python AST body."""
+    symbols: list[str] = []
+    for stmt in body:
+        match stmt:
+            case ast.ClassDef(name=name) if name not in (
+                "BaseModel",
+                "ConfigDict",
+                "Exception",
+                "Any",
+            ):
+                symbols.append(name)
+            case ast.FunctionDef(name=name) | ast.AsyncFunctionDef(name=name) if (
+                not name.startswith("__")
+            ):
+                symbols.append(name)
+            case ast.Assign(targets=targets):
+                symbols.extend(
+                    target.id
+                    for target in targets
+                    if isinstance(target, ast.Name) and target.id.isupper()
+                )
+            case ast.AnnAssign(target=ast.Name(id=name)) if name.isupper():
+                symbols.append(name)
+    return symbols
+
+
+def _extract_ast_imports(tree: ast.AST, std_modules: set[str]) -> list[str]:
+    """Extract non-stdlib imports from AST tree."""
+    imports: list[str] = []
+    for node in ast.walk(tree):
+        match node:
+            case ast.Import(names=names):
+                for alias in names:
+                    root = alias.name.split(".")[0]
+                    if root not in std_modules and alias.name not in imports:
+                        imports.append(alias.name)
+            case ast.ImportFrom(module=module) if module:
+                root = module.split(".")[0]
+                if root not in std_modules and module not in imports:
+                    imports.append(module)
+    return imports
+
+
 def _analyze_python_ast(content: str) -> tuple[str | None, list[str], list[str]]:
     """Extract docstring, symbols, and imports using Python stdlib `ast`."""
     try:
@@ -161,25 +205,8 @@ def _analyze_python_ast(content: str) -> tuple[str | None, list[str], list[str]]
         return None, [], []
 
     docstring = ast.get_docstring(tree)
-    first_doc_sentence = docstring.strip().split("\n")[0].rstrip(".") if docstring else None
+    first_doc = docstring.strip().split("\n")[0].rstrip(".") if docstring else None
 
-    symbols: list[str] = []
-    for stmt in tree.body:
-        if isinstance(stmt, ast.ClassDef):
-            if stmt.name not in ("BaseModel", "ConfigDict", "Exception", "Any"):
-                symbols.append(stmt.name)
-        elif isinstance(stmt, ast.FunctionDef | ast.AsyncFunctionDef):
-            if not stmt.name.startswith("__"):
-                symbols.append(stmt.name)
-        elif isinstance(stmt, ast.Assign):
-            for target in stmt.targets:
-                if isinstance(target, ast.Name) and target.id.isupper():
-                    symbols.append(target.id)
-        elif isinstance(stmt, ast.AnnAssign):
-            if isinstance(stmt.target, ast.Name) and stmt.target.id.isupper():
-                symbols.append(stmt.target.id)
-
-    imports: list[str] = []
     std_modules = {
         "sys",
         "os",
@@ -195,20 +222,10 @@ def _analyze_python_ast(content: str) -> tuple[str | None, list[str], list[str]]
         "mimetypes",
         "fnmatch",
     }
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                mod_name = alias.name
-                root_pkg = mod_name.split(".")[0]
-                if root_pkg not in std_modules and mod_name not in imports:
-                    imports.append(mod_name)
-        elif isinstance(node, ast.ImportFrom) and node.module:
-            mod_name = node.module
-            root_pkg = mod_name.split(".")[0]
-            if root_pkg not in std_modules and mod_name not in imports:
-                imports.append(mod_name)
+    symbols = _extract_ast_symbols(tree.body)
+    imports = _extract_ast_imports(tree, std_modules)
 
-    return first_doc_sentence, symbols[:15], imports[:12]
+    return first_doc, symbols[:15], imports[:12]
 
 
 def _extract_file_symbols(content: str, lang: str) -> list[str]:

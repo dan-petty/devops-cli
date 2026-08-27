@@ -29,6 +29,50 @@ class SemanticChunker:
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
 
+    def _dispatch_language_chunker(
+        self,
+        suffix: str,
+        content: str,
+        rel_path: str,
+        language: str,
+        category: str,
+        project_name: str,
+    ) -> list[CodeChunk]:
+        """Dispatch file content to language-specific structural chunker."""
+        match suffix:
+            case ".py":
+                return self._chunk_python(content, rel_path, project_name=project_name)
+            case ".yaml" | ".yml":
+                return self._chunk_yaml(content, rel_path, project_name=project_name)
+            case s if s in _DOC_EXTENSIONS:
+                return self._chunk_tech_docs(
+                    content, rel_path, language=language, project_name=project_name
+                )
+            case ".go":
+                return self._chunk_go(content, rel_path, project_name=project_name)
+            case ".rs":
+                return self._chunk_rust(content, rel_path, project_name=project_name)
+            case ".ts" | ".tsx" | ".js" | ".jsx" | ".mjs" | ".cjs":
+                return self._chunk_js_ts(
+                    content, rel_path, language=language, project_name=project_name
+                )
+            case ".java" | ".kt" | ".kts" | ".cs" | ".cpp" | ".cc" | ".cxx" | ".c" | ".h" | ".hpp":
+                return self._chunk_c_like(
+                    content, rel_path, language=language, project_name=project_name
+                )
+            case ".tf" | ".hcl":
+                return self._chunk_terraform(content, rel_path, project_name=project_name)
+            case ".sql":
+                return self._chunk_sql(content, rel_path, project_name=project_name)
+            case _:
+                return self._chunk_line_window(
+                    content,
+                    rel_path,
+                    language=language,
+                    category=category,
+                    project_name=project_name,
+                )
+
     def chunk_file(
         self,
         file_path: Path,
@@ -45,7 +89,6 @@ class SemanticChunker:
         suffix = file_path.suffix.lower()
         language = detect_language(file_path, content)
 
-        # Determine semantic category
         if suffix in _DOC_EXTENSIONS or "doc" in rel_path.lower():
             category = "docs"
         elif suffix in _IAC_EXTENSIONS or "k8s" in rel_path or "terraform" in rel_path:
@@ -55,38 +98,9 @@ class SemanticChunker:
         else:
             category = "code"
 
-        if suffix == ".py":
-            chunks = self._chunk_python(content, rel_path, project_name=project_name)
-        elif suffix in (".yaml", ".yml"):
-            chunks = self._chunk_yaml(content, rel_path, project_name=project_name)
-        elif suffix in _DOC_EXTENSIONS:
-            chunks = self._chunk_tech_docs(
-                content, rel_path, language=language, project_name=project_name
-            )
-        elif suffix == ".go":
-            chunks = self._chunk_go(content, rel_path, project_name=project_name)
-        elif suffix == ".rs":
-            chunks = self._chunk_rust(content, rel_path, project_name=project_name)
-        elif suffix in (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"):
-            chunks = self._chunk_js_ts(
-                content, rel_path, language=language, project_name=project_name
-            )
-        elif suffix in (".java", ".kt", ".kts", ".cs", ".cpp", ".cc", ".cxx", ".c", ".h", ".hpp"):
-            chunks = self._chunk_c_like(
-                content, rel_path, language=language, project_name=project_name
-            )
-        elif suffix in (".tf", ".hcl"):
-            chunks = self._chunk_terraform(content, rel_path, project_name=project_name)
-        elif suffix == ".sql":
-            chunks = self._chunk_sql(content, rel_path, project_name=project_name)
-        else:
-            chunks = self._chunk_line_window(
-                content,
-                rel_path,
-                language=language,
-                category=category,
-                project_name=project_name,
-            )
+        chunks = self._dispatch_language_chunker(
+            suffix, content, rel_path, language, category, project_name
+        )
 
         if not chunks and content.strip():
             chunks = self._chunk_line_window(
