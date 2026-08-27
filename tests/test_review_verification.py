@@ -522,3 +522,73 @@ def test_deterministic_pre_verification_handles_template_files(tmp_path: Path) -
     assert checked.status == "MITIGATED"
     assert checked.reportable is False
     assert checked.mitigated is True
+
+
+def test_deterministic_pre_verification_line_boundaries(tmp_path: Path) -> None:
+    """Verify that findings referencing line numbers beyond total lines are invalidated."""
+    from devops_cli.ai.review.verification import _deterministic_pre_verification
+
+    short_file = tmp_path / "short.py"
+    short_file.write_text("x = 1\ny = 2\n", encoding="utf-8")
+
+    out_of_bounds_finding = Finding(
+        title="Unbound variable",
+        location="short.py:99",
+        description="Line 99 references undefined z",
+        severity="HIGH",
+        status="UNVERIFIED",
+    )
+
+    checked = _deterministic_pre_verification(out_of_bounds_finding, repo_root=tmp_path)
+    assert checked.status == "INVALIDATED"
+    assert "exceeds total file lines" in (checked.invalidation_reason or "")
+
+
+def test_deterministic_pre_verification_lockfiles_and_dotfiles(tmp_path: Path) -> None:
+    """Verify that findings against lockfiles and toolchain dotfiles are mitigated."""
+    from devops_cli.ai.review.verification import _deterministic_pre_verification
+
+    finding_lock = Finding(
+        title="Dependency vulnerability",
+        location="devcontainer-lock.json:1",
+        description="Lockfile package version",
+        severity="MEDIUM",
+        status="UNVERIFIED",
+    )
+
+    checked = _deterministic_pre_verification(finding_lock, repo_root=tmp_path)
+    assert checked.status == "MITIGATED"
+    assert checked.reportable is False
+
+
+def test_validate_segment_findings_bypasses_llm_when_deterministic(tmp_path: Path) -> None:
+    """Verify that _validate_segment_findings skips LLM call when all findings are deterministically resolved."""
+    from unittest.mock import MagicMock
+
+    from devops_cli.ai.review.verification import _validate_segment_findings
+    from devops_cli.ai.review_schema import ReviewResult
+
+    doc_file = tmp_path / "README.md"
+    doc_file.write_text("# Documentation\n", encoding="utf-8")
+
+    doc_finding = Finding(
+        title="Security advice",
+        location="README.md:1",
+        description="Mentions insecure config in docs",
+        severity="LOW",
+        status="UNVERIFIED",
+    )
+
+    mock_client = MagicMock()
+    result = ReviewResult(findings=[doc_finding])
+
+    validated, proc_sec, backend = _validate_segment_findings(
+        result,
+        all_segments=["# Documentation"],
+        client=mock_client,
+        repo_root=tmp_path,
+    )
+
+    assert mock_client.chat.call_count == 0
+    assert backend == "deterministic"
+    assert validated.findings[0].status == "INVALIDATED"

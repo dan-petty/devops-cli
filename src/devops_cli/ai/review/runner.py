@@ -102,13 +102,31 @@ def _debug_block(title: str, payload: dict[str, Any]) -> None:
     print_dry_run_result(payload)
 
 
+def _resolve_ollama_urls(config: Any) -> list[str]:
+    """Safely resolve configured Ollama base URLs handling properties and callables."""
+    if not config:
+        return ["http://localhost:11434"]
+    raw_urls = getattr(config, "get_ollama_urls", None)
+    if callable(raw_urls):
+        try:
+            raw_urls = raw_urls()
+        except Exception:
+            raw_urls = None
+    if isinstance(raw_urls, list) and raw_urls:
+        return [str(u).strip().rstrip("/") for u in raw_urls if str(u).strip()]
+    raw_list = getattr(config, "ollama_urls", None)
+    if isinstance(raw_list, list) and raw_list:
+        return [str(u).strip().rstrip("/") for u in raw_list if str(u).strip()]
+    return ["http://localhost:11434"]
+
+
 def _llm_request_preview(client: Any, system: str, user: str) -> dict[str, Any]:
     config = getattr(client, "_config", None)
     provider = getattr(config, "provider", "unknown")
     model = getattr(config, "model", "unknown")
 
     if provider == "ollama":
-        urls = getattr(config, "get_ollama_urls", ["http://localhost:11434"])
+        urls = _resolve_ollama_urls(config)
         base = urls[0] if urls else "http://localhost:11434"
         return {
             "provider": provider,
@@ -722,8 +740,7 @@ def _run_review(
 
     if total > 1 and not is_dry_run():
         config = getattr(clients.analysis, "_config", None)
-        raw_urls = getattr(config, "get_ollama_urls", None)
-        ollama_urls = raw_urls if isinstance(raw_urls, list) else ["http://localhost:11434"]
+        ollama_urls = _resolve_ollama_urls(config)
         raw_par = getattr(config, "ollama_max_parallel", None)
         max_par = int(raw_par) if isinstance(raw_par, int) else 2
         workers = min(total, max(len(ollama_urls) * max_par, 1))
@@ -790,8 +807,7 @@ def _run_review(
 
         if total > 1:
             config = getattr(clients.analysis, "_config", None)
-            raw_urls = getattr(config, "get_ollama_urls", None)
-            ollama_urls = raw_urls if isinstance(raw_urls, list) else ["http://localhost:11434"]
+            ollama_urls = _resolve_ollama_urls(config)
             raw_par = getattr(config, "ollama_max_parallel", None)
             max_par = int(raw_par) if isinstance(raw_par, int) else 2
             workers = min(total, max(len(ollama_urls) * max_par, 1))
@@ -863,7 +879,7 @@ def _run_persona_loop(
     config = getattr(clients.analysis, "_config", None)
     if getattr(config, "provider", None) == "ollama" and not is_dry_run():
         model_name = getattr(config, "model", "ollama")
-        ollama_urls = getattr(config, "get_ollama_urls", [])
+        ollama_urls = _resolve_ollama_urls(config)
         if ollama_urls:
             n = len(ollama_urls)
             print_info(
@@ -919,8 +935,7 @@ def _run_persona_loop(
 
         if len(personas) > 1 and not is_dry_run():
             config = getattr(clients.analysis, "_config", None)
-            raw_urls = getattr(config, "get_ollama_urls", None)
-            ollama_urls = raw_urls if isinstance(raw_urls, list) else ["http://localhost:11434"]
+            ollama_urls = _resolve_ollama_urls(config)
             raw_par = getattr(config, "ollama_max_parallel", None)
             max_par = int(raw_par) if isinstance(raw_par, int) else 2
             workers = min(len(personas), max(len(ollama_urls) * max_par, 1))

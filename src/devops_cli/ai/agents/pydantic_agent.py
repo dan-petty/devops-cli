@@ -343,28 +343,31 @@ class PydanticAgent[T]:
         *,
         max_turns: int = DEFAULT_AGENT_MAX_TURNS,
         enable_thinking: bool = True,
+        skip_rag: bool = False,
         on_tool_call: Callable[[str, dict[str, Any], Any], None] | None = None,
         on_thought: Callable[[str], None] | None = None,
     ) -> AgentResponse[T]:
         """Execute the agent tool loop until completion or max_turns is reached."""
         self.memory.add_interaction("user", user_prompt)
-        self.memory.auto_summarize_if_needed(llm_client=self.client)
+        if max_turns > 1 and len(self.memory.entries) > self.memory.max_entries:
+            self.memory.auto_summarize_if_needed(llm_client=self.client)
 
         system = self._build_system_prompt_with_tools()
 
         # RAG investigation step
-        try:
-            from devops_cli.ai.rag.investigator import (
-                format_rag_investigation_for_prompt,
-                investigate_rag_context,
-            )
+        if not skip_rag:
+            try:
+                from devops_cli.ai.rag.investigator import (
+                    format_rag_investigation_for_prompt,
+                    investigate_rag_context,
+                )
 
-            rag_ctx = investigate_rag_context(user_prompt, persona=self.name)
-            rag_context_str = format_rag_investigation_for_prompt(rag_ctx)
-            if rag_context_str:
-                system = f"{system}\n\n{rag_context_str}"
-        except Exception:
-            pass
+                rag_ctx = investigate_rag_context(user_prompt, persona=self.name)
+                rag_context_str = format_rag_investigation_for_prompt(rag_ctx)
+                if rag_context_str:
+                    system = f"{system}\n\n{rag_context_str}"
+            except Exception:
+                pass
 
         messages: list[ChatMessage] = self.memory.to_chat_messages()
         if not messages or messages[-1].content != user_prompt:

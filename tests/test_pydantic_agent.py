@@ -194,3 +194,23 @@ def test_agent_memory_and_multi_agent_pipeline() -> None:
     assert res.steps[0].agent_name == "Stage1Agent"
     assert res.steps[1].agent_name == "Stage2Agent"
     assert res.final_content == "Agent 2 output"
+
+
+def test_multi_agent_pipeline_parallel_and_skip_rag() -> None:
+    """Verify MultiAgentPipeline parallel execution and skip_rag propagation."""
+    from devops_cli.ai.agents.pipeline import MultiAgentPipeline
+
+    mock_client1 = MagicMock()
+    mock_client1.chat_messages.return_value = "Persona 1 report"
+    mock_client2 = MagicMock()
+    mock_client2.chat_messages.return_value = "Persona 2 report"
+
+    agent1 = PydanticAgent(client=mock_client1, name="DevSecOps", system_prompt="DevSecOps")
+    agent2 = PydanticAgent(client=mock_client2, name="Architect", system_prompt="Architect")
+
+    pipeline = MultiAgentPipeline(agents=[agent1, agent2])
+    res = pipeline.run("Review task", parallel=True, skip_rag=True)
+
+    assert len(res.steps) == 2
+    assert {s.agent_name for s in res.steps} == {"DevSecOps", "Architect"}
+    assert res.final_content in ("Persona 1 report", "Persona 2 report")

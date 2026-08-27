@@ -122,6 +122,24 @@ _SEV_ORDER: dict[str, int] = {
 }
 
 
+def _resolve_ollama_urls(config: Any) -> list[str]:
+    """Safely resolve configured Ollama base URLs handling properties and callables."""
+    if not config:
+        return ["http://localhost:11434"]
+    raw_urls = getattr(config, "get_ollama_urls", None)
+    if callable(raw_urls):
+        try:
+            raw_urls = raw_urls()
+        except Exception:
+            raw_urls = None
+    if isinstance(raw_urls, list) and raw_urls:
+        return [str(u).strip().rstrip("/") for u in raw_urls if str(u).strip()]
+    raw_list = getattr(config, "ollama_urls", None)
+    if isinstance(raw_list, list) and raw_list:
+        return [str(u).strip().rstrip("/") for u in raw_list if str(u).strip()]
+    return ["http://localhost:11434"]
+
+
 def _append_step_thoughts(step: Any, thoughts_list: list[str]) -> None:
     """Extract and append thoughts or think blocks from pipeline step to scratchpad."""
     if getattr(step, "thoughts", None):
@@ -482,7 +500,9 @@ def _execute_page_review_steps(
     file_findings: list[SavedFinding],
 ) -> int:
     """Execute review pipeline on a page prompt and process step findings."""
-    result = pipeline.run(prompt, max_turns_per_agent=1, enable_thinking=False)
+    result = pipeline.run(
+        prompt, max_turns_per_agent=1, enable_thinking=False, parallel=True, skip_rag=True
+    )
     for step in result.steps:
         _process_pipeline_step_findings(
             step=step,
@@ -716,8 +736,7 @@ class ReviewPipelineOrchestrator:
             file_metas: list[FileAnalysisMeta] = []
 
             config = getattr(self.llm_client, "_config", None)
-            raw_urls = getattr(config, "get_ollama_urls", None)
-            ollama_urls = raw_urls if isinstance(raw_urls, list) else ["http://localhost:11434"]
+            ollama_urls = _resolve_ollama_urls(config)
             raw_par = getattr(config, "ollama_max_parallel", None)
             max_par = int(raw_par) if isinstance(raw_par, int) else 2
             batch_capacity = max(1, len(ollama_urls) * max_par)
@@ -1451,8 +1470,7 @@ class ReviewPipelineOrchestrator:
             )
 
             config = getattr(self.llm_client, "_config", None)
-            raw_urls = getattr(config, "get_ollama_urls", None)
-            ollama_urls = raw_urls if isinstance(raw_urls, list) else ["http://localhost:11434"]
+            ollama_urls = _resolve_ollama_urls(config)
             raw_par = getattr(config, "ollama_max_parallel", None)
             max_par = int(raw_par) if isinstance(raw_par, int) else 2
             batch_capacity = max(1, len(ollama_urls) * max_par)
@@ -1633,8 +1651,7 @@ class ReviewPipelineOrchestrator:
                 return
 
             config = getattr(self.llm_client, "_config", None)
-            raw_urls = getattr(config, "get_ollama_urls", None)
-            ollama_urls = raw_urls if isinstance(raw_urls, list) else ["http://localhost:11434"]
+            ollama_urls = _resolve_ollama_urls(config)
             raw_par = getattr(config, "ollama_max_parallel", None)
             max_par = int(raw_par) if isinstance(raw_par, int) else 2
             batch_capacity = max(1, len(ollama_urls) * max_par)
