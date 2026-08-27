@@ -14,7 +14,9 @@ Workstation-native DevOps CLI for managing repositories, SSH keys, Kubernetes cl
 - **Strict AST Indentation Budgeting**: Audited and refactored project-wide control flow to ensure **0** functions exceed 5 levels of indentation, decomposing nested loops into standard library functional pipelines.
 - **Cold Import Optimization**: Verified sub-second CLI entry overhead with lazy loading of all heavy third-party packages (`kubernetes`, `fastmcp`, `boto3`, `trivy`).
 
-### 🛠️ FastMCP Toolset Expansion (40 Tools)
+### 🛠️ FastMCP Toolset Expansion & Resource Schemas (40 Tools)
+- **Universal Pydantic Resource Catalog (`devops_cli.models`)**: Comprehensive request/result models (`*Request` / `*Result`) across all subsystems (`docker`, `k8s`, `security`, `tf`, `config`, `workspace`, `release`, `ci`, `git`, `ai`).
+- **Dynamic FastMCP System State Resources**: Direct integration for `resource://workspace/status`, `resource://config/active`, `resource://telemetry/status`, and `resource://release/status`.
 - **FastMCP Schema Completeness**: 100% parameter descriptions, strict type annotations, structured JSON schemas, and flag injection defenses across 40 registered tools.
 - **New Tools Registered**: `ai_repomap`, `ai_diagram`, `ai_test_gen`, `config_audit_keys`, `telemetry_profile`, and `tf_notify_plan`.
 
