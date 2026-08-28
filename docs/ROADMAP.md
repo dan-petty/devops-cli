@@ -165,6 +165,11 @@ High-density product roadmap, engineering milestones, and open-source integratio
 - [ ] **Infracost FinOps Cloud Cost Engine (`infracost`)**: `devops tf cost` integrating Infracost CLI to evaluate cloud financial impacts on Terraform/OpenTofu diffs, enriching `pm` & `architect` review personas with monthly cost deltas.
 - [ ] **Falco eBPF Runtime Security & Anomaly Streamer (`devops k8s security-stream`)**: Real-time streaming kernel anomaly and container syscall events via eBPF probes.
 - [ ] **Multi-Cluster ArgoCD Fleet Sync & Rollouts (`devops argo sync --fleet`)**: Advanced canary and blue-green rollout management with Prometheus metric-based rollback gates.
+- [ ] **Core Dependency Ecosystem Alignment (`pyproject.toml`)**: Routine version upgrades and compatibility validation across runtime and development dependencies:
+  - `click` (`8.4.2` → `8.5.0`) & `typer` (`0.27.1` → `0.27.2`)
+  - `pydantic` (`2.13.4` → `2.13.5`) & `pydantic-ai` (`2.35.0` → `2.35.3`)
+  - `gitpython` (`3.1.60` → `3.1.61`) & `httpx2` (`2.9.0` → `2.12.0`)
+  - `ruff` (`0.16.4` → `0.16.5`) & sub-dependencies (`anthropic v1.2.0`, `grpcio v1.83.1`, `platformdirs v4.11.5`)
 
 ### Universal Workflow Protocols, Secret Brokering & Semantic Search (v0.2.7 - Scheduled)
 - [ ] **Universal Multi-Stage Workflow Orchestration Protocol (`StagePipeline[ContextT, ResultT]`)**: Standardized 6-stage lifecycle abstraction (`pre_analysis`, `static_scan`, `persona_review`, `verification`, `reranking`, `reporting`) with unified lifecycle hooks and scratchpad reasoning handoffs across all agentic AI subcommands.
@@ -175,6 +180,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
 - [ ] **Local Kubernetes Chaos & Fault Injection Engine (`devops k8s chaos run`)**: Automated pod disruption budgets, network latency injection (`tc`/`netem`), packet drops, and CPU throttling to validate service resilience and auto-recovery.
 - [ ] **Vault & Cloud KMS Enterprise Secret Broker (`hvac`, `aws-kms`, `gcp-kms`)**: Dynamic secret leases, key rotation, and envelope encryption for enterprise teams beyond OS Keyring.
 - [ ] **Trace-Driven Automated Performance Regression Detection**: Continuous performance baseline tracking comparing OTel spans across PRs to flag latency regressions before production merges.
+- [ ] **Isolated Dockerized Workload Sandbox Environment (`devops test sandbox` / `devops docker sandbox`)**: Ephemeral, rootless container test harness and isolated execution sandbox for executing multi-container integration tests, untrusted scripts, and dockerized workloads with strict cgroup resource constraints, ephemeral filesystem layers, network policy boundaries, and automated teardown.
 - [ ] **Automated Vector Storage Compaction & Point Pruning**: Scheduled Qdrant collection compaction and stale embedding point pruning for long-running workstation instances.
 
 ### Multi-Cloud Mesh & Production Ecosystem (v0.3.0 - Future Vision)
@@ -260,6 +266,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
 | | Syft & Grype Automated SBOM & Vulnerability Scanning | `syft`, `grype` | High | Medium | v0.2.6 | 📋 Scheduled |
 | | Infracost FinOps Cloud Cost Engine | `infracost` CLI | High | Medium | v0.2.6 | 📋 Scheduled |
 | | Multi-Cluster ArgoCD Fleet Sync & Rollouts | Argo Rollouts / Prometheus | High | High | v0.2.6 | 📋 Scheduled |
+| | Core Dependency Ecosystem Alignment | `uv lock --upgrade` / PyPI | Medium | Low | v0.2.6 | 📋 Scheduled |
 | | Falco eBPF Runtime Security & Anomaly Streamer | `falco` / eBPF | High | Medium | v0.2.6 | 📋 Scheduled |
 | | Universal Multi-Stage Workflow Orchestration Protocol | Python Generics / Pydantic | High | Medium | v0.2.7 | 📋 Scheduled |
 | | Unified Async HTTP/2 Connection & Security Broker | `httpx2` / SSRF Guard | High | Medium | v0.2.7 | 📋 Scheduled |
@@ -268,6 +275,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
 | | Local Kubernetes Chaos & Fault Injection Engine | `chaos-mesh` / `tc` | High | Medium | v0.2.7 | 📋 Scheduled |
 | | Enterprise Vault & KMS Secret Broker | `hvac`, Cloud KMS SDKs | Medium | High | v0.2.7 | 📋 Scheduled |
 | | Trace-Driven Automated Performance Regression Detection | OTel / Prometheus | High | Medium | v0.2.7 | 📋 Scheduled |
+| | Isolated Dockerized Workload Sandbox Environment | Docker / Testcontainers / Dagger | High | Medium | v0.2.7 | 📋 Scheduled |
 | | Automated Vector Storage Compaction & Pruning | Qdrant Client / SQLite | Medium | Medium | v0.2.7 | 📋 Scheduled |
 | | Multi-Region Workstation Mesh & Cluster Federation | Kubernetes / Fleet | High | High | v0.3.0 | 💡 Future Vision |
 | | Autonomous Self-Healing Agent Pipeline | PydanticAI / Diagnostic | High | High | v0.3.0 | 💡 Future Vision |

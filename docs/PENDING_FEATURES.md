@@ -32,6 +32,10 @@ Tracks active feature proposals, architectural spikes, and planned functionality
 ### 6. Automated IaC Static Security Policy Guard (Checkov)
 - **Overview**: Compliance and security policy scanner (`devops ci iac-security`) across Terraform, CloudFormation, Kubernetes manifests, and Dockerfiles.
 
+### 7. Isolated Dockerized Workload Sandbox Environment
+- **Overview**: Ephemeral, rootless container test harness and isolated execution sandbox (`devops test sandbox` / `devops docker sandbox`) for safely executing multi-container integration tests, smoke suites, and untrusted dockerized workloads.
+- **Goal**: Provide automated resource limits (cgroups), isolated network topologies, and guaranteed container teardown to prevent workstation state corruption and test cross-contamination.
+
 ---
 
 ## ✅ Completed Features Summary
@@ -72,3 +76,4 @@ Tracks active feature proposals, architectural spikes, and planned functionality
 | **4. Infracost IaC FinOps Engine** | `v0.1.9` | **P2 (Medium)** | High | Medium | **High Impact**: Cloud cost impact estimation in `pm` and `architect` persona reviews. |
 | **5. Cosign Image Signing & Provenance** | `v0.1.9` | **P2 (Medium)** | High | Low | **High Impact**: Supply chain image verification via OS Keyring. |
 | **6. Checkov Static IaC Security Policy** | `v0.1.9` | **P3 (Lower)** | Medium | Low | **Niche Impact**: Automated static compliance policies across Terraform and Dockerfiles. |
+| **7. Isolated Dockerized Workload Sandbox** | `v0.2.7` | **P2 (Medium)** | High | Medium | **High Impact**: Safe ephemeral container test harnesses for isolated integration testing. |

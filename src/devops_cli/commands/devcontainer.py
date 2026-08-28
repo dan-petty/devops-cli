@@ -452,7 +452,14 @@ def _extract_mount_targets(workspace_dir: Path) -> list[tuple[Path, str]]:
                 targets.append(parsed)
 
     # Standard devcontainer cache / environment directories in workspace
-    for name in (".venv", ".data", ".mypy_cache", ".pytest_cache", ".ruff_cache"):
+    for name in (
+        ".venv",
+        ".data",
+        ".mypy_cache",
+        ".pytest_cache",
+        ".ruff_cache",
+        ".uv",
+    ):
         p = (workspace_dir / name).resolve()
         if p not in seen:
             seen.add(p)
