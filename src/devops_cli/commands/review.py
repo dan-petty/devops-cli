@@ -299,21 +299,27 @@ def path(
     if len(path_targets) == 1:
         target = path_targets[0]
         pages, title, agents_md = _prepare_path_content(target, pattern)
-        target_dir = target if target.is_dir() else DEFAULT_CURRENT_PATH
-        target_ref = str(target)
+        target_resolved = target.resolve()
+        target_dir = target_resolved if target_resolved.is_dir() else target_resolved.parent
+        target_ref = str(target_resolved)
     else:
         all_pages: list[str] = []
         agents_md = ""
         target_names: list[str] = []
-        first_target_dir = DEFAULT_CURRENT_PATH
+        first_target_dir = Path.cwd().resolve()
         for t in path_targets:
+            t_resolved = t.resolve()
             t_pages, _, t_agents = _prepare_path_content(t, pattern)
             all_pages.extend(t_pages)
             if not agents_md and t_agents:
                 agents_md = t_agents
-            target_names.append(str(t))
-            if first_target_dir == DEFAULT_CURRENT_PATH and t.exists() and t.is_dir():
-                first_target_dir = t
+            target_names.append(str(t_resolved))
+            if (
+                first_target_dir == Path.cwd().resolve()
+                and t_resolved.exists()
+                and t_resolved.is_dir()
+            ):
+                first_target_dir = t_resolved
 
         pages = all_pages
         title = f"Multiple targets ({len(path_targets)} paths)"

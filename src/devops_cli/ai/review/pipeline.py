@@ -681,14 +681,28 @@ class ReviewPipelineOrchestrator:
         self.errored_files: dict[str, str] = {}
 
     def _resolve_file_path(self, fpath: str) -> Path:
-        """Resolve fpath to an existing filesystem Path within target_dir."""
+        """Resolve fpath to an existing filesystem Path within target_dir or repo root."""
+        from devops_cli.core.repo import find_repo_root
+
         target_root = self.target_dir.resolve()
+        repo = find_repo_root(self.target_dir)
         p = Path(fpath)
-        candidate = p if p.is_absolute() else (target_root / p)
+        if p.is_absolute() and p.exists():
+            return p.resolve()
+        if (target_root / p).exists():
+            return (target_root / p).resolve()
+        if (repo / p).exists():
+            return (repo / p).resolve()
+        if (target_root / p.name).exists():
+            return (target_root / p.name).resolve()
+
         try:
+            candidate = p if p.is_absolute() else (target_root / p)
             resolved = candidate.resolve()
-            if resolved.is_relative_to(target_root):
+            if resolved.exists():
                 return resolved
+            if (repo / p).resolve().exists():
+                return (repo / p).resolve()
         except (ValueError, OSError) as exc:
             logger.debug("Failed resolving path %s: %s", fpath, exc)
 
@@ -737,8 +751,9 @@ class ReviewPipelineOrchestrator:
             target_abs = (
                 target_dir.resolve() if target_dir.is_absolute() else (repo / target_dir).resolve()
             )
+            display_ref = str(target_abs) if (not target_ref or target_ref == ".") else target_ref
             print_info(
-                f"[dim]Stage 1/6: Scanning pre-analysis metadata for '{target_ref}'...[/dim]",
+                f"[dim]Stage 1/6: Scanning pre-analysis metadata for '{display_ref}'...[/dim]",
                 prefix=False,
             )
 
