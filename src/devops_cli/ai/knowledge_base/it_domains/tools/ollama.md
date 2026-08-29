@@ -32,6 +32,12 @@ devops config set ai.provider ollama
 devops config set ai.model qwen3.8:27b
 devops config set ai.reasoning_effort low
 
+# Route dense vector embedding generation to a dedicated remote/homelab host (e.g. workhorse.lan)
+devops config set ai.allow_private_network true
+devops config set ai.rag.embedding_url http://workhorse.lan:11434
+# OR via per-task override:
+devops config set ai.tasks.embedding.ollama_urls http://workhorse.lan:11434
+
 # Bundle and pull required models for local AI workflows
 devops ai bundle-models
 

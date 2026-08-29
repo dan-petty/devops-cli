@@ -54,6 +54,7 @@ from devops_cli.config.defaults import (
     DEFAULT_RAG_CHUNK_SIZE,
     DEFAULT_RAG_DATA_DIR,
     DEFAULT_RAG_EMBEDDING_MODEL,
+    DEFAULT_RAG_EMBEDDING_URL,
     DEFAULT_RAG_SCORE_THRESHOLD,
     DEFAULT_RAG_TOP_K,
     DEFAULT_REPOS_BASE_DIR,
@@ -151,6 +152,7 @@ class AIRAGConfig(BaseModel):
     model_config = ConfigDict(frozen=False)
     enabled: bool = True
     embedding_model: str = DEFAULT_RAG_EMBEDDING_MODEL
+    embedding_url: str | None = DEFAULT_RAG_EMBEDDING_URL
     top_k: int = DEFAULT_RAG_TOP_K
     score_threshold: float = DEFAULT_RAG_SCORE_THRESHOLD
     chunk_size: int = DEFAULT_RAG_CHUNK_SIZE
@@ -184,6 +186,7 @@ class AITasksConfig(BaseModel):
     metadata: AITaskOverride = AITaskOverride()
     analysis: AITaskOverride = AITaskOverride()
     compose: AITaskOverride = AITaskOverride()
+    embedding: AITaskOverride = AITaskOverride()
 
 
 class AIConfig(BaseModel):
@@ -204,7 +207,13 @@ class AIConfig(BaseModel):
     def get_ollama_urls(self) -> list[str]:
         """Return non-empty list of Ollama base URLs."""
         if self.ollama_urls:
-            cleaned = [u.strip().rstrip("/") for u in self.ollama_urls if u and u.strip()]
+            cleaned = []
+            for u in self.ollama_urls:
+                if u and u.strip():
+                    val = u.strip().rstrip("/")
+                    if not val.startswith(("http://", "https://")):
+                        val = f"http://{val}"
+                    cleaned.append(val)
             if cleaned:
                 return cleaned
         return list(DEFAULT_OLLAMA_URLS)
