@@ -45,17 +45,20 @@ config:
       spike_limit_mib: 100
 
   exporters:
-    # Console/stdout exporter for local dev visibility (should be disabled or gated in production configurations)
+    # Debug exporter for local development visibility.
+    # In production environments, remove 'debug' from service.pipelines or gate verbosity.
     debug:
       verbosity: basic
 
-    # Send traces to Jaeger in-cluster
+    # Send traces to Jaeger in-cluster (local dev/homelab uses internal gRPC with insecure: true;
+    # for production clusters, enable TLS certificates via cert-manager and set insecure: false).
     otlp_grpc/jaeger:
       endpoint: jaeger.otel.svc.cluster.local:4317
       tls:
         insecure: true
 
-    # Prometheus remote write to in-cluster Prometheus (plain in-cluster HTTP)
+    # Prometheus remote write to in-cluster Prometheus (local dev uses internal HTTP service;
+    # for production zero-trust networking, configure https endpoint, TLS secrets, and basic_auth).
     prometheusremotewrite:
       endpoint: http://kube-prometheus-kube-prome-prometheus.monitoring.svc.cluster.local:9090/api/v1/write
 
