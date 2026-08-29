@@ -228,9 +228,7 @@ def bootstrap_openwebui(
         context=context, email=email, name=name, password=password
     )
     if ok:
-        print_success(
-            f"Open-WebUI admin account ready: [bold]{email}[/bold] (Password: [bold]{password}[/bold])"
-        )
+        print_success(f"Open-WebUI admin account ready: [bold]{email}[/bold]")
     else:
         print_error(
             "Failed to bootstrap Open-WebUI account. Ensure the open-webui pod is running in namespace 'llm'."
@@ -378,7 +376,7 @@ def deploy_stack(
         k8s._bootstrap_openwebui_account(context=context)
         print_info("[dim]Ollama: http://localhost:11434 (namespace: llm)[/dim]", prefix=False)
         print_info(
-            "[dim]Open-WebUI: http://localhost:3000 (Admin: admin@localhost / admin123 | Sign-ups: enabled)[/dim]",
+            "[dim]Open-WebUI: http://localhost:3000 (Admin: admin@localhost | Sign-ups: enabled)[/dim]",
             prefix=False,
         )
         print_info(
