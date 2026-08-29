@@ -541,6 +541,102 @@ def _adopt_helm_resource_if_conflict(
     return adopted_any
 
 
+def _bootstrap_openwebui_account(
+    context: str | None = None,
+    email: str = "admin@localhost",
+    name: str = "Admin",
+    password: str = "admin123",
+) -> bool:
+    """Ensure Open-WebUI signups are enabled and a local admin account is bootstrapped."""
+    py_script = (
+        "import sqlite3, uuid, time, json, bcrypt, os\n"
+        "db_path = '/app/backend/data/webui.db'\n"
+        "if not os.path.exists(db_path):\n"
+        "    exit(0)\n"
+        "conn = sqlite3.connect(db_path)\n"
+        "cur = conn.cursor()\n"
+        "now = int(time.time())\n"
+        "cur.execute('UPDATE config SET value = ?, updated_at = ? WHERE key = ?', (json.dumps(True), now, 'ui.enable_signup'))\n"
+        "cur.execute('UPDATE config SET value = ?, updated_at = ? WHERE key = ?', (json.dumps('user'), now, 'ui.default_user_role'))\n"
+        "cur.execute('SELECT COUNT(*) FROM \"user\"')\n"
+        "count = cur.fetchone()[0]\n"
+        "if count == 0:\n"
+        "    uid = str(uuid.uuid4())\n"
+        f"    hashed = bcrypt.hashpw({repr(password)}.encode('utf-8'), bcrypt.gensalt(12)).decode('utf-8')\n"
+        "    cur.execute('INSERT INTO \"user\" (id, name, email, role, profile_image_url, last_active_at, updated_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', "
+        f"(uid, {repr(name)}, {repr(email)}, 'admin', '/user.png', now, now, now))\n"
+        f"    cur.execute('INSERT INTO auth (id, email, password, active) VALUES (?, ?, ?, ?)', (uid, {repr(email)}, hashed, 1))\n"
+        "else:\n"
+        "    cur.execute('UPDATE auth SET active = 1')\n"
+        '    cur.execute(\'UPDATE "user" SET role = "admin" WHERE role = "pending"\')\n'
+        "conn.commit()\n"
+    )
+    pod_cmd = [
+        "kubectl",
+        "get",
+        "pods",
+        "-n",
+        "llm",
+        "-l",
+        "app.kubernetes.io/name=open-webui",
+        "-o",
+        "jsonpath={.items[0].metadata.name}",
+    ]
+    if context:
+        pod_cmd.extend(["--context", context])
+    res_pod = _run_cmd(pod_cmd, check=False, capture=True)
+    pod_name = (res_pod.stdout or "").strip()
+    if not pod_name:
+        return False
+
+    exec_cmd = ["kubectl", "exec", "-n", "llm", pod_name]
+    if context:
+        exec_cmd.extend(["--context", context])
+    exec_cmd.extend(["--", "python", "-c", py_script])
+    res = _run_cmd(exec_cmd, check=False, capture=True)
+    return res.returncode == 0
+
+
+# =============================================================================
+# Command: devops k8s bootstrap-openwebui
+# =============================================================================
+
+
+@app.command("bootstrap-openwebui")
+def bootstrap_openwebui(
+    email: Annotated[
+        str, typer.Option("--email", "-e", help="Admin email address")
+    ] = "admin@localhost",
+    name: Annotated[str, typer.Option("--name", "-n", help="Admin display name")] = "Admin",
+    password: Annotated[str, typer.Option("--password", "-p", help="Admin password")] = "admin123",
+    context: Annotated[
+        str | None,
+        typer.Option("--context", "-c", help="Kubernetes cluster context"),
+    ] = None,
+) -> None:
+    """Bootstrap or activate a local administrator account for Open-WebUI."""
+    if is_dry_run():
+        render_dry_run_result(
+            command="devops k8s bootstrap-openwebui",
+            target=email,
+            action="bootstrap_openwebui_admin",
+            details={"email": email, "name": name, "context": context},
+        )
+        return
+
+    print_info(f"Bootstrapping Open-WebUI local admin account ({email})...")
+    ok = _bootstrap_openwebui_account(context=context, email=email, name=name, password=password)
+    if ok:
+        print_success(
+            f"Open-WebUI admin account ready: [bold]{email}[/bold] (Password: [bold]{password}[/bold])"
+        )
+    else:
+        print_error(
+            "Failed to bootstrap Open-WebUI account. Ensure the open-webui pod is running in namespace 'llm'."
+        )
+        raise typer.Exit(1)
+
+
 # =============================================================================
 # Command: devops k8s deploy-stack
 # =============================================================================
@@ -654,7 +750,8 @@ def deploy_stack(
             result = _run_cmd(helm_cmd, check=False, capture=True)
 
         if result.returncode != 0:
-            print_error(f"Failed to install {release['name']}", prefix=False)
+            err_details = (result.stderr or result.stdout or "").strip()
+            print_error(f"Failed to install {release['name']}: {err_details}", prefix=False)
         else:
             print_success(f"{release['name']} installed")
 
@@ -683,9 +780,10 @@ def deploy_stack(
             prefix=False,
         )
     if "llm" in selected_stacks:
+        _bootstrap_openwebui_account(context=context)
         print_info("[dim]Ollama: http://localhost:11434 (namespace: llm)[/dim]", prefix=False)
         print_info(
-            "[dim]Open-WebUI: http://localhost:3000 (minikube service open-webui -n llm)[/dim]",
+            "[dim]Open-WebUI: http://localhost:3000 (Admin: admin@localhost / admin123 | Sign-ups: enabled)[/dim]",
             prefix=False,
         )
         print_info(

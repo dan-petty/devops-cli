@@ -623,3 +623,41 @@ def test_k8s_service_url_helpers() -> None:
             == "http://localhost:3000"
         )
         assert _resolve_accessible_url("http://192.168.49.2:3000") == "http://192.168.49.2:3000"
+
+
+def test_k8s_bootstrap_openwebui() -> None:
+    """Verify bootstrap-openwebui dry-run, success, and failure paths."""
+    # Dry-run
+    set_dry_run(True)
+    try:
+        res_dry = runner.invoke(app, ["bootstrap-openwebui", "--email", "admin@localhost"])
+        assert res_dry.exit_code == 0
+        assert "bootstrap_openwebui_admin" in res_dry.output
+    finally:
+        set_dry_run(False)
+
+    # Success execution
+    with patch("devops_cli.commands.k8s._run_cmd") as mock_cmd:
+        mock_cmd.side_effect = [
+            _mock_proc(0, "open-webui-0\n"),
+            _mock_proc(0, "BOOTSTRAPPED_ADMIN\n"),
+        ]
+        res_ok = runner.invoke(
+            app,
+            [
+                "bootstrap-openwebui",
+                "--email",
+                "admin@localhost",
+                "--password",
+                "admin123",
+                "--context",
+                "minikube",
+            ],
+        )
+        assert res_ok.exit_code == 0
+        assert "admin@localhost" in res_ok.output
+
+    # Pod not found failure
+    with patch("devops_cli.commands.k8s._run_cmd", return_value=_mock_proc(1, "")):
+        res_fail = runner.invoke(app, ["bootstrap-openwebui"])
+        assert res_fail.exit_code == 1

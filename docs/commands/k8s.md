@@ -106,6 +106,25 @@ devops k8s bootstrap [OPTIONS]
 
 ---
 
+## `devops k8s bootstrap-openwebui`
+
+**Bootstrap or activate a local administrator account for Open-WebUI.**
+
+```bash
+devops k8s bootstrap-openwebui [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--email`, `-e` | `string` | `admin@localhost` | Admin email address |
+| `--name`, `-n` | `string` | `Admin` | Admin display name |
+| `--password`, `-p` | `string` | `<masked>` | Admin password |
+| `--context`, `-c` | `string` | - | Kubernetes cluster context |
+
+---
+
 ## `devops k8s deploy-stack`
 
 **Deploy infrastructure or LLM stack (Ollama, WebUI, Qdrant, Valkey) to Kubernetes.**
