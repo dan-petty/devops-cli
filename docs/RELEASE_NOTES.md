@@ -26,6 +26,11 @@ Workstation-native DevOps CLI for managing repositories, SSH keys, Kubernetes cl
 - **Workspace Data Tier Standardization**: Centralized all exploratory and scratch scripts into `.data/scratch/`, isolating temporary data artifacts cleanly within the `.data/` tier.
 - **Team IDE Configuration Sharing**: Updated `.gitignore` to allow tracking of shared `.vscode/` team configurations (including `.vscode/mcp.json`) while filtering local user overrides.
 
+### 🛡️ AI Review Security Hardening & Closed-Loop Feedback
+- **Structural Diff Path Containment (`devops_cli.ai.diff.difftastic`)**: Enforced strict boundary containment with `resolve_safe_subpath`, preventing arbitrary file reading and secret leakage outside repository boundaries (CWE-200 / CWE-284).
+- **Absolute Target Path Resolution (`devops_cli.commands.review`, `devops_cli.ai.review.pipeline`)**: Enforced canonical absolute path resolution across review and pre-analysis commands, eliminating relative `.` path ambiguity and path segment duplication in finding locations.
+- **Closed-Loop Feedback Dataset Export (`devops ai review export-feedback`)**: Exported verified security findings into `.data/feedback_dataset.jsonl` to ground LLM reasoning and reinforce the self-improvement training loop.
+
 ---
 
 ## 🚀 Highlights of v0.2.4

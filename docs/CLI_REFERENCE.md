@@ -2272,6 +2272,18 @@ devops ai review path [OPTIONS] <targets>
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--summary`, `-s` | `boolean` | - | Show segment metadata without running a full review. |
 | `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology. |
+| `--no-pre-analysis` | `boolean` | - | Disable Stage 1 pre-analysis and metadata refresh. |
+| `--pre-analysis-only` | `boolean` | - | Run Stage 1 pre-analysis only and skip subsequent stages. |
+| `--no-static-scan` | `boolean` | - | Disable Stage 2 static security scanning. |
+| `--static-scan-only` | `boolean` | - | Run Stage 2 static scanning only and skip subsequent stages. |
+| `--no-persona-review` | `boolean` | - | Disable Stage 3 multi-persona LLM inspection. |
+| `--persona-review-only` | `boolean` | - | Run Stage 3 persona review only and skip subsequent stages. |
+| `--no-verification` | `boolean` | - | Disable Stage 4 finding verification and adversarial debate. |
+| `--verification-only` | `boolean` | - | Run Stage 4 verification only and skip subsequent stages. |
+| `--no-reranking` | `boolean` | - | Disable Stage 5 finding re-ranking and deduplication. |
+| `--reranking-only` | `boolean` | - | Run Stage 5 re-ranking only and skip subsequent stages. |
+| `--no-reporting` | `boolean` | - | Disable Stage 6 consolidated report generation. |
+| `--reporting-only` | `boolean` | - | Run Stage 6 report generation only. |
 
 #### `devops ai review branch`
 
@@ -2298,6 +2310,18 @@ devops ai review branch [OPTIONS] <branch_name>
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--summary`, `-s` | `boolean` | - | Show segment metadata without running a full review. |
 | `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology. |
+| `--no-pre-analysis` | `boolean` | - | Disable Stage 1 pre-analysis and metadata refresh. |
+| `--pre-analysis-only` | `boolean` | - | Run Stage 1 pre-analysis only and skip subsequent stages. |
+| `--no-static-scan` | `boolean` | - | Disable Stage 2 static security scanning. |
+| `--static-scan-only` | `boolean` | - | Run Stage 2 static scanning only and skip subsequent stages. |
+| `--no-persona-review` | `boolean` | - | Disable Stage 3 multi-persona LLM inspection. |
+| `--persona-review-only` | `boolean` | - | Run Stage 3 persona review only and skip subsequent stages. |
+| `--no-verification` | `boolean` | - | Disable Stage 4 finding verification and adversarial debate. |
+| `--verification-only` | `boolean` | - | Run Stage 4 verification only and skip subsequent stages. |
+| `--no-reranking` | `boolean` | - | Disable Stage 5 finding re-ranking and deduplication. |
+| `--reranking-only` | `boolean` | - | Run Stage 5 re-ranking only and skip subsequent stages. |
+| `--no-reporting` | `boolean` | - | Disable Stage 6 consolidated report generation. |
+| `--reporting-only` | `boolean` | - | Run Stage 6 report generation only. |
 
 #### `devops ai review pr`
 
@@ -2324,6 +2348,18 @@ devops ai review pr [OPTIONS] <number>
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--summary`, `-s` | `boolean` | - | Show segment metadata without running a full review. |
 | `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology. |
+| `--no-pre-analysis` | `boolean` | - | Disable Stage 1 pre-analysis and metadata refresh. |
+| `--pre-analysis-only` | `boolean` | - | Run Stage 1 pre-analysis only and skip subsequent stages. |
+| `--no-static-scan` | `boolean` | - | Disable Stage 2 static security scanning. |
+| `--static-scan-only` | `boolean` | - | Run Stage 2 static scanning only and skip subsequent stages. |
+| `--no-persona-review` | `boolean` | - | Disable Stage 3 multi-persona LLM inspection. |
+| `--persona-review-only` | `boolean` | - | Run Stage 3 persona review only and skip subsequent stages. |
+| `--no-verification` | `boolean` | - | Disable Stage 4 finding verification and adversarial debate. |
+| `--verification-only` | `boolean` | - | Run Stage 4 verification only and skip subsequent stages. |
+| `--no-reranking` | `boolean` | - | Disable Stage 5 finding re-ranking and deduplication. |
+| `--reranking-only` | `boolean` | - | Run Stage 5 re-ranking only and skip subsequent stages. |
+| `--no-reporting` | `boolean` | - | Disable Stage 6 consolidated report generation. |
+| `--reporting-only` | `boolean` | - | Run Stage 6 report generation only. |
 
 #### `devops ai review findings`
 
@@ -2755,6 +2791,18 @@ devops review path [OPTIONS] <targets>
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--summary`, `-s` | `boolean` | - | Show segment metadata without running a full review. |
 | `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology. |
+| `--no-pre-analysis` | `boolean` | - | Disable Stage 1 pre-analysis and metadata refresh. |
+| `--pre-analysis-only` | `boolean` | - | Run Stage 1 pre-analysis only and skip subsequent stages. |
+| `--no-static-scan` | `boolean` | - | Disable Stage 2 static security scanning. |
+| `--static-scan-only` | `boolean` | - | Run Stage 2 static scanning only and skip subsequent stages. |
+| `--no-persona-review` | `boolean` | - | Disable Stage 3 multi-persona LLM inspection. |
+| `--persona-review-only` | `boolean` | - | Run Stage 3 persona review only and skip subsequent stages. |
+| `--no-verification` | `boolean` | - | Disable Stage 4 finding verification and adversarial debate. |
+| `--verification-only` | `boolean` | - | Run Stage 4 verification only and skip subsequent stages. |
+| `--no-reranking` | `boolean` | - | Disable Stage 5 finding re-ranking and deduplication. |
+| `--reranking-only` | `boolean` | - | Run Stage 5 re-ranking only and skip subsequent stages. |
+| `--no-reporting` | `boolean` | - | Disable Stage 6 consolidated report generation. |
+| `--reporting-only` | `boolean` | - | Run Stage 6 report generation only. |
 
 ### `devops review branch`
 
@@ -2781,6 +2829,18 @@ devops review branch [OPTIONS] <branch_name>
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--summary`, `-s` | `boolean` | - | Show segment metadata without running a full review. |
 | `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology. |
+| `--no-pre-analysis` | `boolean` | - | Disable Stage 1 pre-analysis and metadata refresh. |
+| `--pre-analysis-only` | `boolean` | - | Run Stage 1 pre-analysis only and skip subsequent stages. |
+| `--no-static-scan` | `boolean` | - | Disable Stage 2 static security scanning. |
+| `--static-scan-only` | `boolean` | - | Run Stage 2 static scanning only and skip subsequent stages. |
+| `--no-persona-review` | `boolean` | - | Disable Stage 3 multi-persona LLM inspection. |
+| `--persona-review-only` | `boolean` | - | Run Stage 3 persona review only and skip subsequent stages. |
+| `--no-verification` | `boolean` | - | Disable Stage 4 finding verification and adversarial debate. |
+| `--verification-only` | `boolean` | - | Run Stage 4 verification only and skip subsequent stages. |
+| `--no-reranking` | `boolean` | - | Disable Stage 5 finding re-ranking and deduplication. |
+| `--reranking-only` | `boolean` | - | Run Stage 5 re-ranking only and skip subsequent stages. |
+| `--no-reporting` | `boolean` | - | Disable Stage 6 consolidated report generation. |
+| `--reporting-only` | `boolean` | - | Run Stage 6 report generation only. |
 
 ### `devops review pr`
 
@@ -2807,6 +2867,18 @@ devops review pr [OPTIONS] <number>
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--summary`, `-s` | `boolean` | - | Show segment metadata without running a full review. |
 | `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology. |
+| `--no-pre-analysis` | `boolean` | - | Disable Stage 1 pre-analysis and metadata refresh. |
+| `--pre-analysis-only` | `boolean` | - | Run Stage 1 pre-analysis only and skip subsequent stages. |
+| `--no-static-scan` | `boolean` | - | Disable Stage 2 static security scanning. |
+| `--static-scan-only` | `boolean` | - | Run Stage 2 static scanning only and skip subsequent stages. |
+| `--no-persona-review` | `boolean` | - | Disable Stage 3 multi-persona LLM inspection. |
+| `--persona-review-only` | `boolean` | - | Run Stage 3 persona review only and skip subsequent stages. |
+| `--no-verification` | `boolean` | - | Disable Stage 4 finding verification and adversarial debate. |
+| `--verification-only` | `boolean` | - | Run Stage 4 verification only and skip subsequent stages. |
+| `--no-reranking` | `boolean` | - | Disable Stage 5 finding re-ranking and deduplication. |
+| `--reranking-only` | `boolean` | - | Run Stage 5 re-ranking only and skip subsequent stages. |
+| `--no-reporting` | `boolean` | - | Disable Stage 6 consolidated report generation. |
+| `--reporting-only` | `boolean` | - | Run Stage 6 report generation only. |
 
 ### `devops review findings`
 

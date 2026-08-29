@@ -21,8 +21,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added automated `post-create` and `post-start` permission enforcement ensuring standard cache directories are created and chowned to the active container user (`vscode`).
 - **Team IDE Configuration & MCP Tracking (`.gitignore`, `.vscode/mcp.json`)**:
   - Permitted version-controlled tracking of shared `.vscode/` team configurations (`mcp.json`, `settings.json`, `tasks.json`, `launch.json`) in `.gitignore` while continuing to ignore user-specific overrides.
+- **Structural Diff Path Containment & Arbitrary File Read Hardening (`devops_cli.ai.diff.difftastic`, `tests/test_difftastic.py`)**:
+  - Enforced strict repository boundary validation with `resolve_safe_subpath` in `get_structural_diff`, mitigating arbitrary file read and information exposure risks (CWE-200 / CWE-284).
 
 ### Changed
+- **Target Path Resolution & Pre-Analysis Metadata Refinement (`devops_cli.commands.review`, `devops_cli.ai.review.pipeline`)**:
+  - Enforced absolute target path resolution across review commands and stage trace spans, eliminating relative `.` path ambiguity and path segment duplication in finding locations.
 - **AST Structural Standardization & Strict Indentation Budgeting**:
   - Audited project-wide control flow and refactored all functions exceeding indentation depth limits, achieving **0** functions with depth $\ge 6$ across the entire repository.
   - Refactored `_render_review_result` in `rendering.py`, `_analyze_python_ast` in `scanner.py`, `_find_plaintext_config_leaks` in `config.py`, `chunk_file` in `chunker.py`, `Finding._pre_validate_finding` in `review_schema.py`, `_from_otlp_any_value` in `tracer.py`, and `render_table` in `formatter.py` into dedicated functional pipelines and standard library helpers.

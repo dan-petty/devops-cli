@@ -6,18 +6,29 @@ The Multi-Persona AI Code Review system in `devops-cli` provides automated, high
 
 ---
 
-## 2. Architecture & Review Pipeline
+## 2. Architecture & 6-Stage Review Pipeline
 
 ```mermaid
 graph TD
-    A[Git Diff / Target Path / PR] --> B[Diff Token Sizing & Chunking]
-    B --> C[Sanitization & Secret Masking]
-    C --> D[Multi-Persona Prompt Assembly]
-    D --> E[LLM Provider: Ollama / Claude / OpenAI]
-    E --> F[Reasoning Stream & Response Repair]
-    F --> G[Finding Calibration & Deduplication]
-    G --> H[Interactive Terminal Table & Markdown Export]
+    A[Target Path / Branch / PR] --> S1[Stage 1: Pre-Analysis Metadata Refresh]
+    S1 --> S2[Stage 2: Static Security Scan & Dependency Analysis]
+    S2 --> S3[Stage 3: Multi-Persona LLM Code Review]
+    S3 --> S4[Stage 4: Verification & Multi-Agent Adversarial Debate]
+    S4 --> S5[Stage 5: Finding Re-Ranking & Calibration]
+    S5 --> S6[Stage 6: Consolidated Markdown & JSON Reporting]
+    S6 --> F1[Human-in-the-Loop Finding Inspection]
+    F1 --> F2[Patch Application & Verification: devops ai review verify]
+    F2 --> F3[Feedback Dataset Export: devops ai review export-feedback]
+    F3 --> F4[Continuous RAG Retrieval & Knowledge Grounding]
 ```
+
+- **6 Modular Pipeline Stages**:
+  1. `pre_analysis`: Fast workspace scan, AST context refresh, and cache synchronization (`--no-pre-analysis`, `--pre-analysis-only`).
+  2. `static_scan`: Parallelized tool execution (Bandit, KubeLinter, Pluto, Semgrep, Gitleaks, OSV, Shodan) and dependency extraction (`--no-static-scan`, `--static-scan-only`).
+  3. `persona_review`: Multi-persona parallel LLM inspection across specialized engineering personas (`--no-persona-review`, `--persona-review-only`).
+  4. `verification`: Step-by-step observable code/AST evidence checking and multi-agent adversarial debate (`--no-verification`, `--verification-only`).
+  5. `reranking`: Cross-persona deduplication, severity sorting, and reportable threshold filtering (`--no-reranking`, `--reranking-only`).
+  6. `reporting`: Markdown file report generation (`review.md`), JSON finding persistence (`findings.json`), and Rich console table rendering (`--no-reporting`, `--reporting-only`).
 
 - **Specialized Personas**:
   - `devsecops`: Evaluates CWE vulnerabilities, secret exposures, network egress, and permissions.
@@ -25,20 +36,21 @@ graph TD
   - `auditor`: Evaluates compliance, license risks, and log sanitization.
   - `qa`: Evaluates edge cases, exception handling, and test isolation.
   - `pm`: Evaluates documentation sync, changelog updates, and user requirements.
+
 - **Closed-Loop Feedback & Self-Improvement**:
   - `verify_finding`: Tests observable verification and invalidation criteria against visible code and AST structures to eliminate false positives.
   - **Confidence Calibration**: Weighs findings based on concrete criteria satisfaction, discarding unverified or mitigated items.
   - **Lockfile-Aware Dependency Scanning**: Resolves exact package releases from lockfiles (`uv.lock`, `poetry.lock`, `package-lock.json`, `Cargo.lock`, `go.sum`) before querying OSV.dev and NVD vulnerability databases.
   - **Network Reference Disambiguation**: Differentiates legitimate network endpoints from source file extensions (`*.py`, `*.md`, `*.sh`, `*.tf`, `*.rs`, `*.pid`) and telemetry/code property paths (`service.name`, `ci.step.*`, `host.name`, `process.pid`).
-  - **Self-Healing & Patch Application**: Generates drop-in remediation code patches that can be applied and verified against automated CI quality gates.
-  - **Continuous Feedback Dataset Export**: Persists validated and invalidated review findings to structured JSONL feedback datasets (`.data/reviews/feedback_dataset.jsonl`) via `devops review export-feedback` to continuously ground RAG indices and calibrate LLM evaluation prompts.
+  - **Self-Healing & Patch Application**: Generates drop-in remediation code patches that can be applied and verified against automated CI quality gates (`devops ai review patch`).
+  - **Continuous Feedback Dataset Export**: Persists validated, invalidated, and mitigated review findings to structured JSONL feedback datasets (`.data/reviews/feedback_dataset.jsonl`) via `devops ai review export-feedback` to continuously ground RAG indices and calibrate LLM evaluation prompts.
   - **Continuous Knowledge Feedback**: Synthesizes recurrent review findings into repository architecture guides and test fixtures to prevent recurrence.
 
 ---
 
 ## 3. Useful Usage Information & Common Commands
 
-### Review & Feedback Commands
+### Review Execution Commands
 ```bash
 # Review active working directory git diff (staged + unstaged)
 devops ai review branch
@@ -50,12 +62,36 @@ devops ai review path repos/my-org/my-project
 devops ai review pr 22
 
 # Review using a specific persona and provider
-devops ai review branch --persona devsecops --provider ollama --model qwen2.5-coder:14b
+devops ai review branch --persona devsecops --provider ollama --model qwen3.8:27b
+
+# Fast testing: Run static analysis stage only (skip LLM inspection & verification)
+devops ai review path . --static-scan-only
+
+# Performance testing: Disable verification stage to measure baseline persona generation
+devops ai review branch --no-verification
+
+# Pipeline debugging: Run pre-analysis metadata refresh only
+devops ai review path src/ --pre-analysis-only
+```
+
+### Findings Management & Closed-Loop Feedback Commands
+```bash
+# Inspect findings from the latest review session
+devops ai review findings --session latest --details
+
+# Filter findings by status (VERIFIED, UNVERIFIED, INVALIDATED, MITIGATED)
+devops ai review findings --status VERIFIED
+
+# Mark finding as MITIGATED after applying a fix
+devops ai review verify --session latest --index 1 --status MITIGATED --reason "Service type changed to ClusterIP and NetworkPolicy jaeger-ingress created"
+
+# Mark finding as INVALIDATED if proven to be a false positive
+devops ai review verify --session latest --index 2 --status INVALIDATED --reason "Symbol is re-exported via __all__ in target module"
 
 # Export review report to markdown
 devops ai review branch --export-md .data/reviews/review-report.md
 
-# Export invalidated and verified feedback dataset for model tuning/RAG
+# Export all findings to structured feedback dataset for fine-tuning and RAG grounding
 devops ai review export-feedback --status ALL --output .data/reviews/feedback_dataset.jsonl
 ```
 
