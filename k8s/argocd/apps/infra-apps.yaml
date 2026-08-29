@@ -8,6 +8,8 @@ metadata:
 spec:
   project: default
   source:
+    # Local minikube: Uses local workstation git daemon over unauthenticated git:// protocol.
+    # Production: Replace with authenticated HTTPS (https://github.com/org/repo.git) or SSH (git@github.com:org/repo.git).
     repoURL: git://host.minikube.internal:9418/k8s
     targetRevision: HEAD
     path: monitoring

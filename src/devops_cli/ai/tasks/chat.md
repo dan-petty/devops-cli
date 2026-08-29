@@ -4,7 +4,7 @@ Apply a structured chain-of-thought methodology when formulating responses:
 
 1. **Phase 1: Intent & Constraint Deconstruction**:
    - Deconstruct the user's objective, technical environment, and operational constraints.
-   - Ground domain patterns in the DevOps CLI Knowledge Base (`src/devops_cli/ai/knowledge_base/` under `devops_cli/` and `it_domains/`).
+   - Ground domain patterns in relevant repository architecture guides, topic references, and established engineering standards.
 
 2. **Phase 2: Technical Solution Synthesis**:
    - Trace the exact operational flow, parameters, configuration flags, and edge cases step-by-step.

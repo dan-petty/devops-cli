@@ -2,7 +2,7 @@
 Analyze the candidate review findings against the provided code context and project conventions:
 - Challenge phantom findings:
   - Is the finding based on a misinterpreted comment, mock, test fixture, or documentation example?
-  - Does the finding allege a CVE against an established, trusted runtime library (such as Pydantic's `httpx2`) without factual CVSS grounds?
+  - Does the finding allege a CVE or vulnerability against an established, verified runtime library without factual CVSS grounds?
   - Does the finding claim a syntax error on code that satisfies the target runtime parser?
 - Invalidate non-actionable findings:
   - If a finding is stylistic bikeshedding or speculative without code proof, mark it invalid or lower confidence.

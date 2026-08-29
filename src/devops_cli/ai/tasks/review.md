@@ -28,7 +28,7 @@ Follow a structured 5-phase reasoning process before reporting findings:
 - **Drop-In Fix**: Provide a complete, self-contained drop-in code fix (`fix`) that directly resolves the root cause without introducing regressions, syntax errors, or breaking API contracts.
 - **Verification Criteria**: Formulate 1-3 concrete observable conditions proving the defect is present.
 - **Invalidation Criteria**: Formulate 1-3 concrete conditions proving the defect is absent or mitigated.
-- **Closed-Loop Feedback**: Ensure each finding provides structured criteria suitable for automated verification, patch application (`devops ai review patch`), and continuous feedback dataset export (`feedback_dataset.jsonl`).
+- **Closed-Loop Feedback**: Ensure each finding provides structured criteria suitable for automated verification, patch application, and continuous feedback dataset export.
 - **If Sound**: If no actionable defects exist, return an empty `findings` array and `APPROVE`.
 
 ---

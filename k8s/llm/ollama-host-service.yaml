@@ -1,3 +1,4 @@
+# Bridges Minikube cluster traffic to Ollama running on the workstation host.
 apiVersion: v1
 kind: Service
 metadata:
@@ -16,6 +17,8 @@ metadata:
   namespace: llm
 subsets:
   - addresses:
+      # Local minikube: 192.168.49.1 is the default host gateway IP on the minikube bridge.
+      # Production: Replace with dedicated in-cluster DaemonSet pod IPs, ExternalName service, or DNS name.
       - ip: 192.168.49.1
     ports:
       - name: http
