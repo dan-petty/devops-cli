@@ -32,7 +32,7 @@ spec:
             - name: OLLAMA_MODELS
               value: "/root/.ollama/models"
             - name: OLLAMA_CONTEXT_LENGTH
-              value: "32000"
+              value: "48000"
             - name: OLLAMA_MAX_LOADED_MODELS
               value: "2"
             - name: OLLAMA_NUM_PARALLEL

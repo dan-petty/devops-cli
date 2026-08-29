@@ -30,7 +30,7 @@ spec:
           emptyDir: {}
       containers:
         - name: jaeger
-          image: jaegertracing/all-in-one:1.62.0@sha256:7bc0dd740df68c6e3923ef15d2a93fb548c772cb33be85ff20df38c538cb3fe4
+          image: jaegertracing/all-in-one:1.62.0
           imagePullPolicy: IfNotPresent
           securityContext:
             allowPrivilegeEscalation: false

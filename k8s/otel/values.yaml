@@ -6,7 +6,7 @@ mode: deployment
 
 image:
   repository: "otel/opentelemetry-collector-contrib"
-  tag: "0.120.0"
+  tag: "0.159.0"
   pullPolicy: IfNotPresent
 
 resources:
@@ -50,21 +50,26 @@ config:
       verbosity: basic
 
     # Send traces to Jaeger in-cluster
-    otlp/jaeger:
+    otlp_grpc/jaeger:
       endpoint: jaeger.otel.svc.cluster.local:4317
       tls:
-        insecure: false
+        insecure: true
 
     # Prometheus remote write to in-cluster Prometheus
     prometheusremotewrite:
-      endpoint: https://kube-prometheus-kube-prome-prometheus.monitoring.svc.cluster.local:9090/api/v1/write
+      endpoint: http://kube-prometheus-kube-prome-prometheus.monitoring.svc.cluster.local:9090/api/v1/write
+      tls:
+        insecure: true
 
   service:
     pipelines:
       traces:
         receivers: [otlp]
         processors: [memory_limiter, batch]
-        exporters: [debug, otlp/jaeger]
+        exporters: [debug, otlp_grpc/jaeger]
+
+
+
 
       metrics:
         receivers: [otlp]
