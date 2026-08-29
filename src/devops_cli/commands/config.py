@@ -127,6 +127,7 @@ def show() -> None:
     _row(opt.ARGOCD_TOKEN, get_argocd_token(settings), secret=True)
     _row(opt.AI_PROVIDER, settings.ai.provider)
     _row(opt.AI_MODEL, settings.ai.model)
+    _row(opt.AI_REASONING_EFFORT, settings.ai.reasoning_effort)
     _row(opt.AI_OLLAMA_URLS, settings.ai.ollama_urls)
     _row(opt.AI_API_BASE_URL, settings.ai.api_base_url)
     _row(opt.AI_ALLOW_PRIVATE_NETWORK, settings.ai.allow_private_network)

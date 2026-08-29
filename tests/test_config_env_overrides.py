@@ -24,9 +24,11 @@ ai:
 
     monkeypatch.setattr(constants, "CONST_CONFIG_PATH", config_path)
     monkeypatch.setenv("DEVOPS_CLI_AI_MODEL", "qwen3.6:35b")
+    monkeypatch.setenv("DEVOPS_CLI_AI_REASONING_EFFORT", "low")
     monkeypatch.setenv("DEVOPS_CLI_AI_OLLAMA_URLS", "http://192.168.1.4:11434")
 
     loaded_settings = settings.load_settings()
 
     assert loaded_settings.ai.model == "qwen3.6:35b"
+    assert loaded_settings.ai.reasoning_effort == "low"
     assert loaded_settings.ai.get_ollama_urls == ["http://192.168.1.4:11434"]

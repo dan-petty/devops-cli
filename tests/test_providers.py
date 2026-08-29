@@ -101,10 +101,23 @@ def test_ollama_provider() -> None:
         assert res == {"message": {"content": "Ollama response"}}
         mock_post.assert_called_once()
 
+    # Test reasoning_effort parameter passed to payload
+    config_reasoning = AIConfig(provider="ollama", model="qwen3.8:27b", reasoning_effort="low")
+    provider_reasoning = OllamaProvider(config_reasoning)
+    with patch("httpx2.post", return_value=mock_resp) as mock_post:
+        provider_reasoning.generate(messages)
+        call_kwargs = mock_post.call_args[1]
+        assert call_kwargs["json"]["reasoning_effort"] == "low"
+
 
 def test_openai_provider() -> None:
     """Test OpenAIProvider generation and availability."""
-    config = AIConfig(provider="openai", api_base_url="https://api.openai.com/v1", model="gpt-4o")
+    config = AIConfig(
+        provider="openai",
+        api_base_url="https://api.openai.com/v1",
+        model="gpt-4o",
+        reasoning_effort="medium",
+    )
     provider = OpenAIProvider(config)
     assert provider.name == "openai"
     assert provider.is_available() is True
@@ -118,6 +131,8 @@ def test_openai_provider() -> None:
         res = provider.generate(messages)
         assert res == {"choices": [{"message": {"content": "GPT reply"}}]}
         mock_post.assert_called_once()
+        call_kwargs = mock_post.call_args[1]
+        assert call_kwargs["json"]["reasoning_effort"] == "medium"
 
 
 def test_copilot_provider() -> None:

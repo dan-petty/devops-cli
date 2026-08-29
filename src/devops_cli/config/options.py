@@ -19,21 +19,26 @@ AI_OLLAMA_URLS = "ai.ollama_urls"
 AI_OLLAMA_MAX_PARALLEL = "ai.ollama_max_parallel"
 AI_API_BASE_URL = "ai.api_base_url"
 AI_API_KEY = "ai.api_key"
+AI_REASONING_EFFORT = "ai.reasoning_effort"
 AI_ALLOW_PRIVATE_NETWORK = "ai.allow_private_network"
 AI_MAX_RETRIES = "ai.max_retries"
 
 # Per-task model overrides (each falls back to the base ai.* values if unset)
 AI_TASK_CHAT_PROVIDER = "ai.tasks.chat.provider"
 AI_TASK_CHAT_MODEL = "ai.tasks.chat.model"
+AI_TASK_CHAT_REASONING_EFFORT = "ai.tasks.chat.reasoning_effort"
 AI_TASK_CHAT_OLLAMA_URLS = "ai.tasks.chat.ollama_urls"
 AI_TASK_METADATA_PROVIDER = "ai.tasks.metadata.provider"
 AI_TASK_METADATA_MODEL = "ai.tasks.metadata.model"
+AI_TASK_METADATA_REASONING_EFFORT = "ai.tasks.metadata.reasoning_effort"
 AI_TASK_METADATA_OLLAMA_URLS = "ai.tasks.metadata.ollama_urls"
 AI_TASK_ANALYSIS_PROVIDER = "ai.tasks.analysis.provider"
 AI_TASK_ANALYSIS_MODEL = "ai.tasks.analysis.model"
+AI_TASK_ANALYSIS_REASONING_EFFORT = "ai.tasks.analysis.reasoning_effort"
 AI_TASK_ANALYSIS_OLLAMA_URLS = "ai.tasks.analysis.ollama_urls"
 AI_TASK_COMPOSE_PROVIDER = "ai.tasks.compose.provider"
 AI_TASK_COMPOSE_MODEL = "ai.tasks.compose.model"
+AI_TASK_COMPOSE_REASONING_EFFORT = "ai.tasks.compose.reasoning_effort"
 AI_TASK_COMPOSE_OLLAMA_URLS = "ai.tasks.compose.ollama_urls"
 
 # RAG & Semantic Retrieval settings
@@ -78,19 +83,24 @@ CONFIG_OPTIONS: tuple[str, ...] = (
     AI_OLLAMA_MAX_PARALLEL,
     AI_API_BASE_URL,
     AI_API_KEY,
+    AI_REASONING_EFFORT,
     AI_ALLOW_PRIVATE_NETWORK,
     AI_MAX_RETRIES,
     AI_TASK_CHAT_PROVIDER,
     AI_TASK_CHAT_MODEL,
+    AI_TASK_CHAT_REASONING_EFFORT,
     AI_TASK_CHAT_OLLAMA_URLS,
     AI_TASK_METADATA_PROVIDER,
     AI_TASK_METADATA_MODEL,
+    AI_TASK_METADATA_REASONING_EFFORT,
     AI_TASK_METADATA_OLLAMA_URLS,
     AI_TASK_ANALYSIS_PROVIDER,
     AI_TASK_ANALYSIS_MODEL,
+    AI_TASK_ANALYSIS_REASONING_EFFORT,
     AI_TASK_ANALYSIS_OLLAMA_URLS,
     AI_TASK_COMPOSE_PROVIDER,
     AI_TASK_COMPOSE_MODEL,
+    AI_TASK_COMPOSE_REASONING_EFFORT,
     AI_TASK_COMPOSE_OLLAMA_URLS,
     AI_RAG_ENABLED,
     AI_RAG_EMBEDDING_MODEL,

@@ -1056,6 +1056,8 @@ class LLMClient:
             }
             if think:
                 payload["think"] = True
+            if self._config.reasoning_effort:
+                payload["reasoning_effort"] = self._config.reasoning_effort
             headers = inject_trace_context({"Content-Type": "application/json"})
             response = http_client.post(f"{base}/api/chat", json=payload, headers=headers)
             response.raise_for_status()
@@ -1215,13 +1217,15 @@ class LLMClient:
                 "Content-Type": "application/json",
             }
         )
-        payload = {
+        payload: dict[str, Any] = {
             "model": self._config.model,
             "messages": [
                 {"role": "system", "content": system},
                 *[m.to_dict() for m in messages],
             ],
         }
+        if self._config.reasoning_effort:
+            payload["reasoning_effort"] = self._config.reasoning_effort
         try:
             with httpx2.Client(timeout=self._request_timeout()) as http_client:
                 response = http_client.post(
@@ -1328,6 +1332,8 @@ class LLMClient:
         }
         if think:
             payload["think"] = True
+        if self._config.reasoning_effort:
+            payload["reasoning_effort"] = self._config.reasoning_effort
         with (
             httpx2.Client(timeout=self._request_timeout()) as http_client,
             http_client.stream("POST", f"{base}/api/chat", json=payload) as response,
@@ -1379,7 +1385,7 @@ class LLMClient:
             "Authorization": f"Bearer {self._api_key}",
             "Content-Type": "application/json",
         }
-        payload = {
+        payload: dict[str, Any] = {
             "model": self._config.model,
             "messages": [
                 {"role": "system", "content": system},
@@ -1387,6 +1393,8 @@ class LLMClient:
             ],
             "stream": True,
         }
+        if self._config.reasoning_effort:
+            payload["reasoning_effort"] = self._config.reasoning_effort
         try:
             with (
                 httpx2.Client(timeout=self._request_timeout()) as http_client,

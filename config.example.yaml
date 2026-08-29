@@ -85,6 +85,7 @@ ai:
   # Claude examples:  claude-opus-4-5, claude-sonnet-4-5
   # Copilot/OpenAI:   gpt-4o, gpt-4o-mini
   model: gemma4:26b
+  # reasoning_effort: low  # Reasoning effort level: low | medium | high
 
   # Ollama server URLs (list or comma-separated string).
   # AI request loops automatically failover across configured servers if one is unreachable.

@@ -32,6 +32,7 @@ from devops_cli.config.defaults import (
     DEFAULT_AI_MAX_RETRIES,
     DEFAULT_AI_MODEL,
     DEFAULT_AI_PROVIDER,
+    DEFAULT_AI_REASONING_EFFORT,
     DEFAULT_ANALYSIS_DATA_DIR,
     DEFAULT_AUDIT_LOG_PATH,
     DEFAULT_BENCHMARKS_DATA_DIR,
@@ -170,6 +171,7 @@ class AITaskOverride(BaseModel):
     model_config = ConfigDict(frozen=False)
     provider: str | None = None
     model: str | None = None
+    reasoning_effort: str | None = None
     ollama_urls: list[str] | None = None
     ollama_max_parallel: int | None = None
     api_base_url: str | None = None
@@ -188,6 +190,7 @@ class AIConfig(BaseModel):
     model_config = ConfigDict(frozen=False)
     provider: str = DEFAULT_AI_PROVIDER  # ollama | claude | copilot | openai
     model: str = DEFAULT_AI_MODEL
+    reasoning_effort: str | None = DEFAULT_AI_REASONING_EFFORT
     ollama_urls: list[str] = Field(default_factory=lambda: list(DEFAULT_OLLAMA_URLS))
     ollama_max_parallel: int = DEFAULT_OLLAMA_MAX_PARALLEL
     api_base_url: str | None = None
@@ -214,6 +217,7 @@ class AIConfig(BaseModel):
             for k, v in {
                 "provider": override.provider,
                 "model": override.model,
+                "reasoning_effort": override.reasoning_effort,
                 "ollama_urls": override.ollama_urls,
                 "ollama_max_parallel": override.ollama_max_parallel,
                 "api_base_url": override.api_base_url,
