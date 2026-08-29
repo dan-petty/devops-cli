@@ -163,6 +163,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
 - [ ] **Declarative CLI Command Dispatch & Output Presenter Engine (`@cli_command_handler`)**: Universal decorator eliminating boilerplate formatting, dry-run routing, OpenTelemetry span creation, and multi-format serialization (`json|yaml|table|markdown`) across all 30+ Typer subcommands.
 - [ ] **Universal Subprocess Execution & SIEM Audit Pipeline (`ProcessExecutionPipeline`)**: Centralized command runner enforcing strict argument list sanitization, bounded timeouts, non-root safety, traceparent propagation, and structured audit trail recording (`.data/logs/audit.jsonl`).
 - [ ] **Parallel Async Multi-File Review Pipeline Pool (`devops ai review path`)**: Concurrent async file processing with semaphore bounding (`asyncio.Semaphore`) and token budgeting, cutting multi-file directory review runtimes by up to 70%.
+- [ ] **Deterministic Mock LLM Test Isolation & Test Suite Acceleration (< 60s)**: Strict offline mock isolation for LLM/Ollama and Qdrant network calls across test files (`test_ai_cmd`, `test_review_repos`, `test_analyze`), accelerating full test suite execution from 39 minutes to under 60 seconds.
 - [ ] **In-Memory Embedding LRU Cache & Chunk Dedup (`ai.rag.embeddings`)**: In-memory SHA-256 keyed embedding cache eliminating redundant vector generation calls for identical code chunks across files and commits.
 - [ ] **Adaptive Test Sharding & Fast Path Test Selector (`devops test --changed`)**: Git diff-aware test selection executing only impacted test files during local iterations, reducing developer test loop latency from minutes to seconds.
 - [ ] **Static Code Complexity & Cyclomatic Depth Linter (`devops scan complexity`)**: Automated AST scanner enforcing maximum cyclomatic complexity (< 10) and strict nesting limits across the codebase.
@@ -254,6 +255,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
 | | Self-Healing Vector Dimension & Embedding Chunking | Qdrant / Ollama | High | Low | v0.2.5 | ✅ Completed |
 | | Automated Review Feedback Dataset Learning | Dataset Export / Fine-Tuning | High | Low | v0.2.5 | ✅ Completed |
 | | Static Code Complexity & Cyclomatic Depth Linter | AST / Standard Library | High | Low | v0.2.6 | 📋 Scheduled |
+| | Deterministic Mock LLM Test Isolation (< 60s CI) | `unittest.mock` / Pytest | High | Low | v0.2.6 | 📋 Scheduled |
 | | In-Memory Embedding LRU Cache & Chunk Dedup | `functools` / Hash | High | Low | v0.2.6 | 📋 Scheduled |
 | | Adaptive Test Sharding & Fast Path Test Selector | Pytest / Git | High | Low | v0.2.6 | 📋 Scheduled |
 | | Autonomous RAG Index Drift Detection & Auto-Reindex | Git / Qdrant Sync | High | Low | v0.2.6 | 📋 Scheduled |
