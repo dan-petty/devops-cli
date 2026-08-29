@@ -491,6 +491,18 @@ class ReviewCommandHelp:
     status_export: str = "Finding status to export: INVALIDATED, VERIFIED, MITIGATED, or ALL."
     interactive_patch: str = "Preview patch diff interactively."
     explain_review: str = "Explain code review personas, severity levels, and terminology."
+    no_pre_analysis: str = "Disable Stage 1 pre-analysis and metadata refresh."
+    pre_analysis_only: str = "Run Stage 1 pre-analysis only and skip subsequent stages."
+    no_static_scan: str = "Disable Stage 2 static security scanning."
+    static_scan_only: str = "Run Stage 2 static scanning only and skip subsequent stages."
+    no_persona_review: str = "Disable Stage 3 multi-persona LLM inspection."
+    persona_review_only: str = "Run Stage 3 persona review only and skip subsequent stages."
+    no_verification: str = "Disable Stage 4 finding verification and adversarial debate."
+    verification_only: str = "Run Stage 4 verification only and skip subsequent stages."
+    no_reranking: str = "Disable Stage 5 finding re-ranking and deduplication."
+    reranking_only: str = "Run Stage 5 re-ranking only and skip subsequent stages."
+    no_reporting: str = "Disable Stage 6 consolidated report generation."
+    reporting_only: str = "Run Stage 6 report generation only."
 
 
 @dataclass(frozen=True)

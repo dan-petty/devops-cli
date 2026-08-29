@@ -13,6 +13,7 @@ if TYPE_CHECKING:
 import typer
 
 from devops_cli.ai.personas import Persona
+from devops_cli.ai.review.flags import resolve_stage_flags
 from devops_cli.config.constants import (
     CONST_GIT_MAIN_BRANCH,
     CONST_STATUS_INVALIDATED,
@@ -284,6 +285,54 @@ def path(
         bool,
         typer.Option("--explain", "-e", help=HELP.review.explain_review),
     ] = False,
+    no_pre_analysis: Annotated[
+        bool,
+        typer.Option("--no-pre-analysis", help=HELP.review.no_pre_analysis),
+    ] = False,
+    pre_analysis_only: Annotated[
+        bool,
+        typer.Option("--pre-analysis-only", help=HELP.review.pre_analysis_only),
+    ] = False,
+    no_static_scan: Annotated[
+        bool,
+        typer.Option("--no-static-scan", help=HELP.review.no_static_scan),
+    ] = False,
+    static_scan_only: Annotated[
+        bool,
+        typer.Option("--static-scan-only", help=HELP.review.static_scan_only),
+    ] = False,
+    no_persona_review: Annotated[
+        bool,
+        typer.Option("--no-persona-review", help=HELP.review.no_persona_review),
+    ] = False,
+    persona_review_only: Annotated[
+        bool,
+        typer.Option("--persona-review-only", help=HELP.review.persona_review_only),
+    ] = False,
+    no_verification: Annotated[
+        bool,
+        typer.Option("--no-verification", help=HELP.review.no_verification),
+    ] = False,
+    verification_only: Annotated[
+        bool,
+        typer.Option("--verification-only", help=HELP.review.verification_only),
+    ] = False,
+    no_reranking: Annotated[
+        bool,
+        typer.Option("--no-reranking", help=HELP.review.no_reranking),
+    ] = False,
+    reranking_only: Annotated[
+        bool,
+        typer.Option("--reranking-only", help=HELP.review.reranking_only),
+    ] = False,
+    no_reporting: Annotated[
+        bool,
+        typer.Option("--no-reporting", help=HELP.review.no_reporting),
+    ] = False,
+    reporting_only: Annotated[
+        bool,
+        typer.Option("--reporting-only", help=HELP.review.reporting_only),
+    ] = False,
 ) -> None:
     """Review source files directly (no git required)."""
     if explain:
@@ -292,6 +341,20 @@ def path(
         render_explanation("review")
         return
     set_dry_run(dry_run)
+    stage_flags = resolve_stage_flags(
+        no_pre_analysis=no_pre_analysis,
+        pre_analysis_only=pre_analysis_only,
+        no_static_scan=no_static_scan,
+        static_scan_only=static_scan_only,
+        no_persona_review=no_persona_review,
+        persona_review_only=persona_review_only,
+        no_verification=no_verification,
+        verification_only=verification_only,
+        no_reranking=no_reranking,
+        reranking_only=reranking_only,
+        no_reporting=no_reporting,
+        reporting_only=reporting_only,
+    )
     settings = load_settings()
     clients = _make_review_clients(settings)
     path_targets = targets or [DEFAULT_CURRENT_PATH]
@@ -340,6 +403,7 @@ def path(
         target_type="path",
         target_ref=target_ref,
         target_dir=target_dir,
+        stage_flags=stage_flags,
     )
 
 
@@ -382,6 +446,54 @@ def branch(
         bool,
         typer.Option("--explain", "-e", help=HELP.review.explain_review),
     ] = False,
+    no_pre_analysis: Annotated[
+        bool,
+        typer.Option("--no-pre-analysis", help=HELP.review.no_pre_analysis),
+    ] = False,
+    pre_analysis_only: Annotated[
+        bool,
+        typer.Option("--pre-analysis-only", help=HELP.review.pre_analysis_only),
+    ] = False,
+    no_static_scan: Annotated[
+        bool,
+        typer.Option("--no-static-scan", help=HELP.review.no_static_scan),
+    ] = False,
+    static_scan_only: Annotated[
+        bool,
+        typer.Option("--static-scan-only", help=HELP.review.static_scan_only),
+    ] = False,
+    no_persona_review: Annotated[
+        bool,
+        typer.Option("--no-persona-review", help=HELP.review.no_persona_review),
+    ] = False,
+    persona_review_only: Annotated[
+        bool,
+        typer.Option("--persona-review-only", help=HELP.review.persona_review_only),
+    ] = False,
+    no_verification: Annotated[
+        bool,
+        typer.Option("--no-verification", help=HELP.review.no_verification),
+    ] = False,
+    verification_only: Annotated[
+        bool,
+        typer.Option("--verification-only", help=HELP.review.verification_only),
+    ] = False,
+    no_reranking: Annotated[
+        bool,
+        typer.Option("--no-reranking", help=HELP.review.no_reranking),
+    ] = False,
+    reranking_only: Annotated[
+        bool,
+        typer.Option("--reranking-only", help=HELP.review.reranking_only),
+    ] = False,
+    no_reporting: Annotated[
+        bool,
+        typer.Option("--no-reporting", help=HELP.review.no_reporting),
+    ] = False,
+    reporting_only: Annotated[
+        bool,
+        typer.Option("--reporting-only", help=HELP.review.reporting_only),
+    ] = False,
 ) -> None:
     """Review a git branch diff with one or all AI personas."""
     if explain:
@@ -390,6 +502,20 @@ def branch(
         render_explanation("review")
         return
     set_dry_run(dry_run)
+    stage_flags = resolve_stage_flags(
+        no_pre_analysis=no_pre_analysis,
+        pre_analysis_only=pre_analysis_only,
+        no_static_scan=no_static_scan,
+        static_scan_only=static_scan_only,
+        no_persona_review=no_persona_review,
+        persona_review_only=persona_review_only,
+        no_verification=no_verification,
+        verification_only=verification_only,
+        no_reranking=no_reranking,
+        reranking_only=reranking_only,
+        no_reporting=no_reporting,
+        reporting_only=reporting_only,
+    )
     settings = load_settings()
     clients = _make_review_clients(settings)
     pages, title, agents_md = _prepare_branch_content(branch_name, base, repo_path)
@@ -405,6 +531,7 @@ def branch(
         target_type="branch",
         target_ref=str(branch_name or "active"),
         target_dir=repo_path,
+        stage_flags=stage_flags,
     )
 
 
@@ -444,6 +571,54 @@ def pr(
         bool,
         typer.Option("--explain", "-e", help=HELP.review.explain_review),
     ] = False,
+    no_pre_analysis: Annotated[
+        bool,
+        typer.Option("--no-pre-analysis", help=HELP.review.no_pre_analysis),
+    ] = False,
+    pre_analysis_only: Annotated[
+        bool,
+        typer.Option("--pre-analysis-only", help=HELP.review.pre_analysis_only),
+    ] = False,
+    no_static_scan: Annotated[
+        bool,
+        typer.Option("--no-static-scan", help=HELP.review.no_static_scan),
+    ] = False,
+    static_scan_only: Annotated[
+        bool,
+        typer.Option("--static-scan-only", help=HELP.review.static_scan_only),
+    ] = False,
+    no_persona_review: Annotated[
+        bool,
+        typer.Option("--no-persona-review", help=HELP.review.no_persona_review),
+    ] = False,
+    persona_review_only: Annotated[
+        bool,
+        typer.Option("--persona-review-only", help=HELP.review.persona_review_only),
+    ] = False,
+    no_verification: Annotated[
+        bool,
+        typer.Option("--no-verification", help=HELP.review.no_verification),
+    ] = False,
+    verification_only: Annotated[
+        bool,
+        typer.Option("--verification-only", help=HELP.review.verification_only),
+    ] = False,
+    no_reranking: Annotated[
+        bool,
+        typer.Option("--no-reranking", help=HELP.review.no_reranking),
+    ] = False,
+    reranking_only: Annotated[
+        bool,
+        typer.Option("--reranking-only", help=HELP.review.reranking_only),
+    ] = False,
+    no_reporting: Annotated[
+        bool,
+        typer.Option("--no-reporting", help=HELP.review.no_reporting),
+    ] = False,
+    reporting_only: Annotated[
+        bool,
+        typer.Option("--reporting-only", help=HELP.review.reporting_only),
+    ] = False,
 ) -> None:
     """Review a GitHub pull request with one or all AI personas."""
     if explain:
@@ -454,6 +629,20 @@ def pr(
     from devops_cli.config.settings import get_github_token
 
     set_dry_run(dry_run)
+    stage_flags = resolve_stage_flags(
+        no_pre_analysis=no_pre_analysis,
+        pre_analysis_only=pre_analysis_only,
+        no_static_scan=no_static_scan,
+        static_scan_only=static_scan_only,
+        no_persona_review=no_persona_review,
+        persona_review_only=persona_review_only,
+        no_verification=no_verification,
+        verification_only=verification_only,
+        no_reranking=no_reranking,
+        reranking_only=reranking_only,
+        no_reporting=no_reporting,
+        reporting_only=reporting_only,
+    )
     settings = load_settings()
     token = get_github_token(settings)
     if not token:
@@ -477,6 +666,7 @@ def pr(
         target_type="pr",
         target_ref=str(number),
         target_dir=Path.cwd(),
+        stage_flags=stage_flags,
     )
 
     if post_comment and reviews:

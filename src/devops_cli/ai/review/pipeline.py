@@ -29,6 +29,7 @@ from devops_cli.ai.analyze.cache import load_cached_analysis
 from devops_cli.ai.analyze.outlines import analyze_single_file
 from devops_cli.ai.client import LLMClient
 from devops_cli.ai.personas import PERSONAS
+from devops_cli.ai.review.flags import ReviewStageFlags
 from devops_cli.ai.review.sanitization import (
     _escape_backticks,
     _mask_secrets_in_content,
@@ -733,6 +734,7 @@ class ReviewPipelineOrchestrator:
         target_type: Literal["branch", "pr", "path"] = "path",
         target_ref: str = ".",
         force_refresh: bool = False,
+        stage_flags: ReviewStageFlags | None = None,
     ) -> dict[str, FileAnalysisMeta]:
         """Scan workspace and refresh metadata if files were edited or missing."""
         from devops_cli.ai.analyze.cache import save_analysis_metadata
@@ -740,6 +742,13 @@ class ReviewPipelineOrchestrator:
         from devops_cli.dry_run.state import is_dry_run
 
         if is_dry_run():
+            return {}
+
+        if stage_flags is not None and not stage_flags.pre_analysis:
+            print_info(
+                "[dim]Stage 1/6: Pre-analysis metadata scan skipped (disabled via flag)[/dim]",
+                prefix=False,
+            )
             return {}
 
         self.target_dir = target_dir
@@ -989,7 +998,9 @@ class ReviewPipelineOrchestrator:
         dep_cache: dict[tuple[str, str, str], list[VulnerabilityRecord]] = {}
         net_cache: dict[str, NetworkReputationRecord] = {}
 
-        if not unique_deps and not unique_nets:
+        from devops_cli.dry_run.state import is_dry_run
+
+        if is_dry_run() or (not unique_deps and not unique_nets):
             return dep_cache, net_cache
 
         osv_client = OSVClient()
@@ -1219,6 +1230,7 @@ class ReviewPipelineOrchestrator:
         file_paths: list[str],
         metadata_by_path: dict[str, FileAnalysisMeta],
         target_dir: Path | None = None,
+        stage_flags: ReviewStageFlags | None = None,
     ) -> list[FileReviewPayload]:
         """Initialize per-file JSON payloads under session files directory."""
         if target_dir is not None:
@@ -1232,7 +1244,15 @@ class ReviewPipelineOrchestrator:
             )
 
             # Step 2a: Static security tool batch scanning
-            static_findings_by_file = self._run_static_scanners(file_paths)
+            static_findings_by_file: dict[str, list[SavedFinding]]
+            if stage_flags is not None and not stage_flags.static_scan:
+                print_info(
+                    "[dim]  • Static security analyzers skipped (disabled via flag)[/dim]",
+                    prefix=False,
+                )
+                static_findings_by_file = {f: [] for f in file_paths}
+            else:
+                static_findings_by_file = self._run_static_scanners(file_paths)
 
             # Step 2b: Parse dependencies and network references across target files
             raw_file_data, unique_deps, unique_nets = (
@@ -1490,8 +1510,16 @@ class ReviewPipelineOrchestrator:
         file_payloads: list[FileReviewPayload],
         diff_text_by_file: dict[str, str],
         personas: list[str] | None = None,
+        stage_flags: ReviewStageFlags | None = None,
     ) -> None:
         """Run multi-persona review pipeline per file in parallel across configured AI nodes."""
+        if stage_flags is not None and not stage_flags.persona_review:
+            print_info(
+                "[dim]Stage 3/6: Persona code review skipped (disabled via flag)[/dim]",
+                prefix=False,
+            )
+            return
+
         active_personas = personas or ["devsecops", "architect", "qa"]
         total_files = len(file_payloads)
         server_info = self._get_server_info()
@@ -1680,8 +1708,19 @@ class ReviewPipelineOrchestrator:
                 prefix=False,
             )
 
-    def execute_finding_verification(self, file_payloads: list[FileReviewPayload]) -> None:
+    def execute_finding_verification(
+        self,
+        file_payloads: list[FileReviewPayload],
+        stage_flags: ReviewStageFlags | None = None,
+    ) -> None:
         """Verify findings against file contents and linked files in parallel."""
+        if stage_flags is not None and not stage_flags.verification:
+            print_info(
+                "[dim]Stage 4/6: Finding verification skipped (disabled via flag)[/dim]",
+                prefix=False,
+            )
+            return
+
         total_files = len(file_payloads)
         server_info = self._get_server_info()
 
@@ -1754,8 +1793,19 @@ class ReviewPipelineOrchestrator:
         json_target.parent.mkdir(parents=True, exist_ok=True)
         json_target.write_text(payload.model_dump_json(indent=2), encoding="utf-8")
 
-    def execute_finding_reranking(self, file_payloads: list[FileReviewPayload]) -> None:
+    def execute_finding_reranking(
+        self,
+        file_payloads: list[FileReviewPayload],
+        stage_flags: ReviewStageFlags | None = None,
+    ) -> None:
         """Validate and re-rank all findings into reportable vs non-reportable."""
+        if stage_flags is not None and not stage_flags.reranking:
+            print_info(
+                "[dim]Stage 5/6: Finding re-ranking skipped (disabled via flag)[/dim]",
+                prefix=False,
+            )
+            return
+
         n_p = len(file_payloads)
         with trace_span(
             "review.stage_5_reranking", attributes={"review.total_files": n_p}
@@ -2174,9 +2224,18 @@ class ReviewPipelineOrchestrator:
         )
 
     def generate_consolidated_report(
-        self, file_payloads: list[FileReviewPayload]
+        self,
+        file_payloads: list[FileReviewPayload],
+        stage_flags: ReviewStageFlags | None = None,
     ) -> tuple[dict[str, Any], str]:
         """Generate consolidated findings.json and client-facing Markdown report."""
+        if stage_flags is not None and not stage_flags.reporting:
+            print_info(
+                "[dim]Stage 6/6: Consolidated reporting skipped (disabled via flag)[/dim]",
+                prefix=False,
+            )
+            return {}, ""
+
         with trace_span(
             "review.stage_6_report_generation",
             attributes={"session_id": self.session_id, "review.total_files": len(file_payloads)},

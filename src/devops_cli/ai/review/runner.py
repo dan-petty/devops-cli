@@ -21,6 +21,7 @@ from devops_cli.ai.review.chunker import (
     _extract_segment_filenames,
     _split_source_file_blocks,
 )
+from devops_cli.ai.review.flags import ReviewStageFlags
 from devops_cli.ai.review.rendering import _render_review_result
 from devops_cli.ai.review.sanitization import (
     _mask_secrets_in_content,
@@ -1397,20 +1398,21 @@ def _run_orchestrator_review(
     pages: list[str],
     active_p: list[str],
     persona: Persona | None,
+    stage_flags: ReviewStageFlags | None = None,
 ) -> list[tuple[PersonaDefinition, ReviewResult | str]]:
     """Execute orchestrator pipeline review for all files."""
     payloads = orchestrator.init_per_file_payloads(
-        all_files, metadata_by_path, target_dir=target_dir
+        all_files, metadata_by_path, target_dir=target_dir, stage_flags=stage_flags
     )
     if not is_dry_run():
         diff_map = {f: "\n".join([p for p in pages if f in p]) for f in all_files}
         orchestrator.execute_multi_persona_review(
-            payloads, diff_text_by_file=diff_map, personas=active_p
+            payloads, diff_text_by_file=diff_map, personas=active_p, stage_flags=stage_flags
         )
-        orchestrator.execute_finding_verification(payloads)
-        orchestrator.execute_finding_reranking(payloads)
+        orchestrator.execute_finding_verification(payloads, stage_flags=stage_flags)
+        orchestrator.execute_finding_reranking(payloads, stage_flags=stage_flags)
 
-    _, report_md = orchestrator.generate_consolidated_report(payloads)
+    _, report_md = orchestrator.generate_consolidated_report(payloads, stage_flags=stage_flags)
     p_def = PERSONAS[persona or Persona.DEVSECOPS]
     return [(p_def, report_md)]
 
@@ -1427,6 +1429,7 @@ def _execute_review_workflow(
     target_type: Literal["branch", "pr", "path"] = "path",
     target_ref: str = ".",
     target_dir: Path = DEFAULT_CURRENT_PATH,
+    stage_flags: ReviewStageFlags | None = None,
 ) -> list[tuple[PersonaDefinition, ReviewResult | str]]:
     """Common review execution workflow for path, branch, and PR reviews."""
     from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
@@ -1463,6 +1466,7 @@ def _execute_review_workflow(
                 target_dir=target_dir,
                 target_type=target_type,
                 target_ref=target_ref,
+                stage_flags=stage_flags,
             )
             if all_files:
                 return _run_orchestrator_review(
@@ -1473,6 +1477,7 @@ def _execute_review_workflow(
                     pages,
                     active_p,
                     persona,
+                    stage_flags=stage_flags,
                 )
 
     if summary_only:

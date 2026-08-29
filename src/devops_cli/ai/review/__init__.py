@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from devops_cli.ai.review.chunker import diff_pages, find_repo_files
 from devops_cli.ai.review.exporter import FeedbackRecord, export_invalidated_feedback
+from devops_cli.ai.review.flags import ReviewStageFlags, resolve_stage_flags
 from devops_cli.ai.review.patching import stage_finding_patch
 from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
 from devops_cli.ai.review.runner import ReviewClients
@@ -27,6 +28,7 @@ __all__ = [
     "ReviewPipelineOrchestrator",
     "ReviewResult",
     "ReviewSessionPayload",
+    "ReviewStageFlags",
     "SavedFinding",
     "consolidate_duplicate_findings",
     "diff_pages",
@@ -35,5 +37,6 @@ __all__ = [
     "find_repo_files",
     "normalize_unicode_text",
     "parse_review_response",
+    "resolve_stage_flags",
     "stage_finding_patch",
 ]

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from devops_cli.ai.review_schema import Finding, SavedFinding
@@ -49,20 +50,50 @@ def _scan_bandit(py_files: list[Path], findings_map: dict[str, list[SavedFinding
         logger.debug("Bandit scan skipped: %s", exc)
 
 
+def _scan_single_yaml(
+    yf: Path,
+    findings_map: dict[str, list[SavedFinding]],
+    path_to_key: dict[Path, str],
+) -> None:
+    try:
+        pluto_res = run_pluto_scan(yf)
+        kl_res = run_kubelinter_scan(yf)
+        key = path_to_key.get(yf, str(yf))
+        if key in findings_map:
+            findings_map[key].extend(_wrap_findings(pluto_res + kl_res))
+    except Exception as exc:
+        logger.debug("K8s manifest scan skipped for %s: %s", yf, exc)
+
+
 def _scan_k8s_manifests(
     yaml_files: list[Path],
     findings_map: dict[str, list[SavedFinding]],
     path_to_key: dict[Path, str],
 ) -> None:
-    for yf in yaml_files:
-        try:
-            pluto_res = run_pluto_scan(yf)
-            kl_res = run_kubelinter_scan(yf)
-            key = path_to_key.get(yf, str(yf))
-            if key in findings_map:
-                findings_map[key].extend(_wrap_findings(pluto_res + kl_res))
-        except Exception as exc:
-            logger.debug("K8s manifest scan skipped: %s", exc)
+    if not yaml_files:
+        return
+    workers = min(len(yaml_files), 8)
+    if workers > 1:
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            executor.map(lambda yf: _scan_single_yaml(yf, findings_map, path_to_key), yaml_files)
+    else:
+        for yf in yaml_files:
+            _scan_single_yaml(yf, findings_map, path_to_key)
+
+
+def _scan_single_universal(
+    vp: Path,
+    findings_map: dict[str, list[SavedFinding]],
+    path_to_key: dict[Path, str],
+) -> None:
+    try:
+        gl_res = run_gitleaks_scan(vp)
+        sg_res = run_semgrep_scan(vp)
+        key = path_to_key.get(vp, str(vp))
+        if key in findings_map:
+            findings_map[key].extend(_wrap_findings(gl_res + sg_res))
+    except Exception as exc:
+        logger.debug("Gitleaks/Semgrep scan skipped for %s: %s", vp, exc)
 
 
 def _scan_universal_analyzers(
@@ -70,15 +101,15 @@ def _scan_universal_analyzers(
     findings_map: dict[str, list[SavedFinding]],
     path_to_key: dict[Path, str],
 ) -> None:
-    for vp in paths:
-        try:
-            gl_res = run_gitleaks_scan(vp)
-            sg_res = run_semgrep_scan(vp)
-            key = path_to_key.get(vp, str(vp))
-            if key in findings_map:
-                findings_map[key].extend(_wrap_findings(gl_res + sg_res))
-        except Exception as exc:
-            logger.debug("Gitleaks/Semgrep scan skipped: %s", exc)
+    if not paths:
+        return
+    workers = min(len(paths), 8)
+    if workers > 1:
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            executor.map(lambda vp: _scan_single_universal(vp, findings_map, path_to_key), paths)
+    else:
+        for vp in paths:
+            _scan_single_universal(vp, findings_map, path_to_key)
 
 
 def run_static_scan_stage(
