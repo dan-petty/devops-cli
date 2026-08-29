@@ -1,0 +1,56 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: jaeger-netpol
+  namespace: otel
+  labels:
+    app.kubernetes.io/name: jaeger
+    app.kubernetes.io/part-of: opentelemetry
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: jaeger
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # 1. UI port (16686): Ingress controllers, monitoring namespace, and local port forwards
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 16686
+    # 2. OTLP gRPC/HTTP and Jaeger trace ingestion ports (4317, 4318, 14268):
+    # Allow all cluster namespaces to send telemetry traces to Jaeger/OTLP
+    - from:
+        - namespaceSelector: {}
+      ports:
+        - protocol: TCP
+          port: 4317
+        - protocol: TCP
+          port: 4318
+        - protocol: TCP
+          port: 14268
+  egress:
+    # 1. Allow CoreDNS egress for cluster name resolution
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # 2. Allow in-namespace communication
+    - to:
+        - podSelector: {}

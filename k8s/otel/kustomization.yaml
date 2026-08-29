@@ -4,3 +4,4 @@ kind: Kustomization
 resources:
   - namespace.yaml
   - jaeger.yaml
+  - networkpolicy.yaml
