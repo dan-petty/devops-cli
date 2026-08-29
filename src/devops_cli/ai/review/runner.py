@@ -1152,7 +1152,7 @@ def _print_analysis_metadata(analysis_metas: dict[str, FileAnalysisMeta], title:
     print_table(columns=columns, rows=rows)
 
 
-def _make_review_clients(settings: Any) -> ReviewClients:
+def _make_review_clients(settings: Any, *, cache_enabled: bool | None = None) -> ReviewClients:
     """Build unified LLM clients for analysis and compose tasks."""
     api_key = get_ai_api_key(settings)
     return ReviewClients(
@@ -1160,11 +1160,13 @@ def _make_review_clients(settings: Any) -> ReviewClients:
             settings.ai.for_task("analysis"),
             api_key=api_key,
             request_timeout_seconds=DEFAULT_REVIEW_TIMEOUT_SECONDS,
+            cache_enabled=cache_enabled,
         ),
         compose=LLMClient(
             settings.ai.for_task("compose"),
             api_key=api_key,
             request_timeout_seconds=DEFAULT_REVIEW_TIMEOUT_SECONDS,
+            cache_enabled=cache_enabled,
         ),
     )
 

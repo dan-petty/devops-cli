@@ -333,6 +333,14 @@ def path(
         bool,
         typer.Option("--reporting-only", help=HELP.review.reporting_only),
     ] = False,
+    no_cache: Annotated[
+        bool,
+        typer.Option("--no-cache", help="Bypass LLM response cache and force fresh inference."),
+    ] = False,
+    force: Annotated[
+        bool,
+        typer.Option("--force", "-f", help="Force fresh review execution without cache."),
+    ] = False,
 ) -> None:
     """Review source files directly (no git required)."""
     if explain:
@@ -356,7 +364,7 @@ def path(
         reporting_only=reporting_only,
     )
     settings = load_settings()
-    clients = _make_review_clients(settings)
+    clients = _make_review_clients(settings, cache_enabled=False if (no_cache or force) else None)
     path_targets = targets or [DEFAULT_CURRENT_PATH]
 
     if len(path_targets) == 1:
@@ -494,6 +502,14 @@ def branch(
         bool,
         typer.Option("--reporting-only", help=HELP.review.reporting_only),
     ] = False,
+    no_cache: Annotated[
+        bool,
+        typer.Option("--no-cache", help="Bypass LLM response cache and force fresh inference."),
+    ] = False,
+    force: Annotated[
+        bool,
+        typer.Option("--force", "-f", help="Force fresh review execution without cache."),
+    ] = False,
 ) -> None:
     """Review a git branch diff with one or all AI personas."""
     if explain:
@@ -517,7 +533,7 @@ def branch(
         reporting_only=reporting_only,
     )
     settings = load_settings()
-    clients = _make_review_clients(settings)
+    clients = _make_review_clients(settings, cache_enabled=False if (no_cache or force) else None)
     pages, title, agents_md = _prepare_branch_content(branch_name, base, repo_path)
     _execute_review_workflow(
         pages,
@@ -619,6 +635,14 @@ def pr(
         bool,
         typer.Option("--reporting-only", help=HELP.review.reporting_only),
     ] = False,
+    no_cache: Annotated[
+        bool,
+        typer.Option("--no-cache", help="Bypass LLM response cache and force fresh inference."),
+    ] = False,
+    force: Annotated[
+        bool,
+        typer.Option("--force", "-f", help="Force fresh review execution without cache."),
+    ] = False,
 ) -> None:
     """Review a GitHub pull request with one or all AI personas."""
     if explain:
@@ -652,7 +676,7 @@ def pr(
         )
         raise typer.Exit(1)
 
-    clients = _make_review_clients(settings)
+    clients = _make_review_clients(settings, cache_enabled=False if (no_cache or force) else None)
     pages, title, agents_md, pull, repo_name = _prepare_pr_content(number, repo, token)
     reviews = _execute_review_workflow(
         pages,

@@ -269,6 +269,7 @@ class LLMClient:
         *,
         custom_endpoint: str | None = None,
         request_timeout_seconds: float | None = None,
+        cache_enabled: bool | None = None,
     ) -> None:
         if config is None:
             from devops_cli.config.settings import get_ai_api_key, load_settings
@@ -287,7 +288,8 @@ class LLMClient:
         self._ollama_url_lock = threading.Lock()
 
         cache_cfg = getattr(config, "cache", None)
-        cache_enabled = getattr(cache_cfg, "enabled", True) if cache_cfg is not None else True
+        if cache_enabled is None:
+            cache_enabled = getattr(cache_cfg, "enabled", True) if cache_cfg is not None else True
         if not isinstance(cache_enabled, bool):
             cache_enabled = True
         cache_dir_raw = getattr(cache_cfg, "dir", None) if cache_cfg is not None else None
