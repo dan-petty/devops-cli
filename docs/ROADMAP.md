@@ -162,6 +162,9 @@ High-density product roadmap, engineering milestones, and open-source integratio
 - [ ] **Continuous IDE File Watcher & Instant AI Review (`devops ai review path --watch`)**: Inotify/watchdog-backed background listener executing automated incremental multi-persona reviews on active file changes with configurable debounce windows (`--debounce-ms`).
 - [ ] **Declarative CLI Command Dispatch & Output Presenter Engine (`@cli_command_handler`)**: Universal decorator eliminating boilerplate formatting, dry-run routing, OpenTelemetry span creation, and multi-format serialization (`json|yaml|table|markdown`) across all 30+ Typer subcommands.
 - [ ] **Universal Subprocess Execution & SIEM Audit Pipeline (`ProcessExecutionPipeline`)**: Centralized command runner enforcing strict argument list sanitization, bounded timeouts, non-root safety, traceparent propagation, and structured audit trail recording (`.data/logs/audit.jsonl`).
+- [ ] **Parallel Async Multi-File Review Pipeline Pool (`devops ai review path`)**: Concurrent async file processing with semaphore bounding (`asyncio.Semaphore`) and token budgeting, cutting multi-file directory review runtimes by up to 70%.
+- [ ] **In-Memory Embedding LRU Cache & Chunk Dedup (`ai.rag.embeddings`)**: In-memory SHA-256 keyed embedding cache eliminating redundant vector generation calls for identical code chunks across files and commits.
+- [ ] **Adaptive Test Sharding & Fast Path Test Selector (`devops test --changed`)**: Git diff-aware test selection executing only impacted test files during local iterations, reducing developer test loop latency from minutes to seconds.
 - [ ] **Static Code Complexity & Cyclomatic Depth Linter (`devops scan complexity`)**: Automated AST scanner enforcing maximum cyclomatic complexity (< 10) and strict nesting limits across the codebase.
 - [ ] **Deterministic Async Memory & Connection Pool Profiler (`devops test profile-memory`)**: Memory leak detection and async socket lifecycle validation across background daemons and MCP workers using `asyncio` and `tracemalloc`.
 - [ ] **Autonomous RAG Index Drift Detection & Auto-Reindexing**: Scheduled background verification of vector store sync against workspace git tracking branches.
@@ -182,6 +185,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
 ### Universal Workflow Protocols, Secret Brokering & Semantic Search (v0.2.7 - Scheduled)
 - [ ] **Universal Multi-Stage Workflow Orchestration Protocol (`StagePipeline[ContextT, ResultT]`)**: Standardized 6-stage lifecycle abstraction (`pre_analysis`, `static_scan`, `persona_review`, `verification`, `reranking`, `reporting`) with unified lifecycle hooks and scratchpad reasoning handoffs across all agentic AI subcommands.
 - [ ] **Unified Async HTTP/2 Connection & Security Broker (`HttpClientBroker`)**: Centralized connection pool manager providing persistent keepalive, backoff retry policies, SSRF private network isolation, and traceparent propagation across all external API clients (LLMs, OSV, Shodan, Cloudflare, GitHub).
+- [ ] **Streaming JSON/YAML Serializer for High-Volume Review Sessions (`orjson`)**: Zero-copy, high-throughput serialization for large findings and metadata payloads, reducing peak RSS memory and serialization latency.
 - [ ] **Automated Dependency Vulnerability Remediation Engine (`devops scan fix`)**: Autonomous patching and version bumping in `pyproject.toml`, `requirements.txt`, `package.json`, and `Dockerfile` with automated pytest/CI gate validation and branch staging.
 - [ ] **Zero-Allocation Tokenizer & AST Stream Parser**: Zero-copy tokenizer stream processing for large diffs (> 500KB) reducing peak RSS memory by up to 60%.
 - [ ] **Cross-Encoder Context Re-Ranker & Deep Semantic RAG Optimization**: Two-stage dense-sparse retrieval with local cross-encoder re-ranking and vector index compaction.
@@ -250,9 +254,12 @@ High-density product roadmap, engineering milestones, and open-source integratio
 | | Self-Healing Vector Dimension & Embedding Chunking | Qdrant / Ollama | High | Low | v0.2.5 | ✅ Completed |
 | | Automated Review Feedback Dataset Learning | Dataset Export / Fine-Tuning | High | Low | v0.2.5 | ✅ Completed |
 | | Static Code Complexity & Cyclomatic Depth Linter | AST / Standard Library | High | Low | v0.2.6 | 📋 Scheduled |
+| | In-Memory Embedding LRU Cache & Chunk Dedup | `functools` / Hash | High | Low | v0.2.6 | 📋 Scheduled |
+| | Adaptive Test Sharding & Fast Path Test Selector | Pytest / Git | High | Low | v0.2.6 | 📋 Scheduled |
 | | Autonomous RAG Index Drift Detection & Auto-Reindex | Git / Qdrant Sync | High | Low | v0.2.6 | 📋 Scheduled |
 | | Multi-Model LLM Benchmark Evaluation Harness | Pytest / Feedback Dataset | High | Low | v0.2.6 | 📋 Scheduled |
 | | Deterministic Async Memory & Pool Profiler | `asyncio` / `tracemalloc` | Medium | Low | v0.2.6 | 📋 Scheduled |
+| | Streaming JSON/YAML Serializer for Large Reviews | `orjson` / Pydantic | High | Low | v0.2.7 | 📋 Scheduled |
 | | Zero-Allocation Tokenizer & AST Stream Parser | `tokenize` / Generator | High | Low | v0.2.7 | 📋 Scheduled |
 | | Zero-Trust Git Commit & Tag Signature Verifier | `git`, GPG, Sigstore | High | Low | v0.3.0 | 💡 Future Vision |
 | | JIT Python 3.14 Bytecode Optimization Benchmarking | `pytest-benchmark` / JIT | Medium | Low | v0.3.0 | 💡 Future Vision |
@@ -274,6 +281,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
 | | Continuous Live Resource & State Watchers (`--watch`) | `rich.live.Live` | High | Medium | v0.2.6 | 📋 Scheduled |
 | | Interactive Terminal UI Dashboard (`devops dashboard`) | `textual` TUI | High | Medium | v0.2.6 | 📋 Scheduled |
 | | Continuous IDE File Watcher & Instant AI Review | `watchdog` / AST | High | Medium | v0.2.6 | 📋 Scheduled |
+| | Parallel Async Multi-File Review Pipeline Pool | `asyncio` / Typer | High | Medium | v0.2.6 | 📋 Scheduled |
 | | Declarative CLI Command Dispatch Engine | Typer / Python Decorators | High | Medium | v0.2.6 | 📋 Scheduled |
 | | Universal Subprocess Execution Pipeline | Python Subprocess / OTel | High | Medium | v0.2.6 | 📋 Scheduled |
 | | Sigstore Cosign Container Provenance | `cosign` CLI / OS Keyring | High | Medium | v0.2.6 | 📋 Scheduled |
