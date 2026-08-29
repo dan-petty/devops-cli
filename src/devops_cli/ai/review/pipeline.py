@@ -15,6 +15,7 @@ Example:
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import time
@@ -208,17 +209,26 @@ def _process_pipeline_step_findings(
 
 
 def _try_reuse_cached_analysis_meta(
-    old_meta: FileAnalysisMeta, file_mtime: datetime
+    old_meta: FileAnalysisMeta, file_path: Path, file_mtime: datetime
 ) -> FileAnalysisMeta | None:
-    """Attempt to reuse cached analysis metadata if file has not been modified."""
+    """Attempt to reuse cached analysis metadata if file has not been modified and content matches."""
     if not (old_meta.last_analyzed and old_meta.pseudocode):
         return None
     try:
+        if not file_path.is_file():
+            return None
+        st = file_path.stat()
+        if old_meta.size_bytes and st.st_size != old_meta.size_bytes:
+            return None
         analyzed_dt = datetime.fromisoformat(old_meta.last_analyzed)
-        if file_mtime <= analyzed_dt:
-            return old_meta.model_copy(update={"last_analyzed": datetime.now(UTC).isoformat()})
+        if file_mtime > analyzed_dt:
+            return None
+        cur_hash = hashlib.sha256(file_path.read_bytes(), usedforsecurity=False).hexdigest()
+        if old_meta.content_hash and cur_hash != old_meta.content_hash:
+            return None
+        return old_meta.model_copy(update={"content_hash": cur_hash})
     except Exception as exc:
-        logger.debug("Failed parsing last_analyzed timestamp: %s", exc)
+        logger.debug("Failed validating cached metadata for %s: %s", file_path, exc)
     return None
 
 
@@ -568,7 +578,7 @@ def _collect_paths_to_analyze(
             if (
                 not force_refresh
                 and old_meta
-                and (reused := _try_reuse_cached_analysis_meta(old_meta, file_mtime))
+                and (reused := _try_reuse_cached_analysis_meta(old_meta, p, file_mtime))
             ):
                 file_metas.append(reused)
                 metadata_by_path[rel_str] = reused

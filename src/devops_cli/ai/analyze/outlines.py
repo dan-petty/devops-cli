@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import hashlib
 import json
 import logging
 import re
@@ -492,6 +493,7 @@ def analyze_single_file(
             else None
         )
 
+    content_hash = hashlib.sha256(content.encode("utf-8"), usedforsecurity=False).hexdigest()
     return FileAnalysisMeta(
         path=rel_path,
         size_bytes=size_bytes,
@@ -508,4 +510,5 @@ def analyze_single_file(
         complexity_score=complexity,
         confidence_score=confidence_score,
         quality_score=quality_score,
+        content_hash=content_hash,
     )

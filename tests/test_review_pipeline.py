@@ -953,3 +953,47 @@ def test_format_extraction_summary_distinguishes_probed_references() -> None:
         "2 in-file dependency(ies) and 1 in-file network target(s) "
         "(8 network targets probed from workspace configs)"
     )
+
+
+def test_try_reuse_cached_analysis_meta_invalidation(tmp_path: Path) -> None:
+    """Verify that cached metadata is invalidated when mtime or content hash changes."""
+    import hashlib
+    from datetime import UTC, datetime, timedelta
+
+    from devops_cli.ai.review.pipeline import _try_reuse_cached_analysis_meta
+    from devops_cli.models.ai import FileAnalysisMeta
+
+    test_file = tmp_path / "service.py"
+    test_file.write_text("def run(): pass\n", encoding="utf-8")
+    content_hash = hashlib.sha256(test_file.read_bytes(), usedforsecurity=False).hexdigest()
+
+    past_dt = datetime.now(UTC) - timedelta(hours=1)
+    future_dt = datetime.now(UTC) + timedelta(hours=1)
+
+    cached_meta = FileAnalysisMeta(
+        path="service.py",
+        size_bytes=len("def run(): pass\n"),
+        last_analyzed=future_dt.isoformat(),
+        pseudocode=["1. Run service loop"],
+        content_hash=content_hash,
+    )
+
+    # 1. Matching mtime & content hash -> Reused successfully
+    file_mtime = datetime.fromtimestamp(test_file.stat().st_mtime, UTC)
+    reused = _try_reuse_cached_analysis_meta(cached_meta, test_file, file_mtime)
+    assert reused is not None
+    assert reused.content_hash == content_hash
+    assert reused.pseudocode == ["1. Run service loop"]
+
+    # 2. File modified after cached last_analyzed -> Invalidated
+    stale_meta = cached_meta.model_copy(update={"last_analyzed": past_dt.isoformat()})
+    assert _try_reuse_cached_analysis_meta(stale_meta, test_file, file_mtime) is None
+
+    # 3. File content changed (hash mismatch) -> Invalidated
+    test_file.write_text("def run(): return 42\n", encoding="utf-8")
+    new_mtime = datetime.fromtimestamp(test_file.stat().st_mtime, UTC)
+    assert _try_reuse_cached_analysis_meta(cached_meta, test_file, new_mtime) is None
+
+    # 4. File size mismatch -> Invalidated
+    size_mismatched = cached_meta.model_copy(update={"size_bytes": 9999})
+    assert _try_reuse_cached_analysis_meta(size_mismatched, test_file, new_mtime) is None

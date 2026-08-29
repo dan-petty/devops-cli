@@ -270,6 +270,7 @@ class LLMClient:
         custom_endpoint: str | None = None,
         request_timeout_seconds: float | None = None,
         cache_enabled: bool | None = None,
+        append_cache: bool | None = None,
     ) -> None:
         if config is None:
             from devops_cli.config.settings import get_ai_api_key, load_settings
@@ -315,6 +316,11 @@ class LLMClient:
             ttl_seconds=cache_ttl,
             max_entries=cache_max,
         )
+        if append_cache is None:
+            append_cache = getattr(config, "append_cache", False) or getattr(
+                getattr(config, "cache", None), "append_cache", False
+            )
+        self._append_cache = bool(append_cache)
 
     @property
     def cache(self) -> Any:
@@ -579,6 +585,7 @@ class LLMClient:
         use_cache: bool = True,
         starting_point: str | None = None,
         context_tag: str | None = None,
+        append_cache: bool | None = None,
     ) -> LLMResponse:
         """Send a single-turn chat message and return the assistant reply."""
         return self.chat_messages(
@@ -590,6 +597,7 @@ class LLMClient:
             use_cache=use_cache,
             starting_point=starting_point,
             context_tag=context_tag,
+            append_cache=append_cache,
         )
 
     def _record_chat_telemetry(self, span_h: Any, res: LLMResponse) -> None:
@@ -743,11 +751,25 @@ class LLMClient:
         use_cache: bool = True,
         starting_point: str | None = None,
         context_tag: str | None = None,
+        append_cache: bool | None = None,
     ) -> LLMResponse:
         """Send a multi-turn chat request with response validation, caching, and retries."""
+        eff_append = self._append_cache if append_cache is None else append_cache
         eff_start = starting_point
         if eff_start is None and context_tag:
             eff_start = self._cache.get_starting_point(context_tag=context_tag)
+
+        if eff_append and eff_start is None and use_cache:
+            unaugmented_key = self._cache.generate_key(
+                provider=str(getattr(self._config, "provider", "ollama")),
+                model=str(getattr(self._config, "model", "default")),
+                system=system,
+                messages_or_prompt=messages,
+                options={"enable_thinking": enable_thinking},
+            )
+            cached_candidate = self._cache.get(unaugmented_key)
+            if cached_candidate is not None:
+                eff_start = cached_candidate.content
 
         out_messages = self._augment_messages(messages, eff_start)
         cache_key = self._cache.generate_key(
@@ -765,9 +787,10 @@ class LLMClient:
                 "gen_ai.request.model": self._config.model,
                 "gen_ai.enable_thinking": enable_thinking,
                 "use_cache": use_cache,
+                "append_cache": eff_append,
             },
         ) as span_h:
-            if use_cache and not eff_start:
+            if use_cache and not eff_start and not eff_append:
                 hit = self._check_chat_cache(cache_key, validator, span_h)
                 if hit is not None:
                     return hit

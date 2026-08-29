@@ -38,6 +38,7 @@ class FileAnalysisMeta(BaseModel):
     complexity_score: str | None = None
     confidence_score: float | None = None
     quality_score: float | None = None
+    content_hash: str | None = None
 
 
 class ProjectAnalysisMeta(BaseModel):

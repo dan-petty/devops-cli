@@ -248,6 +248,44 @@ def test_llm_client_starting_point_warm_refinement(
     assert "Here is the modified module.py diff" in dispatched_messages[0].content
 
 
+def test_llm_client_append_cache_flag(
+    monkeypatch: pytest.MonkeyPatch, clean_cache: LLMResponseCache
+) -> None:
+    """Verify LLMClient --append-cache injects cached response into prompt and runs live inference."""
+    cfg = AIConfig(provider="ollama", model="gemma4:26b")
+    client = LLMClient(config=cfg)
+    client._cache = clean_cache
+
+    dispatched_messages: list[ChatMessage] = []
+
+    def mock_dispatch(system: str, messages: list[ChatMessage], **kw: Any) -> LLMResponse:
+        dispatched_messages.extend(messages)
+        if len(dispatched_messages) == 1:
+            return LLMResponse("Prior finding: line 5 insecure TLS.")
+        return LLMResponse("Refined response: insecure TLS fixed, line 10 verified.")
+
+    monkeypatch.setattr(client, "_dispatch_messages", mock_dispatch)
+
+    # 1. First run: populate cache with initial response
+    res1 = client.chat("sys", "Review file", use_cache=True, append_cache=False)
+    assert "Prior finding: line 5 insecure TLS." in res1
+
+    # 2. Call with append_cache=True: Should NOT return cache hit, but append cached response to prompt
+    res2 = client.chat(
+        "sys",
+        "Review file",
+        use_cache=True,
+        append_cache=True,
+    )
+
+    assert "Refined response: insecure TLS fixed" in res2
+    assert res2.cached is False
+    assert len(dispatched_messages) == 2
+    assert "<starting_point>" in dispatched_messages[1].content
+    assert "Prior finding: line 5 insecure TLS." in dispatched_messages[1].content
+    assert "Review file" in dispatched_messages[1].content
+
+
 def test_ai_cache_cli_commands(clean_cache: LLMResponseCache) -> None:
     """Verify devops ai cache status and devops ai cache clear CLI commands."""
     from typer.testing import CliRunner

@@ -503,6 +503,7 @@ class ReviewCommandHelp:
     reranking_only: str = "Run Stage 5 re-ranking only and skip subsequent stages."
     no_reporting: str = "Disable Stage 6 consolidated report generation."
     reporting_only: str = "Run Stage 6 report generation only."
+    append_cache: str = "Append cached response to the LLM prompt as context instead of using it directly as the final response."
 
 
 @dataclass(frozen=True)

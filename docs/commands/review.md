@@ -42,6 +42,7 @@ devops review path [OPTIONS] <targets>
 | `--reporting-only` | `boolean` | - | Run Stage 6 report generation only. |
 | `--no-cache` | `boolean` | - | Bypass LLM response cache and force fresh inference. |
 | `--force`, `-f` | `boolean` | - | Force fresh review execution without cache. |
+| `--append-cache` | `boolean` | - | Append cached response to the LLM prompt as context instead of using it directly as the final response. |
 
 ---
 
@@ -84,6 +85,7 @@ devops review branch [OPTIONS] <branch_name>
 | `--reporting-only` | `boolean` | - | Run Stage 6 report generation only. |
 | `--no-cache` | `boolean` | - | Bypass LLM response cache and force fresh inference. |
 | `--force`, `-f` | `boolean` | - | Force fresh review execution without cache. |
+| `--append-cache` | `boolean` | - | Append cached response to the LLM prompt as context instead of using it directly as the final response. |
 
 ---
 
@@ -126,6 +128,7 @@ devops review pr [OPTIONS] <number>
 | `--reporting-only` | `boolean` | - | Run Stage 6 report generation only. |
 | `--no-cache` | `boolean` | - | Bypass LLM response cache and force fresh inference. |
 | `--force`, `-f` | `boolean` | - | Force fresh review execution without cache. |
+| `--append-cache` | `boolean` | - | Append cached response to the LLM prompt as context instead of using it directly as the final response. |
 
 ---
 

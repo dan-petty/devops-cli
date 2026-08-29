@@ -165,6 +165,7 @@ class AICacheConfig(BaseModel):
     dir: Path = DEFAULT_LLM_CACHE_DATA_DIR
     ttl_seconds: int = DEFAULT_LLM_CACHE_TTL_SECONDS
     max_entries: int = DEFAULT_LLM_CACHE_MAX_ENTRIES
+    append_cache: bool = False
 
 
 class AITaskOverride(BaseModel):
@@ -199,6 +200,7 @@ class AIConfig(BaseModel):
     api_base_url: str | None = None
     allow_private_network: bool = False
     max_retries: int = DEFAULT_AI_MAX_RETRIES
+    append_cache: bool = False
     tasks: AITasksConfig = AITasksConfig()
     rag: AIRAGConfig = AIRAGConfig()
     cache: AICacheConfig = AICacheConfig()

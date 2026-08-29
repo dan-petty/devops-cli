@@ -45,7 +45,7 @@ config:
       spike_limit_mib: 100
 
   exporters:
-    # Console/stdout exporter for local dev visibility
+    # Console/stdout exporter for local dev visibility (should be disabled or gated in production configurations)
     debug:
       verbosity: basic
 
@@ -55,11 +55,9 @@ config:
       tls:
         insecure: true
 
-    # Prometheus remote write to in-cluster Prometheus
+    # Prometheus remote write to in-cluster Prometheus (plain in-cluster HTTP)
     prometheusremotewrite:
       endpoint: http://kube-prometheus-kube-prome-prometheus.monitoring.svc.cluster.local:9090/api/v1/write
-      tls:
-        insecure: true
 
   service:
     pipelines:
