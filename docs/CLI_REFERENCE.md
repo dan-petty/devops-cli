@@ -2199,7 +2199,7 @@ devops ai repomap [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--target`, `-t` | `path` | - | Target root directory to generate symbol map for |
+| `--target`, `-t`, `--dir`, `-d` | `path` | - | Target root directory to generate symbol map for |
 | `--max-files`, `-n` | `integer` | `100` | Maximum source files to include |
 | `--include-tests` | `boolean` | - | Include test modules in symbol map |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
@@ -2223,7 +2223,7 @@ devops ai diagram [OPTIONS] <diagram_type>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--target`, `-t` | `path` | - | Target root directory to analyze |
+| `--target`, `-t`, `--dir`, `-d` | `path` | - | Target root directory to analyze |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -2407,8 +2407,14 @@ devops ai review pr [OPTIONS] <number>
 **Inspect structured findings for a review session.**
 
 ```bash
-devops ai review findings [OPTIONS]
+devops ai review findings [OPTIONS] <session>
 ```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<session>` | `string` | No | Session ID or substring (default: latest). |
 
 **Options:**
 
@@ -2935,8 +2941,14 @@ devops review pr [OPTIONS] <number>
 **Inspect structured findings for a review session.**
 
 ```bash
-devops review findings [OPTIONS]
+devops review findings [OPTIONS] <session>
 ```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<session>` | `string` | No | Session ID or substring (default: latest). |
 
 **Options:**
 

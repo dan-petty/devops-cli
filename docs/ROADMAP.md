@@ -151,6 +151,10 @@ High-density product roadmap, engineering milestones, and open-source integratio
 - [x] **FastMCP Tool Schema Completeness & Strict Type Validation**: Ensure 100% parameter descriptions, strict type annotations, and structured JSON schemas across 40 FastMCP tools.
 - [x] **Unified Domain Exception & POSIX Error Code Taxonomy**: Audit all error paths to ensure strongly typed domain exceptions inheriting from `DevOpsCLIError` with canonical error codes and masked paths.
 - [x] **Universal Pydantic Resource Model Catalog**: Standardized request and result resource models (`*Request` / `*Result`) across all domain subsystems (`docker`, `k8s`, `security`, `tf`, `config`, `workspace`, `release`, `ci`, `git`, `ai`) with dynamic FastMCP resource endpoints (`resource://*`).
+- [x] **Kubernetes Submodule Modular Decomposition**: Refactored monolithic `k8s.py` into a domain-driven `commands/k8s/` subpackage (`cluster_runtime`, `cluster_context`, `bootstrap`, `stack_lifecycle`, `networking`, `security_audit`, `tls_management`, `diagnostics`).
+- [x] **AI Review Cache Invalidation & Warm Starting Point Refinement (`--append-cache`)**: Deterministic file mtime & SHA-256 content-hash cache invalidation with prompt baseline augmentation (`<starting_point>`) for continuous review refinement.
+- [x] **Self-Healing Vector Dimension Adaptation & Embedding Chunking**: Auto-recovery on Qdrant collection vector dimension changes with adaptive batch chunking preventing Ollama embedding timeouts.
+- [x] **Automated Review Feedback Dataset Continuous Learning (`devops ai review export-feedback`)**: Exporting verified and invalidated findings into structured benchmark datasets (`.data/feedback_dataset.jsonl`) for prompt tuning and fine-tuning.
 
 ### Live State Watchers, Continuous Automation & Declarative Command Pipeline (v0.2.6 - Scheduled)
 - [ ] **Continuous Live Resource & State Watchers (`--watch` / `-w`)**: Real-time terminal auto-refresh and live event streaming across `devops k8s pods --watch`, `devops argo status --watch`, `devops docker stats --watch`, and `devops release status --watch` utilizing `rich.live.Live` with configurable intervals (`--interval`).
@@ -160,6 +164,8 @@ High-density product roadmap, engineering milestones, and open-source integratio
 - [ ] **Universal Subprocess Execution & SIEM Audit Pipeline (`ProcessExecutionPipeline`)**: Centralized command runner enforcing strict argument list sanitization, bounded timeouts, non-root safety, traceparent propagation, and structured audit trail recording (`.data/logs/audit.jsonl`).
 - [ ] **Static Code Complexity & Cyclomatic Depth Linter (`devops scan complexity`)**: Automated AST scanner enforcing maximum cyclomatic complexity (< 10) and strict nesting limits across the codebase.
 - [ ] **Deterministic Async Memory & Connection Pool Profiler (`devops test profile-memory`)**: Memory leak detection and async socket lifecycle validation across background daemons and MCP workers using `asyncio` and `tracemalloc`.
+- [ ] **Autonomous RAG Index Drift Detection & Auto-Reindexing**: Scheduled background verification of vector store sync against workspace git tracking branches.
+- [ ] **Multi-Model LLM Benchmark Evaluation Harness (`devops ai benchmark --suite`)**: Automated evaluation suite testing model responses against human-in-the-loop validated feedback datasets.
 - [ ] **Sigstore Cosign Container Provenance (`cosign`)**: Keyless container image and manifest signing (`devops docker sign|verify`) integrating with OS Keyring and OIDC tokens for verifiable supply-chain provenance.
 - [ ] **Syft & Grype Automated SBOM & Vulnerability Scanning (`syft`, `grype`)**: Automated Software Bill of Materials (SBOM) generation (`devops scan sbom`) in CycloneDX/SPDX formats and Grype container runtime vulnerability auditing with configurable severity thresholds (`--fail-on high|critical`).
 - [ ] **Infracost FinOps Cloud Cost Engine (`infracost`)**: `devops tf cost` integrating Infracost CLI to evaluate cloud financial impacts on Terraform/OpenTofu diffs, enriching `pm` & `architect` review personas with monthly cost deltas.
@@ -239,7 +245,13 @@ High-density product roadmap, engineering milestones, and open-source integratio
 | | FastMCP Tool Schema Completeness & Strict Types | FastMCP / Typing | High | Low | v0.2.5 | ✅ Completed |
 | | Unified Domain Exception Taxonomy | DevOpsCLIError / POSIX | High | Low | v0.2.5 | ✅ Completed |
 | | Universal Pydantic Resource Model Catalog | Pydantic v2 / FastMCP | High | Low | v0.2.5 | ✅ Completed |
+| | Kubernetes Submodule Modular Decomposition | Python Package Architecture | High | Low | v0.2.5 | ✅ Completed |
+| | AI Review Cache Invalidation & `--append-cache` | SHA-256 / Prompt Augmentation | High | Low | v0.2.5 | ✅ Completed |
+| | Self-Healing Vector Dimension & Embedding Chunking | Qdrant / Ollama | High | Low | v0.2.5 | ✅ Completed |
+| | Automated Review Feedback Dataset Learning | Dataset Export / Fine-Tuning | High | Low | v0.2.5 | ✅ Completed |
 | | Static Code Complexity & Cyclomatic Depth Linter | AST / Standard Library | High | Low | v0.2.6 | 📋 Scheduled |
+| | Autonomous RAG Index Drift Detection & Auto-Reindex | Git / Qdrant Sync | High | Low | v0.2.6 | 📋 Scheduled |
+| | Multi-Model LLM Benchmark Evaluation Harness | Pytest / Feedback Dataset | High | Low | v0.2.6 | 📋 Scheduled |
 | | Deterministic Async Memory & Pool Profiler | `asyncio` / `tracemalloc` | Medium | Low | v0.2.6 | 📋 Scheduled |
 | | Zero-Allocation Tokenizer & AST Stream Parser | `tokenize` / Generator | High | Low | v0.2.7 | 📋 Scheduled |
 | | Zero-Trust Git Commit & Tag Signature Verifier | `git`, GPG, Sigstore | High | Low | v0.3.0 | 💡 Future Vision |

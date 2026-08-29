@@ -190,10 +190,14 @@ class QdrantClient:
             status_val = (
                 str(info.status.value) if hasattr(info.status, "value") else str(info.status)
             )
+            params = getattr(info.config, "params", None)
+            vectors_cfg = getattr(params, "vectors", None)
+            vector_size = getattr(vectors_cfg, "size", None)
             return {
                 "status": status_val,
                 "points_count": points_count,
                 "vectors_count": vectors_count,
+                "vector_size": vector_size,
             }
         except Exception as exc:
             err_str = str(exc)
@@ -208,10 +212,20 @@ class QdrantClient:
         vector_size: int,
         distance: str = DEFAULT_QDRANT_DISTANCE,
     ) -> bool:
-        """Create collection if it does not already exist."""
+        """Create collection if it does not already exist, recreating if dimension changed."""
         info = self.get_collection_info(name)
         if info:
-            return True
+            curr_size = info.get("vector_size")
+            if curr_size is not None and curr_size != vector_size:
+                logger.warning(
+                    "Qdrant collection '%s' vector dimension mismatch (existing: %d, required: %d). Recreating...",
+                    name,
+                    curr_size,
+                    vector_size,
+                )
+                self.delete_collection(name)
+            else:
+                return True
 
         dist_enum = getattr(qmodels.Distance, distance.upper(), qmodels.Distance.COSINE)
         try:
@@ -326,6 +340,16 @@ class QdrantClient:
             except Exception as exc:
                 err_str = str(exc)
                 if "not found" in err_str.lower() or "404" in err_str:
+                    return []
+                if (
+                    "vector dimension error" in err_str.lower()
+                    or "dimension error" in err_str.lower()
+                ):
+                    logger.warning(
+                        "Qdrant search vector dimension mismatch in collection '%s': %s. Returning empty results.",
+                        name,
+                        exc,
+                    )
                     return []
                 logger.debug("Error searching collection %s: %s", name, exc)
                 raise QdrantClientError(f"Search failed in '{name}': {exc}") from exc

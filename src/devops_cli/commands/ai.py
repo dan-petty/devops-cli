@@ -1159,7 +1159,9 @@ def spec_verify_cmd(
 def repomap_cmd(
     target_dir: Annotated[
         Path | None,
-        typer.Option("--target", "-t", help="Target root directory to generate symbol map for"),
+        typer.Option(
+            "--target", "-t", "--dir", "-d", help="Target root directory to generate symbol map for"
+        ),
     ] = None,
     max_files: Annotated[
         int,
@@ -1225,7 +1227,7 @@ def diagram_cmd(
     ] = "arch",
     target_dir: Annotated[
         Path | None,
-        typer.Option("--target", "-t", help="Target root directory to analyze"),
+        typer.Option("--target", "-t", "--dir", "-d", help="Target root directory to analyze"),
     ] = None,
     json_output: Annotated[
         bool,

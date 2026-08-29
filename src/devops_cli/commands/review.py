@@ -793,6 +793,10 @@ def _build_finding_panel_lines(f: Any) -> list[str]:
 def list_findings(
     session: Annotated[
         str | None,
+        typer.Argument(help=HELP.review.session),
+    ] = None,
+    session_opt: Annotated[
+        str | None,
         typer.Option("--session", "-s", help=HELP.review.session),
     ] = None,
     status_filter: Annotated[
@@ -814,7 +818,8 @@ def list_findings(
     """Inspect structured findings for a review session."""
     from devops_cli.ai.review.runner import _find_session_dir
 
-    session_dir = _find_session_dir(session)
+    target_session = session or session_opt
+    session_dir = _find_session_dir(target_session)
     if not session_dir:
         _get("print_warning")("No review sessions found in .data/reviews/", prefix=False)
         raise typer.Exit(0)

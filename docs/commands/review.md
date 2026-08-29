@@ -137,8 +137,14 @@ devops review pr [OPTIONS] <number>
 **Inspect structured findings for a review session.**
 
 ```bash
-devops review findings [OPTIONS]
+devops review findings [OPTIONS] <session>
 ```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<session>` | `string` | No | Session ID or substring (default: latest). |
 
 **Options:**
 

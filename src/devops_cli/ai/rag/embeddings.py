@@ -176,7 +176,7 @@ class EmbeddingsEngine:
                     or [self.ai_config.api_base_url or "http://localhost:11434"]
                 )
             )
-        chunk_batch_size = 32
+        chunk_batch_size = 8
         max_parallel = max(1, min(16, getattr(self.ai_config, "ollama_max_parallel", 2)))
 
         batches = [
