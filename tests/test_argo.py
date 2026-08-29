@@ -221,3 +221,49 @@ def test_argo_commands_execution(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
             argo_app, ["rollouts", "status", "my-rollout", "--namespace", "argocd", "--watch"]
         )
         assert res_ro_status.exit_code == 0
+
+        # Test bootstrap-gitops dry-run
+        res_bg_dry = runner.invoke(
+            main_app,
+            [
+                "--dry-run",
+                "argo",
+                "cd",
+                "apps",
+                "bootstrap-gitops",
+                "--root-app",
+                str(sample_wf),
+            ],
+        )
+        assert res_bg_dry.exit_code == 0
+        from devops_cli.dry_run import set_dry_run
+
+        set_dry_run(False)
+
+        # Test bootstrap-gitops execution
+        res_bg = runner.invoke(
+            argo_app,
+            [
+                "cd",
+                "apps",
+                "bootstrap-gitops",
+                "--root-app",
+                str(sample_wf),
+                "--context",
+                "minikube",
+            ],
+        )
+        assert res_bg.exit_code == 0
+
+        # Test bootstrap-gitops missing manifest
+        res_bg_missing = runner.invoke(
+            argo_app,
+            [
+                "cd",
+                "apps",
+                "bootstrap-gitops",
+                "--root-app",
+                str(tmp_path / "nonexistent.yaml"),
+            ],
+        )
+        assert res_bg_missing.exit_code == 1

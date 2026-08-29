@@ -13,6 +13,16 @@ resources:
   requests:
     cpu: 100m
     memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
 
 # ── Collector pipeline configuration ─────────────────────────────────────────
 config:
@@ -43,11 +53,11 @@ config:
     otlp/jaeger:
       endpoint: jaeger.otel.svc.cluster.local:4317
       tls:
-        insecure: true
+        insecure: false
 
     # Prometheus remote write to in-cluster Prometheus
     prometheusremotewrite:
-      endpoint: http://kube-prometheus-kube-prome-prometheus.monitoring.svc.cluster.local:9090/api/v1/write
+      endpoint: https://kube-prometheus-kube-prome-prometheus.monitoring.svc.cluster.local:9090/api/v1/write
 
   service:
     pipelines:
@@ -66,9 +76,9 @@ config:
         processors: [memory_limiter, batch]
         exporters: [debug]
 
-# Expose OTLP ports as NodePort for application instrumentation
+# Expose OTLP ports via ClusterIP (internal cluster networking only)
 service:
-  type: NodePort
+  type: ClusterIP
 
 ports:
   metrics:
