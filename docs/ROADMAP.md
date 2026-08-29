@@ -165,6 +165,8 @@ High-density product roadmap, engineering milestones, and open-source integratio
 - [ ] **Infracost FinOps Cloud Cost Engine (`infracost`)**: `devops tf cost` integrating Infracost CLI to evaluate cloud financial impacts on Terraform/OpenTofu diffs, enriching `pm` & `architect` review personas with monthly cost deltas.
 - [ ] **Falco eBPF Runtime Security & Anomaly Streamer (`devops k8s security-stream`)**: Real-time streaming kernel anomaly and container syscall events via eBPF probes.
 - [ ] **Multi-Cluster ArgoCD Fleet Sync & Rollouts (`devops argo sync --fleet`)**: Advanced canary and blue-green rollout management with Prometheus metric-based rollback gates.
+- [ ] **Local GitOps Project Orchestration Pipeline (`devops argo cd apps bootstrap-gitops`)**: End-to-end declarative reconciliation connecting local background Git daemon (`git://host.minikube.internal:9418/k8s`), ArgoCD Root Application ("App of Apps" pattern), and multi-stack lifecycle (`infra`, `llm`).
+- [ ] **Automated GitOps Drift Detection & Webhook Synchronization (`devops argo gitops watch`)**: Real-time git commit and inotify/watchdog triggers automatically signaling ArgoCD applications to reconcile local workspace modifications.
 - [ ] **Core Dependency Ecosystem Alignment (`pyproject.toml`)**: Routine version upgrades and compatibility validation across runtime and development dependencies:
   - `click` (`8.4.2` → `8.5.0`) & `typer` (`0.27.1` → `0.27.2`)
   - `pydantic` (`2.13.4` → `2.13.5`) & `pydantic-ai` (`2.35.0` → `2.35.3`)
@@ -266,6 +268,8 @@ High-density product roadmap, engineering milestones, and open-source integratio
 | | Syft & Grype Automated SBOM & Vulnerability Scanning | `syft`, `grype` | High | Medium | v0.2.6 | 📋 Scheduled |
 | | Infracost FinOps Cloud Cost Engine | `infracost` CLI | High | Medium | v0.2.6 | 📋 Scheduled |
 | | Multi-Cluster ArgoCD Fleet Sync & Rollouts | Argo Rollouts / Prometheus | High | High | v0.2.6 | 📋 Scheduled |
+| | Local GitOps Project Orchestration Pipeline | Git Daemon / ArgoCD App-of-Apps | High | Medium | v0.2.6 | 📋 Scheduled |
+| | Automated GitOps Drift Detection & Webhook Sync | Watchdog / ArgoCD REST | High | Medium | v0.2.6 | 📋 Scheduled |
 | | Core Dependency Ecosystem Alignment | `uv lock --upgrade` / PyPI | Medium | Low | v0.2.6 | 📋 Scheduled |
 | | Falco eBPF Runtime Security & Anomaly Streamer | `falco` / eBPF | High | Medium | v0.2.6 | 📋 Scheduled |
 | | Universal Multi-Stage Workflow Orchestration Protocol | Python Generics / Pydantic | High | Medium | v0.2.7 | 📋 Scheduled |

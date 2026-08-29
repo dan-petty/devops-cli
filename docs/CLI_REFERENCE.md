@@ -1322,6 +1322,21 @@ devops argo cd apps status <name>
 |---|---|---|---|
 | `<name>` | `string` | Yes | Application name. |
 
+##### `devops argo cd apps bootstrap-gitops`
+
+**Bootstrap local GitOps project orchestration via ArgoCD and the Git daemon.**
+
+```bash
+devops argo cd apps bootstrap-gitops [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--root-app`, `-f` | `path` | `k8s/argocd/apps/root-app.yaml` | Path to root ArgoCD App-of-Apps manifest |
+| `--context`, `-c` | `string` | - | Kubernetes cluster context |
+
 ### `devops argo workflows`
 
 ```bash
@@ -2284,6 +2299,8 @@ devops ai review path [OPTIONS] <targets>
 | `--reranking-only` | `boolean` | - | Run Stage 5 re-ranking only and skip subsequent stages. |
 | `--no-reporting` | `boolean` | - | Disable Stage 6 consolidated report generation. |
 | `--reporting-only` | `boolean` | - | Run Stage 6 report generation only. |
+| `--no-cache` | `boolean` | - | Bypass LLM response cache and force fresh inference. |
+| `--force`, `-f` | `boolean` | - | Force fresh review execution without cache. |
 
 #### `devops ai review branch`
 
@@ -2322,6 +2339,8 @@ devops ai review branch [OPTIONS] <branch_name>
 | `--reranking-only` | `boolean` | - | Run Stage 5 re-ranking only and skip subsequent stages. |
 | `--no-reporting` | `boolean` | - | Disable Stage 6 consolidated report generation. |
 | `--reporting-only` | `boolean` | - | Run Stage 6 report generation only. |
+| `--no-cache` | `boolean` | - | Bypass LLM response cache and force fresh inference. |
+| `--force`, `-f` | `boolean` | - | Force fresh review execution without cache. |
 
 #### `devops ai review pr`
 
@@ -2360,6 +2379,8 @@ devops ai review pr [OPTIONS] <number>
 | `--reranking-only` | `boolean` | - | Run Stage 5 re-ranking only and skip subsequent stages. |
 | `--no-reporting` | `boolean` | - | Disable Stage 6 consolidated report generation. |
 | `--reporting-only` | `boolean` | - | Run Stage 6 report generation only. |
+| `--no-cache` | `boolean` | - | Bypass LLM response cache and force fresh inference. |
+| `--force`, `-f` | `boolean` | - | Force fresh review execution without cache. |
 
 #### `devops ai review findings`
 
@@ -2803,6 +2824,8 @@ devops review path [OPTIONS] <targets>
 | `--reranking-only` | `boolean` | - | Run Stage 5 re-ranking only and skip subsequent stages. |
 | `--no-reporting` | `boolean` | - | Disable Stage 6 consolidated report generation. |
 | `--reporting-only` | `boolean` | - | Run Stage 6 report generation only. |
+| `--no-cache` | `boolean` | - | Bypass LLM response cache and force fresh inference. |
+| `--force`, `-f` | `boolean` | - | Force fresh review execution without cache. |
 
 ### `devops review branch`
 
@@ -2841,6 +2864,8 @@ devops review branch [OPTIONS] <branch_name>
 | `--reranking-only` | `boolean` | - | Run Stage 5 re-ranking only and skip subsequent stages. |
 | `--no-reporting` | `boolean` | - | Disable Stage 6 consolidated report generation. |
 | `--reporting-only` | `boolean` | - | Run Stage 6 report generation only. |
+| `--no-cache` | `boolean` | - | Bypass LLM response cache and force fresh inference. |
+| `--force`, `-f` | `boolean` | - | Force fresh review execution without cache. |
 
 ### `devops review pr`
 
@@ -2879,6 +2904,8 @@ devops review pr [OPTIONS] <number>
 | `--reranking-only` | `boolean` | - | Run Stage 5 re-ranking only and skip subsequent stages. |
 | `--no-reporting` | `boolean` | - | Disable Stage 6 consolidated report generation. |
 | `--reporting-only` | `boolean` | - | Run Stage 6 report generation only. |
+| `--no-cache` | `boolean` | - | Bypass LLM response cache and force fresh inference. |
+| `--force`, `-f` | `boolean` | - | Force fresh review execution without cache. |
 
 ### `devops review findings`
 

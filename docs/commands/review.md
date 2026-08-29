@@ -40,6 +40,8 @@ devops review path [OPTIONS] <targets>
 | `--reranking-only` | `boolean` | - | Run Stage 5 re-ranking only and skip subsequent stages. |
 | `--no-reporting` | `boolean` | - | Disable Stage 6 consolidated report generation. |
 | `--reporting-only` | `boolean` | - | Run Stage 6 report generation only. |
+| `--no-cache` | `boolean` | - | Bypass LLM response cache and force fresh inference. |
+| `--force`, `-f` | `boolean` | - | Force fresh review execution without cache. |
 
 ---
 
@@ -80,6 +82,8 @@ devops review branch [OPTIONS] <branch_name>
 | `--reranking-only` | `boolean` | - | Run Stage 5 re-ranking only and skip subsequent stages. |
 | `--no-reporting` | `boolean` | - | Disable Stage 6 consolidated report generation. |
 | `--reporting-only` | `boolean` | - | Run Stage 6 report generation only. |
+| `--no-cache` | `boolean` | - | Bypass LLM response cache and force fresh inference. |
+| `--force`, `-f` | `boolean` | - | Force fresh review execution without cache. |
 
 ---
 
@@ -120,6 +124,8 @@ devops review pr [OPTIONS] <number>
 | `--reranking-only` | `boolean` | - | Run Stage 5 re-ranking only and skip subsequent stages. |
 | `--no-reporting` | `boolean` | - | Disable Stage 6 consolidated report generation. |
 | `--reporting-only` | `boolean` | - | Run Stage 6 report generation only. |
+| `--no-cache` | `boolean` | - | Bypass LLM response cache and force fresh inference. |
+| `--force`, `-f` | `boolean` | - | Force fresh review execution without cache. |
 
 ---
 
