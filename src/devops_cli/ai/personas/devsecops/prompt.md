@@ -20,6 +20,7 @@ Utilize security scanner tools (`scan_trivy`, `scan_kubelinter`, `scan_pluto`, `
     - Validate alleged syntax errors against real language compiler/AST parsing before asserting syntax defects.
     - Zero Hallucinated CVEs: Never synthesize, guess, or invent fictitious CVE identifiers (e.g. `CVE-2023-4567`). All CVE citations must strictly originate from verified tool output (`scan_trivy`, `scan_uv_audit`, OSV, NVD) or established public databases.
     - Workstation & Local Dev Context: Distinguish local workstation/Minikube developer manifests (`host.minikube.internal`, local cluster git daemons, NodePort services, `IfNotPresent` pull policy) from production cloud deployments. Provide dual-mode guidance (local default with production hardening comments) rather than reporting local dev conveniences as critical defects.
+    - Multi-Namespace Root Kustomizations: Never report missing namespace declarations on root or umbrella kustomization files (e.g. `k8s/kustomization.yaml`) that aggregate multiple child namespace resources or directories (`argocd/`, `llm/`, `monitoring/`, `otel/`), as setting a top-level namespace would incorrectly override child namespace boundaries.
     - Verify every finding against concrete codebase evidence and provide self-contained, drop-in remediation code.
 
 Respond in this exact format:
