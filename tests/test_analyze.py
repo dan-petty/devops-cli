@@ -80,14 +80,13 @@ def test_ai_analyze_path_command(tmp_path: Path) -> None:
     py_file = src_dir / "sample.py"
     py_file.write_text('"""Sample module."""\ndef hello() -> str:\n    return "hi"\n')
 
-    result = runner.invoke(app, ["ai", "analyze", "path", str(src_dir)])
+    with patch("devops_cli.commands.analyze.find_repo_root", return_value=tmp_path):
+        result = runner.invoke(app, ["ai", "analyze", "path", str(src_dir), "--no-enhanced"])
 
     assert result.exit_code == 0
-    analysis_file = tmp_path / ".data" / "analysis" / f"path-{tmp_path.name}-src-metadata.json"
-    if not analysis_file.exists():
-        files = list((tmp_path / ".data" / "analysis").glob("*.json"))
-        assert len(files) == 1
-        analysis_file = files[0]
+    files = list((tmp_path / ".data" / "analysis").glob("*.json"))
+    assert len(files) == 1
+    analysis_file = files[0]
 
     data = json.loads(analysis_file.read_text(encoding="utf-8"))
     payload = AnalysisMetadata.model_validate(data)
@@ -107,6 +106,8 @@ def test_ai_analyze_branch_dry_run(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_ai_analyze_path_enhanced(tmp_path: Path) -> None:
     """devops ai analyze path defaults to enhanced metadata."""
+    from devops_cli.ai.analyze.outlines import EnhancedMetadataOutput
+
     (tmp_path / ".git").mkdir()
     src_dir = tmp_path / "src"
     src_dir.mkdir()
@@ -115,32 +116,50 @@ def test_ai_analyze_path_enhanced(tmp_path: Path) -> None:
         '"""Worker module."""\ndef run_task() -> None:\n    if True:\n        pass\n'
     )
 
-    # Invoked without flags — enhanced is default True
-    result = runner.invoke(app, ["ai", "analyze", "path", str(src_dir)])
+    mock_enhanced = EnhancedMetadataOutput(
+        primary_purpose="Worker module for running tasks",
+        key_symbols=["run_task"],
+        dependencies=[],
+        pseudocode=["run_task(): pass"],
+        complexity_score="Low",
+        confidence_score=0.95,
+        quality_score=0.90,
+    )
 
-    assert result.exit_code == 0
-    files = list((tmp_path / ".data" / "analysis").glob("*.json"))
-    assert len(files) == 1
-    analysis_file = files[0]
+    with (
+        patch("devops_cli.commands.analyze.find_repo_root", return_value=tmp_path),
+        patch(
+            "devops_cli.ai.analyze.outlines._enhance_file_metadata_with_ai",
+            return_value=mock_enhanced,
+        ),
+    ):
+        # Invoked without flags — enhanced is default True
+        result = runner.invoke(app, ["ai", "analyze", "path", str(src_dir)])
 
-    data = json.loads(analysis_file.read_text(encoding="utf-8"))
-    payload = AnalysisMetadata.model_validate(data)
+        assert result.exit_code == 0
+        files = list((tmp_path / ".data" / "analysis").glob("*.json"))
+        assert len(files) == 1
+        analysis_file = files[0]
 
-    assert payload.project.enhanced is True
-    assert payload.project.last_analyzed is not None
-    file_meta = payload.files[0]
-    assert file_meta.pseudocode is not None
-    assert isinstance(file_meta.pseudocode, list)
-    assert len(file_meta.pseudocode) > 0
-    assert file_meta.last_updated is not None
-    assert file_meta.last_analyzed is not None
-    assert file_meta.complexity_score in ("Low", "Medium", "High")
+        data = json.loads(analysis_file.read_text(encoding="utf-8"))
+        payload = AnalysisMetadata.model_validate(data)
 
-    # Re-run analysis on unchanged file (incremental test)
-    result_rerun = runner.invoke(app, ["ai", "analyze", "path", str(src_dir)])
-    assert result_rerun.exit_code == 0
-    data_rerun = json.loads(analysis_file.read_text(encoding="utf-8"))
-    payload_rerun = AnalysisMetadata.model_validate(data_rerun)
+        assert payload.project.enhanced is True
+        assert payload.project.last_analyzed is not None
+        file_meta = payload.files[0]
+        assert file_meta.pseudocode is not None
+        assert isinstance(file_meta.pseudocode, list)
+        assert len(file_meta.pseudocode) > 0
+        assert file_meta.last_updated is not None
+        assert file_meta.last_analyzed is not None
+        assert file_meta.complexity_score in ("Low", "Medium", "High")
+
+        # Re-run analysis on unchanged file (incremental test)
+        result_rerun = runner.invoke(app, ["ai", "analyze", "path", str(src_dir)])
+        assert result_rerun.exit_code == 0
+        data_rerun = json.loads(analysis_file.read_text(encoding="utf-8"))
+        payload_rerun = AnalysisMetadata.model_validate(data_rerun)
+        assert payload_rerun.project.enhanced is True
     assert payload_rerun.files[0].pseudocode == file_meta.pseudocode
     assert payload_rerun.files[0].last_analyzed is not None
 
@@ -195,14 +214,33 @@ def test_enhanced_metadata_validation() -> None:
 
 def test_ai_analyze_quality_and_confidence_scores(tmp_path: Path) -> None:
     """ai analyze populates quality_score and dynamic confidence_score on metadata."""
+    from devops_cli.ai.analyze.outlines import EnhancedMetadataOutput
+
     (tmp_path / ".git").mkdir()
     src_dir = tmp_path / "src"
     src_dir.mkdir()
     py_file = src_dir / "worker.py"
     py_file.write_text('"""Worker module."""\ndef run_task() -> None:\n    pass\n')
 
-    result = runner.invoke(app, ["ai", "analyze", "path", str(src_dir)])
-    assert result.exit_code == 0
+    mock_enhanced = EnhancedMetadataOutput(
+        primary_purpose="Worker module for running tasks",
+        key_symbols=["run_task"],
+        dependencies=[],
+        pseudocode=["run_task(): pass"],
+        complexity_score="Low",
+        confidence_score=0.92,
+        quality_score=0.88,
+    )
+
+    with (
+        patch("devops_cli.commands.analyze.find_repo_root", return_value=tmp_path),
+        patch(
+            "devops_cli.ai.analyze.outlines._enhance_file_metadata_with_ai",
+            return_value=mock_enhanced,
+        ),
+    ):
+        result = runner.invoke(app, ["ai", "analyze", "path", str(src_dir)])
+        assert result.exit_code == 0
 
     files = list((tmp_path / ".data" / "analysis").glob("*.json"))
     assert len(files) == 1

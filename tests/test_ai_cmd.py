@@ -63,6 +63,7 @@ def test_ai_chat_and_agent(tmp_path: Path) -> None:
 
     with (
         patch.object(LLMClient, "chat", return_value=mock_resp),
+        patch.object(LLMClient, "preload_models", return_value={"qwen2.5-coder": True}),
         patch("devops_cli.config.settings.load_settings", return_value=Settings()),
     ):
         res_chat_explain = runner.invoke(ai_app, ["chat", "--explain"])
@@ -110,9 +111,12 @@ def test_ai_bundle_models_and_pipeline(tmp_path: Path) -> None:
 
     with (
         patch("devops_cli.ai.agents.pipeline.MultiAgentPipeline.run", return_value=mock_result),
+        patch("devops_cli.ai.tools.get_default_tools", return_value=[]),
         patch("devops_cli.config.settings.load_settings", return_value=Settings()),
     ):
-        res_pipe = runner.invoke(ai_app, ["pipeline", "Review system", "--max-turns", "2"])
+        res_pipe = runner.invoke(
+            ai_app, ["pipeline", "Review system", "--max-turns", "2", "--no-rag"]
+        )
         assert res_pipe.exit_code == 0
 
 
@@ -148,6 +152,8 @@ def test_ai_collect_project_context_and_agents_llm(tmp_path: Path) -> None:
         content="# AGENTS.md content\nArchitecture and standards.", wall_seconds=0.5
     )
     with (
+        patch("devops_cli.ai.rag.investigator.investigate_rag_context", return_value=None),
+        patch("devops_cli.commands.ai._try_retrieve_rag_context", return_value=None),
         patch("devops_cli.ai.client.LLMClient.chat", return_value=mock_resp),
         patch("devops_cli.config.settings.load_settings", return_value=Settings()),
     ):

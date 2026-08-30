@@ -162,7 +162,12 @@ class QdrantClient:
                 return status
 
         try:
-            self._execute_with_retry(lambda c: c.get_collections(), "is_alive", max_attempts=2)
+            probe_client = NativeQdrantClient(
+                url=self.base_url,
+                api_key=self.api_key,
+                timeout=1,
+            )
+            probe_client.get_collections()
             self._last_alive = (now, True)
             return True
         except Exception:

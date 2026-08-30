@@ -268,6 +268,15 @@ class SpanHandle(str):
         obj._links = links if links is not None else []
         return obj
 
+    def set_status(self, code: str, message: str = "") -> None:
+        """Set span status code and description."""
+        normalized_code = code.upper()
+        self._attributes["otel.status_code"] = normalized_code
+        if normalized_code == "ERROR":
+            self._attributes["error"] = True
+            if message:
+                self._attributes["otel.status_description"] = message
+
     def set_attribute(self, key: str, value: Any) -> None:
         """Set or update a single attribute on the active span."""
         self._attributes[key] = value
@@ -635,8 +644,12 @@ class OTelTelemetryClient:
                 if exit_code is not None:
                     attrs["cli.exit_code"] = exit_code
                     attrs["process.exit.code"] = exit_code
+                    if str(exc) == str(exit_code) or not str(exc):
+                        error_msg = f"{exc.__class__.__name__}(exit_code={exit_code})"
             if not isinstance(exc, (SystemExit, KeyboardInterrupt)):
                 handle.record_exception(exc)
+            else:
+                handle.set_status("ERROR", error_msg)
             raise
         finally:
             end_nano = int(time.time() * 1e9)
