@@ -9,8 +9,6 @@ from unittest.mock import MagicMock
 
 from devops_cli.ai.analyze.outlines import (
     _calculate_complexity_score,
-    _calculate_file_confidence_score,
-    _calculate_file_quality_score,
     _extract_class_pseudocode,
     _extract_function_pseudocode,
     _extract_json_pseudocode,
@@ -62,35 +60,8 @@ def standalone_helper(x: int) -> int:
 
 
 def test_outline_scoring_and_ast_helpers(tmp_path: Path) -> None:
-    """Verify confidence score, quality score, docstring line filter, and AST extraction."""
-
-    # 1. Scoring
-    conf_empty = _calculate_file_confidence_score("", "", [], [], None)
-    assert conf_empty == 0.50
-
-    conf_full = _calculate_file_confidence_score(
-        "content with plenty of code",
-        "A comprehensive purpose description",
-        ["sym1", "sym2"],
-        ["dep1"],
-        ["def helper():"],
-        ai_provided=True,
-    )
-    assert conf_full >= 0.85
-
-    qual_empty = _calculate_file_quality_score("", 0, [], "", None)
-    assert qual_empty == 0.50
-
-    qual_full = _calculate_file_quality_score(
-        '"""Docstring header"""\ndef main(): pass',
-        50,
-        ["main"],
-        "Main purpose",
-        ["def main():", "    return 1", "    return 2"],
-    )
-    assert qual_full >= 0.80
-
-    # 2. Docstring & import line detector
+    """Verify docstring line filter and AST extraction."""
+    # 1. Docstring & import line detector
     assert _is_import_or_docstring_line("import os") is True
     assert _is_import_or_docstring_line("from pathlib import Path") is True
     assert _is_import_or_docstring_line('"""Docstring"""') is True

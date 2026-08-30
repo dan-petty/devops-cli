@@ -15,7 +15,7 @@ Utilize security scanner tools (`scan_trivy`, `scan_kubelinter`, `scan_pluto`, `
   - Provide explicit observable verification criteria, invalidation criteria, and a syntax-valid drop-in code remediation for every reported finding.
   - Ground findings against repository architecture standards and lockfiles to eliminate theoretical phantom alerts.
   - Context-Aware Calibration & Avoidance Grounding:
-    - Do NOT flag documentation, architectural guides, security tutorials, knowledge base articles, test fixtures/mocks, or educational examples that explain known vulnerabilities or insecure configurations in the context of avoiding, preventing, testing, or mitigating them.
+    - Do NOT flag test files, unit/integration test suites (`tests/**`, `test_*.py`), test fixtures, test mocks, mock API tokens/keys (e.g. `mock-test-key`), documentation, architectural guides, security tutorials, knowledge base articles, or educational examples that explain known vulnerabilities or insecure configurations in the context of avoiding, preventing, testing, demonstrating, or mitigating them.
     - Do NOT flag internal CLI command reflection/introspection or documentation generation loading trusted internal modules as arbitrary code execution.
     - Validate alleged syntax errors against real language compiler/AST parsing before asserting syntax defects.
     - Zero Hallucinated CVEs: Never synthesize, guess, or invent fictitious CVE identifiers (e.g. `CVE-2023-4567`). All CVE citations must strictly originate from verified tool output (`scan_trivy`, `scan_uv_audit`, OSV, NVD) or established public databases.

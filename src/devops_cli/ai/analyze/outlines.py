@@ -135,65 +135,6 @@ def _enhance_file_metadata_with_ai(
     return None
 
 
-def _calculate_file_confidence_score(
-    content: str,
-    purpose: str,
-    symbols: list[str],
-    deps: list[str],
-    pseudocode: list[str] | None,
-    ai_provided: bool = False,
-) -> float:
-    """Calculate dynamic confidence score based on metadata completeness and source context."""
-    if not content.strip():
-        return 0.50
-
-    base = 0.50
-    if purpose and len(purpose.strip()) > 10:
-        base += 0.15
-    if symbols:
-        base += 0.10
-    if deps:
-        base += 0.05
-    if pseudocode and len(pseudocode) >= 1:
-        base += 0.10
-    if ai_provided:
-        base += 0.05
-
-    return round(min(0.98, max(0.40, base)), 2)
-
-
-def _calculate_file_quality_score(
-    content: str,
-    line_count: int,
-    symbols: list[str],
-    purpose: str,
-    pseudocode: list[str] | None,
-) -> float:
-    """Calculate dynamic code quality score (0.0 to 1.0) based on design clarity and structure."""
-    if not content.strip():
-        return 0.50
-
-    score = 0.50
-    if any(
-        line.strip().startswith(('"""', "'''", "//", "#", "/*", "<!--"))
-        for line in content.splitlines()[:5]
-    ):
-        score += 0.15
-
-    if symbols:
-        score += 0.15
-
-    if pseudocode and len(pseudocode) >= 3:
-        score += 0.10
-
-    if 10 <= line_count <= 500:
-        score += 0.10
-    elif line_count > 1500:
-        score -= 0.10
-
-    return round(min(0.98, max(0.30, score)), 2)
-
-
 def _is_import_or_docstring_line(line: str) -> bool:
     """Return True if line is an import statement, docstring delimiter, or canned prose."""
     s = line.strip().lower()
@@ -480,18 +421,8 @@ def analyze_single_file(
             if enhanced
             else None
         )
-        confidence_score = (
-            _calculate_file_confidence_score(
-                content, purpose, symbols, deps, pseudocode, ai_provided=False
-            )
-            if enhanced
-            else None
-        )
-        quality_score = (
-            _calculate_file_quality_score(content, line_count, symbols, purpose, pseudocode)
-            if enhanced
-            else None
-        )
+        confidence_score = None
+        quality_score = None
 
     content_hash = hashlib.sha256(content.encode("utf-8"), usedforsecurity=False).hexdigest()
     return FileAnalysisMeta(

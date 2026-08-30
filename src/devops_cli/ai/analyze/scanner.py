@@ -145,7 +145,7 @@ def detect_language(filepath: Path | str, content: str | None = None) -> str:
                 return "javascript"
 
     mime_type, _ = mimetypes.guess_type(str(filepath))
-    if mime_type:
+    if mime_type and "/" in mime_type:
         _, sub = mime_type.split("/", 1)
         sub_clean = sub.removeprefix("x-").removeprefix("vnd.").split(".")[0].split("+")[0]
         if sub_clean in _VALID_MIME_SUBTYPES:
@@ -248,16 +248,46 @@ def _extract_file_dependencies(content: str, lang: str) -> list[str]:
         return []
 
     deps: list[str] = []
+    # Match JS/TS import ... from 'pkg', require('pkg'), import('pkg')
+    js_patterns = [
+        re.compile(r"""(?:from|import|require)\s*\(?['"]([^'"./][^'"]*)['"]\)?"""),
+    ]
+    # Match Go imports
+    go_pattern = re.compile(r"""import\s+['"]([^'"]+)['"]""")
+    # Match Rust use declarations
+    rust_pattern = re.compile(r"""use\s+([a-zA-Z0-9_]+)::""")
+
     for line in content.splitlines():
         line_str = line.strip()
         if not line_str or line_str.startswith(("#", "//")):
             continue
-        if line_str.startswith(("import ", "from ", "require(")):
-            parts = line_str.split()
-            if len(parts) >= 2:
-                raw_pkg = parts[1].strip("'\"`;,")
-                if raw_pkg and raw_pkg not in deps and not raw_pkg.startswith("."):
-                    deps.append(raw_pkg)
+        if lang in ("javascript", "typescript"):
+            for pat in js_patterns:
+                for match in pat.finditer(line_str):
+                    pkg = (
+                        match.group(1).split("/")[0]
+                        if not match.group(1).startswith("@")
+                        else "/".join(match.group(1).split("/")[:2])
+                    )
+                    if pkg and pkg not in deps and not pkg.startswith("."):
+                        deps.append(pkg)
+        elif lang == "go":
+            for match in go_pattern.finditer(line_str):
+                pkg = match.group(1)
+                if pkg and pkg not in deps:
+                    deps.append(pkg)
+        elif lang == "rust":
+            for match in rust_pattern.finditer(line_str):
+                pkg = match.group(1)
+                if pkg and pkg not in deps and pkg not in ("crate", "super", "self", "std"):
+                    deps.append(pkg)
+        else:
+            if line_str.startswith(("import ", "from ", "require(")):
+                parts = line_str.split()
+                if len(parts) >= 2:
+                    raw_pkg = parts[1].strip("'\"`;,")
+                    if raw_pkg and raw_pkg not in deps and not raw_pkg.startswith("."):
+                        deps.append(raw_pkg)
     return deps[:12]
 
 

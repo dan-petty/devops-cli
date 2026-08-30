@@ -431,7 +431,7 @@ import internal_sub.helper
 
     # 4. _extract_file_dependencies for rust & unknown languages
     assert _extract_file_dependencies("const x = 1;", "python") == []
-    assert _extract_file_dependencies("use tokio::sync;", "rust") == []
+    assert _extract_file_dependencies("use tokio::sync;", "rust") == ["tokio"]
     assert _extract_file_dependencies("import fmt", "unknown_lang") == []
 
     # 5. _extract_file_purpose fallback stem
