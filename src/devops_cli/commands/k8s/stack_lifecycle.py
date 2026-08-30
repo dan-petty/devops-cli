@@ -194,11 +194,11 @@ def _bootstrap_openwebui_account(
     if not pod_name:
         return False
 
-    exec_cmd = ["kubectl", "exec", "-n", "llm", pod_name]
+    exec_cmd = ["kubectl", "exec", "-i", "-n", "llm", pod_name]
     if context:
         exec_cmd.extend(["--context", context])
-    exec_cmd.extend(["--", "python", "-c", py_script])
-    res = k8s._run_cmd(exec_cmd, check=False, capture=True)
+    exec_cmd.extend(["--", "python", "-"])
+    res = k8s._run_cmd(exec_cmd, input=py_script, check=False, capture=True)
     return res.returncode == 0
 
 

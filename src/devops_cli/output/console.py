@@ -445,6 +445,29 @@ def progress_context(
         yield _update
 
 
+def _sanitize_command_args_for_display(command: list[str]) -> list[str]:
+    """Mask sensitive argument values in command list before terminal printing."""
+    sanitized: list[str] = []
+    skip_next = False
+    for arg in command:
+        if skip_next:
+            sanitized.append("<masked>")
+            skip_next = False
+            continue
+        if arg in ("--password", "-p", "--token", "--api-key", "--secret", "--auth-token"):
+            sanitized.append(arg)
+            skip_next = True
+        elif any(
+            arg.startswith(prefix)
+            for prefix in ("--password=", "--token=", "--api-key=", "--secret=", "--auth-token=")
+        ):
+            key = arg.split("=", 1)[0]
+            sanitized.append(f"{key}=<masked>")
+        else:
+            sanitized.append(arg)
+    return sanitized
+
+
 def print_dry_run_command(
     command: list[str] | str,
     *,
@@ -459,7 +482,8 @@ def print_dry_run_command(
 
     c = console or get_console()
     if isinstance(command, list):
-        rendered = shlex.join(command)
+        safe_cmd = _sanitize_command_args_for_display(command)
+        rendered = shlex.join(safe_cmd)
         if cwd:
             rendered = f"(cd {shlex.quote(cwd)} && {rendered})"
     else:

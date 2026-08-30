@@ -30,6 +30,7 @@ def _k8s_clients() -> tuple[Any, Any]:
 def _run_cmd(
     cmd: list[str],
     *,
+    input: str | None = None,
     check: bool = True,
     capture: bool = False,
     timeout: float = DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
@@ -38,6 +39,7 @@ def _run_cmd(
 
     return k8s.run_subprocess(
         cmd,
+        input=input,
         check=check,
         capture_output=capture,
         text=True,
