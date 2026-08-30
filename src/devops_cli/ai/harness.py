@@ -8,7 +8,9 @@ import inspect
 import os
 import re
 import subprocess
+import time
 import uuid
+import warnings
 from collections import defaultdict
 from collections.abc import Callable, Mapping, Sequence
 from datetime import timedelta
@@ -3337,6 +3339,136 @@ class WarnNearLimits(BaseCapability):
         ]
 
 
+class CacheBustWarning(UserWarning):
+    """Warned when a previously-established prompt cache hit collapses on a later request."""
+
+
+class CacheMark(BaseModel):
+    """Tracking metrics for prompt cache stability per model and provider."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    established_prefix: int = 0
+    last_read_tokens: int = 0
+    last_request_time: float = 0.0
+    latched_warning: bool = False
+
+
+class WarnOnCacheBusts(BaseCapability):
+    """Capability that warns when prompt cache hits collapse mid-run."""
+
+    id: str = "warn_on_cache_busts"
+    collapse_ratio: float = Field(default=0.5, gt=0.0)
+    min_prefix_tokens: int = Field(default=1024, ge=0)
+    cache_ttl_seconds: float = Field(default=300.0, gt=0.0)
+    marks: dict[tuple[str, str], CacheMark] = Field(default_factory=dict)
+
+    def __init__(
+        self,
+        *,
+        collapse_ratio: float = 0.5,
+        min_prefix_tokens: int = 1024,
+        cache_ttl_seconds: float = 300.0,
+        id: str = "warn_on_cache_busts",
+    ) -> None:
+        if collapse_ratio <= 0.0:
+            raise ValueError(f"collapse_ratio must be greater than 0.0, got {collapse_ratio}")
+        super().__init__(
+            id=str(id or "warn_on_cache_busts"),
+            collapse_ratio=collapse_ratio,
+            min_prefix_tokens=min_prefix_tokens,
+            cache_ttl_seconds=cache_ttl_seconds,
+            marks={},
+        )
+
+    def for_run(self, ctx: RunContext[Any] | None = None) -> WarnOnCacheBusts:
+        """Return a fresh capability instance with clean per-run state."""
+        return WarnOnCacheBusts(
+            collapse_ratio=self.collapse_ratio,
+            min_prefix_tokens=self.min_prefix_tokens,
+            cache_ttl_seconds=self.cache_ttl_seconds,
+            id=self.id,
+        )
+
+    def record_usage(
+        self,
+        provider_name: str,
+        model_name: str,
+        cache_read_tokens: int,
+        cache_write_tokens: int = 0,
+        current_time: float | None = None,
+    ) -> str | None:
+        """Record model request cache token metrics and emit CacheBustWarning if collapse detected."""
+        now = current_time if current_time is not None else time.time()
+        key = (provider_name, model_name)
+        if key not in self.marks:
+            self.marks[key] = CacheMark(last_request_time=now)
+
+        mark = self.marks[key]
+        total_prefix = cache_read_tokens + cache_write_tokens
+        warning_msg: str | None = None
+
+        if mark.established_prefix >= self.min_prefix_tokens:
+            threshold = mark.established_prefix * self.collapse_ratio
+            if cache_read_tokens < threshold:
+                if not mark.latched_warning:
+                    gap = now - mark.last_request_time
+                    expiry_note = ""
+                    if mark.last_request_time > 0 and gap > self.cache_ttl_seconds:
+                        expiry_note = (
+                            f" (gap of {gap:.1f}s exceeds assumed cache TTL of {self.cache_ttl_seconds}s; "
+                            f"collapse may be provider cache expiry rather than moved prefix)"
+                        )
+
+                    warning_msg = (
+                        f"Prompt cache collapsed for {provider_name}:{model_name}: read {cache_read_tokens} cached tokens, "
+                        f"down from established prefix of {mark.established_prefix} tokens (< {self.collapse_ratio:.0%}){expiry_note}."
+                    )
+                    warnings.warn(warning_msg, category=CacheBustWarning, stacklevel=2)
+                    mark.latched_warning = True
+            else:
+                mark.latched_warning = False
+
+        mark.established_prefix = max(mark.established_prefix, total_prefix)
+        mark.last_read_tokens = cache_read_tokens
+        mark.last_request_time = now
+        return warning_msg
+
+    def after_model_request(
+        self,
+        ctx: RunContext[Any] | None = None,
+        *,
+        request_context: Any = None,
+        response: Any = None,
+    ) -> Any:
+        """Inspect model response usage for cache read/write tokens and track stability."""
+        if response is None:
+            return response
+
+        usage = getattr(response, "usage", None)
+        if usage is None and isinstance(response, dict):
+            usage = response.get("usage")
+
+        cache_read = getattr(usage, "cache_read_tokens", 0) or 0
+        cache_write = getattr(usage, "cache_write_tokens", 0) or 0
+        provider = (
+            getattr(request_context, "provider_name", "provider") if request_context else "provider"
+        )
+        model = getattr(request_context, "model_name", "model") if request_context else "model"
+
+        if isinstance(usage, dict):
+            cache_read = usage.get("cache_read_tokens", 0) or 0
+            cache_write = usage.get("cache_write_tokens", 0) or 0
+
+        self.record_usage(
+            provider_name=provider,
+            model_name=model,
+            cache_read_tokens=cache_read,
+            cache_write_tokens=cache_write,
+        )
+        return response
+
+
 class ReportContextUsage(BaseCapability):
     """Capability reporting token counts and context fractions."""
 
@@ -3889,6 +4021,8 @@ Summarize.model_rebuild()
 Band.model_rebuild()
 ToolOutputLimits.model_rebuild()
 WarnNearLimits.model_rebuild()
+CacheMark.model_rebuild()
+WarnOnCacheBusts.model_rebuild()
 Coder.model_rebuild()
 Researcher.model_rebuild()
 MacroscopeIssue.model_rebuild()

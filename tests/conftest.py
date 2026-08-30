@@ -43,13 +43,12 @@ def isolate_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
 
 @pytest.fixture(autouse=True)
-def isolate_devops_cli_config(tmp_path: Path):
+def isolate_devops_cli_config(tmp_path_factory: pytest.TempPathFactory):
     """Ensure tests do not load or mutate local workspace config.yaml or ~/.config."""
     from devops_cli.telemetry.tracer import reset_tracer
 
     reset_tracer()
-    config_dir = tmp_path / "isolated_config"
-    config_dir.mkdir(parents=True, exist_ok=True)
+    config_dir = tmp_path_factory.mktemp("isolated_test_config")
     dummy_config = config_dir / "config.yaml"
     dummy_config.write_text(
         "telemetry:\n  enabled: true\n  endpoint: http://localhost:4318\nai:\n  allow_private_network: true\n  rag:\n    enabled: false\n",

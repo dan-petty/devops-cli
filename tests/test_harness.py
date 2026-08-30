@@ -1515,3 +1515,101 @@ def test_tool_output_limits_suite(tmp_path: Path) -> None:
     assert tools[0].name == "read_tool_result"
     assert "line1" in tools[0].execute(handle=handle, offset=0, limit=2)
     assert "Error" in tools[0].execute(handle="nonexistent_handle")
+
+
+def test_warn_on_cache_busts_suite() -> None:
+    import pytest
+
+    from devops_cli.ai.harness import CacheBustWarning, WarnOnCacheBusts
+
+    # 1. Test validation error on zero/negative collapse_ratio
+    with pytest.raises(ValueError, match="collapse_ratio must be greater than 0.0"):
+        WarnOnCacheBusts(collapse_ratio=0.0)
+
+    # 2. Test normal operation and warnings
+    monitor = WarnOnCacheBusts(
+        collapse_ratio=0.5,
+        min_prefix_tokens=1000,
+        cache_ttl_seconds=300.0,
+    )
+
+    # First request establishes prefix of 2000 tokens (read=0, write=2000)
+    w1 = monitor.record_usage(
+        "anthropic",
+        "claude-3-5-sonnet",
+        cache_read_tokens=0,
+        cache_write_tokens=2000,
+        current_time=100.0,
+    )
+    assert w1 is None
+    mark = monitor.marks[("anthropic", "claude-3-5-sonnet")]
+    assert mark.established_prefix == 2000
+
+    # Second request hits cache with 2000 tokens -> healthy
+    w2 = monitor.record_usage(
+        "anthropic",
+        "claude-3-5-sonnet",
+        cache_read_tokens=2000,
+        cache_write_tokens=500,
+        current_time=110.0,
+    )
+    assert w2 is None
+    assert mark.established_prefix == 2500
+
+    # Third request collapses cache to 500 tokens (< 0.5 * 2500) -> emits warning
+    with pytest.warns(
+        CacheBustWarning, match="Prompt cache collapsed for anthropic:claude-3-5-sonnet"
+    ):
+        w3 = monitor.record_usage(
+            "anthropic",
+            "claude-3-5-sonnet",
+            cache_read_tokens=500,
+            cache_write_tokens=100,
+            current_time=120.0,
+        )
+        assert w3 is not None
+        assert "read 500 cached tokens" in w3
+
+    # Fourth request in sustained collapse -> stays latched and silent
+    w4 = monitor.record_usage(
+        "anthropic",
+        "claude-3-5-sonnet",
+        cache_read_tokens=400,
+        cache_write_tokens=0,
+        current_time=130.0,
+    )
+    assert w4 is None
+
+    # Fifth request with cache expiry gap (> 300s)
+    mark.latched_warning = False
+    with pytest.warns(CacheBustWarning, match="exceeds assumed cache TTL"):
+        w5 = monitor.record_usage(
+            "anthropic",
+            "claude-3-5-sonnet",
+            cache_read_tokens=100,
+            cache_write_tokens=0,
+            current_time=500.0,
+        )
+        assert w5 is not None
+        assert "exceeds assumed cache TTL" in w5
+
+    # 3. Test for_run produces isolated instance
+    run_monitor = monitor.for_run()
+    assert run_monitor.marks == {}
+    assert run_monitor.collapse_ratio == monitor.collapse_ratio
+
+    # 4. Test after_model_request hook integration
+    class DummyUsage:
+        cache_read_tokens = 2000
+        cache_write_tokens = 500
+
+    class DummyResponse:
+        usage = DummyUsage()
+
+    class DummyContext:
+        provider_name = "anthropic"
+        model_name = "claude-3-5-sonnet"
+
+    resp = run_monitor.after_model_request(request_context=DummyContext(), response=DummyResponse())
+    assert resp is not None
+    assert ("anthropic", "claude-3-5-sonnet") in run_monitor.marks
