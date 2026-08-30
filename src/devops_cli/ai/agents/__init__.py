@@ -37,6 +37,11 @@ from devops_cli.ai.agents.pipeline import (
     MultiAgentPipelineResult,
     PipelineStepResult,
 )
+from devops_cli.ai.agents.prompt import (
+    GLOBAL_PROMPT_REGISTRY,
+    ManagedPrompt,
+    PromptRegistry,
+)
 from devops_cli.ai.agents.pydantic_agent import (
     MCP,
     AgentHooks,
@@ -233,6 +238,7 @@ __all__ = [
     "FallbackCompaction",
     "FileSystem",
     "FunctionToolset",
+    "GLOBAL_PROMPT_REGISTRY",
     "GuardrailAction",
     "GuardrailCapability",
     "GuardrailResult",
@@ -251,6 +257,7 @@ __all__ = [
     "Macroscope",
     "MacroscopeIssue",
     "MacroscopeReview",
+    "ManagedPrompt",
     "Media",
     "MediaExternalizer",
     "MediaStore",
@@ -279,6 +286,7 @@ __all__ = [
     "PlanStore",
     "PlaywrightBrowser",
     "PromptInjectionDefender",
+    "PromptRegistry",
     "PydanticAIDocs",
     "PyaiDocs",
     "DEFAULT_PYAI_DOCS_TOPICS",

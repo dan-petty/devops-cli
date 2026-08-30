@@ -20,6 +20,7 @@ DEFAULT_PYAI_DOCS_TOPICS: tuple[str, ...] = (
     "handle-deferred-tool-calls",
     "hooks",
     "instrumentation",
+    "managed-prompt",
     "media",
     "prompt-injection-defender",
     "spend",
