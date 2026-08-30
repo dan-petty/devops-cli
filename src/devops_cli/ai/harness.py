@@ -12,7 +12,7 @@ import uuid
 from collections import defaultdict
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
-from typing import Any, Literal, cast
+from typing import Any, Literal, Protocol, cast, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -2740,12 +2740,43 @@ class DeduplicateFileReads(BaseCapability):
         return compacted
 
 
+@runtime_checkable
+class TranscriptHandleProvider(Protocol):
+    """Protocol for capabilities providing persisted transcript handles to compaction receipts."""
+
+    def compaction_transcript_handle(self) -> str | None:
+        """Return the run identifier or handle for the persisted transcript."""
+        ...
+
+
+class CompactionReceipt(BaseModel):
+    """Deterministic receipt documenting context compaction for model legibility."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    strategy: str
+    messages_dropped: int = 0
+    tokens_dropped: int = 0
+    handle: str | None = None
+
+    def to_receipt_text(self) -> str:
+        """Format the deterministic receipt text block."""
+        handle_part = f", handle={self.handle}" if self.handle else ""
+        return (
+            f"[Compaction Receipt: strategy={self.strategy}, "
+            f"messages_dropped={self.messages_dropped}, "
+            f"tokens_dropped={self.tokens_dropped}{handle_part}]"
+        )
+
+
 class SlidingWindowCompaction(BaseCapability):
     """Capability that drops older whole messages down to a recent tail."""
 
     id: str = "sliding_window_compaction"
     max_messages: int = 20
     keep_user_messages: bool = True
+    receipts: bool = False
+    transcript_handle_provider: Any | None = None
 
     def compact_messages(self, messages: list[Any]) -> list[Any]:
         """Retain the first message (system/instruction) and the last max_messages."""
@@ -2755,8 +2786,26 @@ class SlidingWindowCompaction(BaseCapability):
         pinned = [m for m in messages if is_pinned(m)]
         first_msg = messages[0]
         tail = messages[-self.max_messages :]
+        dropped_count = len(messages) - (len(tail) + 1)
 
-        combined = [first_msg] + [m for m in tail if m != first_msg]
+        combined: list[Any] = [first_msg]
+        if self.receipts and dropped_count > 0:
+            handle = None
+            if self.transcript_handle_provider and hasattr(
+                self.transcript_handle_provider, "compaction_transcript_handle"
+            ):
+                handle = self.transcript_handle_provider.compaction_transcript_handle()
+            receipt = CompactionReceipt(
+                strategy=self.__class__.__name__,
+                messages_dropped=dropped_count,
+                tokens_dropped=dropped_count * 50,
+                handle=handle,
+            )
+            from devops_cli.models.ai import ChatMessage
+
+            combined.append(ChatMessage(role="system", content=receipt.to_receipt_text()))
+
+        combined.extend([m for m in tail if m != first_msg])
         return reinject_pinned(combined, pinned)
 
 
@@ -2770,6 +2819,12 @@ class SummarizingCompaction(BaseCapability):
     )
     keep_tail: int = 4
     max_fraction: float = 0.8
+    incremental: bool = True
+    bridge_prefix: bool = False
+    keep_user_messages: bool = True
+    keep_user_messages_max_chars: int = 20000
+    receipts: bool = False
+    transcript_handle_provider: Any | None = None
 
     def compact_messages(self, messages: list[Any]) -> list[Any]:
         """Compress the middle turns into a concise summary block."""
@@ -2781,21 +2836,65 @@ class SummarizingCompaction(BaseCapability):
         tail = messages[-self.keep_tail :]
         middle = messages[1 : -self.keep_tail]
 
-        # Construct structured summary block from middle turns
-        summary_lines = [
-            f"- {getattr(m, 'role', 'turn')}: {str(getattr(m, 'content', ''))[:100]}..."
-            for m in middle
-            if getattr(m, "content", None)
-        ]
+        # Extract prior summary if incremental
+        prior_summary = ""
+        filtered_middle: list[Any] = []
+        for m in middle:
+            content = str(getattr(m, "content", ""))
+            if self.incremental and "[Conversation Summary:" in content:
+                prior_summary = content
+            else:
+                filtered_middle.append(m)
+
+        summary_lines: list[str] = []
+        if self.bridge_prefix:
+            summary_lines.append("[Cross-model bridge: context compressed across models]")
+
+        if prior_summary:
+            summary_lines.append(f"<previous-summary>\n{prior_summary}\n</previous-summary>")
+
+        # Retain recent user messages up to budget if requested
+        if self.keep_user_messages:
+            user_turns = [
+                m
+                for m in filtered_middle
+                if getattr(m, "role", "") == "user"
+                or (isinstance(m, dict) and m.get("role") == "user")
+            ]
+            for ut in user_turns[-2:]:
+                u_text = str(getattr(ut, "content", ""))[: self.keep_user_messages_max_chars]
+                summary_lines.append(f"User Goal: {u_text}")
+
+        for m in filtered_middle:
+            c = str(getattr(m, "content", ""))
+            if c:
+                summary_lines.append(f"- {getattr(m, 'role', 'turn')}: {c[:100]}...")
+
         summary_text = (
             f"[Conversation Summary: {len(middle)} earlier turns compressed]\n"
-            + "\n".join(summary_lines[:8])
+            + "\n".join(summary_lines[:10])
         )
 
         from devops_cli.models.ai import ChatMessage
 
-        summary_msg = ChatMessage(role="system", content=summary_text)
-        combined = [first_msg, summary_msg] + tail
+        combined: list[Any] = [first_msg]
+
+        if self.receipts:
+            handle = None
+            if self.transcript_handle_provider and hasattr(
+                self.transcript_handle_provider, "compaction_transcript_handle"
+            ):
+                handle = self.transcript_handle_provider.compaction_transcript_handle()
+            receipt = CompactionReceipt(
+                strategy=self.__class__.__name__,
+                messages_dropped=len(middle),
+                tokens_dropped=len(middle) * 60,
+                handle=handle,
+            )
+            combined.append(ChatMessage(role="system", content=receipt.to_receipt_text()))
+
+        combined.append(ChatMessage(role="system", content=summary_text))
+        combined.extend(tail)
         return reinject_pinned(combined, pinned)
 
 
@@ -3408,6 +3507,7 @@ OSAccess.model_rebuild()
 CodeMode.model_rebuild()
 ToolSearch.model_rebuild()
 ContextUsage.model_rebuild()
+CompactionReceipt.model_rebuild()
 ClampOversizedMessages.model_rebuild()
 ClearToolResults.model_rebuild()
 DeduplicateFileReads.model_rebuild()

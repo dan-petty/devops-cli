@@ -1317,6 +1317,7 @@ def test_compaction_suite() -> None:
     assert deduped[1]["content"] == "v2 contents"
 
     # 5. Test SlidingWindowCompaction
+    # 5. Test SlidingWindowCompaction with receipts
     msgs = [ChatMessage(role="system", content="Prompt")] + [
         ChatMessage(role="user", content=f"Turn {i}") for i in range(10)
     ]
@@ -1326,11 +1327,34 @@ def test_compaction_suite() -> None:
     assert sw_compacted[0].content == "Prompt"
     assert sw_compacted[-1].content == "Turn 9"
 
-    # 6. Test SummarizingCompaction
-    sum_cap = SummarizingCompaction(keep_tail=2)
+    class DummyHandleProvider:
+        def compaction_transcript_handle(self) -> str:
+            return "run-12345"
+
+    sw_receipts = SlidingWindowCompaction(
+        max_messages=3, receipts=True, transcript_handle_provider=DummyHandleProvider()
+    )
+    sw_receipts_res = sw_receipts.compact_messages(msgs)
+    assert "Compaction Receipt:" in sw_receipts_res[1].content
+    assert "handle=run-12345" in sw_receipts_res[1].content
+
+    # 6. Test SummarizingCompaction with incremental & bridge_prefix
+    sum_cap = SummarizingCompaction(
+        keep_tail=2,
+        bridge_prefix=True,
+        receipts=True,
+        transcript_handle_provider=DummyHandleProvider(),
+    )
     sum_compacted = sum_cap.compact_messages(msgs)
-    assert len(sum_compacted) == 4  # System + Summary + last 2
-    assert "Conversation Summary:" in sum_compacted[1].content
+    assert "Compaction Receipt:" in sum_compacted[1].content
+    assert "Conversation Summary:" in sum_compacted[2].content
+    assert "Cross-model bridge:" in sum_compacted[2].content
+
+    # Incremental update on already summarized turn
+    incremental_res = sum_cap.compact_messages(
+        sum_compacted + [ChatMessage(role="user", content="Turn 11")]
+    )
+    assert "<previous-summary>" in incremental_res[2].content
 
     # 7. Test FallbackCompaction & TieredCompaction
     tiered = TieredCompaction(
