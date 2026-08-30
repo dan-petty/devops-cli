@@ -300,24 +300,33 @@ def init() -> None:
 # =============================================================================
 
 
+def _is_secret_configured(spec: EnvVarSpec, settings: Settings) -> bool:
+    """Check if a secret is configured in environment variables or OS Keyring."""
+    if os.environ.get(spec.env_var):
+        return True
+    if spec.option_key == opt.GITHUB_TOKEN:
+        return bool(get_github_token(settings))
+    if spec.option_key == opt.GRAFANA_TOKEN:
+        return bool(get_grafana_token(settings))
+    if spec.option_key == opt.ARGOCD_TOKEN:
+        return bool(get_argocd_token(settings))
+    if spec.option_key == opt.AI_API_KEY:
+        return bool(get_ai_api_key(settings))
+    return False
+
+
 def _resolve_env_spec_value(spec: EnvVarSpec, settings: Settings) -> tuple[object, bool]:
     """Return (value, is_from_env) for an environment variable specification."""
+    if spec.is_secret:
+        is_env = bool(os.environ.get(spec.env_var))
+        is_set = _is_secret_configured(spec, settings)
+        return ("****" if is_set else None), is_env
+
     env_val = os.environ.get(spec.env_var)
     if env_val is not None:
         return env_val, True
 
     if spec.option_key is None:
-        return None, False
-
-    if spec.is_secret:
-        if spec.option_key == opt.GITHUB_TOKEN:
-            return get_github_token(settings), False
-        if spec.option_key == opt.GRAFANA_TOKEN:
-            return get_grafana_token(settings), False
-        if spec.option_key == opt.ARGOCD_TOKEN:
-            return get_argocd_token(settings), False
-        if spec.option_key == opt.AI_API_KEY:
-            return get_ai_api_key(settings), False
         return None, False
 
     try:
@@ -548,8 +557,7 @@ def audit_keys_cmd(
     key_audit_records: list[dict[str, Any]] = []
 
     for option_key, keyring_name in KEYRING_KEYS.items():
-        stored_val = _keyring_get(keyring_name)
-        has_keyring = bool(stored_val)
+        has_keyring = bool(_keyring_get(keyring_name) is not None)
 
         env_var = env_var_for_option(option_key)
         has_env = bool(os.environ.get(env_var)) if env_var else False
