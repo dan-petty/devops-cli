@@ -12,26 +12,15 @@ from devops_cli.ai.review_schema import FileReviewPayload, SavedFinding
 from devops_cli.models.ai import FileAnalysisMeta
 
 
+@pytest.fixture(autouse=True)
+def mock_rag_investigator():
+    with patch("devops_cli.ai.rag.investigator.investigate_rag_context", return_value=None):
+        yield
+
+
 def test_review_pipeline_stages(tmp_path: Path, monkeypatch) -> None:
     """Test 6-stage review pipeline initialization and execution."""
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
-
-    orchestrator = ReviewPipelineOrchestrator(session_id="test-session")
-
-    # Stage 1: Pre-analysis refresh
-    meta_dict = orchestrator.run_pre_analysis_refresh(tmp_path)
-    assert isinstance(meta_dict, dict)
-
-    # Stage 2: Per-file payload initialization
-    fmeta = FileAnalysisMeta(path="src/dummy.py", key_symbols=["foo"], dependencies=["utils"])
-    payloads = orchestrator.init_per_file_payloads(["src/dummy.py"], {"src/dummy.py": fmeta})
-    assert len(payloads) == 1
-    assert payloads[0].file_path == "src/dummy.py"
-    assert "ai_scratchpad" in payloads[0].model_dump()
-    assert payloads[0].ai_scratchpad["stage"] == "initialized"
-
-    file_json = orchestrator.files_dir / "src_dummy_py.json"
-    assert file_json.exists()
 
     # Mock LLM response handler
     mock_llm = MagicMock()
@@ -53,7 +42,25 @@ def test_review_pipeline_stages(tmp_path: Path, monkeypatch) -> None:
 
     mock_llm.chat_messages.side_effect = _fake_chat
     mock_llm.chat_complete.side_effect = _fake_chat
-    orchestrator.llm_client = mock_llm
+    mock_llm.chat.side_effect = _fake_chat
+    mock_llm.complete.side_effect = _fake_chat
+
+    orchestrator = ReviewPipelineOrchestrator(session_id="test-session", llm_client=mock_llm)
+
+    # Stage 1: Pre-analysis refresh
+    meta_dict = orchestrator.run_pre_analysis_refresh(tmp_path)
+    assert isinstance(meta_dict, dict)
+
+    # Stage 2: Per-file payload initialization
+    fmeta = FileAnalysisMeta(path="src/dummy.py", key_symbols=["foo"], dependencies=["utils"])
+    payloads = orchestrator.init_per_file_payloads(["src/dummy.py"], {"src/dummy.py": fmeta})
+    assert len(payloads) == 1
+    assert payloads[0].file_path == "src/dummy.py"
+    assert "ai_scratchpad" in payloads[0].model_dump()
+    assert payloads[0].ai_scratchpad["stage"] == "initialized"
+
+    file_json = orchestrator.files_dir / "src_dummy_py.json"
+    assert file_json.exists()
 
     # Stage 3: Multi-persona content review
     orchestrator.execute_multi_persona_review(

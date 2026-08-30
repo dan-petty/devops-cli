@@ -144,3 +144,47 @@ class ToolFailed(DevOpsCLIError, RuntimeError):
             error_code="TOOL_FAILED",
             details=details or {},
         )
+
+
+class ApprovalRequired(DevOpsCLIError, RuntimeError):
+    """Raised by a tool or validator when human approval is required to proceed."""
+
+    def __init__(
+        self,
+        message: str = "Tool call requires human approval",
+        *,
+        metadata: dict[str, Any] | None = None,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        merged_details = dict(details or {})
+        if metadata:
+            merged_details["metadata"] = metadata
+        super().__init__(
+            message,
+            exit_code=17,
+            error_code="APPROVAL_REQUIRED",
+            details=merged_details,
+        )
+        self.metadata = metadata or {}
+
+
+class CallDeferred(DevOpsCLIError, RuntimeError):
+    """Raised by a tool when execution is deferred to an external worker or async system."""
+
+    def __init__(
+        self,
+        message: str = "Tool call deferred to external execution",
+        *,
+        metadata: dict[str, Any] | None = None,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        merged_details = dict(details or {})
+        if metadata:
+            merged_details["metadata"] = metadata
+        super().__init__(
+            message,
+            exit_code=18,
+            error_code="CALL_DEFERRED",
+            details=merged_details,
+        )
+        self.metadata = metadata or {}

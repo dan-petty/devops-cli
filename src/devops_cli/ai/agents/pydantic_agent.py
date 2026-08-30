@@ -73,6 +73,8 @@ class RunContext[DepsT](BaseModel):
     retry: int = 0
     model: str = ""
     loaded_capability_ids: set[str] = Field(default_factory=set)
+    tool_call_approved: bool = False
+    tool_call_metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class BaseCapability(BaseModel):
@@ -97,6 +99,386 @@ class BaseCapability(BaseModel):
     def get_model_settings(self, ctx: RunContext[Any] | None = None) -> dict[str, Any]:
         """Return model runtime settings provided by this capability."""
         return {}
+
+
+class ToolApproved(BaseModel):
+    """Signals approval of a deferred tool call with optional argument overrides."""
+
+    override_args: dict[str, Any] | None = None
+
+    def __init__(self, override_args: dict[str, Any] | None = None, **kwargs: Any) -> None:
+        super().__init__(override_args=override_args, **kwargs)
+
+
+class ToolDenied(BaseModel):
+    """Signals denial of a deferred tool call with feedback message for the model."""
+
+    message: str = "Tool call was denied"
+
+    def __init__(self, message: str = "Tool call was denied", **kwargs: Any) -> None:
+        super().__init__(message=message, **kwargs)
+
+
+class ToolCallPart(BaseModel):
+    """A tool call specification requiring approval or external execution."""
+
+    tool_name: str
+    args: dict[str, Any] = Field(default_factory=dict)
+    tool_call_id: str = ""
+
+
+class ThinkingPart(BaseModel):
+    """A structured model thinking/reasoning part."""
+
+    content: str = ""
+    encrypted_content: str | None = None
+    signature: str | None = None
+    part_kind: str = "thinking"
+
+
+class DeferredToolRequests(BaseModel):
+    """Collection of tool calls pending human approval or external execution."""
+
+    calls: list[ToolCallPart] = Field(default_factory=list)
+    approvals: list[ToolCallPart] = Field(default_factory=list)
+    metadata: dict[str, dict[str, Any]] = Field(default_factory=dict)
+
+    def build_results(
+        self,
+        approvals: dict[str, bool | ToolApproved | ToolDenied] | None = None,
+        calls: dict[str, Any] | None = None,
+        metadata: dict[str, dict[str, Any]] | None = None,
+    ) -> DeferredToolResults:
+        """Construct a DeferredToolResults object matching this request."""
+        return DeferredToolResults(
+            approvals=approvals or {},
+            calls=calls or {},
+            metadata=metadata or {},
+        )
+
+
+class DeferredToolResults(BaseModel):
+    """Resolution of deferred tool calls providing approval decisions and external results."""
+
+    approvals: dict[str, bool | ToolApproved | ToolDenied] = Field(default_factory=dict)
+    calls: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, dict[str, Any]] = Field(default_factory=dict)
+
+
+class WebSearchUserLocation(BaseModel):
+    """Geographic location configuration for native web search requests."""
+
+    city: str | None = None
+    country: str | None = None
+    region: str | None = None
+    timezone: str | None = None
+
+
+class WebSearchTool(BaseModel):
+    """Configuration for provider-native Web Search tool capability."""
+
+    search_context_size: str = "medium"
+    user_location: WebSearchUserLocation | None = None
+    blocked_domains: list[str] = Field(default_factory=list)
+    allowed_domains: list[str] | None = None
+    max_uses: int | None = None
+
+
+class CodeExecutionTool(BaseModel):
+    """Configuration for provider-native Code Execution sandbox tool capability."""
+
+    language: str = "python"
+    timeout: float | None = None
+
+
+class MCPServerTool(BaseModel):
+    """Configuration for provider-native or remote Model Context Protocol (MCP) server tool."""
+
+    id: str = "mcp_server"
+    url: str = ""
+    authorization_token: str | None = None
+    description: str | None = None
+
+
+class NativeTool(BaseCapability):
+    """Capability that configures and exposes provider-native server tools."""
+
+    id: str = "native_tool"
+    tool: WebSearchTool | WebFetchTool | CodeExecutionTool | MCPServerTool | BaseModel
+
+    def get_model_settings(self, ctx: RunContext[Any] | None = None) -> dict[str, Any]:
+        """Return model runtime settings configuring the provider-native tool."""
+        if isinstance(self.tool, WebSearchTool):
+            return {
+                "native_web_search": True,
+                "web_search_config": self.tool.model_dump(exclude_none=True),
+            }
+        elif isinstance(self.tool, WebFetchTool):
+            return {
+                "native_web_fetch": True,
+                "web_fetch_config": self.tool.model_dump(exclude_none=True),
+            }
+        elif isinstance(self.tool, CodeExecutionTool):
+            return {
+                "native_code_execution": True,
+                "code_execution_config": self.tool.model_dump(exclude_none=True),
+            }
+        elif isinstance(self.tool, MCPServerTool):
+            return {
+                "native_mcp_server": True,
+                "mcp_server_config": self.tool.model_dump(exclude_none=True),
+            }
+        return {"native_tool": self.tool.model_dump(exclude_none=True)}
+
+    def get_system_prompt_additions(self, ctx: RunContext[Any] | None = None) -> list[str]:
+        if isinstance(self.tool, WebSearchTool):
+            return ["Provider-native web search capability is enabled."]
+        elif isinstance(self.tool, WebFetchTool):
+            return ["Provider-native web fetch capability is enabled."]
+        elif isinstance(self.tool, CodeExecutionTool):
+            return ["Provider-native sandboxed code execution capability is enabled."]
+        elif isinstance(self.tool, MCPServerTool):
+            return [f"Provider-native MCP server capability is enabled (id: {self.tool.id})."]
+        return []
+
+
+class MCP(BaseCapability):
+    """Provider-adaptive Model Context Protocol (MCP) capability supporting local and native servers."""
+
+    id: str = "mcp"
+    url: str | None = None
+    native: bool | MCPServerTool = False
+    local: Any = True
+
+    def __init__(
+        self,
+        url: str | None = None,
+        *,
+        native: bool | MCPServerTool = False,
+        local: Any = True,
+    ) -> None:
+        super().__init__(url=url, native=native, local=local)
+
+    def get_tools(self) -> list[AgentTool | Callable[..., Any]]:
+        if self.local is False:
+            return []
+        if hasattr(self.local, "get_tools") and callable(self.local.get_tools):
+            tools_val = self.local.get_tools()
+            if isinstance(tools_val, list):
+                return [t for t in tools_val if isinstance(t, Tool) or callable(t)]
+        if isinstance(self.local, list):
+            return [t for t in self.local if isinstance(t, Tool) or callable(t)]
+        return []
+
+    def get_model_settings(self, ctx: RunContext[Any] | None = None) -> dict[str, Any]:
+        if self.native:
+            if isinstance(self.native, MCPServerTool):
+                return {
+                    "native_mcp_server": True,
+                    "mcp_server_config": self.native.model_dump(exclude_none=True),
+                }
+            elif self.url:
+                return {
+                    "native_mcp_server": True,
+                    "mcp_server_config": {"url": self.url, "id": "mcp_server"},
+                }
+        return {}
+
+    def get_system_prompt_additions(self, ctx: RunContext[Any] | None = None) -> list[str]:
+        target = self.url or (
+            self.native.url if isinstance(self.native, MCPServerTool) else "local client"
+        )
+        return [f"Model Context Protocol (MCP) capability active (target: {target})."]
+
+
+class WebSearch(BaseCapability):
+    """Provider-adaptive Web Search capability supporting native provider search and local fallbacks."""
+
+    id: str = "web_search"
+    local: Any = False
+    native: bool | WebSearchTool = True
+
+    def __init__(
+        self,
+        *,
+        local: Any = False,
+        native: bool | WebSearchTool = True,
+    ) -> None:
+        super().__init__(local=local, native=native)
+
+    def get_tools(self) -> list[AgentTool | Callable[..., Any]]:
+        if not self.local:
+            return []
+        if self.local is True or self.local == "duckduckgo":
+            from devops_cli.ai.common_tools import duckduckgo_search_tool
+
+            return [duckduckgo_search_tool()]
+        elif hasattr(self.local, "get_tools") and callable(self.local.get_tools):
+            tools_val = self.local.get_tools()
+            if isinstance(tools_val, list):
+                return [t for t in tools_val if isinstance(t, Tool) or callable(t)]
+        elif isinstance(self.local, (Tool, BaseCapability)) or callable(self.local):
+            if isinstance(self.local, BaseCapability):
+                return self.local.get_tools()
+            elif isinstance(self.local, Tool):
+                return [self.local]
+            elif callable(self.local):
+                return [Tool.from_function(self.local)]
+        elif isinstance(self.local, list):
+            return [t for t in self.local if isinstance(t, Tool) or callable(t)]
+        return []
+
+    def get_model_settings(self, ctx: RunContext[Any] | None = None) -> dict[str, Any]:
+        if self.native:
+            if isinstance(self.native, WebSearchTool):
+                return {
+                    "native_web_search": True,
+                    "web_search_config": self.native.model_dump(exclude_none=True),
+                }
+            return {"native_web_search": True, "web_search_config": {}}
+        return {}
+
+    def get_system_prompt_additions(self, ctx: RunContext[Any] | None = None) -> list[str]:
+        if self.native:
+            return ["Provider-native web search capability is enabled."]
+        if self.local:
+            return ["Local web search capability is enabled."]
+        return []
+
+
+class WebFetchTool(BaseModel):
+    """Configuration for provider-native Web Fetch tool capability."""
+
+    allowed_domains: list[str] | None = None
+    blocked_domains: list[str] = Field(default_factory=list)
+    max_uses: int | None = None
+    enable_citations: bool | None = None
+    max_content_tokens: int | None = None
+
+
+class WebFetch(BaseCapability):
+    """Provider-adaptive Web Fetch capability supporting native provider fetch and local fallback."""
+
+    id: str = "web_fetch"
+    allowed_domains: list[str] | None = None
+    blocked_domains: list[str] = Field(default_factory=list)
+    local: Any = False
+    native: bool | WebFetchTool = True
+
+    def __init__(
+        self,
+        *,
+        allowed_domains: list[str] | None = None,
+        blocked_domains: list[str] | None = None,
+        local: Any = False,
+        native: bool | WebFetchTool = True,
+    ) -> None:
+        super().__init__(
+            allowed_domains=allowed_domains,
+            blocked_domains=blocked_domains or [],
+            local=local,
+            native=native,
+        )
+
+    def get_tools(self) -> list[AgentTool | Callable[..., Any]]:
+        if not self.local:
+            return []
+        if self.local is True:
+            from devops_cli.ai.common_tools import web_fetch_tool
+
+            return [web_fetch_tool(allowed_domains=self.allowed_domains)]
+        elif hasattr(self.local, "get_tools") and callable(self.local.get_tools):
+            tools_val = self.local.get_tools()
+            if isinstance(tools_val, list):
+                return [t for t in tools_val if isinstance(t, Tool) or callable(t)]
+        elif isinstance(self.local, (Tool, BaseCapability)) or callable(self.local):
+            if isinstance(self.local, BaseCapability):
+                return self.local.get_tools()
+            elif isinstance(self.local, Tool):
+                return [self.local]
+            elif callable(self.local):
+                return [Tool.from_function(self.local)]
+        elif isinstance(self.local, list):
+            return [t for t in self.local if isinstance(t, Tool) or callable(t)]
+        return []
+
+    def get_model_settings(self, ctx: RunContext[Any] | None = None) -> dict[str, Any]:
+        if self.native:
+            if isinstance(self.native, WebFetchTool):
+                return {
+                    "native_web_fetch": True,
+                    "web_fetch_config": self.native.model_dump(exclude_none=True),
+                }
+            config: dict[str, Any] = {}
+            if self.allowed_domains:
+                config["allowed_domains"] = self.allowed_domains
+            if self.blocked_domains:
+                config["blocked_domains"] = self.blocked_domains
+            return {"native_web_fetch": True, "web_fetch_config": config}
+        return {}
+
+    def get_system_prompt_additions(self, ctx: RunContext[Any] | None = None) -> list[str]:
+        if self.native:
+            return ["Provider-native web fetch capability is enabled."]
+        if self.local:
+            return ["Local web fetch capability is enabled."]
+        return []
+
+
+class Thinking(BaseCapability):
+    """Capability configuring unified thinking and reasoning effort across LLM providers."""
+
+    id: str = "thinking"
+    effort: str | bool = "medium"
+    budget_tokens: int | None = None
+    include_thoughts: bool = True
+    include_encrypted_content: bool = False
+    reasoning_format: str = "parsed"
+
+    def __init__(
+        self,
+        effort: str | bool = "medium",
+        *,
+        budget_tokens: int | None = None,
+        include_thoughts: bool = True,
+        include_encrypted_content: bool = False,
+        reasoning_format: str = "parsed",
+    ) -> None:
+        super().__init__(
+            effort=effort,
+            budget_tokens=budget_tokens,
+            include_thoughts=include_thoughts,
+            include_encrypted_content=include_encrypted_content,
+            reasoning_format=reasoning_format,
+        )
+
+    def get_model_settings(self, ctx: RunContext[Any] | None = None) -> dict[str, Any]:
+        settings: dict[str, Any] = {
+            "thinking": self.effort if isinstance(self.effort, (str, bool)) else True,
+            "include_thoughts": self.include_thoughts,
+            "reasoning_format": self.reasoning_format,
+        }
+        if self.budget_tokens is not None:
+            settings["budget_tokens"] = self.budget_tokens
+            settings["thinking_budget_tokens"] = self.budget_tokens
+        if self.include_encrypted_content:
+            settings["include_encrypted_content"] = True
+            settings["xai_include_encrypted_content"] = True
+        return settings
+
+    def get_system_prompt_additions(self, ctx: RunContext[Any] | None = None) -> list[str]:
+        return [f"Thinking capability is enabled (effort={self.effort})."]
+
+
+class HandleDeferredToolCalls(BaseCapability):
+    """Capability providing inline handling of deferred tool calls and approvals."""
+
+    id: str = "handle_deferred_tool_calls"
+    handler: Callable[[DeferredToolRequests], DeferredToolResults | None]
+
+    def handle_deferred(self, requests: DeferredToolRequests) -> DeferredToolResults | None:
+        """Execute the deferred tool call handler callback."""
+        return self.handler(requests)
 
 
 class Capability(BaseCapability):
@@ -143,6 +525,7 @@ class FunctionToolset[DepsT = Any](BaseModel):
         name: str | None = None,
         description: str | None = None,
         strict: bool | None = None,
+        requires_approval: bool = False,
         timeout: float | None = None,
         max_retries: int | None = None,
     ) -> Any:
@@ -155,6 +538,7 @@ class FunctionToolset[DepsT = Any](BaseModel):
                     name=name,
                     description=description,
                     strict=strict,
+                    requires_approval=requires_approval,
                     timeout=timeout if timeout is not None else self.timeout,
                     max_retries=max_retries if max_retries is not None else self.max_retries,
                 )
@@ -172,6 +556,7 @@ class FunctionToolset[DepsT = Any](BaseModel):
         name: str | None = None,
         description: str | None = None,
         strict: bool | None = None,
+        requires_approval: bool = False,
         timeout: float | None = None,
         max_retries: int | None = None,
     ) -> Any:
@@ -185,6 +570,7 @@ class FunctionToolset[DepsT = Any](BaseModel):
                     description=description,
                     takes_ctx=False,
                     strict=strict,
+                    requires_approval=requires_approval,
                     timeout=timeout if timeout is not None else self.timeout,
                     max_retries=max_retries if max_retries is not None else self.max_retries,
                 )
@@ -207,6 +593,7 @@ class FunctionToolset[DepsT = Any](BaseModel):
         description: str | None = None,
         takes_ctx: bool = False,
         strict: bool | None = None,
+        requires_approval: bool = False,
         timeout: float | None = None,
         max_retries: int | None = None,
     ) -> None:
@@ -218,6 +605,7 @@ class FunctionToolset[DepsT = Any](BaseModel):
                 description=description,
                 takes_ctx=takes_ctx,
                 strict=strict,
+                requires_approval=requires_approval,
                 timeout=timeout if timeout is not None else self.timeout,
                 max_retries=max_retries if max_retries is not None else self.max_retries,
             )
@@ -318,6 +706,7 @@ class AgentTool(BaseModel):
     takes_ctx: bool = False
     timeout: float | None = None
     max_retries: int | None = None
+    requires_approval: bool = False
 
     def validate_args(self, args: dict[str, Any]) -> dict[str, Any]:
         """Validate and filter tool arguments against the declared parameter schema."""
@@ -333,6 +722,10 @@ class AgentTool(BaseModel):
 
     def execute(self, ctx: RunContext[Any] | None = None, **kwargs: Any) -> Any:
         """Invoke the tool callback with kwargs and optional RunContext."""
+        if self.requires_approval and not (ctx and ctx.tool_call_approved):
+            from devops_cli.exceptions.ai import ApprovalRequired
+
+            raise ApprovalRequired(f"Tool '{self.name}' requires human approval")
         if self.takes_ctx and ctx is not None:
             return self.func(ctx, **kwargs)
         return self.func(**kwargs)
@@ -361,6 +754,7 @@ class Tool(AgentTool):
         description: str | None = None,
         takes_ctx: bool | None = None,
         strict: bool | None = None,
+        requires_approval: bool = False,
         timeout: float | None = None,
         max_retries: int | None = None,
     ) -> Tool:
@@ -384,6 +778,7 @@ class Tool(AgentTool):
             parameters=params,
             takes_ctx=bool(inferred_takes_ctx),
             strict=strict,
+            requires_approval=requires_approval,
             timeout=timeout,
             max_retries=max_retries,
         )
@@ -398,6 +793,7 @@ class Tool(AgentTool):
         json_schema: dict[str, Any] | None = None,
         takes_ctx: bool = False,
         strict: bool | None = None,
+        requires_approval: bool = False,
         timeout: float | None = None,
         max_retries: int | None = None,
     ) -> Tool:
@@ -413,6 +809,7 @@ class Tool(AgentTool):
             parameters=params,
             takes_ctx=takes_ctx,
             strict=strict,
+            requires_approval=requires_approval,
             timeout=timeout,
             max_retries=max_retries,
         )
@@ -512,13 +909,20 @@ def _execute_single_tool(
                     pass
         return "retry_requested", clean_args, str(retry_exc)
     except Exception as exc:
+        from devops_cli.exceptions.ai import ApprovalRequired, CallDeferred
+
+        if isinstance(exc, ApprovalRequired):
+            return "approval_required", clean_args, exc
+        if isinstance(exc, CallDeferred):
+            return "call_deferred", clean_args, exc
+
         if hooks and ctx is not None:
             for h_err in hooks.on_tool_error:
                 try:
                     h_err(ctx, tool_name, exc)
                 except Exception:
                     pass
-        tool_result = f"Tool execution error for {tool_name}: {exc}"
+        return "error", clean_args, f"Tool execution failed for {tool_name}: {exc}"
     return "ok", clean_args, tool_result
 
 
@@ -763,6 +1167,7 @@ class PydanticAgent[T, DepsT = Any]:
         name: str | None = None,
         description: str | None = None,
         strict: bool | None = None,
+        requires_approval: bool = False,
         timeout: float | None = None,
         max_retries: int | None = None,
     ) -> Any:
@@ -775,6 +1180,7 @@ class PydanticAgent[T, DepsT = Any]:
                     name=name,
                     description=description,
                     strict=strict,
+                    requires_approval=requires_approval,
                     timeout=timeout,
                     max_retries=max_retries,
                 )
@@ -792,6 +1198,7 @@ class PydanticAgent[T, DepsT = Any]:
         name: str | None = None,
         description: str | None = None,
         strict: bool | None = None,
+        requires_approval: bool = False,
         timeout: float | None = None,
         max_retries: int | None = None,
     ) -> Any:
@@ -805,6 +1212,7 @@ class PydanticAgent[T, DepsT = Any]:
                     description=description,
                     takes_ctx=False,
                     strict=strict,
+                    requires_approval=requires_approval,
                     timeout=timeout,
                     max_retries=max_retries,
                 )
@@ -980,10 +1388,13 @@ class PydanticAgent[T, DepsT = Any]:
         tool_retries: dict[str, int] | None = None,
         tool_budget: int = 1,
         tool_timeout: float | None = None,
-    ) -> tuple[bool, bool]:
+        deferred_tool_results: DeferredToolResults | None = None,
+    ) -> tuple[bool, bool, DeferredToolRequests | None]:
         """Dispatch extracted tool calls and append feedback messages."""
         executed_any = False
         already_called = False
+        deferred_requests: DeferredToolRequests | None = None
+
         for tc_info in tool_calls_info:
             tool_name = tc_info.tool_name
             args = tc_info.arguments
@@ -1003,6 +1414,100 @@ class PydanticAgent[T, DepsT = Any]:
             if status == "already_called":
                 already_called = True
                 continue
+
+            # Handle ApprovalRequired or CallDeferred
+            if status in ("approval_required", "call_deferred"):
+                part = ToolCallPart(tool_name=tool_name, args=clean_args, tool_call_id=tool_name)
+                req = DeferredToolRequests()
+                if status == "approval_required":
+                    req.approvals.append(part)
+                    req_meta = getattr(result, "metadata", {})
+                    if req_meta:
+                        req.metadata[tool_name] = req_meta
+                else:
+                    req.calls.append(part)
+                    req_meta = getattr(result, "metadata", {})
+                    if req_meta:
+                        req.metadata[tool_name] = req_meta
+
+                # Check inline capability handlers
+                resolved_results: DeferredToolResults | None = deferred_tool_results
+                if resolved_results is None:
+                    for cap in self.capabilities:
+                        if isinstance(cap, HandleDeferredToolCalls):
+                            resolved_results = cap.handle_deferred(req)
+                            break
+                        handler_hook = getattr(cap, "handle_deferred_tool_calls", None) or getattr(
+                            cap, "handle_deferred", None
+                        )
+                        if callable(handler_hook):
+                            resolved_results = handler_hook(req)
+                            break
+
+                if resolved_results is not None:
+                    # Process resolved approvals or calls
+                    if tool_name in resolved_results.approvals:
+                        decision = resolved_results.approvals[tool_name]
+                        if isinstance(decision, ToolDenied) or decision is False:
+                            denial_msg = (
+                                decision.message
+                                if isinstance(decision, ToolDenied)
+                                else "Tool call was denied"
+                            )
+                            tc = ToolCall(
+                                tool_name=tool_name, arguments=clean_args, result=denial_msg
+                            )
+                            tool_calls.append(tc)
+                            executed_any = True
+                            messages.append(ChatMessage(role="assistant", content=response_text))
+                            feedback_content = _TOOL_FEEDBACK_TEMPLATE.format(
+                                tool_name=tool_name,
+                                tool_result=denial_msg,
+                            )
+                            messages.append(ChatMessage(role="user", content=feedback_content))
+                            continue
+                        elif isinstance(decision, ToolApproved) or decision is True:
+                            approved_args = dict(clean_args)
+                            if isinstance(decision, ToolApproved) and decision.override_args:
+                                approved_args.update(decision.override_args)
+                            approved_ctx = (
+                                ctx.model_copy(update={"tool_call_approved": True})
+                                if ctx is not None
+                                else RunContext[Any](tool_call_approved=True)
+                            )
+                            if tool_name in resolved_results.metadata:
+                                approved_ctx.tool_call_metadata = resolved_results.metadata[
+                                    tool_name
+                                ]
+                            status, clean_args, result = _execute_single_tool(
+                                tool_obj,
+                                tool_name,
+                                approved_args,
+                                tool_calls,
+                                ctx=approved_ctx,
+                                hooks=self.hooks,
+                                default_timeout=effective_timeout,
+                            )
+                    elif tool_name in resolved_results.calls:
+                        ext_val = resolved_results.calls[tool_name]
+                        tc = ToolCall(tool_name=tool_name, arguments=clean_args, result=ext_val)
+                        tool_calls.append(tc)
+                        executed_any = True
+                        messages.append(ChatMessage(role="assistant", content=response_text))
+                        feedback_content = _TOOL_FEEDBACK_TEMPLATE.format(
+                            tool_name=tool_name,
+                            tool_result=json.dumps(ext_val, default=str),
+                        )
+                        messages.append(ChatMessage(role="user", content=feedback_content))
+                        continue
+                else:
+                    if deferred_requests is None:
+                        deferred_requests = req
+                    else:
+                        deferred_requests.approvals.extend(req.approvals)
+                        deferred_requests.calls.extend(req.calls)
+                        deferred_requests.metadata.update(req.metadata)
+                    continue
 
             if status == "retry_requested":
                 if tool_retries is not None:
@@ -1026,16 +1531,16 @@ class PydanticAgent[T, DepsT = Any]:
                 tool_retries[tool_name] = 0
 
             return_val = result
-            meta: dict[str, Any] = {}
+            call_meta: dict[str, Any] = {}
             if isinstance(result, ToolReturn):
                 return_val = result.return_value
-                meta = result.metadata
+                call_meta = result.metadata
                 if ctx and result.tools:
                     for t in result.tools:
                         ctx.loaded_capability_ids.add(t)
 
             tc = ToolCall(
-                tool_name=tool_name, arguments=clean_args, result=return_val, metadata=meta
+                tool_name=tool_name, arguments=clean_args, result=return_val, metadata=call_meta
             )
             tool_calls.append(tc)
             executed_any = True
@@ -1055,7 +1560,7 @@ class PydanticAgent[T, DepsT = Any]:
                     else str(result.content)
                 )
                 messages.append(ChatMessage(role="user", content=extra_content))
-        return executed_any, already_called
+        return executed_any, already_called, deferred_requests
 
     def run(
         self,
@@ -1066,10 +1571,11 @@ class PydanticAgent[T, DepsT = Any]:
         enable_thinking: bool = True,
         skip_rag: bool = False,
         message_history: list[ChatMessage] | None = None,
+        deferred_tool_results: DeferredToolResults | None = None,
         retries: int | AgentRetries | dict[str, int] | None = None,
         on_tool_call: Callable[[str, dict[str, Any], Any], None] | None = None,
         on_thought: Callable[[str], None] | None = None,
-    ) -> AgentResponse[T]:
+    ) -> AgentResponse[Any]:
         """Execute the agent tool loop until completion or max_turns is reached."""
         from devops_cli.ai.context_budget import count_tokens
 
@@ -1174,7 +1680,7 @@ class PydanticAgent[T, DepsT = Any]:
 
             # Process extracted tool calls
             if fixed.tool_calls:
-                executed, already = self._dispatch_tool_calls(
+                executed, already, deferred_reqs = self._dispatch_tool_calls(
                     fixed.tool_calls,
                     tool_calls,
                     messages,
@@ -1184,7 +1690,23 @@ class PydanticAgent[T, DepsT = Any]:
                     tool_retries=tool_retries,
                     tool_budget=active_retries.tools,
                     tool_timeout=self.tool_timeout,
+                    deferred_tool_results=deferred_tool_results,
                 )
+                if deferred_reqs is not None:
+                    return AgentResponse[Any](
+                        content=response_text,
+                        data=deferred_reqs,
+                        tool_calls=tool_calls,
+                        thoughts=all_thoughts,
+                        turns=turn,
+                        backend_info=b_info,
+                        usage=AgentUsage(
+                            input_tokens=total_input_tokens,
+                            output_tokens=total_output_tokens,
+                            total_tokens=total_input_tokens + total_output_tokens,
+                        ),
+                        messages=messages,
+                    )
                 if executed:
                     continue
                 if already and turn < max_turns:

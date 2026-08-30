@@ -160,25 +160,27 @@ def test_ai_analyze_path_enhanced(tmp_path: Path) -> None:
         data_rerun = json.loads(analysis_file.read_text(encoding="utf-8"))
         payload_rerun = AnalysisMetadata.model_validate(data_rerun)
         assert payload_rerun.project.enhanced is True
-    assert payload_rerun.files[0].pseudocode == file_meta.pseudocode
-    assert payload_rerun.files[0].last_analyzed is not None
+        assert payload_rerun.files[0].pseudocode == file_meta.pseudocode
+        assert payload_rerun.files[0].last_analyzed is not None
 
-    # Re-run analysis with --update-all flag
-    result_update_all = runner.invoke(app, ["ai", "analyze", "path", str(src_dir), "--update-all"])
-    assert result_update_all.exit_code == 0
-    data_update = json.loads(analysis_file.read_text(encoding="utf-8"))
-    payload_update = AnalysisMetadata.model_validate(data_update)
-    assert payload_update.files[0].last_analyzed is not None
+        # Re-run analysis with --update-all flag
+        result_update_all = runner.invoke(
+            app, ["ai", "analyze", "path", str(src_dir), "--update-all"]
+        )
+        assert result_update_all.exit_code == 0
+        data_update = json.loads(analysis_file.read_text(encoding="utf-8"))
+        payload_update = AnalysisMetadata.model_validate(data_update)
+        assert payload_update.files[0].last_analyzed is not None
 
-    # Test explicit --no-enhanced flag
-    result_no_enhanced = runner.invoke(
-        app, ["ai", "analyze", "path", str(src_dir), "--no-enhanced", "--update-all"]
-    )
-    assert result_no_enhanced.exit_code == 0
-    data_no_enhanced = json.loads(analysis_file.read_text(encoding="utf-8"))
-    payload_no_enhanced = AnalysisMetadata.model_validate(data_no_enhanced)
-    assert payload_no_enhanced.project.enhanced is False
-    assert payload_no_enhanced.files[0].pseudocode is None
+        # Test explicit --no-enhanced flag
+        result_no_enhanced = runner.invoke(
+            app, ["ai", "analyze", "path", str(src_dir), "--no-enhanced", "--update-all"]
+        )
+        assert result_no_enhanced.exit_code == 0
+        data_no_enhanced = json.loads(analysis_file.read_text(encoding="utf-8"))
+        payload_no_enhanced = AnalysisMetadata.model_validate(data_no_enhanced)
+        assert payload_no_enhanced.project.enhanced is False
+        assert payload_no_enhanced.files[0].pseudocode is None
 
 
 def test_enhanced_metadata_validation() -> None:

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from devops_cli.exceptions.ai import (
+    ApprovalRequired,
+    CallDeferred,
     ContextBudgetExceededError,
     LLMInferenceError,
     ModelRetry,
@@ -36,7 +38,9 @@ from devops_cli.exceptions.validation import (
 )
 
 __all__ = [
+    "ApprovalRequired",
     "BranchAlreadyExistsError",
+    "CallDeferred",
     "ChecksumMismatchError",
     "ConfigurationError",
     "ContextBudgetExceededError",

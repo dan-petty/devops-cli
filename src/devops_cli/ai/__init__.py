@@ -66,6 +66,40 @@ def __getattr__(name: str) -> Any:
         import devops_cli.ai.thinking_stream
 
         return getattr(devops_cli.ai.thinking_stream, name)
+    if name in {"duckduckgo_search_tool", "web_fetch_tool", "tavily_search_tool"}:
+        import devops_cli.ai.common_tools
+
+        return getattr(devops_cli.ai.common_tools, name)
+    if name in {"tool_from_langchain", "LangChainToolset"}:
+        import devops_cli.ai.ext_langchain
+
+        return getattr(devops_cli.ai.ext_langchain, name)
+    if name in {
+        "ClearToolResults",
+        "Coder",
+        "DEFAULT_MACROSCOPE_GUIDANCE",
+        "DEFAULT_PLAYWRIGHT_GUIDANCE",
+        "DEFAULT_RESEARCHER_INSTRUCTIONS",
+        "FileSystem",
+        "LLM_API_KEY_ENV_PATTERNS",
+        "Macroscope",
+        "MacroscopeIssue",
+        "MacroscopeReview",
+        "Planning",
+        "PlaywrightBrowser",
+        "RepoContext",
+        "Researcher",
+        "Shell",
+        "SubAgent",
+        "SubAgents",
+        "ToolOutputLimits",
+        "WarnNearLimits",
+        "coder_agent",
+        "researcher_agent",
+    }:
+        import devops_cli.ai.harness
+
+        return getattr(devops_cli.ai.harness, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
@@ -74,18 +108,40 @@ __all__ = [
     "CONST_CLAUDE_MD_FILENAME",
     "CONST_COPILOT_INSTRUCTIONS_PATH",
     "CachedLLMResponse",
+    "ClearToolResults",
+    "Coder",
     "DEFAULT_AGENT_FILES",
+    "DEFAULT_MACROSCOPE_GUIDANCE",
+    "DEFAULT_PLAYWRIGHT_GUIDANCE",
+    "DEFAULT_RESEARCHER_INSTRUCTIONS",
     "ExtractedToolCall",
+    "FileSystem",
     "FormattedLLMResponse",
     "KnowledgeBaseStats",
     "LLMClient",
     "LLMResponse",
     "LLMResponseCache",
+    "LLM_API_KEY_ENV_PATTERNS",
+    "LangChainToolset",
+    "Macroscope",
+    "MacroscopeIssue",
+    "MacroscopeReview",
     "ModelBundleManifest",
+    "Planning",
+    "PlaywrightBrowser",
     "ProjectMetadata",
+    "RepoContext",
+    "Researcher",
     "ResponseCacheStats",
+    "Shell",
+    "SubAgent",
+    "SubAgents",
     "ThinkingStreamProcessor",
+    "ToolOutputLimits",
+    "WarnNearLimits",
     "bundle_ollama_models",
+    "coder_agent",
+    "duckduckgo_search_tool",
     "extract_think_blocks",
     "extract_tool_invocations",
     "fix_llm_response",
@@ -101,7 +157,11 @@ __all__ = [
     "model_request_sync",
     "parse_project_metadata",
     "repair_json_string",
+    "researcher_agent",
     "reset_llm_response_cache",
     "scaffold_agent_instructions",
     "strip_think_blocks",
+    "tavily_search_tool",
+    "tool_from_langchain",
+    "web_fetch_tool",
 ]

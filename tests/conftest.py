@@ -47,7 +47,7 @@ def session_isolated_config(tmp_path_factory: pytest.TempPathFactory) -> Path:
     config_dir = tmp_path_factory.mktemp("devops_cli_isolated_config")
     dummy_config = config_dir / "config.yaml"
     dummy_config.write_text(
-        "telemetry:\n  enabled: true\n  endpoint: http://localhost:4318\nai:\n  allow_private_network: true\n",
+        "telemetry:\n  enabled: true\n  endpoint: http://localhost:4318\nai:\n  allow_private_network: true\n  rag:\n    enabled: false\n",
         encoding="utf-8",
     )
     return dummy_config
