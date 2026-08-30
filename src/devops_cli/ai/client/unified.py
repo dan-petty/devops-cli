@@ -291,7 +291,7 @@ class LLMClient(OllamaProviderMixin, ClaudeProviderMixin, OpenAICompatProviderMi
                 res = self._ollama_messages(system, messages, enable_thinking=enable_thinking)
             elif p == "claude":
                 res = self._claude_messages(system, messages)
-            elif p in ("copilot", "openai"):
+            elif p in ("copilot", "github_copilot", "openai"):
                 res = self._openai_compat_messages(system, messages)
             else:
                 raise LLMInferenceError(
@@ -404,15 +404,15 @@ class LLMClient(OllamaProviderMixin, ClaudeProviderMixin, OpenAICompatProviderMi
             model=self._config.model,
             system=system,
             prompt=prompt_preview,
-            content=res.text,
-            thinking=res.thinking,
+            content=str(res),
+            thinking=getattr(res, "thinking", None),
             context_tag=context_tag,
-            wall_seconds=res.wall_seconds,
-            backend_info=res.backend_info,
+            wall_seconds=getattr(res, "wall_seconds", 0.0),
+            backend_info=getattr(res, "backend_info", None),
             tokens={
-                "prompt": res.prompt_tokens,
-                "completion": res.completion_tokens,
-                "total": res.total_tokens,
+                "prompt": getattr(res, "prompt_tokens", None),
+                "completion": getattr(res, "completion_tokens", None),
+                "total": getattr(res, "total_tokens", None),
             },
         )
 
@@ -448,7 +448,7 @@ class LLMClient(OllamaProviderMixin, ClaudeProviderMixin, OpenAICompatProviderMi
         span_h.set_attribute("gen_ai.cached", True)
         span_h.set_attribute("gen_ai.wall_seconds", 0.0)
         return LLMResponse(
-            content=cached_entry.content,
+            cached_entry.content,
             processing_seconds=0.0,
             wall_seconds=0.0,
             backend_info="cache",
@@ -594,7 +594,7 @@ class LLMClient(OllamaProviderMixin, ClaudeProviderMixin, OpenAICompatProviderMi
             return self._ollama_stream(system, messages, enable_thinking=enable_thinking)
         if p == "claude":
             return self._claude_stream(system, messages)
-        if p in ("copilot", "openai"):
+        if p in ("copilot", "github_copilot", "openai"):
             return self._openai_compat_stream(system, messages)
         raise LLMInferenceError(
             f"Unknown provider: {p!r}. Choose: ollama, claude, copilot, openai", provider=p

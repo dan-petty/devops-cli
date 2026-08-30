@@ -41,3 +41,9 @@ class BaseLLMProviderMixin:
 
     def _strip_think_blocks(self, text: str) -> str:
         raise NotImplementedError
+
+    @classmethod
+    def _load_and_increment_rr_index(cls, n: int) -> int:
+        from devops_cli.ai.client.network import load_and_increment_rr_index
+
+        return load_and_increment_rr_index(n)

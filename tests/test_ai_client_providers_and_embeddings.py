@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import Any
 
@@ -16,8 +17,24 @@ from devops_cli.ai.benchmark.embedding_runner import (
     compute_ndcg_at_k,
     cosine_similarity,
 )
-from devops_cli.ai.client import LLMClient
+from devops_cli.ai.client import (
+    AIClientError,
+    LLMClient,
+    LLMResponse,
+    _consume_streaming_lines,
+    _extract_claude_stream_chunk,
+    _extract_ollama_stream_chunk,
+    _extract_ollama_stream_tuple,
+    _extract_openai_stream_chunk,
+    _is_json_error_payload,
+    model_request,
+    model_request_sync,
+    read_limited_json,
+    validate_base_url,
+)
+from devops_cli.ai.client.base import BaseLLMProviderMixin
 from devops_cli.config.settings import AIConfig
+from devops_cli.models.ai import ChatMessage
 
 
 @pytest.fixture(autouse=True)
@@ -246,7 +263,7 @@ def test_llm_client_properties_and_list_models(monkeypatch: pytest.MonkeyPatch) 
 
 def test_llm_client_streaming_and_error_branches(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test streaming chunk processing, thinking fallback, limits, and error mappings."""
-    from devops_cli.ai.client import AIClientError, _consume_streaming_lines
+    from devops_cli.ai.client import AIClientError
 
     cfg = AIConfig(
         provider="ollama",
@@ -542,3 +559,413 @@ async def test_direct_model_request_helpers(monkeypatch: pytest.MonkeyPatch) -> 
     # 3. model_request async with string prompt
     res_async = await model_request("gpt-4o", "Async prompt", client=mock_client)
     assert str(res_async) == "Direct chat output"
+
+
+def test_base_provider_mixin_abstract_methods() -> None:
+    mixin = BaseLLMProviderMixin()
+    with pytest.raises(NotImplementedError):
+        _ = mixin.backend_type
+    with pytest.raises(NotImplementedError):
+        _ = mixin.backend_host
+    with pytest.raises(NotImplementedError):
+        mixin._validate_base_url("http://example.com")
+    with pytest.raises(NotImplementedError):
+        mixin._request_timeout()
+    with pytest.raises(NotImplementedError):
+        mixin._connection_error(RuntimeError("err"))
+    with pytest.raises(NotImplementedError):
+        mixin._strip_think_blocks("test")
+    # Base classmethod test
+    idx = BaseLLMProviderMixin._load_and_increment_rr_index(5)
+    assert 0 <= idx < 5
+
+
+def test_json_error_payload_and_llm_response_properties() -> None:
+    assert _is_json_error_payload('{"error": "Rate limit exceeded"}') is True
+    assert _is_json_error_payload('{"error_code": 429}') is True
+    assert _is_json_error_payload('{"error": null}') is False
+    assert _is_json_error_payload('{"error": "none"}') is False
+    assert _is_json_error_payload("not json") is False
+    assert _is_json_error_payload('["a", "b"]') is False
+
+    resp = LLMResponse("content test", processing_seconds=1.2, wall_seconds=2.3)
+    assert resp.text == "content test"
+    assert resp.content == "content test"
+    assert resp.processing_seconds == 1.2
+    assert resp.wall_seconds == 2.3
+
+
+def test_validate_base_url_errors() -> None:
+    with pytest.raises(AIClientError, match="Missing API base URL"):
+        validate_base_url("")
+    with pytest.raises(AIClientError, match="Invalid API URL scheme"):
+        validate_base_url("ftp://example.com")
+    with pytest.raises(AIClientError, match="Missing hostname"):
+        validate_base_url("http://")
+    assert (
+        validate_base_url("http://localhost:11434/", allow_loopback_for_local_tooling=True)
+        == "http://localhost:11434"
+    )
+
+
+def test_read_limited_json_errors() -> None:
+    req = httpx2.Request("POST", "http://example.com")
+    resp_large = httpx2.Response(200, request=req, content=b"a" * 200)
+    with pytest.raises(AIClientError, match="Response body exceeded maximum size"):
+        read_limited_json(resp_large, limit_bytes=50)
+
+    resp_invalid = httpx2.Response(200, request=req, content=b"not json")
+    with pytest.raises(AIClientError, match="Invalid JSON response payload"):
+        read_limited_json(resp_invalid)
+
+
+def test_streaming_extractors_edge_cases() -> None:
+    assert _extract_ollama_stream_chunk("") is None
+    assert _extract_ollama_stream_chunk("invalid json") is None
+    assert (
+        _extract_ollama_stream_chunk('{"message": {"thinking": "reasoning"}}')
+        == "<think>reasoning</think>"
+    )
+    assert _extract_ollama_stream_chunk('{"message": {"content": "token"}}') == "token"
+
+    tok, done = _extract_ollama_stream_tuple('{"message": {"thinking": "th"}}')
+    assert (tok, done) == ("<think>th</think>", False)
+    assert _extract_ollama_stream_tuple("invalid") == (None, False)
+
+    chunk, is_done = _extract_claude_stream_chunk("")
+    assert (chunk, is_done) == (None, False)
+    chunk, is_done = _extract_claude_stream_chunk("data: [DONE]")
+    assert (chunk, is_done) == (None, True)
+    chunk, is_done = _extract_claude_stream_chunk("data: invalid json")
+    assert (chunk, is_done) == (None, False)
+    chunk, is_done = _extract_claude_stream_chunk(
+        'data: {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "token"}}'
+    )
+    assert (chunk, is_done) == ("token", False)
+
+    chunk, is_done = _extract_openai_stream_chunk("")
+    assert (chunk, is_done) == (None, False)
+    chunk, is_done = _extract_openai_stream_chunk("data: [DONE]")
+    assert (chunk, is_done) == (None, True)
+    chunk, is_done = _extract_openai_stream_chunk("data: invalid json")
+    assert (chunk, is_done) == (None, False)
+    chunk, is_done = _extract_openai_stream_chunk(
+        'data: {"choices": [{"delta": {"content": "token"}}] }'
+    )
+    assert (chunk, is_done) == ("token", False)
+
+
+def test_ollama_streaming_and_failover(monkeypatch: pytest.MonkeyPatch) -> None:
+    ollama_cfg = AIConfig(
+        provider="ollama",
+        model="llama3",
+        ollama_urls=["http://localhost:11434", "http://localhost:11435"],
+        allow_private_network=True,
+    )
+    client_ollama = LLMClient(ollama_cfg)
+
+    # 1. Successful stream
+    class MockOllamaStreamResponse:
+        status_code = 200
+
+        def __enter__(self) -> MockOllamaStreamResponse:
+            return self
+
+        def __exit__(self, *args: Any) -> None:
+            pass
+
+        def raise_for_status(self) -> None:
+            pass
+
+        def iter_lines(self) -> list[str]:
+            return [
+                '{"message": {"content": "Ollama "}, "done": false}',
+                '{"message": {"content": "stream"}, "done": true}',
+            ]
+
+    monkeypatch.setattr(httpx2.Client, "stream", lambda *args, **kwargs: MockOllamaStreamResponse())
+    tokens = list(client_ollama.chat_stream("system", "prompt"))
+    assert "".join(tokens) == "Ollama stream"
+
+    # 2. Failover on connection error
+    call_count = 0
+
+    def mock_failover_stream(*args: Any, **kwargs: Any) -> MockOllamaStreamResponse:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise httpx2.ConnectError("Server 1 down")
+        return MockOllamaStreamResponse()
+
+    monkeypatch.setattr(httpx2.Client, "stream", mock_failover_stream)
+    tokens_failover = list(client_ollama.chat_stream("system", "prompt"))
+    assert "".join(tokens_failover) == "Ollama stream"
+
+
+def test_copilot_and_openai_streaming_and_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+    # 1. Copilot streaming with reasoning effort
+    copilot_cfg = AIConfig(
+        provider="github_copilot",
+        model="gpt-4o",
+        api_key="ghp_test_token",
+        allow_private_network=True,
+        reasoning_effort="high",
+    )
+    client_copilot = LLMClient(copilot_cfg)
+
+    class MockCopilotStreamResponse:
+        status_code = 200
+
+        def __enter__(self) -> MockCopilotStreamResponse:
+            return self
+
+        def __exit__(self, *args: Any) -> None:
+            pass
+
+        def raise_for_status(self) -> None:
+            pass
+
+        def iter_lines(self) -> list[str]:
+            return [
+                'data: {"choices": [{"delta": {"content": "Copilot "}}]}',
+                'data: {"choices": [{"delta": {"content": "stream"}}]}',
+                "data: [DONE]",
+            ]
+
+    monkeypatch.setattr(
+        httpx2.Client, "stream", lambda *args, **kwargs: MockCopilotStreamResponse()
+    )
+    tokens = list(client_copilot.chat_stream("system", "prompt"))
+    assert "".join(tokens) == "Copilot stream"
+
+    # 2. OpenAI error handling
+    openai_cfg = AIConfig(
+        provider="openai",
+        model="gpt-4o",
+        api_key="sk-test",
+        allow_private_network=True,
+    )
+    client_openai = LLMClient(openai_cfg)
+
+    def mock_post_err(self: Any, url: str, **kwargs: Any) -> httpx2.Response:
+        req = httpx2.Request("POST", url)
+        return httpx2.Response(401, request=req, json={"error": {"message": "Invalid API key"}})
+
+    monkeypatch.setattr(httpx2.Client, "post", mock_post_err)
+    with pytest.raises(AIClientError):
+        client_openai.chat("sys", "user")
+
+    # 3. Stream connection error
+    def mock_stream_err(*args: Any, **kwargs: Any) -> Any:
+        raise httpx2.ConnectError("Connection refused")
+
+    monkeypatch.setattr(httpx2.Client, "stream", mock_stream_err)
+    with pytest.raises(AIClientError):
+        list(client_openai.chat_stream("sys", "user"))
+
+
+def test_claude_streaming_and_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+    claude_cfg = AIConfig(
+        provider="claude",
+        model="claude-3-5-sonnet",
+        api_key="sk-ant-test",
+        allow_private_network=True,
+    )
+    client_claude = LLMClient(claude_cfg)
+
+    # 1. Streaming
+    class MockClaudeStreamResponse:
+        status_code = 200
+
+        def __enter__(self) -> MockClaudeStreamResponse:
+            return self
+
+        def __exit__(self, *args: Any) -> None:
+            pass
+
+        def raise_for_status(self) -> None:
+            pass
+
+        def iter_lines(self) -> list[str]:
+            return [
+                'data: {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "Claude "}}',
+                'data: {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "stream"}}',
+                "data: [DONE]",
+            ]
+
+    monkeypatch.setattr(httpx2.Client, "stream", lambda *args, **kwargs: MockClaudeStreamResponse())
+    tokens = list(client_claude.chat_stream("system", "prompt"))
+    assert "".join(tokens) == "Claude stream"
+
+    # 2. Error handling
+    def mock_claude_err(self: Any, url: str, **kwargs: Any) -> httpx2.Response:
+        req = httpx2.Request("POST", url)
+        return httpx2.Response(
+            400, request=req, json={"error": {"message": "invalid_request_error"}}
+        )
+
+    monkeypatch.setattr(httpx2.Client, "post", mock_claude_err)
+    with pytest.raises(AIClientError):
+        client_claude.chat("sys", "user")
+
+
+def test_openai_and_ollama_list_models(monkeypatch: pytest.MonkeyPatch) -> None:
+    # 1. OpenAI list models
+    openai_cfg = AIConfig(
+        provider="openai", model="gpt-4o", api_key="test-key", allow_private_network=True
+    )
+    client_openai = LLMClient(openai_cfg)
+
+    def mock_get(self: Any, url: str, **kwargs: Any) -> httpx2.Response:
+        req = httpx2.Request("GET", url)
+        if "/models" in url:
+            return httpx2.Response(
+                200, request=req, json={"data": [{"id": "gpt-4o"}, {"id": "gpt-4o-mini"}]}
+            )
+        if "/api/tags" in url:
+            return httpx2.Response(
+                200,
+                request=req,
+                json={"models": [{"name": "llama3:latest"}, {"name": "qwen2.5:latest"}]},
+            )
+        return httpx2.Response(404, request=req)
+
+    monkeypatch.setattr(httpx2.Client, "get", mock_get)
+    models = client_openai.list_models()
+    assert models == ["gpt-4o", "gpt-4o-mini"]
+
+    # 2. OpenAI list models connection error
+    def mock_openai_get_err(*args: Any, **kwargs: Any) -> httpx2.Response:
+        raise httpx2.ConnectError("OpenAI down")
+
+    monkeypatch.setattr(httpx2.Client, "get", mock_openai_get_err)
+    with pytest.raises(AIClientError):
+        client_openai.list_models()
+
+    # 3. Ollama list models
+    ollama_cfg = AIConfig(
+        provider="ollama",
+        model="llama3",
+        ollama_urls=["http://localhost:11434"],
+        allow_private_network=True,
+    )
+    client_ollama = LLMClient(ollama_cfg)
+    monkeypatch.setattr(httpx2.Client, "get", mock_get)
+    ollama_models = client_ollama.list_models()
+    assert ollama_models == ["llama3:latest", "qwen2.5:latest"]
+
+    # 4. Ollama list models error
+    def mock_get_err(*args: Any, **kwargs: Any) -> httpx2.Response:
+        raise httpx2.ConnectError("Ollama down")
+
+    monkeypatch.setattr(httpx2.Client, "get", mock_get_err)
+    with pytest.raises(AIClientError):
+        client_ollama.list_models()
+
+
+def test_chat_cache_and_starting_point(monkeypatch: pytest.MonkeyPatch) -> None:
+    ollama_cfg = AIConfig(
+        provider="ollama",
+        model="llama3",
+        ollama_urls=["http://localhost:11434"],
+        allow_private_network=True,
+    )
+    client = LLMClient(ollama_cfg, cache_enabled=True)
+
+    def mock_post(self: Any, url: str, **kwargs: Any) -> httpx2.Response:
+        req = httpx2.Request("POST", url)
+        return httpx2.Response(200, request=req, json={"message": {"content": "Cached output"}})
+
+    monkeypatch.setattr(httpx2.Client, "post", mock_post)
+
+    # First call primes cache
+    res1 = client.chat_messages(
+        system="sys",
+        messages=[ChatMessage(role="user", content="user1")],
+        use_cache=True,
+        append_cache=False,
+    )
+    assert str(res1) == "Cached output"
+
+    # Second call hits cache
+    res2 = client.chat_messages(
+        system="sys",
+        messages=[ChatMessage(role="user", content="user1")],
+        use_cache=True,
+        append_cache=False,
+    )
+    assert res2.cached is True
+
+
+def test_direct_model_request_sync_and_async(monkeypatch: pytest.MonkeyPatch) -> None:
+    def mock_post(self: Any, url: str, **kwargs: Any) -> httpx2.Response:
+        req = httpx2.Request("POST", url)
+        return httpx2.Response(200, request=req, json={"message": {"content": "Direct reply"}})
+
+    monkeypatch.setattr(httpx2.Client, "post", mock_post)
+
+    res1 = model_request_sync("llama3", "Hello direct")
+    assert "Direct reply" in str(res1)
+
+    res2 = asyncio.run(model_request("llama3", [ChatMessage(role="user", content="Hello async")]))
+    assert "Direct reply" in str(res2)
+
+
+def test_ollama_thinking_only_and_total_duration(monkeypatch: pytest.MonkeyPatch) -> None:
+    ollama_cfg = AIConfig(
+        provider="ollama",
+        model="llama3",
+        ollama_urls=["http://localhost:11434"],
+        allow_private_network=True,
+        reasoning_effort="medium",
+    )
+    client = LLMClient(ollama_cfg)
+
+    # 1. Thinking only and total duration
+    mock_resp = httpx2.Response(
+        200,
+        request=httpx2.Request("POST", "http://localhost:11434/api/chat"),
+        json={
+            "message": {"thinking": "reasoning steps"},
+            "total_duration": 5000000000,
+            "load_duration": 1000000000,
+        },
+    )
+    monkeypatch.setattr(httpx2.Client, "post", lambda *args, **kwargs: mock_resp)
+    res = client.chat("sys", "user", enable_thinking=True)
+    assert "<think>" in str(res)
+
+    # 2. HTTP error in ollama request
+    def mock_err_post(*args: Any, **kwargs: Any) -> httpx2.Response:
+        req = httpx2.Request("POST", "http://localhost:11434/api/chat")
+        resp = httpx2.Response(500, request=req)
+        resp.raise_for_status()
+        return resp
+
+    monkeypatch.setattr(httpx2.Client, "post", mock_err_post)
+    with pytest.raises(AIClientError):
+        client.chat("sys", "user_error", use_cache=False)
+
+
+def test_augment_messages_starting_point(monkeypatch: pytest.MonkeyPatch) -> None:
+    ollama_cfg = AIConfig(
+        provider="ollama",
+        model="llama3",
+        ollama_urls=["http://localhost:11434"],
+        allow_private_network=True,
+    )
+    client = LLMClient(ollama_cfg)
+    mock_resp = httpx2.Response(
+        200,
+        request=httpx2.Request("POST", "http://localhost"),
+        json={"message": {"content": "Augmented response"}},
+    )
+    monkeypatch.setattr(httpx2.Client, "post", lambda *args, **kwargs: mock_resp)
+
+    res = client.chat_messages(
+        system="sys",
+        messages=[ChatMessage(role="user", content="Draft report")],
+        starting_point="Previous draft content",
+        use_cache=False,
+    )
+    assert str(res) == "Augmented response"

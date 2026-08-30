@@ -15,7 +15,6 @@ from devops_cli.ai.client.base import BaseLLMProviderMixin
 from devops_cli.ai.client.models import AIClientError, LLMResponse
 from devops_cli.ai.client.network import (
     active_ollama_requests,
-    load_and_increment_rr_index,
     ollama_active_lock,
     read_limited_json,
     track_ollama_url,
@@ -111,10 +110,12 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
         n = len(all_urls)
         if n == 0:
             return [(0, "http://localhost:11434")]
-        start = load_and_increment_rr_index(n)
+        start = self._load_and_increment_rr_index(n)
         from devops_cli.ai.client import network
 
-        self._ollama_url_index = network.global_ollama_url_index
+        self._ollama_url_index = getattr(
+            self, "_global_ollama_url_index", network.global_ollama_url_index
+        )
         candidate_urls = [all_urls[(start + i) % n] for i in range(n)]
         indexed_urls = list(enumerate(candidate_urls))
 
