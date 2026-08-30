@@ -30,6 +30,7 @@ The Knowledge Base is divided into two primary structural divisions:
 | **DevOps CLI Architecture** | Subsystem breakdown, multi-persona AI review engine, prompt isolation, dry-run protocol, and language catalogs. | [architecture.md](devops_cli/architecture.md) |
 | **Configuration & Settings** | Pydantic settings schema hierarchy, resolution priority, OS Keyring secrets storage, and dotted config commands. | [configuration_and_settings.md](devops_cli/configuration_and_settings.md) |
 | **CLI Command Reference** | Complete command surface reference across all 19 command groups, subcommands, arguments, and flags. | [cli_command_reference.md](devops_cli/cli_command_reference.md) |
+| **Python Packages Reference** | Technical manual of all 22 production runtime dependencies and 11 development quality tools. | [python_packages.md](devops_cli/python_packages.md) |
 
 ### CLI Operational Task References (`devops_cli/tasks/`)
 

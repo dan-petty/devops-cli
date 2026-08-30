@@ -10,7 +10,8 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any
+
+from pydantic import BaseModel, ConfigDict
 
 logger = logging.getLogger(__name__)
 
@@ -92,7 +93,22 @@ def load_kb_article(relative_path: str) -> str | None:
         return None
 
 
-def get_knowledge_base_stats() -> dict[str, Any]:
+class KnowledgeBaseStats(BaseModel):
+    """Summary statistics of the bundled DevOps CLI knowledge base."""
+
+    model_config = ConfigDict(frozen=True)
+
+    kb_dir: str
+    exists: bool
+    devops_cli_count: int
+    it_domains_count: int
+    topics_count: int
+    tools_count: int
+    tasks_count: int
+    total_articles: int
+
+
+def get_knowledge_base_stats() -> KnowledgeBaseStats:
     """Return summary statistics of the bundled knowledge base."""
     kb_dir = get_knowledge_base_dir()
     devops_cli_articles = list_knowledge_base_articles("devops_cli")
@@ -101,13 +117,13 @@ def get_knowledge_base_stats() -> dict[str, Any]:
     tools = list_knowledge_base_articles("tools")
     tasks = list_knowledge_base_articles("tasks")
 
-    return {
-        "kb_dir": str(kb_dir),
-        "exists": kb_dir.is_dir(),
-        "devops_cli_count": len(devops_cli_articles),
-        "it_domains_count": len(it_domains_articles),
-        "topics_count": len(topics),
-        "tools_count": len(tools),
-        "tasks_count": len(tasks),
-        "total_articles": len(devops_cli_articles) + len(it_domains_articles),
-    }
+    return KnowledgeBaseStats(
+        kb_dir=str(kb_dir),
+        exists=kb_dir.is_dir(),
+        devops_cli_count=len(devops_cli_articles),
+        it_domains_count=len(it_domains_articles),
+        topics_count=len(topics),
+        tools_count=len(tools),
+        tasks_count=len(tasks),
+        total_articles=len(devops_cli_articles) + len(it_domains_articles),
+    )

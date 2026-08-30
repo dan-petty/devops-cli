@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import time
-from typing import Any
 
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
@@ -27,12 +26,12 @@ class HealthResponse(BaseModel):
 
 @router.get("/health", response_model=HealthResponse, summary="Service health status")
 @router.get("/healthz", response_model=HealthResponse, summary="Kubernetes liveness probe")
-async def get_health() -> dict[str, Any]:
+async def get_health() -> HealthResponse:
     """Return health status and uptime metrics."""
-    return {
-        "status": "ok",
-        "service": "devops-cli",
-        "version": __version__,
-        "uptime_seconds": round(time.time() - _START_TIME, 2),
-        "timestamp": time.time(),
-    }
+    return HealthResponse(
+        status="ok",
+        service="devops-cli",
+        version=__version__,
+        uptime_seconds=round(time.time() - _START_TIME, 2),
+        timestamp=time.time(),
+    )

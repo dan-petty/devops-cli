@@ -6,10 +6,10 @@ from typing import Any
 
 
 def __getattr__(name: str) -> Any:
-    if name == "AIClientError":
-        from devops_cli.ai.client import AIClientError
+    if name in {"AIClientError", "LLMClient", "LLMResponse", "model_request_sync", "model_request"}:
+        import devops_cli.ai.client
 
-        return AIClientError
+        return getattr(devops_cli.ai.client, name)
     if name in {
         "CONST_CLAUDE_MD_FILENAME",
         "CONST_COPILOT_INSTRUCTIONS_PATH",
@@ -25,6 +25,7 @@ def __getattr__(name: str) -> Any:
 
         return getattr(devops_cli.ai.instruction_generator, name)
     if name in {
+        "KnowledgeBaseStats",
         "get_knowledge_base_dir",
         "get_knowledge_base_stats",
         "list_knowledge_base_articles",
@@ -40,6 +41,7 @@ def __getattr__(name: str) -> Any:
     if name in {
         "CachedLLMResponse",
         "LLMResponseCache",
+        "ResponseCacheStats",
         "get_llm_response_cache",
         "reset_llm_response_cache",
     }:
@@ -75,9 +77,13 @@ __all__ = [
     "DEFAULT_AGENT_FILES",
     "ExtractedToolCall",
     "FormattedLLMResponse",
+    "KnowledgeBaseStats",
+    "LLMClient",
+    "LLMResponse",
     "LLMResponseCache",
     "ModelBundleManifest",
     "ProjectMetadata",
+    "ResponseCacheStats",
     "ThinkingStreamProcessor",
     "bundle_ollama_models",
     "extract_think_blocks",
@@ -91,6 +97,8 @@ __all__ = [
     "get_llm_response_cache",
     "list_knowledge_base_articles",
     "load_kb_article",
+    "model_request",
+    "model_request_sync",
     "parse_project_metadata",
     "repair_json_string",
     "reset_llm_response_cache",

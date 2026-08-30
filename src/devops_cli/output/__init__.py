@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from rich.console import Console as Console
+from rich.console import RenderableType as RenderableType
+from rich.live import Live as Live
 from rich.table import Table as Table
 
 from devops_cli.output.console import (
@@ -70,16 +73,20 @@ from devops_cli.output.models import (
 )
 
 __all__ = [
+    "Console",
     "JustifyMethod",
     "KeyValuePayload",
+    "Live",
     "MarkdownPayload",
     "MessageLevel",
     "OutputFormat",
     "PanelPayload",
     "ProgressStep",
+    "RenderableType",
     "RulePayload",
     "StatusBadge",
     "SyntaxPayload",
+    "Table",
     "TableColumn",
     "TablePayload",
     "escape_text",

@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any
 
+from pydantic import BaseModel, ConfigDict
 
-@dataclass(frozen=True)
-class ReviewStageFlags:
+
+class ReviewStageFlags(BaseModel):
     """Feature flags controlling individual stage execution in the review pipeline."""
+
+    model_config = ConfigDict(frozen=True)
 
     pre_analysis: bool = True
     static_scan: bool = True

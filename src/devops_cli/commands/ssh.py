@@ -74,7 +74,7 @@ def generate(
         return
 
     settings = load_settings()
-    target_key_dir = key_dir or settings.ssh.key_dir
+    target_key_dir = (key_dir or settings.ssh.key_dir).expanduser()
     target_key_dir.mkdir(parents=True, exist_ok=True)
     key_path = target_key_dir / f"id_ed25519-{_date_suffix()}"
 
@@ -118,10 +118,12 @@ def register(
     token = get_github_token(settings)
 
     if key_file is None:
-        key_file = find_newest_key(settings.ssh.key_dir)
+        key_file = find_newest_key(settings.ssh.key_dir.expanduser())
         if key_file is None:
             print_error(MESSAGES.messages.no_ssh_key_found, prefix=False)
             raise typer.Exit(1)
+    else:
+        key_file = key_file.expanduser()
 
     pub_path = key_file.with_name(f"{key_file.name}.pub")
     if not pub_path.exists():
@@ -174,7 +176,7 @@ def rotate(
         return
 
     settings = load_settings()
-    target_key_dir = key_dir or settings.ssh.key_dir
+    target_key_dir = (key_dir or settings.ssh.key_dir).expanduser()
 
     newest = find_newest_key(target_key_dir)
     if newest is None:
@@ -245,7 +247,7 @@ def list_keys(
         return
 
     settings = load_settings()
-    target_key_dir = key_dir or settings.ssh.key_dir
+    target_key_dir = (key_dir or settings.ssh.key_dir).expanduser()
     keys = list_managed_keys_info(target_key_dir)
 
     if not keys:
@@ -297,7 +299,7 @@ def status(
         return
 
     settings = load_settings()
-    target_key_dir = key_dir or settings.ssh.key_dir
+    target_key_dir = (key_dir or settings.ssh.key_dir).expanduser()
     rotation_days = settings.ssh.rotation_days
 
     newest = find_newest_key(target_key_dir)

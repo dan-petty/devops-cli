@@ -14,8 +14,10 @@ from devops_cli.ai.client import LLMClient
 from devops_cli.ai.personas import PERSONAS, Persona
 from devops_cli.commands import review
 from devops_cli.commands.review import ReviewClients
-from devops_cli.config.constants import CONST_REVIEW_MAX_DIFF_CHARS
-from devops_cli.config.defaults import DEFAULT_REVIEW_TIMEOUT_SECONDS
+from devops_cli.config.defaults import (
+    DEFAULT_REVIEW_MAX_DIFF_CHARS,
+    DEFAULT_REVIEW_TIMEOUT_SECONDS,
+)
 from devops_cli.config.settings import AIConfig
 from devops_cli.main import app
 from devops_cli.models.ai import ChatMessage
@@ -83,7 +85,7 @@ def test_collect_files_skips_gitignored_entries(tmp_path: Path) -> None:
 
 
 def test_review_prompt_contains_full_diff_without_truncation() -> None:
-    big_diff = "x" * (CONST_REVIEW_MAX_DIFF_CHARS + 1)
+    big_diff = "x" * (DEFAULT_REVIEW_MAX_DIFF_CHARS + 1)
     prompt = review._build_prompt(big_diff, "review title")
 
     assert "review title" in prompt

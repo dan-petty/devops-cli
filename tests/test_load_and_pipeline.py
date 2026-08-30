@@ -43,3 +43,19 @@ def test_pipeline_run_live(mock_run: MagicMock, mock_which: MagicMock, tmp_path:
     result = runner.invoke(pipeline_app, [str(tmp_path), "--function", "build"])
     assert result.exit_code == 0
     assert mock_run.called
+
+
+@patch("shutil.which", return_value=None)
+def test_pipeline_run_missing_dagger(mock_which: MagicMock, tmp_path: Path) -> None:
+    result = runner.invoke(pipeline_app, [str(tmp_path)])
+    assert result.exit_code == 1
+    assert "Dagger CLI binary not found" in result.output
+
+
+@patch("shutil.which", return_value="/usr/local/bin/dagger")
+@patch("devops_cli.commands.pipeline.run_subprocess")
+def test_pipeline_run_failure(mock_run: MagicMock, mock_which: MagicMock, tmp_path: Path) -> None:
+    mock_run.return_value = MagicMock(returncode=2, stdout="", stderr="")
+    result = runner.invoke(pipeline_app, [str(tmp_path)])
+    assert result.exit_code == 2
+    assert "Pipeline execution failed with exit code 2" in result.output

@@ -42,7 +42,7 @@ from devops_cli.exceptions import (
     ToolExecutionError,
     ValidationError,
 )
-from devops_cli.lang import HELP
+from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
     print_error,
     print_info,
@@ -478,14 +478,17 @@ def install_all(
     for name, spec in targets.items():
         ver = version
         if not ver:
-            print_info(f"Fetching latest version for [cyan]{name}[/cyan]...", prefix=False)
+            print_info(MESSAGES.install.fetching_latest.format(name=name), prefix=False)
             try:
                 ver = spec.get_latest()
             except Exception as exc:
                 print_error(f"{name}: could not determine latest — {exc}")
                 continue
 
-        print_info(f"Installing [cyan]{name}[/cyan] {ver}...", prefix=False)
+        print_info(
+            MESSAGES.install.installing_tool.format(name=name, version=ver),
+            prefix=False,
+        )
         try:
             spec.install(ver, target_dir)
             print_success(str(target_dir / (spec.bin_name + _EXE)))
@@ -516,7 +519,7 @@ def status(
         rows.append([name, spec.description, installed, latest])
 
     print_table(
-        title="DevOps Tool Status",
+        title=MESSAGES.install.status_title,
         columns=[("Tool", "cyan"), "Description", "Installed", ("Latest", "dim")],
         rows=rows,
     )
@@ -530,7 +533,6 @@ def status(
 def _path_hint(target_dir: Path) -> None:
     if str(target_dir) not in os.environ.get("PATH", "").split(os.pathsep):
         print_warning(
-            f"Note: {target_dir} is not in your PATH.\n"
-            f'Add to your shell config:  export PATH="{target_dir}:$PATH"',
+            MESSAGES.install.path_hint.format(path=str(target_dir)),
             prefix=False,
         )

@@ -1,6 +1,7 @@
 """Unit tests for OpenTelemetry tracer and metrics emitter."""
 
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -420,3 +421,47 @@ def test_telemetry_grpc_connection_failure(monkeypatch: pytest.MonkeyPatch) -> N
     assert ok is False
     assert "gRPC probe failed" in msg
     assert latency >= 0
+
+
+def test_telemetry_payload_and_shutdown_error_branches(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Cover error handling branches in payload sending and shutdown."""
+    from unittest.mock import MagicMock
+
+    client = OTelTelemetryClient(endpoint="http://localhost:4318", enabled=True)
+
+    # 1. _send_payload_sync HTTP error
+    mock_http = MagicMock()
+    mock_http.post.side_effect = RuntimeError("network drop")
+    client._http_client = mock_http
+    client._send_payload_sync("/v1/traces", {})
+
+    # 2. _send_payload executor submit error
+    mock_exec = MagicMock()
+    mock_exec.submit.side_effect = RuntimeError("thread pool full")
+    client._executor = mock_exec
+    client._send_payload("/v1/traces", {})
+
+    # 3. shutdown exceptions
+    mock_exec.shutdown.side_effect = RuntimeError("exec shutdown fail")
+    mock_grpc = MagicMock()
+    mock_grpc.shutdown.side_effect = RuntimeError("grpc shutdown fail")
+    mock_http.close.side_effect = RuntimeError("http close fail")
+    client._grpc_exporter = mock_grpc
+
+    client.shutdown()
+    assert client._executor is None
+    assert client._grpc_exporter is None
+    assert client._http_client is None
+
+
+def test_resolve_telemetry_settings_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Cover _resolve_telemetry_settings exception fallback."""
+    from devops_cli.telemetry.tracer import _resolve_telemetry_settings
+
+    monkeypatch.setattr(
+        "devops_cli.config.settings.load_settings",
+        MagicMock(side_effect=RuntimeError("settings corrupted")),
+    )
+    endpoint, enabled = _resolve_telemetry_settings()
+    assert endpoint is None
+    assert enabled is True

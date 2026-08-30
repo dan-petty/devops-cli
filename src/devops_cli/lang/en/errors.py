@@ -56,6 +56,7 @@ class WorkspaceErrorMessages:
     malformed: str = "Malformed workspace file structure: {ws_file}. Using defaults."
     corrupted: str = "Corrupted workspace file: {ws_file}. Using defaults."
     outside_roots: str = "Error: Cannot add path '{path}' outside allowed workspace roots."
+    outside_boundary: str = "Cannot write workspace file '{path}' outside boundary."
     already_present: str = "Already in workspace: {path}"
     not_present: str = "Not found in workspace: {path}"
     repos_not_found: str = "Repos directory not found: {path}"

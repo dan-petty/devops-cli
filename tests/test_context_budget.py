@@ -12,6 +12,7 @@ from devops_cli.ai.context_budget import (
     count_file_tokens,
     count_tokens,
     truncate_to_token_limit,
+    validate_and_budget_prompt,
 )
 from devops_cli.commands.ai import app as ai_app
 
@@ -44,6 +45,18 @@ def test_truncate_to_token_limit() -> None:
     short_text = "Short sentence."
     assert truncate_to_token_limit(short_text, max_tokens=100) == short_text
     assert truncate_to_token_limit("", max_tokens=10) == ""
+
+
+def test_validate_and_budget_prompt() -> None:
+    short_text = "This is a short prompt."
+    budgeted, was_condensed = validate_and_budget_prompt(short_text, max_tokens=100)
+    assert budgeted == short_text
+    assert was_condensed is False
+
+    long_text = "word " * 500
+    budgeted, was_condensed = validate_and_budget_prompt(long_text, max_tokens=20)
+    assert was_condensed is True
+    assert "...[content condensed to fit context window budget]" in budgeted
 
 
 def test_budget_diff_chunks_small_diff() -> None:

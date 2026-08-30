@@ -10,12 +10,12 @@ The Multi-Persona AI Code Review system in `devops-cli` provides automated, high
 
 ```mermaid
 graph TD
-    A[Target Path / Branch / PR] --> S1[Stage 1: Pre-Analysis Metadata Refresh]
-    S1 --> S2[Stage 2: Static Security Scan & Dependency Analysis]
-    S2 --> S3[Stage 3: Multi-Persona LLM Code Review]
-    S3 --> S4[Stage 4: Verification & Multi-Agent Adversarial Debate]
-    S4 --> S5[Stage 5: Finding Re-Ranking & Calibration]
-    S5 --> S6[Stage 6: Consolidated Markdown & JSON Reporting]
+    A[Target Path / Branch / PR] --> S1[Pre-Analysis Metadata Refresh]
+    S1 --> S2[Static Security Scan & Dependency Analysis]
+    S2 --> S3[Multi-Persona LLM Code Review]
+    S3 --> S4[Verification & Multi-Agent Adversarial Debate]
+    S4 --> S5[Finding Re-Ranking & Calibration]
+    S5 --> S6[Consolidated Markdown & JSON Reporting]
     S6 --> F1[Human-in-the-Loop Finding Inspection]
     F1 --> F2[Patch Application & Verification: devops ai review verify]
     F2 --> F3[Feedback Dataset Export: devops ai review export-feedback]

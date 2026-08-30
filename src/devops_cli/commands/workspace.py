@@ -131,7 +131,7 @@ def _is_safe_workspace_file(ws_file: Path) -> bool:
 
 def _save(ws_file: Path, data: dict[str, Any]) -> None:
     if not _is_safe_workspace_file(ws_file):
-        _get("print_error")(f"Cannot write workspace file '{ws_file.resolve()}' outside boundary.")
+        _get("print_error")(ERRORS.workspace.outside_boundary.format(path=str(ws_file.resolve())))
         raise typer.Exit(1)
     _get("write_json_file")(ws_file, _ensure_root_entry(data), indent=2, atomic=True)
 

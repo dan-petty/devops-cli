@@ -15,10 +15,10 @@ import time
 from collections.abc import Callable, Generator
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextvars import ContextVar
-from dataclasses import dataclass, field
 from typing import Any, TypeVar
 
 import httpx2
+from pydantic import BaseModel, Field
 
 from devops_cli.config.constants import (
     CONST_OTEL_METRIC_UNIT_ONE,
@@ -59,19 +59,24 @@ def _to_otlp_any_value(val: Any) -> dict[str, Any]:
     """Convert a Python scalar or sequence into a strongly-typed OpenTelemetry AnyValue dict."""
     if isinstance(val, bool):
         return {"boolValue": val}
-    elif isinstance(val, int):
+    if isinstance(val, int):
         return {"intValue": str(val)}
-    elif isinstance(val, float):
-        return {"doubleValue": val}
-    elif isinstance(val, (list, tuple, set)):
-        return {"arrayValue": {"values": [_to_otlp_any_value(v) for v in val]}}
-    elif isinstance(val, dict):
-        kv_list = [{"key": str(k), "value": _to_otlp_any_value(v)} for k, v in val.items()]
-        return {"kvlistValue": {"values": kv_list}}
+    if isinstance(val, float):
+        return {"doubleValue": float(val)}
+    if isinstance(val, str):
+        return {"stringValue": val}
+    if isinstance(val, (list, tuple)):
+        return {"arrayValue": {"values": [_to_otlp_any_value(item) for item in val]}}
+    if isinstance(val, dict):
+        return {
+            "kvlistValue": {
+                "values": [{"key": k, "value": _to_otlp_any_value(v)} for k, v in val.items()]
+            }
+        }
     return {"stringValue": str(val)}
 
 
-_SPAN_KINDS: dict[str, str] = {
+_SPAN_KINDS = {
     "internal": "SPAN_KIND_INTERNAL",
     "server": "SPAN_KIND_SERVER",
     "client": "SPAN_KIND_CLIENT",
@@ -80,24 +85,23 @@ _SPAN_KINDS: dict[str, str] = {
 }
 
 
-@dataclass
-class SpanWaterfallNode:
+class SpanWaterfallNode(BaseModel):
     """Hierarchical node representing a completed OpenTelemetry span for visual profiling."""
 
     span_id: str
     trace_id: str
     name: str
-    parent_id: str | None
+    parent_id: str | None = None
     start_time_ns: int
     end_time_ns: int
     duration_ms: float
     status_code: str
-    status_message: str
-    attributes: dict[str, Any]
+    status_message: str = ""
+    attributes: dict[str, Any] = Field(default_factory=dict)
     depth: int = 0
     relative_offset_pct: float = 0.0
     relative_duration_pct: float = 0.0
-    children: list[SpanWaterfallNode] = field(default_factory=list)
+    children: list[SpanWaterfallNode] = Field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize waterfall node into dictionary structure."""

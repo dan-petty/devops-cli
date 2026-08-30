@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict
 
 from devops_cli.config import options as opt
 
@@ -132,14 +134,31 @@ OPTION_TO_ENV_VAR: dict[str, str] = {
 ENV_VAR_TO_OPTION: dict[str, str] = {v: k for k, v in OPTION_TO_ENV_VAR.items()}
 
 
-@dataclass(frozen=True)
-class EnvVarSpec:
+class EnvVarSpec(BaseModel):
     """Metadata specification for a devops-cli environment variable."""
+
+    model_config = ConfigDict(frozen=True)
 
     env_var: str
     option_key: str | None = None
     is_secret: bool = False
     description: str = ""
+
+    def __init__(
+        self,
+        env_var: str,
+        option_key: str | None = None,
+        is_secret: bool = False,
+        description: str = "",
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(
+            env_var=env_var,
+            option_key=option_key,
+            is_secret=is_secret,
+            description=description,
+            **kwargs,
+        )
 
 
 def env_var_for_option(option_key: str) -> str | None:

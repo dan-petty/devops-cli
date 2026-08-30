@@ -52,6 +52,24 @@ class CachedLLMResponse(BaseModel):
         return (time.time() - self.created_at) > ttl_seconds
 
 
+class ResponseCacheStats(BaseModel):
+    """Performance metrics, hit rates, and disk utilization for LLM response cache."""
+
+    model_config = ConfigDict(frozen=True)
+
+    enabled: bool
+    memory_entries: int
+    disk_entries: int
+    hits: int
+    misses: int
+    total_lookups: int
+    hit_rate_percent: float
+    disk_size_bytes: int
+    cache_directory: str
+    ttl_seconds: float
+    max_entries: int
+
+
 def _matches_context_or_prefix(
     entry: CachedLLMResponse, context_tag: str | None, key_prefix: str | None
 ) -> bool:
@@ -327,7 +345,7 @@ class LLMResponseCache:
             count += _clear_disk_cache(cdir)
             return count
 
-    def get_stats(self) -> dict[str, Any]:
+    def get_stats(self) -> ResponseCacheStats:
         """Compute performance statistics, hit rates, and disk utilization."""
         with self._lock:
             cdir = self._resolve_cache_dir()
@@ -336,19 +354,19 @@ class LLMResponseCache:
             total_lookups = self._hits + self._misses
             hit_rate_pct = (self._hits / total_lookups * 100.0) if total_lookups > 0 else 0.0
 
-            return {
-                "enabled": self.enabled,
-                "memory_entries": len(self._memory_cache),
-                "disk_entries": len(disk_files),
-                "hits": self._hits,
-                "misses": self._misses,
-                "total_lookups": total_lookups,
-                "hit_rate_percent": round(hit_rate_pct, 1),
-                "disk_size_bytes": total_disk_bytes,
-                "cache_directory": str(cdir),
-                "ttl_seconds": self.ttl_seconds,
-                "max_entries": self.max_entries,
-            }
+            return ResponseCacheStats(
+                enabled=self.enabled,
+                memory_entries=len(self._memory_cache),
+                disk_entries=len(disk_files),
+                hits=self._hits,
+                misses=self._misses,
+                total_lookups=total_lookups,
+                hit_rate_percent=round(hit_rate_pct, 1),
+                disk_size_bytes=total_disk_bytes,
+                cache_directory=str(cdir),
+                ttl_seconds=self.ttl_seconds,
+                max_entries=self.max_entries,
+            )
 
     def _save_to_disk(self, entry: CachedLLMResponse) -> None:
         """Save a single cached response entry to disk atomically."""

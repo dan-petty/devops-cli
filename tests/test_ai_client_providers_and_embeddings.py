@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import httpx2
 import pytest
@@ -52,6 +53,31 @@ def test_llm_client_ollama_dispatch(monkeypatch: pytest.MonkeyPatch) -> None:
 
     res = client.chat(system="sys", user="user")
     assert "Ollama response" in str(res)
+
+
+def test_llm_client_context_window_and_options(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured_payloads: list[dict[str, Any]] = []
+
+    def mock_post(self: Any, url: str, **kwargs: Any) -> httpx2.Response:
+        if str(url).endswith("/api/chat") and "json" in kwargs:
+            captured_payloads.append(kwargs["json"])
+        return _make_resp(200, {"message": {"content": "OK"}})
+
+    monkeypatch.setattr(httpx2.Client, "post", mock_post)
+
+    cfg = AIConfig(
+        provider="ollama",
+        model="qwen2.5-coder:7b",
+        ollama_urls=["http://localhost:11434"],
+        context_window=40960,
+        allow_private_network=True,
+    )
+    client = LLMClient(cfg)
+    assert client.get_context_window() == 40960
+
+    client.chat(system="sys", user="user")
+    assert len(captured_payloads) == 1
+    assert captured_payloads[0]["options"]["num_ctx"] == 40960
 
 
 def test_llm_client_claude_dispatch(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -486,3 +512,33 @@ def test_llm_client_embeddings_and_claude_messages(monkeypatch) -> None:
         [ChatMessage(role="user", content="Analyze this architecture")],
     )
     assert "Claude message response" in str(claude_out)
+
+
+@pytest.mark.asyncio
+async def test_direct_model_request_helpers(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify model_request_sync and model_request direct API calls."""
+    from unittest.mock import MagicMock
+
+    from devops_cli.ai import model_request, model_request_sync
+    from devops_cli.models.ai import ChatMessage
+
+    mock_client = MagicMock()
+    mock_client.chat.return_value = "Direct chat output"
+    mock_client.chat_messages.return_value = "Direct chat_messages output"
+
+    # 1. model_request_sync with string prompt
+    res_sync = model_request_sync("gpt-4o", "Hello world", client=mock_client)
+    assert str(res_sync) == "Direct chat output"
+
+    # 2. model_request_sync with ChatMessage list
+    res_msgs = model_request_sync(
+        "gpt-4o",
+        [ChatMessage(role="user", content="Test")],
+        system_prompt="System",
+        client=mock_client,
+    )
+    assert str(res_msgs) == "Direct chat_messages output"
+
+    # 3. model_request async with string prompt
+    res_async = await model_request("gpt-4o", "Async prompt", client=mock_client)
+    assert str(res_async) == "Direct chat output"

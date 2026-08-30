@@ -756,14 +756,14 @@ class ReviewPipelineOrchestrator:
 
         if stage_flags is not None and not stage_flags.pre_analysis:
             print_info(
-                "[dim]Stage 1/6: Pre-analysis metadata scan skipped (disabled via flag)[/dim]",
+                "[dim]Pre-analysis metadata scan skipped (disabled via flag)[/dim]",
                 prefix=False,
             )
             return {}
 
         self.target_dir = target_dir
         with trace_span(
-            "review.stage_1_pre_analysis",
+            "review.pre_analysis",
             attributes={"target_ref": target_ref, "target_type": target_type},
         ):
             repo = find_repo_root(target_dir)
@@ -772,7 +772,7 @@ class ReviewPipelineOrchestrator:
             )
             display_ref = str(target_abs) if (not target_ref or target_ref == ".") else target_ref
             print_info(
-                f"[dim]Stage 1/6: Scanning pre-analysis metadata for '{display_ref}'...[/dim]",
+                f"[dim]Scanning pre-analysis metadata for '{display_ref}'...[/dim]",
                 prefix=False,
             )
 
@@ -1198,8 +1198,8 @@ class ReviewPipelineOrchestrator:
                 net_cache,
             )
         except Exception as exc:
-            logger.error("Failed assembling payload for %s: %s", fpath, exc)
-            self.errored_files[fpath] = f"Stage 2 (Initialization): {exc}"
+            logger.error("Error creating review payload for %s: %s", fpath, exc)
+            self.errored_files[fpath] = f"Initialization: {exc}"
             warn_msg = f"  [yellow]• [bold red]Skipped errored file during init:[/bold red] [bold]{fpath}[/bold] [dim]({exc})[/dim][/yellow]"
             print_info(warn_msg, prefix=False)
             return None
@@ -1247,13 +1247,13 @@ class ReviewPipelineOrchestrator:
             self.target_dir = target_dir
 
         n_paths = len(file_paths)
-        with trace_span("review.stage_2_init_payloads", attributes={"file_count": n_paths}):
+        with trace_span("review.init_payloads", attributes={"file_count": n_paths}):
             print_info(
-                f"[dim]Stage 2/6: Initializing payload tracking for {n_paths} file(s)...[/dim]",
+                f"[dim]Initializing payload tracking for {n_paths} file(s)...[/dim]",
                 prefix=False,
             )
 
-            # Step 2a: Static security tool batch scanning
+            # Static security tool batch scanning
             static_findings_by_file: dict[str, list[SavedFinding]]
             if stage_flags is not None and not stage_flags.static_scan:
                 print_info(
@@ -1264,17 +1264,17 @@ class ReviewPipelineOrchestrator:
             else:
                 static_findings_by_file = self._run_static_scanners(file_paths)
 
-            # Step 2b: Parse dependencies and network references across target files
+            # Parse dependencies and network references across target files
             raw_file_data, unique_deps, unique_nets = (
                 self._extract_dependencies_and_network_references(file_paths)
             )
 
-            # Step 2c: Concurrently pre-fetch unique dependency vulnerabilities & reputations
+            # Concurrently pre-fetch unique dependency vulnerabilities & reputations
             dep_cache, net_cache = self._fetch_vulnerabilities_and_reputations(
                 unique_deps, unique_nets
             )
 
-            # Step 2d: Assemble and persist FileReviewPayload objects
+            # Assemble and persist FileReviewPayload objects
             payloads = self._assemble_and_persist_payloads(
                 file_paths=file_paths,
                 metadata_by_path=metadata_by_path,
@@ -1290,7 +1290,7 @@ class ReviewPipelineOrchestrator:
             )
             return payloads
 
-    # ── Stage 3: Multi-Persona Code Content Review ─────────────────────────────
+    # ── Multi-Persona Code Content Review ──────────────────────────────────────
     def _read_target_conventions(self) -> str:
         """Read and sanitize AGENTS.md conventions from target repository."""
         target_agents_path = self.target_dir / "AGENTS.md"
@@ -1318,14 +1318,15 @@ class ReviewPipelineOrchestrator:
         pipeline = MultiAgentPipeline[ReviewResult](output_schema=ReviewResult)
         persona_lookup: dict[str, tuple[str, str]] = {}
 
-        for p_key in active_personas:
+        effective_personas = active_personas if active_personas else ["devsecops"]
+        for p_key in effective_personas:
             try:
                 persona_enum = Persona(p_key) if isinstance(p_key, str) else p_key
                 p_val = persona_enum.value if hasattr(persona_enum, "value") else str(persona_enum)
             except ValueError:
                 persona_enum = Persona.DEVSECOPS
                 p_val = "devsecops"
-            p_def = PERSONAS[persona_enum]
+            p_def = PERSONAS.get(persona_enum, PERSONAS[Persona.DEVSECOPS])
             persona_lookup[p_def.title] = (p_val, p_def.title)
             persona_lookup[p_val] = (p_val, p_def.title)
             sys_prompt = (
@@ -1341,6 +1342,18 @@ class ReviewPipelineOrchestrator:
             )
             pipeline.add_agent(agent)
 
+        if not pipeline.agents:
+            p_def = PERSONAS[Persona.DEVSECOPS]
+            persona_lookup[p_def.title] = ("devsecops", p_def.title)
+            persona_lookup["devsecops"] = ("devsecops", p_def.title)
+            agent = PydanticAgent[ReviewResult](
+                client=self.llm_client,
+                name=p_def.title,
+                system_prompt=f"You are {p_def.title}.\n{p_def.system_prompt}\n\n{_REVIEW_PIPELINE_EVAL}\n{target_conventions}",
+                output_schema=ReviewResult,
+            )
+            pipeline.add_agent(agent)
+
         return pipeline, persona_lookup
 
     def _review_single_file_payload(
@@ -1351,12 +1364,15 @@ class ReviewPipelineOrchestrator:
         diff_text_by_file: dict[str, str],
         active_personas: list[str],
         server_info: str,
+        *,
+        pipeline: MultiAgentPipeline[ReviewResult] | None = None,
+        persona_lookup: dict[str, tuple[str, str]] | None = None,
     ) -> None:
         """Run multi-persona review for a single file across chunked diff pages."""
         fpath = payload.file_path
         ext = Path(fpath).suffix.lower()
         with trace_span(
-            "review.stage_3.file_review",
+            "review.file_review",
             attributes={
                 "session_id": self.session_id,
                 "file_path": fpath,
@@ -1364,7 +1380,7 @@ class ReviewPipelineOrchestrator:
                 "total_files": total_files,
                 "review.personas": active_personas,
                 "review.file_extension": ext,
-                "review.stage": "stage_3_inspection",
+                "review.stage": "inspection",
             },
         ) as file_span:
             content_or_diff = diff_text_by_file.get(fpath, "")
@@ -1382,11 +1398,21 @@ class ReviewPipelineOrchestrator:
                 return
 
             from devops_cli.ai.review.chunker import _diff_pages
-            from devops_cli.config.constants import CONST_REVIEW_MAX_DIFF_CHARS
+            from devops_cli.config.defaults import (
+                DEFAULT_AI_CONTEXT_WINDOW,
+                DEFAULT_REVIEW_MAX_DIFF_CHARS,
+            )
+
+            ctx_win = (
+                self.llm_client.get_context_window("analysis")
+                if hasattr(self.llm_client, "get_context_window")
+                else DEFAULT_AI_CONTEXT_WINDOW
+            )
+            max_diff_chars = max(DEFAULT_REVIEW_MAX_DIFF_CHARS, int(ctx_win * 3.5))
 
             pages = (
-                _diff_pages(content_or_diff, max_chars=CONST_REVIEW_MAX_DIFF_CHARS)
-                if len(content_or_diff) > CONST_REVIEW_MAX_DIFF_CHARS
+                _diff_pages(content_or_diff, max_chars=max_diff_chars)
+                if len(content_or_diff) > max_diff_chars
                 else [content_or_diff]
             )
             total_pages = len(pages)
@@ -1398,10 +1424,11 @@ class ReviewPipelineOrchestrator:
             )
 
             file_findings: list[SavedFinding] = []
-            target_conventions = self._read_target_conventions()
-            pipeline, persona_lookup = self._build_multi_persona_pipeline(
-                active_personas, target_conventions
-            )
+            if pipeline is None or persona_lookup is None:
+                target_conventions = self._read_target_conventions()
+                pipeline, persona_lookup = self._build_multi_persona_pipeline(
+                    active_personas, target_conventions
+                )
 
             symbols = ", ".join(payload.metadata.key_symbols if payload.metadata else [])
             rag_context_str = ""
@@ -1490,6 +1517,9 @@ class ReviewPipelineOrchestrator:
         diff_text_by_file: dict[str, str],
         active_personas: list[str],
         server_info: str,
+        *,
+        pipeline: MultiAgentPipeline[ReviewResult] | None = None,
+        persona_lookup: dict[str, tuple[str, str]] | None = None,
     ) -> None:
         """Safely execute review on single file payload with error capture."""
         if payload.file_path in self.errored_files:
@@ -1502,13 +1532,15 @@ class ReviewPipelineOrchestrator:
                 diff_text_by_file=diff_text_by_file,
                 active_personas=active_personas,
                 server_info=server_info,
+                pipeline=pipeline,
+                persona_lookup=persona_lookup,
             )
         except Exception as exc:
             logger.error("Error reviewing file %s: %s", payload.file_path, exc)
             payload.findings = []
             payload.ai_scratchpad["stage"] = "failed"
             payload.ai_scratchpad["error"] = str(exc)
-            self.errored_files[payload.file_path] = f"Stage 3 (Review): {exc}"
+            self.errored_files[payload.file_path] = f"Review: {exc}"
             print_info(
                 f"[yellow][{idx}/{total_files}][/yellow] [bold red]Skipped errored file:[/bold red] "
                 f"[bold]{payload.file_path}[/bold] [dim]({exc})[/dim]",
@@ -1525,7 +1557,7 @@ class ReviewPipelineOrchestrator:
         """Run multi-persona review pipeline per file in parallel across configured AI nodes."""
         if stage_flags is not None and not stage_flags.persona_review:
             print_info(
-                "[dim]Stage 3/6: Persona code review skipped (disabled via flag)[/dim]",
+                "[dim]Persona code review skipped (disabled via flag)[/dim]",
                 prefix=False,
             )
             return
@@ -1535,7 +1567,7 @@ class ReviewPipelineOrchestrator:
         server_info = self._get_server_info()
 
         with trace_span(
-            "review.stage_3_inspection",
+            "review.inspection",
             attributes={
                 "review.total_files": total_files,
                 "review.personas": ", ".join(active_personas),
@@ -1558,7 +1590,7 @@ class ReviewPipelineOrchestrator:
             )
 
             print_info(
-                f"[dim]Stage 3/6: {persona_label} review for {total_files} file(s) "
+                f"[dim]{persona_label} review for {total_files} file(s) "
                 f"-> Configured AI Server(s): {server_info}[/dim]",
                 prefix=False,
             )
@@ -1577,10 +1609,22 @@ class ReviewPipelineOrchestrator:
                 {"total_files": total_files, "workers": n_workers},
             )
 
+            target_conventions = self._read_target_conventions()
+            compiled_pipeline, persona_lookup = self._build_multi_persona_pipeline(
+                active_personas, target_conventions
+            )
+
             def _review_task(arg: tuple[int, FileReviewPayload]) -> None:
                 idx, payload = arg
                 self._safe_review_file_payload(
-                    idx, total_files, payload, diff_text_by_file, active_personas, server_info
+                    idx,
+                    total_files,
+                    payload,
+                    diff_text_by_file,
+                    active_personas,
+                    server_info,
+                    pipeline=compiled_pipeline,
+                    persona_lookup=persona_lookup,
                 )
 
             if n_workers > 1:
@@ -1590,7 +1634,7 @@ class ReviewPipelineOrchestrator:
                 for item in enumerate(file_payloads, 1):
                     _review_task(item)
 
-    # ── Stage 4: Cross-Referencing Verification & Reasoning ─────────────────
+    # ── Cross-Referencing Verification & Reasoning ──────────────────────────
     def _safe_verify_file_payload(
         self,
         idx: int,
@@ -1612,7 +1656,7 @@ class ReviewPipelineOrchestrator:
             logger.error("Error verifying file %s: %s", payload.file_path, exc)
             payload.ai_scratchpad["stage"] = "failed"
             payload.ai_scratchpad["error"] = str(exc)
-            self.errored_files[payload.file_path] = f"Stage 4 (Verification): {exc}"
+            self.errored_files[payload.file_path] = f"Verification: {exc}"
             print_info(
                 f"[yellow][{idx}/{total_files}][/yellow] [bold red]Skipped verification on errored file:[/bold red] "
                 f"[bold]{payload.file_path}[/bold] [dim]({exc})[/dim]",
@@ -1630,7 +1674,7 @@ class ReviewPipelineOrchestrator:
         fpath = payload.file_path
         ext = Path(fpath).suffix.lower()
         with trace_span(
-            "review.stage_4.file_verify",
+            "review.file_verify",
             attributes={
                 "session_id": self.session_id,
                 "file_path": fpath,
@@ -1692,9 +1736,9 @@ class ReviewPipelineOrchestrator:
 
             thoughts_list = payload.ai_scratchpad.setdefault("thoughts", [])
             thoughts_list.append(
-                f"[Stage 4 Verification] Verified {tot_u} finding(s) for "
-                f"{payload.file_path}: {valid_cnt} confirmed/mitigated, "
-                f"{tot_u - valid_cnt} invalidated/unverified"
+                f"[Verification] Verified {tot_u} finding(s) for "
+                f"'{Path(payload.file_path).name}' "
+                f"({len(payload.findings)} total candidate(s))"
             )
 
             payload.findings = updated_saved
@@ -1726,7 +1770,7 @@ class ReviewPipelineOrchestrator:
         """Verify findings against file contents and linked files in parallel."""
         if stage_flags is not None and not stage_flags.verification:
             print_info(
-                "[dim]Stage 4/6: Finding verification skipped (disabled via flag)[/dim]",
+                "[dim]Finding verification skipped (disabled via flag)[/dim]",
                 prefix=False,
             )
             return
@@ -1735,11 +1779,11 @@ class ReviewPipelineOrchestrator:
         server_info = self._get_server_info()
 
         with trace_span(
-            "review.stage_4_verification",
+            "review.verification",
             attributes={"review.total_files": total_files},
         ) as s4_span:
             print_info(
-                f"[dim]Stage 4/6: Verifying findings for {total_files} file(s) "
+                f"[dim]Verifying findings for {total_files} file(s) "
                 f"-> Configured AI Server(s): {server_info}[/dim]",
                 prefix=False,
             )
@@ -1782,7 +1826,7 @@ class ReviewPipelineOrchestrator:
 
             run_adversarial_debate_stage(file_payloads)
 
-    # ── Stage 5: AI Validation & Re-ranking ──────────────────────────────────
+    # ── AI Validation & Re-ranking ──────────────────────────────────────────
     def _rerank_single_file_payload(self, payload: FileReviewPayload) -> None:
         """Re-rank findings and update payload scratchpad."""
         valid_findings = [f for f in payload.findings if f.reportable and f.status != "INVALIDATED"]
@@ -1794,7 +1838,7 @@ class ReviewPipelineOrchestrator:
 
         thoughts_list = payload.ai_scratchpad.setdefault("thoughts", [])
         thoughts_list.append(
-            f"[Stage 5 Re-ranking] Identified {len(valid_findings)} reportable "
+            f"[Re-ranking] Identified {len(valid_findings)} reportable "
             f"finding(s) from {len(payload.findings)} total candidate(s)"
         )
 
@@ -1811,17 +1855,15 @@ class ReviewPipelineOrchestrator:
         """Validate and re-rank all findings into reportable vs non-reportable."""
         if stage_flags is not None and not stage_flags.reranking:
             print_info(
-                "[dim]Stage 5/6: Finding re-ranking skipped (disabled via flag)[/dim]",
+                "[dim]Finding re-ranking skipped (disabled via flag)[/dim]",
                 prefix=False,
             )
             return
 
         n_p = len(file_payloads)
-        with trace_span(
-            "review.stage_5_reranking", attributes={"review.total_files": n_p}
-        ) as s5_span:
+        with trace_span("review.reranking", attributes={"review.total_files": n_p}) as s5_span:
             print_info(
-                f"[dim]Stage 5/6: Re-ranking and validating findings for {n_p} file(s)...[/dim]",
+                f"[dim]Re-ranking and validating findings for {n_p} file(s)...[/dim]",
                 prefix=False,
             )
             for payload in file_payloads:
@@ -1831,7 +1873,7 @@ class ReviewPipelineOrchestrator:
                     self._rerank_single_file_payload(payload)
                 except Exception as exc:
                     logger.error("Error re-ranking findings for %s: %s", payload.file_path, exc)
-                    self.errored_files[payload.file_path] = f"Stage 5 (Reranking): {exc}"
+                    self.errored_files[payload.file_path] = f"Reranking: {exc}"
 
             total_reportable = sum(
                 len([f for f in p.findings if f.reportable and f.status != "INVALIDATED"])
@@ -2241,17 +2283,17 @@ class ReviewPipelineOrchestrator:
         """Generate consolidated findings.json and client-facing Markdown report."""
         if stage_flags is not None and not stage_flags.reporting:
             print_info(
-                "[dim]Stage 6/6: Consolidated reporting skipped (disabled via flag)[/dim]",
+                "[dim]Consolidated reporting skipped (disabled via flag)[/dim]",
                 prefix=False,
             )
             return {}, ""
 
         with trace_span(
-            "review.stage_6_report_generation",
+            "review.report_generation",
             attributes={"session_id": self.session_id, "review.total_files": len(file_payloads)},
         ) as report_span:
             print_info(
-                f"[dim]Stage 6/6: Generating report for session '{self.session_id}'...[/dim]",
+                f"[dim]Generating report for session '{self.session_id}'...[/dim]",
                 prefix=False,
             )
             all_findings = self._collect_and_deduplicate_findings(file_payloads)

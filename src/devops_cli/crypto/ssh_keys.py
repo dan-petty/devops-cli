@@ -97,9 +97,10 @@ def find_newest_key(key_dir: Path) -> Path | None:
 
 def list_managed_keys(key_dir: Path) -> list[Path]:
     """List all managed SSH private keys matching id_ed25519-YYYYMMMDD."""
-    if not key_dir.exists():
+    expanded = key_dir.expanduser()
+    if not expanded.exists():
         return []
-    return [path for path in key_dir.iterdir() if path.is_file() and _KEY_RE.match(path.name)]
+    return [path for path in expanded.iterdir() if path.is_file() and _KEY_RE.match(path.name)]
 
 
 def list_managed_keys_info(key_dir: Path) -> list[ManagedSSHKey]:

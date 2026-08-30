@@ -181,7 +181,6 @@ CONST_PERM_EXEC = 0o755
 CONST_MAX_FILE_SIZE_BYTES = 200 * 1024 * 1024
 
 # ── Code Review & Analysis ────────────────────────────────────────────────────
-CONST_REVIEW_MAX_DIFF_CHARS = 24000
 CONST_REVIEW_GENERATED_FILES = frozenset(
     {
         "uv.lock",

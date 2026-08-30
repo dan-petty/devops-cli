@@ -41,7 +41,7 @@ from devops_cli.config.settings import (
 )
 from devops_cli.core.cli import new_typer
 from devops_cli.core.process import run_subprocess
-from devops_cli.lang import HELP
+from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
     escape_text,
     format_json,
@@ -527,11 +527,11 @@ def _run_ollama_server_tests(
             u, ok, ans, wall = f.result()
             if ok:
                 print_info(
-                    f"  [cyan]{u}[/cyan]: [green]✓ {ans}[/green] [dim]({wall})[/dim]", prefix=False
+                    MESSAGES.ai.ollama_endpoint_pass.format(url=u, ans=ans, wall=wall), prefix=False
                 )
             else:
                 all_passed = False
-                print_error(f"  [cyan]{u}[/cyan]: [red]✗ failed: {ans}[/red]", prefix=False)
+                print_error(MESSAGES.ai.ollama_endpoint_fail.format(url=u, ans=ans), prefix=False)
 
     if not all_passed:
         raise typer.Exit(1)
@@ -560,7 +560,7 @@ def test(
         urls = [url] if url else settings.ai.get_ollama_urls
         if len(urls) > 1:
             print_info(
-                f"Testing Ollama servers ({len(urls)}) | model: [cyan]{settings.ai.model}[/cyan]...",
+                MESSAGES.ai.testing_ollama_servers.format(count=len(urls), model=settings.ai.model),
                 prefix=False,
             )
             _run_ollama_server_tests(urls, test_sys_prompt, prompt, settings)
@@ -1037,11 +1037,14 @@ def token_count(
         ["Character Length", str(raw_len)],
         ["Estimated Tokens", str(num_tokens)],
         ["Token Budget Limit", str(budget)],
-        ["Fits Budget", "✓ Yes" if fits else "✗ No (Exceeds budget)"],
+        [
+            "Fits Budget",
+            MESSAGES.ai.fits_budget_yes if fits else MESSAGES.ai.fits_budget_no,
+        ],
     ]
 
     print_table(
-        title="AI Context Token Budget Report",
+        title=MESSAGES.ai.token_budget_title,
         columns=[("Property", "bold"), ("Value", "green" if fits else "red")],
         rows=rows,
         border_style="cyan",

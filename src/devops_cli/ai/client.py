@@ -30,7 +30,10 @@ from devops_cli.config.constants import (
     CONST_URL_GITHUB_COPILOT_API_BASE,
     CONST_URL_OPENAI_API_BASE,
 )
-from devops_cli.config.defaults import DEFAULT_HTTP_TIMEOUT_SECONDS
+from devops_cli.config.defaults import (
+    DEFAULT_AI_CONTEXT_WINDOW,
+    DEFAULT_HTTP_TIMEOUT_SECONDS,
+)
 from devops_cli.config.settings import AIConfig
 from devops_cli.exceptions import LLMInferenceError
 from devops_cli.http.client import request_timeout
@@ -385,6 +388,16 @@ class LLMClient:
     def backend_info(self) -> str:
         """Return formatted backend type and host string, e.g. 'ollama (localhost:11434)'."""
         return f"{self.backend_type} ({self.backend_host})"
+
+    def get_context_window(self, task: str | None = None) -> int:
+        """Return the effective token context window for the configured model/task."""
+        cfg = self._config.for_task(task) if task else self._config
+        win = (
+            getattr(cfg, "num_ctx", None)
+            or getattr(cfg, "context_window", None)
+            or DEFAULT_AI_CONTEXT_WINDOW
+        )
+        return int(win)
 
     @staticmethod
     def _strip_think_blocks(text: str) -> str:
@@ -1083,6 +1096,20 @@ class LLMClient:
                 payload["think"] = True
             if self._config.reasoning_effort:
                 payload["reasoning_effort"] = self._config.reasoning_effort
+            ollama_opts: dict[str, Any] = {}
+            temp = getattr(self._config, "temperature", None)
+            if temp is not None:
+                ollama_opts["temperature"] = float(temp)
+            top_p = getattr(self._config, "top_p", None)
+            if top_p is not None:
+                ollama_opts["top_p"] = float(top_p)
+            ctx_win = getattr(self._config, "num_ctx", None) or getattr(
+                self._config, "context_window", None
+            )
+            if ctx_win:
+                ollama_opts["num_ctx"] = int(ctx_win)
+            if ollama_opts:
+                payload["options"] = ollama_opts
             headers = inject_trace_context({"Content-Type": "application/json"})
             response = http_client.post(f"{base}/api/chat", json=payload, headers=headers)
             response.raise_for_status()
@@ -1194,12 +1221,19 @@ class LLMClient:
                 "content-type": "application/json",
             }
         )
-        payload = {
+        max_tok = getattr(self._config, "max_tokens", None) or 8192
+        payload: dict[str, Any] = {
             "model": self._config.model,
-            "max_tokens": 8192,
+            "max_tokens": int(max_tok),
             "system": system,
             "messages": [m.to_dict() for m in messages],
         }
+        claude_temp = getattr(self._config, "temperature", None)
+        if claude_temp is not None:
+            payload["temperature"] = float(claude_temp)
+        claude_top_p = getattr(self._config, "top_p", None)
+        if claude_top_p is not None:
+            payload["top_p"] = float(claude_top_p)
         try:
             with httpx2.Client(timeout=self._request_timeout()) as http_client:
                 response = http_client.post(f"{base}/v1/messages", headers=headers, json=payload)
@@ -1251,6 +1285,15 @@ class LLMClient:
         }
         if self._config.reasoning_effort:
             payload["reasoning_effort"] = self._config.reasoning_effort
+        max_tok = getattr(self._config, "max_tokens", None)
+        if max_tok is not None:
+            payload["max_tokens"] = int(max_tok)
+        openai_temp = getattr(self._config, "temperature", None)
+        if openai_temp is not None:
+            payload["temperature"] = float(openai_temp)
+        openai_top_p = getattr(self._config, "top_p", None)
+        if openai_top_p is not None:
+            payload["top_p"] = float(openai_top_p)
         try:
             with httpx2.Client(timeout=self._request_timeout()) as http_client:
                 response = http_client.post(
@@ -1464,3 +1507,41 @@ class LLMClient:
         if self._config.provider == "copilot":
             return CONST_URL_GITHUB_COPILOT_API_BASE
         return CONST_URL_OPENAI_API_BASE
+
+
+def model_request_sync(
+    model: str,
+    prompt_or_messages: str | list[ChatMessage],
+    *,
+    system_prompt: str = "You are a helpful assistant.",
+    enable_thinking: bool = True,
+    client: LLMClient | None = None,
+    **kwargs: Any,
+) -> LLMResponse:
+    """Make a direct, synchronous request to a model without an agent wrapper."""
+    llm_client = client or LLMClient(config=AIConfig(model=model, **kwargs))
+    if isinstance(prompt_or_messages, str):
+        return llm_client.chat(system_prompt, prompt_or_messages, enable_thinking=enable_thinking)
+    return llm_client.chat_messages(
+        system_prompt, prompt_or_messages, enable_thinking=enable_thinking
+    )
+
+
+async def model_request(
+    model: str,
+    prompt_or_messages: str | list[ChatMessage],
+    *,
+    system_prompt: str = "You are a helpful assistant.",
+    enable_thinking: bool = True,
+    client: LLMClient | None = None,
+    **kwargs: Any,
+) -> LLMResponse:
+    """Make a direct asynchronous request to a model without an agent wrapper."""
+    return model_request_sync(
+        model,
+        prompt_or_messages,
+        system_prompt=system_prompt,
+        enable_thinking=enable_thinking,
+        client=client,
+        **kwargs,
+    )

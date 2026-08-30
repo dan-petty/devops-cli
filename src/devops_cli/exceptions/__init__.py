@@ -5,8 +5,11 @@ from __future__ import annotations
 from devops_cli.exceptions.ai import (
     ContextBudgetExceededError,
     LLMInferenceError,
+    ModelRetry,
     ModelUnavailableError,
     PersonaExecutionError,
+    ToolFailed,
+    UnexpectedModelBehavior,
 )
 from devops_cli.exceptions.base import DevOpsCLIError
 from devops_cli.exceptions.config import ConfigurationError
@@ -44,6 +47,7 @@ __all__ = [
     "InvalidVersionError",
     "KeyringUnavailableError",
     "LLMInferenceError",
+    "ModelRetry",
     "ModelUnavailableError",
     "PersonaExecutionError",
     "SSRFBlockedError",
@@ -51,5 +55,7 @@ __all__ = [
     "SecurityError",
     "ToolDownloadError",
     "ToolExecutionError",
+    "ToolFailed",
+    "UnexpectedModelBehavior",
     "ValidationError",
 ]

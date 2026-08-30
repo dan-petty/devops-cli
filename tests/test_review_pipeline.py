@@ -504,10 +504,10 @@ def test_ai_scratchpad_thoughts_collection_across_stages(
         assert any("Analyzing potential command injection" in t for t in thoughts)
         assert any("Evaluated src/auth.py" in t for t in thoughts)
 
-        # Stage 5 reranking appends stage thoughts
+        # Reranking appends stage thoughts
         orchestrator.execute_finding_reranking([payload])
         reranked_thoughts = payload.ai_scratchpad.get("thoughts", [])
-        assert any("[Stage 5 Re-ranking]" in t for t in reranked_thoughts)
+        assert any("[Re-ranking]" in t for t in reranked_thoughts)
 
 
 def test_generate_consolidated_report_with_intelligence_tables(

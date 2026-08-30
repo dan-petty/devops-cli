@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import time
-from typing import Any
 
 from fastapi import APIRouter
 from fastapi.responses import PlainTextResponse
@@ -35,20 +34,20 @@ class TelemetryStatusResponse(BaseModel):
     response_model=TelemetryStatusResponse,
     summary="OpenTelemetry status and probe",
 )
-async def get_telemetry() -> dict[str, Any]:
+async def get_telemetry() -> TelemetryStatusResponse:
     """Inspect OpenTelemetry configuration and ping the OTLP collector endpoint."""
     tracer = get_tracer()
     ok, _msg, latency = tracer.test_connection(timeout=2.0)
     safe_msg = "Connected successfully" if ok else "Collector probe failed or unreachable"
-    return {
-        "enabled": tracer.enabled,
-        "endpoint": tracer.endpoint,
-        "service_name": "devops-cli",
-        "service_version": __version__,
-        "ping_ok": ok,
-        "ping_message": safe_msg,
-        "ping_latency_ms": round(latency, 2),
-    }
+    return TelemetryStatusResponse(
+        enabled=tracer.enabled,
+        endpoint=tracer.endpoint,
+        service_name="devops-cli",
+        service_version=__version__,
+        ping_ok=ok,
+        ping_message=safe_msg,
+        ping_latency_ms=round(latency, 2),
+    )
 
 
 @router.get(

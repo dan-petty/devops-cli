@@ -39,6 +39,9 @@ def test_domain_message_catalogs() -> None:
     assert MESSAGES.pr.gh_cli_required
     assert MESSAGES.prometheus.query_instant_header
     assert MESSAGES.tf.plan_success
+    assert MESSAGES.pipeline.executing
+    assert MESSAGES.ai.cache_title
+    assert MESSAGES.install.status_title
 
 
 def test_domain_error_catalogs() -> None:
@@ -79,3 +82,4 @@ def test_domain_help_catalogs() -> None:
     assert HELP.analyze.app
     assert HELP.prometheus.app
     assert HELP.rag.app
+    assert HELP.pipeline.app

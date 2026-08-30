@@ -107,7 +107,7 @@ def test_cache_ttl_expiration(tmp_path: Path) -> None:
 
     assert entry.is_expired(60.0) is True
     assert short_cache.get(key) is None
-    assert short_cache.get_stats()["misses"] >= 1
+    assert short_cache.get_stats().misses >= 1
 
 
 def test_starting_point_lookup_and_formatting(clean_cache: LLMResponseCache) -> None:
@@ -153,8 +153,8 @@ def test_cache_capacity_enforcement(tmp_path: Path) -> None:
     small_cache.set("llm_3", "p", "m", "s", "p3", "c3")
 
     stats = small_cache.get_stats()
-    assert stats["memory_entries"] <= 2
-    assert stats["disk_entries"] <= 2
+    assert stats.memory_entries <= 2
+    assert stats.disk_entries <= 2
 
 
 def test_cache_clear_and_stats(clean_cache: LLMResponseCache) -> None:
@@ -164,18 +164,18 @@ def test_cache_clear_and_stats(clean_cache: LLMResponseCache) -> None:
     clean_cache.get("llm_nonexistent")  # miss
 
     stats = clean_cache.get_stats()
-    assert stats["hits"] == 1
-    assert stats["misses"] == 1
-    assert stats["hit_rate_percent"] == 50.0
-    assert stats["memory_entries"] == 1
-    assert stats["disk_entries"] == 1
+    assert stats.hits == 1
+    assert stats.misses == 1
+    assert stats.hit_rate_percent == 50.0
+    assert stats.memory_entries == 1
+    assert stats.disk_entries == 1
 
     cleared = clean_cache.clear()
     assert cleared >= 1
     post_stats = clean_cache.get_stats()
-    assert post_stats["hits"] == 0
-    assert post_stats["memory_entries"] == 0
-    assert post_stats["disk_entries"] == 0
+    assert post_stats.hits == 0
+    assert post_stats.memory_entries == 0
+    assert post_stats.disk_entries == 0
 
 
 def test_llm_client_exact_cache_hit(

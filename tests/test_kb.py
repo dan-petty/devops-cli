@@ -27,8 +27,8 @@ def test_get_knowledge_base_dir() -> None:
 
 def test_list_knowledge_base_articles_all() -> None:
     articles = list_knowledge_base_articles()
-    # 15 devops_cli (3 core + 12 tasks) + 38 it_domains (10 topics + 28 tools)
-    assert len(articles) == 53
+    # 16 devops_cli (4 core + 12 tasks) + 38 it_domains (10 topics + 28 tools)
+    assert len(articles) == 54
     assert all(a.suffix == ".md" for a in articles)
     assert all(a.name != "README.md" for a in articles)
 
@@ -37,7 +37,7 @@ def test_list_knowledge_base_articles_by_division() -> None:
     devops_cli_articles = list_knowledge_base_articles("devops_cli")
     it_domains_articles = list_knowledge_base_articles("it_domains")
 
-    assert len(devops_cli_articles) == 15  # 3 core + 12 tasks
+    assert len(devops_cli_articles) == 16  # 4 core + 12 tasks
     assert len(it_domains_articles) == 38  # 10 topics + 28 tools
 
 
@@ -75,6 +75,11 @@ def test_load_kb_article_success() -> None:
     assert arch_content is not None
     assert "DevOps CLI Architecture" in arch_content
 
+    # Test loading python_packages article
+    pkg_content = load_kb_article("devops_cli/python_packages.md")
+    assert pkg_content is not None
+    assert "Python Packages Reference Manual" in pkg_content
+
 
 def test_load_kb_article_missing_or_invalid() -> None:
     assert load_kb_article("nonexistent/article.md") is None
@@ -84,13 +89,13 @@ def test_load_kb_article_missing_or_invalid() -> None:
 
 def test_get_knowledge_base_stats() -> None:
     stats = get_knowledge_base_stats()
-    assert stats["exists"] is True
-    assert stats["devops_cli_count"] == 15
-    assert stats["it_domains_count"] == 38
-    assert stats["topics_count"] == 10
-    assert stats["tools_count"] == 28
-    assert stats["tasks_count"] == 12
-    assert stats["total_articles"] == 53
+    assert stats.exists is True
+    assert stats.devops_cli_count == 16
+    assert stats.it_domains_count == 38
+    assert stats.topics_count == 10
+    assert stats.tools_count == 28
+    assert stats.tasks_count == 12
+    assert stats.total_articles == 54
 
 
 def test_workspace_indexer_index_knowledge_base(tmp_path: Path) -> None:
@@ -126,5 +131,5 @@ def test_kb_missing_directory_and_invalid_category(tmp_path: Path, monkeypatch) 
     assert list_knowledge_base_articles() == []
     assert load_kb_article("any.md") is None
     stats = get_knowledge_base_stats()
-    assert stats["exists"] is False
-    assert stats["total_articles"] == 0
+    assert stats.exists is False
+    assert stats.total_articles == 0

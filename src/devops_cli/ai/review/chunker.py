@@ -10,10 +10,10 @@ from devops_cli.config.constants import (
     CONST_GITIGNORE_DIRS,
     CONST_MAX_FILE_SIZE_BYTES,
     CONST_REVIEW_GENERATED_FILES,
-    CONST_REVIEW_MAX_DIFF_CHARS,
 )
 from devops_cli.config.defaults import (
     DEFAULT_MATCH_ALL_PATTERN,
+    DEFAULT_REVIEW_MAX_DIFF_CHARS,
     DEFAULT_REVIEW_OVERLAP_FACTOR,
     DEFAULT_REVIEW_WINDOW_SIZE_FACTOR,
 )
@@ -91,7 +91,7 @@ def _split_source_file_blocks(
     rel: Path,
     suffix: str,
     text: str,
-    max_chars: int = CONST_REVIEW_MAX_DIFF_CHARS,
+    max_chars: int = DEFAULT_REVIEW_MAX_DIFF_CHARS,
     window_size_factor: float = DEFAULT_REVIEW_WINDOW_SIZE_FACTOR,
     overlap_factor: float = DEFAULT_REVIEW_OVERLAP_FACTOR,
 ) -> list[str]:
@@ -182,7 +182,7 @@ def _split_diff_into_file_blocks(diff: str) -> list[str]:
 
 def _paginate_file_diff_block(
     block: str,
-    max_chars: int = CONST_REVIEW_MAX_DIFF_CHARS,
+    max_chars: int = DEFAULT_REVIEW_MAX_DIFF_CHARS,
     window_size_factor: float = DEFAULT_REVIEW_WINDOW_SIZE_FACTOR,
     overlap_factor: float = DEFAULT_REVIEW_OVERLAP_FACTOR,
 ) -> list[str]:
@@ -261,7 +261,7 @@ def _is_generated_diff_block(block: str) -> bool:
 
 def _diff_pages(
     diff: str,
-    max_chars: int = CONST_REVIEW_MAX_DIFF_CHARS,
+    max_chars: int = DEFAULT_REVIEW_MAX_DIFF_CHARS,
     window_size_factor: float = DEFAULT_REVIEW_WINDOW_SIZE_FACTOR,
     overlap_factor: float = DEFAULT_REVIEW_OVERLAP_FACTOR,
 ) -> list[str]:

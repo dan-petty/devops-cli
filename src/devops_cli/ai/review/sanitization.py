@@ -5,7 +5,10 @@ from __future__ import annotations
 import html
 import re
 
-from devops_cli.config.defaults import DEFAULT_PROMPT_TRUNCATION_CAP
+from devops_cli.config.defaults import (
+    DEFAULT_MAX_CONTEXT_TOKENS,
+    DEFAULT_TIKTOKEN_MODEL,
+)
 
 _SECRET_PATTERNS = (
     (
@@ -121,9 +124,16 @@ def _unique_preserve_order(items: list[str]) -> list[str]:
     return unique
 
 
-def _truncate_for_prompt(text: str, cap: int = DEFAULT_PROMPT_TRUNCATION_CAP) -> str:
-    """Clip text to cap chars for prompt payloads, appending an ellipsis when truncated."""
-    return text[:cap] + ("\u2026" if len(text) > cap else "")
+def _truncate_for_prompt(
+    text: str,
+    max_tokens: int = DEFAULT_MAX_CONTEXT_TOKENS,
+    model: str = DEFAULT_TIKTOKEN_MODEL,
+) -> str:
+    """Validate and budget prompt text respecting context window token limits, logging warnings on overflow."""
+    from devops_cli.ai.context_budget import validate_and_budget_prompt
+
+    budgeted_text, _ = validate_and_budget_prompt(text, max_tokens=max_tokens, model=model)
+    return budgeted_text
 
 
 # NOTE (Design Justification - AGENTS.md §7): <masked-*> placeholders (e.g. <masked-github-token>)

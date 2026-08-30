@@ -45,47 +45,47 @@ The multi-persona code review pipeline orchestrates specialized AI reviewer pers
                                         │
                                         ▼
     ┌───────────────────────────────────────────────────────────────────┐
-    │ Stage 1: Pre-Analysis Metadata Refresh & Cache Sync              │
+    │ Pre-Analysis Metadata Refresh & Cache Sync                        │
     └───────────────────────────────────┬───────────────────────────────┘
                                         │
                                         ▼
     ┌───────────────────────────────────────────────────────────────────┐
-    │ Stage 2: Static Security Analyzers & Dependency Probing           │
+    │ Static Security Analyzers & Dependency Probing                    │
     │   (Bandit, KubeLinter, Pluto, Semgrep, Gitleaks, OSV, Shodan)    │
     └───────────────────────────────────┬───────────────────────────────┘
                                         │
                                         ▼
     ┌───────────────────────────────────────────────────────────────────┐
-    │ Stage 3: Multi-Persona LLM Inspection (Concurrent Workers)        │
+    │ Multi-Persona LLM Inspection (Concurrent Workers)                 │
     │   (DevSecOps, Architect, QA, Auditor, PM)                        │
     └───────────────────────────────────┬───────────────────────────────┘
                                         │
                                         ▼
     ┌───────────────────────────────────────────────────────────────────┐
-    │ Stage 4: Cross-Referencing Verification & Multi-Agent Debate (MAD)│
+    │ Cross-Referencing Verification & Multi-Agent Debate (MAD)         │
     │   (Step-by-step evidence tracing against visible source & AST)   │
     └───────────────────────────────────┬───────────────────────────────┘
                                         │
                                         ▼
     ┌───────────────────────────────────────────────────────────────────┐
-    │ Stage 5: Finding Re-Ranking & Severity Deduplication             │
+    │ Finding Re-Ranking & Severity Deduplication                       │
     └───────────────────────────────────┬───────────────────────────────┘
                                         │
                                         ▼
     ┌───────────────────────────────────────────────────────────────────┐
-    │ Stage 6: Consolidated Markdown Report & JSON Payload Export      │
+    │ Consolidated Markdown Report & JSON Payload Export                │
     │   (review.md, findings.json, Rich Terminal Table)                 │
     └───────────────────────────────────────────────────────────────────┘
 ```
 
 ### Review Stage Feature Flags
 Every stage in the review pipeline can be selectively enabled or bypassed via CLI feature flags:
-- `--no-pre-analysis` / `--pre-analysis-only`: Stage 1 control.
-- `--no-static-scan` / `--static-scan-only`: Stage 2 control (runs concurrent static tools only in ~2s).
-- `--no-persona-review` / `--persona-review-only`: Stage 3 control.
-- `--no-verification` / `--verification-only`: Stage 4 control.
-- `--no-reranking` / `--reranking-only`: Stage 5 control.
-- `--no-reporting` / `--reporting-only`: Stage 6 control.
+- `--no-pre-analysis` / `--pre-analysis-only`: Pre-analysis control.
+- `--no-static-scan` / `--static-scan-only`: Static security scan control.
+- `--no-persona-review` / `--persona-review-only`: Persona review control.
+- `--no-verification` / `--verification-only`: Verification control.
+- `--no-reranking` / `--reranking-only`: Re-ranking control.
+- `--no-reporting` / `--reporting-only`: Consolidated reporting control.
 
 ### Review Personas
 - **`devsecops`**: Zero-Trust security, credential exposure, dependency CVEs, SAST rules (Bandit/Trivy), injection vulnerabilities.

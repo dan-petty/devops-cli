@@ -16,14 +16,14 @@ devops pipeline [OPTIONS] <pipeline_path>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<pipeline_path>` | `path` | No | Path to Dagger module directory or pipeline script |
+| `<pipeline_path>` | `path` | No | Path to Dagger module directory or pipeline script. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--function`, `-f` | `string` | - | Target pipeline function to call |
-| `--args`, `-a` | `string` | - | Arguments to forward to the pipeline execution |
-| `--dry-run` | `boolean` | - | Simulate pipeline execution |
+| `--function`, `-f` | `string` | - | Target pipeline function to call. |
+| `--args`, `-a` | `string` | - | Arguments to forward to the pipeline execution. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---

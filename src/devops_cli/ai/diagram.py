@@ -2,21 +2,21 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+from pydantic import BaseModel, Field
 
 from devops_cli.core.repo import find_top_level_repo_root
 
 
-@dataclass
-class DiagramResult:
+class DiagramResult(BaseModel):
     """Diagram generation result containing Mermaid syntax, title, and components."""
 
     diagram_type: str  # "arch" or "threat"
     title: str
     mermaid_code: str
-    components: list[dict[str, Any]] = field(default_factory=list)
+    components: list[dict[str, Any]] = Field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {

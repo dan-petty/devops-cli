@@ -93,3 +93,54 @@ class PersonaExecutionError(LLMInferenceError):
             error_code="PERSONA_EXECUTION_ERROR",
             details=err_details,
         )
+
+
+class ModelRetry(DevOpsCLIError, ValueError):
+    """Raised by tools or output validators to request the model to retry with corrective feedback."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(
+            message,
+            exit_code=14,
+            error_code="MODEL_RETRY_REQUESTED",
+            details=details or {},
+        )
+
+
+class UnexpectedModelBehavior(LLMInferenceError):
+    """Raised when model retry budget is exhausted or model emits unrecoverable response."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(
+            message,
+            exit_code=15,
+            error_code="UNEXPECTED_MODEL_BEHAVIOR",
+            details=details,
+        )
+
+
+class ToolFailed(DevOpsCLIError, RuntimeError):
+    """Raised when a tool encounters an unrecoverable runtime failure without requesting model retry."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(
+            message,
+            exit_code=16,
+            error_code="TOOL_FAILED",
+            details=details or {},
+        )

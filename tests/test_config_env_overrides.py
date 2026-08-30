@@ -64,3 +64,30 @@ ai:
 
     embedder = EmbeddingsEngine(ai_config=loaded_settings.ai)
     assert embedder.ai_config.rag.embedding_url == "http://workhorse.lan:11434"
+
+
+def test_ai_config_for_task_with_context_window_overrides() -> None:
+    from devops_cli.config.settings import AIConfig, AITaskOverride
+
+    base_ai = AIConfig(
+        provider="ollama",
+        model="base-model",
+        context_window=32768,
+        temperature=0.1,
+    )
+    base_ai.tasks.analysis = AITaskOverride(
+        model="analysis-model",
+        context_window=40960,
+        num_ctx=40960,
+        temperature=0.0,
+    )
+
+    analysis_cfg = base_ai.for_task("analysis")
+    assert analysis_cfg.model == "analysis-model"
+    assert analysis_cfg.context_window == 40960
+    assert analysis_cfg.num_ctx == 40960
+    assert analysis_cfg.temperature == 0.0
+
+    chat_cfg = base_ai.for_task("chat")
+    assert chat_cfg.model == "base-model"
+    assert chat_cfg.context_window == 32768

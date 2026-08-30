@@ -93,6 +93,42 @@ def truncate_to_token_limit(
     return text[:char_budget] + suffix
 
 
+def validate_and_budget_prompt(
+    text: str,
+    max_tokens: int = DEFAULT_MAX_CONTEXT_TOKENS,
+    model: str = DEFAULT_TIKTOKEN_MODEL,
+    warn_threshold: float = 0.85,
+    suffix: str = "\n\n...[content condensed to fit context window budget]",
+) -> tuple[str, bool]:
+    """Validate prompt against token budget; log warning or condense payload if it exceeds context limit.
+
+    Returns:
+        tuple[str, bool]: The (possibly condensed) prompt text and a boolean indicating if it was condensed.
+    """
+    if not text:
+        return text, False
+
+    tok_count = count_tokens(text, model=model)
+    if tok_count > max_tokens:
+        logger.warning(
+            "Prompt size (%d tokens) exceeds maximum context budget (%d tokens). Condensing payload.",
+            tok_count,
+            max_tokens,
+        )
+        condensed = truncate_to_token_limit(text, max_tokens=max_tokens, model=model, suffix=suffix)
+        return condensed, True
+
+    if tok_count >= int(max_tokens * warn_threshold):
+        logger.warning(
+            "Prompt size (%d tokens) is approaching context budget limit (%d tokens, %.0f%% capacity).",
+            tok_count,
+            max_tokens,
+            (tok_count / max_tokens) * 100.0,
+        )
+
+    return text, False
+
+
 def budget_diff_chunks(
     diff_text: str,
     max_tokens: int = DEFAULT_DIFF_CHUNK_BUDGET,

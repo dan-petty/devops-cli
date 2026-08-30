@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+from pydantic import BaseModel, Field
 
 from devops_cli.core.repo import find_top_level_repo_root
 
 
-@dataclass
-class AutoFixResult:
+class AutoFixResult(BaseModel):
     """Result of automated remediation branch creation and patch application."""
 
     finding_id: str
@@ -20,7 +20,7 @@ class AutoFixResult:
     test_verified: bool
     status: str
     message: str
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {

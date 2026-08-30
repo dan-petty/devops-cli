@@ -3,16 +3,16 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+from pydantic import BaseModel, Field
 
 from devops_cli.config.settings import load_settings
 from devops_cli.core.repo import find_top_level_repo_root
 
 
-@dataclass
-class PromptEvalBenchmarkResult:
+class PromptEvalBenchmarkResult(BaseModel):
     """Benchmark results from evaluating persona prompts against test cases."""
 
     persona: str
@@ -21,7 +21,7 @@ class PromptEvalBenchmarkResult:
     invalidated_rejections: int
     false_positive_rate: float
     accuracy_score: float
-    details: list[dict[str, Any]] = field(default_factory=list)
+    details: list[dict[str, Any]] = Field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {

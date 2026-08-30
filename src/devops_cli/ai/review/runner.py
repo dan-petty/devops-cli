@@ -46,10 +46,10 @@ from devops_cli.config.constants import (
     CONST_GIT_MAIN_BRANCH,
     CONST_GITIGNORE_DIRS,
     CONST_REVIEW_GENERATED_FILES,
-    CONST_REVIEW_MAX_DIFF_CHARS,
 )
 from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
+    DEFAULT_REVIEW_MAX_DIFF_CHARS,
     DEFAULT_REVIEW_TIMEOUT_SECONDS,
 )
 from devops_cli.config.settings import Settings, get_ai_api_key, load_settings
@@ -71,7 +71,7 @@ from devops_cli.telemetry import trace_span
 
 logger = logging.getLogger(__name__)
 
-_MAX_DIFF_CHARS = CONST_REVIEW_MAX_DIFF_CHARS
+_MAX_DIFF_CHARS = DEFAULT_REVIEW_MAX_DIFF_CHARS
 _MAX_SEGMENT_RETRIES = 2
 _DEFAULT_CONTEXT_LINES = 2
 

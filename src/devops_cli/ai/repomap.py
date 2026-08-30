@@ -3,15 +3,15 @@
 from __future__ import annotations
 
 import ast
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+from pydantic import BaseModel, Field
 
 from devops_cli.core.repo import find_top_level_repo_root
 
 
-@dataclass
-class SymbolNode:
+class SymbolNode(BaseModel):
     """Represents a class, function, or method declaration in the repository map."""
 
     name: str
@@ -19,7 +19,7 @@ class SymbolNode:
     line_number: int
     signature: str = ""
     docstring: str = ""
-    children: list[SymbolNode] = field(default_factory=list)
+    children: list[SymbolNode] = Field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -32,13 +32,12 @@ class SymbolNode:
         }
 
 
-@dataclass
-class FileMapNode:
+class FileMapNode(BaseModel):
     """Represents a source file and its exported symbols."""
 
     path: str
     line_count: int
-    symbols: list[SymbolNode] = field(default_factory=list)
+    symbols: list[SymbolNode] = Field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {

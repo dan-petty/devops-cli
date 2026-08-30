@@ -29,10 +29,13 @@ from devops_cli.config.constants import (
     CONST_PROJECT_CONFIG_FILENAME as PROJECT_CONFIG_FILENAME,
 )
 from devops_cli.config.defaults import (
+    DEFAULT_AI_CONTEXT_WINDOW,
     DEFAULT_AI_MAX_RETRIES,
     DEFAULT_AI_MODEL,
     DEFAULT_AI_PROVIDER,
     DEFAULT_AI_REASONING_EFFORT,
+    DEFAULT_AI_TEMPERATURE,
+    DEFAULT_AI_TOP_P,
     DEFAULT_ANALYSIS_DATA_DIR,
     DEFAULT_AUDIT_LOG_PATH,
     DEFAULT_BENCHMARKS_DATA_DIR,
@@ -175,6 +178,11 @@ class AITaskOverride(BaseModel):
     provider: str | None = None
     model: str | None = None
     reasoning_effort: str | None = None
+    temperature: float | None = None
+    top_p: float | None = None
+    context_window: int | None = None
+    num_ctx: int | None = None
+    max_tokens: int | None = None
     ollama_urls: list[str] | None = None
     ollama_max_parallel: int | None = None
     api_base_url: str | None = None
@@ -195,6 +203,11 @@ class AIConfig(BaseModel):
     provider: str = DEFAULT_AI_PROVIDER  # ollama | claude | copilot | openai
     model: str = DEFAULT_AI_MODEL
     reasoning_effort: str | None = DEFAULT_AI_REASONING_EFFORT
+    temperature: float = DEFAULT_AI_TEMPERATURE
+    top_p: float = DEFAULT_AI_TOP_P
+    context_window: int = DEFAULT_AI_CONTEXT_WINDOW
+    num_ctx: int | None = None
+    max_tokens: int | None = None
     ollama_urls: list[str] = Field(default_factory=lambda: list(DEFAULT_OLLAMA_URLS))
     ollama_max_parallel: int = DEFAULT_OLLAMA_MAX_PARALLEL
     api_base_url: str | None = None
@@ -229,6 +242,11 @@ class AIConfig(BaseModel):
                 "provider": override.provider,
                 "model": override.model,
                 "reasoning_effort": override.reasoning_effort,
+                "temperature": override.temperature,
+                "top_p": override.top_p,
+                "context_window": override.context_window,
+                "num_ctx": override.num_ctx,
+                "max_tokens": override.max_tokens,
                 "ollama_urls": override.ollama_urls,
                 "ollama_max_parallel": override.ollama_max_parallel,
                 "api_base_url": override.api_base_url,
