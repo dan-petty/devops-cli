@@ -10,6 +10,7 @@ from devops_cli.ai.agents.guardrails import (
     GuardrailResult,
     InputGuardrail,
     OutputGuardrail,
+    PromptInjectionDefender,
     ToolGuardrail,
 )
 from devops_cli.ai.agents.memory import AgentMemory, MemoryEntry
@@ -244,6 +245,7 @@ __all__ = [
     "Planning",
     "PlanStore",
     "PlaywrightBrowser",
+    "PromptInjectionDefender",
     "PydanticAIDocs",
     "PyaiDocs",
     "DEFAULT_PYAI_DOCS_TOPICS",

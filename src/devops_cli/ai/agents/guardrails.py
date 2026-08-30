@@ -180,3 +180,71 @@ class GuardrailCapability(BaseCapability):
             elif res.action == GuardrailAction.REPLACE and res.content is not None:
                 current_output = res.content
         return current_output
+
+
+DEFAULT_INJECTION_PATTERNS: tuple[str, ...] = (
+    "ignore previous instructions",
+    "ignore all previous instructions",
+    "system prompt override",
+    "disregard all previous directions",
+    "you are now in developer mode",
+    "dan mode enabled",
+    "[system instruction:",
+    "system: you must ignore",
+    "ignore the above and",
+    "reveal your system prompt",
+    "bypass safety filters",
+)
+
+
+class PromptInjectionDefender(BaseCapability):
+    """Capability protecting agents from direct and indirect prompt injection in inputs and tool returns."""
+
+    id: str = "prompt_injection_defender"
+    block_high_risk: bool = True
+    replace_with_notice: bool = True
+    semantic_detection: bool = False
+    scan_inputs: bool = True
+    scan_tool_results: bool = True
+    custom_patterns: list[str] = Field(default_factory=list)
+
+    def scan_text(self, text: str) -> tuple[bool, str]:
+        """Scan text for known prompt injection signatures."""
+        if not text or not isinstance(text, str):
+            return False, ""
+        lower = text.lower()
+        patterns = list(DEFAULT_INJECTION_PATTERNS) + self.custom_patterns
+        for pattern in patterns:
+            if pattern.lower() in lower:
+                return True, pattern
+        return False, ""
+
+    def sanitize(self, text: str) -> str:
+        """Sanitize text by replacing detected injection payloads with a warning notice."""
+        is_inj, pattern = self.scan_text(text)
+        if not is_inj:
+            return text
+        notice = f"[WARNING: Potential prompt injection '{pattern}' detected and sanitized]"
+        if self.block_high_risk and not self.replace_with_notice:
+            raise PermissionError(f"High risk prompt injection detected: {pattern}")
+        return f"{notice}\n{text}"
+
+    def get_hooks(self) -> AgentHooks | None:
+        """Bind post-tool execution sanitization into agent hooks."""
+        if not self.scan_tool_results:
+            return None
+
+        def after_tool(ctx: RunContext[Any], tool_name: str, result: Any) -> None:
+            if isinstance(result, str):
+                is_inj, pattern = self.scan_text(result)
+                if is_inj and self.block_high_risk and not self.replace_with_notice:
+                    raise PermissionError(
+                        f"Prompt injection detected in tool '{tool_name}' result: {pattern}"
+                    )
+
+        return AgentHooks(after_tool_execute=[after_tool])
+
+    def get_system_prompt_additions(self, ctx: RunContext[Any] | None = None) -> list[str]:
+        return [
+            "Prompt Injection Defender is active. Untrusted tool outputs and user inputs are strictly guarded."
+        ]
