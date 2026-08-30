@@ -103,11 +103,10 @@ def get_stderr_console(
 
 def _sanitize_output_text(text: str) -> str:
     """Sanitize and mask any sensitive tokens or secrets before standard stream writing."""
-    if not isinstance(text, str):
-        return "" if text is None else str(text)
+    normalized_text = text if isinstance(text, str) else ("" if text is None else str(text))
     from devops_cli.ai.review.sanitization import _mask_secrets_in_content
 
-    return _mask_secrets_in_content(text)
+    return _mask_secrets_in_content(normalized_text)
 
 
 def write_stream(

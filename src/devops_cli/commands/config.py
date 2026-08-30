@@ -613,7 +613,9 @@ def audit_keys_cmd(
             "keyring_backend": backend_name,
             "backend_priority": backend_priority,
             "scanned_config_files": [str(p) for p in unique_files],
-            "plaintext_leaks": plaintext_leaks,
+            "plaintext_leak_count": len(plaintext_leaks),
+            "has_plaintext_leaks": len(plaintext_leaks) > 0,
+            "plaintext_leaks": "[REDACTED]",
             "is_compliant": is_overall_compliant,
             "keys": key_audit_records,
         }
