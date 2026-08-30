@@ -347,8 +347,8 @@ def config(
         ]
     ):
         ai = settings.ai
-        current_key = get_ai_api_key(settings)
-        key_display = "[green]***set***[/green]" if current_key else "[dim](not set)[/dim]"
+        has_key = bool(get_ai_api_key(settings))
+        key_display = "[green]***set***[/green]" if has_key else "[dim](not set)[/dim]"
         rows = [
             ["provider", ai.provider],
             ["model", ai.model],

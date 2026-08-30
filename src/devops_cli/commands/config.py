@@ -103,35 +103,37 @@ def show() -> None:
     settings = load_settings()
 
     rows: list[list[str]] = []
+    not_set_str = f"[dim]{MESSAGES.config.not_set}[/dim]"
 
-    def _row(key: str, value: object, secret: bool = False) -> None:
-        not_set_str = f"[dim]{MESSAGES.config.not_set}[/dim]"
-        if secret:
-            display = "[green]set (****)[/green]" if value else not_set_str
-        elif isinstance(value, list):
+    def _row(key: str, value: object) -> None:
+        if isinstance(value, list):
             display = ", ".join(str(v) for v in value) if value else not_set_str
         else:
             display = str(value) if value is not None else not_set_str
         rows.append([key, display])
 
-    _row(opt.GITHUB_TOKEN, get_github_token(settings), secret=True)
+    def _secret_row(key: str, is_configured: bool) -> None:
+        display = "[green]set (****)[/green]" if is_configured else not_set_str
+        rows.append([key, display])
+
+    _secret_row(opt.GITHUB_TOKEN, bool(get_github_token(settings)))
     _row(opt.GITHUB_DEFAULT_ORG, settings.github.default_org)
     _row(opt.SSH_KEY_DIR, settings.ssh.key_dir)
     _row(opt.SSH_ROTATION_DAYS, settings.ssh.rotation_days)
     _row(opt.REPOS_BASE_DIR, settings.repos.base_dir)
     _row(opt.WORKSPACE_FILE, settings.workspace.file)
     _row(opt.GRAFANA_URL, settings.grafana.url)
-    _row(opt.GRAFANA_TOKEN, get_grafana_token(settings), secret=True)
+    _secret_row(opt.GRAFANA_TOKEN, bool(get_grafana_token(settings)))
     _row(opt.PROMETHEUS_URL, settings.prometheus.url)
     _row(opt.ARGOCD_URL, settings.argocd.url)
-    _row(opt.ARGOCD_TOKEN, get_argocd_token(settings), secret=True)
+    _secret_row(opt.ARGOCD_TOKEN, bool(get_argocd_token(settings)))
     _row(opt.AI_PROVIDER, settings.ai.provider)
     _row(opt.AI_MODEL, settings.ai.model)
     _row(opt.AI_REASONING_EFFORT, settings.ai.reasoning_effort)
     _row(opt.AI_OLLAMA_URLS, settings.ai.ollama_urls)
     _row(opt.AI_API_BASE_URL, settings.ai.api_base_url)
     _row(opt.AI_ALLOW_PRIVATE_NETWORK, settings.ai.allow_private_network)
-    _row(opt.AI_API_KEY, get_ai_api_key(settings), secret=True)
+    _secret_row(opt.AI_API_KEY, bool(get_ai_api_key(settings)))
 
     print_table(
         title=MESSAGES.config.header,
