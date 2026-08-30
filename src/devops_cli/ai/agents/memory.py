@@ -69,9 +69,15 @@ class AgentMemory(BaseModel):
         **metadata: Any,
     ) -> MemoryEntry:
         """Record an interaction turn into memory."""
+        from devops_cli.ai.review.sanitization import (
+            _mask_secrets_in_content,
+            _sanitize_prompt_boundary_tags,
+        )
+
+        sanitized = _sanitize_prompt_boundary_tags(_mask_secrets_in_content(content))
         entry = MemoryEntry(
             role=role,
-            content=content,
+            content=sanitized,
             metadata=metadata,
         )
         self.entries.append(entry)
@@ -165,6 +171,8 @@ class AgentMemory(BaseModel):
             if sys_content:
                 messages.append(ChatMessage(role="system", content=sys_content))
 
+        from devops_cli.ai.review.sanitization import _sanitize_prompt_boundary_tags
+
         for entry in self.entries:
             role_norm = entry.role.lower()
             role_val: Literal["system", "user", "assistant"] = (
@@ -174,7 +182,12 @@ class AgentMemory(BaseModel):
                 if role_norm == "assistant"
                 else "user"
             )
-            messages.append(ChatMessage(role=role_val, content=entry.content))
+            messages.append(
+                ChatMessage(
+                    role=role_val,
+                    content=_sanitize_prompt_boundary_tags(entry.content),
+                )
+            )
 
         return messages
 
