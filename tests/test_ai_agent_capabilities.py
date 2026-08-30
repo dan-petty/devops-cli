@@ -134,3 +134,28 @@ def test_use_thread_executor_capability() -> None:
     res = cap_custom.run_sync(fetch_data, name="test")
     assert res == "payload_test"
     custom_executor.shutdown()
+
+
+def test_select_model_capability() -> None:
+    """Verify SelectModel dynamic runtime model selection."""
+    from devops_cli.ai.agents import ModelSelectionContext, RunContext, SelectModel
+
+    def model_selector(ctx: ModelSelectionContext[dict[str, Any]]) -> str:
+        deps = ctx.deps or {}
+        if deps.get("task_complexity") == "complex":
+            return "openai:gpt-4o"
+        return "openai:gpt-4o-mini"
+
+    cap = SelectModel(model_selector)
+    assert cap.id == "select_model"
+
+    # 1. Standard model selection context
+    ctx_simple = ModelSelectionContext(deps={"task_complexity": "simple"})
+    assert cap.select_model(ctx_simple) == "openai:gpt-4o-mini"
+
+    ctx_complex = ModelSelectionContext(deps={"task_complexity": "complex"})
+    assert cap.select_model(ctx_complex) == "openai:gpt-4o"
+
+    # 2. RunContext interoperability
+    run_ctx = RunContext(deps={"task_complexity": "complex"}, session_id="s1")
+    assert cap.select_model(run_ctx) == "openai:gpt-4o"

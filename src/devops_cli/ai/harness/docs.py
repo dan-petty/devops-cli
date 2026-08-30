@@ -23,6 +23,7 @@ DEFAULT_PYAI_DOCS_TOPICS: tuple[str, ...] = (
     "managed-prompt",
     "media",
     "prompt-injection-defender",
+    "select-model",
     "spend",
     "step-persistence",
     "system-reminders",

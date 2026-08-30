@@ -590,3 +590,46 @@ class UseThreadExecutor(BaseCapability):
 
 
 ThreadExecutor = UseThreadExecutor
+
+
+class ModelSelectionContext[DepsT](BaseModel):
+    """Runtime context provided to dynamic model selector callables."""
+
+    deps: DepsT | None = None
+    session_id: str = ""
+    turn: int = 1
+    step_number: int = 1
+    current_model: str = ""
+
+
+class SelectModel(BaseCapability):
+    """Capability that dynamically selects the LLM model at runtime for each step."""
+
+    id: str = "select_model"
+    selector: Any = None
+
+    def __init__(
+        self,
+        selector: Callable[..., str] | None = None,
+        *,
+        id: str = "select_model",
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(id=id, selector=selector or kwargs.get("selector"), **kwargs)
+
+    def select_model(
+        self, ctx: ModelSelectionContext[Any] | RunContext[Any] | None = None
+    ) -> str | None:
+        """Execute selector to resolve dynamic model ID."""
+        if not callable(self.selector):
+            return None
+        if ctx is None:
+            return str(self.selector(ModelSelectionContext[Any]()))
+        if isinstance(ctx, RunContext):
+            sel_ctx: ModelSelectionContext[Any] = ModelSelectionContext(
+                deps=ctx.deps,
+                session_id=ctx.session_id,
+                current_model=ctx.model,
+            )
+            return str(self.selector(sel_ctx))
+        return str(self.selector(ctx))
