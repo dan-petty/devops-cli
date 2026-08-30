@@ -1,7 +1,4 @@
-"""Unified LLM client facade for backward-compatibility.
-
-Re-exports all public symbols from the `devops_cli.ai.client` package.
-"""
+"""Unified LLM client package for Ollama, Claude, GitHub Copilot, and OpenAI-compatible APIs."""
 
 from __future__ import annotations
 
