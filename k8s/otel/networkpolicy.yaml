@@ -27,7 +27,8 @@ spec:
         - protocol: TCP
           port: 16686
     # 2. OTLP gRPC/HTTP and Jaeger trace ingestion ports (4317, 4318, 14268):
-    # Allow all cluster namespaces to send telemetry traces to Jaeger/OTLP
+    # Cluster-wide shared telemetry: All namespaces are permitted to export trace spans.
+    # Production: Constrain with namespaceSelector labels if isolating sensitive workloads.
     - from:
         - namespaceSelector: {}
       ports:
