@@ -136,9 +136,13 @@ def test_planning_capability() -> None:
     update_res = tools["update_plan"].execute(steps=["Step 1: Discover", "Step 2: Execute"])
     assert "2 steps" in update_res
 
+    items = plan.resolve_store().get_items()
+    assert len(items) == 2
+    assert items[0].content == "Step 1: Discover"
+    assert items[1].content == "Step 2: Execute"
+
     prompt_additions = plan.get_system_prompt_additions()
-    assert "1. Step 1: Discover" in prompt_additions[0]
-    assert "2. Step 2: Execute" in prompt_additions[0]
+    assert "You have access to a structured planning toolset" in prompt_additions[0]
 
 
 def test_repo_context_injection(tmp_path: Path) -> None:
@@ -438,3 +442,207 @@ def test_tool_output_limits_and_hooks() -> None:
     warner = WarnNearLimits(max_context_fraction=0.85)
     assert warner.max_context_fraction == 0.85
     assert warner.get_tools() == []
+
+
+def test_planning_in_memory_store_and_events() -> None:
+    from devops_cli.ai.harness import (
+        InMemoryPlanStore,
+        PlanEvent,
+        PlanEventEmitter,
+        PlanItem,
+    )
+
+    events: list[str] = []
+    emitter = PlanEventEmitter()
+
+    @emitter.on_task_added
+    def on_add(evt: PlanEvent) -> None:
+        events.append(f"added:{evt.item.content}")
+
+    @emitter.on_status_changed
+    def on_status(evt: PlanEvent) -> None:
+        events.append(f"status:{evt.item.content}->{evt.new_status}")
+
+    @emitter.on_completed
+    def on_done(evt: PlanEvent) -> None:
+        events.append(f"done:{evt.item.content}")
+
+    store = InMemoryPlanStore(event_emitter=emitter)
+    item = store.add_item(PlanItem(content="First Task"))
+    assert len(store.get_items()) == 1
+
+    store.update_item_status(item.id, "in_progress")
+    store.update_item_status(item.id, "completed")
+    store.remove_item(item.id)
+    assert len(store.get_items()) == 0
+
+    assert "added:First Task" in events
+    assert "status:First Task->in_progress" in events
+    assert "done:First Task" in events
+
+
+def test_planning_sqlite_store(tmp_path: Path) -> None:
+    from devops_cli.ai.harness import PlanItem, SqlitePlanStore
+
+    db_path = tmp_path / "test_plan.db"
+    store = SqlitePlanStore(db_path=db_path, session="session-1")
+
+    item1 = store.add_item(
+        PlanItem(content="Step 1", active_form="Doing Step 1", status="in_progress")
+    )
+    item2 = store.add_item(PlanItem(content="Step 2", status="pending", depends_on=[item1.id]))
+
+    items = store.get_items()
+    assert len(items) == 2
+    assert items[0].content == "Step 1"
+    assert items[1].depends_on == [item1.id]
+
+    store.update_item_status(item1.id, "completed")
+    assert store.get_items()[0].status == "completed"
+
+    store.remove_item(item2.id)
+    assert len(store.get_items()) == 1
+
+    # Overwrite whole items list
+    store.set_items([PlanItem(content="Fresh Step")])
+    assert len(store.get_items()) == 1
+    assert store.get_items()[0].content == "Fresh Step"
+
+
+def test_planning_capability_tools() -> None:
+    from devops_cli.ai.harness import Planning
+
+    planning = Planning()
+    tools = {t.name: t for t in planning.get_tools()}
+
+    assert "write_plan" in tools
+    assert "read_plan" in tools
+    assert "add_task" in tools
+    assert "update_task_status" in tools
+    assert "update_task_statuses" in tools
+    assert "remove_task" in tools
+    assert "update_plan" in tools
+
+    # Test write_plan and read_plan
+    write_res = tools["write_plan"].func([{"content": "Step 1"}, {"content": "Step 2"}])  # type: ignore[union-attr]
+    assert "2 steps" in write_res
+
+    read_res = tools["read_plan"].func()  # type: ignore[union-attr]
+    assert "Plan Progress: 0/2 completed" in read_res
+
+    # Test add_task
+    add_res = tools["add_task"].func(content="Step 3", active_form="Implementing Step 3")  # type: ignore[union-attr]
+    assert "Step 3" in add_res
+
+    store_items = planning.resolve_store().get_items()
+    assert len(store_items) == 3
+    t1_id = store_items[0].id
+
+    # Test update_task_status
+    up_res = tools["update_task_status"].func(task_id=t1_id, status="in_progress")  # type: ignore[union-attr]
+    assert "updated to 'in_progress'" in up_res
+
+    invalid_st_res = tools["update_task_status"].func(task_id=t1_id, status="invalid_status")  # type: ignore[union-attr]
+    assert "Error: invalid status" in invalid_st_res
+
+    not_found_res = tools["update_task_status"].func(task_id="unknown-999", status="completed")  # type: ignore[union-attr]
+    assert "not found" in not_found_res
+
+    # Test update_task_statuses batch
+    batch_res = tools["update_task_statuses"].func(updates=[{"id": t1_id, "status": "completed"}])  # type: ignore[union-attr]
+    assert "Successfully updated" in batch_res
+
+    batch_err = tools["update_task_statuses"].func(
+        updates=[{"id": "unknown-id", "status": "completed"}]
+    )  # type: ignore[union-attr]
+    assert "Error: task id 'unknown-id' not found" in batch_err
+
+    # Test remove_task
+    rem_res = tools["remove_task"].func(task_id=t1_id)  # type: ignore[union-attr]
+    assert "removed from plan" in rem_res
+
+
+def test_planning_subtasks_and_dependencies() -> None:
+    from devops_cli.ai.harness import Planning
+
+    planning = Planning(enable_subtasks=True)
+    tools = {t.name: t for t in planning.get_tools()}
+
+    assert "add_subtask" in tools
+    assert "set_dependency" in tools
+    assert "get_available_tasks" in tools
+
+    tools["write_plan"].func([{"content": "Parent Task"}])  # type: ignore[union-attr]
+    parent_id = planning.resolve_store().get_items()[0].id
+
+    # Add subtask
+    sub_res = tools["add_subtask"].func(parent_id=parent_id, content="Child Task")  # type: ignore[union-attr]
+    assert "Child Task" in sub_res
+    child_id = planning.resolve_store().get_items()[1].id
+
+    # Set dependency (child depends on parent)
+    dep_res = tools["set_dependency"].func(task_id=child_id, depends_on_id=parent_id)  # type: ignore[union-attr]
+    assert "status: blocked" in dep_res
+
+    # Self-dependency error
+    self_dep = tools["set_dependency"].func(task_id=child_id, depends_on_id=child_id)  # type: ignore[union-attr]
+    assert "self-dependency not allowed" in self_dep
+
+    # Hierarchical read
+    h_read = tools["read_plan"].func(view="hierarchical")  # type: ignore[union-attr]
+    assert "Parent Task" in h_read
+    assert "Child Task" in h_read
+
+    # Complete parent -> child auto unblocks
+    tools["update_task_status"].func(task_id=parent_id, status="completed")  # type: ignore[union-attr]
+    assert planning.resolve_store().get_items()[1].status == "pending"
+
+    # Get available tasks
+    avail = tools["get_available_tasks"].func()  # type: ignore[union-attr]
+    assert "Child Task" in avail
+
+
+def test_planning_hooks_and_options() -> None:
+    import pytest
+
+    from devops_cli.ai.agents.pydantic_agent import RunContext
+    from devops_cli.ai.harness import InMemoryPlanStore, PlanItem, Planning
+    from devops_cli.models.ai import ChatMessage
+
+    # Allowlist filtering
+    filtered = Planning(tools=["write_plan", "read_plan"])
+    f_tool_names = [t.name for t in filtered.get_tools()]
+    assert f_tool_names == ["write_plan", "read_plan"]
+
+    with pytest.raises(ValueError, match="Unknown tool"):
+        Planning(tools=["nonexistent_tool"]).get_tools()
+
+    # Reject subtasks when enable_subtasks=False
+    plain_plan = Planning(enable_subtasks=False)
+    plain_tools = {t.name: t for t in plain_plan.get_tools()}
+    with pytest.raises(ValueError, match="require enable_subtasks=True"):
+        plain_tools["write_plan"].func([{"content": "Step", "status": "blocked"}])  # type: ignore[union-attr]
+
+    # Custom store resolver
+    custom_store = InMemoryPlanStore()
+    custom_store.add_item(PlanItem(content="Custom Store Task", status="in_progress"))
+    resolved_plan = Planning(store_resolver=lambda ctx: custom_store)
+    ctx = RunContext(deps=None)
+    assert resolved_plan.resolve_store(ctx).get_items()[0].content == "Custom Store Task"
+
+    # Guidance omission
+    assert Planning(guidance="").get_system_prompt_additions() == []
+    assert len(Planning(guidance="Custom Guidance").get_system_prompt_additions()) == 1
+
+    # Injection hook
+    hook_plan = Planning(inject=True)
+    hook_plan.resolve_store().add_item(
+        PlanItem(content="Hook Task", status="in_progress", active_form="Hooking")
+    )
+    hooks = hook_plan.get_hooks()
+    assert hooks is not None and len(hooks.before_model_request) == 1
+
+    msgs = [ChatMessage(role="user", content="Hello agent")]
+    hooks.before_model_request[0](ctx, msgs)
+    assert "<plan-reminder" in msgs[-1].content
+    assert "Hook Task (Hooking)" in msgs[-1].content

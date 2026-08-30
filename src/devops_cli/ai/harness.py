@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import os
 import subprocess
-from collections.abc import Callable
+import uuid
+from collections import defaultdict
+from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from devops_cli.ai.agents.pydantic_agent import (
+    AgentHooks,
     AgentTool,
     BaseCapability,
     PydanticAgent,
@@ -18,6 +21,7 @@ from devops_cli.ai.agents.pydantic_agent import (
     Tool,
 )
 from devops_cli.ai.common_tools import duckduckgo_search_tool, web_fetch_tool
+from devops_cli.models.ai import ChatMessage
 
 LLM_API_KEY_ENV_PATTERNS: list[str] = [
     "*API_KEY*",
@@ -638,31 +642,696 @@ class RepoContext(BaseCapability):
         return additions
 
 
+PlanStatus = Literal["pending", "in_progress", "completed", "cancelled", "blocked"]
+
+
+class PlanItem(BaseModel):
+    """Structured plan task item."""
+
+    id: str = Field(default_factory=lambda: f"task-{uuid.uuid4().hex[:6]}")
+    content: str
+    active_form: str | None = None
+    status: PlanStatus = "pending"
+    parent_id: str | None = None
+    depends_on: list[str] = Field(default_factory=list)
+
+
+class PlanEvent(BaseModel):
+    """Event emitted upon plan mutations."""
+
+    event_type: str
+    item: PlanItem
+    old_status: str | None = None
+    new_status: str | None = None
+
+
+class PlanEventEmitter:
+    """Event emitter managing lifecycle callbacks for plan task state changes."""
+
+    def __init__(self) -> None:
+        self._listeners: dict[str, list[Callable[[PlanEvent], Any]]] = defaultdict(list)
+
+    def on(
+        self, event_type: str, handler: Callable[[PlanEvent], Any]
+    ) -> Callable[[PlanEvent], Any]:
+        self._listeners[event_type].append(handler)
+        return handler
+
+    def on_completed(self, handler: Callable[[PlanEvent], Any]) -> Callable[[PlanEvent], Any]:
+        return self.on("completed", handler)
+
+    def on_status_changed(self, handler: Callable[[PlanEvent], Any]) -> Callable[[PlanEvent], Any]:
+        return self.on("status_changed", handler)
+
+    def on_task_added(self, handler: Callable[[PlanEvent], Any]) -> Callable[[PlanEvent], Any]:
+        return self.on("task_added", handler)
+
+    def emit(self, event: PlanEvent) -> None:
+        for handler in self._listeners.get(event.event_type, []):
+            try:
+                handler(event)
+            except Exception:
+                pass
+
+
+class PlanStore:
+    """Abstract interface for plan storage backends."""
+
+    def get_items(self) -> list[PlanItem]:
+        raise NotImplementedError
+
+    def set_items(self, items: list[PlanItem]) -> None:
+        raise NotImplementedError
+
+    def add_item(self, item: PlanItem) -> PlanItem:
+        raise NotImplementedError
+
+    def update_item_status(self, item_id: str, status: PlanStatus) -> bool:
+        raise NotImplementedError
+
+    def remove_item(self, item_id: str) -> bool:
+        raise NotImplementedError
+
+
+class InMemoryPlanStore(PlanStore):
+    """Fast in-memory plan storage backend with optional event emission."""
+
+    def __init__(self, event_emitter: PlanEventEmitter | None = None) -> None:
+        self._items: list[PlanItem] = []
+        self.event_emitter = event_emitter
+
+    def get_items(self) -> list[PlanItem]:
+        return list(self._items)
+
+    def set_items(self, items: list[PlanItem]) -> None:
+        self._items = list(items)
+
+    def add_item(self, item: PlanItem) -> PlanItem:
+        self._items.append(item)
+        if self.event_emitter:
+            self.event_emitter.emit(PlanEvent(event_type="task_added", item=item))
+        return item
+
+    def update_item_status(self, item_id: str, status: PlanStatus) -> bool:
+        for item in self._items:
+            if item.id == item_id:
+                old = item.status
+                item.status = status
+                if self.event_emitter:
+                    self.event_emitter.emit(
+                        PlanEvent(
+                            event_type="completed" if status == "completed" else "status_changed",
+                            item=item,
+                            old_status=old,
+                            new_status=status,
+                        )
+                    )
+                return True
+        return False
+
+    def remove_item(self, item_id: str) -> bool:
+        initial_len = len(self._items)
+        self._items = [it for it in self._items if it.id != item_id]
+        return len(self._items) < initial_len
+
+
+class SqlitePlanStore(PlanStore):
+    """SQLite-backed plan storage backend persisted across sessions."""
+
+    def __init__(
+        self,
+        db_path: str | Path = "plan.db",
+        session: str = "default",
+        event_emitter: PlanEventEmitter | None = None,
+    ) -> None:
+        self.db_path = str(db_path)
+        self.session = session
+        self.event_emitter = event_emitter
+        self._init_db()
+
+    def _init_db(self) -> None:
+        import sqlite3
+
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS plan_items (
+                    session TEXT NOT NULL,
+                    id TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    active_form TEXT,
+                    status TEXT NOT NULL,
+                    parent_id TEXT,
+                    depends_on TEXT,
+                    sequence_num INTEGER,
+                    PRIMARY KEY (session, id)
+                )
+                """
+            )
+            conn.commit()
+
+    def get_items(self) -> list[PlanItem]:
+        import json
+        import sqlite3
+
+        with sqlite3.connect(self.db_path) as conn:
+            rows = conn.execute(
+                "SELECT id, content, active_form, status, parent_id, depends_on FROM plan_items WHERE session = ? ORDER BY sequence_num ASC",
+                (self.session,),
+            ).fetchall()
+
+        items: list[PlanItem] = []
+        for r in rows:
+            deps = json.loads(r[5]) if r[5] else []
+            items.append(
+                PlanItem(
+                    id=r[0],
+                    content=r[1],
+                    active_form=r[2],
+                    status=r[3],
+                    parent_id=r[4],
+                    depends_on=deps,
+                )
+            )
+        return items
+
+    def set_items(self, items: list[PlanItem]) -> None:
+        import json
+        import sqlite3
+
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("DELETE FROM plan_items WHERE session = ?", (self.session,))
+            for idx, item in enumerate(items):
+                conn.execute(
+                    "INSERT INTO plan_items (session, id, content, active_form, status, parent_id, depends_on, sequence_num) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        self.session,
+                        item.id,
+                        item.content,
+                        item.active_form,
+                        item.status,
+                        item.parent_id,
+                        json.dumps(item.depends_on),
+                        idx,
+                    ),
+                )
+            conn.commit()
+
+    def add_item(self, item: PlanItem) -> PlanItem:
+        import json
+        import sqlite3
+
+        with sqlite3.connect(self.db_path) as conn:
+            row = conn.execute(
+                "SELECT COALESCE(MAX(sequence_num), -1) FROM plan_items WHERE session = ?",
+                (self.session,),
+            ).fetchone()
+            max_seq = row[0] if row else -1
+            conn.execute(
+                "INSERT OR REPLACE INTO plan_items (session, id, content, active_form, status, parent_id, depends_on, sequence_num) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    self.session,
+                    item.id,
+                    item.content,
+                    item.active_form,
+                    item.status,
+                    item.parent_id,
+                    json.dumps(item.depends_on),
+                    max_seq + 1,
+                ),
+            )
+            conn.commit()
+        if self.event_emitter:
+            self.event_emitter.emit(PlanEvent(event_type="task_added", item=item))
+        return item
+
+    def update_item_status(self, item_id: str, status: PlanStatus) -> bool:
+        import sqlite3
+
+        with sqlite3.connect(self.db_path) as conn:
+            cur = conn.execute(
+                "UPDATE plan_items SET status = ? WHERE session = ? AND id = ?",
+                (status, self.session, item_id),
+            )
+            conn.commit()
+            updated = cur.rowcount > 0
+
+        if updated and self.event_emitter:
+            items = [it for it in self.get_items() if it.id == item_id]
+            if items:
+                self.event_emitter.emit(
+                    PlanEvent(
+                        event_type="completed" if status == "completed" else "status_changed",
+                        item=items[0],
+                        new_status=status,
+                    )
+                )
+        return updated
+
+    def remove_item(self, item_id: str) -> bool:
+        import sqlite3
+
+        with sqlite3.connect(self.db_path) as conn:
+            cur = conn.execute(
+                "DELETE FROM plan_items WHERE session = ? AND id = ?",
+                (self.session, item_id),
+            )
+            conn.commit()
+            return cur.rowcount > 0
+
+
+DEFAULT_PLANNING_GUIDANCE: str = (
+    "You have access to a structured planning toolset (write_plan, read_plan, add_task, update_task_status, remove_task). "
+    "Keep a concise, structured plan to track progress on multi-step tasks. "
+    "Ensure exactly one step is marked as 'in_progress' at any given time while working. "
+    "Mark steps 'completed' promptly when finished."
+)
+
+
 class Planning(BaseCapability):
-    """Capability allowing the model to manage and track execution plans."""
+    """Structured task planning capability that maintains state and injects cache-safe tail reminders."""
 
     id: str = "planning"
+    guidance: str | None = None
+    cache_ttl: Literal["5m", "1h"] = "5m"
+    store: Any = None
+    store_resolver: Any = None
+    enable_subtasks: bool = False
+    inject: bool = True
+    tools: Sequence[str] | None = None
+    descriptions: dict[str, str] | None = None
     plans: list[str] = Field(default_factory=list)
 
+    def __init__(
+        self,
+        *,
+        guidance: str | None = None,
+        cache_ttl: Literal["5m", "1h"] = "5m",
+        store: PlanStore | None = None,
+        store_resolver: Callable[[RunContext[Any]], PlanStore] | None = None,
+        enable_subtasks: bool = False,
+        inject: bool = True,
+        tools: Sequence[str] | None = None,
+        descriptions: dict[str, str] | None = None,
+        plans: list[str] | None = None,
+    ) -> None:
+        super().__init__(
+            guidance=guidance,
+            cache_ttl=cache_ttl,
+            store=store,
+            store_resolver=store_resolver,
+            enable_subtasks=enable_subtasks,
+            inject=inject,
+            tools=list(tools) if tools is not None else None,
+            descriptions=descriptions,
+            plans=plans or [],
+        )
+
+    def resolve_store(self, ctx: RunContext[Any] | None = None) -> PlanStore:
+        """Resolve active PlanStore from resolver, configured store, or in-memory default."""
+        if ctx is not None and self.store_resolver is not None:
+            return cast(PlanStore, self.store_resolver(ctx))
+        if self.store is not None:
+            return cast(PlanStore, self.store)
+        mem = InMemoryPlanStore()
+        if self.plans:
+            mem.set_items([PlanItem(content=p, status="pending") for p in self.plans])
+        self.store = mem
+        return mem
+
     def get_tools(self) -> list[AgentTool | Callable[..., Any]]:
+        all_tools: list[AgentTool | Callable[..., Any]] = []
+
+        def write_plan(items: list[dict[str, Any] | PlanItem | str]) -> str:
+            """Create or replace the full plan (whole-list replacement)."""
+            store = self.resolve_store()
+            parsed: list[PlanItem] = []
+            for it in items:
+                if isinstance(it, PlanItem):
+                    p_item = it
+                elif isinstance(it, str):
+                    p_item = PlanItem(content=it)
+                elif isinstance(it, dict):
+                    if not self.enable_subtasks and (
+                        it.get("parent_id") or it.get("depends_on") or it.get("status") == "blocked"
+                    ):
+                        raise ValueError(
+                            "Subtasks, dependencies, and 'blocked' status require enable_subtasks=True"
+                        )
+                    p_item = PlanItem.model_validate(it)
+                else:
+                    p_item = PlanItem(content=str(it))
+
+                if not self.enable_subtasks and (
+                    p_item.parent_id or p_item.depends_on or p_item.status == "blocked"
+                ):
+                    raise ValueError(
+                        "Subtasks, dependencies, and 'blocked' status require enable_subtasks=True"
+                    )
+                parsed.append(p_item)
+
+            store.set_items(parsed)
+            self.plans = [it.content for it in parsed]
+            return f"Plan successfully written with {len(parsed)} steps."
+
+        def read_plan(view: str = "flat") -> str:
+            """Read the current plan with step ids and progress summary."""
+            store = self.resolve_store()
+            items = store.get_items()
+            if not items:
+                return "Plan is currently empty. Use write_plan or add_task to create steps."
+
+            done = sum(1 for it in items if it.status == "completed")
+            summary = f"Plan Progress: {done}/{len(items)} completed ({round(done / len(items) * 100)}%)\n"
+
+            if view == "hierarchical" and self.enable_subtasks:
+                lines = [summary]
+                parent_map: dict[str | None, list[PlanItem]] = defaultdict(list)
+                for it in items:
+                    parent_map[it.parent_id].append(it)
+
+                def _render_tree(pid: str | None, indent: int = 0) -> None:
+                    for child in parent_map.get(pid, []):
+                        icon = (
+                            "[✓]"
+                            if child.status == "completed"
+                            else "[>]"
+                            if child.status == "in_progress"
+                            else "[x]"
+                            if child.status == "cancelled"
+                            else "[!]"
+                            if child.status == "blocked"
+                            else "[ ]"
+                        )
+                        lines.append(f"{'  ' * indent}{icon} {child.id}: {child.content}")
+                        _render_tree(child.id, indent + 1)
+
+                _render_tree(None)
+                return "\n".join(lines)
+
+            lines = [summary]
+            for it in items:
+                icon = (
+                    "[✓]"
+                    if it.status == "completed"
+                    else "[>]"
+                    if it.status == "in_progress"
+                    else "[x]"
+                    if it.status == "cancelled"
+                    else "[!]"
+                    if it.status == "blocked"
+                    else "[ ]"
+                )
+                label = (
+                    f" ({it.active_form})" if it.active_form and it.status == "in_progress" else ""
+                )
+                dep_info = f" [depends on: {', '.join(it.depends_on)}]" if it.depends_on else ""
+                lines.append(f"{icon} {it.id}: {it.content}{label}{dep_info}")
+            return "\n".join(lines)
+
+        def add_task(content: str, active_form: str | None = None) -> str:
+            """Append a single pending step to the plan."""
+            store = self.resolve_store()
+            item = PlanItem(content=content, active_form=active_form, status="pending")
+            created = store.add_item(item)
+            self.plans.append(content)
+            return f"Task '{created.id}' added to plan: {content}"
+
+        def update_task_status(task_id: str, status: PlanStatus) -> str:
+            """Move one step between statuses by id."""
+            store = self.resolve_store()
+            valid_statuses = ("pending", "in_progress", "completed", "cancelled", "blocked")
+            if status not in valid_statuses:
+                return f"Error: invalid status '{status}'. Must be one of {valid_statuses}."
+
+            updated = store.update_item_status(task_id, status)
+            if not updated:
+                return f"Error: task id '{task_id}' not found in plan."
+
+            # Auto unblock dependent tasks if prerequisite is finished
+            if status in ("completed", "cancelled") and self.enable_subtasks:
+                items = store.get_items()
+                for it in items:
+                    if task_id in it.depends_on and it.status == "blocked":
+                        # Check if all dependencies are resolved
+                        remaining = [
+                            d
+                            for d in it.depends_on
+                            if any(
+                                x.id == d and x.status not in ("completed", "cancelled")
+                                for x in items
+                            )
+                        ]
+                        if not remaining:
+                            store.update_item_status(it.id, "pending")
+
+            return f"Task '{task_id}' status updated to '{status}'."
+
+        def update_task_statuses(updates: list[dict[str, str]]) -> str:
+            """Apply several status changes in one call, validated all-or-nothing."""
+            store = self.resolve_store()
+            items = {it.id: it for it in store.get_items()}
+            for u in updates:
+                tid = u.get("id") or u.get("task_id")
+                st = u.get("status")
+                if not tid or tid not in items:
+                    return f"Error: task id '{tid}' not found. No updates applied."
+                if st not in ("pending", "in_progress", "completed", "cancelled", "blocked"):
+                    return f"Error: invalid status '{st}'. No updates applied."
+
+            for u in updates:
+                tid = str(u.get("id") or u.get("task_id"))
+                st = cast(PlanStatus, u.get("status"))
+                store.update_item_status(tid, st)
+
+            return f"Successfully updated statuses for {len(updates)} tasks."
+
+        def remove_task(task_id: str) -> str:
+            """Delete a step from the plan by id."""
+            store = self.resolve_store()
+            removed = store.remove_item(task_id)
+            if not removed:
+                return f"Error: task id '{task_id}' not found."
+            return f"Task '{task_id}' removed from plan."
+
         def update_plan(steps: list[str]) -> str:
             """Update the execution plan with structured checklist items."""
-            self.plans = list(steps)
-            return f"Plan updated with {len(steps)} steps."
+            return write_plan([{"content": s, "status": "pending"} for s in steps])
 
-        return [
-            Tool.from_function(
-                update_plan,
-                name="update_plan",
-                description="Update the current multi-step execution plan.",
+        all_tools.extend(
+            [
+                Tool.from_function(
+                    write_plan,
+                    name="write_plan",
+                    description=self.descriptions.get(
+                        "write_plan", "Create or replace the full plan."
+                    )
+                    if self.descriptions
+                    else "Create or replace the full plan.",
+                ),
+                Tool.from_function(
+                    read_plan,
+                    name="read_plan",
+                    description=self.descriptions.get(
+                        "read_plan", "Read the current plan with step ids and status."
+                    )
+                    if self.descriptions
+                    else "Read the current plan with step ids and status.",
+                ),
+                Tool.from_function(
+                    add_task,
+                    name="add_task",
+                    description=self.descriptions.get(
+                        "add_task", "Append a single pending step to the plan."
+                    )
+                    if self.descriptions
+                    else "Append a single pending step to the plan.",
+                ),
+                Tool.from_function(
+                    update_task_status,
+                    name="update_task_status",
+                    description=self.descriptions.get(
+                        "update_task_status", "Move one step between statuses by id."
+                    )
+                    if self.descriptions
+                    else "Move one step between statuses by id.",
+                ),
+                Tool.from_function(
+                    update_task_statuses,
+                    name="update_task_statuses",
+                    description=self.descriptions.get(
+                        "update_task_statuses", "Apply several status changes in one batch call."
+                    )
+                    if self.descriptions
+                    else "Apply several status changes in one batch call.",
+                ),
+                Tool.from_function(
+                    remove_task,
+                    name="remove_task",
+                    description=self.descriptions.get(
+                        "remove_task", "Delete a step from the plan by id."
+                    )
+                    if self.descriptions
+                    else "Delete a step from the plan by id.",
+                ),
+                Tool.from_function(
+                    update_plan,
+                    name="update_plan",
+                    description="Update the current multi-step execution plan (string list).",
+                ),
+            ]
+        )
+
+        if self.enable_subtasks:
+
+            def add_subtask(parent_id: str, content: str, active_form: str | None = None) -> str:
+                """Add a child step under a parent step."""
+                store = self.resolve_store()
+                items = {it.id: it for it in store.get_items()}
+                if parent_id not in items:
+                    return f"Error: parent task id '{parent_id}' not found."
+                sub = PlanItem(
+                    content=content,
+                    active_form=active_form,
+                    status="pending",
+                    parent_id=parent_id,
+                )
+                created = store.add_item(sub)
+                return f"Subtask '{created.id}' added under parent '{parent_id}': {content}"
+
+            def set_dependency(task_id: str, depends_on_id: str) -> str:
+                """Make one step wait for another prerequisite step."""
+                if task_id == depends_on_id:
+                    return "Error: self-dependency not allowed."
+                store = self.resolve_store()
+                items = {it.id: it for it in store.get_items()}
+                if task_id not in items:
+                    return f"Error: task id '{task_id}' not found."
+                if depends_on_id not in items:
+                    return f"Error: prerequisite task id '{depends_on_id}' not found."
+
+                target = items[task_id]
+                prereq = items[depends_on_id]
+                if task_id in prereq.depends_on:
+                    return "Error: circular dependency detected."
+
+                if depends_on_id not in target.depends_on:
+                    target.depends_on.append(depends_on_id)
+                    if prereq.status not in ("completed", "cancelled"):
+                        target.status = "blocked"
+                    store.set_items(list(items.values()))
+
+                return (
+                    f"Task '{task_id}' now depends on '{depends_on_id}' (status: {target.status})."
+                )
+
+            def get_available_tasks() -> str:
+                """List steps with no incomplete dependencies that can start now."""
+                store = self.resolve_store()
+                items = store.get_items()
+                resolved = {it.id for it in items if it.status in ("completed", "cancelled")}
+                available = [
+                    it
+                    for it in items
+                    if it.status in ("pending", "in_progress")
+                    and all(dep in resolved for dep in it.depends_on)
+                ]
+                if not available:
+                    return "No tasks currently available to start."
+                return f"Available tasks ({len(available)}):\n" + "\n".join(
+                    f"- {it.id}: {it.content} [{it.status}]" for it in available
+                )
+
+            all_tools.extend(
+                [
+                    Tool.from_function(
+                        add_subtask,
+                        name="add_subtask",
+                        description=self.descriptions.get(
+                            "add_subtask", "Add a child step under a parent."
+                        )
+                        if self.descriptions
+                        else "Add a child step under a parent.",
+                    ),
+                    Tool.from_function(
+                        set_dependency,
+                        name="set_dependency",
+                        description=self.descriptions.get(
+                            "set_dependency", "Make one step wait for another prerequisite step."
+                        )
+                        if self.descriptions
+                        else "Make one step wait for another prerequisite step.",
+                    ),
+                    Tool.from_function(
+                        get_available_tasks,
+                        name="get_available_tasks",
+                        description=self.descriptions.get(
+                            "get_available_tasks", "List steps with no incomplete dependencies."
+                        )
+                        if self.descriptions
+                        else "List steps with no incomplete dependencies.",
+                    ),
+                ]
             )
-        ]
+
+        if self.tools is not None:
+            tool_set = set(self.tools)
+            registered_names = {getattr(t, "name", "") for t in all_tools}
+            unknown = tool_set - registered_names
+            if unknown:
+                raise ValueError(f"Unknown tool(s) requested for Planning capability: {unknown}")
+            return [t for t in all_tools if getattr(t, "name", "") in tool_set]
+
+        return all_tools
 
     def get_system_prompt_additions(self, ctx: RunContext[Any] | None = None) -> list[str]:
-        if not self.plans:
-            return ["Planning capability active. Use update_plan to maintain execution progress."]
-        plan_str = "\n".join(f"{i + 1}. {step}" for i, step in enumerate(self.plans))
-        return [f"Current Plan:\n{plan_str}"]
+        if self.guidance == "":
+            return []
+        return [self.guidance or DEFAULT_PLANNING_GUIDANCE]
+
+    def get_hooks(self) -> AgentHooks | None:
+        if not self.inject:
+            return None
+
+        def _inject_plan_reminder(ctx: RunContext[Any], messages: list[ChatMessage]) -> None:
+            store = self.resolve_store(ctx)
+            items = store.get_items()
+            if not items:
+                return
+
+            done = sum(1 for it in items if it.status == "completed")
+            in_prog = [it for it in items if it.status == "in_progress"]
+            prog_str = f"[{done}/{len(items)} completed"
+            if in_prog:
+                prog_str += f", in progress: '{in_prog[0].content}'"
+            prog_str += "]"
+
+            rendered_lines = [f"<plan-reminder {prog_str}>"]
+            for it in items:
+                st_icon = (
+                    "[✓]"
+                    if it.status == "completed"
+                    else "[>]"
+                    if it.status == "in_progress"
+                    else "[x]"
+                    if it.status == "cancelled"
+                    else "[!]"
+                    if it.status == "blocked"
+                    else "[ ]"
+                )
+                label = (
+                    f" ({it.active_form})" if it.active_form and it.status == "in_progress" else ""
+                )
+                rendered_lines.append(f"{st_icon} {it.id}: {it.content}{label}")
+            rendered_lines.append("</plan-reminder>")
+            reminder_text = "\n".join(rendered_lines)
+
+            if messages and messages[-1].role == "user":
+                messages[-1] = messages[-1].model_copy(
+                    update={"content": f"{messages[-1].content}\n\n{reminder_text}"}
+                )
+
+        return AgentHooks(before_model_request=[_inject_plan_reminder])
 
 
 class SubAgent(BaseModel):
@@ -1215,6 +1884,8 @@ class PlaywrightBrowser(BaseCapability):
         return additions
 
 
+PlanItem.model_rebuild()
+PlanEvent.model_rebuild()
 SubAgent.model_rebuild()
 SubAgents.model_rebuild()
 FileSystem.model_rebuild()

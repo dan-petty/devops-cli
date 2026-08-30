@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from devops_cli.ai.agents.memory import AgentMemory, MemoryEntry
 from devops_cli.ai.agents.pipeline import (
     MultiAgentPipeline,
@@ -52,29 +54,44 @@ from devops_cli.ai.ext_langchain import (
     LangChainToolset,
     tool_from_langchain,
 )
-from devops_cli.ai.harness import (
-    DEFAULT_MACROSCOPE_GUIDANCE,
-    DEFAULT_PLAYWRIGHT_GUIDANCE,
-    DEFAULT_RESEARCHER_INSTRUCTIONS,
-    LLM_API_KEY_ENV_PATTERNS,
-    ClearToolResults,
-    Coder,
-    FileSystem,
-    Macroscope,
-    MacroscopeIssue,
-    MacroscopeReview,
-    Planning,
-    PlaywrightBrowser,
-    RepoContext,
-    Researcher,
-    Shell,
-    SubAgent,
-    SubAgents,
-    ToolOutputLimits,
-    WarnNearLimits,
-    coder_agent,
-    researcher_agent,
-)
+
+
+def __getattr__(name: str) -> Any:
+    if name in {
+        "ClearToolResults",
+        "Coder",
+        "DEFAULT_MACROSCOPE_GUIDANCE",
+        "DEFAULT_PLANNING_GUIDANCE",
+        "DEFAULT_PLAYWRIGHT_GUIDANCE",
+        "DEFAULT_RESEARCHER_INSTRUCTIONS",
+        "FileSystem",
+        "InMemoryPlanStore",
+        "LLM_API_KEY_ENV_PATTERNS",
+        "Macroscope",
+        "MacroscopeIssue",
+        "MacroscopeReview",
+        "PlanEvent",
+        "PlanEventEmitter",
+        "PlanItem",
+        "Planning",
+        "PlanStore",
+        "PlaywrightBrowser",
+        "RepoContext",
+        "Researcher",
+        "Shell",
+        "SqlitePlanStore",
+        "SubAgent",
+        "SubAgents",
+        "ToolOutputLimits",
+        "WarnNearLimits",
+        "coder_agent",
+        "researcher_agent",
+    }:
+        import devops_cli.ai.harness
+
+        return getattr(devops_cli.ai.harness, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 __all__ = [
     "AgentHooks",
@@ -91,6 +108,7 @@ __all__ = [
     "CodeExecutionTool",
     "Coder",
     "DEFAULT_MACROSCOPE_GUIDANCE",
+    "DEFAULT_PLANNING_GUIDANCE",
     "DEFAULT_PLAYWRIGHT_GUIDANCE",
     "DEFAULT_RESEARCHER_INSTRUCTIONS",
     "DeferredToolRequests",
@@ -98,6 +116,7 @@ __all__ = [
     "FileSystem",
     "FunctionToolset",
     "HandleDeferredToolCalls",
+    "InMemoryPlanStore",
     "LLM_API_KEY_ENV_PATTERNS",
     "LangChainToolset",
     "MCP",
@@ -110,7 +129,11 @@ __all__ = [
     "MultiAgentPipelineResult",
     "NativeTool",
     "PipelineStepResult",
+    "PlanEvent",
+    "PlanEventEmitter",
+    "PlanItem",
     "Planning",
+    "PlanStore",
     "PlaywrightBrowser",
     "PydanticAgent",
     "RepoContext",
@@ -119,6 +142,7 @@ __all__ = [
     "Shell",
     "SubAgent",
     "SubAgents",
+    "SqlitePlanStore",
     "TemplateStr",
     "Thinking",
     "ThinkingPart",
