@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import sys
 from collections.abc import Callable, Generator, Iterable, Sequence
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Literal
@@ -117,10 +116,12 @@ def write_stream(
 ) -> None:
     """Write raw text directly to standard output or standard error stream."""
     safe_text = _sanitize_output_text(text)
-    target = sys.stderr if stream == "stderr" else sys.stdout
-    target.write(safe_text)
+    cons = get_stderr_console() if stream == "stderr" else get_console()
+    cons.print(safe_text, markup=False, highlight=False, end="", soft_wrap=True)
     if flush:
-        target.flush()
+        file_obj = getattr(cons, "file", None)
+        if file_obj and hasattr(file_obj, "flush"):
+            file_obj.flush()
 
 
 def write_stdout(text: str, *, flush: bool = True) -> None:

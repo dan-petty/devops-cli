@@ -615,7 +615,7 @@ def audit_keys_cmd(
             "scanned_config_files": [str(p) for p in unique_files],
             "plaintext_leak_count": len(plaintext_leaks),
             "has_plaintext_leaks": len(plaintext_leaks) > 0,
-            "plaintext_leaks": "[REDACTED]",
+            "plaintext_leaks": plaintext_leaks,
             "is_compliant": is_overall_compliant,
             "keys": key_audit_records,
         }
