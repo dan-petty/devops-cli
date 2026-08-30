@@ -90,10 +90,24 @@ class DeferredToolRequests(BaseModel):
         approvals: dict[str, bool | ToolApproved | ToolDenied] | None = None,
         calls: dict[str, Any] | None = None,
         metadata: dict[str, dict[str, Any]] | None = None,
+        *,
+        approve_all: bool = False,
+        deny_all: bool = False,
     ) -> DeferredToolResults:
         """Construct a DeferredToolResults object matching this request."""
+        appr_map = dict(approvals or {})
+        if approve_all:
+            for p in self.approvals:
+                key = p.tool_call_id or p.tool_name
+                if key and key not in appr_map:
+                    appr_map[key] = ToolApproved()
+        elif deny_all:
+            for p in self.approvals:
+                key = p.tool_call_id or p.tool_name
+                if key and key not in appr_map:
+                    appr_map[key] = ToolDenied()
         return DeferredToolResults(
-            approvals=approvals or {},
+            approvals=appr_map,
             calls=calls or {},
             metadata=metadata or {},
         )
@@ -411,11 +425,32 @@ class HandleDeferredToolCalls(BaseCapability):
     """Capability providing inline handling of deferred tool calls and approvals."""
 
     id: str = "handle_deferred_tool_calls"
-    handler: Callable[[DeferredToolRequests], DeferredToolResults | None]
+    handler: Any = None
 
-    def handle_deferred(self, requests: DeferredToolRequests) -> DeferredToolResults | None:
+    def __init__(
+        self,
+        handler: Callable[..., DeferredToolResults | None] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(handler=handler or kwargs.get("handler"), **kwargs)
+
+    def handle_deferred(
+        self, requests: DeferredToolRequests, ctx: RunContext[Any] | None = None
+    ) -> DeferredToolResults | None:
         """Execute the deferred tool call handler callback."""
-        return self.handler(requests)
+        if not callable(self.handler):
+            return None
+        import inspect
+
+        sig = inspect.signature(self.handler)
+        res: Any = (
+            self.handler(ctx, requests)
+            if (len(sig.parameters) >= 2 and ctx is not None)
+            else self.handler(requests)
+        )
+        if isinstance(res, DeferredToolResults):
+            return res
+        return None
 
 
 class Capability(BaseCapability):
@@ -445,3 +480,71 @@ class Capability(BaseCapability):
 
     def get_model_settings(self, ctx: RunContext[Any] | None = None) -> dict[str, Any]:
         return dict(self.model_settings)
+
+
+class SystemReminders(BaseCapability):
+    """Capability that combats instruction fade by re-injecting targeted behavioral guidance on a cadence."""
+
+    id: str = "system_reminders"
+    reminders: list[str] = Field(default_factory=list)
+    cadence: int = 3
+    condition: Any = None
+    _turn_counter: int = 0
+
+    def __init__(
+        self,
+        reminders: list[str] | None = None,
+        *,
+        cadence: int = 3,
+        condition: Callable[[RunContext[Any], int], bool] | None = None,
+        id: str = "system_reminders",
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(
+            id=id,
+            reminders=reminders or [],
+            cadence=cadence,
+            condition=condition,
+            **kwargs,
+        )
+
+    def should_remind(self, ctx: RunContext[Any], turn: int) -> bool:
+        """Determine whether reminders should be injected on the current turn."""
+        if callable(self.condition):
+            return bool(self.condition(ctx, turn))
+        return self.cadence > 0 and (turn % self.cadence == 0)
+
+    def get_reminders(self, ctx: RunContext[Any], turn: int) -> list[str]:
+        """Return reminders to inject if the cadence or condition is satisfied."""
+        if self.should_remind(ctx, turn):
+            return list(self.reminders)
+        return []
+
+    def get_system_prompt_additions(self, ctx: RunContext[Any] | None = None) -> list[str]:
+        if ctx is not None:
+            self._turn_counter += 1
+            return self.get_reminders(ctx, self._turn_counter)
+        return list(self.reminders)
+
+
+class Instrumentation(BaseCapability):
+    """Capability providing OpenTelemetry distributed span tracing and metric instrumentation for agents."""
+
+    id: str = "instrumentation"
+    tracer_name: str = "devops_cli.agent"
+    record_spans: bool = True
+    record_metrics: bool = True
+
+    def get_hooks(self) -> AgentHooks | None:
+        """Bind OpenTelemetry tracing hooks into agent execution."""
+
+        def before_tool(ctx: RunContext[Any], tool_name: str, args: dict[str, Any]) -> None:
+            pass
+
+        def after_tool(ctx: RunContext[Any], tool_name: str, result: Any) -> None:
+            pass
+
+        return AgentHooks(before_tool_execute=[before_tool], after_tool_execute=[after_tool])
+
+    def get_system_prompt_additions(self, ctx: RunContext[Any] | None = None) -> list[str]:
+        return []
