@@ -42,36 +42,32 @@ def isolate_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     yield test_data_dir
 
 
-@pytest.fixture(scope="session")
-def session_isolated_config(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    config_dir = tmp_path_factory.mktemp("devops_cli_isolated_config")
+@pytest.fixture(autouse=True)
+def isolate_devops_cli_config(tmp_path: Path):
+    """Ensure tests do not load or mutate local workspace config.yaml or ~/.config."""
+    from devops_cli.telemetry.tracer import reset_tracer
+
+    reset_tracer()
+    config_dir = tmp_path / "isolated_config"
+    config_dir.mkdir(parents=True, exist_ok=True)
     dummy_config = config_dir / "config.yaml"
     dummy_config.write_text(
         "telemetry:\n  enabled: true\n  endpoint: http://localhost:4318\nai:\n  allow_private_network: true\n  rag:\n    enabled: false\n",
         encoding="utf-8",
     )
-    return dummy_config
-
-
-@pytest.fixture(autouse=True)
-def isolate_devops_cli_config(session_isolated_config: Path):
-    """Ensure tests do not load or mutate local workspace config.yaml or ~/.config."""
-    from devops_cli.telemetry.tracer import reset_tracer
-
-    reset_tracer()
     with (
         patch.dict(
             os.environ,
             {
-                "DEVOPS_CLI_CONFIG": str(session_isolated_config),
+                "DEVOPS_CLI_CONFIG": str(dummy_config),
                 "DEVOPS_OTEL_ENDPOINT": "http://localhost:4318",
                 "DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK": "true",
             },
         ),
-        patch("devops_cli.config.settings.CONFIG_PATH", session_isolated_config),
-        patch("devops_cli.config.settings.CONFIG_DIR", session_isolated_config.parent),
+        patch("devops_cli.config.settings.CONFIG_PATH", dummy_config),
+        patch("devops_cli.config.settings.CONFIG_DIR", dummy_config.parent),
     ):
-        yield
+        yield dummy_config
     reset_tracer()
 
 

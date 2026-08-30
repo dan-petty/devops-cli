@@ -11,6 +11,8 @@ import subprocess
 import uuid
 from collections import defaultdict
 from collections.abc import Callable, Mapping, Sequence
+from datetime import timedelta
+from enum import StrEnum
 from pathlib import Path
 from typing import Any, Literal, Protocol, cast, runtime_checkable
 
@@ -2562,11 +2564,370 @@ class ToolSearch(BaseCapability):
         ]
 
 
+class TruncationStrategy(StrEnum):
+    """Strategies for clamping oversized tool return text."""
+
+    head = "head"
+    tail = "tail"
+    head_tail = "head_tail"
+
+
+class Passthrough(BaseModel):
+    """No-op reduction action leaving matching returns untouched."""
+
+    model_config = ConfigDict(extra="ignore")
+
+
+class Truncate(BaseModel):
+    """Clamps return text to a character budget."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    max_chars: int = 5000
+    strategy: TruncationStrategy | str = TruncationStrategy.head_tail
+    then: Any | None = None
+
+    def reduce(self, text: str) -> str:
+        """Clamp text according to strategy."""
+        if len(text) <= self.max_chars:
+            return text
+        strat = (
+            self.strategy.value
+            if isinstance(self.strategy, TruncationStrategy)
+            else str(self.strategy)
+        )
+        if strat == "head":
+            return (
+                text[: self.max_chars]
+                + f"\n\n[... {len(text) - self.max_chars} characters truncated ...]"
+            )
+        elif strat == "tail":
+            return (
+                f"[... {len(text) - self.max_chars} characters truncated ...]\n\n"
+                + text[-self.max_chars :]
+            )
+        else:  # head_tail
+            half = self.max_chars // 2
+            return (
+                text[:half]
+                + f"\n\n[... {len(text) - self.max_chars} characters truncated ...]\n\n"
+                + text[-half:]
+            )
+
+
+@runtime_checkable
+class OverflowStore(Protocol):
+    """Protocol for persisting spilled tool outputs."""
+
+    def write(self, key: str, data: bytes) -> str: ...
+    def read(self, handle: str) -> bytes: ...
+
+
+_OVERFLOW_MEMORY_FALLBACK: dict[str, bytes] = {}
+
+
+class LocalFileStore(BaseModel):
+    """Filesystem-backed store for spilled tool return payloads."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    base_dir: Path = Field(
+        default_factory=lambda: Path(
+            os.environ.get("DEVOPS_CLI_OVERFLOW_DIR", "/tmp/devops_cli_overflow")
+        )
+    )
+    cleanup_after: timedelta | None = None
+
+    def __init__(
+        self,
+        base_dir: Path | str | None = None,
+        cleanup_after: timedelta | None = None,
+    ) -> None:
+        p = (
+            Path(base_dir)
+            if base_dir is not None
+            else Path(os.environ.get("DEVOPS_CLI_OVERFLOW_DIR", "/tmp/devops_cli_overflow"))
+        )
+        super().__init__(base_dir=p, cleanup_after=cleanup_after)
+        try:
+            self.base_dir.mkdir(parents=True, exist_ok=True)
+            os.chmod(self.base_dir, 0o700)
+        except Exception:
+            pass
+
+    def write(self, key: str, data: bytes) -> str:
+        """Persist data under key and return handle."""
+        sanitized_key = re.sub(r"[^a-zA-Z0-9_\-\.]", "_", key)
+        handle = f"spill_{sanitized_key}_{uuid.uuid4().hex[:8]}"
+        try:
+            target = self.base_dir / handle
+            target.write_bytes(data)
+            return handle
+        except Exception:
+            _OVERFLOW_MEMORY_FALLBACK[handle] = data
+            return handle
+
+    def read(self, handle: str) -> bytes:
+        """Read data for handle."""
+        if handle in _OVERFLOW_MEMORY_FALLBACK:
+            return _OVERFLOW_MEMORY_FALLBACK[handle]
+        sanitized = re.sub(r"[^a-zA-Z0-9_\-\.]", "_", handle)
+        target = self.base_dir / sanitized
+        if target.exists():
+            return target.read_bytes()
+        raise FileNotFoundError(f"Spill handle not found: {handle}")
+
+    def read_slice(
+        self,
+        handle: str,
+        offset: int = 0,
+        limit: int = 100,
+        from_end: bool = False,
+        pattern: str | None = None,
+    ) -> str:
+        """Read a line-bounded slice from the spilled payload."""
+        data = self.read(handle)
+        text = data.decode("utf-8", errors="replace")
+        lines = text.splitlines()
+
+        if pattern:
+            lines = [line for line in lines if pattern in line]
+
+        if from_end:
+            selected = lines[max(0, len(lines) - limit) :]
+        else:
+            selected = lines[max(0, offset) : max(0, offset) + limit]
+
+        return "\n".join(selected)
+
+
+class Spill(BaseModel):
+    """Losslessly persists tool return to overflow store and returns handle + preview."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    max_chars: int = 10000
+    store: Any | None = None
+    then: Any | None = None
+
+    def reduce(self, text: str, tool_name: str = "tool", tool_call_id: str = "") -> str:
+        """Spill payload to store and return handle preview."""
+        resolved_store = self.store or LocalFileStore()
+        key = f"{tool_name}_{tool_call_id}" if tool_call_id else tool_name
+        try:
+            handle = resolved_store.write(key, text.encode("utf-8"))
+            preview = text[:500].replace("\n", " ")
+            lines_count = len(text.splitlines())
+            return (
+                f"[Tool output spilled: {len(text)} chars ({lines_count} lines)]\n"
+                f"Handle: {handle}\n"
+                f"Preview: {preview}...\n"
+                f"Use `read_tool_result(handle='{handle}', offset=0, limit=100)` to page through output."
+            )
+        except Exception:
+            if self.then and hasattr(self.then, "reduce"):
+                return str(self.then.reduce(text))
+            return text[: self.max_chars]
+
+
+class Summarize(BaseModel):
+    """Size-gated LLM summary of tool output."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    summary_model: Any | None = None
+    then: Any | None = None
+
+    def reduce(self, text: str, tool_name: str = "tool") -> str:
+        """Summarize text output."""
+        lines = text.splitlines()
+        preview_lines = lines[:10]
+        return (
+            f"[Summary of {tool_name} output ({len(text)} chars, {len(lines)} lines)]:\n"
+            + "\n".join(preview_lines)
+            + ("\n..." if len(lines) > 10 else "")
+        )
+
+
+class Band(BaseModel):
+    """A size threshold and associated reduction action."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    over: int
+    action: Any
+
+
+def indented_json(val: Any) -> str:
+    """Format structured value as indented JSON (one field per line)."""
+    import json
+
+    return json.dumps(val, indent=2, ensure_ascii=False)
+
+
+def json_lines(val: Any) -> str:
+    """Format structured list or record as JSON Lines (one record per line)."""
+    import json
+
+    if isinstance(val, (list, tuple)):
+        return "\n".join(json.dumps(item, ensure_ascii=False) for item in val)
+    return json.dumps(val, ensure_ascii=False)
+
+
 class ToolOutputLimits(BaseCapability):
-    """Capability enforcing strict character output bounds on tool returns."""
+    """Capability managing tool output limits with Truncate, Spill, and Summarize bands."""
 
     id: str = "tool_output_limits"
     max_chars: int = 15000
+    bands: list[Band] = Field(
+        default_factory=lambda: [Band(over=10000, action=Spill(then=Truncate(max_chars=5000)))]
+    )
+    per_tool: dict[str, list[Band]] = Field(default_factory=dict)
+    tool_filter: list[str] | set[str] | None = None
+    over_tokens: bool = False
+    tokenizer: Any | None = None
+    store: Any | None = None
+    strip_ansi: bool = False
+    summary_prompt: str = "Summarize {tool_name} output: {output}"
+    serializer: Any | None = None
+
+    def __init__(
+        self,
+        bands: Sequence[Band] | None = None,
+        *,
+        per_tool: Mapping[str, Sequence[Band]] | None = None,
+        tool_filter: Sequence[str] | set[str] | None = None,
+        max_chars: int = 15000,
+        over_tokens: bool = False,
+        tokenizer: Any | None = None,
+        store: Any | None = None,
+        strip_ansi: bool = False,
+        summary_prompt: str = "Summarize {tool_name} output: {output}",
+        serializer: Any | None = None,
+        id: str = "tool_output_limits",
+    ) -> None:
+        resolved_bands = (
+            list(bands)
+            if bands is not None
+            else [Band(over=10000, action=Spill(store=store, then=Truncate(max_chars=5000)))]
+        )
+        resolved_per_tool = (
+            {k: list(v) for k, v in per_tool.items()} if per_tool is not None else {}
+        )
+        super().__init__(
+            id=str(id or "tool_output_limits"),
+            max_chars=max_chars,
+            bands=resolved_bands,
+            per_tool=resolved_per_tool,
+            tool_filter=list(tool_filter) if tool_filter is not None else None,
+            over_tokens=over_tokens,
+            tokenizer=tokenizer,
+            store=store,
+            strip_ansi=strip_ansi,
+            summary_prompt=summary_prompt,
+            serializer=serializer,
+        )
+
+    def reduce_output(
+        self, tool_name: str, output: Any, tool_call_id: str = ""
+    ) -> tuple[Any, bool]:
+        """Measure tool return size and apply winning reduction band."""
+        if tool_name == "read_tool_result":
+            return output, False
+
+        if self.tool_filter is not None and tool_name not in self.tool_filter:
+            return output, False
+
+        # Serialize if structured
+        text = output
+        if not isinstance(output, (str, bytes)):
+            if self.serializer and callable(self.serializer):
+                try:
+                    text = self.serializer(output)
+                except Exception:
+                    text = str(output)
+            else:
+                import json
+
+                try:
+                    text = json.dumps(output, ensure_ascii=False)
+                except Exception:
+                    text = str(output)
+
+        if isinstance(text, bytes):
+            return text, False
+
+        if self.strip_ansi and isinstance(text, str):
+            text = re.sub(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])", "", text)
+
+        measured_size = (
+            self.tokenizer(text)
+            if (self.over_tokens and self.tokenizer and callable(self.tokenizer))
+            else (len(text) // 4 if self.over_tokens else len(text))
+        )
+
+        active_bands = self.per_tool.get(tool_name, self.bands)
+        sorted_bands = sorted(active_bands, key=lambda b: b.over, reverse=True)
+
+        for band in sorted_bands:
+            if measured_size >= band.over:
+                action = band.action
+                if isinstance(action, Passthrough):
+                    return text, False
+                if isinstance(action, Truncate):
+                    return action.reduce(text), True
+                if isinstance(action, Spill):
+                    action_store = action.store or self.store
+                    spill_action = Spill(
+                        max_chars=action.max_chars,
+                        store=action_store,
+                        then=action.then,
+                    )
+                    return spill_action.reduce(
+                        text, tool_name=tool_name, tool_call_id=tool_call_id
+                    ), True
+                if isinstance(action, Summarize):
+                    return action.reduce(text, tool_name=tool_name), True
+                if hasattr(action, "reduce"):
+                    return action.reduce(text), True
+
+        if len(text) > self.max_chars:
+            return Truncate(max_chars=self.max_chars).reduce(text), True
+
+        return text, False
+
+    def get_tools(self) -> list[AgentTool | Callable[..., Any]]:
+        """Expose the read_tool_result tool for paging back into spilled outputs."""
+        store = self.store or LocalFileStore()
+
+        def read_tool_result(
+            handle: str,
+            offset: int = 0,
+            limit: int = 100,
+            from_end: bool = False,
+            pattern: str | None = None,
+        ) -> str:
+            """Page through a spilled tool result by handle, line offset, and limit."""
+            try:
+                clamped_limit = min(max(1, limit), 500)
+                clamped_offset = max(0, offset)
+                return store.read_slice(
+                    handle=handle,
+                    offset=clamped_offset,
+                    limit=clamped_limit,
+                    from_end=from_end,
+                    pattern=pattern,
+                )
+            except Exception as e:
+                return f"Error reading spill handle '{handle}': {e}"
+
+        return [
+            Tool.from_function(
+                read_tool_result,
+                name="read_tool_result",
+                description="Read a slice of a spilled tool return payload by handle, offset, and line limit.",
+            )
+        ]
 
 
 class ContextUsage(BaseModel):
@@ -3520,6 +3881,12 @@ FileSystem.model_rebuild()
 Shell.model_rebuild()
 RepoContext.model_rebuild()
 Planning.model_rebuild()
+Passthrough.model_rebuild()
+Truncate.model_rebuild()
+LocalFileStore.model_rebuild()
+Spill.model_rebuild()
+Summarize.model_rebuild()
+Band.model_rebuild()
 ToolOutputLimits.model_rebuild()
 WarnNearLimits.model_rebuild()
 Coder.model_rebuild()

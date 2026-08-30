@@ -1379,3 +1379,139 @@ def test_compaction_suite() -> None:
 
     compacted_direct = compact_now([msg1, msg2], strategy=sw)
     assert len(compacted_direct) == 2
+
+
+def test_tool_output_limits_suite(tmp_path: Path) -> None:
+    from devops_cli.ai.harness import (
+        Band,
+        LocalFileStore,
+        Passthrough,
+        Spill,
+        Summarize,
+        ToolOutputLimits,
+        Truncate,
+        TruncationStrategy,
+        indented_json,
+        json_lines,
+    )
+
+    # 1. Test Truncation strategies
+    t_head = Truncate(max_chars=20, strategy=TruncationStrategy.head)
+    assert (
+        t_head.reduce("12345678901234567890EXTRA")
+        == "12345678901234567890\n\n[... 5 characters truncated ...]"
+    )
+
+    t_tail = Truncate(max_chars=20, strategy=TruncationStrategy.tail)
+    assert (
+        t_tail.reduce("EXTRA12345678901234567890")
+        == "[... 5 characters truncated ...]\n\n12345678901234567890"
+    )
+
+    t_head_tail = Truncate(max_chars=10, strategy=TruncationStrategy.head_tail)
+    assert "truncated" in t_head_tail.reduce("12345678901234567890")
+
+    # 2. Test LocalFileStore and slicing
+    store = LocalFileStore(base_dir=tmp_path / "spills")
+    handle = store.write("sample", b"line1\nline2\nline3\nline4\nline5")
+    assert "spill_sample_" in handle
+    assert store.read(handle) == b"line1\nline2\nline3\nline4\nline5"
+
+    slice_head = store.read_slice(handle, offset=0, limit=2)
+    assert slice_head == "line1\nline2"
+
+    slice_tail = store.read_slice(handle, limit=2, from_end=True)
+    assert slice_tail == "line4\nline5"
+
+    slice_filter = store.read_slice(handle, pattern="line3")
+    assert slice_filter == "line3"
+
+    # 3. Test Serializers
+    struct_val = {"key": "value", "count": 42}
+    ind_res = indented_json(struct_val)
+    assert '"key": "value"' in ind_res
+    assert "\n" in ind_res
+
+    jl_res = json_lines([{"a": 1}, {"b": 2}])
+    assert '{"a": 1}\n{"b": 2}' == jl_res
+
+    # 4. Test ToolOutputLimits with Bands
+    tol = ToolOutputLimits(
+        bands=[
+            Band(over=1000, action=Spill(store=store, then=Truncate(max_chars=50))),
+            Band(over=500, action=Summarize()),
+            Band(over=100, action=Truncate(max_chars=50)),
+            Band(over=50, action=Passthrough()),
+        ],
+        per_tool={"custom_tool": [Band(over=20, action=Truncate(max_chars=10))]},
+        tool_filter=["test_tool", "custom_tool", "structured_tool"],
+        over_tokens=True,
+        tokenizer=lambda s: len(s) // 2,
+        serializer=indented_json,
+        strip_ansi=True,
+        store=store,
+    )
+
+    # Tool exemption: read_tool_result
+    res_exempt, red_exempt = tol.reduce_output("read_tool_result", "X" * 5000)
+    assert not red_exempt
+
+    # Tool filter: unlisted tool passes through
+    res_unlisted, red_unlisted = tol.reduce_output("other_tool", "X" * 5000)
+    assert not red_unlisted
+
+    # Bytes pass through
+    res_bytes, red_bytes = tol.reduce_output("test_tool", b"raw bytes")
+    assert not red_bytes
+    assert res_bytes == b"raw bytes"
+
+    # Structured object with serializer
+    res_struct, red_struct = tol.reduce_output("structured_tool", {"large": "data" * 100})
+    assert red_struct
+
+    # per_tool override
+    res_per_tool, red_per_tool = tol.reduce_output("custom_tool", "a" * 50)
+    assert red_per_tool
+    assert "truncated" in res_per_tool
+
+    # Below 50: passthrough
+    res, reduced = tol.reduce_output("test_tool", "Short output")
+    assert not reduced
+    assert res == "Short output"
+
+    # 60 chars (Passthrough band)
+    res_pass, red_pass = tol.reduce_output("test_tool", "X" * 120)
+    assert not red_pass
+    assert len(res_pass) == 120
+
+    # 200 tokens (Truncate band)
+    res_trunc, red_trunc = tol.reduce_output("test_tool", "T" * 300)
+    assert red_trunc
+    assert "truncated" in res_trunc
+
+    # 600 tokens (Summarize band)
+    res_sum, red_sum = tol.reduce_output("test_tool", ("line\n" * 300))
+    assert red_sum
+    assert "[Summary of test_tool" in res_sum
+
+    # 2000 tokens (Spill band)
+    res_spill, red_spill = tol.reduce_output("test_tool", "S" * 3000, tool_call_id="call1")
+    assert red_spill
+    assert "[Tool output spilled:" in res_spill
+    assert "Handle:" in res_spill
+
+    # Test Spill fallback when store errors
+    class FailingStore:
+        def write(self, key: str, data: bytes) -> str:
+            raise RuntimeError("Disk full")
+
+    spill_fail = Spill(store=FailingStore(), then=Truncate(max_chars=20))
+    res_spill_fail = spill_fail.reduce("Long text that cannot be spilled to disk")
+    assert "truncated" in res_spill_fail
+
+    # Test tool registration
+    tools = tol.get_tools()
+    assert len(tools) == 1
+    assert tools[0].name == "read_tool_result"
+    assert "line1" in tools[0].execute(handle=handle, offset=0, limit=2)
+    assert "Error" in tools[0].execute(handle="nonexistent_handle")
