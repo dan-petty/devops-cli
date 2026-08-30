@@ -439,12 +439,26 @@ def load_settings() -> Settings:
         "audit_log_path": "DEVOPS_CLI_DATA_AUDIT_LOG_PATH",
         "feedback_dataset_path": "DEVOPS_CLI_DATA_FEEDBACK_DATASET_PATH",
     }
+    default_child_map = {
+        "analysis_dir": DEFAULT_ANALYSIS_DATA_DIR,
+        "reviews_dir": DEFAULT_REVIEWS_DATA_DIR,
+        "logs_dir": DEFAULT_LOGS_DATA_DIR,
+        "models_dir": DEFAULT_MODELS_DATA_DIR,
+        "cache_dir": DEFAULT_CACHE_DATA_DIR,
+        "benchmarks_dir": DEFAULT_BENCHMARKS_DATA_DIR,
+        "rag_dir": DEFAULT_RAG_DATA_DIR,
+        "tls_dir": DEFAULT_TLS_DATA_DIR,
+        "audit_log_path": DEFAULT_AUDIT_LOG_PATH,
+        "feedback_dataset_path": DEFAULT_FEEDBACK_DATASET_PATH,
+    }
     for field_name, env_v in child_env_map.items():
         env_val = os.environ.get(env_v)
         if env_val:
             explicit_data[field_name] = Path(env_val)
-        elif field_name in raw_data:
-            explicit_data[field_name] = Path(raw_data[field_name])
+        elif field_name in raw_data and not env_data_dir:
+            raw_path = Path(raw_data[field_name])
+            if settings.data.dir == DEFAULT_DATA_DIR or raw_path != default_child_map[field_name]:
+                explicit_data[field_name] = raw_path
 
     settings.data = DataConfig.model_validate(explicit_data)
 

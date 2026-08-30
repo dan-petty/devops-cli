@@ -786,3 +786,454 @@ def test_subagents_markdown_disk_loading(tmp_path: Path) -> None:
 
     tools = {t.name: t for t in subagents.get_tools()}
     assert "delegate_to_analyst" in tools
+
+
+def test_dynamic_workflow_script_execution() -> None:
+    import asyncio
+
+    from devops_cli.ai.harness import DynamicWorkflow, WorkflowAgent
+
+    def reviewer_func(prompt: str) -> str:
+        return f"Review findings for: {prompt}"
+
+    def summarizer_func(prompt: str) -> str:
+        return f"Summary of: {prompt}"
+
+    reviewer = WorkflowAgent(agent=reviewer_func, name="reviewer", description="Reviews code")
+    summarizer = WorkflowAgent(
+        agent=summarizer_func, name="summarizer", description="Summarizes reports"
+    )
+
+    workflow = DynamicWorkflow(agents=[reviewer, summarizer])
+    tools = {t.name: t for t in workflow.get_tools()}
+    assert "run_workflow" in tools
+
+    run_wf = tools["run_workflow"].func
+
+    # Test sequential chaining and last expression value
+    script1 = """
+import asyncio
+rep1 = await reviewer(task="auth.py")
+rep2 = await reviewer(task="parser.py")
+await summarizer(task=rep1 + " and " + rep2)
+"""
+    res1 = asyncio.run(run_wf(code=script1))  # type: ignore[union-attr]
+    assert "Summary of: Review findings for: auth.py and Review findings for: parser.py" in res1
+
+    # Test concurrent fan-out with asyncio.gather
+    script2 = """
+import asyncio
+reports = await asyncio.gather(
+    reviewer(task="file_a.py"),
+    reviewer(task="file_b.py")
+)
+reports
+"""
+    res2 = asyncio.run(run_wf(code=script2))  # type: ignore[union-attr]
+    assert isinstance(res2, list)
+    assert len(res2) == 2
+    assert "Review findings for: file_a.py" in res2[0]
+
+
+def test_dynamic_workflow_structured_outputs_and_prints() -> None:
+    import asyncio
+
+    from pydantic import BaseModel
+
+    from devops_cli.ai.harness import DynamicWorkflow, WorkflowAgent
+
+    class ReviewScore(BaseModel):
+        score: int
+        comment: str
+
+    def critic_func(prompt: str) -> ReviewScore:
+        return ReviewScore(score=9, comment="Great code")
+
+    critic = WorkflowAgent(agent=critic_func, name="critic", output_type=ReviewScore)
+    workflow = DynamicWorkflow(agents=[critic])
+    run_wf = {t.name: t for t in workflow.get_tools()}["run_workflow"].func
+
+    # Test subscript access to Pydantic model outputs and print capture
+    script = """
+print("Starting criticism...")
+res = await critic(task="Check quality")
+print("Criticism complete")
+{"final_score": res["score"], "reason": res["comment"]}
+"""
+    output_res = asyncio.run(run_wf(code=script))  # type: ignore[union-attr]
+    assert isinstance(output_res, dict)
+    assert "output" in output_res
+    assert "Starting criticism...\nCriticism complete" in output_res["output"]
+    assert output_res["result"] == {"final_score": 9, "reason": "Great code"}
+
+
+def test_dynamic_workflow_budget_and_reveal() -> None:
+    import asyncio
+
+    import pytest
+
+    from devops_cli.ai.harness import DynamicWorkflow, WorkflowAgent
+
+    def worker(prompt: str) -> str:
+        return f"Done: {prompt}"
+
+    workflow = DynamicWorkflow(
+        agents=[WorkflowAgent(agent=worker, name="w1")],
+        max_agent_calls=2,
+        defer_loading=True,
+    )
+
+    # Prompt additions when deferred
+    prompts = workflow.get_system_prompt_additions()
+    assert "DynamicWorkflow [dynamic_workflow]" in prompts[0]
+
+    # Test reveal() validation
+    with pytest.raises(ValueError, match="Invalid agent name"):
+        workflow.reveal(WorkflowAgent(agent=worker, name="123invalid"))
+
+    with pytest.raises(ValueError, match="Agent name collision"):
+        workflow.reveal(WorkflowAgent(agent=worker, name="w1"))
+
+    workflow.reveal(WorkflowAgent(agent=worker, name="w2"))
+    assert len(workflow.agents) == 2
+
+    # Test positional task error
+    run_wf = {t.name: t for t in workflow.get_tools()}["run_workflow"].func
+    err_pos = asyncio.run(run_wf(code='await w1("positional")'))  # type: ignore[union-attr]
+    assert "must be called with keyword argument task=" in err_pos
+
+    # Test max_agent_calls budget limit
+    budget_script = """
+await w1(task="call 1")
+await w2(task="call 2")
+await w1(task="call 3")
+"""
+    err_budget = asyncio.run(run_wf(code=budget_script))  # type: ignore[union-attr]
+    assert "Workflow budget exhausted: reached maximum agent calls (2)" in err_budget
+
+
+def test_dynamic_workflow_edge_cases_and_syntax() -> None:
+    import asyncio
+
+    from devops_cli.ai.harness import DynamicWorkflow, WorkflowAgent
+
+    class NonPydanticResult:
+        def __init__(self, val: str) -> None:
+            self.val = val
+
+    class AsyncAgent:
+        async def run_async(self, prompt: str) -> NonPydanticResult:
+            return NonPydanticResult(val=f"async_{prompt}")
+
+    workflow = DynamicWorkflow(
+        agents=[
+            WorkflowAgent(agent=AsyncAgent(), name="async_bot"),
+            WorkflowAgent(agent="static_string_agent", name="str_bot"),
+        ]
+    )
+    run_wf = {t.name: t for t in workflow.get_tools()}["run_workflow"].func
+
+    # Test syntax error handling
+    err_syntax = asyncio.run(run_wf(code="def invalid syntax here: : :"))  # type: ignore[union-attr]
+    assert "SyntaxError in workflow script" in err_syntax
+
+    # Test async runner execution and custom object dict unpacking
+    script_async = """
+res = await async_bot(task="test_async")
+res["val"]
+"""
+    res_async = asyncio.run(run_wf(code=script_async))  # type: ignore[union-attr]
+    assert res_async == "async_test_async"
+
+    # Test static string agent call
+    res_str = asyncio.run(run_wf(code='await str_bot(task="ping")'))  # type: ignore[union-attr]
+    assert res_str == "static_string_agent"
+
+    # Test script with only prints and None return
+    script_print_only = """
+print("Only printing")
+"""
+    res_print = asyncio.run(run_wf(code=script_print_only))  # type: ignore[union-attr]
+    assert res_print == {"output": "Only printing"}
+
+    # Test script with empty return and no print
+    script_empty = """
+pass
+"""
+    res_empty = asyncio.run(run_wf(code=script_empty))  # type: ignore[union-attr]
+    assert res_empty == {}
+
+
+def test_subagents_edge_cases() -> None:
+    from devops_cli.ai.harness import AgentOverride, SubAgent, SubAgents
+
+    def sync_worker(prompt: str) -> str:
+        return f"Echo: {prompt}"
+
+    sa = SubAgents(
+        agents=[SubAgent(agent=sync_worker, name="echoer")],
+        models={"default": "anthropic:claude-3-5-sonnet"},
+        agent_folders=None,
+        agent_overrides={"analyst": AgentOverride(model="gpt-4o", effort="high")},
+    )
+
+    # load_disk_agents returns empty when agent_folders is None
+    assert sa.load_disk_agents() == []
+
+    # get_system_prompt_additions when empty
+    empty_sa = SubAgents(agent_folders=None)
+    assert "No sub-agents currently registered" in empty_sa.get_system_prompt_additions()[0]
+
+    # Tool invocation
+    tools = {t.name: t for t in sa.get_tools()}
+    res = tools["delegate_task"].func(agent_name="echoer", task="hello")  # type: ignore[union-attr]
+    assert res == "Echo: hello"
+
+
+def test_advisor_capability_initialization_and_validation() -> None:
+    import pytest
+
+    from devops_cli.ai.harness import Advisor
+
+    # Valid initialization
+    adv = Advisor("anthropic:claude-3-5-sonnet", mode="auto", max_uses=3, max_tokens=2048)
+    assert adv.model == "anthropic:claude-3-5-sonnet"
+    assert adv.max_uses == 3
+    assert adv.max_tokens == 2048
+
+    # Validation errors
+    with pytest.raises(ValueError, match="max_uses must be at least 1"):
+        Advisor("openai:gpt-4o", max_uses=0)
+
+    with pytest.raises(ValueError, match="max_tokens must be at least 1024"):
+        Advisor("openai:gpt-4o", max_tokens=500)
+
+    with pytest.raises(ValueError, match="OpenRouter native advisor does not support max_uses"):
+        Advisor("openrouter:anthropic/claude-3.5-sonnet", mode="native", max_uses=2)
+
+    with pytest.raises(ValueError, match="caching is only supported on Anthropic native advisor"):
+        Advisor("openai:gpt-4o", mode="native", caching="5m")
+
+
+def test_advisor_consultation_execution_and_limits() -> None:
+    import asyncio
+
+    from devops_cli.ai.harness import Advisor
+
+    def mock_advisor_sync(prompt: str) -> str:
+        return f"Advice: {prompt}"
+
+    class AsyncMockAdvisor:
+        async def run_async(self, prompt: str) -> str:
+            return f"Async advice: {prompt}"
+
+    adv_sync = Advisor(model=mock_advisor_sync, max_uses=2)
+    tools = {t.name: t for t in adv_sync.get_tools()}
+    assert "advisor" in tools
+    adv_fn = tools["advisor"].func
+
+    # First call
+    res1 = asyncio.run(adv_fn(prompt="How to refactor?"))  # type: ignore[union-attr]
+    assert res1 == "Advice: How to refactor?"
+
+    # Second call
+    res2 = asyncio.run(adv_fn(prompt="Check security"))  # type: ignore[union-attr]
+    assert res2 == "Advice: Check security"
+
+    # Third call exceeds max_uses
+    res3 = asyncio.run(adv_fn(prompt="Another question"))  # type: ignore[union-attr]
+    assert "Maximum advisor consultations (2) reached" in res3
+
+    # Test for_run isolation
+    adv_fresh = adv_sync.for_run()
+    assert adv_fresh.current_uses == 0
+    fresh_tools = {t.name: t for t in adv_fresh.get_tools()}
+    fresh_res = asyncio.run(fresh_tools["advisor"].func(prompt="Fresh start"))  # type: ignore[union-attr]
+    assert fresh_res == "Advice: Fresh start"
+
+    # Test async runner model
+    adv_async = Advisor(model=AsyncMockAdvisor())
+    async_tool = {t.name: t for t in adv_async.get_tools()}["advisor"].func
+    res_async = asyncio.run(async_tool(prompt="Async check"))  # type: ignore[union-attr]
+    assert res_async == "Async advice: Async check"
+
+    # Test deferred prompts
+    adv_def = Advisor("openai:gpt-4o", defer_loading=True)
+    assert "Advisor [advisor]:" in adv_def.get_system_prompt_additions()[0]
+
+
+def test_code_mode_execution_and_tool_wrapping() -> None:
+    import asyncio
+    from typing import Any
+
+    from devops_cli.ai.agents.pydantic_agent import Tool
+    from devops_cli.ai.harness import CodeMode, MountDir, OSAccess
+
+    def get_weather(city: str) -> dict[str, Any]:
+        temp = 72 if city == "Paris" else 65
+        return {"city": city, "temp_f": temp, "condition": "sunny"}
+
+    async def get_traffic(city: str) -> str:
+        return f"Light traffic in {city}"
+
+    weather_tool = Tool.from_function(get_weather, name="get_weather")
+    traffic_tool = Tool.from_function(get_traffic, name="get_traffic")
+
+    cm = CodeMode(
+        sandboxed_tools=[weather_tool, traffic_tool],
+        mount=MountDir(virtual_path="/work", host_path="/tmp/agent-work", mode="read-write"),
+        os_access=OSAccess(environ={"API_KEY": "secret-123"}),
+        max_tool_calls=5,
+    )
+    tools = {t.name: t for t in cm.get_tools()}
+    assert "run_code" in tools
+    run_fn = tools["run_code"].func
+
+    # Test concurrent fan-out and last expression return
+    script1 = """
+import asyncio
+paris, tokyo = await asyncio.gather(
+    get_weather(city="Paris"),
+    get_weather(city="Tokyo")
+)
+traf = await get_traffic(city="Paris")
+summary = f"{paris['city']}: {paris['temp_f']}F, {tokyo['city']}: {tokyo['temp_f']}F - {traf}"
+summary
+"""
+    res1 = asyncio.run(run_fn(code=script1))  # type: ignore[union-attr]
+    assert "Paris: 72F, Tokyo: 65F - Light traffic in Paris" in res1
+
+    # Test REPL state persistence across calls
+    script2 = """
+var_from_call1 = summary.upper()
+var_from_call1
+"""
+    res2 = asyncio.run(run_fn(code=script2))  # type: ignore[union-attr]
+    assert "PARIS: 72F, TOKYO: 65F - LIGHT TRAFFIC IN PARIS" in res2
+
+    # Test print capturing with result
+    script3 = """
+print("Logging metric...")
+{"status": "ok", "prev": var_from_call1[:5]}
+"""
+    res3 = asyncio.run(run_fn(code=script3))  # type: ignore[union-attr]
+    assert isinstance(res3, dict)
+    assert res3["output"] == "Logging metric..."
+    assert res3["result"] == {"status": "ok", "prev": "PARIS"}
+
+    # Test restart=True resets REPL state
+    res4 = asyncio.run(run_fn(code="print('restart done')", restart=True))  # type: ignore[union-attr]
+    assert res4 == {"output": "restart done"}
+    assert cm.repl_state == {}
+
+    # Test syntax error handling
+    err_syntax = asyncio.run(run_fn(code="def broken syntax :::"))  # type: ignore[union-attr]
+    assert "SyntaxError in code mode snippet" in err_syntax
+
+    # Test max_tool_calls limit
+    budget_script = """
+for i in range(10):
+    await get_weather(city=f"City_{i}")
+"""
+    err_budget = asyncio.run(run_fn(code=budget_script))  # type: ignore[union-attr]
+    assert "Nested tool call limit exceeded: maximum 5" in err_budget
+
+    # Test for_run isolation
+    fresh_cm = cm.for_run()
+    assert fresh_cm.tool_call_count == 0
+    assert fresh_cm.repl_state == {}
+
+    # Test deferred prompts
+    cm_def = CodeMode(defer_loading=True)
+    assert "CodeMode [code_mode]:" in cm_def.get_system_prompt_additions()[0]
+
+
+def test_tool_search_discovery_and_strategies() -> None:
+    import asyncio
+    from typing import Any
+
+    from devops_cli.ai.agents.pydantic_agent import Tool
+    from devops_cli.ai.harness import ToolSearch
+
+    def calculate_mortgage(principal: float, rate: float) -> float:
+        """Calculate monthly mortgage payment for a home loan."""
+        return principal * (rate / 12)
+
+    def calculate_compound_interest(principal: float, rate: float, time: int) -> float:
+        """Calculate compound interest over investment timeline."""
+        return principal * ((1 + rate) ** time)
+
+    def weather_lookup(city: str) -> str:
+        """Check weather forecast and rain condition for a given city."""
+        return f"Sunny in {city}"
+
+    t_mortgage = Tool.from_function(calculate_mortgage, name="calculate_mortgage")
+    t_interest = Tool.from_function(calculate_compound_interest, name="calculate_compound_interest")
+    t_weather = Tool.from_function(weather_lookup, name="weather_lookup")
+
+    # 1. Test Default Keyword search
+    ts = ToolSearch(
+        searchable_tools=[t_mortgage, t_interest, t_weather],
+        max_results=2,
+    )
+    tools = {t.name: t for t in ts.get_tools()}
+    assert "search_tools" in tools
+    search_fn = tools["search_tools"].func
+
+    # First search for finance loans
+    res1 = asyncio.run(search_fn(queries=["mortgage loan"]))  # type: ignore[union-attr]
+    assert res1["count"] == 1
+    assert res1["matched_tools"][0]["name"] == "calculate_mortgage"
+    assert "calculate_mortgage" in ts.discovered_tools
+
+    # Second search matches compound interest and mortgage (undiscovered ranks first)
+    res2 = asyncio.run(search_fn(queries=["calculate interest payment"]))  # type: ignore[union-attr]
+    assert res2["count"] == 2
+    assert res2["matched_tools"][0]["name"] == "calculate_compound_interest"
+
+    # 2. Test Regex strategy
+    ts_regex = ToolSearch(
+        strategy="regex",
+        searchable_tools=[t_mortgage, t_interest, t_weather],
+    )
+    search_regex_fn = {t.name: t for t in ts_regex.get_tools()}["search_tools"].func
+    res_regex = asyncio.run(search_regex_fn(queries=[r"weather_.*"]))  # type: ignore[union-attr]
+    assert res_regex["count"] == 1
+    assert res_regex["matched_tools"][0]["name"] == "weather_lookup"
+
+    # 3. Test BM25 strategy
+    ts_bm25 = ToolSearch(
+        strategy="bm25",
+        searchable_tools=[t_mortgage, t_interest, t_weather],
+    )
+    search_bm25_fn = {t.name: t for t in ts_bm25.get_tools()}["search_tools"].func
+    res_bm25 = asyncio.run(search_bm25_fn(queries=["forecast rain sunny"]))  # type: ignore[union-attr]
+    assert res_bm25["count"] == 1
+    assert res_bm25["matched_tools"][0]["name"] == "weather_lookup"
+
+    # 4. Test Custom callable strategy
+    def custom_filter(ctx: Any, queries: list[str], tools_list: list[Any]) -> list[str]:
+        return ["calculate_compound_interest"]
+
+    ts_custom = ToolSearch(
+        strategy=custom_filter,
+        searchable_tools=[t_mortgage, t_interest, t_weather],
+    )
+    search_custom_fn = {t.name: t for t in ts_custom.get_tools()}["search_tools"].func
+    res_custom = asyncio.run(search_custom_fn(queries=["custom query"]))  # type: ignore[union-attr]
+    assert res_custom["count"] == 1
+    assert res_custom["matched_tools"][0]["name"] == "calculate_compound_interest"
+
+    # 5. Test empty queries / no tools
+    ts_empty = ToolSearch(searchable_tools=[])
+    search_empty_fn = {t.name: t for t in ts_empty.get_tools()}["search_tools"].func
+    res_empty = asyncio.run(search_empty_fn(queries=[]))  # type: ignore[union-attr]
+    assert res_empty["count"] == 0
+
+    # 6. Test for_run isolation
+    fresh_ts = ts.for_run()
+    assert fresh_ts.discovered_tools == set()
+
+    # 7. Test deferred system prompt
+    ts_def = ToolSearch(defer_loading=True)
+    assert "ToolSearch [tool_search]:" in ts_def.get_system_prompt_additions()[0]

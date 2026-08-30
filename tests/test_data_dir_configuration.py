@@ -2,9 +2,22 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
+
+
+@pytest.fixture(autouse=True)
+def clean_data_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ensure data directory environment variables are completely clean between tests."""
+    for k in list(os.environ.keys()):
+        if (
+            k.startswith("DEVOPS_CLI_DATA")
+            or k.startswith("DEVOPS_DATA")
+            or k == "DEVOPS_CLI_CONFIG"
+        ):
+            monkeypatch.delenv(k, raising=False)
 
 
 def test_default_data_constants_and_settings() -> None:

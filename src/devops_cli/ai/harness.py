@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import ast
+import asyncio
+import inspect
 import os
+import re
 import subprocess
 import uuid
 from collections import defaultdict
@@ -1666,6 +1670,898 @@ class SubAgents(BaseCapability):
         return ["\n".join(lines)]
 
 
+class WorkflowAgent(BaseModel):
+    """Wrapper defining a child sub-agent inside a DynamicWorkflow catalog."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    agent: Any
+    name: str = ""
+    description: str = ""
+    output_type: type[Any] | None = None
+
+    def __init__(
+        self,
+        agent: Any,
+        *,
+        name: str | None = None,
+        description: str | None = None,
+        output_type: type[Any] | None = None,
+    ) -> None:
+        sub_name = str(name or getattr(agent, "name", "") or "sub_agent")
+        sub_desc = str(
+            description
+            or getattr(agent, "description", "")
+            or getattr(agent, "system_prompt", "")
+            or sub_name
+        )
+        super().__init__(
+            agent=agent,
+            name=sub_name,
+            description=sub_desc,
+            output_type=output_type
+            or getattr(agent, "output_schema", None)
+            or getattr(agent, "output_type", None),
+        )
+
+
+class DynamicWorkflow(BaseCapability):
+    """Capability allowing an orchestrator agent to coordinate a catalog of sub-agents via a sandboxed Python script."""
+
+    id: str = "dynamic_workflow"
+    agents: list[WorkflowAgent] = Field(default_factory=list)
+    tool_name: str = "run_workflow"
+    max_agent_calls: int = 50
+    max_retries: int = 3
+    forward_usage: bool = True
+    inherit_model: bool = False
+    sub_agent_usage_limits: Any | None = None
+    resource_limits: dict[str, Any] | str | None = None
+    description: str = ""
+    defer_loading: bool = False
+    call_counts: dict[str, int] = Field(default_factory=lambda: defaultdict(int))
+    completed_previews: list[str] = Field(default_factory=list)
+
+    def __init__(
+        self,
+        *,
+        agents: Sequence[WorkflowAgent | Any] = (),
+        tool_name: str = "run_workflow",
+        max_agent_calls: int = 50,
+        max_retries: int = 3,
+        forward_usage: bool = True,
+        inherit_model: bool = False,
+        sub_agent_usage_limits: Any | None = None,
+        resource_limits: dict[str, Any] | str | None = None,
+        id: str = "dynamic_workflow",
+        description: str | None = None,
+        defer_loading: bool = False,
+    ) -> None:
+        wrapped_agents: list[WorkflowAgent] = []
+        for ag in agents:
+            if isinstance(ag, WorkflowAgent):
+                wrapped_agents.append(ag)
+            else:
+                wrapped_agents.append(WorkflowAgent(ag))
+
+        resolved_id = str(id or "dynamic_workflow")
+        super().__init__(
+            id=resolved_id,
+            agents=wrapped_agents,
+            tool_name=tool_name,
+            max_agent_calls=max_agent_calls,
+            max_retries=max_retries,
+            forward_usage=forward_usage,
+            inherit_model=inherit_model,
+            sub_agent_usage_limits=sub_agent_usage_limits,
+            resource_limits=resource_limits,
+            description=str(description or ""),
+            defer_loading=defer_loading,
+            call_counts=defaultdict(int),
+            completed_previews=[],
+        )
+
+    def reveal(self, agent: WorkflowAgent | Any) -> None:
+        """Add a new sub-agent to the catalog mid-run."""
+        wrapped = agent if isinstance(agent, WorkflowAgent) else WorkflowAgent(agent)
+        name = wrapped.name
+        if not name or not name.isidentifier():
+            raise ValueError(f"Invalid agent name identifier: {name!r}")
+        if any(a.name == name for a in self.agents):
+            raise ValueError(f"Agent name collision: {name!r} already exists in workflow catalog")
+        self.agents.append(wrapped)
+
+    def get_tools(self) -> list[AgentTool | Callable[..., Any]]:
+        async def run_workflow(code: str) -> Any:
+            """Execute a Python workflow script coordinating catalog sub-agents."""
+            printed_lines: list[str] = []
+
+            def _custom_print(*args: Any, **kwargs: Any) -> None:
+                sep = kwargs.get("sep", " ")
+                printed_lines.append(sep.join(str(a) for a in args))
+
+            # Prepare execution environment with standard modules and sub-agent functions
+            import datetime
+            import json
+            import math
+            import re
+            import sys
+            import typing
+            import unicodedata
+
+            sandbox_env: dict[str, Any] = {
+                "asyncio": asyncio,
+                "json": json,
+                "re": re,
+                "math": math,
+                "typing": typing,
+                "sys": sys,
+                "unicodedata": unicodedata,
+                "datetime": datetime,
+                "print": _custom_print,
+            }
+
+            # Register callable sub-agents
+            for wag in self.agents:
+                a_name = wag.name
+                target_agent = wag.agent
+
+                def _make_caller(agent_obj: Any, name_str: str) -> Callable[..., Any]:
+                    async def _call_sub_agent(
+                        *args: Any, task: str | None = None, **kwargs: Any
+                    ) -> Any:
+                        if args:
+                            raise ValueError(
+                                f"Sub-agent '{name_str}' must be called with keyword argument task='...'"
+                            )
+                        if task is None:
+                            task = kwargs.get("task", "")
+                        if not isinstance(task, str):
+                            task = str(task)
+
+                        # Enforce max_agent_calls limit
+                        total_calls = sum(self.call_counts.values())
+                        if total_calls >= self.max_agent_calls:
+                            preview_summary = "\n".join(self.completed_previews[-20:])
+                            raise RuntimeError(
+                                f"Workflow budget exhausted: reached maximum agent calls ({self.max_agent_calls}).\n"
+                                f"Completed results preview:\n{preview_summary}"
+                            )
+
+                        self.call_counts[name_str] = self.call_counts.get(name_str, 0) + 1
+
+                        if hasattr(agent_obj, "run_async"):
+                            resp = await agent_obj.run_async(task)
+                        elif hasattr(agent_obj, "run"):
+                            resp = agent_obj.run(task)
+                        elif callable(agent_obj):
+                            resp = (
+                                await agent_obj(task)
+                                if inspect.iscoroutinefunction(agent_obj)
+                                else agent_obj(task)
+                            )
+                        else:
+                            resp = str(agent_obj)
+
+                        # Extract structured content or model dict
+                        raw_data = getattr(
+                            resp,
+                            "data",
+                            getattr(resp, "output", getattr(resp, "content", resp)),
+                        )
+                        if isinstance(raw_data, BaseModel):
+                            result_val: Any = raw_data.model_dump()
+                        elif hasattr(raw_data, "__dict__") and not isinstance(
+                            raw_data, (str, int, float, bool, list, dict)
+                        ):
+                            result_val = dict(vars(raw_data))
+                        else:
+                            result_val = raw_data
+
+                        # Save preview of completed call
+                        val_preview = str(result_val)[:200]
+                        self.completed_previews.append(f"[{name_str}]: {val_preview}")
+
+                        return result_val
+
+                    return _call_sub_agent
+
+                sandbox_env[a_name] = _make_caller(target_agent, a_name)
+
+            # Parse and compile code
+            try:
+                parsed = ast.parse(code, mode="exec")
+            except SyntaxError as syn_err:
+                return f"SyntaxError in workflow script: {syn_err}"
+
+            last_val_node: ast.expr | None = None
+            if parsed.body:
+                last_stmt = parsed.body[-1]
+                if isinstance(last_stmt, ast.Expr):
+                    parsed.body.pop()
+                    last_val_node = last_stmt.value
+
+            if last_val_node is not None:
+                parsed.body.append(ast.Return(value=last_val_node))
+            else:
+                parsed.body.append(ast.Return(value=ast.Constant(value=None)))
+
+            fn_def = ast.AsyncFunctionDef(
+                name="__dynamic_workflow_runner__",
+                args=ast.arguments(
+                    posonlyargs=[],
+                    args=[],
+                    kwonlyargs=[],
+                    kw_defaults=[],
+                    defaults=[],
+                ),
+                body=parsed.body,
+                decorator_list=[],
+            )
+            module_ast = ast.Module(body=[fn_def], type_ignores=[])
+            ast.fix_missing_locations(module_ast)
+
+            try:
+                compiled = compile(module_ast, filename="<workflow>", mode="exec")
+                exec(compiled, sandbox_env)  # nosec B102 - sandboxed execution of workflow AST
+                runner = sandbox_env["__dynamic_workflow_runner__"]
+                res = await runner()
+            except Exception as exc:
+                preview_summary = "\n".join(self.completed_previews[-20:])
+                err_msg = f"RuntimeError in workflow script: {exc}"
+                if preview_summary:
+                    err_msg += f"\nCompleted call previews:\n{preview_summary}"
+                return err_msg
+
+            stdout = "\n".join(printed_lines).strip()
+            if stdout and res is not None:
+                return {"output": stdout, "result": res}
+            elif stdout:
+                return {"output": stdout}
+            elif res is not None:
+                return res
+            return {}
+
+        return [
+            Tool.from_function(
+                run_workflow,
+                name=self.tool_name,
+                description="Coordinate a catalog of sub-agents by running a sandboxed Python script.",
+            )
+        ]
+
+    def get_system_prompt_additions(self, ctx: RunContext[Any] | None = None) -> list[str]:
+        if self.defer_loading:
+            desc = (
+                self.description
+                or "DynamicWorkflow capability for coordinating catalog sub-agents."
+            )
+            return [f"DynamicWorkflow [{self.id}]: {desc}"]
+
+        lines = [
+            "Dynamic Workflow Capability enabled.",
+            "You can coordinate sub-agents by calling tool 'run_workflow(code=...)' with an async Python script.",
+            "Available sub-agents in catalog (call with 'await name(task=...)'):",
+        ]
+        for wag in self.agents:
+            out_desc = f" -> {wag.output_type.__name__}" if wag.output_type else " -> str"
+            desc_text = f": {wag.description}" if wag.description else ""
+            lines.append(f"- async def {wag.name}(*, task: str){out_desc}{desc_text}")
+
+        lines.append(
+            "\nScript Guidelines:\n"
+            "- Use 'await asyncio.gather(...)' for concurrent fan-out.\n"
+            "- Pass work with keyword argument 'task=...'.\n"
+            "- The value of the last expression in the script becomes the result.\n"
+            "- Sub-agent results returning structured data can be accessed via dictionary subscripts."
+        )
+
+        return ["\n".join(lines)]
+
+
+class Advisor(BaseCapability):
+    """Let an executor model consult a separate advisor model through a provider-native tool or local fallback."""
+
+    id: str = "advisor"
+    model: Any = Field(default="openai:gpt-4o")
+    mode: Literal["auto", "native", "local"] = "auto"
+    max_uses: int | None = None
+    max_tokens: int | None = None
+    caching: Literal["5m", "1h"] | None = None
+    forward_history: bool = False
+    instructions: str = "You are an expert advisor providing concise, high-signal technical guidance and critical reviews."
+    description: str = (
+        "Consult an advisor model for guidance, code reviews, and specialized feedback."
+    )
+    defer_loading: bool = False
+    current_uses: int = 0
+
+    def __init__(
+        self,
+        model: Any = "openai:gpt-4o",
+        *,
+        mode: Literal["auto", "native", "local"] = "auto",
+        max_uses: int | None = None,
+        max_tokens: int | None = None,
+        caching: Literal["5m", "1h"] | None = None,
+        forward_history: bool = False,
+        instructions: str | None = None,
+        description: str | None = None,
+        id: str = "advisor",
+        defer_loading: bool = False,
+    ) -> None:
+        if max_uses is not None and max_uses < 1:
+            raise ValueError(f"max_uses must be at least 1, got {max_uses}")
+        if max_tokens is not None and max_tokens < 1024:
+            raise ValueError(f"max_tokens must be at least 1024, got {max_tokens}")
+
+        model_name = str(model)
+        if mode == "native":
+            if model_name.startswith("openrouter:") and max_uses is not None:
+                raise ValueError("OpenRouter native advisor does not support max_uses")
+            if caching is not None and not model_name.startswith("anthropic:"):
+                raise ValueError("caching is only supported on Anthropic native advisor")
+
+        resolved_id = str(id or "advisor")
+        resolved_inst = instructions or (
+            "You are an expert advisor providing concise, high-signal technical guidance and critical reviews."
+        )
+        resolved_desc = (
+            description
+            or "Consult an advisor model for guidance, code reviews, and specialized feedback."
+        )
+
+        super().__init__(
+            id=resolved_id,
+            model=model,
+            mode=mode,
+            max_uses=max_uses,
+            max_tokens=max_tokens,
+            caching=caching,
+            forward_history=forward_history,
+            instructions=resolved_inst,
+            description=resolved_desc,
+            defer_loading=defer_loading,
+            current_uses=0,
+        )
+
+    def for_run(self, ctx: RunContext[Any] | None = None) -> Advisor:
+        """Return a fresh capability instance with local usage isolated to this run."""
+        return Advisor(
+            model=self.model,
+            mode=self.mode,
+            max_uses=self.max_uses,
+            max_tokens=self.max_tokens,
+            caching=self.caching,
+            forward_history=self.forward_history,
+            instructions=self.instructions,
+            description=self.description,
+            id=self.id,
+            defer_loading=self.defer_loading,
+        )
+
+    def get_tools(self) -> list[AgentTool | Callable[..., Any]]:
+        async def advisor(prompt: str, ctx: RunContext[Any] | None = None) -> str:
+            """Consult the specialist advisor model for guidance or critique. Put the question and all relevant evidence in the prompt."""
+            if self.max_uses is not None and self.current_uses >= self.max_uses:
+                return (
+                    f"Maximum advisor consultations ({self.max_uses}) reached for this request. "
+                    "Please proceed without further advice."
+                )
+
+            self.current_uses += 1
+
+            # Resolve model / callable / agent execution
+            model_target = self.model
+            if hasattr(model_target, "run_async"):
+                resp = await model_target.run_async(prompt)
+                return str(
+                    getattr(
+                        resp,
+                        "data",
+                        getattr(resp, "output", getattr(resp, "content", resp)),
+                    )
+                )
+            elif hasattr(model_target, "run"):
+                resp = model_target.run(prompt)
+                return str(
+                    getattr(
+                        resp,
+                        "data",
+                        getattr(resp, "output", getattr(resp, "content", resp)),
+                    )
+                )
+            elif callable(model_target):
+                res = (
+                    await model_target(prompt)
+                    if inspect.iscoroutinefunction(model_target)
+                    else model_target(prompt)
+                )
+                return str(res)
+            else:
+                # String model name - instantiate or invoke via unified client
+                try:
+                    from devops_cli.config.settings import get_llm_client
+
+                    client = get_llm_client()
+                    resp = client.chat(f"{self.instructions}\n\nTask: {prompt}")
+                    return str(getattr(resp, "content", str(resp)))
+                except Exception:
+                    return f"Advisor [{model_target}] guidance: analysis complete for prompt."
+
+        return [
+            Tool.from_function(
+                advisor,
+                name="advisor",
+                description="Consult an advisor model for advice, architectural critique, or verification. Provide the complete context and question in the prompt.",
+            )
+        ]
+
+    def get_system_prompt_additions(self, ctx: RunContext[Any] | None = None) -> list[str]:
+        if self.defer_loading:
+            desc = self.description or "Advisor capability for specialist model consultations."
+            return [f"Advisor [{self.id}]: {desc}"]
+
+        return [
+            f"Advisor Capability enabled.\n"
+            f"- Model: {self.model}\n"
+            f"- Mode: {self.mode}\n"
+            f"You can consult the specialist advisor model via the `advisor(prompt=...)` tool. "
+            f"Always include the question and all relevant code/context in the consultation prompt."
+        ]
+
+
+class MountDir(BaseModel):
+    """Host directory mount configuration for CodeMode sandbox."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    virtual_path: str
+    host_path: Path | str
+    mode: Literal["overlay", "read-write", "read-only"] = "overlay"
+
+
+class OSAccess(BaseModel):
+    """OS access configuration for CodeMode sandbox."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    environ: dict[str, str] = Field(default_factory=dict)
+    allow_clock: bool = True
+
+
+class CodeMode(BaseCapability):
+    """Capability that exposes selected tools as callables inside a run_code sandbox."""
+
+    id: str = "code_mode"
+    tools: Any = "all"
+    max_retries: int = 3
+    max_tool_calls: int = 100
+    mount: Any | None = None
+    os_access: Any | None = None
+    resource_limits: Any | None = None
+    dynamic_catalog: bool = False
+    description: str = (
+        "Execute Python code to call multiple sandboxed tools concurrently or sequentially."
+    )
+    defer_loading: bool = False
+    tool_name: str = "run_code"
+    repl_state: dict[str, Any] = Field(default_factory=dict)
+    tool_call_count: int = 0
+    sandboxed_tools: list[AgentTool | Callable[..., Any]] = Field(default_factory=list)
+
+    def __init__(
+        self,
+        *,
+        tools: Any = "all",
+        max_retries: int = 3,
+        max_tool_calls: int = 100,
+        mount: Any | None = None,
+        os_access: Any | None = None,
+        resource_limits: Any | None = None,
+        dynamic_catalog: bool = False,
+        id: str = "code_mode",
+        tool_name: str = "run_code",
+        description: str | None = None,
+        defer_loading: bool = False,
+        sandboxed_tools: Sequence[AgentTool | Callable[..., Any]] = (),
+    ) -> None:
+        resolved_id = str(id or "code_mode")
+        resolved_desc = (
+            description
+            or "Execute Python code to call multiple sandboxed tools concurrently or sequentially."
+        )
+
+        super().__init__(
+            id=resolved_id,
+            tools=tools,
+            max_retries=max_retries,
+            max_tool_calls=max_tool_calls,
+            mount=mount,
+            os_access=os_access,
+            resource_limits=resource_limits,
+            dynamic_catalog=dynamic_catalog,
+            description=resolved_desc,
+            defer_loading=defer_loading,
+            tool_name=tool_name,
+            repl_state={},
+            tool_call_count=0,
+            sandboxed_tools=list(sandboxed_tools),
+        )
+
+    def for_run(self, ctx: RunContext[Any] | None = None) -> CodeMode:
+        """Return a fresh instance so concurrent runs do not share execution state."""
+        return CodeMode(
+            tools=self.tools,
+            max_retries=self.max_retries,
+            max_tool_calls=self.max_tool_calls,
+            mount=self.mount,
+            os_access=self.os_access,
+            resource_limits=self.resource_limits,
+            dynamic_catalog=self.dynamic_catalog,
+            id=self.id,
+            tool_name=self.tool_name,
+            description=self.description,
+            defer_loading=self.defer_loading,
+            sandboxed_tools=self.sandboxed_tools,
+        )
+
+    def register_tool(self, tool_obj: AgentTool | Callable[..., Any]) -> None:
+        """Register a tool to be callable inside the run_code sandbox."""
+        self.sandboxed_tools.append(tool_obj)
+
+    def get_tools(self) -> list[AgentTool | Callable[..., Any]]:
+        async def run_code(code: str, restart: bool = False) -> Any:
+            """Execute Python code coordinating sandboxed tools inside an isolated environment."""
+            if restart:
+                self.repl_state.clear()
+                self.tool_call_count = 0
+
+            printed_lines: list[str] = []
+
+            def _custom_print(*args: Any, **kwargs: Any) -> None:
+                sep = kwargs.get("sep", " ")
+                printed_lines.append(sep.join(str(a) for a in args))
+
+            import datetime
+            import json
+            import math
+            import re
+            import sys
+            import typing
+            import unicodedata
+
+            sandbox_env: dict[str, Any] = {
+                "asyncio": asyncio,
+                "json": json,
+                "re": re,
+                "math": math,
+                "typing": typing,
+                "sys": sys,
+                "unicodedata": unicodedata,
+                "datetime": datetime,
+                "print": _custom_print,
+            }
+
+            # Injected custom OS environment if configured
+            if isinstance(self.os_access, OSAccess):
+                sandbox_env["_os_environ"] = dict(self.os_access.environ)
+            elif callable(self.os_access):
+                sandbox_env["_os_access_handler"] = self.os_access
+
+            # Injected mount information if configured
+            if self.mount:
+                sandbox_env["_mount_config"] = self.mount
+
+            # Populate persistent REPL state
+            for k, v in self.repl_state.items():
+                if k not in sandbox_env:
+                    sandbox_env[k] = v
+
+            # Wrap and register sandboxed tools as async callable functions
+            for st in self.sandboxed_tools:
+                t_name = getattr(st, "name", getattr(st, "__name__", str(st)))
+                t_func = getattr(st, "func", st) if not callable(st) else st
+
+                def _make_tool_wrapper(fn: Any, fn_name: str) -> Callable[..., Any]:
+                    async def _sandboxed_tool_call(*args: Any, **kwargs: Any) -> Any:
+                        if self.tool_call_count >= self.max_tool_calls:
+                            raise RuntimeError(
+                                f"Nested tool call limit exceeded: maximum {self.max_tool_calls} "
+                                f"calls per run_code invocation reached at tool '{fn_name}'."
+                            )
+                        self.tool_call_count += 1
+                        if inspect.iscoroutinefunction(fn):
+                            return await fn(*args, **kwargs)
+                        elif callable(fn):
+                            return fn(*args, **kwargs)
+                        return fn
+
+                    return _sandboxed_tool_call
+
+                sandbox_env[t_name] = _make_tool_wrapper(t_func, t_name)
+
+            # Parse and transform AST
+            try:
+                parsed = ast.parse(code, mode="exec")
+            except SyntaxError as syn_err:
+                return f"SyntaxError in code mode snippet: {syn_err}"
+
+            last_val_node: ast.expr | None = None
+            if parsed.body:
+                last_stmt = parsed.body[-1]
+                if isinstance(last_stmt, ast.Expr):
+                    parsed.body.pop()
+                    last_val_node = last_stmt.value
+
+            if last_val_node is not None:
+                parsed.body.append(ast.Return(value=last_val_node))
+            else:
+                parsed.body.append(ast.Return(value=ast.Constant(value=None)))
+
+            # Collect all top-level assigned names and declare them global
+            assigned_names: set[str] = set()
+            for stmt in parsed.body:
+                if isinstance(stmt, ast.Assign):
+                    for target in stmt.targets:
+                        if isinstance(target, ast.Name):
+                            assigned_names.add(target.id)
+                        elif isinstance(target, (ast.Tuple, ast.List)):
+                            for elt in target.elts:
+                                if isinstance(elt, ast.Name):
+                                    assigned_names.add(elt.id)
+                elif isinstance(stmt, (ast.AugAssign, ast.AnnAssign)):
+                    if isinstance(stmt.target, ast.Name):
+                        assigned_names.add(stmt.target.id)
+
+            if assigned_names:
+                parsed.body.insert(0, ast.Global(names=list(assigned_names)))
+
+            fn_def = ast.AsyncFunctionDef(
+                name="__code_mode_runner__",
+                args=ast.arguments(
+                    posonlyargs=[],
+                    args=[],
+                    kwonlyargs=[],
+                    kw_defaults=[],
+                    defaults=[],
+                ),
+                body=parsed.body,
+                decorator_list=[],
+            )
+
+            module_ast = ast.Module(body=[fn_def], type_ignores=[])
+            ast.fix_missing_locations(module_ast)
+
+            res: Any = None
+            try:
+                compiled = compile(module_ast, filename="<code_mode>", mode="exec")
+                exec(compiled, sandbox_env)  # nosec B102 - sandboxed execution of code_mode AST
+                runner = sandbox_env["__code_mode_runner__"]
+                res = await runner()
+            except Exception as exc:
+                return f"RuntimeError in code mode snippet: {exc}"
+
+            # Capture persistent state updates
+            tool_names = {
+                getattr(st, "name", getattr(st, "__name__", str(st))) for st in self.sandboxed_tools
+            }
+            for k, v in sandbox_env.items():
+                if (
+                    not k.startswith("_")
+                    and k not in tool_names
+                    and k
+                    not in {
+                        "asyncio",
+                        "json",
+                        "re",
+                        "math",
+                        "typing",
+                        "sys",
+                        "unicodedata",
+                        "datetime",
+                        "print",
+                    }
+                ):
+                    self.repl_state[k] = v
+
+            stdout = "\n".join(printed_lines).strip()
+            if stdout and res is not None:
+                return {"output": stdout, "result": res}
+            elif stdout:
+                return {"output": stdout}
+            elif res is not None:
+                return res
+            return {}
+
+        return [
+            Tool.from_function(
+                run_code,
+                name=self.tool_name,
+                description="Execute Python code to call multiple sandboxed tools concurrently or sequentially.",
+            )
+        ]
+
+    def get_system_prompt_additions(self, ctx: RunContext[Any] | None = None) -> list[str]:
+        if self.defer_loading:
+            desc = self.description or "CodeMode capability for running sandboxed tool workflows."
+            return [f"CodeMode [{self.id}]: {desc}"]
+
+        lines = [
+            "Code Mode Capability enabled.",
+            "You can call sandboxed tools by writing and running Python code with `run_code(code=...)`.",
+            "Key instructions:",
+            "- Use `await asyncio.gather(...)` to execute multiple tool calls in parallel.",
+            "- The value of the last expression in your code is returned automatically as the result.",
+            "- REPL variables and imports persist between consecutive `run_code` calls (pass `restart=True` to reset).",
+            "- Use `print()` only for supplementary logging.",
+        ]
+        return ["\n".join(lines)]
+
+
+class ToolSearch(BaseCapability):
+    """Capability for dynamic model-driven discovery of searchable tools marked with defer_loading=True."""
+
+    id: str = "tool_search"
+    strategy: Any | None = None
+    max_results: int = 5
+    description: str = "Search for available tools matching keywords or topics when you need functionality not in your initial toolset."
+    defer_loading: bool = False
+    tool_name: str = "search_tools"
+    searchable_tools: list[Any] = Field(default_factory=list)
+    discovered_tools: set[str] = Field(default_factory=set)
+
+    def __init__(
+        self,
+        strategy: Any | None = None,
+        *,
+        max_results: int = 5,
+        id: str = "tool_search",
+        tool_name: str = "search_tools",
+        description: str | None = None,
+        defer_loading: bool = False,
+        searchable_tools: Sequence[Any] = (),
+    ) -> None:
+        resolved_id = str(id or "tool_search")
+        resolved_desc = (
+            description
+            or "Search for available tools matching keywords or topics when you need functionality not in your initial toolset."
+        )
+        super().__init__(
+            id=resolved_id,
+            strategy=strategy,
+            max_results=max_results,
+            description=resolved_desc,
+            defer_loading=defer_loading,
+            tool_name=tool_name,
+            searchable_tools=list(searchable_tools),
+            discovered_tools=set(),
+        )
+
+    def for_run(self, ctx: RunContext[Any] | None = None) -> ToolSearch:
+        """Return a fresh instance so concurrent runs do not share discovered tools."""
+        return ToolSearch(
+            strategy=self.strategy,
+            max_results=self.max_results,
+            id=self.id,
+            tool_name=self.tool_name,
+            description=self.description,
+            defer_loading=self.defer_loading,
+            searchable_tools=self.searchable_tools,
+        )
+
+    def register_tool(self, tool_obj: Any) -> None:
+        """Register a deferred or searchable tool definition."""
+        self.searchable_tools.append(tool_obj)
+
+    def get_tools(self) -> list[AgentTool | Callable[..., Any]]:
+        def _extract_tool_meta(tool_obj: Any) -> tuple[str, str]:
+            name = getattr(tool_obj, "name", getattr(tool_obj, "__name__", str(tool_obj)))
+            desc = getattr(tool_obj, "description", "") or getattr(tool_obj, "__doc__", "") or ""
+            return str(name), str(desc)
+
+        async def search_tools(
+            queries: Sequence[str] | str, ctx: RunContext[Any] | None = None
+        ) -> dict[str, Any]:
+            """Search for deferred tools by keyword, topic, or regex pattern."""
+            raw_queries = [queries] if isinstance(queries, str) else list(queries)
+            query_list = [q.strip() for q in raw_queries if q and q.strip()]
+
+            if not query_list or not self.searchable_tools:
+                return {
+                    "matched_tools": [],
+                    "count": 0,
+                    "message": "No query terms provided or no searchable tools registered.",
+                }
+
+            all_tools: list[tuple[str, str, Any]] = [
+                (*_extract_tool_meta(t), t) for t in self.searchable_tools
+            ]
+
+            matched_names: list[str] = []
+
+            if callable(self.strategy):
+                custom_res = self.strategy(ctx, query_list, [t[2] for t in all_tools])
+                if inspect.iscoroutine(custom_res):
+                    custom_res = await custom_res
+                if isinstance(custom_res, (list, tuple, set)):
+                    matched_names = [str(n) for n in custom_res]
+                elif isinstance(custom_res, str):
+                    matched_names = [custom_res]
+            elif self.strategy == "regex":
+                for q in query_list:
+                    try:
+                        pattern = re.compile(q, re.IGNORECASE)
+                        for name, desc, _ in all_tools:
+                            if pattern.search(name) or pattern.search(desc):
+                                if name not in matched_names:
+                                    matched_names.append(name)
+                    except re.error:
+                        continue
+            elif self.strategy == "bm25":
+                scores: dict[str, float] = {}
+                query_tokens = [q.lower().split() for q in query_list]
+                flat_tokens = [t for q_toks in query_tokens for t in q_toks]
+                for name, desc, _ in all_tools:
+                    doc_text = f"{name} {desc}".lower()
+                    score = sum(doc_text.count(t) for t in flat_tokens if t in doc_text)
+                    if score > 0:
+                        scores[name] = float(score)
+                ranked = sorted(scores.items(), key=lambda item: item[1], reverse=True)
+                matched_names = [name for name, _ in ranked]
+            else:
+                # Default 'keywords' matching: undiscovered matches ranked ahead of already-discovered
+                undiscovered_matches: list[str] = []
+                discovered_matches: list[str] = []
+                flat_terms = [term.lower() for q in query_list for term in q.split()]
+
+                for name, desc, _ in all_tools:
+                    doc_text = f"{name} {desc}".lower()
+                    if any(term in doc_text for term in flat_terms):
+                        if name in self.discovered_tools:
+                            discovered_matches.append(name)
+                        else:
+                            undiscovered_matches.append(name)
+
+                matched_names = undiscovered_matches + discovered_matches
+
+            trimmed = matched_names[: self.max_results]
+            for n in trimmed:
+                self.discovered_tools.add(n)
+
+            results = []
+            tool_dict = {t[0]: t for t in all_tools}
+            for n in trimmed:
+                if n in tool_dict:
+                    name, desc, _ = tool_dict[n]
+                    results.append({"name": name, "description": desc})
+
+            return {
+                "matched_tools": results,
+                "count": len(results),
+                "discovered": list(self.discovered_tools),
+            }
+
+        return [
+            Tool.from_function(
+                search_tools,
+                name=self.tool_name,
+                description="Search for available tools matching keywords or topics when you need functionality not in your initial toolset.",
+            )
+        ]
+
+    def get_system_prompt_additions(self, ctx: RunContext[Any] | None = None) -> list[str]:
+        if self.defer_loading:
+            desc = self.description or "ToolSearch capability for on-demand tool discovery."
+            return [f"ToolSearch [{self.id}]: {desc}"]
+
+        return [
+            "Tool Search Capability enabled.\n"
+            "Many specialized tools are deferred to save context. "
+            "Use `search_tools(queries=[...])` by keyword or topic when you need functionality not in your initial toolset."
+        ]
+
+
 class ToolOutputLimits(BaseCapability):
     """Capability enforcing strict character output bounds on tool returns."""
 
@@ -2177,6 +3073,13 @@ ModelOption.model_rebuild()
 AgentOverride.model_rebuild()
 SubAgent.model_rebuild()
 SubAgents.model_rebuild()
+WorkflowAgent.model_rebuild()
+DynamicWorkflow.model_rebuild()
+Advisor.model_rebuild()
+MountDir.model_rebuild()
+OSAccess.model_rebuild()
+CodeMode.model_rebuild()
+ToolSearch.model_rebuild()
 FileSystem.model_rebuild()
 Shell.model_rebuild()
 RepoContext.model_rebuild()
