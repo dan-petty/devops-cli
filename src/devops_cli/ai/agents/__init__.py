@@ -4,6 +4,14 @@ from __future__ import annotations
 
 from typing import Any
 
+from devops_cli.ai.agents.guardrails import (
+    GuardrailAction,
+    GuardrailCapability,
+    GuardrailResult,
+    InputGuardrail,
+    OutputGuardrail,
+    ToolGuardrail,
+)
 from devops_cli.ai.agents.memory import AgentMemory, MemoryEntry
 from devops_cli.ai.agents.pipeline import (
     MultiAgentPipeline,
@@ -194,8 +202,12 @@ __all__ = [
     "FallbackCompaction",
     "FileSystem",
     "FunctionToolset",
+    "GuardrailAction",
+    "GuardrailCapability",
+    "GuardrailResult",
     "HandleDeferredToolCalls",
     "InMemoryPlanStore",
+    "InputGuardrail",
     "LLM_API_KEY_ENV_PATTERNS",
     "LangChainToolset",
     "LocalFileStore",
@@ -222,6 +234,7 @@ __all__ = [
     "MultiAgentPipelineResult",
     "NativeTool",
     "OSAccess",
+    "OutputGuardrail",
     "OverflowStore",
     "Passthrough",
     "PipelineStepResult",
@@ -260,6 +273,7 @@ __all__ = [
     "ToolCall",
     "ToolCallPart",
     "ToolDenied",
+    "ToolGuardrail",
     "ToolOutputLimits",
     "ToolReturn",
     "ToolSearch",

@@ -15,6 +15,7 @@ from devops_cli.ai.agents.pydantic_agent import AgentTool, BaseCapability, RunCo
 DEFAULT_PYAI_DOCS_TOPICS: tuple[str, ...] = (
     "agent",
     "capabilities",
+    "guardrails",
     "hooks",
     "tools",
     "tools-advanced",
