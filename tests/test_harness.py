@@ -1237,3 +1237,121 @@ def test_tool_search_discovery_and_strategies() -> None:
     # 7. Test deferred system prompt
     ts_def = ToolSearch(defer_loading=True)
     assert "ToolSearch [tool_search]:" in ts_def.get_system_prompt_additions()[0]
+
+
+def test_compaction_suite() -> None:
+    from devops_cli.ai.harness import (
+        ClampOversizedMessages,
+        ClearToolResults,
+        DeduplicateFileReads,
+        FallbackCompaction,
+        ReportContextUsage,
+        SlidingWindowCompaction,
+        SummarizingCompaction,
+        TieredCompaction,
+        WarnNearLimits,
+        compact_now,
+        is_pinned,
+        pin,
+        reinject_pinned,
+    )
+    from devops_cli.models.ai import ChatMessage
+
+    # 1. Test pin, is_pinned, reinject_pinned
+    msg1 = ChatMessage(role="system", content="System instruction")
+    msg2 = ChatMessage(role="user", content="User prompt")
+    pin(msg1)
+    assert is_pinned(msg1) is True
+    assert is_pinned(msg2) is False
+
+    reinj = reinject_pinned([msg2], [msg1])
+    assert reinj[0] == msg1
+    assert reinj[1] == msg2
+
+    # 2. Test ClampOversizedMessages
+    huge_msg = ChatMessage(role="user", content="A" * 30000)
+    clamp = ClampOversizedMessages(max_chars=1000)
+    clamped = clamp.compact_messages([huge_msg])
+    assert len(clamped[0].content) < 2000
+    assert "Truncated content:" in clamped[0].content
+
+    # Pinned message is preserved
+    pin(huge_msg)
+    preserved = clamp.compact_messages([huge_msg])
+    assert len(preserved[0].content) == 30000
+
+    # 3. Test ClearToolResults
+    tool_msg1 = ChatMessage(role="user", content="[Tool Result: grep] Output 1")
+    tool_msg2 = ChatMessage(role="user", content="[Tool Result: grep] Output 2")
+    tool_msg3 = ChatMessage(role="user", content="[Tool Result: grep] Output 3")
+    clear_cap = ClearToolResults(keep_pairs=1)
+    cleared = clear_cap.compact_messages([msg1, tool_msg1, tool_msg2, tool_msg3])
+    assert "[Cleared tool result:" in cleared[1].content
+    assert "[Cleared tool result:" in cleared[2].content
+    assert cleared[3].content == "[Tool Result: grep] Output 3"
+
+    # Also test dict-based tool results
+    dict_tools = [
+        {"role": "tool", "content": "Out 1", "name": "grep", "tool_call_id": "c1"},
+        {"role": "tool", "content": "Out 2", "name": "grep", "tool_call_id": "c2"},
+    ]
+    cleared_dicts = clear_cap.compact_messages(dict_tools)
+    assert "[Cleared tool result: grep]" in cleared_dicts[0]["content"]
+
+    # 4. Test DeduplicateFileReads
+    read_msg1 = {
+        "role": "tool",
+        "content": "v1 contents",
+        "name": "read_file",
+        "tool_call_id": "call_a",
+    }
+    read_msg2 = {
+        "role": "tool",
+        "content": "v2 contents",
+        "name": "read_file",
+        "tool_call_id": "call_b",
+    }
+    dedupe = DeduplicateFileReads()
+    deduped = dedupe.compact_messages([read_msg1, read_msg2])
+    assert "[Superseded file read: read_file]" in deduped[0]["content"]
+    assert deduped[1]["content"] == "v2 contents"
+
+    # 5. Test SlidingWindowCompaction
+    msgs = [ChatMessage(role="system", content="Prompt")] + [
+        ChatMessage(role="user", content=f"Turn {i}") for i in range(10)
+    ]
+    sw = SlidingWindowCompaction(max_messages=3)
+    sw_compacted = sw.compact_messages(msgs)
+    assert len(sw_compacted) == 4  # System + last 3
+    assert sw_compacted[0].content == "Prompt"
+    assert sw_compacted[-1].content == "Turn 9"
+
+    # 6. Test SummarizingCompaction
+    sum_cap = SummarizingCompaction(keep_tail=2)
+    sum_compacted = sum_cap.compact_messages(msgs)
+    assert len(sum_compacted) == 4  # System + Summary + last 2
+    assert "Conversation Summary:" in sum_compacted[1].content
+
+    # 7. Test FallbackCompaction & TieredCompaction
+    tiered = TieredCompaction(
+        tiers=[ClearToolResults(keep_pairs=1), SlidingWindowCompaction(max_messages=2)]
+    )
+    res_tiered = tiered.compact_messages([msg1, tool_msg1, tool_msg2, tool_msg3])
+    assert len(res_tiered) <= 3
+
+    fallback = FallbackCompaction(strategies=[tiered])
+    res_fallback = fallback.compact_messages([msg1, msg2])
+    assert len(res_fallback) == 2
+
+    # 8. Test WarnNearLimits
+    warn_cap = WarnNearLimits(max_context_fraction=0.85)
+    assert "85%" in warn_cap.get_system_prompt_additions()[0]
+
+    # 9. Test ReportContextUsage & compact_now
+    reporter = ReportContextUsage()
+    usage = reporter.get_usage([msg1, msg2], context_limit=10000)
+    assert usage.message_count == 2
+    assert usage.context_fraction >= 0.0
+
+    compacted_direct = compact_now([msg1, msg2], strategy=sw)
+    assert len(compacted_direct) == 2

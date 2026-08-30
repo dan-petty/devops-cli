@@ -2569,11 +2569,299 @@ class ToolOutputLimits(BaseCapability):
     max_chars: int = 15000
 
 
+class ContextUsage(BaseModel):
+    """Token and message count metrics for conversation context."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    total_tokens: int = 0
+    context_limit: int = 128000
+    context_fraction: float = 0.0
+    message_count: int = 0
+
+
+def pin(item: Any) -> Any:
+    """Pin a message or content part so that compaction never discards or modifies it."""
+    if hasattr(item, "_pinned"):
+        item._pinned = True
+    elif isinstance(item, dict):
+        item.setdefault("metadata", {})["pinned"] = True
+    else:
+        try:
+            setattr(item, "_pinned", True)
+        except Exception:
+            pass
+    return item
+
+
+def is_pinned(item: Any) -> bool:
+    """Check whether a message or content part is pinned."""
+    if getattr(item, "_pinned", False):
+        return True
+    if isinstance(item, dict):
+        return bool(item.get("metadata", {}).get("pinned"))
+    if hasattr(item, "metadata") and isinstance(item.metadata, dict):
+        return bool(item.metadata.get("pinned"))
+    return False
+
+
+def reinject_pinned(messages: list[Any], pinned_items: Sequence[Any]) -> list[Any]:
+    """Ensure all pinned messages are present in the compacted message history."""
+    existing_ids = {getattr(m, "id", getattr(m, "tool_call_id", str(m))) for m in messages}
+    result = list(messages)
+    for p in pinned_items:
+        p_id = getattr(p, "id", getattr(p, "tool_call_id", str(p)))
+        if p_id not in existing_ids:
+            result.insert(1 if len(result) > 1 else 0, p)
+            existing_ids.add(p_id)
+    return result
+
+
+class ClampOversizedMessages(BaseCapability):
+    """Capability that head/tail-truncates single oversized message parts."""
+
+    id: str = "clamp_oversized_messages"
+    max_chars: int = 20000
+
+    def compact_messages(self, messages: list[Any]) -> list[Any]:
+        """Truncate individual messages whose length exceeds max_chars."""
+        compacted: list[Any] = []
+        for msg in messages:
+            if is_pinned(msg):
+                compacted.append(msg)
+                continue
+
+            content = getattr(msg, "content", msg if isinstance(msg, str) else "")
+            if isinstance(content, str) and len(content) > self.max_chars:
+                head = content[: self.max_chars // 2]
+                tail = content[-(self.max_chars // 2) :]
+                omitted = len(content) - self.max_chars
+                new_text = (
+                    f"{head}\n\n[... Truncated content: {omitted} characters omitted ...]\n\n{tail}"
+                )
+                if hasattr(msg, "model_copy"):
+                    compacted.append(msg.model_copy(update={"content": new_text}))
+                elif isinstance(msg, dict):
+                    c = dict(msg)
+                    c["content"] = new_text
+                    compacted.append(c)
+                else:
+                    compacted.append(new_text)
+            else:
+                compacted.append(msg)
+        return compacted
+
+
 class ClearToolResults(BaseCapability):
-    """Capability managing context compaction by clearing older tool result messages."""
+    """Capability managing context compaction by clearing older tool result messages in place."""
 
     id: str = "clear_tool_results"
     max_fraction: float = 0.7
+    keep_pairs: int = 2
+
+    def compact_messages(self, messages: list[Any]) -> list[Any]:
+        """Clear older tool outputs while keeping the most recent keep_pairs intact."""
+        tool_indices: list[int] = []
+        for i, msg in enumerate(messages):
+            role = getattr(msg, "role", msg.get("role") if isinstance(msg, dict) else "")
+            content = getattr(msg, "content", msg.get("content") if isinstance(msg, dict) else "")
+            name = getattr(msg, "name", msg.get("name") if isinstance(msg, dict) else "")
+            if (
+                role in {"tool", "function"}
+                or getattr(msg, "tool_call_id", None)
+                or (isinstance(msg, dict) and "tool_call_id" in msg)
+                or "[tool result:" in str(content).lower()
+                or bool(name)
+            ):
+                if not is_pinned(msg):
+                    tool_indices.append(i)
+
+        if len(tool_indices) <= self.keep_pairs:
+            return list(messages)
+
+        indices_to_clear = set(tool_indices[: -self.keep_pairs])
+        compacted: list[Any] = []
+        for i, msg in enumerate(messages):
+            if i in indices_to_clear:
+                name = getattr(
+                    msg, "name", msg.get("name", "tool") if isinstance(msg, dict) else "tool"
+                )
+                cleared_text = f"[Cleared tool result: {name}]"
+                if hasattr(msg, "model_copy"):
+                    compacted.append(msg.model_copy(update={"content": cleared_text}))
+                elif isinstance(msg, dict):
+                    c = dict(msg)
+                    c["content"] = cleared_text
+                    compacted.append(c)
+                else:
+                    compacted.append(cleared_text)
+            else:
+                compacted.append(msg)
+        return compacted
+
+
+class DeduplicateFileReads(BaseCapability):
+    """Capability that blanks superseded file read results when a newer read of the same file exists."""
+
+    id: str = "deduplicate_file_reads"
+    file_read_tools: set[str] = Field(
+        default_factory=lambda: {"read_file", "view_file", "cat", "get_file", "read_path"}
+    )
+
+    def compact_messages(self, messages: list[Any]) -> list[Any]:
+        """Drop duplicate file contents across consecutive reads of the same file path."""
+        file_latest_idx: dict[str, int] = {}
+        for i, msg in enumerate(messages):
+            t_name = getattr(msg, "name", msg.get("name") if isinstance(msg, dict) else "")
+            content = getattr(msg, "content", msg.get("content") if isinstance(msg, dict) else "")
+            if (
+                t_name in self.file_read_tools
+                or "file" in str(t_name).lower()
+                or "read_file" in str(content).lower()
+            ):
+                file_latest_idx[str(t_name or "read_file")] = i
+
+        compacted: list[Any] = []
+        for i, msg in enumerate(messages):
+            t_name = getattr(msg, "name", msg.get("name") if isinstance(msg, dict) else "")
+            key = str(t_name or "read_file")
+            if key in file_latest_idx and file_latest_idx[key] > i and not is_pinned(msg):
+                cleared_text = f"[Superseded file read: {key}]"
+                if hasattr(msg, "model_copy"):
+                    compacted.append(msg.model_copy(update={"content": cleared_text}))
+                elif isinstance(msg, dict):
+                    c = dict(msg)
+                    c["content"] = cleared_text
+                    compacted.append(c)
+                else:
+                    compacted.append(cleared_text)
+            else:
+                compacted.append(msg)
+        return compacted
+
+
+class SlidingWindowCompaction(BaseCapability):
+    """Capability that drops older whole messages down to a recent tail."""
+
+    id: str = "sliding_window_compaction"
+    max_messages: int = 20
+    keep_user_messages: bool = True
+
+    def compact_messages(self, messages: list[Any]) -> list[Any]:
+        """Retain the first message (system/instruction) and the last max_messages."""
+        if len(messages) <= self.max_messages:
+            return list(messages)
+
+        pinned = [m for m in messages if is_pinned(m)]
+        first_msg = messages[0]
+        tail = messages[-self.max_messages :]
+
+        combined = [first_msg] + [m for m in tail if m != first_msg]
+        return reinject_pinned(combined, pinned)
+
+
+class SummarizingCompaction(BaseCapability):
+    """Capability that summarizes older messages into a structured summary message."""
+
+    id: str = "summarizing_compaction"
+    summary_model: Any | None = None
+    instructions: str = (
+        "Summarize the key decisions, technical context, file edits, and outcomes concisely."
+    )
+    keep_tail: int = 4
+    max_fraction: float = 0.8
+
+    def compact_messages(self, messages: list[Any]) -> list[Any]:
+        """Compress the middle turns into a concise summary block."""
+        if len(messages) <= self.keep_tail + 2:
+            return list(messages)
+
+        pinned = [m for m in messages if is_pinned(m)]
+        first_msg = messages[0]
+        tail = messages[-self.keep_tail :]
+        middle = messages[1 : -self.keep_tail]
+
+        # Construct structured summary block from middle turns
+        summary_lines = [
+            f"- {getattr(m, 'role', 'turn')}: {str(getattr(m, 'content', ''))[:100]}..."
+            for m in middle
+            if getattr(m, "content", None)
+        ]
+        summary_text = (
+            f"[Conversation Summary: {len(middle)} earlier turns compressed]\n"
+            + "\n".join(summary_lines[:8])
+        )
+
+        from devops_cli.models.ai import ChatMessage
+
+        summary_msg = ChatMessage(role="system", content=summary_text)
+        combined = [first_msg, summary_msg] + tail
+        return reinject_pinned(combined, pinned)
+
+
+class FallbackCompaction(BaseCapability):
+    """Composing compaction strategy that executes fallbacks in sequence until one succeeds."""
+
+    id: str = "fallback_compaction"
+    strategies: list[Any] = Field(default_factory=list)
+
+    def compact_messages(self, messages: list[Any]) -> list[Any]:
+        """Try each configured strategy in order."""
+        current = list(messages)
+        for strat in self.strategies:
+            try:
+                if hasattr(strat, "compact_messages"):
+                    current = strat.compact_messages(current)
+                elif callable(strat):
+                    current = strat(current)
+                return current
+            except Exception:
+                continue
+        return current
+
+
+class TieredCompaction(BaseCapability):
+    """Cascading compaction strategy running cheap zero-LLM passes before escalating."""
+
+    id: str = "tiered_compaction"
+    tiers: list[Any] = Field(default_factory=list)
+    max_fraction: float = 0.8
+    target_tokens: int = 100000
+
+    def __init__(
+        self,
+        tiers: Sequence[Any] | None = None,
+        *,
+        max_fraction: float = 0.8,
+        target_tokens: int = 100000,
+        id: str = "tiered_compaction",
+    ) -> None:
+        resolved_tiers = (
+            list(tiers)
+            if tiers is not None
+            else [
+                DeduplicateFileReads(),
+                ClearToolResults(),
+                ClampOversizedMessages(),
+                SlidingWindowCompaction(),
+            ]
+        )
+        super().__init__(
+            id=str(id or "tiered_compaction"),
+            tiers=resolved_tiers,
+            max_fraction=max_fraction,
+            target_tokens=target_tokens,
+        )
+
+    def compact_messages(self, messages: list[Any]) -> list[Any]:
+        """Apply cascading compaction tiers sequentially."""
+        current = list(messages)
+        for tier in self.tiers:
+            if hasattr(tier, "compact_messages"):
+                current = tier.compact_messages(current)
+            elif callable(tier):
+                current = tier(current)
+        return current
 
 
 class WarnNearLimits(BaseCapability):
@@ -2581,6 +2869,45 @@ class WarnNearLimits(BaseCapability):
 
     id: str = "warn_near_limits"
     max_context_fraction: float = 0.9
+
+    def get_system_prompt_additions(self, ctx: RunContext[Any] | None = None) -> list[str]:
+        return [
+            f"WarnNearLimits enabled: context warning will be issued if usage exceeds "
+            f"{int(self.max_context_fraction * 100)}% of model context window."
+        ]
+
+
+class ReportContextUsage(BaseCapability):
+    """Capability reporting token counts and context fractions."""
+
+    id: str = "report_context_usage"
+
+    def get_usage(self, messages: list[Any], context_limit: int = 128000) -> ContextUsage:
+        """Calculate token and message usage metrics."""
+        total_chars = sum(len(str(getattr(m, "content", ""))) for m in messages)
+        estimated_tokens = total_chars // 4
+        fraction = min(1.0, estimated_tokens / max(1, context_limit))
+        return ContextUsage(
+            total_tokens=estimated_tokens,
+            context_limit=context_limit,
+            context_fraction=fraction,
+            message_count=len(messages),
+        )
+
+
+def compact_now(
+    messages: list[Any],
+    strategy: Any | None = None,
+) -> list[Any]:
+    """Execute immediate compaction on a message history list using the given or default strategy."""
+    strat = strategy or TieredCompaction()
+    if hasattr(strat, "compact_messages"):
+        res = strat.compact_messages(messages)
+        return list(res) if isinstance(res, (list, tuple)) else list(messages)
+    elif callable(strat):
+        res = strat(messages)
+        return list(res) if isinstance(res, (list, tuple)) else list(messages)
+    return list(messages)
 
 
 class Coder(BaseCapability):
@@ -3080,12 +3407,20 @@ MountDir.model_rebuild()
 OSAccess.model_rebuild()
 CodeMode.model_rebuild()
 ToolSearch.model_rebuild()
+ContextUsage.model_rebuild()
+ClampOversizedMessages.model_rebuild()
+ClearToolResults.model_rebuild()
+DeduplicateFileReads.model_rebuild()
+SlidingWindowCompaction.model_rebuild()
+SummarizingCompaction.model_rebuild()
+FallbackCompaction.model_rebuild()
+TieredCompaction.model_rebuild()
+ReportContextUsage.model_rebuild()
 FileSystem.model_rebuild()
 Shell.model_rebuild()
 RepoContext.model_rebuild()
 Planning.model_rebuild()
 ToolOutputLimits.model_rebuild()
-ClearToolResults.model_rebuild()
 WarnNearLimits.model_rebuild()
 Coder.model_rebuild()
 Researcher.model_rebuild()
