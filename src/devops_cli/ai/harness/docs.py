@@ -26,6 +26,7 @@ DEFAULT_PYAI_DOCS_TOPICS: tuple[str, ...] = (
     "spend",
     "step-persistence",
     "system-reminders",
+    "thread-executor",
     "tools",
     "tools-advanced",
     "toolsets",

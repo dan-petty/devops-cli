@@ -106,3 +106,31 @@ def test_custom_capability_creation() -> None:
     assert sec_cap.get_system_prompt_additions(RunContext()) == ["Audit mode: True"]
     assert sec_cap.get_model_settings(RunContext()) == {"temperature": 0.0}
     assert len(sec_cap.get_tools()) == 1
+
+
+def test_use_thread_executor_capability() -> None:
+    """Verify UseThreadExecutor and ThreadExecutor synchronous execution."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from devops_cli.ai.agents import ThreadExecutor, UseThreadExecutor
+
+    # 1. Default initialization
+    cap = UseThreadExecutor(max_workers=4, thread_name_prefix="test-worker")
+    assert cap.id == "use_thread_executor"
+
+    def sync_compute(a: int, b: int) -> int:
+        return a * b + 10
+
+    result = cap.run_sync(sync_compute, 5, 6)
+    assert result == 40
+
+    # 2. Custom external ThreadPoolExecutor
+    custom_executor = ThreadPoolExecutor(max_workers=2)
+    cap_custom = ThreadExecutor(executor=custom_executor)
+
+    def fetch_data(name: str) -> str:
+        return f"payload_{name}"
+
+    res = cap_custom.run_sync(fetch_data, name="test")
+    assert res == "payload_test"
+    custom_executor.shutdown()

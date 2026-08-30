@@ -548,3 +548,45 @@ class Instrumentation(BaseCapability):
 
     def get_system_prompt_additions(self, ctx: RunContext[Any] | None = None) -> list[str]:
         return []
+
+
+class UseThreadExecutor(BaseCapability):
+    """Capability that executes synchronous tool calls in a dedicated, bounded ThreadPoolExecutor."""
+
+    id: str = "use_thread_executor"
+    executor: Any = None
+    max_workers: int = 16
+    thread_name_prefix: str = "agent-worker"
+
+    def __init__(
+        self,
+        executor: Any = None,
+        *,
+        max_workers: int = 16,
+        thread_name_prefix: str = "agent-worker",
+        id: str = "use_thread_executor",
+        **kwargs: Any,
+    ) -> None:
+        if executor is None:
+            from concurrent.futures import ThreadPoolExecutor
+
+            executor = ThreadPoolExecutor(
+                max_workers=max_workers, thread_name_prefix=thread_name_prefix
+            )
+        super().__init__(
+            id=id,
+            executor=executor,
+            max_workers=max_workers,
+            thread_name_prefix=thread_name_prefix,
+            **kwargs,
+        )
+
+    def run_sync(self, func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+        """Run synchronous function in the executor and return its result."""
+        from functools import partial
+
+        future = self.executor.submit(partial(func, *args, **kwargs))
+        return future.result()
+
+
+ThreadExecutor = UseThreadExecutor
