@@ -323,6 +323,24 @@ def _keyring_get(key: str) -> str | None:
         return None
 
 
+def _keyring_has(key: str) -> bool:
+    """Check whether a secret key exists in OS keyring or ephemeral store."""
+    import keyring
+    from keyring.errors import NoKeyringError
+
+    if key in _EPHEMERAL_CI_SECRETS:
+        return True
+
+    if not _ensure_keyring_backend():
+        return False
+
+    try:
+        val = keyring.get_password(KEYRING_SERVICE, key)
+        return bool(val is not None)
+    except NoKeyringError, Exception:
+        return False
+
+
 def _keyring_set(key: str, value: str) -> None:
     import os
 

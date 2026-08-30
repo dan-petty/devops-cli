@@ -291,6 +291,7 @@ _SETTINGS_EXPORTS: set[str] = {
     "get_argocd_token",
     "get_github_token",
     "get_grafana_token",
+    "_keyring_has",
     "load_settings",
     "save_settings",
 }

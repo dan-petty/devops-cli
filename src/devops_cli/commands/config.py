@@ -491,13 +491,15 @@ def _scan_yaml_for_secret_keys(cfg_file: Path) -> list[str]:
         raw_cfg = yaml.safe_load(cfg_file.read_text(encoding="utf-8")) or {}
         if not isinstance(raw_cfg, dict):
             return []
-        return [
-            f"{cfg_file.name}:{k}.{sub_k}"
-            for k, v in raw_cfg.items()
-            if isinstance(v, dict)
-            for sub_k, sub_v in v.items()
-            if f"{k}.{sub_k}" in KEYRING_KEYS and sub_v
-        ]
+        leaks: list[str] = []
+        for section_name, section_dict in raw_cfg.items():
+            if not isinstance(section_dict, dict):
+                continue
+            for opt_name in section_dict:
+                composite = f"{section_name}.{opt_name}"
+                if composite in KEYRING_KEYS and bool(section_dict.get(opt_name)):
+                    leaks.append(f"{cfg_file.name}:{composite}")
+        return leaks
     except Exception:
         return []
 
@@ -541,7 +543,7 @@ def audit_keys_cmd(
     import keyring
 
     from devops_cli.config.options import KEYRING_KEYS
-    from devops_cli.config.settings import _keyring_get
+    from devops_cli.config.settings import _keyring_has
 
     active_backend = keyring.get_keyring()
     backend_name = active_backend.__class__.__name__
@@ -559,7 +561,7 @@ def audit_keys_cmd(
     key_audit_records: list[dict[str, Any]] = []
 
     for option_key, keyring_name in KEYRING_KEYS.items():
-        has_keyring = bool(_keyring_get(keyring_name) is not None)
+        has_keyring = _keyring_has(keyring_name)
 
         env_var = env_var_for_option(option_key)
         has_env = bool(os.environ.get(env_var)) if env_var else False

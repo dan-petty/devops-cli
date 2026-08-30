@@ -101,6 +101,11 @@ def get_stderr_console(
     )
 
 
+def _sanitize_output_text(text: str) -> str:
+    """Ensure raw text is safely formatted before emitting to standard output or error streams."""
+    return str(text) if text is not None else ""
+
+
 def write_stream(
     text: str,
     stream: Literal["stdout", "stderr"] = DEFAULT_STREAM_NAME,  # type: ignore[assignment]
@@ -108,8 +113,9 @@ def write_stream(
     flush: bool = True,
 ) -> None:
     """Write raw text directly to standard output or standard error stream."""
+    safe_text = _sanitize_output_text(text)
     target = sys.stderr if stream == "stderr" else sys.stdout
-    target.write(text)
+    target.write(safe_text)
     if flush:
         target.flush()
 
