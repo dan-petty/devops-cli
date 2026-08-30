@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
@@ -149,7 +150,7 @@ def test_repo_context_injection(tmp_path: Path) -> None:
     agents_md = tmp_path / "AGENTS.md"
     agents_md.write_text("# Core Philosophy\nHigh Reliability First.")
 
-    repo = RepoContext(workspace_dir=tmp_path)
+    repo = RepoContext(workspace_dir=tmp_path, expose_inventory_tool=False)
     additions = repo.get_system_prompt_additions()
     assert len(additions) == 1
     assert "High Reliability First" in additions[0]
@@ -1064,7 +1065,6 @@ def test_advisor_consultation_execution_and_limits() -> None:
 
 def test_code_mode_execution_and_tool_wrapping() -> None:
     import asyncio
-    from typing import Any
 
     from devops_cli.ai.agents.pydantic_agent import Tool
     from devops_cli.ai.harness import CodeMode, MountDir, OSAccess
@@ -1150,7 +1150,6 @@ for i in range(10):
 
 def test_tool_search_discovery_and_strategies() -> None:
     import asyncio
-    from typing import Any
 
     from devops_cli.ai.agents.pydantic_agent import Tool
     from devops_cli.ai.harness import ToolSearch
@@ -1613,3 +1612,804 @@ def test_warn_on_cache_busts_suite() -> None:
     resp = run_monitor.after_model_request(request_context=DummyContext(), response=DummyResponse())
     assert resp is not None
     assert ("anthropic", "claude-3-5-sonnet") in run_monitor.marks
+
+
+def test_harness_memory_suite(tmp_path: Path) -> None:
+    """Comprehensive test suite for Pydantic AI Harness Memory capability and stores."""
+    import pytest
+
+    from devops_cli.ai.harness import (
+        FileStore,
+        InMemoryStore,
+        Memory,
+        MemoryOperationConflictError,
+        SqliteMemoryStore,
+    )
+
+    # 1. Test InMemoryStore
+    mem_store = InMemoryStore()
+    w_res = mem_store.write("notes/test.md", "Initial content", mode="append")
+    assert w_res.status == "ok"
+    assert w_res.path == "notes/test.md"
+
+    f = mem_store.read("notes/test.md")
+    assert f.content == "Initial content"
+    assert f.version == w_res.version
+
+    # Idempotent write with operation_id
+    w_res2 = mem_store.write("notes/test.md", "Appended", operation_id="op-1")
+    assert w_res2.status == "ok"
+    w_res3 = mem_store.write("notes/test.md", "Should not append again", operation_id="op-1")
+    assert w_res3.status == "idempotent_replay"
+
+    # Replace fragment
+    mem_store.write(
+        "notes/test.md", "", mode="replace", target_fragment="Initial", replacement="Updated"
+    )
+    f_rep = mem_store.read("notes/test.md")
+    assert "Updated content" in f_rep.content
+
+    # Target fragment not found
+    with pytest.raises(ValueError, match="Target fragment not found"):
+        mem_store.write(
+            "notes/test.md",
+            "",
+            mode="replace",
+            target_fragment="NonexistentFragment",
+            replacement="X",
+        )
+
+    # Version conflict
+    with pytest.raises(MemoryOperationConflictError, match="Version mismatch"):
+        mem_store.write("notes/test.md", "New", expected_version="invalid-version")
+
+    # Search in InMemoryStore
+    matches = mem_store.search("Updated")
+    assert len(matches) == 1
+    assert matches[0].path == "notes/test.md"
+    assert "Updated" in matches[0].snippet
+
+    # List and delete
+    assert mem_store.list_paths() == ["notes/test.md"]
+    assert mem_store.delete("notes/test.md") is True
+    assert mem_store.delete("notes/nonexistent.md") is False
+    assert mem_store.read("notes/test.md").content == ""
+    assert mem_store.search("") == []
+
+    # Truncated read on InMemoryStore
+    mem_store.write("large.txt", "a" * 100)
+    assert mem_store.read("large.txt", max_chars=10).truncated is True
+    assert len(mem_store.read("large.txt", max_chars=10).content) == 10
+
+    # 2. Test FileStore
+    fstore_dir = tmp_path / "memory_fs"
+    file_store = FileStore(fstore_dir)
+    fw = file_store.write("MEMORY.md", "# Agent Notebook\nKey architectural facts.")
+    assert fw.status == "ok"
+    rf = file_store.read("MEMORY.md")
+    assert "Key architectural facts" in rf.content
+
+    # FileStore replace fragment and whole replace
+    file_store.write(
+        "MEMORY.md", "", mode="replace", target_fragment="facts", replacement="principles"
+    )
+    assert "principles" in file_store.read("MEMORY.md").content
+    file_store.write("doc.md", "Complete content", mode="replace")
+    assert file_store.read("doc.md").content == "Complete content"
+
+    # FileStore error branches
+    with pytest.raises(ValueError, match="Target fragment not found"):
+        file_store.write("doc.md", "", mode="replace", target_fragment="missing", replacement="x")
+    with pytest.raises(MemoryOperationConflictError, match="Version mismatch"):
+        file_store.write("doc.md", "conflict", expected_version="invalid-version")
+    with pytest.raises(MemoryOperationConflictError, match="Version mismatch on delete"):
+        file_store.delete("doc.md", expected_version="wrong-version")
+
+    # Search FileStore
+    fmatches = file_store.search("principles")
+    assert len(fmatches) == 1
+    assert fmatches[0].path == "MEMORY.md"
+    assert file_store.search("") == []
+    assert file_store.delete("doc.md") is True
+    assert file_store.delete("missing.md") is False
+
+    # Path traversal protection
+    with pytest.raises(Exception, match="Path traversal"):
+        file_store.read("../outside.md")
+
+    # 3. Test SqliteMemoryStore
+    db_path = str(tmp_path / "agent_memory.db")
+    sql_store = SqliteMemoryStore(database=db_path)
+    sw = sql_store.write("topics/cloud.md", "GCP and AWS clusters")
+    assert sw.status == "ok"
+    s_read = sql_store.read("topics/cloud.md")
+    assert s_read.content == "GCP and AWS clusters"
+
+    # SqliteMemoryStore replace fragment and whole replace
+    sql_store.write(
+        "topics/cloud.md", "", mode="replace", target_fragment="AWS", replacement="Azure"
+    )
+    assert "Azure" in sql_store.read("topics/cloud.md").content
+    sql_store.write("topics/cloud.md", "Replaced entirely", mode="replace")
+    assert sql_store.read("topics/cloud.md").content == "Replaced entirely"
+
+    # Sqlite error branches
+    with pytest.raises(ValueError, match="Target fragment not found"):
+        sql_store.write(
+            "topics/cloud.md", "", mode="replace", target_fragment="missing_tag", replacement="x"
+        )
+    with pytest.raises(MemoryOperationConflictError, match="Version mismatch"):
+        sql_store.write("topics/cloud.md", "conflict", expected_version="invalid-version")
+    with pytest.raises(MemoryOperationConflictError, match="Version mismatch on delete"):
+        sql_store.delete("topics/cloud.md", expected_version="wrong-version")
+
+    # Sqlite truncated read and empty search
+    sql_store.write("topics/big.md", "x" * 200)
+    assert sql_store.read("topics/big.md", max_chars=20).truncated is True
+    assert sql_store.read("topics/nonexistent.md").content == ""
+    assert sql_store.search("") == []
+
+    s_search = sql_store.search("Replaced")
+    assert len(s_search) == 1
+    assert s_search[0].path == "topics/cloud.md"
+
+    assert sql_store.list_paths(prefix="topics") == ["topics/big.md", "topics/cloud.md"]
+    assert sql_store.delete("topics/cloud.md") is True
+    assert sql_store.delete("topics/nonexistent.md") is False
+
+    # 4. Test Memory Capability & Tools
+    cap = Memory(store=file_store, heading="Agent Memory")
+    tools = {t.name: t for t in cap.get_tools()}
+    assert set(tools.keys()) == {"write_memory", "read_memory", "delete_memory", "search_memory"}
+
+    # Tool invocation: write
+    wr_msg = tools["write_memory"].func(path="MEMORY.md", content="Added deployment notes")  # type: ignore[union-attr]
+    assert "Memory updated" in wr_msg
+
+    # Tool invocation: read
+    rd_msg = tools["read_memory"].func(path="MEMORY.md")  # type: ignore[union-attr]
+    assert "Added deployment notes" in rd_msg
+
+    # Tool invocation: search
+    sr_msg = tools["search_memory"].func(query="deployment")  # type: ignore[union-attr]
+    assert "MEMORY.md" in sr_msg
+    no_sr_msg = tools["search_memory"].func(query="nonexistent_needle_123")  # type: ignore[union-attr]
+    assert "No memory entries matching" in no_sr_msg
+
+    # Tool invocation: delete protection on MEMORY.md
+    del_msg = tools["delete_memory"].func(path="MEMORY.md")  # type: ignore[union-attr]
+    assert "Cannot delete protected root notebook" in del_msg
+
+    # System prompt injection
+    prompts = cap.get_system_prompt_additions()
+    assert len(prompts) == 2
+    assert "## Agent Memory" in prompts[0]
+    assert "<memory>" in prompts[1]
+    assert "Added deployment notes" in prompts[1]
+
+    # Store resolver & error handling in get_system_prompt_additions
+    class DummyCtx:
+        pass
+
+    def broken_resolver(c: Any) -> Any:
+        raise RuntimeError("Resolver exploded")
+
+    err_cap = Memory(store_resolver=broken_resolver, injection_errors="raise")
+    with pytest.raises(RuntimeError, match="Resolver exploded"):
+        err_cap.get_system_prompt_additions(ctx=DummyCtx())  # type: ignore[arg-type]
+
+    # Prefix tools
+    prefixed_cap = cap.prefix_tools("org")
+    p_tools = {t.name: t for t in prefixed_cap.get_tools()}
+    assert "org_write_memory" in p_tools
+    assert "org_read_memory" in p_tools
+
+
+def test_conversation_search_suite() -> None:
+    """Comprehensive test suite for ConversationSearch capability and BM25 ranking."""
+    import pytest
+
+    from devops_cli.ai.harness import (
+        ConversationSearch,
+        HarnessDeprecationWarning,
+        RunRecord,
+        SnapshotHistorySource,
+        bm25_rank,
+    )
+    from devops_cli.models.ai import ChatMessage
+
+    # 1. Test BM25 rank algorithm
+    docs = [
+        {
+            "run_id": "run-1",
+            "conversation_id": "conv-1",
+            "role": "user",
+            "content": "How do I configure AWS EKS cluster with OpenTofu?",
+            "turn_index": 0,
+        },
+        {
+            "run_id": "run-1",
+            "conversation_id": "conv-1",
+            "role": "assistant",
+            "content": "To configure AWS EKS with OpenTofu, define the VPC and eks cluster modules.",
+            "turn_index": 1,
+        },
+        {
+            "run_id": "run-2",
+            "conversation_id": "conv-2",
+            "role": "user",
+            "content": "Deploy ArgoCD on GCP GKE cluster.",
+            "turn_index": 0,
+        },
+        {
+            "run_id": "run-2",
+            "conversation_id": "conv-2",
+            "role": "assistant",
+            "content": "Use devops k8s deploy-stack --stack argocd on GKE.",
+            "turn_index": 1,
+        },
+    ]
+
+    # Empty query or docs
+    assert bm25_rank("", docs) == []
+    assert bm25_rank("test", []) == []
+
+    # Search OpenTofu
+    m_tofu = bm25_rank("OpenTofu", docs)
+    assert len(m_tofu) == 2
+    assert m_tofu[0].run_id == "run-1"
+    assert "OpenTofu" in m_tofu[0].content
+
+    # Search ArgoCD
+    m_argo = bm25_rank("ArgoCD GKE", docs)
+    assert len(m_argo) >= 1
+    assert m_argo[0].run_id == "run-2"
+    assert "ArgoCD" in m_argo[0].content
+
+    # 2. Test SnapshotHistorySource
+    source = SnapshotHistorySource()
+    r1 = source.record_run(
+        run_id="run-1",
+        conversation_id="conv-1",
+        messages=[
+            ChatMessage(role="user", content="Deploy OpenTelemetry collector"),
+            ChatMessage(role="assistant", content="Deployed OTEL collector to otel namespace"),
+        ],
+    )
+    assert r1.run_id == "run-1"
+    assert len(source.get_runs(conversation_id="conv-1")) == 1
+    assert len(source.get_runs(conversation_id="conv-nonexistent")) == 0
+    assert len(source.get_runs(run_id="run-1")) == 1
+
+    # External store delegation
+    class DummyStoreWithRuns:
+        def get_runs(
+            self, conversation_id: str | None = None, run_id: str | None = None
+        ) -> list[RunRecord]:
+            return [
+                RunRecord(
+                    run_id="delegated-run",
+                    conversation_id="conv-del",
+                    messages=[ChatMessage(role="user", content="Delegated")],
+                )
+            ]
+
+    del_source = SnapshotHistorySource(store=DummyStoreWithRuns())
+    assert len(del_source.get_runs()) == 1
+    assert del_source.get_runs()[0].run_id == "delegated-run"
+
+    # 3. Test ConversationSearch Capability
+    # Deprecation warning on unset scope
+    with pytest.warns(HarnessDeprecationWarning, match="was unset"):
+        search_cap_warn = ConversationSearch(source=source)
+        assert search_cap_warn.effective_scope == "conversation"
+
+    search_cap = ConversationSearch(source=source, scope="conversation")
+    assert search_cap.effective_scope == "conversation"
+
+    # System prompt additions
+    prompts = search_cap.get_system_prompt_additions()
+    assert len(prompts) == 1
+    assert "search_conversation_history" in prompts[0]
+
+    no_inst_cap = ConversationSearch(source=source, scope="all", add_instructions=False)
+    assert no_inst_cap.get_system_prompt_additions() == []
+
+    # 4. Test search_conversation_history tool
+    tools = {t.name: t for t in search_cap.get_tools()}
+    assert "search_conversation_history" in tools
+
+    # Tool invocation: match found
+    res = tools["search_conversation_history"].func(query="OpenTelemetry", conversation_id="conv-1")  # type: ignore[union-attr]
+    assert "Found 1 historical match" in res
+    assert "run: run-1" in res
+
+    # Tool invocation: no match
+    no_res = tools["search_conversation_history"].func(
+        query="nonexistent_concept_xyz", conversation_id="conv-1"
+    )  # type: ignore[union-attr]
+    assert "No matching conversation turns" in no_res
+
+    # Tool invocation: empty history
+    empty_source_cap = ConversationSearch(source=SnapshotHistorySource(), scope="conversation")
+    empty_tools = {t.name: t for t in empty_source_cap.get_tools()}
+    empty_res = empty_tools["search_conversation_history"].func(
+        query="test", conversation_id="conv-empty"
+    )  # type: ignore[union-attr]
+    assert "No persisted conversation history found" in empty_res
+
+
+def test_skills_harness_suite(tmp_path: Path) -> None:
+    """Comprehensive test suite for Skills capability loading Agent Skill packages."""
+    import pytest
+
+    from devops_cli.ai.harness import (
+        Skills,
+        normalize_skill_name,
+    )
+
+    # 1. Name normalization and validation
+    assert normalize_skill_name("Code-Review") == "code-review"
+    assert normalize_skill_name(" release-notes ") == "release-notes"
+    with pytest.raises(ValueError, match="Invalid skill name"):
+        normalize_skill_name("-invalid-start")
+    with pytest.raises(ValueError, match="Invalid skill name"):
+        normalize_skill_name("invalid-end-")
+    with pytest.raises(ValueError, match="Invalid skill name"):
+        normalize_skill_name("x" * 70)
+
+    # 2. Setup mock skill directories
+    lib_dir = tmp_path / "skills"
+    lib_dir.mkdir()
+
+    # Skill 1: code-review
+    s1_dir = lib_dir / "code-review"
+    s1_dir.mkdir()
+    (s1_dir / "SKILL.md").write_text(
+        "---\nname: code-review\ndescription: Review pull requests for security and standards.\n---\n\nAnalyze diffs carefully.",
+        encoding="utf-8",
+    )
+
+    # Skill 2: release-mgmt
+    s2_dir = lib_dir / "release-mgmt"
+    s2_dir.mkdir()
+    (s2_dir / "SKILL.md").write_text(
+        "---\ndescription: Manage release workflows and semantic versions.\n---\n\nFollow Conventional Commits standard.",
+        encoding="utf-8",
+    )
+
+    # Skill 3: with unsupported behavioral fields
+    s3_dir = lib_dir / "deploy-stack"
+    s3_dir.mkdir()
+    (s3_dir / "SKILL.md").write_text(
+        "---\nname: deploy-stack\ndescription: Deploy Kubernetes stack.\nmodel: claude-3-5-sonnet\n---\n\nRun helm upgrade.",
+        encoding="utf-8",
+    )
+
+    # 3. Validation on construction errors
+    with pytest.raises(ValueError, match="cannot specify both 'include' and 'exclude'"):
+        Skills(lib_dir, include=["code-review"], exclude=["release-mgmt"])
+
+    with pytest.raises(ValueError, match="does not exist or is not a directory"):
+        Skills(tmp_path / "nonexistent_dir")
+
+    # 4. Construct Skills with behavioral field warning
+    with pytest.warns(UserWarning, match="unsupported behavioral frontmatter fields"):
+        skills_cap = Skills(lib_dir)
+
+    assert len(skills_cap.skills) == 3
+    assert "code-review" in skills_cap.skills
+    assert "release-mgmt" in skills_cap.skills
+    assert "deploy-stack" in skills_cap.skills
+    assert "Skills(directories=" in repr(skills_cap)
+
+    # Apply visitor
+    visited_names: list[str] = []
+    skills_cap.apply(lambda s: visited_names.append(s.name))
+    assert set(visited_names) == {"code-review", "release-mgmt", "deploy-stack"}
+
+    # 5. Include filter
+    inc_cap = Skills(lib_dir, include=["code-review"])
+    assert len(inc_cap.skills) == 1
+    assert "code-review" in inc_cap.skills
+    assert "include=" in repr(inc_cap)
+
+    with pytest.raises(ValueError, match="Unknown skill.*specified in 'include'"):
+        Skills(lib_dir, include=["unknown-skill"])
+
+    # 6. Exclude filter
+    exc_cap = Skills(lib_dir, exclude=["deploy-stack"])
+    assert len(exc_cap.skills) == 2
+    assert "deploy-stack" not in exc_cap.skills
+    assert "exclude=" in repr(exc_cap)
+
+    # 7. System prompt additions (initial catalog)
+    init_prompts = skills_cap.get_system_prompt_additions()
+    assert len(init_prompts) == 1
+    assert "Available specialized skills" in init_prompts[0]
+    assert "code-review" in init_prompts[0]
+
+    # 8. Tools execution
+    tools = {t.name: t for t in skills_cap.get_tools()}
+    assert "load_capability" in tools
+    assert "list_skills" in tools
+
+    list_out = tools["list_skills"].func()  # type: ignore[union-attr]
+    assert "[AVAILABLE] **code-review**" in list_out
+
+    # Load skill
+    load_res = tools["load_capability"].func(name="code-review")  # type: ignore[union-attr]
+    assert "# Skill: code-review" in load_res
+    assert "Analyze diffs carefully." in load_res
+
+    # System prompt additions after loading skill
+    loaded_prompts = skills_cap.get_system_prompt_additions()
+    assert len(loaded_prompts) == 2
+    assert "# Skill: code-review" in loaded_prompts[1]
+
+    # Load unknown skill
+    err_load = tools["load_capability"].func(name="ghost-skill")  # type: ignore[union-attr]
+    assert "Error: Skill 'ghost-skill' not found" in err_load
+
+    # 9. Additional edge cases: malformed frontmatter, mismatch, missing description, long description, duplicate
+    bad_fm_dir = tmp_path / "bad_fm"
+    bad_fm_dir.mkdir()
+    bad_s_dir = bad_fm_dir / "bad-skill"
+    bad_s_dir.mkdir()
+    (bad_s_dir / "SKILL.md").write_text("---\n: malformed: yaml\n---\nBody", encoding="utf-8")
+    with pytest.raises(ValueError, match="Malformed YAML frontmatter"):
+        Skills(bad_fm_dir)
+
+    mismatch_dir = tmp_path / "mismatch"
+    mismatch_dir.mkdir()
+    mis_s_dir = mismatch_dir / "actual-name"
+    mis_s_dir.mkdir()
+    (mis_s_dir / "SKILL.md").write_text(
+        "---\nname: different-name\ndescription: test\n---\nBody", encoding="utf-8"
+    )
+    with pytest.raises(ValueError, match="does not match directory"):
+        Skills(mismatch_dir)
+
+    nodesc_dir = tmp_path / "nodesc"
+    nodesc_dir.mkdir()
+    nd_s_dir = nodesc_dir / "nodesc-skill"
+    nd_s_dir.mkdir()
+    (nd_s_dir / "SKILL.md").write_text("---\nname: nodesc-skill\n---\nBody", encoding="utf-8")
+    with pytest.raises(ValueError, match="missing required 'description'"):
+        Skills(nodesc_dir)
+
+    longdesc_dir = tmp_path / "longdesc"
+    longdesc_dir.mkdir()
+    ld_s_dir = longdesc_dir / "long-skill"
+    ld_s_dir.mkdir()
+    (ld_s_dir / "SKILL.md").write_text(
+        f"---\ndescription: {'x' * 1050}\n---\nBody", encoding="utf-8"
+    )
+    with pytest.warns(UserWarning, match="exceeds 1024 character limit"):
+        Skills(longdesc_dir)
+
+    lib2_dir = tmp_path / "skills2"
+    lib2_dir.mkdir()
+    s2_dup = lib2_dir / "code-review"
+    s2_dup.mkdir()
+    (s2_dup / "SKILL.md").write_text("---\ndescription: duplicate\n---\nBody", encoding="utf-8")
+    with pytest.raises(ValueError, match="Duplicate skill name"):
+        Skills([lib_dir, lib2_dir])
+
+    empty_lib = tmp_path / "empty_lib"
+    empty_lib.mkdir()
+    empty_cap = Skills(empty_lib)
+    empty_tools = {t.name: t for t in empty_cap.get_tools()}
+    assert empty_tools["list_skills"].func() == "No skills configured."
+    assert empty_cap.get_system_prompt_additions() == []
+
+
+def test_repo_context_suite(tmp_path: Path) -> None:
+    """Comprehensive test suite for RepoContext capability across all 3 strategies."""
+    from devops_cli.ai.harness import (
+        AgentContextInventory,
+        RepoContext,
+    )
+
+    # 1. Setup nested directory hierarchy
+    repo_root = tmp_path / "my_project"
+    repo_root.mkdir()
+    (repo_root / "AGENTS.md").write_text(
+        "# Project Agent Guidelines\nUse strict typing.", encoding="utf-8"
+    )
+
+    src_dir = repo_root / "src"
+    src_dir.mkdir()
+    pkg_dir = src_dir / "services"
+    pkg_dir.mkdir(parents=True)
+    (pkg_dir / "CLAUDE.md").write_text(
+        "# Service Specific Rules\nUse async pipelines.", encoding="utf-8"
+    )
+
+    # 2. Strategy 1: Walk-up instruction autoload (ancestor-first)
+    ctx = RepoContext(workspace_dir=pkg_dir, home_dir=repo_root, autoload_instructions=True)
+    prompts = ctx.get_system_prompt_additions()
+    assert len(prompts) >= 2
+    # Ancestor prompt comes first
+    assert "Project Agent Guidelines" in prompts[0]
+    # Specific package prompt comes next
+    assert "Service Specific Rules" in prompts[1]
+
+    # No home_dir provided (only workspace_dir is scanned)
+    local_only_ctx = RepoContext(workspace_dir=pkg_dir, home_dir=None)
+    local_prompts = local_only_ctx.get_system_prompt_additions()
+    assert len(local_prompts) >= 1
+    assert "Service Specific Rules" in local_prompts[0]
+    assert "Project Agent Guidelines" not in " ".join(local_prompts)
+
+    # 3. Strategy 2: Asset inventory
+    # Setup .agents, .claude, .codex
+    agents_dir = repo_root / ".agents"
+    (agents_dir / "skills" / "k8s-deploy").mkdir(parents=True)
+    (agents_dir / "skills" / "k8s-deploy" / "SKILL.md").write_text(
+        "---\nname: k8s-deploy\ndescription: Deploy k8s stack\n---\nBody", encoding="utf-8"
+    )
+
+    claude_dir = repo_root / ".claude"
+    (claude_dir / "agents").mkdir(parents=True)
+    (claude_dir / "agents" / "security-auditor.md").write_text(
+        "# Security Auditor", encoding="utf-8"
+    )
+
+    codex_dir = repo_root / ".codex"
+    codex_dir.mkdir()
+    (codex_dir / "settings.json").write_text(
+        '{"lint_hook": "ruff", "test_hook": "pytest"}', encoding="utf-8"
+    )
+
+    inv_ctx = RepoContext(workspace_dir=repo_root, expose_inventory_tool=True)
+    inv: AgentContextInventory = inv_ctx.inventory()
+    assert inv.workspace_dir == repo_root
+    assert inv.roots[".agents"].exists is True
+    assert inv.roots[".agents"].skills == ["k8s-deploy"]
+    assert inv.roots[".claude"].exists is True
+    assert inv.roots[".claude"].agents == ["security-auditor"]
+    assert inv.roots[".codex"].exists is True
+    assert set(inv.roots[".codex"].hooks) == {"lint_hook", "test_hook"}
+    assert inv.roots[".grok"].exists is False
+
+    # Tool invocation
+    tools = {t.name: t for t in inv_ctx.get_tools()}
+    assert "inventory_agent_context" in tools
+    report = tools["inventory_agent_context"].func()  # type: ignore[union-attr]
+    assert "Repository Context Inventory" in report
+    assert ".agents" in report
+    assert "k8s-deploy" in report
+    assert "security-auditor" in report
+
+    # 4. Strategy 3: Nested-on-traversal
+    trav_ctx = RepoContext(
+        workspace_dir=repo_root,
+        nested_traversal=True,
+        nested_inject="pointer",
+        traversal_tool_names=frozenset({"list_directory", "read_file"}),
+    )
+
+    # First access to pkg_dir surfaces CLAUDE.md pointer
+    t_res1 = trav_ctx.after_tool_execute(
+        "list_directory", {"path": str(pkg_dir)}, "items: [app.py]"
+    )
+    assert "[RepoContext: Note that CLAUDE.md is present in services/]" in t_res1
+
+    # Second access is deduplicated (only surfaced once per run)
+    t_res2 = trav_ctx.after_tool_execute(
+        "list_directory", {"path": str(pkg_dir)}, "items: [app.py]"
+    )
+    assert t_res2 == "items: [app.py]"
+
+    # Test nested_inject="contents"
+    content_trav_ctx = RepoContext(
+        workspace_dir=repo_root,
+        nested_traversal=True,
+        nested_inject="contents",
+    )
+    c_res = content_trav_ctx.after_tool_execute(
+        "read_file", {"path": str(pkg_dir / "app.py")}, "print('hello')"
+    )
+    assert "# Context from CLAUDE.md:" in c_res
+    assert "Use async pipelines." in c_res
+
+    # Ignored tools or non-traversal
+    no_trav_ctx = RepoContext(workspace_dir=repo_root, nested_traversal=False)
+    assert (
+        no_trav_ctx.after_tool_execute("list_directory", {"path": str(pkg_dir)}, "plain") == "plain"
+    )
+
+    # for_run creates fresh isolated instance
+    fresh_ctx = trav_ctx.for_run()
+    assert len(fresh_ctx.surfaced_directories) == 0
+
+
+def test_pydantic_ai_docs_suite(tmp_path: Path) -> None:
+    """Comprehensive test suite for PydanticAIDocs capability and resolution order."""
+    import os
+    from unittest.mock import MagicMock, patch
+
+    from devops_cli.ai.harness import (
+        DEFAULT_PYAI_DOCS_TOPICS,
+        PyaiDocs,
+        PydanticAIDocs,
+    )
+
+    # 1. Alias check
+    assert PyaiDocs is PydanticAIDocs
+    assert "capabilities" in DEFAULT_PYAI_DOCS_TOPICS
+
+    # 2. Local checkout resolution
+    docs_dir = tmp_path / "pyai_docs"
+    docs_dir.mkdir()
+    (docs_dir / "capabilities.md").write_text(
+        "# Capabilities Guide\nHow to build capabilities.", encoding="utf-8"
+    )
+
+    cap = PydanticAIDocs(local_docs_path=docs_dir, cache=True)
+    assert cap.read_doc("capabilities") == "# Capabilities Guide\nHow to build capabilities."
+    assert cap.read_doc("capabilities.md") == "# Capabilities Guide\nHow to build capabilities."
+
+    # Caching check: modify file, cached value persists
+    (docs_dir / "capabilities.md").write_text("# Changed Content", encoding="utf-8")
+    assert cap.read_doc("capabilities") == "# Capabilities Guide\nHow to build capabilities."
+
+    # Non-cached instance reads new content
+    no_cache_cap = PydanticAIDocs(local_docs_path=docs_dir, cache=False)
+    assert no_cache_cap.read_doc("capabilities") == "# Changed Content"
+
+    # 3. System prompt instructions
+    prompts = cap.get_system_prompt_additions()
+    assert len(prompts) == 1
+    assert "read_pyai_docs" in prompts[0]
+
+    # 4. Tool execution
+    tools = {t.name: t for t in cap.get_tools()}
+    assert "read_pyai_docs" in tools
+    tool_res = tools["read_pyai_docs"].func(topic="capabilities")  # type: ignore[union-attr]
+    assert "# Capabilities Guide" in tool_res
+
+    # 5. Remote fetch fallback
+    mock_client = MagicMock()
+    mock_resp = MagicMock(status_code=200, text="# Remote Hooks Guide")
+    mock_client.get.return_value = mock_resp
+    mock_client.__enter__.return_value = mock_client
+    mock_client.__exit__.return_value = None
+
+    with patch("devops_cli.http.client.new_http_client", return_value=mock_client):
+        remote_cap = PydanticAIDocs(local_docs_path=tmp_path / "empty_docs", cache=True)
+        assert remote_cap.read_doc("hooks") == "# Remote Hooks Guide"
+
+    # 6. Unresolvable topic error
+    err_resp = MagicMock(status_code=404, text="")
+    mock_client.get.return_value = err_resp
+    with patch("devops_cli.http.client.new_http_client", return_value=mock_client):
+        err_res = remote_cap.read_doc("nonexistent_topic_xyz")
+        assert "Could not resolve Pydantic AI documentation topic" in err_res
+
+    # 7. Environment variable fallback
+    with patch.dict(os.environ, {"PYDANTIC_AI_HARNESS_DOCS_PATH": str(docs_dir)}):
+        env_cap = PydanticAIDocs()
+        assert env_cap.read_doc("capabilities") == "# Changed Content"
+
+
+def test_harness_additional_coverage_suite(tmp_path: Path) -> None:
+    """Targeted tests covering FileSystem metadata, Shell background execution, Plan events, and edge cases."""
+    from devops_cli.ai.harness import (
+        FileSystem,
+        InMemoryPlanStore,
+        PlanEvent,
+        PlanEventEmitter,
+        PlanItem,
+        RepoContext,
+        Shell,
+        SqlitePlanStore,
+    )
+
+    # 1. FileSystem create_directory and file_info
+    fs = FileSystem(root=tmp_path, max_search_results=2)
+    fs_tools = {t.name: t for t in fs.get_tools()}
+
+    # create_directory
+    res_mkdir = fs_tools["create_directory"].func(path="sub/nested/dir")  # type: ignore[union-attr]
+    assert "successfully created" in res_mkdir
+    assert (tmp_path / "sub/nested/dir").is_dir()
+
+    # file_info on dir, file, and nonexistent
+    dir_info = fs_tools["file_info"].func(path="sub/nested")  # type: ignore[union-attr]
+    assert "Type: directory" in dir_info
+
+    sample_f = tmp_path / "sample.txt"
+    sample_f.write_text("line1\nline2\nline3\n", encoding="utf-8")
+    file_info_res = fs_tools["file_info"].func(path="sample.txt")  # type: ignore[union-attr]
+    assert "Type: regular file" in file_info_res
+    assert "Lines: 3" in file_info_res
+
+    missing_info = fs_tools["file_info"].func(path="ghost.txt")  # type: ignore[union-attr]
+    assert "does not exist" in missing_info
+
+    # Search with max_search_results truncation
+    for i in range(5):
+        (tmp_path / f"test_{i}.py").write_text("match_keyword = True\n", encoding="utf-8")
+    search_res = fs_tools["search_files"].func(query="match_keyword")  # type: ignore[union-attr]
+    assert "truncated at 2 results" in search_res
+
+    # 2. Shell start_command, check_command, stop_command
+    shell = Shell(cwd=tmp_path, allowed_commands=["python", "sleep", "echo"])
+    sh_tools = {t.name: t for t in shell.get_tools()}
+
+    start_res = sh_tools["start_command"].func(command='python -c "import time; time.sleep(2)"')  # type: ignore[union-attr]
+    assert "Background command started with ID:" in start_res
+    cmd_id = start_res.split(":")[-1].strip()
+
+    check_res = sh_tools["check_command"].func(command_id=cmd_id)  # type: ignore[union-attr]
+    assert "status:" in check_res
+
+    stop_res = sh_tools["stop_command"].func(command_id=cmd_id)  # type: ignore[union-attr]
+    assert "stopped" in stop_res.lower() or "terminated" in stop_res.lower()
+
+    # Ghost command checks
+    assert "not found" in sh_tools["check_command"].func(command_id="ghost_cmd_id")  # type: ignore[union-attr]
+    assert "not found" in sh_tools["stop_command"].func(command_id="ghost_cmd_id")  # type: ignore[union-attr]
+
+    # Command timeout
+    quick_shell = Shell(cwd=tmp_path, allowed_commands=["python"], timeout=0.1)
+    q_tools = {t.name: t for t in quick_shell.get_tools()}
+    tout_res = q_tools["run_command"].func(command='python -c "import time; time.sleep(1)"')  # type: ignore[union-attr]
+    assert "timed out" in tout_res
+
+    # 3. PlanEventEmitter & InMemoryPlanStore & SqlitePlanStore
+    events_received: list[PlanEvent] = []
+    emitter = PlanEventEmitter()
+    emitter.on_task_added(lambda ev: events_received.append(ev))
+    emitter.on_status_changed(lambda ev: events_received.append(ev))
+    emitter.on_completed(lambda ev: events_received.append(ev))
+
+    store = InMemoryPlanStore(event_emitter=emitter)
+    item1 = store.add_item(PlanItem(content="Initial task"))
+    assert len(events_received) == 1
+    assert events_received[0].event_type == "task_added"
+
+    store.update_item_status(item1.id, "in_progress")
+    assert len(events_received) == 2
+    assert events_received[1].event_type == "status_changed"
+
+    store.update_item_status(item1.id, "completed")
+    assert len(events_received) == 3
+    assert events_received[2].event_type == "completed"
+
+    assert store.remove_item(item1.id) is True
+    assert store.remove_item("nonexistent") is False
+
+    # SqlitePlanStore
+    db_file = tmp_path / "test_plan.db"
+    sql_store = SqlitePlanStore(db_path=db_file, session="sess1", event_emitter=emitter)
+    sql_item = sql_store.add_item(PlanItem(content="SQL task"))
+    assert sql_store.get_items()[0].content == "SQL task"
+    sql_store.update_item_status(sql_item.id, "completed")
+    assert sql_store.get_items()[0].status == "completed"
+    assert sql_store.remove_item(sql_item.id) is True
+
+    # 4. RepoContext edge cases: subfolder agent directory and malformed settings
+    ce_repo = tmp_path / "ce_repo"
+    ce_repo.mkdir()
+    agents_dir = ce_repo / ".agents" / "agents" / "custom_agent"
+    agents_dir.mkdir(parents=True)
+    (agents_dir / "AGENT.md").write_text("# Subfolder Agent", encoding="utf-8")
+
+    (ce_repo / ".claude").mkdir(parents=True)
+    (ce_repo / ".claude" / "settings.json").write_text("{invalid json", encoding="utf-8")
+
+    ce_ctx = RepoContext(workspace_dir=ce_repo)
+    inv = ce_ctx.inventory()
+    assert "custom_agent" in inv.roots[".agents"].agents
+
+    # 5. Shell edge cases
+    sh_edge = Shell(cwd=tmp_path, denied_operators=[";", "&&"], timeout=1.0)
+    sh_tools = {t.name: t for t in sh_edge.get_tools()}
+    assert "Error: empty command" in sh_tools["run_command"].func("")  # type: ignore[union-attr]
+    assert "blocked by security policy" in sh_tools["run_command"].func("echo 1; echo 2")  # type: ignore[union-attr]
+    assert "not found" in sh_tools["check_command"].func("nonexistent_id")  # type: ignore[union-attr]
+    assert "not found" in sh_tools["stop_command"].func("nonexistent_id")  # type: ignore[union-attr]
+    assert "Error: empty command" in sh_tools["start_command"].func("")  # type: ignore[union-attr]
