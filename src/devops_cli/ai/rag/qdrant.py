@@ -345,18 +345,11 @@ class QdrantClient:
                 record_metric("qdrant.search_hits_count", float(len(hits)), unit="1")
                 return hits
             except Exception as exc:
-                err_str = str(exc)
-                if "not found" in err_str.lower() or "404" in err_str:
+                err_str = str(exc).lower()
+                if "not found" in err_str or "404" in err_str:
                     return []
-                if (
-                    "vector dimension error" in err_str.lower()
-                    or "dimension error" in err_str.lower()
-                ):
-                    logger.warning(
-                        "Qdrant search vector dimension mismatch in collection '%s': %s. Returning empty results.",
-                        name,
-                        exc,
-                    )
+                if "vector dimension error" in err_str or "dimension error" in err_str:
+                    logger.warning("Qdrant vector dimension mismatch in '%s': %s", name, exc)
                     return []
                 logger.debug("Error searching collection %s: %s", name, exc)
                 raise QdrantClientError(f"Search failed in '{name}': {exc}") from exc

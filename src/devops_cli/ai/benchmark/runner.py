@@ -30,6 +30,8 @@ from devops_cli.output import print_info, print_success, print_table, write_stdo
 logger = logging.getLogger(__name__)
 
 _GRADER_PROMPT_TEMPLATE = load_task_prompt("benchmark_peer_grader.md")
+_BENCHMARK_TASK_SYSTEM_PROMPT = load_task_prompt("benchmark_system.md").strip()
+_BENCHMARK_PEER_GRADER_SYSTEM_PROMPT = load_task_prompt("benchmark_peer_grader_system.md").strip()
 
 
 def _get_benchmarks_base_dir() -> Path:
@@ -303,7 +305,7 @@ class BenchmarkRunner:
 
             user_prompt = f"{task.prompt}{rag_block}"
             res_text = client.chat(
-                system="You are an expert DevOps and DevSecOps staff engineer.",
+                system=_BENCHMARK_TASK_SYSTEM_PROMPT,
                 user=user_prompt,
             )
             duration = time.monotonic() - t0
@@ -610,10 +612,7 @@ class BenchmarkRunner:
         err_msg = ""
         try:
             res = eval_client.chat(
-                system=(
-                    "You are an expert AI peer evaluation judge reviewing an anonymous "
-                    "candidate response against reference criteria. Return valid JSON only."
-                ),
+                system=_BENCHMARK_PEER_GRADER_SYSTEM_PROMPT,
                 user=prompt_text,
             )
             data = extract_json_block(res)

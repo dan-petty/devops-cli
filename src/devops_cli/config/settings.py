@@ -221,17 +221,16 @@ class AIConfig(BaseModel):
     @property
     def get_ollama_urls(self) -> list[str]:
         """Return non-empty list of Ollama base URLs."""
-        if self.ollama_urls:
-            cleaned = []
-            for u in self.ollama_urls:
-                if u and u.strip():
-                    val = u.strip().rstrip("/")
-                    if not val.startswith(("http://", "https://")):
-                        val = f"http://{val}"
-                    cleaned.append(val)
-            if cleaned:
-                return cleaned
-        return list(DEFAULT_OLLAMA_URLS)
+        if not self.ollama_urls:
+            return list(DEFAULT_OLLAMA_URLS)
+
+        cleaned: list[str] = []
+        for u in self.ollama_urls:
+            raw = (u or "").strip().rstrip("/")
+            if not raw:
+                continue
+            cleaned.append(raw if raw.startswith(("http://", "https://")) else f"http://{raw}")
+        return cleaned or list(DEFAULT_OLLAMA_URLS)
 
     def for_task(self, task: str) -> AIConfig:
         """Return a copy with task-specific overrides from ai.tasks.<task> applied."""

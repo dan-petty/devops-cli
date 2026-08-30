@@ -17,6 +17,40 @@ from devops_cli.telemetry import record_metric, trace_span
 F = TypeVar("F", bound=Callable[..., Any])
 
 
+def _record_success_metrics(command_name: str, elapsed: float, record_metrics: bool) -> None:
+    """Record duration and success counter metrics for a command."""
+    if not record_metrics:
+        return
+    record_metric(
+        "cli.command.duration_seconds",
+        elapsed,
+        attributes={"command": command_name, "status": "success"},
+    )
+    record_metric(
+        "cli.command.total",
+        1.0,
+        attributes={"command": command_name, "status": "success"},
+    )
+
+
+def _record_error_metrics(
+    command_name: str,
+    record_metrics: bool,
+    *,
+    error_code: str | None = None,
+    error_type: str | None = None,
+) -> None:
+    """Record error counter metric for a failed command."""
+    if not record_metrics:
+        return
+    attrs: dict[str, Any] = {"command": command_name, "status": "error"}
+    if error_code:
+        attrs["error_code"] = error_code
+    if error_type:
+        attrs["error_type"] = error_type
+    record_metric("cli.command.total", 1.0, attributes=attrs)
+
+
 def cli_command_handler(
     command_name: str,
     *,
@@ -42,42 +76,17 @@ def cli_command_handler(
                 try:
                     res = fn(*args, **kwargs)
                     elapsed = time.perf_counter() - t_start
-
                     span_h.set_attribute("cli.elapsed_seconds", elapsed)
                     span_h.set_attribute("cli.success", True)
                     span_h.add_event("command_completed", {"elapsed_seconds": elapsed})
-
-                    if record_metrics:
-                        record_metric(
-                            "cli.command.duration_seconds",
-                            elapsed,
-                            attributes={"command": command_name, "status": "success"},
-                        )
-                        record_metric(
-                            "cli.command.total",
-                            1.0,
-                            attributes={"command": command_name, "status": "success"},
-                        )
-
+                    _record_success_metrics(command_name, elapsed, record_metrics)
                     return res
 
                 except DevOpsCLIError as exc:
-                    elapsed = time.perf_counter() - t_start
                     span_h.set_attribute("cli.success", False)
                     span_h.set_attribute("cli.exit_code", exc.exit_code)
                     span_h.record_exception(exc)
-
-                    if record_metrics:
-                        record_metric(
-                            "cli.command.total",
-                            1.0,
-                            attributes={
-                                "command": command_name,
-                                "status": "error",
-                                "error_code": exc.error_code,
-                            },
-                        )
-
+                    _record_error_metrics(command_name, record_metrics, error_code=exc.error_code)
                     print_error(f"[{exc.error_code}] {exc.message}", prefix=True)
                     raise typer.Exit(code=exc.exit_code) from exc
 
@@ -85,20 +94,11 @@ def cli_command_handler(
                     raise
 
                 except Exception as exc:
-                    elapsed = time.perf_counter() - t_start
                     span_h.set_attribute("cli.success", False)
                     span_h.record_exception(exc)
-
-                    if record_metrics:
-                        record_metric(
-                            "cli.command.total",
-                            1.0,
-                            attributes={
-                                "command": command_name,
-                                "status": "error",
-                                "error_type": exc.__class__.__name__,
-                            },
-                        )
+                    _record_error_metrics(
+                        command_name, record_metrics, error_type=type(exc).__name__
+                    )
                     raise
 
         return wrapper  # type: ignore[return-value]

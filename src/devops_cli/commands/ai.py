@@ -675,7 +675,7 @@ def _stream_interactive_chat_turn(
     effective_prompt: str,
 ) -> None:
     """Execute streaming response with live thinking and output filtering."""
-    from devops_cli.ai.thinking import ThinkingStreamProcessor, strip_think_blocks
+    from devops_cli.ai.thinking_stream import ThinkingStreamProcessor, strip_think_blocks
 
     processor = ThinkingStreamProcessor(
         show_thinking=thinking,
@@ -815,7 +815,7 @@ def chat(
             write_stdout(f"\n{persona_def.title}: ")
             sys.stdout.flush()
 
-            from devops_cli.ai.thinking import strip_think_blocks
+            from devops_cli.ai.thinking_stream import strip_think_blocks
 
             if stream and not tools:
                 _stream_interactive_chat_turn(client, agent, thinking, effective_prompt)
@@ -828,8 +828,11 @@ def chat(
                 )
 
                 reply = strip_think_blocks(agent_res.content)
-                print_info(f"{reply.strip()}\n", prefix=False)
+                if reply.strip():
+                    print_info(f"{reply.strip()}\n", prefix=False)
 
+        except KeyboardInterrupt:
+            print_info("\n[dim]Interrupted.[/dim]\n", prefix=False)
         except Exception as exc:
             print_error(f"\nError: {exc}\n", prefix=False)
             if agent.memory.entries:
@@ -856,7 +859,7 @@ def bundle_models(
     ] = None,
 ) -> None:
     """Bundle Ollama model metadata into tarball for air-gapped DevContainers."""
-    from devops_cli.ai.bundle import bundle_ollama_models
+    from devops_cli.ai.model_bundler import bundle_ollama_models
 
     count, manifest_path = bundle_ollama_models(output_dir=output_dir)
     print_success(f"Bundled {count} model(s) → [bold]{manifest_path}[/bold]")

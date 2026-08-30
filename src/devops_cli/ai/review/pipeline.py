@@ -49,7 +49,7 @@ from devops_cli.ai.review_schema import (
     parse_review_response,
 )
 from devops_cli.ai.task_loader import load_task_prompt
-from devops_cli.ai.thinking import extract_think_blocks
+from devops_cli.ai.thinking_stream import extract_think_blocks
 from devops_cli.config.constants import (
     CONST_MAX_FILE_SIZE_BYTES,
 )
@@ -2082,13 +2082,8 @@ class ReviewPipelineOrchestrator:
                 f"[bold]Location:[/bold] [cyan]{escape_text(f.location)}[/cyan]  |  [bold]Persona:[/bold] [magenta]{escape_text(f.persona_title or f.persona)}[/magenta]",
             ]
             if f.description:
-                panel_lines.extend(
-                    [
-                        "",
-                        "[bold]Description:[/bold]",
-                        format_clean_text_field(f.description).strip(),
-                    ]
-                )
+                desc_text = format_clean_text_field(f.description).strip()
+                panel_lines.extend(["", "[bold]Description:[/bold]", desc_text])
             if f.fix:
                 panel_lines.extend(
                     ["", "[bold]Suggested Fix:[/bold]", format_clean_text_field(f.fix).strip()]

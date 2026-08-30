@@ -99,7 +99,8 @@ def test_ai_token_count_and_route(tmp_path: Path) -> None:
 def test_ai_bundle_models_and_pipeline(tmp_path: Path) -> None:
     """Test ai bundle-models and pipeline subcommands."""
     with patch(
-        "devops_cli.ai.bundle.bundle_ollama_models", return_value=(2, tmp_path / "models.tar.gz")
+        "devops_cli.ai.model_bundler.bundle_ollama_models",
+        return_value=(2, tmp_path / "models.tar.gz"),
     ):
         res_bundle = runner.invoke(ai_app, ["bundle-models", "--output", str(tmp_path)])
         assert res_bundle.exit_code == 0
@@ -249,7 +250,8 @@ def test_ai_extended_commands(tmp_path: Path) -> None:
 
     # 1. bundle-models
     with patch(
-        "devops_cli.ai.bundle.bundle_ollama_models", return_value=(2, tmp_path / "models.tar.gz")
+        "devops_cli.ai.model_bundler.bundle_ollama_models",
+        return_value=(2, tmp_path / "models.tar.gz"),
     ):
         res_bundle = runner.invoke(ai_app, ["bundle-models", "--output", str(tmp_path)])
         assert res_bundle.exit_code == 0
@@ -471,7 +473,7 @@ def test_ai_token_count_route_pipeline_bundle(tmp_path: Path) -> None:
 
     # 8. bundle-models command
     with patch(
-        "devops_cli.ai.bundle.bundle_ollama_models",
+        "devops_cli.ai.model_bundler.bundle_ollama_models",
         return_value=(2, Path("/tmp/ollama_bundle.tar.gz")),
     ):
         res_bundle = runner.invoke(ai_app, ["bundle-models"])

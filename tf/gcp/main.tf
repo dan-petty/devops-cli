@@ -71,7 +71,7 @@ resource "google_container_cluster" "gke" {
     workload_pool = "${var.project_id}.svc.id.goog"
   }
 
-  deletion_protection = false
+  deletion_protection = var.deletion_protection
 }
 
 # 5. GKE Managed Node Pool

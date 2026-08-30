@@ -48,7 +48,7 @@ def test_openai_embeddings_success(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     monkeypatch.setattr(httpx2.Client, "post", lambda self, url, **kwargs: fake_post(url, **kwargs))
     ai_cfg = AIConfig(provider="openai", allow_private_network=True)
-    engine = EmbeddingsEngine(ai_cfg, api_key="sk-fake")
+    engine = EmbeddingsEngine(ai_cfg, api_key="mock-test-key")
     embs = engine.embed_texts(["sample text"])
     assert len(embs) == 1
     assert len(embs[0]) == 1536

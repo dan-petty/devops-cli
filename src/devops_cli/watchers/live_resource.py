@@ -30,6 +30,17 @@ class LiveResourceWatcher:
         """Signal the live watcher loop to stop."""
         self._running = False
 
+    def _run_loop(self, live: Live, max_iterations: int | None) -> int:
+        """Run update loop within active Live context."""
+        iterations = 0
+        while self._running:
+            live.update(self.render_fn(), refresh=True)
+            iterations += 1
+            if max_iterations is not None and iterations >= max_iterations:
+                break
+            time.sleep(self.interval_seconds)
+        return iterations
+
     def watch(self, *, max_iterations: int | None = None) -> None:
         """Run the live watcher loop until stopped or cancelled via keyboard interrupt."""
         with trace_span(
@@ -41,7 +52,6 @@ class LiveResourceWatcher:
         ) as span_h:
             self._running = True
             iterations = 0
-
             try:
                 with Live(
                     self.render_fn(),
@@ -49,15 +59,7 @@ class LiveResourceWatcher:
                     refresh_per_second=max(1, int(1.0 / self.interval_seconds)),
                     auto_refresh=False,
                 ) as live:
-                    while self._running:
-                        content = self.render_fn()
-                        live.update(content, refresh=True)
-                        iterations += 1
-
-                        if max_iterations is not None and iterations >= max_iterations:
-                            break
-
-                        time.sleep(self.interval_seconds)
+                    iterations = self._run_loop(live, max_iterations)
             except KeyboardInterrupt:
                 self._running = False
                 span_h.add_event("watcher_cancelled_by_user", {"iterations": iterations})

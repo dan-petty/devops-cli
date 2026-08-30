@@ -79,8 +79,72 @@ class StagePipeline[ContextT, ResultT]:
         """Register a lifecycle hook on the pipeline."""
         self.hooks.append(hook)
 
+    def _notify_hooks_start(self, stage_name: str, context: Any) -> None:
+        """Safely notify all registered hooks of stage start."""
+        for h in self.hooks:
+            try:
+                h.on_stage_start(stage_name, context)
+            except Exception:
+                pass
+
+    def _notify_hooks_complete(
+        self, stage_name: str, context: Any, rec: StageExecutionRecord
+    ) -> None:
+        """Safely notify all registered hooks of stage completion."""
+        for h in self.hooks:
+            try:
+                h.on_stage_complete(stage_name, context, rec)
+            except Exception:
+                pass
+
+    def _run_stage_with_span(
+        self,
+        stage: BasePipelineStage[Any, Any],
+        context: Any,
+        rec: StageExecutionRecord,
+        t_start: float,
+    ) -> None:
+        """Execute a single stage within a dedicated trace span."""
+        stage_name = stage.name
+        with trace_span(
+            f"pipeline.{self.name}.{stage_name}",
+            attributes={"stage.name": stage_name, "pipeline.name": self.name},
+        ) as stage_span:
+            try:
+                stage.execute(context)
+                rec.success = True
+            except Exception as exc:
+                rec.success = False
+                rec.error_message = str(exc)
+                stage_span.record_exception(exc)
+            finally:
+                rec.duration_seconds = time.perf_counter() - t_start
+                stage_span.set_attribute("stage.duration_seconds", rec.duration_seconds)
+                stage_span.set_attribute("stage.success", rec.success)
+
+    def _execute_stage(
+        self, stage: BasePipelineStage[Any, Any], context: Any
+    ) -> StageExecutionRecord:
+        """Execute a single stage lifecycle including hooks and telemetry."""
+        stage_name = stage.name
+        if not stage.is_enabled(context):
+            return StageExecutionRecord(stage_name=stage_name, skipped=True, success=True)
+
+        self._notify_hooks_start(stage_name, context)
+        t_start = time.perf_counter()
+        rec = StageExecutionRecord(stage_name=stage_name, skipped=False)
+        self._run_stage_with_span(stage, context, rec, t_start)
+
+        record_metric(
+            "pipeline.stage.duration_seconds",
+            rec.duration_seconds,
+            attributes={"pipeline": self.name, "stage": stage_name, "success": rec.success},
+        )
+        self._notify_hooks_complete(stage_name, context, rec)
+        return rec
+
     def run(self, context: ContextT) -> list[StageExecutionRecord]:
-        """Execute all registered pipeline stages sequentially against the provided context."""
+        """Execute all enabled pipeline stages in sequential order with telemetry."""
         records: list[StageExecutionRecord] = []
 
         with trace_span(
@@ -88,53 +152,11 @@ class StagePipeline[ContextT, ResultT]:
             attributes={"pipeline.name": self.name, "pipeline.stages_count": len(self.stages)},
         ) as pipe_span:
             pipe_span.add_event("pipeline_started", {"stages": [s.name for s in self.stages]})
-
             for stage in self.stages:
-                stage_name = stage.name
-                if not stage.is_enabled(context):
-                    rec = StageExecutionRecord(stage_name=stage_name, skipped=True, success=True)
-                    records.append(rec)
-                    continue
-
-                for h in self.hooks:
-                    try:
-                        h.on_stage_start(stage_name, context)
-                    except Exception:
-                        pass
-
-                t_start = time.perf_counter()
-                rec = StageExecutionRecord(stage_name=stage_name, skipped=False)
-
-                with trace_span(
-                    f"pipeline.{self.name}.{stage_name}",
-                    attributes={"stage.name": stage_name, "pipeline.name": self.name},
-                ) as stage_span:
-                    try:
-                        stage.execute(context)
-                        rec.success = True
-                    except Exception as exc:
-                        rec.success = False
-                        rec.error_message = str(exc)
-                        stage_span.record_exception(exc)
-                    finally:
-                        rec.duration_seconds = time.perf_counter() - t_start
-                        stage_span.set_attribute("stage.duration_seconds", rec.duration_seconds)
-                        stage_span.set_attribute("stage.success", rec.success)
-
+                rec = self._execute_stage(stage, context)
                 records.append(rec)
-                record_metric(
-                    "pipeline.stage.duration_seconds",
-                    rec.duration_seconds,
-                    attributes={"pipeline": self.name, "stage": stage_name, "success": rec.success},
-                )
 
-                for h in self.hooks:
-                    try:
-                        h.on_stage_complete(stage_name, context, rec)
-                    except Exception:
-                        pass
-
-            total_dur = sum(r.duration_seconds for r in records)
-            pipe_span.set_attribute("pipeline.duration_seconds", total_dur)
+            all_ok = all(r.success for r in records if not r.skipped)
+            pipe_span.set_attribute("pipeline.success", all_ok)
 
         return records

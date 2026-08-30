@@ -6,6 +6,7 @@ import os
 import time
 from collections.abc import Callable, Sequence
 from pathlib import Path
+from typing import Any
 
 from devops_cli.telemetry import trace_span
 
@@ -49,6 +50,28 @@ class DebouncedFileWatcher:
                 return True
         return False
 
+    def _scan_file_target(self, root: Path, mtimes: dict[Path, float]) -> None:
+        """Record mtime for a single file target."""
+        if self._should_ignore(root):
+            return
+        try:
+            mtimes[root] = root.stat().st_mtime
+        except OSError:
+            pass
+
+    def _scan_dir_target(self, root: Path, mtimes: dict[Path, float]) -> None:
+        """Recursively scan a directory tree for file mtimes."""
+        for dirpath, dirnames, filenames in os.walk(root):
+            dirnames[:] = [d for d in dirnames if not self._should_ignore(Path(d))]
+            paths = (Path(dirpath) / fname for fname in filenames)
+            for fpath in paths:
+                if self._should_ignore(fpath):
+                    continue
+                try:
+                    mtimes[fpath] = fpath.stat().st_mtime
+                except OSError:
+                    pass
+
     def _scan_files(self) -> dict[Path, float]:
         """Scan watched directories and record current file mtimes."""
         mtimes: dict[Path, float] = {}
@@ -56,22 +79,9 @@ class DebouncedFileWatcher:
             if not root.exists():
                 continue
             if root.is_file():
-                if not self._should_ignore(root):
-                    with os.scandir(root.parent) as it:
-                        for entry in it:
-                            if entry.name == root.name and entry.is_file():
-                                mtimes[root] = entry.stat().st_mtime
-                continue
-
-            for dirpath, dirnames, filenames in os.walk(root):
-                dirnames[:] = [d for d in dirnames if not self._should_ignore(Path(d))]
-                for fname in filenames:
-                    fpath = Path(dirpath) / fname
-                    if not self._should_ignore(fpath):
-                        try:
-                            mtimes[fpath] = fpath.stat().st_mtime
-                        except OSError:
-                            pass
+                self._scan_file_target(root, mtimes)
+            else:
+                self._scan_dir_target(root, mtimes)
         return mtimes
 
     def check_changes(self) -> list[Path]:
@@ -91,6 +101,29 @@ class DebouncedFileWatcher:
         """Signal the file watcher loop to stop."""
         self._running = False
 
+    def _handle_file_changes(self, changed: list[Path], span_h: Any) -> None:
+        """Handle detected file modifications."""
+        span_h.add_event(
+            "files_changed",
+            {"count": len(changed), "files": [str(p) for p in changed[:5]]},
+        )
+        time.sleep(self.debounce_seconds)
+        self.on_change(changed)
+
+    def _run_watch_loop(self, max_iterations: int | None, span_h: Any) -> int:
+        """Run the main change polling loop."""
+        iterations = 0
+        while self._running:
+            changed = self.check_changes()
+            if changed:
+                self._handle_file_changes(changed, span_h)
+
+            iterations += 1
+            if max_iterations is not None and iterations >= max_iterations:
+                break
+            time.sleep(self.poll_interval_seconds)
+        return iterations
+
     def watch(self, *, max_iterations: int | None = None) -> None:
         """Run the file change monitoring loop."""
         with trace_span(
@@ -101,27 +134,10 @@ class DebouncedFileWatcher:
             },
         ) as span_h:
             self._running = True
-            # Prime initial mtimes
             self._last_mtimes = self._scan_files()
             iterations = 0
-
             try:
-                while self._running:
-                    changed = self.check_changes()
-                    if changed:
-                        span_h.add_event(
-                            "files_changed",
-                            {"count": len(changed), "files": [str(p) for p in changed[:5]]},
-                        )
-                        # Debounce wait
-                        time.sleep(self.debounce_seconds)
-                        self.on_change(changed)
-
-                    iterations += 1
-                    if max_iterations is not None and iterations >= max_iterations:
-                        break
-
-                    time.sleep(self.poll_interval_seconds)
+                iterations = self._run_watch_loop(max_iterations, span_h)
             except KeyboardInterrupt:
                 self._running = False
             finally:

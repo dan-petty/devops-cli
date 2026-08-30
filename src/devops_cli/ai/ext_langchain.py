@@ -91,15 +91,12 @@ class LangChainToolset(FunctionToolset):
         timeout: float | None = None,
         max_retries: int | None = None,
     ) -> None:
-        converted_tools: list[Tool] = []
-        if tools:
-            for t in tools:
-                if isinstance(t, Tool):
-                    converted_tools.append(t)
-                else:
-                    converted_tools.append(
-                        tool_from_langchain(t, timeout=timeout, max_retries=max_retries)
-                    )
+        converted_tools: list[Tool] = [
+            t
+            if isinstance(t, Tool)
+            else tool_from_langchain(t, timeout=timeout, max_retries=max_retries)
+            for t in (tools or [])
+        ]
         super().__init__(
             tools=converted_tools,
             instructions=instructions,

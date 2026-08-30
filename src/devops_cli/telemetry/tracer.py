@@ -573,6 +573,28 @@ class OTelTelemetryClient:
         """Convenience method to record an incremented counter metric."""
         self.record_metric(name, amount, unit=unit, attributes=attributes)
 
+    def _populate_exception_span_attributes(
+        self,
+        exc: BaseException,
+        attrs: dict[str, Any],
+        exit_code: int | None,
+    ) -> str:
+        """Populate span attributes for an exception and return a descriptive error message."""
+        error_msg = str(exc) or exc.__class__.__name__
+        if isinstance(exc, KeyboardInterrupt):
+            attrs["error.type"] = "KeyboardInterrupt"
+            attrs["cli.interrupted"] = True
+            return "Command cancelled by user (SIGINT / KeyboardInterrupt)"
+
+        attrs["error.type"] = exc.__class__.__name__
+        attrs["error.message"] = str(exc)
+        if exit_code is not None:
+            attrs["cli.exit_code"] = exit_code
+            attrs["process.exit.code"] = exit_code
+            if str(exc) == str(exit_code) or not str(exc):
+                error_msg = f"{exc.__class__.__name__}(exit_code={exit_code})"
+        return error_msg
+
     @contextlib.contextmanager
     def span(
         self,
@@ -637,19 +659,7 @@ class OTelTelemetryClient:
                 raise
 
             status_code = "STATUS_CODE_ERROR"
-            error_msg = str(exc) or exc.__class__.__name__
-            if isinstance(exc, KeyboardInterrupt):
-                attrs["error.type"] = "KeyboardInterrupt"
-                attrs["cli.interrupted"] = True
-                error_msg = "Command cancelled by user (SIGINT / KeyboardInterrupt)"
-            else:
-                attrs["error.type"] = exc.__class__.__name__
-                attrs["error.message"] = str(exc)
-                if exit_code is not None:
-                    attrs["cli.exit_code"] = exit_code
-                    attrs["process.exit.code"] = exit_code
-                    if str(exc) == str(exit_code) or not str(exc):
-                        error_msg = f"{exc.__class__.__name__}(exit_code={exit_code})"
+            error_msg = self._populate_exception_span_attributes(exc, attrs, exit_code)
             if not isinstance(exc, (SystemExit, KeyboardInterrupt)):
                 handle.record_exception(exc)
             else:
