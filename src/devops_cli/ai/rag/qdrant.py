@@ -163,13 +163,13 @@ class QdrantClient:
                 return status
 
         try:
-            probe_client = NativeQdrantClient(
+            client = self._client or NativeQdrantClient(
                 url=self.base_url,
                 api_key=self.api_key,
                 timeout=1,
                 check_compatibility=False,
             )
-            probe_client.get_collections()
+            client.get_collections()
             self._last_alive = (now, True)
             return True
         except Exception:
