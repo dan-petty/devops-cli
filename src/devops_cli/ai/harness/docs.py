@@ -18,6 +18,7 @@ DEFAULT_PYAI_DOCS_TOPICS: tuple[str, ...] = (
     "guardrails",
     "hooks",
     "prompt-injection-defender",
+    "spend",
     "tools",
     "tools-advanced",
     "toolsets",
