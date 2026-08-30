@@ -633,3 +633,49 @@ class SelectModel(BaseCapability):
             )
             return str(self.selector(sel_ctx))
         return str(self.selector(ctx))
+
+
+class ModelResolutionContext[DepsT](BaseModel):
+    """Runtime context provided to dynamic model ID resolvers."""
+
+    deps: DepsT | None = None
+    session_id: str = ""
+    tenant_id: str | None = None
+    model_id: str = ""
+
+
+class ResolveModelId(BaseCapability):
+    """Capability that intercepts and resolves custom or tenant-specific model identifiers."""
+
+    id: str = "resolve_model_id"
+    resolver: Any = None
+
+    def __init__(
+        self,
+        resolver: Callable[..., Any] | None = None,
+        *,
+        id: str = "resolve_model_id",
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(id=id, resolver=resolver or kwargs.get("resolver"), **kwargs)
+
+    def resolve(
+        self,
+        model_id: str,
+        ctx: ModelResolutionContext[Any] | RunContext[Any] | None = None,
+    ) -> Any | None:
+        """Resolve a model identifier to a concrete model ID or instance."""
+        if not callable(self.resolver):
+            return None
+        res_ctx: ModelResolutionContext[Any]
+        if ctx is None:
+            res_ctx = ModelResolutionContext[Any](model_id=model_id)
+        elif isinstance(ctx, RunContext):
+            res_ctx = ModelResolutionContext[Any](
+                deps=ctx.deps,
+                session_id=ctx.session_id,
+                model_id=model_id,
+            )
+        else:
+            res_ctx = ctx
+        return self.resolver(res_ctx, model_id)

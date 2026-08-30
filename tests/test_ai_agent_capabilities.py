@@ -159,3 +159,36 @@ def test_select_model_capability() -> None:
     # 2. RunContext interoperability
     run_ctx = RunContext(deps={"task_complexity": "complex"}, session_id="s1")
     assert cap.select_model(run_ctx) == "openai:gpt-4o"
+
+
+def test_resolve_model_id_capability() -> None:
+    """Verify ResolveModelId custom alias and tenant-specific model resolution."""
+    from devops_cli.ai.agents import ModelResolutionContext, ResolveModelId, RunContext
+
+    def custom_resolver(ctx: ModelResolutionContext[dict[str, Any]], model_id: str) -> str | None:
+        if model_id.startswith("tenant:"):
+            tenant = (ctx.deps or {}).get("tenant", "default")
+            return f"openai:{tenant}-{model_id.removeprefix('tenant:')}"
+        if model_id == "alias:fast":
+            return "openai:gpt-4o-mini"
+        if model_id == "alias:reasoning":
+            return "openai:o1"
+        return None
+
+    resolver_cap = ResolveModelId(custom_resolver)
+    assert resolver_cap.id == "resolve_model_id"
+
+    # 1. Alias mapping
+    assert resolver_cap.resolve("alias:fast") == "openai:gpt-4o-mini"
+    assert resolver_cap.resolve("alias:reasoning") == "openai:o1"
+
+    # 2. Unknown passes through as None
+    assert resolver_cap.resolve("openai:gpt-4o") is None
+
+    # 3. Tenant resolution via context
+    ctx = ModelResolutionContext(deps={"tenant": "acme"}, model_id="tenant:prod-model")
+    assert resolver_cap.resolve("tenant:prod-model", ctx) == "openai:acme-prod-model"
+
+    # 4. RunContext adapter
+    run_ctx = RunContext(deps={"tenant": "globex"}, model="tenant:staging-model")
+    assert resolver_cap.resolve("tenant:staging-model", run_ctx) == "openai:globex-staging-model"
