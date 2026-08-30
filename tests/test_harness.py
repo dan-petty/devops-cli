@@ -646,3 +646,143 @@ def test_planning_hooks_and_options() -> None:
     hooks.before_model_request[0](ctx, msgs)
     assert "<plan-reminder" in msgs[-1].content
     assert "Hook Task (Hooking)" in msgs[-1].content
+
+
+def test_clamp_effort_and_options() -> None:
+    from devops_cli.ai.harness import (
+        MINIMUM_EFFORT_FLOOR,
+        ModelOption,
+        clamp_effort,
+    )
+
+    assert clamp_effort(None) == MINIMUM_EFFORT_FLOOR
+    assert clamp_effort(False) == MINIMUM_EFFORT_FLOOR
+    assert clamp_effort(True) is True
+    assert clamp_effort("minimal") == "low"
+    assert clamp_effort("high") == "high"
+    assert clamp_effort("max") == "max"
+
+    opt = ModelOption(
+        model="test-model", description="Reasoning model", settings={"thinking": "high"}
+    )
+    assert opt.model == "test-model"
+    assert opt.description == "Reasoning model"
+
+
+def test_subagent_run_controls_and_budget() -> None:
+    from devops_cli.ai.harness import SubAgent, SubAgents
+
+    call_history: list[str] = []
+
+    def dummy_worker(prompt: str) -> str:
+        call_history.append(prompt)
+        if "fail" in prompt:
+            raise ValueError("Execution failed")
+        return f"Processed: {prompt}"
+
+    sub = SubAgent(
+        agent=dummy_worker,
+        name="worker",
+        description="Worker subagent",
+        max_calls=2,
+        on_failure="Fallback message for failure",
+        contain_errors=True,
+    )
+
+    subagents = SubAgents(agents=[sub], contain_errors=True)
+    tools = {t.name: t for t in subagents.get_tools()}
+
+    assert "delegate_task" in tools
+    assert "delegate_to_worker" in tools
+
+    # First call succeeds
+    res1 = tools["delegate_task"].func(agent_name="worker", task="Task 1")  # type: ignore[union-attr]
+    assert res1 == "Processed: Task 1"
+
+    # Second call succeeds
+    res2 = tools["delegate_to_worker"].func(prompt="Task 2")  # type: ignore[union-attr]
+    assert res2 == "Processed: Task 2"
+
+    # Third call exhausts budget
+    res3 = tools["delegate_task"].func(agent_name="worker", task="Task 3")  # type: ignore[union-attr]
+    assert "Fallback message for failure" in res3
+
+    # Test unknown agent
+    unknown_res = tools["delegate_task"].func(agent_name="unknown", task="Task")  # type: ignore[union-attr]
+    assert "Error: unknown sub-agent 'unknown'" in unknown_res
+
+    # Test error containment and fallback
+    failing_sub = SubAgent(
+        agent=dummy_worker,
+        name="failing_worker",
+        contain_errors=True,
+    )
+    subagents_err = SubAgents(agents=[failing_sub])
+    err_tools = {t.name: t for t in subagents_err.get_tools()}
+    crashed_res = err_tools["delegate_task"].func(agent_name="failing_worker", task="fail now")  # type: ignore[union-attr]
+    assert "Sub-agent 'failing_worker' crashed" in crashed_res
+
+
+def test_subagent_model_routing() -> None:
+    from devops_cli.ai.harness import ModelOption, SubAgent, SubAgents
+
+    def mock_agent(prompt: str) -> str:
+        return f"OK: {prompt}"
+
+    sub1 = SubAgent(agent=mock_agent, name="fast_bot", models=["fast"])
+    sub2 = SubAgent(agent=mock_agent, name="general_bot")
+
+    subagents = SubAgents(
+        agents=[sub1, sub2],
+        models={
+            "fast": "anthropic:claude-haiku",
+            "deep": ModelOption(model="anthropic:claude-opus", description="deep reasoning"),
+        },
+    )
+
+    tools = {t.name: t for t in subagents.get_tools()}
+
+    # Call with allowed model
+    ok_res = tools["delegate_task"].func(agent_name="fast_bot", task="fast task", model="fast")  # type: ignore[union-attr]
+    assert ok_res == "OK: fast task"
+
+    # Call with disallowed model for pinned subagent
+    disallowed_res = tools["delegate_task"].func(
+        agent_name="fast_bot", task="fast task", model="deep"
+    )  # type: ignore[union-attr]
+    assert "Error: model 'deep' not allowed for sub-agent 'fast_bot'" in disallowed_res
+
+    # Call with unknown model
+    unknown_model_res = tools["delegate_task"].func(
+        agent_name="general_bot", task="gen task", model="unknown_model"
+    )  # type: ignore[union-attr]
+    assert "Error: model 'unknown_model' not in model menu" in unknown_model_res
+
+    # System prompt additions check
+    prompt_add = subagents.get_system_prompt_additions()[0]
+    assert "Available Sub-Agents for delegation:" in prompt_add
+    assert "fast_bot" in prompt_add
+    assert "Model Menu:" in prompt_add
+
+
+def test_subagents_markdown_disk_loading(tmp_path: Path) -> None:
+    from devops_cli.ai.harness import SubAgents
+
+    agent_dir = tmp_path / "agents"
+    agent_dir.mkdir(parents=True)
+
+    agent_file = agent_dir / "analyst.md"
+    agent_file.write_text(
+        "---\nname: analyst\ndescription: Data Analyst Agent\ntools: read_file, run_query\n---\nYou analyze system metrics and logs.",
+        encoding="utf-8",
+    )
+
+    subagents = SubAgents(agent_folders=[agent_dir])
+    loaded = subagents.load_disk_agents()
+
+    assert len(loaded) == 1
+    assert loaded[0].name == "analyst"
+    assert loaded[0].description == "Data Analyst Agent"
+
+    tools = {t.name: t for t in subagents.get_tools()}
+    assert "delegate_to_analyst" in tools

@@ -6,7 +6,7 @@ import os
 import subprocess
 import uuid
 from collections import defaultdict
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any, Literal, cast
 
@@ -1334,49 +1334,336 @@ class Planning(BaseCapability):
         return AgentHooks(before_model_request=[_inject_plan_reminder])
 
 
+MINIMUM_EFFORT_FLOOR: str = "low"
+
+_EFFORT_RANKS: dict[str, int] = {
+    "minimal": 1,
+    "low": 2,
+    "medium": 3,
+    "high": 4,
+    "xhigh": 5,
+    "max": 6,
+}
+
+
+def clamp_effort(level: str | bool | None, floor: str = MINIMUM_EFFORT_FLOOR) -> str | bool | None:
+    """Clamp thinking effort level to a minimum floor.
+
+    Maps None/False to the floor, leaves True (provider default) unchanged,
+    and raises concrete effort levels below the floor up to the floor.
+    """
+    if level is None or level is False:
+        return floor
+    if level is True:
+        return True
+    if isinstance(level, str):
+        level_lower = level.lower()
+        floor_lower = floor.lower()
+        rank = _EFFORT_RANKS.get(level_lower, 2)
+        floor_rank = _EFFORT_RANKS.get(floor_lower, 2)
+        return floor if rank < floor_rank else level
+    return floor
+
+
+class ModelOption(BaseModel):
+    """Model menu option carrying routing hints and model settings."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    model: str | Any
+    description: str | None = None
+    settings: Any | None = None
+
+
+class AgentOverride(BaseModel):
+    """Override configuration for a disk-loaded sub-agent."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    model: str | None = None
+    effort: str | None = None
+
+
 class SubAgent(BaseModel):
-    """Wrapper defining a callable child sub-agent."""
+    """Wrapper defining a callable child sub-agent with per-delegate run controls."""
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     agent: Any
     name: str = ""
     description: str = ""
+    models: list[str] | None = None
+    usage_limits: Any | None = None
+    timeout_seconds: float | None = None
+    max_calls: int | None = None
+    on_failure: str | None = None
+    contain_errors: bool | None = None
 
-    def __init__(self, agent: Any, name: str | None = None, description: str | None = None) -> None:
+    def __init__(
+        self,
+        agent: Any,
+        *,
+        name: str | None = None,
+        description: str | None = None,
+        models: Sequence[str] | None = None,
+        usage_limits: Any | None = None,
+        timeout_seconds: float | None = None,
+        max_calls: int | None = None,
+        on_failure: str | None = None,
+        contain_errors: bool | None = None,
+    ) -> None:
         sub_name = str(name or getattr(agent, "name", "") or "sub_agent")
-        sub_desc = str(description or getattr(agent, "system_prompt", "") or sub_name)
-        super().__init__(agent=agent, name=sub_name, description=sub_desc)
+        sub_desc = str(
+            description
+            or getattr(agent, "system_prompt", "")
+            or getattr(agent, "description", "")
+            or sub_name
+        )
+        super().__init__(
+            agent=agent,
+            name=sub_name,
+            description=sub_desc,
+            models=list(models) if models is not None else None,
+            usage_limits=usage_limits,
+            timeout_seconds=timeout_seconds,
+            max_calls=max_calls,
+            on_failure=on_failure,
+            contain_errors=contain_errors,
+        )
 
 
 class SubAgents(BaseCapability):
-    """Capability allowing an orchestrator agent to delegate sub-tasks to child agents."""
+    """Capability allowing an orchestrator agent to delegate sub-tasks to named child agents."""
 
     id: str = "sub_agents"
     agents: list[SubAgent] = Field(default_factory=list)
+    models: dict[str, str | ModelOption] = Field(default_factory=dict)
+    agent_folders: str | list[Path | str] | None = "agents"
+    agent_overrides: dict[str, AgentOverride] = Field(default_factory=dict)
+    tool_resolver: Any = None
+    forward_usage: bool = True
+    inherit_tools: bool = False
+    shared_capabilities: list[Any] = Field(default_factory=list)
+    event_stream_handler: Any = None
+    tool_name: str = "delegate_task"
+    tool_retries: int | None = 2
+    contain_errors: bool = False
+    call_counts: dict[str, int] = Field(default_factory=lambda: defaultdict(int))
+
+    def __init__(
+        self,
+        *,
+        agents: Sequence[SubAgent] = (),
+        models: Mapping[str, str | ModelOption] | None = None,
+        agent_folders: str | Sequence[Path | str] | None = "agents",
+        agent_overrides: Mapping[str, AgentOverride] | None = None,
+        tool_resolver: Any = None,
+        forward_usage: bool = True,
+        inherit_tools: bool = False,
+        shared_capabilities: Sequence[Any] = (),
+        event_stream_handler: Any = None,
+        tool_name: str = "delegate_task",
+        tool_retries: int | None = 2,
+        contain_errors: bool = False,
+    ) -> None:
+        super().__init__(
+            agents=list(agents),
+            models=dict(models) if models is not None else {},
+            agent_folders=list(agent_folders)
+            if isinstance(agent_folders, (list, tuple))
+            else agent_folders,
+            agent_overrides=dict(agent_overrides) if agent_overrides is not None else {},
+            tool_resolver=tool_resolver,
+            forward_usage=forward_usage,
+            inherit_tools=inherit_tools,
+            shared_capabilities=list(shared_capabilities),
+            event_stream_handler=event_stream_handler,
+            tool_name=tool_name,
+            tool_retries=tool_retries,
+            contain_errors=contain_errors,
+            call_counts=defaultdict(int),
+        )
+
+    def load_disk_agents(self) -> list[SubAgent]:
+        """Auto-load markdown agent definitions from conventional or configured folders."""
+        if self.agent_folders is None:
+            return []
+
+        search_dirs: list[Path] = []
+        if isinstance(self.agent_folders, str):
+            folder_name = self.agent_folders
+            cwd = Path.cwd()
+            home = Path.home()
+            for root in (cwd, home):
+                ag_dir = root / ".agents" / folder_name
+                cl_dir = root / ".claude" / folder_name
+                if ag_dir.is_dir():
+                    search_dirs.append(ag_dir)
+                elif cl_dir.is_dir():
+                    search_dirs.append(cl_dir)
+        elif isinstance(self.agent_folders, (list, tuple, set, Sequence)):
+            for p in self.agent_folders:
+                path_obj = Path(str(p))
+                if path_obj.is_dir():
+                    search_dirs.append(path_obj)
+
+        disk_agents: list[SubAgent] = []
+        seen_names: set[str] = set()
+
+        for sdir in search_dirs:
+            for md_file in sorted(sdir.glob("*.md")):
+                try:
+                    text = md_file.read_text(encoding="utf-8")
+                    name = md_file.stem
+                    description = ""
+                    instructions = text
+
+                    if text.startswith("---"):
+                        parts = text.split("---", 2)
+                        if len(parts) >= 3:
+                            fm_raw, instructions = parts[1], parts[2].strip()
+                            for line in fm_raw.splitlines():
+                                if ":" in line:
+                                    k, v = line.split(":", 1)
+                                    key = k.strip().lower()
+                                    val = v.strip()
+                                    if key == "name" and val:
+                                        name = val
+                                    elif key == "description" and val:
+                                        description = val
+
+                    if name in seen_names:
+                        continue
+                    seen_names.add(name)
+
+                    child: PydanticAgent[Any, Any] = PydanticAgent(
+                        client=None,
+                        name=name,
+                        system_prompt=instructions,
+                    )
+                    disk_agents.append(
+                        SubAgent(
+                            agent=child,
+                            name=name,
+                            description=description or f"Sub-agent {name}",
+                        )
+                    )
+                except Exception:
+                    pass
+
+        return disk_agents
+
+    def get_all_agents(self) -> list[SubAgent]:
+        """Return merged explicit agents and disk-loaded agents, with explicit taking precedence."""
+        explicit_names = {sa.name for sa in self.agents}
+        disk = [da for da in self.load_disk_agents() if da.name not in explicit_names]
+        return list(self.agents) + disk
 
     def get_tools(self) -> list[AgentTool | Callable[..., Any]]:
-        tools: list[AgentTool | Callable[..., Any]] = []
-        for sa in self.agents:
-            sub = sa.agent
+        all_sub_agents = self.get_all_agents()
+        agent_map = {sa.name: sa for sa in all_sub_agents}
+
+        def delegate_task(agent_name: str, task: str, model: str | None = None) -> str:
+            """Delegate a self-contained task to a named sub-agent."""
+            if agent_name not in agent_map:
+                available = list(agent_map.keys())
+                return f"Error: unknown sub-agent '{agent_name}'. Available sub-agents: {available}"
+
+            target = agent_map[agent_name]
+
+            # Check max_calls budget
+            if target.max_calls is not None:
+                current_calls = self.call_counts.get(agent_name, 0)
+                if current_calls >= target.max_calls:
+                    if target.on_failure:
+                        return target.on_failure
+                    return f"Budget exhausted: max calls ({target.max_calls}) reached for sub-agent '{agent_name}'."
+                self.call_counts[agent_name] = current_calls + 1
+
+            # Validate model if model menu is active
+            if self.models:
+                chosen_model_key = model
+                if not chosen_model_key:
+                    if target.models:
+                        chosen_model_key = target.models[0]
+                    else:
+                        chosen_model_key = next(iter(self.models.keys()))
+
+                if chosen_model_key not in self.models:
+                    return f"Error: model '{chosen_model_key}' not in model menu {list(self.models.keys())}."
+
+                if target.models and chosen_model_key not in target.models:
+                    return f"Error: model '{chosen_model_key}' not allowed for sub-agent '{agent_name}' (allowed: {target.models})."
+
+            sub = target.agent
+            contain = (
+                target.contain_errors if target.contain_errors is not None else self.contain_errors
+            )
+
+            try:
+                if hasattr(sub, "run"):
+                    resp = sub.run(task)
+                    return str(getattr(resp, "content", getattr(resp, "output", resp)))
+                elif callable(sub):
+                    resp = sub(task)
+                    return str(resp)
+                return str(sub)
+            except Exception as exc:
+                if target.on_failure:
+                    return target.on_failure
+                if contain:
+                    return f"Sub-agent '{agent_name}' crashed: {exc}"
+                raise
+
+        tools: list[AgentTool | Callable[..., Any]] = [
+            Tool.from_function(
+                delegate_task,
+                name=self.tool_name,
+                description="Delegate a self-contained task to a named child sub-agent.",
+            )
+        ]
+
+        # Also provide backward-compatible individual tool delegates
+        for sa in all_sub_agents:
             s_name = sa.name
 
-            def _create_delegate(target_agent: Any, agent_name: str) -> Callable[[str], str]:
-                def delegate_task(prompt: str) -> str:
+            def _make_named_delegate(name_key: str) -> Callable[[str], str]:
+                def _delegate_named(prompt: str) -> str:
                     """Delegate a subtask to the designated child agent."""
-                    resp = target_agent.run(prompt)
-                    return str(getattr(resp, "content", resp))
+                    return delegate_task(agent_name=name_key, task=prompt)
 
-                return delegate_task
+                return _delegate_named
 
             tools.append(
                 Tool.from_function(
-                    _create_delegate(sub, s_name),
+                    _make_named_delegate(s_name),
                     name=f"delegate_to_{s_name}",
                     description=f"Delegate a specialized subtask to child agent '{s_name}': {sa.description}",
                 )
             )
+
         return tools
+
+    def get_system_prompt_additions(self, ctx: RunContext[Any] | None = None) -> list[str]:
+        all_sub_agents = self.get_all_agents()
+        if not all_sub_agents:
+            return ["SubAgents capability active. No sub-agents currently registered."]
+
+        lines = ["Available Sub-Agents for delegation:"]
+        for sa in all_sub_agents:
+            model_info = f" (models: {', '.join(sa.models)})" if sa.models else ""
+            desc = f": {sa.description}" if sa.description else ""
+            lines.append(f"- {sa.name}{desc}{model_info}")
+
+        if self.models:
+            lines.append("\nModel Menu:")
+            for k, v in self.models.items():
+                m_desc = (
+                    f" ({v.description})" if isinstance(v, ModelOption) and v.description else ""
+                )
+                lines.append(f"- {k}{m_desc}")
+
+        return ["\n".join(lines)]
 
 
 class ToolOutputLimits(BaseCapability):
@@ -1886,6 +2173,8 @@ class PlaywrightBrowser(BaseCapability):
 
 PlanItem.model_rebuild()
 PlanEvent.model_rebuild()
+ModelOption.model_rebuild()
+AgentOverride.model_rebuild()
 SubAgent.model_rebuild()
 SubAgents.model_rebuild()
 FileSystem.model_rebuild()

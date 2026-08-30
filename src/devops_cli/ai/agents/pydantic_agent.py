@@ -1073,7 +1073,7 @@ class PydanticAgent[T, DepsT = Any]:
 
     def __init__(
         self,
-        client: LLMClient,
+        client: LLMClient | Any = None,
         system_prompt: str = "You are a helpful DevOps assistant.",
         *,
         name: str = "Assistant",
@@ -1087,7 +1087,7 @@ class PydanticAgent[T, DepsT = Any]:
         retries: int | AgentRetries | dict[str, int] | None = None,
         tool_timeout: float | None = None,
     ) -> None:
-        self.client = client
+        self.client = client if client is not None else LLMClient()
         self.system_prompt = system_prompt
         self.name = name
         self.output_schema = output_schema

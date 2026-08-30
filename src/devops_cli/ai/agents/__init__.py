@@ -58,6 +58,7 @@ from devops_cli.ai.ext_langchain import (
 
 def __getattr__(name: str) -> Any:
     if name in {
+        "AgentOverride",
         "ClearToolResults",
         "Coder",
         "DEFAULT_MACROSCOPE_GUIDANCE",
@@ -67,9 +68,11 @@ def __getattr__(name: str) -> Any:
         "FileSystem",
         "InMemoryPlanStore",
         "LLM_API_KEY_ENV_PATTERNS",
+        "MINIMUM_EFFORT_FLOOR",
         "Macroscope",
         "MacroscopeIssue",
         "MacroscopeReview",
+        "ModelOption",
         "PlanEvent",
         "PlanEventEmitter",
         "PlanItem",
@@ -84,6 +87,7 @@ def __getattr__(name: str) -> Any:
         "SubAgents",
         "ToolOutputLimits",
         "WarnNearLimits",
+        "clamp_effort",
         "coder_agent",
         "researcher_agent",
     }:
@@ -96,6 +100,7 @@ def __getattr__(name: str) -> Any:
 __all__ = [
     "AgentHooks",
     "AgentMemory",
+    "AgentOverride",
     "AgentResponse",
     "AgentRetries",
     "AgentSpec",
@@ -121,10 +126,12 @@ __all__ = [
     "LangChainToolset",
     "MCP",
     "MCPServerTool",
+    "MINIMUM_EFFORT_FLOOR",
     "Macroscope",
     "MacroscopeIssue",
     "MacroscopeReview",
     "MemoryEntry",
+    "ModelOption",
     "MultiAgentPipeline",
     "MultiAgentPipelineResult",
     "NativeTool",
@@ -159,6 +166,7 @@ __all__ = [
     "WebSearch",
     "WebSearchTool",
     "WebSearchUserLocation",
+    "clamp_effort",
     "coder_agent",
     "duckduckgo_search_tool",
     "researcher_agent",
