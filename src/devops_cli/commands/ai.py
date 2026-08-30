@@ -36,7 +36,6 @@ from devops_cli.config.options import AI_API_KEY
 from devops_cli.config.settings import (
     SecretStorageError,
     dotted_set,
-    get_ai_api_key,
     load_settings,
     save_settings,
 )
@@ -346,8 +345,17 @@ def config(
             max_retries is not None,
         ]
     ):
+        import os
+
+        from devops_cli.config.options import KEYRING_KEYS
+        from devops_cli.config.settings import _keyring_has
+
         ai = settings.ai
-        has_key = bool(get_ai_api_key(settings))
+        has_key = bool(
+            os.environ.get("DEVOPS_CLI_AI_API_KEY")
+            or os.environ.get("OPENAI_API_KEY")
+            or _keyring_has(KEYRING_KEYS.get("ai.api_key", "ai_api_key"))
+        )
         key_display = "[green]***set***[/green]" if has_key else "[dim](not set)[/dim]"
         rows = [
             ["provider", ai.provider],

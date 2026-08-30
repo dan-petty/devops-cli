@@ -14,17 +14,15 @@ from devops_cli.config import options as opt
 from devops_cli.config.constants import CONST_CONFIG_PATH
 from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.config.env import EnvVarSpec, env_var_for_option, get_all_env_var_specs
+from devops_cli.config.options import KEYRING_KEYS as _KEYRING_MAP
 from devops_cli.config.settings import (
     _SECRET_FIELDS,
     SecretStorageError,
     Settings,
+    _keyring_has,
     dotted_get,
     dotted_set,
     get_active_config_path,
-    get_ai_api_key,
-    get_argocd_token,
-    get_github_token,
-    get_grafana_token,
     load_settings,
     save_settings,
 )
@@ -116,24 +114,24 @@ def show() -> None:
         display = "[green]set (****)[/green]" if is_configured else not_set_str
         rows.append([key, display])
 
-    _secret_row(opt.GITHUB_TOKEN, bool(get_github_token(settings)))
+    _secret_row(opt.GITHUB_TOKEN, _is_secret_configured(opt.GITHUB_TOKEN))
     _row(opt.GITHUB_DEFAULT_ORG, settings.github.default_org)
     _row(opt.SSH_KEY_DIR, settings.ssh.key_dir)
     _row(opt.SSH_ROTATION_DAYS, settings.ssh.rotation_days)
     _row(opt.REPOS_BASE_DIR, settings.repos.base_dir)
     _row(opt.WORKSPACE_FILE, settings.workspace.file)
     _row(opt.GRAFANA_URL, settings.grafana.url)
-    _secret_row(opt.GRAFANA_TOKEN, bool(get_grafana_token(settings)))
+    _secret_row(opt.GRAFANA_TOKEN, _is_secret_configured(opt.GRAFANA_TOKEN))
     _row(opt.PROMETHEUS_URL, settings.prometheus.url)
     _row(opt.ARGOCD_URL, settings.argocd.url)
-    _secret_row(opt.ARGOCD_TOKEN, bool(get_argocd_token(settings)))
+    _secret_row(opt.ARGOCD_TOKEN, _is_secret_configured(opt.ARGOCD_TOKEN))
     _row(opt.AI_PROVIDER, settings.ai.provider)
     _row(opt.AI_MODEL, settings.ai.model)
     _row(opt.AI_REASONING_EFFORT, settings.ai.reasoning_effort)
     _row(opt.AI_OLLAMA_URLS, settings.ai.ollama_urls)
     _row(opt.AI_API_BASE_URL, settings.ai.api_base_url)
     _row(opt.AI_ALLOW_PRIVATE_NETWORK, settings.ai.allow_private_network)
-    _secret_row(opt.AI_API_KEY, bool(get_ai_api_key(settings)))
+    _secret_row(opt.AI_API_KEY, _is_secret_configured(opt.AI_API_KEY))
 
     print_table(
         title=MESSAGES.config.header,
@@ -298,22 +296,22 @@ def init() -> None:
 
 
 # =============================================================================
-# Environment Variable Specification Helpers
-# =============================================================================
-
-
-def _is_secret_configured(spec: EnvVarSpec, settings: Settings) -> bool:
-    """Check if a secret is configured in environment variables or OS Keyring."""
-    if os.environ.get(spec.env_var):
+def _is_secret_configured(key: str) -> bool:
+    """Check whether a secret key is configured without retrieving the secret value."""
+    keyring_name = _KEYRING_MAP.get(key)
+    if keyring_name and _keyring_has(keyring_name):
         return True
-    if spec.option_key == opt.GITHUB_TOKEN:
-        return bool(get_github_token(settings))
-    if spec.option_key == opt.GRAFANA_TOKEN:
-        return bool(get_grafana_token(settings))
-    if spec.option_key == opt.ARGOCD_TOKEN:
-        return bool(get_argocd_token(settings))
-    if spec.option_key == opt.AI_API_KEY:
-        return bool(get_ai_api_key(settings))
+    env_var = env_var_for_option(key)
+    if env_var and bool(os.environ.get(env_var)):
+        return True
+    if key == opt.GITHUB_TOKEN:
+        gh_cmd = shutil.which("gh")
+        if gh_cmd:
+            try:
+                res = run_subprocess(["gh", "auth", "status"], quiet=True, timeout=3.0)
+                return res.returncode == 0
+            except Exception:
+                pass
     return False
 
 
@@ -321,7 +319,7 @@ def _resolve_env_spec_value(spec: EnvVarSpec, settings: Settings) -> tuple[objec
     """Return (value, is_from_env) for an environment variable specification."""
     if spec.is_secret:
         is_env = bool(os.environ.get(spec.env_var))
-        is_set = _is_secret_configured(spec, settings)
+        is_set = bool(is_env or (spec.option_key and _is_secret_configured(spec.option_key)))
         return ("****" if is_set else None), is_env
 
     env_val = os.environ.get(spec.env_var)

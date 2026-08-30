@@ -102,8 +102,12 @@ def get_stderr_console(
 
 
 def _sanitize_output_text(text: str) -> str:
-    """Ensure raw text is safely formatted before emitting to standard output or error streams."""
-    return str(text) if text is not None else ""
+    """Sanitize and mask any sensitive tokens or secrets before standard stream writing."""
+    if not isinstance(text, str):
+        return "" if text is None else str(text)
+    from devops_cli.ai.review.sanitization import _mask_secrets_in_content
+
+    return _mask_secrets_in_content(text)
 
 
 def write_stream(
