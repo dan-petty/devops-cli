@@ -34,6 +34,15 @@ class BaseCapability(BaseModel):
         """Return model runtime settings provided by this capability."""
         return {}
 
+    def prefix_tools(self, prefix: str) -> Any:
+        """Return a PrefixTools capability wrapper for this capability."""
+        return PrefixTools(self, prefix=prefix)
+
+    def with_metadata(self, metadata: dict[str, Any] | None = None, **kwargs: Any) -> Any:
+        """Return a SetToolMetadata capability wrapper attaching metadata to this capability's tools."""
+        combined = {**(metadata or {}), **kwargs}
+        return SetToolMetadata(capability=self, metadata=combined)
+
 
 class ToolApproved(BaseModel):
     """Signals approval of a deferred tool call with optional argument overrides."""
@@ -679,3 +688,189 @@ class ResolveModelId(BaseCapability):
         else:
             res_ctx = ctx
         return self.resolver(res_ctx, model_id)
+
+
+class PrepareTools(BaseCapability):
+    """Capability that dynamically prepares, filters, or modifies available tool definitions."""
+
+    id: str = "prepare_tools"
+    prepare_fn: Any = None
+
+    def __init__(
+        self,
+        prepare_fn: Callable[..., Any] | None = None,
+        *,
+        id: str = "prepare_tools",
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(id=id, prepare_fn=prepare_fn or kwargs.get("prepare_fn"), **kwargs)
+
+    def prepare_tools(
+        self,
+        ctx: RunContext[Any],
+        tools: list[Any],
+    ) -> list[Any]:
+        """Execute prepare_fn to filter or modify tool definitions."""
+        if not callable(self.prepare_fn):
+            return tools
+        result = self.prepare_fn(ctx, tools)
+        return result if result is not None else tools
+
+
+class PrefixTools(BaseCapability):
+    """Capability that prefixes all tools from a capability with a namespace prefix to prevent collisions."""
+
+    id: str = "prefix_tools"
+    capability: Any = None
+    prefix: str = ""
+
+    def __init__(
+        self,
+        capability: BaseCapability | None = None,
+        prefix: str = "",
+        *,
+        id: str = "prefix_tools",
+        **kwargs: Any,
+    ) -> None:
+        cap = capability or kwargs.get("capability")
+        pfx = prefix or kwargs.get("prefix", "")
+        super().__init__(id=id, capability=cap, prefix=pfx, **kwargs)
+
+    def get_tools(self) -> list[AgentTool | Callable[..., Any]]:
+        """Return prefixed tools from the wrapped capability."""
+        if self.capability is None:
+            return []
+        raw_tools = self.capability.get_tools()
+        prefixed_tools: list[AgentTool | Callable[..., Any]] = []
+        for t in raw_tools:
+            if isinstance(t, Tool):
+                new_name = (
+                    f"{self.prefix}_{t.name}"
+                    if not t.name.startswith(f"{self.prefix}_")
+                    else t.name
+                )
+                prefixed_tools.append(
+                    Tool(
+                        func=t.func,
+                        name=new_name,
+                        description=t.description,
+                        parameters=t.parameters,
+                        takes_ctx=t.takes_ctx,
+                        timeout=t.timeout,
+                        max_retries=t.max_retries,
+                        requires_approval=t.requires_approval,
+                        include_return_schema=t.include_return_schema,
+                    )
+                )
+            elif callable(t):
+                base_name = getattr(t, "__name__", "tool")
+                new_name = f"{self.prefix}_{base_name}"
+                prefixed_tools.append(Tool.from_function(t, name=new_name))
+            else:
+                prefixed_tools.append(t)
+        return prefixed_tools
+
+    def get_system_prompt_additions(self, ctx: RunContext[Any] | None = None) -> list[str]:
+        return self.capability.get_system_prompt_additions(ctx) if self.capability else []
+
+    def get_hooks(self) -> AgentHooks | None:
+        return self.capability.get_hooks() if self.capability else None
+
+    def get_model_settings(self, ctx: RunContext[Any] | None = None) -> dict[str, Any]:
+        return self.capability.get_model_settings(ctx) if self.capability else {}
+
+
+class IncludeToolReturnSchemas(BaseCapability):
+    """Capability that includes return value JSON schemas in tool definitions sent to the model."""
+
+    id: str = "include_tool_return_schemas"
+    include_return_schema: bool = True
+
+    def __init__(
+        self,
+        include_return_schema: bool = True,
+        *,
+        id: str = "include_tool_return_schemas",
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(id=id, include_return_schema=include_return_schema, **kwargs)
+
+    def prepare_tools(
+        self,
+        ctx: RunContext[Any],
+        tools: list[Any],
+    ) -> list[Any]:
+        """Apply include_return_schema to all tool definitions."""
+        for t in tools:
+            if hasattr(t, "include_return_schema"):
+                setattr(t, "include_return_schema", self.include_return_schema)
+        return tools
+
+
+class SetToolMetadata(BaseCapability):
+    """Capability that merges custom key-value metadata pairs onto tool definitions."""
+
+    id: str = "set_tool_metadata"
+    capability: Any = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    def __init__(
+        self,
+        metadata: dict[str, Any] | None = None,
+        capability: BaseCapability | None = None,
+        *,
+        id: str = "set_tool_metadata",
+        **kwargs: Any,
+    ) -> None:
+        cap = capability or kwargs.get("capability")
+        meta = metadata if metadata is not None else kwargs.get("metadata", {})
+        super().__init__(id=id, capability=cap, metadata=meta, **kwargs)
+
+    def get_tools(self) -> list[AgentTool | Callable[..., Any]]:
+        """Return tools from the wrapped capability with merged metadata."""
+        if self.capability is None:
+            return []
+        raw_tools = self.capability.get_tools()
+        tools_with_meta: list[AgentTool | Callable[..., Any]] = []
+        for t in raw_tools:
+            if isinstance(t, Tool):
+                merged_meta = {**getattr(t, "metadata", {}), **self.metadata}
+                tools_with_meta.append(
+                    Tool(
+                        func=t.func,
+                        name=t.name,
+                        description=t.description,
+                        parameters=t.parameters,
+                        takes_ctx=t.takes_ctx,
+                        timeout=t.timeout,
+                        max_retries=t.max_retries,
+                        requires_approval=t.requires_approval,
+                        include_return_schema=t.include_return_schema,
+                        metadata=merged_meta,
+                    )
+                )
+            elif callable(t):
+                tools_with_meta.append(Tool.from_function(t, metadata=dict(self.metadata)))
+            else:
+                tools_with_meta.append(t)
+        return tools_with_meta
+
+    def prepare_tools(
+        self,
+        ctx: RunContext[Any],
+        tools: list[Any],
+    ) -> list[Any]:
+        """Merge metadata into any tools passed at runtime."""
+        for t in tools:
+            if hasattr(t, "metadata") and isinstance(t.metadata, dict):
+                t.metadata.update(self.metadata)
+        return tools
+
+    def get_system_prompt_additions(self, ctx: RunContext[Any] | None = None) -> list[str]:
+        return self.capability.get_system_prompt_additions(ctx) if self.capability else []
+
+    def get_hooks(self) -> AgentHooks | None:
+        return self.capability.get_hooks() if self.capability else None
+
+    def get_model_settings(self, ctx: RunContext[Any] | None = None) -> dict[str, Any]:
+        return self.capability.get_model_settings(ctx) if self.capability else {}

@@ -25,6 +25,8 @@ class AgentTool(BaseModel):
     timeout: float | None = None
     max_retries: int | None = None
     requires_approval: bool = False
+    include_return_schema: bool | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
     def validate_args(self, args: dict[str, Any]) -> dict[str, Any]:
         """Validate and filter tool arguments against the declared parameter schema."""
@@ -75,6 +77,8 @@ class Tool(AgentTool):
         requires_approval: bool = False,
         timeout: float | None = None,
         max_retries: int | None = None,
+        include_return_schema: bool | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> Tool:
         """Construct a Tool instance from a callable."""
         tool_name = name or func.__name__
@@ -99,6 +103,8 @@ class Tool(AgentTool):
             requires_approval=requires_approval,
             timeout=timeout,
             max_retries=max_retries,
+            include_return_schema=include_return_schema,
+            metadata=metadata or {},
         )
 
     @classmethod

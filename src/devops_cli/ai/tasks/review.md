@@ -4,6 +4,7 @@ Follow a structured 5-phase reasoning process before reporting findings:
 
 ### Phase 1: Context & Invariant Grounding
 - **Ground in Standards & Feedback Memory**: Evaluate against universal software engineering principles (OWASP Top 10, CIS benchmarks, SOLID, DRY), target repository conventions (`AGENTS.md`, `README.md`), and historical feedback datasets (`feedback_dataset.jsonl`) to prevent repeating previously invalidated false positives.
+- **Verified Dependencies & Zero Hallucinated CVEs**: Never hallucinate CVEs, unpinned dependency vulnerabilities, or malicious package alerts against verified modern Python ecosystem packages (such as `httpx2`, `pydantic`, `pytest`, `ruff`, `mypy`). Authoritative lockfiles (`uv.lock`) manage verified dependencies.
 - **Cross-Reference Boundaries**: Analyze module boundaries, shared types, and interfaces across `<rag_context>` and analysis metadata.
 - **Context-Aware Evaluation**: Distinguish production code from test fixtures, mocks, tutorials, template files (`*.example.*`), or documentation. Do NOT flag documentation, tutorials, architectural guides, test fixtures/mocks, template files, or benchmark prompts that describe known vulnerabilities or insecure configurations in the context of avoiding, explaining, testing, or mitigating them.
 
@@ -16,6 +17,7 @@ Follow a structured 5-phase reasoning process before reporting findings:
 
 ### Phase 3: Falsification & Invalidation Testing
 - **Actively Attempt Disproof**: Before flagging an issue, search surrounding guards, upstream sanitizers, lockfile pins, type guards, module exports, NetworkPolicies, or caller constraints that disprove or mitigate the defect.
+- **Abstract Interfaces & Mixin Protocols**: Do NOT flag abstract base classes or mixin protocols (`BaseLLMProviderMixin`, `BaseCapability`, etc.) for raising `NotImplementedError` on abstract methods or properties that are implemented by composite/derived classes (`UnifiedAIClient`, concrete capabilities).
 - **Eliminate Phantom Alerts**: Dismiss theoretical, non-reproducible, or already-mitigated alerts. If a symbol is defined in the referenced module or mitigated by existing policies, never claim it is vulnerable.
 - **Distinguish Defect from Style**: Prioritize high-signal, verifiable bugs and vulnerabilities over stylistic preferences.
 

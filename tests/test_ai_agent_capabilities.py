@@ -192,3 +192,112 @@ def test_resolve_model_id_capability() -> None:
     # 4. RunContext adapter
     run_ctx = RunContext(deps={"tenant": "globex"}, model="tenant:staging-model")
     assert resolver_cap.resolve("tenant:staging-model", run_ctx) == "openai:globex-staging-model"
+
+
+def test_prepare_tools_capability() -> None:
+    """Verify PrepareTools dynamic filtering and modification of tool definitions."""
+    from devops_cli.ai.agents import PrepareTools, RunContext, Tool
+
+    def filter_admin_tools(ctx: RunContext[dict[str, Any]], tools: list[Any]) -> list[Any]:
+        is_admin = (ctx.deps or {}).get("is_admin", False)
+        if not is_admin:
+            return [t for t in tools if not getattr(t, "name", "").startswith("admin_")]
+        return tools
+
+    cap = PrepareTools(filter_admin_tools)
+    assert cap.id == "prepare_tools"
+
+    t_read = Tool.from_function(lambda: "read", name="read_data")
+    t_admin = Tool.from_function(lambda: "admin", name="admin_delete")
+    all_tools = [t_read, t_admin]
+
+    # 1. Non-admin context filters out admin_delete
+    user_ctx = RunContext(deps={"is_admin": False})
+    filtered = cap.prepare_tools(user_ctx, all_tools)
+    assert len(filtered) == 1
+    assert filtered[0].name == "read_data"
+
+    # 2. Admin context keeps all tools
+    admin_ctx = RunContext(deps={"is_admin": True})
+    allowed = cap.prepare_tools(admin_ctx, all_tools)
+    assert len(allowed) == 2
+    assert {t.name for t in allowed} == {"read_data", "admin_delete"}
+
+
+def test_prefix_tools_capability() -> None:
+    """Verify PrefixTools namespacing capability and .prefix_tools() convenience method."""
+    from devops_cli.ai.agents import Capability, PrefixTools
+
+    cap = Capability()
+
+    @cap.tool
+    def search_query(q: str) -> str:
+        """Search query."""
+        return f"result for {q}"
+
+    @cap.tool
+    def list_items() -> list[str]:
+        """List items."""
+        return ["item1", "item2"]
+
+    # 1. Using PrefixTools class constructor
+    prefixed_cap = PrefixTools(cap, prefix="api1")
+    assert prefixed_cap.id == "prefix_tools"
+    prefixed_tools = prefixed_cap.get_tools()
+    assert len(prefixed_tools) == 2
+    names = {getattr(t, "name", "") for t in prefixed_tools}
+    assert names == {"api1_search_query", "api1_list_items"}
+
+    # 2. Using .prefix_tools() method on BaseCapability
+    method_prefixed = cap.prefix_tools("v2")
+    assert isinstance(method_prefixed, PrefixTools)
+    assert method_prefixed.prefix == "v2"
+    tools_v2 = method_prefixed.get_tools()
+    assert {getattr(t, "name", "") for t in tools_v2} == {"v2_search_query", "v2_list_items"}
+
+
+def test_include_tool_return_schemas_capability() -> None:
+    """Verify IncludeToolReturnSchemas capability applying schema inclusion flag."""
+    from devops_cli.ai.agents import IncludeToolReturnSchemas, RunContext, Tool
+
+    cap = IncludeToolReturnSchemas(include_return_schema=True)
+    assert cap.id == "include_tool_return_schemas"
+    assert cap.include_return_schema is True
+
+    tool_a = Tool.from_function(lambda x: x + 1, name="inc")
+    tool_b = Tool.from_function(lambda y: f"val={y}", name="fmt")
+
+    prepared = cap.prepare_tools(RunContext(), [tool_a, tool_b])
+    assert len(prepared) == 2
+    assert all(getattr(t, "include_return_schema", False) is True for t in prepared)
+
+
+def test_set_tool_metadata_capability() -> None:
+    """Verify SetToolMetadata capability attaching custom tags/attributes to tools."""
+    from devops_cli.ai.agents import Capability, RunContext, SetToolMetadata, Tool
+
+    cap = Capability()
+
+    @cap.tool
+    def fetch_data(key: str) -> str:
+        """Fetch data."""
+        return f"val:{key}"
+
+    # 1. Using SetToolMetadata class constructor
+    meta_cap = SetToolMetadata({"tier": "premium", "read_only": True}, capability=cap)
+    assert meta_cap.id == "set_tool_metadata"
+    tools = meta_cap.get_tools()
+    assert len(tools) == 1
+    assert tools[0].metadata == {"tier": "premium", "read_only": True}
+
+    # 2. Using .with_metadata() convenience method on BaseCapability
+    tagged_cap = cap.with_metadata(source="db", cache_ttl=300)
+    assert isinstance(tagged_cap, SetToolMetadata)
+    tagged_tools = tagged_cap.get_tools()
+    assert tagged_tools[0].metadata == {"source": "db", "cache_ttl": 300}
+
+    # 3. Dynamic prepare_tools runtime metadata injection
+    runtime_tool = Tool.from_function(lambda: 42, name="num", metadata={"initial": True})
+    prepared = meta_cap.prepare_tools(RunContext(), [runtime_tool])
+    assert prepared[0].metadata["initial"] is True
+    assert prepared[0].metadata["tier"] == "premium"
