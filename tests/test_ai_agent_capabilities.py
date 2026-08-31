@@ -328,3 +328,82 @@ def test_raise_content_filter_error_capability() -> None:
 
     assert exc_info.value.error_code == "CONTENT_FILTER_TRIGGERED"
     assert exc_info.value.body == response_blocked
+
+
+def test_reinject_system_prompt_capability() -> None:
+    """Verify ReinjectSystemPrompt capability ensuring agent system prompt presence."""
+    from devops_cli.ai.agents import ReinjectSystemPrompt
+
+    cap = ReinjectSystemPrompt()
+    assert cap.id == "reinject_system_prompt"
+    assert cap.replace_existing is False
+
+    # 1. Missing system prompt gets prepended
+    user_msgs = [{"role": "user", "content": "What is Python?"}]
+    injected = cap.reinject(user_msgs, "You are a senior DevOps architect.")
+    assert len(injected) == 2
+    assert injected[0]["role"] == "system"
+    assert injected[0]["content"] == "You are a senior DevOps architect."
+
+    # 2. Existing system prompt preserved by default
+    existing_msgs = [
+        {"role": "system", "content": "Initial prompt"},
+        {"role": "user", "content": "hello"},
+    ]
+    preserved = cap.reinject(existing_msgs, "New prompt")
+    assert len(preserved) == 2
+    assert preserved[0]["content"] == "Initial prompt"
+
+    # 3. replace_existing=True replaces existing system prompt
+    replace_cap = ReinjectSystemPrompt(replace_existing=True)
+    replaced = replace_cap.reinject(existing_msgs, "Overridden authoritative prompt")
+    assert len(replaced) == 2
+    assert replaced[0]["content"] == "Overridden authoritative prompt"
+
+
+def test_process_history_capability() -> None:
+    """Verify ProcessHistory capability applying message history processors."""
+    from devops_cli.ai.agents import ProcessHistory, RunContext
+
+    # 1. Trimming processor (keep last N messages)
+    def keep_recent(messages: list[dict[str, str]]) -> list[dict[str, str]]:
+        return messages[-2:]
+
+    trim_cap = ProcessHistory(keep_recent)
+    assert trim_cap.id == "process_history"
+
+    history = [
+        {"role": "user", "content": "1"},
+        {"role": "assistant", "content": "2"},
+        {"role": "user", "content": "3"},
+        {"role": "assistant", "content": "4"},
+    ]
+    processed = trim_cap.process_history(history)
+    assert len(processed) == 2
+    assert processed[0]["content"] == "3"
+    assert processed[1]["content"] == "4"
+
+    # 2. Context-aware processor (redaction or tagging)
+    def redact_secrets(
+        ctx: RunContext[dict[str, Any]], messages: list[dict[str, str]]
+    ) -> list[dict[str, str]]:
+        redact = (ctx.deps or {}).get("redact", False)
+        if not redact:
+            return messages
+        return [{**m, "content": m["content"].replace("SECRET", "[REDACTED]")} for m in messages]
+
+    redact_cap = ProcessHistory(redact_secrets)
+    msgs_with_secret = [{"role": "user", "content": "api key is SECRET"}]
+
+    # Without redact flag
+    assert (
+        redact_cap.process_history(msgs_with_secret, RunContext())[0]["content"]
+        == "api key is SECRET"
+    )
+
+    # With redact flag
+    ctx_redact = RunContext(deps={"redact": True})
+    assert (
+        redact_cap.process_history(msgs_with_secret, ctx_redact)[0]["content"]
+        == "api key is [REDACTED]"
+    )

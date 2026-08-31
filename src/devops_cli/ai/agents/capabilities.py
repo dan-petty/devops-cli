@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 from collections.abc import Callable
 from typing import Any
 
@@ -899,3 +900,88 @@ class RaiseContentFilterError(BaseCapability):
 
             msg = "Model response was blocked or filtered by upstream content safety filter"
             raise ContentFilterError(message=msg, body=response)
+
+
+class ReinjectSystemPrompt(BaseCapability):
+    """Capability that ensures an agent's configured system prompt is present in message history."""
+
+    id: str = "reinject_system_prompt"
+    replace_existing: bool = False
+
+    def __init__(
+        self,
+        replace_existing: bool = False,
+        *,
+        id: str = "reinject_system_prompt",
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(id=id, replace_existing=replace_existing, **kwargs)
+
+    def reinject(
+        self,
+        messages: list[Any],
+        system_prompt: str,
+    ) -> list[Any]:
+        """Reinject system_prompt into the message history if missing or if replace_existing is True."""
+        if not system_prompt or not system_prompt.strip():
+            return messages
+
+        has_system = False
+        filtered_messages: list[Any] = []
+
+        for m in messages:
+            is_sys = False
+            if isinstance(m, dict) and m.get("role") == "system":
+                is_sys = True
+            elif hasattr(m, "role") and getattr(m, "role") == "system":
+                is_sys = True
+            elif hasattr(m, "part_kind") and getattr(m, "part_kind") == "system-prompt":
+                is_sys = True
+
+            if is_sys:
+                has_system = True
+                if not self.replace_existing:
+                    filtered_messages.append(m)
+            else:
+                filtered_messages.append(m)
+
+        if self.replace_existing or not has_system:
+            sys_msg: dict[str, str] = {"role": "system", "content": system_prompt.strip()}
+            return [sys_msg, *filtered_messages]
+
+        return messages
+
+
+class ProcessHistory(BaseCapability):
+    """Capability that intercepts and transforms message history before model execution."""
+
+    id: str = "process_history"
+    processor: Any = None
+
+    def __init__(
+        self,
+        processor: Callable[..., Any] | None = None,
+        *,
+        id: str = "process_history",
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(id=id, processor=processor or kwargs.get("processor"), **kwargs)
+
+    def process_history(
+        self,
+        messages: list[Any],
+        ctx: RunContext[Any] | None = None,
+    ) -> list[Any]:
+        """Apply the configured processor to transform or trim message history."""
+        if not callable(self.processor):
+            return messages
+
+        sig = inspect.signature(self.processor)
+        if len(sig.parameters) >= 2 and ctx is not None:
+            res = self.processor(ctx, messages)
+        elif len(sig.parameters) >= 2 and ctx is None:
+            res = self.processor(RunContext(), messages)
+        else:
+            res = self.processor(messages)
+
+        return res if res is not None else messages
