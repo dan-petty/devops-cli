@@ -7,7 +7,11 @@ This document provides foundational context, architectural principles, and opera
 - **High Reliability & Quality First**: Build robust, resilient workstation automation and agentic developer tooling with defensive error handling, explicit timeouts, and zero tolerance for flaky tests.
 - **Poetic Conciseness, Expressive Integration & Zero Boilerplate**:
   - The codebase must read as a poetically concise, expressive integration of tools, libraries, docs, AI, and automation rather than a collection of low-level nested loops, procedural boilerplate, or hard-to-decipher ad-hoc logic.
-  - Control code complexity by aiming for fewer than 6 indentations across all functions and code blocks. Complex multi-step tasks, deep branching, and nested iterations must be decomposed into dedicated, single-responsibility functions and clean functional pipelines so application logic flow reads cleanly.
+  - **Strict Complexity & Nesting Caps**:
+    - Aim for cyclomatic complexity $\le 10$ and fewer than 6 indentation levels across all functions and code blocks.
+    - Proactively decompose complex multi-step tasks, deep branching, and nested iterations into dedicated single-responsibility helper functions and functional pipelines.
+    - Replace giant `if/elif` ladders and procedural dispatchers with dictionary mappings, registry lookups, or table-driven dispatch.
+    - Extract nested AST node inspection, file traversal guards, and multi-condition filtering into pure predicate helpers.
   - Maximize standard library leverage (`functools`, `itertools`, `pathlib`, `collections`, `ipaddress`, `urllib.parse`), Pydantic v2 models, and functional pipelines.
   - Never write manual string-slicing loops, hand-rolled dictionary traversing, or procedural subprocess parsing when standard library parsers, comprehensions, or high-level declarative abstractions provide clean, self-documenting implementations.
 - **Modern Python Ecosystem**: Track modern Python 3.14+ runtime features, typing standards, and established open-source libraries (`pydantic v2`, `httpx2`, `pytest`, `ruff`, `mypy`, `uv.lock`). Avoid custom workarounds when standard library or robust open-source tools exist. Ensure AI code reviewers do not hallucinate CVEs or false malicious package alerts against verified dependencies like `httpx2` (Pydantic HTTP/2 client).

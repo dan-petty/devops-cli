@@ -36,6 +36,15 @@ graph TD
   - **Zero-Trust Secret Verification**: Evaluators confirm that credentials use secure OS Keyring backends (`keyring>=25`) and reject unencrypted plaintext store additions.
   - **Information Exposure & Exception Sanitization (CWE-200)**: Evaluators verify that exception messages, CLI error output, and logs mask private IP addresses, internal hostnames, and credentials, keeping raw targets strictly inside structured debug details dictionaries.
   - **Continuous Knowledge Feedback**: Recurring patterns, false-positive invalidations, and architectural learnings feed back into `AGENTS.md`, prompt rubrics, and RAG vector indexes, creating a continuously improving developer feedback loop.
+- **Adaptive Two-Axis LLM Routing**:
+  - **Complexity Axis**: Dispatches simple tasks (format, summarize) to fast mini/local models and complex architectural synthesis to frontier models.
+  - **Freshness Axis**: Dynamically decides whether live web/MCP grounding is required, avoiding redundant search latency and saving up to 92% in inference costs.
+- **Agent Harness Slots & Sub-Agent Local Offloading**:
+  - Partitions agent systems into swappable slots (Model, Skills, Tools, Sub-Agents).
+  - Offloads token-heavy exploration sub-agents (file indexing, symbol extraction) to local open-weight models (Granite, Qwen, DeepSeek), achieving **87% input token savings** while reserving frontier models for planning and verification ("Big decides, small types, big checks").
+- **Model Dependency Chaos Engineering & Slow-Zone Resilience**:
+  - Implements "Chaos Monkey for Models" by testing system workflows against degraded/fallback models to ensure operational continuity when frontier APIs experience downtime or policy changes.
+  - Prioritizes complete, synchronized CLI `--help` and documentation so fallback models can pilot complex tasks autonomously.
 - **Context Grounding via RAG**: Injecting semantic documentation chunks (`AGENTS.md`, architecture specs) into prompts to prevent hallucinations and align reviews with repository conventions.
 - **LLM Response Caching & Warm Starting Points**:
   - **Deterministic Caching**: Multi-tiered in-memory and persistent disk caching (`.data/cache/llm/`) hashes model, system instructions, and messages with SHA-256 (`usedforsecurity=False`), eliminating redundant LLM dispatches and reducing review latency to 0ms for unmodified inputs.
