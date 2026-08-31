@@ -711,8 +711,12 @@ def _chmod_ssh_dir_and_keys(ssh_dir: Path) -> None:
     """Set secure 0700 permissions on .ssh directory and 0600 on private keys."""
     try:
         ssh_dir.chmod(0o700)
-        for key_path in ssh_dir.glob("id_*"):
-            if not key_path.name.endswith(".pub"):
+        for key_path in ssh_dir.iterdir():
+            if not key_path.is_file():
+                continue
+            if key_path.name.endswith(".pub"):
+                key_path.chmod(0o644)
+            else:
                 key_path.chmod(0o600)
     except Exception as exc:
         logger.debug("Failed to set SSH permissions: %s", exc)
@@ -781,13 +785,28 @@ def _run_post_start_lifecycle(workspace_dir: Path, *, dry_run: bool = False) -> 
         if not dry_run:
             _chmod_ssh_dir_and_keys(ssh_dir)
 
-        keys = sorted(
-            [p for p in ssh_dir.glob("id_*") if not p.name.endswith(".pub")],
-            key=lambda p: p.stat().st_mtime if p.exists() else 0,
-            reverse=True,
-        )
-        if keys:
-            newest = keys[0]
+        from devops_cli.crypto.ssh_keys import find_newest_key
+
+        newest = find_newest_key(ssh_dir)
+        if newest is None:
+            # Fallback to any unmanaged private key matching id_ if no managed key exists
+            fallback_keys = sorted(
+                [
+                    p
+                    for p in ssh_dir.iterdir()
+                    if p.is_file()
+                    and not p.name.endswith(".pub")
+                    and "id_" in p.name
+                    and p.name
+                    not in {"config", "known_hosts", "authorized_keys", "allowed_signers"}
+                ],
+                key=lambda p: p.stat().st_mtime if p.exists() else 0,
+                reverse=True,
+            )
+            if fallback_keys:
+                newest = fallback_keys[0]
+
+        if newest:
             if not dry_run:
                 run_subprocess(
                     ["git", "config", "--global", "gpg.format", "ssh"],
@@ -796,6 +815,11 @@ def _run_post_start_lifecycle(workspace_dir: Path, *, dry_run: bool = False) -> 
                 )
                 run_subprocess(
                     ["git", "config", "--global", "user.signingkey", str(newest)],
+                    check=False,
+                    quiet=True,
+                )
+                run_subprocess(
+                    ["git", "config", "--global", "commit.gpgsign", "true"],
                     check=False,
                     quiet=True,
                 )
