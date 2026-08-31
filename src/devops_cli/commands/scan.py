@@ -27,7 +27,9 @@ from devops_cli.output import (
     write_stdout,
 )
 from devops_cli.security.checkov import run_checkov_scan
+from devops_cli.security.complexity import run_complexity_scan
 from devops_cli.security.gitleaks import run_gitleaks_scan
+from devops_cli.security.sbom import generate_cyclonedx_sbom, generate_spdx_sbom
 from devops_cli.security.semgrep import run_semgrep_scan
 from devops_cli.security.trivy import run_trivy_scan
 
@@ -432,6 +434,146 @@ def scan_iac(
             target=str(target_abs),
             action="checkov_iac_scan",
             details={"framework": framework, "findings_count": len(findings)},
+        )
+    return None
+
+
+# =============================================================================
+# Command: devops scan complexity
+# =============================================================================
+
+
+@app.command("complexity")
+def scan_complexity(
+    target: Annotated[
+        Path,
+        typer.Argument(help=HELP.scan.target_complexity),
+    ] = DEFAULT_CURRENT_PATH,
+    max_complexity: Annotated[
+        int,
+        typer.Option("--max-complexity", "-c", help=HELP.scan.max_complexity),
+    ] = 10,
+    max_indent: Annotated[
+        int,
+        typer.Option("--max-indent", "-i", help=HELP.scan.max_indent),
+    ] = 5,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help=HELP.options.json_output),
+    ] = False,
+) -> CommandDryRunResult | None:
+    """Run AST-based cyclomatic complexity and indentation depth analysis."""
+    set_dry_run(dry_run)
+    target_abs = target.resolve() if target.exists() else target
+
+    if not is_dry_run():
+        print_muted(f"Analyzing code complexity and indentation depth in {target_abs}...")
+
+    findings = run_complexity_scan(
+        target_path=target_abs,
+        max_complexity=max_complexity,
+        max_nesting_depth=max_indent,
+    )
+
+    if json_output:
+        data = [f.model_dump() for f in findings]
+        write_stdout(format_json(data) + "\n")
+        if is_dry_run():
+            return CommandDryRunResult(
+                command=f"devops scan complexity {target}",
+                target=str(target_abs),
+                action="ast_complexity_scan",
+                details={"findings_count": len(findings)},
+            )
+        return None
+
+    if not findings:
+        print_success("✓ Code complexity and indentation depth within standard limits.")
+        if is_dry_run():
+            return CommandDryRunResult(
+                command=f"devops scan complexity {target}",
+                target=str(target_abs),
+                action="ast_complexity_scan",
+                details={"findings_count": 0},
+            )
+        return None
+
+    _render_scan_results_table(
+        title=f"Code Complexity Analysis: {target_abs.name or target_abs}",
+        findings=findings,
+    )
+
+    if is_dry_run():
+        return CommandDryRunResult(
+            command=f"devops scan complexity {target}",
+            target=str(target_abs),
+            action="ast_complexity_scan",
+            details={"findings_count": len(findings)},
+        )
+    return None
+
+
+# =============================================================================
+# Command: devops scan sbom
+# =============================================================================
+
+
+@app.command("sbom")
+def scan_sbom(
+    target: Annotated[
+        Path,
+        typer.Argument(help=HELP.scan.target),
+    ] = DEFAULT_CURRENT_PATH,
+    format_type: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.scan.sbom_format),
+    ] = "cyclonedx",
+    output_file: Annotated[
+        Path | None,
+        typer.Option("--output", "-o", help=HELP.scan.sbom_output),
+    ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+) -> CommandDryRunResult | None:
+    """Generate Software Bill of Materials (SBOM) in CycloneDX, SPDX, or JSON format."""
+    set_dry_run(dry_run)
+    target_abs = target.resolve() if target.exists() else target
+
+    if not is_dry_run():
+        print_muted(f"Generating {format_type.upper()} SBOM for {target_abs}...")
+
+    norm_format = format_type.lower().strip()
+    if norm_format == "spdx":
+        sbom_data = generate_spdx_sbom(workspace_dir=target_abs)
+    else:
+        sbom_data = generate_cyclonedx_sbom(workspace_dir=target_abs)
+
+    rendered_json = format_json(sbom_data) + "\n"
+
+    if output_file:
+        out_path = output_file.resolve()
+        if not is_dry_run():
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_text(rendered_json, encoding="utf-8")
+            print_success(f"✓ Generated {norm_format.upper()} SBOM at {out_path}")
+    else:
+        write_stdout(rendered_json)
+
+    if is_dry_run():
+        return CommandDryRunResult(
+            command=f"devops scan sbom {target} --format {format_type}",
+            target=str(target_abs),
+            action="generate_sbom",
+            details={
+                "format": norm_format,
+                "components_count": len(sbom_data.get("components", sbom_data.get("packages", []))),
+            },
         )
     return None
 
