@@ -57,3 +57,33 @@ def test_get_structural_diff_path_containment_violation(tmp_path: Path) -> None:
 def test_get_structural_diff_empty(tmp_path: Path) -> None:
     diff = get_structural_diff(tmp_path / "a.py", repo_root=tmp_path)
     assert diff == ""
+
+
+def test_sanitize_diff_output_secrets() -> None:
+    from devops_cli.ai.diff.difftastic import sanitize_diff_output
+
+    raw_diff = (
+        "--- a/config.py\n"
+        "+++ b/config.py\n"
+        "+ api_key = 'sk-abcdef1234567890abcdef1234567890'\n"
+        "+ token = 'ghp_123456789012345678901234567890123456'\n"
+        "+ aws_key = 'AKIA1234567890ABCDEF'\n"
+    )
+    sanitized = sanitize_diff_output(raw_diff)
+    assert "sk-" not in sanitized
+    assert "ghp_" not in sanitized
+    assert "AKIA" not in sanitized
+    assert "[REDACTED_SECRET]" in sanitized
+
+
+def test_get_structural_diff_file_size_limit(tmp_path: Path) -> None:
+    from unittest.mock import patch
+
+    file_a = tmp_path / "a.py"
+    file_b = tmp_path / "b.py"
+    file_a.write_text("a" * 100)
+    file_b.write_text("b" * 100)
+
+    with patch("devops_cli.ai.diff.difftastic.CONST_MAX_FILE_SIZE_BYTES", 50):
+        diff = get_structural_diff(file_a, file_b, repo_root=tmp_path)
+        assert "exceeds maximum allowed size" in diff
