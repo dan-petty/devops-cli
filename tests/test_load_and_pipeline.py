@@ -8,13 +8,13 @@ from unittest.mock import MagicMock, patch
 from typer.testing import CliRunner
 
 from devops_cli.commands.pipeline import app as pipeline_app
-from devops_cli.commands.test_cmd import app as test_app
+from devops_cli.commands.test_cmd import app as app_test_cli
 
 runner = CliRunner()
 
 
 def test_test_load_dry_run() -> None:
-    result = runner.invoke(test_app, ["--dry-run"])
+    result = runner.invoke(app_test_cli, ["load", "--dry-run"])
     assert result.exit_code == 0
     assert "DRY_RUN" in result.stdout
 
@@ -25,7 +25,7 @@ def test_test_load_live(mock_run: MagicMock, mock_which: MagicMock, tmp_path: Pa
     mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
     script = tmp_path / "smoke.js"
     script.write_text("export default function() {}")
-    result = runner.invoke(test_app, [str(script), "--vus", "5", "--duration", "5s"])
+    result = runner.invoke(app_test_cli, ["load", str(script), "--vus", "5", "--duration", "5s"])
     assert result.exit_code == 0
     assert mock_run.called
 
