@@ -5,7 +5,8 @@ from __future__ import annotations
 import inspect
 import json
 from collections import defaultdict
-from collections.abc import Callable, Generator
+from collections.abc import Callable, Generator, Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, TypeVar
 
@@ -45,9 +46,9 @@ from devops_cli.ai.agents.runner import (
     _validate_agent_output,
 )
 from devops_cli.ai.agents.tools import (
+    AbstractToolset,
     AgentSpec,
     AgentTool,
-    FunctionToolset,
     TemplateStr,
     Tool,
     ToolCall,
@@ -60,6 +61,8 @@ from devops_cli.models.ai import ChatMessage
 
 T = TypeVar("T")
 DepsT = TypeVar("DepsT")
+
+ALLOW_MODEL_REQUESTS: bool = True
 
 
 class PydanticAgent[T, DepsT = Any]:
@@ -119,9 +122,11 @@ class PydanticAgent[T, DepsT = Any]:
 
     def __init__(
         self,
-        client: LLMClient | Any = None,
-        system_prompt: str = "You are a helpful DevOps assistant.",
+        model: str | Any | None = None,
+        system_prompt: str | None = None,
         *,
+        client: LLMClient | Any = None,
+        instructions: str | list[str] | None = None,
         name: str = "Assistant",
         output_schema: type[T] | None = None,
         tools: list[AgentTool | Callable[..., Any]] | None = None,
@@ -129,19 +134,38 @@ class PydanticAgent[T, DepsT = Any]:
         deps_type: type[DepsT] | None = None,
         hooks: AgentHooks | None = None,
         capabilities: list[BaseCapability] | None = None,
-        toolsets: list[FunctionToolset[Any]] | None = None,
+        toolsets: list[AbstractToolset] | None = None,
         retries: int | AgentRetries | dict[str, int] | None = None,
         tool_timeout: float | None = None,
     ) -> None:
-        self.client = client if client is not None else LLMClient()
-        self.system_prompt = system_prompt
+        if client is not None:
+            self.client = client
+        elif isinstance(model, str):
+            from devops_cli.config.settings import AIConfig
+
+            self.client = LLMClient(config=AIConfig(model=model))
+        elif model is not None:
+            self.client = model
+        else:
+            self.client = LLMClient()
+
+        if instructions is not None:
+            if isinstance(instructions, list):
+                self.system_prompt = "\n\n".join(instructions)
+            else:
+                self.system_prompt = instructions
+        elif system_prompt is not None:
+            self.system_prompt = system_prompt
+        else:
+            self.system_prompt = "You are a helpful DevOps assistant."
+
         self.name = name
         self.output_schema = output_schema
         self.memory: AgentMemory = memory or AgentMemory(session_id=name)
         self.deps_type = deps_type
         self.hooks = hooks or AgentHooks()
         self.capabilities: list[BaseCapability] = list(capabilities or [])
-        self.toolsets: list[FunctionToolset[Any]] = list(toolsets or [])
+        self.toolsets: list[AbstractToolset] = list(toolsets or [])
         self.tool_timeout = tool_timeout
         if isinstance(retries, int):
             self.retries = AgentRetries(tools=retries, output=retries)
@@ -315,6 +339,63 @@ class PydanticAgent[T, DepsT = Any]:
         """Decorator to register a hook fired when a tool raises an error."""
         self.hooks.on_tool_error.append(func)
         return func
+
+    @contextmanager
+    def override(
+        self,
+        *,
+        model: str | Any | None = None,
+        client: LLMClient | Any = None,
+        deps: DepsT | None = None,
+        toolsets: list[AbstractToolset] | None = None,
+        capabilities: list[BaseCapability] | None = None,
+        native_tools: list[Any] | None = None,
+    ) -> Iterator[None]:
+        """Context manager to temporarily override agent model, client, tools, or dependencies for testing."""
+        orig_client = self.client
+        orig_toolsets = list(self.toolsets)
+        orig_capabilities = list(self.capabilities)
+        orig_tools = dict(self._tools)
+
+        try:
+            if model is not None:
+                if isinstance(model, str):
+                    from devops_cli.config.settings import AIConfig
+
+                    self.client = LLMClient(config=AIConfig(model=model))
+                else:
+                    self.client = model
+            elif client is not None:
+                self.client = client
+
+            if toolsets is not None:
+                self.toolsets = list(toolsets)
+                for ts in self.toolsets:
+                    for ts_tool in ts.get_tools():
+                        self.add_tool(ts_tool)
+
+            if capabilities is not None:
+                self.capabilities = list(capabilities)
+
+            yield
+        finally:
+            self.client = orig_client
+            self.toolsets = orig_toolsets
+            self.capabilities = orig_capabilities
+            self._tools = orig_tools
+
+    async def __aenter__(self) -> PydanticAgent[T, DepsT]:
+        """Enter asynchronous context, opening any connected MCP toolsets or capabilities."""
+        for ts in self.toolsets:
+            if hasattr(ts, "__aenter__") and callable(ts.__aenter__):
+                await ts.__aenter__()
+        return self
+
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        """Exit asynchronous context, closing any opened MCP toolsets or capabilities."""
+        for ts in self.toolsets:
+            if hasattr(ts, "__aexit__") and callable(ts.__aexit__):
+                await ts.__aexit__(exc_type, exc_val, exc_tb)
 
     def add_tool(self, tool: AgentTool | Callable[..., Any]) -> None:
         """Register a tool callback or AgentTool instance."""
@@ -637,6 +718,23 @@ class PydanticAgent[T, DepsT = Any]:
                 self.capabilities, ctx.loaded_capability_ids, ctx, enable_thinking
             )
 
+            import devops_cli.ai.agents.agent as agent_module
+            import devops_cli.ai.agents.testing as testing_module
+
+            if not getattr(testing_module, "ALLOW_MODEL_REQUESTS", True) or not getattr(
+                agent_module, "ALLOW_MODEL_REQUESTS", True
+            ):
+                from devops_cli.ai.agents.testing import (
+                    FunctionModel,
+                    ModelNotAllowedError,
+                    TestModel,
+                )
+
+                if not isinstance(self.client, (TestModel, FunctionModel)):
+                    raise ModelNotAllowedError(
+                        "Model requests are disabled via ALLOW_MODEL_REQUESTS=False"
+                    )
+
             res_obj = self.client.chat_messages(system, messages, enable_thinking=turn_thinking)
             response_text = str(res_obj)
 
@@ -737,6 +835,11 @@ class PydanticAgent[T, DepsT = Any]:
             self.memory.auto_summarize_if_needed(llm_client=self.client)
             messages.append(ChatMessage(role="assistant", content=final_output))
 
+            from devops_cli.ai.agents.testing import _RUN_MESSAGES_CAPTURE
+
+            if (capture_buf := _RUN_MESSAGES_CAPTURE.get()) is not None:
+                capture_buf.extend(messages)
+
             usage = AgentUsage(
                 input_tokens=total_input_tokens,
                 output_tokens=total_output_tokens,
@@ -757,6 +860,11 @@ class PydanticAgent[T, DepsT = Any]:
         self.memory.add_interaction("assistant", response_text)
         self.memory.auto_summarize_if_needed(llm_client=self.client)
         messages.append(ChatMessage(role="assistant", content=response_text))
+
+        from devops_cli.ai.agents.testing import _RUN_MESSAGES_CAPTURE
+
+        if (capture_buf := _RUN_MESSAGES_CAPTURE.get()) is not None:
+            capture_buf.extend(messages)
 
         usage = AgentUsage(
             input_tokens=total_input_tokens,

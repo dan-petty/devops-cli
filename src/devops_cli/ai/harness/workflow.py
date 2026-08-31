@@ -104,7 +104,7 @@ class SubAgent(BaseModel):
 
     def __init__(
         self,
-        agent: Any,
+        agent: Any = None,
         *,
         name: str | None = None,
         description: str | None = None,
@@ -114,16 +114,24 @@ class SubAgent(BaseModel):
         max_calls: int | None = None,
         on_failure: str | None = None,
         contain_errors: bool | None = None,
+        **kwargs: Any,
     ) -> None:
-        sub_name = str(name or getattr(agent, "name", "") or "sub_agent")
+        if "agent" in kwargs:
+            actual_agent = kwargs["agent"]
+            if name is None and agent is not None:
+                name = str(agent)
+        else:
+            actual_agent = agent
+
+        sub_name = str(name or getattr(actual_agent, "name", "") or "sub_agent")
         sub_desc = str(
             description
-            or getattr(agent, "system_prompt", "")
-            or getattr(agent, "description", "")
+            or getattr(actual_agent, "system_prompt", "")
+            or getattr(actual_agent, "description", "")
             or sub_name
         )
         super().__init__(
-            agent=agent,
+            agent=actual_agent,
             name=sub_name,
             description=sub_desc,
             models=list(models) if models is not None else None,
@@ -255,23 +263,48 @@ class SubAgents(BaseCapability):
         all_sub_agents = self.get_all_agents()
         agent_map = {sa.name: sa for sa in all_sub_agents}
 
-        def delegate_task(agent_name: str, task: str, model: str | None = None) -> str:
+        def delegate_task(
+            ctx: RunContext[Any] | str | None = None,
+            agent_name: str = "",
+            task: str = "",
+            model: str | None = None,
+            **kwargs: Any,
+        ) -> str:
             """Delegate a self-contained task to a named sub-agent."""
-            if agent_name not in agent_map:
-                available = list(agent_map.keys())
-                return f"Error: unknown sub-agent '{agent_name}'. Available sub-agents: {available}"
+            actual_ctx: RunContext[Any] | None = None
+            kw_ctx = kwargs.get("ctx")
+            if isinstance(ctx, RunContext):
+                actual_ctx = ctx
+                actual_agent = agent_name or str(kwargs.get("agent_name", ""))
+                actual_task = task or str(kwargs.get("task", ""))
+            elif isinstance(ctx, str):
+                if isinstance(kw_ctx, RunContext):
+                    actual_ctx = kw_ctx
+                actual_agent = ctx
+                actual_task = agent_name or str(kwargs.get("task", ""))
+            else:
+                if isinstance(kw_ctx, RunContext):
+                    actual_ctx = kw_ctx
+                actual_agent = agent_name or str(kwargs.get("agent_name", ""))
+                actual_task = task or str(kwargs.get("task", ""))
 
-            target = agent_map[agent_name]
+            if actual_agent not in agent_map:
+                available = list(agent_map.keys())
+                return (
+                    f"Error: unknown sub-agent '{actual_agent}'. Available sub-agents: {available}"
+                )
+
+            target = agent_map[actual_agent]
 
             # Check max_calls budget
             if target.max_calls is not None:
-                current_calls = self.call_counts.get(agent_name, 0)
+                current_calls = self.call_counts.get(actual_agent, 0)
                 if current_calls >= target.max_calls:
                     return (
                         target.on_failure
-                        or f"Budget exhausted: max calls ({target.max_calls}) reached for sub-agent '{agent_name}'."
+                        or f"Budget exhausted: max calls ({target.max_calls}) reached for sub-agent '{actual_agent}'."
                     )
-                self.call_counts[agent_name] = current_calls + 1
+                self.call_counts[actual_agent] = current_calls + 1
 
             # Validate model if model menu is active
             if self.models:
@@ -279,7 +312,7 @@ class SubAgents(BaseCapability):
                 if chosen_model_key not in self.models:
                     return f"Error: model '{chosen_model_key}' not in model menu {list(self.models.keys())}."
                 if target.models and chosen_model_key not in target.models:
-                    return f"Error: model '{chosen_model_key}' not allowed for sub-agent '{agent_name}' (allowed: {target.models})."
+                    return f"Error: model '{chosen_model_key}' not allowed for sub-agent '{actual_agent}' (allowed: {target.models})."
 
             sub = target.agent
             contain = (
@@ -288,17 +321,27 @@ class SubAgents(BaseCapability):
 
             try:
                 if hasattr(sub, "run"):
-                    resp = sub.run(task)
+                    if (
+                        self.forward_usage
+                        and actual_ctx is not None
+                        and getattr(actual_ctx, "usage", None) is not None
+                    ):
+                        try:
+                            resp = sub.run(actual_task, usage=actual_ctx.usage)
+                        except TypeError:
+                            resp = sub.run(actual_task)
+                    else:
+                        resp = sub.run(actual_task)
                     return str(getattr(resp, "content", getattr(resp, "output", resp)))
                 elif callable(sub):
-                    resp = sub(task)
+                    resp = sub(actual_task)
                     return str(resp)
                 return str(sub)
             except Exception as exc:
                 if target.on_failure:
                     return target.on_failure
                 if contain:
-                    return f"Sub-agent '{agent_name}' crashed: {exc}"
+                    return f"Sub-agent '{actual_agent}' crashed: {exc}"
                 raise
 
         tools: list[AgentTool | Callable[..., Any]] = [
@@ -306,6 +349,7 @@ class SubAgents(BaseCapability):
                 delegate_task,
                 name=self.tool_name,
                 description="Delegate a self-contained task to a named child sub-agent.",
+                takes_ctx=True,
             )
         ]
 

@@ -433,3 +433,331 @@ async def test_process_event_stream_capability() -> None:
     assert len(observed_events) == 3
     assert observed_events[0].content == "Hello"
     assert observed_events[2].event_kind == "tool_call"
+
+
+def test_subagents_usage_forwarding() -> None:
+    """Verify SubAgents capability forwards usage tracking to child agents."""
+    from unittest.mock import MagicMock
+
+    from devops_cli.ai.agents import AgentUsage, RunContext
+    from devops_cli.ai.harness.workflow import SubAgent, SubAgents
+
+    child_agent = MagicMock()
+    child_resp = MagicMock()
+    child_resp.content = "Child agent result"
+
+    def child_run(task: str, usage: AgentUsage | None = None) -> Any:
+        if usage is not None:
+            usage.input_tokens += 100
+            usage.output_tokens += 50
+            usage.total_tokens += 150
+        return child_resp
+
+    child_agent.run.side_effect = child_run
+
+    sub_agent_def = SubAgent(name="specialist", description="Domain specialist", agent=child_agent)
+    subagents_cap = SubAgents(agents=[sub_agent_def], forward_usage=True)
+
+    tools = subagents_cap.get_tools()
+    delegate_tool = next(t for t in tools if getattr(t, "name", "") == "delegate_task")
+
+    parent_usage = AgentUsage(input_tokens=20, output_tokens=10, total_tokens=30)
+    ctx = RunContext(usage=parent_usage)
+
+    res = delegate_tool.func(ctx=ctx, agent_name="specialist", task="analyze logs")
+    assert res == "Child agent result"
+    assert parent_usage.input_tokens == 120
+    assert parent_usage.output_tokens == 60
+    assert parent_usage.total_tokens == 180
+
+
+def test_agent_tool_args_validator() -> None:
+    """Verify args_validator_func supports pre-execution argument validation and transformation."""
+    from devops_cli.ai.agents import FunctionToolset, Tool
+
+    def sample_tool(ctx: Any, target: str, count: int) -> str:
+        return f"{target}:{count}"
+
+    def validator(args: dict[str, Any]) -> dict[str, Any]:
+        # Transform target to uppercase and clamp count to positive
+        args["target"] = str(args.get("target", "")).upper()
+        args["count"] = max(1, int(args.get("count", 1)))
+        return args
+
+    tool = Tool.from_function(sample_tool, args_validator_func=validator)
+    validated = tool.validate_args({"target": "production", "count": -5})
+    assert validated["target"] == "PRODUCTION"
+    assert validated["count"] == 1
+
+    # Via FunctionToolset decorator
+    toolset = FunctionToolset()
+
+    @toolset.tool(args_validator_func=validator)
+    def decorated_tool(ctx: Any, target: str, count: int) -> str:
+        return f"{target}:{count}"
+
+    registered_tool = toolset.get_tools()[0]
+    assert isinstance(registered_tool, Tool)
+    res = registered_tool.validate_args({"target": "staging", "count": 0})
+    assert res["target"] == "STAGING"
+    assert res["count"] == 1
+
+
+def test_abstract_custom_toolset() -> None:
+    """Verify custom AbstractToolset subclasses integrate with PydanticAgent."""
+    from devops_cli.ai.agents import AbstractToolset, AgentTool, PydanticAgent, Tool
+
+    class DynamicMetricToolset(AbstractToolset):
+        prefix: str = "metric_"
+
+        def get_tools(self) -> list[AgentTool]:
+            def fetch_cpu() -> str:
+                return "cpu: 45%"
+
+            return [Tool.from_function(fetch_cpu, name=f"{self.prefix}cpu")]
+
+        def get_instructions(self, ctx: Any = None) -> list[str]:
+            return ["Query metrics using the metric_ prefix tools."]
+
+    ts = DynamicMetricToolset(prefix="k8s_")
+    tools = ts.get_tools()
+    assert len(tools) == 1
+    assert tools[0].name == "k8s_cpu"
+    assert ts.get_instructions() == ["Query metrics using the metric_ prefix tools."]
+
+    agent = PydanticAgent(toolsets=[ts])
+    assert "k8s_cpu" in agent._tools
+
+
+@pytest.mark.anyio
+async def test_embedder_and_embedding_result() -> None:
+    """Verify Embedder interface and EmbeddingResult container indexing and cost calculation."""
+    from unittest.mock import MagicMock
+
+    from devops_cli.ai.agents import Embedder, EmbeddingResult
+
+    mock_engine = MagicMock()
+    mock_engine.embed_query.return_value = [0.1, 0.2, 0.3, 0.4]
+    mock_engine.embed_texts.side_effect = lambda texts, is_query=False: [
+        [0.1 * (i + 1), 0.2, 0.3, 0.4] for i in range(len(texts))
+    ]
+
+    embedder = Embedder(model="openai:text-embedding-3-small", engine=mock_engine)
+
+    # 1. Async Query Embedding
+    res_query = await embedder.embed_query("What is Kubernetes?")
+    assert isinstance(res_query, EmbeddingResult)
+    assert len(res_query) == 1
+    assert res_query[0] == [0.1, 0.2, 0.3, 0.4]
+    assert res_query["What is Kubernetes?"] == [0.1, 0.2, 0.3, 0.4]
+    assert res_query.usage.input_tokens > 0
+    cost = res_query.cost()
+    assert cost.total_price >= 0.0
+
+    # 2. Async Documents Embedding
+    docs = ["Doc 1 content", "Doc 2 content"]
+    res_docs = await embedder.embed_documents(docs)
+    assert len(res_docs) == 2
+    assert res_docs[0] == [0.1, 0.2, 0.3, 0.4]
+    assert res_docs[1] == [0.2, 0.2, 0.3, 0.4]
+    assert res_docs["Doc 1 content"] == [0.1, 0.2, 0.3, 0.4]
+    assert res_docs["Doc 2 content"] == [0.2, 0.2, 0.3, 0.4]
+
+    # 3. Key error on missing text
+    with pytest.raises(KeyError):
+        _ = res_docs["Missing doc"]
+
+    with pytest.raises(TypeError):
+        _ = res_docs[1.5]  # type: ignore[index]
+
+    # 4. Sync methods
+    res_sync = embedder.embed_query_sync("Sync test")
+    assert len(res_sync) == 1
+    assert res_sync[0] == [0.1, 0.2, 0.3, 0.4]
+
+    docs_sync = embedder.embed_documents_sync(["Sync doc"])
+    assert len(docs_sync) == 1
+    assert docs_sync[0] == [0.1, 0.2, 0.3, 0.4]
+
+    # 5. Default engine initialization and dimension control
+    local_embedder = Embedder(model="ollama:all-minilm", dimensions=384)
+    engine = local_embedder._get_engine()
+    assert engine._dimension == 384
+
+
+def test_testing_utilities_and_agent_override() -> None:
+    """Verify TestModel, FunctionModel, Agent.override, capture_run_messages, and ALLOW_MODEL_REQUESTS."""
+    import json
+
+    import devops_cli.ai.agents.testing as testing_module
+    from devops_cli.ai.agents import (
+        AgentInfo,
+        FunctionModel,
+        FunctionToolset,
+        ModelNotAllowedError,
+        PydanticAgent,
+        TestModel,
+        capture_run_messages,
+    )
+
+    # 1. TestModel custom outputs
+    tm1 = TestModel(custom_output_text="Custom Output")
+    assert tm1.chat("hello") == "Custom Output"
+    assert tm1.chat_messages([]) == "Custom Output"
+
+    tm2 = TestModel(custom_output_args={"status": "passed", "code": 0})
+    assert json.loads(tm2.chat("hello")) == {"status": "passed", "code": 0}
+
+    # 2. FunctionModel custom callbacks
+    def custom_fn(msgs: Any, info: AgentInfo) -> str:
+        return f"Echo from {info.agent_name}"
+
+    fm = FunctionModel(function=custom_fn)
+    assert fm.chat([], agent_name="CustomAgent") == "Echo from CustomAgent"
+
+    def custom_dict_fn(msgs: Any, info: AgentInfo) -> dict[str, Any]:
+        return {"handled": True}
+
+    fm_dict = FunctionModel(function=custom_dict_fn)
+    assert json.loads(fm_dict.chat([])) == {"handled": True}
+
+    # 3. capture_run_messages context manager and Agent.override
+    agent = PydanticAgent(name="TestAssistant", model="openai:gpt-4o")
+
+    # With override using TestModel
+    with capture_run_messages() as captured:
+        with agent.override(model=TestModel(custom_output_text="Mocked Agent Response")):
+            res = agent.run("What is the k8s status?")
+            assert res.content == "Mocked Agent Response"
+    assert len(captured) > 0
+
+    # 4. Agent.override with toolsets
+    ts = FunctionToolset()
+
+    @ts.tool_plain()
+    def custom_tool(x: int) -> int:
+        return x * 2
+
+    with agent.override(toolsets=[ts]):
+        assert "custom_tool" in agent._tools
+    assert "custom_tool" not in agent._tools
+
+    # 5. ALLOW_MODEL_REQUESTS enforcement
+    orig_allow = testing_module.ALLOW_MODEL_REQUESTS
+    try:
+        testing_module.ALLOW_MODEL_REQUESTS = False
+        import devops_cli.ai.agents.agent as agent_module
+
+        agent_module.ALLOW_MODEL_REQUESTS = False
+
+        # Real model request fails
+        real_agent = PydanticAgent(name="RealAgent", model="openai:gpt-4o")
+        with pytest.raises(ModelNotAllowedError):
+            real_agent.run("Test query")
+
+        # TestModel succeeds even when ALLOW_MODEL_REQUESTS is False
+        with real_agent.override(model=TestModel(custom_output_text="Safe test")):
+            safe_res = real_agent.run("Test query")
+            assert safe_res.content == "Safe test"
+    finally:
+        testing_module.ALLOW_MODEL_REQUESTS = orig_allow
+        agent_module.ALLOW_MODEL_REQUESTS = orig_allow
+
+
+@pytest.mark.anyio
+async def test_mcp_toolset_and_capability() -> None:
+    """Verify MCPToolset lifecycle, tool registration, and MCP capability adaptation."""
+    from devops_cli.ai.agents import (
+        MCP,
+        AgentTool,
+        MCPServerTool,
+        MCPToolset,
+        PydanticAgent,
+        TestModel,
+    )
+
+    # 1. MCPToolset instantiation and lifecycle
+    tool1 = AgentTool(
+        name="mcp_query", description="Query remote MCP", func=lambda q: f"Result: {q}"
+    )
+    mcp_ts = MCPToolset(url="https://mcp.internal.net/api", tools=[tool1])
+
+    assert len(mcp_ts.get_tools()) == 1
+    assert mcp_ts.get_tools()[0].name == "mcp_query"
+    instructions = mcp_ts.get_instructions()
+    assert len(instructions) == 1
+    assert "https://mcp.internal.net/api" in instructions[0]
+
+    # Context manager lifecycle
+    async with mcp_ts as ts:
+        assert len(ts.get_tools()) == 1
+
+    # 2. MCP capability with MCPToolset as local
+    mcp_cap = MCP(url="https://mcp.internal.net/api", local=mcp_ts)
+    tools = mcp_cap.get_tools()
+    assert len(tools) == 1
+    assert tools[0].name == "mcp_query"
+
+    # 3. MCP capability with native=True
+    mcp_native = MCP(url="https://mcp.internal.net/api", native=True)
+    settings = mcp_native.get_model_settings()
+    assert settings.get("native_mcp_server") is True
+    assert settings["mcp_server_config"]["url"] == "https://mcp.internal.net/api"
+
+    # 4. MCP capability with MCPServerTool instance
+    server_tool = MCPServerTool(url="https://mcp.prod.cloud/sse", id="prod_mcp")
+    mcp_server_cap = MCP(native=server_tool)
+    server_settings = mcp_server_cap.get_model_settings()
+    assert server_settings["mcp_server_config"]["url"] == "https://mcp.prod.cloud/sse"
+
+    # 5. Tool prefixing and from_config loading
+    mcp_prefix = MCPToolset(
+        "https://mcp.internal.net/api",
+        tool_prefix="slack",
+        tools=[tool1],
+    )
+    prefixed_tools = mcp_prefix.get_tools()
+    assert len(prefixed_tools) == 1
+    assert prefixed_tools[0].name == "slack_mcp_query"
+
+    config = {
+        "mcpServers": {
+            "github": {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-github"]},
+            "fetch": {"url": "http://localhost:8000/sse"},
+        }
+    }
+    loaded = MCPToolset.from_config(config)
+    assert len(loaded) == 2
+    assert loaded[0].tool_prefix == "github"
+    assert loaded[1].url == "http://localhost:8000/sse"
+
+    # 6. End-to-end execution with agent and async context manager
+    agent = PydanticAgent(
+        name="MCPAgent",
+        model="openai:gpt-4o",
+        capabilities=[mcp_cap],
+        toolsets=[mcp_ts],
+    )
+    async with agent:
+        with agent.override(model=TestModel(custom_output_text="MCP processed")):
+            res = agent.run("Run mcp tool")
+            assert res.content == "MCP processed"
+
+    # 7. MCPSamplingModel delegation
+    from unittest.mock import MagicMock
+
+    from devops_cli.ai.agents import MCPSamplingModel
+
+    mock_session = MagicMock()
+    mock_msg = MagicMock()
+    mock_msg.content = "Poem from MCP sampling client"
+    mock_session.create_message.return_value = mock_msg
+
+    sampling_model = MCPSamplingModel(session=mock_session)
+    sample_res = sampling_model.chat("Write a poem")
+    assert sample_res == "Poem from MCP sampling client"
+    assert sampling_model.chat_messages("System", ["User query"]) == "Poem from MCP sampling client"
+
+    # Fallback when no session is attached
+    fallback_model = MCPSamplingModel()
+    assert "MCP sampling" in fallback_model.chat("Test")

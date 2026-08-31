@@ -26,18 +26,26 @@ class AgentTool(BaseModel):
     max_retries: int | None = None
     requires_approval: bool = False
     include_return_schema: bool | None = None
+    args_validator_func: Callable[[dict[str, Any]], dict[str, Any] | None] | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     def validate_args(self, args: dict[str, Any]) -> dict[str, Any]:
         """Validate and filter tool arguments against the declared parameter schema."""
         if not self.parameters:
-            return args
-        valid_params = set(self.parameters.keys())
-        clean_args: dict[str, Any] = {}
-        for k, v in args.items():
-            if k in valid_params:
-                _check_path_traversal(k, v)
-                clean_args[k] = v
+            clean_args = dict(args)
+        else:
+            valid_params = set(self.parameters.keys())
+            clean_args = {}
+            for k, v in args.items():
+                if k in valid_params:
+                    _check_path_traversal(k, v)
+                    clean_args[k] = v
+
+        if self.args_validator_func is not None:
+            validated = self.args_validator_func(clean_args)
+            if validated is not None:
+                clean_args = validated
+
         return clean_args
 
     def execute(self, ctx: RunContext[Any] | None = None, **kwargs: Any) -> Any:
@@ -78,6 +86,7 @@ class Tool(AgentTool):
         timeout: float | None = None,
         max_retries: int | None = None,
         include_return_schema: bool | None = None,
+        args_validator_func: Callable[[dict[str, Any]], dict[str, Any] | None] | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> Tool:
         """Construct a Tool instance from a callable."""
@@ -104,6 +113,7 @@ class Tool(AgentTool):
             timeout=timeout,
             max_retries=max_retries,
             include_return_schema=include_return_schema,
+            args_validator_func=args_validator_func,
             metadata=metadata or {},
         )
 
@@ -120,6 +130,7 @@ class Tool(AgentTool):
         requires_approval: bool = False,
         timeout: float | None = None,
         max_retries: int | None = None,
+        args_validator_func: Callable[[dict[str, Any]], dict[str, Any] | None] | None = None,
     ) -> Tool:
         """Construct a Tool instance from an arbitrary callable and explicit JSON schema."""
         properties = json_schema.get("properties", {}) if json_schema else {}
@@ -136,6 +147,7 @@ class Tool(AgentTool):
             requires_approval=requires_approval,
             timeout=timeout,
             max_retries=max_retries,
+            args_validator_func=args_validator_func,
         )
 
 
@@ -148,7 +160,19 @@ class ToolCall(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
-class FunctionToolset[DepsT = Any](BaseModel):
+class AbstractToolset(BaseModel):
+    """Abstract base class for modular agent toolsets."""
+
+    def get_tools(self) -> list[AgentTool | Callable[..., Any]]:
+        """Return tools provided by this toolset."""
+        return []
+
+    def get_instructions(self, ctx: RunContext[Any] | None = None) -> list[str]:
+        """Return system prompt instructions for this toolset."""
+        return []
+
+
+class FunctionToolset[DepsT = Any](AbstractToolset):
     """Bundles local functions and domain instructions into a reusable toolset."""
 
     instructions: str = ""
@@ -166,6 +190,8 @@ class FunctionToolset[DepsT = Any](BaseModel):
         requires_approval: bool = False,
         timeout: float | None = None,
         max_retries: int | None = None,
+        include_return_schema: bool | None = None,
+        args_validator_func: Callable[[dict[str, Any]], dict[str, Any] | None] | None = None,
     ) -> Any:
         """Decorator to register a tool on this toolset."""
 
@@ -179,6 +205,8 @@ class FunctionToolset[DepsT = Any](BaseModel):
                     requires_approval=requires_approval,
                     timeout=timeout if timeout is not None else self.timeout,
                     max_retries=max_retries if max_retries is not None else self.max_retries,
+                    include_return_schema=include_return_schema,
+                    args_validator_func=args_validator_func,
                 )
             )
             return fn
@@ -197,6 +225,8 @@ class FunctionToolset[DepsT = Any](BaseModel):
         requires_approval: bool = False,
         timeout: float | None = None,
         max_retries: int | None = None,
+        include_return_schema: bool | None = None,
+        args_validator_func: Callable[[dict[str, Any]], dict[str, Any] | None] | None = None,
     ) -> Any:
         """Decorator to register a plain tool on this toolset."""
 
@@ -211,6 +241,8 @@ class FunctionToolset[DepsT = Any](BaseModel):
                     requires_approval=requires_approval,
                     timeout=timeout if timeout is not None else self.timeout,
                     max_retries=max_retries if max_retries is not None else self.max_retries,
+                    include_return_schema=include_return_schema,
+                    args_validator_func=args_validator_func,
                 )
             )
             return fn
@@ -234,6 +266,8 @@ class FunctionToolset[DepsT = Any](BaseModel):
         requires_approval: bool = False,
         timeout: float | None = None,
         max_retries: int | None = None,
+        include_return_schema: bool | None = None,
+        args_validator_func: Callable[[dict[str, Any]], dict[str, Any] | None] | None = None,
     ) -> None:
         """Add a function as a Tool instance with custom metadata."""
         self.tools.append(
@@ -246,6 +280,8 @@ class FunctionToolset[DepsT = Any](BaseModel):
                 requires_approval=requires_approval,
                 timeout=timeout if timeout is not None else self.timeout,
                 max_retries=max_retries if max_retries is not None else self.max_retries,
+                include_return_schema=include_return_schema,
+                args_validator_func=args_validator_func,
             )
         )
 
@@ -258,6 +294,132 @@ class FunctionToolset[DepsT = Any](BaseModel):
         if self.instructions and self.instructions.strip():
             return [self.instructions.strip()]
         return []
+
+
+class MCPToolset(AbstractToolset):
+    """Toolset connecting to a Model Context Protocol (MCP) server over SSE/HTTP, stdio, or local FastMCP."""
+
+    url: str | None = None
+    server: Any | None = None
+    client: Any | None = None
+    script_path: Path | str | None = None
+    tool_prefix: str | None = None
+    timeout: float | None = None
+    auth: Any | None = None
+    tools: list[AgentTool] = Field(default_factory=list)
+    instructions: str | None = None
+
+    def __init__(
+        self,
+        target: str | Path | Any | None = None,
+        *,
+        url: str | None = None,
+        server: Any | None = None,
+        client: Any | None = None,
+        script_path: Path | str | None = None,
+        tool_prefix: str | None = None,
+        timeout: float | None = None,
+        auth: Any | None = None,
+        tools: list[AgentTool] | None = None,
+        instructions: str | None = None,
+        **kwargs: Any,
+    ) -> None:
+        if isinstance(target, str):
+            if target.startswith(("http://", "https://")):
+                url = target
+            else:
+                script_path = target
+        elif isinstance(target, Path):
+            script_path = target
+        elif target is not None and not (url or server or client or script_path):
+            if hasattr(target, "list_tools") or hasattr(target, "call_tool"):
+                client = target
+            else:
+                server = target
+
+        super().__init__(
+            url=url,
+            server=server,
+            client=client,
+            script_path=script_path,
+            tool_prefix=tool_prefix,
+            timeout=timeout,
+            auth=auth,
+            tools=list(tools or []),
+            instructions=instructions,
+            **kwargs,
+        )
+
+    def get_tools(self) -> list[AgentTool | Callable[..., Any]]:
+        """Return discovered or registered MCP tools, applying tool_prefix if configured."""
+        if not self.tool_prefix:
+            return list(self.tools)
+        prefixed: list[AgentTool | Callable[..., Any]] = []
+        for t in self.tools:
+            name = (
+                f"{self.tool_prefix}_{t.name}"
+                if not t.name.startswith(f"{self.tool_prefix}_")
+                else t.name
+            )
+            prefixed.append(t.model_copy(update={"name": name}))
+        return prefixed
+
+    def get_instructions(self, ctx: RunContext[Any] | None = None) -> list[str]:
+        """Return system prompt guidance for this MCP server."""
+        if self.instructions:
+            return [self.instructions.strip()]
+        target = self.url or str(self.script_path) or "local"
+        prefix_note = f" (prefixed with '{self.tool_prefix}_')" if self.tool_prefix else ""
+        return [
+            f"Tools available via Model Context Protocol (MCP) server at {target}{prefix_note}."
+        ]
+
+    @classmethod
+    def from_config(cls, config: dict[str, Any] | str | Path) -> list[MCPToolset]:
+        """Construct a list of MCPToolsets from a standard MCP server configuration dictionary or file path."""
+        if isinstance(config, (str, Path)):
+            p = Path(config)
+            content = p.read_text(encoding="utf-8")
+            if p.suffix in (".yaml", ".yml"):
+                import yaml
+
+                data = yaml.safe_load(content) or {}
+            else:
+                data = json.loads(content)
+        else:
+            data = config
+
+        servers = data.get("mcpServers", data.get("servers", {}))
+        if not servers and isinstance(data, dict):
+            servers = data
+
+        toolsets: list[MCPToolset] = []
+        for name, cfg in servers.items():
+            if not isinstance(cfg, dict):
+                continue
+            url = cfg.get("url")
+            cmd = cfg.get("command")
+            args = cfg.get("args", [])
+            script = " ".join([str(cmd)] + [str(a) for a in args]) if cmd else None
+            toolsets.append(
+                cls(
+                    url=url,
+                    script_path=script,
+                    tool_prefix=name,
+                    instructions=cfg.get("description"),
+                )
+            )
+        return toolsets
+
+    async def __aenter__(self) -> MCPToolset:
+        return self
+
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        await self.close()
+
+    async def close(self) -> None:
+        """Close client connections."""
+        pass
 
 
 class TemplateStr(str):

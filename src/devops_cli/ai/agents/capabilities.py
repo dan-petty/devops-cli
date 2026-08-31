@@ -228,15 +228,14 @@ class MCP(BaseCapability):
         super().__init__(url=url, native=native, local=local)
 
     def get_tools(self) -> list[AgentTool | Callable[..., Any]]:
-
         if self.local is False:
             return []
         if hasattr(self.local, "get_tools") and callable(self.local.get_tools):
             tools_val = self.local.get_tools()
             if isinstance(tools_val, list):
-                return [t for t in tools_val if isinstance(t, Tool) or callable(t)]
+                return [t for t in tools_val if isinstance(t, (AgentTool, Tool)) or callable(t)]
         if isinstance(self.local, list):
-            return [t for t in self.local if isinstance(t, Tool) or callable(t)]
+            return [t for t in self.local if isinstance(t, (AgentTool, Tool)) or callable(t)]
         return []
 
     def get_model_settings(self, ctx: RunContext[Any] | None = None) -> dict[str, Any]:

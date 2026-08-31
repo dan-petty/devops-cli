@@ -49,7 +49,12 @@ from devops_cli.ai.agents.context import (
     RunContext,
     _check_path_traversal,
 )
-from devops_cli.ai.agents.models import AgentResponse
+from devops_cli.ai.agents.embeddings import (
+    Embedder,
+    EmbeddingCost,
+    EmbeddingResult,
+)
+from devops_cli.ai.agents.models import AgentResponse, MCPSamplingModel
 from devops_cli.ai.agents.runner import (
     _create_deferred_tool_request,
     _create_tool_retry_message,
@@ -63,10 +68,20 @@ from devops_cli.ai.agents.runner import (
     _resolve_thinking_preference,
     _validate_agent_output,
 )
+from devops_cli.ai.agents.testing import (
+    ALLOW_MODEL_REQUESTS,
+    AgentInfo,
+    FunctionModel,
+    ModelNotAllowedError,
+    TestModel,
+    capture_run_messages,
+)
 from devops_cli.ai.agents.tools import (
+    AbstractToolset,
     AgentSpec,
     AgentTool,
     FunctionToolset,
+    MCPToolset,
     TemplateStr,
     Tool,
     ToolCall,
@@ -74,7 +89,10 @@ from devops_cli.ai.agents.tools import (
 )
 
 __all__ = [
+    "ALLOW_MODEL_REQUESTS",
+    "AbstractToolset",
     "AgentHooks",
+    "AgentInfo",
     "AgentResponse",
     "AgentRetries",
     "AgentSpec",
@@ -87,12 +105,19 @@ __all__ = [
     "CodeExecutionTool",
     "DeferredToolRequests",
     "DeferredToolResults",
+    "Embedder",
+    "EmbeddingCost",
+    "EmbeddingResult",
+    "FunctionModel",
     "FunctionToolset",
     "HandleDeferredToolCalls",
     "IncludeToolReturnSchemas",
     "Instrumentation",
     "MCP",
+    "MCPSamplingModel",
     "MCPServerTool",
+    "MCPToolset",
+    "ModelNotAllowedError",
     "ModelResolutionContext",
     "ModelSelectionContext",
     "NativeTool",
@@ -109,6 +134,7 @@ __all__ = [
     "SetToolMetadata",
     "SystemReminders",
     "TemplateStr",
+    "TestModel",
     "Thinking",
     "ThinkingPart",
     "ThreadExecutor",
@@ -136,4 +162,5 @@ __all__ = [
     "_resolve_fallback_output",
     "_resolve_thinking_preference",
     "_validate_agent_output",
+    "capture_run_messages",
 ]
