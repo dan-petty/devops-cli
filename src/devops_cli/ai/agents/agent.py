@@ -230,6 +230,15 @@ class PydanticAgent[T, DepsT = Any]:
 
         self.add_tool(load_capability)
 
+    @property
+    def model(self) -> str | None:
+        """Return the model identifier configured on this agent's LLM client."""
+        if hasattr(self.client, "config") and hasattr(self.client.config, "model"):
+            return str(self.client.config.model)
+        if hasattr(self.client, "model"):
+            return str(self.client.model)
+        return None
+
     def tool(
         self,
         func: Callable[..., Any] | None = None,
@@ -339,6 +348,13 @@ class PydanticAgent[T, DepsT = Any]:
         """Decorator to register a hook fired when a tool raises an error."""
         self.hooks.on_tool_error.append(func)
         return func
+
+    def set_mcp_sampling_model(self, model: str | Any | None = None) -> None:
+        """Set the sampling model on all MCPToolsets registered with this agent."""
+        target_model = model or self.model
+        for ts in self.toolsets:
+            if hasattr(ts, "sampling_model"):
+                setattr(ts, "sampling_model", target_model)
 
     @contextmanager
     def override(

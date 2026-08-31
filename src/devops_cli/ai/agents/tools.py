@@ -308,6 +308,10 @@ class MCPToolset(AbstractToolset):
     auth: Any | None = None
     tools: list[AgentTool] = Field(default_factory=list)
     instructions: str | None = None
+    client_info: Any | None = None
+    sampling_model: Any | None = None
+    http_client: Any | None = None
+    sse_read_timeout: float | None = None
 
     def __init__(
         self,
@@ -322,6 +326,10 @@ class MCPToolset(AbstractToolset):
         auth: Any | None = None,
         tools: list[AgentTool] | None = None,
         instructions: str | None = None,
+        client_info: Any | None = None,
+        sampling_model: Any | None = None,
+        http_client: Any | None = None,
+        sse_read_timeout: float | None = None,
         **kwargs: Any,
     ) -> None:
         if isinstance(target, str):
@@ -347,6 +355,10 @@ class MCPToolset(AbstractToolset):
             auth=auth,
             tools=list(tools or []),
             instructions=instructions,
+            client_info=client_info,
+            sampling_model=sampling_model,
+            http_client=http_client,
+            sse_read_timeout=sse_read_timeout,
             **kwargs,
         )
 
