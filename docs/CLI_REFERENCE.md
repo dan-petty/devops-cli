@@ -30,7 +30,7 @@ Complete command-line reference for `devops-cli`, automatically generated from C
 - [`devops tls`](#devops-tls) — Generate and manage homelab TLS certificates and CAs.
 - [`devops telemetry`](#devops-telemetry) — OpenTelemetry tracing, metrics, and Jaeger observability.
 - [`devops serve`](#devops-serve) — FastAPI REST & OpenAPI Service Engine for remote automation, health probes, and metrics.
-- [`devops test`](#devops-test) — Performance, smoke, and load testing.
+- [`devops test`](#devops-test) — Test suite orchestration, git-diff aware test selector, and load testing.
 - [`devops pipeline`](#devops-pipeline) — Programmable containerized pipeline execution (Dagger).
 
 ---
@@ -1990,6 +1990,51 @@ devops scan iac [OPTIONS] <target>
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
+### `devops scan complexity`
+
+**Run AST-based cyclomatic complexity and indentation depth analysis.**
+
+```bash
+devops scan complexity [OPTIONS] <target>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<target>` | `path` | No | Target directory or Python file to analyze for complexity. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--max-complexity`, `-c` | `integer` | `10` | Maximum acceptable cyclomatic complexity per function (default 10). |
+| `--max-indent`, `-i` | `integer` | `5` | Maximum acceptable indentation / nesting depth (default 5). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+
+### `devops scan sbom`
+
+**Generate Software Bill of Materials (SBOM) in CycloneDX, SPDX, or JSON format.**
+
+```bash
+devops scan sbom [OPTIONS] <target>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<target>` | `path` | No | Target directory, file, or repository to scan. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--format`, `-f` | `string` | `cyclonedx` | SBOM format output (cyclonedx, spdx, json). |
+| `--output`, `-o` | `path` | - | Destination file path for generated SBOM document. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
 ---
 
 ## devops ai
@@ -3162,6 +3207,8 @@ devops release status [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--root`, `-r` | `path` | - | Project repository root directory. |
+| `--watch`, `-w` | `boolean` | - | Continuously monitor release state in real-time. |
+| `--interval`, `-i` | `float` | `2.0` | Watcher auto-refresh polling interval in seconds. |
 
 ### `devops release prepare`
 
@@ -3791,16 +3838,39 @@ devops serve [OPTIONS]
 
 ## devops test
 
-Performance, smoke, and load testing.
+Test suite orchestration, git-diff aware test selector, and load testing.
 
-Execute developer-centric load, spike, and latency tests against services using k6.
+### `devops test run`
 
-### `devops test`
+**Execute pytest test suite with optional git-diff aware test selection.**
+
+```bash
+devops test run [OPTIONS] <target>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<target>` | `path` | No | Target test file or test directory. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--changed`, `-c` | `boolean` | - | Run only tests related to files modified in git working tree or current branch. |
+| `--cov` | `boolean` | - | Run with code coverage analysis. |
+| `--fail-fast`, `-x` | `boolean` | - | Stop immediately on the first test failure. |
+| `--verbose`, `-v` | `boolean` | - | Enable verbose pytest output (-vv). |
+| `-k` | `string` | - | Filter tests by expression. |
+| `--dry-run` | `boolean` | - | Simulate test execution. |
+
+### `devops test load`
 
 **Execute developer-centric load, spike, and latency tests against services using k6.**
 
 ```bash
-devops test [OPTIONS] <script_path>
+devops test load [OPTIONS] <script_path>
 ```
 
 **Arguments:**
@@ -3816,7 +3886,7 @@ devops test [OPTIONS] <script_path>
 | `--vus`, `-u` | `integer` | `10` | Number of concurrent virtual users (VUs). |
 | `--duration`, `-d` | `string` | `30s` | Test execution duration (e.g. 30s, 1m). |
 | `--summary-export`, `-s` | `path` | - | Path to export JSON summary metrics. |
-| `--dry-run` | `boolean` | - | Simulate load test execution. |
+| `--dry-run` | `boolean` | - | Simulate test execution. |
 
 ---
 

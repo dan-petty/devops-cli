@@ -565,6 +565,13 @@ class ScanCommandHelp:
     scan_type: str = "Trivy scan mode: fs, image, iac, repo."
     severity: str = "Comma-separated severity levels to include."
     semgrep_config: str = "Semgrep ruleset config (e.g. p/default, p/security-audit)."
+    complexity: str = "Run AST-based cyclomatic complexity and indentation depth analysis."
+    sbom: str = "Generate Software Bill of Materials (SBOM) in CycloneDX, SPDX, or JSON format."
+    target_complexity: str = "Target directory or Python file to analyze for complexity."
+    max_complexity: str = "Maximum acceptable cyclomatic complexity per function (default 10)."
+    max_indent: str = "Maximum acceptable indentation / nesting depth (default 5)."
+    sbom_format: str = "SBOM format output (cyclonedx, spdx, json)."
+    sbom_output: str = "Destination file path for generated SBOM document."
     framework: str = "Specific IaC framework (e.g. terraform)."
 
 
@@ -711,13 +718,18 @@ class RAGCommandHelp:
 
 @dataclass(frozen=True)
 class TestCommandHelp:
-    app: str = "Performance, smoke, and load testing."
+    app: str = "Test suite orchestration, git-diff aware test selector, and load testing."
+    run: str = "Execute pytest test suite with optional git-diff aware test selection."
     load: str = "Execute developer-centric load and latency tests against services using k6."
     script_path: str = "Path to k6 JavaScript test script or endpoint definition."
     vus: str = "Number of concurrent virtual users (VUs)."
     duration: str = "Test execution duration (e.g. 30s, 1m)."
     summary_export: str = "Path to export JSON summary metrics."
-    dry_run: str = "Simulate load test execution."
+    changed: str = "Run only tests related to files modified in git working tree or current branch."
+    coverage: str = "Run with code coverage analysis."
+    fail_fast: str = "Stop immediately on the first test failure."
+    verbose: str = "Enable verbose pytest output (-vv)."
+    dry_run: str = "Simulate test execution."
 
 
 @dataclass(frozen=True)

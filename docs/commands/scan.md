@@ -170,3 +170,52 @@ devops scan iac [OPTIONS] <target>
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ---
+
+## `devops scan complexity`
+
+**Run AST-based cyclomatic complexity and indentation depth analysis.**
+
+```bash
+devops scan complexity [OPTIONS] <target>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<target>` | `path` | No | Target directory or Python file to analyze for complexity. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--max-complexity`, `-c` | `integer` | `10` | Maximum acceptable cyclomatic complexity per function (default 10). |
+| `--max-indent`, `-i` | `integer` | `5` | Maximum acceptable indentation / nesting depth (default 5). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+
+---
+
+## `devops scan sbom`
+
+**Generate Software Bill of Materials (SBOM) in CycloneDX, SPDX, or JSON format.**
+
+```bash
+devops scan sbom [OPTIONS] <target>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<target>` | `path` | No | Target directory, file, or repository to scan. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--format`, `-f` | `string` | `cyclonedx` | SBOM format output (cyclonedx, spdx, json). |
+| `--output`, `-o` | `path` | - | Destination file path for generated SBOM document. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---

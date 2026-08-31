@@ -211,6 +211,8 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 |  | `devops scan sast [OPTIONS] <target>` | Run static application security testing (SAST) via Semgrep. |
 |  | `devops scan checkov [OPTIONS] <target>` | Run Checkov Infrastructure-as-Code (IaC) compliance scanner. |
 |  | `devops scan iac [OPTIONS] <target>` | Run Checkov IaC static policy and security compliance scan. |
+|  | `devops scan complexity [OPTIONS] <target>` | Run AST-based cyclomatic complexity and indentation depth analysis. |
+|  | `devops scan sbom [OPTIONS] <target>` | Generate Software Bill of Materials (SBOM) in CycloneDX, SPDX, or JSON format. |
 | **ai** | `devops ai config [OPTIONS]` | Show or update AI provider configuration. |
 |  | `devops ai models` | List available models for the configured provider. |
 |  | `devops ai preload` | Preload configured model into VRAM across all configured Ollama servers. |
@@ -278,7 +280,8 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 |  | `devops telemetry profile [OPTIONS] <command>` | Display terminal-rendered waterfall breakdown and latency heatmap of OpenTelemetry spans. |
 |  | `devops telemetry open-ui` | Print and show the Jaeger Query UI endpoint for inspecting traces. |
 | **serve** | `devops serve [OPTIONS]` | FastAPI REST & OpenAPI Service Engine for remote automation, health probes, and metrics. |
-| **test** | `devops test [OPTIONS] <script_path>` | Execute developer-centric load, spike, and latency tests against services using k6. |
+| **test** | `devops test run [OPTIONS] <target>` | Execute pytest test suite with optional git-diff aware test selection. |
+|  | `devops test load [OPTIONS] <script_path>` | Execute developer-centric load, spike, and latency tests against services using k6. |
 | **pipeline** | `devops pipeline [OPTIONS] <pipeline_path>` | Execute reproducible, containerized developer pipelines with Dagger. |
 <!-- COMMAND_MATRIX_END -->
 
