@@ -112,9 +112,9 @@ class FileSystem(BaseCapability):
         return True, ""
 
     def _content_hash(self, content: str | bytes) -> str:
-
+        """Compute full SHA-256 hash for strong collision-resistant optimistic concurrency."""
         data = content.encode("utf-8") if isinstance(content, str) else content
-        return hashlib.sha256(data).hexdigest()[:16]
+        return hashlib.sha256(data).hexdigest()
 
     def get_tools(self) -> list[AgentTool | Callable[..., Any]]:
         def read_file(path: str, offset: int = 1, limit: int | None = None) -> str:

@@ -350,10 +350,19 @@ class PlaywrightBrowser(BaseCapability):
     def get_tools(self) -> list[AgentTool | Callable[..., Any]]:
         def navigate(url: str, timeout_ms: int | None = None) -> str:
             """Navigate to a URL and return title, URL, and visible page text."""
+            from urllib.parse import urlparse
+
             from devops_cli.ai.common_tools import is_private_ip_or_localhost
 
             if self.block_private_addresses and is_private_ip_or_localhost(url):
                 return f"Egress blocked: Access to private/loopback URL '{url}' is forbidden."
+
+            if self.allowed_domains:
+                parsed_host = (urlparse(url).netloc or "").split(":")[0].lower()
+                allowed_set = {d.lower().strip() for d in self.allowed_domains}
+                if not any(parsed_host == d or parsed_host.endswith("." + d) for d in allowed_set):
+                    return f"Egress blocked: Host '{parsed_host}' from URL '{url}' is not in allowed domains: {sorted(allowed_set)}."
+
             return f"Navigated to {url}. Title: Page Title. Content loaded."
 
         def snapshot(timeout_ms: int | None = None) -> str:

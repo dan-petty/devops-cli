@@ -31,7 +31,7 @@ PlanStatus = Literal["pending", "in_progress", "completed", "cancelled", "blocke
 class PlanItem(BaseModel):
     """Structured plan task item."""
 
-    id: str = Field(default_factory=lambda: f"task-{uuid.uuid4().hex[:6]}")
+    id: str = Field(default_factory=lambda: f"task-{uuid.uuid4().hex}")
     content: str
     active_form: str | None = None
     status: PlanStatus = "pending"

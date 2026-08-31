@@ -210,7 +210,9 @@ class RepoContext(BaseCapability):
         return agents
 
     def _scan_hooks(self, r_path: Path) -> list[str]:
-        """Scan hook configuration files in asset root."""
+        """Scan and validate hook configuration files in asset root."""
+        import re
+
         hooks: list[str] = []
         for h_candidate in [r_path / "settings.json", r_path / "hooks.json"]:
             if not h_candidate.is_file():
@@ -218,7 +220,12 @@ class RepoContext(BaseCapability):
             try:
                 parsed = json.loads(h_candidate.read_text(encoding="utf-8"))
                 if isinstance(parsed, dict):
-                    hooks.extend(list(parsed.keys()))
+                    valid_keys = [
+                        k
+                        for k in parsed.keys()
+                        if isinstance(k, str) and re.match(r"^[a-zA-Z0-9_\-\.:/]+$", k)
+                    ]
+                    hooks.extend(valid_keys)
             except Exception:
                 pass
         return hooks

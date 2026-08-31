@@ -64,7 +64,9 @@ class PydanticAIDocs(BaseCapability):
         if local_docs_path is not None:
             p = Path(os.path.expanduser(str(local_docs_path))).resolve()
         elif env_path := os.environ.get("PYDANTIC_AI_HARNESS_DOCS_PATH"):
-            p = Path(os.path.expanduser(env_path)).resolve()
+            cand_p = Path(os.path.expanduser(env_path)).resolve()
+            if cand_p.is_dir():
+                p = cand_p
 
         super().__init__(
             id=str(id or "pydantic_ai_docs"),
@@ -100,21 +102,32 @@ class PydanticAIDocs(BaseCapability):
 
     def read_doc(self, topic: str) -> str:
         """Resolve and read a Pydantic AI documentation topic (local checkout first, then remote)."""
+        import re
+
         clean_topic = topic.strip().lower()
         if clean_topic.endswith(".md"):
             clean_topic = clean_topic[:-3]
+
+        # Security: Prevent path traversal in topic name
+        if ".." in clean_topic or clean_topic.startswith(("/", "\\")):
+            return f"Error: Invalid documentation topic '{topic}' (path traversal sequences are forbidden)."
+
+        clean_topic = re.sub(r"[^a-zA-Z0-9_\-\./]", "", clean_topic)
+        if not clean_topic:
+            return f"Error: Invalid empty documentation topic '{topic}'."
 
         if self.cache and clean_topic in self.memoized_docs:
             return self.memoized_docs[clean_topic]
 
         # 1. Local checkout
         if self.local_docs_path is not None:
-            local_file = self.local_docs_path / f"{clean_topic}.md"
-            content = self._read_local_doc(local_file) if local_file.is_file() else None
-            if content is not None:
-                if self.cache:
-                    self.memoized_docs[clean_topic] = content
-                return content
+            local_file = (self.local_docs_path / f"{clean_topic}.md").resolve()
+            if local_file.is_relative_to(self.local_docs_path) and local_file.is_file():
+                content = self._read_local_doc(local_file)
+                if content is not None:
+                    if self.cache:
+                        self.memoized_docs[clean_topic] = content
+                    return content
 
         # 2. Remote fallback
         url = f"https://raw.githubusercontent.com/pydantic/pydantic-ai/main/docs/{clean_topic}.md"

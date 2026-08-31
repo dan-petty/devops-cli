@@ -310,11 +310,14 @@ def _extract_tool_meta(tool_obj: Any) -> tuple[str, str]:
 def _search_tools_by_regex(
     query_list: list[str], all_tools: list[tuple[str, str, Any]]
 ) -> list[str]:
-    """Match tools using regex search against name or description."""
+    """Match tools using regex search against name or description with ReDoS bounds."""
     matched: list[str] = []
     for q in query_list:
+        clean_q = str(q).strip()
+        if not clean_q or len(clean_q) > 100:
+            continue
         try:
-            pattern = re.compile(q, re.IGNORECASE)
+            pattern = re.compile(clean_q, re.IGNORECASE)
         except re.error:
             continue
         for name, desc, _ in all_tools:

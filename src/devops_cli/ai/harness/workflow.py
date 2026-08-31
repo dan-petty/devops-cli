@@ -548,17 +548,63 @@ class DynamicWorkflow(BaseCapability):
             import datetime
             import math
             import re
-            import sys
             import typing
             import unicodedata
 
+            def _safe_import(name: str, *args: Any, **kwargs: Any) -> Any:
+                allowed_modules: dict[str, Any] = {
+                    "asyncio": asyncio,
+                    "json": json,
+                    "re": re,
+                    "math": math,
+                    "typing": typing,
+                    "unicodedata": unicodedata,
+                    "datetime": datetime,
+                }
+                top = name.split(".")[0]
+                if top in allowed_modules:
+                    return allowed_modules[top]
+                raise ImportError(f"Importing '{name}' is forbidden in sandboxed workflow.")
+
+            # Security: Whitelist allowed modules and provide strict safe builtins
+            safe_builtins: dict[str, Any] = {
+                "__import__": _safe_import,
+                "abs": abs,
+                "all": all,
+                "any": any,
+                "bool": bool,
+                "dict": dict,
+                "enumerate": enumerate,
+                "filter": filter,
+                "float": float,
+                "format": format,
+                "frozenset": frozenset,
+                "int": int,
+                "isinstance": isinstance,
+                "issubclass": issubclass,
+                "len": len,
+                "list": list,
+                "map": map,
+                "max": max,
+                "min": min,
+                "range": range,
+                "reversed": reversed,
+                "round": round,
+                "set": set,
+                "sorted": sorted,
+                "str": str,
+                "sum": sum,
+                "tuple": tuple,
+                "zip": zip,
+            }
+
             sandbox_env: dict[str, Any] = {
+                "__builtins__": safe_builtins,
                 "asyncio": asyncio,
                 "json": json,
                 "re": re,
                 "math": math,
                 "typing": typing,
-                "sys": sys,
                 "unicodedata": unicodedata,
                 "datetime": datetime,
                 "print": _custom_print,
@@ -567,11 +613,35 @@ class DynamicWorkflow(BaseCapability):
             for wag in self.agents:
                 sandbox_env[wag.name] = self._make_sub_agent_caller(wag.agent, wag.name)
 
-            # Parse and compile code
+            # Parse and compile code with AST security validation
             try:
                 parsed = ast.parse(code, mode="exec")
             except SyntaxError as syn_err:
                 return f"SyntaxError in workflow script: {syn_err}"
+
+            # AST Security Inspection: block dangerous nodes and dunder access
+            forbidden_modules = {
+                "os",
+                "sys",
+                "subprocess",
+                "shutil",
+                "socket",
+                "http",
+                "urllib",
+                "ctypes",
+            }
+            for node in ast.walk(parsed):
+                if isinstance(node, (ast.Import, ast.ImportFrom)):
+                    mod_name = (
+                        node.module
+                        if isinstance(node, ast.ImportFrom)
+                        else (node.names[0].name if node.names else "")
+                    )
+                    top_mod = (mod_name or "").split(".")[0]
+                    if top_mod in forbidden_modules or top_mod not in sandbox_env:
+                        return f"SecurityError: Importing module '{mod_name}' is forbidden in sandboxed workflow."
+                elif isinstance(node, ast.Attribute) and node.attr.startswith("__"):
+                    return f"SecurityError: Accessing private/dunder attribute '{node.attr}' is forbidden."
 
             last_val_node: ast.expr | None = None
             if parsed.body:
@@ -602,7 +672,7 @@ class DynamicWorkflow(BaseCapability):
 
             try:
                 compiled = compile(module_ast, filename="<workflow>", mode="exec")
-                exec(compiled, sandbox_env)  # nosec B102 - sandboxed execution of workflow AST
+                exec(compiled, sandbox_env)  # nosec B102 - sandboxed execution of validated workflow AST
                 runner = sandbox_env["__dynamic_workflow_runner__"]
                 res = await runner()
             except Exception as exc:
