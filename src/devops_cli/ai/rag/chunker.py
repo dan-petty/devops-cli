@@ -15,7 +15,101 @@ from devops_cli.config.defaults import DEFAULT_RAG_CHUNK_OVERLAP, DEFAULT_RAG_CH
 _DOC_EXTENSIONS = {".md", ".markdown", ".rst", ".adoc", ".asciidoc", ".org", ".txt"}
 _IAC_EXTENSIONS = {".tf", ".hcl", ".tfvars"}
 _CONFIG_EXTENSIONS = {".yaml", ".yml", ".json", ".toml", ".ini", ".cfg", ".conf", ".xml"}
+_JS_TS_EXTENSIONS = {".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"}
+_C_LIKE_EXTENSIONS = {".java", ".kt", ".kts", ".cs", ".cpp", ".cc", ".cxx", ".c", ".h", ".hpp"}
 MAX_CHUNK_FILE_SIZE_BYTES = 20 * 1024 * 1024  # 20 MiB safety cap
+
+_LANGUAGE_PATTERNS: dict[str, tuple[re.Pattern[str], str]] = {
+    "go": (
+        re.compile(
+            r"^(?:func\s+(?:\([^)]+\)\s+)?([A-Za-z0-9_]+)|type\s+([A-Za-z0-9_]+)\s+(?:struct|interface))",
+            re.MULTILINE,
+        ),
+        "code",
+    ),
+    "rust": (
+        re.compile(
+            r"^(?:pub\s+)?(?:async\s+)?(?:fn\s+([A-Za-z0-9_]+)|struct\s+([A-Za-z0-9_]+)|enum\s+([A-Za-z0-9_]+)|trait\s+([A-Za-z0-9_]+)|impl(?:<[^>]+>)?\s+([A-Za-z0-9_:]+))",
+            re.MULTILINE,
+        ),
+        "code",
+    ),
+    "typescript": (
+        re.compile(
+            r"^(?:export\s+)?(?:default\s+)?(?:async\s+)?(?:function\s+([A-Za-z0-9_$]+)|class\s+([A-Za-z0-9_$]+)|interface\s+([A-Za-z0-9_$]+)|type\s+([A-Za-z0-9_$]+)|const\s+([A-Za-z0-9_$]+)\s*=\s*(?:async\s*)?\([^)]*\)\s*=>)",
+            re.MULTILINE,
+        ),
+        "code",
+    ),
+    "javascript": (
+        re.compile(
+            r"^(?:export\s+)?(?:default\s+)?(?:async\s+)?(?:function\s+([A-Za-z0-9_$]+)|class\s+([A-Za-z0-9_$]+)|interface\s+([A-Za-z0-9_$]+)|type\s+([A-Za-z0-9_$]+)|const\s+([A-Za-z0-9_$]+)\s*=\s*(?:async\s*)?\([^)]*\)\s*=>)",
+            re.MULTILINE,
+        ),
+        "code",
+    ),
+    "ts": (
+        re.compile(
+            r"^(?:export\s+)?(?:default\s+)?(?:async\s+)?(?:function\s+([A-Za-z0-9_$]+)|class\s+([A-Za-z0-9_$]+)|interface\s+([A-Za-z0-9_$]+)|type\s+([A-Za-z0-9_$]+)|const\s+([A-Za-z0-9_$]+)\s*=\s*(?:async\s*)?\([^)]*\)\s*=>)",
+            re.MULTILINE,
+        ),
+        "code",
+    ),
+    "js": (
+        re.compile(
+            r"^(?:export\s+)?(?:default\s+)?(?:async\s+)?(?:function\s+([A-Za-z0-9_$]+)|class\s+([A-Za-z0-9_$]+)|interface\s+([A-Za-z0-9_$]+)|type\s+([A-Za-z0-9_$]+)|const\s+([A-Za-z0-9_$]+)\s*=\s*(?:async\s*)?\([^)]*\)\s*=>)",
+            re.MULTILINE,
+        ),
+        "code",
+    ),
+    "terraform": (
+        re.compile(
+            r'^(?:resource|data|module|variable|output)\s+"([^"]+)"(?:\s+"([^"]+)")?',
+            re.MULTILINE,
+        ),
+        "iac",
+    ),
+    "tofu": (
+        re.compile(
+            r'^(?:resource|data|module|variable|output)\s+"([^"]+)"(?:\s+"([^"]+)")?',
+            re.MULTILINE,
+        ),
+        "iac",
+    ),
+    "hcl": (
+        re.compile(
+            r'^(?:resource|data|module|variable|output)\s+"([^"]+)"(?:\s+"([^"]+)")?',
+            re.MULTILINE,
+        ),
+        "iac",
+    ),
+    "sql": (
+        re.compile(
+            r"^(?:CREATE\s+(?:OR\s+REPLACE\s+)?(?:TABLE|VIEW|PROCEDURE|FUNCTION|INDEX)\s+([A-Za-z0-9_.]+))",
+            re.IGNORECASE | re.MULTILINE,
+        ),
+        "code",
+    ),
+}
+
+_C_LIKE_PATTERN = (
+    re.compile(
+        r"^(?:(?:public|private|protected|static|final|abstract|override|inline|virtual)\s+)*(?:class\s+([A-Za-z0-9_]+)|interface\s+([A-Za-z0-9_]+)|struct\s+([A-Za-z0-9_]+)|enum\s+([A-Za-z0-9_]+)|fun\s+([A-Za-z0-9_]+))",
+        re.MULTILINE,
+    ),
+    "code",
+)
+
+
+def _resolve_file_category(suffix: str, rel_path: str) -> str:
+    """Categorize file into docs, iac, config, or code based on extension and path."""
+    if suffix in _DOC_EXTENSIONS or "doc" in rel_path.lower():
+        return "docs"
+    if suffix in _IAC_EXTENSIONS or "k8s" in rel_path or "terraform" in rel_path:
+        return "iac"
+    if suffix in _CONFIG_EXTENSIONS:
+        return "config"
+    return "code"
 
 
 class SemanticChunker:
@@ -39,39 +133,37 @@ class SemanticChunker:
         project_name: str,
     ) -> list[CodeChunk]:
         """Dispatch file content to language-specific structural chunker."""
-        match suffix:
-            case ".py":
-                return self._chunk_python(content, rel_path, project_name=project_name)
-            case ".yaml" | ".yml":
-                return self._chunk_yaml(content, rel_path, project_name=project_name)
-            case s if s in _DOC_EXTENSIONS:
-                return self._chunk_tech_docs(
-                    content, rel_path, language=language, project_name=project_name
-                )
-            case ".go":
-                return self._chunk_go(content, rel_path, project_name=project_name)
-            case ".rs":
-                return self._chunk_rust(content, rel_path, project_name=project_name)
-            case ".ts" | ".tsx" | ".js" | ".jsx" | ".mjs" | ".cjs":
-                return self._chunk_js_ts(
-                    content, rel_path, language=language, project_name=project_name
-                )
-            case ".java" | ".kt" | ".kts" | ".cs" | ".cpp" | ".cc" | ".cxx" | ".c" | ".h" | ".hpp":
-                return self._chunk_c_like(
-                    content, rel_path, language=language, project_name=project_name
-                )
-            case ".tf" | ".hcl":
-                return self._chunk_terraform(content, rel_path, project_name=project_name)
-            case ".sql":
-                return self._chunk_sql(content, rel_path, project_name=project_name)
-            case _:
-                return self._chunk_line_window(
-                    content,
-                    rel_path,
-                    language=language,
-                    category=category,
-                    project_name=project_name,
-                )
+        if suffix == ".py":
+            return self._chunk_python(content, rel_path, project_name=project_name)
+        if suffix in (".yaml", ".yml"):
+            return self._chunk_yaml(content, rel_path, project_name=project_name)
+        if suffix in _DOC_EXTENSIONS:
+            return self._chunk_tech_docs(
+                content, rel_path, language=language, project_name=project_name
+            )
+        if suffix == ".go":
+            return self._chunk_go(content, rel_path, project_name=project_name)
+        if suffix == ".rs":
+            return self._chunk_rust(content, rel_path, project_name=project_name)
+        if suffix in _JS_TS_EXTENSIONS:
+            return self._chunk_js_ts(
+                content, rel_path, language=language, project_name=project_name
+            )
+        if suffix in _C_LIKE_EXTENSIONS:
+            return self._chunk_c_like(
+                content, rel_path, language=language, project_name=project_name
+            )
+        if suffix in (".tf", ".hcl"):
+            return self._chunk_terraform(content, rel_path, project_name=project_name)
+        if suffix == ".sql":
+            return self._chunk_sql(content, rel_path, project_name=project_name)
+        return self._chunk_line_window(
+            content,
+            rel_path,
+            language=language,
+            category=category,
+            project_name=project_name,
+        )
 
     def chunk_file(
         self,
@@ -88,15 +180,7 @@ class SemanticChunker:
         rel_path = str(file_path.relative_to(relative_to)) if relative_to else str(file_path)
         suffix = file_path.suffix.lower()
         language = detect_language(file_path, content)
-
-        if suffix in _DOC_EXTENSIONS or "doc" in rel_path.lower():
-            category = "docs"
-        elif suffix in _IAC_EXTENSIONS or "k8s" in rel_path or "terraform" in rel_path:
-            category = "iac"
-        elif suffix in _CONFIG_EXTENSIONS:
-            category = "config"
-        else:
-            category = "code"
+        category = _resolve_file_category(suffix, rel_path)
 
         chunks = self._dispatch_language_chunker(
             suffix, content, rel_path, language, category, project_name
@@ -242,43 +326,7 @@ class SemanticChunker:
     ) -> list[CodeChunk]:
         """Extract language-specific symbols and construct chunks using regex heuristics."""
         lang_lower = language.lower()
-        if lang_lower == "go":
-            pattern = re.compile(
-                r"^(?:func\s+(?:\([^)]+\)\s+)?([A-Za-z0-9_]+)|type\s+([A-Za-z0-9_]+)\s+(?:struct|interface))",
-                re.MULTILINE,
-            )
-            cat = "code"
-        elif lang_lower == "rust":
-            pattern = re.compile(
-                r"^(?:pub\s+)?(?:async\s+)?(?:fn\s+([A-Za-z0-9_]+)|struct\s+([A-Za-z0-9_]+)|enum\s+([A-Za-z0-9_]+)|trait\s+([A-Za-z0-9_]+)|impl(?:<[^>]+>)?\s+([A-Za-z0-9_:]+))",
-                re.MULTILINE,
-            )
-            cat = "code"
-        elif lang_lower in ("typescript", "javascript", "js", "ts"):
-            pattern = re.compile(
-                r"^(?:export\s+)?(?:default\s+)?(?:async\s+)?(?:function\s+([A-Za-z0-9_$]+)|class\s+([A-Za-z0-9_$]+)|interface\s+([A-Za-z0-9_$]+)|type\s+([A-Za-z0-9_$]+)|const\s+([A-Za-z0-9_$]+)\s*=\s*(?:async\s*)?\([^)]*\)\s*=>)",
-                re.MULTILINE,
-            )
-            cat = "code"
-        elif lang_lower in ("terraform", "tofu", "hcl"):
-            pattern = re.compile(
-                r'^(?:resource|data|module|variable|output)\s+"([^"]+)"(?:\s+"([^"]+)")?',
-                re.MULTILINE,
-            )
-            cat = "iac"
-        elif lang_lower == "sql":
-            pattern = re.compile(
-                r"^(?:CREATE\s+(?:OR\s+REPLACE\s+)?(?:TABLE|VIEW|PROCEDURE|FUNCTION|INDEX)\s+([A-Za-z0-9_.]+))",
-                re.IGNORECASE | re.MULTILINE,
-            )
-            cat = "code"
-        else:
-            # C-like fallback: C/C++, Java, C#, Kotlin
-            pattern = re.compile(
-                r"^(?:(?:public|private|protected|static|final|abstract|override|inline|virtual)\s+)*(?:class\s+([A-Za-z0-9_]+)|interface\s+([A-Za-z0-9_]+)|struct\s+([A-Za-z0-9_]+)|enum\s+([A-Za-z0-9_]+)|fun\s+([A-Za-z0-9_]+))",
-                re.MULTILINE,
-            )
-            cat = "code"
+        pattern, cat = _LANGUAGE_PATTERNS.get(lang_lower, _C_LIKE_PATTERN)
 
         return self._chunk_by_regex_symbols(
             content,

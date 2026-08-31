@@ -30,18 +30,22 @@ STANDARD_SANDBOX_MODULES: frozenset[str] = frozenset(
 )
 
 
+def _extract_target_names(target: ast.expr) -> set[str]:
+    """Extract identifier names from an AST assignment target."""
+    if isinstance(target, ast.Name):
+        return {target.id}
+    if isinstance(target, (ast.Tuple, ast.List)):
+        return {elt.id for elt in target.elts if isinstance(elt, ast.Name)}
+    return set()
+
+
 def _collect_assigned_names(body: list[ast.stmt]) -> set[str]:
     """Collect top-level assigned variable names from AST body."""
     assigned_names: set[str] = set()
     for stmt in body:
         if isinstance(stmt, ast.Assign):
             for target in stmt.targets:
-                if isinstance(target, ast.Name):
-                    assigned_names.add(target.id)
-                elif isinstance(target, (ast.Tuple, ast.List)):
-                    assigned_names.update(
-                        elt.id for elt in target.elts if isinstance(elt, ast.Name)
-                    )
+                assigned_names.update(_extract_target_names(target))
         elif isinstance(stmt, (ast.AugAssign, ast.AnnAssign)) and isinstance(stmt.target, ast.Name):
             assigned_names.add(stmt.target.id)
     return assigned_names

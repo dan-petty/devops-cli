@@ -167,8 +167,9 @@ def run_complexity_scan(
     if target.is_file() and target.suffix == ".py":
         files = [target]
     elif target.is_dir():
+        ignored_dirs = {".venv", ".data", ".git", "repos", "scratch"}
         files = [
-            p for p in target.rglob("*.py") if ".venv" not in p.parts and ".data" not in p.parts
+            p for p in target.rglob("*.py") if not any(part in ignored_dirs for part in p.parts)
         ]
     else:
         return findings

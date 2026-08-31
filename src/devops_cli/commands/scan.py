@@ -470,7 +470,7 @@ def scan_complexity(
     set_dry_run(dry_run)
     target_abs = target.resolve() if target.exists() else target
 
-    if not is_dry_run():
+    if not is_dry_run() and not json_output:
         print_muted(f"Analyzing code complexity and indentation depth in {target_abs}...")
 
     findings = run_complexity_scan(
