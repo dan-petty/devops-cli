@@ -30,6 +30,35 @@ The Knowledge Base is divided into two primary structural divisions:
 | **DevOps CLI Architecture** | Subsystem breakdown, multi-persona AI review engine, prompt isolation, dry-run protocol, and language catalogs. | [architecture.md](devops_cli/architecture.md) |
 | **Configuration & Settings** | Pydantic settings schema hierarchy, resolution priority, OS Keyring secrets storage, and dotted config commands. | [configuration_and_settings.md](devops_cli/configuration_and_settings.md) |
 | **CLI Command Reference** | Complete command surface reference across all 19 command groups, subcommands, arguments, and flags. | [cli_command_reference.md](devops_cli/cli_command_reference.md) |
+| **Python Packages & Code Libraries** | Technical manual and dedicated guides for all 22 production runtime dependencies and 11 development quality tools. | [python_packages.md](devops_cli/python_packages.md) |
+
+### Code Library Guides (`devops_cli/libraries/`)
+
+| Library / Tool | Category | Summary | Guide |
+| :--- | :--- | :--- | :--- |
+| **Typer & Click** | CLI Framework | Type-annotated CLI routing, parameter parsing, and centralized help. | [typer.md](devops_cli/libraries/typer.md) |
+| **Rich** | Terminal UI | Beautiful ANSI tables, animated status spinners, and code diff highlighting. | [rich.md](devops_cli/libraries/rich.md) |
+| **Pydantic v2 & Settings** | Data Validation | Rust-core data validation, schemas, and layered configuration resolution. | [pydantic.md](devops_cli/libraries/pydantic.md) |
+| **PydanticAI** | Multi-Agent AI | Type-safe multi-agent framework, persona reviews, and MCP client toolsets. | [pydantic_ai.md](devops_cli/libraries/pydantic_ai.md) |
+| **HTTPX2** | HTTP/2 Client | Modern async/sync HTTP/2 client for streaming LLM provider requests. | [httpx2.md](devops_cli/libraries/httpx2.md) |
+| **FastMCP** | MCP Server | Model Context Protocol server exposing CLI tools to AI IDEs and assistants. | [fastmcp.md](devops_cli/libraries/fastmcp.md) |
+| **Keyring** | Secret Storage | Zero-trust OS Keyring storage for tokens and credentials. | [keyring.md](devops_cli/libraries/keyring.md) |
+| **Tiktoken** | Tokenizer | Fast BPE token counting and LLM context window budgeting. | [tiktoken.md](devops_cli/libraries/tiktoken.md) |
+| **JSON Repair** | LLM Resilience | Resilient parser repairing malformed and truncated JSON payloads from LLMs. | [json_repair.md](devops_cli/libraries/json_repair.md) |
+| **Qdrant Client** | Vector Search | Local and remote vector database for RAG context indexing and search. | [qdrant_client.md](devops_cli/libraries/qdrant_client.md) |
+| **GitPython** | Git VCS | Object-oriented Git inspection, diff generation, and branch operations. | [gitpython.md](devops_cli/libraries/gitpython.md) |
+| **PyGithub** | GitHub API | GitHub REST/GraphQL client for PR reviews, checks, and release automation. | [pygithub.md](devops_cli/libraries/pygithub.md) |
+| **Cryptography** | X.509 & TLS | Rust-backed X.509 Certificate Authority, TLS leaf cert, and Ed25519 engine. | [cryptography.md](devops_cli/libraries/cryptography.md) |
+| **Kubernetes Client** | K8s SDK | Official Python client for Kubernetes cluster management and diagnostics. | [kubernetes.md](devops_cli/libraries/kubernetes.md) |
+| **Docker SDK** | Containers | Python client for Docker Engine daemon, real-time stats, and lifecycle. | [docker.md](devops_cli/libraries/docker.md) |
+| **FastAPI & Uvicorn** | REST & ASGI | Asynchronous REST service engine and OpenAPI server backing `devops serve`. | [fastapi_uvicorn.md](devops_cli/libraries/fastapi_uvicorn.md) |
+| **OpenTelemetry** | Observability | Distributed tracing, OTLP gRPC export to Jaeger, and Prometheus metrics. | [opentelemetry.md](devops_cli/libraries/opentelemetry.md) |
+| **Pathspec** | Gitignore Matcher | Pure Python pattern matching based on `.gitignore` wildcards and rules. | [pathspec.md](devops_cli/libraries/pathspec.md) |
+| **TLDExtract** | Egress Safety | Public Suffix List domain parsing and SSRF egress safety validation. | [tldextract.md](devops_cli/libraries/tldextract.md) |
+| **Packaging** | SemVer & Specs | PyPA core specifications, SemVer 2.0.0 validation, and version bumping. | [packaging.md](devops_cli/libraries/packaging.md) |
+| **PyYAML & Jinja2** | Manifests & Templates | YAML parsing and Jinja2 templating for DevContainers and K8s manifests. | [pyyaml_jinja2.md](devops_cli/libraries/pyyaml_jinja2.md) |
+| **Ruff, Mypy & Pytest** | Quality Suite | 100x fast linter, strict static typing, and parallel test runner ($\ge 90\%$ cov). | [ruff_mypy_pytest.md](devops_cli/libraries/ruff_mypy_pytest.md) |
+| **Bandit & Actionlint** | Security Analysis | Python AST security analysis (CWE) and GitHub Actions workflow linting. | [bandit_actionlint.md](devops_cli/libraries/bandit_actionlint.md) |
 
 ### CLI Operational Task References (`devops_cli/tasks/`)
 

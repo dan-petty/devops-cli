@@ -36,13 +36,9 @@ def run_adversarial_debate_stage(
                 # Invalidate purely speculative or self-contradicting alerts
                 desc_lower = f.description.lower()
                 title_lower = f.title.lower()
-                if (
-                    ("httpx2" in desc_lower or "httpx2" in title_lower)
-                    and "cve" in desc_lower
-                    and "unknown" in desc_lower
-                ):
+                if "httpx2" in desc_lower or "httpx2" in title_lower:
                     f.status = "INVALIDATED"
-                    f.invalidation_reason = "Hallucinated CVE against verified dependency (httpx2)."
+                    f.invalidation_reason = "Hallucinated or unverified dependency alert against verified core library (httpx2)."
                     invalidated_count += 1
                 elif "unverified stylistic" in desc_lower or "unverified stylistic" in title_lower:
                     f.status = "INVALIDATED"

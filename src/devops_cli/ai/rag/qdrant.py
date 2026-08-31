@@ -133,6 +133,7 @@ class QdrantClient:
                 url=self.base_url,
                 api_key=self.api_key,
                 timeout=int(self.timeout),
+                check_compatibility=False,
             )
         return self._client
 
@@ -162,7 +163,13 @@ class QdrantClient:
                 return status
 
         try:
-            self._execute_with_retry(lambda c: c.get_collections(), "is_alive", max_attempts=2)
+            client = self._client or NativeQdrantClient(
+                url=self.base_url,
+                api_key=self.api_key,
+                timeout=1,
+                check_compatibility=False,
+            )
+            client.get_collections()
             self._last_alive = (now, True)
             return True
         except Exception:
@@ -190,10 +197,14 @@ class QdrantClient:
             status_val = (
                 str(info.status.value) if hasattr(info.status, "value") else str(info.status)
             )
+            params = getattr(info.config, "params", None)
+            vectors_cfg = getattr(params, "vectors", None)
+            vector_size = getattr(vectors_cfg, "size", None)
             return {
                 "status": status_val,
                 "points_count": points_count,
                 "vectors_count": vectors_count,
+                "vector_size": vector_size,
             }
         except Exception as exc:
             err_str = str(exc)
@@ -208,10 +219,20 @@ class QdrantClient:
         vector_size: int,
         distance: str = DEFAULT_QDRANT_DISTANCE,
     ) -> bool:
-        """Create collection if it does not already exist."""
+        """Create collection if it does not already exist, recreating if dimension changed."""
         info = self.get_collection_info(name)
         if info:
-            return True
+            curr_size = info.get("vector_size")
+            if curr_size is not None and curr_size != vector_size:
+                logger.warning(
+                    "Qdrant collection '%s' vector dimension mismatch (existing: %d, required: %d). Recreating...",
+                    name,
+                    curr_size,
+                    vector_size,
+                )
+                self.delete_collection(name)
+            else:
+                return True
 
         dist_enum = getattr(qmodels.Distance, distance.upper(), qmodels.Distance.COSINE)
         try:
@@ -324,8 +345,11 @@ class QdrantClient:
                 record_metric("qdrant.search_hits_count", float(len(hits)), unit="1")
                 return hits
             except Exception as exc:
-                err_str = str(exc)
-                if "not found" in err_str.lower() or "404" in err_str:
+                err_str = str(exc).lower()
+                if "not found" in err_str or "404" in err_str:
+                    return []
+                if "vector dimension error" in err_str or "dimension error" in err_str:
+                    logger.warning("Qdrant vector dimension mismatch in '%s': %s", name, exc)
                     return []
                 logger.debug("Error searching collection %s: %s", name, exc)
                 raise QdrantClientError(f"Search failed in '{name}': {exc}") from exc

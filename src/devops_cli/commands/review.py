@@ -5,11 +5,15 @@ from __future__ import annotations
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any
+
+if TYPE_CHECKING:
+    pass
 
 import typer
 
 from devops_cli.ai.personas import Persona
+from devops_cli.ai.review.flags import resolve_stage_flags
 from devops_cli.config.constants import (
     CONST_GIT_MAIN_BRANCH,
     CONST_STATUS_INVALIDATED,
@@ -281,6 +285,66 @@ def path(
         bool,
         typer.Option("--explain", "-e", help=HELP.review.explain_review),
     ] = False,
+    no_pre_analysis: Annotated[
+        bool,
+        typer.Option("--no-pre-analysis", help=HELP.review.no_pre_analysis),
+    ] = False,
+    pre_analysis_only: Annotated[
+        bool,
+        typer.Option("--pre-analysis-only", help=HELP.review.pre_analysis_only),
+    ] = False,
+    no_static_scan: Annotated[
+        bool,
+        typer.Option("--no-static-scan", help=HELP.review.no_static_scan),
+    ] = False,
+    static_scan_only: Annotated[
+        bool,
+        typer.Option("--static-scan-only", help=HELP.review.static_scan_only),
+    ] = False,
+    no_persona_review: Annotated[
+        bool,
+        typer.Option("--no-persona-review", help=HELP.review.no_persona_review),
+    ] = False,
+    persona_review_only: Annotated[
+        bool,
+        typer.Option("--persona-review-only", help=HELP.review.persona_review_only),
+    ] = False,
+    no_verification: Annotated[
+        bool,
+        typer.Option("--no-verification", help=HELP.review.no_verification),
+    ] = False,
+    verification_only: Annotated[
+        bool,
+        typer.Option("--verification-only", help=HELP.review.verification_only),
+    ] = False,
+    no_reranking: Annotated[
+        bool,
+        typer.Option("--no-reranking", help=HELP.review.no_reranking),
+    ] = False,
+    reranking_only: Annotated[
+        bool,
+        typer.Option("--reranking-only", help=HELP.review.reranking_only),
+    ] = False,
+    no_reporting: Annotated[
+        bool,
+        typer.Option("--no-reporting", help=HELP.review.no_reporting),
+    ] = False,
+    reporting_only: Annotated[
+        bool,
+        typer.Option("--reporting-only", help=HELP.review.reporting_only),
+    ] = False,
+    no_cache: Annotated[
+        bool,
+        typer.Option("--no-cache", help=HELP.review.no_cache),
+    ] = False,
+    force: Annotated[
+        bool,
+        typer.Option("--force", "-f", help=HELP.review.force_review),
+    ] = False,
+    append_cache: Annotated[
+        bool,
+        typer.Option("--append-cache", help=HELP.review.append_cache),
+    ] = False,
 ) -> None:
     """Review source files directly (no git required)."""
     if explain:
@@ -289,28 +353,52 @@ def path(
         render_explanation("review")
         return
     set_dry_run(dry_run)
+    stage_flags = resolve_stage_flags(
+        no_pre_analysis=no_pre_analysis,
+        pre_analysis_only=pre_analysis_only,
+        no_static_scan=no_static_scan,
+        static_scan_only=static_scan_only,
+        no_persona_review=no_persona_review,
+        persona_review_only=persona_review_only,
+        no_verification=no_verification,
+        verification_only=verification_only,
+        no_reranking=no_reranking,
+        reranking_only=reranking_only,
+        no_reporting=no_reporting,
+        reporting_only=reporting_only,
+    )
     settings = load_settings()
-    clients = _make_review_clients(settings)
+    clients = _make_review_clients(
+        settings,
+        cache_enabled=False if (no_cache or force) else None,
+        append_cache=append_cache,
+    )
     path_targets = targets or [DEFAULT_CURRENT_PATH]
 
     if len(path_targets) == 1:
         target = path_targets[0]
         pages, title, agents_md = _prepare_path_content(target, pattern)
-        target_dir = target if target.is_dir() else DEFAULT_CURRENT_PATH
-        target_ref = str(target)
+        target_resolved = target.resolve()
+        target_dir = target_resolved if target_resolved.is_dir() else target_resolved.parent
+        target_ref = str(target_resolved)
     else:
         all_pages: list[str] = []
         agents_md = ""
         target_names: list[str] = []
-        first_target_dir = DEFAULT_CURRENT_PATH
+        first_target_dir = Path.cwd().resolve()
         for t in path_targets:
+            t_resolved = t.resolve()
             t_pages, _, t_agents = _prepare_path_content(t, pattern)
             all_pages.extend(t_pages)
             if not agents_md and t_agents:
                 agents_md = t_agents
-            target_names.append(str(t))
-            if first_target_dir == DEFAULT_CURRENT_PATH and t.exists() and t.is_dir():
-                first_target_dir = t
+            target_names.append(str(t_resolved))
+            if (
+                first_target_dir == Path.cwd().resolve()
+                and t_resolved.exists()
+                and t_resolved.is_dir()
+            ):
+                first_target_dir = t_resolved
 
         pages = all_pages
         title = f"Multiple targets ({len(path_targets)} paths)"
@@ -331,6 +419,7 @@ def path(
         target_type="path",
         target_ref=target_ref,
         target_dir=target_dir,
+        stage_flags=stage_flags,
     )
 
 
@@ -373,6 +462,66 @@ def branch(
         bool,
         typer.Option("--explain", "-e", help=HELP.review.explain_review),
     ] = False,
+    no_pre_analysis: Annotated[
+        bool,
+        typer.Option("--no-pre-analysis", help=HELP.review.no_pre_analysis),
+    ] = False,
+    pre_analysis_only: Annotated[
+        bool,
+        typer.Option("--pre-analysis-only", help=HELP.review.pre_analysis_only),
+    ] = False,
+    no_static_scan: Annotated[
+        bool,
+        typer.Option("--no-static-scan", help=HELP.review.no_static_scan),
+    ] = False,
+    static_scan_only: Annotated[
+        bool,
+        typer.Option("--static-scan-only", help=HELP.review.static_scan_only),
+    ] = False,
+    no_persona_review: Annotated[
+        bool,
+        typer.Option("--no-persona-review", help=HELP.review.no_persona_review),
+    ] = False,
+    persona_review_only: Annotated[
+        bool,
+        typer.Option("--persona-review-only", help=HELP.review.persona_review_only),
+    ] = False,
+    no_verification: Annotated[
+        bool,
+        typer.Option("--no-verification", help=HELP.review.no_verification),
+    ] = False,
+    verification_only: Annotated[
+        bool,
+        typer.Option("--verification-only", help=HELP.review.verification_only),
+    ] = False,
+    no_reranking: Annotated[
+        bool,
+        typer.Option("--no-reranking", help=HELP.review.no_reranking),
+    ] = False,
+    reranking_only: Annotated[
+        bool,
+        typer.Option("--reranking-only", help=HELP.review.reranking_only),
+    ] = False,
+    no_reporting: Annotated[
+        bool,
+        typer.Option("--no-reporting", help=HELP.review.no_reporting),
+    ] = False,
+    reporting_only: Annotated[
+        bool,
+        typer.Option("--reporting-only", help=HELP.review.reporting_only),
+    ] = False,
+    no_cache: Annotated[
+        bool,
+        typer.Option("--no-cache", help=HELP.review.no_cache),
+    ] = False,
+    force: Annotated[
+        bool,
+        typer.Option("--force", "-f", help=HELP.review.force_review),
+    ] = False,
+    append_cache: Annotated[
+        bool,
+        typer.Option("--append-cache", help=HELP.review.append_cache),
+    ] = False,
 ) -> None:
     """Review a git branch diff with one or all AI personas."""
     if explain:
@@ -381,8 +530,26 @@ def branch(
         render_explanation("review")
         return
     set_dry_run(dry_run)
+    stage_flags = resolve_stage_flags(
+        no_pre_analysis=no_pre_analysis,
+        pre_analysis_only=pre_analysis_only,
+        no_static_scan=no_static_scan,
+        static_scan_only=static_scan_only,
+        no_persona_review=no_persona_review,
+        persona_review_only=persona_review_only,
+        no_verification=no_verification,
+        verification_only=verification_only,
+        no_reranking=no_reranking,
+        reranking_only=reranking_only,
+        no_reporting=no_reporting,
+        reporting_only=reporting_only,
+    )
     settings = load_settings()
-    clients = _make_review_clients(settings)
+    clients = _make_review_clients(
+        settings,
+        cache_enabled=False if (no_cache or force) else None,
+        append_cache=append_cache,
+    )
     pages, title, agents_md = _prepare_branch_content(branch_name, base, repo_path)
     _execute_review_workflow(
         pages,
@@ -396,6 +563,7 @@ def branch(
         target_type="branch",
         target_ref=str(branch_name or "active"),
         target_dir=repo_path,
+        stage_flags=stage_flags,
     )
 
 
@@ -435,6 +603,66 @@ def pr(
         bool,
         typer.Option("--explain", "-e", help=HELP.review.explain_review),
     ] = False,
+    no_pre_analysis: Annotated[
+        bool,
+        typer.Option("--no-pre-analysis", help=HELP.review.no_pre_analysis),
+    ] = False,
+    pre_analysis_only: Annotated[
+        bool,
+        typer.Option("--pre-analysis-only", help=HELP.review.pre_analysis_only),
+    ] = False,
+    no_static_scan: Annotated[
+        bool,
+        typer.Option("--no-static-scan", help=HELP.review.no_static_scan),
+    ] = False,
+    static_scan_only: Annotated[
+        bool,
+        typer.Option("--static-scan-only", help=HELP.review.static_scan_only),
+    ] = False,
+    no_persona_review: Annotated[
+        bool,
+        typer.Option("--no-persona-review", help=HELP.review.no_persona_review),
+    ] = False,
+    persona_review_only: Annotated[
+        bool,
+        typer.Option("--persona-review-only", help=HELP.review.persona_review_only),
+    ] = False,
+    no_verification: Annotated[
+        bool,
+        typer.Option("--no-verification", help=HELP.review.no_verification),
+    ] = False,
+    verification_only: Annotated[
+        bool,
+        typer.Option("--verification-only", help=HELP.review.verification_only),
+    ] = False,
+    no_reranking: Annotated[
+        bool,
+        typer.Option("--no-reranking", help=HELP.review.no_reranking),
+    ] = False,
+    reranking_only: Annotated[
+        bool,
+        typer.Option("--reranking-only", help=HELP.review.reranking_only),
+    ] = False,
+    no_reporting: Annotated[
+        bool,
+        typer.Option("--no-reporting", help=HELP.review.no_reporting),
+    ] = False,
+    reporting_only: Annotated[
+        bool,
+        typer.Option("--reporting-only", help=HELP.review.reporting_only),
+    ] = False,
+    no_cache: Annotated[
+        bool,
+        typer.Option("--no-cache", help=HELP.review.no_cache),
+    ] = False,
+    force: Annotated[
+        bool,
+        typer.Option("--force", "-f", help=HELP.review.force_review),
+    ] = False,
+    append_cache: Annotated[
+        bool,
+        typer.Option("--append-cache", help=HELP.review.append_cache),
+    ] = False,
 ) -> None:
     """Review a GitHub pull request with one or all AI personas."""
     if explain:
@@ -445,6 +673,20 @@ def pr(
     from devops_cli.config.settings import get_github_token
 
     set_dry_run(dry_run)
+    stage_flags = resolve_stage_flags(
+        no_pre_analysis=no_pre_analysis,
+        pre_analysis_only=pre_analysis_only,
+        no_static_scan=no_static_scan,
+        static_scan_only=static_scan_only,
+        no_persona_review=no_persona_review,
+        persona_review_only=persona_review_only,
+        no_verification=no_verification,
+        verification_only=verification_only,
+        no_reranking=no_reranking,
+        reranking_only=reranking_only,
+        no_reporting=no_reporting,
+        reporting_only=reporting_only,
+    )
     settings = load_settings()
     token = get_github_token(settings)
     if not token:
@@ -454,7 +696,11 @@ def pr(
         )
         raise typer.Exit(1)
 
-    clients = _make_review_clients(settings)
+    clients = _make_review_clients(
+        settings,
+        cache_enabled=False if (no_cache or force) else None,
+        append_cache=append_cache,
+    )
     pages, title, agents_md, pull, repo_name = _prepare_pr_content(number, repo, token)
     reviews = _execute_review_workflow(
         pages,
@@ -468,6 +714,7 @@ def pr(
         target_type="pr",
         target_ref=str(number),
         target_dir=Path.cwd(),
+        stage_flags=stage_flags,
     )
 
     if post_comment and reviews:
@@ -509,9 +756,46 @@ def _render_finding_badge(status: str) -> str:
     return f"[yellow]? {status}[/yellow]"
 
 
+def _build_finding_panel_lines(f: Any) -> list[str]:
+    """Format rich text lines for an individual finding panel."""
+    persona_title = getattr(f, "persona_title", None) or getattr(f, "persona", "")
+    persona_badge = (
+        f"  |  [bold]Persona:[/bold] [magenta]{_get('escape_text')(persona_title)}[/magenta]"
+        if persona_title
+        else ""
+    )
+    lines = [
+        f"[bold]Location:[/bold] [cyan]{_get('escape_text')(f.location)}[/cyan]{persona_badge}",
+    ]
+    if f.description:
+        lines.extend(
+            [
+                "",
+                "[bold]Description:[/bold]",
+                _get("format_clean_text_field")(f.description).strip(),
+            ]
+        )
+    if f.fix:
+        lines.extend(
+            ["", "[bold]Suggested Fix:[/bold]", _get("format_clean_text_field")(f.fix).strip()]
+        )
+    if f.invalidation_reason:
+        lines.extend(
+            ["", f"[bold yellow]Invalidation Reason:[/bold yellow] {f.invalidation_reason.strip()}"]
+        )
+    if f.references:
+        refs_list = f.references if isinstance(f.references, list) else [str(f.references)]
+        lines.extend(["", f"[dim]References: {_get('escape_text')(', '.join(refs_list))}[/dim]"])
+    return lines
+
+
 @app.command("findings")
 def list_findings(
     session: Annotated[
+        str | None,
+        typer.Argument(help=HELP.review.session),
+    ] = None,
+    session_opt: Annotated[
         str | None,
         typer.Option("--session", "-s", help=HELP.review.session),
     ] = None,
@@ -526,15 +810,14 @@ def list_findings(
     verified: Annotated[bool, typer.Option("--verified", help=HELP.review.verified)] = False,
     details: Annotated[
         bool,
-        typer.Option(
-            "--details", "-d", help="Display full finding descriptions and fix recommendations."
-        ),
+        typer.Option("--details", "-d", help=HELP.review.details),
     ] = False,
 ) -> None:
     """Inspect structured findings for a review session."""
     from devops_cli.ai.review.runner import _find_session_dir
 
-    session_dir = _find_session_dir(session)
+    target_session = session or session_opt
+    session_dir = _find_session_dir(target_session)
     if not session_dir:
         _get("print_warning")("No review sessions found in .data/reviews/", prefix=False)
         raise typer.Exit(0)
@@ -618,38 +901,7 @@ def list_findings(
 
             st_badge = _render_finding_badge(f.status)
             title_header = f"[{sev_color} bold]Finding #{idx}: [{sev_upper}] {_get('escape_text')(f.title)}[/{sev_color} bold]  {st_badge}"
-            persona_title = f.persona_title or f.persona
-            panel_lines = [
-                f"[bold]Location:[/bold] [cyan]{_get('escape_text')(f.location)}[/cyan]  |  [bold]Persona:[/bold] [magenta]{_get('escape_text')(persona_title)}[/magenta]",
-            ]
-            if f.description:
-                panel_lines.extend(
-                    [
-                        "",
-                        "[bold]Description:[/bold]",
-                        _get("format_clean_text_field")(f.description).strip(),
-                    ]
-                )
-            if f.fix:
-                panel_lines.extend(
-                    [
-                        "",
-                        "[bold]Suggested Fix:[/bold]",
-                        _get("format_clean_text_field")(f.fix).strip(),
-                    ]
-                )
-            if f.invalidation_reason:
-                panel_lines.extend(
-                    [
-                        "",
-                        f"[bold yellow]Invalidation Reason:[/bold yellow] {f.invalidation_reason.strip()}",
-                    ]
-                )
-            if f.references:
-                refs_list = f.references if isinstance(f.references, list) else [str(f.references)]
-                panel_lines.extend(
-                    ["", f"[dim]References: {_get('escape_text')(', '.join(refs_list))}[/dim]"]
-                )
+            panel_lines = _build_finding_panel_lines(f)
 
             _get("print_panel")(
                 "\n".join(panel_lines),
@@ -898,15 +1150,15 @@ def apply_patch(
 def auto_fix_cmd(
     finding_id: Annotated[
         str,
-        typer.Argument(help="Finding ID or title to create remediation branch for"),
+        typer.Argument(help=HELP.review.remediate_finding_id),
     ],
     target_file: Annotated[
         str,
-        typer.Option("--file", "-f", help="Target source file to apply fix to"),
+        typer.Option("--file", "-f", help=HELP.review.remediate_file),
     ] = "src/devops_cli/main.py",
     branch_name: Annotated[
         str | None,
-        typer.Option("--branch", "-b", help="Custom topic branch name"),
+        typer.Option("--branch", "-b", help=HELP.review.remediate_branch),
     ] = None,
     dry_run: Annotated[
         bool,

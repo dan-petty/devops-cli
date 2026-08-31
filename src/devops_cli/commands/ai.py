@@ -36,13 +36,12 @@ from devops_cli.config.options import AI_API_KEY
 from devops_cli.config.settings import (
     SecretStorageError,
     dotted_set,
-    get_ai_api_key,
     load_settings,
     save_settings,
 )
 from devops_cli.core.cli import new_typer
 from devops_cli.core.process import run_subprocess
-from devops_cli.lang import HELP
+from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
     escape_text,
     format_json,
@@ -346,9 +345,18 @@ def config(
             max_retries is not None,
         ]
     ):
+        import os
+
+        from devops_cli.config.options import KEYRING_KEYS
+        from devops_cli.config.settings import _keyring_has
+
         ai = settings.ai
-        current_key = get_ai_api_key(settings)
-        key_display = "[green]***set***[/green]" if current_key else "[dim](not set)[/dim]"
+        has_key = bool(
+            os.environ.get("DEVOPS_CLI_AI_API_KEY")
+            or os.environ.get("OPENAI_API_KEY")
+            or _keyring_has(KEYRING_KEYS.get("ai.api_key", "ai_api_key"))
+        )
+        key_display = "[green]***set***[/green]" if has_key else "[dim](not set)[/dim]"
         rows = [
             ["provider", ai.provider],
             ["model", ai.model],
@@ -519,11 +527,11 @@ def _run_ollama_server_tests(
             u, ok, ans, wall = f.result()
             if ok:
                 print_info(
-                    f"  [cyan]{u}[/cyan]: [green]✓ {ans}[/green] [dim]({wall})[/dim]", prefix=False
+                    MESSAGES.ai.ollama_endpoint_pass.format(url=u, ans=ans, wall=wall), prefix=False
                 )
             else:
                 all_passed = False
-                print_error(f"  [cyan]{u}[/cyan]: [red]✗ failed: {ans}[/red]", prefix=False)
+                print_error(MESSAGES.ai.ollama_endpoint_fail.format(url=u, ans=ans), prefix=False)
 
     if not all_passed:
         raise typer.Exit(1)
@@ -552,7 +560,7 @@ def test(
         urls = [url] if url else settings.ai.get_ollama_urls
         if len(urls) > 1:
             print_info(
-                f"Testing Ollama servers ({len(urls)}) | model: [cyan]{settings.ai.model}[/cyan]...",
+                MESSAGES.ai.testing_ollama_servers.format(count=len(urls), model=settings.ai.model),
                 prefix=False,
             )
             _run_ollama_server_tests(urls, test_sys_prompt, prompt, settings)
@@ -667,7 +675,7 @@ def _stream_interactive_chat_turn(
     effective_prompt: str,
 ) -> None:
     """Execute streaming response with live thinking and output filtering."""
-    from devops_cli.ai.thinking import ThinkingStreamProcessor, strip_think_blocks
+    from devops_cli.ai.thinking_stream import ThinkingStreamProcessor, strip_think_blocks
 
     processor = ThinkingStreamProcessor(
         show_thinking=thinking,
@@ -807,7 +815,7 @@ def chat(
             write_stdout(f"\n{persona_def.title}: ")
             sys.stdout.flush()
 
-            from devops_cli.ai.thinking import strip_think_blocks
+            from devops_cli.ai.thinking_stream import strip_think_blocks
 
             if stream and not tools:
                 _stream_interactive_chat_turn(client, agent, thinking, effective_prompt)
@@ -820,8 +828,11 @@ def chat(
                 )
 
                 reply = strip_think_blocks(agent_res.content)
-                print_info(f"{reply.strip()}\n", prefix=False)
+                if reply.strip():
+                    print_info(f"{reply.strip()}\n", prefix=False)
 
+        except KeyboardInterrupt:
+            print_info("\n[dim]Interrupted.[/dim]\n", prefix=False)
         except Exception as exc:
             print_error(f"\nError: {exc}\n", prefix=False)
             if agent.memory.entries:
@@ -848,7 +859,7 @@ def bundle_models(
     ] = None,
 ) -> None:
     """Bundle Ollama model metadata into tarball for air-gapped DevContainers."""
-    from devops_cli.ai.bundle import bundle_ollama_models
+    from devops_cli.ai.model_bundler import bundle_ollama_models
 
     count, manifest_path = bundle_ollama_models(output_dir=output_dir)
     print_success(f"Bundled {count} model(s) → [bold]{manifest_path}[/bold]")
@@ -1029,11 +1040,14 @@ def token_count(
         ["Character Length", str(raw_len)],
         ["Estimated Tokens", str(num_tokens)],
         ["Token Budget Limit", str(budget)],
-        ["Fits Budget", "✓ Yes" if fits else "✗ No (Exceeds budget)"],
+        [
+            "Fits Budget",
+            MESSAGES.ai.fits_budget_yes if fits else MESSAGES.ai.fits_budget_no,
+        ],
     ]
 
     print_table(
-        title="AI Context Token Budget Report",
+        title=MESSAGES.ai.token_budget_title,
         columns=[("Property", "bold"), ("Value", "green" if fits else "red")],
         rows=rows,
         border_style="cyan",
@@ -1097,19 +1111,19 @@ def route_task(
 def spec_verify_cmd(
     spec_path: Annotated[
         Path | None,
-        typer.Argument(help="Path to markdown architecture specification contract"),
+        typer.Argument(help=HELP.ai.spec_path),
     ] = None,
     target_dir: Annotated[
         Path | None,
-        typer.Option("--target", "-t", help="Target source directory to verify"),
+        typer.Option("--target", "-t", help=HELP.ai.target_dir),
     ] = None,
     dry_run: Annotated[
         bool,
-        typer.Option("--dry-run", help="Simulate architecture spec verification"),
+        typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
     json_output: Annotated[
         bool,
-        typer.Option("--json", help="Output specification verification report as JSON"),
+        typer.Option("--json", help=HELP.options.json_output),
     ] = False,
 ) -> None:
     """Verify codebase against executable markdown architecture specification contracts."""
@@ -1159,15 +1173,15 @@ def spec_verify_cmd(
 def repomap_cmd(
     target_dir: Annotated[
         Path | None,
-        typer.Option("--target", "-t", help="Target root directory to generate symbol map for"),
+        typer.Option("--target", "-t", "--dir", "-d", help=HELP.ai.target_dir),
     ] = None,
     max_files: Annotated[
         int,
-        typer.Option("--max-files", "-n", help="Maximum source files to include"),
+        typer.Option("--max-files", "-n", help=HELP.ai.max_files),
     ] = 100,
     include_tests: Annotated[
         bool,
-        typer.Option("--include-tests", help="Include test modules in symbol map"),
+        typer.Option("--include-tests", help=HELP.ai.include_tests),
     ] = False,
     json_output: Annotated[
         bool,
@@ -1219,13 +1233,11 @@ def repomap_cmd(
 def diagram_cmd(
     diagram_type: Annotated[
         str,
-        typer.Argument(
-            help="Diagram type: 'arch' for architecture topology, 'threat' for STRIDE model"
-        ),
+        typer.Argument(help=HELP.ai.diagram_type),
     ] = "arch",
     target_dir: Annotated[
         Path | None,
-        typer.Option("--target", "-t", help="Target root directory to analyze"),
+        typer.Option("--target", "-t", "--dir", "-d", help=HELP.ai.target_dir),
     ] = None,
     json_output: Annotated[
         bool,
@@ -1272,11 +1284,11 @@ def diagram_cmd(
 def prompt_eval_cmd(
     persona: Annotated[
         str,
-        typer.Option("--persona", "-p", help="Review persona to benchmark"),
+        typer.Option("--persona", "-p", help=HELP.ai.eval_review),
     ] = "devsecops",
     dataset: Annotated[
         Path | None,
-        typer.Option("--dataset", "-d", help="Path to feedback dataset jsonl"),
+        typer.Option("--dataset", "-d", help=HELP.ai.dataset_path),
     ] = None,
     json_output: Annotated[
         bool,
@@ -1332,11 +1344,11 @@ def prompt_eval_cmd(
 def test_gen_cmd(
     target_file: Annotated[
         Path,
-        typer.Argument(help="Target source file to synthesize unit tests for"),
+        typer.Argument(help=HELP.ai.target_file),
     ],
     function_name: Annotated[
         str | None,
-        typer.Option("--function", "-f", help="Specific function to synthesize tests for"),
+        typer.Option("--function", "-f", help=HELP.ai.test_function),
     ] = None,
     json_output: Annotated[
         bool,

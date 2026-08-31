@@ -1,16 +1,7 @@
-Provide concise technical pseudocode representing key logic (target 4-10 lines) using structured chain-of-thought distillation:
-
-### Reasoning Steps:
-1. **Identify Core Entry Points**: Trace the primary class/function signatures and main execution pathways.
-2. **Filter Boilerplate**: Exclude imports (`import`, `from ... import`, `require`), type definition boilerplate, and decorative comments.
-3. **Distill Symbolic Flow**: Compress decision branches, state transformations, and return values into abbreviated symbolic pseudocode.
-
-CRITICAL REQUIREMENTS:
-- Output 1 to 15 lines of logic steps, one per line.
-- Focus strictly on core logic, method calls, data structures, and operational flow.
+Distill the key logic into concise symbolic pseudocode (4-10 lines):
+- Focus on core entry points, method calls, decision branches, and state transformations.
 - STRICTLY EXCLUDE imports and dependencies (`import`, `from ... import`, `require`, `#include`).
-- Do not reference filenames or include descriptive English prose.
-- Use abbreviated symbols and names directly from the source.
+- Do not include explanatory prose or file names; use abbreviated symbols from the source.
 
 EXAMPLE:
 Source:

@@ -75,7 +75,7 @@ def telemetry_status_cmd() -> None:
     is_reachable, health_msg, latency_ms = tracer.test_connection(timeout=1.5)
 
     print_table(
-        title="OpenTelemetry Observability Status",
+        title=MESSAGES.telemetry.status_title,
         columns=[("Property", "cyan"), ("Value", "white")],
         rows=[
             [

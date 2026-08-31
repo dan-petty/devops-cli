@@ -30,16 +30,20 @@ from devops_cli.output import print_info, print_success, print_table, write_stdo
 logger = logging.getLogger(__name__)
 
 _GRADER_PROMPT_TEMPLATE = load_task_prompt("benchmark_peer_grader.md")
+_BENCHMARK_TASK_SYSTEM_PROMPT = load_task_prompt("benchmark_system.md").strip()
+_BENCHMARK_PEER_GRADER_SYSTEM_PROMPT = load_task_prompt("benchmark_peer_grader_system.md").strip()
 
 
 def _get_benchmarks_base_dir() -> Path:
     """Resolve benchmarks base directory dynamically from settings."""
+    from devops_cli.core.repo import find_top_level_repo_root
+
     settings = load_settings()
-    return (
-        settings.data.benchmarks_dir
-        if hasattr(settings.data, "benchmarks_dir") and settings.data.benchmarks_dir
-        else settings.data.dir / "benchmarks"
-    )
+    d = settings.data.benchmarks_dir
+    if not d.is_absolute():
+        d = (find_top_level_repo_root() / d).resolve()
+    d.mkdir(parents=True, exist_ok=True)
+    return d
 
 
 def _format_model_peer_feedback(m: Any, peer_grades: list[Any]) -> list[str]:
@@ -301,7 +305,7 @@ class BenchmarkRunner:
 
             user_prompt = f"{task.prompt}{rag_block}"
             res_text = client.chat(
-                system="You are an expert DevOps and DevSecOps staff engineer.",
+                system=_BENCHMARK_TASK_SYSTEM_PROMPT,
                 user=user_prompt,
             )
             duration = time.monotonic() - t0
@@ -608,10 +612,7 @@ class BenchmarkRunner:
         err_msg = ""
         try:
             res = eval_client.chat(
-                system=(
-                    "You are an expert AI peer evaluation judge reviewing an anonymous "
-                    "candidate response against reference criteria. Return valid JSON only."
-                ),
+                system=_BENCHMARK_PEER_GRADER_SYSTEM_PROMPT,
                 user=prompt_text,
             )
             data = extract_json_block(res)

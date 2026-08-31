@@ -34,20 +34,21 @@ class ArchitectureSpecReport(BaseModel):
     rule_results: list[SpecContractRule] = Field(default_factory=list)
 
 
+def _get_ast_depth(n: ast.AST, current: int) -> int:
+    """Calculate maximum nesting depth of compound statement nodes."""
+    max_d = current
+    for child in ast.iter_child_nodes(n):
+        if isinstance(child, (ast.If, ast.For, ast.While, ast.With, ast.Try)):
+            max_d = max(max_d, _get_ast_depth(child, current + 1))
+    return max_d
+
+
 def _check_ast_indentation(tree: ast.AST, max_indent: int = 5) -> list[tuple[str, int]]:
     """Check functions exceeding indentation threshold in AST."""
     violations: list[tuple[str, int]] = []
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            # Check maximum depth of nested statement blocks within function
-            def _get_depth(n: ast.AST, current: int) -> int:
-                max_d = current
-                for child in ast.iter_child_nodes(n):
-                    if isinstance(child, (ast.If, ast.For, ast.While, ast.With, ast.Try)):
-                        max_d = max(max_d, _get_depth(child, current + 1))
-                return max_d
-
-            depth = _get_depth(node, 1)
+            depth = _get_ast_depth(node, 1)
             if depth > max_indent:
                 violations.append((node.name, depth))
     return violations
@@ -58,13 +59,64 @@ def _check_forbidden_imports(tree: ast.AST, forbidden: set[str]) -> list[str]:
     found: list[str] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
-            for alias in node.names:
-                if alias.name in forbidden:
-                    found.append(alias.name)
-        elif isinstance(node, ast.ImportFrom):
-            if node.module and node.module in forbidden:
-                found.append(node.module)
-    return found
+            for name in node.names:
+                if name.name in forbidden:
+                    found.append(name.name)
+        elif isinstance(node, ast.ImportFrom) and node.module and node.module in forbidden:
+            found.append(node.module)
+    return list(dict.fromkeys(found))
+
+
+def _verify_source_file(
+    file_path: Path, rel_path: str, forbidden_modules: set[str]
+) -> list[SpecContractRule]:
+    """Verify architectural rules against a single Python file."""
+    try:
+        content = file_path.read_text(encoding="utf-8", errors="replace")
+        tree = ast.parse(content, filename=rel_path)
+    except Exception:
+        return []
+
+    rules: list[SpecContractRule] = []
+
+    # Rule 1: Max Indentation
+    indent_violations = _check_ast_indentation(tree, max_indent=5)
+    if indent_violations:
+        for func_name, depth in indent_violations:
+            rules.append(
+                SpecContractRule(
+                    name=f"Indentation Limit ({func_name})",
+                    rule_type="max_indentation",
+                    target_path=f"{rel_path}:{func_name}",
+                    passed=False,
+                    details=f"Function depth {depth} exceeds limit 5.",
+                )
+            )
+    else:
+        rules.append(
+            SpecContractRule(
+                name="Indentation Limit Check",
+                rule_type="max_indentation",
+                target_path=rel_path,
+                passed=True,
+                details="Compliant with <6 indentation levels.",
+            )
+        )
+
+    # Rule 2: Forbidden Imports
+    bad_imports = _check_forbidden_imports(tree, forbidden_modules)
+    if bad_imports:
+        rules.append(
+            SpecContractRule(
+                name="Forbidden Imports",
+                rule_type="forbidden_import",
+                target_path=rel_path,
+                passed=False,
+                details=f"Contains deprecated/forbidden import(s): {', '.join(bad_imports)}",
+            )
+        )
+
+    return rules
 
 
 def verify_architecture_spec(
@@ -104,49 +156,8 @@ def verify_architecture_spec(
         forbidden_modules = {"telnetlib", "cgi", "pipes"}
 
         for py_file in src_files:
-            try:
-                rel_path = str(py_file.relative_to(repo))
-                content = py_file.read_text(encoding="utf-8", errors="replace")
-                tree = ast.parse(content, filename=rel_path)
-
-                # Rule 1: Max Indentation
-                indent_violations = _check_ast_indentation(tree, max_indent=5)
-                if indent_violations:
-                    for func_name, depth in indent_violations:
-                        rule_results.append(
-                            SpecContractRule(
-                                name=f"Indentation Limit ({func_name})",
-                                rule_type="max_indentation",
-                                target_path=f"{rel_path}:{func_name}",
-                                passed=False,
-                                details=f"Function depth {depth} exceeds limit 5.",
-                            )
-                        )
-                else:
-                    rule_results.append(
-                        SpecContractRule(
-                            name="Indentation Limit Check",
-                            rule_type="max_indentation",
-                            target_path=rel_path,
-                            passed=True,
-                            details="Compliant with <6 indentation levels.",
-                        )
-                    )
-
-                # Rule 2: Forbidden Imports
-                bad_imports = _check_forbidden_imports(tree, forbidden_modules)
-                if bad_imports:
-                    rule_results.append(
-                        SpecContractRule(
-                            name="Forbidden Imports",
-                            rule_type="forbidden_import",
-                            target_path=rel_path,
-                            passed=False,
-                            details=f"Contains deprecated/forbidden import(s): {', '.join(bad_imports)}",
-                        )
-                    )
-            except Exception:
-                continue
+            rel_path = str(py_file.relative_to(repo))
+            rule_results.extend(_verify_source_file(py_file, rel_path, forbidden_modules))
 
         passed_c = sum(1 for r in rule_results if r.passed)
         failed_c = sum(1 for r in rule_results if not r.passed)

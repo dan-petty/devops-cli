@@ -107,7 +107,7 @@ def test_cache_ttl_expiration(tmp_path: Path) -> None:
 
     assert entry.is_expired(60.0) is True
     assert short_cache.get(key) is None
-    assert short_cache.get_stats()["misses"] >= 1
+    assert short_cache.get_stats().misses >= 1
 
 
 def test_starting_point_lookup_and_formatting(clean_cache: LLMResponseCache) -> None:
@@ -153,8 +153,8 @@ def test_cache_capacity_enforcement(tmp_path: Path) -> None:
     small_cache.set("llm_3", "p", "m", "s", "p3", "c3")
 
     stats = small_cache.get_stats()
-    assert stats["memory_entries"] <= 2
-    assert stats["disk_entries"] <= 2
+    assert stats.memory_entries <= 2
+    assert stats.disk_entries <= 2
 
 
 def test_cache_clear_and_stats(clean_cache: LLMResponseCache) -> None:
@@ -164,18 +164,18 @@ def test_cache_clear_and_stats(clean_cache: LLMResponseCache) -> None:
     clean_cache.get("llm_nonexistent")  # miss
 
     stats = clean_cache.get_stats()
-    assert stats["hits"] == 1
-    assert stats["misses"] == 1
-    assert stats["hit_rate_percent"] == 50.0
-    assert stats["memory_entries"] == 1
-    assert stats["disk_entries"] == 1
+    assert stats.hits == 1
+    assert stats.misses == 1
+    assert stats.hit_rate_percent == 50.0
+    assert stats.memory_entries == 1
+    assert stats.disk_entries == 1
 
     cleared = clean_cache.clear()
     assert cleared >= 1
     post_stats = clean_cache.get_stats()
-    assert post_stats["hits"] == 0
-    assert post_stats["memory_entries"] == 0
-    assert post_stats["disk_entries"] == 0
+    assert post_stats.hits == 0
+    assert post_stats.memory_entries == 0
+    assert post_stats.disk_entries == 0
 
 
 def test_llm_client_exact_cache_hit(
@@ -246,6 +246,44 @@ def test_llm_client_starting_point_warm_refinement(
     assert "<starting_point>" in dispatched_messages[0].content
     assert "Prior review: Finding A on line 10." in dispatched_messages[0].content
     assert "Here is the modified module.py diff" in dispatched_messages[0].content
+
+
+def test_llm_client_append_cache_flag(
+    monkeypatch: pytest.MonkeyPatch, clean_cache: LLMResponseCache
+) -> None:
+    """Verify LLMClient --append-cache injects cached response into prompt and runs live inference."""
+    cfg = AIConfig(provider="ollama", model="gemma4:26b")
+    client = LLMClient(config=cfg)
+    client._cache = clean_cache
+
+    dispatched_messages: list[ChatMessage] = []
+
+    def mock_dispatch(system: str, messages: list[ChatMessage], **kw: Any) -> LLMResponse:
+        dispatched_messages.extend(messages)
+        if len(dispatched_messages) == 1:
+            return LLMResponse("Prior finding: line 5 insecure TLS.")
+        return LLMResponse("Refined response: insecure TLS fixed, line 10 verified.")
+
+    monkeypatch.setattr(client, "_dispatch_messages", mock_dispatch)
+
+    # 1. First run: populate cache with initial response
+    res1 = client.chat("sys", "Review file", use_cache=True, append_cache=False)
+    assert "Prior finding: line 5 insecure TLS." in res1
+
+    # 2. Call with append_cache=True: Should NOT return cache hit, but append cached response to prompt
+    res2 = client.chat(
+        "sys",
+        "Review file",
+        use_cache=True,
+        append_cache=True,
+    )
+
+    assert "Refined response: insecure TLS fixed" in res2
+    assert res2.cached is False
+    assert len(dispatched_messages) == 2
+    assert "<starting_point>" in dispatched_messages[1].content
+    assert "Prior finding: line 5 insecure TLS." in dispatched_messages[1].content
+    assert "Review file" in dispatched_messages[1].content
 
 
 def test_ai_cache_cli_commands(clean_cache: LLMResponseCache) -> None:

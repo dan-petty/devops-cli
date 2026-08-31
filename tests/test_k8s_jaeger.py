@@ -25,10 +25,15 @@ def test_jaeger_manifest_valid() -> None:
     assert deployment["kind"] == "Deployment"
     assert deployment["metadata"]["name"] == "jaeger"
     assert deployment["metadata"]["namespace"] == "otel"
+    pod_spec = deployment["spec"]["template"]["spec"]
+    assert pod_spec["automountServiceAccountToken"] is False
+    assert pod_spec["securityContext"]["seccompProfile"]["type"] == "RuntimeDefault"
+    assert any(v["name"] == "tmp" for v in pod_spec.get("volumes", []))
 
     assert service["kind"] == "Service"
     assert service["metadata"]["name"] == "jaeger"
     assert service["metadata"]["namespace"] == "otel"
+    assert service["spec"]["type"] == "ClusterIP"
 
 
 def test_k8s_port_forward_jaeger_dry_run(runner: CliRunner) -> None:

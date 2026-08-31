@@ -171,7 +171,7 @@ devops ci maintain [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--fix` | `boolean` | - | Automatically synchronize dependencies and lockfile |
+| `--fix` | `boolean` | - | Automatically synchronize dependencies and lockfile. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---

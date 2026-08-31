@@ -132,7 +132,7 @@ def list_prs(
         rows.append([f"#{number}", title, head, base, author, updated, url])
 
     print_table(
-        title=f"Pull Requests ({state})",
+        title=MESSAGES.pr.list_title.format(state=state),
         columns=[
             ("#", "right"),
             ("Title", "bold"),

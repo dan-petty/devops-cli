@@ -6,11 +6,11 @@ import asyncio
 import importlib
 import sys
 import time
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Any
 
 import typer
+from pydantic import BaseModel, ConfigDict
 
 from devops_cli.config.defaults import (
     DEFAULT_BANDIT_SEVERITY,
@@ -71,9 +71,10 @@ def _get_project_root() -> Path:
 _ROOT = _get_project_root()
 
 
-@dataclass(frozen=True)
-class CheckResult:
+class CheckResult(BaseModel):
     """Immutable result record for a single CI pipeline check."""
+
+    model_config = ConfigDict(frozen=True)
 
     name: str
     display_title: str
@@ -627,7 +628,7 @@ def docs(
 def maintain(
     fix: Annotated[
         bool,
-        typer.Option("--fix", help="Automatically synchronize dependencies and lockfile"),
+        typer.Option("--fix", help=HELP.ci.fix_sync),
     ] = False,
     dry_run: Annotated[
         bool,

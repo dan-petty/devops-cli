@@ -19,10 +19,10 @@ class PersonaTitles:
 class ReviewMessages:
     spans_pages: str = "Content spans {count} pages to ensure full coverage."
     generating_metadata: str = "Generating segment metadata..."
-    step1_metadata: str = "Step 1/4: Analyzing metadata across {count} file(s)..."
-    step2_segment: str = "Step 2/4: Reviewing {count} file(s)..."
-    step3_validate: str = "Step 3/4: Validating findings for {count} file(s)..."
-    step4_compose: str = "Step 4/4: Composing final review..."
+    stage_metadata: str = "Analyzing metadata across {count} file(s)..."
+    stage_segment: str = "Reviewing {count} file(s)..."
+    stage_validate: str = "Validating findings for {count} file(s)..."
+    stage_compose: str = "Composing final review..."
     segment_progress: str = "  ✓ segment {index}/{total} in {elapsed:.1f}s"
     segment_progress_dryrun: str = "  ✓ segment {index}/{total} (dry-run)"
     segment_validate_progress: str = (
@@ -70,6 +70,16 @@ class AIMessages:
     provider_model_info: str = "Provider: {provider}  Model: {model}"
     test_success: str = "✓ {reply}"
     test_failed: str = "✗ Failed: {exc}"
+    testing_ollama_servers: str = (
+        "Testing Ollama servers ({count}) | model: [cyan]{model}[/cyan]..."
+    )
+    ollama_endpoint_pass: str = "  [cyan]{url}[/cyan]: [green]✓ {ans}[/green] [dim]({wall})[/dim]"
+    ollama_endpoint_fail: str = "  [cyan]{url}[/cyan]: [red]✗ failed: {ans}[/red]"
+    token_budget_title: str = "AI Context Token Budget Report"
+    fits_budget_yes: str = "✓ Yes"
+    fits_budget_no: str = "✗ No (Exceeds budget)"
+    cache_title: str = "LLM Response Cache Performance"
+    cache_cleared: str = "Cleared {count} LLM response cache entries."
     generating_agents: str = "Generating {target} via LLM..."
     written_file: str = "✓ Written: {path}"
     interactive_prompt_header: str = "devops ai chat ({provider} / {model})"
@@ -95,11 +105,16 @@ class ConfigMessages:
 
 @dataclass(frozen=True)
 class InstallMessages:
+    status_title: str = "DevOps Tool Status"
     checking_tools: str = "Checking DevOps toolchain versions..."
-    installing_tool: str = "Installing {name} ({version})..."
+    fetching_latest: str = "Fetching latest version for [cyan]{name}[/cyan]..."
+    installing_tool: str = "Installing [cyan]{name}[/cyan] {version}..."
     tool_installed: str = "✓ {name} {version} installed to {path}"
     tool_already_installed: str = "✓ {name} is already installed ({version})"
     download_failed: str = "Error downloading {name} from {url}: {exc}"
+    path_hint: str = (
+        'Note: {path} is not in your PATH.\nAdd to your shell config:  export PATH="{path}:$PATH"'
+    )
 
 
 @dataclass(frozen=True)
@@ -346,6 +361,7 @@ class RemoteCIMessages:
 
 @dataclass(frozen=True)
 class PRMessages:
+    list_title: str = "Pull Requests ({state})"
     no_prs_found: str = "No pull requests found matching criteria."
     pr_created: str = "✓ Pull request created: #{number} ({url})"
     pr_updated: str = "✓ Pull request #{number} updated: {url}"
@@ -382,6 +398,7 @@ class DryRunMessages:
 
 @dataclass(frozen=True)
 class TelemetryMessages:
+    status_title: str = "OpenTelemetry Observability Status"
     port_forward_tip: str = (
         "[dim]Port-forward if running in cluster: devops k8s port-forward otel[/dim]"
     )
@@ -443,7 +460,9 @@ class TLSMessages:
 class SSHMessages:
     key_generated: str = "Generated Ed25519 SSH keypair: {path}"
     no_managed_keys: str = "No managed SSH keys found. Run 'devops ssh generate' first."
-    no_managed_keys_pattern: str = "No managed SSH keys found (expected: id_ed25519-YYYYMMMDD)."
+    no_managed_keys_pattern: str = (
+        "No managed SSH keys found (expected: [prefix-]id_ed25519-YYYYMMDD)."
+    )
     registered_and_configured: str = "Registered new key and updated git signing config."
     cleaned_unregistered_keys: str = (
         "Cleaned up un-registered key files. Fix auth and re-run rotation."
@@ -595,6 +614,26 @@ class ServeMessages:
 
 
 @dataclass(frozen=True)
+class PipelineMessages:
+    executing: str = "Executing Dagger pipeline from '{path}'..."
+    success: str = "✓ Pipeline execution completed successfully ({name})."
+    failed: str = "Pipeline execution failed with exit code {code}."
+    dagger_not_found: str = (
+        "Dagger CLI binary not found in PATH. Install Dagger to run containerized pipelines."
+    )
+
+
+@dataclass(frozen=True)
+class TestMessages:
+    starting_load_test: str = (
+        "Starting k6 load test with {vus} VUs for {duration} ({script_path})..."
+    )
+    load_test_success: str = "✓ Load test finished successfully ({duration}, {vus} VUs)."
+    load_test_failed: str = "Load test failed with exit code {code}."
+    k6_not_found: str = "k6 binary not found in PATH. Install k6 (e.g. apt install k6 or brew install k6) to run load tests."
+
+
+@dataclass(frozen=True)
 class LanguageCatalog:
     persona_titles: PersonaTitles = field(default_factory=PersonaTitles)
     messages: GeneralMessages = field(default_factory=GeneralMessages)
@@ -630,6 +669,8 @@ class LanguageCatalog:
     grafana: GrafanaMessages = field(default_factory=GrafanaMessages)
     mcp: MCPMessages = field(default_factory=MCPMessages)
     serve: ServeMessages = field(default_factory=ServeMessages)
+    pipeline: PipelineMessages = field(default_factory=PipelineMessages)
+    test: TestMessages = field(default_factory=TestMessages)
 
 
 MESSAGES = LanguageCatalog()

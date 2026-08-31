@@ -6,6 +6,7 @@ Evaluate changes against architectural principles:
 - Observability (structured logging, tracing, metrics, error context).
 - **API contracts, strict typing, and interface coupling**:
 - **Performance**: Non-blocking I/O, bounded iteration, resource lifecycle.
+- **Workstation & Local Dev Context**: Distinguish local workstation/Minikube developer manifests (`host.minikube.internal`, local cluster git daemons, NodePort services, `IfNotPresent` pull policy) from production cloud deployments. Provide dual-mode guidance (local default with production hardening comments) rather than reporting local dev conveniences as critical architectural defects.
 - Do NOT flag documentation, architectural references, or design specs describing anti-patterns or insecure configurations in the context of avoiding, mitigating, or explaining them.
 
 Respond in this exact format:

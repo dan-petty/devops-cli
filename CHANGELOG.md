@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.5] - 2026-08-27
+
+### Added
+- **Zero-Plaintext Invariant & Keyring Egress Security Audit (`tests/test_zero_plaintext_invariants.py`, `devops_cli.exceptions.security`)**:
+  - Automated continuous regression suite verifying zero unencrypted secrets, tokens, or private keys exist across configuration files, `.data/`, `.devops/`, test fixtures, or docs.
+  - Added `InsecureConfigError` with canonical exit code `126` (`E_INSECURE_CONFIG`) and contextual path masking.
+- **FastMCP Tool Schema Completeness & Strict Type Validation (`tests/test_fastmcp_contracts.py`, `devops_cli.ai.mcp.server`)**:
+  - Registered 6 new FastMCP tools (`ai_repomap`, `ai_diagram`, `ai_test_gen`, `config_audit_keys`, `telemetry_profile`, `tf_notify_plan`), bringing total registered tools to 40.
+  - Verified 100% parameter descriptions, strict type annotations, structured JSON schemas, and flag injection defenses across all tools.
+- **Universal Pydantic Resource Model Catalog (`devops_cli.models`)**:
+  - Standardized request and result resource models across all domain subsystems (`docker`, `k8s`, `security`, `tf`, `config`, `workspace`, `release`, `ci`, `git`, `ai`) with dynamic FastMCP resource endpoints (`resource://*`).
+- **DevContainer Workspace Cache Volumes & Lifecycle Management (`devops_cli.commands.devcontainer`, `.devcontainer/devcontainer.json`)**:
+  - Configured dedicated Docker named volume mounts for `.uv`, `.venv`, `.mypy_cache`, `.pytest_cache`, `.ruff_cache`, and `.data` for native Linux `ext4` I/O throughput on Windows hosts.
+  - Added automated `post-create` and `post-start` permission enforcement ensuring standard cache directories are created and chowned to the active container user (`vscode`).
+- **Team IDE Configuration & MCP Tracking (`.gitignore`, `.vscode/mcp.json`)**:
+  - Permitted version-controlled tracking of shared `.vscode/` team configurations (`mcp.json`, `settings.json`, `tasks.json`, `launch.json`) in `.gitignore` while continuing to ignore user-specific overrides.
+- **Structural Diff Path Containment & Arbitrary File Read Hardening (`devops_cli.ai.diff.difftastic`, `tests/test_difftastic.py`)**:
+  - Enforced strict repository boundary validation with `resolve_safe_subpath` in `get_structural_diff`, mitigating arbitrary file read and information exposure risks (CWE-200 / CWE-284).
+
+### Changed
+- **Target Path Resolution & Pre-Analysis Metadata Refinement (`devops_cli.commands.review`, `devops_cli.ai.review.pipeline`)**:
+  - Enforced absolute target path resolution across review commands and stage trace spans, eliminating relative `.` path ambiguity and path segment duplication in finding locations.
+- **AST Structural Standardization & Strict Indentation Budgeting**:
+  - Audited project-wide control flow and refactored all functions exceeding indentation depth limits, achieving **0** functions with depth $\ge 6$ across the entire repository.
+  - Refactored `_render_review_result` in `rendering.py`, `_analyze_python_ast` in `scanner.py`, `_find_plaintext_config_leaks` in `config.py`, `chunk_file` in `chunker.py`, `Finding._pre_validate_finding` in `review_schema.py`, `_from_otlp_any_value` in `tracer.py`, and `render_table` in `formatter.py` into dedicated functional pipelines and standard library helpers.
+- **Cold Import Latency Optimization & Lazy Loader Consolidation**:
+  - Verified CLI cold import isolation, keeping `devops_cli.main` load overhead sub-second and deferring heavy third-party packages (`kubernetes`, `fastmcp`, `boto3`, `trivy`, `pydantic_ai`) to command execution time.
+- **Workspace Data Tier Standardization (`.data/scratch/`)**:
+  - Consolidated temporary and exploratory scripts into `.data/scratch/` ensuring 100% data artifacts reside within the centralized `.data/` tier.
+
 ## [0.2.4] - 2026-08-27
 
 ### Added

@@ -65,7 +65,11 @@ def test_review_findings_list_command(tmp_path: Path, monkeypatch: pytest.Monkey
 
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path))
 
-    res = runner.invoke(app, ["findings", "--session", "test-repo"], env={"COLUMNS": "160"})
+    res = runner.invoke(
+        app,
+        ["findings", "--session", "test-repo"],
+        env={"COLUMNS": "160", "DEVOPS_CLI_DATA_DIR": str(tmp_path)},
+    )
     assert res.exit_code == 0
     assert "Hardcoded Token" in res.output
     assert "Tight Coupling" in res.output
@@ -110,6 +114,7 @@ def test_review_verify_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
             "--reason",
             "Environment variable fallback used",
         ],
+        env={"DEVOPS_CLI_DATA_DIR": str(tmp_path)},
     )
     assert res.exit_code == 0
     assert "Updated finding #1" in res.output
@@ -152,7 +157,7 @@ def test_review_stats_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
 
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path))
 
-    res = runner.invoke(app, ["stats"])
+    res = runner.invoke(app, ["stats"], env={"DEVOPS_CLI_DATA_DIR": str(tmp_path)})
     assert res.exit_code == 0
     assert "Total Sessions:  1" in res.output
     assert "Total Findings:  2" in res.output
@@ -242,23 +247,16 @@ def test_deterministic_pre_verification_path_traversal_guard(tmp_path: Path) -> 
     assert result.location == "../outside.py:1"
 
 
-def test_deterministic_pre_verification_documentation_avoidance_context(tmp_path: Path) -> None:
+def test_deterministic_pre_verification_line_boundary_context(tmp_path: Path) -> None:
     from devops_cli.ai.review.verification import _deterministic_pre_verification
 
-    docs_dir = tmp_path / "docs" / "security"
-    docs_dir.mkdir(parents=True)
-    guide = docs_dir / "ssrf_prevention.md"
-    guide.write_text(
-        "# SSRF Prevention Guide\n\n"
-        "Never use unvalidated URLs. Avoid insecure configurations such as binding to 0.0.0.0 "
-        "or allowing unrestricted redirects. Mitigate SSRF by enforcing strict allowlists.\n",
-        encoding="utf-8",
-    )
+    code_file = tmp_path / "app.py"
+    code_file.write_text("print('hello')\n", encoding="utf-8")
 
     finding = Finding(
-        title="Missing SSRF mitigation and insecure 0.0.0.0 binding",
-        location="docs/security/ssrf_prevention.md:3-5",
-        description="Documentation describes binding to 0.0.0.0 and SSRF vulnerabilities.",
+        title="Missing exception handler",
+        location="app.py:100",
+        description="Line 100 has unhandled error",
         status="UNVERIFIED",
     )
 
@@ -267,7 +265,7 @@ def test_deterministic_pre_verification_documentation_avoidance_context(tmp_path
     assert result.verified is False
     assert result.reportable is False
     assert result.invalidation_reason is not None
-    assert "avoiding said configuration" in result.invalidation_reason
+    assert "exceeds total file lines" in result.invalidation_reason
 
 
 def test_extract_location_context() -> None:
@@ -500,25 +498,101 @@ def test_deterministic_pre_verification_invalidates_hallucinated_syntax_errors(
     assert checked.status == "INVALIDATED"
     assert checked.verified is False
     assert checked.reportable is False
-    assert "ast.parse" in (checked.invalidation_reason or "")
+    assert "parser" in (checked.invalidation_reason or "").lower()
 
 
-def test_deterministic_pre_verification_handles_template_files(tmp_path: Path) -> None:
-    """Verify that template and example configuration files with placeholders are marked MITIGATED."""
+def test_deterministic_pre_verification_line_boundaries(tmp_path: Path) -> None:
+    """Verify that findings referencing line numbers beyond total lines are invalidated."""
     from devops_cli.ai.review.verification import _deterministic_pre_verification
 
-    example_file = tmp_path / "config.example.yaml"
-    example_file.write_text("api_key: YOUR_API_KEY_HERE\n", encoding="utf-8")
+    short_file = tmp_path / "short.py"
+    short_file.write_text("x = 1\ny = 2\n", encoding="utf-8")
 
-    finding_secret = Finding(
-        title="Hardcoded API Secret in config",
-        location="config.example.yaml:1",
-        description="Hardcoded secret token in configuration",
+    out_of_bounds_finding = Finding(
+        title="Unbound variable",
+        location="short.py:99",
+        description="Line 99 references undefined z",
         severity="HIGH",
         status="UNVERIFIED",
     )
 
-    checked = _deterministic_pre_verification(finding_secret, repo_root=tmp_path)
-    assert checked.status == "MITIGATED"
-    assert checked.reportable is False
-    assert checked.mitigated is True
+    checked = _deterministic_pre_verification(out_of_bounds_finding, repo_root=tmp_path)
+    assert checked.status == "INVALIDATED"
+    assert "exceeds total file lines" in (checked.invalidation_reason or "")
+
+
+def test_validate_segment_findings_bypasses_llm_when_deterministic(tmp_path: Path) -> None:
+    """Verify that _validate_segment_findings skips LLM call when all findings are deterministically resolved."""
+    from unittest.mock import MagicMock
+
+    from devops_cli.ai.review.verification import _validate_segment_findings
+    from devops_cli.ai.review_schema import ReviewResult
+
+    valid_file = tmp_path / "valid.py"
+    valid_file.write_text("def hello() -> str:\n    return 'world'\n", encoding="utf-8")
+
+    syntax_finding = Finding(
+        title="Syntax error: invalid function syntax",
+        location="valid.py:1",
+        description="Invalid syntax in def hello",
+        severity="HIGH",
+        status="UNVERIFIED",
+    )
+
+    mock_client = MagicMock()
+    result = ReviewResult(findings=[syntax_finding])
+
+    validated, proc_sec, backend = _validate_segment_findings(
+        result,
+        all_segments=["def hello() -> str:"],
+        client=mock_client,
+        repo_root=tmp_path,
+    )
+
+    assert mock_client.chat.call_count == 0
+    assert backend == "deterministic"
+    assert validated.findings[0].status == "INVALIDATED"
+
+
+def test_deterministic_pre_verification_handles_json_yaml_toml_syntax(tmp_path: Path) -> None:
+    """Verify that deterministic syntax parser checks apply across JSON, YAML, and TOML files."""
+    from devops_cli.ai.review.verification import _deterministic_pre_verification
+
+    # 1. JSON
+    json_file = tmp_path / "valid.json"
+    json_file.write_text('{"name": "devops-cli", "version": "0.2.5"}\n', encoding="utf-8")
+    finding_json = Finding(
+        title="Syntax error: invalid JSON comma",
+        location="valid.json:1",
+        description="Missing comma in json",
+        severity="HIGH",
+        status="UNVERIFIED",
+    )
+    checked_json = _deterministic_pre_verification(finding_json, repo_root=tmp_path)
+    assert checked_json.status == "INVALIDATED"
+
+    # 2. YAML
+    yaml_file = tmp_path / "valid.yaml"
+    yaml_file.write_text("key: value\nlist:\n  - item1\n", encoding="utf-8")
+    finding_yaml = Finding(
+        title="Parse error in YAML indentation",
+        location="valid.yaml:2",
+        description="Invalid syntax in YAML mapping",
+        severity="MEDIUM",
+        status="UNVERIFIED",
+    )
+    checked_yaml = _deterministic_pre_verification(finding_yaml, repo_root=tmp_path)
+    assert checked_yaml.status == "INVALIDATED"
+
+    # 3. TOML
+    toml_file = tmp_path / "valid.toml"
+    toml_file.write_text("[tool.devops]\nenabled = true\n", encoding="utf-8")
+    finding_toml = Finding(
+        title="Syntaxerror in pyproject.toml",
+        location="valid.toml:1",
+        description="Unexpected token in TOML table",
+        severity="HIGH",
+        status="UNVERIFIED",
+    )
+    checked_toml = _deterministic_pre_verification(finding_toml, repo_root=tmp_path)
+    assert checked_toml.status == "INVALIDATED"

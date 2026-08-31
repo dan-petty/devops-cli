@@ -28,6 +28,8 @@ prometheus:
           - targets: ["otel-collector-opentelemetry-collector.otel.svc.cluster.local:8888"]
 
   service:
+    # Local minikube: NodePort allows direct access from workstation host.
+    # Production: Use ClusterIP with Ingress / OAuth proxy.
     type: NodePort
 
 # ── Alertmanager — disabled for local dev ─────────────────────────────────────
@@ -41,6 +43,8 @@ grafana:
   adminPassword: ""
 
   service:
+    # Local minikube: NodePort allows direct browser access.
+    # Production: Use ClusterIP with an Ingress Controller and TLS.
     type: NodePort
 
   resources:

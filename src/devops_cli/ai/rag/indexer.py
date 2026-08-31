@@ -106,6 +106,7 @@ _EXCLUDED_PARTS = {
     ".pytest_cache",
     ".mypy_cache",
     ".ruff_cache",
+    ".uv",
     "node_modules",
     "dist",
     "build",

@@ -4,6 +4,8 @@
 
 image:
   repository: ghcr.io/open-webui/open-webui
+  # Local minikube: Uses floating "main" tag for fast prototyping.
+  # Production: Pin to an explicit immutable semver release tag or sha256 digest (e.g. v0.5.0).
   tag: "main"
 
 ollama:
@@ -36,6 +38,8 @@ websocket:
     enabled: false
 
 service:
+  # Local minikube: NodePort allows direct browser access without ingress controller.
+  # Production: Use ClusterIP with an Ingress resource and TLS certificate.
   type: NodePort
   port: 8080
 

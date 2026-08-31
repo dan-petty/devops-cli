@@ -8,7 +8,7 @@ import typer
 
 from devops_cli.config.defaults import DEFAULT_TABLE_FORMAT
 from devops_cli.core.cli import new_typer
-from devops_cli.lang import HELP
+from devops_cli.lang import HELP, MESSAGES
 
 app = new_typer(
     help=HELP.ai.cache,
@@ -34,10 +34,10 @@ def cache_status(
         write_stdout(format_json(stats) + "\n")
         return
 
-    status_str = "[green]Enabled[/green]" if stats["enabled"] else "[yellow]Disabled[/yellow]"
+    status_str = "[green]Enabled[/green]" if stats.enabled else "[yellow]Disabled[/yellow]"
 
     # Format bytes
-    disk_bytes = stats["disk_size_bytes"]
+    disk_bytes = stats.disk_size_bytes
     if disk_bytes < 1024:
         size_str = f"{disk_bytes} B"
     elif disk_bytes < 1024 * 1024:
@@ -45,27 +45,27 @@ def cache_status(
     else:
         size_str = f"{disk_bytes / (1024 * 1024):.2f} MB"
 
-    ttl_days = stats["ttl_seconds"] / 86400
+    ttl_days = stats.ttl_seconds / 86400
 
     rows = [
         ["Cache Status", status_str],
         [
             "Cache Directory",
-            f"[link=file://{stats['cache_directory']}]{stats['cache_directory']}[/link]",
+            f"[link=file://{stats.cache_directory}]{stats.cache_directory}[/link]",
         ],
-        ["In-Memory Entries", str(stats["memory_entries"])],
-        ["Persistent Disk Entries", str(stats["disk_entries"])],
-        ["Cache Hits", str(stats["hits"])],
-        ["Cache Misses", str(stats["misses"])],
-        ["Total Lookups", str(stats["total_lookups"])],
-        ["Hit Rate", f"{stats['hit_rate_percent']:.1f}%"],
+        ["In-Memory Entries", str(stats.memory_entries)],
+        ["Persistent Disk Entries", str(stats.disk_entries)],
+        ["Cache Hits", str(stats.hits)],
+        ["Cache Misses", str(stats.misses)],
+        ["Total Lookups", str(stats.total_lookups)],
+        ["Hit Rate", f"{stats.hit_rate_percent:.1f}%"],
         ["Disk Storage", size_str],
-        ["TTL (Expiration)", f"{ttl_days:.1f} days ({stats['ttl_seconds']}s)"],
-        ["Max Capacity", f"{stats['max_entries']} entries"],
+        ["TTL (Expiration)", f"{ttl_days:.1f} days ({stats.ttl_seconds}s)"],
+        ["Max Capacity", f"{stats.max_entries} entries"],
     ]
 
     print_table(
-        title="LLM Response Cache Performance",
+        title=MESSAGES.ai.cache_title,
         columns=[("Metric", "cyan"), ("Value", "bold green")],
         rows=rows,
         box_style=None,
@@ -90,4 +90,4 @@ def cache_clear() -> None:
 
     cache = get_llm_response_cache()
     cleared_count = cache.clear()
-    print_success(f"Cleared {cleared_count} LLM response cache entries.")
+    print_success(MESSAGES.ai.cache_cleared.format(count=cleared_count))

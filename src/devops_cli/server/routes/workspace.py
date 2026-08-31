@@ -34,23 +34,30 @@ class WorkspacesResponse(BaseModel):
     )
 
 
-def _inspect_repo_metadata(path: Path, name: str) -> dict[str, Any]:
+class ConfigResponse(BaseModel):
+    """Sanitized configuration response schema."""
+
+    status: str = "ok"
+    config: dict[str, Any] = Field(default_factory=dict)
+
+
+def _inspect_repo_metadata(path: Path, name: str) -> RepositoryInfo:
     """Inspect and format metadata for a repository directory."""
-    return {
-        "name": name,
-        "path": str(path.resolve()),
-        "has_git": (path / ".git").exists(),
-        "has_devcontainer": (path / ".devcontainer").is_dir(),
-        "has_pyproject": (path / "pyproject.toml").is_file(),
-    }
+    return RepositoryInfo(
+        name=name,
+        path=str(path.resolve()),
+        has_git=(path / ".git").exists(),
+        has_devcontainer=(path / ".devcontainer").is_dir(),
+        has_pyproject=(path / "pyproject.toml").is_file(),
+    )
 
 
-def _scan_owner_directory(owner_dir: Path) -> list[dict[str, Any]]:
+def _scan_owner_directory(owner_dir: Path) -> list[RepositoryInfo]:
     """Scan subdirectories or single repository under an owner folder."""
     if (owner_dir / ".git").exists() or (owner_dir / "pyproject.toml").is_file():
         return [_inspect_repo_metadata(owner_dir, owner_dir.name)]
 
-    repos: list[dict[str, Any]] = []
+    repos: list[RepositoryInfo] = []
     for repo_dir in owner_dir.iterdir():
         if not repo_dir.is_dir() or repo_dir.name.startswith("."):
             continue
@@ -59,11 +66,11 @@ def _scan_owner_directory(owner_dir: Path) -> list[dict[str, Any]]:
     return repos
 
 
-def _discover_workspace_repositories(repos_dir: Path) -> list[dict[str, Any]]:
+def _discover_workspace_repositories(repos_dir: Path) -> list[RepositoryInfo]:
     """Discover all repositories under workspace repos directory."""
     if not repos_dir.is_dir():
         return []
-    repos: list[dict[str, Any]] = []
+    repos: list[RepositoryInfo] = []
     for owner_dir in repos_dir.iterdir():
         if not owner_dir.is_dir() or owner_dir.name.startswith("."):
             continue
@@ -72,17 +79,17 @@ def _discover_workspace_repositories(repos_dir: Path) -> list[dict[str, Any]]:
 
 
 @router.get("/workspaces", response_model=WorkspacesResponse, summary="List workspace repositories")
-async def list_workspaces() -> dict[str, Any]:
+async def list_workspaces() -> WorkspacesResponse:
     """Discover repositories and devcontainer configurations in the current workspace."""
     root = find_top_level_repo_root()
-    return {
-        "workspace_root": str(root.resolve()),
-        "repositories": _discover_workspace_repositories(root / "repos"),
-    }
+    return WorkspacesResponse(
+        workspace_root=str(root.resolve()),
+        repositories=_discover_workspace_repositories(root / "repos"),
+    )
 
 
-@router.get("/config", summary="Get sanitized configuration")
-async def get_configuration() -> dict[str, Any]:
+@router.get("/config", response_model=ConfigResponse, summary="Get sanitized configuration")
+async def get_configuration() -> ConfigResponse:
     """Retrieve active non-secret configuration parameters."""
     settings = Settings()
     config_dict = settings.model_dump(mode="json")
@@ -92,7 +99,7 @@ async def get_configuration() -> dict[str, Any]:
         gh_tok = config_dict["github"]["token"]
         config_dict["github"]["token"] = "***REDACTED***" if gh_tok else None
 
-    return {
-        "status": "ok",
-        "config": config_dict,
-    }
+    return ConfigResponse(
+        status="ok",
+        config=config_dict,
+    )

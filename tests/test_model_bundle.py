@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 from devops_cli import __version__
-from devops_cli.ai.bundle import bundle_ollama_models
+from devops_cli.ai.model_bundler import bundle_ollama_models
 
 
 def test_bundle_ollama_models(tmp_path: Path) -> None:

@@ -1,0 +1,24 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: llm-stack
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    # Local minikube: Uses local workstation git daemon over unauthenticated git:// protocol.
+    # Production: Replace with authenticated HTTPS (https://github.com/org/repo.git) or SSH (git@github.com:org/repo.git).
+    repoURL: git://host.minikube.internal:9418/k8s
+    targetRevision: HEAD
+    path: llm
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: llm
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

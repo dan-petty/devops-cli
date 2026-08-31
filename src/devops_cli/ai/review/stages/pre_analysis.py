@@ -27,8 +27,9 @@ def run_pre_analysis_stage(
         target_abs = (
             target_dir.resolve() if target_dir.is_absolute() else (repo / target_dir).resolve()
         )
+        display_ref = str(target_abs) if (not target_ref or target_ref == ".") else target_ref
         print_info(
-            f"[dim]Scanning pre-analysis metadata for '{target_ref}'...[/dim]",
+            f"[dim]Scanning pre-analysis metadata for '{display_ref}'...[/dim]",
             prefix=False,
         )
 

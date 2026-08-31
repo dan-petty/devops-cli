@@ -188,6 +188,57 @@ def cd_apps_status(
 
 
 # =============================================================================
+# Command: devops argo cd apps bootstrap-gitops
+# =============================================================================
+
+
+@cd_apps_app.command("bootstrap-gitops")
+def cd_apps_bootstrap_gitops(
+    root_app_path: Annotated[
+        Path,
+        typer.Option(
+            "--root-app",
+            "-f",
+            help=HELP.argo.app_of_apps_manifest,
+        ),
+    ] = Path("k8s/argocd/apps/root-app.yaml"),
+    context: Annotated[
+        str | None,
+        typer.Option("--context", "-c", help=HELP.options.context),
+    ] = None,
+) -> None:
+    """Bootstrap local GitOps project orchestration via ArgoCD and the Git daemon."""
+    if is_dry_run():
+        render_dry_run_result(
+            command="devops argo cd apps bootstrap-gitops",
+            target=str(root_app_path),
+            action="bootstrap_argocd_gitops",
+            details={"root_app": str(root_app_path), "context": context},
+        )
+        return
+
+    if not root_app_path.exists():
+        print_error(f"Root app manifest not found at {root_app_path}", prefix=False)
+        raise typer.Exit(1)
+
+    cmd = ["kubectl", "apply", "-f", str(root_app_path)]
+    if context:
+        cmd.extend(["--context", context])
+
+    res = run_subprocess(
+        cmd,
+        check=False,
+        timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
+        capture_output=True,
+    )
+    if res.returncode != 0:
+        print_error(f"Failed to bootstrap GitOps root app: {res.stderr}", prefix=False)
+        raise typer.Exit(res.returncode)
+
+    print_success(f"GitOps root Application applied from {root_app_path}")
+
+
+# =============================================================================
 # Command: devops argo workflows (list, submit, logs)
 # =============================================================================
 

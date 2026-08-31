@@ -114,6 +114,7 @@ _WORKSPACE_SKIP_DIRS = {
     ".pytest_cache",
     ".ruff_cache",
     ".mypy_cache",
+    ".uv",
     ".tox",
     "repos",
     "target",

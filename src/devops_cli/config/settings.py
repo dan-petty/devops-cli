@@ -29,9 +29,13 @@ from devops_cli.config.constants import (
     CONST_PROJECT_CONFIG_FILENAME as PROJECT_CONFIG_FILENAME,
 )
 from devops_cli.config.defaults import (
+    DEFAULT_AI_CONTEXT_WINDOW,
     DEFAULT_AI_MAX_RETRIES,
     DEFAULT_AI_MODEL,
     DEFAULT_AI_PROVIDER,
+    DEFAULT_AI_REASONING_EFFORT,
+    DEFAULT_AI_TEMPERATURE,
+    DEFAULT_AI_TOP_P,
     DEFAULT_ANALYSIS_DATA_DIR,
     DEFAULT_AUDIT_LOG_PATH,
     DEFAULT_BENCHMARKS_DATA_DIR,
@@ -53,12 +57,15 @@ from devops_cli.config.defaults import (
     DEFAULT_RAG_CHUNK_SIZE,
     DEFAULT_RAG_DATA_DIR,
     DEFAULT_RAG_EMBEDDING_MODEL,
+    DEFAULT_RAG_EMBEDDING_URL,
     DEFAULT_RAG_SCORE_THRESHOLD,
     DEFAULT_RAG_TOP_K,
     DEFAULT_REPOS_BASE_DIR,
     DEFAULT_REVIEWS_DATA_DIR,
     DEFAULT_SSH_KEY_DIR,
+    DEFAULT_SSH_KEY_PREFIX,
     DEFAULT_SSH_ROTATION_DAYS,
+    DEFAULT_TLS_DATA_DIR,
     DEFAULT_WORKSPACE_FILE,
 )
 from devops_cli.config.env import OPTION_TO_ENV_VAR
@@ -100,6 +107,7 @@ class GitHubConfig(BaseModel):
 class SSHConfig(BaseModel):
     model_config = ConfigDict(frozen=False)
     key_dir: Path = DEFAULT_SSH_KEY_DIR
+    key_prefix: str | None = DEFAULT_SSH_KEY_PREFIX
     rotation_days: int = DEFAULT_SSH_ROTATION_DAYS
 
 
@@ -149,6 +157,7 @@ class AIRAGConfig(BaseModel):
     model_config = ConfigDict(frozen=False)
     enabled: bool = True
     embedding_model: str = DEFAULT_RAG_EMBEDDING_MODEL
+    embedding_url: str | None = DEFAULT_RAG_EMBEDDING_URL
     top_k: int = DEFAULT_RAG_TOP_K
     score_threshold: float = DEFAULT_RAG_SCORE_THRESHOLD
     chunk_size: int = DEFAULT_RAG_CHUNK_SIZE
@@ -161,6 +170,7 @@ class AICacheConfig(BaseModel):
     dir: Path = DEFAULT_LLM_CACHE_DATA_DIR
     ttl_seconds: int = DEFAULT_LLM_CACHE_TTL_SECONDS
     max_entries: int = DEFAULT_LLM_CACHE_MAX_ENTRIES
+    append_cache: bool = False
 
 
 class AITaskOverride(BaseModel):
@@ -169,6 +179,12 @@ class AITaskOverride(BaseModel):
     model_config = ConfigDict(frozen=False)
     provider: str | None = None
     model: str | None = None
+    reasoning_effort: str | None = None
+    temperature: float | None = None
+    top_p: float | None = None
+    context_window: int | None = None
+    num_ctx: int | None = None
+    max_tokens: int | None = None
     ollama_urls: list[str] | None = None
     ollama_max_parallel: int | None = None
     api_base_url: str | None = None
@@ -181,17 +197,25 @@ class AITasksConfig(BaseModel):
     metadata: AITaskOverride = AITaskOverride()
     analysis: AITaskOverride = AITaskOverride()
     compose: AITaskOverride = AITaskOverride()
+    embedding: AITaskOverride = AITaskOverride()
 
 
 class AIConfig(BaseModel):
     model_config = ConfigDict(frozen=False)
     provider: str = DEFAULT_AI_PROVIDER  # ollama | claude | copilot | openai
     model: str = DEFAULT_AI_MODEL
+    reasoning_effort: str | None = DEFAULT_AI_REASONING_EFFORT
+    temperature: float = DEFAULT_AI_TEMPERATURE
+    top_p: float = DEFAULT_AI_TOP_P
+    context_window: int = DEFAULT_AI_CONTEXT_WINDOW
+    num_ctx: int | None = None
+    max_tokens: int | None = None
     ollama_urls: list[str] = Field(default_factory=lambda: list(DEFAULT_OLLAMA_URLS))
     ollama_max_parallel: int = DEFAULT_OLLAMA_MAX_PARALLEL
     api_base_url: str | None = None
     allow_private_network: bool = False
     max_retries: int = DEFAULT_AI_MAX_RETRIES
+    append_cache: bool = False
     tasks: AITasksConfig = AITasksConfig()
     rag: AIRAGConfig = AIRAGConfig()
     cache: AICacheConfig = AICacheConfig()
@@ -199,11 +223,16 @@ class AIConfig(BaseModel):
     @property
     def get_ollama_urls(self) -> list[str]:
         """Return non-empty list of Ollama base URLs."""
-        if self.ollama_urls:
-            cleaned = [u.strip().rstrip("/") for u in self.ollama_urls if u and u.strip()]
-            if cleaned:
-                return cleaned
-        return list(DEFAULT_OLLAMA_URLS)
+        if not self.ollama_urls:
+            return list(DEFAULT_OLLAMA_URLS)
+
+        cleaned: list[str] = []
+        for u in self.ollama_urls:
+            raw = (u or "").strip().rstrip("/")
+            if not raw:
+                continue
+            cleaned.append(raw if raw.startswith(("http://", "https://")) else f"http://{raw}")
+        return cleaned or list(DEFAULT_OLLAMA_URLS)
 
     def for_task(self, task: str) -> AIConfig:
         """Return a copy with task-specific overrides from ai.tasks.<task> applied."""
@@ -213,6 +242,12 @@ class AIConfig(BaseModel):
             for k, v in {
                 "provider": override.provider,
                 "model": override.model,
+                "reasoning_effort": override.reasoning_effort,
+                "temperature": override.temperature,
+                "top_p": override.top_p,
+                "context_window": override.context_window,
+                "num_ctx": override.num_ctx,
+                "max_tokens": override.max_tokens,
                 "ollama_urls": override.ollama_urls,
                 "ollama_max_parallel": override.ollama_max_parallel,
                 "api_base_url": override.api_base_url,
@@ -234,6 +269,7 @@ class DataConfig(BaseModel):
     cache_dir: Path = Field(default_factory=lambda: DEFAULT_CACHE_DATA_DIR)
     benchmarks_dir: Path = Field(default_factory=lambda: DEFAULT_BENCHMARKS_DATA_DIR)
     rag_dir: Path = Field(default_factory=lambda: DEFAULT_RAG_DATA_DIR)
+    tls_dir: Path = Field(default_factory=lambda: DEFAULT_TLS_DATA_DIR)
     audit_log_path: Path = Field(default_factory=lambda: DEFAULT_AUDIT_LOG_PATH)
     feedback_dataset_path: Path = Field(default_factory=lambda: DEFAULT_FEEDBACK_DATASET_PATH)
 
@@ -254,6 +290,8 @@ class DataConfig(BaseModel):
                 self.benchmarks_dir = self.dir / "benchmarks"
             if self.rag_dir == DEFAULT_RAG_DATA_DIR:
                 self.rag_dir = self.dir / "rag"
+            if self.tls_dir == DEFAULT_TLS_DATA_DIR:
+                self.tls_dir = self.dir / "tls"
             if self.audit_log_path == DEFAULT_AUDIT_LOG_PATH:
                 self.audit_log_path = self.dir / "logs" / "audit.jsonl"
             if self.feedback_dataset_path == DEFAULT_FEEDBACK_DATASET_PATH:
@@ -304,6 +342,24 @@ def _keyring_get(key: str) -> str | None:
         return None
 
 
+def _keyring_has(key: str) -> bool:
+    """Check whether a secret key exists in OS keyring or ephemeral store."""
+    import keyring
+    from keyring.errors import NoKeyringError
+
+    if key in _EPHEMERAL_CI_SECRETS:
+        return True
+
+    if not _ensure_keyring_backend():
+        return False
+
+    try:
+        val = keyring.get_password(KEYRING_SERVICE, key)
+        return bool(val is not None)
+    except NoKeyringError, Exception:
+        return False
+
+
 def _keyring_set(key: str, value: str) -> None:
     import os
 
@@ -350,6 +406,11 @@ def load_settings() -> Settings:
 
     settings = Settings.model_validate(raw)
 
+    # Check for DEVOPS_DATA_DIR fallback alias if DEVOPS_CLI_DATA_DIR not present
+    env_data_dir = os.environ.get("DEVOPS_CLI_DATA_DIR") or os.environ.get("DEVOPS_DATA_DIR")
+    if env_data_dir:
+        settings.data.dir = Path(env_data_dir)
+
     # Allow devcontainer and shell environment variables to override file config.
     for option_key, env_var in OPTION_TO_ENV_VAR.items():
         if option_key in _SECRET_FIELDS:
@@ -363,8 +424,44 @@ def load_settings() -> Settings:
             # Ignore invalid or unknown env overrides and keep existing settings.
             continue
 
-    # Rebase child paths if data.dir was customized via environment variables
-    settings.data = DataConfig.model_validate(settings.data.model_dump())
+    # Rebase child paths if data.dir was customized via environment variables or settings
+    raw_data = raw.get("data", {}) if isinstance(raw.get("data"), dict) else {}
+    explicit_data: dict[str, Any] = {"dir": settings.data.dir}
+
+    child_env_map = {
+        "analysis_dir": "DEVOPS_CLI_DATA_ANALYSIS_DIR",
+        "reviews_dir": "DEVOPS_CLI_DATA_REVIEWS_DIR",
+        "logs_dir": "DEVOPS_CLI_DATA_LOGS_DIR",
+        "models_dir": "DEVOPS_CLI_DATA_MODELS_DIR",
+        "cache_dir": "DEVOPS_CLI_DATA_CACHE_DIR",
+        "benchmarks_dir": "DEVOPS_CLI_DATA_BENCHMARKS_DIR",
+        "rag_dir": "DEVOPS_CLI_DATA_RAG_DIR",
+        "tls_dir": "DEVOPS_CLI_DATA_TLS_DIR",
+        "audit_log_path": "DEVOPS_CLI_DATA_AUDIT_LOG_PATH",
+        "feedback_dataset_path": "DEVOPS_CLI_DATA_FEEDBACK_DATASET_PATH",
+    }
+    default_child_map = {
+        "analysis_dir": DEFAULT_ANALYSIS_DATA_DIR,
+        "reviews_dir": DEFAULT_REVIEWS_DATA_DIR,
+        "logs_dir": DEFAULT_LOGS_DATA_DIR,
+        "models_dir": DEFAULT_MODELS_DATA_DIR,
+        "cache_dir": DEFAULT_CACHE_DATA_DIR,
+        "benchmarks_dir": DEFAULT_BENCHMARKS_DATA_DIR,
+        "rag_dir": DEFAULT_RAG_DATA_DIR,
+        "tls_dir": DEFAULT_TLS_DATA_DIR,
+        "audit_log_path": DEFAULT_AUDIT_LOG_PATH,
+        "feedback_dataset_path": DEFAULT_FEEDBACK_DATASET_PATH,
+    }
+    for field_name, env_v in child_env_map.items():
+        env_val = os.environ.get(env_v)
+        if env_val:
+            explicit_data[field_name] = Path(env_val)
+        elif field_name in raw_data and not env_data_dir:
+            raw_path = Path(raw_data[field_name])
+            if settings.data.dir == DEFAULT_DATA_DIR or raw_path != default_child_map[field_name]:
+                explicit_data[field_name] = raw_path
+
+    settings.data = DataConfig.model_validate(explicit_data)
 
     return settings
 

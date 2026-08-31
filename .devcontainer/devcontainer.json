@@ -34,6 +34,7 @@
     "source=devops-cli-mypy-cache,target=${containerWorkspaceFolder}/.mypy_cache,type=volume",
     "source=devops-cli-pytest-cache,target=${containerWorkspaceFolder}/.pytest_cache,type=volume",
     "source=devops-cli-ruff-cache,target=${containerWorkspaceFolder}/.ruff_cache,type=volume",
+    "source=devops-cli-uv,target=${containerWorkspaceFolder}/.uv,type=volume",
     "source=global-devcontainer-home,target=/home/vscode,type=volume",
     "source=${localEnv:USERPROFILE}/.ssh,target=/home/vscode/.ssh,type=bind,consistency=cached"
   ],
@@ -42,7 +43,8 @@
     "DEVOPS_MINIKUBE_AUTOSTART": "true",
     "DEVOPS_K8S_AUTO_DEPLOY": "true",
     "DEVOPS_GIT_DAEMON_AUTOSTART": "true",
-    "UV_MALWARE_CHECK": "1"
+    "UV_MALWARE_CHECK": "1",
+    "UV_CACHE_DIR": "${containerWorkspaceFolder}/.uv"
   },
   "forwardPorts": [
     8080,

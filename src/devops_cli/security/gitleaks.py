@@ -94,12 +94,10 @@ def _scan_file_native_secrets(file_path: Path) -> list[Finding]:
 
 def _parse_single_gitleaks_item(item: dict[str, Any]) -> Finding:
     """Transform raw Gitleaks JSON item into a structured Finding model."""
-    rule_id = item.get("RuleID") or item.get("Description") or "secret"
-    desc = item.get("Description") or rule_id
-    file_path = item.get("File") or "workspace"
+    rule_id = str(item.get("RuleID") or item.get("Description") or "secret")
+    desc = str(item.get("Description") or rule_id)
+    file_path = str(item.get("File") or "workspace")
     start_line = item.get("StartLine") or item.get("Line")
-    secret_match = item.get("Match") or ""
-    masked_secret = secret_match[:4] + "..." if len(secret_match) > 4 else "***"
 
     loc = f"{file_path}:{start_line}" if start_line else file_path
     is_critical = any(
@@ -109,7 +107,7 @@ def _parse_single_gitleaks_item(item: dict[str, Any]) -> Finding:
         severity="CRITICAL" if is_critical else "HIGH",
         location=loc,
         title=f"[GITLEAKS:{rule_id}] {desc}",
-        description=f"Gitleaks detected secret match ({masked_secret}) at {loc}: {desc}",
+        description=f"Gitleaks detected secret rule pattern '{rule_id}' at {loc}: {desc}",
         fix="Remove plaintext credentials from source control and store securely in OS Keyring.",
         confidence_score=None,
     )

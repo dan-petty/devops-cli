@@ -59,6 +59,21 @@ devops argo cd apps status <name>
 |---|---|---|---|
 | `<name>` | `string` | Yes | Application name. |
 
+#### `devops argo cd apps bootstrap-gitops`
+
+**Bootstrap local GitOps project orchestration via ArgoCD and the Git daemon.**
+
+```bash
+devops argo cd apps bootstrap-gitops [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--root-app`, `-f` | `path` | `k8s/argocd/apps/root-app.yaml` | Path to root ArgoCD App-of-Apps manifest. |
+| `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
+
 ---
 
 ## `devops argo workflows`

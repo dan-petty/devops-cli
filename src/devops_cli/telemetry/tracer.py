@@ -15,10 +15,10 @@ import time
 from collections.abc import Callable, Generator
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextvars import ContextVar
-from dataclasses import dataclass, field
 from typing import Any, TypeVar
 
 import httpx2
+from pydantic import BaseModel, Field
 
 from devops_cli.config.constants import (
     CONST_OTEL_METRIC_UNIT_ONE,
@@ -59,19 +59,24 @@ def _to_otlp_any_value(val: Any) -> dict[str, Any]:
     """Convert a Python scalar or sequence into a strongly-typed OpenTelemetry AnyValue dict."""
     if isinstance(val, bool):
         return {"boolValue": val}
-    elif isinstance(val, int):
+    if isinstance(val, int):
         return {"intValue": str(val)}
-    elif isinstance(val, float):
-        return {"doubleValue": val}
-    elif isinstance(val, (list, tuple, set)):
-        return {"arrayValue": {"values": [_to_otlp_any_value(v) for v in val]}}
-    elif isinstance(val, dict):
-        kv_list = [{"key": str(k), "value": _to_otlp_any_value(v)} for k, v in val.items()]
-        return {"kvlistValue": {"values": kv_list}}
+    if isinstance(val, float):
+        return {"doubleValue": float(val)}
+    if isinstance(val, str):
+        return {"stringValue": val}
+    if isinstance(val, (list, tuple)):
+        return {"arrayValue": {"values": [_to_otlp_any_value(item) for item in val]}}
+    if isinstance(val, dict):
+        return {
+            "kvlistValue": {
+                "values": [{"key": k, "value": _to_otlp_any_value(v)} for k, v in val.items()]
+            }
+        }
     return {"stringValue": str(val)}
 
 
-_SPAN_KINDS: dict[str, str] = {
+_SPAN_KINDS = {
     "internal": "SPAN_KIND_INTERNAL",
     "server": "SPAN_KIND_SERVER",
     "client": "SPAN_KIND_CLIENT",
@@ -80,24 +85,23 @@ _SPAN_KINDS: dict[str, str] = {
 }
 
 
-@dataclass
-class SpanWaterfallNode:
+class SpanWaterfallNode(BaseModel):
     """Hierarchical node representing a completed OpenTelemetry span for visual profiling."""
 
     span_id: str
     trace_id: str
     name: str
-    parent_id: str | None
+    parent_id: str | None = None
     start_time_ns: int
     end_time_ns: int
     duration_ms: float
     status_code: str
-    status_message: str
-    attributes: dict[str, Any]
+    status_message: str = ""
+    attributes: dict[str, Any] = Field(default_factory=dict)
     depth: int = 0
     relative_offset_pct: float = 0.0
     relative_duration_pct: float = 0.0
-    children: list[SpanWaterfallNode] = field(default_factory=list)
+    children: list[SpanWaterfallNode] = Field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize waterfall node into dictionary structure."""
@@ -158,18 +162,18 @@ def _from_otlp_any_value(val: dict[str, Any]) -> Any:
     """Extract Python scalar or sequence from an OpenTelemetry AnyValue dict."""
     if "stringValue" in val:
         return val["stringValue"]
-    elif "boolValue" in val:
+    if "boolValue" in val:
         return val["boolValue"]
-    elif "intValue" in val:
+    if "intValue" in val:
         try:
             return int(val["intValue"])
         except ValueError:
             return val["intValue"]
-    elif "doubleValue" in val:
+    if "doubleValue" in val:
         return float(val["doubleValue"])
-    elif "arrayValue" in val:
+    if "arrayValue" in val:
         return [_from_otlp_any_value(v) for v in val["arrayValue"].get("values", [])]
-    elif "kvlistValue" in val:
+    if "kvlistValue" in val:
         return {
             item["key"]: _from_otlp_any_value(item["value"])
             for item in val["kvlistValue"].get("values", [])
@@ -267,6 +271,15 @@ class SpanHandle(str):
         obj._events = events if events is not None else []
         obj._links = links if links is not None else []
         return obj
+
+    def set_status(self, code: str, message: str = "") -> None:
+        """Set span status code and description."""
+        normalized_code = code.upper()
+        self._attributes["otel.status_code"] = normalized_code
+        if normalized_code == "ERROR":
+            self._attributes["error"] = True
+            if message:
+                self._attributes["otel.status_description"] = message
 
     def set_attribute(self, key: str, value: Any) -> None:
         """Set or update a single attribute on the active span."""
@@ -560,6 +573,28 @@ class OTelTelemetryClient:
         """Convenience method to record an incremented counter metric."""
         self.record_metric(name, amount, unit=unit, attributes=attributes)
 
+    def _populate_exception_span_attributes(
+        self,
+        exc: BaseException,
+        attrs: dict[str, Any],
+        exit_code: int | None,
+    ) -> str:
+        """Populate span attributes for an exception and return a descriptive error message."""
+        error_msg = str(exc) or exc.__class__.__name__
+        if isinstance(exc, KeyboardInterrupt):
+            attrs["error.type"] = "KeyboardInterrupt"
+            attrs["cli.interrupted"] = True
+            return "Command cancelled by user (SIGINT / KeyboardInterrupt)"
+
+        attrs["error.type"] = exc.__class__.__name__
+        attrs["error.message"] = str(exc)
+        if exit_code is not None:
+            attrs["cli.exit_code"] = exit_code
+            attrs["process.exit.code"] = exit_code
+            if str(exc) == str(exit_code) or not str(exc):
+                error_msg = f"{exc.__class__.__name__}(exit_code={exit_code})"
+        return error_msg
+
     @contextlib.contextmanager
     def span(
         self,
@@ -624,19 +659,11 @@ class OTelTelemetryClient:
                 raise
 
             status_code = "STATUS_CODE_ERROR"
-            error_msg = str(exc) or exc.__class__.__name__
-            if isinstance(exc, KeyboardInterrupt):
-                attrs["error.type"] = "KeyboardInterrupt"
-                attrs["cli.interrupted"] = True
-                error_msg = "Command cancelled by user (SIGINT / KeyboardInterrupt)"
-            else:
-                attrs["error.type"] = exc.__class__.__name__
-                attrs["error.message"] = str(exc)
-                if exit_code is not None:
-                    attrs["cli.exit_code"] = exit_code
-                    attrs["process.exit.code"] = exit_code
+            error_msg = self._populate_exception_span_attributes(exc, attrs, exit_code)
             if not isinstance(exc, (SystemExit, KeyboardInterrupt)):
                 handle.record_exception(exc)
+            else:
+                handle.set_status("ERROR", error_msg)
             raise
         finally:
             end_nano = int(time.time() * 1e9)

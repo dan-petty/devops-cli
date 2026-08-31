@@ -69,3 +69,9 @@ variable "max_node_count" {
   description = "Maximum number of worker nodes for autoscaling"
   default     = 5
 }
+
+variable "deletion_protection" {
+  type        = bool
+  description = "Whether deletion protection is enabled on the GKE cluster"
+  default     = true
+}

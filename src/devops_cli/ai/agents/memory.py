@@ -23,9 +23,9 @@ from devops_cli.models.ai import ChatMessage
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_MAX_ENTRIES = 8
-_DEFAULT_MAX_CHARS = 4000
-_DEFAULT_KEEP_RECENT = 3
+_DEFAULT_MAX_ENTRIES = 50
+_DEFAULT_MAX_CHARS = 96000
+_DEFAULT_KEEP_RECENT = 10
 
 _SUMMARY_SYSTEM_PROMPT = load_task_prompt("summarize_memory_system.md")
 _SUMMARY_PROMPT = load_task_prompt("summarize_memory.md")
@@ -69,9 +69,15 @@ class AgentMemory(BaseModel):
         **metadata: Any,
     ) -> MemoryEntry:
         """Record an interaction turn into memory."""
+        from devops_cli.ai.review.sanitization import (
+            _mask_secrets_in_content,
+            _sanitize_prompt_boundary_tags,
+        )
+
+        sanitized = _sanitize_prompt_boundary_tags(_mask_secrets_in_content(content))
         entry = MemoryEntry(
             role=role,
-            content=content,
+            content=sanitized,
             metadata=metadata,
         )
         self.entries.append(entry)
@@ -88,11 +94,12 @@ class AgentMemory(BaseModel):
 
     def auto_summarize_if_needed(self, llm_client: Any | None = None) -> bool:
         """Condense older memory entries into a summary if size thresholds are exceeded."""
-        if not self.should_summarize() or len(self.entries) <= self.keep_recent:
+        effective_keep = min(self.keep_recent, max(1, self.max_entries - 1))
+        if not self.should_summarize() or len(self.entries) <= effective_keep:
             return False
 
         # Split entries into items to summarize and recent items to keep intact
-        cutoff = len(self.entries) - self.keep_recent
+        cutoff = len(self.entries) - effective_keep
         to_summarize = self.entries[:cutoff]
         to_keep = self.entries[cutoff:]
 
@@ -164,11 +171,23 @@ class AgentMemory(BaseModel):
             if sys_content:
                 messages.append(ChatMessage(role="system", content=sys_content))
 
+        from devops_cli.ai.review.sanitization import _sanitize_prompt_boundary_tags
+
         for entry in self.entries:
             role_norm = entry.role.lower()
-            if role_norm not in ("system", "user", "assistant"):
-                role_norm = "user"
-            messages.append(ChatMessage(role=role_norm, content=entry.content))  # type: ignore[arg-type]
+            role_val: Literal["system", "user", "assistant"] = (
+                "system"
+                if role_norm == "system"
+                else "assistant"
+                if role_norm == "assistant"
+                else "user"
+            )
+            messages.append(
+                ChatMessage(
+                    role=role_val,
+                    content=_sanitize_prompt_boundary_tags(entry.content),
+                )
+            )
 
         return messages
 

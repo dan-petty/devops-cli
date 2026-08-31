@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import mimetypes
 import re
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -144,13 +145,56 @@ def detect_language(filepath: Path | str, content: str | None = None) -> str:
                 return "javascript"
 
     mime_type, _ = mimetypes.guess_type(str(filepath))
-    if mime_type:
+    if mime_type and "/" in mime_type:
         _, sub = mime_type.split("/", 1)
         sub_clean = sub.removeprefix("x-").removeprefix("vnd.").split(".")[0].split("+")[0]
         if sub_clean in _VALID_MIME_SUBTYPES:
             return sub_clean
 
     return _EXT_LANG_FALLBACK.get(ext, "plaintext")
+
+
+def _extract_ast_symbols(body: list[ast.stmt]) -> list[str]:
+    """Extract class, function, and constant symbol names from Python AST body."""
+    symbols: list[str] = []
+    for stmt in body:
+        match stmt:
+            case ast.ClassDef(name=name) if name not in (
+                "BaseModel",
+                "ConfigDict",
+                "Exception",
+                "Any",
+            ):
+                symbols.append(name)
+            case ast.FunctionDef(name=name) | ast.AsyncFunctionDef(name=name) if (
+                not name.startswith("__")
+            ):
+                symbols.append(name)
+            case ast.Assign(targets=targets):
+                symbols.extend(
+                    target.id
+                    for target in targets
+                    if isinstance(target, ast.Name) and target.id.isupper()
+                )
+            case ast.AnnAssign(target=ast.Name(id=name)) if name.isupper():
+                symbols.append(name)
+    return symbols
+
+
+def _extract_ast_imports(tree: ast.AST, std_modules: frozenset[str]) -> list[str]:
+    """Extract non-stdlib imports from AST tree."""
+    imports: list[str] = []
+    for node in ast.walk(tree):
+        candidates = (
+            [a.name for a in node.names]
+            if isinstance(node, ast.Import)
+            else ([node.module] if isinstance(node, ast.ImportFrom) and node.module else [])
+        )
+        for name in candidates:
+            root = name.split(".")[0]
+            if root not in std_modules and name not in imports:
+                imports.append(name)
+    return imports
 
 
 def _analyze_python_ast(content: str) -> tuple[str | None, list[str], list[str]]:
@@ -161,54 +205,13 @@ def _analyze_python_ast(content: str) -> tuple[str | None, list[str], list[str]]
         return None, [], []
 
     docstring = ast.get_docstring(tree)
-    first_doc_sentence = docstring.strip().split("\n")[0].rstrip(".") if docstring else None
+    first_doc = docstring.strip().split("\n")[0].rstrip(".") if docstring else None
 
-    symbols: list[str] = []
-    for stmt in tree.body:
-        if isinstance(stmt, ast.ClassDef):
-            if stmt.name not in ("BaseModel", "ConfigDict", "Exception", "Any"):
-                symbols.append(stmt.name)
-        elif isinstance(stmt, ast.FunctionDef | ast.AsyncFunctionDef):
-            if not stmt.name.startswith("__"):
-                symbols.append(stmt.name)
-        elif isinstance(stmt, ast.Assign):
-            for target in stmt.targets:
-                if isinstance(target, ast.Name) and target.id.isupper():
-                    symbols.append(target.id)
-        elif isinstance(stmt, ast.AnnAssign):
-            if isinstance(stmt.target, ast.Name) and stmt.target.id.isupper():
-                symbols.append(stmt.target.id)
+    std_modules = sys.stdlib_module_names
+    symbols = _extract_ast_symbols(tree.body)
+    imports = _extract_ast_imports(tree, std_modules)
 
-    imports: list[str] = []
-    std_modules = {
-        "sys",
-        "os",
-        "re",
-        "json",
-        "typing",
-        "pathlib",
-        "datetime",
-        "functools",
-        "collections",
-        "subprocess",
-        "ast",
-        "mimetypes",
-        "fnmatch",
-    }
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                mod_name = alias.name
-                root_pkg = mod_name.split(".")[0]
-                if root_pkg not in std_modules and mod_name not in imports:
-                    imports.append(mod_name)
-        elif isinstance(node, ast.ImportFrom) and node.module:
-            mod_name = node.module
-            root_pkg = mod_name.split(".")[0]
-            if root_pkg not in std_modules and mod_name not in imports:
-                imports.append(mod_name)
-
-    return first_doc_sentence, symbols[:15], imports[:12]
+    return first_doc, symbols[:15], imports[:12]
 
 
 def _extract_file_symbols(content: str, lang: str) -> list[str]:
@@ -245,16 +248,46 @@ def _extract_file_dependencies(content: str, lang: str) -> list[str]:
         return []
 
     deps: list[str] = []
+    # Match JS/TS import ... from 'pkg', require('pkg'), import('pkg')
+    js_patterns = [
+        re.compile(r"""(?:from|import|require)\s*\(?['"]([^'"./][^'"]*)['"]\)?"""),
+    ]
+    # Match Go imports
+    go_pattern = re.compile(r"""import\s+['"]([^'"]+)['"]""")
+    # Match Rust use declarations
+    rust_pattern = re.compile(r"""use\s+([a-zA-Z0-9_]+)::""")
+
     for line in content.splitlines():
         line_str = line.strip()
         if not line_str or line_str.startswith(("#", "//")):
             continue
-        if line_str.startswith(("import ", "from ", "require(")):
-            parts = line_str.split()
-            if len(parts) >= 2:
-                raw_pkg = parts[1].strip("'\"`;,")
-                if raw_pkg and raw_pkg not in deps and not raw_pkg.startswith("."):
-                    deps.append(raw_pkg)
+        if lang in ("javascript", "typescript"):
+            for pat in js_patterns:
+                for match in pat.finditer(line_str):
+                    pkg = (
+                        match.group(1).split("/")[0]
+                        if not match.group(1).startswith("@")
+                        else "/".join(match.group(1).split("/")[:2])
+                    )
+                    if pkg and pkg not in deps and not pkg.startswith("."):
+                        deps.append(pkg)
+        elif lang == "go":
+            for match in go_pattern.finditer(line_str):
+                pkg = match.group(1)
+                if pkg and pkg not in deps:
+                    deps.append(pkg)
+        elif lang == "rust":
+            for match in rust_pattern.finditer(line_str):
+                pkg = match.group(1)
+                if pkg and pkg not in deps and pkg not in ("crate", "super", "self", "std"):
+                    deps.append(pkg)
+        else:
+            if line_str.startswith(("import ", "from ", "require(")):
+                parts = line_str.split()
+                if len(parts) >= 2:
+                    raw_pkg = parts[1].strip("'\"`;,")
+                    if raw_pkg and raw_pkg not in deps and not raw_pkg.startswith("."):
+                        deps.append(raw_pkg)
     return deps[:12]
 
 

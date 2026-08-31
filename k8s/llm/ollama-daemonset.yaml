@@ -32,16 +32,16 @@ spec:
             - name: OLLAMA_MODELS
               value: "/root/.ollama/models"
             - name: OLLAMA_CONTEXT_LENGTH
-              value: "24000"
+              value: "48000"
             - name: OLLAMA_MAX_LOADED_MODELS
               value: "2"
             - name: OLLAMA_NUM_PARALLEL
-              value: "2"
+              value: "1"
             - name: OLLAMA_MAX_TRANSFER_STREAMS
               value: "128"
             - name: OLLAMA_KV_CACHE_TYPE
-              # value: "q8_0"
-              value: "q4_0"
+              value: "q8_0"
+              # value: "q4_0"
             - name: OLLAMA_NO_CLOUD
               value: "1"
             - name: NVIDIA_VISIBLE_DEVICES
@@ -51,14 +51,16 @@ spec:
           ports:
             - name: http
               containerPort: 11434
+              # Local workstation GPU node: hostPort allows direct low-latency inference from host processes.
+              # Production: Remove hostPort and route via in-cluster ClusterIP Service / Ingress.
               hostPort: 11434
               protocol: TCP
           resources:
             requests:
-              cpu: 2500m
-              memory: 5Gi
+              cpu: 3000m
+              memory: 12Gi
             limits:
-              memory: 32Gi
+              memory: 24Gi
           volumeMounts:
             - name: ollama-data
               mountPath: /root/.ollama
@@ -78,6 +80,8 @@ spec:
             timeoutSeconds: 5
       volumes:
         - name: ollama-data
+          # Local homelab/workstation: NFS share for sharing multi-GB GGUF models across nodes.
+          # Production: Use persistentVolumeClaim with ReadWriteMany CSI driver (e.g. CephFS, AWS EFS).
           nfs:
             server: 192.168.1.4
             path: /srv/nfs/ollama
@@ -92,6 +96,8 @@ metadata:
     app.kubernetes.io/instance: ollama
     app.kubernetes.io/part-of: devops-cli-stack
 spec:
+  # Local minikube/homelab: NodePort enables direct LAN access for CLI benchmarking.
+  # Production: Use ClusterIP with an Ingress Controller or internal Service Mesh.
   type: NodePort
   selector:
     app.kubernetes.io/name: ollama

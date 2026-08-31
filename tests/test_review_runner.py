@@ -134,9 +134,10 @@ def test_runner_persona_and_prompts() -> None:
     assert "Agents context" in prompt
 
     pd = PERSONAS[Persona.DEVSECOPS]
-    seg_prompt = _build_segment_review_prompt(
-        "diff block", "Title", 1, 2, {}, _build_path_prompt, pd
-    )
+    with patch("devops_cli.ai.rag.investigator.investigate_rag_context", return_value=None):
+        seg_prompt = _build_segment_review_prompt(
+            "diff block", "Title", 1, 2, {}, _build_path_prompt, pd
+        )
     assert '"total_files": 2' in seg_prompt
     assert '"current_file_index": 1' in seg_prompt
 
@@ -248,29 +249,30 @@ def test_run_review_and_persona_loop(tmp_path: Path) -> None:
     clients = ReviewClients(analysis=mock_client, compose=mock_client)
     pd = PERSONAS[Persona.DEVSECOPS]
 
-    result = _run_review(
-        pages=["file content page"],
-        title="Test Review",
-        persona=pd,
-        clients=clients,
-        agents_md="",
-        build_prompt=_build_path_prompt,
-        session_dir=tmp_path,
-    )
-    assert result is not None
-    assert isinstance(result, ReviewResult)
-    assert len(result.findings) == 1
+    with patch("devops_cli.ai.rag.investigator.investigate_rag_context", return_value=None):
+        result = _run_review(
+            pages=["file content page"],
+            title="Test Review",
+            persona=pd,
+            clients=clients,
+            agents_md="",
+            build_prompt=_build_path_prompt,
+            session_dir=tmp_path,
+        )
+        assert result is not None
+        assert isinstance(result, ReviewResult)
+        assert len(result.findings) == 1
 
-    completed_list = _run_persona_loop(
-        pages=["file content page"],
-        title="Test Review",
-        build_prompt=_build_path_prompt,
-        clients=clients,
-        agents_md="",
-        all_personas=False,
-        persona=Persona.DEVSECOPS,
-    )
-    assert len(completed_list) == 1
+        completed_list = _run_persona_loop(
+            pages=["file content page"],
+            title="Test Review",
+            build_prompt=_build_path_prompt,
+            clients=clients,
+            agents_md="",
+            all_personas=False,
+            persona=Persona.DEVSECOPS,
+        )
+        assert len(completed_list) == 1
 
 
 def test_review_runner_extended_branches(tmp_path: Path) -> None:

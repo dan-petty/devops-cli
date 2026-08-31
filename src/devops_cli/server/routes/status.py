@@ -5,7 +5,6 @@ from __future__ import annotations
 import platform
 import shutil
 import sys
-from typing import Any
 
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
@@ -38,7 +37,7 @@ class SystemStatusResponse(BaseModel):
     response_model=SystemStatusResponse,
     summary="Workstation and toolchain status",
 )
-async def get_system_status() -> dict[str, Any]:
+async def get_system_status() -> SystemStatusResponse:
     """Inspect workstation tool availability, Python runtime, and telemetry."""
     tools_to_check = [
         "uv",
@@ -51,20 +50,20 @@ async def get_system_status() -> dict[str, Any]:
         "ollama",
         "gh",
     ]
-    tool_status: dict[str, dict[str, Any]] = {}
+    tool_status: dict[str, ToolStatus] = {}
     for tool in tools_to_check:
         tool_path = shutil.which(tool)
-        tool_status[tool] = {
-            "installed": tool_path is not None,
-            "path": tool_path,
-        }
+        tool_status[tool] = ToolStatus(
+            installed=tool_path is not None,
+            path=tool_path,
+        )
 
     tracer = get_tracer()
 
-    return {
-        "version": __version__,
-        "python_version": sys.version.split()[0],
-        "platform": platform.platform(),
-        "tools": tool_status,
-        "telemetry_enabled": tracer.enabled,
-    }
+    return SystemStatusResponse(
+        version=__version__,
+        python_version=sys.version.split()[0],
+        platform=platform.platform(),
+        tools=tool_status,
+        telemetry_enabled=tracer.enabled,
+    )

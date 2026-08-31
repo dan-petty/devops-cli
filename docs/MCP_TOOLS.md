@@ -6,9 +6,13 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 
 | Tool Name | Description |
 |---|---|
+| [`ai_diagram`](#ai-diagram) | Generate visual Mermaid architecture or threat modeling diagram. |
+| [`ai_repomap`](#ai-repomap) | Generate a compact whole-repository AST symbol map for AI context. |
+| [`ai_test_gen`](#ai-test-gen) | Synthesize isolated pytest unit test suite for a target Python file. |
 | [`argo_list`](#argo-list) | List ArgoCD applications. |
 | [`argo_status`](#argo-status) | Check ArgoCD application health and sync status. |
 | [`ci_run`](#ci-run) | Run devops-cli complete quality gate (pytest, ruff check, ruff format, mypy). |
+| [`config_audit_keys`](#config-audit-keys) | Audit OS Keyring health, token state, and zero-plaintext secret compliance. |
 | [`config_output`](#config-output) | Output environment variables available for configuration (text or json). |
 | [`config_show`](#config-show) | Display configuration settings with masked secret tokens. |
 | [`docker_stats`](#docker-stats) | List local Docker images and display container information. |
@@ -39,9 +43,11 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`security_intel_package`](#security-intel-package) | Query OSV.dev and NVD vulnerability databases for package CVE intelligence. |
 | [`ssh_audit`](#ssh-audit) | Audit SSH key expiration dates and key file permissions. |
 | [`ssh_status`](#ssh-status) | Inspect age and rotation status of managed SSH keys in ~/.ssh. |
+| [`telemetry_profile`](#telemetry-profile) | Display terminal waterfall latency breakdown of OpenTelemetry trace spans. |
 | [`telemetry_status`](#telemetry-status) | Check OpenTelemetry collector connectivity, Jaeger UI URL, and active telemetry settings. |
 | [`telemetry_test_span`](#telemetry-test-span) | Emit a test OpenTelemetry trace span and metric to verify collector pipeline health. |
 | [`tf_apply`](#tf-apply) | Apply OpenTofu / Terraform Infrastructure-as-Code changes. |
+| [`tf_notify_plan`](#tf-notify-plan) | Format structured OpenTofu/Terraform plan summary for PR comments. |
 | [`tf_output`](#tf-output) | Retrieve OpenTofu / Terraform outputs from state. |
 | [`tf_plan`](#tf-plan) | Generate and inspect an OpenTofu / Terraform execution plan. |
 | [`tls_generate_ca`](#tls-generate-ca) | Generate an X.509 Root CA key pair for local or homelab infrastructure. |
@@ -51,6 +57,37 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`workspace_list`](#workspace-list) | Show the active VS Code workspace file and configured repository directories. |
 
 ---
+
+### `ai_diagram`
+
+Generate visual Mermaid architecture or threat modeling diagram.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `diagram_type` | `string` | No | `arch` | - |
+| `target_dir` | `string` | No | `.` | - |
+
+### `ai_repomap`
+
+Generate a compact whole-repository AST symbol map for AI context.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `target_dir` | `string` | No | `.` | - |
+
+### `ai_test_gen`
+
+Synthesize isolated pytest unit test suite for a target Python file.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `target_file` | `string` | Yes | - | - |
 
 ### `argo_list`
 
@@ -77,6 +114,12 @@ Run devops-cli complete quality gate (pytest, ruff check, ruff format, mypy).
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `check` | `string` | No | `all` | - |
+
+### `config_audit_keys`
+
+Audit OS Keyring health, token state, and zero-plaintext secret compliance.
+
+*No parameters required.*
 
 ### `config_output`
 
@@ -363,6 +406,16 @@ Inspect age and rotation status of managed SSH keys in ~/.ssh.
 
 *No parameters required.*
 
+### `telemetry_profile`
+
+Display terminal waterfall latency breakdown of OpenTelemetry trace spans.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `command` | `string` | No | `` | - |
+
 ### `telemetry_status`
 
 Check OpenTelemetry collector connectivity, Jaeger UI URL, and active telemetry settings.
@@ -390,6 +443,16 @@ Apply OpenTofu / Terraform Infrastructure-as-Code changes.
 | `directory` | `string` | No | `.` | - |
 | `var_file` | `string` | No | `` | - |
 | `auto_approve` | `boolean` | No | `True` | - |
+
+### `tf_notify_plan`
+
+Format structured OpenTofu/Terraform plan summary for PR comments.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `plan_file` | `string` | No | `tfplan.json` | - |
 
 ### `tf_output`
 

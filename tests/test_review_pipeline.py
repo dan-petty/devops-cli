@@ -12,26 +12,15 @@ from devops_cli.ai.review_schema import FileReviewPayload, SavedFinding
 from devops_cli.models.ai import FileAnalysisMeta
 
 
+@pytest.fixture(autouse=True)
+def mock_rag_investigator():
+    with patch("devops_cli.ai.rag.investigator.investigate_rag_context", return_value=None):
+        yield
+
+
 def test_review_pipeline_stages(tmp_path: Path, monkeypatch) -> None:
     """Test 6-stage review pipeline initialization and execution."""
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
-
-    orchestrator = ReviewPipelineOrchestrator(session_id="test-session")
-
-    # Stage 1: Pre-analysis refresh
-    meta_dict = orchestrator.run_pre_analysis_refresh(tmp_path)
-    assert isinstance(meta_dict, dict)
-
-    # Stage 2: Per-file payload initialization
-    fmeta = FileAnalysisMeta(path="src/dummy.py", key_symbols=["foo"], dependencies=["utils"])
-    payloads = orchestrator.init_per_file_payloads(["src/dummy.py"], {"src/dummy.py": fmeta})
-    assert len(payloads) == 1
-    assert payloads[0].file_path == "src/dummy.py"
-    assert "ai_scratchpad" in payloads[0].model_dump()
-    assert payloads[0].ai_scratchpad["stage"] == "initialized"
-
-    file_json = orchestrator.files_dir / "src_dummy_py.json"
-    assert file_json.exists()
 
     # Mock LLM response handler
     mock_llm = MagicMock()
@@ -53,7 +42,25 @@ def test_review_pipeline_stages(tmp_path: Path, monkeypatch) -> None:
 
     mock_llm.chat_messages.side_effect = _fake_chat
     mock_llm.chat_complete.side_effect = _fake_chat
-    orchestrator.llm_client = mock_llm
+    mock_llm.chat.side_effect = _fake_chat
+    mock_llm.complete.side_effect = _fake_chat
+
+    orchestrator = ReviewPipelineOrchestrator(session_id="test-session", llm_client=mock_llm)
+
+    # Stage 1: Pre-analysis refresh
+    meta_dict = orchestrator.run_pre_analysis_refresh(tmp_path)
+    assert isinstance(meta_dict, dict)
+
+    # Stage 2: Per-file payload initialization
+    fmeta = FileAnalysisMeta(path="src/dummy.py", key_symbols=["foo"], dependencies=["utils"])
+    payloads = orchestrator.init_per_file_payloads(["src/dummy.py"], {"src/dummy.py": fmeta})
+    assert len(payloads) == 1
+    assert payloads[0].file_path == "src/dummy.py"
+    assert "ai_scratchpad" in payloads[0].model_dump()
+    assert payloads[0].ai_scratchpad["stage"] == "initialized"
+
+    file_json = orchestrator.files_dir / "src_dummy_py.json"
+    assert file_json.exists()
 
     # Stage 3: Multi-persona content review
     orchestrator.execute_multi_persona_review(
@@ -147,22 +154,25 @@ def test_deterministic_pre_verification_syntax_hallucination(tmp_path: Path) -> 
     assert "Syntax validation passed" in str(result.invalidation_reason)
 
 
-def test_deterministic_pre_verification_template_placeholder(tmp_path: Path) -> None:
-    """_deterministic_pre_verification marks example secret templates as mitigated."""
+def test_deterministic_pre_verification_line_boundary_out_of_bounds(tmp_path: Path) -> None:
+    """_deterministic_pre_verification invalidates findings referencing lines beyond file length."""
     from devops_cli.ai.review.verification import _deterministic_pre_verification
     from devops_cli.ai.review_schema import Finding
 
+    test_file = tmp_path / "main.py"
+    test_file.write_text("print('test')\n", encoding="utf-8")
+
     finding = Finding(
         severity="HIGH",
-        location="config.example.yaml:12",
-        title="Plaintext secret token detected",
-        description="YOUR_TOKEN placeholder in config.example.yaml",
-        fix="Use keyring",
+        location="main.py:250",
+        title="Out of bounds statement",
+        description="Line 250 references undefined variable",
+        fix="Fix line 250",
     )
     result = _deterministic_pre_verification(finding, repo_root=tmp_path)
     assert result.verified is False
-    assert result.mitigated is True
-    assert result.status == "MITIGATED"
+    assert result.status == "INVALIDATED"
+    assert "exceeds total file lines" in str(result.invalidation_reason)
 
 
 def test_consolidated_report_findings_sorted_by_severity_and_confidence(
@@ -501,10 +511,10 @@ def test_ai_scratchpad_thoughts_collection_across_stages(
         assert any("Analyzing potential command injection" in t for t in thoughts)
         assert any("Evaluated src/auth.py" in t for t in thoughts)
 
-        # Stage 5 reranking appends stage thoughts
+        # Reranking appends stage thoughts
         orchestrator.execute_finding_reranking([payload])
         reranked_thoughts = payload.ai_scratchpad.get("thoughts", [])
-        assert any("[Stage 5 Re-ranking]" in t for t in reranked_thoughts)
+        assert any("[Re-ranking]" in t for t in reranked_thoughts)
 
 
 def test_generate_consolidated_report_with_intelligence_tables(
@@ -900,3 +910,97 @@ def test_orchestrator_session_directory_resolution(tmp_path: Path) -> None:
     reviews_base = _get_reviews_base_dir().resolve()
     assert orch.session_dir.parent == reviews_base
     assert not (sub_target / ".data").exists()
+
+
+def test_format_extraction_summary_distinguishes_probed_references() -> None:
+    """Verify _format_extraction_summary distinguishes in-file vs workspace probed references."""
+    from devops_cli.ai.review.pipeline import _format_extraction_summary
+
+    # Case 1: Purely in-file references, 0 probed
+    res_direct = _format_extraction_summary(
+        direct_deps_count=5,
+        direct_nets_count=2,
+        probed_deps_count=0,
+        probed_nets_count=0,
+    )
+    assert res_direct == "5 unique dependency(ies) and 2 network target(s)"
+
+    # Case 2: 0 in-file references, both deps and nets probed
+    res_probed_all = _format_extraction_summary(
+        direct_deps_count=0,
+        direct_nets_count=0,
+        probed_deps_count=36,
+        probed_nets_count=21,
+    )
+    assert res_probed_all == (
+        "0 in-file references (36 project dependencies probed from workspace manifests, "
+        "21 network targets probed from workspace configs)"
+    )
+
+    # Case 3: 0 in-file references, only deps probed
+    res_probed_deps = _format_extraction_summary(
+        direct_deps_count=0,
+        direct_nets_count=0,
+        probed_deps_count=12,
+        probed_nets_count=0,
+    )
+    assert (
+        res_probed_deps
+        == "0 in-file references (12 project dependencies probed from workspace manifests)"
+    )
+
+    # Case 4: Partial in-file references with probed supplementary references
+    res_mixed = _format_extraction_summary(
+        direct_deps_count=2,
+        direct_nets_count=1,
+        probed_deps_count=0,
+        probed_nets_count=8,
+    )
+    assert res_mixed == (
+        "2 in-file dependency(ies) and 1 in-file network target(s) "
+        "(8 network targets probed from workspace configs)"
+    )
+
+
+def test_try_reuse_cached_analysis_meta_invalidation(tmp_path: Path) -> None:
+    """Verify that cached metadata is invalidated when mtime or content hash changes."""
+    import hashlib
+    from datetime import UTC, datetime, timedelta
+
+    from devops_cli.ai.review.pipeline import _try_reuse_cached_analysis_meta
+    from devops_cli.models.ai import FileAnalysisMeta
+
+    test_file = tmp_path / "service.py"
+    test_file.write_text("def run(): pass\n", encoding="utf-8")
+    content_hash = hashlib.sha256(test_file.read_bytes(), usedforsecurity=False).hexdigest()
+
+    past_dt = datetime.now(UTC) - timedelta(hours=1)
+    future_dt = datetime.now(UTC) + timedelta(hours=1)
+
+    cached_meta = FileAnalysisMeta(
+        path="service.py",
+        size_bytes=len("def run(): pass\n"),
+        last_analyzed=future_dt.isoformat(),
+        pseudocode=["1. Run service loop"],
+        content_hash=content_hash,
+    )
+
+    # 1. Matching mtime & content hash -> Reused successfully
+    file_mtime = datetime.fromtimestamp(test_file.stat().st_mtime, UTC)
+    reused = _try_reuse_cached_analysis_meta(cached_meta, test_file, file_mtime)
+    assert reused is not None
+    assert reused.content_hash == content_hash
+    assert reused.pseudocode == ["1. Run service loop"]
+
+    # 2. File modified after cached last_analyzed -> Invalidated
+    stale_meta = cached_meta.model_copy(update={"last_analyzed": past_dt.isoformat()})
+    assert _try_reuse_cached_analysis_meta(stale_meta, test_file, file_mtime) is None
+
+    # 3. File content changed (hash mismatch) -> Invalidated
+    test_file.write_text("def run(): return 42\n", encoding="utf-8")
+    new_mtime = datetime.fromtimestamp(test_file.stat().st_mtime, UTC)
+    assert _try_reuse_cached_analysis_meta(cached_meta, test_file, new_mtime) is None
+
+    # 4. File size mismatch -> Invalidated
+    size_mismatched = cached_meta.model_copy(update={"size_bytes": 9999})
+    assert _try_reuse_cached_analysis_meta(size_mismatched, test_file, new_mtime) is None

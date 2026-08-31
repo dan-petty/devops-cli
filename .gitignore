@@ -35,8 +35,13 @@ dmypy.json
 coverage.xml
 htmlcov/
 
-# VS Code
-.vscode/
+# VS Code (track team configurations, ignore user-specific overrides)
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+!.vscode/mcp.json
 
 # Generated repo clones
 repos/
@@ -57,4 +62,3 @@ config.yaml
 # Local data directory — reports, review output, computed artefacts
 .data/*
 !.data/.gitkeep
-scratch/

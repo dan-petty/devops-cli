@@ -1,4 +1,4 @@
-Perform an objective, evidence-grounded review of the source files below using step-by-step chain-of-thought reasoning (context grounding, AST analysis, falsification testing, and root-cause fix synthesis). Do NOT flag documentation, tests, or guides explaining known vulnerabilities in the context of avoiding them.
+Perform an objective, evidence-grounded review of the source files below using step-by-step chain-of-thought reasoning.
 
 ## Target Review Scope: {title}
 

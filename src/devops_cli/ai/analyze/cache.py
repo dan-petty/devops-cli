@@ -41,7 +41,7 @@ def save_analysis_metadata(
     if not is_dry_run():
         analysis_dir.mkdir(parents=True, exist_ok=True)
     out_file = (analysis_dir / f"{target_type}-{sanitized_ref}-metadata.json").resolve()
-    if not str(out_file).startswith(str(analysis_dir)):
+    if not out_file.is_relative_to(analysis_dir):
         raise SecurityError(f"Target metadata path escapes analysis directory: {out_file}")
 
     total_files = len(files)

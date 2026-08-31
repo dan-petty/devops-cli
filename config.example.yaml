@@ -58,14 +58,14 @@ argocd:
 # ── Qdrant Vector Store ───────────────────────────────────────────────────────
 qdrant:
   # Qdrant server base URL for Retrieval-Augmented Generation (RAG).
-  # Example: http://localhost:6333 or http://hog.lan:31744
+  # Example: http://localhost:6333 or https://qdrant.example.com
   url: http://localhost:6333
   collection_prefix: devops
 
 # ── Jaeger Tracing ────────────────────────────────────────────────────────────
 jaeger:
   # Jaeger Query UI base URL for viewing OpenTelemetry traces.
-  # Example: http://localhost:16686 or http://hog.lan:31686
+  # Example: http://localhost:16686 or https://jaeger.example.com
   url: http://localhost:16686
 
 # ── Telemetry ─────────────────────────────────────────────────────────────────
@@ -81,10 +81,11 @@ ai:
   provider: ollama
 
   # Model name for the selected provider.
-  # Ollama examples:  gemma4:26b, qwen2.5-coder:7b, qwen3.5:9b
+  # Ollama examples:  qwen3.8:27b, qwen2.5-coder:14b, deepseek-r1:14b
   # Claude examples:  claude-opus-4-5, claude-sonnet-4-5
   # Copilot/OpenAI:   gpt-4o, gpt-4o-mini
-  model: gemma4:26b
+  model: qwen3.8:27b
+  # reasoning_effort: low  # Reasoning effort level: low | medium | high
 
   # Ollama server URLs (list or comma-separated string).
   # AI request loops automatically failover across configured servers if one is unreachable.
@@ -104,7 +105,17 @@ ai:
   rag:
     enabled: true
     embedding_model: qwen3-embedding:0.6b
+    # Dedicated embedding server URL (e.g. http://localhost:11434 or https://ollama.example.com).
+    # Falls back to ai.tasks.embedding or ai.ollama_urls if unset.
+    # embedding_url: http://localhost:11434
     top_k: 5
     score_threshold: 0.35
+
+  # Per-task model & server overrides (chat, metadata, analysis, compose, embedding)
+  # tasks:
+  #   embedding:
+  #     ollama_urls:
+  #       - http://localhost:11434
+  #     model: qwen3-embedding:0.6b
 
   # API key: devops config set ai.api_key <value>

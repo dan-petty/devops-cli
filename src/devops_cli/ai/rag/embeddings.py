@@ -39,7 +39,8 @@ class EmbeddingsEngine:
         api_key: str | None = None,
         timeout: float = DEFAULT_HTTP_TIMEOUT_SECONDS,
     ) -> None:
-        self.ai_config = ai_config or AIConfig()
+        base_config = ai_config or AIConfig()
+        self.ai_config = base_config.for_task("embedding")
         self.api_key = api_key
         self.timeout = min(timeout, 120.0)
         self.model = self.ai_config.rag.embedding_model or DEFAULT_RAG_EMBEDDING_MODEL
@@ -161,15 +162,21 @@ class EmbeddingsEngine:
 
     def _embed_ollama(self, texts: list[str]) -> list[list[float]]:
         """Compute Ollama embeddings with multi-node round-robin distribution and batching."""
-        urls = (
-            self.ai_config.get_ollama_urls
-            if hasattr(self.ai_config, "get_ollama_urls")
-            else (
-                self.ai_config.ollama_urls
-                or [self.ai_config.api_base_url or "http://localhost:11434"]
+        if self.ai_config.rag.embedding_url:
+            raw_url = self.ai_config.rag.embedding_url.strip().rstrip("/")
+            if not raw_url.startswith(("http://", "https://")):
+                raw_url = f"http://{raw_url}"
+            urls = [raw_url]
+        else:
+            urls = (
+                self.ai_config.get_ollama_urls
+                if hasattr(self.ai_config, "get_ollama_urls")
+                else (
+                    self.ai_config.ollama_urls
+                    or [self.ai_config.api_base_url or "http://localhost:11434"]
+                )
             )
-        )
-        chunk_batch_size = 32
+        chunk_batch_size = 8
         max_parallel = max(1, min(16, getattr(self.ai_config, "ollama_max_parallel", 2)))
 
         batches = [

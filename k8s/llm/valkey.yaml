@@ -58,17 +58,13 @@ spec:
               cpu: 1000m
               memory: 512Mi
           livenessProbe:
-            exec:
-              command:
-                - valkey-cli
-                - ping
+            tcpSocket:
+              port: 6379
             initialDelaySeconds: 5
             periodSeconds: 10
           readinessProbe:
-            exec:
-              command:
-                - valkey-cli
-                - ping
+            tcpSocket:
+              port: 6379
             initialDelaySeconds: 5
             periodSeconds: 5
       volumes:

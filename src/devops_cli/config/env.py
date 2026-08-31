@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict
 
 from devops_cli.config import options as opt
 
@@ -11,6 +13,7 @@ ENV_DEVOPS_CLI_CONFIG = "DEVOPS_CLI_CONFIG"
 ENV_GITHUB_TOKEN = "DEVOPS_CLI_GITHUB_TOKEN"
 ENV_GITHUB_DEFAULT_ORG = "DEVOPS_CLI_GITHUB_DEFAULT_ORG"
 ENV_SSH_KEY_DIR = "DEVOPS_CLI_SSH_KEY_DIR"
+ENV_SSH_KEY_PREFIX = "DEVOPS_CLI_SSH_KEY_PREFIX"
 ENV_SSH_ROTATION_DAYS = "DEVOPS_CLI_SSH_ROTATION_DAYS"
 ENV_REPOS_BASE_DIR = "DEVOPS_CLI_REPOS_BASE_DIR"
 ENV_WORKSPACE_FILE = "DEVOPS_CLI_WORKSPACE_FILE"
@@ -25,24 +28,35 @@ ENV_AI_OLLAMA_URLS = "DEVOPS_CLI_AI_OLLAMA_URLS"
 ENV_AI_OLLAMA_MAX_PARALLEL = "DEVOPS_CLI_AI_OLLAMA_MAX_PARALLEL"
 ENV_AI_API_BASE_URL = "DEVOPS_CLI_AI_API_BASE_URL"
 ENV_AI_API_KEY = "DEVOPS_CLI_AI_API_KEY"
+ENV_AI_REASONING_EFFORT = "DEVOPS_CLI_AI_REASONING_EFFORT"
 ENV_AI_ALLOW_PRIVATE_NETWORK = "DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK"
 ENV_AI_MAX_RETRIES = "DEVOPS_CLI_AI_MAX_RETRIES"
+ENV_AI_APPEND_CACHE = "DEVOPS_CLI_AI_APPEND_CACHE"
 
 ENV_AI_TASK_CHAT_PROVIDER = "DEVOPS_CLI_AI_TASK_CHAT_PROVIDER"
 ENV_AI_TASK_CHAT_MODEL = "DEVOPS_CLI_AI_TASK_CHAT_MODEL"
+ENV_AI_TASK_CHAT_REASONING_EFFORT = "DEVOPS_CLI_AI_TASK_CHAT_REASONING_EFFORT"
 ENV_AI_TASK_CHAT_OLLAMA_URLS = "DEVOPS_CLI_AI_TASK_CHAT_OLLAMA_URLS"
 ENV_AI_TASK_METADATA_PROVIDER = "DEVOPS_CLI_AI_TASK_METADATA_PROVIDER"
 ENV_AI_TASK_METADATA_MODEL = "DEVOPS_CLI_AI_TASK_METADATA_MODEL"
+ENV_AI_TASK_METADATA_REASONING_EFFORT = "DEVOPS_CLI_AI_TASK_METADATA_REASONING_EFFORT"
 ENV_AI_TASK_METADATA_OLLAMA_URLS = "DEVOPS_CLI_AI_TASK_METADATA_OLLAMA_URLS"
 ENV_AI_TASK_ANALYSIS_PROVIDER = "DEVOPS_CLI_AI_TASK_ANALYSIS_PROVIDER"
 ENV_AI_TASK_ANALYSIS_MODEL = "DEVOPS_CLI_AI_TASK_ANALYSIS_MODEL"
+ENV_AI_TASK_ANALYSIS_REASONING_EFFORT = "DEVOPS_CLI_AI_TASK_ANALYSIS_REASONING_EFFORT"
 ENV_AI_TASK_ANALYSIS_OLLAMA_URLS = "DEVOPS_CLI_AI_TASK_ANALYSIS_OLLAMA_URLS"
 ENV_AI_TASK_COMPOSE_PROVIDER = "DEVOPS_CLI_AI_TASK_COMPOSE_PROVIDER"
 ENV_AI_TASK_COMPOSE_MODEL = "DEVOPS_CLI_AI_TASK_COMPOSE_MODEL"
+ENV_AI_TASK_COMPOSE_REASONING_EFFORT = "DEVOPS_CLI_AI_TASK_COMPOSE_REASONING_EFFORT"
 ENV_AI_TASK_COMPOSE_OLLAMA_URLS = "DEVOPS_CLI_AI_TASK_COMPOSE_OLLAMA_URLS"
+ENV_AI_TASK_EMBEDDING_PROVIDER = "DEVOPS_CLI_AI_TASK_EMBEDDING_PROVIDER"
+ENV_AI_TASK_EMBEDDING_MODEL = "DEVOPS_CLI_AI_TASK_EMBEDDING_MODEL"
+ENV_AI_TASK_EMBEDDING_REASONING_EFFORT = "DEVOPS_CLI_AI_TASK_EMBEDDING_REASONING_EFFORT"
+ENV_AI_TASK_EMBEDDING_OLLAMA_URLS = "DEVOPS_CLI_AI_TASK_EMBEDDING_OLLAMA_URLS"
 
 ENV_AI_RAG_ENABLED = "DEVOPS_CLI_AI_RAG_ENABLED"
 ENV_AI_RAG_EMBEDDING_MODEL = "DEVOPS_CLI_AI_RAG_EMBEDDING_MODEL"
+ENV_AI_RAG_EMBEDDING_URL = "DEVOPS_CLI_AI_RAG_EMBEDDING_URL"
 ENV_AI_RAG_TOP_K = "DEVOPS_CLI_AI_RAG_TOP_K"
 ENV_AI_RAG_SCORE_THRESHOLD = "DEVOPS_CLI_AI_RAG_SCORE_THRESHOLD"
 
@@ -54,6 +68,8 @@ ENV_DATA_LOGS_DIR = "DEVOPS_CLI_DATA_LOGS_DIR"
 ENV_DATA_MODELS_DIR = "DEVOPS_CLI_DATA_MODELS_DIR"
 ENV_DATA_CACHE_DIR = "DEVOPS_CLI_DATA_CACHE_DIR"
 ENV_DATA_BENCHMARKS_DIR = "DEVOPS_CLI_DATA_BENCHMARKS_DIR"
+ENV_DATA_RAG_DIR = "DEVOPS_CLI_DATA_RAG_DIR"
+ENV_DATA_TLS_DIR = "DEVOPS_CLI_DATA_TLS_DIR"
 ENV_DATA_AUDIT_LOG_PATH = "DEVOPS_CLI_DATA_AUDIT_LOG_PATH"
 ENV_DATA_FEEDBACK_DATASET_PATH = "DEVOPS_CLI_DATA_FEEDBACK_DATASET_PATH"
 
@@ -61,6 +77,7 @@ OPTION_TO_ENV_VAR: dict[str, str] = {
     opt.GITHUB_TOKEN: ENV_GITHUB_TOKEN,
     opt.GITHUB_DEFAULT_ORG: ENV_GITHUB_DEFAULT_ORG,
     opt.SSH_KEY_DIR: ENV_SSH_KEY_DIR,
+    opt.SSH_KEY_PREFIX: ENV_SSH_KEY_PREFIX,
     opt.SSH_ROTATION_DAYS: ENV_SSH_ROTATION_DAYS,
     opt.REPOS_BASE_DIR: ENV_REPOS_BASE_DIR,
     opt.WORKSPACE_FILE: ENV_WORKSPACE_FILE,
@@ -75,22 +92,32 @@ OPTION_TO_ENV_VAR: dict[str, str] = {
     opt.AI_OLLAMA_MAX_PARALLEL: ENV_AI_OLLAMA_MAX_PARALLEL,
     opt.AI_API_BASE_URL: ENV_AI_API_BASE_URL,
     opt.AI_API_KEY: ENV_AI_API_KEY,
+    opt.AI_REASONING_EFFORT: ENV_AI_REASONING_EFFORT,
     opt.AI_ALLOW_PRIVATE_NETWORK: ENV_AI_ALLOW_PRIVATE_NETWORK,
     opt.AI_MAX_RETRIES: ENV_AI_MAX_RETRIES,
     opt.AI_TASK_CHAT_PROVIDER: ENV_AI_TASK_CHAT_PROVIDER,
     opt.AI_TASK_CHAT_MODEL: ENV_AI_TASK_CHAT_MODEL,
+    opt.AI_TASK_CHAT_REASONING_EFFORT: ENV_AI_TASK_CHAT_REASONING_EFFORT,
     opt.AI_TASK_CHAT_OLLAMA_URLS: ENV_AI_TASK_CHAT_OLLAMA_URLS,
     opt.AI_TASK_METADATA_PROVIDER: ENV_AI_TASK_METADATA_PROVIDER,
     opt.AI_TASK_METADATA_MODEL: ENV_AI_TASK_METADATA_MODEL,
+    opt.AI_TASK_METADATA_REASONING_EFFORT: ENV_AI_TASK_METADATA_REASONING_EFFORT,
     opt.AI_TASK_METADATA_OLLAMA_URLS: ENV_AI_TASK_METADATA_OLLAMA_URLS,
     opt.AI_TASK_ANALYSIS_PROVIDER: ENV_AI_TASK_ANALYSIS_PROVIDER,
     opt.AI_TASK_ANALYSIS_MODEL: ENV_AI_TASK_ANALYSIS_MODEL,
+    opt.AI_TASK_ANALYSIS_REASONING_EFFORT: ENV_AI_TASK_ANALYSIS_REASONING_EFFORT,
     opt.AI_TASK_ANALYSIS_OLLAMA_URLS: ENV_AI_TASK_ANALYSIS_OLLAMA_URLS,
     opt.AI_TASK_COMPOSE_PROVIDER: ENV_AI_TASK_COMPOSE_PROVIDER,
     opt.AI_TASK_COMPOSE_MODEL: ENV_AI_TASK_COMPOSE_MODEL,
+    opt.AI_TASK_COMPOSE_REASONING_EFFORT: ENV_AI_TASK_COMPOSE_REASONING_EFFORT,
     opt.AI_TASK_COMPOSE_OLLAMA_URLS: ENV_AI_TASK_COMPOSE_OLLAMA_URLS,
+    opt.AI_TASK_EMBEDDING_PROVIDER: ENV_AI_TASK_EMBEDDING_PROVIDER,
+    opt.AI_TASK_EMBEDDING_MODEL: ENV_AI_TASK_EMBEDDING_MODEL,
+    opt.AI_TASK_EMBEDDING_REASONING_EFFORT: ENV_AI_TASK_EMBEDDING_REASONING_EFFORT,
+    opt.AI_TASK_EMBEDDING_OLLAMA_URLS: ENV_AI_TASK_EMBEDDING_OLLAMA_URLS,
     opt.AI_RAG_ENABLED: ENV_AI_RAG_ENABLED,
     opt.AI_RAG_EMBEDDING_MODEL: ENV_AI_RAG_EMBEDDING_MODEL,
+    opt.AI_RAG_EMBEDDING_URL: ENV_AI_RAG_EMBEDDING_URL,
     opt.AI_RAG_TOP_K: ENV_AI_RAG_TOP_K,
     opt.AI_RAG_SCORE_THRESHOLD: ENV_AI_RAG_SCORE_THRESHOLD,
     opt.DATA_DIR: ENV_DATA_DIR,
@@ -100,6 +127,8 @@ OPTION_TO_ENV_VAR: dict[str, str] = {
     opt.DATA_MODELS_DIR: ENV_DATA_MODELS_DIR,
     opt.DATA_CACHE_DIR: ENV_DATA_CACHE_DIR,
     opt.DATA_BENCHMARKS_DIR: ENV_DATA_BENCHMARKS_DIR,
+    opt.DATA_RAG_DIR: ENV_DATA_RAG_DIR,
+    opt.DATA_TLS_DIR: ENV_DATA_TLS_DIR,
     opt.DATA_AUDIT_LOG_PATH: ENV_DATA_AUDIT_LOG_PATH,
     opt.DATA_FEEDBACK_DATASET_PATH: ENV_DATA_FEEDBACK_DATASET_PATH,
 }
@@ -107,14 +136,31 @@ OPTION_TO_ENV_VAR: dict[str, str] = {
 ENV_VAR_TO_OPTION: dict[str, str] = {v: k for k, v in OPTION_TO_ENV_VAR.items()}
 
 
-@dataclass(frozen=True)
-class EnvVarSpec:
+class EnvVarSpec(BaseModel):
     """Metadata specification for a devops-cli environment variable."""
+
+    model_config = ConfigDict(frozen=True)
 
     env_var: str
     option_key: str | None = None
     is_secret: bool = False
     description: str = ""
+
+    def __init__(
+        self,
+        env_var: str,
+        option_key: str | None = None,
+        is_secret: bool = False,
+        description: str = "",
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(
+            env_var=env_var,
+            option_key=option_key,
+            is_secret=is_secret,
+            description=description,
+            **kwargs,
+        )
 
 
 def env_var_for_option(option_key: str) -> str | None:
@@ -148,6 +194,12 @@ def get_all_env_var_specs() -> list[EnvVarSpec]:
             opt.SSH_KEY_DIR,
             False,
             "Directory for SSH key pairs",
+        ),
+        EnvVarSpec(
+            ENV_SSH_KEY_PREFIX,
+            opt.SSH_KEY_PREFIX,
+            False,
+            "Prefix for generated SSH keys (defaults to devcontainer name or basename pwd)",
         ),
         EnvVarSpec(
             ENV_SSH_ROTATION_DAYS,
@@ -234,6 +286,12 @@ def get_all_env_var_specs() -> list[EnvVarSpec]:
             "AI API key (stored in OS keyring)",
         ),
         EnvVarSpec(
+            ENV_AI_REASONING_EFFORT,
+            opt.AI_REASONING_EFFORT,
+            False,
+            "AI reasoning effort level (low | medium | high)",
+        ),
+        EnvVarSpec(
             ENV_AI_ALLOW_PRIVATE_NETWORK,
             opt.AI_ALLOW_PRIVATE_NETWORK,
             False,
@@ -318,6 +376,30 @@ def get_all_env_var_specs() -> list[EnvVarSpec]:
             "Ollama URLs override for compose task",
         ),
         EnvVarSpec(
+            ENV_AI_TASK_EMBEDDING_PROVIDER,
+            opt.AI_TASK_EMBEDDING_PROVIDER,
+            False,
+            "AI provider override for embedding generation task",
+        ),
+        EnvVarSpec(
+            ENV_AI_TASK_EMBEDDING_MODEL,
+            opt.AI_TASK_EMBEDDING_MODEL,
+            False,
+            "AI model override for embedding generation task",
+        ),
+        EnvVarSpec(
+            ENV_AI_TASK_EMBEDDING_OLLAMA_URLS,
+            opt.AI_TASK_EMBEDDING_OLLAMA_URLS,
+            False,
+            "Ollama URLs override for embedding generation task",
+        ),
+        EnvVarSpec(
+            ENV_AI_RAG_EMBEDDING_URL,
+            opt.AI_RAG_EMBEDDING_URL,
+            False,
+            "Dedicated endpoint URL for RAG dense vector embedding generation (e.g. http://workhorse.lan:11434)",
+        ),
+        EnvVarSpec(
             ENV_DATA_DIR,
             opt.DATA_DIR,
             False,
@@ -358,6 +440,18 @@ def get_all_env_var_specs() -> list[EnvVarSpec]:
             opt.DATA_BENCHMARKS_DIR,
             False,
             "Storage directory for benchmark test runs and embedding leaderboard reports",
+        ),
+        EnvVarSpec(
+            ENV_DATA_RAG_DIR,
+            opt.DATA_RAG_DIR,
+            False,
+            "Storage directory for local vector embedding index cache and retrieval data",
+        ),
+        EnvVarSpec(
+            ENV_DATA_TLS_DIR,
+            opt.DATA_TLS_DIR,
+            False,
+            "Storage directory for generated local CA and TLS certificates",
         ),
         EnvVarSpec(
             ENV_DATA_AUDIT_LOG_PATH,

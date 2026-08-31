@@ -19,8 +19,10 @@ def test_config_show_command(tmp_path: Path) -> None:
     settings = Settings()
     with (
         patch("devops_cli.commands.config.load_settings", return_value=settings),
-        patch("devops_cli.commands.config.get_github_token", return_value="ghp_test"),
-        patch("devops_cli.commands.config.get_grafana_token", return_value=None),
+        patch(
+            "devops_cli.commands.config._is_secret_configured",
+            side_effect=lambda k: k == "github.token",
+        ),
     ):
         result = runner.invoke(config_app, ["show"])
         assert result.exit_code == 0

@@ -35,11 +35,13 @@ class OpenAIProvider(BaseLLMProvider):
     ) -> Any:
         target_model = model or self.config.model or DEFAULT_OPENAI_MODEL
         base_url = (self.config.api_base_url or "https://api.openai.com/v1").rstrip("/")
-        payload = {
+        payload: dict[str, Any] = {
             "model": target_model,
             "messages": [m.model_dump() if hasattr(m, "model_dump") else m for m in messages],
             "stream": stream,
         }
+        if getattr(self.config, "reasoning_effort", None):
+            payload["reasoning_effort"] = self.config.reasoning_effort
         res = httpx2.post(
             f"{base_url}/chat/completions",
             json=payload,

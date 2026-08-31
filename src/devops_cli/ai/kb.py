@@ -1,27 +1,21 @@
 """Built-in DevOps CLI Knowledge Base access module for agent grounding and RAG indexing.
 
-Provides programmatic access to the 43 bundled knowledge base articles across:
-- topics/ (Core architectural guides)
-- tools/ (Integrated tool references)
-- tasks/ (Operational workflow procedures)
+Provides programmatic access to the bundled knowledge base articles across:
+- it_domains/topics/ (Core architectural guides)
+- it_domains/tools/ (Integrated tool references)
+- devops_cli/tasks/ (Operational workflow procedures)
 """
 
 from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any
+
+from pydantic import BaseModel, ConfigDict
 
 logger = logging.getLogger(__name__)
 
 _KB_DIR = Path(__file__).resolve().parent / "knowledge_base"
-
-_CATEGORY_ALIASES: dict[str, str] = {
-    "tasks": "devops_cli/tasks",
-    "topics": "it_domains/topics",
-    "tools": "it_domains/tools",
-    "it_domain": "it_domains",
-}
 
 
 def get_knowledge_base_dir() -> Path:
@@ -33,8 +27,8 @@ def list_knowledge_base_articles(category: str | None = None) -> list[Path]:
     """Discover all markdown articles in the bundled knowledge base.
 
     Args:
-        category: Optional filter ('devops_cli', 'it_domains', 'devops_cli/tasks',
-            'it_domains/topics', 'it_domains/tools', or legacy aliases 'topics', 'tools', 'tasks').
+        category: Optional subfolder filter ('devops_cli', 'it_domains',
+            'devops_cli/tasks', 'it_domains/topics', 'it_domains/tools').
             If None, returns all articles across all divisions.
 
     Returns:
@@ -45,8 +39,7 @@ def list_knowledge_base_articles(category: str | None = None) -> list[Path]:
         logger.debug("Knowledge base directory not found at %s", kb_dir)
         return []
 
-    resolved_category = _CATEGORY_ALIASES.get(category, category) if category else None
-    search_dir = kb_dir / resolved_category if resolved_category else kb_dir
+    search_dir = kb_dir / category if category else kb_dir
     if not search_dir.exists():
         return []
 
@@ -61,9 +54,6 @@ def list_knowledge_base_articles(category: str | None = None) -> list[Path]:
 def load_kb_article(relative_path: str) -> str | None:
     """Load the contents of a specific knowledge base markdown article.
 
-    Supports both new division paths (e.g. 'it_domains/topics/agentic_ai_and_code_reviews.md')
-    and legacy paths (e.g. 'topics/agentic_ai_and_code_reviews.md').
-
     Args:
         relative_path: Relative path within knowledge_base.
 
@@ -72,15 +62,6 @@ def load_kb_article(relative_path: str) -> str | None:
     """
     kb_dir = get_knowledge_base_dir()
     target = (kb_dir / relative_path).resolve()
-
-    # Fallback to check aliased subdirectories if exact path doesn't exist directly
-    if not target.is_file():
-        parts = relative_path.split("/", 1)
-        if len(parts) == 2 and parts[0] in _CATEGORY_ALIASES:
-            aliased_path = f"{_CATEGORY_ALIASES[parts[0]]}/{parts[1]}"
-            alt_target = (kb_dir / aliased_path).resolve()
-            if alt_target.is_file() and alt_target.is_relative_to(kb_dir):
-                target = alt_target
 
     if not target.is_relative_to(kb_dir) or not target.is_file():
         return None
@@ -92,22 +73,37 @@ def load_kb_article(relative_path: str) -> str | None:
         return None
 
 
-def get_knowledge_base_stats() -> dict[str, Any]:
+class KnowledgeBaseStats(BaseModel):
+    """Summary statistics of the bundled DevOps CLI knowledge base."""
+
+    model_config = ConfigDict(frozen=True)
+
+    kb_dir: str
+    exists: bool
+    devops_cli_count: int
+    it_domains_count: int
+    topics_count: int
+    tools_count: int
+    tasks_count: int
+    total_articles: int
+
+
+def get_knowledge_base_stats() -> KnowledgeBaseStats:
     """Return summary statistics of the bundled knowledge base."""
     kb_dir = get_knowledge_base_dir()
     devops_cli_articles = list_knowledge_base_articles("devops_cli")
     it_domains_articles = list_knowledge_base_articles("it_domains")
-    topics = list_knowledge_base_articles("topics")
-    tools = list_knowledge_base_articles("tools")
-    tasks = list_knowledge_base_articles("tasks")
+    topics = list_knowledge_base_articles("it_domains/topics")
+    tools = list_knowledge_base_articles("it_domains/tools")
+    tasks = list_knowledge_base_articles("devops_cli/tasks")
 
-    return {
-        "kb_dir": str(kb_dir),
-        "exists": kb_dir.is_dir(),
-        "devops_cli_count": len(devops_cli_articles),
-        "it_domains_count": len(it_domains_articles),
-        "topics_count": len(topics),
-        "tools_count": len(tools),
-        "tasks_count": len(tasks),
-        "total_articles": len(devops_cli_articles) + len(it_domains_articles),
-    }
+    return KnowledgeBaseStats(
+        kb_dir=str(kb_dir),
+        exists=kb_dir.is_dir(),
+        devops_cli_count=len(devops_cli_articles),
+        it_domains_count=len(it_domains_articles),
+        topics_count=len(topics),
+        tools_count=len(tools),
+        tasks_count=len(tasks),
+        total_articles=len(devops_cli_articles) + len(it_domains_articles),
+    )

@@ -1,6 +1,35 @@
-# Release Notes — devops-cli v0.2.4
+# Release Notes — devops-cli v0.2.5
 
 Workstation-native DevOps CLI for managing repositories, SSH keys, Kubernetes clusters, Kustomize, ArgoCD, Grafana, Prometheus, Docker, workspace files, vector embedding benchmarks, TLS certificate automation, OpenTelemetry observability, and multi-persona AI code reviews.
+
+---
+
+## 🚀 Highlights of v0.2.5
+
+### 🔒 Zero-Plaintext Invariant & Secret Compliance
+- **Continuous Secret Regression Audit (`tests/test_zero_plaintext_invariants.py`)**: Automated verification ensuring zero plaintext tokens, passwords, or credentials exist across `.data/`, `.devops/`, config files, test fixtures, or docs.
+- **Unified Domain Exception Taxonomy (`devops_cli.exceptions`)**: Standardized strongly typed exceptions (`InsecureConfigError`, `KeyringUnavailableError`, `SSRFBlockedError`) with explicit POSIX exit codes, canonical machine-readable codes, and sanitized target paths.
+
+### ⚡ Code Structure Standardization & Indentation Limits
+- **Strict AST Indentation Budgeting**: Audited and refactored project-wide control flow to ensure **0** functions exceed 5 levels of indentation, decomposing nested loops into standard library functional pipelines.
+- **Cold Import Optimization**: Verified sub-second CLI entry overhead with lazy loading of all heavy third-party packages (`kubernetes`, `fastmcp`, `boto3`, `trivy`).
+
+### 🛠️ FastMCP Toolset Expansion & Resource Schemas (40 Tools)
+- **Universal Pydantic Resource Catalog (`devops_cli.models`)**: Comprehensive request/result models (`*Request` / `*Result`) across all subsystems (`docker`, `k8s`, `security`, `tf`, `config`, `workspace`, `release`, `ci`, `git`, `ai`).
+- **Dynamic FastMCP System State Resources**: Direct integration for `resource://workspace/status`, `resource://config/active`, `resource://telemetry/status`, and `resource://release/status`.
+- **FastMCP Schema Completeness**: 100% parameter descriptions, strict type annotations, structured JSON schemas, and flag injection defenses across 40 registered tools.
+- **New Tools Registered**: `ai_repomap`, `ai_diagram`, `ai_test_gen`, `config_audit_keys`, `telemetry_profile`, and `tf_notify_plan`.
+
+### 📦 DevContainer Workspace Cache Volumes & Storage Isolation
+- **Dedicated Volume Mount Optimization**: Added dedicated Docker named volumes for `.uv`, `.venv`, `.mypy_cache`, `.pytest_cache`, and `.ruff_cache` to bypass host-OS translation latency and achieve native Linux `ext4` I/O speeds on Windows development machines.
+- **Automated Lifecycle Permission Enforcement**: Hardened `devops devcontainer post-create` and `post-start` lifecycle hooks to ensure all workspace volumes and cache directories are created with `0755` permissions and owned by `vscode`.
+- **Workspace Data Tier Standardization**: Centralized all exploratory and scratch scripts into `.data/scratch/`, isolating temporary data artifacts cleanly within the `.data/` tier.
+- **Team IDE Configuration Sharing**: Updated `.gitignore` to allow tracking of shared `.vscode/` team configurations (including `.vscode/mcp.json`) while filtering local user overrides.
+
+### 🛡️ AI Review Security Hardening & Closed-Loop Feedback
+- **Structural Diff Path Containment (`devops_cli.ai.diff.difftastic`)**: Enforced strict boundary containment with `resolve_safe_subpath`, preventing arbitrary file reading and secret leakage outside repository boundaries (CWE-200 / CWE-284).
+- **Absolute Target Path Resolution (`devops_cli.commands.review`, `devops_cli.ai.review.pipeline`)**: Enforced canonical absolute path resolution across review and pre-analysis commands, eliminating relative `.` path ambiguity and path segment duplication in finding locations.
+- **Closed-Loop Feedback Dataset Export (`devops ai review export-feedback`)**: Exported verified security findings into `.data/feedback_dataset.jsonl` to ground LLM reasoning and reinforce the self-improvement training loop.
 
 ---
 

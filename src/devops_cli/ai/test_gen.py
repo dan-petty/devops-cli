@@ -3,21 +3,21 @@
 from __future__ import annotations
 
 import ast
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from pydantic import BaseModel, Field
 
-@dataclass
-class SynthesizedTestSuite:
+
+class SynthesizedTestSuite(BaseModel):
     """Synthesized unit test suite for a source module or function."""
 
     target_file: str
-    function_names: list[str]
+    function_names: list[str] = Field(default_factory=list)
     test_code: str
     test_count: int
     validation_status: str = "SYNTHESIZED"
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {

@@ -546,11 +546,11 @@ def tf_lint(
 def tf_notify_plan(
     plan_file: Annotated[
         Path | None,
-        typer.Option("--plan-file", "-p", help="Path to raw plan output or log file"),
+        typer.Option("--plan-file", "-p", help=HELP.tf.plan_input_file),
     ] = None,
     pr_number: Annotated[
         int | None,
-        typer.Option("--pr", help="Pull Request number to post plan comment to"),
+        typer.Option("--pr", help=HELP.tf.pr),
     ] = None,
     dry_run: Annotated[
         bool,

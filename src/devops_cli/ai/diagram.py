@@ -2,21 +2,21 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+from pydantic import BaseModel, Field
 
 from devops_cli.core.repo import find_top_level_repo_root
 
 
-@dataclass
-class DiagramResult:
+class DiagramResult(BaseModel):
     """Diagram generation result containing Mermaid syntax, title, and components."""
 
     diagram_type: str  # "arch" or "threat"
     title: str
     mermaid_code: str
-    components: list[dict[str, Any]] = field(default_factory=list)
+    components: list[dict[str, Any]] = Field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -32,17 +32,15 @@ def generate_architecture_diagram(root_dir: Path | None = None) -> DiagramResult
     base_root = root_dir or find_top_level_repo_root(Path.cwd())
     src_dir = base_root / "src" / "devops_cli"
 
-    components: list[dict[str, Any]] = []
-    if src_dir.is_dir():
-        for sub in sorted(src_dir.iterdir()):
-            if sub.is_dir() and not sub.name.startswith((".", "_")):
-                components.append(
-                    {
-                        "name": sub.name,
-                        "type": "subsystem",
-                        "path": f"src/devops_cli/{sub.name}",
-                    }
-                )
+    components: list[dict[str, Any]] = (
+        [
+            {"name": sub.name, "type": "subsystem", "path": f"src/devops_cli/{sub.name}"}
+            for sub in sorted(src_dir.iterdir())
+            if sub.is_dir() and not sub.name.startswith((".", "_"))
+        ]
+        if src_dir.is_dir()
+        else []
+    )
 
     mermaid_lines = [
         "graph TD",

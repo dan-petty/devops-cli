@@ -28,6 +28,21 @@ devops review path [OPTIONS] <targets>
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--summary`, `-s` | `boolean` | - | Show segment metadata without running a full review. |
 | `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology. |
+| `--no-pre-analysis` | `boolean` | - | Disable pre-analysis and metadata refresh. |
+| `--pre-analysis-only` | `boolean` | - | Run pre-analysis only and skip subsequent stages. |
+| `--no-static-scan` | `boolean` | - | Disable static security scanning. |
+| `--static-scan-only` | `boolean` | - | Run static scanning only and skip subsequent stages. |
+| `--no-persona-review` | `boolean` | - | Disable multi-persona LLM inspection. |
+| `--persona-review-only` | `boolean` | - | Run persona review only and skip subsequent stages. |
+| `--no-verification` | `boolean` | - | Disable finding verification and adversarial debate. |
+| `--verification-only` | `boolean` | - | Run verification only and skip subsequent stages. |
+| `--no-reranking` | `boolean` | - | Disable finding re-ranking and deduplication. |
+| `--reranking-only` | `boolean` | - | Run re-ranking only and skip subsequent stages. |
+| `--no-reporting` | `boolean` | - | Disable consolidated report generation. |
+| `--reporting-only` | `boolean` | - | Run report generation only. |
+| `--no-cache` | `boolean` | - | Bypass LLM response cache and force fresh inference. |
+| `--force`, `-f` | `boolean` | - | Force fresh review execution without cache. |
+| `--append-cache` | `boolean` | - | Append cached response to the LLM prompt as context instead of using it directly as the final response. |
 
 ---
 
@@ -56,6 +71,21 @@ devops review branch [OPTIONS] <branch_name>
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--summary`, `-s` | `boolean` | - | Show segment metadata without running a full review. |
 | `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology. |
+| `--no-pre-analysis` | `boolean` | - | Disable pre-analysis and metadata refresh. |
+| `--pre-analysis-only` | `boolean` | - | Run pre-analysis only and skip subsequent stages. |
+| `--no-static-scan` | `boolean` | - | Disable static security scanning. |
+| `--static-scan-only` | `boolean` | - | Run static scanning only and skip subsequent stages. |
+| `--no-persona-review` | `boolean` | - | Disable multi-persona LLM inspection. |
+| `--persona-review-only` | `boolean` | - | Run persona review only and skip subsequent stages. |
+| `--no-verification` | `boolean` | - | Disable finding verification and adversarial debate. |
+| `--verification-only` | `boolean` | - | Run verification only and skip subsequent stages. |
+| `--no-reranking` | `boolean` | - | Disable finding re-ranking and deduplication. |
+| `--reranking-only` | `boolean` | - | Run re-ranking only and skip subsequent stages. |
+| `--no-reporting` | `boolean` | - | Disable consolidated report generation. |
+| `--reporting-only` | `boolean` | - | Run report generation only. |
+| `--no-cache` | `boolean` | - | Bypass LLM response cache and force fresh inference. |
+| `--force`, `-f` | `boolean` | - | Force fresh review execution without cache. |
+| `--append-cache` | `boolean` | - | Append cached response to the LLM prompt as context instead of using it directly as the final response. |
 
 ---
 
@@ -84,6 +114,21 @@ devops review pr [OPTIONS] <number>
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--summary`, `-s` | `boolean` | - | Show segment metadata without running a full review. |
 | `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology. |
+| `--no-pre-analysis` | `boolean` | - | Disable pre-analysis and metadata refresh. |
+| `--pre-analysis-only` | `boolean` | - | Run pre-analysis only and skip subsequent stages. |
+| `--no-static-scan` | `boolean` | - | Disable static security scanning. |
+| `--static-scan-only` | `boolean` | - | Run static scanning only and skip subsequent stages. |
+| `--no-persona-review` | `boolean` | - | Disable multi-persona LLM inspection. |
+| `--persona-review-only` | `boolean` | - | Run persona review only and skip subsequent stages. |
+| `--no-verification` | `boolean` | - | Disable finding verification and adversarial debate. |
+| `--verification-only` | `boolean` | - | Run verification only and skip subsequent stages. |
+| `--no-reranking` | `boolean` | - | Disable finding re-ranking and deduplication. |
+| `--reranking-only` | `boolean` | - | Run re-ranking only and skip subsequent stages. |
+| `--no-reporting` | `boolean` | - | Disable consolidated report generation. |
+| `--reporting-only` | `boolean` | - | Run report generation only. |
+| `--no-cache` | `boolean` | - | Bypass LLM response cache and force fresh inference. |
+| `--force`, `-f` | `boolean` | - | Force fresh review execution without cache. |
+| `--append-cache` | `boolean` | - | Append cached response to the LLM prompt as context instead of using it directly as the final response. |
 
 ---
 
@@ -92,8 +137,14 @@ devops review pr [OPTIONS] <number>
 **Inspect structured findings for a review session.**
 
 ```bash
-devops review findings [OPTIONS]
+devops review findings [OPTIONS] <session>
 ```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<session>` | `string` | No | Session ID or substring (default: latest). |
 
 **Options:**
 
@@ -203,14 +254,14 @@ devops review auto-fix [OPTIONS] <finding_id>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<finding_id>` | `string` | Yes | Finding ID or title to create remediation branch for |
+| `<finding_id>` | `string` | Yes | Finding ID or title to create remediation branch for. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--file`, `-f` | `string` | `src/devops_cli/main.py` | Target source file to apply fix to |
-| `--branch`, `-b` | `string` | - | Custom topic branch name |
+| `--file`, `-f` | `string` | `src/devops_cli/main.py` | Target source file to apply fix to. |
+| `--branch`, `-b` | `string` | - | Custom topic branch name. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 

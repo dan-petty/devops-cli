@@ -844,3 +844,53 @@ def test_extract_package_json_and_manifest_dispatch() -> None:
     pypi_deps = extract_dependencies_from_text("typer>=0.9.0\npydantic\n", "requirements.txt")
     assert len(pypi_deps) == 2
     assert extract_dependencies_from_text("foo", "unknown.manifest") == []
+
+
+def test_is_network_domain_edge_cases() -> None:
+    from devops_cli.security.reference_extractor import (
+        is_code_or_config_reference,
+        is_network_domain,
+    )
+
+    # Empty or malformed
+    assert is_network_domain("") is False
+    assert is_network_domain("no_dot") is False
+    assert is_network_domain("has space.com") is False
+    assert is_network_domain("has/slash.com") is False
+    assert is_network_domain("has\\backslash.com") is False
+
+    # Programmatic calls
+    assert is_network_domain("foo.bar()") is False
+    assert is_network_domain("module.func(arg)") is False
+
+    # IP addresses
+    assert is_network_domain("127.0.0.1") is False
+    assert is_network_domain("8.8.8.8") is False
+
+    # Reserved domains & registries
+    assert is_network_domain("example.com") is False
+    assert is_network_domain("registry.npmjs.org") is False
+    assert is_network_domain("pypi.org") is False
+
+    # Code / config references
+    assert is_code_or_config_reference("os.path.join") is True
+    assert is_code_or_config_reference("self._config.model") is True
+
+    # Valid domain
+    assert is_network_domain("api.custom-vendor.io") is True
+
+
+def test_extract_network_references_edge_cases() -> None:
+    content = """
+    # Network targets
+    export PROMETHEUS_ENDPOINT="http://prometheus.internal:9090/metrics"
+    export GRAFANA_HOST="https://grafana.prod.corp.com"
+    export PUBLIC_API="https://api.external-service.net/v1"
+    CONNECT_IP = "93.184.216.34"
+    LOCAL_IP = "127.0.0.1"
+    """
+    refs = extract_network_references(content, "deploy.py")
+    assert len(refs) >= 2
+    targets = [r.target for r in refs]
+    assert any("https://api.external-service.net/v1" in t for t in targets)
+    assert any("93.184.216.34" in t for t in targets)

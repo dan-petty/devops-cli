@@ -50,11 +50,13 @@ class OllamaProvider(BaseLLMProvider):
         target_model = model or self.config.model
         urls = self.config.get_ollama_urls
         base_url = urls[0].rstrip("/") if urls else DEFAULT_OLLAMA_HOST
-        payload = {
+        payload: dict[str, Any] = {
             "model": target_model,
             "messages": [m.model_dump() if hasattr(m, "model_dump") else m for m in messages],
             "stream": stream,
         }
+        if getattr(self.config, "reasoning_effort", None):
+            payload["reasoning_effort"] = self.config.reasoning_effort
         res = httpx2.post(
             f"{base_url}/api/chat", json=payload, timeout=timeout or DEFAULT_AI_TIMEOUT_SECONDS
         )

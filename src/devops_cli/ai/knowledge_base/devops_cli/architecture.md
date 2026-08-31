@@ -34,9 +34,9 @@ The DevOps CLI is designed as an agentic workstation automation platform, unifie
 
 ---
 
-## 2. Multi-Persona Code Review Engine
+## 2. Multi-Persona Code Review Engine & 6-Stage Pipeline
 
-The multi-persona code review pipeline orchestrates specialized AI reviewer personas across target diffs and workspaces:
+The multi-persona code review pipeline orchestrates specialized AI reviewer personas and static analysis tools across target diffs and workspaces:
 
 ```
                           ┌───────────────────────────┐
@@ -44,29 +44,48 @@ The multi-persona code review pipeline orchestrates specialized AI reviewer pers
                           └─────────────┬─────────────┘
                                         │
                                         ▼
-                          ┌───────────────────────────┐
-                          │  AST Chunking & Context   │
-                          │   (Paginator / Chunker)   │
-                          └─────────────┬─────────────┘
+    ┌───────────────────────────────────────────────────────────────────┐
+    │ Pre-Analysis Metadata Refresh & Cache Sync                        │
+    └───────────────────────────────────┬───────────────────────────────┘
                                         │
-             ┌──────────────┬───────────┴───────────┬──────────────┐
-             ▼              ▼                       ▼              ▼
-     ┌──────────────┐┌──────────────┐       ┌──────────────┐┌──────────────┐
-     │  Architect   ││  DevSecOps   │  ...  │   Auditor    ││      QA      │
-     └───────┬──────┘└──────┬───────┘       └──────┬───────┘└──────┬───────┘
-             │              │                       │              │
-             └──────────────┼───────────────────────┴──────────────┘
-                            ▼
-     ┌─────────────────────────────────────────────────────────────┐
-     │         Cross-Persona Verification & Invalidation           │
-     │           (RAG Grounding & AST Calibrated Scores)           │
-     └──────────────────────────────┬──────────────────────────────┘
-                                    │
-                                    ▼
-     ┌─────────────────────────────────────────────────────────────┐
-     │      ReviewSessionPayload / findings.json / Rich Table      │
-     └─────────────────────────────────────────────────────────────┘
+                                        ▼
+    ┌───────────────────────────────────────────────────────────────────┐
+    │ Static Security Analyzers & Dependency Probing                    │
+    │   (Bandit, KubeLinter, Pluto, Semgrep, Gitleaks, OSV, Shodan)    │
+    └───────────────────────────────────┬───────────────────────────────┘
+                                        │
+                                        ▼
+    ┌───────────────────────────────────────────────────────────────────┐
+    │ Multi-Persona LLM Inspection (Concurrent Workers)                 │
+    │   (DevSecOps, Architect, QA, Auditor, PM)                        │
+    └───────────────────────────────────┬───────────────────────────────┘
+                                        │
+                                        ▼
+    ┌───────────────────────────────────────────────────────────────────┐
+    │ Cross-Referencing Verification & Multi-Agent Debate (MAD)         │
+    │   (Step-by-step evidence tracing against visible source & AST)   │
+    └───────────────────────────────────┬───────────────────────────────┘
+                                        │
+                                        ▼
+    ┌───────────────────────────────────────────────────────────────────┐
+    │ Finding Re-Ranking & Severity Deduplication                       │
+    └───────────────────────────────────┬───────────────────────────────┘
+                                        │
+                                        ▼
+    ┌───────────────────────────────────────────────────────────────────┐
+    │ Consolidated Markdown Report & JSON Payload Export                │
+    │   (review.md, findings.json, Rich Terminal Table)                 │
+    └───────────────────────────────────────────────────────────────────┘
 ```
+
+### Review Stage Feature Flags
+Every stage in the review pipeline can be selectively enabled or bypassed via CLI feature flags:
+- `--no-pre-analysis` / `--pre-analysis-only`: Pre-analysis control.
+- `--no-static-scan` / `--static-scan-only`: Static security scan control.
+- `--no-persona-review` / `--persona-review-only`: Persona review control.
+- `--no-verification` / `--verification-only`: Verification control.
+- `--no-reranking` / `--reranking-only`: Re-ranking control.
+- `--no-reporting` / `--reporting-only`: Consolidated reporting control.
 
 ### Review Personas
 - **`devsecops`**: Zero-Trust security, credential exposure, dependency CVEs, SAST rules (Bandit/Trivy), injection vulnerabilities.
@@ -81,11 +100,19 @@ The multi-persona code review pipeline orchestrates specialized AI reviewer pers
 
 ### Configuration & Keyring (`devops_cli.config`)
 - Declarative Pydantic v2 `Settings` with dot-notated access (`devops config get/set`).
-- Dual-tier storage: Plaintext non-sensitive properties in `~/.config/devops-cli/config.json`, encrypted secrets (tokens, API keys) stored securely via `keyring`.
+- Dual-tier storage: Plaintext non-sensitive properties in `~/.config/devops-cli/config.json`, encrypted secrets (tokens, API keys) stored securely via OS `keyring`.
+- Secret audit tooling: `devops config audit-keys` verifies that zero unencrypted secrets exist in plaintext config files.
+
+### Dedicated Agent Workspace Data Isolation (`DEVOPS_CLI_DATA_DIR=./.data/agent`)
+- AI review agents and test automation runs configure `DEVOPS_CLI_DATA_DIR=./.data/agent` to isolate agent-generated reviews, logs, traces, and metadata from primary user workspace data.
 
 ### Output & Dry-Run Subsystem (`devops_cli.output` & `devops_cli.dry_run`)
 - Centralized terminal rendering using Rich (`print_success`, `print_error`, `print_info`, `print_table`, `print_muted`).
 - Unified dry-run execution: `is_dry_run()`, `set_dry_run(bool)`, `print_dry_run_command()`, `print_dry_run_result()`, and `render_dry_run_result()` returning structured `CommandDryRunResult` models.
+
+### Response Repair & Thought Stream Processing (`devops_cli.ai.response_repair`)
+- Resilient JSON parsing and automatic schema recovery via `repair_json_string` and `fix_llm_response`.
+- Specialized reasoning model support (`ThinkingStreamProcessor`) parsing `<think>...</think>` tags cleanly while extracting structured output payloads.
 
 ### Localized Language Catalog (`devops_cli.lang`)
 - Centralized, immutable Pydantic language catalog (`MESSAGES`, `HELP`, `PERSONAS_CONFIG`) under `devops_cli.lang.en.messages`.
@@ -93,4 +120,4 @@ The multi-persona code review pipeline orchestrates specialized AI reviewer pers
 
 ### Observability & Distributed Tracing (`devops_cli.telemetry`)
 - OpenTelemetry instrumentation with W3C `TRACEPARENT` propagation across subprocesses and HTTP clients.
-- Child span tracking for LLM requests (Time to First Token, token latency) and Prometheus metrics scraping.
+- Granular child span tracking (`@trace_span`) for LLM requests (Time to First Token, token latency) and in-memory Prometheus metrics via `GLOBAL_METRICS`.

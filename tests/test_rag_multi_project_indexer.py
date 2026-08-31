@@ -51,9 +51,16 @@ def test_multi_project_indexing(tmp_path: Path) -> None:
             upserted.setdefault(collection_name, []).extend(points)
             return True
 
+    class DummyEmbedder(EmbeddingsEngine):
+        def embed_batch(self, texts: list[str], prefix: str = "") -> list[list[float]]:
+            return [[0.1] * 384 for _ in texts]
+
+        def embed(self, text: str, prefix: str = "") -> list[float]:
+            return [0.1] * 384
+
     indexer = WorkspaceIndexer(
         qdrant=DummyQdrant(base_url="http://mock:6333", allow_private_network=True),
-        embedder=EmbeddingsEngine(),
+        embedder=DummyEmbedder(),
         code_collection="test_code",
         docs_collection="test_docs",
         cache_dir=tmp_path / ".cache",

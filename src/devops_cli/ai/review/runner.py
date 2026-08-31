@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 from collections.abc import Callable
 from concurrent.futures import as_completed
@@ -20,6 +21,7 @@ from devops_cli.ai.review.chunker import (
     _extract_segment_filenames,
     _split_source_file_blocks,
 )
+from devops_cli.ai.review.flags import ReviewStageFlags
 from devops_cli.ai.review.rendering import _render_review_result
 from devops_cli.ai.review.sanitization import (
     _mask_secrets_in_content,
@@ -44,11 +46,10 @@ from devops_cli.config.constants import (
     CONST_GIT_MAIN_BRANCH,
     CONST_GITIGNORE_DIRS,
     CONST_REVIEW_GENERATED_FILES,
-    CONST_REVIEW_MAX_DIFF_CHARS,
 )
 from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
-    DEFAULT_DATA_DIR,
+    DEFAULT_REVIEW_MAX_DIFF_CHARS,
     DEFAULT_REVIEW_TIMEOUT_SECONDS,
 )
 from devops_cli.config.settings import Settings, get_ai_api_key, load_settings
@@ -70,7 +71,7 @@ from devops_cli.telemetry import trace_span
 
 logger = logging.getLogger(__name__)
 
-_MAX_DIFF_CHARS = CONST_REVIEW_MAX_DIFF_CHARS
+_MAX_DIFF_CHARS = DEFAULT_REVIEW_MAX_DIFF_CHARS
 _MAX_SEGMENT_RETRIES = 2
 _DEFAULT_CONTEXT_LINES = 2
 
@@ -102,13 +103,31 @@ def _debug_block(title: str, payload: dict[str, Any]) -> None:
     print_dry_run_result(payload)
 
 
+def _resolve_ollama_urls(config: Any) -> list[str]:
+    """Safely resolve configured Ollama base URLs handling properties and callables."""
+    if not config:
+        return ["http://localhost:11434"]
+    raw_urls = getattr(config, "get_ollama_urls", None)
+    if callable(raw_urls):
+        try:
+            raw_urls = raw_urls()
+        except Exception:
+            raw_urls = None
+    if isinstance(raw_urls, list) and raw_urls:
+        return [str(u).strip().rstrip("/") for u in raw_urls if str(u).strip()]
+    raw_list = getattr(config, "ollama_urls", None)
+    if isinstance(raw_list, list) and raw_list:
+        return [str(u).strip().rstrip("/") for u in raw_list if str(u).strip()]
+    return ["http://localhost:11434"]
+
+
 def _llm_request_preview(client: Any, system: str, user: str) -> dict[str, Any]:
     config = getattr(client, "_config", None)
     provider = getattr(config, "provider", "unknown")
     model = getattr(config, "model", "unknown")
 
     if provider == "ollama":
-        urls = getattr(config, "get_ollama_urls", ["http://localhost:11434"])
+        urls = _resolve_ollama_urls(config)
         base = urls[0] if urls else "http://localhost:11434"
         return {
             "provider": provider,
@@ -341,14 +360,15 @@ def _fallback_join(reviews: list[str]) -> str:
 def _get_reviews_base_dir() -> Path:
     from devops_cli.core.repo import find_top_level_repo_root
 
-    settings = load_settings()
-    d = (
-        settings.data.reviews_dir
-        if settings.data.dir == DEFAULT_DATA_DIR
-        else settings.data.dir / "reviews"
-    )
+    env_data_dir = os.environ.get("DEVOPS_CLI_DATA_DIR") or os.environ.get("DEVOPS_DATA_DIR")
+    if env_data_dir:
+        d = Path(env_data_dir) / "reviews"
+    else:
+        settings = load_settings()
+        d = settings.data.reviews_dir
     if not d.is_absolute():
-        d = (find_top_level_repo_root() / d).resolve()
+        d = find_top_level_repo_root() / d
+    d = d.resolve()
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -722,8 +742,7 @@ def _run_review(
 
     if total > 1 and not is_dry_run():
         config = getattr(clients.analysis, "_config", None)
-        raw_urls = getattr(config, "get_ollama_urls", None)
-        ollama_urls = raw_urls if isinstance(raw_urls, list) else ["http://localhost:11434"]
+        ollama_urls = _resolve_ollama_urls(config)
         raw_par = getattr(config, "ollama_max_parallel", None)
         max_par = int(raw_par) if isinstance(raw_par, int) else 2
         workers = min(total, max(len(ollama_urls) * max_par, 1))
@@ -790,8 +809,7 @@ def _run_review(
 
         if total > 1:
             config = getattr(clients.analysis, "_config", None)
-            raw_urls = getattr(config, "get_ollama_urls", None)
-            ollama_urls = raw_urls if isinstance(raw_urls, list) else ["http://localhost:11434"]
+            ollama_urls = _resolve_ollama_urls(config)
             raw_par = getattr(config, "ollama_max_parallel", None)
             max_par = int(raw_par) if isinstance(raw_par, int) else 2
             workers = min(total, max(len(ollama_urls) * max_par, 1))
@@ -863,7 +881,7 @@ def _run_persona_loop(
     config = getattr(clients.analysis, "_config", None)
     if getattr(config, "provider", None) == "ollama" and not is_dry_run():
         model_name = getattr(config, "model", "ollama")
-        ollama_urls = getattr(config, "get_ollama_urls", [])
+        ollama_urls = _resolve_ollama_urls(config)
         if ollama_urls:
             n = len(ollama_urls)
             print_info(
@@ -919,8 +937,7 @@ def _run_persona_loop(
 
         if len(personas) > 1 and not is_dry_run():
             config = getattr(clients.analysis, "_config", None)
-            raw_urls = getattr(config, "get_ollama_urls", None)
-            ollama_urls = raw_urls if isinstance(raw_urls, list) else ["http://localhost:11434"]
+            ollama_urls = _resolve_ollama_urls(config)
             raw_par = getattr(config, "ollama_max_parallel", None)
             max_par = int(raw_par) if isinstance(raw_par, int) else 2
             workers = min(len(personas), max(len(ollama_urls) * max_par, 1))
@@ -1135,7 +1152,12 @@ def _print_analysis_metadata(analysis_metas: dict[str, FileAnalysisMeta], title:
     print_table(columns=columns, rows=rows)
 
 
-def _make_review_clients(settings: Any) -> ReviewClients:
+def _make_review_clients(
+    settings: Any,
+    *,
+    cache_enabled: bool | None = None,
+    append_cache: bool | None = None,
+) -> ReviewClients:
     """Build unified LLM clients for analysis and compose tasks."""
     api_key = get_ai_api_key(settings)
     return ReviewClients(
@@ -1143,11 +1165,15 @@ def _make_review_clients(settings: Any) -> ReviewClients:
             settings.ai.for_task("analysis"),
             api_key=api_key,
             request_timeout_seconds=DEFAULT_REVIEW_TIMEOUT_SECONDS,
+            cache_enabled=cache_enabled,
+            append_cache=append_cache,
         ),
         compose=LLMClient(
             settings.ai.for_task("compose"),
             api_key=api_key,
             request_timeout_seconds=DEFAULT_REVIEW_TIMEOUT_SECONDS,
+            cache_enabled=cache_enabled,
+            append_cache=append_cache,
         ),
     )
 
@@ -1381,20 +1407,21 @@ def _run_orchestrator_review(
     pages: list[str],
     active_p: list[str],
     persona: Persona | None,
+    stage_flags: ReviewStageFlags | None = None,
 ) -> list[tuple[PersonaDefinition, ReviewResult | str]]:
     """Execute orchestrator pipeline review for all files."""
     payloads = orchestrator.init_per_file_payloads(
-        all_files, metadata_by_path, target_dir=target_dir
+        all_files, metadata_by_path, target_dir=target_dir, stage_flags=stage_flags
     )
     if not is_dry_run():
         diff_map = {f: "\n".join([p for p in pages if f in p]) for f in all_files}
         orchestrator.execute_multi_persona_review(
-            payloads, diff_text_by_file=diff_map, personas=active_p
+            payloads, diff_text_by_file=diff_map, personas=active_p, stage_flags=stage_flags
         )
-        orchestrator.execute_finding_verification(payloads)
-        orchestrator.execute_finding_reranking(payloads)
+        orchestrator.execute_finding_verification(payloads, stage_flags=stage_flags)
+        orchestrator.execute_finding_reranking(payloads, stage_flags=stage_flags)
 
-    _, report_md = orchestrator.generate_consolidated_report(payloads)
+    _, report_md = orchestrator.generate_consolidated_report(payloads, stage_flags=stage_flags)
     p_def = PERSONAS[persona or Persona.DEVSECOPS]
     return [(p_def, report_md)]
 
@@ -1411,6 +1438,7 @@ def _execute_review_workflow(
     target_type: Literal["branch", "pr", "path"] = "path",
     target_ref: str = ".",
     target_dir: Path = DEFAULT_CURRENT_PATH,
+    stage_flags: ReviewStageFlags | None = None,
 ) -> list[tuple[PersonaDefinition, ReviewResult | str]]:
     """Common review execution workflow for path, branch, and PR reviews."""
     from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
@@ -1447,6 +1475,7 @@ def _execute_review_workflow(
                 target_dir=target_dir,
                 target_type=target_type,
                 target_ref=target_ref,
+                stage_flags=stage_flags,
             )
             if all_files:
                 return _run_orchestrator_review(
@@ -1457,6 +1486,7 @@ def _execute_review_workflow(
                     pages,
                     active_p,
                     persona,
+                    stage_flags=stage_flags,
                 )
 
     if summary_only:

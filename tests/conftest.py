@@ -39,52 +39,34 @@ def isolate_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     test_data_dir.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(test_data_dir))
     monkeypatch.setenv("DEVOPS_DATA_DIR", str(test_data_dir))
-    monkeypatch.setenv("DEVOPS_CLI_DATA_REVIEWS_DIR", str(test_data_dir / "reviews"))
-    monkeypatch.setenv("DEVOPS_CLI_DATA_ANALYSIS_DIR", str(test_data_dir / "analysis"))
-    monkeypatch.setenv("DEVOPS_CLI_DATA_LOGS_DIR", str(test_data_dir / "logs"))
-    monkeypatch.setenv("DEVOPS_CLI_DATA_MODELS_DIR", str(test_data_dir / "models"))
-    monkeypatch.setenv("DEVOPS_CLI_DATA_CACHE_DIR", str(test_data_dir / "cache"))
-    monkeypatch.setenv("DEVOPS_CLI_DATA_BENCHMARKS_DIR", str(test_data_dir / "benchmarks"))
-    monkeypatch.setenv("DEVOPS_CLI_DATA_RAG_DIR", str(test_data_dir / "rag"))
-    monkeypatch.setenv(
-        "DEVOPS_CLI_DATA_AUDIT_LOG_PATH", str(test_data_dir / "logs" / "audit.jsonl")
-    )
-    monkeypatch.setenv(
-        "DEVOPS_CLI_DATA_FEEDBACK_DATASET_PATH", str(test_data_dir / "feedback_dataset.jsonl")
-    )
     yield test_data_dir
 
 
-@pytest.fixture(scope="session")
-def session_isolated_config(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    config_dir = tmp_path_factory.mktemp("devops_cli_isolated_config")
-    dummy_config = config_dir / "config.yaml"
-    dummy_config.write_text(
-        "telemetry:\n  enabled: true\n  endpoint: http://localhost:4318\nai:\n  allow_private_network: true\n",
-        encoding="utf-8",
-    )
-    return dummy_config
-
-
 @pytest.fixture(autouse=True)
-def isolate_devops_cli_config(session_isolated_config: Path):
+def isolate_devops_cli_config(tmp_path_factory: pytest.TempPathFactory):
     """Ensure tests do not load or mutate local workspace config.yaml or ~/.config."""
     from devops_cli.telemetry.tracer import reset_tracer
 
     reset_tracer()
+    config_dir = tmp_path_factory.mktemp("isolated_test_config")
+    dummy_config = config_dir / "config.yaml"
+    dummy_config.write_text(
+        "telemetry:\n  enabled: true\n  endpoint: http://localhost:4318\nai:\n  allow_private_network: true\n  rag:\n    enabled: false\n",
+        encoding="utf-8",
+    )
     with (
         patch.dict(
             os.environ,
             {
-                "DEVOPS_CLI_CONFIG": str(session_isolated_config),
+                "DEVOPS_CLI_CONFIG": str(dummy_config),
                 "DEVOPS_OTEL_ENDPOINT": "http://localhost:4318",
                 "DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK": "true",
             },
         ),
-        patch("devops_cli.config.settings.CONFIG_PATH", session_isolated_config),
-        patch("devops_cli.config.settings.CONFIG_DIR", session_isolated_config.parent),
+        patch("devops_cli.config.settings.CONFIG_PATH", dummy_config),
+        patch("devops_cli.config.settings.CONFIG_DIR", dummy_config.parent),
     ):
-        yield
+        yield dummy_config
     reset_tracer()
 
 

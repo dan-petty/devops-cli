@@ -20,8 +20,11 @@ controller:
 server:
   replicas: 1
   service:
+    # Local minikube: NodePort allows direct access.
+    # Production: Use type: ClusterIP with an Ingress Controller and TLS termination.
     type: NodePort
-  # Disable TLS on the server — minikube NodePort access
+  # Local minikube: --insecure disables internal TLS for plain HTTP NodePort access.
+  # Production: Remove --insecure, configure ingress.tls or cert-manager X.509 certs.
   extraArgs:
     - --insecure
   resources:

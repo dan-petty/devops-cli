@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import sys
 from collections.abc import Callable, Generator, Iterable, Sequence
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Literal
@@ -101,6 +100,14 @@ def get_stderr_console(
     )
 
 
+def _sanitize_output_text(text: str) -> str:
+    """Sanitize and mask any sensitive tokens or secrets before standard stream writing."""
+    normalized_text = text if isinstance(text, str) else ("" if text is None else str(text))
+    from devops_cli.ai.review.sanitization import _mask_secrets_in_content
+
+    return _mask_secrets_in_content(normalized_text)
+
+
 def write_stream(
     text: str,
     stream: Literal["stdout", "stderr"] = DEFAULT_STREAM_NAME,  # type: ignore[assignment]
@@ -108,10 +115,13 @@ def write_stream(
     flush: bool = True,
 ) -> None:
     """Write raw text directly to standard output or standard error stream."""
-    target = sys.stderr if stream == "stderr" else sys.stdout
-    target.write(text)
+    safe_text = _sanitize_output_text(text)
+    cons = get_stderr_console() if stream == "stderr" else get_console()
+    cons.print(safe_text, markup=False, highlight=False, end="", soft_wrap=True)
     if flush:
-        target.flush()
+        file_obj = getattr(cons, "file", None)
+        if file_obj and hasattr(file_obj, "flush"):
+            file_obj.flush()
 
 
 def write_stdout(text: str, *, flush: bool = True) -> None:
@@ -445,6 +455,29 @@ def progress_context(
         yield _update
 
 
+def _sanitize_command_args_for_display(command: list[str]) -> list[str]:
+    """Mask sensitive argument values in command list before terminal printing."""
+    sanitized: list[str] = []
+    skip_next = False
+    for arg in command:
+        if skip_next:
+            sanitized.append("<masked>")
+            skip_next = False
+            continue
+        if arg in ("--password", "-p", "--token", "--api-key", "--secret", "--auth-token"):
+            sanitized.append(arg)
+            skip_next = True
+        elif any(
+            arg.startswith(prefix)
+            for prefix in ("--password=", "--token=", "--api-key=", "--secret=", "--auth-token=")
+        ):
+            key = arg.split("=", 1)[0]
+            sanitized.append(f"{key}=<masked>")
+        else:
+            sanitized.append(arg)
+    return sanitized
+
+
 def print_dry_run_command(
     command: list[str] | str,
     *,
@@ -459,7 +492,8 @@ def print_dry_run_command(
 
     c = console or get_console()
     if isinstance(command, list):
-        rendered = shlex.join(command)
+        safe_cmd = _sanitize_command_args_for_display(command)
+        rendered = shlex.join(safe_cmd)
         if cwd:
             rendered = f"(cd {shlex.quote(cwd)} && {rendered})"
     else:

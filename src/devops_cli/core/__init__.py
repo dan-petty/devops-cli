@@ -27,6 +27,9 @@ _CORE_EXPORTS: dict[str, tuple[str, str]] = {
     "format_command": ("devops_cli.dry_run", "format_command"),
     "is_dry_run": ("devops_cli.dry_run", "is_dry_run"),
     "set_dry_run": ("devops_cli.dry_run", "set_dry_run"),
+    "cli_command_handler": ("devops_cli.core.command_decorator", "cli_command_handler"),
+    "ProcessExecutionPipeline": ("devops_cli.core.process_pipeline", "ProcessExecutionPipeline"),
+    "ProcessExecutionResult": ("devops_cli.core.process_pipeline", "ProcessExecutionResult"),
 }
 
 
@@ -42,6 +45,9 @@ def __getattr__(name: str) -> Any:
 
 __all__ = [
     "PathKind",
+    "ProcessExecutionPipeline",
+    "ProcessExecutionResult",
+    "cli_command_handler",
     "find_repo_root",
     "find_top_level_repo_root",
     "format_command",

@@ -27,8 +27,8 @@ def test_get_knowledge_base_dir() -> None:
 
 def test_list_knowledge_base_articles_all() -> None:
     articles = list_knowledge_base_articles()
-    # 15 devops_cli (3 core + 12 tasks) + 38 it_domains (10 topics + 28 tools)
-    assert len(articles) == 53
+    # 39 devops_cli (4 core + 12 tasks + 23 libraries) + 38 it_domains (10 topics + 28 tools)
+    assert len(articles) == 77
     assert all(a.suffix == ".md" for a in articles)
     assert all(a.name != "README.md" for a in articles)
 
@@ -37,43 +37,45 @@ def test_list_knowledge_base_articles_by_division() -> None:
     devops_cli_articles = list_knowledge_base_articles("devops_cli")
     it_domains_articles = list_knowledge_base_articles("it_domains")
 
-    assert len(devops_cli_articles) == 15  # 3 core + 12 tasks
+    assert len(devops_cli_articles) == 39  # 4 core + 12 tasks + 23 libraries
     assert len(it_domains_articles) == 38  # 10 topics + 28 tools
 
 
 def test_list_knowledge_base_articles_by_category() -> None:
-    # Test subcategory paths and legacy aliases
-    topics = list_knowledge_base_articles("topics")
-    topics_full = list_knowledge_base_articles("it_domains/topics")
+    # Test canonical subcategory paths
+    topics = list_knowledge_base_articles("it_domains/topics")
     assert len(topics) == 10
-    assert topics == topics_full
 
-    tools = list_knowledge_base_articles("tools")
-    tools_full = list_knowledge_base_articles("it_domains/tools")
+    tools = list_knowledge_base_articles("it_domains/tools")
     assert len(tools) == 28
-    assert tools == tools_full
 
-    tasks = list_knowledge_base_articles("tasks")
-    tasks_full = list_knowledge_base_articles("devops_cli/tasks")
+    tasks = list_knowledge_base_articles("devops_cli/tasks")
     assert len(tasks) == 12
-    assert tasks == tasks_full
+
+    libraries = list_knowledge_base_articles("devops_cli/libraries")
+    assert len(libraries) == 23
 
 
 def test_load_kb_article_success() -> None:
-    # Test loading via new division path
+    # Test loading via division path
     content_new = load_kb_article("it_domains/topics/agentic_ai_and_code_reviews.md")
     assert content_new is not None
     assert "Agentic AI" in content_new
-
-    # Test loading via legacy alias path
-    content_legacy = load_kb_article("topics/agentic_ai_and_code_reviews.md")
-    assert content_legacy is not None
-    assert content_legacy == content_new
 
     # Test loading devops_cli core article
     arch_content = load_kb_article("devops_cli/architecture.md")
     assert arch_content is not None
     assert "DevOps CLI Architecture" in arch_content
+
+    # Test loading python_packages article
+    pkg_content = load_kb_article("devops_cli/python_packages.md")
+    assert pkg_content is not None
+    assert "Python Packages & Code Libraries Reference Manual" in pkg_content
+
+    # Test loading a dedicated library article
+    typer_content = load_kb_article("devops_cli/libraries/typer.md")
+    assert typer_content is not None
+    assert "Typer & Click" in typer_content
 
 
 def test_load_kb_article_missing_or_invalid() -> None:
@@ -84,13 +86,13 @@ def test_load_kb_article_missing_or_invalid() -> None:
 
 def test_get_knowledge_base_stats() -> None:
     stats = get_knowledge_base_stats()
-    assert stats["exists"] is True
-    assert stats["devops_cli_count"] == 15
-    assert stats["it_domains_count"] == 38
-    assert stats["topics_count"] == 10
-    assert stats["tools_count"] == 28
-    assert stats["tasks_count"] == 12
-    assert stats["total_articles"] == 53
+    assert stats.exists is True
+    assert stats.devops_cli_count == 39
+    assert stats.it_domains_count == 38
+    assert stats.topics_count == 10
+    assert stats.tools_count == 28
+    assert stats.tasks_count == 12
+    assert stats.total_articles == 77
 
 
 def test_workspace_indexer_index_knowledge_base(tmp_path: Path) -> None:
@@ -126,5 +128,5 @@ def test_kb_missing_directory_and_invalid_category(tmp_path: Path, monkeypatch) 
     assert list_knowledge_base_articles() == []
     assert load_kb_article("any.md") is None
     stats = get_knowledge_base_stats()
-    assert stats["exists"] is False
-    assert stats["total_articles"] == 0
+    assert stats.exists is False
+    assert stats.total_articles == 0

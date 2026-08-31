@@ -619,6 +619,107 @@ def telemetry_test_span(name: str = "mcp_test_span") -> str:
     )
 
 
+@mcp.tool()
+def ai_repomap(target_dir: str = ".") -> str:
+    """Generate a compact whole-repository AST symbol map for AI context."""
+    _validate_mcp_arg("target_dir", target_dir)
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "ai", "repomap", "--dir", target_dir],
+        timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.tool()
+def ai_diagram(diagram_type: str = "arch", target_dir: str = ".") -> str:
+    """Generate visual Mermaid architecture or threat modeling diagram."""
+    _validate_mcp_arg("diagram_type", diagram_type)
+    _validate_mcp_arg("target_dir", target_dir)
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "ai", "diagram", diagram_type, "--dir", target_dir],
+        timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.tool()
+def ai_test_gen(target_file: str) -> str:
+    """Synthesize isolated pytest unit test suite for a target Python file."""
+    _validate_mcp_arg("target_file", target_file)
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "ai", "test-gen", target_file],
+        timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.tool()
+def config_audit_keys() -> str:
+    """Audit OS Keyring health, token state, and zero-plaintext secret compliance."""
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "config", "audit-keys"],
+        timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.tool()
+def telemetry_profile(command: str = "") -> str:
+    """Display terminal waterfall latency breakdown of OpenTelemetry trace spans."""
+    cmd = ["uv", "run", "devops", "telemetry", "profile"]
+    if command:
+        _validate_mcp_arg("command", command)
+        cmd.extend(["--command", command])
+    else:
+        cmd.append("--last")
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def tf_notify_plan(plan_file: str = "tfplan.json") -> str:
+    """Format structured OpenTofu/Terraform plan summary for PR comments."""
+    _validate_mcp_arg("plan_file", plan_file)
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "tf", "notify-plan", "--plan-file", plan_file],
+        timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
+    )
+
+
+# ── FastMCP Dynamic System State Resources ───────────────────────────────────
+
+
+@mcp.resource("resource://workspace/status")
+def get_workspace_resource() -> str:
+    """Return live workspace inventory and repository statuses."""
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "workspace", "list"],
+        timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.resource("resource://config/active")
+def get_config_resource() -> str:
+    """Return active configuration settings."""
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "config", "show"],
+        timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.resource("resource://telemetry/status")
+def get_telemetry_resource() -> str:
+    """Return OpenTelemetry distributed tracing and Prometheus metrics status."""
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "telemetry", "status"],
+        timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.resource("resource://release/status")
+def get_release_resource() -> str:
+    """Return current project version, git tags, and release readiness."""
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "release", "status"],
+        timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+    )
+
+
 def list_mcp_tools() -> list[MCPToolInfo]:
     """Return a list of tool names and descriptions registered on the FastMCP server."""
     tools = asyncio.run(mcp.list_tools())

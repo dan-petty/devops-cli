@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 import subprocess
 from pathlib import Path
+from typing import Any
 
 import pytest
 from typer.testing import CliRunner
@@ -13,8 +14,10 @@ from devops_cli.ai.client import LLMClient
 from devops_cli.ai.personas import PERSONAS, Persona
 from devops_cli.commands import review
 from devops_cli.commands.review import ReviewClients
-from devops_cli.config.constants import CONST_REVIEW_MAX_DIFF_CHARS
-from devops_cli.config.defaults import DEFAULT_REVIEW_TIMEOUT_SECONDS
+from devops_cli.config.defaults import (
+    DEFAULT_REVIEW_MAX_DIFF_CHARS,
+    DEFAULT_REVIEW_TIMEOUT_SECONDS,
+)
 from devops_cli.config.settings import AIConfig
 from devops_cli.main import app
 from devops_cli.models.ai import ChatMessage
@@ -82,7 +85,7 @@ def test_collect_files_skips_gitignored_entries(tmp_path: Path) -> None:
 
 
 def test_review_prompt_contains_full_diff_without_truncation() -> None:
-    big_diff = "x" * (CONST_REVIEW_MAX_DIFF_CHARS + 1)
+    big_diff = "x" * (DEFAULT_REVIEW_MAX_DIFF_CHARS + 1)
     prompt = review._build_prompt(big_diff, "review title")
 
     assert "review title" in prompt
@@ -408,3 +411,43 @@ def test_review_client_uses_long_read_timeout_for_chat_requests(
     client._ollama_messages("system", [ChatMessage(role="user", content="user")])
 
     assert seen["timeout"].read == DEFAULT_REVIEW_TIMEOUT_SECONDS
+
+
+def test_review_path_append_cache_flag(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify that --append-cache flag is parsed and passed to review clients."""
+    from typer.testing import CliRunner
+
+    from devops_cli.commands.review import app as review_app
+
+    runner = CliRunner()
+    test_f = tmp_path / "test.py"
+    test_f.write_text("print('hello')\n", encoding="utf-8")
+
+    captured_kwargs: dict[str, Any] = {}
+
+    def mock_make_clients(settings: Any, **kwargs: Any) -> Any:
+        captured_kwargs.update(kwargs)
+        from unittest.mock import MagicMock
+
+        return MagicMock()
+
+    monkeypatch.setattr(
+        "devops_cli.ai.review.runner._is_allowed_review_boundary", lambda *a, **kw: True
+    )
+    monkeypatch.setattr("devops_cli.ai.review.runner._make_review_clients", mock_make_clients)
+    monkeypatch.setattr("devops_cli.ai.review.runner._execute_review_workflow", lambda *a, **kw: [])
+
+    res = runner.invoke(
+        review_app,
+        [
+            "path",
+            str(test_f),
+            "--append-cache",
+            "--persona",
+            "devsecops",
+            "--no-pre-analysis",
+            "--no-static-scan",
+        ],
+    )
+    assert res.exit_code == 0
+    assert captured_kwargs.get("append_cache") is True

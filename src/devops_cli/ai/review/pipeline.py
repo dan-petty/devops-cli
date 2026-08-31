@@ -15,6 +15,7 @@ Example:
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import time
@@ -29,6 +30,7 @@ from devops_cli.ai.analyze.cache import load_cached_analysis
 from devops_cli.ai.analyze.outlines import analyze_single_file
 from devops_cli.ai.client import LLMClient
 from devops_cli.ai.personas import PERSONAS
+from devops_cli.ai.review.flags import ReviewStageFlags
 from devops_cli.ai.review.sanitization import (
     _escape_backticks,
     _mask_secrets_in_content,
@@ -47,7 +49,7 @@ from devops_cli.ai.review_schema import (
     parse_review_response,
 )
 from devops_cli.ai.task_loader import load_task_prompt
-from devops_cli.ai.thinking import extract_think_blocks
+from devops_cli.ai.thinking_stream import extract_think_blocks
 from devops_cli.config.constants import (
     CONST_MAX_FILE_SIZE_BYTES,
 )
@@ -122,6 +124,24 @@ _SEV_ORDER: dict[str, int] = {
 }
 
 
+def _resolve_ollama_urls(config: Any) -> list[str]:
+    """Safely resolve configured Ollama base URLs handling properties and callables."""
+    if not config:
+        return ["http://localhost:11434"]
+    raw_urls = getattr(config, "get_ollama_urls", None)
+    if callable(raw_urls):
+        try:
+            raw_urls = raw_urls()
+        except Exception:
+            raw_urls = None
+    if isinstance(raw_urls, list) and raw_urls:
+        return [str(u).strip().rstrip("/") for u in raw_urls if str(u).strip()]
+    raw_list = getattr(config, "ollama_urls", None)
+    if isinstance(raw_list, list) and raw_list:
+        return [str(u).strip().rstrip("/") for u in raw_list if str(u).strip()]
+    return ["http://localhost:11434"]
+
+
 def _append_step_thoughts(step: Any, thoughts_list: list[str]) -> None:
     """Extract and append thoughts or think blocks from pipeline step to scratchpad."""
     if getattr(step, "thoughts", None):
@@ -189,17 +209,26 @@ def _process_pipeline_step_findings(
 
 
 def _try_reuse_cached_analysis_meta(
-    old_meta: FileAnalysisMeta, file_mtime: datetime
+    old_meta: FileAnalysisMeta, file_path: Path, file_mtime: datetime
 ) -> FileAnalysisMeta | None:
-    """Attempt to reuse cached analysis metadata if file has not been modified."""
+    """Attempt to reuse cached analysis metadata if file has not been modified and content matches."""
     if not (old_meta.last_analyzed and old_meta.pseudocode):
         return None
     try:
+        if not file_path.is_file():
+            return None
+        st = file_path.stat()
+        if old_meta.size_bytes and st.st_size != old_meta.size_bytes:
+            return None
         analyzed_dt = datetime.fromisoformat(old_meta.last_analyzed)
-        if file_mtime <= analyzed_dt:
-            return old_meta.model_copy(update={"last_analyzed": datetime.now(UTC).isoformat()})
+        if file_mtime > analyzed_dt:
+            return None
+        cur_hash = hashlib.sha256(file_path.read_bytes(), usedforsecurity=False).hexdigest()
+        if old_meta.content_hash and cur_hash != old_meta.content_hash:
+            return None
+        return old_meta.model_copy(update={"content_hash": cur_hash})
     except Exception as exc:
-        logger.debug("Failed parsing last_analyzed timestamp: %s", exc)
+        logger.debug("Failed validating cached metadata for %s: %s", file_path, exc)
     return None
 
 
@@ -438,6 +467,36 @@ def _probe_network_refs_in_dirs(
             break
 
 
+def _format_extraction_summary(
+    direct_deps_count: int,
+    direct_nets_count: int,
+    probed_deps_count: int,
+    probed_nets_count: int,
+) -> str:
+    """Format summary string distinguishing in-file references from probed workspace references."""
+    if probed_deps_count == 0 and probed_nets_count == 0:
+        return (
+            f"{direct_deps_count} unique dependency(ies) and {direct_nets_count} network target(s)"
+        )
+
+    probed_parts: list[str] = []
+    if probed_deps_count > 0:
+        probed_parts.append(
+            f"{probed_deps_count} project dependencies probed from workspace manifests"
+        )
+    if probed_nets_count > 0:
+        probed_parts.append(f"{probed_nets_count} network targets probed from workspace configs")
+    probed_summary = ", ".join(probed_parts)
+
+    if direct_deps_count == 0 and direct_nets_count == 0:
+        return f"0 in-file references ({probed_summary})"
+
+    return (
+        f"{direct_deps_count} in-file dependency(ies) and {direct_nets_count} in-file network target(s) "
+        f"({probed_summary})"
+    )
+
+
 def _execute_pre_analysis_batch(
     paths_to_analyze: list[tuple[Path, str]],
     repo: Path,
@@ -482,7 +541,9 @@ def _execute_page_review_steps(
     file_findings: list[SavedFinding],
 ) -> int:
     """Execute review pipeline on a page prompt and process step findings."""
-    result = pipeline.run(prompt, max_turns_per_agent=1, enable_thinking=False)
+    result = pipeline.run(
+        prompt, max_turns_per_agent=1, enable_thinking=False, parallel=True, skip_rag=True
+    )
     for step in result.steps:
         _process_pipeline_step_findings(
             step=step,
@@ -517,7 +578,7 @@ def _collect_paths_to_analyze(
             if (
                 not force_refresh
                 and old_meta
-                and (reused := _try_reuse_cached_analysis_meta(old_meta, file_mtime))
+                and (reused := _try_reuse_cached_analysis_meta(old_meta, p, file_mtime))
             ):
                 file_metas.append(reused)
                 metadata_by_path[rel_str] = reused
@@ -600,11 +661,7 @@ def _get_reviews_base_dir() -> Path:
     from devops_cli.core.repo import find_top_level_repo_root
 
     settings = load_settings()
-    d = (
-        settings.data.reviews_dir
-        if hasattr(settings.data, "reviews_dir") and settings.data.reviews_dir
-        else settings.data.dir / "reviews"
-    )
+    d = settings.data.reviews_dir
     if not d.is_absolute():
         d = (find_top_level_repo_root() / d).resolve()
     d.mkdir(parents=True, exist_ok=True)
@@ -635,14 +692,28 @@ class ReviewPipelineOrchestrator:
         self.errored_files: dict[str, str] = {}
 
     def _resolve_file_path(self, fpath: str) -> Path:
-        """Resolve fpath to an existing filesystem Path within target_dir."""
+        """Resolve fpath to an existing filesystem Path within target_dir or repo root."""
+        from devops_cli.core.repo import find_repo_root
+
         target_root = self.target_dir.resolve()
+        repo = find_repo_root(self.target_dir)
         p = Path(fpath)
-        candidate = p if p.is_absolute() else (target_root / p)
+        if p.is_absolute() and p.exists():
+            return p.resolve()
+        if (target_root / p).exists():
+            return (target_root / p).resolve()
+        if (repo / p).exists():
+            return (repo / p).resolve()
+        if (target_root / p.name).exists():
+            return (target_root / p.name).resolve()
+
         try:
+            candidate = p if p.is_absolute() else (target_root / p)
             resolved = candidate.resolve()
-            if resolved.is_relative_to(target_root):
+            if resolved.exists():
                 return resolved
+            if (repo / p).resolve().exists():
+                return (repo / p).resolve()
         except (ValueError, OSError) as exc:
             logger.debug("Failed resolving path %s: %s", fpath, exc)
 
@@ -673,6 +744,7 @@ class ReviewPipelineOrchestrator:
         target_type: Literal["branch", "pr", "path"] = "path",
         target_ref: str = ".",
         force_refresh: bool = False,
+        stage_flags: ReviewStageFlags | None = None,
     ) -> dict[str, FileAnalysisMeta]:
         """Scan workspace and refresh metadata if files were edited or missing."""
         from devops_cli.ai.analyze.cache import save_analysis_metadata
@@ -682,17 +754,25 @@ class ReviewPipelineOrchestrator:
         if is_dry_run():
             return {}
 
+        if stage_flags is not None and not stage_flags.pre_analysis:
+            print_info(
+                "[dim]Pre-analysis metadata scan skipped (disabled via flag)[/dim]",
+                prefix=False,
+            )
+            return {}
+
         self.target_dir = target_dir
         with trace_span(
-            "review.stage_1_pre_analysis",
+            "review.pre_analysis",
             attributes={"target_ref": target_ref, "target_type": target_type},
         ):
             repo = find_repo_root(target_dir)
             target_abs = (
                 target_dir.resolve() if target_dir.is_absolute() else (repo / target_dir).resolve()
             )
+            display_ref = str(target_abs) if (not target_ref or target_ref == ".") else target_ref
             print_info(
-                f"[dim]Stage 1/6: Scanning pre-analysis metadata for '{target_ref}'...[/dim]",
+                f"[dim]Scanning pre-analysis metadata for '{display_ref}'...[/dim]",
                 prefix=False,
             )
 
@@ -716,8 +796,7 @@ class ReviewPipelineOrchestrator:
             file_metas: list[FileAnalysisMeta] = []
 
             config = getattr(self.llm_client, "_config", None)
-            raw_urls = getattr(config, "get_ollama_urls", None)
-            ollama_urls = raw_urls if isinstance(raw_urls, list) else ["http://localhost:11434"]
+            ollama_urls = _resolve_ollama_urls(config)
             raw_par = getattr(config, "ollama_max_parallel", None)
             max_par = int(raw_par) if isinstance(raw_par, int) else 2
             batch_capacity = max(1, len(ollama_urls) * max_par)
@@ -874,6 +953,9 @@ class ReviewPipelineOrchestrator:
                     all_unique_deps.update(dep_tuples)
                     all_unique_nets.update((n.target, n.reference_type) for n in file_nets)
 
+            direct_deps_count = len(all_unique_deps)
+            direct_nets_count = len(all_unique_nets)
+
             # Dynamically discover project manifests and configuration files via
             # filesystem inspection if none were directly present in reviewed file paths
             probe_dirs: list[Path] = []
@@ -888,16 +970,28 @@ class ReviewPipelineOrchestrator:
             if not all_unique_nets:
                 _probe_network_refs_in_dirs(probe_dirs, raw_file_data, all_unique_nets)
 
+            probed_deps_count = len(all_unique_deps) - direct_deps_count
+            probed_nets_count = len(all_unique_nets) - direct_nets_count
+
             ref_span.set_attributes(
                 {
                     "unique_deps_count": len(all_unique_deps),
                     "unique_nets_count": len(all_unique_nets),
+                    "direct_deps_count": direct_deps_count,
+                    "direct_nets_count": direct_nets_count,
+                    "probed_deps_count": probed_deps_count,
+                    "probed_nets_count": probed_nets_count,
                 }
             )
 
+        summary_str = _format_extraction_summary(
+            direct_deps_count,
+            direct_nets_count,
+            probed_deps_count,
+            probed_nets_count,
+        )
         print_info(
-            f"    [dim]✓ Extracted {len(all_unique_deps)} unique dependency(ies) and "
-            f"{len(all_unique_nets)} network target(s)[/dim]",
+            f"    [dim]✓ Extracted {summary_str}[/dim]",
             prefix=False,
         )
         return raw_file_data, all_unique_deps, all_unique_nets
@@ -914,7 +1008,9 @@ class ReviewPipelineOrchestrator:
         dep_cache: dict[tuple[str, str, str], list[VulnerabilityRecord]] = {}
         net_cache: dict[str, NetworkReputationRecord] = {}
 
-        if not unique_deps and not unique_nets:
+        from devops_cli.dry_run.state import is_dry_run
+
+        if is_dry_run() or (not unique_deps and not unique_nets):
             return dep_cache, net_cache
 
         osv_client = OSVClient()
@@ -1102,8 +1198,8 @@ class ReviewPipelineOrchestrator:
                 net_cache,
             )
         except Exception as exc:
-            logger.error("Failed assembling payload for %s: %s", fpath, exc)
-            self.errored_files[fpath] = f"Stage 2 (Initialization): {exc}"
+            logger.error("Error creating review payload for %s: %s", fpath, exc)
+            self.errored_files[fpath] = f"Initialization: {exc}"
             warn_msg = f"  [yellow]• [bold red]Skipped errored file during init:[/bold red] [bold]{fpath}[/bold] [dim]({exc})[/dim][/yellow]"
             print_info(warn_msg, prefix=False)
             return None
@@ -1144,32 +1240,41 @@ class ReviewPipelineOrchestrator:
         file_paths: list[str],
         metadata_by_path: dict[str, FileAnalysisMeta],
         target_dir: Path | None = None,
+        stage_flags: ReviewStageFlags | None = None,
     ) -> list[FileReviewPayload]:
         """Initialize per-file JSON payloads under session files directory."""
         if target_dir is not None:
             self.target_dir = target_dir
 
         n_paths = len(file_paths)
-        with trace_span("review.stage_2_init_payloads", attributes={"file_count": n_paths}):
+        with trace_span("review.init_payloads", attributes={"file_count": n_paths}):
             print_info(
-                f"[dim]Stage 2/6: Initializing payload tracking for {n_paths} file(s)...[/dim]",
+                f"[dim]Initializing payload tracking for {n_paths} file(s)...[/dim]",
                 prefix=False,
             )
 
-            # Step 2a: Static security tool batch scanning
-            static_findings_by_file = self._run_static_scanners(file_paths)
+            # Static security tool batch scanning
+            static_findings_by_file: dict[str, list[SavedFinding]]
+            if stage_flags is not None and not stage_flags.static_scan:
+                print_info(
+                    "[dim]  • Static security analyzers skipped (disabled via flag)[/dim]",
+                    prefix=False,
+                )
+                static_findings_by_file = {f: [] for f in file_paths}
+            else:
+                static_findings_by_file = self._run_static_scanners(file_paths)
 
-            # Step 2b: Parse dependencies and network references across target files
+            # Parse dependencies and network references across target files
             raw_file_data, unique_deps, unique_nets = (
                 self._extract_dependencies_and_network_references(file_paths)
             )
 
-            # Step 2c: Concurrently pre-fetch unique dependency vulnerabilities & reputations
+            # Concurrently pre-fetch unique dependency vulnerabilities & reputations
             dep_cache, net_cache = self._fetch_vulnerabilities_and_reputations(
                 unique_deps, unique_nets
             )
 
-            # Step 2d: Assemble and persist FileReviewPayload objects
+            # Assemble and persist FileReviewPayload objects
             payloads = self._assemble_and_persist_payloads(
                 file_paths=file_paths,
                 metadata_by_path=metadata_by_path,
@@ -1185,7 +1290,7 @@ class ReviewPipelineOrchestrator:
             )
             return payloads
 
-    # ── Stage 3: Multi-Persona Code Content Review ─────────────────────────────
+    # ── Multi-Persona Code Content Review ──────────────────────────────────────
     def _read_target_conventions(self) -> str:
         """Read and sanitize AGENTS.md conventions from target repository."""
         target_agents_path = self.target_dir / "AGENTS.md"
@@ -1213,14 +1318,15 @@ class ReviewPipelineOrchestrator:
         pipeline = MultiAgentPipeline[ReviewResult](output_schema=ReviewResult)
         persona_lookup: dict[str, tuple[str, str]] = {}
 
-        for p_key in active_personas:
+        effective_personas = active_personas if active_personas else ["devsecops"]
+        for p_key in effective_personas:
             try:
                 persona_enum = Persona(p_key) if isinstance(p_key, str) else p_key
                 p_val = persona_enum.value if hasattr(persona_enum, "value") else str(persona_enum)
             except ValueError:
                 persona_enum = Persona.DEVSECOPS
                 p_val = "devsecops"
-            p_def = PERSONAS[persona_enum]
+            p_def = PERSONAS.get(persona_enum, PERSONAS[Persona.DEVSECOPS])
             persona_lookup[p_def.title] = (p_val, p_def.title)
             persona_lookup[p_val] = (p_val, p_def.title)
             sys_prompt = (
@@ -1236,6 +1342,18 @@ class ReviewPipelineOrchestrator:
             )
             pipeline.add_agent(agent)
 
+        if not pipeline.agents:
+            p_def = PERSONAS[Persona.DEVSECOPS]
+            persona_lookup[p_def.title] = ("devsecops", p_def.title)
+            persona_lookup["devsecops"] = ("devsecops", p_def.title)
+            agent = PydanticAgent[ReviewResult](
+                client=self.llm_client,
+                name=p_def.title,
+                system_prompt=f"You are {p_def.title}.\n{p_def.system_prompt}\n\n{_REVIEW_PIPELINE_EVAL}\n{target_conventions}",
+                output_schema=ReviewResult,
+            )
+            pipeline.add_agent(agent)
+
         return pipeline, persona_lookup
 
     def _review_single_file_payload(
@@ -1246,12 +1364,15 @@ class ReviewPipelineOrchestrator:
         diff_text_by_file: dict[str, str],
         active_personas: list[str],
         server_info: str,
+        *,
+        pipeline: MultiAgentPipeline[ReviewResult] | None = None,
+        persona_lookup: dict[str, tuple[str, str]] | None = None,
     ) -> None:
         """Run multi-persona review for a single file across chunked diff pages."""
         fpath = payload.file_path
         ext = Path(fpath).suffix.lower()
         with trace_span(
-            "review.stage_3.file_review",
+            "review.file_review",
             attributes={
                 "session_id": self.session_id,
                 "file_path": fpath,
@@ -1259,7 +1380,7 @@ class ReviewPipelineOrchestrator:
                 "total_files": total_files,
                 "review.personas": active_personas,
                 "review.file_extension": ext,
-                "review.stage": "stage_3_inspection",
+                "review.stage": "inspection",
             },
         ) as file_span:
             content_or_diff = diff_text_by_file.get(fpath, "")
@@ -1277,11 +1398,21 @@ class ReviewPipelineOrchestrator:
                 return
 
             from devops_cli.ai.review.chunker import _diff_pages
-            from devops_cli.config.constants import CONST_REVIEW_MAX_DIFF_CHARS
+            from devops_cli.config.defaults import (
+                DEFAULT_AI_CONTEXT_WINDOW,
+                DEFAULT_REVIEW_MAX_DIFF_CHARS,
+            )
+
+            ctx_win = (
+                self.llm_client.get_context_window("analysis")
+                if hasattr(self.llm_client, "get_context_window")
+                else DEFAULT_AI_CONTEXT_WINDOW
+            )
+            max_diff_chars = max(DEFAULT_REVIEW_MAX_DIFF_CHARS, int(ctx_win * 3.5))
 
             pages = (
-                _diff_pages(content_or_diff, max_chars=CONST_REVIEW_MAX_DIFF_CHARS)
-                if len(content_or_diff) > CONST_REVIEW_MAX_DIFF_CHARS
+                _diff_pages(content_or_diff, max_chars=max_diff_chars)
+                if len(content_or_diff) > max_diff_chars
                 else [content_or_diff]
             )
             total_pages = len(pages)
@@ -1293,10 +1424,11 @@ class ReviewPipelineOrchestrator:
             )
 
             file_findings: list[SavedFinding] = []
-            target_conventions = self._read_target_conventions()
-            pipeline, persona_lookup = self._build_multi_persona_pipeline(
-                active_personas, target_conventions
-            )
+            if pipeline is None or persona_lookup is None:
+                target_conventions = self._read_target_conventions()
+                pipeline, persona_lookup = self._build_multi_persona_pipeline(
+                    active_personas, target_conventions
+                )
 
             symbols = ", ".join(payload.metadata.key_symbols if payload.metadata else [])
             rag_context_str = ""
@@ -1385,6 +1517,9 @@ class ReviewPipelineOrchestrator:
         diff_text_by_file: dict[str, str],
         active_personas: list[str],
         server_info: str,
+        *,
+        pipeline: MultiAgentPipeline[ReviewResult] | None = None,
+        persona_lookup: dict[str, tuple[str, str]] | None = None,
     ) -> None:
         """Safely execute review on single file payload with error capture."""
         if payload.file_path in self.errored_files:
@@ -1397,13 +1532,15 @@ class ReviewPipelineOrchestrator:
                 diff_text_by_file=diff_text_by_file,
                 active_personas=active_personas,
                 server_info=server_info,
+                pipeline=pipeline,
+                persona_lookup=persona_lookup,
             )
         except Exception as exc:
             logger.error("Error reviewing file %s: %s", payload.file_path, exc)
             payload.findings = []
             payload.ai_scratchpad["stage"] = "failed"
             payload.ai_scratchpad["error"] = str(exc)
-            self.errored_files[payload.file_path] = f"Stage 3 (Review): {exc}"
+            self.errored_files[payload.file_path] = f"Review: {exc}"
             print_info(
                 f"[yellow][{idx}/{total_files}][/yellow] [bold red]Skipped errored file:[/bold red] "
                 f"[bold]{payload.file_path}[/bold] [dim]({exc})[/dim]",
@@ -1415,14 +1552,22 @@ class ReviewPipelineOrchestrator:
         file_payloads: list[FileReviewPayload],
         diff_text_by_file: dict[str, str],
         personas: list[str] | None = None,
+        stage_flags: ReviewStageFlags | None = None,
     ) -> None:
         """Run multi-persona review pipeline per file in parallel across configured AI nodes."""
+        if stage_flags is not None and not stage_flags.persona_review:
+            print_info(
+                "[dim]Persona code review skipped (disabled via flag)[/dim]",
+                prefix=False,
+            )
+            return
+
         active_personas = personas or ["devsecops", "architect", "qa"]
         total_files = len(file_payloads)
         server_info = self._get_server_info()
 
         with trace_span(
-            "review.stage_3_inspection",
+            "review.inspection",
             attributes={
                 "review.total_files": total_files,
                 "review.personas": ", ".join(active_personas),
@@ -1445,14 +1590,13 @@ class ReviewPipelineOrchestrator:
             )
 
             print_info(
-                f"[dim]Stage 3/6: {persona_label} review for {total_files} file(s) "
+                f"[dim]{persona_label} review for {total_files} file(s) "
                 f"-> Configured AI Server(s): {server_info}[/dim]",
                 prefix=False,
             )
 
             config = getattr(self.llm_client, "_config", None)
-            raw_urls = getattr(config, "get_ollama_urls", None)
-            ollama_urls = raw_urls if isinstance(raw_urls, list) else ["http://localhost:11434"]
+            ollama_urls = _resolve_ollama_urls(config)
             raw_par = getattr(config, "ollama_max_parallel", None)
             max_par = int(raw_par) if isinstance(raw_par, int) else 2
             batch_capacity = max(1, len(ollama_urls) * max_par)
@@ -1465,10 +1609,22 @@ class ReviewPipelineOrchestrator:
                 {"total_files": total_files, "workers": n_workers},
             )
 
+            target_conventions = self._read_target_conventions()
+            compiled_pipeline, persona_lookup = self._build_multi_persona_pipeline(
+                active_personas, target_conventions
+            )
+
             def _review_task(arg: tuple[int, FileReviewPayload]) -> None:
                 idx, payload = arg
                 self._safe_review_file_payload(
-                    idx, total_files, payload, diff_text_by_file, active_personas, server_info
+                    idx,
+                    total_files,
+                    payload,
+                    diff_text_by_file,
+                    active_personas,
+                    server_info,
+                    pipeline=compiled_pipeline,
+                    persona_lookup=persona_lookup,
                 )
 
             if n_workers > 1:
@@ -1478,7 +1634,7 @@ class ReviewPipelineOrchestrator:
                 for item in enumerate(file_payloads, 1):
                     _review_task(item)
 
-    # ── Stage 4: Cross-Referencing Verification & Reasoning ─────────────────
+    # ── Cross-Referencing Verification & Reasoning ──────────────────────────
     def _safe_verify_file_payload(
         self,
         idx: int,
@@ -1500,7 +1656,7 @@ class ReviewPipelineOrchestrator:
             logger.error("Error verifying file %s: %s", payload.file_path, exc)
             payload.ai_scratchpad["stage"] = "failed"
             payload.ai_scratchpad["error"] = str(exc)
-            self.errored_files[payload.file_path] = f"Stage 4 (Verification): {exc}"
+            self.errored_files[payload.file_path] = f"Verification: {exc}"
             print_info(
                 f"[yellow][{idx}/{total_files}][/yellow] [bold red]Skipped verification on errored file:[/bold red] "
                 f"[bold]{payload.file_path}[/bold] [dim]({exc})[/dim]",
@@ -1518,7 +1674,7 @@ class ReviewPipelineOrchestrator:
         fpath = payload.file_path
         ext = Path(fpath).suffix.lower()
         with trace_span(
-            "review.stage_4.file_verify",
+            "review.file_verify",
             attributes={
                 "session_id": self.session_id,
                 "file_path": fpath,
@@ -1580,9 +1736,9 @@ class ReviewPipelineOrchestrator:
 
             thoughts_list = payload.ai_scratchpad.setdefault("thoughts", [])
             thoughts_list.append(
-                f"[Stage 4 Verification] Verified {tot_u} finding(s) for "
-                f"{payload.file_path}: {valid_cnt} confirmed/mitigated, "
-                f"{tot_u - valid_cnt} invalidated/unverified"
+                f"[Verification] Verified {tot_u} finding(s) for "
+                f"'{Path(payload.file_path).name}' "
+                f"({len(payload.findings)} total candidate(s))"
             )
 
             payload.findings = updated_saved
@@ -1606,17 +1762,28 @@ class ReviewPipelineOrchestrator:
                 prefix=False,
             )
 
-    def execute_finding_verification(self, file_payloads: list[FileReviewPayload]) -> None:
+    def execute_finding_verification(
+        self,
+        file_payloads: list[FileReviewPayload],
+        stage_flags: ReviewStageFlags | None = None,
+    ) -> None:
         """Verify findings against file contents and linked files in parallel."""
+        if stage_flags is not None and not stage_flags.verification:
+            print_info(
+                "[dim]Finding verification skipped (disabled via flag)[/dim]",
+                prefix=False,
+            )
+            return
+
         total_files = len(file_payloads)
         server_info = self._get_server_info()
 
         with trace_span(
-            "review.stage_4_verification",
+            "review.verification",
             attributes={"review.total_files": total_files},
         ) as s4_span:
             print_info(
-                f"[dim]Stage 4/6: Verifying findings for {total_files} file(s) "
+                f"[dim]Verifying findings for {total_files} file(s) "
                 f"-> Configured AI Server(s): {server_info}[/dim]",
                 prefix=False,
             )
@@ -1633,8 +1800,7 @@ class ReviewPipelineOrchestrator:
                 return
 
             config = getattr(self.llm_client, "_config", None)
-            raw_urls = getattr(config, "get_ollama_urls", None)
-            ollama_urls = raw_urls if isinstance(raw_urls, list) else ["http://localhost:11434"]
+            ollama_urls = _resolve_ollama_urls(config)
             raw_par = getattr(config, "ollama_max_parallel", None)
             max_par = int(raw_par) if isinstance(raw_par, int) else 2
             batch_capacity = max(1, len(ollama_urls) * max_par)
@@ -1660,7 +1826,7 @@ class ReviewPipelineOrchestrator:
 
             run_adversarial_debate_stage(file_payloads)
 
-    # ── Stage 5: AI Validation & Re-ranking ──────────────────────────────────
+    # ── AI Validation & Re-ranking ──────────────────────────────────────────
     def _rerank_single_file_payload(self, payload: FileReviewPayload) -> None:
         """Re-rank findings and update payload scratchpad."""
         valid_findings = [f for f in payload.findings if f.reportable and f.status != "INVALIDATED"]
@@ -1672,7 +1838,7 @@ class ReviewPipelineOrchestrator:
 
         thoughts_list = payload.ai_scratchpad.setdefault("thoughts", [])
         thoughts_list.append(
-            f"[Stage 5 Re-ranking] Identified {len(valid_findings)} reportable "
+            f"[Re-ranking] Identified {len(valid_findings)} reportable "
             f"finding(s) from {len(payload.findings)} total candidate(s)"
         )
 
@@ -1681,14 +1847,23 @@ class ReviewPipelineOrchestrator:
         json_target.parent.mkdir(parents=True, exist_ok=True)
         json_target.write_text(payload.model_dump_json(indent=2), encoding="utf-8")
 
-    def execute_finding_reranking(self, file_payloads: list[FileReviewPayload]) -> None:
+    def execute_finding_reranking(
+        self,
+        file_payloads: list[FileReviewPayload],
+        stage_flags: ReviewStageFlags | None = None,
+    ) -> None:
         """Validate and re-rank all findings into reportable vs non-reportable."""
-        n_p = len(file_payloads)
-        with trace_span(
-            "review.stage_5_reranking", attributes={"review.total_files": n_p}
-        ) as s5_span:
+        if stage_flags is not None and not stage_flags.reranking:
             print_info(
-                f"[dim]Stage 5/6: Re-ranking and validating findings for {n_p} file(s)...[/dim]",
+                "[dim]Finding re-ranking skipped (disabled via flag)[/dim]",
+                prefix=False,
+            )
+            return
+
+        n_p = len(file_payloads)
+        with trace_span("review.reranking", attributes={"review.total_files": n_p}) as s5_span:
+            print_info(
+                f"[dim]Re-ranking and validating findings for {n_p} file(s)...[/dim]",
                 prefix=False,
             )
             for payload in file_payloads:
@@ -1698,7 +1873,7 @@ class ReviewPipelineOrchestrator:
                     self._rerank_single_file_payload(payload)
                 except Exception as exc:
                     logger.error("Error re-ranking findings for %s: %s", payload.file_path, exc)
-                    self.errored_files[payload.file_path] = f"Stage 5 (Reranking): {exc}"
+                    self.errored_files[payload.file_path] = f"Reranking: {exc}"
 
             total_reportable = sum(
                 len([f for f in p.findings if f.reportable and f.status != "INVALIDATED"])
@@ -1857,33 +2032,23 @@ class ReviewPipelineOrchestrator:
             ("Conf", "dim"),
         ]
         rows: list[list[str]] = []
+        sev_badges = {
+            "CRITICAL": "[bold red]CRITICAL[/bold red]",
+            "HIGH": "[red]HIGH[/red]",
+            "MEDIUM": "[yellow]MEDIUM[/yellow]",
+            "LOW": "[cyan]LOW[/cyan]",
+            "INFO": "[green]INFO[/green]",
+        }
+        st_badges = {
+            "VERIFIED": "[green]VERIFIED[/green]",
+            "FLAGGED": "[yellow]FLAGGED[/yellow]",
+            "MITIGATED": "[cyan]MITIGATED[/cyan]",
+            "INVALIDATED": "[red]INVALIDATED[/red]",
+        }
+
         for idx, f in enumerate(reportable_findings, 1):
-            sev_upper = f.severity.upper()
-            if sev_upper == "CRITICAL":
-                sev_str = "[bold red]CRITICAL[/bold red]"
-            elif sev_upper == "HIGH":
-                sev_str = "[red]HIGH[/red]"
-            elif sev_upper == "MEDIUM":
-                sev_str = "[yellow]MEDIUM[/yellow]"
-            elif sev_upper == "LOW":
-                sev_str = "[cyan]LOW[/cyan]"
-            elif sev_upper == "INFO":
-                sev_str = "[green]INFO[/green]"
-            else:
-                sev_str = f"[white]{f.severity}[/white]"
-
-            st_upper = f.status.upper()
-            if st_upper == "VERIFIED":
-                st_str = "[green]VERIFIED[/green]"
-            elif st_upper == "FLAGGED":
-                st_str = "[yellow]FLAGGED[/yellow]"
-            elif st_upper == "MITIGATED":
-                st_str = "[cyan]MITIGATED[/cyan]"
-            elif st_upper == "INVALIDATED":
-                st_str = "[red]INVALIDATED[/red]"
-            else:
-                st_str = f"[dim]{f.status}[/dim]"
-
+            sev_str = sev_badges.get(f.severity.upper(), f"[white]{f.severity}[/white]")
+            st_str = st_badges.get(f.status.upper(), f"[dim]{f.status}[/dim]")
             conf_str = (
                 f"{int(f.confidence_score * 100)}%" if f.confidence_score is not None else "—"
             )
@@ -1917,13 +2082,8 @@ class ReviewPipelineOrchestrator:
                 f"[bold]Location:[/bold] [cyan]{escape_text(f.location)}[/cyan]  |  [bold]Persona:[/bold] [magenta]{escape_text(f.persona_title or f.persona)}[/magenta]",
             ]
             if f.description:
-                panel_lines.extend(
-                    [
-                        "",
-                        "[bold]Description:[/bold]",
-                        format_clean_text_field(f.description).strip(),
-                    ]
-                )
+                desc_text = format_clean_text_field(f.description).strip()
+                panel_lines.extend(["", "[bold]Description:[/bold]", desc_text])
             if f.fix:
                 panel_lines.extend(
                     ["", "[bold]Suggested Fix:[/bold]", format_clean_text_field(f.fix).strip()]
@@ -2111,15 +2271,24 @@ class ReviewPipelineOrchestrator:
         )
 
     def generate_consolidated_report(
-        self, file_payloads: list[FileReviewPayload]
+        self,
+        file_payloads: list[FileReviewPayload],
+        stage_flags: ReviewStageFlags | None = None,
     ) -> tuple[dict[str, Any], str]:
         """Generate consolidated findings.json and client-facing Markdown report."""
+        if stage_flags is not None and not stage_flags.reporting:
+            print_info(
+                "[dim]Consolidated reporting skipped (disabled via flag)[/dim]",
+                prefix=False,
+            )
+            return {}, ""
+
         with trace_span(
-            "review.stage_6_report_generation",
+            "review.report_generation",
             attributes={"session_id": self.session_id, "review.total_files": len(file_payloads)},
         ) as report_span:
             print_info(
-                f"[dim]Stage 6/6: Generating report for session '{self.session_id}'...[/dim]",
+                f"[dim]Generating report for session '{self.session_id}'...[/dim]",
                 prefix=False,
             )
             all_findings = self._collect_and_deduplicate_findings(file_payloads)

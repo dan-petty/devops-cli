@@ -86,6 +86,20 @@ def normalize_unicode_text(text: str) -> str:
     return normalized.translate(_TRANSLATE_TABLE)
 
 
+def _parse_stringified_collection(s: str) -> list[Any] | None:
+    """Attempt parsing a stringified Python/JSON list or tuple."""
+    if not ((s.startswith("[") and s.endswith("]")) or (s.startswith("(") and s.endswith(")"))):
+        return None
+    for parser in (ast.literal_eval, json.loads):
+        try:
+            parsed = parser(s)
+            if isinstance(parsed, (list, tuple, set)):
+                return list(parsed)
+        except Exception:
+            continue
+    return None
+
+
 def format_clean_text_field(val: Any) -> str:
     """Normalize strings, lists, or stringified Python/JSON lists into clean, readable text."""
     if val is None:
@@ -94,18 +108,9 @@ def format_clean_text_field(val: Any) -> str:
         return "\n".join(str(item).strip() for item in val if str(item).strip())
     if isinstance(val, str):
         s = val.strip()
-        if (s.startswith("[") and s.endswith("]")) or (s.startswith("(") and s.endswith(")")):
-            try:
-                parsed = ast.literal_eval(s)
-                if isinstance(parsed, (list, tuple, set)):
-                    return "\n".join(str(item).strip() for item in parsed if str(item).strip())
-            except Exception:
-                try:
-                    parsed = json.loads(s)
-                    if isinstance(parsed, (list, tuple, set)):
-                        return "\n".join(str(item).strip() for item in parsed if str(item).strip())
-                except Exception:
-                    pass
+        coll = _parse_stringified_collection(s)
+        if coll is not None:
+            return "\n".join(str(item).strip() for item in coll if str(item).strip())
         return s
     return str(val)
 
@@ -114,6 +119,71 @@ def _tokenize_title(title: str) -> set[str]:
     """Tokenize finding title into lowercase word tokens."""
     words = re.findall(r"\b[a-zA-Z0-9_]+\b", title.lower())
     return {w for w in words if len(w) > 2}
+
+
+def _parse_string_finding(text: str) -> dict[str, Any]:
+    """Parse unstructured finding string into structured dictionary."""
+    clean = normalize_unicode_text(text).strip()
+    if not clean:
+        return {"title": "", "location": "", "description": ""}
+    m = re.match(
+        r"^\[?(CRITICAL|HIGH|MEDIUM|LOW|INFO)\]?\s*`?([^`:\s]+(?::\d+(?:-\d+)?)?)`?\s*[-:—]\s*(.+)$",
+        clean,
+        re.IGNORECASE,
+    )
+    if m:
+        return {
+            "severity": m.group(1).upper(),
+            "location": m.group(2).strip(),
+            "title": m.group(3).strip(),
+            "description": clean,
+        }
+    return {"title": "", "location": "", "description": ""}
+
+
+def _parse_finding_references(raw_ref: Any) -> list[str]:
+    """Parse references from list, string, or literal representation."""
+    if isinstance(raw_ref, list):
+        return [str(r).strip() for r in raw_ref if str(r).strip()]
+    if not isinstance(raw_ref, str):
+        return []
+    if raw_ref.startswith("[") and raw_ref.endswith("]"):
+        try:
+            parsed = ast.literal_eval(raw_ref)
+            if isinstance(parsed, list):
+                return [str(r).strip() for r in parsed if str(r).strip()]
+        except Exception:
+            pass
+    return [r.strip() for r in raw_ref.split(",") if r.strip()]
+
+
+def _extract_dict_finding_fields(data: dict[str, Any]) -> dict[str, Any]:
+    """Extract and normalize finding fields from dictionary synonyms."""
+    d = dict(data)
+    title_keys = ("title", "issue", "problem", "name", "summary", "heading", "finding")
+    title_val = next((d[k] for k in title_keys if d.get(k)), "")
+    if isinstance(title_val, (list, tuple, set)):
+        d["title"] = " ".join(str(item).strip() for item in title_val if str(item).strip())
+    else:
+        d["title"] = format_clean_text_field(title_val)
+
+    desc_keys = ("description", "details", "detail", "impact", "explanation", "message", "body")
+    d["description"] = format_clean_text_field(next((d[k] for k in desc_keys if d.get(k)), ""))
+
+    loc_keys = ("location", "file", "path", "target", "line", "lines")
+    d["location"] = format_clean_text_field(next((d[k] for k in loc_keys if d.get(k)), ""))
+
+    fix_keys = ("fix", "remediation", "recommendation", "suggested_fix", "solution", "patch")
+    d["fix"] = format_clean_text_field(next((d[k] for k in fix_keys if d.get(k)), ""))
+
+    if "references" in d:
+        d["references"] = _parse_finding_references(d["references"])
+
+    if not d.get("verification_criteria") and d.get("verification"):
+        d["verification_criteria"] = d.get("verification")
+    if not d.get("invalidation_criteria") and d.get("invalidation"):
+        d["invalidation_criteria"] = d.get("invalidation")
+    return d
 
 
 class Finding(BaseModel):
@@ -141,93 +211,9 @@ class Finding(BaseModel):
     @classmethod
     def _pre_validate_finding(cls, data: Any) -> Any:
         if isinstance(data, str):
-            text = normalize_unicode_text(data).strip()
-            if not text:
-                return {"title": "", "location": "", "description": ""}
-            # If string is structured as "[SEVERITY] path:line - title"
-            m = re.match(
-                r"^\[?(CRITICAL|HIGH|MEDIUM|LOW|INFO)\]?\s*`?([^`:\s]+(?::\d+(?:-\d+)?)?)`?\s*[-:—]\s*(.+)$",
-                text,
-                re.IGNORECASE,
-            )
-            if m:
-                return {
-                    "severity": m.group(1).upper(),
-                    "location": m.group(2).strip(),
-                    "title": m.group(3).strip(),
-                    "description": text,
-                }
-            return {"title": "", "location": "", "description": ""}
+            return _parse_string_finding(data)
         if isinstance(data, dict):
-            d = dict(data)
-            title_val = (
-                d.get("title")
-                or d.get("issue")
-                or d.get("problem")
-                or d.get("name")
-                or d.get("summary")
-                or d.get("heading")
-                or d.get("finding")
-                or ""
-            )
-            if isinstance(title_val, (list, tuple, set)):
-                d["title"] = " ".join(str(item).strip() for item in title_val if str(item).strip())
-            else:
-                d["title"] = format_clean_text_field(title_val)
-
-            desc_val = (
-                d.get("description")
-                or d.get("details")
-                or d.get("detail")
-                or d.get("impact")
-                or d.get("explanation")
-                or d.get("message")
-                or d.get("body")
-                or ""
-            )
-            d["description"] = format_clean_text_field(desc_val)
-
-            loc_val = (
-                d.get("location")
-                or d.get("file")
-                or d.get("path")
-                or d.get("target")
-                or d.get("line")
-                or d.get("lines")
-                or ""
-            )
-            d["location"] = format_clean_text_field(loc_val)
-
-            fix_val = (
-                d.get("fix")
-                or d.get("remediation")
-                or d.get("recommendation")
-                or d.get("suggested_fix")
-                or d.get("solution")
-                or d.get("patch")
-                or ""
-            )
-            d["fix"] = format_clean_text_field(fix_val)
-
-            if "references" in d:
-                raw_ref = d["references"]
-                if isinstance(raw_ref, str):
-                    if raw_ref.startswith("[") and raw_ref.endswith("]"):
-                        try:
-                            parsed_refs = ast.literal_eval(raw_ref)
-                            if isinstance(parsed_refs, list):
-                                d["references"] = [
-                                    str(r).strip() for r in parsed_refs if str(r).strip()
-                                ]
-                        except Exception:
-                            d["references"] = [r.strip() for r in raw_ref.split(",") if r.strip()]
-                    else:
-                        d["references"] = [r.strip() for r in raw_ref.split(",") if r.strip()]
-            if not d.get("verification_criteria") and d.get("verification"):
-                d["verification_criteria"] = d.get("verification")
-            if not d.get("invalidation_criteria") and d.get("invalidation"):
-                d["invalidation_criteria"] = d.get("invalidation")
-            return d
+            return _extract_dict_finding_fields(data)
         return data
 
     @property

@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import re
-from dataclasses import asdict, dataclass, field
 from importlib import import_module
 from pathlib import Path
 from typing import Any
 
 import click
 import typer
+from pydantic import BaseModel, Field
 
 from devops_cli.config.constants import CONST_MARKDOWN_HEADING_LEVEL
 from devops_cli.config.env import EnvVarSpec, get_all_env_var_specs
@@ -50,13 +50,12 @@ def _format_type(param_type: Any) -> str:
     return type_name or "string"
 
 
-@dataclass
-class ParamDoc:
+class ParamDoc(BaseModel):
     """Documentation model for a command parameter (argument or option)."""
 
     name: str
     kind: str  # "argument", "option", or "flag"
-    flags: list[str] = field(default_factory=list)
+    flags: list[str] = Field(default_factory=list)
     type_name: str = "string"
     description: str = ""
     default: str | None = None
@@ -65,8 +64,7 @@ class ParamDoc:
     hidden: bool = False
 
 
-@dataclass
-class CommandDoc:
+class CommandDoc(BaseModel):
     """Documentation model for a CLI command or subcommand."""
 
     name: str
@@ -74,30 +72,28 @@ class CommandDoc:
     summary: str
     description: str
     usage: str
-    params: list[ParamDoc] = field(default_factory=list)
-    subcommands: list[CommandDoc] = field(default_factory=list)
+    params: list[ParamDoc] = Field(default_factory=list)
+    subcommands: list[CommandDoc] = Field(default_factory=list)
     is_group: bool = False
     hidden: bool = False
 
 
-@dataclass
-class CommandGroupDoc:
+class CommandGroupDoc(BaseModel):
     """Documentation model for a top-level command group."""
 
     name: str
     module_path: str
     summary: str
     description: str
-    commands: list[CommandDoc] = field(default_factory=list)
+    commands: list[CommandDoc] = Field(default_factory=list)
 
 
-@dataclass
-class MCPToolDoc:
+class MCPToolDoc(BaseModel):
     """Documentation model for a FastMCP tool."""
 
     name: str
     description: str
-    parameters: list[dict[str, Any]] = field(default_factory=list)
+    parameters: list[dict[str, Any]] = Field(default_factory=list)
 
 
 def _parse_mcp_input_schema_parameters(input_schema: Any) -> list[dict[str, Any]]:
@@ -707,7 +703,7 @@ class DocGenerator:
 
         return {
             "version": "1.0",
-            "groups": [asdict(g) for g in groups],
-            "env_vars": [asdict(e) for e in env_specs],
-            "mcp_tools": [asdict(t) for t in mcp_tools],
+            "groups": [g.model_dump() for g in groups],
+            "env_vars": [e.model_dump() for e in env_specs],
+            "mcp_tools": [t.model_dump() for t in mcp_tools],
         }

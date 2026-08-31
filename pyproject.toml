@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "devops-cli"
-version = "0.2.4"
+version = "0.2.5"
 description = "DevOps CLI for managing repos, SSH keys, Kubernetes, and more"
 requires-python = ">=3.14"
 dependencies = [
@@ -68,6 +68,7 @@ ignore = ["E501", "N818"]
 [tool.mypy]
 python_version = "3.14"
 strict = true
+plugins = ['pydantic.mypy']
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

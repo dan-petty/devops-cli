@@ -13,29 +13,30 @@ from devops_cli.config.constants import CONST_CURRENT_DIR
 from devops_cli.core.cli import new_typer
 from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
+from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import print_error, print_info, print_success
 from devops_cli.telemetry.tracer import trace_span
 
-app = new_typer(help="Programmable containerized pipeline execution.", no_args_is_help=True)
+app = new_typer(help=HELP.pipeline.app, no_args_is_help=True)
 
 
-@app.command("run")
+@app.command("run", help=HELP.pipeline.run)
 def run_pipeline_cmd(
     pipeline_path: Annotated[
         Path,
-        typer.Argument(help="Path to Dagger module directory or pipeline script"),
+        typer.Argument(help=HELP.pipeline.pipeline_path),
     ] = CONST_CURRENT_DIR,
     function_name: Annotated[
         str | None,
-        typer.Option("--function", "-f", help="Target pipeline function to call"),
+        typer.Option("--function", "-f", help=HELP.pipeline.function_name),
     ] = None,
     args: Annotated[
         list[str] | None,
-        typer.Option("--args", "-a", help="Arguments to forward to the pipeline execution"),
+        typer.Option("--args", "-a", help=HELP.pipeline.args),
     ] = None,
     dry_run: Annotated[
         bool,
-        typer.Option("--dry-run", help="Simulate pipeline execution"),
+        typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
 ) -> None:
     """Execute reproducible, containerized developer pipelines with Dagger."""
@@ -56,12 +57,15 @@ def run_pipeline_cmd(
         has_dagger = shutil.which(BIN_DAGGER) is not None
         if not has_dagger:
             print_error(
-                "Dagger CLI binary not found in PATH. Install Dagger to run containerized pipelines.",
+                MESSAGES.pipeline.dagger_not_found,
                 prefix=False,
             )
             raise typer.Exit(1)
 
-        print_info(f"Executing Dagger pipeline from '{pipeline_path}'...", prefix=False)
+        print_info(
+            MESSAGES.pipeline.executing.format(path=str(pipeline_path)),
+            prefix=False,
+        )
         cmd = build_dagger_cmd(
             pipeline_path=pipeline_path.resolve(),
             function_name=function_name,
@@ -69,7 +73,10 @@ def run_pipeline_cmd(
         )
         res = run_subprocess(cmd, check=False)
         if res.returncode == 0:
-            print_success(f"✓ Pipeline execution completed successfully ({pipeline_path.name}).")
+            print_success(MESSAGES.pipeline.success.format(name=pipeline_path.name))
         else:
-            print_error(f"Pipeline execution failed with exit code {res.returncode}.", prefix=False)
+            print_error(
+                MESSAGES.pipeline.failed.format(code=res.returncode),
+                prefix=False,
+            )
             raise typer.Exit(res.returncode)

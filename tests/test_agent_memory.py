@@ -122,3 +122,16 @@ def test_multi_agent_pipeline_with_memory() -> None:
     assert pipeline.memory.entries[1].metadata.get("agent") == "Agent1"
     assert pipeline.memory.entries[2].role == "assistant"
     assert pipeline.memory.entries[2].metadata.get("agent") == "Agent2"
+
+
+def test_agent_memory_with_context_window_awareness() -> None:
+    mock_client = MagicMock()
+    mock_client.get_context_window.return_value = 32768
+
+    memory = AgentMemory(session_id="ctx-aware", max_entries=50, max_chars=96000)
+    for i in range(10):
+        memory.add_interaction("user" if i % 2 == 0 else "assistant", "a" * 500)
+
+    # Under 32k context window, it should not summarize
+    assert memory.auto_summarize_if_needed(llm_client=mock_client) is False
+    assert len(memory.entries) == 10

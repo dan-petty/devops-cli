@@ -22,6 +22,7 @@ _QUIET_SUBPROCESS_ARGS = frozenset(
 def run_subprocess(
     cmd: list[str],
     *,
+    input: str | None = None,
     cwd: Path | None = None,
     env: dict[str, str] | None = None,
     capture_output: bool = True,
@@ -59,6 +60,7 @@ def run_subprocess(
         try:
             proc = subprocess.run(
                 cmd,
+                input=input,
                 cwd=cwd,
                 env=sub_env,
                 capture_output=capture_output,

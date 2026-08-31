@@ -3,15 +3,15 @@
 from __future__ import annotations
 
 import ast
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+from pydantic import BaseModel, Field
 
 from devops_cli.core.repo import find_top_level_repo_root
 
 
-@dataclass
-class SymbolNode:
+class SymbolNode(BaseModel):
     """Represents a class, function, or method declaration in the repository map."""
 
     name: str
@@ -19,7 +19,7 @@ class SymbolNode:
     line_number: int
     signature: str = ""
     docstring: str = ""
-    children: list[SymbolNode] = field(default_factory=list)
+    children: list[SymbolNode] = Field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -32,13 +32,12 @@ class SymbolNode:
         }
 
 
-@dataclass
-class FileMapNode:
+class FileMapNode(BaseModel):
     """Represents a source file and its exported symbols."""
 
     path: str
     line_count: int
-    symbols: list[SymbolNode] = field(default_factory=list)
+    symbols: list[SymbolNode] = Field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -69,10 +68,25 @@ def _format_function_signature(fn_node: ast.FunctionDef | ast.AsyncFunctionDef) 
     return f"({', '.join(args)}) -> {ret}"
 
 
+def _extract_class_methods(class_node: ast.ClassDef) -> list[SymbolNode]:
+    """Extract member method symbol nodes from an AST ClassDef."""
+    return [
+        SymbolNode(
+            name=item.name,
+            kind="method",
+            line_number=item.lineno,
+            signature=_format_function_signature(item),
+            docstring=_extract_doc_summary(item),
+        )
+        for item in class_node.body
+        if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))
+    ]
+
+
 def parse_file_symbols(file_path: Path, relative_to: Path) -> FileMapNode | None:
     """Parse a Python source file using AST and extract class and function symbols."""
     try:
-        content = file_path.read_text(encoding="utf-8")
+        content = file_path.read_text(encoding="utf-8", errors="replace")
     except Exception:
         return None
 
@@ -87,32 +101,25 @@ def parse_file_symbols(file_path: Path, relative_to: Path) -> FileMapNode | None
 
     for node in tree.body:
         if isinstance(node, ast.ClassDef):
-            class_sym = SymbolNode(
-                name=node.name,
-                kind="class",
-                line_number=node.lineno,
-                docstring=_extract_doc_summary(node),
+            symbols.append(
+                SymbolNode(
+                    name=node.name,
+                    kind="class",
+                    line_number=node.lineno,
+                    docstring=_extract_doc_summary(node),
+                    children=_extract_class_methods(node),
+                )
             )
-            for item in node.body:
-                if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                    method_sym = SymbolNode(
-                        name=item.name,
-                        kind="method",
-                        line_number=item.lineno,
-                        signature=_format_function_signature(item),
-                        docstring=_extract_doc_summary(item),
-                    )
-                    class_sym.children.append(method_sym)
-            symbols.append(class_sym)
         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            fn_sym = SymbolNode(
-                name=node.name,
-                kind="function",
-                line_number=node.lineno,
-                signature=_format_function_signature(node),
-                docstring=_extract_doc_summary(node),
+            symbols.append(
+                SymbolNode(
+                    name=node.name,
+                    kind="function",
+                    line_number=node.lineno,
+                    signature=_format_function_signature(node),
+                    docstring=_extract_doc_summary(node),
+                )
             )
-            symbols.append(fn_sym)
 
     return FileMapNode(path=rel_path, line_count=line_count, symbols=symbols)
 
