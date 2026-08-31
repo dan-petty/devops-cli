@@ -254,14 +254,14 @@ devops review auto-fix [OPTIONS] <finding_id>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<finding_id>` | `string` | Yes | Finding ID or title to create remediation branch for |
+| `<finding_id>` | `string` | Yes | Finding ID or title to create remediation branch for. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--file`, `-f` | `string` | `src/devops_cli/main.py` | Target source file to apply fix to |
-| `--branch`, `-b` | `string` | - | Custom topic branch name |
+| `--file`, `-f` | `string` | `src/devops_cli/main.py` | Target source file to apply fix to. |
+| `--branch`, `-b` | `string` | - | Custom topic branch name. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 

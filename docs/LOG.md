@@ -6,6 +6,64 @@ Chronological log of refactoring milestones, quality gates, and security enhance
 
 ## Log Entries
 
+### [2026-08-31] Release v0.2.5 Code Library Manuals, Centralized Catalogs & PydanticAI MCP Enhancements
+- **Dedicated Code Library Knowledge Base Suite (`src/devops_cli/ai/knowledge_base/devops_cli/libraries/`)**:
+  - Authored 23 comprehensive architectural reference manuals covering all production dependencies and development quality tools with official project links, comparable alternatives analysis, key concepts, and common usage examples.
+  - Linked all library guides in `src/devops_cli/ai/knowledge_base/README.md` and `python_packages.md`.
+- **PydanticAI Model Context Protocol (MCP) Client & Sampling Protocol (`devops_cli.ai.agents.tools`, `devops_cli.ai.agents.agent`)**:
+  - Implemented `sampling_model`, `client_info`, `http_client` (custom TLS/SSL context), and `sse_read_timeout` across `MCPToolset`.
+  - Added dynamic `.model` property and `set_mcp_sampling_model()` to `PydanticAgent` enabling downstream MCP servers to request client-side LLM completions.
+- **Centralized Help Catalog & Command Alignment (`devops_cli.lang.en.help`, `devops_cli.commands`)**:
+  - Centralized CLI option and argument help strings into `devops_cli.lang.en.help.HELP`.
+  - Fixed `repomap_cmd`, `k8s_check_deprecated`, and `enable_tls_stack` to eliminate ad-hoc imports and align with canonical Finding models.
+- **Quality Gate**: Verified full quality gate (`devops ci`), strict mypy clean (269 source files), 100% test pass.
+
+### [2026-08-27] Release v0.2.4 Architecture & Threat Modeling Synthesis, Trace Waterfall Profiling & RAG Retrieval
+- **Trace Waterfall Visualizer CLI (`devops telemetry profile`, `devops_cli.telemetry.tracer`)**:
+  - Implemented interactive terminal waterfall breakdown and latency heatmap of OpenTelemetry spans with trace ID filtering.
+- **Aider-Style AST Repository Map Generator (`devops ai repomap`, `devops_cli.ai.repomap`)**:
+  - Added whole-repository AST symbol and relationship map generator parsing classes, functions, signatures, and docstrings without context overflow.
+- **Architecture & Threat Modeling Diagram Synthesis (`devops ai diagram`, `devops_cli.ai.diagram`)**:
+  - Implemented automated Mermaid architecture topology (`graph TD`) and STRIDE zero-trust threat flowcharts (`graph LR`).
+- **Automated Unit Test Synthesizer (`devops ai test-gen`, `devops_cli.ai.test_gen`)**:
+  - Added automated test generation for AST-analyzed symbols and uncommitted diffs.
+- **FastMCP Tool Schema Contract Regression Suite (`tests/test_fastmcp_contracts.py`)**:
+  - Added contract verification suite across 40+ FastMCP tools verifying typed signatures and parameter documentation.
+
+### [2026-08-26] Release v0.2.3 Parameter Defaults & Invariant Constants Architecture
+- **Centralized Defaults & Invariant Constants (`devops_cli.config.defaults`, `devops_cli.config.constants`)**:
+  - Centralized all static defaults, timeouts, and paths into `config/defaults.py` and `config/constants.py`.
+- **Declarative Subprocess Command Builders (`devops_cli.config.commands`)**:
+  - Standardized declarative builders for kubectl, kustomize, bandit, trivy, popeye, kubelinter, pluto, uv-audit, tf, and tofu.
+- **Declarative Output Renderable Models (`devops_cli.output.models`)**:
+  - Implemented Pydantic v2 schemas (`TablePayload`, `PanelPayload`, `MarkdownPayload`, `SyntaxPayload`, `RulePayload`, `KeyValuePayload`) with encapsulated Rich console rendering.
+- **Domain Exception Taxonomy (`devops_cli.exceptions`)**:
+  - Standardized strongly typed exceptions inheriting from `DevOpsCLIError` with canonical POSIX exit codes and machine-readable error codes.
+
+### [2026-08-25] Release v0.2.2 Checkov IaC Security, TFLint Cloud Linter & Dive Docker Analysis
+- **Checkov IaC Static Policy & Compliance Engine (`devops scan iac`, `devops scan checkov`)**:
+  - Added static compliance and policy security auditing across Terraform, CloudFormation, Kubernetes, and Dockerfile manifests.
+- **TFLint Cloud Provider Linter (`devops tf lint`)**:
+  - Added static Terraform/OpenTofu validation against cloud provider rules and module constraints.
+- **Dive Docker Layer Efficiency Analyzer (`devops docker analyze-layers`)**:
+  - Added container image layer exploration and wasted space efficiency analysis.
+- **Kubeconform Fast OpenAPI Schema Validator (`devops k8s validate`)**:
+  - Added offline Kubernetes manifest validation against OpenAPI JSON schemas supporting arbitrary target versions.
+
+### [2026-08-24] Release v0.2.1 Multi-Persona Code Review Calibrated Feedback & RAG Vector Indexing
+- **PydanticAI Multi-Agent Pipeline Orchestrator (`devops_cli.ai.agents`)**:
+  - Implemented typed `PydanticAgent` framework with toolsets, memory, streaming, and execution hooks.
+- **Qdrant Vector Database Integration & RAG Engine (`devops ai rag`, `devops_cli.ai.rag`)**:
+  - Implemented local on-disk vector database storing dense embeddings of knowledge base task manuals and target architecture docs.
+- **OpenTofu & Terraform IaC Automation (`devops tf`, `devops tofu`)**:
+  - Implemented complete IaC lifecycle commands (`init`, `plan`, `apply`, `output`, `state`, `validate`).
+
+### [2026-08-23] Release v0.2.0 Pydantic v2 Migration & Full Async Architecture
+- **Pydantic v2 Core Migration**:
+  - Upgraded entire model catalog to Pydantic v2 with `model_validate`, `model_dump`, and `Field(default_factory=...)`.
+- **Async Streaming Unified LLM Client (`devops_cli.ai.llm.client`)**:
+  - Migrated LLM client to HTTP/2 async connection pooling with real-time reasoning token streaming.
+
 ### [2026-08-22] Release v0.1.13 Embedding Benchmarks, TLS Automation & OpenTelemetry Observability
 - **Embedding Model Benchmark Suite (`devops ai benchmark --type embedding`, `devops_cli.ai.benchmark`)**:
   - Implemented specialized vector embedding evaluation engine (`EmbeddingBenchmarkRunner`) measuring Recall@1, Recall@3, MRR, Cosine Margin, single-query latency (p50/p95 ms), batch throughput (items/sec and chars/sec), and vector dimension/$L_2$ norm health.

@@ -26,7 +26,7 @@ devops k8s switch-context <name>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<name>` | `string` | Yes | Target context name to switch to |
+| `<name>` | `string` | Yes | Target context name to switch to. |
 
 ---
 
@@ -52,14 +52,14 @@ devops k8s apply [OPTIONS] <path>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<path>` | `string` | Yes | Manifest file or directory path |
+| `<path>` | `string` | Yes | Manifest file or directory path. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--dry-run` | `boolean` | - | - |
-| `--namespace`, `-n` | `string` | - | - |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--namespace`, `-n` | `string` | - | Kubernetes namespace. |
 
 ---
 
@@ -75,14 +75,14 @@ devops k8s logs [OPTIONS] <pod>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<pod>` | `string` | Yes | Pod name |
+| `<pod>` | `string` | Yes | Pod name. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--container`, `-c` | `string` | - | - |
-| `--namespace`, `-n` | `string` | - | - |
+| `--container`, `-c` | `string` | - | Specific container name within the pod. |
+| `--namespace`, `-n` | `string` | - | Kubernetes namespace. |
 | `--follow`, `-f` | `boolean` | - | Follow stream or log output in real time. |
 | `--tail` | `integer` | `100` | Number of recent lines to display. |
 
@@ -100,9 +100,9 @@ devops k8s bootstrap [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--dir`, `-d` | `path` | `k8s` | Directory containing Kubernetes manifests |
-| `--auto-start`, `--no-auto-start` | `boolean` | `True` | Auto-start minikube if stopped |
-| `--stack`, `-s` | `string` | `all` | Stack to deploy after bootstrap: infra | llm | all |
+| `--dir`, `-d` | `path` | `k8s` | Directory containing Kubernetes manifests. |
+| `--auto-start`, `--no-auto-start` | `boolean` | `True` | Auto-start minikube if stopped. |
+| `--stack`, `-s` | `string` | `all` | Stack to operate on: infra | llm | all. |
 
 ---
 
@@ -118,10 +118,10 @@ devops k8s bootstrap-openwebui [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--email`, `-e` | `string` | `admin@localhost` | Admin email address |
-| `--name`, `-n` | `string` | `Admin` | Admin display name |
-| `--password`, `-p` | `string` | `<masked>` | Admin password |
-| `--context`, `-c` | `string` | - | Kubernetes cluster context |
+| `--email`, `-e` | `string` | `admin@localhost` | Admin email address. |
+| `--name`, `-n` | `string` | `Admin` | Admin display name. |
+| `--password`, `-p` | `string` | `<masked>` | Admin password. |
+| `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
 
 ---
 
@@ -137,9 +137,9 @@ devops k8s deploy-stack [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--k8s-dir` | `path` | `k8s` | Path to k8s/ config directory |
-| `--stack`, `-s` | `string` | `infra` | Stack to deploy (infra, llm, all) |
-| `--context`, `-c` | `string` | - | Kubernetes cluster context |
+| `--k8s-dir` | `path` | `k8s` | Path to k8s/ config directory. |
+| `--stack`, `-s` | `string` | `infra` | Stack to operate on: infra | llm | all. |
+| `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
 
 ---
 
@@ -155,8 +155,8 @@ devops k8s configure-urls [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--stack`, `-s` | `string` | `infra` | Stack to configure URLs for (infra, llm, all) |
-| `--context`, `-c` | `string` | - | Kubernetes cluster context |
+| `--stack`, `-s` | `string` | `infra` | Stack to operate on: infra | llm | all. |
+| `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
 
 ---
 
@@ -172,18 +172,18 @@ devops k8s port-forward [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--stack`, `-s` | `string` | `infra` | Stack services to port-forward (infra, llm, all) |
-| `--context`, `-c` | `string` | - | Kubernetes cluster context |
-| `--argocd-port` | `integer` | `8080` | Local port for ArgoCD |
-| `--grafana-port` | `integer` | `8030` | Local port for Grafana |
-| `--prometheus-port` | `integer` | `8090` | Local port for Prometheus |
-| `--jaeger-port` | `integer` | `16686` | Local port for Jaeger Query UI |
-| `--otel-port` | `integer` | `4318` | Local port for OpenTelemetry OTLP Traces (HTTP) |
-| `--ollama-port` | `integer` | `11434` | Local port for Ollama |
-| `--open-webui-port` | `integer` | `3000` | Local port for Open-WebUI |
-| `--qdrant-port` | `integer` | `6333` | Local port for Qdrant HTTP |
-| `--valkey-port` | `integer` | `<masked>` | Local port for Valkey |
-| `--address` | `string` | `127.0.0.1` | Local address to bind for port-forwarding |
+| `--stack`, `-s` | `string` | `infra` | Stack to operate on: infra | llm | all. |
+| `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
+| `--argocd-port` | `integer` | `8080` | Local port for ArgoCD. |
+| `--grafana-port` | `integer` | `8030` | Local port for Grafana. |
+| `--prometheus-port` | `integer` | `8090` | Local port for Prometheus. |
+| `--jaeger-port` | `integer` | `16686` | Local port for Jaeger Query UI. |
+| `--otel-port` | `integer` | `4318` | Local port for OpenTelemetry OTLP Traces (HTTP). |
+| `--ollama-port` | `integer` | `11434` | Local port for Ollama. |
+| `--open-webui-port` | `integer` | `3000` | Local port for Open-WebUI. |
+| `--qdrant-port` | `integer` | `6333` | Local port for Qdrant HTTP. |
+| `--valkey-port` | `integer` | `<masked>` | Local port for Valkey. |
+| `--address` | `string` | `127.0.0.1` | Local address to bind for port-forwarding. |
 
 ---
 
@@ -199,9 +199,9 @@ devops k8s teardown-stack [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--k8s-dir` | `path` | `k8s` | Path to k8s/ config directory |
-| `--stack`, `-s` | `string` | `infra` | Stack to teardown (infra, llm, all) |
-| `--context`, `-c` | `string` | - | Kubernetes cluster context |
+| `--k8s-dir` | `path` | `k8s` | Path to k8s/ config directory. |
+| `--stack`, `-s` | `string` | `infra` | Stack to operate on: infra | llm | all. |
+| `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
 
 ---
 
@@ -233,13 +233,13 @@ devops k8s lint [OPTIONS] <target>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<target>` | `path` | No | Target K8s manifest file or directory to lint |
+| `<target>` | `path` | No | Target K8s manifest file or directory to lint. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--dry-run` | `boolean` | - | Simulate manifest linting. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -255,7 +255,7 @@ devops k8s audit [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--dry-run` | `boolean` | - | Simulate cluster health audit. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -271,13 +271,13 @@ devops k8s check-deprecated [OPTIONS] <target>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<target>` | `path` | No | Target manifest file or directory to scan for deprecated APIs |
+| `<target>` | `path` | No | Target manifest file or directory to scan for deprecated APIs. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--dry-run` | `boolean` | - | Simulate deprecated API detection. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -293,16 +293,16 @@ devops k8s create-tls-secret [OPTIONS] <secret_name>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<secret_name>` | `string` | Yes | Name of the Kubernetes TLS secret to create or update |
+| `<secret_name>` | `string` | Yes | Name of the Kubernetes TLS secret to create or update. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--namespace`, `-n` | `string` | `default` | Target Kubernetes namespace |
-| `--cert` | `path` | `~/.config/devops-cli/tls/tls.crt` | Path to TLS certificate file (.crt or .pem) |
-| `--key` | `path` | `<masked>` | Path to TLS private key file (.key or .pem) |
-| `--context`, `-c` | `string` | - | Kubernetes cluster context |
+| `--namespace`, `-n` | `string` | `default` | Kubernetes namespace. |
+| `--cert` | `path` | `~/.config/devops-cli/tls/tls.crt` | Path to TLS certificate file (.crt or .pem). |
+| `--key` | `path` | `<masked>` | Path to TLS private key file (.key or .pem). |
+| `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
 
 ---
 
@@ -318,11 +318,11 @@ devops k8s enable-tls [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--context`, `-c` | `string` | - | Kubernetes cluster context |
-| `--tls-dir` | `path` | `~/.config/devops-cli/tls` | Directory with generated TLS certificates |
-| `--secret-name` | `string` | `<masked>` | TLS secret name across namespaces |
-| `--stack`, `-s` | `string` | `all` | Stack to deploy TLS secrets into (infra, llm, all) |
-| `--overwrite`, `-f` | `boolean` | - | Regenerate certs if missing |
+| `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
+| `--tls-dir` | `path` | `~/.config/devops-cli/tls` | Directory with generated TLS certificates. |
+| `--secret-name` | `string` | `<masked>` | Name of the Kubernetes TLS secret to create or update. |
+| `--stack`, `-s` | `string` | `all` | Stack to operate on: infra | llm | all. |
+| `--overwrite`, `-f` | `boolean` | - | Overwrite existing files or resources if they exist. |
 
 ---
 
@@ -338,16 +338,16 @@ devops k8s validate [OPTIONS] <manifest_path>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<manifest_path>` | `path` | No | Path to Kubernetes YAML manifest file or directory |
+| `<manifest_path>` | `path` | No | Manifest file or directory path. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--kubernetes-version`, `-v` | `string` | `master` | Target Kubernetes OpenAPI version |
-| `--strict`, `--no-strict` | `boolean` | `True` | Disallow additional undeclared properties |
-| `--dry-run` | `boolean` | - | Simulate schema validation |
-| `--json` | `boolean` | - | Output findings as JSON |
+| `--kubernetes-version`, `-v` | `string` | `master` | Target Kubernetes OpenAPI version. |
+| `--strict`, `--no-strict` | `boolean` | `True` | Disallow additional undeclared properties. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ---
 
@@ -363,16 +363,16 @@ devops k8s validate-policy [OPTIONS] <manifest_path>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<manifest_path>` | `path` | No | Path to Kubernetes YAML manifest file or directory |
+| `<manifest_path>` | `path` | No | Manifest file or directory path. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--policy`, `-p` | `path` | - | Path to Kyverno policy or OPA rule file |
-| `--engine`, `-e` | `string` | `kyverno` | Policy evaluation engine (kyverno, opa) |
-| `--dry-run` | `boolean` | - | Simulate admission policy validation |
-| `--json` | `boolean` | - | Output validation report as JSON |
+| `--policy`, `-p` | `path` | - | Path to Kyverno policy or OPA rule file. |
+| `--engine`, `-e` | `string` | `kyverno` | Policy evaluation engine (kyverno, opa). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ---
 
@@ -388,17 +388,17 @@ devops k8s stream-logs [OPTIONS] <pod_query>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<pod_query>` | `string` | Yes | Regex pattern or query to match pod names |
+| `<pod_query>` | `string` | Yes | Regex pattern or query to match pod names. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--namespace`, `-n` | `string` | - | Target Kubernetes namespace |
-| `--container`, `-c` | `string` | - | Target container name within matched pods |
-| `--tail`, `-t` | `integer` | `100` | Number of historical log lines to stream |
-| `--follow`, `-f`, `--no-follow` | `boolean` | - | Continuously stream live log output |
-| `--dry-run` | `boolean` | - | Simulate multi-pod log streaming |
+| `--namespace`, `-n` | `string` | - | Kubernetes namespace. |
+| `--container`, `-c` | `string` | - | Specific container name within the pod. |
+| `--tail`, `-t` | `integer` | `100` | Number of historical log lines to stream. |
+| `--follow`, `-f`, `--no-follow` | `boolean` | - | Continuously stream live log output. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -414,16 +414,16 @@ devops k8s diff-helm [OPTIONS] <release_name> <chart_path>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<release_name>` | `string` | Yes | Name of deployed Helm release |
-| `<chart_path>` | `path` | No | Path to local Helm chart directory or packaged archive |
+| `<release_name>` | `string` | Yes | Name of deployed Helm release. |
+| `<chart_path>` | `path` | No | Path to local Helm chart directory or packaged archive. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--namespace`, `-n` | `string` | - | Target Kubernetes namespace |
-| `--values`, `-f` | `path` | - | Values YAML files to override release defaults |
-| `--dry-run` | `boolean` | - | Simulate Helm diff preview |
+| `--namespace`, `-n` | `string` | - | Kubernetes namespace. |
+| `--values`, `-f` | `path` | - | Values YAML files to override release defaults. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -439,16 +439,16 @@ devops k8s chaos [OPTIONS] <experiment>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<experiment>` | `string` | No | Resilience experiment name (e.g., pod-kill, latency-inject) |
+| `<experiment>` | `string` | No | Resilience experiment name (e.g., pod-kill, latency-inject). |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--deployment`, `-d` | `string` | `sample-app` | Target deployment to disrupt |
-| `--namespace`, `-n` | `string` | `default` | Target Kubernetes namespace |
-| `--duration` | `integer` | `30` | Reconciliation monitoring window in seconds |
-| `--dry-run` | `boolean` | - | Simulate chaos experiment execution |
-| `--json` | `boolean` | - | Output experiment result as JSON |
+| `--deployment`, `-d` | `string` | `sample-app` | Target deployment to disrupt. |
+| `--namespace`, `-n` | `string` | `default` | Kubernetes namespace. |
+| `--duration` | `integer` | `30` | Reconciliation monitoring window in seconds. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ---

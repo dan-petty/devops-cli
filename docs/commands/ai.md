@@ -205,15 +205,15 @@ devops ai spec [OPTIONS] <spec_path>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<spec_path>` | `path` | No | Path to markdown architecture specification contract |
+| `<spec_path>` | `path` | No | Path to markdown architecture specification contract. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--target`, `-t` | `path` | - | Target source directory to verify |
-| `--dry-run` | `boolean` | - | Simulate architecture spec verification |
-| `--json` | `boolean` | - | Output specification verification report as JSON |
+| `--target`, `-t` | `path` | - | Target source directory to verify or analyze. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ---
 
@@ -229,9 +229,9 @@ devops ai repomap [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--target`, `-t`, `--dir`, `-d` | `path` | - | Target root directory to generate symbol map for |
-| `--max-files`, `-n` | `integer` | `100` | Maximum source files to include |
-| `--include-tests` | `boolean` | - | Include test modules in symbol map |
+| `--target`, `-t`, `--dir`, `-d` | `path` | - | Target source directory to verify or analyze. |
+| `--max-files`, `-n` | `integer` | `100` | Maximum source files to include. |
+| `--include-tests` | `boolean` | - | Include test modules in symbol map. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -249,13 +249,13 @@ devops ai diagram [OPTIONS] <diagram_type>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<diagram_type>` | `string` | No | Diagram type: 'arch' for architecture topology, 'threat' for STRIDE model |
+| `<diagram_type>` | `string` | No | Diagram type: 'arch' for architecture topology, 'threat' for STRIDE model. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--target`, `-t`, `--dir`, `-d` | `path` | - | Target root directory to analyze |
+| `--target`, `-t`, `--dir`, `-d` | `path` | - | Target source directory to verify or analyze. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -273,8 +273,8 @@ devops ai prompt-eval [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--persona`, `-p` | `string` | `devsecops` | Review persona to benchmark |
-| `--dataset`, `-d` | `path` | - | Path to feedback dataset jsonl |
+| `--persona`, `-p` | `string` | `devsecops` | Evaluate and benchmark code review quality against feedback dataset. |
+| `--dataset`, `-d` | `path` | - | Path to feedback dataset jsonl. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -292,13 +292,13 @@ devops ai test-gen [OPTIONS] <target_file>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<target_file>` | `path` | Yes | Target source file to synthesize unit tests for |
+| `<target_file>` | `path` | Yes | Target source file to synthesize unit tests for. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--function`, `-f` | `string` | - | Specific function to synthesize tests for |
+| `--function`, `-f` | `string` | - | Specific function to synthesize tests for. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -552,14 +552,14 @@ devops ai review auto-fix [OPTIONS] <finding_id>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<finding_id>` | `string` | Yes | Finding ID or title to create remediation branch for |
+| `<finding_id>` | `string` | Yes | Finding ID or title to create remediation branch for. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--file`, `-f` | `string` | `src/devops_cli/main.py` | Target source file to apply fix to |
-| `--branch`, `-b` | `string` | - | Custom topic branch name |
+| `--file`, `-f` | `string` | `src/devops_cli/main.py` | Target source file to apply fix to. |
+| `--branch`, `-b` | `string` | - | Custom topic branch name. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 

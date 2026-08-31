@@ -71,8 +71,8 @@ devops argo cd apps bootstrap-gitops [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--root-app`, `-f` | `path` | `k8s/argocd/apps/root-app.yaml` | Path to root ArgoCD App-of-Apps manifest |
-| `--context`, `-c` | `string` | - | Kubernetes cluster context |
+| `--root-app`, `-f` | `path` | `k8s/argocd/apps/root-app.yaml` | Path to root ArgoCD App-of-Apps manifest. |
+| `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
 
 ---
 
