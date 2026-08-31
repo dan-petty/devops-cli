@@ -77,7 +77,7 @@ def _load_distractors() -> list[str]:
     return _parse_embedding_distractors(md_text)
 
 
-# Expose module-level lists for backward compatibility
+# Module-level evaluated benchmark fixtures
 EMBEDDING_EVAL_PAIRS: list[EmbeddingEvalPair] = _load_eval_pairs()
 EMBEDDING_DISTRACTORS: list[str] = _load_distractors()
 

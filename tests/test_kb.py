@@ -42,33 +42,22 @@ def test_list_knowledge_base_articles_by_division() -> None:
 
 
 def test_list_knowledge_base_articles_by_category() -> None:
-    # Test subcategory paths and legacy aliases
-    topics = list_knowledge_base_articles("topics")
-    topics_full = list_knowledge_base_articles("it_domains/topics")
+    # Test canonical subcategory paths
+    topics = list_knowledge_base_articles("it_domains/topics")
     assert len(topics) == 10
-    assert topics == topics_full
 
-    tools = list_knowledge_base_articles("tools")
-    tools_full = list_knowledge_base_articles("it_domains/tools")
+    tools = list_knowledge_base_articles("it_domains/tools")
     assert len(tools) == 28
-    assert tools == tools_full
 
-    tasks = list_knowledge_base_articles("tasks")
-    tasks_full = list_knowledge_base_articles("devops_cli/tasks")
+    tasks = list_knowledge_base_articles("devops_cli/tasks")
     assert len(tasks) == 12
-    assert tasks == tasks_full
 
 
 def test_load_kb_article_success() -> None:
-    # Test loading via new division path
+    # Test loading via division path
     content_new = load_kb_article("it_domains/topics/agentic_ai_and_code_reviews.md")
     assert content_new is not None
     assert "Agentic AI" in content_new
-
-    # Test loading via legacy alias path
-    content_legacy = load_kb_article("topics/agentic_ai_and_code_reviews.md")
-    assert content_legacy is not None
-    assert content_legacy == content_new
 
     # Test loading devops_cli core article
     arch_content = load_kb_article("devops_cli/architecture.md")

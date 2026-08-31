@@ -1,4 +1,4 @@
-"""Pydantic Agent facade re-exporting all submodules for backward-compatibility."""
+"""Pydantic Agent core facade and unified capability re-exports."""
 
 from __future__ import annotations
 
