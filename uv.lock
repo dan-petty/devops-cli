@@ -626,7 +626,7 @@ wheels = [
 
 [[package]]
 name = "devops-cli"
-version = "0.2.5"
+version = "0.2.6"
 source = { editable = "." }
 dependencies = [
     { name = "click" },
