@@ -25,6 +25,7 @@ DEFAULT_PYAI_DOCS_TOPICS: tuple[str, ...] = (
     "media",
     "prepare-tools",
     "prefix-tools",
+    "process-event-stream",
     "process-history",
     "prompt-injection-defender",
     "raise-content-filter-error",

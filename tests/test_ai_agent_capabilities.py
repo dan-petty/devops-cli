@@ -407,3 +407,29 @@ def test_process_history_capability() -> None:
         redact_cap.process_history(msgs_with_secret, ctx_redact)[0]["content"]
         == "api key is [REDACTED]"
     )
+
+
+@pytest.mark.anyio
+async def test_process_event_stream_capability() -> None:
+    """Verify ProcessEventStream capability handling streaming events and observers."""
+    from devops_cli.ai.agents import AgentStreamEvent, ProcessEventStream, RunContext
+
+    observed_events: list[AgentStreamEvent] = []
+
+    async def log_events(ctx: RunContext[dict[str, Any]], events: list[AgentStreamEvent]) -> None:
+        for event in events:
+            observed_events.append(event)
+
+    cap = ProcessEventStream(log_events)
+    assert cap.id == "process_event_stream"
+
+    event1 = AgentStreamEvent(event_kind="token", content="Hello")
+    event2 = AgentStreamEvent(event_kind="token", content=" world")
+    event3 = AgentStreamEvent(event_kind="tool_call", content="search_query")
+
+    stream = [event1, event2, event3]
+    result = await cap.handle_stream(stream, RunContext(deps={"stream_id": "s1"}))
+    assert result is None
+    assert len(observed_events) == 3
+    assert observed_events[0].content == "Hello"
+    assert observed_events[2].event_kind == "tool_call"

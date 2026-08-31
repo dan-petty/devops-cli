@@ -5,6 +5,7 @@ from __future__ import annotations
 from devops_cli.ai.agents.agent import PydanticAgent
 from devops_cli.ai.agents.capabilities import (
     MCP,
+    AgentStreamEvent,
     BaseCapability,
     Capability,
     CodeExecutionTool,
@@ -19,6 +20,7 @@ from devops_cli.ai.agents.capabilities import (
     NativeTool,
     PrefixTools,
     PrepareTools,
+    ProcessEventStream,
     ProcessHistory,
     RaiseContentFilterError,
     ReinjectSystemPrompt,
@@ -77,6 +79,7 @@ __all__ = [
     "AgentRetries",
     "AgentSpec",
     "AgentStepNode",
+    "AgentStreamEvent",
     "AgentTool",
     "AgentUsage",
     "BaseCapability",
@@ -95,6 +98,7 @@ __all__ = [
     "NativeTool",
     "PrefixTools",
     "PrepareTools",
+    "ProcessEventStream",
     "ProcessHistory",
     "PydanticAgent",
     "RaiseContentFilterError",

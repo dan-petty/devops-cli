@@ -983,5 +983,49 @@ class ProcessHistory(BaseCapability):
             res = self.processor(RunContext(), messages)
         else:
             res = self.processor(messages)
-
         return res if res is not None else messages
+
+
+class AgentStreamEvent(BaseModel):
+    """An event emitted during streaming model execution or tool invocation."""
+
+    event_kind: str = "token"
+    content: Any = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ProcessEventStream(BaseCapability):
+    """Capability that intercepts, observes, or transforms the event stream during agent execution."""
+
+    id: str = "process_event_stream"
+    handler: Any = None
+
+    def __init__(
+        self,
+        handler: Callable[..., Any] | None = None,
+        *,
+        id: str = "process_event_stream",
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(id=id, handler=handler or kwargs.get("handler"), **kwargs)
+
+    async def handle_stream(
+        self,
+        events: Any,
+        ctx: RunContext[Any] | None = None,
+    ) -> Any:
+        """Forward events to handler or iterate through generator."""
+        if not callable(self.handler):
+            return events
+
+        sig = inspect.signature(self.handler)
+        if len(sig.parameters) >= 2 and ctx is not None:
+            res = self.handler(ctx, events)
+        elif len(sig.parameters) >= 2 and ctx is None:
+            res = self.handler(RunContext(), events)
+        else:
+            res = self.handler(events)
+
+        if inspect.iscoroutine(res):
+            return await res
+        return res
