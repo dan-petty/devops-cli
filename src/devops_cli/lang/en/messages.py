@@ -460,7 +460,9 @@ class TLSMessages:
 class SSHMessages:
     key_generated: str = "Generated Ed25519 SSH keypair: {path}"
     no_managed_keys: str = "No managed SSH keys found. Run 'devops ssh generate' first."
-    no_managed_keys_pattern: str = "No managed SSH keys found (expected: id_ed25519-YYYYMMMDD)."
+    no_managed_keys_pattern: str = (
+        "No managed SSH keys found (expected: [prefix-]id_ed25519-YYYYMMDD)."
+    )
     registered_and_configured: str = "Registered new key and updated git signing config."
     cleaned_unregistered_keys: str = (
         "Cleaned up un-registered key files. Fix auth and re-run rotation."

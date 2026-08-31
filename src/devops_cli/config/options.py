@@ -5,6 +5,7 @@ from __future__ import annotations
 GITHUB_TOKEN = "github.token"
 GITHUB_DEFAULT_ORG = "github.default_org"
 SSH_KEY_DIR = "ssh.key_dir"
+SSH_KEY_PREFIX = "ssh.key_prefix"
 SSH_ROTATION_DAYS = "ssh.rotation_days"
 REPOS_BASE_DIR = "repos.base_dir"
 WORKSPACE_FILE = "workspace.file"
@@ -74,6 +75,7 @@ CONFIG_OPTIONS: tuple[str, ...] = (
     GITHUB_TOKEN,
     GITHUB_DEFAULT_ORG,
     SSH_KEY_DIR,
+    SSH_KEY_PREFIX,
     SSH_ROTATION_DAYS,
     REPOS_BASE_DIR,
     WORKSPACE_FILE,

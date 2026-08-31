@@ -41,6 +41,7 @@ DEFAULT_RAG_INDEX_CACHE_PATH = DEFAULT_RAG_DATA_DIR / CONST_INDEX_CACHE_FILENAME
 # ── General Defaults ──────────────────────────────────────────────────────────
 DEFAULT_LOCAL_BIN_DIR = Path.home() / ".local" / "bin"
 DEFAULT_SSH_KEY_DIR = Path.home() / ".ssh"
+DEFAULT_SSH_KEY_PREFIX: str | None = None
 DEFAULT_SSH_ROTATION_DAYS = 90
 DEFAULT_REPOS_BASE_DIR = Path("repos")
 DEFAULT_DOCS_DIR = CONST_DOCS_DIR_PATH

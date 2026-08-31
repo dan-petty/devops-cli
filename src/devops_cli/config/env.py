@@ -13,6 +13,7 @@ ENV_DEVOPS_CLI_CONFIG = "DEVOPS_CLI_CONFIG"
 ENV_GITHUB_TOKEN = "DEVOPS_CLI_GITHUB_TOKEN"
 ENV_GITHUB_DEFAULT_ORG = "DEVOPS_CLI_GITHUB_DEFAULT_ORG"
 ENV_SSH_KEY_DIR = "DEVOPS_CLI_SSH_KEY_DIR"
+ENV_SSH_KEY_PREFIX = "DEVOPS_CLI_SSH_KEY_PREFIX"
 ENV_SSH_ROTATION_DAYS = "DEVOPS_CLI_SSH_ROTATION_DAYS"
 ENV_REPOS_BASE_DIR = "DEVOPS_CLI_REPOS_BASE_DIR"
 ENV_WORKSPACE_FILE = "DEVOPS_CLI_WORKSPACE_FILE"
@@ -76,6 +77,7 @@ OPTION_TO_ENV_VAR: dict[str, str] = {
     opt.GITHUB_TOKEN: ENV_GITHUB_TOKEN,
     opt.GITHUB_DEFAULT_ORG: ENV_GITHUB_DEFAULT_ORG,
     opt.SSH_KEY_DIR: ENV_SSH_KEY_DIR,
+    opt.SSH_KEY_PREFIX: ENV_SSH_KEY_PREFIX,
     opt.SSH_ROTATION_DAYS: ENV_SSH_ROTATION_DAYS,
     opt.REPOS_BASE_DIR: ENV_REPOS_BASE_DIR,
     opt.WORKSPACE_FILE: ENV_WORKSPACE_FILE,
@@ -192,6 +194,12 @@ def get_all_env_var_specs() -> list[EnvVarSpec]:
             opt.SSH_KEY_DIR,
             False,
             "Directory for SSH key pairs",
+        ),
+        EnvVarSpec(
+            ENV_SSH_KEY_PREFIX,
+            opt.SSH_KEY_PREFIX,
+            False,
+            "Prefix for generated SSH keys (defaults to devcontainer name or basename pwd)",
         ),
         EnvVarSpec(
             ENV_SSH_ROTATION_DAYS,

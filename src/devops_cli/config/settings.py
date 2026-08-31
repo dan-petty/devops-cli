@@ -63,6 +63,7 @@ from devops_cli.config.defaults import (
     DEFAULT_REPOS_BASE_DIR,
     DEFAULT_REVIEWS_DATA_DIR,
     DEFAULT_SSH_KEY_DIR,
+    DEFAULT_SSH_KEY_PREFIX,
     DEFAULT_SSH_ROTATION_DAYS,
     DEFAULT_TLS_DATA_DIR,
     DEFAULT_WORKSPACE_FILE,
@@ -106,6 +107,7 @@ class GitHubConfig(BaseModel):
 class SSHConfig(BaseModel):
     model_config = ConfigDict(frozen=False)
     key_dir: Path = DEFAULT_SSH_KEY_DIR
+    key_prefix: str | None = DEFAULT_SSH_KEY_PREFIX
     rotation_days: int = DEFAULT_SSH_ROTATION_DAYS
 
 

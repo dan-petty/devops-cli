@@ -23,7 +23,7 @@ runner = CliRunner()
 
 
 def test_generate_creates_key_pair(tmp_path: Path) -> None:
-    key_path = tmp_path / "id_ed25519-2024JAN15"
+    key_path = tmp_path / "id_ed25519-20240115"
     generate_ed25519_key(key_path, comment="test-key")
 
     assert key_path.exists(), "private key missing"
@@ -37,23 +37,27 @@ def test_generate_creates_key_pair(tmp_path: Path) -> None:
 
 
 def test_generate_no_comment(tmp_path: Path) -> None:
-    key_path = tmp_path / "id_ed25519-2024JAN15"
+    key_path = tmp_path / "devops-cli-id_ed25519-20240115"
     generate_ed25519_key(key_path)
     pub_path = key_path.with_name(f"{key_path.name}.pub")
     assert pub_path.read_text().startswith("ssh-ed25519 ")
 
 
 def test_parse_key_date_valid() -> None:
-    d = parse_key_date(Path("/home/user/.ssh/id_ed25519-2024JAN15"))
+    d = parse_key_date(Path("/home/user/.ssh/id_ed25519-20240115"))
     assert d is not None
     assert d == date(2024, 1, 15)
 
+    d_prefixed = parse_key_date(Path("/home/user/.ssh/devops-cli-id_ed25519-20260831"))
+    assert d_prefixed is not None
+    assert d_prefixed == date(2026, 8, 31)
 
-def test_parse_key_date_different_months() -> None:
+
+def test_parse_key_date_different_dates() -> None:
     cases = [
-        ("id_ed25519-2024FEB29", date(2024, 2, 29)),  # leap year
-        ("id_ed25519-2024DEC31", date(2024, 12, 31)),
-        ("id_ed25519-2025MAR01", date(2025, 3, 1)),
+        ("id_ed25519-20240229", date(2024, 2, 29)),  # leap year
+        ("my-service-id_ed25519-20241231", date(2024, 12, 31)),
+        ("team_a-id_ed25519-20250301", date(2025, 3, 1)),
     ]
     for name, expected in cases:
         assert parse_key_date(Path(name)) == expected, name
@@ -62,12 +66,49 @@ def test_parse_key_date_different_months() -> None:
 def test_parse_key_date_invalid() -> None:
     assert parse_key_date(Path("id_rsa")) is None
     assert parse_key_date(Path("id_ed25519")) is None
-    assert parse_key_date(Path("id_ed25519-2024jan15")) is None  # lowercase invalid
-    assert parse_key_date(Path("id_ed25519-2024JAN15.pub")) is None  # pub suffix
+    assert parse_key_date(Path("id_ed25519-2024011")) is None  # too short
+    assert parse_key_date(Path("id_ed25519-20240115.pub")) is None  # pub suffix
+    assert parse_key_date(Path("id_ed25519-20241301")) is None  # invalid month
+
+
+def test_get_ssh_key_prefix_resolution(tmp_path: Path) -> None:
+    from devops_cli.crypto.ssh_keys import format_managed_key_filename, get_ssh_key_prefix
+
+    # 1. Config setting override
+    with patch("devops_cli.config.settings.load_settings") as mock_load:
+        settings = MagicMock()
+        settings.ssh.key_prefix = "custom-prod"
+        mock_load.return_value = settings
+        assert get_ssh_key_prefix(tmp_path) == "custom-prod"
+        assert (
+            format_managed_key_filename(key_date=date(2026, 8, 31))
+            == "custom-prod-id_ed25519-20260831"
+        )
+
+    # 2. Devcontainer json name
+    dev_dir = tmp_path / "project_a"
+    dev_config = dev_dir / ".devcontainer"
+    dev_config.mkdir(parents=True)
+    (dev_config / "devcontainer.json").write_text('{\n  "name": "Project Alpha Microservice"\n}')
+
+    with patch("devops_cli.config.settings.load_settings") as mock_load:
+        settings = MagicMock()
+        settings.ssh.key_prefix = None
+        mock_load.return_value = settings
+        assert get_ssh_key_prefix(dev_dir) == "project-alpha-microservice"
+
+    # 3. Fallback to basename pwd
+    plain_dir = tmp_path / "my_plain_repo"
+    plain_dir.mkdir()
+    with patch("devops_cli.config.settings.load_settings") as mock_load:
+        settings = MagicMock()
+        settings.ssh.key_prefix = None
+        mock_load.return_value = settings
+        assert get_ssh_key_prefix(plain_dir) == "my_plain_repo"
 
 
 def test_get_key_age_days(tmp_path: Path) -> None:
-    past = (date.today() - timedelta(days=10)).strftime("%Y%b%d").upper()
+    past = (date.today() - timedelta(days=10)).strftime("%Y%m%d")
     key_path = tmp_path / f"id_ed25519-{past}"
     key_path.write_text("")
     assert get_key_age_days(key_path) == 10
@@ -83,8 +124,8 @@ def test_get_key_age_invalid(tmp_path: Path) -> None:
 def test_find_newest_key(tmp_path: Path) -> None:
     ages = [30, 60, 10, 5]  # days ago
     for age in ages:
-        d = (date.today() - timedelta(days=age)).strftime("%Y%b%d").upper()
-        (tmp_path / f"id_ed25519-{d}").write_text("")
+        d = (date.today() - timedelta(days=age)).strftime("%Y%m%d")
+        (tmp_path / f"devops-cli-id_ed25519-{d}").write_text("")
 
     newest = find_newest_key(tmp_path)
     assert newest is not None
@@ -100,26 +141,26 @@ def test_find_newest_key_missing_dir(tmp_path: Path) -> None:
 
 
 def test_list_managed_keys_filters_correctly(tmp_path: Path) -> None:
-    (tmp_path / "id_ed25519-2024JAN15").write_text("")
-    (tmp_path / "id_ed25519-2024JAN15.pub").write_text("")  # pub — excluded
+    (tmp_path / "id_ed25519-20240115").write_text("")
+    (tmp_path / "devops-cli-id_ed25519-20240115.pub").write_text("")  # pub — excluded
     (tmp_path / "id_rsa").write_text("")  # wrong pattern — excluded
     (tmp_path / "known_hosts").write_text("")  # excluded
-    (tmp_path / "id_ed25519-2025MAR01").write_text("")
+    (tmp_path / "custom-app-id_ed25519-20250301").write_text("")
 
     keys = list_managed_keys(tmp_path)
     names = {k.name for k in keys}
-    assert names == {"id_ed25519-2024JAN15", "id_ed25519-2025MAR01"}
+    assert names == {"id_ed25519-20240115", "custom-app-id_ed25519-20250301"}
 
 
 def test_ssh_commands(tmp_path: Path) -> None:
     """Verify ssh generate, status, audit, register, and rotate subcommands."""
     mock_key_info = ManagedSSHKey(
-        path=tmp_path / "id_ed25519-2024JAN15",
+        path=tmp_path / "devops-cli-id_ed25519-20240115",
         key_date=date(2024, 1, 15),
         age_days=10,
     )
-    priv_file = tmp_path / "id_ed25519-2024JAN15"
-    pub_file = tmp_path / "id_ed25519-2024JAN15.pub"
+    priv_file = tmp_path / "devops-cli-id_ed25519-20240115"
+    pub_file = tmp_path / "devops-cli-id_ed25519-20240115.pub"
     priv_file.write_text("private", encoding="utf-8")
     pub_file.write_text("ssh-ed25519 AAAA test@domain.com", encoding="utf-8")
 
@@ -173,13 +214,14 @@ def test_ssh_error_and_dry_run_branches(tmp_path: Path) -> None:
 
     # 2. Generate key collision (exists)
     with (
-        patch("devops_cli.commands.ssh._date_suffix", return_value="2026JAN01"),
+        patch("devops_cli.commands.ssh._date_suffix", return_value="20260101"),
         patch("devops_cli.config.settings.load_settings") as mock_load,
     ):
         settings = MagicMock()
         settings.ssh.key_dir = tmp_path
+        settings.ssh.key_prefix = None
         mock_load.return_value = settings
-        (tmp_path / "id_ed25519-2026JAN01").touch()
+        (tmp_path / "devops-cli-id_ed25519-20260101").touch()
         res_exist = runner.invoke(ssh_app, ["generate"])
         assert res_exist.exit_code == 1
 
@@ -190,6 +232,7 @@ def test_ssh_error_and_dry_run_branches(tmp_path: Path) -> None:
     ):
         settings = MagicMock()
         settings.ssh.key_dir = tmp_path
+        settings.ssh.key_prefix = None
         mock_load.return_value = settings
         res_no_key = runner.invoke(ssh_app, ["register"])
         assert res_no_key.exit_code == 1
@@ -208,7 +251,11 @@ def test_ssh_error_and_dry_run_branches(tmp_path: Path) -> None:
             side_effect=SSHRegistrationError("API error"),
         ),
         patch("devops_cli.config.settings.get_github_token", return_value="token"),
+        patch("devops_cli.config.settings.load_settings") as mock_load,
     ):
+        settings = MagicMock()
+        settings.ssh.key_prefix = None
+        mock_load.return_value = settings
         res_reg_err = runner.invoke(ssh_app, ["register", "--key-file", str(priv)])
         assert res_reg_err.exit_code == 1
 
@@ -219,6 +266,7 @@ def test_ssh_error_and_dry_run_branches(tmp_path: Path) -> None:
     ):
         settings = MagicMock()
         settings.ssh.key_dir = tmp_path
+        settings.ssh.key_prefix = None
         settings.ssh.rotation_days = 90
         mock_load.return_value = settings
 
@@ -247,6 +295,7 @@ def test_ssh_error_and_dry_run_branches(tmp_path: Path) -> None:
     ):
         settings = MagicMock()
         settings.ssh.key_dir = tmp_path
+        settings.ssh.key_prefix = None
         settings.ssh.rotation_days = 90
         mock_load.return_value = settings
 
@@ -267,9 +316,9 @@ def test_list_managed_keys_info_and_find_newest(tmp_path: Path) -> None:
     assert find_newest_key(tmp_path / "empty") is None
 
     # 2. Populated dir
-    k1 = tmp_path / "id_ed25519-2024JAN15"
+    k1 = tmp_path / "id_ed25519-20240115"
     k1.write_text("priv1", encoding="utf-8")
-    k2 = tmp_path / "id_ed25519-2024DEC01"
+    k2 = tmp_path / "devops-cli-id_ed25519-20241201"
     k2.write_text("priv2", encoding="utf-8")
     unmanaged = tmp_path / "id_rsa"
     unmanaged.write_text("rsa", encoding="utf-8")
@@ -289,8 +338,8 @@ def test_generate_ed25519_key_overwriting_insecure_permissions(tmp_path: Path) -
     """Verify that overwriting pre-existing keys resets permissions to 0600 / 0644."""
     import os
 
-    k_path = tmp_path / "id_ed25519-2025JAN01"
-    pub_path = tmp_path / "id_ed25519-2025JAN01.pub"
+    k_path = tmp_path / "id_ed25519-20250101"
+    pub_path = tmp_path / "id_ed25519-20250101.pub"
 
     # Pre-create files with overly permissive permissions (0666 / 0644)
     k_path.write_text("old_insecure_private_key")

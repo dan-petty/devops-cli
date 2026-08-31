@@ -33,8 +33,8 @@ app = new_typer(
 
 
 def _date_suffix() -> str:
-    """Return today as YYYYMMMDD in uppercase, e.g. 2024JAN15."""
-    return date.today().strftime("%Y%b%d").upper()
+    """Return today as YYYYMMDD, e.g. 20260831."""
+    return date.today().strftime("%Y%m%d")
 
 
 def _configure_git_signing(key_path: Path) -> None:
@@ -59,30 +59,58 @@ def _configure_git_signing(key_path: Path) -> None:
 def generate(
     key_dir: Annotated[Path | None, typer.Option("--key-dir", help=HELP.ssh.key_dir)] = None,
     comment: Annotated[str, typer.Option("--comment", "-c", help=HELP.ssh.comment)] = "",
+    prefix: Annotated[
+        str | None,
+        typer.Option(
+            "--prefix",
+            "-p",
+            help="Optional prefix for the SSH key name (defaults to config setting, devcontainer name, or basename pwd).",
+        ),
+    ] = None,
 ) -> None:
-    """Generate a new Ed25519 SSH key with today's date suffix."""
+    """Generate a new Ed25519 SSH key with prefix and YYYYMMDD date suffix."""
     from devops_cli.config.settings import load_settings
-    from devops_cli.crypto.ssh_keys import generate_ed25519_key
+    from devops_cli.crypto.ssh_keys import (
+        generate_ed25519_key,
+        get_ssh_key_prefix,
+    )
     from devops_cli.dry_run import is_dry_run
 
     if is_dry_run():
         render_dry_run_result(
             command="devops ssh generate",
             action="generate_ed25519_ssh_key",
-            details={"key_dir": str(key_dir) if key_dir else None, "comment": comment},
+            details={
+                "key_dir": str(key_dir) if key_dir else None,
+                "comment": comment,
+                "prefix": prefix,
+            },
         )
         return
 
     settings = load_settings()
     target_key_dir = (key_dir or settings.ssh.key_dir).expanduser()
     target_key_dir.mkdir(parents=True, exist_ok=True)
-    key_path = target_key_dir / f"id_ed25519-{_date_suffix()}"
+    active_prefix = (
+        prefix if prefix is not None else (settings.ssh.key_prefix or get_ssh_key_prefix())
+    )
+    filename = (
+        f"{active_prefix}-id_ed25519-{_date_suffix()}"
+        if active_prefix
+        else f"id_ed25519-{_date_suffix()}"
+    )
+    key_path = target_key_dir / filename
 
     if key_path.exists():
         print_warning(MESSAGES.messages.key_already_exists.format(key_path=key_path), prefix=False)
         raise typer.Exit(1)
 
-    generate_ed25519_key(key_path, comment=comment or f"devops-cli-{date.today().isoformat()}")
+    default_comment = (
+        f"{active_prefix}-{date.today().isoformat()}"
+        if active_prefix
+        else f"devops-cli-{date.today().isoformat()}"
+    )
+    generate_ed25519_key(key_path, comment=comment or default_comment)
     print_success(MESSAGES.messages.generated_key.format(key_path=key_path), prefix=False)
     pub_path = key_path.with_name(f"{key_path.name}.pub")
     print_success(MESSAGES.messages.public_key_path.format(pub_path=pub_path), prefix=False)
@@ -102,7 +130,7 @@ def register(
     title: Annotated[str | None, typer.Option("--title", help=HELP.options.title)] = None,
 ) -> None:
     from devops_cli.config.settings import get_github_token, load_settings
-    from devops_cli.crypto.ssh_keys import find_newest_key
+    from devops_cli.crypto.ssh_keys import find_newest_key, get_ssh_key_prefix
     from devops_cli.dry_run import is_dry_run
     from devops_cli.github.ssh import SSHRegistrationError, register_key_on_github
 
@@ -131,7 +159,8 @@ def register(
         raise typer.Exit(1)
 
     pub_key = pub_path.read_text(encoding="utf-8").strip()
-    key_title = title or f"devops-cli-{_date_suffix()}"
+    active_prefix = settings.ssh.key_prefix or get_ssh_key_prefix()
+    key_title = title or f"{key_file.stem if key_file else active_prefix}-{_date_suffix()}"
 
     try:
         register_key_on_github(pub_key, key_title, token=token)
@@ -157,13 +186,26 @@ def register(
 def rotate(
     key_dir: Annotated[Path | None, typer.Option("--key-dir", help=HELP.ssh.key_dir)] = None,
     force: Annotated[bool, typer.Option("--force", "-f", help=HELP.ssh.force_rotate)] = False,
+    prefix: Annotated[
+        str | None,
+        typer.Option(
+            "--prefix",
+            "-p",
+            help="Optional prefix for the SSH key name (defaults to config setting, devcontainer name, or basename pwd).",
+        ),
+    ] = None,
 ) -> None:
     """Rotate keys older than rotation_days (default 90).
 
     Generates, registers, and reports the old key.
     """
     from devops_cli.config.settings import get_github_token, load_settings
-    from devops_cli.crypto.ssh_keys import find_newest_key, generate_ed25519_key, get_key_age_days
+    from devops_cli.crypto.ssh_keys import (
+        find_newest_key,
+        generate_ed25519_key,
+        get_key_age_days,
+        get_ssh_key_prefix,
+    )
     from devops_cli.dry_run import is_dry_run
     from devops_cli.github.ssh import SSHRegistrationError, register_key_on_github
 
@@ -171,7 +213,11 @@ def rotate(
         render_dry_run_result(
             command="devops ssh rotate",
             action="rotate_ssh_keys",
-            details={"key_dir": str(key_dir) if key_dir else None, "force": force},
+            details={
+                "key_dir": str(key_dir) if key_dir else None,
+                "force": force,
+                "prefix": prefix,
+            },
         )
         return
 
@@ -194,19 +240,34 @@ def rotate(
 
     print_warning(f"Key is {age} days old — rotating...", prefix=False)
 
-    new_key_path = target_key_dir / f"id_ed25519-{_date_suffix()}"
+    active_prefix = (
+        prefix if prefix is not None else (settings.ssh.key_prefix or get_ssh_key_prefix())
+    )
+    filename = (
+        f"{active_prefix}-id_ed25519-{_date_suffix()}"
+        if active_prefix
+        else f"id_ed25519-{_date_suffix()}"
+    )
+    new_key_path = target_key_dir / filename
     created_new = False
     if new_key_path.exists():
         print_warning(f"New key already exists: {new_key_path}", prefix=False)
     else:
-        generate_ed25519_key(new_key_path, comment=f"devops-cli-{date.today().isoformat()}")
+        default_comment = (
+            f"{active_prefix}-{date.today().isoformat()}"
+            if active_prefix
+            else f"devops-cli-{date.today().isoformat()}"
+        )
+        generate_ed25519_key(new_key_path, comment=default_comment)
         created_new = True
         print_success(f"Generated: {new_key_path}")
 
     token = get_github_token(settings)
     pub_key = new_key_path.with_name(f"{new_key_path.name}.pub").read_text(encoding="utf-8").strip()
     try:
-        register_key_on_github(pub_key, f"devops-cli-{_date_suffix()}", token=token)
+        register_key_on_github(
+            pub_key, f"{active_prefix or 'devops-cli'}-{_date_suffix()}", token=token
+        )
         _configure_git_signing(new_key_path)
         print_success(MESSAGES.ssh.registered_and_configured)
     except SSHRegistrationError as exc:

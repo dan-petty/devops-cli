@@ -19,8 +19,64 @@ from devops_cli.core.validation import validate_safe_key_path
 from devops_cli.exceptions import ValidationError
 from devops_cli.models.ssh import ManagedSSHKey
 
-# Matches id_ed25519-2024JAN15 or id_ed25519-2024JAN
-_KEY_RE = re.compile(r"^id_ed25519-(\d{4}[A-Z]{3}(\d{2})?)$")
+# Matches [prefix-]id_ed25519-YYYYMMDD
+_KEY_RE = re.compile(r"^(?:(?P<prefix>[a-zA-Z0-9_-]+)-)?id_ed25519-(?P<date>\d{8})$")
+
+
+def get_ssh_key_prefix(workspace_path: Path | None = None) -> str:
+    """Determine the SSH key prefix from config setting, devcontainer name, or basename pwd."""
+    from devops_cli.config.settings import load_settings
+
+    try:
+        settings = load_settings()
+        if settings.ssh.key_prefix:
+            raw_prefix = settings.ssh.key_prefix.strip()
+            sanitized = re.sub(r"[^a-zA-Z0-9_-]", "-", raw_prefix).strip("-").lower()
+            if sanitized:
+                return sanitized
+    except Exception:
+        pass
+
+    target_dir = (workspace_path or Path.cwd()).resolve()
+
+    candidate_paths: list[Path] = [
+        target_dir / ".devcontainer" / "devcontainer.json",
+        target_dir / ".devcontainer.json",
+        target_dir / "devcontainer.json",
+    ]
+    for parent in target_dir.parents:
+        candidate_paths.append(parent / ".devcontainer" / "devcontainer.json")
+        candidate_paths.append(parent / ".devcontainer.json")
+
+    for dev_path in candidate_paths:
+        if dev_path.is_file():
+            try:
+                import json
+
+                text = dev_path.read_text(encoding="utf-8")
+                cleaned = re.sub(r"//.*$", "", text, flags=re.MULTILINE)
+                data = json.loads(cleaned)
+                if isinstance(data, dict) and data.get("name"):
+                    raw_name = str(data["name"]).strip()
+                    sanitized = re.sub(r"[^a-zA-Z0-9_-]", "-", raw_name).strip("-").lower()
+                    if sanitized:
+                        return sanitized
+            except Exception:
+                pass
+
+    base_name = target_dir.name.strip()
+    sanitized = re.sub(r"[^a-zA-Z0-9_-]", "-", base_name).strip("-").lower()
+    return sanitized or "devops-cli"
+
+
+def format_managed_key_filename(prefix: str | None = None, key_date: date | None = None) -> str:
+    """Format a managed SSH key filename with prefix and YYYYMMDD date suffix."""
+    d = key_date or date.today()
+    date_str = d.strftime("%Y%m%d")
+    active_prefix = prefix if prefix is not None else get_ssh_key_prefix()
+    if active_prefix:
+        return f"{active_prefix}-id_ed25519-{date_str}"
+    return f"id_ed25519-{date_str}"
 
 
 def generate_ed25519_key(key_path: Path, comment: str = "") -> None:
@@ -65,16 +121,12 @@ def generate_ed25519_key(key_path: Path, comment: str = "") -> None:
 
 
 def parse_key_date(key_path: Path) -> date | None:
-    """Parse the YYYYMMM[DD] date suffix from a managed key filename, or None."""
+    """Parse the YYYYMMDD date suffix from a managed key filename, or None."""
     match = _KEY_RE.match(key_path.name)
     if not match:
         return None
-    date_str = match.group(1)  # e.g. "2024JAN15" or "2024JAN"
-    # strptime %b requires title-case: "2024Jan15" / "2024Jan"
-    normalized = date_str[:4] + date_str[4:7].capitalize() + date_str[7:]
-    date_format = "%Y%b%d" if len(date_str) == 9 else "%Y%b"
     try:
-        return datetime.strptime(normalized, date_format).date()
+        return datetime.strptime(match.group("date"), "%Y%m%d").date()
     except ValueError:
         return None
 

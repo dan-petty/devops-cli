@@ -27,8 +27,10 @@ This document provides foundational context, architectural principles, and opera
   - Never leave remnants, vestigial aliases, deprecated fallback paths, or ghost implementations for backward compatibility unless explicitly requested to do so by the user.
 - **Dedicated Agent Workspace Data Isolation (`DEVOPS_CLI_DATA_DIR=./.data/agent`)**:
   - AI agents executing CLI review sessions, background benchmarks, analysis scans, test executions, or temporary operational tasks must configure and isolate agent data artifacts under `./.data/agent` (via `DEVOPS_CLI_DATA_DIR=./.data/agent`) to separate agent-generated reviews, logs, traces, and metadata from the primary user workspace data tier.
+- **Mandatory Backup for Files Outside Workspace (`.bak-<YYYYMMDD-HHMMSS>`)**:
+  - Whenever modifying, overwriting, editing, or truncating any file located anywhere outside of the project workspace directory (such as files in user home directories, global configuration files, `~/.ssh/`, `~/.bashrc`, `~/.zshrc`, `/etc/`, or system files), AI agents and assistants **MUST ALWAYS** create a timestamped backup of the target file named `<original-filepath>.bak-<YYYYMMDD-HHMMSS>` (e.g. `~/.ssh/config.bak-20260831-134100`) prior to making any edits.
 - **Mandatory Documentation Synchronization After Every Change**:
-  - AI agents and assistants must always update project documents, architecture references, command documentation, and README files (`devops docs generate --sync-readme`, `docs/`, `AGENTS.md`, and relevant knowledge base task manuals) after every change to maintain 100% documentation integrity and prevent documentation drift.
+  - AI agents and assistants must always update project documents, architecture references, command documentation, examples, and README files (`devops docs generate --sync-readme`, `docs/`, `AGENTS.md`, and relevant knowledge base task manuals) after every change to maintain 100% documentation integrity and prevent documentation drift.
 
 ## 2. Development Workflow & Progressive Verification
 
