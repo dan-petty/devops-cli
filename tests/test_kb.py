@@ -27,8 +27,8 @@ def test_get_knowledge_base_dir() -> None:
 
 def test_list_knowledge_base_articles_all() -> None:
     articles = list_knowledge_base_articles()
-    # 16 devops_cli (4 core + 12 tasks) + 38 it_domains (10 topics + 28 tools)
-    assert len(articles) == 54
+    # 39 devops_cli (4 core + 12 tasks + 23 libraries) + 38 it_domains (10 topics + 28 tools)
+    assert len(articles) == 77
     assert all(a.suffix == ".md" for a in articles)
     assert all(a.name != "README.md" for a in articles)
 
@@ -37,7 +37,7 @@ def test_list_knowledge_base_articles_by_division() -> None:
     devops_cli_articles = list_knowledge_base_articles("devops_cli")
     it_domains_articles = list_knowledge_base_articles("it_domains")
 
-    assert len(devops_cli_articles) == 16  # 4 core + 12 tasks
+    assert len(devops_cli_articles) == 39  # 4 core + 12 tasks + 23 libraries
     assert len(it_domains_articles) == 38  # 10 topics + 28 tools
 
 
@@ -51,6 +51,9 @@ def test_list_knowledge_base_articles_by_category() -> None:
 
     tasks = list_knowledge_base_articles("devops_cli/tasks")
     assert len(tasks) == 12
+
+    libraries = list_knowledge_base_articles("devops_cli/libraries")
+    assert len(libraries) == 23
 
 
 def test_load_kb_article_success() -> None:
@@ -67,7 +70,12 @@ def test_load_kb_article_success() -> None:
     # Test loading python_packages article
     pkg_content = load_kb_article("devops_cli/python_packages.md")
     assert pkg_content is not None
-    assert "Python Packages Reference Manual" in pkg_content
+    assert "Python Packages & Code Libraries Reference Manual" in pkg_content
+
+    # Test loading a dedicated library article
+    typer_content = load_kb_article("devops_cli/libraries/typer.md")
+    assert typer_content is not None
+    assert "Typer & Click" in typer_content
 
 
 def test_load_kb_article_missing_or_invalid() -> None:
@@ -79,12 +87,12 @@ def test_load_kb_article_missing_or_invalid() -> None:
 def test_get_knowledge_base_stats() -> None:
     stats = get_knowledge_base_stats()
     assert stats.exists is True
-    assert stats.devops_cli_count == 16
+    assert stats.devops_cli_count == 39
     assert stats.it_domains_count == 38
     assert stats.topics_count == 10
     assert stats.tools_count == 28
     assert stats.tasks_count == 12
-    assert stats.total_articles == 54
+    assert stats.total_articles == 77
 
 
 def test_workspace_indexer_index_knowledge_base(tmp_path: Path) -> None:

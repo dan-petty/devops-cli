@@ -1,15 +1,15 @@
-# Python Packages Reference Manual
+# Python Packages & Code Libraries Reference Manual
 
-This technical reference manual documents every Python package and dependency integrated into the `devops-cli` ecosystem, including production runtime libraries, developer quality tools, and build backends.
+This technical reference manual provides a comprehensive, deep-dive architectural guide to every Python package and code library integrated into the `devops-cli` ecosystem. It details production runtime dependencies, development quality tools, architectural roles, code patterns, and best practices across the codebase.
 
 ---
 
-## 📦 Package Summary & Architecture Overview
+## 📦 Package Architecture Overview
 
-`devops-cli` maintains a modern, high-performance, strictly typed Python 3.14+ runtime architecture. Dependencies are strictly categorized into:
-1. **Core Runtime Packages (`dependencies`)**: Production libraries powering the CLI, AI multi-agent engine, Kubernetes/Docker controllers, OpenTelemetry tracing, and REST services.
+`devops-cli` implements a modern, high-performance, strictly typed Python 3.14+ runtime architecture. Dependencies are strictly categorized into:
+1. **Core Runtime Packages (`dependencies`)**: Production libraries powering the CLI framework, AI multi-agent engine, Kubernetes/Docker controllers, OpenTelemetry tracing, cryptographic engine, and REST services.
 2. **Development & Quality Tooling (`dependency-groups.dev`)**: High-speed testing, coverage validation, static typing, and AST security scanners enforcing the 10-point `devops ci` quality gate.
-3. **Build Backend (`build-system`)**: Standard PEP 517 build system for reproducible wheel generation.
+3. **Build Backend (`build-system`)**: Standard PEP 517 build system for reproducible wheel generation via `hatchling`.
 
 ```mermaid
 graph TD
@@ -49,61 +49,210 @@ graph TD
 
 ---
 
-## 🚀 Production Runtime Dependencies
+## 🚀 Core Runtime Code Libraries
 
 ### 1. CLI & Terminal Interface
 
-| Package | Pinned Version | Ecosystem Role & Usage | Repository & Docs |
-| :--- | :--- | :--- | :--- |
-| **`typer`** | `0.27.1` | High-level CLI application framework with automatic type inference, subcommand routing, and option parsing. | [tiangolo/typer](https://github.com/tiangolo/typer) • [PyPI](https://pypi.org/project/typer/) |
-| **`click`** | `8.4.2` | Core composable command-line toolkit underlying Typer, providing custom parameter parsing and exit code mapping. | [pallets/click](https://github.com/pallets/click) • [PyPI](https://pypi.org/project/click/) |
-| **`rich`** | `15.0.0` | Terminal styling, formatted tables (`print_table`), animated spinners, live progress bars, and syntax-highlighted code diffs. | [Textualize/rich](https://github.com/Textualize/rich) • [PyPI](https://pypi.org/project/rich/) |
+#### `typer` & `click` ([Dedicated Manual](libraries/typer.md))
+- **Pinned Versions**: `typer==0.27.1`, `click==8.4.2`
+- **Ecosystem Role**: Provides declarative CLI application scaffolding, subcommand dispatching, argument/option parsing, shell autocompletion, and type inference.
+- **Codebase Integration**:
+  - `devops_cli.core.cli.new_typer`: Factory creating standardized Typer apps with unified formatting, error handlers, and help text from `devops_cli.lang.HELP`.
+  - Type annotations (`Annotated[T, typer.Option(...)]`) map automatically to rich terminal options and validation rules.
 
-### 2. Data Validation, Settings & Secrets
+```python
+from typing import Annotated
+import typer
+from devops_cli.core.cli import new_typer
+from devops_cli.lang import HELP
 
-| Package | Pinned Version | Ecosystem Role & Usage | Repository & Docs |
-| :--- | :--- | :--- | :--- |
-| **`pydantic`** | `2.13.4` | Core data validation and schema definitions for all domain models, review findings, and tool payloads. | [pydantic/pydantic](https://github.com/pydantic/pydantic) • [PyPI](https://pypi.org/project/pydantic/) |
-| **`pydantic-settings`** | `2.15.0` | Hierarchical configuration management, layered resolution (CLI flags $\rightarrow$ Env vars $\rightarrow$ Config files $\rightarrow$ Defaults). | [pydantic/pydantic-settings](https://github.com/pydantic/pydantic-settings) • [PyPI](https://pypi.org/project/pydantic-settings/) |
-| **`keyring`** | `25.7.0` | Secure OS Keyring storage for sensitive secrets (GitHub tokens, cloud API keys, private credentials) across Linux/macOS/Windows. | [jaraco/keyring](https://github.com/jaraco/keyring) • [PyPI](https://pypi.org/project/keyring/) |
+app = new_typer(help=HELP.main.app)
 
-### 3. Agentic AI, LLM Client & Semantic Search
 
-| Package | Pinned Version | Ecosystem Role & Usage | Repository & Docs |
-| :--- | :--- | :--- | :--- |
-| **`pydantic-ai`** | `2.35.0` | Multi-agent orchestrator, `FunctionToolset` abstractions, `ToolReturn` rich output models, and retry budgets. | [pydantic/pydantic-ai](https://github.com/pydantic/pydantic-ai) • [PyPI](https://pypi.org/project/pydantic-ai/) |
-| **`httpx2`** | `2.9.0` | Modern HTTP/2 async & sync client for streaming LLM provider requests (Ollama, Claude, Copilot, OpenAI) with TLS pooling. | [pydantic/httpx2](https://github.com/pydantic/httpx2) • [PyPI](https://pypi.org/project/httpx2/) |
-| **`tiktoken`** | `0.14.0` | Fast Byte-Pair Encoding (BPE) tokenizer used for strict context budget estimation (`devops_cli.ai.context_budget`). | [openai/tiktoken](https://github.com/openai/tiktoken) • [PyPI](https://pypi.org/project/tiktoken/) |
-| **`json-repair`** | `0.63.4` | Resilient JSON parser and tokenizer that auto-repairs truncated or malformed JSON payloads emitted by LLMs. | [mangiucugna/json_repair](https://github.com/mangiucugna/json_repair) • [PyPI](https://pypi.org/project/json-repair/) |
-| **`qdrant-client`** | `1.19.0` | Vector database client for local semantic search, document chunk indexing, and RAG grounding in code reviews. | [qdrant/qdrant-client-python](https://github.com/qdrant/qdrant-client-python) • [PyPI](https://pypi.org/project/qdrant-client/) |
+@app.command("run")
+def run_command(
+    target: Annotated[str, typer.Argument(help=HELP.options.target)],
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
+) -> None: ...
+```
 
-### 4. Git, GitHub & DevSecOps Subsystems
-
-| Package | Pinned Version | Ecosystem Role & Usage | Repository & Docs |
-| :--- | :--- | :--- | :--- |
-| **`gitpython`** | `3.1.60` | Git repository inspection, branch tracking, working tree status checks, and local commit graph operations. | [gitpython-developers/GitPython](https://github.com/gitpython-developers/GitPython) • [PyPI](https://pypi.org/project/GitPython/) |
-| **`PyGithub`** | `2.10.0` | GitHub REST API v3 client for managing PR reviews, repository synchronization, release assets, and SSH signing keys. | [PyGithub/PyGithub](https://github.com/PyGithub/PyGithub) • [PyPI](https://pypi.org/project/PyGithub/) |
-| **`cryptography`** | `50.0.1` | Cryptographic primitives for generating X.509 Certificate Authorities, mTLS server/client certificates, and SSH keys. | [pyca/cryptography](https://github.com/pyca/cryptography) • [PyPI](https://pypi.org/project/cryptography/) |
-| **`tldextract`** | `5.3.2` | Accurate domain name and TLD parsing using the Public Suffix List for SSRF mitigation and endpoint validation. | [john-kurkowski/tldextract](https://github.com/john-kurkowski/tldextract) • [PyPI](https://pypi.org/project/tldextract/) |
-| **`pathspec`** | `1.1.1` | Gitignore-style path pattern matching for target repository scanning, file exclusion, and diff filtering. | [cpburnz/python-pathspec](https://github.com/cpburnz/python-pathspec) • [PyPI](https://pypi.org/project/pathspec/) |
-| **`packaging`** | `26.3` | Core packaging utilities for parsing Semantic Versions (SemVer 2.0.0), PEP 440 versions, and dependency constraints. | [pypa/packaging](https://github.com/pypa/packaging) • [PyPI](https://pypi.org/project/packaging/) |
-
-### 5. Kubernetes, Containers, Observability & Services
-
-| Package | Pinned Version | Ecosystem Role & Usage | Repository & Docs |
-| :--- | :--- | :--- | :--- |
-| **`kubernetes`** | `36.0.3` | Official Python client library for Kubernetes cluster management, custom resources, namespace provisioning, and secret sync. | [kubernetes-client/python](https://github.com/kubernetes-client/python) • [PyPI](https://pypi.org/project/kubernetes/) |
-| **`docker`** | `7.2.0` | Docker SDK for Python managing container lifecycles, health inspections, real-time resource stats, and network bridges. | [docker/docker-py](https://github.com/docker/docker-py) • [PyPI](https://pypi.org/project/docker/) |
-| **`fastmcp`** | `3.4.7` | Model Context Protocol (MCP) server integration exposing CLI tools directly to AI assistants and IDE extensions. | [jlowin/fastmcp](https://github.com/jlowin/fastmcp) • [PyPI](https://pypi.org/project/fastmcp/) |
-| **`fastapi`** | `0.141.1` | Asynchronous REST and OpenAPI service engine backing `devops serve` for automated workstation orchestration. | [fastapi/fastapi](https://github.com/fastapi/fastapi) • [PyPI](https://pypi.org/project/fastapi/) |
-| **`uvicorn`** | `0.52.4` | Lightning-fast ASGI web server implementation powering the local `devops serve` REST API engine. | [encode/uvicorn](https://github.com/encode/uvicorn) • [PyPI](https://pypi.org/project/uvicorn/) |
-| **`opentelemetry-exporter-otlp-proto-grpc`** | `1.44.0` | OpenTelemetry Protocol (OTLP) gRPC exporter delivering distributed trace spans to Jaeger and OTel collectors. | [open-telemetry/opentelemetry-python](https://github.com/open-telemetry/opentelemetry-python) • [PyPI](https://pypi.org/project/opentelemetry-exporter-otlp-proto-grpc/) |
-| **`PyYAML`** | `6.0.3` | YAML 1.2 parser and emitter for Kubernetes manifests, Helm values, OpenTofu outputs, and Agent specifications. | [yaml/pyyaml](https://github.com/yaml/pyyaml) • [PyPI](https://pypi.org/project/PyYAML/) |
-| **`jinja2`** | `3.1.6` | Expressive template engine powering DevContainer configuration generation and Agent instruction scaffolding. | [pallets/jinja](https://github.com/pallets/jinja) • [PyPI](https://pypi.org/project/jinja2/) |
+#### `rich` ([Dedicated Manual](libraries/rich.md))
+- **Pinned Version**: `rich==15.0.0`
+- **Ecosystem Role**: Terminal rendering engine providing colorized output, syntax highlighting, formatted tables, animated spinners, status displays, and progress bars.
+- **Codebase Integration**:
+  - `devops_cli.output`: Centralized console abstractions (`print_table`, `print_banner`, `print_success`, `print_error`, `print_info`, `print_warning`, `print_muted`).
+  - Diffs and finding locations are rendered in Rich tables using the canonical `filename.ext:n-n` syntax.
 
 ---
 
-## 🛠️ Development & CI Verification Tooling
+### 2. Data Validation, Settings & Secrets
+
+#### `pydantic` (v2) ([Dedicated Manual](libraries/pydantic.md))
+- **Pinned Version**: `pydantic==2.13.4`
+- **Ecosystem Role**: High-performance data validation, parsing, serialization, and JSON Schema generation using compiled Rust core (`pydantic-core`).
+- **Codebase Integration**:
+  - All domain models (`devops_cli.models`), review findings (`Finding`, `ReviewSession`), tool schemas, and AI agent output structures inherit from `BaseModel`.
+  - Enforces `Field(default_factory=...)`, strict validation, and seamless conversion to/from dict and JSON.
+
+```python
+from pydantic import BaseModel, Field
+
+
+class Finding(BaseModel):
+    id: str
+    persona: str
+    severity: str
+    title: str
+    location: str
+    description: str
+    remediation: str | None = None
+    confidence: float | None = None
+    details: dict[str, str] = Field(default_factory=dict)
+```
+
+#### `pydantic-settings` ([Dedicated Manual](libraries/pydantic.md))
+- **Pinned Version**: `pydantic-settings==2.15.0`
+- **Ecosystem Role**: Layered configuration management loading settings from environment variables, `.env` files, TOML/JSON configs, and CLI overrides.
+- **Codebase Integration**:
+  - `devops_cli.config.settings.Settings`: Unified singleton loading application configuration with prefix `DEVOPS_CLI_` and automatic type coercion.
+
+#### `keyring` ([Dedicated Manual](libraries/keyring.md))
+- **Pinned Version**: `keyring==25.7.0`
+- **Ecosystem Role**: Zero-trust credential security interface integrating with native OS vaults (Secret Service on Linux, Keychain on macOS, Credential Manager on Windows).
+- **Codebase Integration**:
+  - `devops_cli.config.keyring_vault`: Securely retrieves and stores GitHub Personal Access Tokens, LLM API keys, and sensitive credentials without storing plaintext in files or environment variables.
+
+---
+
+### 3. Agentic AI, LLM Client & Semantic Search
+
+#### `pydantic-ai` ([Dedicated Manual](libraries/pydantic_ai.md))
+- **Pinned Version**: `pydantic-ai==2.35.0`
+- **Ecosystem Role**: Multi-agent framework enabling type-safe tool execution, dynamic instructions, structured output validation, model overrides, and sub-agent delegation.
+- **Codebase Integration**:
+  - `devops_cli.ai.agents.agent.PydanticAgent`: High-level agent abstraction managing toolsets, usage tracking (`AgentUsage`), and async lifecycles (`async with agent:`).
+  - `devops_cli.ai.agents.tools.MCPToolset`: Connects external Model Context Protocol servers as native callable agent tools.
+
+```python
+from devops_cli.ai.agents import PydanticAgent, AgentTool, MCPToolset
+
+async with MCPToolset(server_url="http://localhost:8000/sse") as mcp:
+    agent = PydanticAgent(
+        name="DevSecOps",
+        model="claude-3-5-sonnet",
+        toolsets=[mcp],
+    )
+    result = await agent.run("Audit Kubernetes security policies")
+```
+
+#### `httpx2` (Pydantic HTTP/2 Client) ([Dedicated Manual](libraries/httpx2.md))
+- **Pinned Version**: `httpx2==2.9.0`
+- **Ecosystem Role**: Advanced HTTP/2 and HTTP/1.1 client supporting connection pooling, asynchronous streaming, mTLS, and multiplexed requests.
+- **Codebase Integration**:
+  - `devops_cli.ai.llm.client.UnifiedLLMClient`: Executes high-throughput streaming requests to LLM inference endpoints (Ollama, Anthropic, OpenAI, Azure) with bounded timeouts and TLS verification.
+
+#### `tiktoken` ([Dedicated Manual](libraries/tiktoken.md))
+- **Pinned Version**: `tiktoken==0.14.0`
+- **Ecosystem Role**: Fast BPE (Byte-Pair Encoding) tokenizer developed by OpenAI for token counting and context window management.
+- **Codebase Integration**:
+  - `devops_cli.ai.context_budget`: Accurately counts tokens in diffs, prompts, and knowledge base files, preventing LLM context window overflows and optimizing cost.
+
+#### `json-repair` ([Dedicated Manual](libraries/json_repair.md))
+- **Pinned Version**: `json-repair==0.63.4`
+- **Ecosystem Role**: Resilient JSON parser capable of repairing malformed, unclosed, or truncated JSON responses emitted by LLMs.
+- **Codebase Integration**:
+  - `devops_cli.ai.review.runner` & `devops_cli.ai.agents`: Automatically repairs and parses structured model outputs without crashing when tokens are abruptly truncated.
+
+#### `qdrant-client` ([Dedicated Manual](libraries/qdrant_client.md))
+- **Pinned Version**: `qdrant-client==1.19.0`
+- **Ecosystem Role**: Vector database client supporting in-memory, local on-disk storage, and remote server connectivity for dense embeddings.
+- **Codebase Integration**:
+  - `devops_cli.ai.rag.engine`: Manages vector collections, cosine distance indexing, and semantic search retrieval to ground AI code reviews against knowledge base manuals.
+
+---
+
+### 4. Git, GitHub & DevSecOps Subsystems
+
+#### `gitpython` ([Dedicated Manual](libraries/gitpython.md))
+- **Pinned Version**: `gitpython==3.1.60`
+- **Ecosystem Role**: Python interface for interacting with Git repositories, inspecting commits, reading tree objects, and managing tracking branches.
+- **Codebase Integration**:
+  - `devops_cli.git`: Retrieves current branch name, diffs (`git.diff`), unstaged files, and commit logs with defensive error handling.
+
+#### `PyGithub` ([Dedicated Manual](libraries/pygithub.md))
+- **Pinned Version**: `PyGithub==2.10.0`
+- **Ecosystem Role**: Full-featured client for the GitHub REST API v3 and GraphQL API.
+- **Codebase Integration**:
+  - `devops_cli.commands.pr`: Fetches PR details, posts review findings as collapsible markdown comments, checks remote CI status, and manages releases.
+
+#### `cryptography` ([Dedicated Manual](libraries/cryptography.md))
+- **Pinned Version**: `cryptography==50.0.1`
+- **Ecosystem Role**: Industry-standard cryptographic library providing X.509 certificate generation, RSA/Ed25519 keypair creation, CSR signing, and TLS encryption.
+- **Codebase Integration**:
+  - `devops_cli.crypto.tls_certificates`: Automatically generates root Certificate Authorities, server certificates with SAN (Subject Alternative Names), and exports PEM/CRT bundles.
+  - `devops_cli.commands.ssh`: Generates and rotates Ed25519 SSH keys with 90-day expiry naming conventions.
+
+#### `tldextract` ([Dedicated Manual](libraries/tldextract.md))
+- **Pinned Version**: `tldextract==5.3.2`
+- **Ecosystem Role**: Accurately separates domain subtotals using the Public Suffix List (PSL).
+- **Codebase Integration**:
+  - `devops_cli.security`: Validates outbound network destinations, preventing Server-Side Request Forgery (SSRF) and ensuring egress safety.
+
+#### `pathspec` ([Dedicated Manual](libraries/pathspec.md))
+- **Pinned Version**: `pathspec==1.1.1`
+- **Ecosystem Role**: Fast pattern matching utility implementing `.gitignore` style globbing rules.
+- **Codebase Integration**:
+  - `devops_cli.ai.diff` & `devops_cli.commands.review`: Excludes build directories (`.venv`, `node_modules`, `dist`, `.data`) and secret files from code review passes.
+
+#### `packaging` ([Dedicated Manual](libraries/packaging.md))
+- **Pinned Version**: `packaging==26.3`
+- **Ecosystem Role**: Core packaging utilities for parsing Semantic Versioning (SemVer 2.0.0) and PEP 440 specification rules.
+- **Codebase Integration**:
+  - `devops_cli.commands.release`: Validates version increments (`major`, `minor`, `patch`), ensuring clean bump sequences across `pyproject.toml` and changelogs.
+
+---
+
+### 5. Kubernetes, Containers, Observability & Services
+
+#### `kubernetes` ([Dedicated Manual](libraries/kubernetes.md))
+- **Pinned Version**: `kubernetes==36.0.3`
+- **Ecosystem Role**: Official Python client for the Kubernetes API (CoreV1Api, AppsV1Api, CustomObjectsApi).
+- **Codebase Integration**:
+  - `devops_cli.commands.k8s`: Inspects cluster nodes, queries running pods, streams container logs, creates TLS secrets, and executes in-cluster diagnostics.
+
+#### `docker` ([Dedicated Manual](libraries/docker.md))
+- **Pinned Version**: `docker==7.2.0`
+- **Ecosystem Role**: Docker SDK for Python interacting with the Docker Engine daemon over Unix sockets or TCP.
+- **Codebase Integration**:
+  - `devops_cli.commands.docker`: Collects real-time container CPU/memory statistics, checks container health, and inspects image layers.
+
+#### `fastmcp` ([Dedicated Manual](libraries/fastmcp.md))
+- **Pinned Version**: `fastmcp==3.4.7`
+- **Ecosystem Role**: High-level Model Context Protocol (MCP) server framework exposing Python functions as standardized tools and prompts.
+- **Codebase Integration**:
+  - `devops_cli.mcp`: Exposes `devops-cli` tools (`review_path`, `k8s_pods`, `tf_plan`, `scan_uv_audit`, `security_intel_package`) to AI assistants via stdio and SSE transports.
+
+#### `fastapi` & `uvicorn` ([Dedicated Manual](libraries/fastapi_uvicorn.md))
+- **Pinned Versions**: `fastapi==0.141.1`, `uvicorn==0.52.4`
+- **Ecosystem Role**: Asynchronous web framework and lightning-fast ASGI server for building high-performance REST APIs with auto-generated OpenAPI documentation.
+- **Codebase Integration**:
+  - `devops_cli.service`: Powers `devops serve`, providing REST endpoints for remote automation, health probes (`/healthz`), Prometheus metric scraping (`/metrics`), and tool execution.
+
+#### `opentelemetry-exporter-otlp-proto-grpc` ([Dedicated Manual](libraries/opentelemetry.md))
+- **Pinned Version**: `opentelemetry-exporter-otlp-proto-grpc==1.44.0`
+- **Ecosystem Role**: OpenTelemetry collector exporter transmitting distributed trace spans over gRPC.
+- **Codebase Integration**:
+  - `devops_cli.telemetry.tracer`: Emits span waterfalls for CLI subcommands, multi-agent review stages, and tool executions to Jaeger (`http://localhost:16686`).
+
+#### `PyYAML` & `jinja2` ([Dedicated Manual](libraries/pyyaml_jinja2.md))
+- **Pinned Versions**: `PyYAML==6.0.3`, `jinja2==3.1.6`
+- **Ecosystem Role**: YAML parsing/serialization and expressive text templating engine.
+- **Codebase Integration**:
+  - `devops_cli.commands.k8s` & `devops_cli.commands.devcontainer`: Dynamically renders DevContainer configurations, ArgoCD manifests, and Helm values files.
+
+---
+
+## 🛠️ Development, CI Quality & Verification Tooling
 
 The development environment leverages modern Python engineering tools managed via Astral `uv`:
 
@@ -123,9 +272,10 @@ The development environment leverages modern Python engineering tools managed vi
 
 ---
 
-## 🔒 Dependency Hygiene & Best Practices
+## 🔒 Engineering Standards & Integration Principles
 
-1. **Deterministic Pinning**: All package versions are strictly pinned in `pyproject.toml` and locked in `uv.lock` to ensure identical builds across local workstations, CI runners, and DevContainers.
-2. **Automated Vulnerability Audits**: The `devops ci` quality gate automatically audits dependencies for known CVEs via `pip-audit` and `scan_uv_audit`.
-3. **Lazy Subsystem Loading**: High-overhead modules (e.g. `fastmcp`, `qdrant-client`, `docker`, `kubernetes`, `fastapi`) are imported lazily within subcommand entry points to keep CLI cold-start times under 80ms.
-4. **Zero-Trust Security**: No dependency is permitted to bypass OS Keyring or log unredacted credential tokens.
+1. **Deterministic Version Pinning**: All package versions are strictly pinned with exact versions (`==`) in `pyproject.toml` and verified in `uv.lock` to guarantee reproducible builds across workstations, CI runners, and DevContainers.
+2. **Automated Vulnerability Audits**: The `devops ci` quality gate automatically audits dependencies for known CVEs via `scan_uv_audit` and `pip-audit`.
+3. **Lazy Subsystem Loading**: High-overhead modules (e.g. `fastmcp`, `qdrant-client`, `docker`, `kubernetes`, `fastapi`, `cryptography`) are imported lazily within subcommand execution functions to ensure CLI cold-start latency remains under 80ms.
+4. **Standard Library Leverage First**: Ad-hoc helper loops or custom workarounds are avoided in favor of standard library modules (`functools`, `itertools`, `pathlib`, `ipaddress`, `urllib.parse`) and established libraries.
+5. **Strict Type Safety**: All external library integrations must provide complete type annotations compatible with `mypy --strict`.
