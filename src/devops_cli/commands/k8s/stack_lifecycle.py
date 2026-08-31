@@ -14,7 +14,7 @@ from devops_cli.config.defaults import (
     DEFAULT_K8S_STACK,
 )
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
-from devops_cli.lang import MESSAGES
+from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
     print_error,
     print_info,
@@ -203,14 +203,12 @@ def _bootstrap_openwebui_account(
 
 
 def bootstrap_openwebui(
-    email: Annotated[
-        str, typer.Option("--email", "-e", help="Admin email address")
-    ] = "admin@localhost",
-    name: Annotated[str, typer.Option("--name", "-n", help="Admin display name")] = "Admin",
-    password: Annotated[str, typer.Option("--password", "-p", help="Admin password")] = "admin123",
+    email: Annotated[str, typer.Option("--email", "-e", help=HELP.k8s.email)] = "admin@localhost",
+    name: Annotated[str, typer.Option("--name", "-n", help=HELP.k8s.admin_name)] = "Admin",
+    password: Annotated[str, typer.Option("--password", "-p", help=HELP.k8s.password)] = "admin123",
     context: Annotated[
         str | None,
-        typer.Option("--context", "-c", help="Kubernetes cluster context"),
+        typer.Option("--context", "-c", help=HELP.options.context),
     ] = None,
 ) -> None:
     """Bootstrap or activate a local administrator account for Open-WebUI."""
@@ -237,14 +235,10 @@ def bootstrap_openwebui(
 
 
 def deploy_stack(
-    k8s_dir: Annotated[
-        Path, typer.Option("--k8s-dir", help="Path to k8s/ config directory")
-    ] = DEFAULT_K8S_DIR,
-    stack: Annotated[
-        str, typer.Option("--stack", "-s", help="Stack to deploy (infra, llm, all)")
-    ] = DEFAULT_K8S_STACK,
+    k8s_dir: Annotated[Path, typer.Option("--k8s-dir", help=HELP.k8s.k8s_dir)] = DEFAULT_K8S_DIR,
+    stack: Annotated[str, typer.Option("--stack", "-s", help=HELP.k8s.stack)] = DEFAULT_K8S_STACK,
     context: Annotated[
-        str | None, typer.Option("--context", "-c", help="Kubernetes cluster context")
+        str | None, typer.Option("--context", "-c", help=HELP.options.context)
     ] = None,
 ) -> None:
     """Deploy infrastructure or LLM stack (Ollama, WebUI, Qdrant, Valkey) to Kubernetes."""
@@ -387,14 +381,10 @@ def deploy_stack(
 
 
 def teardown_stack(
-    k8s_dir: Annotated[
-        Path, typer.Option("--k8s-dir", help="Path to k8s/ config directory")
-    ] = DEFAULT_K8S_DIR,
-    stack: Annotated[
-        str, typer.Option("--stack", "-s", help="Stack to teardown (infra, llm, all)")
-    ] = DEFAULT_K8S_STACK,
+    k8s_dir: Annotated[Path, typer.Option("--k8s-dir", help=HELP.k8s.k8s_dir)] = DEFAULT_K8S_DIR,
+    stack: Annotated[str, typer.Option("--stack", "-s", help=HELP.k8s.stack)] = DEFAULT_K8S_STACK,
     context: Annotated[
-        str | None, typer.Option("--context", "-c", help="Kubernetes cluster context")
+        str | None, typer.Option("--context", "-c", help=HELP.options.context)
     ] = None,
 ) -> None:
     """Uninstall the k8s infrastructure / LLM stack and delete namespaces."""

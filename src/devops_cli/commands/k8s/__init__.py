@@ -62,8 +62,9 @@ from devops_cli.commands.k8s.tls_management import (
 )
 from devops_cli.core.cli import new_typer
 from devops_cli.core.process import run_subprocess
+from devops_cli.lang import HELP
 
-app = new_typer(help="Kubernetes resource management.", no_args_is_help=True)
+app = new_typer(help=HELP.k8s.app, no_args_is_help=True)
 
 # Register subcommands
 app.command()(contexts)

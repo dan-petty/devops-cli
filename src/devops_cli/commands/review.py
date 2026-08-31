@@ -335,11 +335,11 @@ def path(
     ] = False,
     no_cache: Annotated[
         bool,
-        typer.Option("--no-cache", help="Bypass LLM response cache and force fresh inference."),
+        typer.Option("--no-cache", help=HELP.review.no_cache),
     ] = False,
     force: Annotated[
         bool,
-        typer.Option("--force", "-f", help="Force fresh review execution without cache."),
+        typer.Option("--force", "-f", help=HELP.review.force_review),
     ] = False,
     append_cache: Annotated[
         bool,
@@ -512,11 +512,11 @@ def branch(
     ] = False,
     no_cache: Annotated[
         bool,
-        typer.Option("--no-cache", help="Bypass LLM response cache and force fresh inference."),
+        typer.Option("--no-cache", help=HELP.review.no_cache),
     ] = False,
     force: Annotated[
         bool,
-        typer.Option("--force", "-f", help="Force fresh review execution without cache."),
+        typer.Option("--force", "-f", help=HELP.review.force_review),
     ] = False,
     append_cache: Annotated[
         bool,
@@ -653,11 +653,11 @@ def pr(
     ] = False,
     no_cache: Annotated[
         bool,
-        typer.Option("--no-cache", help="Bypass LLM response cache and force fresh inference."),
+        typer.Option("--no-cache", help=HELP.review.no_cache),
     ] = False,
     force: Annotated[
         bool,
-        typer.Option("--force", "-f", help="Force fresh review execution without cache."),
+        typer.Option("--force", "-f", help=HELP.review.force_review),
     ] = False,
     append_cache: Annotated[
         bool,
@@ -810,9 +810,7 @@ def list_findings(
     verified: Annotated[bool, typer.Option("--verified", help=HELP.review.verified)] = False,
     details: Annotated[
         bool,
-        typer.Option(
-            "--details", "-d", help="Display full finding descriptions and fix recommendations."
-        ),
+        typer.Option("--details", "-d", help=HELP.review.details),
     ] = False,
 ) -> None:
     """Inspect structured findings for a review session."""
@@ -1152,15 +1150,15 @@ def apply_patch(
 def auto_fix_cmd(
     finding_id: Annotated[
         str,
-        typer.Argument(help="Finding ID or title to create remediation branch for"),
+        typer.Argument(help=HELP.review.remediate_finding_id),
     ],
     target_file: Annotated[
         str,
-        typer.Option("--file", "-f", help="Target source file to apply fix to"),
+        typer.Option("--file", "-f", help=HELP.review.remediate_file),
     ] = "src/devops_cli/main.py",
     branch_name: Annotated[
         str | None,
-        typer.Option("--branch", "-b", help="Custom topic branch name"),
+        typer.Option("--branch", "-b", help=HELP.review.remediate_branch),
     ] = None,
     dry_run: Annotated[
         bool,

@@ -24,7 +24,7 @@ from devops_cli.config.defaults import (
     DEFAULT_VALKEY_PORT,
 )
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
-from devops_cli.lang import MESSAGES
+from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
     Table,
     print_error,
@@ -201,11 +201,9 @@ def _resolve_accessible_url(
 
 
 def configure_urls(
-    stack: Annotated[
-        str, typer.Option("--stack", "-s", help="Stack to configure URLs for (infra, llm, all)")
-    ] = DEFAULT_K8S_STACK,
+    stack: Annotated[str, typer.Option("--stack", "-s", help=HELP.k8s.stack)] = DEFAULT_K8S_STACK,
     context: Annotated[
-        str | None, typer.Option("--context", "-c", help="Kubernetes cluster context")
+        str | None, typer.Option("--context", "-c", help=HELP.options.context)
     ] = None,
 ) -> None:
     """Auto-detect Kubernetes stack URLs and update CLI config."""
@@ -323,41 +321,39 @@ def configure_urls(
 
 
 def port_forward(
-    stack: Annotated[
-        str, typer.Option("--stack", "-s", help="Stack services to port-forward (infra, llm, all)")
-    ] = DEFAULT_K8S_STACK,
+    stack: Annotated[str, typer.Option("--stack", "-s", help=HELP.k8s.stack)] = DEFAULT_K8S_STACK,
     context: Annotated[
-        str | None, typer.Option("--context", "-c", help="Kubernetes cluster context")
+        str | None, typer.Option("--context", "-c", help=HELP.options.context)
     ] = None,
     argocd_port: Annotated[
-        int, typer.Option("--argocd-port", help="Local port for ArgoCD")
+        int, typer.Option("--argocd-port", help=HELP.k8s.argocd_port)
     ] = DEFAULT_ARGOCD_PORT,
     grafana_port: Annotated[
-        int, typer.Option("--grafana-port", help="Local port for Grafana")
+        int, typer.Option("--grafana-port", help=HELP.k8s.grafana_port)
     ] = DEFAULT_GRAFANA_PORT,
     prometheus_port: Annotated[
-        int, typer.Option("--prometheus-port", help="Local port for Prometheus")
+        int, typer.Option("--prometheus-port", help=HELP.k8s.prometheus_port)
     ] = DEFAULT_PROMETHEUS_PORT,
     jaeger_port: Annotated[
-        int, typer.Option("--jaeger-port", help="Local port for Jaeger Query UI")
+        int, typer.Option("--jaeger-port", help=HELP.k8s.jaeger_port)
     ] = DEFAULT_JAEGER_PORT,
     otel_port: Annotated[
-        int, typer.Option("--otel-port", help="Local port for OpenTelemetry OTLP Traces (HTTP)")
+        int, typer.Option("--otel-port", help=HELP.k8s.otel_port)
     ] = DEFAULT_OTEL_PORT,
     ollama_port: Annotated[
-        int, typer.Option("--ollama-port", help="Local port for Ollama")
+        int, typer.Option("--ollama-port", help=HELP.k8s.ollama_port)
     ] = DEFAULT_OLLAMA_PORT,
     open_webui_port: Annotated[
-        int, typer.Option("--open-webui-port", help="Local port for Open-WebUI")
+        int, typer.Option("--open-webui-port", help=HELP.k8s.open_webui_port)
     ] = DEFAULT_OPEN_WEBUI_PORT,
     qdrant_port: Annotated[
-        int, typer.Option("--qdrant-port", help="Local port for Qdrant HTTP")
+        int, typer.Option("--qdrant-port", help=HELP.k8s.qdrant_port)
     ] = DEFAULT_QDRANT_PORT,
     valkey_port: Annotated[
-        int, typer.Option("--valkey-port", help="Local port for Valkey")
+        int, typer.Option("--valkey-port", help=HELP.k8s.valkey_port)
     ] = DEFAULT_VALKEY_PORT,
     address: Annotated[
-        str, typer.Option("--address", help="Local address to bind for port-forwarding")
+        str, typer.Option("--address", help=HELP.k8s.bind_address)
     ] = DEFAULT_REST_HOST,
 ) -> None:
     """Port-forward k8s monitoring / LLM stack services to localhost ports and update CLI config."""

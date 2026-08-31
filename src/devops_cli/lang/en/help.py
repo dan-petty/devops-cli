@@ -105,6 +105,19 @@ class AICommandHelp:
     cost_task: str = "Task name (e.g. review, scan)."
     est_tokens: str = "Estimated tokens."
     route: str = "Evaluate task complexity and determine the optimal LLM provider and model route."
+    verify_spec: str = "Verify codebase implementation against architecture contract."
+    spec_path: str = "Path to markdown architecture specification contract."
+    target_dir: str = "Target source directory to verify or analyze."
+    repomap: str = "Generate structural symbol and reference map for codebase."
+    max_files: str = "Maximum source files to include."
+    include_tests: str = "Include test modules in symbol map."
+    diagram: str = "Generate Mermaid architecture topology or STRIDE threat model diagram."
+    diagram_type: str = "Diagram type: 'arch' for architecture topology, 'threat' for STRIDE model."
+    eval_review: str = "Evaluate and benchmark code review quality against feedback dataset."
+    dataset_path: str = "Path to feedback dataset jsonl."
+    test_gen: str = "Synthesize unit test suites for functions and modules via LLM."
+    test_function: str = "Specific function to synthesize tests for."
+    target_file: str = "Target source file to synthesize unit tests for."
 
 
 @dataclass(frozen=True)
@@ -143,6 +156,12 @@ class K8sCommandHelp:
     auto_start: str = "Auto-start minikube if stopped."
     stack: str = "Stack to operate on: infra | llm | all."
     k8s_dir: str = "Path to k8s/ config directory."
+    email: str = "Admin email address."
+    admin_name: str = "Admin display name."
+    password: str = "Admin password."
+    secret_name: str = "Name of the Kubernetes TLS secret to create or update."
+    cert_path: str = "Path to TLS certificate file (.crt or .pem)."
+    key_path: str = "Path to TLS private key file (.key or .pem)."
     argocd_port: str = "Local port for ArgoCD."
     grafana_port: str = "Local port for Grafana."
     prometheus_port: str = "Local port for Prometheus."
@@ -155,13 +174,19 @@ class K8sCommandHelp:
     bind_address: str = "Local address to bind for port-forwarding."
     lint_target: str = "Target K8s manifest file or directory to lint."
     pluto_target: str = "Target manifest file or directory to scan for deprecated APIs."
-    secret_name_target: str = "Name of the Kubernetes TLS secret to create or update."
-    cert_path: str = "Path to TLS certificate file (.crt or .pem)."
-    key_path: str = "Path to TLS private key file (.key or .pem)."
-    tls_dir: str = "Directory with generated TLS certificates."
-    secret_name_all: str = "TLS secret name across namespaces."
     k8s_version: str = "Target Kubernetes OpenAPI version."
     strict_schema: str = "Disallow additional undeclared properties."
+    policy_path: str = "Path to Kyverno policy or OPA rule file."
+    policy_engine: str = "Policy evaluation engine (kyverno, opa)."
+    pod_query: str = "Regex pattern or query to match pod names."
+    tail_lines: str = "Number of historical log lines to stream."
+    follow_logs: str = "Continuously stream live log output."
+    helm_release: str = "Name of deployed Helm release."
+    helm_chart: str = "Path to local Helm chart directory or packaged archive."
+    helm_values: str = "Values YAML files to override release defaults."
+    chaos_experiment: str = "Resilience experiment name (e.g., pod-kill, latency-inject)."
+    chaos_deployment: str = "Target deployment to disrupt."
+    chaos_duration: str = "Reconciliation monitoring window in seconds."
 
 
 @dataclass(frozen=True)
@@ -243,6 +268,11 @@ class TfCommandHelp:
     var_file: str = "Path to variable definitions file."
     out_plan: str = "Write generated plan to file."
     plan_file: str = "Explicit plan file to apply."
+    plan_input_file: str = "Path to raw plan output or log file."
+    pr: str = "Pull Request number to post plan comment to."
+    notify_plan: str = (
+        "Format Terraform/OpenTofu plan output and post it as a comment on a GitHub PR."
+    )
     upgrade_modules: str = "Upgrade modules and plugins."
     reconfigure: str = "Reconfigure backend, ignoring existing state."
     destroy_plan: str = "Generate a plan to destroy all resources."
@@ -286,6 +316,8 @@ class ArgoCommandHelp:
     apps_list: str = "List all ArgoCD applications."
     apps_sync: str = "Trigger sync for an ArgoCD application."
     apps_get: str = "Get details of an ArgoCD application."
+    app_of_apps: str = "Deploy complete homelab stack via root App-of-Apps pattern."
+    app_of_apps_manifest: str = "Path to root ArgoCD App-of-Apps manifest."
     app_name: str = "Application name."
     workflow_file: str = "Workflow YAML file."
     workflow_name: str = "Workflow name."
@@ -315,6 +347,7 @@ class CICommandHelp:
     format_fix: str = "Apply formatting changes in-place."
     min_severity: str = "Minimum severity threshold (low, medium, high)."
     fix_all: str = "Auto-fix lint/format before reporting status."
+    fix_sync: str = "Automatically synchronize dependencies and lockfile."
     maintain: str = (
         "Run automated toolchain, dependency freshness, and lockfile maintenance checks."
     )
@@ -504,6 +537,13 @@ class ReviewCommandHelp:
     no_reporting: str = "Disable consolidated report generation."
     reporting_only: str = "Run report generation only."
     append_cache: str = "Append cached response to the LLM prompt as context instead of using it directly as the final response."
+    no_cache: str = "Bypass LLM response cache and force fresh inference."
+    force_review: str = "Force fresh review execution without cache."
+    details: str = "Display full finding descriptions and fix recommendations."
+    remediate: str = "Create a git remediation branch for an identified review finding."
+    remediate_finding_id: str = "Finding ID or title to create remediation branch for."
+    remediate_file: str = "Target source file to apply fix to."
+    remediate_branch: str = "Custom topic branch name."
 
 
 @dataclass(frozen=True)
@@ -568,6 +608,7 @@ class TLSCommandHelp:
     cert_file: str = "Path to X.509 certificate file (.crt or .pem)."
     leaf_cert: str = "Path to leaf certificate file (.crt or .pem)."
     tls_dir: str = "Directory with generated TLS certificates."
+    target_dir: str = "Directory with generated TLS certificates."
     secret_name: str = "Kubernetes TLS secret name to create."
 
 
@@ -672,6 +713,11 @@ class RAGCommandHelp:
 class TestCommandHelp:
     app: str = "Performance, smoke, and load testing."
     load: str = "Execute developer-centric load and latency tests against services using k6."
+    script_path: str = "Path to k6 JavaScript test script or endpoint definition."
+    vus: str = "Number of concurrent virtual users (VUs)."
+    duration: str = "Test execution duration (e.g. 30s, 1m)."
+    summary_export: str = "Path to export JSON summary metrics."
+    dry_run: str = "Simulate load test execution."
 
 
 @dataclass(frozen=True)

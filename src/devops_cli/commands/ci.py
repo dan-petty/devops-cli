@@ -628,7 +628,7 @@ def docs(
 def maintain(
     fix: Annotated[
         bool,
-        typer.Option("--fix", help="Automatically synchronize dependencies and lockfile"),
+        typer.Option("--fix", help=HELP.ci.fix_sync),
     ] = False,
     dry_run: Annotated[
         bool,

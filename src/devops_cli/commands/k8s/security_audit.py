@@ -13,7 +13,7 @@ from devops_cli.config.defaults import (
     DEFAULT_KUBECONFORM_VERSION,
 )
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
-from devops_cli.lang import MESSAGES
+from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
     Table,
     format_json,
@@ -58,11 +58,11 @@ def rbac_audit(
 def k8s_lint(
     target: Annotated[
         Path,
-        typer.Argument(help="Target K8s manifest file or directory to lint"),
+        typer.Argument(help=HELP.k8s.lint_target),
     ] = DEFAULT_CURRENT_PATH,
     dry_run: Annotated[
         bool,
-        typer.Option("--dry-run", help="Simulate manifest linting."),
+        typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
 ) -> None:
     """Validate K8s manifests and Helm charts using Red Hat Kube-linter."""
@@ -106,7 +106,7 @@ def k8s_lint(
 def k8s_audit(
     dry_run: Annotated[
         bool,
-        typer.Option("--dry-run", help="Simulate cluster health audit."),
+        typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
 ) -> None:
     """Sanitize active K8s/Minikube cluster resource health using Derailed Popeye."""
@@ -149,11 +149,11 @@ def k8s_audit(
 def k8s_check_deprecated(
     target: Annotated[
         Path,
-        typer.Argument(help="Target manifest file or directory to scan for deprecated APIs"),
+        typer.Argument(help=HELP.k8s.pluto_target),
     ] = DEFAULT_CURRENT_PATH,
     dry_run: Annotated[
         bool,
-        typer.Option("--dry-run", help="Simulate deprecated API detection."),
+        typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
 ) -> None:
     """Scan manifests for deprecated/removed K8s API versions using Fairwinds Pluto."""
@@ -164,8 +164,7 @@ def k8s_check_deprecated(
     target_abs = target.resolve() if target.exists() else target
     if not is_dry_run():
         print_info(
-            f"[dim]Executing Pluto deprecated API scan on '{target_abs}'...[/dim]",
-            prefix=False,
+            f"[dim]Checking for deprecated Kubernetes APIs in '{target_abs}'...[/dim]", prefix=False
         )
 
     findings = run_pluto_scan(target=target_abs)
@@ -173,7 +172,7 @@ def k8s_check_deprecated(
     if is_dry_run():
         render_dry_run_result(
             command=f"devops k8s check-deprecated {target}",
-            action="pluto_deprecated_api_scan",
+            action="pluto_deprecation_scan",
             details={"target": str(target_abs), "findings_count": len(findings)},
         )
         return
@@ -197,23 +196,23 @@ def k8s_check_deprecated(
 def k8s_validate(
     manifest_path: Annotated[
         Path,
-        typer.Argument(help="Path to Kubernetes YAML manifest file or directory"),
+        typer.Argument(help=HELP.k8s.manifest_path),
     ] = DEFAULT_CURRENT_PATH,
     k8s_version: Annotated[
         str,
-        typer.Option("--kubernetes-version", "-v", help="Target Kubernetes OpenAPI version"),
+        typer.Option("--kubernetes-version", "-v", help=HELP.k8s.k8s_version),
     ] = DEFAULT_KUBECONFORM_VERSION,
     strict: Annotated[
         bool,
-        typer.Option("--strict/--no-strict", help="Disallow additional undeclared properties"),
+        typer.Option("--strict/--no-strict", help=HELP.k8s.strict_schema),
     ] = True,
     dry_run: Annotated[
         bool,
-        typer.Option("--dry-run", help="Simulate schema validation"),
+        typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
     json_output: Annotated[
         bool,
-        typer.Option("--json", help="Output findings as JSON"),
+        typer.Option("--json", help=HELP.options.json_output),
     ] = False,
 ) -> None:
     """Validate Kubernetes YAML manifests against OpenAPI schemas using Kubeconform."""
@@ -258,23 +257,23 @@ def k8s_validate(
 def validate_policy_cmd(
     manifest_path: Annotated[
         Path,
-        typer.Argument(help="Path to Kubernetes YAML manifest file or directory"),
+        typer.Argument(help=HELP.k8s.manifest_path),
     ] = DEFAULT_CURRENT_PATH,
     policy_path: Annotated[
         Path | None,
-        typer.Option("--policy", "-p", help="Path to Kyverno policy or OPA rule file"),
+        typer.Option("--policy", "-p", help=HELP.k8s.policy_path),
     ] = None,
     engine: Annotated[
         str,
-        typer.Option("--engine", "-e", help="Policy evaluation engine (kyverno, opa)"),
+        typer.Option("--engine", "-e", help=HELP.k8s.policy_engine),
     ] = "kyverno",
     dry_run: Annotated[
         bool,
-        typer.Option("--dry-run", help="Simulate admission policy validation"),
+        typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
     json_output: Annotated[
         bool,
-        typer.Option("--json", help="Output validation report as JSON"),
+        typer.Option("--json", help=HELP.options.json_output),
     ] = False,
 ) -> None:
     """Validate Kubernetes manifests against Kyverno or OPA admission policies."""

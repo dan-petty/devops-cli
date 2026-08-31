@@ -1111,19 +1111,19 @@ def route_task(
 def spec_verify_cmd(
     spec_path: Annotated[
         Path | None,
-        typer.Argument(help="Path to markdown architecture specification contract"),
+        typer.Argument(help=HELP.ai.spec_path),
     ] = None,
     target_dir: Annotated[
         Path | None,
-        typer.Option("--target", "-t", help="Target source directory to verify"),
+        typer.Option("--target", "-t", help=HELP.ai.target_dir),
     ] = None,
     dry_run: Annotated[
         bool,
-        typer.Option("--dry-run", help="Simulate architecture spec verification"),
+        typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
     json_output: Annotated[
         bool,
-        typer.Option("--json", help="Output specification verification report as JSON"),
+        typer.Option("--json", help=HELP.options.json_output),
     ] = False,
 ) -> None:
     """Verify codebase against executable markdown architecture specification contracts."""
@@ -1173,17 +1173,15 @@ def spec_verify_cmd(
 def repomap_cmd(
     target_dir: Annotated[
         Path | None,
-        typer.Option(
-            "--target", "-t", "--dir", "-d", help="Target root directory to generate symbol map for"
-        ),
+        typer.Option("--target", "-t", "--dir", "-d", help=HELP.ai.target_dir),
     ] = None,
     max_files: Annotated[
         int,
-        typer.Option("--max-files", "-n", help="Maximum source files to include"),
+        typer.Option("--max-files", "-n", help=HELP.ai.max_files),
     ] = 100,
     include_tests: Annotated[
         bool,
-        typer.Option("--include-tests", help="Include test modules in symbol map"),
+        typer.Option("--include-tests", help=HELP.ai.include_tests),
     ] = False,
     json_output: Annotated[
         bool,
@@ -1235,13 +1233,11 @@ def repomap_cmd(
 def diagram_cmd(
     diagram_type: Annotated[
         str,
-        typer.Argument(
-            help="Diagram type: 'arch' for architecture topology, 'threat' for STRIDE model"
-        ),
+        typer.Argument(help=HELP.ai.diagram_type),
     ] = "arch",
     target_dir: Annotated[
         Path | None,
-        typer.Option("--target", "-t", "--dir", "-d", help="Target root directory to analyze"),
+        typer.Option("--target", "-t", "--dir", "-d", help=HELP.ai.target_dir),
     ] = None,
     json_output: Annotated[
         bool,
@@ -1288,11 +1284,11 @@ def diagram_cmd(
 def prompt_eval_cmd(
     persona: Annotated[
         str,
-        typer.Option("--persona", "-p", help="Review persona to benchmark"),
+        typer.Option("--persona", "-p", help=HELP.ai.eval_review),
     ] = "devsecops",
     dataset: Annotated[
         Path | None,
-        typer.Option("--dataset", "-d", help="Path to feedback dataset jsonl"),
+        typer.Option("--dataset", "-d", help=HELP.ai.dataset_path),
     ] = None,
     json_output: Annotated[
         bool,
@@ -1348,11 +1344,11 @@ def prompt_eval_cmd(
 def test_gen_cmd(
     target_file: Annotated[
         Path,
-        typer.Argument(help="Target source file to synthesize unit tests for"),
+        typer.Argument(help=HELP.ai.target_file),
     ],
     function_name: Annotated[
         str | None,
-        typer.Option("--function", "-f", help="Specific function to synthesize tests for"),
+        typer.Option("--function", "-f", help=HELP.ai.test_function),
     ] = None,
     json_output: Annotated[
         bool,

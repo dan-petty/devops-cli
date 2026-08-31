@@ -622,6 +622,16 @@ class PipelineMessages:
 
 
 @dataclass(frozen=True)
+class TestMessages:
+    starting_load_test: str = (
+        "Starting k6 load test with {vus} VUs for {duration} ({script_path})..."
+    )
+    load_test_success: str = "✓ Load test finished successfully ({duration}, {vus} VUs)."
+    load_test_failed: str = "Load test failed with exit code {code}."
+    k6_not_found: str = "k6 binary not found in PATH. Install k6 (e.g. apt install k6 or brew install k6) to run load tests."
+
+
+@dataclass(frozen=True)
 class LanguageCatalog:
     persona_titles: PersonaTitles = field(default_factory=PersonaTitles)
     messages: GeneralMessages = field(default_factory=GeneralMessages)
@@ -658,6 +668,7 @@ class LanguageCatalog:
     mcp: MCPMessages = field(default_factory=MCPMessages)
     serve: ServeMessages = field(default_factory=ServeMessages)
     pipeline: PipelineMessages = field(default_factory=PipelineMessages)
+    test: TestMessages = field(default_factory=TestMessages)
 
 
 MESSAGES = LanguageCatalog()

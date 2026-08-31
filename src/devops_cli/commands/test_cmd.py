@@ -13,33 +13,34 @@ from devops_cli.config.constants import CONST_CURRENT_DIR
 from devops_cli.core.cli import new_typer
 from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
+from devops_cli.lang import ERRORS, HELP, MESSAGES
 from devops_cli.output import print_error, print_info, print_success
 from devops_cli.telemetry.tracer import trace_span
 
-app = new_typer(help="Performance, smoke, and load testing.", no_args_is_help=True)
+app = new_typer(help=HELP.test.app, no_args_is_help=True)
 
 
 @app.command("load")
 def load_test_cmd(
     script_path: Annotated[
         Path,
-        typer.Argument(help="Path to k6 JavaScript test script or endpoint definition"),
+        typer.Argument(help=HELP.test.script_path),
     ] = CONST_CURRENT_DIR / "tests" / "load" / "smoke_test.js",
     vus: Annotated[
         int,
-        typer.Option("--vus", "-u", help="Number of concurrent virtual users (VUs)"),
+        typer.Option("--vus", "-u", help=HELP.test.vus),
     ] = 10,
     duration: Annotated[
         str,
-        typer.Option("--duration", "-d", help="Test execution duration (e.g. 30s, 1m)"),
+        typer.Option("--duration", "-d", help=HELP.test.duration),
     ] = "30s",
     summary_export: Annotated[
         Path | None,
-        typer.Option("--summary-export", "-s", help="Path to export JSON summary metrics"),
+        typer.Option("--summary-export", "-s", help=HELP.test.summary_export),
     ] = None,
     dry_run: Annotated[
         bool,
-        typer.Option("--dry-run", help="Simulate load test execution"),
+        typer.Option("--dry-run", help=HELP.test.dry_run),
     ] = False,
 ) -> None:
     """Execute developer-centric load, spike, and latency tests against services using k6."""
@@ -65,13 +66,16 @@ def load_test_cmd(
         has_k6 = shutil.which(BIN_K6) is not None
         if not has_k6:
             print_error(
-                "k6 binary not found in PATH. Install k6 (e.g. apt install k6 or brew install k6) to run load tests.",
+                ERRORS.test.k6_not_found,
                 prefix=False,
             )
             raise typer.Exit(1)
 
         print_info(
-            f"Starting k6 load test with {vus} VUs for {duration} ({script_path})...", prefix=False
+            MESSAGES.test.starting_load_test.format(
+                vus=vus, duration=duration, script_path=script_path
+            ),
+            prefix=False,
         )
         cmd = build_k6_cmd(
             script_path=script_path.resolve(),
@@ -81,7 +85,7 @@ def load_test_cmd(
         )
         res = run_subprocess(cmd, check=False)
         if res.returncode == 0:
-            print_success(f"✓ Load test finished successfully ({duration}, {vus} VUs).")
+            print_success(MESSAGES.test.load_test_success.format(duration=duration, vus=vus))
         else:
-            print_error(f"Load test failed with exit code {res.returncode}.", prefix=False)
+            print_error(MESSAGES.test.load_test_failed.format(code=res.returncode), prefix=False)
             raise typer.Exit(res.returncode)

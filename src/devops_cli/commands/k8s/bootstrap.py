@@ -13,7 +13,7 @@ from devops_cli.config.defaults import (
     DEFAULT_K8S_DIR,
 )
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
-from devops_cli.lang import MESSAGES
+from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
     print_error,
     print_info,
@@ -22,14 +22,14 @@ from devops_cli.output import (
 
 def bootstrap(
     k8s_dir: Annotated[
-        Path, typer.Option("--dir", "-d", help="Directory containing Kubernetes manifests")
+        Path, typer.Option("--dir", "-d", help=HELP.k8s.manifests_dir)
     ] = DEFAULT_K8S_DIR,
     auto_start: Annotated[
-        bool, typer.Option("--auto-start/--no-auto-start", help="Auto-start minikube if stopped")
+        bool, typer.Option("--auto-start/--no-auto-start", help=HELP.k8s.auto_start)
     ] = True,
     stack: Annotated[
         str,
-        typer.Option("--stack", "-s", help="Stack to deploy after bootstrap: infra | llm | all"),
+        typer.Option("--stack", "-s", help=HELP.k8s.stack),
     ] = DEFAULT_K8S_ALL_STACK,
 ) -> None:
     """Bootstrap minikube Kubernetes cluster and deploy infrastructure/LLM stack."""

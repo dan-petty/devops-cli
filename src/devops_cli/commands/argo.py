@@ -199,12 +199,12 @@ def cd_apps_bootstrap_gitops(
         typer.Option(
             "--root-app",
             "-f",
-            help="Path to root ArgoCD App-of-Apps manifest",
+            help=HELP.argo.app_of_apps_manifest,
         ),
     ] = Path("k8s/argocd/apps/root-app.yaml"),
     context: Annotated[
         str | None,
-        typer.Option("--context", "-c", help="Kubernetes cluster context"),
+        typer.Option("--context", "-c", help=HELP.options.context),
     ] = None,
 ) -> None:
     """Bootstrap local GitOps project orchestration via ArgoCD and the Git daemon."""

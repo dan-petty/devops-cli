@@ -190,6 +190,12 @@ class PRErrorMessages:
 
 
 @dataclass(frozen=True)
+class TestErrorMessages:
+    k6_not_found: str = "k6 binary not found in PATH. Install k6 (e.g. apt install k6 or brew install k6) to run load tests."
+    load_test_failed: str = "Load test failed with exit code {code}."
+
+
+@dataclass(frozen=True)
 class ErrorCatalog:
     ai: AIErrorMessages = field(default_factory=AIErrorMessages)
     git: GitErrorMessages = field(default_factory=GitErrorMessages)
@@ -212,6 +218,7 @@ class ErrorCatalog:
     rag: RAGErrorMessages = field(default_factory=RAGErrorMessages)
     tf: TfErrorMessages = field(default_factory=TfErrorMessages)
     pr: PRErrorMessages = field(default_factory=PRErrorMessages)
+    test: TestErrorMessages = field(default_factory=TestErrorMessages)
 
 
 ERRORS = ErrorCatalog()

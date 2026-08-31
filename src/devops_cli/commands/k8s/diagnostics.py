@@ -12,6 +12,7 @@ from devops_cli.config.defaults import (
     DEFAULT_K8S_NAMESPACE,
 )
 from devops_cli.dry_run import is_dry_run
+from devops_cli.lang import HELP
 from devops_cli.output import (
     format_json,
     write_stdout,
@@ -21,27 +22,27 @@ from devops_cli.output import (
 def stream_logs_cmd(
     pod_query: Annotated[
         str,
-        typer.Argument(help="Regex pattern or query to match pod names"),
+        typer.Argument(help=HELP.k8s.pod_query),
     ],
     namespace: Annotated[
         str | None,
-        typer.Option("--namespace", "-n", help="Target Kubernetes namespace"),
+        typer.Option("--namespace", "-n", help=HELP.options.namespace),
     ] = None,
     container: Annotated[
         str | None,
-        typer.Option("--container", "-c", help="Target container name within matched pods"),
+        typer.Option("--container", "-c", help=HELP.options.container),
     ] = None,
     tail: Annotated[
         int,
-        typer.Option("--tail", "-t", help="Number of historical log lines to stream"),
+        typer.Option("--tail", "-t", help=HELP.k8s.tail_lines),
     ] = 100,
     follow: Annotated[
         bool,
-        typer.Option("--follow/--no-follow", "-f", help="Continuously stream live log output"),
+        typer.Option("--follow/--no-follow", "-f", help=HELP.k8s.follow_logs),
     ] = False,
     dry_run: Annotated[
         bool,
-        typer.Option("--dry-run", help="Simulate multi-pod log streaming"),
+        typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
 ) -> None:
     """Stream logs across multiple pods in parallel using Stern or kubectl."""
@@ -62,23 +63,23 @@ def stream_logs_cmd(
 def diff_helm_cmd(
     release_name: Annotated[
         str,
-        typer.Argument(help="Name of deployed Helm release"),
+        typer.Argument(help=HELP.k8s.helm_release),
     ],
     chart_path: Annotated[
         Path,
-        typer.Argument(help="Path to local Helm chart directory or packaged archive"),
+        typer.Argument(help=HELP.k8s.helm_chart),
     ] = DEFAULT_CURRENT_PATH,
     namespace: Annotated[
         str | None,
-        typer.Option("--namespace", "-n", help="Target Kubernetes namespace"),
+        typer.Option("--namespace", "-n", help=HELP.options.namespace),
     ] = None,
     values: Annotated[
         list[Path] | None,
-        typer.Option("--values", "-f", help="Values YAML files to override release defaults"),
+        typer.Option("--values", "-f", help=HELP.k8s.helm_values),
     ] = None,
     dry_run: Annotated[
         bool,
-        typer.Option("--dry-run", help="Simulate Helm diff preview"),
+        typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
 ) -> None:
     """Preview Kubernetes manifest diffs before executing a Helm upgrade."""
@@ -103,27 +104,27 @@ def diff_helm_cmd(
 def chaos_cmd(
     experiment: Annotated[
         str,
-        typer.Argument(help="Resilience experiment name (e.g., pod-kill, latency-inject)"),
+        typer.Argument(help=HELP.k8s.chaos_experiment),
     ] = "pod-kill",
     deployment: Annotated[
         str,
-        typer.Option("--deployment", "-d", help="Target deployment to disrupt"),
+        typer.Option("--deployment", "-d", help=HELP.k8s.chaos_deployment),
     ] = "sample-app",
     namespace: Annotated[
         str,
-        typer.Option("--namespace", "-n", help="Target Kubernetes namespace"),
+        typer.Option("--namespace", "-n", help=HELP.options.namespace),
     ] = DEFAULT_K8S_NAMESPACE,
     duration: Annotated[
         int,
-        typer.Option("--duration", help="Reconciliation monitoring window in seconds"),
+        typer.Option("--duration", help=HELP.k8s.chaos_duration),
     ] = 30,
     dry_run: Annotated[
         bool,
-        typer.Option("--dry-run", help="Simulate chaos experiment execution"),
+        typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
     json_output: Annotated[
         bool,
-        typer.Option("--json", help="Output experiment result as JSON"),
+        typer.Option("--json", help=HELP.options.json_output),
     ] = False,
 ) -> None:
     """Run resilience and chaos experiments against Kubernetes workloads."""

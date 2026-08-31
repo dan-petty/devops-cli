@@ -20,6 +20,7 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.crypto.tls_certificates import generate_homelab_tls_bundle
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
+from devops_cli.lang import HELP
 from devops_cli.models.tls import KubernetesTLSSecretResult
 from devops_cli.output import (
     Table,
@@ -33,23 +34,23 @@ from devops_cli.output import (
 def create_tls_secret(
     secret_name: Annotated[
         str,
-        typer.Argument(help="Name of the Kubernetes TLS secret to create or update"),
+        typer.Argument(help=HELP.k8s.secret_name),
     ],
     namespace: Annotated[
         str,
-        typer.Option("--namespace", "-n", help="Target Kubernetes namespace"),
+        typer.Option("--namespace", "-n", help=HELP.options.namespace),
     ] = DEFAULT_K8S_NAMESPACE,
     cert_path: Annotated[
         Path,
-        typer.Option("--cert", help="Path to TLS certificate file (.crt or .pem)"),
+        typer.Option("--cert", help=HELP.k8s.cert_path),
     ] = DEFAULT_TLS_DIR / CONST_SERVER_CERT_NAME,
     key_path: Annotated[
         Path,
-        typer.Option("--key", help="Path to TLS private key file (.key or .pem)"),
+        typer.Option("--key", help=HELP.k8s.key_path),
     ] = DEFAULT_TLS_DIR / CONST_SERVER_KEY_NAME,
     context: Annotated[
         str | None,
-        typer.Option("--context", "-c", help="Kubernetes cluster context"),
+        typer.Option("--context", "-c", help=HELP.options.context),
     ] = None,
 ) -> None:
     """Create or update a kubernetes.io/tls secret from certificate and private key files."""
@@ -122,23 +123,23 @@ def create_tls_secret(
 def enable_tls_stack(
     context: Annotated[
         str | None,
-        typer.Option("--context", "-c", help="Kubernetes cluster context"),
+        typer.Option("--context", "-c", help=HELP.options.context),
     ] = None,
     tls_dir: Annotated[
         Path,
-        typer.Option("--tls-dir", help="Directory with generated TLS certificates"),
+        typer.Option("--tls-dir", help=HELP.tls.tls_dir),
     ] = DEFAULT_TLS_DIR,
     secret_name: Annotated[
         str,
-        typer.Option("--secret-name", help="TLS secret name across namespaces"),
+        typer.Option("--secret-name", help=HELP.k8s.secret_name),
     ] = DEFAULT_K8S_TLS_SECRET_NAME,
     stack: Annotated[
         str,
-        typer.Option("--stack", "-s", help="Stack to deploy TLS secrets into (infra, llm, all)"),
+        typer.Option("--stack", "-s", help=HELP.k8s.stack),
     ] = DEFAULT_K8S_ALL_STACK,
     overwrite: Annotated[
         bool,
-        typer.Option("--overwrite", "-f", help="Regenerate certs if missing"),
+        typer.Option("--overwrite", "-f", help=HELP.options.overwrite),
     ] = False,
 ) -> None:
     """Generate Homelab certificates and apply TLS secrets across Kubernetes cluster namespaces."""

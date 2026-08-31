@@ -54,7 +54,7 @@ def contexts() -> None:
 
 
 def switch_context(
-    name: Annotated[str, typer.Argument(help="Target context name to switch to")],
+    name: Annotated[str, typer.Argument(help=HELP.k8s.context_target)],
 ) -> None:
     """Switch active kubeconfig context."""
     if is_dry_run():
@@ -135,9 +135,11 @@ def status() -> None:
 
 
 def apply(
-    path: Annotated[str, typer.Argument(help="Manifest file or directory path")],
-    dry_run: Annotated[bool, typer.Option("--dry-run")] = False,
-    namespace: Annotated[str | None, typer.Option("--namespace", "-n")] = None,
+    path: Annotated[str, typer.Argument(help=HELP.k8s.manifest_path)],
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
+    namespace: Annotated[
+        str | None, typer.Option("--namespace", "-n", help=HELP.options.namespace)
+    ] = None,
 ) -> None:
     """Apply a Kubernetes manifest (delegates to kubectl)."""
     if namespace:
@@ -159,9 +161,13 @@ def apply(
 
 
 def logs(
-    pod: Annotated[str, typer.Argument(help="Pod name")],
-    container: Annotated[str | None, typer.Option("--container", "-c")] = None,
-    namespace: Annotated[str | None, typer.Option("--namespace", "-n")] = None,
+    pod: Annotated[str, typer.Argument(help=HELP.k8s.pod_name)],
+    container: Annotated[
+        str | None, typer.Option("--container", "-c", help=HELP.options.container)
+    ] = None,
+    namespace: Annotated[
+        str | None, typer.Option("--namespace", "-n", help=HELP.options.namespace)
+    ] = None,
     follow: Annotated[bool, typer.Option("--follow", "-f", help=HELP.options.follow)] = False,
     tail: Annotated[int, typer.Option("--tail", help=HELP.options.tail)] = DEFAULT_K8S_LOGS_TAIL,
 ) -> None:
