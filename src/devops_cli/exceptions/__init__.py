@@ -5,6 +5,7 @@ from __future__ import annotations
 from devops_cli.exceptions.ai import (
     ApprovalRequired,
     CallDeferred,
+    ContentFilterError,
     ContextBudgetExceededError,
     LLMInferenceError,
     ModelRetry,
@@ -43,6 +44,7 @@ __all__ = [
     "CallDeferred",
     "ChecksumMismatchError",
     "ConfigurationError",
+    "ContentFilterError",
     "ContextBudgetExceededError",
     "DevOpsCLIError",
     "GitOperationError",

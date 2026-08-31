@@ -874,3 +874,28 @@ class SetToolMetadata(BaseCapability):
 
     def get_model_settings(self, ctx: RunContext[Any] | None = None) -> dict[str, Any]:
         return self.capability.get_model_settings(ctx) if self.capability else {}
+
+
+class RaiseContentFilterError(BaseCapability):
+    """Capability that enforces raising a ContentFilterError whenever a model response is filtered."""
+
+    id: str = "raise_content_filter_error"
+
+    def __init__(
+        self,
+        *,
+        id: str = "raise_content_filter_error",
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(id=id, **kwargs)
+
+    def check_response(self, response: Any) -> None:
+        """Inspect model response and raise ContentFilterError if finish_reason is content_filter."""
+        finish_reason = getattr(response, "finish_reason", None)
+        if finish_reason is None and isinstance(response, dict):
+            finish_reason = response.get("finish_reason") or response.get("stop_reason")
+        if str(finish_reason).lower() in ("content_filter", "safety", "recitation", "block"):
+            from devops_cli.exceptions.ai import ContentFilterError
+
+            msg = "Model response was blocked or filtered by upstream content safety filter"
+            raise ContentFilterError(message=msg, body=response)

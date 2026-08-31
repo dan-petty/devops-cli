@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+
 from devops_cli.ai.agents import (
     BaseCapability,
     Capability,
@@ -301,3 +303,28 @@ def test_set_tool_metadata_capability() -> None:
     prepared = meta_cap.prepare_tools(RunContext(), [runtime_tool])
     assert prepared[0].metadata["initial"] is True
     assert prepared[0].metadata["tier"] == "premium"
+
+
+def test_raise_content_filter_error_capability() -> None:
+    """Verify RaiseContentFilterError capability detecting content safety block finish reasons."""
+    from devops_cli.ai.agents import RaiseContentFilterError
+    from devops_cli.exceptions.ai import ContentFilterError
+
+    cap = RaiseContentFilterError()
+    assert cap.id == "raise_content_filter_error"
+
+    # 1. Normal finish reasons pass without raising
+    cap.check_response({"finish_reason": "stop", "text": "Hello world"})
+    cap.check_response({"finish_reason": "length", "text": "Truncated"})
+
+    # 2. content_filter triggers ContentFilterError with body inspection
+    response_blocked = {
+        "finish_reason": "content_filter",
+        "text": "I cannot fulfill this request.",
+        "safety_ratings": [{"category": "HATE_SPEECH", "probability": "HIGH"}],
+    }
+    with pytest.raises(ContentFilterError) as exc_info:
+        cap.check_response(response_blocked)
+
+    assert exc_info.value.error_code == "CONTENT_FILTER_TRIGGERED"
+    assert exc_info.value.body == response_blocked

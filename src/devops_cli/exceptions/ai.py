@@ -188,3 +188,25 @@ class CallDeferred(DevOpsCLIError, RuntimeError):
             details=merged_details,
         )
         self.metadata = metadata or {}
+
+
+class ContentFilterError(DevOpsCLIError, RuntimeError):
+    """Raised when a model response is filtered or refused by upstream content safety filters."""
+
+    def __init__(
+        self,
+        message: str = "Model response was blocked by upstream content safety filter",
+        *,
+        body: Any = None,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        merged_details = dict(details or {})
+        if body is not None:
+            merged_details["body"] = str(body) if not isinstance(body, dict | list) else body
+        super().__init__(
+            message,
+            exit_code=19,
+            error_code="CONTENT_FILTER_TRIGGERED",
+            details=merged_details,
+        )
+        self.body = body

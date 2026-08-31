@@ -26,6 +26,7 @@ DEFAULT_PYAI_DOCS_TOPICS: tuple[str, ...] = (
     "prepare-tools",
     "prefix-tools",
     "prompt-injection-defender",
+    "raise-content-filter-error",
     "resolve-model-id",
     "select-model",
     "set-tool-metadata",
