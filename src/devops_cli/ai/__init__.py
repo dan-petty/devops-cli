@@ -6,6 +6,13 @@ from typing import Any
 
 
 def __getattr__(name: str) -> Any:
+    try:
+        import importlib
+
+        return importlib.import_module(f"devops_cli.ai.{name}")
+    except ModuleNotFoundError:
+        pass
+
     if name in {"AIClientError", "LLMClient", "LLMResponse", "model_request_sync", "model_request"}:
         import devops_cli.ai.client
 

@@ -77,8 +77,9 @@ def test_duckduckgo_search_tool(mock_get_client: MagicMock) -> None:
     assert ddg_tool.name == "duckduckgo_search"
 
     res = ddg_tool.execute(query="python programming")
-    assert "https://python.org" in res
-    assert "Python Programming Language" in res
+    lines = [line.strip() for line in res.splitlines()]
+    assert any(line.startswith("- [https://python.org]") for line in lines)
+    assert any("Python Programming Language" in line for line in lines)
 
 
 @patch("devops_cli.ai.common_tools.new_http_client")
@@ -101,5 +102,5 @@ def test_tavily_search_tool(mock_get_client: MagicMock) -> None:
     assert tav_tool.name == "tavily_search"
 
     res = tav_tool.execute(query="pydantic ai")
-    assert "Pydantic AI" in res
-    assert "https://ai.pydantic.dev" in res
+    lines = [line.strip() for line in res.splitlines()]
+    assert any(line.startswith("- **Pydantic AI** (https://ai.pydantic.dev)") for line in lines)

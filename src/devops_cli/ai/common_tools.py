@@ -7,7 +7,7 @@ import re
 import urllib.parse
 from typing import Any
 
-from devops_cli.ai.agents.pydantic_agent import Tool
+from devops_cli.ai.agents.tools import Tool
 from devops_cli.exceptions.security import SSRFBlockedError
 from devops_cli.http.client import new_http_client
 

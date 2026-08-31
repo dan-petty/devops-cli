@@ -113,18 +113,17 @@ from devops_cli.ai.agents.spend import (
     SpendGuard,
     SpendUsage,
 )
-from devops_cli.ai.common_tools import (
-    duckduckgo_search_tool,
-    tavily_search_tool,
-    web_fetch_tool,
-)
-from devops_cli.ai.ext_langchain import (
-    LangChainToolset,
-    tool_from_langchain,
-)
 
 
 def __getattr__(name: str) -> Any:
+    if name in {"duckduckgo_search_tool", "tavily_search_tool", "web_fetch_tool"}:
+        import devops_cli.ai.common_tools
+
+        return getattr(devops_cli.ai.common_tools, name)
+    if name in {"LangChainToolset", "tool_from_langchain"}:
+        import devops_cli.ai.ext_langchain
+
+        return getattr(devops_cli.ai.ext_langchain, name)
     if name in {
         "Advisor",
         "AgentContextInventory",

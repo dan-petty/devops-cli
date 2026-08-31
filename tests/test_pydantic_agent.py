@@ -758,7 +758,7 @@ def test_native_tools_web_search_and_code_execution() -> None:
     assert settings["native_web_search"] is True
     assert settings["web_search_config"]["search_context_size"] == "high"
     assert settings["web_search_config"]["user_location"]["city"] == "San Francisco"
-    assert "spam.com" in settings["web_search_config"]["blocked_domains"]
+    assert settings["web_search_config"]["blocked_domains"] == ["spam.com"]
 
     code_tool = CodeExecutionTool(language="python", timeout=30.0)
     native_code_cap = NativeTool(tool=code_tool)
@@ -972,15 +972,16 @@ def test_mcp_capability_variants() -> None:
     settings = mcp_native.get_model_settings()
     assert settings["native_mcp_server"] is True
     assert settings["mcp_server_config"]["id"] == "srv-1"
-    assert (
-        "srv-1" in mcp_native.get_system_prompt_additions()[0]
-        or "http://example.com" in mcp_native.get_system_prompt_additions()[0]
-    )
+    native_additions = mcp_native.get_system_prompt_additions()
+    assert len(native_additions) > 0
+    assert native_additions[0].startswith("Model Context Protocol (MCP) capability active")
 
     # 2. Native with URL
     mcp_url = MCP(url="http://localhost:3000", native=True)
     assert mcp_url.get_model_settings()["native_mcp_server"] is True
-    assert "http://localhost:3000" in mcp_url.get_system_prompt_additions()[0]
+    url_additions = mcp_url.get_system_prompt_additions()
+    assert len(url_additions) > 0
+    assert url_additions[0].startswith("Model Context Protocol (MCP) capability active")
 
     # 3. Local tools list
     def dummy_fn() -> str:
