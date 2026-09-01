@@ -95,11 +95,7 @@ Executed at the final stage of work after all iterative feature modifications an
    uv run devops docs generate --sync-readme
    uv run devops docs check
    ```
-2. **Run Full Parallel Unit Test Suite**:
-   ```bash
-   uv run pytest
-   ```
-3. **Run Full Local CI Validation Suite**:
+2. **Run Full Local CI Validation Suite (Primary Gate)**:
    ```bash
    uv run devops ci
    ```
