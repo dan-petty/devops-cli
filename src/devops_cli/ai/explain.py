@@ -4,7 +4,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from devops_cli.output import print_panel, print_table, write_stdout
+from devops_cli.output import (
+    PanelPayload,
+    TableColumn,
+    TablePayload,
+    print,
+    write_stdout,
+)
 
 _BENCHMARK_SECTIONS: list[dict[str, Any]] = [
     {
@@ -358,27 +364,27 @@ def render_explanation(topic: str, console_instance: Any = None) -> None:
 
     panel_title = f"[bold white]{data['title']}[/bold white]"
     write_stdout("\n")
-    print_panel(
-        f"[dim]{data['description']}[/dim]",
+    panel = PanelPayload(
+        content=f"[dim]{data['description']}[/dim]",
         title=panel_title,
         border_style="cyan",
-        console=console_instance,
     )
+    print(panel, console=console_instance)
     write_stdout("\n")
 
     for sec in data["sections"]:
         rows = [[term, definition, formula] for term, definition, formula in sec["items"]]
-        print_table(
+        tbl = TablePayload(
             title=sec["name"],
             columns=[
-                ("Term / Metric", "bold white"),
-                ("Definition & Operational Purpose", "dim white"),
-                ("Formula / Guideline", "yellow"),
+                TableColumn(header="Term / Metric", style="bold white"),
+                TableColumn(header="Definition & Operational Purpose", style="dim white"),
+                TableColumn(header="Formula / Guideline", style="yellow"),
             ],
             rows=rows,
             border_style="dim",
-            console=console_instance,
         )
+        print(tbl, console=console_instance)
         write_stdout("\n")
 
 

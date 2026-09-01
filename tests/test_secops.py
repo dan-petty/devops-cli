@@ -147,13 +147,12 @@ def test_devops_scan_dry_run() -> None:
     assert res.status == "DRY_RUN"
 
 
-def test_secops_scanners_mocked_execution(tmp_path: Path) -> None:
-    """Verify kubelinter, pluto, popeye, and trivy execution with mocked subprocess output and return codes."""
+def test_kubelinter_scanner_execution(tmp_path: Path) -> None:
+    """Verify kubelinter subprocess execution and exit 127 handling."""
     import json
     import subprocess
     from unittest.mock import patch
 
-    # 1. Kubelinter subprocess execution
     kl_json = json.dumps(
         {
             "Reports": [
@@ -174,14 +173,19 @@ def test_secops_scanners_mocked_execution(tmp_path: Path) -> None:
         assert len(kl_findings) == 1
         assert "run-as-non-root" in kl_findings[0].title
 
-    # Kubelinter 127 (not installed)
     mock_127 = subprocess.CompletedProcess(
         args=["cmd"], returncode=127, stdout="", stderr="not found"
     )
     with patch("devops_cli.security.kubelinter.run_subprocess", return_value=mock_127):
         assert run_kubelinter_scan(tmp_path) == []
 
-    # 2. Pluto subprocess execution
+
+def test_pluto_scanner_execution(tmp_path: Path) -> None:
+    """Verify pluto subprocess execution and exit 127 handling."""
+    import json
+    import subprocess
+    from unittest.mock import patch
+
     pluto_json = json.dumps(
         {
             "items": [
@@ -204,11 +208,19 @@ def test_secops_scanners_mocked_execution(tmp_path: Path) -> None:
         assert len(pluto_findings) == 1
         assert pluto_findings[0].severity == "HIGH"
 
-    # Pluto 127
+    mock_127 = subprocess.CompletedProcess(
+        args=["cmd"], returncode=127, stdout="", stderr="not found"
+    )
     with patch("devops_cli.security.pluto.run_subprocess", return_value=mock_127):
         assert run_pluto_scan(tmp_path) == []
 
-    # 3. Popeye subprocess execution
+
+def test_popeye_scanner_execution() -> None:
+    """Verify popeye subprocess execution and exit 127 handling."""
+    import json
+    import subprocess
+    from unittest.mock import patch
+
     popeye_json = json.dumps(
         {
             "popeye": {
@@ -229,11 +241,17 @@ def test_secops_scanners_mocked_execution(tmp_path: Path) -> None:
         assert len(popeye_findings) == 1
         assert popeye_findings[0].severity == "HIGH"
 
-    # Popeye 127
+    mock_127 = subprocess.CompletedProcess(
+        args=["cmd"], returncode=127, stdout="", stderr="not found"
+    )
     with patch("devops_cli.security.popeye.run_subprocess", return_value=mock_127):
         assert run_popeye_scan() == []
 
-    # 4. Dry run branches
+
+def test_secops_scanners_dry_run(tmp_path: Path) -> None:
+    """Verify dry run branches for kubelinter, pluto, and popeye."""
+    from unittest.mock import patch
+
     with patch("devops_cli.security.kubelinter.is_dry_run", return_value=True):
         assert len(run_kubelinter_scan(tmp_path)) == 1
 

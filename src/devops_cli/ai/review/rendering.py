@@ -7,11 +7,12 @@ from typing import Any
 from devops_cli.ai.personas import PersonaDefinition
 from devops_cli.ai.review_schema import ReviewResult, format_clean_text_field
 from devops_cli.output import (
+    MarkdownPayload,
+    PanelPayload,
+    TableColumn,
+    TablePayload,
     escape_text,
-    print_info,
-    print_markdown,
-    print_panel,
-    print_table,
+    print,
     write_stdout,
 )
 
@@ -32,7 +33,12 @@ RECOMMENDATION_COLOR_MAP: dict[str, str] = {
 
 def _render_findings_table(findings: list[Any]) -> None:
     """Render compact tabular view of review findings."""
-    columns = ["Sev", ("Location", "dim"), "Title", "\u2713"]
+    columns: list[TableColumn | str | tuple[str, str | int]] = [
+        TableColumn(header="Sev"),
+        TableColumn(header="Location", style="dim"),
+        TableColumn(header="Title"),
+        TableColumn(header="✓"),
+    ]
     rows: list[list[str]] = []
     for f in findings:
         color = SEV_COLOR_MAP.get(f.severity, "white")
@@ -51,7 +57,8 @@ def _render_findings_table(findings: list[Any]) -> None:
                 mark,
             ]
         )
-    print_table(columns=columns, rows=rows, border_style=None)
+    tbl = TablePayload(columns=columns, rows=rows, border_style=None)
+    print(tbl)
     write_stdout("\n")
 
 
@@ -78,19 +85,24 @@ def _render_finding_panels(findings: list[Any]) -> None:
         if f.references:
             refs_list = f.references if isinstance(f.references, list) else [str(f.references)]
             panel_lines.extend(["", f"[dim]References: {escape_text(', '.join(refs_list))}[/dim]"])
-        print_panel("\n".join(panel_lines), title=title_header, border_style=color)
+        pnl = PanelPayload(
+            content="\n".join(panel_lines),
+            title=title_header,
+            border_style=color,
+        )
+        print(pnl)
     write_stdout("\n")
 
 
 def _render_dependencies_table(deps: list[Any]) -> None:
     """Render external dependencies audit table."""
-    dep_cols = [
-        "Severity",
-        ("Dependency", "bold cyan"),
-        "Version Range",
-        "Ecosystem",
-        "Security Status",
-        ("Location", "dim"),
+    dep_cols: list[TableColumn | str | tuple[str, str | int]] = [
+        TableColumn(header="Severity"),
+        TableColumn(header="Dependency", style="bold cyan"),
+        TableColumn(header="Version Range"),
+        TableColumn(header="Ecosystem"),
+        TableColumn(header="Security Status"),
+        TableColumn(header="Location", style="dim"),
     ]
     dep_rows: list[list[str]] = []
     for d in deps:
@@ -106,22 +118,23 @@ def _render_dependencies_table(deps: list[Any]) -> None:
                 escape_text(getattr(d, "location", "-")),
             ]
         )
-    print_table(
+    tbl = TablePayload(
+        title="[bold yellow]External Dependencies Audit[/bold yellow]",
         columns=dep_cols,
         rows=dep_rows,
-        title="[bold yellow]External Dependencies Audit[/bold yellow]",
     )
+    print(tbl)
     write_stdout("\n")
 
 
 def _render_network_references_table(refs: list[Any]) -> None:
     """Render network and external egress references audit table."""
-    net_cols = [
-        "Status",
-        ("Target / Reference", "bold cyan"),
-        "Type",
-        "Scope",
-        ("Location", "dim"),
+    net_cols: list[TableColumn | str | tuple[str, str | int]] = [
+        TableColumn(header="Status"),
+        TableColumn(header="Target / Reference", style="bold cyan"),
+        TableColumn(header="Type"),
+        TableColumn(header="Scope"),
+        TableColumn(header="Location", style="dim"),
     ]
     net_rows: list[list[str]] = []
     for n in refs:
@@ -141,19 +154,21 @@ def _render_network_references_table(refs: list[Any]) -> None:
                 escape_text(getattr(n, "location", "-")),
             ]
         )
-    print_table(
+    tbl = TablePayload(
+        title="[bold yellow]Network & Egress References Audit[/bold yellow]",
         columns=net_cols,
         rows=net_rows,
-        title="[bold yellow]Network & Egress References Audit[/bold yellow]",
     )
+    print(tbl)
     write_stdout("\n")
 
 
 def _render_review_result(persona: PersonaDefinition, result: ReviewResult) -> None:
     """Render a structured ReviewResult object using tables and Markdown blocks."""
     rec_color = RECOMMENDATION_COLOR_MAP.get(result.recommendation, "white")
-    print_info(
+    print(
         f"[bold {rec_color}]\u25b6 {escape_text(result.recommendation)}[/bold {rec_color}]\n",
+        level="info",
         prefix=False,
     )
 
@@ -168,20 +183,21 @@ def _render_review_result(persona: PersonaDefinition, result: ReviewResult) -> N
         _render_network_references_table(result.network_references)
 
     if result.positive_observations:
-        print_info("[bold green]Positive Observations[/bold green]", prefix=False)
+        print("[bold green]Positive Observations[/bold green]", level="info", prefix=False)
         for obs in result.positive_observations:
-            print_info(f"  [green]\u2713[/green] {escape_text(obs)}", prefix=False)
+            print(f"  [green]\u2713[/green] {escape_text(obs)}", level="info", prefix=False)
         write_stdout("\n")
 
     if result.summary:
-        print_info("[bold]Summary[/bold]", prefix=False)
-        print_markdown(result.summary)
+        print("[bold]Summary[/bold]", level="info", prefix=False)
+        print(MarkdownPayload(content=result.summary))
 
 
 def _render_review_raw(persona: PersonaDefinition, raw: str) -> None:
     """Render a raw string response using Panel and Markdown."""
-    print_panel(
-        raw,
+    pnl = PanelPayload(
+        content=raw,
         title=f"[bold cyan]{escape_text(persona.title)}[/bold cyan]",
         border_style="cyan",
     )
+    print(pnl)

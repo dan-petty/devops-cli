@@ -200,11 +200,8 @@ def test_ssh_commands(tmp_path: Path) -> None:
         assert res_rot_force.exit_code == 0
 
 
-def test_ssh_error_and_dry_run_branches(tmp_path: Path) -> None:
-    """Verify ssh dry-run, missing keys, registration errors, and age buckets."""
-    from devops_cli.github.ssh import SSHRegistrationError
-
-    # 1. Dry run
+def test_ssh_dry_run_commands(tmp_path: Path) -> None:
+    """Verify dry-run mode across all ssh subcommands."""
     with patch("devops_cli.dry_run.is_dry_run", return_value=True):
         assert runner.invoke(ssh_app, ["generate", "--key-dir", str(tmp_path)]).exit_code == 0
         assert runner.invoke(ssh_app, ["register"]).exit_code == 0
@@ -212,7 +209,9 @@ def test_ssh_error_and_dry_run_branches(tmp_path: Path) -> None:
         assert runner.invoke(ssh_app, ["audit"]).exit_code == 0
         assert runner.invoke(ssh_app, ["status"]).exit_code == 0
 
-    # 2. Generate key collision (exists)
+
+def test_ssh_generate_key_collision(tmp_path: Path) -> None:
+    """Verify ssh generate exits with error when key already exists."""
     with (
         patch("devops_cli.commands.ssh._date_suffix", return_value="20260101"),
         patch("devops_cli.config.settings.load_settings") as mock_load,
@@ -225,7 +224,12 @@ def test_ssh_error_and_dry_run_branches(tmp_path: Path) -> None:
         res_exist = runner.invoke(ssh_app, ["generate"])
         assert res_exist.exit_code == 1
 
-    # 3. Register missing key or pub
+
+def test_ssh_register_error_branches(tmp_path: Path) -> None:
+    """Verify ssh register error paths for missing key, missing pub, and API error."""
+    from devops_cli.github.ssh import SSHRegistrationError
+
+    # Missing newest key
     with (
         patch("devops_cli.crypto.ssh_keys.find_newest_key", return_value=None),
         patch("devops_cli.config.settings.load_settings") as mock_load,
@@ -259,7 +263,12 @@ def test_ssh_error_and_dry_run_branches(tmp_path: Path) -> None:
         res_reg_err = runner.invoke(ssh_app, ["register", "--key-file", str(priv)])
         assert res_reg_err.exit_code == 1
 
-    # 4. Status age checks (>7, <=7, overdue)
+
+def test_ssh_status_key_age_buckets(tmp_path: Path) -> None:
+    """Verify ssh status output for warning threshold and overdue keys."""
+    priv = tmp_path / "custom_priv"
+    priv.touch()
+
     with (
         patch("devops_cli.crypto.ssh_keys.find_newest_key", return_value=priv),
         patch("devops_cli.config.settings.load_settings") as mock_load,
@@ -280,7 +289,9 @@ def test_ssh_error_and_dry_run_branches(tmp_path: Path) -> None:
             assert res_stat_overdue.exit_code == 0
             assert "overdue by 10 days" in res_stat_overdue.output
 
-    # 5. Audit age buckets
+
+def test_ssh_audit_key_age_buckets(tmp_path: Path) -> None:
+    """Verify ssh audit output with multiple managed key ages."""
     from devops_cli.crypto.ssh_keys import ManagedSSHKey
 
     keys = [

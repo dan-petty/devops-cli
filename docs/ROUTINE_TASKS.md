@@ -56,39 +56,49 @@ The Inner Development Loop follows a strict **Test-First Development (TDD)** met
 
 ```mermaid
 flowchart TD
-    A[Requirement / Feature Goal] --> B[uv sync]
-    B --> C[Centralize Literals & Defaults]
-    C --> D[1. Write Tests First in tests/test_*.py]
-    D --> E[2. Implement Feature Code in src/]
-    E --> F[3. ruff check & format modified files]
-    F --> G[4. mypy target files]
-    G --> H[5. pytest target test file]
+    A[Requirement / Feature Goal] --> B[1. Project Planning & Task State Setup]
+    B --> C[2. uv sync Dependencies]
+    C --> D[3. Centralize Literals & Defaults]
+    D --> E[4. Write Tests First in tests/test_*.py]
+    E --> F[5. Implement Feature Code in src/]
+    F --> G[6. ruff check & format modified files]
+    G --> H[7. mypy target files]
+    H --> I[8. pytest target test file]
+    I --> J[9. Update Task Tracking: WIP to Completed]
 ```
 
 #### Step-by-Step Order:
-1. **Sync Dependencies (`uv sync`)**: Always ensure `.venv` is aligned with `uv.lock` before starting work.
-2. **Centralize Constants, Config & Defaults**:
+1. **Document Project Planning & Initialize Task Tracking**:
+   - For multi-step or architectural work, author an implementation plan (`implementation_plan.md`, `task.md`, or update [`docs/ROADMAP.md`](ROADMAP.md)).
+   - Explicitly organize and track all tasks into three states:
+     - **Pending Tasks**: Backlog items, planned features, and unstarted requirements.
+     - **In-Progress Tasks (WIP)**: Active work items, files currently being authored/edited, and active test suites.
+     - **Completed Tasks**: Verified implementations, green test gates, and synchronized documentation.
+2. **Sync Dependencies (`uv sync`)**: Always ensure `.venv` is aligned with `uv.lock` before starting work.
+3. **Centralize Constants, Config & Defaults**:
    - Put configuration options and environment variable schemas in [`src/devops_cli/config/settings.py`](../src/devops_cli/config/settings.py).
    - Put constants, regexes, and protocol strings in [`src/devops_cli/config/constants.py`](../src/devops_cli/config/constants.py).
    - Put timeouts and numeric defaults in [`src/devops_cli/config/defaults.py`](../src/devops_cli/config/defaults.py).
    - Put user-facing messages, summaries, and error logs in [`src/devops_cli/lang/en/`](../src/devops_cli/lang/en/).
-3. **Write Tests First (Living Functional Specification)**:
+4. **Write Tests First (Living Functional Specification)**:
    - Create or update `tests/test_<feature>.py` to document the intended public interfaces, command-line arguments, expected return structures, edge cases, error conditions, and mocks.
-4. **Implement Feature Logic**:
+5. **Implement Feature Logic**:
    - Author clean, concise, domain-driven implementation code in `src/` specifically to satisfy the pre-written tests with zero extraneous boilerplate.
-5. **Format & Lint Target Files**:
+6. **Format & Lint Target Files**:
    ```bash
    uv run ruff check --fix <modified_paths>
    uv run ruff format <modified_paths>
    ```
-6. **Verify Static Types for Target Files**:
+7. **Verify Static Types for Target Files**:
    ```bash
    uv run mypy --strict <modified_paths>
    ```
-7. **Run Targeted Unit Tests**:
+8. **Run Targeted Unit Tests**:
    ```bash
    uv run pytest tests/test_<feature>.py -k <test_name>
    ```
+9. **Update Task Status Tracking**:
+   - Transition completed items from **In-Progress (WIP)** to **Completed** with reference to passing test verifications and code artifacts.
 
 ---
 

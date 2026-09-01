@@ -21,8 +21,8 @@ def test_process_pipeline_successful_execution() -> None:
 
 def test_process_pipeline_timeout_handling() -> None:
     """ProcessExecutionPipeline should catch subprocess timeout and flag timeout_occurred."""
-    pipeline = ProcessExecutionPipeline(default_timeout=0.2)
-    res = pipeline.run([sys.executable, "-c", "import time; time.sleep(1.0)"])
+    pipeline = ProcessExecutionPipeline(default_timeout=0.05)
+    res = pipeline.run([sys.executable, "-c", "import time; time.sleep(0.5)"])
 
     assert res.success is False
     assert res.timeout_occurred is True

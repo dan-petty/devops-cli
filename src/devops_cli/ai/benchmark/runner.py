@@ -25,7 +25,12 @@ from devops_cli.models.benchmark import (
     ServerBenchmarkSummary,
     TaskResponse,
 )
-from devops_cli.output import print_info, print_success, print_table, write_stdout
+from devops_cli.output import (
+    TablePayload,
+    print,
+    print_info,
+    write_stdout,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1040,11 +1045,12 @@ class BenchmarkRunner:
         base_bench_dir = _get_benchmarks_base_dir()
         report_path = base_bench_dir / f"{report.session_id}-benchmark.json"
         write_stdout("\n")
-        print_table(
+        tbl_leaderboard = TablePayload(
             title=f"AI Benchmark Leaderboard (Session {report.session_id})",
             columns=columns,
             rows=rows,
         )
+        print(tbl_leaderboard)
 
         if len(report.tasks_run) > 1:
             categories = sorted({t.category for t in report.tasks_run})
@@ -1061,11 +1067,12 @@ class BenchmarkRunner:
                 cat_rows.append(r)
 
             write_stdout("\n")
-            print_table(
+            tbl_categories = TablePayload(
                 title=f"Domain Category Breakdown (Session {report.session_id})",
                 columns=cat_cols,
                 rows=cat_rows,
             )
+            print(tbl_categories)
 
         if report.server_benchmarks:
             server_cols: list[Any] = [
@@ -1094,13 +1101,14 @@ class BenchmarkRunner:
                 server_rows.append(_format_server_hardware_row(s, fastest_latency, multi_server))
 
             write_stdout("\n")
-            print_table(
+            tbl_servers = TablePayload(
                 title=f"Ollama Server Hardware & Node Performance (Session {report.session_id})",
                 columns=server_cols,
                 rows=server_rows,
             )
+            print(tbl_servers)
 
-        print_success(f"Detailed benchmark report saved → [cyan]{report_path}[/cyan]")
+        print(f"Detailed benchmark report saved → [cyan]{report_path}[/cyan]", level="success")
 
     def to_markdown(self, report: BenchmarkReport) -> str:
         """Generate a clean GitHub-flavored Markdown benchmark report."""

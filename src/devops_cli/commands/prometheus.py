@@ -16,6 +16,7 @@ from devops_cli.config.defaults import (
 from devops_cli.config.settings import Settings, load_settings
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
+from devops_cli.exceptions import DevOpsCLIError
 from devops_cli.http.validation import validate_service_url
 from devops_cli.lang import ERRORS, HELP, MESSAGES
 from devops_cli.models.prometheus import PrometheusQueryResult
@@ -47,7 +48,7 @@ def _base_url(settings: Settings) -> str:
         validate_service_url(
             settings.prometheus.url, "Prometheus", allow=settings.ai.allow_private_network
         )
-    except ValueError as exc:
+    except (ValueError, DevOpsCLIError) as exc:
         print_error(str(exc), prefix=False)
         raise typer.Exit(1)
     return settings.prometheus.url.rstrip("/")

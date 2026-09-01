@@ -212,13 +212,52 @@ class ProgressStep(BaseModel):
     total: float = 100.0
 
 
+class MessagePayload(BaseModel):
+    """Structured styled message payload."""
+
+    model_config = ConfigDict(frozen=True)
+
+    message: str
+    level: MessageLevel = "info"
+    prefix: bool = True
+
+
+class PrintRequest(BaseModel):
+    """Declarative Pydantic request payload for the unified print function."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    content: Any = ""
+    level: MessageLevel = "raw"
+    prefix: bool | None = None
+    title: str | None = None
+    border_style: str | None = None
+    highlight: bool = True
+    stderr: bool = False
+    expand: bool = True
+
+
+class PrintResult(BaseModel):
+    """Structured Pydantic response from a print invocation."""
+
+    model_config = ConfigDict(frozen=True)
+
+    success: bool = True
+    level: MessageLevel = "raw"
+    stream: Literal["stdout", "stderr"] = "stdout"
+    rendered_type: str = "text"
+
+
 __all__ = [
     "JustifyMethod",
     "KeyValuePayload",
     "MarkdownPayload",
     "MessageLevel",
+    "MessagePayload",
     "OutputFormat",
     "PanelPayload",
+    "PrintRequest",
+    "PrintResult",
     "ProgressStep",
     "RulePayload",
     "StatusBadge",

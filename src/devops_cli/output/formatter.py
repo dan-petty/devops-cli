@@ -333,3 +333,33 @@ def format_output(
             return render_table(title=title, columns=columns or auto_cols, rows=rows or auto_rows)
         return render_table(title, columns or [], rows or [])
     return format_json(data)
+
+
+def format_repo_map_text(file_nodes: list[Any]) -> str:
+    """Render repository symbol map as clean, indented ASCII text."""
+    lines: list[str] = []
+    for f in file_nodes:
+        path_str = getattr(f, "path", str(f))
+        line_count = getattr(f, "line_count", 0)
+        lines.append(f"{path_str} ({line_count} lines):")
+        symbols = getattr(f, "symbols", [])
+        for sym in symbols:
+            kind = getattr(sym, "kind", "")
+            name = getattr(sym, "name", "")
+            docstring = getattr(sym, "docstring", None)
+            signature = getattr(sym, "signature", "")
+            if kind == "class":
+                lines.append(f"  class {name}:")
+                if docstring:
+                    lines.append(f"    # {docstring}")
+                children = getattr(sym, "children", [])
+                for m in children:
+                    m_name = getattr(m, "name", "")
+                    m_sig = getattr(m, "signature", "")
+                    lines.append(f"    def {m_name}{m_sig}")
+            elif kind == "function":
+                lines.append(f"  def {name}{signature}")
+                if docstring:
+                    lines.append(f"    # {docstring}")
+        lines.append("")
+    return "\n".join(lines).strip()

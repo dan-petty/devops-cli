@@ -18,11 +18,8 @@ def mock_rag_investigator():
         yield
 
 
-def test_review_pipeline_stages(tmp_path: Path, monkeypatch) -> None:
-    """Test 6-stage review pipeline initialization and execution."""
-    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
-
-    # Mock LLM response handler
+def _create_mock_review_llm() -> MagicMock:
+    """Helper creating a mock LLM for review pipeline tests."""
     mock_llm = MagicMock()
     review_json = (
         '```json\n{"findings": [{"severity": "HIGH", "location": "src/dummy.py:1", '
@@ -34,7 +31,7 @@ def test_review_pipeline_stages(tmp_path: Path, monkeypatch) -> None:
         '"verified": true, "mitigated": false, "confidence_score": 0.95, "reason": "Valid"}]\n```'
     )
 
-    def _fake_chat(*args, **kwargs):
+    def _fake_chat(*args: object, **kwargs: object) -> str:
         content = str(args)
         if "Verify each finding" in content:
             return verify_json
@@ -44,7 +41,13 @@ def test_review_pipeline_stages(tmp_path: Path, monkeypatch) -> None:
     mock_llm.chat_complete.side_effect = _fake_chat
     mock_llm.chat.side_effect = _fake_chat
     mock_llm.complete.side_effect = _fake_chat
+    return mock_llm
 
+
+def test_review_pipeline_stages(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test 6-stage review pipeline initialization and execution."""
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
+    mock_llm = _create_mock_review_llm()
     orchestrator = ReviewPipelineOrchestrator(session_id="test-session", llm_client=mock_llm)
 
     # Stage 1: Pre-analysis refresh

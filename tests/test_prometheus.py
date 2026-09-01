@@ -131,7 +131,8 @@ def test_prometheus_errors_and_edge_cases(monkeypatch: pytest.MonkeyPatch) -> No
         res_no_url = runner.invoke(prometheus_app, ["query", "up"])
         assert res_no_url.exit_code == 1
 
-    # 2. Invalid service URL
+    # 2. Invalid service URL (SSRF block)
+    monkeypatch.delenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", raising=False)
     settings_bad_url = Settings()
     settings_bad_url.prometheus.url = "http://10.0.0.1:9090"
     settings_bad_url.ai.allow_private_network = False
@@ -151,9 +152,12 @@ def test_prometheus_errors_and_edge_cases(monkeypatch: pytest.MonkeyPatch) -> No
     mock_bad_resp = MagicMock()
     mock_bad_resp.status_code = 200
     mock_bad_resp.headers = {"content-type": "text/html"}
+    mock_client_bad = MagicMock()
+    mock_client_bad.__enter__.return_value.get.return_value = mock_bad_resp
     with (
         patch("devops_cli.commands.prometheus.load_settings", return_value=settings_ok),
-        patch("devops_cli.commands.prometheus.httpx2.Client.get", return_value=mock_bad_resp),
+        patch("devops_cli.commands.prometheus.validate_service_url", return_value=None),
+        patch("devops_cli.commands.prometheus.httpx2.Client", return_value=mock_client_bad),
     ):
         res_bad_ct = runner.invoke(prometheus_app, ["query", "up"])
         assert res_bad_ct.exit_code == 1
@@ -166,9 +170,12 @@ def test_prometheus_errors_and_edge_cases(monkeypatch: pytest.MonkeyPatch) -> No
         "status": "success",
         "data": {"resultType": "vector", "result": []},
     }
+    mock_client_empty = MagicMock()
+    mock_client_empty.__enter__.return_value.get.return_value = mock_empty_resp
     with (
         patch("devops_cli.commands.prometheus.load_settings", return_value=settings_ok),
-        patch("devops_cli.commands.prometheus.httpx2.Client.get", return_value=mock_empty_resp),
+        patch("devops_cli.commands.prometheus.validate_service_url", return_value=None),
+        patch("devops_cli.commands.prometheus.httpx2.Client", return_value=mock_client_empty),
     ):
         res_empty = runner.invoke(prometheus_app, ["query", "empty_metric"])
         assert res_empty.exit_code == 0

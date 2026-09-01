@@ -1,7 +1,8 @@
-"""Unit tests for review finding verification, manual invalidation, and stats commands."""
+from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 from typer.testing import CliRunner
@@ -349,7 +350,52 @@ def test_format_related_file_block(tmp_path: Path) -> None:
     assert "def helper(): pass" in block
 
 
-def test_apply_single_finding_verification() -> None:
+@pytest.mark.parametrize(
+    ("item", "expected_status", "expected_reportable", "expected_verified", "expected_conf"),
+    [
+        (None, "UNVERIFIED", True, False, None),
+        (
+            {
+                "invalidated_criteria_matched": ["Criterion 1"],
+                "confidence_score": 0.95,
+                "severity": "LOW",
+                "location": "test.py:12",
+            },
+            "INVALIDATED",
+            False,
+            False,
+            0.95,
+        ),
+        (
+            {"mitigated": True, "verified": False},
+            "MITIGATED",
+            False,
+            False,
+            None,
+        ),
+        (
+            {"verified": True, "reportable": True, "verified_criteria_matched": ["Criterion 1"]},
+            "VERIFIED",
+            True,
+            True,
+            0.5,
+        ),
+        (
+            {"verified": False, "confidence_score": "invalid"},
+            "UNVERIFIED",
+            False,
+            False,
+            None,
+        ),
+    ],
+)
+def test_apply_single_finding_verification(
+    item: dict[str, Any] | None,
+    expected_status: str,
+    expected_reportable: bool,
+    expected_verified: bool,
+    expected_conf: float | None,
+) -> None:
     from devops_cli.ai.review.verification import _apply_single_finding_verification
 
     f = Finding(
@@ -361,53 +407,13 @@ def test_apply_single_finding_verification() -> None:
     )
     now_iso = "2026-08-26T00:00:00"
 
-    # Non-dict item returns original finding
-    assert _apply_single_finding_verification(f, None, now_iso) == f
-
-    # Invalidated criteria matched
-    item_inv = {
-        "invalidated_criteria_matched": ["Criterion 1"],
-        "confidence_score": 0.95,
-        "severity": "LOW",
-        "location": "test.py:12",
-    }
-    f_inv = _apply_single_finding_verification(f, item_inv, now_iso)
-    assert f_inv.status == "INVALIDATED"
-    assert f_inv.verified is False
-    assert f_inv.mitigated is True
-    assert f_inv.reportable is False
-    assert f_inv.confidence_score == 0.95
-    assert f_inv.severity == "LOW"
-    assert f_inv.location == "test.py:12"
-
-    # Mitigated item
-    item_mit = {
-        "mitigated": True,
-        "verified": False,
-    }
-    f_mit = _apply_single_finding_verification(f, item_mit, now_iso)
-    assert f_mit.status == "MITIGATED"
-    assert f_mit.reportable is False
-
-    # Verified item with auto confidence
-    item_ver = {
-        "verified": True,
-        "reportable": True,
-        "verified_criteria_matched": ["Criterion 1"],
-    }
-    f_ver = _apply_single_finding_verification(f, item_ver, now_iso)
-    assert f_ver.status == "VERIFIED"
-    assert f_ver.reportable is True
-    assert f_ver.confidence_score == 0.5  # 1 matched / 2 criteria
-
-    # Unverified item
-    item_unver = {
-        "verified": False,
-        "confidence_score": "invalid",
-    }
-    f_unver = _apply_single_finding_verification(f, item_unver, now_iso)
-    assert f_unver.status == "UNVERIFIED"
-    assert f_unver.reportable is False
+    res = _apply_single_finding_verification(f, item, now_iso)
+    assert res.status == expected_status
+    assert res.reportable is expected_reportable
+    if item is not None:
+        assert res.verified is expected_verified
+    if expected_conf is not None:
+        assert res.confidence_score == expected_conf
 
 
 def test_validate_segment_findings_and_merge() -> None:

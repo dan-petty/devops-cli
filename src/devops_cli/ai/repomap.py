@@ -158,19 +158,6 @@ def generate_repo_map(
 
 def render_repo_map_text(file_nodes: list[FileMapNode]) -> str:
     """Render repository symbol map as clean, indented ASCII text."""
-    lines: list[str] = []
-    for f in file_nodes:
-        lines.append(f"{f.path} ({f.line_count} lines):")
-        for sym in f.symbols:
-            if sym.kind == "class":
-                lines.append(f"  class {sym.name}:")
-                if sym.docstring:
-                    lines.append(f"    # {sym.docstring}")
-                for m in sym.children:
-                    lines.append(f"    def {m.name}{m.signature}")
-            elif sym.kind == "function":
-                lines.append(f"  def {sym.name}{sym.signature}")
-                if sym.docstring:
-                    lines.append(f"    # {sym.docstring}")
-        lines.append("")
-    return "\n".join(lines).strip()
+    from devops_cli.output import format_repo_map_text
+
+    return format_repo_map_text(file_nodes)
