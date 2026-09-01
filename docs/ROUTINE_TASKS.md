@@ -50,17 +50,19 @@ The following matrix categorizes all project routine tasks by operational layer,
 
 ## 3. Detailed Workflow Methodologies
 
-### Cadence A: Inner Loop (Iterative Feature Development)
+### Cadence A: Inner Loop (Test-First Iterative Feature Development)
 
-The Inner Development Loop is executed continuously while writing or modifying code. Run targeted tests and linters for immediate feedback; do NOT run the full test suite during this loop.
+The Inner Development Loop follows a strict **Test-First Development (TDD)** methodology. Author tests first as living specifications of intended functionality before writing implementation code. Run targeted tests and linters for immediate feedback; do NOT run the full test suite during this inner loop.
 
 ```mermaid
 flowchart TD
-    A[Edit Code / Tests] --> B[uv sync]
+    A[Requirement / Feature Goal] --> B[uv sync]
     B --> C[Centralize Literals & Defaults]
-    C --> D[ruff check & format target files]
-    D --> E[mypy target files]
-    E --> F[pytest target test file]
+    C --> D[1. Write Tests First in tests/test_*.py]
+    D --> E[2. Implement Feature Code in src/]
+    E --> F[3. ruff check & format modified files]
+    F --> G[4. mypy target files]
+    G --> H[5. pytest target test file]
 ```
 
 #### Step-by-Step Order:
@@ -70,16 +72,20 @@ flowchart TD
    - Put constants, regexes, and protocol strings in [`src/devops_cli/config/constants.py`](../src/devops_cli/config/constants.py).
    - Put timeouts and numeric defaults in [`src/devops_cli/config/defaults.py`](../src/devops_cli/config/defaults.py).
    - Put user-facing messages, summaries, and error logs in [`src/devops_cli/lang/en/`](../src/devops_cli/lang/en/).
-3. **Format & Lint Target Files**:
+3. **Write Tests First (Living Functional Specification)**:
+   - Create or update `tests/test_<feature>.py` to document the intended public interfaces, command-line arguments, expected return structures, edge cases, error conditions, and mocks.
+4. **Implement Feature Logic**:
+   - Author clean, concise, domain-driven implementation code in `src/` specifically to satisfy the pre-written tests with zero extraneous boilerplate.
+5. **Format & Lint Target Files**:
    ```bash
    uv run ruff check --fix <modified_paths>
    uv run ruff format <modified_paths>
    ```
-4. **Verify Static Types for Target Files**:
+6. **Verify Static Types for Target Files**:
    ```bash
    uv run mypy --strict <modified_paths>
    ```
-5. **Run Targeted Unit Tests**:
+7. **Run Targeted Unit Tests**:
    ```bash
    uv run pytest tests/test_<feature>.py -k <test_name>
    ```

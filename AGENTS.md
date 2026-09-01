@@ -29,16 +29,31 @@ This document provides foundational context, architectural principles, and opera
 - **Clean Solutions Over Legacy Remnants (Zero-Tolerance for Zombie Code)**:
   - When modifying, refactoring, or replacing features, schemas, configurations, or interfaces, AI agents must implement clean, complete solutions and ruthlessly remove old, obsolete, or superseded code, variables, aliases, fallback shims, and legacy workarounds across the codebase.
   - Never leave remnants, vestigial aliases, deprecated fallback paths, or ghost implementations for backward compatibility unless explicitly requested to do so by the user.
+- **Test-First Implementation & Functional Documentation (TDD as Living Specification)**:
+  - AI agents and coding assistants **MUST ALWAYS write tests first** before writing or modifying feature implementation code.
+  - Tests serve as the authoritative, executable documentation of the intended functionality, public interfaces, expected inputs/outputs, edge cases, error conditions, and architectural boundaries.
+  - Implementation code must be written specifically to satisfy the pre-written tests, ensuring zero extraneous boilerplate, 100% adherence to specifications, and immediate verification feedback.
 - **Dedicated Agent Workspace Data Isolation (`DEVOPS_CLI_DATA_DIR=./.data/agent`)**:
   - AI agents executing CLI review sessions, background benchmarks, analysis scans, test executions, or temporary operational tasks must configure and isolate agent data artifacts under `./.data/agent` (via `DEVOPS_CLI_DATA_DIR=./.data/agent`) to separate agent-generated reviews, logs, traces, and metadata from the primary user workspace data tier.
 - **Mandatory Backup for Files Outside Workspace (`.bak-<YYYYMMDD-HHMMSS>`)**:
   - Whenever modifying, overwriting, editing, or truncating any file located anywhere outside of the project workspace directory (such as files in user home directories, global configuration files, `~/.ssh/`, `~/.bashrc`, `~/.zshrc`, `/etc/`, or system files), AI agents and assistants **MUST ALWAYS** create a timestamped backup of the target file named `<original-filepath>.bak-<YYYYMMDD-HHMMSS>` (e.g. `~/.ssh/config.bak-20260831-134100`) prior to making any edits.
+- **Mandatory Routine Tasks Execution (`docs/ROUTINE_TASKS.md`)**:
+  - AI agents and assistants **MUST ALWAYS check and execute any applicable tasks from [`docs/ROUTINE_TASKS.md`](docs/ROUTINE_TASKS.md)** (including inner loop linting/typing, test-first specifications, documentation generation & README synchronization via `devops docs generate --sync-readme`, full CI validation suite via `devops ci`, release status assessment, and security audits) before completing any task, opening/updating PRs, or handing off work.
 - **Mandatory Documentation Synchronization After Every Change**:
   - AI agents and assistants must always update project documents, architecture references, command documentation, examples, and README files (`devops docs generate --sync-readme`, `docs/`, `AGENTS.md`, and relevant knowledge base task manuals) after every change to maintain 100% documentation integrity and prevent documentation drift.
 
 ## 2. Development Workflow & Progressive Verification
 
-All work follows a progressive verification strategy to optimize developer feedback loops while guaranteeing release readiness:
+All work follows a test-first progressive verification strategy to optimize developer feedback loops while guaranteeing release readiness:
+
+### Mandatory Routine Tasks Checklist
+Before declaring any task or ticket complete, AI agents must verify that all required operational steps from [`docs/ROUTINE_TASKS.md`](docs/ROUTINE_TASKS.md) have been executed in their defined sequence and cadence.
+
+### Test-First Development Cycle (TDD as Functional Specification)
+1. **Define Specification via Tests First**: Before writing or changing implementation code in `src/`, author comprehensive unit and integration tests in `tests/test_<feature>.py` defining intended behavior, arguments, return structures, edge cases, and exception handling.
+2. **Implement Feature Logic**: Write clean, concise implementation code in `src/` to satisfy the tests.
+3. **Verify Locally**: Run targeted tests (`uv run pytest tests/test_<feature>.py`) for immediate feedback during development.
+4. **Comprehensive Quality Gate**: Execute `devops ci` (or `uv run devops ci`) to validate all gates and enforce the minimum 90% code coverage requirement.
 
 ### Mandatory Knowledge Base Consultation
 Before planning, implementing, debugging, refactoring, or reviewing code, architectures, or operational workflows, AI agents and assistants **MUST ALWAYS** consult the **DevOps CLI Knowledge Base** under [`src/devops_cli/ai/knowledge_base/README.md`](src/devops_cli/ai/knowledge_base/README.md).
