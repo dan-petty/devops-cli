@@ -36,7 +36,7 @@
     "source=devops-cli-ruff-cache,target=${containerWorkspaceFolder}/.ruff_cache,type=volume",
     "source=devops-cli-uv,target=${containerWorkspaceFolder}/.uv,type=volume",
     "source=global-devcontainer-home,target=/home/vscode,type=volume",
-    "source=${localEnv:USERPROFILE}/.ssh,target=/home/vscode/.ssh,type=bind,consistency=cached"
+    "${localEnv:HOME}${localEnv:USERPROFILE}/.ssh,target=/home/vscode/.ssh,type=bind,consistency=cached"
   ],
   "containerEnv": {
     "DEVOPS_CLI_CONFIG": "${containerWorkspaceFolder}/config.yaml",
