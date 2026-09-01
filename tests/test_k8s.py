@@ -298,6 +298,7 @@ def test_k8s_bootstrap_and_stacks(tmp_path: Path) -> None:
     with (
         patch("devops_cli.commands.k8s.shutil.which", return_value="/usr/local/bin/minikube"),
         patch("devops_cli.commands.k8s._minikube_running", return_value=True),
+        patch("devops_cli.commands.k8s._cluster_reachable", return_value=True),
         patch(
             "devops_cli.commands.k8s.run_subprocess",
             return_value=_mock_proc(0, "minikube is running"),
@@ -309,6 +310,12 @@ def test_k8s_bootstrap_and_stacks(tmp_path: Path) -> None:
 
     with (
         patch("devops_cli.commands.k8s.shutil.which", return_value="/usr/local/bin/helm"),
+        patch("devops_cli.commands.k8s._cluster_reachable", return_value=True),
+        patch("devops_cli.commands.k8s._minikube_running", return_value=True),
+        patch(
+            "devops_cli.commands.k8s.run_subprocess",
+            return_value=_mock_proc(0, "success"),
+        ),
         patch("devops_cli.commands.k8s._run_cmd", return_value=_mock_proc(0, "success")),
     ):
         result = runner.invoke(app, ["deploy-stack", "--stack", "infra"])
@@ -316,6 +323,12 @@ def test_k8s_bootstrap_and_stacks(tmp_path: Path) -> None:
 
     with (
         patch("devops_cli.commands.k8s.shutil.which", return_value="/usr/local/bin/helm"),
+        patch("devops_cli.commands.k8s._cluster_reachable", return_value=True),
+        patch("devops_cli.commands.k8s._minikube_running", return_value=True),
+        patch(
+            "devops_cli.commands.k8s.run_subprocess",
+            return_value=_mock_proc(0, "success"),
+        ),
         patch("devops_cli.commands.k8s._run_cmd", return_value=_mock_proc(0, "success")),
     ):
         result = runner.invoke(app, ["teardown-stack", "--stack", "infra"])

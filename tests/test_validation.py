@@ -137,3 +137,40 @@ def test_validate_ssrf_egress_and_dns_resolution(monkeypatch: pytest.MonkeyPatch
     mock_pub_addrinfo = [(2, 1, 6, "", ("93.184.216.34", 80))]
     with patch("socket.getaddrinfo", return_value=mock_pub_addrinfo):
         _enforce_non_private_ssrf("http://example.com", "example.com", "http", 80, "test")
+
+
+def test_validation_edge_cases() -> None:
+    """Verify validate_safe_directory_path, validate_session_id, and empty version."""
+    from unittest.mock import patch
+
+    from devops_cli.core.validation import (
+        _enforce_non_private_ssrf,
+        validate_safe_directory_path,
+        validate_session_id,
+    )
+    from devops_cli.exceptions import InvalidVersionError, ValidationError
+
+    # 1. validate_safe_directory_path
+    assert validate_safe_directory_path("src/devops_cli") == Path("src/devops_cli")
+    with pytest.raises(ValidationError):
+        validate_safe_directory_path("")
+    with pytest.raises(ValidationError):
+        validate_safe_directory_path("path/../traversal")
+
+    # 2. validate_session_id
+    assert validate_session_id("valid-session_123") == "valid-session_123"
+    with pytest.raises(ValidationError):
+        validate_session_id("")
+    with pytest.raises(ValidationError):
+        validate_session_id("invalid session!!")
+    with pytest.raises(ValidationError):
+        validate_session_id("session/../traversal")
+
+    # 3. validate_version_str empty
+    with pytest.raises(InvalidVersionError):
+        validate_version_str("")
+
+    # 4. _enforce_non_private_ssrf with unparseable IP in addrinfo
+    mock_invalid_ip_addrinfo = [(2, 1, 6, "", ("invalid_ip_format", 80))]
+    with patch("socket.getaddrinfo", return_value=mock_invalid_ip_addrinfo):
+        _enforce_non_private_ssrf("http://hostname.test", "hostname.test", "http", 80, "service")

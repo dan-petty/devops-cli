@@ -145,17 +145,24 @@ def test_index_and_index_kb_coexistence(tmp_path: Path) -> None:
     assert ws_stats["indexed_files"] == 1
     assert len(qdrant.collections.get(indexer.code_collection, [])) >= 1
 
-    # 2. Index knowledge base
-    kb_stats = indexer.index_knowledge_base()
-    assert kb_stats["indexed_files"] >= 1
-    assert kb_stats["removed_files"] == 0
-    # Workspace code points must NOT be deleted
-    assert len(qdrant.collections.get(indexer.code_collection, [])) >= 1
+    # 2. Index knowledge base with isolated mock KB dir
+    mock_kb_dir = tmp_path / "mock_kb"
+    mock_kb_dir.mkdir()
+    (mock_kb_dir / "guide.md").write_text("# KB Guide\nKnowledge base content.", encoding="utf-8")
 
-    # 3. Re-index workspace (should not delete KB docs)
-    ws_stats2 = indexer.index_workspace(ws_dir, project="my-workspace")
-    assert ws_stats2["removed_files"] == 0
-    assert len(qdrant.collections.get(indexer.docs_collection, [])) >= 1
+    from unittest.mock import patch
+
+    with patch("devops_cli.ai.kb.get_knowledge_base_dir", return_value=mock_kb_dir):
+        kb_stats = indexer.index_knowledge_base()
+        assert kb_stats["indexed_files"] >= 1
+        assert kb_stats["removed_files"] == 0
+        # Workspace code points must NOT be deleted
+        assert len(qdrant.collections.get(indexer.code_collection, [])) >= 1
+
+        # 3. Re-index workspace (should not delete KB docs)
+        ws_stats2 = indexer.index_workspace(ws_dir, project="my-workspace")
+        assert ws_stats2["removed_files"] == 0
+        assert len(qdrant.collections.get(indexer.docs_collection, [])) >= 1
 
 
 def test_indexer_file_filters_and_gitignore(tmp_path: Path) -> None:

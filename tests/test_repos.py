@@ -442,3 +442,53 @@ def test_core_repo_safe_paths_and_tracked_files(tmp_path: Path) -> None:
     )
     with patch("devops_cli.core.repo.run_subprocess", return_value=mock_https_origin):
         assert get_repo_origin_name(base) == "dan-petty/devops-cli"
+
+
+def test_repo_edge_cases(tmp_path: Path) -> None:
+    """Verify find_top_level_repo_root from file, gitignore read error, and symlink edge cases."""
+    from devops_cli.core.repo import (
+        find_top_level_repo_root,
+        is_ignored_by_git,
+        is_safe_subpath,
+        list_repo_files,
+        read_gitignore_patterns,
+    )
+
+    root = tmp_path / "project_root"
+    root.mkdir()
+    (root / "pyproject.toml").write_text("[project]\nname='test'", encoding="utf-8")
+    sub_file = root / "src" / "main.py"
+    sub_file.parent.mkdir()
+    sub_file.write_text("print('hi')", encoding="utf-8")
+
+    # 1. find_top_level_repo_root from file
+    assert find_top_level_repo_root(sub_file) == root
+
+    # 2. read_gitignore_patterns with unreadable file
+    with patch.object(Path, "read_text", side_effect=OSError("disk read error")):
+        gi_f = root / ".gitignore"
+        gi_f.write_text("*.tmp", encoding="utf-8")
+        assert read_gitignore_patterns(root) == []
+
+    # 3. is_ignored_by_git with subprocess exception
+    (root / ".git").mkdir()
+    with patch("devops_cli.core.repo.run_subprocess", side_effect=Exception("git error")):
+        assert is_ignored_by_git(root, sub_file) is False
+
+    # 4. list_repo_files with symlink outside root
+    external_dir = tmp_path / "external_target"
+    external_dir.mkdir()
+    (external_dir / "secret.txt").write_text("secret", encoding="utf-8")
+    symlink_dir = root / "ext_link"
+    try:
+        symlink_dir.symlink_to(external_dir)
+    except OSError, NotImplementedError:
+        pass
+
+    with patch("devops_cli.core.repo._list_git_tracked_files", return_value=None):
+        files = list_repo_files(root)
+        assert all("secret.txt" not in str(f) for f in files)
+
+    # 5. is_safe_subpath with exception
+    with patch.object(Path, "resolve", side_effect=Exception("resolve error")):
+        assert is_safe_subpath(root, "any/path") is False

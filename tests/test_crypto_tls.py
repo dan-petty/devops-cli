@@ -245,3 +245,29 @@ def test_tls_overwriting_insecure_permissions(tmp_path: Path) -> None:
     pub_mode = os.stat(c_file).st_mode & 0o777
     assert priv_mode == 0o600
     assert pub_mode == 0o644
+
+
+def test_verify_certificate_expired_and_non_rsa(tmp_path: Path) -> None:
+    """Verify verify_certificate returns False for expired certs and non-RSA CAs."""
+    from datetime import UTC, datetime, timedelta
+    from unittest.mock import patch
+
+    ca_cert, ca_key = generate_ca_certificate(output_dir=tmp_path, validity_days=30)
+    srv_cert, _, _ = generate_server_certificate(
+        common_name="test.local",
+        ca_cert_path=ca_cert,
+        ca_key_path=ca_key,
+        output_dir=tmp_path,
+        validity_days=10,
+    )
+
+    # 1. Verification succeeds normally
+    assert verify_certificate(srv_cert, ca_cert) is True
+
+    # 2. Date expired simulation
+    with patch("datetime.datetime") as mock_dt:
+        mock_dt.now.return_value = datetime.now(UTC) + timedelta(days=50)
+        assert verify_certificate(srv_cert, ca_cert) is False
+
+    # 3. Invalid cert data
+    assert verify_certificate(b"not_a_valid_cert", ca_cert) is False

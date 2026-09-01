@@ -113,3 +113,50 @@ def test_analyze_class_method_distinction(tmp_path: Path) -> None:
     method = next(f for f in rep.functions if f.name == "method")
     assert standalone.is_method is False
     assert method.is_method is True
+
+
+def test_complexity_boolops_match_and_syntax_error(tmp_path: Path) -> None:
+    """Verify boolops, match/case statements, nested functions, and unparseable syntax."""
+    # 1. BoolOp, Match, and Nested function
+    code_f = tmp_path / "advanced.py"
+    code_f.write_text(
+        "def evaluate_cmd(a: bool, b: bool, c: bool, val: int) -> int:\n"
+        "    if a and b and c:\n"
+        "        def nested_helper(x: int) -> int:\n"
+        "            return x * 2\n"
+        "        return nested_helper(val)\n"
+        "    match val:\n"
+        "        case 1:\n"
+        "            return 10\n"
+        "        case 2:\n"
+        "            return 20\n"
+        "        case _:\n"
+        "            return 0\n",
+        encoding="utf-8",
+    )
+    rep = analyze_file_complexity(code_f)
+    assert len(rep.functions) == 2
+    assert rep.file_max_complexity is not None and rep.file_max_complexity > 1
+
+    # 2. Syntax error handling
+    bad_f = tmp_path / "broken.py"
+    bad_f.write_text("def broken( :::", encoding="utf-8")
+    rep_bad = analyze_file_complexity(bad_f)
+    assert len(rep_bad.errors) > 0
+
+    # 3. Directory scanning with ignored subdirs and non-python file
+    sub_dir = tmp_path / "src"
+    sub_dir.mkdir()
+    (sub_dir / "valid.py").write_text("def ok() -> None: pass\n", encoding="utf-8")
+    (sub_dir / "doc.txt").write_text("text doc", encoding="utf-8")
+    ignored_venv = tmp_path / ".venv" / "lib"
+    ignored_venv.mkdir(parents=True)
+    (ignored_venv / "lib.py").write_text("def bad() -> None: pass\n", encoding="utf-8")
+
+    findings = run_complexity_scan(tmp_path)
+    assert isinstance(findings, list)
+
+    # Scan non-python file
+    non_py = tmp_path / "readme.md"
+    non_py.write_text("# Readme", encoding="utf-8")
+    assert run_complexity_scan(non_py) == []
