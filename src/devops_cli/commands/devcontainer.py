@@ -635,13 +635,6 @@ def _run_post_create_lifecycle(workspace_dir: Path, *, dry_run: bool = False) ->
     zshrc_content = zshrc.read_text(encoding="utf-8") if zshrc.exists() else ""
 
     zshrc_additions: list[str] = []
-    if f'export PATH="{workspace_dir}/.venv/bin' not in zshrc_content:
-        zshrc_additions.append(
-            "\n# ── Environment & PATH ───────────────────────────────────────────────────────\n"
-            f'export PATH="{workspace_dir}/.venv/bin:$HOME/.local/bin:$PATH"\n'
-            "export UV_MALWARE_CHECK=1\n"
-        )
-        actions.append("Added PATH variables to ~/.zshrc")
 
     if "_DEVOPS_COMPLETE" not in zshrc_content:
         zshrc_additions.append(
