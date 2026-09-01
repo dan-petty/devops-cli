@@ -394,12 +394,22 @@ def test_ssh_prefix_filtering_and_parsing(tmp_path: Path) -> None:
     assert len(info_a) == 1
     assert info_a[0].path == k_proj_a
 
+    # Non-directory path returns empty list without raising NotADirectoryError
+    regular_file = tmp_path / "not_a_dir.txt"
+    regular_file.write_text("just a file", encoding="utf-8")
+    assert list_managed_keys(regular_file) == []
+
 
 def test_ssh_register_honors_prefix_setting_and_option(tmp_path: Path) -> None:
-    """Verify devops ssh register uses settings.ssh.key_prefix or --prefix flag."""
+    """Verify devops ssh register and list commands honor settings.ssh.key_prefix and --prefix flag."""
     k_prefixed = tmp_path / "custom-env-id_ed25519-20260901"
     k_prefixed.write_text("private")
     (tmp_path / "custom-env-id_ed25519-20260901.pub").write_text("ssh-ed25519 AAAA custom@env")
+
+    # Add second key with different prefix
+    k_other = tmp_path / "other-proj-id_ed25519-20260901"
+    k_other.write_text("private-other")
+    (tmp_path / "other-proj-id_ed25519-20260901.pub").write_text("ssh-ed25519 BBBB other@proj")
 
     mock_registered_titles: list[str] = []
 
@@ -433,7 +443,14 @@ def test_ssh_register_honors_prefix_setting_and_option(tmp_path: Path) -> None:
         assert res_stat.exit_code == 0
         assert "custom-env-id_ed25519-20260901" in res_stat.output
 
-        # 4. List with prefix option
-        res_list = runner.invoke(ssh_app, ["list", "--prefix", "custom-env"])
-        assert res_list.exit_code == 0
-        assert "custom-env-id_ed25519-20260901" in res_list.output
+        # 4. List without --prefix defaults to settings.ssh.key_prefix (shows custom-env, excludes other-proj)
+        res_list_default = runner.invoke(ssh_app, ["list"])
+        assert res_list_default.exit_code == 0
+        assert "custom-env-id_ed25519-20260901" in res_list_default.output
+        assert "other-proj-id_ed25519-20260901" not in res_list_default.output
+
+        # 5. List with explicit --prefix other-proj (shows other-proj, excludes custom-env)
+        res_list_other = runner.invoke(ssh_app, ["list", "--prefix", "other-proj"])
+        assert res_list_other.exit_code == 0
+        assert "other-proj-id_ed25519-20260901" in res_list_other.output
+        assert "custom-env-id_ed25519-20260901" not in res_list_other.output

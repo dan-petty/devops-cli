@@ -335,8 +335,15 @@ def list_keys(
         return
 
     settings = load_settings()
+    from devops_cli.crypto.ssh_keys import get_ssh_key_prefix
+
+    active_prefix = (
+        prefix if prefix is not None else (settings.ssh.key_prefix or get_ssh_key_prefix())
+    )
     target_key_dir = (key_dir or settings.ssh.key_dir).expanduser()
-    keys = list_managed_keys_info(target_key_dir, prefix=prefix)
+    keys = list_managed_keys_info(target_key_dir, prefix=active_prefix)
+    if not keys and prefix is None:
+        keys = list_managed_keys_info(target_key_dir)
 
     if not keys:
         print_warning(MESSAGES.ssh.no_managed_keys_pattern, prefix=False)

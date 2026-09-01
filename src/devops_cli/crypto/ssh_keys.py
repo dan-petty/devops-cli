@@ -160,7 +160,7 @@ def find_newest_key(key_dir: Path, prefix: str | None = None) -> Path | None:
 def list_managed_keys(key_dir: Path, prefix: str | None = None) -> list[Path]:
     """List all managed SSH private keys matching [prefix-]id_ed25519-YYYYMMDD."""
     expanded = key_dir.expanduser()
-    if not expanded.exists():
+    if not expanded.is_dir():
         return []
     result: list[Path] = []
     for path in expanded.iterdir():
