@@ -436,6 +436,23 @@ devops devcontainer run-lifecycle [OPTIONS]
 | `--all`, `-a` | `boolean` | - | Execute all DevContainer lifecycle tasks. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
+### `devops devcontainer bootstrap-k8s`
+
+**Execute Minikube cluster startup and Kubernetes stack deployment in the background.**
+
+```bash
+devops devcontainer bootstrap-k8s [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--workspace`, `-w` | `path` | `.` | Workspace root directory path. |
+| `--stack`, `-s` | `string` | `infra` | Kubernetes stack to deploy (e.g. infra, llm, monitoring, all). |
+| `--deploy`, `--no-deploy` | `boolean` | `True` | Auto-deploy Kubernetes stack after cluster startup. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
 ---
 
 ## devops workspace

@@ -132,6 +132,7 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 |  | `devops devcontainer post-create [OPTIONS]` | Execute DevContainer post-create setup tasks (history, shell completions, config prep). |
 |  | `devops devcontainer post-start [OPTIONS]` | Execute DevContainer post-start tasks (SSH keys, git defaults, kubeconfig, MCP sync). |
 |  | `devops devcontainer run-lifecycle [OPTIONS]` | Run specified DevContainer lifecycle hook tasks natively in Python. |
+|  | `devops devcontainer bootstrap-k8s [OPTIONS]` | Execute Minikube cluster startup and Kubernetes stack deployment in the background. |
 | **workspace** | `devops workspace add [OPTIONS] <repo_path>` | Add a folder to the VS Code workspace file. |
 |  | `devops workspace remove [OPTIONS] <repo_path>` | Remove a folder from the VS Code workspace file. |
 |  | `devops workspace generate [OPTIONS]` | Regenerate the workspace file from all repos in the repos directory. |

@@ -380,6 +380,11 @@ class DevcontainerCommandHelp:
     run_post_create: str = "Execute post-create setup tasks."
     run_post_start: str = "Execute post-start lifecycle tasks."
     run_all: str = "Execute all DevContainer lifecycle tasks."
+    bootstrap_k8s: str = (
+        "Execute Minikube startup and Kubernetes stack deployment in the background."
+    )
+    auto_deploy: str = "Auto-deploy Kubernetes stack after cluster startup."
+    stack: str = "Kubernetes stack to deploy (e.g. infra, llm, monitoring, all)."
 
 
 @dataclass(frozen=True)

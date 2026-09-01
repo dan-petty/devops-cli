@@ -152,16 +152,26 @@ class TestDevcontainerCli:
         assert "post-start lifecycle complete" in result.output
         assert (fake_home / ".kube" / "config").exists()
 
-    def test_post_start_autostarts_minikube_when_stopped(
+    def test_post_start_spawns_background_k8s_bootstrap(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """devops devcontainer post-start must start minikube if stopped and autostart enabled."""
+        """devops devcontainer post-start must spawn background bootstrap if autostart enabled."""
         fake_home = tmp_path / "home"
         fake_home.mkdir()
         monkeypatch.setenv("HOME", str(fake_home))
         monkeypatch.setenv("DEVOPS_MINIKUBE_AUTOSTART", "true")
         monkeypatch.setenv("DEVOPS_K8S_AUTO_DEPLOY", "false")
 
+        monkeypatch.setattr("shutil.which", lambda prog: f"/usr/local/bin/{prog}")
+
+        result = runner.invoke(app, ["post-start", "--workspace", str(tmp_path)])
+        assert result.exit_code == 0
+        assert "Spawned background Minikube & Kubernetes bootstrap" in result.output
+
+    def test_bootstrap_k8s_autostarts_minikube_when_stopped(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """devops devcontainer bootstrap-k8s must start minikube if stopped."""
         calls: list[list[str]] = []
 
         def mock_run_subprocess(cmd: list[str], **kwargs: object) -> object:
@@ -175,21 +185,15 @@ class TestDevcontainerCli:
         monkeypatch.setattr("devops_cli.commands.devcontainer.run_subprocess", mock_run_subprocess)
         monkeypatch.setattr("shutil.which", lambda prog: f"/usr/local/bin/{prog}")
 
-        result = runner.invoke(app, ["post-start", "--workspace", str(tmp_path)])
+        result = runner.invoke(app, ["bootstrap-k8s", "--workspace", str(tmp_path), "--no-deploy"])
         assert result.exit_code == 0
         assert "Started Minikube cluster (--driver=docker --gpus=all)" in result.output
         assert any(c[:2] == ["minikube", "start"] for c in calls)
 
-    def test_post_start_minikube_falls_back_to_cpu_when_no_gpu(
+    def test_bootstrap_k8s_minikube_falls_back_to_cpu_when_no_gpu(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """devops devcontainer post-start must fallback to CPU minikube if no GPU is found."""
-        fake_home = tmp_path / "home"
-        fake_home.mkdir()
-        monkeypatch.setenv("HOME", str(fake_home))
-        monkeypatch.setenv("DEVOPS_MINIKUBE_AUTOSTART", "true")
-        monkeypatch.setenv("DEVOPS_K8S_AUTO_DEPLOY", "false")
-
+        """devops devcontainer bootstrap-k8s must fallback to CPU minikube if no GPU is found."""
         calls: list[list[str]] = []
 
         def mock_run_subprocess(cmd: list[str], **kwargs: object) -> object:
@@ -206,20 +210,15 @@ class TestDevcontainerCli:
             lambda prog: f"/usr/local/bin/{prog}" if prog != "nvidia-smi" else None,
         )
 
-        result = runner.invoke(app, ["post-start", "--workspace", str(tmp_path)])
+        result = runner.invoke(app, ["bootstrap-k8s", "--workspace", str(tmp_path), "--no-deploy"])
         assert result.exit_code == 0
         assert "Started Minikube cluster (--driver=docker)" in result.output
         assert any(c == ["minikube", "start", "--driver=docker"] for c in calls)
 
-    def test_post_start_warns_when_docker_daemon_down(
+    def test_bootstrap_k8s_warns_when_docker_daemon_down(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """devops devcontainer post-start must warn if Docker daemon is not running."""
-        fake_home = tmp_path / "home"
-        fake_home.mkdir()
-        monkeypatch.setenv("HOME", str(fake_home))
-        monkeypatch.setenv("DEVOPS_MINIKUBE_AUTOSTART", "true")
-        monkeypatch.setenv("DEVOPS_K8S_AUTO_DEPLOY", "false")
+        """devops devcontainer bootstrap-k8s must warn if Docker daemon is not running."""
 
         def mock_run_subprocess(cmd: list[str], **kwargs: object) -> object:
             import subprocess
@@ -230,8 +229,11 @@ class TestDevcontainerCli:
 
         monkeypatch.setattr("devops_cli.commands.devcontainer.run_subprocess", mock_run_subprocess)
         monkeypatch.setattr("shutil.which", lambda prog: f"/usr/local/bin/{prog}")
+        monkeypatch.setattr(
+            "devops_cli.commands.devcontainer._wait_for_docker_daemon", lambda timeout=45: False
+        )
 
-        result = runner.invoke(app, ["post-start", "--workspace", str(tmp_path)])
+        result = runner.invoke(app, ["bootstrap-k8s", "--workspace", str(tmp_path), "--no-deploy"])
         assert result.exit_code == 0
         assert "Docker daemon is not running" in result.output
 
@@ -262,16 +264,10 @@ class TestDevcontainerCli:
         server_key = list(mcp_data["mcpServers"].keys())[0]
         assert mcp_data["mcpServers"][server_key]["cwd"] == str(tmp_path)
 
-    def test_post_start_skips_start_when_minikube_already_running(
+    def test_bootstrap_k8s_skips_start_when_minikube_already_running(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """devops devcontainer post-start must recognize already running minikube."""
-        fake_home = tmp_path / "home"
-        fake_home.mkdir()
-        monkeypatch.setenv("HOME", str(fake_home))
-        monkeypatch.setenv("DEVOPS_MINIKUBE_AUTOSTART", "true")
-        monkeypatch.setenv("DEVOPS_K8S_AUTO_DEPLOY", "false")
-
+        """devops devcontainer bootstrap-k8s must recognize already running minikube."""
         calls: list[list[str]] = []
 
         def mock_run_subprocess(cmd: list[str], **kwargs: object) -> object:
@@ -284,8 +280,11 @@ class TestDevcontainerCli:
 
         monkeypatch.setattr("devops_cli.commands.devcontainer.run_subprocess", mock_run_subprocess)
         monkeypatch.setattr("shutil.which", lambda prog: f"/usr/local/bin/{prog}")
+        monkeypatch.setattr(
+            "devops_cli.commands.devcontainer._wait_for_docker_daemon", lambda timeout=45: True
+        )
 
-        result = runner.invoke(app, ["post-start", "--workspace", str(tmp_path)])
+        result = runner.invoke(app, ["bootstrap-k8s", "--workspace", str(tmp_path), "--no-deploy"])
         assert result.exit_code == 0
         assert "Minikube cluster is already running" in result.output
 
@@ -500,13 +499,23 @@ class TestDevcontainerCli:
     def test_post_start_autodeploy_k8s_stack(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """devops devcontainer post-start with DEVOPS_K8S_AUTO_DEPLOY autodeploys stack."""
+        """devops devcontainer post-start with DEVOPS_K8S_AUTO_DEPLOY spawns bootstrap with stack."""
         fake_home = tmp_path / "home"
         fake_home.mkdir()
         monkeypatch.setenv("HOME", str(fake_home))
         monkeypatch.setenv("DEVOPS_MINIKUBE_AUTOSTART", "true")
         monkeypatch.setenv("DEVOPS_K8S_AUTO_DEPLOY", "true")
         monkeypatch.setenv("DEVOPS_K8S_STACK", "observability")
+
+        monkeypatch.setattr("shutil.which", lambda prog: f"/usr/local/bin/{prog}")
+        result = runner.invoke(app, ["post-start", "--workspace", str(tmp_path)])
+        assert result.exit_code == 0
+        assert "Spawned background Minikube & Kubernetes bootstrap" in result.output
+
+    def test_bootstrap_k8s_autodeploy_k8s_stack(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """devops devcontainer bootstrap-k8s autodeploys stack when cluster is running."""
 
         def mock_run_subprocess(cmd: list[str], **kwargs: object) -> object:
             import subprocess
@@ -517,7 +526,20 @@ class TestDevcontainerCli:
 
         monkeypatch.setattr("devops_cli.commands.devcontainer.run_subprocess", mock_run_subprocess)
         monkeypatch.setattr("shutil.which", lambda prog: f"/usr/local/bin/{prog}")
-        result = runner.invoke(app, ["post-start", "--workspace", str(tmp_path)])
+        monkeypatch.setattr(
+            "devops_cli.commands.devcontainer._wait_for_docker_daemon", lambda timeout=45: True
+        )
+        result = runner.invoke(
+            app,
+            [
+                "bootstrap-k8s",
+                "--workspace",
+                str(tmp_path),
+                "--stack",
+                "observability",
+                "--deploy",
+            ],
+        )
         assert result.exit_code == 0
         assert "Auto-deployed Kubernetes stack 'observability'" in result.output
 
@@ -710,7 +732,6 @@ class TestDevcontainerCli:
             _ensure_mount_permissions,
             _extract_mount_targets,
             _run_post_create_lifecycle,
-            _run_post_start_lifecycle,
         )
 
         fake_home = tmp_path / "home"
@@ -795,11 +816,12 @@ class TestDevcontainerCli:
         actions_pc = _run_post_create_lifecycle(tmp_path, dry_run=False)
         assert any("Specified DEVOPS_CLI_CONFIG file does not exist" in a for a in actions_pc)
 
-        # 8. Post-start skipping k8s auto-deploy when Minikube not running
-        monkeypatch.setenv("DEVOPS_MINIKUBE_AUTOSTART", "false")
-        monkeypatch.setenv("DEVOPS_K8S_AUTO_DEPLOY", "true")
-        actions_ps = _run_post_start_lifecycle(tmp_path, dry_run=False)
-        assert any("Minikube is not running" in a for a in actions_ps)
+        # 8. _run_k8s_bootstrap_worker missing minikube binary
+        from devops_cli.commands.devcontainer import _run_k8s_bootstrap_worker
+
+        monkeypatch.setattr("shutil.which", lambda prog: None)
+        actions_no_mk = _run_k8s_bootstrap_worker(tmp_path, stack="infra", dry_run=False)
+        assert any("Minikube binary is not available" in a for a in actions_no_mk)
 
         # 9. _validate_manifest_content root and name checks
         from devops_cli.commands.devcontainer import _validate_manifest_content
