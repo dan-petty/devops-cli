@@ -97,7 +97,7 @@ def cd_apps_list(
         return
 
     def _build_apps_table() -> Any:
-        from rich.table import Table
+        from devops_cli.output import Table
 
         settings = load_settings()
         base, headers = _argocd(settings)
@@ -144,7 +144,7 @@ def cd_apps_list(
             _build_apps_table, interval_seconds=interval, name="argo_apps_list"
         ).watch()
     else:
-        from rich import get_console
+        from devops_cli.output import get_console
 
         get_console().print(_build_apps_table())
 
@@ -191,8 +191,7 @@ def cd_apps_status(
     _validate_k8s_name(name, "application name")
 
     def _build_status_panel() -> Any:
-        from rich.panel import Panel
-        from rich.text import Text
+        from devops_cli.output import Panel, Text
 
         settings = load_settings()
         base, headers = _argocd(settings)
@@ -225,7 +224,7 @@ def cd_apps_status(
             _build_status_panel, interval_seconds=interval, name="argo_app_status"
         ).watch()
     else:
-        from rich import get_console
+        from devops_cli.output import get_console
 
         get_console().print(_build_status_panel())
 

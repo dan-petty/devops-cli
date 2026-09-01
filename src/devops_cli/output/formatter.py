@@ -226,6 +226,37 @@ def format_latency(ms: float) -> str:
     return f"{ms:.1f}ms"
 
 
+def format_bytes(raw: int | None) -> str:
+    """Format raw byte counts into a concise human-readable unit string (B, KB, MB, GB, TB)."""
+    n = raw or 0
+    for unit in ("B", "KB", "MB", "GB"):
+        if n < 1024:
+            return f"{n:.1f} {unit}"
+        n //= 1024
+    return f"{n:.1f} TB"
+
+
+def format_timestamp_age(created_at: str) -> str:
+    """Convert an ISO-8601 creation timestamp to a concise human-readable age string."""
+    import datetime
+
+    try:
+        created = datetime.datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+        now = datetime.datetime.now(datetime.UTC)
+        delta = now - created
+        hours, remainder = divmod(int(delta.total_seconds()), 3600)
+        minutes, seconds = divmod(remainder, 60)
+        if delta.days > 0:
+            return f"{delta.days}d{hours}h"
+        if hours > 0:
+            return f"{hours}h{minutes}m"
+        if minutes > 0:
+            return f"{minutes}m{seconds}s"
+        return f"{seconds}s"
+    except Exception:
+        return "—"
+
+
 def format_severity(severity: str) -> str:
     """Format an issue or dependency vulnerability severity tag with standard colors."""
     sev_upper = severity.strip().upper()

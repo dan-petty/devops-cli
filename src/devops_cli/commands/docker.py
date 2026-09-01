@@ -17,6 +17,9 @@ from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import is_dry_run
 from devops_cli.lang import ERRORS, HELP, MESSAGES
 from devops_cli.output import (
+    format_bytes as _format_bytes,
+)
+from devops_cli.output import (
     print_error,
     print_info,
     print_success,
@@ -206,16 +209,6 @@ def prune(
 # =============================================================================
 
 
-def _format_bytes(raw: int | None) -> str:
-    """Format bytes into a human-readable string (B / KB / MB / GB)."""
-    n = raw or 0
-    for unit in ("B", "KB", "MB", "GB"):
-        if n < 1024:
-            return f"{n:.1f} {unit}"
-        n //= 1024
-    return f"{n:.1f} TB"
-
-
 def _parse_docker_stats_row(container: Any) -> list[str]:
     """Extract a single Rich table row from a running Docker container stats stream."""
     name = container.name
@@ -253,7 +246,7 @@ def _parse_docker_stats_row(container: Any) -> list[str]:
 
 def _build_docker_stats_table(name_filter: str | None) -> Any:
     """Build a Rich Table of live Docker container statistics."""
-    from rich.table import Table
+    from devops_cli.output import Table
 
     client = _client()
     try:
@@ -303,7 +296,7 @@ def stats(
         )
         watcher.watch()
     else:
-        from rich import get_console
+        from devops_cli.output import get_console
 
         get_console().print(_build_docker_stats_table(name))
 

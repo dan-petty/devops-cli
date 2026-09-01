@@ -5,7 +5,9 @@ from __future__ import annotations
 from rich.console import Console as Console
 from rich.console import RenderableType as RenderableType
 from rich.live import Live as Live
+from rich.panel import Panel as Panel
 from rich.table import Table as Table
+from rich.text import Text as Text
 
 from devops_cli.output.console import (
     escape_text,
@@ -43,6 +45,7 @@ from devops_cli.output.file_writer import (
     write_yaml_file,
 )
 from devops_cli.output.formatter import (
+    format_bytes,
     format_code_span,
     format_duration,
     format_json,
@@ -54,6 +57,7 @@ from devops_cli.output.formatter import (
     format_serialized,
     format_severity,
     format_status_badge,
+    format_timestamp_age,
     format_yaml,
     render_table,
 )
@@ -80,6 +84,7 @@ __all__ = [
     "MarkdownPayload",
     "MessageLevel",
     "OutputFormat",
+    "Panel",
     "PanelPayload",
     "ProgressStep",
     "RenderableType",
@@ -89,7 +94,9 @@ __all__ = [
     "Table",
     "TableColumn",
     "TablePayload",
+    "Text",
     "escape_text",
+    "format_bytes",
     "format_code_span",
     "format_duration",
     "format_json",
@@ -101,6 +108,7 @@ __all__ = [
     "format_serialized",
     "format_severity",
     "format_status_badge",
+    "format_timestamp_age",
     "format_yaml",
     "get_console",
     "get_stderr_console",

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import datetime
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -18,29 +17,9 @@ from devops_cli.output import (
     format_json,
     write_stdout,
 )
-
-# =============================================================================
-# Helper: parse kubectl pods output
-# =============================================================================
-
-
-def _parse_pod_age(created_at: str) -> str:
-    """Convert an ISO-8601 creation timestamp to a concise age string."""
-    try:
-        created = datetime.datetime.fromisoformat(created_at.replace("Z", "+00:00"))
-        now = datetime.datetime.now(datetime.UTC)
-        delta = now - created
-        hours, remainder = divmod(int(delta.total_seconds()), 3600)
-        minutes, seconds = divmod(remainder, 60)
-        if delta.days > 0:
-            return f"{delta.days}d{hours}h"
-        if hours > 0:
-            return f"{hours}h{minutes}m"
-        if minutes > 0:
-            return f"{minutes}m{seconds}s"
-        return f"{seconds}s"
-    except Exception:
-        return "—"
+from devops_cli.output import (
+    format_timestamp_age as _parse_pod_age,
+)
 
 
 def _build_pods_table(
@@ -49,7 +28,7 @@ def _build_pods_table(
     all_namespaces: bool,
 ) -> Any:
     """Build a Rich Table of Kubernetes pod status using the kubernetes SDK."""
-    from rich.table import Table
+    from devops_cli.output import Table
 
     table = Table(title="Kubernetes Pods", show_header=True, header_style="bold cyan")
     table.add_column("Namespace", style="dim")
@@ -164,7 +143,7 @@ def pods_cmd(
         )
         watcher.watch()
     else:
-        from rich import get_console
+        from devops_cli.output import get_console
 
         get_console().print(_build_pods_table(namespace, label, all_namespaces))
 
