@@ -170,9 +170,6 @@
       }
     }
   },
-  "remoteEnv": {
-    "PATH": "${containerWorkspaceFolder}/.venv/bin:$HOME/.local/bin:$PATH"
-  },
   "remoteUser": "vscode",
   "runArgs": [
     "--gpus",
