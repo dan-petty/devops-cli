@@ -602,8 +602,6 @@ def _run_post_create_lifecycle(workspace_dir: Path, *, dry_run: bool = False) ->
             "export HISTFILESIZE=20000\n"
             "shopt -s histappend\n"
             'PROMPT_COMMAND="history -a${PROMPT_COMMAND:+; $PROMPT_COMMAND}"\n'
-            f'export PATH="{workspace_dir}/.venv/bin:$HOME/.local/bin:$PATH"\n'
-            "export UV_MALWARE_CHECK=1\n"
         )
         actions.append("Added persistent history and PATH variables to ~/.bashrc")
 
