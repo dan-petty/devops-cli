@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.8] - 2026-09-01
+
+### Changed
+- **Documentation Deduplication & Roadmap Alignment (`docs/`)**:
+  - Streamlined Pre-PR validation in `docs/ROUTINE_TASKS.md` to directly emphasize `uv run devops ci` as the primary unified gate.
+  - Updated container tag examples in `docs/DEVCONTAINER_USAGE.md` to current stable release (`v0.2.7`).
+  - Aligned `docs/PENDING_FEATURES.md` and `docs/ROADMAP.md` marking v0.2.7 features completed and expanding technical specifications for milestone v0.2.8.
+
 ## [0.2.7] - 2026-09-01
 
 ### Added

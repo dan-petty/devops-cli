@@ -1,6 +1,15 @@
-# Release Notes — devops-cli v0.2.7
+# Release Notes — devops-cli v0.2.8
 
 Workstation-native DevOps CLI for managing repositories, SSH keys, Kubernetes clusters, Kustomize, ArgoCD, Grafana, Prometheus, Docker, workspace files, vector embedding benchmarks, TLS certificate automation, OpenTelemetry observability, and multi-persona AI code reviews.
+
+---
+
+## 🚀 Highlights of v0.2.8
+
+### 📚 Documentation Deduplication & Roadmap Alignment
+- **Verification Workflow Streamlining**: Updated `docs/ROUTINE_TASKS.md` to directly enforce `uv run devops ci` as the primary unified quality gate.
+- **DevContainer Image Reference Standardization**: Pinned references in `docs/DEVCONTAINER_USAGE.md` updated to current stable release (`v0.2.7`).
+- **Milestone v0.2.8 Architectural Specifications**: Expanded `docs/ROADMAP.md` with technical blueprints for Vault secret brokering, rootless container sandboxes, HTTP/2 connection pooling, and automated CVE remediation.
 
 ---
 
