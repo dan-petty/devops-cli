@@ -392,3 +392,42 @@ def test_doc_generator_introspect_single_group_untrusted_prefix_rejected(
         summary="Untrusted module",
     )
     assert untrusted_res is None
+
+
+def test_doc_generator_configuration_docs(generator: DocGenerator) -> None:
+    """Verify programmatic generation of CONFIGURATION.md from Pydantic settings."""
+    content = generator.generate_configuration_docs()
+    assert "# DevOps CLI Configuration Reference" in content
+    assert "SSH Configuration" in content or "ssh" in content.lower()
+    assert "Telemetry Configuration" in content or "telemetry" in content.lower()
+    assert "AI Configuration" in content or "ai" in content.lower()
+    assert "DEVOPS_CLI_" in content
+    assert "| Option | Type | Default | Environment Variable | Description |" in content
+
+
+def test_doc_generator_error_catalog_docs(generator: DocGenerator) -> None:
+    """Verify programmatic generation of ERRORS.md from DevOpsCLIError hierarchy."""
+    content = generator.generate_error_catalog_docs()
+    assert "# DevOps CLI Exit Code & Error Catalog" in content
+    assert "VALIDATION_ERROR" in content or "CONFIGURATION_ERROR" in content
+    assert "| Error Code | Exit Code | Domain | Description |" in content
+    assert "SSRF_BLOCKED" in content or "CONFIGURATION_ERROR" in content
+
+
+def test_doc_generator_telemetry_docs(generator: DocGenerator) -> None:
+    """Verify programmatic generation of TELEMETRY.md from OpenTelemetry & metrics."""
+    content = generator.generate_telemetry_docs()
+    assert "# DevOps CLI Telemetry & Distributed Tracing Reference" in content
+    assert "OpenTelemetry" in content
+    assert "devops_cli_" in content
+    assert "| Metric Name | Type | Description |" in content
+
+
+def test_doc_generator_knowledge_base_index(generator: DocGenerator) -> None:
+    """Verify programmatic generation of KNOWLEDGE_BASE.md and KB article index."""
+    content = generator.generate_knowledge_base_index()
+    assert "# DevOps CLI Knowledge Base Catalog" in content
+    assert "Division 1: DevOps CLI Information" in content
+    assert "Division 2: Information Technology Domain-Specific" in content
+    assert "tasks/" in content
+    assert "tools/" in content
