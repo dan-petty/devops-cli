@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.7] - 2026-09-01
+
+### Fixed
+- **SSH Key Prefix Configuration & Options Across Subcommands (`src/devops_cli/commands/ssh.py`, `src/devops_cli/crypto/ssh_keys.py`, `tests/test_ssh.py`)**:
+  - Enhanced `devops ssh register` with `--prefix` / `-p` option and ensured it honors configured `settings.ssh.key_prefix` when discovering keys and generating registration titles.
+  - Added prefix filtering and fallback in `find_newest_key()`, `list_managed_keys()`, and `list_managed_keys_info()`.
+  - Added `--prefix` / `-p` support to `devops ssh status` and `devops ssh list` / `devops ssh audit`.
+  - Exported `parse_key_prefix` and `list_managed_keys_info` in `devops_cli.crypto`.
+
 ## [0.2.6] - 2026-08-31
 
 ### Added

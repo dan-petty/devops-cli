@@ -1,6 +1,14 @@
-# Release Notes — devops-cli v0.2.6
+# Release Notes — devops-cli v0.2.7
 
 Workstation-native DevOps CLI for managing repositories, SSH keys, Kubernetes clusters, Kustomize, ArgoCD, Grafana, Prometheus, Docker, workspace files, vector embedding benchmarks, TLS certificate automation, OpenTelemetry observability, and multi-persona AI code reviews.
+
+---
+
+## 🚀 Highlights of v0.2.7
+
+### 🔑 SSH Key Prefix Configuration & Discovery
+- **Comprehensive Key Prefix Support Across Subcommands**: `devops ssh register`, `devops ssh rotate`, `devops ssh status`, and `devops ssh list` now fully honor the `ssh.key_prefix` setting as well as optional CLI `--prefix` / `-p` flags.
+- **Prefix-Aware Discovery & Registration**: `find_newest_key()`, `list_managed_keys()`, and `list_managed_keys_info()` filter managed keys by prefix with automatic fallback, and generate clean GitHub registration titles without redundant date suffixes.
 
 ---
 
