@@ -128,6 +128,14 @@ def register(
         Path | None, typer.Option("--key-file", "-k", help=HELP.ssh.key_file)
     ] = None,
     title: Annotated[str | None, typer.Option("--title", help=HELP.options.title)] = None,
+    prefix: Annotated[
+        str | None,
+        typer.Option(
+            "--prefix",
+            "-p",
+            help=HELP.ssh.prefix,
+        ),
+    ] = None,
 ) -> None:
     from devops_cli.config.settings import get_github_token, load_settings
     from devops_cli.crypto.ssh_keys import find_newest_key, get_ssh_key_prefix
@@ -138,15 +146,22 @@ def register(
         render_dry_run_result(
             command="devops ssh register",
             action="register_ssh_key_on_github",
-            details={"key_file": str(key_file) if key_file else None, "title": title},
+            details={
+                "key_file": str(key_file) if key_file else None,
+                "title": title,
+                "prefix": prefix,
+            },
         )
         return
 
     settings = load_settings()
     token = get_github_token(settings)
+    active_prefix = (
+        prefix if prefix is not None else (settings.ssh.key_prefix or get_ssh_key_prefix())
+    )
 
     if key_file is None:
-        key_file = find_newest_key(settings.ssh.key_dir.expanduser())
+        key_file = find_newest_key(settings.ssh.key_dir.expanduser(), prefix=active_prefix)
         if key_file is None:
             print_error(MESSAGES.messages.no_ssh_key_found, prefix=False)
             raise typer.Exit(1)
@@ -159,8 +174,12 @@ def register(
         raise typer.Exit(1)
 
     pub_key = pub_path.read_text(encoding="utf-8").strip()
-    active_prefix = settings.ssh.key_prefix or get_ssh_key_prefix()
-    key_title = title or f"{key_file.stem if key_file else active_prefix}-{_date_suffix()}"
+    if title:
+        key_title = title
+    elif active_prefix and not key_file.stem.startswith(f"{active_prefix}-"):
+        key_title = f"{active_prefix}-{key_file.stem}"
+    else:
+        key_title = key_file.stem
 
     try:
         register_key_on_github(pub_key, key_title, token=token)
@@ -191,7 +210,7 @@ def rotate(
         typer.Option(
             "--prefix",
             "-p",
-            help="Optional prefix for the SSH key name (defaults to config setting, devcontainer name, or basename pwd).",
+            help=HELP.ssh.prefix,
         ),
     ] = None,
 ) -> None:
@@ -223,8 +242,11 @@ def rotate(
 
     settings = load_settings()
     target_key_dir = (key_dir or settings.ssh.key_dir).expanduser()
+    active_prefix = (
+        prefix if prefix is not None else (settings.ssh.key_prefix or get_ssh_key_prefix())
+    )
 
-    newest = find_newest_key(target_key_dir)
+    newest = find_newest_key(target_key_dir, prefix=active_prefix)
     if newest is None:
         print_warning(MESSAGES.ssh.no_managed_keys, prefix=False)
         raise typer.Exit(0)
@@ -240,9 +262,6 @@ def rotate(
 
     print_warning(f"Key is {age} days old — rotating...", prefix=False)
 
-    active_prefix = (
-        prefix if prefix is not None else (settings.ssh.key_prefix or get_ssh_key_prefix())
-    )
     filename = (
         f"{active_prefix}-id_ed25519-{_date_suffix()}"
         if active_prefix
@@ -293,6 +312,14 @@ def rotate(
 @app.command("list")
 def list_keys(
     key_dir: Annotated[Path | None, typer.Option("--key-dir", help=HELP.ssh.key_dir)] = None,
+    prefix: Annotated[
+        str | None,
+        typer.Option(
+            "--prefix",
+            "-p",
+            help=HELP.ssh.prefix,
+        ),
+    ] = None,
 ) -> None:
     """List all managed SSH keys with their age and rotation status."""
     from devops_cli.config.settings import load_settings
@@ -303,13 +330,20 @@ def list_keys(
         render_dry_run_result(
             command="devops ssh list",
             action="audit_ssh_keys",
-            details={},
+            details={"key_dir": str(key_dir) if key_dir else None, "prefix": prefix},
         )
         return
 
     settings = load_settings()
+    from devops_cli.crypto.ssh_keys import get_ssh_key_prefix
+
+    active_prefix = (
+        prefix if prefix is not None else (settings.ssh.key_prefix or get_ssh_key_prefix())
+    )
     target_key_dir = (key_dir or settings.ssh.key_dir).expanduser()
-    keys = list_managed_keys_info(target_key_dir)
+    keys = list_managed_keys_info(target_key_dir, prefix=active_prefix)
+    if not keys and prefix is None:
+        keys = list_managed_keys_info(target_key_dir)
 
     if not keys:
         print_warning(MESSAGES.ssh.no_managed_keys_pattern, prefix=False)
@@ -345,25 +379,36 @@ def list_keys(
 @app.command()
 def status(
     key_dir: Annotated[Path | None, typer.Option("--key-dir", help=HELP.ssh.key_dir)] = None,
+    prefix: Annotated[
+        str | None,
+        typer.Option(
+            "--prefix",
+            "-p",
+            help=HELP.ssh.prefix,
+        ),
+    ] = None,
 ) -> None:
     """Show the active SSH key and days until rotation."""
     from devops_cli.config.settings import load_settings
-    from devops_cli.crypto.ssh_keys import find_newest_key, get_key_age_days
+    from devops_cli.crypto.ssh_keys import find_newest_key, get_key_age_days, get_ssh_key_prefix
     from devops_cli.dry_run import is_dry_run
 
     if is_dry_run():
         render_dry_run_result(
             command="devops ssh status",
             action="get_ssh_key_status",
-            details={},
+            details={"key_dir": str(key_dir) if key_dir else None, "prefix": prefix},
         )
         return
 
     settings = load_settings()
     target_key_dir = (key_dir or settings.ssh.key_dir).expanduser()
     rotation_days = settings.ssh.rotation_days
+    active_prefix = (
+        prefix if prefix is not None else (settings.ssh.key_prefix or get_ssh_key_prefix())
+    )
 
-    newest = find_newest_key(target_key_dir)
+    newest = find_newest_key(target_key_dir, prefix=active_prefix)
     if newest is None:
         print_warning(MESSAGES.ssh.no_managed_keys, prefix=False)
         raise typer.Exit(0)

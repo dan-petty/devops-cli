@@ -7,7 +7,9 @@ from devops_cli.crypto.ssh_keys import (
     generate_ed25519_key,
     get_key_age_days,
     list_managed_keys,
+    list_managed_keys_info,
     parse_key_date,
+    parse_key_prefix,
 )
 from devops_cli.crypto.tls_certificates import (
     generate_ca_certificate,
@@ -26,6 +28,8 @@ __all__ = [
     "get_key_age_days",
     "inspect_certificate",
     "list_managed_keys",
+    "list_managed_keys_info",
     "parse_key_date",
+    "parse_key_prefix",
     "verify_certificate",
 ]

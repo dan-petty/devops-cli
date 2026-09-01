@@ -139,27 +139,47 @@ def get_key_age_days(key_path: Path) -> int:
     return max(0, (date.today() - key_date).days)
 
 
-def find_newest_key(key_dir: Path) -> Path | None:
-    """Return the newest managed SSH private key, or None."""
-    keys = list_managed_keys(key_dir)
+def parse_key_prefix(key_path: Path) -> str | None:
+    """Parse the optional prefix from a managed key filename, or None."""
+    match = _KEY_RE.match(key_path.name)
+    if not match:
+        return None
+    return match.group("prefix")
+
+
+def find_newest_key(key_dir: Path, prefix: str | None = None) -> Path | None:
+    """Return the newest managed SSH private key (optionally filtered by prefix), or None."""
+    keys = list_managed_keys(key_dir, prefix=prefix)
+    if not keys and prefix is not None:
+        keys = list_managed_keys(key_dir)
     if not keys:
         return None
     return max(keys, key=lambda path: parse_key_date(path) or date.min)
 
 
-def list_managed_keys(key_dir: Path) -> list[Path]:
-    """List all managed SSH private keys matching id_ed25519-YYYYMMMDD."""
+def list_managed_keys(key_dir: Path, prefix: str | None = None) -> list[Path]:
+    """List all managed SSH private keys matching [prefix-]id_ed25519-YYYYMMDD."""
     expanded = key_dir.expanduser()
-    if not expanded.exists():
+    if not expanded.is_dir():
         return []
-    return [path for path in expanded.iterdir() if path.is_file() and _KEY_RE.match(path.name)]
+    result: list[Path] = []
+    for path in expanded.iterdir():
+        if not path.is_file():
+            continue
+        m = _KEY_RE.match(path.name)
+        if not m:
+            continue
+        if prefix is not None and m.group("prefix") != prefix:
+            continue
+        result.append(path)
+    return result
 
 
-def list_managed_keys_info(key_dir: Path) -> list[ManagedSSHKey]:
-    """Return ManagedSSHKey objects for all managed keys, with date and age pre-computed."""
+def list_managed_keys_info(key_dir: Path, prefix: str | None = None) -> list[ManagedSSHKey]:
+    """Return ManagedSSHKey objects for managed keys, with date and age pre-computed."""
     today = date.today()
     result: list[ManagedSSHKey] = []
-    for path in sorted(list_managed_keys(key_dir)):
+    for path in sorted(list_managed_keys(key_dir, prefix=prefix)):
         key_date = parse_key_date(path)
         age = (today - key_date).days if key_date is not None else None
         result.append(ManagedSSHKey(path=path, key_date=key_date, age_days=age))

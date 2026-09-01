@@ -159,6 +159,7 @@ devops ssh register [OPTIONS]
 |---|---|---|---|
 | `--key-file`, `-k` | `path` | - | Path to private key. |
 | `--title` | `string` | - | Title for the item or entity. |
+| `--prefix`, `-p` | `string` | - | Optional prefix for the SSH key name (defaults to config setting, devcontainer name, or basename pwd). |
 
 ### `devops ssh rotate`
 
@@ -193,6 +194,7 @@ devops ssh list [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--key-dir` | `path` | - | Directory where SSH keys are stored. |
+| `--prefix`, `-p` | `string` | - | Optional prefix for the SSH key name (defaults to config setting, devcontainer name, or basename pwd). |
 
 ### `devops ssh audit`
 
@@ -207,6 +209,7 @@ devops ssh audit [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--key-dir` | `path` | - | Directory where SSH keys are stored. |
+| `--prefix`, `-p` | `string` | - | Optional prefix for the SSH key name (defaults to config setting, devcontainer name, or basename pwd). |
 
 ### `devops ssh status`
 
@@ -221,6 +224,7 @@ devops ssh status [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--key-dir` | `path` | - | Directory where SSH keys are stored. |
+| `--prefix`, `-p` | `string` | - | Optional prefix for the SSH key name (defaults to config setting, devcontainer name, or basename pwd). |
 
 ---
 
@@ -2100,6 +2104,28 @@ devops scan sbom [OPTIONS] <target>
 |---|---|---|---|
 | `--format`, `-f` | `string` | `cyclonedx` | SBOM format output (cyclonedx, spdx, json). |
 | `--output`, `-o` | `path` | - | Destination file path for generated SBOM document. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+### `devops scan aibom`
+
+**Generate AI Bill of Materials (AIBOM) with model licenses and hardware estimates.**
+
+```bash
+devops scan aibom [OPTIONS] <target>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<target>` | `path` | No | Target directory or model repository to analyze for AI models and AIBOM. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--format`, `-f` | `string` | `cyclonedx` | AIBOM format output (cyclonedx, json). |
+| `--output`, `-o` | `path` | - | Destination file path for generated AIBOM manifest. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---

@@ -203,6 +203,7 @@ class SSHCommandHelp:
     key_dir: str = "Directory where SSH keys are stored."
     comment: str = "Comment to include in public key."
     force_rotate: str = "Rotate even if not yet due."
+    prefix: str = "Optional prefix for the SSH key name (defaults to config setting, devcontainer name, or basename pwd)."
 
 
 @dataclass(frozen=True)
@@ -585,6 +586,10 @@ class ScanCommandHelp:
     max_indent: str = "Maximum acceptable indentation / nesting depth (default 5)."
     sbom_format: str = "SBOM format output (cyclonedx, spdx, json)."
     sbom_output: str = "Destination file path for generated SBOM document."
+    aibom: str = "Generate AI Bill of Materials (AIBOM) with model licenses and hardware estimates."
+    target_aibom: str = "Target directory or model repository to analyze for AI models and AIBOM."
+    aibom_format: str = "AIBOM format output (cyclonedx, json)."
+    aibom_output: str = "Destination file path for generated AIBOM manifest."
     framework: str = "Specific IaC framework (e.g. terraform)."
 
 

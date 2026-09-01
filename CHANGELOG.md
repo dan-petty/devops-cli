@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.7] - 2026-09-01
+
+### Added
+- **AI Bill of Materials (AIBOM) Generator & Model Curation (`src/devops_cli/security/aibom.py`, `src/devops_cli/commands/scan.py`, `tests/test_aibom.py`)**:
+  - CycloneDX 1.5-compliant AI Bill of Materials (`devops scan aibom`) extracting model architecture parameters, licensing models (Permissive, Open-Source, Capped, RAIL, Proprietary), safe tensor formats, and cryptographic SHA-256 weight hashes.
+  - Automated `trust_remote_code` AST and config analyzer detecting risky remote execution scripts before GPU provisioning.
+  - Serving hardware heuristic estimator calculating peak RAM, inference VRAM, and disk storage for dense and Mixture-of-Experts (MoE) models across quantization bit-depths.
+- **Zero-Allocation AST Symbol & Token Stream Parser (`src/devops_cli/ai/ast_stream.py`, `tests/test_ast_stream.py`)**:
+  - Generator-based streaming parser yielding structural classes, functions, decorators, and imports without allocating intermediate node trees.
+  - Line-level token streaming identifying indentation depths, comments, and string literals.
+- **Cross-Encoder Context Re-Ranker & Deep Semantic RAG (`src/devops_cli/ai/rag/reranker.py`, `tests/test_rag_reranker.py`)**:
+  - `CrossEncoderReranker` evaluating full query-chunk cross-token interaction density and reciprocal positional weighting.
+- **"Big Decides, Small Types, Big Checks" Multi-Agent Synthesis Protocol (`src/devops_cli/ai/agents/synthesis_protocol.py`, `tests/test_synthesis_protocol.py`)**:
+  - Three-stage synthesis pipeline orchestrating frontier planning models (Big Decides), fast local drafting models (Small Types), and frontier auditor models (Big Checks).
+- **High-Performance Streaming Serializers (`src/devops_cli/output/streaming_serializer.py`, `tests/test_streaming_serializer.py`)**:
+  - Low-memory streaming serializers for JSON arrays (`stream_json_array`), line-delimited JSON (`stream_jsonl`), and multi-document YAML (`stream_yaml_docs`).
+
+### Fixed
+- **SSH Key Prefix Configuration & Options Across Subcommands (`src/devops_cli/commands/ssh.py`, `src/devops_cli/crypto/ssh_keys.py`, `tests/test_ssh.py`)**:
+  - Enhanced `devops ssh register` with `--prefix` / `-p` option and ensured it honors configured `settings.ssh.key_prefix` when discovering keys and generating registration titles.
+  - Added prefix filtering and fallback in `find_newest_key()`, `list_managed_keys()`, and `list_managed_keys_info()`.
+  - Added `--prefix` / `-p` support to `devops ssh status` and `devops ssh list` / `devops ssh audit`.
+  - Exported `parse_key_prefix` and `list_managed_keys_info` in `devops_cli.crypto`.
+
 ## [0.2.6] - 2026-08-31
 
 ### Added
