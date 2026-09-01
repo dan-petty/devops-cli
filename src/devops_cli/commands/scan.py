@@ -27,6 +27,7 @@ from devops_cli.output import (
     render_table,
     write_stdout,
 )
+from devops_cli.security.aibom import generate_aibom
 from devops_cli.security.checkov import run_checkov_scan
 from devops_cli.security.complexity import run_complexity_scan
 from devops_cli.security.gitleaks import run_gitleaks_scan
@@ -579,6 +580,65 @@ def scan_sbom(
             details={
                 "format": norm_format,
                 "components_count": len(sbom_data.get("components", sbom_data.get("packages", []))),
+            },
+        )
+    return None
+
+
+@app.command("aibom")
+def scan_aibom(
+    target: Annotated[
+        Path,
+        typer.Argument(help=HELP.scan.target_aibom),
+    ] = DEFAULT_CURRENT_PATH,
+    format_type: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.scan.aibom_format),
+    ] = "cyclonedx",
+    output_file: Annotated[
+        Path | None,
+        typer.Option("--output", "-o", help=HELP.scan.aibom_output),
+    ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+) -> CommandDryRunResult | None:
+    """Generate AI Bill of Materials (AIBOM) with model licenses and hardware estimates."""
+    set_dry_run(dry_run)
+    target_abs = target.resolve() if target.exists() else target
+
+    if not is_dry_run():
+        print_muted(f"Generating AI Bill of Materials (AIBOM) for {target_abs}...")
+
+    norm_format = format_type.lower().strip()
+    if norm_format in ("cyclonedx", "json"):
+        aibom_data = generate_aibom(workspace_dir=target_abs)
+    else:
+        print_error(
+            f"Unsupported AIBOM format: '{format_type}'. Supported formats: 'cyclonedx', 'json'."
+        )
+        raise typer.Exit(1)
+
+    rendered_json = format_json(aibom_data) + "\n"
+
+    if output_file:
+        out_path = output_file.resolve()
+        if not is_dry_run():
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_text(rendered_json, encoding="utf-8")
+            print_success(f"✓ Generated AIBOM manifest at {out_path}")
+    else:
+        write_stdout(rendered_json)
+
+    if is_dry_run():
+        return CommandDryRunResult(
+            command=f"devops scan aibom {target} --format {format_type}",
+            target=str(target_abs),
+            action="generate_aibom",
+            details={
+                "format": norm_format,
+                "models_count": len(aibom_data.get("components", [])),
             },
         )
     return None

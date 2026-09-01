@@ -6,6 +6,24 @@ Workstation-native DevOps CLI for managing repositories, SSH keys, Kubernetes cl
 
 ## 🚀 Highlights of v0.2.7
 
+### 🛡️ AI Bill of Materials (AIBOM) Generator (`devops scan aibom`)
+- **CycloneDX 1.5 AIBOM Manifests**: Generates machine-readable AI model supply-chain records capturing model identities, parameter counts, weights hashes (SHA-256), and licensing categorizations (Permissive, Open-Source, Capped, RAIL, Proprietary).
+- **Static Model Security Gating**: Inspects custom code repositories and `config.json` for `trust_remote_code=True` and unverified remote execution scripts before compute allocation.
+- **Hardware Sizing Heuristics**: Dynamically estimates serving VRAM, system RAM, and disk storage requirements for dense and Mixture-of-Experts (MoE) models across quantization bit depths.
+
+### ⚡ Zero-Allocation AST & Token Stream Parser (`devops_cli.ai.ast_stream`)
+- **Generator-Based AST Streaming**: Yields code symbols (classes, functions, async methods, imports, decorators) on demand with zero intermediate full-tree allocations, speeding up large-scale codebase mapping.
+- **Token Line Streaming**: Evaluates line-level token depths, comments, and string literal boundaries for fast AST inspection.
+
+### 🔍 Cross-Encoder Context Re-Ranker & Deep Semantic RAG (`devops_cli.ai.rag.reranker`)
+- **Cross-Token Relevance Re-Ranking**: Evaluates query-chunk semantic overlap, cross-token coverage density, and reciprocal positional discounting to prioritize the most relevant chunks before context assembly.
+
+### 🤖 "Big Decides, Small Types, Big Checks" Synthesis Protocol (`devops_cli.ai.agents.synthesis_protocol`)
+- **Three-Stage Multi-Agent Orchestration**: Decouples complex AI workflows into frontier planning (Big Decides), local fast implementation drafting (Small Types), and frontier auditor verification (Big Checks).
+
+### 📦 High-Performance Streaming Serializers (`devops_cli.output.streaming_serializer`)
+- **Low-Memory Dataset Streaming**: Formats and streams large JSON arrays, line-delimited JSON (JSONL), and multi-document YAML with minimal memory footprint.
+
 ### 🔑 SSH Key Prefix Configuration & Discovery
 - **Comprehensive Key Prefix Support Across Subcommands**: `devops ssh register`, `devops ssh rotate`, `devops ssh status`, and `devops ssh list` now fully honor the `ssh.key_prefix` setting as well as optional CLI `--prefix` / `-p` flags.
 - **Prefix-Aware Discovery & Registration**: `find_newest_key()`, `list_managed_keys()`, and `list_managed_keys_info()` filter managed keys by prefix with automatic fallback, and generate clean GitHub registration titles without redundant date suffixes.

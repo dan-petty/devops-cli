@@ -277,8 +277,8 @@ High-density product roadmap, engineering milestones, and open-source integratio
 | | Autonomous RAG Index Drift Detection & Auto-Reindex | Git / Qdrant Sync | High | Low | v0.2.6 | 📋 Scheduled |
 | | Multi-Model LLM Benchmark Evaluation Harness | Pytest / Feedback Dataset | High | Low | v0.2.6 | 📋 Scheduled |
 | | Deterministic Async Memory & Pool Profiler | `asyncio` / `tracemalloc` | Medium | Low | v0.2.6 | 📋 Scheduled |
-| | Streaming JSON/YAML Serializer for Large Reviews | `orjson` / Pydantic | High | Low | v0.2.7 | 📋 Scheduled |
-| | Zero-Allocation Tokenizer & AST Stream Parser | `tokenize` / Generator | High | Low | v0.2.7 | 📋 Scheduled |
+| | Streaming JSON/YAML Serializer for Large Reviews | `orjson` / Pydantic | High | Low | v0.2.7 | ✅ Completed |
+| | Zero-Allocation Tokenizer & AST Stream Parser | `tokenize` / Generator | High | Low | v0.2.7 | ✅ Completed |
 | | Zero-Trust Git Commit & Tag Signature Verifier | `git`, GPG, Sigstore | High | Low | v0.3.0 | 💡 Future Vision |
 | | JIT Python 3.14 Bytecode Optimization Benchmarking | `pytest-benchmark` / JIT | Medium | Low | v0.3.0 | 💡 Future Vision |
 | **Strategic Investments** | OpenTofu Multi-Cloud IaC Modules (`tf/`) | OpenTofu / AWS / Azure / GCP | High | High | v0.1.9 | ✅ Completed |
@@ -312,12 +312,12 @@ High-density product roadmap, engineering milestones, and open-source integratio
 | | Automated GitOps Drift Detection & Webhook Sync | Watchdog / ArgoCD REST | High | Medium | v0.2.6 | 📋 Scheduled |
 | | Core Dependency Ecosystem Alignment | `uv lock --upgrade` / PyPI | Medium | Low | v0.2.6 | 📋 Scheduled |
 | | Falco eBPF Runtime Security & Anomaly Streamer | `falco` / eBPF | High | Medium | v0.2.6 | 📋 Scheduled |
-| | Model Curation Pipeline & AIBOM Generator | Semgrep / AST / CycloneDX | High | Medium | v0.2.7 | 📋 Scheduled |
-| | "Big Decides, Small Types, Big Checks" Synthesis Protocol | Multi-Agent / PydanticAI | High | Medium | v0.2.7 | 📋 Scheduled |
+| | Model Curation Pipeline & AIBOM Generator | Semgrep / AST / CycloneDX | High | Medium | v0.2.7 | ✅ Completed |
+| | "Big Decides, Small Types, Big Checks" Synthesis Protocol | Multi-Agent / PydanticAI | High | Medium | v0.2.7 | ✅ Completed |
 | | Universal Multi-Stage Workflow Orchestration Protocol | Python Generics / Pydantic | High | Medium | v0.2.7 | 📋 Scheduled |
 | | Unified Async HTTP/2 Connection & Security Broker | `httpx2` / SSRF Guard | High | Medium | v0.2.7 | 📋 Scheduled |
 | | Automated Vulnerability Remediation PR Engine | AST / Pytest / Git | High | Medium | v0.2.7 | 📋 Scheduled |
-| | Cross-Encoder Context Re-Ranker & Deep Semantic RAG | Cross-Encoder / Qdrant | High | Medium | v0.2.7 | 📋 Scheduled |
+| | Cross-Encoder Context Re-Ranker & Deep Semantic RAG | Cross-Encoder / Qdrant | High | Medium | v0.2.7 | ✅ Completed |
 | | Local Kubernetes Chaos & Fault Injection Engine | `chaos-mesh` / `tc` | High | Medium | v0.2.7 | 📋 Scheduled |
 | | Enterprise Vault & KMS Secret Broker | `hvac`, Cloud KMS SDKs | Medium | High | v0.2.7 | 📋 Scheduled |
 | | Trace-Driven Automated Performance Regression Detection | OTel / Prometheus | High | Medium | v0.2.7 | 📋 Scheduled |

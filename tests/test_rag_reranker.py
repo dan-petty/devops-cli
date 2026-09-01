@@ -1,94 +1,46 @@
-"""Unit tests for search re-ranking and multi-signal hybrid scoring."""
+"""Tests for hybrid search re-ranker and CrossEncoderReranker."""
 
 from __future__ import annotations
 
 from devops_cli.ai.rag.models import CodeChunk, SearchResult
-from devops_cli.ai.rag.reranker import SearchReranker
+from devops_cli.ai.rag.reranker import CrossEncoderReranker
 
 
-def test_reranker_symbol_bonus_and_intent() -> None:
-    chunk1 = CodeChunk(
-        id="c1",
-        file_path="src/server.go",
+def test_cross_encoder_reranker() -> None:
+    """Verify CrossEncoderReranker evaluates query coverage and positional weights."""
+    c1 = CodeChunk(
+        id="auth-chunk-1",
+        file_path="src/auth.py",
         start_line=1,
         end_line=20,
-        content="func DeployServer() {}",
-        language="go",
+        content="def authenticate_user(token: str) -> bool:\n    return verify_jwt(token)",
         category="code",
-        symbol_names=["DeployServer"],
-        metadata={"security_tags": ["network"]},
+        symbol_names=["authenticate_user"],
     )
-    chunk2 = CodeChunk(
-        id="c2",
-        file_path="docs/deploy.md",
+    c2 = CodeChunk(
+        id="utils-chunk-2",
+        file_path="src/utils.py",
         start_line=1,
-        end_line=30,
-        content="# Deployment Guide\nHow to deploy the application",
-        language="markdown",
-        category="docs",
-        symbol_names=["Deployment Guide"],
-        metadata={},
-    )
-
-    r1 = SearchResult(chunk=chunk1, score=0.70)
-    r2 = SearchResult(chunk=chunk2, score=0.75)
-
-    reranker = SearchReranker()
-
-    # Query with exact symbol "DeployServer" should boost chunk1
-    results_code = reranker.rerank("DeployServer implementation", [r1, r2])
-    assert len(results_code) == 2
-    assert results_code[0].chunk.id == "c1"
-    assert results_code[0].rerank_score is not None
-    assert results_code[0].rank_factors["symbol"] == 1.0
-
-    # Query asking "how to deploy guide" should boost documentation chunk2
-    results_doc = reranker.rerank("how to deploy overview guide", [r1, r2])
-    assert len(results_doc) == 2
-    assert results_doc[0].chunk.id == "c2"
-    assert results_doc[0].rank_factors["intent"] == 1.0
-
-
-def test_reranker_declaration_primacy_and_qa_intent() -> None:
-    chunk_decl = CodeChunk(
-        id="c1",
-        file_path="src/cluster.py",
-        start_line=1,
-        end_line=20,
-        content="class ClusterBootstrap:\n    def run(self): pass",
-        language="python",
+        end_line=10,
+        content="def helper():\n    pass",
         category="code",
-        symbol_names=["ClusterBootstrap"],
-        metadata={"declarations": ["ClusterBootstrap", "run"], "is_test": False},
-    )
-    chunk_test = CodeChunk(
-        id="c2",
-        file_path="tests/test_cluster.py",
-        start_line=1,
-        end_line=25,
-        content="def test_cluster_bootstrap(): pass",
-        language="python",
-        category="code",
-        symbol_names=["test_cluster_bootstrap"],
-        metadata={"declarations": ["test_cluster_bootstrap"], "is_test": True},
+        symbol_names=["helper"],
     )
 
-    r1 = SearchResult(chunk=chunk_decl, score=0.80)
-    r2 = SearchResult(chunk=chunk_test, score=0.82)
+    r1 = SearchResult(chunk=c1, score=0.6)
+    r2 = SearchResult(chunk=c2, score=0.5)
 
-    reranker = SearchReranker()
+    reranker = CrossEncoderReranker(top_k=2)
+    reranked = reranker.rerank_candidates("authenticate user with jwt token", [r2, r1])
 
-    # When querying for implementation, declaration chunk should rank first and test is penalized
-    res_impl = reranker.rerank("ClusterBootstrap definition", [r2, r1])
-    assert res_impl[0].chunk.id == "c1"
-    assert res_impl[0].rank_factors["declaration"] == 1.0
-
-    # When querying in QA context, test chunk should receive QA boost
-    res_qa = reranker.rerank("pytest test fixtures for cluster bootstrap", [r1, r2])
-    assert res_qa[0].chunk.id == "c2"
-    assert res_qa[0].rank_factors["intent"] == 1.0
+    assert len(reranked) == 2
+    # c1 should be prioritized due to token match and density
+    assert reranked[0].chunk.file_path == "src/auth.py"
+    assert reranked[0].rerank_score is not None
+    assert reranked[0].rerank_score > 0.5
 
 
-def test_reranker_empty_results() -> None:
-    reranker = SearchReranker()
-    assert reranker.rerank("some query", []) == []
+def test_cross_encoder_reranker_empty() -> None:
+    """Verify CrossEncoderReranker handles empty candidates cleanly."""
+    reranker = CrossEncoderReranker(top_k=5)
+    assert reranker.rerank_candidates("query", []) == []

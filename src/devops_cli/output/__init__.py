@@ -75,6 +75,11 @@ from devops_cli.output.models import (
     TableColumn,
     TablePayload,
 )
+from devops_cli.output.streaming_serializer import (
+    stream_json_array,
+    stream_jsonl,
+    stream_yaml_docs,
+)
 
 __all__ = [
     "Console",
@@ -131,6 +136,9 @@ __all__ = [
     "progress_context",
     "render_dry_run_result",
     "render_table",
+    "stream_json_array",
+    "stream_jsonl",
+    "stream_yaml_docs",
     "track_progress",
     "write_bytes_file",
     "write_file",

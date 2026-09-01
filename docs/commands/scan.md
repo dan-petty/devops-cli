@@ -219,3 +219,27 @@ devops scan sbom [OPTIONS] <target>
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
+
+## `devops scan aibom`
+
+**Generate AI Bill of Materials (AIBOM) with model licenses and hardware estimates.**
+
+```bash
+devops scan aibom [OPTIONS] <target>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<target>` | `path` | No | Target directory or model repository to analyze for AI models and AIBOM. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--format`, `-f` | `string` | `cyclonedx` | AIBOM format output (cyclonedx, json). |
+| `--output`, `-o` | `path` | - | Destination file path for generated AIBOM manifest. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---

@@ -8,14 +8,17 @@
 
 ## 🎯 Active Release Focus
 
-### Current Milestone: `v0.2.6` (Scheduled)
-1. **Infracost IaC Cloud FinOps Engine (`devops tf cost`)**: Automated cloud expenditure calculation on Terraform diffs with PR comment integration and OS Keyring credential resolution.
-2. **Sigstore Cosign Container Provenance (`devops docker sign|verify`)**: Keyless OIDC and Ed25519 container image signing and verification.
-3. **Syft & Grype Automated SBOM & Vulnerability Scanner (`devops scan sbom`)**: Automated Software Bill of Materials generation in CycloneDX/SPDX formats.
+### Current Milestone: `v0.2.7` (Completed / Active Release)
+1. **Model Curation Pipeline & AI Bill of Materials (`devops scan aibom`)**: CycloneDX 1.5-compliant AI model inventory, `trust_remote_code` AST inspection, and hardware sizing heuristics.
+2. **Zero-Allocation AST & Token Stream Parser (`devops_cli.ai.ast_stream`)**: Generator-based streaming symbol parser for rapid AST traversal.
+3. **Cross-Encoder Context Re-Ranker (`devops_cli.ai.rag.reranker`)**: Cross-token semantic re-ranking for dense/sparse RAG candidate retrieval.
+4. **"Big Decides, Small Types, Big Checks" Synthesis Protocol (`devops_cli.ai.agents.synthesis_protocol`)**: Multi-agent slot offloading and 3-stage synthesis.
+5. **High-Performance Streaming Serializers (`devops_cli.output.streaming_serializer`)**: Low-overhead streaming JSON, JSONL, and YAML document generators.
 
-### Upcoming Milestone: `v0.2.7` (Scheduled)
-1. **Isolated Dockerized Workload Sandbox (`devops test sandbox`)**: Ephemeral rootless container test harness with read-only rootfs and cgroup bounds.
-2. **Adversarial Multi-Agent Debate (`devops ai review --debate`)**: Multi-turn debate between `devsecops` and `architect` personas to eliminate false-positive findings.
+### Upcoming Milestone: `v0.3.0` (Scheduled)
+1. **Multi-Region Workstation Mesh & Cluster Federation**: Cross-cluster service discovery and state sync.
+2. **Autonomous Self-Healing Agent Pipeline**: Self-diagnostic remediation loops.
+3. **Cloud-Native Ephemeral Test Environment Engine**: Dynamic Minikube/Helm ephemeral environments.
 
 ---
 

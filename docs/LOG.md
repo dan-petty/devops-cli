@@ -6,6 +6,32 @@ Chronological log of refactoring milestones, quality gates, and security enhance
 
 ## Log Entries
 
+### [2026-09-01] Release v0.2.7 Model Curation AIBOM, AST Streaming, Re-Ranking & Synthesis Protocol
+- **AI Bill of Materials (AIBOM) Generator & Model Curation (`src/devops_cli/security/aibom.py`, `src/devops_cli/commands/scan.py`, `tests/test_aibom.py`)**:
+  - Implemented `devops scan aibom` generating CycloneDX 1.5-compliant AI Bill of Materials manifests from workspace and model repositories.
+  - Implemented dynamic serving hardware heuristic estimator calculating peak RAM, inference VRAM, and storage for dense and MoE models across quantization bit depths.
+  - Added automated `trust_remote_code` AST and configuration scanner detecting unverified remote execution scripts prior to GPU provisioning.
+- **Zero-Allocation AST Symbol & Token Stream Parser (`src/devops_cli/ai/ast_stream.py`, `tests/test_ast_stream.py`)**:
+  - Implemented generator-based streaming parser yielding structural symbols (classes, functions, async methods, imports, decorators) with zero intermediate full-tree allocations.
+  - Added line-level token stream parser detecting indentation depths, comments, and string literals.
+- **Cross-Encoder Context Re-Ranker & Deep Semantic RAG (`src/devops_cli/ai/rag/reranker.py`, `tests/test_rag_reranker.py`)**:
+  - Implemented `CrossEncoderReranker` evaluating full query-chunk cross-token interaction density and reciprocal positional discounting for RAG context retrieval.
+- **"Big Decides, Small Types, Big Checks" Synthesis Protocol (`src/devops_cli/ai/agents/synthesis_protocol.py`, `tests/test_synthesis_protocol.py`)**:
+  - Implemented three-stage multi-agent synthesis pipeline orchestrating frontier planning models, local fast drafting models, and frontier auditor models.
+- **High-Performance Streaming Serializers (`src/devops_cli/output/streaming_serializer.py`, `tests/test_streaming_serializer.py`)**:
+  - Added low-memory streaming serializers for JSON arrays (`stream_json_array`), line-delimited JSON (`stream_jsonl`), and multi-document YAML (`stream_yaml_docs`).
+- **SSH Key Prefix Configuration & Options Across Subcommands (`src/devops_cli/commands/ssh.py`, `src/devops_cli/crypto/ssh_keys.py`, `tests/test_ssh.py`)**:
+  - Enhanced `devops ssh register`, `rotate`, `status`, and `list` with `--prefix` / `-p` option and connected key lookup and GitHub title generation to `settings.ssh.key_prefix`.
+- **Quality Gate**: Verified 10/10 quality gates via `devops ci` (1,277 unit tests, strict mypy across 275 source files, ruff, bandit, pip-audit, actionlint, docs).
+
+### [2026-08-31] Release v0.2.6 AI Model Routing & Governance, Live Watchers, Complexity Analysis & SBOM
+- **Multi-Dimensional AI Model Routing & Governance (`src/devops_cli/ai/router.py`, `tests/test_ai_router.py`)**:
+  - Dynamic multi-axis model routing across task complexity, freshness, and data sensitivity.
+- **AST Code Complexity & SBOM Generation (`src/devops_cli/security/complexity.py`, `src/devops_cli/security/sbom.py`, `src/devops_cli/commands/scan.py`)**:
+  - Added `devops scan complexity` and `devops scan sbom`.
+- **Live Resource & State Watchers Across Subsystems (`src/devops_cli/watchers/live_resource.py`, `src/devops_cli/commands/`)**:
+  - Added `--watch` / `-w` across `devops k8s pods`, `devops docker stats`, `devops argo cd apps list`, and `devops release status`.
+
 ### [2026-08-31] Release v0.2.5 Code Library Manuals, Centralized Catalogs & PydanticAI MCP Enhancements
 - **Dedicated Code Library Knowledge Base Suite (`src/devops_cli/ai/knowledge_base/devops_cli/libraries/`)**:
   - Authored 23 comprehensive architectural reference manuals covering all production dependencies and development quality tools with official project links, comparable alternatives analysis, key concepts, and common usage examples.

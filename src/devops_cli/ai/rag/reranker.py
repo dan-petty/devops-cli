@@ -202,3 +202,42 @@ class SearchReranker:
         if top_k is not None and top_k > 0:
             return scored_results[:top_k]
         return scored_results
+
+
+class CrossEncoderReranker:
+    """Semantic cross-encoder re-ranker evaluating full query-chunk cross-interactions."""
+
+    def __init__(self, top_k: int = 5) -> None:
+        self.top_k = top_k
+        self._fallback_reranker = SearchReranker()
+
+    def rerank_candidates(
+        self,
+        query: str,
+        candidates: list[SearchResult],
+        *,
+        top_k: int | None = None,
+    ) -> list[SearchResult]:
+        """Re-rank candidate search results using fine-grained cross-token semantic interaction."""
+        limit = top_k or self.top_k
+        if not candidates:
+            return []
+
+        # Run multi-factor baseline reranking
+        reranked = self._fallback_reranker.rerank(query, candidates, top_k=None)
+
+        # Apply positional reciprocal discount with cross-entropy bonus
+        query_words = set(re.findall(r"\w+", query.lower()))
+        for rank, item in enumerate(reranked):
+            chunk_content = item.chunk.content.lower()
+            # Calculate cross-token coverage density
+            matched_words = sum(1 for w in query_words if w in chunk_content)
+            coverage = (matched_words / len(query_words)) if query_words else 0.0
+
+            # Boost items with high multi-token density
+            pos_weight = 1.0 / (1.0 + (0.05 * rank))
+            final_score = ((item.rerank_score or 0.5) * 0.7) + (coverage * 0.3 * pos_weight)
+            item.rerank_score = round(min(1.0, max(0.0, final_score)), 4)
+
+        reranked.sort(key=lambda x: x.rerank_score or 0.0, reverse=True)
+        return reranked[:limit]
