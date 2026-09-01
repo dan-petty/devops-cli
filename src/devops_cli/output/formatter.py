@@ -226,13 +226,13 @@ def format_latency(ms: float) -> str:
     return f"{ms:.1f}ms"
 
 
-def format_bytes(raw: int | None) -> str:
+def format_bytes(raw: int | float | None) -> str:
     """Format raw byte counts into a concise human-readable unit string (B, KB, MB, GB, TB)."""
-    n = raw or 0
+    n: float = float(raw or 0)
     for unit in ("B", "KB", "MB", "GB"):
-        if n < 1024:
+        if n < 1024.0:
             return f"{n:.1f} {unit}"
-        n //= 1024
+        n /= 1024.0
     return f"{n:.1f} TB"
 
 

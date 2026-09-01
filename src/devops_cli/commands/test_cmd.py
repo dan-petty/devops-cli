@@ -40,7 +40,10 @@ def find_changed_test_files(repo_root: Path, base_ref: str = "main") -> list[Pat
         for line in wt_proc.stdout.strip().splitlines():
             parts = line.strip().split(maxsplit=1)
             if len(parts) == 2:
-                changed_files.add(parts[1])
+                file_target = parts[1].strip()
+                if " -> " in file_target:
+                    file_target = file_target.split(" -> ")[-1].strip()
+                changed_files.add(file_target.strip('"'))
 
     test_files: set[Path] = set()
     all_tests_dir = repo_root / "tests"

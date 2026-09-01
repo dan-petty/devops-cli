@@ -74,25 +74,6 @@ _DEFAULT_MODEL_BY_TIER: Final[dict[tuple[str, TaskComplexity], str]] = {
     ("copilot", TaskComplexity.FRONTIER): "claude-3-7-sonnet",
 }
 
-_ESTIMATED_COST_PER_TIER: Final[dict[tuple[str, TaskComplexity], float]] = {
-    ("ollama", TaskComplexity.LOW): 0.0,
-    ("ollama", TaskComplexity.MEDIUM): 0.0,
-    ("ollama", TaskComplexity.HIGH): 0.0,
-    ("ollama", TaskComplexity.FRONTIER): 0.0,
-    ("openai", TaskComplexity.LOW): 0.0005,
-    ("openai", TaskComplexity.MEDIUM): 0.001,
-    ("openai", TaskComplexity.HIGH): 0.010,
-    ("openai", TaskComplexity.FRONTIER): 0.025,
-    ("claude", TaskComplexity.LOW): 0.0005,
-    ("claude", TaskComplexity.MEDIUM): 0.001,
-    ("claude", TaskComplexity.HIGH): 0.015,
-    ("claude", TaskComplexity.FRONTIER): 0.030,
-    ("copilot", TaskComplexity.LOW): 0.0,
-    ("copilot", TaskComplexity.MEDIUM): 0.0,
-    ("copilot", TaskComplexity.HIGH): 0.0,
-    ("copilot", TaskComplexity.FRONTIER): 0.0,
-}
-
 _LATENCY_TIER_BY_COMPLEXITY: Final[dict[TaskComplexity, str]] = {
     TaskComplexity.LOW: "sub-second",
     TaskComplexity.MEDIUM: "fast-interactive",
@@ -252,6 +233,20 @@ class LLMRouter:
             return f"Routed to frontier reasoning engine '{provider}' ({model}) for deep architectural synthesis."
         return f"Routed to high-capacity provider '{provider}' ({model}) for multi-file code reasoning."
 
+    def _estimate_cost(self, provider: str, model: str, token_count: int) -> float:
+        """Estimate execution cost in USD based on provider pricing rules and token volume."""
+        if provider.lower() in ("ollama", "copilot"):
+            return 0.0
+        from devops_cli.ai.agents.spend import DEFAULT_MODEL_PRICING, ModelPricing
+
+        pricing = (
+            DEFAULT_MODEL_PRICING.get(model)
+            or DEFAULT_MODEL_PRICING.get(provider.lower())
+            or DEFAULT_MODEL_PRICING.get("default", ModelPricing())
+        )
+        tokens = max(token_count, 1000)
+        return pricing.calculate_cost(prompt_tokens=tokens, completion_tokens=0)
+
     def route_task(
         self,
         task_name: str,
@@ -268,7 +263,7 @@ class LLMRouter:
         )
         fallback_chain = self._build_fallback_chain(provider, model, complexity, sensitivity)
 
-        cost = _ESTIMATED_COST_PER_TIER.get((provider, complexity), 0.0)
+        cost = self._estimate_cost(provider, model, token_count)
         latency = _LATENCY_TIER_BY_COMPLEXITY.get(complexity, "fast-interactive")
         requires_tools = freshness in (
             TaskFreshness.LIVE_MCP_LOOKUP,

@@ -793,17 +793,17 @@ def _spawn_background_k8s_bootstrap(
         return f"Spawned background Minikube & Kubernetes bootstrap (log: {log_file})"
 
     try:
-        log_handle = log_file.open("a", encoding="utf-8")
-        timestamp_str = datetime.now(UTC).isoformat()
-        log_handle.write(f"\n# --- Background K8s Bootstrap spawned at {timestamp_str} ---\n")
-        log_handle.flush()
-        subprocess.Popen(  # nosec B603
-            cmd,
-            cwd=str(workspace_dir),
-            stdout=log_handle,
-            stderr=log_handle,
-            start_new_session=True,
-        )
+        with log_file.open("a", encoding="utf-8") as log_handle:
+            timestamp_str = datetime.now(UTC).isoformat()
+            log_handle.write(f"\n# --- Background K8s Bootstrap spawned at {timestamp_str} ---\n")
+            log_handle.flush()
+            subprocess.Popen(  # nosec B603
+                cmd,
+                cwd=str(workspace_dir),
+                stdout=log_handle,
+                stderr=log_handle,
+                start_new_session=True,
+            )
         return f"Spawned background Minikube & Kubernetes bootstrap (log: {log_file})"
     except Exception as exc:
         logger.debug("Failed to spawn background k8s bootstrap: %s", exc)

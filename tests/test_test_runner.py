@@ -34,6 +34,20 @@ def test_find_changed_test_files(tmp_path: Path) -> None:
         assert len(found) == 1
         assert found[0].name == "test_scan.py"
 
+    # Test porcelain rename output (old -> new)
+    mock_proc_diff_empty = MagicMock(returncode=0, stdout="")
+    mock_proc_wt_rename = MagicMock(
+        returncode=0,
+        stdout="R  src/devops_cli/old_scan.py -> src/devops_cli/commands/scan.py\n",
+    )
+    with patch(
+        "devops_cli.commands.test_cmd.run_subprocess",
+        side_effect=[mock_proc_diff_empty, mock_proc_wt_rename],
+    ):
+        found_rename = find_changed_test_files(tmp_path)
+        assert len(found_rename) == 1
+        assert found_rename[0].name == "test_scan.py"
+
 
 def test_test_run_dry_run() -> None:
     """devops test run --dry-run prints simulated test execution."""

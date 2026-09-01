@@ -70,6 +70,19 @@ def test_embedding_lru_cache_basic_put_get() -> None:
     assert cache.get("world", "qwen") is None
 
 
+def test_embedding_lru_cache_overwrite_updates_vector() -> None:
+    """Cache updates stored vector when key already exists."""
+    from devops_cli.ai.rag.embeddings import _EmbeddingLRUCache
+
+    cache = _EmbeddingLRUCache(maxsize=10)
+    cache.put("hello", "qwen", [0.1, 0.2])
+    assert cache.get("hello", "qwen") == [0.1, 0.2]
+
+    # Overwrite with new vector
+    cache.put("hello", "qwen", [0.9, 0.8])
+    assert cache.get("hello", "qwen") == [0.9, 0.8]
+
+
 def test_embedding_lru_cache_hit_miss_counters() -> None:
     """Cache accurately tracks hit and miss counters."""
     from devops_cli.ai.rag.embeddings import _EmbeddingLRUCache

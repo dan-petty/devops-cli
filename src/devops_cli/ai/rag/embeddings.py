@@ -63,6 +63,7 @@ class _EmbeddingLRUCache:
         key = self._key(text, model)
         with self._lock:
             if key in self._store:
+                self._store[key] = vector
                 self._store.move_to_end(key)
             else:
                 if len(self._store) >= self._maxsize:

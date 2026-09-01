@@ -43,7 +43,12 @@ class _ComplexityVisitor(ast.NodeVisitor):
         self._func_complexity: int = 1
         self._func_max_depth: int = 0
         self._current_depth: int = 0
-        self._is_method: bool = False
+        self._class_depth: int = 0
+
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:
+        self._class_depth += 1
+        self.generic_visit(node)
+        self._class_depth -= 1
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
         self._handle_function(node, is_async=False)
@@ -60,7 +65,6 @@ class _ComplexityVisitor(ast.NodeVisitor):
         old_comp = self._func_complexity
         old_max_depth = self._func_max_depth
         old_depth = self._current_depth
-        old_method = self._is_method
 
         self._current_function = node.name
         self._func_start_line = node.lineno
@@ -68,7 +72,7 @@ class _ComplexityVisitor(ast.NodeVisitor):
         self._func_complexity = 1
         self._func_max_depth = 0
         self._current_depth = 0
-        self._is_method = bool(old_func is None and self._current_depth > 0)
+        is_method = self._class_depth > 0
 
         # Visit child nodes
         for item in node.body:
@@ -81,7 +85,7 @@ class _ComplexityVisitor(ast.NodeVisitor):
                 end_line_number=self._func_end_line,
                 cyclomatic_complexity=self._func_complexity,
                 max_nesting_depth=self._func_max_depth,
-                is_method=self._is_method,
+                is_method=is_method,
             )
         )
 
@@ -91,7 +95,6 @@ class _ComplexityVisitor(ast.NodeVisitor):
         self._func_complexity = old_comp
         self._func_max_depth = old_max_depth
         self._current_depth = old_depth
-        self._is_method = old_method
 
     def _visit_with_depth(self, node: ast.AST, depth: int) -> None:
         if depth > self._func_max_depth:

@@ -20,6 +20,7 @@ from devops_cli.dry_run.state import is_dry_run, set_dry_run
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
     format_json,
+    print_error,
     print_muted,
     print_success,
     print_table,
@@ -549,10 +550,15 @@ def scan_sbom(
         print_muted(f"Generating {format_type.upper()} SBOM for {target_abs}...")
 
     norm_format = format_type.lower().strip()
-    if norm_format == "spdx":
+    if norm_format in ("cyclonedx", "json"):
+        sbom_data = generate_cyclonedx_sbom(workspace_dir=target_abs)
+    elif norm_format == "spdx":
         sbom_data = generate_spdx_sbom(workspace_dir=target_abs)
     else:
-        sbom_data = generate_cyclonedx_sbom(workspace_dir=target_abs)
+        print_error(
+            f"Unsupported SBOM format: '{format_type}'. Supported formats: 'cyclonedx', 'spdx', 'json'."
+        )
+        raise typer.Exit(1)
 
     rendered_json = format_json(sbom_data) + "\n"
 

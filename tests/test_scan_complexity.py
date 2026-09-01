@@ -94,3 +94,22 @@ def test_scan_complexity_cli(tmp_path: Path) -> None:
     # Test dry run
     res_dry = runner.invoke(scan_app, ["complexity", str(sample), "--dry-run"])
     assert res_dry.exit_code == 0
+
+
+def test_analyze_class_method_distinction(tmp_path: Path) -> None:
+    """Verify is_method flag is True for methods and False for top-level functions."""
+    sample = tmp_path / "classes.py"
+    sample.write_text(
+        "def standalone() -> None:\n"
+        "    pass\n\n"
+        "class MyService:\n"
+        "    def method(self) -> None:\n"
+        "        pass\n",
+        encoding="utf-8",
+    )
+    rep = analyze_file_complexity(sample)
+    assert len(rep.functions) == 2
+    standalone = next(f for f in rep.functions if f.name == "standalone")
+    method = next(f for f in rep.functions if f.name == "method")
+    assert standalone.is_method is False
+    assert method.is_method is True

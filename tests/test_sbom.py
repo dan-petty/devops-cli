@@ -84,6 +84,16 @@ def test_scan_sbom_cli(tmp_path: Path) -> None:
     data = json.loads(out_file.read_text(encoding="utf-8"))
     assert data["spdxVersion"] == "SPDX-2.3"
 
+    # JSON format alias
+    res_json = runner.invoke(scan_app, ["sbom", str(tmp_path), "--format", "json"])
+    assert res_json.exit_code == 0
+    assert "CycloneDX" in res_json.output
+
+    # Invalid format rejection
+    res_invalid = runner.invoke(scan_app, ["sbom", str(tmp_path), "--format", "invalid_fmt"])
+    assert res_invalid.exit_code == 1
+    assert "Unsupported SBOM format" in res_invalid.output
+
     # Dry run
     res_dry = runner.invoke(scan_app, ["sbom", str(tmp_path), "--dry-run"])
     assert res_dry.exit_code == 0
