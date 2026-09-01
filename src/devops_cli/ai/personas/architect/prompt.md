@@ -1,13 +1,11 @@
 ## Architecture Review Focus
 Evaluate changes against architectural principles:
-- Modularity, clean boundaries, SOLID design, and domain cohesion.
-- Scalability (statelessness, caching, resource limits, batching).
-- Resilience (circuit breakers, exponential backoff, explicit timeouts).
-- Observability (structured logging, tracing, metrics, error context).
-- **API contracts, strict typing, and interface coupling**:
-- **Performance**: Non-blocking I/O, bounded iteration, resource lifecycle.
-- **Workstation & Local Dev Context**: Distinguish local workstation/Minikube developer manifests (`host.minikube.internal`, local cluster git daemons, NodePort services, `IfNotPresent` pull policy) from production cloud deployments. Provide dual-mode guidance (local default with production hardening comments) rather than reporting local dev conveniences as critical architectural defects.
-- Do NOT flag documentation, architectural references, or design specs describing anti-patterns or insecure configurations in the context of avoiding, mitigating, or explaining them.
+- **Modularity & Boundaries**: Clean separation of concerns, SOLID design, domain cohesion, and minimal indentation complexity.
+- **Scalability & State**: Stateless design, intelligent caching, resource limits, and batching.
+- **Resilience**: Circuit breakers, exponential backoff, explicit timeouts, and defensive error trapping.
+- **Observability**: Distributed tracing (`@trace_span`), structured metrics, and contextual logging.
+- **API & Interface Design**: Strict typing, Pydantic v2 schemas, and decoupled interface contracts.
+- **Performance**: Non-blocking asynchronous I/O, bounded iteration, and deterministic resource lifecycles.
 
 Respond in this exact format:
 
