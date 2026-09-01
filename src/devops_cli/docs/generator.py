@@ -867,10 +867,18 @@ class DocGenerator:
             "|---|---|---|",
         ]
 
+        def _format_article_link(art_path: Path) -> str:
+            art_posix = art_path.as_posix()
+            if "src/devops_cli/ai/knowledge_base/" in art_posix:
+                rel_suffix = art_posix.split("src/devops_cli/ai/knowledge_base/", 1)[1]
+                return f"../src/devops_cli/ai/knowledge_base/{rel_suffix}"
+            return art_path.name
+
         for art in devops_cli_articles:
             category = art.parent.name
             art_name = art.stem.replace("_", " ").title()
-            lines.append(f"| `{category}` | [`{art.name}`](file://{art}) | {art_name} |")
+            link_target = _format_article_link(art)
+            lines.append(f"| `{category}` | [`{art.name}`]({link_target}) | {art_name} |")
 
         lines.extend(
             [
@@ -889,7 +897,8 @@ class DocGenerator:
         for art in it_domains_articles:
             category = art.parent.name
             art_name = art.stem.replace("_", " ").title()
-            lines.append(f"| `{category}` | [`{art.name}`](file://{art}) | {art_name} |")
+            link_target = _format_article_link(art)
+            lines.append(f"| `{category}` | [`{art.name}`]({link_target}) | {art_name} |")
 
         lines.append("")
         return "\n".join(lines)
