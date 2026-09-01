@@ -1,6 +1,29 @@
-# Release Notes — devops-cli v0.2.5
+# Release Notes — devops-cli v0.2.6
 
 Workstation-native DevOps CLI for managing repositories, SSH keys, Kubernetes clusters, Kustomize, ArgoCD, Grafana, Prometheus, Docker, workspace files, vector embedding benchmarks, TLS certificate automation, OpenTelemetry observability, and multi-persona AI code reviews.
+
+---
+
+## 🚀 Highlights of v0.2.6
+
+### 🧠 Multi-Dimensional AI Model Routing & Governance
+- **Dynamic Multi-Axis Model Router (`devops_cli.ai.router.LLMRouter`)**: Dynamically routes LLM tasks across two decision axes (Task Complexity: `LOW`, `MEDIUM`, `HIGH`, `FRONTIER` and Task Freshness: `STATIC_CONTEXT`, `LIVE_MCP_LOOKUP`, `EXTERNAL_WEB_SEARCH`) and Data Sensitivity (`PUBLIC`, `INTERNAL`, `CONFIDENTIAL_AIRGAP`).
+- **Air-Gap Data Egress Enforcement**: Automatically redirects confidential workloads to local air-gapped models (`ollama`) and provisions tailored local fallback chains, preventing proprietary code egress to third-party cloud LLMs.
+- **Cost & Latency Tier Forecasting**: Estimates dollar costs and categorizes expected latency tiers (`sub-second`, `fast-interactive`, `multi-second`, `deep-reasoning`) for every AI execution plan.
+
+### 🔍 AST Code Complexity & SBOM Generator (`devops scan`)
+- **AST Cyclomatic Complexity Analyzer (`devops scan complexity`)**: Computes per-function and per-module cyclomatic complexity scores and identifies high-risk nested branching across Python codebases.
+- **Software Bill of Materials Generator (`devops scan sbom`)**: Generates CycloneDX and SPDX-compliant SBOM documents from active lockfiles and installed packages.
+
+### 🧪 Git-Diff Aware Test Selector (`devops test run --diff`)
+- **Targeted Test Execution**: Discovers and runs only the test files affected by unstaged or branch-level git diffs, dramatically speeding up inner dev loops.
+
+### ⏱️ Real-Time Release Status Watcher (`devops release status --watch`)
+- **Live State Monitoring**: Added `--watch` flag with interactive terminal updates for monitoring active release branches, Git tags, and CI validation states.
+
+### 📦 DevContainer Standalone Binary Isolation
+- **System-Wide Binary Integrity**: Preserves the native `/usr/local/bin/devops` installation in pre-built images without overwriting it with fragile workspace symlinks.
+- **Cross-Platform SSH Mount Support**: Harmonized `${localEnv:HOME}${localEnv:USERPROFILE}/.ssh` mounting across Linux, macOS, and Windows workstation environments.
 
 ---
 
