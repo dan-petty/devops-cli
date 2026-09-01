@@ -107,6 +107,22 @@ def reciprocal_rank_fusion(
     return fused
 
 
+def _expand_persona_rag_query(query: str, persona: str) -> tuple[str, str | None]:
+    """Expand query with persona-specific semantic terms and filter category."""
+    persona_lower = persona.lower()
+    if "sec" in persona_lower:
+        return f"{query} security auth secrets token validation permissions", "code"
+    if "arch" in persona_lower:
+        return f"{query} architecture design patterns interfaces abstractions", None
+    if "qa" in persona_lower or "test" in persona_lower:
+        return f"{query} tests fixtures mocks assertions coverage", "code"
+    if "pm" in persona_lower or "product" in persona_lower:
+        return f"{query} requirements api specification contract docs", "docs"
+    if "audit" in persona_lower:
+        return f"{query} compliance logging error handling telemetry reliability", None
+    return query, None
+
+
 class SemanticRetriever:
     """Retrieves relevant code and documentation chunks to augment LLM prompts."""
 
@@ -351,24 +367,7 @@ class SemanticRetriever:
         language: str | None = None,
     ) -> RAGContext:
         """Retrieve semantic RAG context tailored to a specific review or chat persona."""
-        persona_lower = persona.lower()
-        expanded_query = query
-        category: str | None = None
-
-        if "sec" in persona_lower:
-            expanded_query = f"{query} security auth secrets token validation permissions"
-            category = "code"
-        elif "arch" in persona_lower:
-            expanded_query = f"{query} architecture design patterns interfaces abstractions"
-        elif "qa" in persona_lower or "test" in persona_lower:
-            expanded_query = f"{query} tests fixtures mocks assertions coverage"
-            category = "code"
-        elif "pm" in persona_lower or "product" in persona_lower:
-            expanded_query = f"{query} requirements api specification contract docs"
-            category = "docs"
-        elif "audit" in persona_lower:
-            expanded_query = f"{query} compliance logging error handling telemetry reliability"
-
+        expanded_query, category = _expand_persona_rag_query(query, persona)
         return self.retrieve_context(
             expanded_query,
             top_k=top_k,

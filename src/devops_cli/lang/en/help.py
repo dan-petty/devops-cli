@@ -132,6 +132,10 @@ class AICacheCommandHelp:
 class K8sCommandHelp:
     app: str = "Manage Kubernetes clusters, pods, services, and workloads."
     pods: str = "List running pods across namespaces with health metrics."
+    label_selector: str = "Kubernetes label selector filter (e.g. app=frontend)."
+    all_namespaces: str = "Query pods across all namespaces."
+    watch: str = "Continuously refresh pod list in real-time terminal display."
+    interval: str = "Auto-refresh polling interval in seconds."
     status: str = "Cluster health and resource utilization summary."
     port_forward: str = "Forward local port to a remote Kubernetes service."
     switch_context: str = "Switch active kubectl context."
@@ -326,6 +330,7 @@ class ArgoCommandHelp:
     prune: str = "Allow deletion of resources omitted from the source repository."
     wait: str = "Wait for sync operation to finish."
     watch: str = "Watch application status changes live."
+    interval: str = "Auto-refresh polling interval in seconds."
 
 
 @dataclass(frozen=True)
@@ -380,6 +385,11 @@ class DevcontainerCommandHelp:
     run_post_create: str = "Execute post-create setup tasks."
     run_post_start: str = "Execute post-start lifecycle tasks."
     run_all: str = "Execute all DevContainer lifecycle tasks."
+    bootstrap_k8s: str = (
+        "Execute Minikube startup and Kubernetes stack deployment in the background."
+    )
+    auto_deploy: str = "Auto-deploy Kubernetes stack after cluster startup."
+    stack: str = "Kubernetes stack to deploy (e.g. infra, llm, monitoring, all)."
 
 
 @dataclass(frozen=True)
@@ -389,6 +399,7 @@ class DockerCommandHelp:
     build: str = "Build a Docker image."
     push: str = "Push a Docker image to a registry."
     prune: str = "Remove unused containers, images, and networks."
+    stats: str = "Display live container CPU, memory, and network I/O statistics."
     analyze_layers: str = "Analyze container image layer efficiency and wasted space using Dive."
     filter_name: str = "Filter by name."
     context_dir: str = "Build context directory."
@@ -402,6 +413,8 @@ class DockerCommandHelp:
     no_cache: str = "Do not use cached image layers when building."
     tag: str = "Image tag name."
     volumes: str = "Include or prune volumes."
+    watch: str = "Continuously refresh output in the terminal at a fixed interval."
+    interval: str = "Auto-refresh polling interval in seconds."
 
 
 @dataclass(frozen=True)
@@ -565,6 +578,13 @@ class ScanCommandHelp:
     scan_type: str = "Trivy scan mode: fs, image, iac, repo."
     severity: str = "Comma-separated severity levels to include."
     semgrep_config: str = "Semgrep ruleset config (e.g. p/default, p/security-audit)."
+    complexity: str = "Run AST-based cyclomatic complexity and indentation depth analysis."
+    sbom: str = "Generate Software Bill of Materials (SBOM) in CycloneDX, SPDX, or JSON format."
+    target_complexity: str = "Target directory or Python file to analyze for complexity."
+    max_complexity: str = "Maximum acceptable cyclomatic complexity per function (default 10)."
+    max_indent: str = "Maximum acceptable indentation / nesting depth (default 5)."
+    sbom_format: str = "SBOM format output (cyclonedx, spdx, json)."
+    sbom_output: str = "Destination file path for generated SBOM document."
     framework: str = "Specific IaC framework (e.g. terraform)."
 
 
@@ -711,13 +731,18 @@ class RAGCommandHelp:
 
 @dataclass(frozen=True)
 class TestCommandHelp:
-    app: str = "Performance, smoke, and load testing."
+    app: str = "Test suite orchestration, git-diff aware test selector, and load testing."
+    run: str = "Execute pytest test suite with optional git-diff aware test selection."
     load: str = "Execute developer-centric load and latency tests against services using k6."
     script_path: str = "Path to k6 JavaScript test script or endpoint definition."
     vus: str = "Number of concurrent virtual users (VUs)."
     duration: str = "Test execution duration (e.g. 30s, 1m)."
     summary_export: str = "Path to export JSON summary metrics."
-    dry_run: str = "Simulate load test execution."
+    changed: str = "Run only tests related to files modified in git working tree or current branch."
+    coverage: str = "Run with code coverage analysis."
+    fail_fast: str = "Stop immediately on the first test failure."
+    verbose: str = "Enable verbose pytest output (-vv)."
+    dry_run: str = "Simulate test execution."
 
 
 @dataclass(frozen=True)

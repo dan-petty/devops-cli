@@ -63,14 +63,10 @@ def get_default_tools() -> list[Any]:
     return native + get_mcp_agent_tools()
 
 
-def get_persona_tools(persona: str | Persona) -> list[Any]:
-    """Return curated tool selection tailored to a specific reviewer persona."""
-    from devops_cli.ai.mcp import server as mcp_module
-
-    p_str = persona.value if isinstance(persona, Persona) else str(persona).lower()
-
-    if p_str == "devsecops":
-        return [
+def _build_persona_tool_map(mcp_module: Any) -> dict[str, list[Any]]:
+    """Build mapping of persona names to their dedicated toolsets."""
+    return {
+        "devsecops": [
             read_file,
             list_files,
             git_diff,
@@ -93,9 +89,8 @@ def get_persona_tools(persona: str | Persona) -> list[Any]:
             mcp_module.security_intel_network,
             mcp_module.review_findings,
             mcp_module.verify_finding,
-        ]
-    elif p_str == "architect":
-        return [
+        ],
+        "architect": [
             read_file,
             list_files,
             search_code,
@@ -115,9 +110,8 @@ def get_persona_tools(persona: str | Persona) -> list[Any]:
             mcp_module.tf_plan,
             mcp_module.tf_output,
             mcp_module.docker_stats,
-        ]
-    elif p_str == "qa":
-        return [
+        ],
+        "qa": [
             read_file,
             list_files,
             search_code,
@@ -131,9 +125,8 @@ def get_persona_tools(persona: str | Persona) -> list[Any]:
             mcp_module.review_stats,
             mcp_module.review_findings,
             mcp_module.verify_finding,
-        ]
-    elif p_str == "auditor":
-        return [
+        ],
+        "auditor": [
             read_file,
             list_files,
             git_diff,
@@ -148,9 +141,8 @@ def get_persona_tools(persona: str | Persona) -> list[Any]:
             mcp_module.config_show,
             mcp_module.release_status,
             mcp_module.review_export_feedback,
-        ]
-    elif p_str == "pm":
-        return [
+        ],
+        "pm": [
             read_file,
             list_files,
             git_status,
@@ -160,6 +152,14 @@ def get_persona_tools(persona: str | Persona) -> list[Any]:
             mcp_module.repos_status,
             mcp_module.release_status,
             mcp_module.workspace_list,
-        ]
+        ],
+    }
 
-    return get_default_tools()
+
+def get_persona_tools(persona: str | Persona) -> list[Any]:
+    """Return curated tool selection tailored to a specific reviewer persona."""
+    from devops_cli.ai.mcp import server as mcp_module
+
+    p_str = persona.value if isinstance(persona, Persona) else str(persona).lower()
+    tool_map = _build_persona_tool_map(mcp_module)
+    return tool_map.get(p_str, get_default_tools())

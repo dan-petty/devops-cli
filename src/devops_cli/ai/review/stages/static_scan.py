@@ -112,6 +112,31 @@ def _scan_universal_analyzers(
             _scan_single_universal(vp, findings_map, path_to_key)
 
 
+def _resolve_target_path(f: str, target_dir: Path, repo: Path) -> Path:
+    """Resolve file path relative to absolute path, target directory, or repository root."""
+    fp = Path(f)
+    if fp.is_absolute() and fp.exists():
+        return fp.resolve()
+    if (target_dir / fp).exists():
+        return (target_dir / fp).resolve()
+    if (repo / fp).exists():
+        return (repo / fp).resolve()
+    return (target_dir / fp).resolve()
+
+
+def _extract_file_references(vp: Path) -> tuple[list[DependencySpec], list[NetworkReference]]:
+    """Extract dependency and network references from a single file."""
+    try:
+        content = vp.read_text(encoding="utf-8", errors="replace")
+        return (
+            extract_dependencies_from_text(content, str(vp)),
+            extract_network_references(content, str(vp)),
+        )
+    except Exception as exc:
+        logger.debug("Extraction failed for %s: %s", vp, exc)
+        return [], []
+
+
 def run_static_scan_stage(
     file_paths: list[str],
     target_dir: Path,
@@ -140,15 +165,7 @@ def run_static_scan_stage(
         valid_paths: list[Path] = []
         path_to_key: dict[Path, str] = {}
         for f in file_paths:
-            fp = Path(f)
-            if fp.is_absolute() and fp.exists():
-                res = fp.resolve()
-            elif (target_dir / fp).exists():
-                res = (target_dir / fp).resolve()
-            elif (repo / fp).exists():
-                res = (repo / fp).resolve()
-            else:
-                res = (target_dir / fp).resolve()
+            res = _resolve_target_path(f, target_dir, repo)
             if res.exists():
                 valid_paths.append(res)
                 path_to_key[res] = f
@@ -176,14 +193,9 @@ def run_static_scan_stage(
             prefix=False,
         )
         for vp in valid_paths:
-            try:
-                content = vp.read_text(encoding="utf-8", errors="replace")
-                deps = extract_dependencies_from_text(content, str(vp))
-                nets = extract_network_references(content, str(vp))
-                all_deps.extend(deps)
-                all_nets.extend(nets)
-            except Exception as exc:
-                logger.debug("Extraction failed for %s: %s", vp, exc)
+            deps, nets = _extract_file_references(vp)
+            all_deps.extend(deps)
+            all_nets.extend(nets)
 
         print_info(
             f"    ✓ Extracted {len(all_deps)} in-file dependency(ies) and {len(all_nets)} in-file network target(s)",

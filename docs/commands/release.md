@@ -17,6 +17,8 @@ devops release status [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--root`, `-r` | `path` | - | Project repository root directory. |
+| `--watch`, `-w` | `boolean` | - | Continuously monitor release state in real-time. |
+| `--interval`, `-i` | `float` | `2.0` | Watcher auto-refresh polling interval in seconds. |
 
 ---
 

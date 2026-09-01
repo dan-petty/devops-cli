@@ -26,11 +26,15 @@ The DevOps CLI is designed as an agentic workstation automation platform, unifie
 ```
 
 ### Core Tenets
-1. **Zero Boilerplate & Poetic Conciseness**: Control complexity project-wide (fewer than 6 indentations across all functions). Maximize standard library leverage (`pathlib`, `itertools`, `functools`, `ipaddress`, `urllib.parse`), Pydantic v2 models, and functional pipelines over nested procedural loops.
+1. **Zero Boilerplate, Strict Complexity Caps & Poetic Conciseness**: Control complexity project-wide (cyclomatic complexity $\le 10$ and fewer than 6 indentations across all functions). Proactively decompose multi-step branching and iterations into single-responsibility helpers. Maximize standard library leverage (`pathlib`, `itertools`, `functools`, `ipaddress`, `urllib.parse`), Pydantic v2 models, and functional pipelines over nested procedural loops or giant `if/elif` ladders.
 2. **Zero-Trust Security & Egress Safety**: No plaintext secrets in logs, configs, or public commits. Mandatory OS Keyring for sensitive credentials, SSRF egress validation, and strict subprocess argument list execution.
-3. **Pure Markdown Prompt Isolation**: All LLM prompts, task rubrics, and guardrails reside in dedicated `.md` files under `src/devops_cli/ai/tasks/` rather than multi-line inline strings in Python code.
-4. **Target-Agnostic Code Analysis**: When inspecting target repositories, path resolution is anchored strictly relative to `target_dir` to prevent host file collisions.
-5. **Canonical Location Formatting**: All review findings, table rows, and terminal references follow the `filename.ext:n-n` or `filename.ext:line` convention.
+3. **Adaptive Workflow & Model Routing ("Own the Sensitive, Rent the Frontier")**: Decouple static model coupling. Dynamically route prompts across two axes (Complexity and Freshness), retaining sensitive internal IP on local open-weight models (Granite, Qwen, DeepSeek) and routing complex architectural decomposition to frontier engines.
+4. **Agent Harness Slots & Sub-Agent Local Offloading**: Partition multi-agent execution into modular slots (Model, Skills, Tools, Sub-Agents). Offload token-heavy exploration sub-agents to local models ("Big decides, small types, big checks") to achieve 85%+ token savings.
+5. **Model Curation & AI Bill of Materials (AIBOM)**: Fast, automated model governance gating `trust_remote_code=True` before GPU provisioning and generating verifiable AIBOM records (license terms, security findings, quant evals, resource footprints).
+6. **Model Dependency Chaos Engineering & Slow-Zone Resilience**: Deliberately test fallback models ("Chaos Monkey for Models") and enforce 100% documentation and CLI help synchronization so lower-tier models can pilot automation without human coaching.
+7. **Pure Markdown Prompt Isolation**: All LLM prompts, task rubrics, and guardrails reside in dedicated `.md` files under `src/devops_cli/ai/tasks/` rather than multi-line inline strings in Python code.
+8. **Target-Agnostic Code Analysis**: When inspecting target repositories, path resolution is anchored strictly relative to `target_dir` to prevent host file collisions.
+9. **Canonical Location Formatting**: All review findings, table rows, and terminal references follow the `filename.ext:n-n` or `filename.ext:line` convention.
 
 ---
 
@@ -121,3 +125,26 @@ Every stage in the review pipeline can be selectively enabled or bypassed via CL
 ### Observability & Distributed Tracing (`devops_cli.telemetry`)
 - OpenTelemetry instrumentation with W3C `TRACEPARENT` propagation across subprocesses and HTTP clients.
 - Granular child span tracking (`@trace_span`) for LLM requests (Time to First Token, token latency) and in-memory Prometheus metrics via `GLOBAL_METRICS`.
+
+---
+
+## 4. Agent Harness Slots & Adaptive Inference Engine
+
+```
+                             ┌───────────────────────────────────┐
+                             │       Central Agent Harness       │
+                             └─────────────────┬─────────────────┘
+                                               │
+           ┌───────────────────────┬───────────┴───────────┬───────────────────────┐
+           ▼                       ▼                       ▼                       ▼
+┌─────────────────────┐ ┌─────────────────────┐ ┌─────────────────────┐ ┌─────────────────────┐
+│     Model Slot      │ │     Skills Slot     │ │     Tools Slot      │ │   Sub-Agents Slot   │
+│ (Dynamic Provider   │ │ (Guardrails +       │ │ (VLM, STT, AST,     │ │ (Explore, Plan,     │
+│  & 2-Axis Routing)  │ │  Execution Skills)  │ │  Code Search Proxy) │ │  Code, Verify)      │
+└─────────────────────┘ └─────────────────────┘ └─────────────────────┘ └─────────────────────┘
+```
+
+- **Dynamic Model Swapping**: Pluggable provider slots allowing seamless transition between local inference (Ollama, vLLM) and remote frontier APIs (Claude, OpenAI, Gemini).
+- **Sub-Agent Local Offloading**: High-token codebase exploration and AST symbol searching are offloaded to local open-weight models (Granite, Qwen), reserving frontier models for architectural planning and verification ("Big decides, small types, big checks").
+- **Supply Chain Safety & Model Curation**: Model gating rejects `trust_remote_code=True` before GPU provisioning and compiles verifiable AI Bill of Materials (AIBOM) records.
+- **Model Dependency Chaos Engineering**: Periodic validation proving fallback models can successfully execute the CLI toolchain and pass quality gates without human coaching.

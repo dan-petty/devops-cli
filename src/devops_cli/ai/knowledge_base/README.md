@@ -95,6 +95,7 @@ The Knowledge Base is divided into two primary structural divisions:
 | **Modern Python 3.14+ Ecosystem** | Python Runtime & Tooling | Strict Mypy typing, Astral `uv` packaging, Ruff formatting, and dynamic standard parsers. | [modern_python_runtime_and_ecosystem.md](it_domains/topics/modern_python_runtime_and_ecosystem.md) |
 | **REST API Architecture & Services** | Workstation REST API | Asynchronous FastAPI service engine (`devops serve`), OpenAPI schemas, and status probes. | [rest_api_architecture_and_service_engineering.md](it_domains/topics/rest_api_architecture_and_service_engineering.md) |
 | **Release Engineering & SemVer** | Release Governance | Semantic versioning 2.0.0, release verification gates, and automated PR governance. | [release_engineering_and_semver_governance.md](it_domains/topics/release_engineering_and_semver_governance.md) |
+| **Model Governance, Routing & Curation** | AI Governance & Routing | Adaptive 2-axis LLM routing, open-weight model curation, AIBOM generation, sub-agent local offloading, and model dependency chaos engineering. | [model_governance_routing_and_curation.md](it_domains/topics/model_governance_routing_and_curation.md) |
 
 ### Integrated IT Tool References (`it_domains/tools/`)
 

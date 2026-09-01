@@ -87,6 +87,16 @@ def test_release_status_command(sample_project_dir: Path) -> None:
         assert "0.1.7" in result.output
 
 
+def test_release_status_watch(sample_project_dir: Path) -> None:
+    with patch("devops_cli.commands.release.DocGenerator.check_docs", return_value=(True, [])):
+        with patch("devops_cli.watchers.live_resource.LiveResourceWatcher.watch") as mock_watch:
+            result = runner.invoke(
+                app, ["status", "--root", str(sample_project_dir), "--watch", "--interval", "1.0"]
+            )
+            assert result.exit_code == 0
+            assert mock_watch.called
+
+
 def test_release_prepare_invalid_version(sample_project_dir: Path) -> None:
     result = runner.invoke(
         app,

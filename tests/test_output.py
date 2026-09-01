@@ -270,7 +270,16 @@ def test_rich_formatters() -> None:
     assert format_severity("clean") == "[green]CLEAN[/green]"
     assert format_code_span("my-service") == "[cyan]my-service[/cyan]"
 
-    # 5. Key-value pairs
+    # 5. Bytes and Timestamp age
+    from devops_cli.output import format_bytes, format_timestamp_age
+
+    assert format_bytes(0) == "0.0 B"
+    assert format_bytes(1536) == "1.5 KB"
+    assert format_bytes(5_242_880) == "5.0 MB"
+    assert format_bytes(10_737_418_240) == "10.0 GB"
+    assert format_timestamp_age("invalid") == "—"
+
+    # 6. Key-value pairs
     pairs = format_key_value_pairs({"key": "val", "count": 5})
     assert pairs == [["key", "val"], ["count", "5"]]
 

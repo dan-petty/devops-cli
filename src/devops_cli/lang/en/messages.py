@@ -556,6 +556,8 @@ class DevcontainerMessages:
     post_create_ready: str = "✓ DevContainer post-create setup ready."
     post_start_start: str = "Running DevContainer post-start lifecycle for {workspace}..."
     post_start_ready: str = "✓ DevContainer post-start lifecycle complete."
+    bootstrap_k8s_start: str = "Starting background Kubernetes bootstrap for {workspace}..."
+    bootstrap_k8s_ready: str = "✓ Background Kubernetes bootstrap complete."
     updated_image: str = "Updated image → python:{version}"
     mount_permissions_configured: str = "Configured volume mount permissions at {path}"
     temp_dir_permissions_configured: str = (

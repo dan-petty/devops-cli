@@ -21,8 +21,15 @@ devops argo cd apps COMMAND [ARGS]...
 **List all ArgoCD applications.**
 
 ```bash
-devops argo cd apps list
+devops argo cd apps list [OPTIONS]
 ```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--watch`, `-w` | `boolean` | - | Watch application status changes live. |
+| `--interval`, `-i` | `float` | `3.0` | Auto-refresh polling interval in seconds. |
 
 #### `devops argo cd apps sync`
 
@@ -50,7 +57,7 @@ devops argo cd apps sync [OPTIONS] <name>
 **Show sync and health status for an ArgoCD application.**
 
 ```bash
-devops argo cd apps status <name>
+devops argo cd apps status [OPTIONS] <name>
 ```
 
 **Arguments:**
@@ -58,6 +65,13 @@ devops argo cd apps status <name>
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `<name>` | `string` | Yes | Application name. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--watch`, `-w` | `boolean` | - | Watch application status changes live. |
+| `--interval`, `-i` | `float` | `3.0` | Auto-refresh polling interval in seconds. |
 
 #### `devops argo cd apps bootstrap-gitops`
 

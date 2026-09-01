@@ -7,6 +7,10 @@ import logging
 import os
 import re
 import shutil
+import subprocess
+import tempfile
+import time
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
 
@@ -21,7 +25,6 @@ from devops_cli.config.constants import (
     CONST_DEVCONTAINER_JSON_NAME,
     CONST_DEVCONTAINER_JSON_PATH,
     CONST_DEVCONTAINER_PUBLISHED_IMAGE,
-    CONST_GLOBAL_BIN_PATH,
     CONST_MCP_JSON_NAME,
     CONST_PYPROJECT_FILENAME,
     CONST_ROOT_DIR,
@@ -45,6 +48,7 @@ from devops_cli.output import (
     write_json_file,
     write_text_file,
 )
+from devops_cli.telemetry.tracer import trace_span
 
 logger = logging.getLogger(__name__)
 
@@ -545,6 +549,11 @@ def _ensure_mount_permissions(
             _chmod_ssh_dir_and_keys(target_path)
         return f"Hardened SSH key permissions in {target_path}"
 
+    if target_path == Path.home() or str(target_path) == "/home/vscode":
+        if not dry_run and not target_path.exists():
+            _safe_mkdir_path(target_path)
+        return MESSAGES.devcontainer.mount_permissions_configured.format(path=target_path)
+
     if not dry_run:
         if not target_path.exists():
             _safe_mkdir_path(target_path)
@@ -568,31 +577,6 @@ def _setup_volume_mount_permissions(workspace_dir: Path, *, dry_run: bool = Fals
     return actions
 
 
-def _link_workspace_binary(workspace_dir: Path, *, dry_run: bool = False) -> str | None:
-    """Link workspace .venv/bin/devops to /usr/local/bin/devops for consistent system-wide execution."""
-    venv_bin = workspace_dir / ".venv" / "bin" / "devops"
-    dest = CONST_GLOBAL_BIN_PATH
-    if not venv_bin.exists():
-        return None
-
-    if not dry_run:
-        try:
-            if dest.is_symlink() and dest.resolve() == venv_bin.resolve():
-                return None
-            if shutil.which("sudo"):
-                run_subprocess(
-                    ["sudo", "ln", "-sf", str(venv_bin), str(dest)],
-                    check=False,
-                    quiet=True,
-                )
-            else:
-                dest.unlink(missing_ok=True)
-                dest.symlink_to(venv_bin)
-        except OSError as exc:
-            logger.debug("Failed to link %s to %s: %s", venv_bin, dest, exc)
-    return f"Linked workspace CLI binary to {dest}"
-
-
 def _run_post_create_lifecycle(workspace_dir: Path, *, dry_run: bool = False) -> list[str]:
     """Execute DevContainer post-create setup tasks in pure Python."""
     actions: list[str] = []
@@ -600,12 +584,7 @@ def _run_post_create_lifecycle(workspace_dir: Path, *, dry_run: bool = False) ->
     # 1. Volume mount permissions & ownership
     actions.extend(_setup_volume_mount_permissions(workspace_dir, dry_run=dry_run))
 
-    # 2. Workspace CLI binary link
-    link_action = _link_workspace_binary(workspace_dir, dry_run=dry_run)
-    if link_action:
-        actions.append(link_action)
-
-    # 3. Bootstrap uv & tools if not present
+    # 2. Bootstrap uv & tools if not present
     if shutil.which("uv") is None and not dry_run:
         run_subprocess(
             ["sh", "-c", "curl -LsSf https://astral.sh/uv/install.sh | sh"],
@@ -633,8 +612,6 @@ def _run_post_create_lifecycle(workspace_dir: Path, *, dry_run: bool = False) ->
             "export HISTFILESIZE=20000\n"
             "shopt -s histappend\n"
             'PROMPT_COMMAND="history -a${PROMPT_COMMAND:+; $PROMPT_COMMAND}"\n'
-            f'export PATH="{workspace_dir}/.venv/bin:$HOME/.local/bin:$PATH"\n'
-            "export UV_MALWARE_CHECK=1\n"
         )
         actions.append("Added persistent history and PATH variables to ~/.bashrc")
 
@@ -658,13 +635,6 @@ def _run_post_create_lifecycle(workspace_dir: Path, *, dry_run: bool = False) ->
     zshrc_content = zshrc.read_text(encoding="utf-8") if zshrc.exists() else ""
 
     zshrc_additions: list[str] = []
-    if f'export PATH="{workspace_dir}/.venv/bin' not in zshrc_content:
-        zshrc_additions.append(
-            "\n# ── Environment & PATH ───────────────────────────────────────────────────────\n"
-            f'export PATH="{workspace_dir}/.venv/bin:$HOME/.local/bin:$PATH"\n'
-            "export UV_MALWARE_CHECK=1\n"
-        )
-        actions.append("Added PATH variables to ~/.zshrc")
 
     if "_DEVOPS_COMPLETE" not in zshrc_content:
         zshrc_additions.append(
@@ -722,6 +692,19 @@ def _chmod_ssh_dir_and_keys(ssh_dir: Path) -> None:
         logger.debug("Failed to set SSH permissions: %s", exc)
 
 
+def _wait_for_docker_daemon(timeout_seconds: int = 45) -> bool:
+    """Poll for Docker daemon availability up to timeout_seconds."""
+    if not shutil.which("docker"):
+        return False
+    start_time = time.monotonic()
+    while time.monotonic() - start_time < timeout_seconds:
+        res = run_subprocess(["docker", "info"], check=False, quiet=True)
+        if res.returncode == 0:
+            return True
+        time.sleep(2)
+    return False
+
+
 def _start_minikube_cluster(dry_run: bool) -> tuple[bool, str]:
     """Start Minikube cluster with GPU support if nvidia-smi is available, otherwise CPU."""
     has_gpu = bool(shutil.which("nvidia-smi"))
@@ -753,6 +736,80 @@ def _auto_deploy_k8s_stack(workspace_dir: Path, stack: str, dry_run: bool) -> st
     return f"Auto-deployed Kubernetes stack '{stack}'"
 
 
+def _run_k8s_bootstrap_worker(
+    workspace_dir: Path, stack: str | None = None, *, dry_run: bool = False
+) -> list[str]:
+    """Execute complete Minikube startup, context update, and optional K8s stack deployment."""
+    actions: list[str] = []
+    if not shutil.which("minikube"):
+        actions.append("Warning: Minikube binary is not available; skipping cluster start")
+        return actions
+
+    if not dry_run and not _wait_for_docker_daemon():
+        actions.append("Warning: Docker daemon is not running; skipping Minikube start")
+        return actions
+
+    res = run_subprocess(["minikube", "status", "--format", "{{.Host}}"], check=False, quiet=True)
+    is_running = res.returncode == 0 and "Running" in str(res.stdout)
+
+    minikube_healthy = is_running
+    if not is_running:
+        healthy, action_msg = _start_minikube_cluster(dry_run)
+        actions.append(action_msg)
+        minikube_healthy = healthy
+        if healthy and not dry_run:
+            run_subprocess(["minikube", "update-context"], check=False, quiet=True)
+    else:
+        if not dry_run:
+            run_subprocess(["minikube", "update-context"], check=False, quiet=True)
+        actions.append("Minikube cluster is already running")
+
+    if stack and (minikube_healthy or dry_run):
+        result = _auto_deploy_k8s_stack(workspace_dir, stack, dry_run)
+        if result:
+            actions.append(result)
+
+    return actions
+
+
+def _spawn_background_k8s_bootstrap(
+    workspace_dir: Path, stack: str | None = None, *, dry_run: bool = False
+) -> str:
+    """Spawn detached background process for Minikube startup and Kubernetes stack deployment."""
+    log_file = Path(tempfile.gettempdir()) / "devops-k8s-bootstrap.log"
+    cmd = [
+        "devops",
+        "devcontainer",
+        "bootstrap-k8s",
+        "--workspace",
+        str(workspace_dir),
+    ]
+    if stack:
+        cmd.extend(["--stack", stack, "--deploy"])
+    else:
+        cmd.append("--no-deploy")
+
+    if dry_run:
+        return f"Spawned background Minikube & Kubernetes bootstrap (log: {log_file})"
+
+    try:
+        with log_file.open("a", encoding="utf-8") as log_handle:
+            timestamp_str = datetime.now(UTC).isoformat()
+            log_handle.write(f"\n# --- Background K8s Bootstrap spawned at {timestamp_str} ---\n")
+            log_handle.flush()
+            subprocess.Popen(  # nosec B603
+                cmd,
+                cwd=str(workspace_dir),
+                stdout=log_handle,
+                stderr=log_handle,
+                start_new_session=True,
+            )
+        return f"Spawned background Minikube & Kubernetes bootstrap (log: {log_file})"
+    except Exception as exc:
+        logger.debug("Failed to spawn background k8s bootstrap: %s", exc)
+        return f"Warning: Failed to spawn background Minikube bootstrap: {exc}"
+
+
 def _run_post_start_lifecycle(workspace_dir: Path, *, dry_run: bool = False) -> list[str]:
     """Execute DevContainer post-start lifecycle tasks in pure Python."""
     actions: list[str] = []
@@ -760,12 +817,7 @@ def _run_post_start_lifecycle(workspace_dir: Path, *, dry_run: bool = False) -> 
     # 1. Volume mount permissions & ownership
     actions.extend(_setup_volume_mount_permissions(workspace_dir, dry_run=dry_run))
 
-    # 2. Workspace CLI binary link
-    link_action = _link_workspace_binary(workspace_dir, dry_run=dry_run)
-    if link_action:
-        actions.append(link_action)
-
-    # 3. Git defaults
+    # 2. Git defaults
     if not dry_run:
         run_subprocess(
             ["git", "config", "--global", "push.autoSetupRemote", "true"],
@@ -893,45 +945,18 @@ def _run_post_start_lifecycle(workspace_dir: Path, *, dry_run: bool = False) -> 
         else:
             actions.append(f"Scaffolded AI agent instructions (AGENTS.md) in {workspace_dir}")
 
-    # 6. Minikube autostart & K8s deploy status evaluation
+    # 6. Minikube autostart & K8s deploy status evaluation (background supervisor)
     auto_start = os.getenv("DEVOPS_MINIKUBE_AUTOSTART", "true").lower() in ("true", "1")
-    minikube_healthy = False
-    if auto_start and shutil.which("minikube"):
-        docker_available = False
-        if shutil.which("docker"):
-            doc_res = run_subprocess(["docker", "info"], check=False, quiet=True)
-            docker_available = doc_res.returncode == 0
-
-        if not docker_available:
-            actions.append("Warning: Docker daemon is not running; skipping Minikube start")
-        else:
-            res = run_subprocess(
-                ["minikube", "status", "--format", "{{.Host}}"],
-                check=False,
-                quiet=True,
-            )
-            is_running = res.returncode == 0 and "Running" in str(res.stdout)
-            if not is_running:
-                healthy, action_msg = _start_minikube_cluster(dry_run)
-                actions.append(action_msg)
-                minikube_healthy = healthy
-                if healthy and not dry_run:
-                    run_subprocess(["minikube", "update-context"], check=False, quiet=True)
-            else:
-                if not dry_run:
-                    run_subprocess(["minikube", "update-context"], check=False, quiet=True)
-                actions.append("Minikube cluster is already running")
-                minikube_healthy = True
-
     auto_deploy = os.getenv("DEVOPS_K8S_AUTO_DEPLOY", "false").lower() in ("true", "1")
-    if auto_deploy and shutil.which("minikube") and shutil.which("kubectl"):
-        if minikube_healthy or dry_run:
-            stack = os.getenv("DEVOPS_K8S_STACK", "infra")
-            result = _auto_deploy_k8s_stack(workspace_dir, stack, dry_run)
-            if result:
-                actions.append(result)
-        else:
-            actions.append("Skipping Kubernetes auto-deploy: Minikube is not running")
+    stack = os.getenv("DEVOPS_K8S_STACK", "infra")
+
+    if auto_start and shutil.which("minikube"):
+        action_msg = _spawn_background_k8s_bootstrap(
+            workspace_dir,
+            stack=stack if auto_deploy else None,
+            dry_run=dry_run,
+        )
+        actions.append(action_msg)
 
     # 6. Pre-commit Git hook installation
     if (workspace_dir / ".pre-commit-config.yaml").exists() and (workspace_dir / ".git").exists():
@@ -1125,3 +1150,42 @@ def run_lifecycle(
         post_create(workspace=ws, dry_run=False)
     if do_start:
         post_start(workspace=ws, dry_run=False)
+
+
+# =============================================================================
+# Command: devops devcontainer bootstrap-k8s
+# =============================================================================
+
+
+@app.command("bootstrap-k8s")
+def bootstrap_k8s_cmd(
+    workspace: Annotated[
+        Path, typer.Option("--workspace", "-w", help=HELP.options.workspace_dir)
+    ] = DEFAULT_CURRENT_PATH,
+    stack: Annotated[str, typer.Option("--stack", "-s", help=HELP.devcontainer.stack)] = "infra",
+    auto_deploy: Annotated[
+        bool, typer.Option("--deploy/--no-deploy", help=HELP.devcontainer.auto_deploy)
+    ] = True,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
+) -> None:
+    """Execute Minikube cluster startup and Kubernetes stack deployment in the background."""
+    ws = workspace.resolve()
+    if dry_run or is_dry_run():
+        render_dry_run_result(
+            command="devops devcontainer bootstrap-k8s",
+            action="bootstrap_k8s",
+            details={"workspace": str(ws), "stack": stack, "auto_deploy": auto_deploy},
+        )
+        return
+
+    with trace_span(
+        "devcontainer_bootstrap_k8s", attributes={"workspace": str(ws), "stack": stack}
+    ):
+        print_info(MESSAGES.devcontainer.bootstrap_k8s_start.format(workspace=ws), prefix=False)
+        actions = _run_k8s_bootstrap_worker(ws, stack=stack if auto_deploy else None, dry_run=False)
+        for act in actions:
+            if act.startswith("Warning:"):
+                print_warning(act, prefix=False)
+            else:
+                print_info(f"  [green]✓[/green] {act}", prefix=False)
+        print_success(MESSAGES.devcontainer.bootstrap_k8s_ready, prefix=False)

@@ -76,27 +76,31 @@ def _run_tool_cmd(
     return _exec()
 
 
+def _is_valid_dir_entry(path: Path) -> bool:
+    """Check if directory entry is non-hidden, non-cache and within safe workspace."""
+    if path.name.startswith(".") or path.name == "__pycache__":
+        return False
+    return _is_safe_workspace_path(path.resolve())
+
+
 def list_files(directory: str = ".") -> list[str]:
     """List non-hidden files in the specified directory up to 2 levels deep."""
     root = Path(directory).resolve()
-    if not _is_safe_workspace_path(root) or not root.exists() or not root.is_dir():
+    if not _is_safe_workspace_path(root) or not root.is_dir():
         return []
 
     entries: list[str] = []
     for path in sorted(root.glob("*")):
-        if path.name.startswith(".") or path.name == "__pycache__":
-            continue
-        if not _is_safe_workspace_path(path.resolve()):
+        if not _is_valid_dir_entry(path):
             continue
         if path.is_file():
             entries.append(path.name)
         elif path.is_dir():
-            for child in sorted(path.glob("*")):
-                if child.name.startswith(".") or child.name == "__pycache__":
-                    continue
-                if not _is_safe_workspace_path(child.resolve()):
-                    continue
-                entries.append(f"{path.name}/{child.name}")
+            entries.extend(
+                f"{path.name}/{child.name}"
+                for child in sorted(path.glob("*"))
+                if _is_valid_dir_entry(child)
+            )
 
     return entries[:DEFAULT_TOOL_MAX_FILES]
 
@@ -177,6 +181,15 @@ def _file_contains_bytes(path: Path, query_bytes: bytes, query_len: int) -> bool
     return False
 
 
+def _is_searchable_file(path: Path) -> bool:
+    """Check if file is text/manifest and within safe workspace path."""
+    if not path.is_file() or path.suffix.lower() in CONST_BINARY_EXTENSIONS:
+        return False
+    if "__pycache__" in path.parts or any(p.startswith(".") for p in path.parts):
+        return False
+    return _is_safe_workspace_path(path.resolve())
+
+
 def search_code(query: str, directory: str = ".") -> list[str]:
     """Search workspace source code and manifest files for a string query."""
     root = Path(directory).resolve()
@@ -188,16 +201,10 @@ def search_code(query: str, directory: str = ".") -> list[str]:
     query_len = len(query_bytes)
 
     for path in root.rglob("*"):
-        if not path.is_file() or path.suffix.lower() in CONST_BINARY_EXTENSIONS:
-            continue
-        if "__pycache__" in path.parts or any(p.startswith(".") for p in path.parts):
-            continue
-        if not _is_safe_workspace_path(path.resolve()):
-            continue
-        if _file_contains_bytes(path, query_bytes, query_len):
+        if _is_searchable_file(path) and _file_contains_bytes(path, query_bytes, query_len):
             matches.append(str(path.relative_to(root)))
-        if len(matches) >= DEFAULT_TOOL_MAX_SEARCH_MATCHES:
-            break
+            if len(matches) >= DEFAULT_TOOL_MAX_SEARCH_MATCHES:
+                break
 
     return matches
 

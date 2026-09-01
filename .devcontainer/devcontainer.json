@@ -36,7 +36,7 @@
     "source=devops-cli-ruff-cache,target=${containerWorkspaceFolder}/.ruff_cache,type=volume",
     "source=devops-cli-uv,target=${containerWorkspaceFolder}/.uv,type=volume",
     "source=global-devcontainer-home,target=/home/vscode,type=volume",
-    "source=${localEnv:USERPROFILE}/.ssh,target=/home/vscode/.ssh,type=bind,consistency=cached"
+    "source=${localEnv:HOME}${localEnv:USERPROFILE}/.ssh,target=/home/vscode/.ssh,type=bind,consistency=cached"
   ],
   "containerEnv": {
     "DEVOPS_CLI_CONFIG": "${containerWorkspaceFolder}/config.yaml",
@@ -110,7 +110,7 @@
       "onAutoForward": "ignore"
     }
   },
-  "postCreateCommand": "devops devcontainer post-create && uv sync && (command -v sudo >/dev/null && sudo ln -sf /workspaces/devops-cli/.venv/bin/devops /usr/local/bin/devops || true)",
+  "postCreateCommand": "devops devcontainer post-create",
   "postStartCommand": "devops devcontainer post-start",
   "customizations": {
     "vscode": {
@@ -135,7 +135,7 @@
           100
         ],
         "terminal.integrated.defaultProfile.linux": "zsh",
-        "python.defaultInterpreterPath": "/workspaces/devops-cli/.venv/bin/python",
+        "python.defaultInterpreterPath": "${containerWorkspaceFolder}/.venv/bin/python",
         "[python]": {
           "editor.defaultFormatter": "charliermarsh.ruff"
         }
@@ -163,7 +163,8 @@
           100
         ],
         "terminal.integrated.defaultProfile.linux": "zsh",
-        "python.defaultInterpreterPath": "/workspaces/devops-cli/.venv/bin/python",
+        "python.defaultInterpreterPath": "${containerWorkspaceFolder}/.venv/bin/python",
+        "python.terminal.activateEnvironment": true,
         "[python]": {
           "editor.defaultFormatter": "charliermarsh.ruff"
         }

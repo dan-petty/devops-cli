@@ -250,22 +250,14 @@ def _format_release_title(
 # =============================================================================
 
 
-@app.command("status")
-def release_status(
-    root: Annotated[
-        Path | None,
-        typer.Option("--root", "-r", help=HELP.options.root),
-    ] = None,
-) -> None:
-    """Display current release status, versions, tags, changelog, and docs state."""
-    repo_root = _get_project_root(root)
+def _build_status_table(repo_root: Path) -> Any:
+    """Build the Rich table representation of current release status."""
     pyproject_ver = _get_pyproject_version(repo_root) or "unknown"
     init_ver = _get_init_version(repo_root) or "unknown"
     latest_tag = _get_latest_git_tag(repo_root) or "none"
     latest_cl_ver = _get_latest_changelog_version(repo_root) or "none"
     clean_tree = _is_git_clean(repo_root)
 
-    # Check documentation freshness
     generator = _get("DocGenerator")(root_dir=repo_root)
     docs_up_to_date, _ = generator.check_docs(repo_root / "docs", check_readme_table=True)
 
@@ -292,12 +284,51 @@ def release_status(
         ],
     ]
 
-    _get("print_table")(
+    from devops_cli.output import render_table
+
+    return render_table(
         title=MESSAGES.release.status_header,
         columns=[("Property", "bold"), ("Value", "green")],
         rows=rows,
         border_style="cyan",
     )
+
+
+# =============================================================================
+# Command: release status
+# =============================================================================
+
+
+@app.command("status")
+def release_status(
+    root: Annotated[
+        Path | None,
+        typer.Option("--root", "-r", help=HELP.options.root),
+    ] = None,
+    watch: Annotated[
+        bool,
+        typer.Option("--watch", "-w", help="Continuously monitor release state in real-time."),
+    ] = False,
+    interval: Annotated[
+        float,
+        typer.Option("--interval", "-i", help="Watcher auto-refresh polling interval in seconds."),
+    ] = 2.0,
+) -> None:
+    """Display current release status, versions, tags, changelog, and docs state."""
+    repo_root = _get_project_root(root)
+    if watch:
+        from devops_cli.watchers.live_resource import LiveResourceWatcher
+
+        watcher = LiveResourceWatcher(
+            lambda: _build_status_table(repo_root),
+            interval_seconds=interval,
+            name="release_status",
+        )
+        watcher.watch()
+        return
+
+    table = _build_status_table(repo_root)
+    _get("print_table")(table)
 
 
 # =============================================================================

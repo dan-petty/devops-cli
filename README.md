@@ -132,6 +132,7 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 |  | `devops devcontainer post-create [OPTIONS]` | Execute DevContainer post-create setup tasks (history, shell completions, config prep). |
 |  | `devops devcontainer post-start [OPTIONS]` | Execute DevContainer post-start tasks (SSH keys, git defaults, kubeconfig, MCP sync). |
 |  | `devops devcontainer run-lifecycle [OPTIONS]` | Run specified DevContainer lifecycle hook tasks natively in Python. |
+|  | `devops devcontainer bootstrap-k8s [OPTIONS]` | Execute Minikube cluster startup and Kubernetes stack deployment in the background. |
 | **workspace** | `devops workspace add [OPTIONS] <repo_path>` | Add a folder to the VS Code workspace file. |
 |  | `devops workspace remove [OPTIONS] <repo_path>` | Remove a folder from the VS Code workspace file. |
 |  | `devops workspace generate [OPTIONS]` | Regenerate the workspace file from all repos in the repos directory. |
@@ -160,6 +161,7 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 |  | `devops k8s stream-logs [OPTIONS] <pod_query>` | Stream logs across multiple pods in parallel using Stern or kubectl. |
 |  | `devops k8s diff-helm [OPTIONS] <release_name> <chart_path>` | Preview Kubernetes manifest diffs before executing a Helm upgrade. |
 |  | `devops k8s chaos [OPTIONS] <experiment>` | Run resilience and chaos experiments against Kubernetes workloads. |
+|  | `devops k8s pods [OPTIONS]` | List running pods with health status, restart counts, and age. |
 | **kustomize** | `devops kustomize build [OPTIONS] <path>` | Build kustomize overlays (delegates to kustomize build). |
 |  | `devops kustomize diff <path>` | Show a diff of pending changes (delegates to kubectl diff -k). |
 |  | `devops kustomize apply [OPTIONS] <path>` | Apply a kustomization (delegates to kubectl apply -k). |
@@ -167,6 +169,7 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 |  | `devops docker build [OPTIONS] <context>` | Build a Docker image. |
 |  | `devops docker push <image>` | Push a Docker image to a registry. |
 |  | `devops docker prune [OPTIONS]` | Remove unused containers, images, and networks. |
+|  | `devops docker stats [OPTIONS]` | Display live container CPU, memory, and network I/O statistics. |
 |  | `devops docker analyze-layers [OPTIONS] <image>` | Analyze container image layer efficiency and wasted space using Dive. |
 | **grafana** | `devops grafana search [OPTIONS]` | Search Grafana dashboards and folders by query string. |
 |  | `devops grafana datasources` | List configured datasources. |
@@ -211,6 +214,8 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 |  | `devops scan sast [OPTIONS] <target>` | Run static application security testing (SAST) via Semgrep. |
 |  | `devops scan checkov [OPTIONS] <target>` | Run Checkov Infrastructure-as-Code (IaC) compliance scanner. |
 |  | `devops scan iac [OPTIONS] <target>` | Run Checkov IaC static policy and security compliance scan. |
+|  | `devops scan complexity [OPTIONS] <target>` | Run AST-based cyclomatic complexity and indentation depth analysis. |
+|  | `devops scan sbom [OPTIONS] <target>` | Generate Software Bill of Materials (SBOM) in CycloneDX, SPDX, or JSON format. |
 | **ai** | `devops ai config [OPTIONS]` | Show or update AI provider configuration. |
 |  | `devops ai models` | List available models for the configured provider. |
 |  | `devops ai preload` | Preload configured model into VRAM across all configured Ollama servers. |
@@ -278,7 +283,8 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 |  | `devops telemetry profile [OPTIONS] <command>` | Display terminal-rendered waterfall breakdown and latency heatmap of OpenTelemetry spans. |
 |  | `devops telemetry open-ui` | Print and show the Jaeger Query UI endpoint for inspecting traces. |
 | **serve** | `devops serve [OPTIONS]` | FastAPI REST & OpenAPI Service Engine for remote automation, health probes, and metrics. |
-| **test** | `devops test [OPTIONS] <script_path>` | Execute developer-centric load, spike, and latency tests against services using k6. |
+| **test** | `devops test run [OPTIONS] <target>` | Execute pytest test suite with optional git-diff aware test selection. |
+|  | `devops test load [OPTIONS] <script_path>` | Execute developer-centric load, spike, and latency tests against services using k6. |
 | **pipeline** | `devops pipeline [OPTIONS] <pipeline_path>` | Execute reproducible, containerized developer pipelines with Dagger. |
 <!-- COMMAND_MATRIX_END -->
 

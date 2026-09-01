@@ -28,7 +28,6 @@ CONST_TESTS_DIR_NAME = "tests"
 CONST_TESTS_DIR_PATH = Path(CONST_TESTS_DIR_NAME)
 CONST_VSCODE_DIR_NAME = ".vscode"
 CONST_MCP_JSON_NAME = "mcp.json"
-CONST_GLOBAL_BIN_PATH = Path("/usr/local/bin/devops")
 CONST_SYSTEM_TEMP_DIRS: tuple[Path, ...] = (Path("/tmp"), Path("/var/tmp"))  # nosec B108
 CONST_FORBIDDEN_SYSTEM_DIRS: tuple[Path, ...] = (
     Path("/etc"),

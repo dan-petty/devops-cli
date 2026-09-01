@@ -28,9 +28,7 @@ from devops_cli.lang import HELP, MESSAGES
 from devops_cli.models.argo import ArgoCDApp
 from devops_cli.output import (
     print_error,
-    print_info,
     print_success,
-    print_table,
 )
 
 app = new_typer(help=HELP.argo.app, no_args_is_help=True)
@@ -85,48 +83,70 @@ def _argocd(settings: Any) -> tuple[str, dict[str, str]]:
 
 
 @cd_apps_app.command("list")
-def cd_apps_list() -> None:
+def cd_apps_list(
+    watch: Annotated[bool, typer.Option("--watch", "-w", help=HELP.argo.watch)] = False,
+    interval: Annotated[float, typer.Option("--interval", "-i", help=HELP.argo.interval)] = 3.0,
+) -> None:
     """List all ArgoCD applications."""
     if is_dry_run():
         render_dry_run_result(
             command="devops argo cd apps list",
             action="list_argocd_apps",
-            details={"apps": []},
+            details={"apps": [], "watch": watch},
         )
         return
 
-    settings = load_settings()
-    base, headers = _argocd(settings)
+    def _build_apps_table() -> Any:
+        from devops_cli.output import Table
 
-    with httpx2.Client() as c:
-        resp = c.get(
-            f"{base}/api/v1/applications",
-            headers=headers,
-            timeout=DEFAULT_HTTP_TIMEOUT_SECONDS,
+        settings = load_settings()
+        base, headers = _argocd(settings)
+        table = Table(
+            title=MESSAGES.argo.table_title_apps,
+            show_header=True,
+            header_style="bold cyan",
         )
-        resp.raise_for_status()
-
-    rows: list[list[str]] = []
-    data = resp.json()
-    items = data.get("items", []) if isinstance(data, dict) else []
-    for item in items:
-        app_info = ArgoCDApp.from_api_item(item)
-        sync_c = "green" if app_info.sync_status == "Synced" else "yellow"
-        health_c = "green" if app_info.health_status == "Healthy" else "red"
-        rows.append(
-            [
+        table.add_column("Name", style="cyan")
+        table.add_column("Project")
+        table.add_column("Sync")
+        table.add_column("Health")
+        table.add_column("Repo", style="dim")
+        try:
+            with httpx2.Client() as c:
+                resp = c.get(
+                    f"{base}/api/v1/applications",
+                    headers=headers,
+                    timeout=DEFAULT_HTTP_TIMEOUT_SECONDS,
+                )
+                resp.raise_for_status()
+            data = resp.json()
+            items = data.get("items", []) if isinstance(data, dict) else []
+        except Exception as exc:
+            table.add_row(f"[red]Error: {exc}[/red]", "—", "—", "—", "—")
+            return table
+        for item in items:
+            app_info = ArgoCDApp.from_api_item(item)
+            sync_c = "green" if app_info.sync_status == "Synced" else "yellow"
+            health_c = "green" if app_info.health_status == "Healthy" else "red"
+            table.add_row(
                 app_info.name,
                 app_info.project,
                 f"[{sync_c}]{app_info.sync_status}[/{sync_c}]",
                 f"[{health_c}]{app_info.health_status}[/{health_c}]",
                 app_info.repo_url,
-            ]
-        )
-    print_table(
-        title=MESSAGES.argo.table_title_apps,
-        columns=[("Name", "cyan"), "Project", "Sync", "Health", ("Repo", "dim")],
-        rows=rows,
-    )
+            )
+        return table
+
+    if watch:
+        from devops_cli.watchers.live_resource import LiveResourceWatcher
+
+        LiveResourceWatcher(
+            _build_apps_table, interval_seconds=interval, name="argo_apps_list"
+        ).watch()
+    else:
+        from devops_cli.output import get_console
+
+        get_console().print(_build_apps_table())
 
 
 # =============================================================================
@@ -164,27 +184,49 @@ def cd_apps_sync(
 @cd_apps_app.command("status")
 def cd_apps_status(
     name: Annotated[str, typer.Argument(help=HELP.argo.app_name)],
+    watch: Annotated[bool, typer.Option("--watch", "-w", help=HELP.argo.watch)] = False,
+    interval: Annotated[float, typer.Option("--interval", "-i", help=HELP.argo.interval)] = 3.0,
 ) -> None:
     """Show sync and health status for an ArgoCD application."""
     _validate_k8s_name(name, "application name")
-    settings = load_settings()
-    base, headers = _argocd(settings)
 
-    with httpx2.Client() as c:
-        resp = c.get(
-            f"{base}/api/v1/applications/{name}",
-            headers=headers,
-            timeout=DEFAULT_HTTP_TIMEOUT_SECONDS,
-        )
-        resp.raise_for_status()
+    def _build_status_panel() -> Any:
+        from devops_cli.output import Panel, Text
 
-    data = resp.json()
-    app_info = ArgoCDApp.from_api_item(data)
+        settings = load_settings()
+        base, headers = _argocd(settings)
+        try:
+            with httpx2.Client() as c:
+                resp = c.get(
+                    f"{base}/api/v1/applications/{name}",
+                    headers=headers,
+                    timeout=DEFAULT_HTTP_TIMEOUT_SECONDS,
+                )
+                resp.raise_for_status()
+            app_info = ArgoCDApp.from_api_item(resp.json())
+        except Exception as exc:
+            return Panel(f"[red]Error fetching status: {exc}[/red]", title=name)
+        sync_c = "green" if app_info.sync_status == "Synced" else "yellow"
+        health_c = "green" if app_info.health_status == "Healthy" else "red"
+        body = Text()
+        body.append("  Sync:     ", style="bold")
+        body.append(f"{app_info.sync_status}\n", style=sync_c)
+        body.append("  Health:   ", style="bold")
+        body.append(f"{app_info.health_status}\n", style=health_c)
+        body.append("  Revision: ", style="bold")
+        body.append(f"{app_info.revision}\n")
+        return Panel(body, title=f"[bold cyan]{app_info.name}[/bold cyan]")
 
-    print_info(f"[bold cyan]{app_info.name}[/bold cyan]", prefix=False)
-    print_info(f"  Sync:     {app_info.sync_status}", prefix=False)
-    print_info(f"  Health:   {app_info.health_status}", prefix=False)
-    print_info(f"  Revision: {app_info.revision}", prefix=False)
+    if watch:
+        from devops_cli.watchers.live_resource import LiveResourceWatcher
+
+        LiveResourceWatcher(
+            _build_status_panel, interval_seconds=interval, name="argo_app_status"
+        ).watch()
+    else:
+        from devops_cli.output import get_console
+
+        get_console().print(_build_status_panel())
 
 
 # =============================================================================

@@ -17,6 +17,9 @@ from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import is_dry_run
 from devops_cli.lang import ERRORS, HELP, MESSAGES
 from devops_cli.output import (
+    format_bytes as _format_bytes,
+)
+from devops_cli.output import (
     print_error,
     print_info,
     print_success,
@@ -199,6 +202,103 @@ def prune(
         reclaimed_bytes = 0
     reclaimed_mb = reclaimed_bytes // (1024 * 1024)
     print_success(MESSAGES.docker.pruned_success.format(mb=reclaimed_mb))
+
+
+# =============================================================================
+# Command: devops docker stats
+# =============================================================================
+
+
+def _parse_docker_stats_row(container: Any) -> list[str]:
+    """Extract a single Rich table row from a running Docker container stats stream."""
+    name = container.name
+    stats = container.stats(stream=False)
+    cpu_stats = stats.get("cpu_stats", {})
+    precpu_stats = stats.get("precpu_stats", {})
+    memory_stats = stats.get("memory_stats", {})
+    networks = stats.get("networks", {})
+
+    cpu_delta = cpu_stats.get("cpu_usage", {}).get("total_usage", 0) - precpu_stats.get(
+        "cpu_usage", {}
+    ).get("total_usage", 0)
+    system_delta = cpu_stats.get("system_cpu_usage", 0) - precpu_stats.get("system_cpu_usage", 0)
+    num_cpus = cpu_stats.get("online_cpus") or len(
+        cpu_stats.get("cpu_usage", {}).get("percpu_usage", [1])
+    )
+    cpu_pct = (cpu_delta / system_delta * num_cpus * 100.0) if system_delta > 0 else 0.0
+
+    mem_usage = memory_stats.get("usage", 0)
+    mem_cache = memory_stats.get("stats", {}).get("cache", 0)
+    mem_net = mem_usage - mem_cache
+    mem_limit = memory_stats.get("limit", 0)
+
+    net_rx = sum(v.get("rx_bytes", 0) for v in networks.values())
+    net_tx = sum(v.get("tx_bytes", 0) for v in networks.values())
+
+    cpu_color = "red" if cpu_pct > 80 else ("yellow" if cpu_pct > 50 else "green")
+    return [
+        name,
+        f"[{cpu_color}]{cpu_pct:.1f}%[/{cpu_color}]",
+        f"{_format_bytes(mem_net)} / {_format_bytes(mem_limit)}",
+        f"{_format_bytes(net_rx)} / {_format_bytes(net_tx)}",
+    ]
+
+
+def _build_docker_stats_table(name_filter: str | None) -> Any:
+    """Build a Rich Table of live Docker container statistics."""
+    from devops_cli.output import Table
+
+    client = _client()
+    try:
+        containers = client.containers.list(filters={"name": name_filter} if name_filter else None)
+    except Exception:
+        containers = []
+
+    table = Table(title="Docker Container Stats", show_header=True, header_style="bold cyan")
+    table.add_column("Container", style="cyan", no_wrap=True)
+    table.add_column("CPU %", justify="right")
+    table.add_column("MEM Usage / Limit", justify="right")
+    table.add_column("NET I/O (RX/TX)", justify="right")
+
+    for container in containers:
+        try:
+            row = _parse_docker_stats_row(container)
+            table.add_row(*row)
+        except Exception:
+            table.add_row(container.name, "—", "—", "—")
+
+    return table
+
+
+@app.command("stats")
+def stats(
+    name: Annotated[str | None, typer.Option("--name", "-n", help=HELP.docker.name_filter)] = None,
+    watch: Annotated[bool, typer.Option("--watch", "-w", help=HELP.docker.watch)] = False,
+    interval: Annotated[float, typer.Option("--interval", "-i", help=HELP.docker.interval)] = 2.0,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
+) -> None:
+    """Display live container CPU, memory, and network I/O statistics."""
+    if dry_run or is_dry_run():
+        render_dry_run_result(
+            command="devops docker stats",
+            action="docker_container_stats",
+            details={"name_filter": name, "watch": watch, "interval": interval},
+        )
+        return
+
+    if watch:
+        from devops_cli.watchers.live_resource import LiveResourceWatcher
+
+        watcher = LiveResourceWatcher(
+            lambda: _build_docker_stats_table(name),
+            interval_seconds=interval,
+            name="docker_stats",
+        )
+        watcher.watch()
+    else:
+        from devops_cli.output import get_console
+
+        get_console().print(_build_docker_stats_table(name))
 
 
 # =============================================================================

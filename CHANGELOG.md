@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.6] - 2026-08-31
+
+### Added
+- **Multi-Dimensional AI Model Routing & Governance (`src/devops_cli/ai/router.py`, `tests/test_ai_router.py`)**:
+  - Dynamic multi-axis model routing across task complexity (`LOW`, `MEDIUM`, `HIGH`, `FRONTIER`), task freshness (`STATIC_CONTEXT`, `LIVE_MCP_LOOKUP`, `EXTERNAL_WEB_SEARCH`), and data sensitivity (`PUBLIC`, `INTERNAL`, `CONFIDENTIAL_AIRGAP`).
+  - Air-gap data egress enforcement redirecting confidential workloads to local air-gapped models (`ollama`) with local fallback chains.
+  - Cost and latency tier forecasting (`sub-second`, `fast-interactive`, `multi-second`, `deep-reasoning`) for AI execution plans.
+  - Knowledge Base topic manual for Model Governance, Routing & Curation (`src/devops_cli/ai/knowledge_base/it_domains/topics/model_governance_routing_and_curation.md`).
+- **AST Code Complexity & SBOM Generation (`src/devops_cli/security/complexity.py`, `src/devops_cli/security/sbom.py`, `src/devops_cli/commands/scan.py`)**:
+  - AST cyclomatic complexity analyzer (`devops scan complexity`) computing per-function and per-module complexity scores and identifying nested branching.
+  - Software Bill of Materials generator (`devops scan sbom`) supporting CycloneDX and SPDX formats from active lockfiles and installed packages.
+- **Git-Diff Aware Targeted Test Execution (`src/devops_cli/commands/test_cmd.py`, `tests/test_test_runner.py`)**:
+  - Added `devops test run --diff` discovering and executing only test files affected by unstaged or branch-level git diffs.
+- **Live Resource & State Watchers Across Subsystems (`src/devops_cli/watchers/live_resource.py`, `src/devops_cli/commands/`)**:
+  - Added `--watch` / `-w` and `--interval` support powered by `rich.live.Live` across `devops k8s pods --watch`, `devops docker stats --watch`, `devops argo cd apps list --watch`, and `devops release status --watch`.
+  - Added `devops docker stats` command with real-time CPU%, memory net usage/limit, and network RX/TX I/O statistics table.
+  - Added `devops k8s pods` command with real-time pod phase, ready container counts, restart metrics, and age reporting.
+- **In-Memory SHA-256 Embedding LRU Cache (`src/devops_cli/ai/rag/embeddings.py`, `tests/test_rag_embeddings.py`)**:
+  - Implemented thread-safe in-memory LRU cache (`_EmbeddingLRUCache`) keyed by SHA-256 hash of text and model identifier, accelerating repeated RAG queries and semantic search.
+  - Instrumented embedding cache hits, misses, and active size metrics via OpenTelemetry/Prometheus.
+
+### Changed
+- **AST Chunking, Tool Registries & Review Stage Cyclomatic Complexity Reduction (`src/devops_cli/ai/rag/chunker.py`, `src/devops_cli/ai/tools/builtin_tools.py`, `src/devops_cli/ai/review/stages/`)**:
+  - Decomposed complex multi-branch functions in AST chunking, tool registries, and review stages into dedicated single-responsibility helper functions and functional pipelines.
+- **DevContainer Standalone Binary Isolation & Mount Hardening (`.devcontainer/devcontainer.json`, `src/devops_cli/commands/devcontainer.py`)**:
+  - Configured dynamic interpreter path (`${containerWorkspaceFolder}/.venv/bin/python`) and remote environment `PATH`.
+  - Preserved native `/usr/local/bin/devops` installation without overwriting with broken workspace symlinks.
+  - Standardized cross-platform SSH mount syntax (`${localEnv:HOME}${localEnv:USERPROFILE}/.ssh`).
+
 ## [0.2.5] - 2026-08-27
 
 ### Added
