@@ -189,60 +189,60 @@ def print(
         content = content.message
 
     effective_stderr = to_stderr or (level == "error")
-    c = console or (get_stderr_console() if effective_stderr else get_console())
+    active_console = console or (get_stderr_console() if effective_stderr else get_console())
     stream_name: Literal["stdout", "stderr"] = "stderr" if effective_stderr else "stdout"
 
     # 3. Pydantic Renderable Models
     if isinstance(content, (TablePayload, KeyValuePayload)):
-        c.print(content.render())
+        active_console.print(content.render())
         return PrintResult(success=True, level=level, stream=stream_name, rendered_type="table")
 
     if isinstance(content, PanelPayload):
-        c.print(content.render())
+        active_console.print(content.render())
         return PrintResult(success=True, level=level, stream=stream_name, rendered_type="panel")
 
     if isinstance(content, MarkdownPayload):
-        c.print(content.render())
+        active_console.print(content.render())
         return PrintResult(success=True, level=level, stream=stream_name, rendered_type="markdown")
 
     if isinstance(content, SyntaxPayload):
-        c.print(content.render())
+        active_console.print(content.render())
         return PrintResult(success=True, level=level, stream=stream_name, rendered_type="syntax")
 
     if isinstance(content, RulePayload):
-        c.print(content.render())
+        active_console.print(content.render())
         return PrintResult(success=True, level=level, stream=stream_name, rendered_type="rule")
 
     if hasattr(content, "render") and not isinstance(
         content, (_RichTable, _RichPanel, _RichMarkdown, _RichSyntax, _RichRule)
     ):
-        c.print(content.render())
+        active_console.print(content.render())
         return PrintResult(
             success=True, level=level, stream=stream_name, rendered_type="renderable"
         )
 
     # 4. Rich Renderables
     if isinstance(content, (_RichTable, _RichPanel, _RichMarkdown, _RichSyntax, _RichRule)):
-        c.print(content)
+        active_console.print(content)
         return PrintResult(success=True, level=level, stream=stream_name, rendered_type="rich")
 
     # 5. Table parameters passed directly
     if columns is not None or rows is not None:
         from devops_cli.output.formatter import render_table
 
-        tbl = render_table(
+        rendered_table = render_table(
             title=title or (content if isinstance(content, str) else ""),
             columns=columns or [],
             rows=rows or [],
             border_style=border_style or DEFAULT_TABLE_BORDER_STYLE,
             box_style=box_style,
         )
-        c.print(tbl)
+        active_console.print(rendered_table)
         return PrintResult(success=True, level=level, stream=stream_name, rendered_type="table")
 
     # 6. Syntax highlighting
     if language is not None:
-        syn = _RichSyntax(
+        rendered_syntax = _RichSyntax(
             str(content),
             language,
             line_numbers=line_numbers or False,
@@ -251,20 +251,22 @@ def print(
             **kwargs,
         )
         if title:
-            c.print(
+            active_console.print(
                 _RichPanel(
-                    syn, title=title, border_style=border_style or DEFAULT_PANEL_BORDER_STYLE
+                    rendered_syntax,
+                    title=title,
+                    border_style=border_style or DEFAULT_PANEL_BORDER_STYLE,
                 )
             )
             return PrintResult(
                 success=True, level=level, stream=stream_name, rendered_type="syntax_panel"
             )
-        c.print(syn)
+        active_console.print(rendered_syntax)
         return PrintResult(success=True, level=level, stream=stream_name, rendered_type="syntax")
 
     # 7. Panel requested via title
     if title is not None and level == "raw":
-        c.print(
+        active_console.print(
             _RichPanel(
                 content,
                 title=title,
@@ -276,14 +278,14 @@ def print(
 
     # 8. Step format
     if level == "step":
-        detail_str = f" [dim]({detail})[/dim]" if detail else ""
-        c.print(f"[bold blue]➔[/bold blue] [bold]{content}[/bold]{detail_str}")
+        detail_suffix = f" [dim]({detail})[/dim]" if detail else ""
+        active_console.print(f"[bold blue]➔[/bold blue] [bold]{content}[/bold]{detail_suffix}")
         return PrintResult(success=True, level="step", stream=stream_name, rendered_type="step")
 
     # 9. Leveled / Plain string messaging
-    msg_str = str(content)
+    formatted_message = str(content)
     if level == "raw":
-        c.print(msg_str)
+        active_console.print(formatted_message)
         return PrintResult(success=True, level="raw", stream=stream_name, rendered_type="text")
 
     defaults: dict[str, tuple[str, str]] = {
@@ -295,27 +297,33 @@ def print(
         "step": ("bold blue", "➔ "),
     }
 
-    def_style, def_prefix = defaults.get(level, ("white", ""))
+    default_level_style, default_level_prefix = defaults.get(level, ("white", ""))
 
     if isinstance(prefix, str):
-        pre_str = prefix
+        prefix_symbol = prefix
     elif prefix is not None:
-        pre_str = def_prefix if prefix else ""
+        prefix_symbol = default_level_prefix if prefix else ""
     else:
-        pre_str = def_prefix
+        prefix_symbol = default_level_prefix
 
     if style is not None:
-        c.print(f"[{style}]{pre_str}{msg_str}[/{style}]")
-    elif pre_str:
+        active_console.print(f"[{style}]{prefix_symbol}{formatted_message}[/{style}]")
+    elif prefix_symbol:
         if level == "info":
-            c.print(f"[{def_style}]{pre_str}[/{def_style}]{msg_str}")
+            active_console.print(
+                f"[{default_level_style}]{prefix_symbol}[/{default_level_style}]{formatted_message}"
+            )
         else:
-            c.print(f"[{def_style}]{pre_str}{msg_str}[/{def_style}]")
+            active_console.print(
+                f"[{default_level_style}]{prefix_symbol}{formatted_message}[/{default_level_style}]"
+            )
     else:
         if level in {"error", "warning", "muted", "success", "step"}:
-            c.print(f"[{def_style}]{msg_str}[/{def_style}]")
+            active_console.print(
+                f"[{default_level_style}]{formatted_message}[/{default_level_style}]"
+            )
         else:
-            c.print(msg_str)
+            active_console.print(formatted_message)
 
     return PrintResult(success=True, level=level, stream=stream_name, rendered_type="message")
 
@@ -403,8 +411,8 @@ def print_section(
 ) -> None:
     """Print a styled section rule divider."""
     if isinstance(title, str):
-        c = console or get_console()
-        c.print(_RichRule(title, style=style))
+        active_console = console or get_console()
+        active_console.print(_RichRule(title, style=style))
     else:
         print(title, console=console)
 
@@ -416,8 +424,8 @@ def print_markdown(
 ) -> None:
     """Render and print markdown text."""
     if isinstance(markdown_text, str):
-        c = console or get_console()
-        c.print(_RichMarkdown(markdown_text))
+        active_console = console or get_console()
+        active_console.print(_RichMarkdown(markdown_text))
     else:
         print(markdown_text, console=console)
 
@@ -459,8 +467,10 @@ def print_panel(
     if hasattr(renderable, "render"):
         print(renderable, console=console)
     else:
-        c = console or get_console()
-        c.print(_RichPanel(renderable, title=title, border_style=border_style, **kwargs))
+        active_console = console or get_console()
+        active_console.print(
+            _RichPanel(renderable, title=title, border_style=border_style, **kwargs)
+        )
 
 
 def print_table(
@@ -508,8 +518,8 @@ def track_progress[T](
     console: Any = None,
 ) -> Generator[T]:
     """Iterate with Rich progress bar tracking."""
-    c = console or get_console()
-    yield from _rich_track(iterable, description=description, console=c)
+    active_console = console or get_console()
+    yield from _rich_track(iterable, description=description, console=active_console)
 
 
 def print_syntax_panel(
@@ -524,7 +534,7 @@ def print_syntax_panel(
     console: Any = None,
 ) -> None:
     """Render syntax-highlighted code inside a styled panel."""
-    c = console or get_console()
+    active_console = console or get_console()
     syntax = (
         code.render()
         if hasattr(code, "render")
@@ -536,7 +546,7 @@ def print_syntax_panel(
             theme=theme,
         )
     )
-    c.print(_RichPanel(syntax, title=title, border_style=border_style))
+    active_console.print(_RichPanel(syntax, title=title, border_style=border_style))
 
 
 @contextmanager
@@ -551,13 +561,13 @@ def progress_context(
     Yields:
         update_fn(description: str, completed: float)
     """
-    c = console or get_console()
+    active_console = console or get_console()
     with _RichProgress(
         _RichSpinnerColumn(),
         _RichTextColumn("[progress.description]{task.description}"),
         _RichBarColumn(),
         _RichTextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-        console=c,
+        console=active_console,
     ) as progress:
         task_id = progress.add_task(description, total=total)
 
@@ -602,7 +612,7 @@ def print_dry_run_command(
 
     from devops_cli.lang.en.messages import MESSAGES
 
-    c = console or get_console()
+    active_console = console or get_console()
     if isinstance(command, list):
         safe_cmd = _sanitize_command_args_for_display(command)
         rendered = shlex.join(safe_cmd)
@@ -614,7 +624,7 @@ def print_dry_run_command(
     msg_template = (
         MESSAGES.dry_run.would_run_delegated if delegated else MESSAGES.dry_run.would_run_command
     )
-    c.print(msg_template.format(command=rendered))
+    active_console.print(msg_template.format(command=rendered))
 
 
 def print_dry_run_result(
@@ -625,17 +635,17 @@ def print_dry_run_result(
     """Print structured CommandDryRunResult JSON for dry-run mode."""
     from devops_cli.lang.en.messages import MESSAGES
 
-    c = console or get_console()
-    c.print(MESSAGES.dry_run.command_response_header)
+    active_console = console or get_console()
+    active_console.print(MESSAGES.dry_run.command_response_header)
     dump_fn = getattr(result, "model_dump_json", None)
     if callable(dump_fn):
-        c.print_json(dump_fn(indent=2))
+        active_console.print_json(dump_fn(indent=2))
     elif isinstance(result, str):
-        c.print_json(result)
+        active_console.print_json(result)
     else:
         import json
 
-        c.print_json(json.dumps(result, indent=2, default=str))
+        active_console.print_json(json.dumps(result, indent=2, default=str))
 
 
 def render_dry_run_result(

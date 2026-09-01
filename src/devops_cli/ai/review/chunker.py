@@ -87,6 +87,53 @@ def _render_source_block(rel: Path, suffix: str, text: str, index: int = 1, tota
     return f"{title}\n```{suffix}\n{text}\n```"
 
 
+def _compute_line_slices(lines: list[str], window_cap: int) -> list[tuple[int, int]]:
+    """Partition lines into slice ranges fitting within window capacity."""
+    line_counts = len(lines)
+    slices: list[tuple[int, int]] = []
+    start_idx = 0
+    while start_idx < line_counts:
+        curr_len = 0
+        end_idx = start_idx
+        while end_idx < line_counts and curr_len + len(lines[end_idx]) <= window_cap:
+            curr_len += len(lines[end_idx])
+            end_idx += 1
+        if end_idx == start_idx:
+            end_idx = start_idx + 1
+        slices.append((start_idx, end_idx))
+        start_idx = end_idx
+    return slices
+
+
+def _extract_top_overlap(lines: list[str], start_idx: int, overlap_cap: int) -> str:
+    """Extract preceding overlap context lines for a window slice."""
+    if start_idx <= 0:
+        return ""
+    top_lines: list[str] = []
+    top_len = 0
+    for idx in range(start_idx - 1, -1, -1):
+        if top_len + len(lines[idx]) > overlap_cap:
+            break
+        top_lines.insert(0, lines[idx])
+        top_len += len(lines[idx])
+    return "".join(top_lines) if top_lines else ""
+
+
+def _extract_bottom_overlap(lines: list[str], end_idx: int, overlap_cap: int) -> str:
+    """Extract succeeding overlap context lines for a window slice."""
+    line_counts = len(lines)
+    if end_idx >= line_counts:
+        return ""
+    bot_lines: list[str] = []
+    bot_len = 0
+    for idx in range(end_idx, line_counts):
+        if bot_len + len(lines[idx]) > overlap_cap:
+            break
+        bot_lines.append(lines[idx])
+        bot_len += len(lines[idx])
+    return "".join(bot_lines) if bot_lines else ""
+
+
 def _split_source_file_blocks(
     rel: Path,
     suffix: str,
@@ -109,48 +156,14 @@ def _split_source_file_blocks(
     overlap_cap = max(10, int(payload_budget * overlap_factor))
 
     lines = text.splitlines(keepends=True)
-    line_counts = len(lines)
-    start_idx = 0
-
-    slices: list[tuple[int, int]] = []
-    while start_idx < line_counts:
-        curr_len = 0
-        end_idx = start_idx
-        while end_idx < line_counts and curr_len + len(lines[end_idx]) <= window_cap:
-            curr_len += len(lines[end_idx])
-            end_idx += 1
-        if end_idx == start_idx:
-            end_idx = start_idx + 1
-        slices.append((start_idx, end_idx))
-        start_idx = end_idx
-
+    slices = _compute_line_slices(lines, window_cap)
     total_parts = len(slices)
     windows: list[str] = []
+
     for part_idx, (s_idx, e_idx) in enumerate(slices, 1):
         core_text = "".join(lines[s_idx:e_idx])
-        top_overlap = ""
-        if s_idx > 0:
-            top_lines: list[str] = []
-            top_len = 0
-            for idx in range(s_idx - 1, -1, -1):
-                if top_len + len(lines[idx]) > overlap_cap:
-                    break
-                top_lines.insert(0, lines[idx])
-                top_len += len(lines[idx])
-            if top_lines:
-                top_overlap = "".join(top_lines)
-
-        bottom_overlap = ""
-        if e_idx < line_counts:
-            bot_lines: list[str] = []
-            bot_len = 0
-            for idx in range(e_idx, line_counts):
-                if bot_len + len(lines[idx]) > overlap_cap:
-                    break
-                bot_lines.append(lines[idx])
-                bot_len += len(lines[idx])
-            if bot_lines:
-                bottom_overlap = "".join(bot_lines)
+        top_overlap = _extract_top_overlap(lines, s_idx, overlap_cap)
+        bottom_overlap = _extract_bottom_overlap(lines, e_idx, overlap_cap)
 
         window_body = f"{top_overlap}{core_text}{bottom_overlap}"
         rendered = _render_source_block(rel, suffix, window_body, part_idx, total_parts)
@@ -202,49 +215,15 @@ def _paginate_file_diff_block(
         return _split_text_lines(block, max_chars)
 
     effective_cap = max(50, window_cap - len(preamble))
+    slices = _compute_line_slices(body_lines, effective_cap)
     windows: list[str] = []
-    line_counts = len(body_lines)
-    start_idx = 0
 
-    while start_idx < line_counts:
-        curr_len = 0
-        end_idx = start_idx
-        while end_idx < line_counts and curr_len + len(body_lines[end_idx]) <= effective_cap:
-            curr_len += len(body_lines[end_idx])
-            end_idx += 1
-
-        if end_idx == start_idx:
-            end_idx = start_idx + 1
-
-        core_text = "".join(body_lines[start_idx:end_idx])
-
-        top_overlap = ""
-        if start_idx > 0:
-            top_lines: list[str] = []
-            top_len = 0
-            for idx in range(start_idx - 1, -1, -1):
-                if top_len + len(body_lines[idx]) > overlap_cap:
-                    break
-                top_lines.insert(0, body_lines[idx])
-                top_len += len(body_lines[idx])
-            if top_lines:
-                top_overlap = "".join(top_lines)
-
-        bottom_overlap = ""
-        if end_idx < line_counts:
-            bot_lines: list[str] = []
-            bot_len = 0
-            for idx in range(end_idx, line_counts):
-                if bot_len + len(body_lines[idx]) > overlap_cap:
-                    break
-                bot_lines.append(body_lines[idx])
-                bot_len += len(body_lines[idx])
-            if bot_lines:
-                bottom_overlap = "".join(bot_lines)
-
+    for s_idx, e_idx in slices:
+        core_text = "".join(body_lines[s_idx:e_idx])
+        top_overlap = _extract_top_overlap(body_lines, s_idx, overlap_cap)
+        bottom_overlap = _extract_bottom_overlap(body_lines, e_idx, overlap_cap)
         window_content = f"{preamble}{top_overlap}{core_text}{bottom_overlap}"
         windows.append(window_content)
-        start_idx = end_idx
 
     return windows
 
@@ -259,7 +238,7 @@ def _is_generated_diff_block(block: str) -> bool:
     return Path(filename).name in CONST_REVIEW_GENERATED_FILES
 
 
-def _diff_pages(
+def diff_pages(
     diff: str,
     max_chars: int = DEFAULT_REVIEW_MAX_DIFF_CHARS,
     window_size_factor: float = DEFAULT_REVIEW_WINDOW_SIZE_FACTOR,
@@ -280,7 +259,33 @@ def _diff_pages(
     return pages or [""]
 
 
-def _find_repo_files(
+def _is_reviewable_candidate_file(
+    candidate: Path,
+    root: Path,
+    ignore_set: set[str],
+    max_file_size: int,
+) -> bool:
+    """Check if candidate file meets review criteria (non-symlink, within root, text, non-ignored)."""
+    if candidate.is_symlink() or not candidate.is_file():
+        return False
+    try:
+        if not candidate.resolve().is_relative_to(root):
+            return False
+    except Exception:
+        return False
+    if any(part in ignore_set for part in candidate.parts):
+        return False
+    if candidate.suffix.lower() in CONST_BINARY_EXTENSIONS:
+        return False
+    try:
+        if candidate.stat().st_size > max_file_size:
+            return False
+    except OSError:
+        return False
+    return True
+
+
+def find_repo_files(
     target: Path,
     pattern: str = DEFAULT_MATCH_ALL_PATTERN,
     max_file_size: int = CONST_MAX_FILE_SIZE_BYTES,
@@ -293,33 +298,20 @@ def _find_repo_files(
     if not target_resolved.is_relative_to(root):
         raise SecurityError("target must be a sub-path of the repository root")
 
-    ignore_set = excluded_dirs or set(CONST_GITIGNORE_DIRS)
-    files: list[Path] = []
     if target.is_file():
         if target.is_symlink() or not target_resolved.is_relative_to(root):
             return []
         return [target]
 
-    for p in sorted(target.rglob(pattern)):
-        if p.is_symlink() or not p.is_file():
-            continue
-        try:
-            if not p.resolve().is_relative_to(root):
-                continue
-        except Exception:
-            continue
-        if any(part in ignore_set for part in p.parts):
-            continue
-        if p.suffix.lower() in CONST_BINARY_EXTENSIONS:
-            continue
-        try:
-            if p.stat().st_size > max_file_size:
-                continue
-        except OSError:
-            continue
-        files.append(p)
-    return files
+    ignore_set = excluded_dirs or set(CONST_GITIGNORE_DIRS)
+    return [
+        p
+        for p in sorted(target.rglob(pattern))
+        if _is_reviewable_candidate_file(p, root, ignore_set, max_file_size)
+    ]
 
 
-diff_pages = _diff_pages
-find_repo_files = _find_repo_files
+_diff_pages = diff_pages
+_find_repo_files = find_repo_files
+
+__all__ = ["diff_pages", "find_repo_files"]

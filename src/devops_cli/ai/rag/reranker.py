@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from devops_cli.ai.rag.models import SearchResult
+from devops_cli.ai.rag.models import CodeChunk, SearchResult
 from devops_cli.config.defaults import (
     DEFAULT_RERANKER_DECLARATION_BONUS,
     DEFAULT_RERANKER_INTENT_BOOST,
@@ -63,6 +63,89 @@ _QA_INTENT_WORDS = {
 }
 
 
+def _calculate_token_overlap(
+    query_tokens: set[str], chunk_tokens: set[str], file_tokens: set[str]
+) -> float:
+    """Calculate token overlap ratio between query and chunk contents/filepath."""
+    if not query_tokens:
+        return 0.0
+    return len(query_tokens & (chunk_tokens | file_tokens)) / len(query_tokens)
+
+
+def _has_matching_symbol(query_tokens: set[str], symbol_names: list[str]) -> bool:
+    """Check if any query token matches symbol names."""
+    symbols_lower = [s.lower() for s in symbol_names]
+    return any(len(q_tok) > 2 and any(q_tok in s for s in symbols_lower) for q_tok in query_tokens)
+
+
+def _has_matching_declaration(query_tokens: set[str], declarations: list[str]) -> bool:
+    """Check if any query token matches declaration names."""
+    decl_lower = [d.lower() for d in declarations]
+    return any(
+        len(q_tok) > 2 and any(q_tok == d or q_tok in d for d in decl_lower)
+        for q_tok in query_tokens
+    )
+
+
+def _calculate_category_intent(
+    chunk: CodeChunk, is_doc_intent: bool, is_code_intent: bool
+) -> float:
+    """Evaluate document vs code category alignment with query intent."""
+    if is_doc_intent and chunk.category == "docs":
+        return 1.0
+    if is_code_intent and chunk.category in ("code", "iac"):
+        return 1.0
+    return 0.0
+
+
+def _calculate_security_alignment(query: str, sec_tags: list[str]) -> float:
+    """Evaluate security domain alignment."""
+    sec_keywords = ("sec", "auth", "token", "key", "cert", "tls", "crypto", "sql", "db")
+    if sec_tags and any(tag in query.lower() for tag in sec_keywords):
+        return 1.0
+    return 0.0
+
+
+def _calculate_structural_alignment(
+    query_tokens: set[str], struct_tags: list[str], frameworks: list[str]
+) -> float:
+    """Evaluate structural tags and framework keyword matches."""
+    struct_score = 0.5 if (struct_tags and any(st in query_tokens for st in struct_tags)) else 0.0
+    if frameworks and any(fw in query_tokens for fw in frameworks):
+        struct_score += 0.5
+    return struct_score
+
+
+def _calculate_test_penalty(chunk: CodeChunk, is_qa_intent: bool) -> tuple[float, float]:
+    """Calculate test file penalty or boost."""
+    is_test_chunk = chunk.metadata.get("is_test", False) or "test_" in chunk.file_path.lower()
+    if is_test_chunk and not is_qa_intent:
+        return 0.0, 0.10
+    if is_test_chunk and is_qa_intent:
+        return 1.0, 0.0
+    return 0.0, 0.0
+
+
+def _compute_chunk_intent_signals(
+    query: str,
+    query_tokens: set[str],
+    chunk: CodeChunk,
+    is_doc_intent: bool,
+    is_code_intent: bool,
+    is_qa_intent: bool,
+) -> tuple[float, float, float, float]:
+    """Compute intent alignment, security score, structural score, and test penalty."""
+    cat_intent = _calculate_category_intent(chunk, is_doc_intent, is_code_intent)
+    sec_score = _calculate_security_alignment(query, chunk.metadata.get("security_tags", []))
+    struct_score = _calculate_structural_alignment(
+        query_tokens,
+        chunk.metadata.get("structural_tags", []),
+        chunk.metadata.get("frameworks", []),
+    )
+    test_boost, test_penalty = _calculate_test_penalty(chunk, is_qa_intent)
+    return cat_intent + test_boost, sec_score, struct_score, test_penalty
+
+
 class SearchReranker:
     """Re-ranks initial semantic search candidates using multi-factor hybrid scoring."""
 
@@ -84,6 +167,54 @@ class SearchReranker:
         self.security_intent_boost = security_intent_boost
         self.structural_intent_boost = structural_intent_boost
 
+    def _score_search_result(
+        self,
+        r: SearchResult,
+        query: str,
+        query_tokens: set[str],
+        is_doc_intent: bool,
+        is_code_intent: bool,
+        is_qa_intent: bool,
+    ) -> SearchResult:
+        """Score a single SearchResult using weighted hybrid scoring."""
+        chunk = r.chunk
+        chunk_tokens = set(re.findall(r"\w+", chunk.content.lower()))
+        file_tokens = set(re.findall(r"\w+", chunk.file_path.lower()))
+
+        token_overlap = _calculate_token_overlap(query_tokens, chunk_tokens, file_tokens)
+        symbol_score = 1.0 if _has_matching_symbol(query_tokens, chunk.symbol_names) else 0.0
+        declarations = chunk.metadata.get("declarations", [])
+        decl_score = 1.0 if _has_matching_declaration(query_tokens, declarations) else 0.0
+
+        intent_score, sec_score, struct_score, test_penalty = _compute_chunk_intent_signals(
+            query, query_tokens, chunk, is_doc_intent, is_code_intent, is_qa_intent
+        )
+
+        base_vector_score = max(0.0, min(1.0, r.score))
+        fused_score = (
+            (self.vector_weight * base_vector_score)
+            + (self.lexical_weight * token_overlap)
+            + (self.symbol_bonus * symbol_score)
+            + (self.declaration_bonus * decl_score)
+            + (self.doc_intent_boost * intent_score)
+            + (self.security_intent_boost * sec_score)
+            + (self.structural_intent_boost * struct_score)
+            - test_penalty
+        )
+        fused_score = max(0.0, min(1.0, fused_score))
+
+        r.rerank_score = round(fused_score, 4)
+        r.rank_factors = {
+            "vector": round(base_vector_score, 4),
+            "lexical": round(token_overlap, 4),
+            "symbol": round(symbol_score, 4),
+            "declaration": round(decl_score, 4),
+            "intent": round(intent_score, 4),
+            "security": round(sec_score, 4),
+            "structural": round(struct_score, 4),
+        }
+        return r
+
     def rerank(
         self,
         query: str,
@@ -100,108 +231,15 @@ class SearchReranker:
         is_code_intent = bool(query_tokens & _CODE_INTENT_WORDS)
         is_qa_intent = bool(query_tokens & _QA_INTENT_WORDS)
 
-        scored_results: list[SearchResult] = []
-
-        for r in results:
-            chunk = r.chunk
-            chunk_tokens = set(re.findall(r"\w+", chunk.content.lower()))
-            file_tokens = set(re.findall(r"\w+", chunk.file_path.lower()))
-
-            # 1. Lexical Token Overlap Jaccard / Overlap Score
-            if query_tokens:
-                token_overlap = len(query_tokens & (chunk_tokens | file_tokens)) / len(query_tokens)
-            else:
-                token_overlap = 0.0
-
-            # 2. Exact Symbol Match Bonus
-            symbol_match = False
-            symbols_lower = [s.lower() for s in chunk.symbol_names]
-            for q_tok in query_tokens:
-                if len(q_tok) > 2 and any(q_tok in s for s in symbols_lower):
-                    symbol_match = True
-                    break
-
-            symbol_score = 1.0 if symbol_match else 0.0
-
-            # 3. Declaration Primacy Bonus (actual definition site)
-            declarations = [d.lower() for d in chunk.metadata.get("declarations", [])]
-            declaration_match = False
-            for q_tok in query_tokens:
-                if len(q_tok) > 2 and any(q_tok == d or q_tok in d for d in declarations):
-                    declaration_match = True
-                    break
-
-            decl_score = 1.0 if declaration_match else 0.0
-
-            # 4. Intent Alignment Score
-            intent_score = 0.0
-            if is_doc_intent and chunk.category == "docs":
-                intent_score += 1.0
-            elif is_code_intent and chunk.category in ("code", "iac"):
-                intent_score += 1.0
-
-            # 5. Security Alignment Score
-            sec_tags: list[str] = chunk.metadata.get("security_tags", [])
-            sec_score = 0.0
-            if sec_tags and any(
-                tag in query.lower()
-                for tag in ("sec", "auth", "token", "key", "cert", "tls", "crypto", "sql", "db")
-            ):
-                sec_score = 1.0
-
-            # 6. Structural Domain / Framework Alignment
-            struct_tags: list[str] = chunk.metadata.get("structural_tags", [])
-            frameworks: list[str] = chunk.metadata.get("frameworks", [])
-            struct_score = 0.0
-            if struct_tags and any(st in query_tokens for st in struct_tags):
-                struct_score += 0.5
-            if frameworks and any(fw in query_tokens for fw in frameworks):
-                struct_score += 0.5
-
-            # 7. Test Alignment vs Production Code Prioritization
-            is_test_chunk = (
-                chunk.metadata.get("is_test", False) or "test_" in chunk.file_path.lower()
+        scored_results = [
+            self._score_search_result(
+                r, query, query_tokens, is_doc_intent, is_code_intent, is_qa_intent
             )
-            test_penalty = 0.0
-            if is_test_chunk and not is_qa_intent:
-                test_penalty = 0.10
-            elif is_test_chunk and is_qa_intent:
-                intent_score += 1.0
+            for r in results
+        ]
 
-            # Composite hybrid score calculation
-            base_vector_score = max(0.0, min(1.0, r.score))
-            fused_score = (
-                (self.vector_weight * base_vector_score)
-                + (self.lexical_weight * token_overlap)
-                + (self.symbol_bonus * symbol_score)
-                + (self.declaration_bonus * decl_score)
-                + (self.doc_intent_boost * intent_score)
-                + (self.security_intent_boost * sec_score)
-                + (self.structural_intent_boost * struct_score)
-                - test_penalty
-            )
-            fused_score = max(0.0, min(1.0, fused_score))
-
-            factors: dict[str, float] = {
-                "vector": round(base_vector_score, 4),
-                "lexical": round(token_overlap, 4),
-                "symbol": round(symbol_score, 4),
-                "declaration": round(decl_score, 4),
-                "intent": round(intent_score, 4),
-                "security": round(sec_score, 4),
-                "structural": round(struct_score, 4),
-            }
-
-            r.rerank_score = round(fused_score, 4)
-            r.rank_factors = factors
-            scored_results.append(r)
-
-        # Sort descending by composite rerank score
         scored_results.sort(key=lambda x: x.rerank_score or 0.0, reverse=True)
-
-        if top_k is not None and top_k > 0:
-            return scored_results[:top_k]
-        return scored_results
+        return scored_results[:top_k] if (top_k is not None and top_k > 0) else scored_results
 
 
 class CrossEncoderReranker:

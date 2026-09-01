@@ -738,6 +738,25 @@ class ReviewPipelineOrchestrator:
         return "LLM server"
 
     # ── Stage 1: Pre-Analysis & Metadata Refresh ──────────────────────────────
+    @staticmethod
+    def _resolve_paths_for_pre_analysis(target_abs: Path, repo: Path) -> list[Path]:
+        """Resolve list of paths to scan based on target existence."""
+        from devops_cli.core.repo import list_repo_files
+
+        if target_abs.exists():
+            return [target_abs] if target_abs.is_file() else list_repo_files(target_abs)
+        return list_repo_files(repo)
+
+    @staticmethod
+    def _load_pre_analysis_cache(repo: Path, force_refresh: bool) -> dict[str, FileAnalysisMeta]:
+        """Load cached file metadata from previous analysis run if available."""
+        if force_refresh:
+            return {}
+        cached_meta = load_cached_analysis(repo)
+        if not cached_meta:
+            return {}
+        return {fmeta.path: fmeta for fmeta in cached_meta.files}
+
     def run_pre_analysis_refresh(
         self,
         target_dir: Path = DEFAULT_CURRENT_PATH,
@@ -748,7 +767,7 @@ class ReviewPipelineOrchestrator:
     ) -> dict[str, FileAnalysisMeta]:
         """Scan workspace and refresh metadata if files were edited or missing."""
         from devops_cli.ai.analyze.cache import save_analysis_metadata
-        from devops_cli.core.repo import find_repo_root, list_repo_files
+        from devops_cli.core.repo import find_repo_root
         from devops_cli.dry_run.state import is_dry_run
 
         if is_dry_run():
@@ -776,23 +795,10 @@ class ReviewPipelineOrchestrator:
                 prefix=False,
             )
 
-            existing_file_metas: dict[str, FileAnalysisMeta] = {}
-            cached_meta = load_cached_analysis(repo)
-            if cached_meta and not force_refresh:
-                for fmeta in cached_meta.files:
-                    existing_file_metas[fmeta.path] = fmeta
-
-            collected_paths: list[Path] = []
-            if target_abs.exists():
-                if target_abs.is_file():
-                    collected_paths = [target_abs]
-                else:
-                    collected_paths = list_repo_files(target_abs)
-            else:
-                collected_paths = list_repo_files(repo)
+            existing_file_metas = self._load_pre_analysis_cache(repo, force_refresh)
+            collected_paths = self._resolve_paths_for_pre_analysis(target_abs, repo)
 
             metadata_by_path: dict[str, FileAnalysisMeta] = {}
-            updated_any = False
             file_metas: list[FileAnalysisMeta] = []
 
             config = getattr(self.llm_client, "_config", None)
@@ -810,6 +816,7 @@ class ReviewPipelineOrchestrator:
                 metadata_by_path,
             )
 
+            updated_any = False
             if paths_to_analyze:
                 new_metas = _execute_pre_analysis_batch(
                     paths_to_analyze, repo, self.llm_client, batch_capacity
@@ -1397,7 +1404,7 @@ class ReviewPipelineOrchestrator:
                 )
                 return
 
-            from devops_cli.ai.review.chunker import _diff_pages
+            from devops_cli.ai.review.chunker import diff_pages
             from devops_cli.config.defaults import (
                 DEFAULT_AI_CONTEXT_WINDOW,
                 DEFAULT_REVIEW_MAX_DIFF_CHARS,
@@ -1411,7 +1418,7 @@ class ReviewPipelineOrchestrator:
             max_diff_chars = max(DEFAULT_REVIEW_MAX_DIFF_CHARS, int(ctx_win * 3.5))
 
             pages = (
-                _diff_pages(content_or_diff, max_chars=max_diff_chars)
+                diff_pages(content_or_diff, max_chars=max_diff_chars)
                 if len(content_or_diff) > max_diff_chars
                 else [content_or_diff]
             )

@@ -1008,35 +1008,37 @@ class BenchmarkRunner:
             ("Self-Bias", "yellow"),
         ]
         rows: list[list[str]] = []
-        for idx, m in enumerate(report.leaderboard, start=1):
+        for rank_index, model_summary in enumerate(report.leaderboard, start=1):
             rank_badge = (
-                "🥇" if idx == 1 else ("🥈" if idx == 2 else ("🥉" if idx == 3 else f"#{idx}"))
+                "🥇"
+                if rank_index == 1
+                else ("🥈" if rank_index == 2 else ("🥉" if rank_index == 3 else f"#{rank_index}"))
             )
             bias_str = (
-                f"+{m.grading_strictness_index:.1f}%"
-                if m.grading_strictness_index > 0
-                else f"{m.grading_strictness_index:.1f}%"
+                f"+{model_summary.grading_strictness_index:.1f}%"
+                if model_summary.grading_strictness_index > 0
+                else f"{model_summary.grading_strictness_index:.1f}%"
             )
-            if m.self_preference_bias < -5.0:
-                self_bias_str = f"[green]{m.self_preference_bias:.1f}%[/green] (strict)"
-            elif m.self_preference_bias > 15.0:
-                self_bias_str = f"[red]+{m.self_preference_bias:.1f}%[/red] (inflated)"
-            elif m.self_preference_bias > 0:
-                self_bias_str = f"+{m.self_preference_bias:.1f}%"
+            if model_summary.self_preference_bias < -5.0:
+                self_bias_str = f"[green]{model_summary.self_preference_bias:.1f}%[/green] (strict)"
+            elif model_summary.self_preference_bias > 15.0:
+                self_bias_str = f"[red]+{model_summary.self_preference_bias:.1f}%[/red] (inflated)"
+            elif model_summary.self_preference_bias > 0:
+                self_bias_str = f"+{model_summary.self_preference_bias:.1f}%"
             else:
-                self_bias_str = f"{m.self_preference_bias:.1f}%"
+                self_bias_str = f"{model_summary.self_preference_bias:.1f}%"
             rows.append(
                 [
                     rank_badge,
-                    m.model,
-                    f"{m.overall_percentage:.1f}%",
-                    f"{m.peer_only_percentage:.1f}%",
-                    f"{m.accuracy_avg * 10.0:.1f}%",
-                    f"{m.security_avg * 10.0:.1f}%",
-                    f"{m.completeness_avg * 10.0:.1f}%",
-                    f"{m.clarity_avg * 10.0:.1f}%",
-                    f"{m.judge_weight:.2f}",
-                    f"{m.average_duration_seconds:.1f}s",
+                    model_summary.model,
+                    f"{model_summary.overall_percentage:.1f}%",
+                    f"{model_summary.peer_only_percentage:.1f}%",
+                    f"{model_summary.accuracy_avg * 10.0:.1f}%",
+                    f"{model_summary.security_avg * 10.0:.1f}%",
+                    f"{model_summary.completeness_avg * 10.0:.1f}%",
+                    f"{model_summary.clarity_avg * 10.0:.1f}%",
+                    f"{model_summary.judge_weight:.2f}",
+                    f"{model_summary.average_duration_seconds:.1f}s",
                     bias_str,
                     self_bias_str,
                 ]
@@ -1045,34 +1047,34 @@ class BenchmarkRunner:
         base_bench_dir = _get_benchmarks_base_dir()
         report_path = base_bench_dir / f"{report.session_id}-benchmark.json"
         write_stdout("\n")
-        tbl_leaderboard = TablePayload(
+        leaderboard_table = TablePayload(
             title=f"AI Benchmark Leaderboard (Session {report.session_id})",
             columns=columns,
             rows=rows,
         )
-        print(tbl_leaderboard)
+        print(leaderboard_table)
 
         if len(report.tasks_run) > 1:
-            categories = sorted({t.category for t in report.tasks_run})
-            cat_cols: list[Any] = [("Model", "cyan")]
-            for cat in categories:
-                cat_cols.append(cat.capitalize())
+            categories = sorted({task.category for task in report.tasks_run})
+            category_columns: list[Any] = [("Model", "cyan")]
+            for category in categories:
+                category_columns.append(category.capitalize())
 
-            cat_rows: list[list[str]] = []
-            for m in report.leaderboard:
-                r = [m.model]
-                for cat in categories:
-                    score = m.category_scores.get(cat, 0.0)
-                    r.append(f"{score:.1f}%")
-                cat_rows.append(r)
+            category_rows: list[list[str]] = []
+            for model_summary in report.leaderboard:
+                row = [model_summary.model]
+                for category in categories:
+                    score = model_summary.category_scores.get(category, 0.0)
+                    row.append(f"{score:.1f}%")
+                category_rows.append(row)
 
             write_stdout("\n")
-            tbl_categories = TablePayload(
+            category_table = TablePayload(
                 title=f"Domain Category Breakdown (Session {report.session_id})",
-                columns=cat_cols,
-                rows=cat_rows,
+                columns=category_columns,
+                rows=category_rows,
             )
-            print(tbl_categories)
+            print(category_table)
 
         if report.server_benchmarks:
             server_cols: list[Any] = [
@@ -1088,25 +1090,27 @@ class BenchmarkRunner:
 
             fastest_latency = min(
                 (
-                    s.generation_duration_avg
-                    for s in report.server_benchmarks
-                    if s.generation_duration_avg > 0
+                    server_summary.generation_duration_avg
+                    for server_summary in report.server_benchmarks
+                    if server_summary.generation_duration_avg > 0
                 ),
                 default=0.0,
             )
 
             server_rows: list[list[str]] = []
             multi_server = len(report.server_benchmarks) > 1
-            for s in report.server_benchmarks:
-                server_rows.append(_format_server_hardware_row(s, fastest_latency, multi_server))
+            for server_summary in report.server_benchmarks:
+                server_rows.append(
+                    _format_server_hardware_row(server_summary, fastest_latency, multi_server)
+                )
 
             write_stdout("\n")
-            tbl_servers = TablePayload(
+            server_table = TablePayload(
                 title=f"Ollama Server Hardware & Node Performance (Session {report.session_id})",
                 columns=server_cols,
                 rows=server_rows,
             )
-            print(tbl_servers)
+            print(server_table)
 
         print(f"Detailed benchmark report saved → [cyan]{report_path}[/cyan]", level="success")
 

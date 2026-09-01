@@ -174,6 +174,50 @@ def _format_related_file_block(rmeta: Any, repo_root: Path | None) -> str | None
     return "\n".join(r_lines)
 
 
+def _extract_finding_excerpt(finding: Finding, all_segments: list[str]) -> str | None:
+    """Extract and sanitize relevant snippet for a finding from diff segments."""
+    for segment in all_segments:
+        ctx = _extract_location_context(segment, finding.location)
+        if ctx:
+            clean_ctx = _sanitize_prompt_boundary_tags(ctx)
+            return f"### Finding: {finding.title} ({finding.location})\n```\n{clean_ctx}\n```"
+    return None
+
+
+def _collect_related_metadata_blocks(
+    findings: list[Finding],
+    analysis_metas: dict[str, Any],
+    repo_root: Path | None,
+) -> list[str]:
+    """Collect related file metadata and context blocks for findings."""
+    related_blocks: list[str] = []
+    for finding in findings:
+        loc_file = finding.location.split(":")[0].strip()
+        for rmeta in _find_related_file_metas(finding, loc_file, analysis_metas):
+            block = _format_related_file_block(rmeta, repo_root)
+            if block:
+                related_blocks.append(block)
+    return list(dict.fromkeys(related_blocks))
+
+
+def _collect_rag_verification_blocks(findings: list[Finding]) -> list[str]:
+    """Query semantic RAG context for findings."""
+    rag_blocks: list[str] = []
+    try:
+        from devops_cli.ai.rag.investigator import investigate_rag_context
+
+        for finding in findings:
+            query = f"{finding.title} {finding.description}"
+            rag_ctx = investigate_rag_context(query, top_k=2)
+            if rag_ctx and rag_ctx.has_results:
+                rag_blocks.append(
+                    f"### Context for Finding {finding.title}:\n{rag_ctx.formatted_text}"
+                )
+    except Exception:
+        pass
+    return rag_blocks
+
+
 def _build_validation_prompt(
     findings: list[Finding],
     all_segments: list[str],
@@ -181,41 +225,10 @@ def _build_validation_prompt(
     repo_root: Path | None = None,
 ) -> str:
     excerpts: list[str] = []
-    related_file_blocks: list[str] = []
-
-    if analysis_metas is None:
-        analysis_metas = {}
-
-    for f in findings:
-        primary = ""
-        additional: list[str] = []
-        for seg in all_segments:
-            ctx = _extract_location_context(seg, f.location)
-            if not ctx:
-                continue
-            if not primary:
-                primary = ctx
-            elif ctx != primary:
-                additional.append(ctx)
-        parts: list[str] = []
-        if primary:
-            clean_prim = _sanitize_prompt_boundary_tags(_mask_secrets_in_content(primary[:1500]))
-            parts.append(f"```\n{clean_prim}\n```")
-        for extra in additional[:2]:
-            clean_extra = _sanitize_prompt_boundary_tags(_mask_secrets_in_content(extra[:800]))
-            parts.append(f"```\n{clean_extra}\n```")
-            if ctx:
-                clean_ctx = _sanitize_prompt_boundary_tags(ctx)
-                excerpts.append(f"### Finding: {f.title} ({f.location})\n```\n{clean_ctx}\n```")
-                break
-
-        # Grounding with file analysis metadata if available
-        loc_file = f.location.split(":")[0].strip()
-        if analysis_metas:
-            for rmeta in _find_related_file_metas(f, loc_file, analysis_metas):
-                block = _format_related_file_block(rmeta, repo_root)
-                if block:
-                    related_file_blocks.append(block)
+    for finding in findings:
+        excerpt = _extract_finding_excerpt(finding, all_segments)
+        if excerpt:
+            excerpts.append(excerpt)
 
     if excerpts:
         code_section = "\n\n".join(excerpts)
@@ -224,33 +237,20 @@ def _build_validation_prompt(
         code_section = _sanitize_prompt_boundary_tags(_mask_secrets_in_content(full_code))
 
     related_section = ""
-    if related_file_blocks:
-        dedup_related = list(dict.fromkeys(related_file_blocks))
-        related_section = (
-            "\n\nRelated Analysis Metadata & Context:\n<untrusted_related_files>\n"
-            + "\n\n".join(dedup_related[:10])
-            + "\n</untrusted_related_files>\n\n"
-        )
+    if analysis_metas:
+        related_file_blocks = _collect_related_metadata_blocks(findings, analysis_metas, repo_root)
+        if related_file_blocks:
+            related_section = (
+                "\n\nRelated Analysis Metadata & Context:\n<untrusted_related_files>\n"
+                + "\n\n".join(related_file_blocks[:10])
+                + "\n</untrusted_related_files>\n\n"
+            )
 
-    # Augment validation with semantic RAG investigation across indexed codebase
-    rag_verification_blocks: list[str] = []
-    try:
-        from devops_cli.ai.rag.investigator import investigate_rag_context
-
-        for f in findings:
-            f_query = f"{f.title} {f.description}"
-            rag_ctx = investigate_rag_context(f_query, top_k=2)
-            if rag_ctx and rag_ctx.has_results:
-                rag_verification_blocks.append(
-                    f"### Context for Finding {f.title}:\n{rag_ctx.formatted_text}"
-                )
-    except Exception:
-        pass
-
-    if rag_verification_blocks:
+    rag_blocks = _collect_rag_verification_blocks(findings)
+    if rag_blocks:
         related_section += (
             "\n\nCross-File RAG Context:\n<untrusted_rag_context>\n"
-            + "\n\n".join(rag_verification_blocks)
+            + "\n\n".join(rag_blocks)
             + "\n</untrusted_rag_context>\n\n"
         )
 
@@ -506,58 +506,61 @@ def _merge_segment_results(results: list[ReviewResult | None]) -> ReviewResult |
     return merged
 
 
+def _is_matching_finding(candidate: Finding, target_title: str, target_location: str) -> bool:
+    """Check if candidate finding matches the target finding by title or location."""
+    candidate_title = candidate.title.lower().strip()
+    candidate_loc = candidate.location.lower().strip()
+    return (
+        candidate_title == target_title
+        or bool(target_location and candidate_loc == target_location)
+        or (len(target_title) > 5 and candidate_title in target_title)
+        or (len(candidate_title) > 5 and target_title in candidate_title)
+    )
+
+
+def _reconcile_single_finding(
+    finding: Finding,
+    unverified_findings: list[Finding],
+    mitigated_findings: list[Finding],
+) -> Finding:
+    """Compute verification status updates for a single finding."""
+    target_title = finding.title.lower().strip()
+    target_loc = finding.location.lower().strip()
+    updates: dict[str, object] = {}
+
+    if any(_is_matching_finding(uf, target_title, target_loc) for uf in unverified_findings):
+        updates["verified"] = False
+        updates["status"] = "UNVERIFIED"
+        updates["reportable"] = False
+
+    if any(_is_matching_finding(mf, target_title, target_loc) for mf in mitigated_findings):
+        updates["mitigated"] = True
+        updates["status"] = "MITIGATED"
+        updates["reportable"] = False
+
+    return finding.model_copy(update=updates) if updates else finding
+
+
 def _reconcile_verified(
     recomposed: ReviewResult, segment_results: list[ReviewResult | None]
 ) -> ReviewResult:
     """Carry verified=False and mitigated=True from step-3 validation into the recomposed result."""
     valid_results = [r for r in segment_results if r is not None]
-
     merged_seg = _merge_segment_results(segment_results)
-    baseline_findings = recomposed.findings
-    if not baseline_findings and merged_seg and merged_seg.findings:
-        baseline_findings = merged_seg.findings
+    baseline_findings = recomposed.findings or (merged_seg.findings if merged_seg else [])
 
     unverified_findings = [f for r in valid_results for f in r.findings if not f.verified]
     mitigated_findings = [f for r in valid_results for f in r.findings if f.mitigated]
 
-    updated: list[Finding] = []
-    for f in baseline_findings:
-        f_title = f.title.lower().strip()
-        f_loc = f.location.lower().strip()
-        u: dict[str, object] = {}
+    updated = [
+        _reconcile_single_finding(f, unverified_findings, mitigated_findings)
+        for f in baseline_findings
+    ]
 
-        is_unverified = any(
-            uf.title.lower().strip() == f_title
-            or (f_loc and uf.location.lower().strip() == f_loc)
-            or (len(f_title) > 5 and uf.title.lower().strip() in f_title)
-            or (len(uf.title) > 5 and f_title in uf.title.lower().strip())
-            for uf in unverified_findings
-        )
-        if is_unverified:
-            u["verified"] = False
-            u["status"] = "UNVERIFIED"
-            u["reportable"] = False
-
-        is_mitigated = any(
-            mf.title.lower().strip() == f_title
-            or (f_loc and mf.location.lower().strip() == f_loc)
-            or (len(f_title) > 5 and mf.title.lower().strip() in f_title)
-            or (len(mf.title) > 5 and f_title in mf.title.lower().strip())
-            for mf in mitigated_findings
-        )
-        if is_mitigated:
-            u["mitigated"] = True
-            u["status"] = "MITIGATED"
-            u["reportable"] = False
-
-        updated.append(f.model_copy(update=u) if u else f)
-
-    summary = recomposed.summary
-    positive = recomposed.positive_observations
-    if not summary and merged_seg and merged_seg.summary:
-        summary = merged_seg.summary
-    if not positive and merged_seg and merged_seg.positive_observations:
-        positive = merged_seg.positive_observations
+    summary = recomposed.summary or (merged_seg.summary if merged_seg else "")
+    positive = recomposed.positive_observations or (
+        merged_seg.positive_observations if merged_seg else []
+    )
 
     return recomposed.model_copy(
         update={

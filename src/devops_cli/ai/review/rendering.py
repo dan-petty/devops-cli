@@ -40,57 +40,65 @@ def _render_findings_table(findings: list[Any]) -> None:
         TableColumn(header="✓"),
     ]
     rows: list[list[str]] = []
-    for f in findings:
-        color = SEV_COLOR_MAP.get(f.severity, "white")
+    for finding in findings:
+        color = SEV_COLOR_MAP.get(finding.severity, "white")
         mark = (
             "[green]✓[/green]"
-            if f.verified and not f.mitigated
+            if finding.verified and not finding.mitigated
             else "[yellow]~[/yellow]"
-            if f.mitigated
+            if finding.mitigated
             else "[dim]?[/dim]"
         )
         rows.append(
             [
-                f"[{color}]{escape_text(f.severity)}[/{color}]",
-                escape_text(f.location),
-                escape_text(f.title),
+                f"[{color}]{escape_text(finding.severity)}[/{color}]",
+                escape_text(finding.location),
+                escape_text(finding.title),
                 mark,
             ]
         )
-    tbl = TablePayload(columns=columns, rows=rows, border_style=None)
-    print(tbl)
+    table_payload = TablePayload(columns=columns, rows=rows, border_style=None)
+    print(table_payload)
     write_stdout("\n")
 
 
 def _render_finding_panels(findings: list[Any]) -> None:
     """Render expanded Rich panels with description and remediation for findings."""
-    for idx, f in enumerate(findings, 1):
-        sev_upper = f.severity.upper()
+    for finding_index, finding in enumerate(findings, 1):
+        sev_upper = finding.severity.upper()
         color = SEV_COLOR_MAP.get(sev_upper, "white")
-        st_badge = (
+        status_badge = (
             "[green]✓ VERIFIED[/green]"
-            if f.verified and not f.mitigated
-            else ("[cyan]~ MITIGATED[/cyan]" if f.mitigated else "[dim]? UNVERIFIED[/dim]")
+            if finding.verified and not finding.mitigated
+            else ("[cyan]~ MITIGATED[/cyan]" if finding.mitigated else "[dim]? UNVERIFIED[/dim]")
         )
-        title_header = f"[{color} bold]Finding #{idx}: [{sev_upper}] {escape_text(f.title)}[/{color} bold]  {st_badge}"
-        panel_lines = [f"[bold]Location:[/bold] [cyan]{escape_text(f.location)}[/cyan]"]
-        if f.description:
+        title_header = f"[{color} bold]Finding #{finding_index}: [{sev_upper}] {escape_text(finding.title)}[/{color} bold]  {status_badge}"
+        panel_lines = [f"[bold]Location:[/bold] [cyan]{escape_text(finding.location)}[/cyan]"]
+        if finding.description:
             panel_lines.extend(
-                ["", "[bold]Description:[/bold]", format_clean_text_field(f.description).strip()]
+                [
+                    "",
+                    "[bold]Description:[/bold]",
+                    format_clean_text_field(finding.description).strip(),
+                ]
             )
-        if f.fix:
+        if finding.fix:
             panel_lines.extend(
-                ["", "[bold]Suggested Fix:[/bold]", format_clean_text_field(f.fix).strip()]
+                ["", "[bold]Suggested Fix:[/bold]", format_clean_text_field(finding.fix).strip()]
             )
-        if f.references:
-            refs_list = f.references if isinstance(f.references, list) else [str(f.references)]
+        if finding.references:
+            refs_list = (
+                finding.references
+                if isinstance(finding.references, list)
+                else [str(finding.references)]
+            )
             panel_lines.extend(["", f"[dim]References: {escape_text(', '.join(refs_list))}[/dim]"])
-        pnl = PanelPayload(
+        panel_payload = PanelPayload(
             content="\n".join(panel_lines),
             title=title_header,
             border_style=color,
         )
-        print(pnl)
+        print(panel_payload)
     write_stdout("\n")
 
 
@@ -105,25 +113,25 @@ def _render_dependencies_table(deps: list[Any]) -> None:
         TableColumn(header="Location", style="dim"),
     ]
     dep_rows: list[list[str]] = []
-    for d in deps:
-        sev_upper = d.severity.upper()
+    for dependency in deps:
+        sev_upper = dependency.severity.upper()
         color = SEV_COLOR_MAP.get(sev_upper, "green")
         dep_rows.append(
             [
                 f"[{color}]{sev_upper}[/{color}]",
-                escape_text(getattr(d, "name", str(d))),
-                escape_text(getattr(d, "version_range", "any")),
-                escape_text(getattr(d, "ecosystem", "-")),
-                f"[{color}]{escape_text(getattr(d, 'security_status', 'Clean'))}[/{color}]",
-                escape_text(getattr(d, "location", "-")),
+                escape_text(getattr(dependency, "name", str(dependency))),
+                escape_text(getattr(dependency, "version_range", "any")),
+                escape_text(getattr(dependency, "ecosystem", "-")),
+                f"[{color}]{escape_text(getattr(dependency, 'security_status', 'Clean'))}[/{color}]",
+                escape_text(getattr(dependency, "location", "-")),
             ]
         )
-    tbl = TablePayload(
+    table_payload = TablePayload(
         title="[bold yellow]External Dependencies Audit[/bold yellow]",
         columns=dep_cols,
         rows=dep_rows,
     )
-    print(tbl)
+    print(table_payload)
     write_stdout("\n")
 
 
@@ -137,29 +145,29 @@ def _render_network_references_table(refs: list[Any]) -> None:
         TableColumn(header="Location", style="dim"),
     ]
     net_rows: list[list[str]] = []
-    for n in refs:
+    for network_reference in refs:
         scope_str = (
             "[dim]Local[/dim]"
-            if getattr(n, "is_local", False)
+            if getattr(network_reference, "is_local", False)
             else "[bold cyan]External[/bold cyan]"
         )
-        status_val = getattr(n, "security_status", "Safe")
+        status_val = getattr(network_reference, "security_status", "Safe")
         color = "red" if "⚠️" in status_val or "RISK" in status_val.upper() else "green"
         net_rows.append(
             [
                 f"[{color}]{escape_text(status_val)}[/{color}]",
-                escape_text(getattr(n, "target", str(n))),
-                escape_text(getattr(n, "reference_type", "domain")),
+                escape_text(getattr(network_reference, "target", str(network_reference))),
+                escape_text(getattr(network_reference, "reference_type", "domain")),
                 scope_str,
-                escape_text(getattr(n, "location", "-")),
+                escape_text(getattr(network_reference, "location", "-")),
             ]
         )
-    tbl = TablePayload(
+    table_payload = TablePayload(
         title="[bold yellow]Network & Egress References Audit[/bold yellow]",
         columns=net_cols,
         rows=net_rows,
     )
-    print(tbl)
+    print(table_payload)
     write_stdout("\n")
 
 
@@ -184,8 +192,8 @@ def _render_review_result(persona: PersonaDefinition, result: ReviewResult) -> N
 
     if result.positive_observations:
         print("[bold green]Positive Observations[/bold green]", level="info", prefix=False)
-        for obs in result.positive_observations:
-            print(f"  [green]\u2713[/green] {escape_text(obs)}", level="info", prefix=False)
+        for observation in result.positive_observations:
+            print(f"  [green]\u2713[/green] {escape_text(observation)}", level="info", prefix=False)
         write_stdout("\n")
 
     if result.summary:
@@ -195,9 +203,9 @@ def _render_review_result(persona: PersonaDefinition, result: ReviewResult) -> N
 
 def _render_review_raw(persona: PersonaDefinition, raw: str) -> None:
     """Render a raw string response using Panel and Markdown."""
-    pnl = PanelPayload(
+    panel_payload = PanelPayload(
         content=raw,
         title=f"[bold cyan]{escape_text(persona.title)}[/bold cyan]",
         border_style="cyan",
     )
-    print(pnl)
+    print(panel_payload)

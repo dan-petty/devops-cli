@@ -211,6 +211,54 @@ def _persona_format_section(persona: PersonaDefinition) -> str:
     return marker + persona.system_prompt.split(marker, 1)[1].rstrip()
 
 
+def _resolve_relevant_analysis_metas(
+    filenames: list[str], analysis_metas: dict[str, FileAnalysisMeta]
+) -> dict[str, Any]:
+    """Filter analysis metadata for filenames present in the segment."""
+    relevant = {
+        path: fmeta.model_dump(exclude_none=True)
+        for path, fmeta in analysis_metas.items()
+        if not filenames or path in filenames or any(f in path for f in filenames)
+    }
+    if not relevant and filenames:
+        return {
+            fn: {"path": fn, "primary_purpose": f"Source file review for {fn}"} for fn in filenames
+        }
+    if not relevant:
+        return {
+            path: fmeta.model_dump(exclude_none=True)
+            for path, fmeta in list(analysis_metas.items())[:15]
+        }
+    return relevant
+
+
+def _query_segment_rag_section(
+    filenames: list[str],
+    relevant_metas: dict[str, Any],
+    title: str,
+    persona: PersonaDefinition,
+) -> str:
+    """Perform RAG investigation for cross-file architecture context."""
+    try:
+        from devops_cli.ai.rag.investigator import (
+            format_rag_investigation_for_prompt,
+            investigate_rag_context,
+        )
+
+        symbols: list[str] = []
+        for meta_dict in relevant_metas.values():
+            if isinstance(meta_dict, dict) and isinstance(meta_dict.get("key_symbols"), list):
+                symbols.extend([str(s) for s in meta_dict["key_symbols"][:3]])
+
+        rag_query = f"{' '.join(filenames)} {' '.join(symbols)}".strip() or title
+        rag_ctx = investigate_rag_context(rag_query, persona=persona.name, top_k=3)
+        return format_rag_investigation_for_prompt(
+            rag_ctx, "Cross-File Architecture & Semantic Context"
+        )
+    except Exception:
+        return ""
+
+
 def _build_segment_review_prompt(
     segment: str,
     title: str,
@@ -221,21 +269,7 @@ def _build_segment_review_prompt(
     persona: PersonaDefinition,
 ) -> str:
     fns = _extract_segment_filenames(segment)
-    relevant_metas = {
-        path: fmeta.model_dump(exclude_none=True)
-        for path, fmeta in analysis_metas.items()
-        if not fns or path in fns or any(f in path for f in fns)
-    }
-    if not relevant_metas and fns:
-        relevant_metas = {
-            fn: {"path": fn, "primary_purpose": f"Source file review for {fn}"} for fn in fns
-        }
-    elif not relevant_metas:
-        relevant_metas = {
-            path: fmeta.model_dump(exclude_none=True)
-            for path, fmeta in list(analysis_metas.items())[:15]
-        }
-
+    relevant_metas = _resolve_relevant_analysis_metas(fns, analysis_metas)
     all_files_list = list(analysis_metas.keys()) if analysis_metas else fns
     context_meta = {
         "title": title,
@@ -249,27 +283,7 @@ def _build_segment_review_prompt(
     )
     part_title = title if total == 1 else f"{title} — file {index}/{total}"
     format_section = _persona_format_section(persona)
-
-    # RAG investigation step for cross-file architecture and security guidelines
-    rag_section = ""
-    try:
-        from devops_cli.ai.rag.investigator import (
-            format_rag_investigation_for_prompt,
-            investigate_rag_context,
-        )
-
-        symbols: list[str] = []
-        for m in relevant_metas.values():
-            if isinstance(m, dict) and "key_symbols" in m and isinstance(m["key_symbols"], list):
-                symbols.extend([str(s) for s in m["key_symbols"][:3]])
-
-        rag_query = f"{' '.join(fns)} {' '.join(symbols)}".strip() or title
-        rag_ctx = investigate_rag_context(rag_query, persona=persona.name, top_k=3)
-        rag_section = format_rag_investigation_for_prompt(
-            rag_ctx, "Cross-File Architecture & Semantic Context"
-        )
-    except Exception:
-        pass
+    rag_section = _query_segment_rag_section(fns, relevant_metas, title, persona)
 
     return (
         f"You are performing a code review as: {persona.title}.\n\n"
@@ -629,25 +643,20 @@ def _build_dry_run_persona_result(title: str, persona_name: str, total: int) -> 
     )
 
 
-def _run_review(
+def _prepare_review_metadata(
     pages: list[str],
-    title: str,
-    persona: PersonaDefinition,
-    clients: ReviewClients,
-    agents_md: str,
-    build_prompt: Callable[[str, str], str],
-    context_lines: int = _DEFAULT_CONTEXT_LINES,
-    prebuilt_metadata: dict[str, FileAnalysisMeta] | None = None,
-    session_dir: Path | None = None,
-) -> ReviewResult | str:
+    prebuilt_metadata: dict[str, FileAnalysisMeta] | None,
+    analysis_suffix: str,
+) -> dict[str, FileAnalysisMeta]:
+    """Resolve AST and AI metadata for files in scope."""
     total = len(pages)
-    analysis_system = _persona_system_prompt(persona, agents_md)
-    compose_system = persona.compose_prompt
-
-    analysis_info = getattr(clients.analysis, "backend_info", "")
-    analysis_suffix = f" [{analysis_info}]" if analysis_info else ""
-    compose_info = getattr(clients.compose, "backend_info", "")
-    compose_suffix = f" [{compose_info}]" if compose_info else ""
+    if prebuilt_metadata is not None:
+        count = len(prebuilt_metadata)
+        print_info(
+            f"[dim]Step 1/4: Reusing pre-computed analysis metadata for {count} file(s).[/dim]",
+            prefix=False,
+        )
+        return prebuilt_metadata
 
     try:
         from devops_cli.core.repo import find_repo_root
@@ -656,34 +665,88 @@ def _run_review(
     except Exception:
         repo_target = None
 
-    if prebuilt_metadata is not None:
-        count = len(prebuilt_metadata)
-        print_info(
-            f"[dim]Step 1/4: Reusing pre-computed analysis metadata for {count} file(s).[/dim]",
-            prefix=False,
-        )
-        metadata = prebuilt_metadata
-    else:
-        all_files = sorted(list({fn for page in pages for fn in _extract_segment_filenames(page)}))
-        print_info(
-            f"[dim]Step 1/4: Loading analysis metadata for {total} file(s)..."
-            f"{analysis_suffix}[/dim]",
-            prefix=False,
-        )
-        metadata = _load_file_analysis_metas(all_files, repo_root=repo_target)
+    all_files = sorted(list({fn for page in pages for fn in _extract_segment_filenames(page)}))
+    print_info(
+        f"[dim]Step 1/4: Loading analysis metadata for {total} file(s)...{analysis_suffix}[/dim]",
+        prefix=False,
+    )
+    return _load_file_analysis_metas(all_files, repo_root=repo_target)
 
+
+def _execute_review_segment_attempt(
+    clients: ReviewClients,
+    analysis_system: str,
+    user_prompt: str,
+    file_label: str,
+    analysis_suffix: str,
+) -> str:
+    """Execute LLM call for a single review segment with retries."""
+    result_text = ""
+    for attempt in range(1, _MAX_SEGMENT_RETRIES + 2):
+        seg_start = time.monotonic()
+        proc_sec: float | None = None
+        try:
+            res_obj = clients.analysis.chat(
+                system=analysis_system,
+                user=user_prompt,
+                validator=lambda text: parse_review_response(text) is not None,
+            )
+            result_text = str(res_obj)
+            proc_sec = getattr(res_obj, "processing_seconds", None)
+            res_backend = getattr(res_obj, "backend_info", None) or getattr(
+                clients.analysis, "backend_info", ""
+            )
+        except AIClientError, OSError:
+            seg_elapsed = time.monotonic() - seg_start
+            fail_info = getattr(clients.analysis, "backend_info", "")
+            fail_backend = f" [{fail_info}]" if fail_info else analysis_suffix
+            _log_segment_error(file_label, seg_elapsed, fail_backend, attempt)
+            if attempt <= _MAX_SEGMENT_RETRIES:
+                continue
+            break
+
+        seg_elapsed = (
+            float(proc_sec)
+            if isinstance(proc_sec, (int, float))
+            else (time.monotonic() - seg_start)
+        )
+        req_backend_str = f" [{res_backend}]" if res_backend else analysis_suffix
+        if not result_text.strip():
+            _log_segment_empty(file_label, seg_elapsed, req_backend_str, attempt)
+            if attempt <= _MAX_SEGMENT_RETRIES:
+                continue
+        else:
+            retry_note = f" (attempt {attempt})" if attempt > 1 else ""
+            print_info(
+                f"[dim]  ✓ {file_label} in {seg_elapsed:.1f}s{req_backend_str}{retry_note}[/dim]",
+                prefix=False,
+            )
+        break
+    return result_text
+
+
+def _execute_review_segments(
+    pages: list[str],
+    title: str,
+    metadata: dict[str, FileAnalysisMeta],
+    persona: PersonaDefinition,
+    clients: ReviewClients,
+    build_prompt: Callable[[str, str], str],
+    analysis_system: str,
+    analysis_suffix: str,
+) -> list[str]:
+    """Execute Step 2: review each segment across parallel or serial workers."""
+    total = len(pages)
     print_info(f"[dim]Step 2/4: Reviewing {total} file(s)...{analysis_suffix}[/dim]", prefix=False)
     t2 = time.monotonic()
-    responses: list[str] = []
 
     def _review_segment(i: int, page: str) -> tuple[int, str]:
         fns = _extract_segment_filenames(page)
-        if fns:
-            fn_str = ", ".join(fns)
-            file_label = f"{fn_str} ({i}/{total})" if total > 1 else fn_str
-        else:
-            file_label = f"segment {i}/{total}"
-
+        file_label = (
+            f"{', '.join(fns)} ({i}/{total})"
+            if fns and total > 1
+            else (fns[0] if fns else f"segment {i}/{total}")
+        )
         user_prompt = _build_segment_review_prompt(
             page, title, i, total, metadata, build_prompt, persona
         )
@@ -695,143 +758,143 @@ def _run_review(
             dry_seg = _build_dry_run_segment_result(file_label, title)
             return (i, dry_seg.model_dump_json(indent=2))
 
-        result_text = ""
-        res_backend: str | None = None
-        for attempt in range(1, _MAX_SEGMENT_RETRIES + 2):
-            seg_start = time.monotonic()
-            proc_sec: float | None = None
-            try:
-                res_obj = clients.analysis.chat(
-                    system=analysis_system,
-                    user=user_prompt,
-                    validator=lambda text: parse_review_response(text) is not None,
-                )
-                result_text = str(res_obj)
-                proc_sec = getattr(res_obj, "processing_seconds", None)
-                res_backend = getattr(res_obj, "backend_info", None) or getattr(
-                    clients.analysis, "backend_info", ""
-                )
-            except AIClientError, OSError:
-                seg_elapsed = time.monotonic() - seg_start
-                fail_info = getattr(clients.analysis, "backend_info", "")
-                fail_backend = f" [{fail_info}]" if fail_info else analysis_suffix
-                _log_segment_error(file_label, seg_elapsed, fail_backend, attempt)
-                if attempt <= _MAX_SEGMENT_RETRIES:
-                    continue
-                break
-
-            seg_elapsed = (
-                float(proc_sec)
-                if isinstance(proc_sec, (int, float))
-                else (time.monotonic() - seg_start)
-            )
-            req_backend_str = f" [{res_backend}]" if res_backend else analysis_suffix
-            if not result_text.strip():
-                _log_segment_empty(file_label, seg_elapsed, req_backend_str, attempt)
-                if attempt <= _MAX_SEGMENT_RETRIES:
-                    continue
-            else:
-                retry_note = f" (attempt {attempt})" if attempt > 1 else ""
-                print_info(
-                    f"[dim]  ✓ {file_label} in {seg_elapsed:.1f}s"
-                    f"{req_backend_str}{retry_note}[/dim]",
-                    prefix=False,
-                )
-            break
+        result_text = _execute_review_segment_attempt(
+            clients, analysis_system, user_prompt, file_label, analysis_suffix
+        )
         return (i, result_text)
 
     if total > 1 and not is_dry_run():
-        config = getattr(clients.analysis, "_config", None)
-        ollama_urls = _resolve_ollama_urls(config)
-        raw_par = getattr(config, "ollama_max_parallel", None)
-        max_par = int(raw_par) if isinstance(raw_par, int) else 2
-        workers = min(total, max(len(ollama_urls) * max_par, 1))
+        workers = _calculate_parallel_review_workers(clients, total)
         with ThreadPoolExecutor(max_workers=workers) as executor:
             futures = [executor.submit(_review_segment, i, page) for i, page in enumerate(pages, 1)]
             indexed_results = [f.result() for f in futures]
             responses = [res for _, res in sorted(indexed_results, key=lambda x: x[0])]
     else:
-        for i, page in enumerate(pages, 1):
-            _, res = _review_segment(i, page)
-            responses.append(res)
+        responses = [_review_segment(i, page)[1] for i, page in enumerate(pages, 1)]
+
     if not is_dry_run():
         print_info(f"[dim]  total {time.monotonic() - t2:.1f}s[/dim]", prefix=False)
+    return responses
 
-    non_empty = [r for r in responses if r.strip()]
-    if not non_empty:
-        return ""
 
-    segment_results: list[ReviewResult | None] = [parse_review_response(r) for r in responses]
-    if not is_dry_run():
-        print_info(
-            f"[dim]Step 3/4: Validating findings for {total} file(s)...{analysis_suffix}[/dim]",
-            prefix=False,
-        )
-        t3 = time.monotonic()
-        try:
-            from devops_cli.core.repo import find_repo_root
+def _validate_single_segment_findings(
+    index: int,
+    page: str,
+    parsed: ReviewResult | None,
+    total: int,
+    pages: list[str],
+    clients: ReviewClients,
+    file_analysis_metas: dict[str, FileAnalysisMeta],
+    repo_target: Path | None,
+    analysis_suffix: str,
+) -> tuple[int, ReviewResult | None]:
+    """Verify findings for a single review segment."""
+    fns = _extract_segment_filenames(page)
+    file_label = (
+        f"{', '.join(fns)} ({index}/{total})"
+        if fns and total > 1
+        else (fns[0] if fns else f"segment {index}/{total}")
+    )
+    if parsed is None or not parsed.findings:
+        print_info(f"[dim]  ✓ {file_label}: 0 finding(s) to verify[/dim]", prefix=False)
+        return (index, parsed)
 
-            repo_target = find_repo_root(Path.cwd())
-        except Exception:
-            repo_target = None
-        file_analysis_metas = _load_file_analysis_metas(None, repo_root=repo_target)
+    val_start = time.monotonic()
+    validated, proc_sec, _ = _validate_segment_findings(
+        parsed,
+        pages,
+        clients.analysis,
+        analysis_metas=file_analysis_metas,
+        repo_root=repo_target,
+    )
+    val_elapsed = proc_sec if proc_sec is not None else (time.monotonic() - val_start)
+    n_verified = sum(1 for f in validated.findings if f.verified)
+    v_count = f"{n_verified}/{len(validated.findings)} finding(s) verified"
+    print_info(
+        f"[dim]  ✓ {file_label} in {val_elapsed:.1f}s: {v_count}{analysis_suffix}[/dim]",
+        prefix=False,
+    )
+    return (index, validated)
 
-        def _validate_single_segment(
-            arg: tuple[int, str, ReviewResult | None],
-        ) -> tuple[int, ReviewResult | None]:
-            i, page, parsed = arg
-            fns = _extract_segment_filenames(page)
-            if fns:
-                fn_str = ", ".join(fns)
-                file_label = f"{fn_str} ({i}/{total})" if total > 1 else fn_str
-            else:
-                file_label = f"segment {i}/{total}"
 
-            if parsed is None or not parsed.findings:
-                print_info(f"[dim]  ✓ {file_label}: 0 finding(s) to verify[/dim]", prefix=False)
-                return (i, parsed)
-            val_start = time.monotonic()
-            validated, proc_sec, _ = _validate_segment_findings(
+def _execute_findings_validation(
+    pages: list[str],
+    segment_results: list[ReviewResult | None],
+    clients: ReviewClients,
+    analysis_suffix: str,
+) -> list[ReviewResult | None]:
+    """Execute Step 3: Validate and filter hallucinated findings."""
+    total = len(pages)
+    if is_dry_run():
+        return segment_results
+
+    print_info(
+        f"[dim]Step 3/4: Validating findings for {total} file(s)...{analysis_suffix}[/dim]",
+        prefix=False,
+    )
+    t3 = time.monotonic()
+    try:
+        from devops_cli.core.repo import find_repo_root
+
+        repo_target = find_repo_root(Path.cwd())
+    except Exception:
+        repo_target = None
+    file_analysis_metas = _load_file_analysis_metas(None, repo_root=repo_target)
+
+    validated_results = list(segment_results)
+    if total > 1:
+        workers = _calculate_parallel_review_workers(clients, total)
+        val_items = list(enumerate(zip(pages, segment_results), 1))
+        with ThreadPoolExecutor(max_workers=workers) as val_executor:
+            val_futures = [
+                val_executor.submit(
+                    _validate_single_segment_findings,
+                    i,
+                    page,
+                    parsed,
+                    total,
+                    pages,
+                    clients,
+                    file_analysis_metas,
+                    repo_target,
+                    analysis_suffix,
+                )
+                for i, (page, parsed) in val_items
+            ]
+            for val_fut in val_futures:
+                idx_val, val_res = val_fut.result()
+                validated_results[idx_val - 1] = val_res
+    else:
+        for i, (page, parsed) in enumerate(zip(pages, segment_results), 1):
+            _, val_res = _validate_single_segment_findings(
+                i,
+                page,
                 parsed,
+                total,
                 pages,
-                clients.analysis,
-                analysis_metas=file_analysis_metas,
-                repo_root=repo_target,
+                clients,
+                file_analysis_metas,
+                repo_target,
+                analysis_suffix,
             )
-            val_elapsed = proc_sec if proc_sec is not None else (time.monotonic() - val_start)
-            n_verified = sum(1 for f in validated.findings if f.verified)
-            v_count = f"{n_verified}/{len(validated.findings)} finding(s) verified"
-            print_info(
-                f"[dim]  ✓ {file_label} in {val_elapsed:.1f}s: {v_count}{analysis_suffix}[/dim]",
-                prefix=False,
-            )
-            return (i, validated)
+            validated_results[i - 1] = val_res
 
-        if total > 1:
-            config = getattr(clients.analysis, "_config", None)
-            ollama_urls = _resolve_ollama_urls(config)
-            raw_par = getattr(config, "ollama_max_parallel", None)
-            max_par = int(raw_par) if isinstance(raw_par, int) else 2
-            workers = min(total, max(len(ollama_urls) * max_par, 1))
-            val_items = list(enumerate(zip(pages, segment_results), 1))
-            with ThreadPoolExecutor(max_workers=workers) as val_executor:
-                val_futures = [
-                    val_executor.submit(_validate_single_segment, (i, page, parsed))
-                    for i, (page, parsed) in val_items
-                ]
-                for val_fut in val_futures:
-                    idx_val, val_res = val_fut.result()
-                    segment_results[idx_val - 1] = val_res
-        else:
-            for i, (page, parsed) in enumerate(zip(pages, segment_results), 1):
-                _, val_res = _validate_single_segment((i, page, parsed))
-                segment_results[i - 1] = val_res
+    print_info(f"[dim]  total {time.monotonic() - t3:.1f}s[/dim]", prefix=False)
+    return validated_results
 
-        print_info(f"[dim]  total {time.monotonic() - t3:.1f}s[/dim]", prefix=False)
 
-    if total == 1:
-        return segment_results[0] if segment_results[0] is not None else responses[0]
-
+def _execute_final_recompose(
+    title: str,
+    metadata: dict[str, FileAnalysisMeta],
+    responses: list[str],
+    segment_results: list[ReviewResult | None],
+    persona: PersonaDefinition,
+    clients: ReviewClients,
+    compose_system: str,
+    compose_suffix: str,
+    total: int,
+) -> ReviewResult | str:
+    """Execute Step 4: Recompose and synthesize multi-segment review findings."""
     print_info(f"[dim]Step 4/4: Composing final review...{compose_suffix}[/dim]", prefix=False)
     recompose_prompt = _build_recompose_prompt(title, metadata, responses, persona, segment_results)
     if is_dry_run():
@@ -843,6 +906,8 @@ def _run_review(
         if isinstance(merged, ReviewResult):
             return merged
         return _build_dry_run_persona_result(title, persona.name, total)
+
+    non_empty = [r for r in responses if r.strip()]
     try:
         t4 = time.monotonic()
         raw = str(
@@ -863,6 +928,98 @@ def _run_review(
         return _merge_segment_results(segment_results) or _fallback_join(non_empty)
 
 
+def _run_review(
+    pages: list[str],
+    title: str,
+    persona: PersonaDefinition,
+    clients: ReviewClients,
+    agents_md: str,
+    build_prompt: Callable[[str, str], str],
+    context_lines: int = _DEFAULT_CONTEXT_LINES,
+    prebuilt_metadata: dict[str, FileAnalysisMeta] | None = None,
+    session_dir: Path | None = None,
+) -> ReviewResult | str:
+    total = len(pages)
+    analysis_system = _persona_system_prompt(persona, agents_md)
+    compose_system = persona.compose_prompt
+
+    analysis_info = getattr(clients.analysis, "backend_info", "")
+    analysis_suffix = f" [{analysis_info}]" if analysis_info else ""
+    compose_info = getattr(clients.compose, "backend_info", "")
+    compose_suffix = f" [{compose_info}]" if compose_info else ""
+
+    metadata = _prepare_review_metadata(pages, prebuilt_metadata, analysis_suffix)
+    responses = _execute_review_segments(
+        pages,
+        title,
+        metadata,
+        persona,
+        clients,
+        build_prompt,
+        analysis_system,
+        analysis_suffix,
+    )
+
+    non_empty = [r for r in responses if r.strip()]
+    if not non_empty:
+        return ""
+
+    segment_results = [parse_review_response(r) for r in responses]
+    segment_results = _execute_findings_validation(pages, segment_results, clients, analysis_suffix)
+
+    if total == 1:
+        return segment_results[0] if segment_results[0] is not None else responses[0]
+
+    return _execute_final_recompose(
+        title,
+        metadata,
+        responses,
+        segment_results,
+        persona,
+        clients,
+        compose_system,
+        compose_suffix,
+        total,
+    )
+
+
+def _maybe_preload_ollama_models(clients: ReviewClients) -> None:
+    """Preload Ollama models across available nodes if provider is ollama."""
+    config = getattr(clients.analysis, "_config", None)
+    if getattr(config, "provider", None) != "ollama" or is_dry_run():
+        return
+    model_name = getattr(config, "model", "ollama")
+    ollama_urls = _resolve_ollama_urls(config)
+    if ollama_urls:
+        n_nodes = len(ollama_urls)
+        print_info(
+            f"[dim]Warming up model '{model_name}' in background across {n_nodes} Ollama node(s)...[/dim]",
+            prefix=False,
+        )
+        clients.analysis.preload_models(blocking=False)
+
+
+def _load_shared_metadata_for_pages(pages: list[str]) -> dict[str, FileAnalysisMeta]:
+    """Load AST / AI analysis metadata for all files referenced in pages."""
+    try:
+        from devops_cli.core.repo import find_repo_root
+
+        repo_target = find_repo_root(Path.cwd())
+    except Exception:
+        repo_target = None
+    all_files = sorted(list({fn for page in pages for fn in _extract_segment_filenames(page)}))
+    return _load_file_analysis_metas(all_files, repo_root=repo_target)
+
+
+def _calculate_parallel_review_workers(clients: ReviewClients, num_personas: int) -> int:
+    """Calculate thread pool worker count for multi-persona execution."""
+    config = getattr(clients.analysis, "_config", None)
+    ollama_urls = _resolve_ollama_urls(config)
+    raw_par = getattr(config, "ollama_max_parallel", None)
+    max_par = int(raw_par) if isinstance(raw_par, int) else 2
+    return min(num_personas, max(len(ollama_urls) * max_par, 1))
+
+
 def _run_persona_loop(
     pages: list[str],
     title: str,
@@ -878,18 +1035,7 @@ def _run_persona_loop(
     if session_dir:
         _save_segments(pages, session_dir)
 
-    config = getattr(clients.analysis, "_config", None)
-    if getattr(config, "provider", None) == "ollama" and not is_dry_run():
-        model_name = getattr(config, "model", "ollama")
-        ollama_urls = _resolve_ollama_urls(config)
-        if ollama_urls:
-            n = len(ollama_urls)
-            print_info(
-                f"[dim]Warming up model '{model_name}' in background across "
-                f"{n} Ollama node(s)...[/dim]",
-                prefix=False,
-            )
-            clients.analysis.preload_models(blocking=False)
+    _maybe_preload_ollama_models(clients)
 
     analysis_info = getattr(clients.analysis, "backend_info", "")
     analysis_suffix = f" [{analysis_info}]" if analysis_info else ""
@@ -898,16 +1044,8 @@ def _run_persona_loop(
         f"[dim]Step 1/4: Loading analysis metadata for {n_files} file(s)...{analysis_suffix}[/dim]",
         prefix=False,
     )
-    try:
-        from devops_cli.core.repo import find_repo_root
 
-        repo_target = find_repo_root(Path.cwd())
-    except Exception:
-        repo_target = None
-    all_files = sorted(list({fn for page in pages for fn in _extract_segment_filenames(page)}))
-    shared_meta: dict[str, FileAnalysisMeta] = _load_file_analysis_metas(
-        all_files, repo_root=repo_target
-    )
+    shared_meta = _load_shared_metadata_for_pages(pages)
     if session_dir and shared_meta:
         _write_summary(title, session_dir, pages, [], shared_meta)
 
@@ -936,11 +1074,7 @@ def _run_persona_loop(
                 _write_summary(title, session_dir, pages, completed, shared_meta)
 
         if len(personas) > 1 and not is_dry_run():
-            config = getattr(clients.analysis, "_config", None)
-            ollama_urls = _resolve_ollama_urls(config)
-            raw_par = getattr(config, "ollama_max_parallel", None)
-            max_par = int(raw_par) if isinstance(raw_par, int) else 2
-            workers = min(len(personas), max(len(ollama_urls) * max_par, 1))
+            workers = _calculate_parallel_review_workers(clients, len(personas))
             with ThreadPoolExecutor(max_workers=workers) as executor:
                 future_map = {executor.submit(_execute_persona, pd): pd for pd in personas}
                 for future in as_completed(future_map):
@@ -953,6 +1087,8 @@ def _run_persona_loop(
     except AIClientError as exc:
         print_error(f"AI provider error: {exc}")
         raise
+    except KeyboardInterrupt:
+        print_error("Review cancelled by user.", prefix=False)
     finally:
         if session_dir and completed:
             _write_summary(title, session_dir, pages, completed, shared_meta)
@@ -1038,76 +1174,94 @@ def _is_git_ignored(repo_root: Path, path: Path) -> bool:
     return is_ignored_by_git(repo_root, path)
 
 
+def _list_git_tracked_candidates(
+    root: Path, repo_root: Path | None
+) -> tuple[list[Path], bool, bool]:
+    """Retrieve git-tracked candidate file paths when inside a repository."""
+    if repo_root is None:
+        return [p for p in sorted(root.rglob("*")) if p.is_file()], False, False
+
+    try:
+        rel_to_repo = root.relative_to(repo_root)
+        rel_str = str(rel_to_repo) if str(rel_to_repo) != "." else "."
+    except ValueError:
+        rel_str = "."
+
+    root_ignored = (
+        _is_git_ignored(repo_root, root) if root.resolve() != repo_root.resolve() else False
+    )
+    if not root_ignored:
+        result = _run_subprocess(
+            [
+                "git",
+                "-C",
+                str(repo_root),
+                "ls-files",
+                "--cached",
+                "--others",
+                "--exclude-standard",
+                "-z",
+                "--",
+                rel_str,
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode == 0 and result.stdout:
+            candidates = [repo_root / Path(item) for item in result.stdout.split("\0") if item]
+            return candidates, True, root_ignored
+
+    fallback_candidates = [p for p in sorted(root.rglob("*")) if p.is_file()]
+    return fallback_candidates, False, root_ignored
+
+
+def _is_candidate_file_included(
+    candidate_path: Path,
+    root: Path,
+    repo_root: Path | None,
+    is_from_git: bool,
+    root_ignored: bool,
+    pattern: str,
+) -> bool:
+    """Predicate determining if candidate file should be included in review scope."""
+    if not candidate_path.is_file():
+        return False
+    if any(part in CONST_GITIGNORE_DIRS for part in candidate_path.parts):
+        return False
+    if candidate_path.name in CONST_REVIEW_GENERATED_FILES:
+        return False
+    if (
+        not is_from_git
+        and repo_root is not None
+        and not root_ignored
+        and _is_git_ignored(repo_root, candidate_path)
+    ):
+        return False
+
+    try:
+        rel = candidate_path.relative_to(root)
+    except ValueError:
+        rel = candidate_path
+    return rel.match(pattern)
+
+
 def _collect_file_blocks(root: Path, pattern: str) -> list[str]:
     blocks: list[str] = []
     repo_root = _git_repo_root(root)
-    candidates: list[Path] = []
-    root_ignored = False
-
-    if repo_root is not None:
-        try:
-            rel_to_repo = root.relative_to(repo_root)
-            rel_str = str(rel_to_repo) if str(rel_to_repo) != "." else "."
-        except ValueError:
-            rel_str = "."
-
-        root_ignored = (
-            _is_git_ignored(repo_root, root) if root.resolve() != repo_root.resolve() else False
-        )
-        if not root_ignored:
-            result = _run_subprocess(
-                [
-                    "git",
-                    "-C",
-                    str(repo_root),
-                    "ls-files",
-                    "--cached",
-                    "--others",
-                    "--exclude-standard",
-                    "-z",
-                    "--",
-                    rel_str,
-                ],
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            if result.returncode == 0 and result.stdout:
-                candidates = [repo_root / Path(item) for item in result.stdout.split("\0") if item]
-                is_from_git = True
-            else:
-                is_from_git = False
-    else:
-        is_from_git = False
-
-    if not candidates:
-        candidates = [p for p in sorted(root.rglob("*")) if p.is_file()]
-        is_from_git = False
+    candidates, is_from_git, root_ignored = _list_git_tracked_candidates(root, repo_root)
 
     for p in sorted(candidates):
-        if not p.is_file():
-            continue
-        if any(part in CONST_GITIGNORE_DIRS for part in p.parts):
-            continue
-        if p.name in CONST_REVIEW_GENERATED_FILES:
-            continue
-        if (
-            not is_from_git
-            and repo_root is not None
-            and not root_ignored
-            and _is_git_ignored(repo_root, p)
-        ):
-            continue
-        try:
-            rel = p.relative_to(root)
-        except ValueError:
-            rel = p
-        if not rel.match(pattern):
+        if not _is_candidate_file_included(p, root, repo_root, is_from_git, root_ignored, pattern):
             continue
         try:
             text = p.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
+        try:
+            rel = p.relative_to(root)
+        except ValueError:
+            rel = p
         file_label = (
             p.relative_to(repo_root)
             if repo_root is not None and p.is_relative_to(repo_root)
@@ -1309,7 +1463,7 @@ def _prepare_branch_content(
     """Prepare paginated diff pages, title, and agents_md for branch review target."""
     import typer
 
-    from devops_cli.ai.review.chunker import _diff_pages
+    from devops_cli.ai.review.chunker import diff_pages
     from devops_cli.lang import MESSAGES
 
     settings = load_settings()
@@ -1364,7 +1518,7 @@ def _prepare_branch_content(
 
     title = f"Branch `{branch_name}` vs `{effective_base}`"
     agents_md = _load_agents_md(repo_path)
-    pages = [_mask_secrets_in_content(p) for p in _diff_pages(diff_proc.stdout, _MAX_DIFF_CHARS)]
+    pages = [_mask_secrets_in_content(p) for p in diff_pages(diff_proc.stdout, _MAX_DIFF_CHARS)]
     return pages, title, agents_md
 
 
@@ -1374,7 +1528,7 @@ def _prepare_pr_content(
     """Fetch PR details, diff pages, title, and agents_md for PR review target."""
     import typer
 
-    from devops_cli.ai.review.chunker import _diff_pages
+    from devops_cli.ai.review.chunker import diff_pages
     from devops_cli.github.client import GitHubClient
     from devops_cli.lang import MESSAGES
 
@@ -1395,7 +1549,7 @@ def _prepare_pr_content(
     diff = gh.get_pr_diff(repo, number)
     title = f"PR #{number}: {pull.title}"
     agents_md = _load_agents_md(Path.cwd())
-    pages = [_mask_secrets_in_content(p) for p in _diff_pages(diff, _MAX_DIFF_CHARS)]
+    pages = [_mask_secrets_in_content(p) for p in diff_pages(diff, _MAX_DIFF_CHARS)]
     return pages, title, agents_md, pull, repo
 
 

@@ -372,10 +372,10 @@ def render_explanation(topic: str, console_instance: Any = None) -> None:
     print(panel, console=console_instance)
     write_stdout("\n")
 
-    for sec in data["sections"]:
-        rows = [[term, definition, formula] for term, definition, formula in sec["items"]]
-        tbl = TablePayload(
-            title=sec["name"],
+    for section in data["sections"]:
+        rows = [[term, definition, formula] for term, definition, formula in section["items"]]
+        table_payload = TablePayload(
+            title=section["name"],
             columns=[
                 TableColumn(header="Term / Metric", style="bold white"),
                 TableColumn(header="Definition & Operational Purpose", style="dim white"),
@@ -384,7 +384,7 @@ def render_explanation(topic: str, console_instance: Any = None) -> None:
             rows=rows,
             border_style="dim",
         )
-        print(tbl, console=console_instance)
+        print(table_payload, console=console_instance)
         write_stdout("\n")
 
 
@@ -395,12 +395,12 @@ def get_explanation_markdown(topic: str) -> str:
         data = EXPLANATIONS["benchmark"]
 
     lines = [f"# {data['title']}", "", data["description"], ""]
-    for sec in data["sections"]:
-        lines.append(f"## {sec['name']}")
+    for section in data["sections"]:
+        lines.append(f"## {section['name']}")
         lines.append("")
         lines.append("| Term / Metric | Definition & Purpose | Formula / Guideline |")
         lines.append("| :--- | :--- | :--- |")
-        for term, definition, formula in sec["items"]:
+        for term, definition, formula in section["items"]:
             lines.append(f"| **{term}** | {definition} | `{formula}` |")
         lines.append("")
 
