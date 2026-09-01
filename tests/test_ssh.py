@@ -355,3 +355,85 @@ def test_generate_ed25519_key_overwriting_insecure_permissions(tmp_path: Path) -
     pub_mode = os.stat(pub_path).st_mode & 0o777
     assert priv_mode == 0o600
     assert pub_mode == 0o644
+
+
+def test_ssh_prefix_filtering_and_parsing(tmp_path: Path) -> None:
+    """Verify prefix filtering in list_managed_keys, find_newest_key, and parse_key_prefix."""
+    from devops_cli.crypto.ssh_keys import (
+        find_newest_key,
+        list_managed_keys,
+        list_managed_keys_info,
+        parse_key_prefix,
+    )
+
+    k_proj_a = tmp_path / "proj-a-id_ed25519-20260801"
+    k_proj_b = tmp_path / "proj-b-id_ed25519-20260901"
+    k_no_prefix = tmp_path / "id_ed25519-20260815"
+    k_proj_a.write_text("a")
+    k_proj_b.write_text("b")
+    k_no_prefix.write_text("c")
+
+    assert parse_key_prefix(k_proj_a) == "proj-a"
+    assert parse_key_prefix(k_proj_b) == "proj-b"
+    assert parse_key_prefix(k_no_prefix) is None
+
+    # Filter list_managed_keys
+    keys_a = list_managed_keys(tmp_path, prefix="proj-a")
+    assert keys_a == [k_proj_a]
+
+    keys_all = list_managed_keys(tmp_path)
+    assert len(keys_all) == 3
+
+    # find_newest_key with prefix
+    assert find_newest_key(tmp_path, prefix="proj-a") == k_proj_a
+    assert find_newest_key(tmp_path, prefix="proj-b") == k_proj_b
+    assert find_newest_key(tmp_path, prefix="nonexistent") == k_proj_b  # Fallback to newest
+
+    # list_managed_keys_info with prefix
+    info_a = list_managed_keys_info(tmp_path, prefix="proj-a")
+    assert len(info_a) == 1
+    assert info_a[0].path == k_proj_a
+
+
+def test_ssh_register_honors_prefix_setting_and_option(tmp_path: Path) -> None:
+    """Verify devops ssh register uses settings.ssh.key_prefix or --prefix flag."""
+    k_prefixed = tmp_path / "custom-env-id_ed25519-20260901"
+    k_prefixed.write_text("private")
+    (tmp_path / "custom-env-id_ed25519-20260901.pub").write_text("ssh-ed25519 AAAA custom@env")
+
+    mock_registered_titles: list[str] = []
+
+    def mock_register_gh(pub_key: str, title: str, token: str | None = None) -> None:
+        mock_registered_titles.append(title)
+
+    with (
+        patch("devops_cli.github.ssh.register_key_on_github", side_effect=mock_register_gh),
+        patch("devops_cli.config.settings.get_github_token", return_value="ghp_test"),
+        patch("devops_cli.commands.ssh._configure_git_signing"),
+        patch("devops_cli.config.settings.load_settings") as mock_load,
+    ):
+        settings = MagicMock()
+        settings.ssh.key_dir = tmp_path
+        settings.ssh.key_prefix = "custom-env"
+        settings.ssh.rotation_days = 90
+        mock_load.return_value = settings
+
+        # 1. Register with key_prefix setting (no --key-file or --title)
+        res = runner.invoke(ssh_app, ["register"])
+        assert res.exit_code == 0
+        assert mock_registered_titles[-1] == "custom-env-id_ed25519-20260901"
+
+        # 2. Register with explicit --prefix option
+        res_opt = runner.invoke(ssh_app, ["register", "--prefix", "custom-env"])
+        assert res_opt.exit_code == 0
+        assert mock_registered_titles[-1] == "custom-env-id_ed25519-20260901"
+
+        # 3. Status with prefix option
+        res_stat = runner.invoke(ssh_app, ["status", "--prefix", "custom-env"])
+        assert res_stat.exit_code == 0
+        assert "custom-env-id_ed25519-20260901" in res_stat.output
+
+        # 4. List with prefix option
+        res_list = runner.invoke(ssh_app, ["list", "--prefix", "custom-env"])
+        assert res_list.exit_code == 0
+        assert "custom-env-id_ed25519-20260901" in res_list.output

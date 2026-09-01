@@ -159,6 +159,7 @@ devops ssh register [OPTIONS]
 |---|---|---|---|
 | `--key-file`, `-k` | `path` | - | Path to private key. |
 | `--title` | `string` | - | Title for the item or entity. |
+| `--prefix`, `-p` | `string` | - | Optional prefix for the SSH key name (defaults to config setting, devcontainer name, or basename pwd). |
 
 ### `devops ssh rotate`
 
@@ -193,6 +194,7 @@ devops ssh list [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--key-dir` | `path` | - | Directory where SSH keys are stored. |
+| `--prefix`, `-p` | `string` | - | Optional prefix for the SSH key name (defaults to config setting, devcontainer name, or basename pwd). |
 
 ### `devops ssh audit`
 
@@ -207,6 +209,7 @@ devops ssh audit [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--key-dir` | `path` | - | Directory where SSH keys are stored. |
+| `--prefix`, `-p` | `string` | - | Optional prefix for the SSH key name (defaults to config setting, devcontainer name, or basename pwd). |
 
 ### `devops ssh status`
 
@@ -221,6 +224,7 @@ devops ssh status [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--key-dir` | `path` | - | Directory where SSH keys are stored. |
+| `--prefix`, `-p` | `string` | - | Optional prefix for the SSH key name (defaults to config setting, devcontainer name, or basename pwd). |
 
 ---
 
