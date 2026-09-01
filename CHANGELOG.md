@@ -8,7 +8,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.2.6] - 2026-08-31
 
 ### Added
-- Release version 0.2.6.
+- **Multi-Dimensional AI Model Routing & Governance (`src/devops_cli/ai/router.py`, `tests/test_ai_router.py`)**:
+  - Dynamic multi-axis model routing across task complexity (`LOW`, `MEDIUM`, `HIGH`, `FRONTIER`), task freshness (`STATIC_CONTEXT`, `LIVE_MCP_LOOKUP`, `EXTERNAL_WEB_SEARCH`), and data sensitivity (`PUBLIC`, `INTERNAL`, `CONFIDENTIAL_AIRGAP`).
+  - Air-gap data egress enforcement redirecting confidential workloads to local air-gapped models (`ollama`) with local fallback chains.
+  - Cost and latency tier forecasting (`sub-second`, `fast-interactive`, `multi-second`, `deep-reasoning`) for AI execution plans.
+  - Knowledge Base topic manual for Model Governance, Routing & Curation (`src/devops_cli/ai/knowledge_base/it_domains/topics/model_governance_routing_and_curation.md`).
+- **AST Code Complexity & SBOM Generation (`src/devops_cli/security/complexity.py`, `src/devops_cli/security/sbom.py`, `src/devops_cli/commands/scan.py`)**:
+  - AST cyclomatic complexity analyzer (`devops scan complexity`) computing per-function and per-module complexity scores and identifying nested branching.
+  - Software Bill of Materials generator (`devops scan sbom`) supporting CycloneDX and SPDX formats from active lockfiles and installed packages.
+- **Git-Diff Aware Targeted Test Execution (`src/devops_cli/commands/test_cmd.py`, `tests/test_test_runner.py`)**:
+  - Added `devops test run --diff` discovering and executing only test files affected by unstaged or branch-level git diffs.
+- **Real-Time Release Status Watcher (`src/devops_cli/commands/release.py`, `tests/test_release.py`)**:
+  - Added `--watch` flag to `devops release status` for real-time monitoring of active release branches, Git tags, and CI validation states.
+
+### Changed
+- **AST Chunking, Tool Registries & Review Stage Cyclomatic Complexity Reduction (`src/devops_cli/ai/rag/chunker.py`, `src/devops_cli/ai/tools/builtin_tools.py`, `src/devops_cli/ai/review/stages/`)**:
+  - Decomposed complex multi-branch functions in AST chunking, tool registries, and review stages into dedicated single-responsibility helper functions and functional pipelines.
+- **DevContainer Standalone Binary Isolation & Mount Hardening (`.devcontainer/devcontainer.json`, `src/devops_cli/commands/devcontainer.py`)**:
+  - Configured dynamic interpreter path (`${containerWorkspaceFolder}/.venv/bin/python`) and remote environment `PATH`.
+  - Preserved native `/usr/local/bin/devops` installation without overwriting with broken workspace symlinks.
+  - Standardized cross-platform SSH mount syntax (`${localEnv:HOME}${localEnv:USERPROFILE}/.ssh`).
 
 ## [0.2.5] - 2026-08-27
 
