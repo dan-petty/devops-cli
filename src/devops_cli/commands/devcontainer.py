@@ -21,7 +21,6 @@ from devops_cli.config.constants import (
     CONST_DEVCONTAINER_JSON_NAME,
     CONST_DEVCONTAINER_JSON_PATH,
     CONST_DEVCONTAINER_PUBLISHED_IMAGE,
-    CONST_GLOBAL_BIN_PATH,
     CONST_MCP_JSON_NAME,
     CONST_PYPROJECT_FILENAME,
     CONST_ROOT_DIR,
@@ -568,31 +567,6 @@ def _setup_volume_mount_permissions(workspace_dir: Path, *, dry_run: bool = Fals
     return actions
 
 
-def _link_workspace_binary(workspace_dir: Path, *, dry_run: bool = False) -> str | None:
-    """Link workspace .venv/bin/devops to /usr/local/bin/devops for consistent system-wide execution."""
-    venv_bin = workspace_dir / ".venv" / "bin" / "devops"
-    dest = CONST_GLOBAL_BIN_PATH
-    if not venv_bin.exists():
-        return None
-
-    if not dry_run:
-        try:
-            if dest.is_symlink() and dest.resolve() == venv_bin.resolve():
-                return None
-            if shutil.which("sudo"):
-                run_subprocess(
-                    ["sudo", "ln", "-sf", str(venv_bin), str(dest)],
-                    check=False,
-                    quiet=True,
-                )
-            else:
-                dest.unlink(missing_ok=True)
-                dest.symlink_to(venv_bin)
-        except OSError as exc:
-            logger.debug("Failed to link %s to %s: %s", venv_bin, dest, exc)
-    return f"Linked workspace CLI binary to {dest}"
-
-
 def _run_post_create_lifecycle(workspace_dir: Path, *, dry_run: bool = False) -> list[str]:
     """Execute DevContainer post-create setup tasks in pure Python."""
     actions: list[str] = []
@@ -600,12 +574,7 @@ def _run_post_create_lifecycle(workspace_dir: Path, *, dry_run: bool = False) ->
     # 1. Volume mount permissions & ownership
     actions.extend(_setup_volume_mount_permissions(workspace_dir, dry_run=dry_run))
 
-    # 2. Workspace CLI binary link
-    link_action = _link_workspace_binary(workspace_dir, dry_run=dry_run)
-    if link_action:
-        actions.append(link_action)
-
-    # 3. Bootstrap uv & tools if not present
+    # 2. Bootstrap uv & tools if not present
     if shutil.which("uv") is None and not dry_run:
         run_subprocess(
             ["sh", "-c", "curl -LsSf https://astral.sh/uv/install.sh | sh"],
@@ -760,12 +729,7 @@ def _run_post_start_lifecycle(workspace_dir: Path, *, dry_run: bool = False) -> 
     # 1. Volume mount permissions & ownership
     actions.extend(_setup_volume_mount_permissions(workspace_dir, dry_run=dry_run))
 
-    # 2. Workspace CLI binary link
-    link_action = _link_workspace_binary(workspace_dir, dry_run=dry_run)
-    if link_action:
-        actions.append(link_action)
-
-    # 3. Git defaults
+    # 2. Git defaults
     if not dry_run:
         run_subprocess(
             ["git", "config", "--global", "push.autoSetupRemote", "true"],
