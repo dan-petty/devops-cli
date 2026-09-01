@@ -22,6 +22,7 @@ from devops_cli.commands.k8s.cluster_runtime import (
 from devops_cli.commands.k8s.diagnostics import (
     chaos_cmd,
     diff_helm_cmd,
+    pods_cmd,
     stream_logs_cmd,
 )
 from devops_cli.commands.k8s.networking import (
@@ -89,6 +90,7 @@ app.command(name="validate-policy")(validate_policy_cmd)
 app.command(name="stream-logs")(stream_logs_cmd)
 app.command(name="diff-helm")(diff_helm_cmd)
 app.command(name="chaos")(chaos_cmd)
+app.command(name="pods")(pods_cmd)
 
 __all__ = [
     "app",
@@ -108,6 +110,7 @@ __all__ = [
     "k8s_validate",
     "logs",
     "port_forward",
+    "pods_cmd",
     "rbac_audit",
     "run_subprocess",
     "shutil",

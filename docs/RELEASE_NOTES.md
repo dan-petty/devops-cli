@@ -18,8 +18,14 @@ Workstation-native DevOps CLI for managing repositories, SSH keys, Kubernetes cl
 ### 🧪 Git-Diff Aware Test Selector (`devops test run --diff`)
 - **Targeted Test Execution**: Discovers and runs only the test files affected by unstaged or branch-level git diffs, dramatically speeding up inner dev loops.
 
-### ⏱️ Real-Time Release Status Watcher (`devops release status --watch`)
-- **Live State Monitoring**: Added `--watch` flag with interactive terminal updates for monitoring active release branches, Git tags, and CI validation states.
+### ⏱️ Real-Time Resource & State Watchers (`--watch` / `-w`)
+- **Live Terminal Refresh Across Subsystems**: Added `--watch` / `-w` and `--interval` support powered by `rich.live.Live` across `devops k8s pods --watch`, `devops docker stats --watch`, `devops argo cd apps list --watch`, and `devops release status --watch`.
+- **Live Docker Metrics**: Real-time CPU%, memory net usage/limit, and network RX/TX I/O statistics table with color-coded utilization thresholds.
+- **Live Pod Health Monitoring**: Real-time pod phase, ready container counts, restart metrics, and human-readable age reporting with label selector filtering.
+
+### ⚡ In-Memory SHA-256 Embedding LRU Cache (`ai.rag.embeddings`)
+- **Vector Deduplication Acceleration**: Thread-safe in-memory LRU cache (`_EmbeddingLRUCache`) keyed by SHA-256 hash of text and model identifier, eliminating redundant vector generation calls across RAG queries and indexing operations.
+- **Prometheus Metric Instrumentation**: Continuous monitoring of cache hits, misses, and active size via `GLOBAL_METRICS`.
 
 ### 📦 DevContainer Standalone Binary Isolation
 - **System-Wide Binary Integrity**: Preserves the native `/usr/local/bin/devops` installation in pre-built images without overwriting it with fragile workspace symlinks.

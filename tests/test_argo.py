@@ -267,3 +267,57 @@ def test_argo_commands_execution(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
             ],
         )
         assert res_bg_missing.exit_code == 1
+
+
+def test_argo_cd_apps_list_and_status_dry_run() -> None:
+    """Verify argo cd apps list and status in dry-run mode."""
+    from devops_cli.dry_run import set_dry_run
+
+    set_dry_run(True)
+    try:
+        res_list = runner.invoke(argo_app, ["cd", "apps", "list"])
+        assert res_list.exit_code == 0
+        assert "list_argocd_apps" in res_list.output
+    finally:
+        set_dry_run(False)
+
+
+def test_argo_cd_apps_list_and_status_render(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify live rendering for argo cd apps list and status."""
+    import httpx2
+
+    mock_app_data = {
+        "metadata": {"name": "sample-app"},
+        "spec": {
+            "project": "default",
+            "source": {"repoURL": "https://github.com/org/repo.git", "targetRevision": "main"},
+        },
+        "status": {
+            "sync": {"status": "Synced", "revision": "abc1234"},
+            "health": {"status": "Healthy"},
+        },
+    }
+
+    def fake_get(self: object, url: str, **kwargs: object) -> httpx2.Response:
+        req = httpx2.Request("GET", url)
+        if "/api/v1/applications/sample-app" in url:
+            return httpx2.Response(200, json=mock_app_data, request=req)
+        return httpx2.Response(200, json={"items": [mock_app_data]}, request=req)
+
+    monkeypatch.setattr(httpx2.Client, "get", fake_get)
+    monkeypatch.setattr(
+        "devops_cli.commands.argo.validate_service_url", lambda *args, **kwargs: None
+    )
+
+    mock_settings = Settings()
+    mock_settings.argocd.url = "http://localhost:8080"
+    mock_settings.ai.allow_private_network = True
+
+    with patch("devops_cli.commands.argo.load_settings", return_value=mock_settings):
+        res_list = runner.invoke(argo_app, ["cd", "apps", "list"])
+        assert res_list.exit_code == 0
+        assert "sample-app" in res_list.output
+
+        res_status = runner.invoke(argo_app, ["cd", "apps", "status", "sample-app"])
+        assert res_status.exit_code == 0
+        assert "sample-app" in res_status.output

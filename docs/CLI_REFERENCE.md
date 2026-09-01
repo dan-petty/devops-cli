@@ -974,6 +974,25 @@ devops k8s chaos [OPTIONS] <experiment>
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
+### `devops k8s pods`
+
+**List running pods with health status, restart counts, and age.**
+
+```bash
+devops k8s pods [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--namespace`, `-n` | `string` | - | Kubernetes namespace. |
+| `--label`, `-l` | `string` | - | Kubernetes label selector filter (e.g. app=frontend). |
+| `--all-namespaces`, `-A` | `boolean` | - | Query pods across all namespaces. |
+| `--watch`, `-w` | `boolean` | - | Continuously refresh pod list in real-time terminal display. |
+| `--interval`, `-i` | `float` | `3.0` | Auto-refresh polling interval in seconds. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
 ---
 
 ## devops kustomize
@@ -1105,6 +1124,23 @@ devops docker prune [OPTIONS]
 |---|---|---|---|
 | `--volumes` | `boolean` | - | Include or prune volumes. |
 | `--force`, `-f` | `boolean` | - | Force execution ignoring non-blocking warnings. |
+
+### `devops docker stats`
+
+**Display live container CPU, memory, and network I/O statistics.**
+
+```bash
+devops docker stats [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--name`, `-n` | `string` | - | Filter containers or images by name. |
+| `--watch`, `-w` | `boolean` | - | Continuously refresh output in the terminal at a fixed interval. |
+| `--interval`, `-i` | `float` | `2.0` | Auto-refresh polling interval in seconds. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops docker analyze-layers`
 
@@ -1318,8 +1354,15 @@ devops argo cd apps COMMAND [ARGS]...
 **List all ArgoCD applications.**
 
 ```bash
-devops argo cd apps list
+devops argo cd apps list [OPTIONS]
 ```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--watch`, `-w` | `boolean` | - | Watch application status changes live. |
+| `--interval`, `-i` | `float` | `3.0` | Auto-refresh polling interval in seconds. |
 
 ##### `devops argo cd apps sync`
 
@@ -1347,7 +1390,7 @@ devops argo cd apps sync [OPTIONS] <name>
 **Show sync and health status for an ArgoCD application.**
 
 ```bash
-devops argo cd apps status <name>
+devops argo cd apps status [OPTIONS] <name>
 ```
 
 **Arguments:**
@@ -1355,6 +1398,13 @@ devops argo cd apps status <name>
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `<name>` | `string` | Yes | Application name. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--watch`, `-w` | `boolean` | - | Watch application status changes live. |
+| `--interval`, `-i` | `float` | `3.0` | Auto-refresh polling interval in seconds. |
 
 ##### `devops argo cd apps bootstrap-gitops`
 

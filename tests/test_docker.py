@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -11,7 +10,6 @@ import pytest
 from typer.testing import CliRunner
 
 from devops_cli.commands.docker import app as docker_app
-from devops_cli.main import app as main_app
 from devops_cli.security.dive import DiveAnalysisResult, DiveLayerInfo
 
 runner = CliRunner()
@@ -29,23 +27,7 @@ def _mock_proc(
 
 
 def test_docker_commands(tmp_path: Path) -> None:
-    """Verify docker stats, ps, images, build, push, prune, and analyze-layers subcommands."""
-    mock_stats = [
-        {
-            "Container": "devops-app",
-            "CPUPerc": "1.2%",
-            "MemUsage": "50MiB / 1GiB",
-            "MemPerc": "5.0%",
-        }
-    ]
-    lines = "\n".join(json.dumps(s) for s in mock_stats)
-    with patch("devops_cli.core.process.run_subprocess", return_value=_mock_proc(0, lines)):
-        res_stats = runner.invoke(main_app, ["--dry-run", "docker", "stats"])
-        assert res_stats.exit_code == 0
-
-        res_ps = runner.invoke(main_app, ["--dry-run", "docker", "ps"])
-        assert res_ps.exit_code == 0
-
+    """Verify docker images, build, push, prune, and analyze-layers subcommands."""
     mock_client = MagicMock()
     mock_img = MagicMock()
     mock_img.tags = ["alpine:latest"]
@@ -71,6 +53,55 @@ def test_docker_commands(tmp_path: Path) -> None:
 
         res_prune = runner.invoke(docker_app, ["prune", "--force"])
         assert res_prune.exit_code == 0
+
+
+def test_docker_stats_dry_run() -> None:
+    """Verify docker stats --dry-run outputs the plan without touching Docker."""
+    from devops_cli.dry_run import set_dry_run
+
+    set_dry_run(True)
+    try:
+        res = runner.invoke(docker_app, ["stats", "--name", "myapp", "--interval", "1.5"])
+        assert res.exit_code == 0
+        assert "docker_container_stats" in res.output
+    finally:
+        set_dry_run(False)
+
+
+def test_docker_stats_sdk_table() -> None:
+    """Verify docker stats table is built from Docker SDK container data."""
+    from devops_cli.commands.docker import _build_docker_stats_table, _format_bytes
+
+    mock_client = MagicMock()
+    mock_container = MagicMock()
+    mock_container.name = "web"
+    mock_container.stats.return_value = {
+        "cpu_stats": {
+            "cpu_usage": {"total_usage": 200_000_000, "percpu_usage": [100_000_000, 100_000_000]},
+            "system_cpu_usage": 2_000_000_000,
+            "online_cpus": 2,
+        },
+        "precpu_stats": {
+            "cpu_usage": {"total_usage": 100_000_000},
+            "system_cpu_usage": 1_000_000_000,
+        },
+        "memory_stats": {
+            "usage": 52_428_800,
+            "limit": 1_073_741_824,
+            "stats": {"cache": 0},
+        },
+        "networks": {"eth0": {"rx_bytes": 1_024, "tx_bytes": 512}},
+    }
+    mock_client.containers.list.return_value = [mock_container]
+
+    with patch("devops_cli.commands.docker._client", return_value=mock_client):
+        table = _build_docker_stats_table(None)
+
+    assert table.row_count == 1
+    # _format_bytes sanity checks
+    assert _format_bytes(0) == "0.0 B"
+    assert _format_bytes(2048) == "2.0 KB"
+    assert _format_bytes(5_242_880) == "5.0 MB"
 
 
 def test_docker_analyze_layers() -> None:

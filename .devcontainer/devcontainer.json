@@ -164,6 +164,7 @@
         ],
         "terminal.integrated.defaultProfile.linux": "zsh",
         "python.defaultInterpreterPath": "${containerWorkspaceFolder}/.venv/bin/python",
+        "python.terminal.activateEnvironment": true,
         "[python]": {
           "editor.defaultFormatter": "charliermarsh.ruff"
         }

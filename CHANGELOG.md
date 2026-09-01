@@ -18,8 +18,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Software Bill of Materials generator (`devops scan sbom`) supporting CycloneDX and SPDX formats from active lockfiles and installed packages.
 - **Git-Diff Aware Targeted Test Execution (`src/devops_cli/commands/test_cmd.py`, `tests/test_test_runner.py`)**:
   - Added `devops test run --diff` discovering and executing only test files affected by unstaged or branch-level git diffs.
-- **Real-Time Release Status Watcher (`src/devops_cli/commands/release.py`, `tests/test_release.py`)**:
-  - Added `--watch` flag to `devops release status` for real-time monitoring of active release branches, Git tags, and CI validation states.
+- **Live Resource & State Watchers Across Subsystems (`src/devops_cli/watchers/live_resource.py`, `src/devops_cli/commands/`)**:
+  - Added `--watch` / `-w` and `--interval` support powered by `rich.live.Live` across `devops k8s pods --watch`, `devops docker stats --watch`, `devops argo cd apps list --watch`, and `devops release status --watch`.
+  - Added `devops docker stats` command with real-time CPU%, memory net usage/limit, and network RX/TX I/O statistics table.
+  - Added `devops k8s pods` command with real-time pod phase, ready container counts, restart metrics, and age reporting.
+- **In-Memory SHA-256 Embedding LRU Cache (`src/devops_cli/ai/rag/embeddings.py`, `tests/test_rag_embeddings.py`)**:
+  - Implemented thread-safe in-memory LRU cache (`_EmbeddingLRUCache`) keyed by SHA-256 hash of text and model identifier, accelerating repeated RAG queries and semantic search.
+  - Instrumented embedding cache hits, misses, and active size metrics via OpenTelemetry/Prometheus.
 
 ### Changed
 - **AST Chunking, Tool Registries & Review Stage Cyclomatic Complexity Reduction (`src/devops_cli/ai/rag/chunker.py`, `src/devops_cli/ai/tools/builtin_tools.py`, `src/devops_cli/ai/review/stages/`)**:

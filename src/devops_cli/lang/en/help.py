@@ -132,6 +132,10 @@ class AICacheCommandHelp:
 class K8sCommandHelp:
     app: str = "Manage Kubernetes clusters, pods, services, and workloads."
     pods: str = "List running pods across namespaces with health metrics."
+    label_selector: str = "Kubernetes label selector filter (e.g. app=frontend)."
+    all_namespaces: str = "Query pods across all namespaces."
+    watch: str = "Continuously refresh pod list in real-time terminal display."
+    interval: str = "Auto-refresh polling interval in seconds."
     status: str = "Cluster health and resource utilization summary."
     port_forward: str = "Forward local port to a remote Kubernetes service."
     switch_context: str = "Switch active kubectl context."
@@ -326,6 +330,7 @@ class ArgoCommandHelp:
     prune: str = "Allow deletion of resources omitted from the source repository."
     wait: str = "Wait for sync operation to finish."
     watch: str = "Watch application status changes live."
+    interval: str = "Auto-refresh polling interval in seconds."
 
 
 @dataclass(frozen=True)
@@ -394,6 +399,7 @@ class DockerCommandHelp:
     build: str = "Build a Docker image."
     push: str = "Push a Docker image to a registry."
     prune: str = "Remove unused containers, images, and networks."
+    stats: str = "Display live container CPU, memory, and network I/O statistics."
     analyze_layers: str = "Analyze container image layer efficiency and wasted space using Dive."
     filter_name: str = "Filter by name."
     context_dir: str = "Build context directory."
@@ -407,6 +413,8 @@ class DockerCommandHelp:
     no_cache: str = "Do not use cached image layers when building."
     tag: str = "Image tag name."
     volumes: str = "Include or prune volumes."
+    watch: str = "Continuously refresh output in the terminal at a fixed interval."
+    interval: str = "Auto-refresh polling interval in seconds."
 
 
 @dataclass(frozen=True)

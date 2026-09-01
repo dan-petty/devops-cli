@@ -52,3 +52,117 @@ def test_openai_embeddings_success(monkeypatch: pytest.MonkeyPatch) -> None:
     embs = engine.embed_texts(["sample text"])
     assert len(embs) == 1
     assert len(embs[0]) == 1536
+
+
+# =============================================================================
+# Tests: _EmbeddingLRUCache
+# =============================================================================
+
+
+def test_embedding_lru_cache_basic_put_get() -> None:
+    """Cache stores and retrieves vectors by (text, model) key."""
+    from devops_cli.ai.rag.embeddings import _EmbeddingLRUCache
+
+    cache = _EmbeddingLRUCache(maxsize=10)
+    vec = [0.1, 0.2, 0.3]
+    cache.put("hello", "qwen", vec)
+    assert cache.get("hello", "qwen") == vec
+    assert cache.get("world", "qwen") is None
+
+
+def test_embedding_lru_cache_hit_miss_counters() -> None:
+    """Cache accurately tracks hit and miss counters."""
+    from devops_cli.ai.rag.embeddings import _EmbeddingLRUCache
+
+    cache = _EmbeddingLRUCache(maxsize=5)
+    cache.put("a", "m", [1.0])
+    cache.get("a", "m")  # hit
+    cache.get("b", "m")  # miss
+    cache.get("a", "m")  # hit
+    assert cache.hits == 2
+    assert cache.misses == 1
+
+
+def test_embedding_lru_cache_eviction() -> None:
+    """LRU eviction removes the least-recently-used entry when at capacity."""
+    from devops_cli.ai.rag.embeddings import _EmbeddingLRUCache
+
+    cache = _EmbeddingLRUCache(maxsize=3)
+    cache.put("a", "m", [1.0])
+    cache.put("b", "m", [2.0])
+    cache.put("c", "m", [3.0])
+    # Access 'a' to make it recently used
+    cache.get("a", "m")
+    # Inserting 'd' should evict 'b' (LRU)
+    cache.put("d", "m", [4.0])
+    assert cache.get("b", "m") is None  # evicted
+    assert cache.get("a", "m") == [1.0]  # still present
+    assert cache.get("d", "m") == [4.0]
+
+
+def test_embedding_lru_cache_clear() -> None:
+    """Clear empties the cache and resets counters."""
+    from devops_cli.ai.rag.embeddings import _EmbeddingLRUCache
+
+    cache = _EmbeddingLRUCache(maxsize=5)
+    cache.put("x", "m", [0.5])
+    cache.get("x", "m")
+    cache.clear()
+    assert cache.size == 0
+    assert cache.hits == 0
+    assert cache.misses == 0
+
+
+def test_embedding_lru_cache_model_isolation() -> None:
+    """Cache keys include the model name to prevent cross-model collisions."""
+    from devops_cli.ai.rag.embeddings import _EmbeddingLRUCache
+
+    cache = _EmbeddingLRUCache(maxsize=10)
+    cache.put("hello", "model-a", [1.0, 0.0])
+    cache.put("hello", "model-b", [0.0, 1.0])
+    assert cache.get("hello", "model-a") == [1.0, 0.0]
+    assert cache.get("hello", "model-b") == [0.0, 1.0]
+
+
+def test_embeddings_engine_cache_hits_avoid_api(monkeypatch: pytest.MonkeyPatch) -> None:
+    """EmbeddingsEngine returns cached results without re-calling the provider."""
+    call_count = 0
+
+    def fake_deterministic(
+        self: object, texts: list[str], dimensions: int | None = None
+    ) -> list[list[float]]:
+        nonlocal call_count
+        call_count += 1
+        return [[float(i) for i in range(4)] for _ in texts]
+
+    monkeypatch.setattr(EmbeddingsEngine, "_deterministic_fallback", fake_deterministic)
+    ai_cfg = AIConfig(provider="custom", ollama_urls=[])
+    engine = EmbeddingsEngine(ai_cfg)
+
+    first = engine.embed_texts(["hello", "world"])
+    assert call_count == 1  # first call hits provider
+
+    second = engine.embed_texts(["hello", "world"])
+    assert call_count == 1  # second call should be fully cached
+    assert first == second
+
+
+def test_embeddings_engine_embed_query_cached(monkeypatch: pytest.MonkeyPatch) -> None:
+    """embed_query returns from cache on repeated calls without re-calling the provider."""
+    call_count = 0
+
+    def fake_deterministic(
+        self: object, texts: list[str], dimensions: int | None = None
+    ) -> list[list[float]]:
+        nonlocal call_count
+        call_count += 1
+        return [[0.5] * 8 for _ in texts]
+
+    monkeypatch.setattr(EmbeddingsEngine, "_deterministic_fallback", fake_deterministic)
+    ai_cfg = AIConfig(provider="custom", ollama_urls=[])
+    engine = EmbeddingsEngine(ai_cfg)
+
+    v1 = engine.embed_query("test query")
+    v2 = engine.embed_query("test query")
+    assert v1 == v2
+    assert call_count == 1

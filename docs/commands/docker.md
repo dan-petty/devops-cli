@@ -77,6 +77,25 @@ devops docker prune [OPTIONS]
 
 ---
 
+## `devops docker stats`
+
+**Display live container CPU, memory, and network I/O statistics.**
+
+```bash
+devops docker stats [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--name`, `-n` | `string` | - | Filter containers or images by name. |
+| `--watch`, `-w` | `boolean` | - | Continuously refresh output in the terminal at a fixed interval. |
+| `--interval`, `-i` | `float` | `2.0` | Auto-refresh polling interval in seconds. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---
+
 ## `devops docker analyze-layers`
 
 **Analyze container image layer efficiency and wasted space using Dive.**

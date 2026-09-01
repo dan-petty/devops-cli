@@ -452,3 +452,24 @@ devops k8s chaos [OPTIONS] <experiment>
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ---
+
+## `devops k8s pods`
+
+**List running pods with health status, restart counts, and age.**
+
+```bash
+devops k8s pods [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--namespace`, `-n` | `string` | - | Kubernetes namespace. |
+| `--label`, `-l` | `string` | - | Kubernetes label selector filter (e.g. app=frontend). |
+| `--all-namespaces`, `-A` | `boolean` | - | Query pods across all namespaces. |
+| `--watch`, `-w` | `boolean` | - | Continuously refresh pod list in real-time terminal display. |
+| `--interval`, `-i` | `float` | `3.0` | Auto-refresh polling interval in seconds. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---

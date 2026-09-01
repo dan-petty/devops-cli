@@ -84,3 +84,44 @@ def test_cli_k8s_subcommands_dry_run() -> None:
 
     res_chaos = runner.invoke(app, ["chaos", "pod-kill", "--dry-run"])
     assert res_chaos.exit_code == 0
+
+    res_pods = runner.invoke(app, ["pods", "--dry-run", "-n", "kube-system"])
+    assert res_pods.exit_code == 0
+    assert "list_k8s_pods" in res_pods.output
+
+
+def test_k8s_pods_table_builder() -> None:
+    import datetime
+
+    from devops_cli.commands.k8s.diagnostics import _build_pods_table, _parse_pod_age
+
+    # Test parse_pod_age helper
+    now_iso = datetime.datetime.now(datetime.UTC).isoformat()
+    assert _parse_pod_age(now_iso) != "—"
+    assert _parse_pod_age("invalid-timestamp") == "—"
+
+    mock_pod = MagicMock()
+    mock_pod.metadata.namespace = "default"
+    mock_pod.metadata.name = "web-123"
+    mock_pod.metadata.creation_timestamp = datetime.datetime.now(datetime.UTC)
+    mock_pod.status.phase = "Running"
+    mock_pod.spec.containers = [MagicMock()]
+    mock_status = MagicMock()
+    mock_status.ready = True
+    mock_status.restart_count = 0
+    mock_pod.status.container_statuses = [mock_status]
+
+    mock_v1 = MagicMock()
+    mock_v1.list_namespaced_pod.return_value = MagicMock(items=[mock_pod])
+    mock_v1.list_pod_for_all_namespaces.return_value = MagicMock(items=[mock_pod])
+
+    with (
+        patch("kubernetes.config.load_incluster_config", side_effect=Exception("No cluster")),
+        patch("kubernetes.config.load_kube_config"),
+        patch("kubernetes.client.CoreV1Api", return_value=mock_v1),
+    ):
+        table = _build_pods_table("default", label_selector=None, all_namespaces=False)
+        assert table.row_count == 1
+
+        table_all = _build_pods_table(None, label_selector="app=web", all_namespaces=True)
+        assert table_all.row_count == 1

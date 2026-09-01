@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import threading
+from collections import OrderedDict
 from concurrent.futures import as_completed
 from typing import Any
 
@@ -11,6 +13,7 @@ import httpx2
 
 from devops_cli.config.defaults import (
     DEFAULT_HTTP_TIMEOUT_SECONDS,
+    DEFAULT_RAG_EMBEDDING_CACHE_SIZE,
     DEFAULT_RAG_EMBEDDING_MODEL,
 )
 from devops_cli.config.settings import AIConfig
@@ -23,6 +26,62 @@ from devops_cli.telemetry import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# In-Memory SHA-256 Keyed Embedding LRU Cache
+# =============================================================================
+
+
+class _EmbeddingLRUCache:
+    """Thread-safe in-memory LRU cache for embedding vectors, keyed by SHA-256 of (text + model)."""
+
+    def __init__(self, maxsize: int = DEFAULT_RAG_EMBEDDING_CACHE_SIZE) -> None:
+        self._maxsize = max(1, maxsize)
+        self._store: OrderedDict[str, list[float]] = OrderedDict()
+        self._lock = threading.Lock()
+        self.hits: int = 0
+        self.misses: int = 0
+
+    def _key(self, text: str, model: str) -> str:
+        """Compute deterministic SHA-256 cache key for (text, model) pair."""
+        return hashlib.sha256(f"{model}\x00{text}".encode()).hexdigest()
+
+    def get(self, text: str, model: str) -> list[float] | None:
+        """Return cached embedding vector or None on miss."""
+        key = self._key(text, model)
+        with self._lock:
+            if key in self._store:
+                self._store.move_to_end(key)
+                self.hits += 1
+                return self._store[key]
+            self.misses += 1
+            return None
+
+    def put(self, text: str, model: str, vector: list[float]) -> None:
+        """Insert or update a cache entry, evicting the LRU entry when at capacity."""
+        key = self._key(text, model)
+        with self._lock:
+            if key in self._store:
+                self._store.move_to_end(key)
+            else:
+                if len(self._store) >= self._maxsize:
+                    self._store.popitem(last=False)  # Evict LRU
+                self._store[key] = vector
+                self._store.move_to_end(key)
+
+    @property
+    def size(self) -> int:
+        """Current number of cached entries."""
+        with self._lock:
+            return len(self._store)
+
+    def clear(self) -> None:
+        """Evict all cached entries and reset counters."""
+        with self._lock:
+            self._store.clear()
+            self.hits = 0
+            self.misses = 0
 
 
 class EmbeddingsError(RuntimeError):
@@ -38,6 +97,7 @@ class EmbeddingsEngine:
         *,
         api_key: str | None = None,
         timeout: float = DEFAULT_HTTP_TIMEOUT_SECONDS,
+        cache_size: int = DEFAULT_RAG_EMBEDDING_CACHE_SIZE,
     ) -> None:
         base_config = ai_config or AIConfig()
         self.ai_config = base_config.for_task("embedding")
@@ -45,6 +105,7 @@ class EmbeddingsEngine:
         self.timeout = min(timeout, 120.0)
         self.model = self.ai_config.rag.embedding_model or DEFAULT_RAG_EMBEDDING_MODEL
         self._dimension: int | None = None
+        self._cache = _EmbeddingLRUCache(maxsize=cache_size)
 
     def _infer_default_dimension(self) -> int:
         """Infer default embedding dimension from active model name."""
@@ -64,7 +125,7 @@ class EmbeddingsEngine:
         return 1024
 
     def embed_texts(self, texts: list[str], *, is_query: bool = False) -> list[list[float]]:
-        """Generate vector embeddings for a list of text strings."""
+        """Generate vector embeddings for a list of text strings with LRU cache acceleration."""
         if not texts:
             return []
 
@@ -77,21 +138,50 @@ class EmbeddingsEngine:
                 "rag.is_query": is_query,
             },
         ):
-            # Model-aware task prefixing for asymmetric models
-            prefixed_texts = self._apply_model_prefix(texts, is_query=is_query)
+            # Split texts into cache hits and misses
+            cached: dict[int, list[float]] = {}
+            miss_indices: list[int] = []
+            miss_texts: list[str] = []
+            for idx, text in enumerate(texts):
+                hit = self._cache.get(text, self.model)
+                if hit is not None:
+                    cached[idx] = hit
+                else:
+                    miss_indices.append(idx)
+                    miss_texts.append(text)
 
-            provider = self.ai_config.provider.lower()
-            api_base = self.ai_config.api_base_url or ""
-            if provider in ("openai", "copilot"):
-                return self._embed_openai(prefixed_texts)
-            if provider == "ollama" or (not provider and ":11434" in api_base):
-                return self._embed_ollama(prefixed_texts)
-            if self.ai_config.ollama_urls:
-                return self._embed_ollama(prefixed_texts)
-            return self._deterministic_fallback(prefixed_texts)
+            from devops_cli.telemetry import record_metric
+
+            record_metric("devops_cli_embedding_cache_hits_total", len(cached), unit="1")
+            record_metric("devops_cli_embedding_cache_misses_total", len(miss_texts), unit="1")
+            record_metric("devops_cli_embedding_cache_size", self._cache.size, unit="1")
+
+            if miss_texts:
+                # Model-aware task prefixing for asymmetric models (only for misses)
+                prefixed_miss = self._apply_model_prefix(miss_texts, is_query=is_query)
+
+                provider = self.ai_config.provider.lower()
+                api_base = self.ai_config.api_base_url or ""
+                if provider in ("openai", "copilot"):
+                    fresh = self._embed_openai(prefixed_miss)
+                elif provider == "ollama" or (not provider and ":11434" in api_base):
+                    fresh = self._embed_ollama(prefixed_miss)
+                elif self.ai_config.ollama_urls:
+                    fresh = self._embed_ollama(prefixed_miss)
+                else:
+                    fresh = self._deterministic_fallback(prefixed_miss)
+
+                for miss_idx, (original_text, vector) in zip(miss_indices, zip(miss_texts, fresh)):
+                    self._cache.put(original_text, self.model, vector)
+                    cached[miss_idx] = vector
+
+            return [cached[i] for i in range(len(texts))]
 
     def embed_query(self, text: str) -> list[float]:
-        """Generate vector embedding for a single search query."""
+        """Generate vector embedding for a single search query with LRU cache acceleration."""
+        hit = self._cache.get(text, self.model)
+        if hit is not None:
+            return hit
         results = self.embed_texts([text], is_query=True)
         if not results:
             raise EmbeddingsError(f"Failed to generate embedding for query: {text[:50]}")
