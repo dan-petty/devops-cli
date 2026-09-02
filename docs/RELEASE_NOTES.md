@@ -20,6 +20,10 @@ Workstation-native DevOps CLI for managing repositories, SSH keys, Kubernetes cl
 ### 👁️ Continuous IDE File Watcher & Instant Review (`devops ai review path --watch`)
 - **Automated Incremental Reviews**: Integrated `--watch` / `-w` and `--debounce-ms` into `devops review path` leveraging `DebouncedFileWatcher` to trigger instant multi-persona reviews upon local file modifications.
 
+### 🔑 Automated Kubernetes Stack Credential Synchronization (`devops k8s sync-secrets`)
+- **Zero-Plaintext Secret Extraction**: Automated discovery and retrieval of ArgoCD and Grafana admin passwords from Kubernetes cluster secrets directly into OS Keyring (`argocd_password`, `grafana_password`).
+- **Seamless Stack Deployment**: Auto-synchronizes admin credentials on `devops k8s deploy-stack` and `devops k8s sync-secrets`.
+
 ---
 
 ## 🚀 Highlights of v0.2.8

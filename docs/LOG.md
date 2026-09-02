@@ -15,6 +15,9 @@ Chronological log of refactoring milestones, quality gates, and security enhance
   - Implemented `ChaosFaultRunner` supporting declarative pod disruptions, recovery time observation, and automatic rollback handling.
 - **Continuous IDE File Watcher & Instant Review (`devops ai review path --watch`)**:
   - Added `--watch` / `-w` and `--debounce-ms` options to `devops review path` leveraging `DebouncedFileWatcher` to trigger instant multi-persona reviews on active file changes.
+- **Automated Kubernetes Stack Credential Synchronization (`src/devops_cli/k8s/credentials.py`, `devops k8s sync-secrets`)**:
+  - Implemented zero-plaintext password extraction from Kubernetes cluster secrets (`argocd-initial-admin-secret`, `kube-prometheus-stack-grafana`, `grafana`) directly into OS Keyring (`argocd_password`, `grafana_password`).
+  - Integrated automated credential synchronization into `devops k8s deploy-stack` and `devops k8s sync-secrets`.
 
 ### [2026-09-02] Release v0.2.8 Output Subsystem Deconstruction, Language Localization & Complexity Elimination
 - **Output Subsystem Modularization (`src/devops_cli/output/formatters/`)**:

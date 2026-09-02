@@ -17,6 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added `ChaosFaultRunner` supporting declarative pod disruptions, recovery time observation, and automatic rollback handling.
 - **Continuous IDE File Watcher & Instant Review (`devops ai review path --watch`)**:
   - Added `--watch` / `-w` and `--debounce-ms` options to `devops review path` leveraging `DebouncedFileWatcher` to trigger instant multi-persona reviews on active file changes.
+- **Automated Kubernetes Stack Credential Synchronization (`src/devops_cli/k8s/credentials.py`, `devops k8s sync-secrets`)**:
+  - Added zero-plaintext credential extraction from Kubernetes Secrets (`argocd-initial-admin-secret`, `kube-prometheus-stack-grafana`, `grafana`) directly into OS Keyring (`argocd_password`, `grafana_password`).
+  - Integrated automated credential synchronization into `devops k8s deploy-stack` and `devops k8s sync-secrets`.
 
 ## [0.2.8] - 2026-09-01
 

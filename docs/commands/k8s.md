@@ -143,6 +143,24 @@ devops k8s deploy-stack [OPTIONS]
 
 ---
 
+## `devops k8s sync-secrets`
+
+**Fetch stack admin credentials (ArgoCD, Grafana) from Kubernetes and store in OS Keyring.**
+
+```bash
+devops k8s sync-secrets [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--stack`, `-s` | `string` | `infra` | Stack to operate on: infra | llm | all. |
+| `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---
+
 ## `devops k8s configure-urls`
 
 **Auto-detect Kubernetes stack URLs and update CLI config.**
