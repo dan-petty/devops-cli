@@ -156,3 +156,38 @@ def test_function_stage_convenience_wrapper() -> None:
     assert result.status == PipelineStatus.SUCCESS
     assert ctx.items == ["custom"]
     assert result.stage_results[0].result == 42
+
+
+@pytest.mark.asyncio
+async def test_pipeline_async_skip_and_failure() -> None:
+    pipeline: StagePipeline[SampleContext, Any] = StagePipeline(
+        name="async_fail_pipeline", fail_fast=True
+    )
+    pipeline.add_stage(StageTwo())
+    pipeline.add_stage(FailingStage())
+
+    ctx = SampleContext(should_skip_second=True)
+    result = await pipeline.run_async(ctx)
+
+    assert result.status == PipelineStatus.FAILED
+    assert result.stage_results[0].status == StageStatus.SKIPPED
+    assert result.stage_results[1].status == StageStatus.FAILED
+
+
+@pytest.mark.asyncio
+async def test_async_function_stage_coroutine() -> None:
+    async def async_fn(ctx: SampleContext) -> str:
+        await asyncio.sleep(0.01)
+        ctx.items.append("coroutine")
+        return "async_fn_res"
+
+    stage = FunctionStage(name="async_fn_stage", func=async_fn)
+    pipeline: StagePipeline[SampleContext, str] = StagePipeline(name="async_fn_pipeline")
+    pipeline.add_stage(stage)
+
+    ctx = SampleContext()
+    result = await pipeline.run_async(ctx)
+
+    assert result.status == PipelineStatus.SUCCESS
+    assert ctx.items == ["coroutine"]
+    assert result.stage_results[0].result == "async_fn_res"

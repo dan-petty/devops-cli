@@ -13,7 +13,7 @@ from devops_cli.config.defaults import (
     DEFAULT_K8S_DIR,
     DEFAULT_K8S_STACK,
 )
-from devops_cli.dry_run import is_dry_run, render_dry_run_result
+from devops_cli.dry_run import is_dry_run, render_dry_run_result, set_dry_run
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
     print_error,
@@ -349,15 +349,13 @@ def deploy_stack(
     k8s.port_forward(stack=stack, context=context)
     write_stdout("\n")
     if "infra" in selected_stacks:
-        print_info(
-            "[dim]ArgoCD admin password: kubectl -n argocd get secret"
-            " argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d[/dim]",
-            prefix=False,
-        )
-        print_info(
-            "[dim]Grafana credentials: set via grafana.token in 'devops config set'[/dim]",
-            prefix=False,
-        )
+        from devops_cli.k8s.credentials import sync_k8s_credentials
+
+        synced = sync_k8s_credentials(context=context, stack="infra")
+        if synced.get("argocd"):
+            print_success("ArgoCD admin credentials securely synced to OS Keyring.")
+        if synced.get("grafana"):
+            print_success("Grafana admin credentials securely synced to OS Keyring.")
         print_info(
             "[dim]Jaeger Query UI: http://localhost:16686 (namespace: otel)[/dim]",
             prefix=False,
@@ -378,6 +376,45 @@ def deploy_stack(
             prefix=False,
         )
         print_info("[dim]Valkey Cache: localhost:6379 (namespace: llm)[/dim]", prefix=False)
+
+
+def sync_secrets(
+    stack: Annotated[str, typer.Option("--stack", "-s", help=HELP.k8s.stack)] = DEFAULT_K8S_STACK,
+    context: Annotated[
+        str | None, typer.Option("--context", "-c", help=HELP.options.context)
+    ] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
+) -> None:
+    """Fetch stack admin credentials (ArgoCD, Grafana) from Kubernetes and store in OS Keyring."""
+    if context:
+        k8s._validate_k8s_identifier(context, "context")
+
+    set_dry_run(dry_run)
+    if is_dry_run():
+        render_dry_run_result(
+            command="devops k8s sync-secrets",
+            action="sync_stack_secrets",
+            details={
+                "stack": stack,
+                "context": context or "active",
+                "targets": "argocd.password, grafana.password",
+            },
+        )
+        return
+
+    if not k8s._cluster_reachable(context=context):
+        print_error(MESSAGES.k8s.cluster_not_reachable, prefix=False)
+        raise typer.Exit(1)
+
+    from devops_cli.k8s.credentials import sync_k8s_credentials
+
+    print_info(f"Synchronizing Kubernetes credentials for stack ({stack})...", prefix=False)
+    results = sync_k8s_credentials(context=context, stack=stack)
+    for svc, success in results.items():
+        if success:
+            print_success(f"{svc.capitalize()} credentials securely stored in OS Keyring.")
+        else:
+            print_info(f"{svc.capitalize()} secret not found in active cluster.", prefix=False)
 
 
 def teardown_stack(

@@ -512,8 +512,16 @@ def get_grafana_token(settings: Settings) -> str | None:
     return _keyring_get(_KEYRING_KEYS[opt.GRAFANA_TOKEN])
 
 
+def get_grafana_password(settings: Settings) -> str | None:
+    return _keyring_get(_KEYRING_KEYS[opt.GRAFANA_PASSWORD])
+
+
 def get_argocd_token(settings: Settings) -> str | None:
     return _keyring_get(_KEYRING_KEYS[opt.ARGOCD_TOKEN])
+
+
+def get_argocd_password(settings: Settings) -> str | None:
+    return _keyring_get(_KEYRING_KEYS[opt.ARGOCD_PASSWORD])
 
 
 def get_ai_api_key(settings: Settings) -> str | None:

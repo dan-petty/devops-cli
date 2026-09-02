@@ -55,6 +55,7 @@ from devops_cli.commands.k8s.stack_lifecycle import (
     _bootstrap_openwebui_account,
     bootstrap_openwebui,
     deploy_stack,
+    sync_secrets,
     teardown_stack,
 )
 from devops_cli.commands.k8s.tls_management import (
@@ -76,6 +77,7 @@ app.command()(logs)
 app.command("bootstrap")(bootstrap)
 app.command("bootstrap-openwebui")(bootstrap_openwebui)
 app.command("deploy-stack")(deploy_stack)
+app.command("sync-secrets")(sync_secrets)
 app.command("configure-urls")(configure_urls)
 app.command("port-forward")(port_forward)
 app.command("teardown-stack")(teardown_stack)
@@ -117,6 +119,7 @@ __all__ = [
     "status",
     "stream_logs_cmd",
     "switch_context",
+    "sync_secrets",
     "teardown_stack",
     "validate_policy_cmd",
     "_adopt_helm_resource_if_conflict",

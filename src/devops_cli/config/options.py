@@ -11,9 +11,11 @@ REPOS_BASE_DIR = "repos.base_dir"
 WORKSPACE_FILE = "workspace.file"
 GRAFANA_URL = "grafana.url"
 GRAFANA_TOKEN = "grafana.token"
+GRAFANA_PASSWORD = "grafana.password"
 PROMETHEUS_URL = "prometheus.url"
 ARGOCD_URL = "argocd.url"
 ARGOCD_TOKEN = "argocd.token"
+ARGOCD_PASSWORD = "argocd.password"
 AI_PROVIDER = "ai.provider"
 AI_MODEL = "ai.model"
 AI_OLLAMA_URLS = "ai.ollama_urls"
@@ -81,9 +83,11 @@ CONFIG_OPTIONS: tuple[str, ...] = (
     WORKSPACE_FILE,
     GRAFANA_URL,
     GRAFANA_TOKEN,
+    GRAFANA_PASSWORD,
     PROMETHEUS_URL,
     ARGOCD_URL,
     ARGOCD_TOKEN,
+    ARGOCD_PASSWORD,
     AI_PROVIDER,
     AI_MODEL,
     AI_OLLAMA_URLS,
@@ -132,12 +136,21 @@ CONFIG_OPTIONS: tuple[str, ...] = (
 )
 
 SECRET_CONFIG_OPTIONS: frozenset[str] = frozenset(
-    {GITHUB_TOKEN, GRAFANA_TOKEN, ARGOCD_TOKEN, AI_API_KEY}
+    {
+        GITHUB_TOKEN,
+        GRAFANA_TOKEN,
+        GRAFANA_PASSWORD,
+        ARGOCD_TOKEN,
+        ARGOCD_PASSWORD,
+        AI_API_KEY,
+    }
 )
 
 KEYRING_KEYS: dict[str, str] = {
     GITHUB_TOKEN: "github_token",
     GRAFANA_TOKEN: "grafana_token",
+    GRAFANA_PASSWORD: "grafana_password",
     ARGOCD_TOKEN: "argocd_token",
+    ARGOCD_PASSWORD: "argocd_password",
     AI_API_KEY: "ai_api_key",
 }
