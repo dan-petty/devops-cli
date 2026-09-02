@@ -68,6 +68,17 @@ def clamp_effort(effort: Any) -> Any:
     return str(effort).lower()
 
 
+async def _invoke_agent_callable(agent_obj: Any, task: str) -> Any:
+    """Invoke an agent object supporting run_async, run, or callable protocols."""
+    if hasattr(agent_obj, "run_async") and callable(agent_obj.run_async):
+        return await agent_obj.run_async(task)
+    if hasattr(agent_obj, "run") and callable(agent_obj.run):
+        return agent_obj.run(task)
+    if callable(agent_obj):
+        return await agent_obj(task) if inspect.iscoroutinefunction(agent_obj) else agent_obj(task)
+    return str(agent_obj)
+
+
 class ModelOption(BaseModel):
     """Model menu option carrying routing hints and model settings."""
 
@@ -271,20 +282,16 @@ class SubAgents(BaseCapability):
             **kwargs: Any,
         ) -> str:
             """Delegate a self-contained task to a named sub-agent."""
-            actual_ctx: RunContext[Any] | None = None
             kw_ctx = kwargs.get("ctx")
-            if isinstance(ctx, RunContext):
-                actual_ctx = ctx
-                actual_agent = agent_name or str(kwargs.get("agent_name", ""))
-                actual_task = task or str(kwargs.get("task", ""))
-            elif isinstance(ctx, str):
-                if isinstance(kw_ctx, RunContext):
-                    actual_ctx = kw_ctx
+            actual_ctx: RunContext[Any] | None = (
+                ctx
+                if isinstance(ctx, RunContext)
+                else (kw_ctx if isinstance(kw_ctx, RunContext) else None)
+            )
+            if isinstance(ctx, str):
                 actual_agent = ctx
                 actual_task = agent_name or str(kwargs.get("task", ""))
             else:
-                if isinstance(kw_ctx, RunContext):
-                    actual_ctx = kw_ctx
                 actual_agent = agent_name or str(kwargs.get("agent_name", ""))
                 actual_task = task or str(kwargs.get("task", ""))
 
@@ -353,7 +360,7 @@ class SubAgents(BaseCapability):
             )
         ]
 
-        # Also provide backward-compatible individual tool delegates
+        # Provide direct named tool delegates for each registered child sub-agent
         for sa in all_sub_agents:
             s_name = sa.name
 
@@ -506,18 +513,7 @@ class DynamicWorkflow(BaseCapability):
             raise RuntimeError(msg)
 
         self.call_counts[name_str] = self.call_counts.get(name_str, 0) + 1
-
-        if hasattr(agent_obj, "run_async"):
-            resp = await agent_obj.run_async(task)
-        elif hasattr(agent_obj, "run"):
-            resp = agent_obj.run(task)
-        elif callable(agent_obj):
-            resp = (
-                await agent_obj(task) if inspect.iscoroutinefunction(agent_obj) else agent_obj(task)
-            )
-        else:
-            resp = str(agent_obj)
-
+        resp = await _invoke_agent_callable(agent_obj, task)
         result_val = _extract_response_data(resp)
         val_preview = str(result_val)[:200]
         self.completed_previews.append(f"[{name_str}]: {val_preview}")

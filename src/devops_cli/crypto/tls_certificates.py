@@ -379,15 +379,17 @@ def generate_homelab_tls_bundle(
     )
 
 
+def _read_cert_bytes(source: Path | str | bytes) -> bytes:
+    """Load raw PEM bytes from a Path, filesystem path string, or raw bytes."""
+    if isinstance(source, bytes):
+        return source
+    p = Path(source)
+    return p.read_bytes() if p.exists() else str(source).encode("utf-8")
+
+
 def inspect_certificate(cert_source: Path | str | bytes) -> CertificateInfo:
     """Inspect and extract detailed metadata from an X.509 certificate."""
-    if isinstance(cert_source, Path):
-        data = cert_source.read_bytes()
-    elif isinstance(cert_source, str):
-        p = Path(cert_source)
-        data = p.read_bytes() if p.exists() else cert_source.encode("utf-8")
-    else:
-        data = cert_source
+    data = _read_cert_bytes(cert_source)
 
     cert = x509.load_pem_x509_certificate(data)
 
@@ -456,22 +458,8 @@ def verify_certificate(
 ) -> bool:
     """Cryptographically verify that a leaf certificate was signed by a CA certificate."""
     try:
-        if isinstance(cert_source, Path):
-            cert_data = cert_source.read_bytes()
-        elif isinstance(cert_source, str):
-            p = Path(cert_source)
-            cert_data = p.read_bytes() if p.exists() else cert_source.encode("utf-8")
-        else:
-            cert_data = cert_source
-
-        if isinstance(ca_source, Path):
-            ca_data = ca_source.read_bytes()
-        elif isinstance(ca_source, str):
-            p = Path(ca_source)
-            ca_data = p.read_bytes() if p.exists() else ca_source.encode("utf-8")
-        else:
-            ca_data = ca_source
-
+        cert_data = _read_cert_bytes(cert_source)
+        ca_data = _read_cert_bytes(ca_source)
         cert = x509.load_pem_x509_certificate(cert_data)
         ca_cert = x509.load_pem_x509_certificate(ca_data)
 

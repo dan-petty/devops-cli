@@ -44,6 +44,21 @@ class Passthrough(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
+_TRUNCATION_FORMATTERS: dict[str, Callable[[str, int], str]] = {
+    "head": lambda t, m: t[:m] + f"\n\n[... {len(t) - m} characters truncated ...]",
+    "tail": lambda t, m: f"[... {len(t) - m} characters truncated ...]\n\n" + t[-m:],
+}
+
+
+def _truncate_head_tail(text: str, max_chars: int) -> str:
+    half = max_chars // 2
+    return (
+        text[:half]
+        + f"\n\n[... {len(text) - max_chars} characters truncated ...]\n\n"
+        + text[-half:]
+    )
+
+
 class Truncate(BaseModel):
     """Clamps return text to a character budget."""
 
@@ -62,23 +77,8 @@ class Truncate(BaseModel):
             if isinstance(self.strategy, TruncationStrategy)
             else str(self.strategy)
         )
-        if strat == "head":
-            return (
-                text[: self.max_chars]
-                + f"\n\n[... {len(text) - self.max_chars} characters truncated ...]"
-            )
-        elif strat == "tail":
-            return (
-                f"[... {len(text) - self.max_chars} characters truncated ...]\n\n"
-                + text[-self.max_chars :]
-            )
-        else:  # head_tail
-            half = self.max_chars // 2
-            return (
-                text[:half]
-                + f"\n\n[... {len(text) - self.max_chars} characters truncated ...]\n\n"
-                + text[-half:]
-            )
+        formatter = _TRUNCATION_FORMATTERS.get(strat, _truncate_head_tail)
+        return formatter(text, self.max_chars)
 
 
 @runtime_checkable
@@ -725,8 +725,19 @@ class SummarizingCompaction(BaseCapability):
         return reinject_pinned(combined, pinned)
 
 
+def _apply_compactor(compactor: Any, messages: list[Any]) -> list[Any]:
+    """Execute a compactor object or callable on a message sequence."""
+    if hasattr(compactor, "compact_messages") and callable(compactor.compact_messages):
+        res = compactor.compact_messages(messages)
+        return list(res) if isinstance(res, (list, tuple)) else messages
+    if callable(compactor):
+        res = compactor(messages)
+        return list(res) if isinstance(res, (list, tuple)) else messages
+    return messages
+
+
 class FallbackCompaction(BaseCapability):
-    """Composing compaction strategy that executes fallbacks in sequence until one succeeds."""
+    """Capability that chains fallback compaction strategies."""
 
     id: str = "fallback_compaction"
     strategies: list[Any] = Field(default_factory=list)
@@ -736,11 +747,7 @@ class FallbackCompaction(BaseCapability):
         current = list(messages)
         for strat in self.strategies:
             try:
-                if hasattr(strat, "compact_messages"):
-                    current = strat.compact_messages(current)
-                elif callable(strat):
-                    current = strat(current)
-                return current
+                return _apply_compactor(strat, current)
             except Exception:
                 continue
         return current
@@ -783,10 +790,7 @@ class TieredCompaction(BaseCapability):
         """Apply cascading compaction tiers sequentially."""
         current = list(messages)
         for tier in self.tiers:
-            if hasattr(tier, "compact_messages"):
-                current = tier.compact_messages(current)
-            elif callable(tier):
-                current = tier(current)
+            current = _apply_compactor(tier, current)
         return current
 
 
