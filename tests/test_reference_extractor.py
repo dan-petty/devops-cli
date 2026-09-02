@@ -894,3 +894,31 @@ def test_extract_network_references_edge_cases() -> None:
     targets = [r.target for r in refs]
     assert any("https://api.external-service.net/v1" in t for t in targets)
     assert any("93.184.216.34" in t for t in targets)
+
+
+def test_reference_extractor_advanced_edge_cases(tmp_path: Path) -> None:
+    """Verify is_local_or_reserved_domain suffixes, _get_workspace_filenames, and code references."""
+    from devops_cli.security.reference_extractor import (
+        _get_workspace_filenames,
+        is_code_or_config_reference,
+        is_local_or_reserved_domain,
+    )
+
+    # 1. is_local_or_reserved_domain suffixes
+    assert is_local_or_reserved_domain("node.cluster.local") is True
+    assert is_local_or_reserved_domain("router.lan") is True
+    assert is_local_or_reserved_domain("device.home.arpa") is True
+    assert is_local_or_reserved_domain("host.localdomain") is True
+    assert is_local_or_reserved_domain("invalid-domain-") is False
+    assert is_local_or_reserved_domain("has_underscore.internal") is False
+
+    # 2. _get_workspace_filenames on nonexistent directory fallback
+    exact, all_p = _get_workspace_filenames(str(tmp_path / "nonexistent_dir"))
+    assert isinstance(exact, set)
+    assert isinstance(all_p, tuple)
+
+    # 3. is_code_or_config_reference single letter and stdlib
+    assert is_code_or_config_reference("m.group") is True
+    assert is_code_or_config_reference("sys.path") is True
+    assert is_code_or_config_reference("devops_cli.security") is True
+    assert is_code_or_config_reference("single") is True

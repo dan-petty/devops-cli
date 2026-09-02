@@ -93,12 +93,13 @@ def test_cli_k8s_subcommands_dry_run() -> None:
 def test_k8s_pods_table_builder() -> None:
     import datetime
 
-    from devops_cli.commands.k8s.diagnostics import _build_pods_table, _parse_pod_age
+    from devops_cli.commands.k8s.diagnostics import _build_pods_table
+    from devops_cli.output import format_timestamp_age
 
-    # Test parse_pod_age helper
+    # Test format_timestamp_age helper
     now_iso = datetime.datetime.now(datetime.UTC).isoformat()
-    assert _parse_pod_age(now_iso) != "—"
-    assert _parse_pod_age("invalid-timestamp") == "—"
+    assert format_timestamp_age(now_iso) != "—"
+    assert format_timestamp_age("invalid-timestamp") == "—"
 
     mock_pod = MagicMock()
     mock_pod.metadata.namespace = "default"

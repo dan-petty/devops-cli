@@ -26,11 +26,11 @@ from devops_cli.config.defaults import (
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
-    Table,
+    format_k8s_service_targets_table,
+    print,
     print_error,
     print_info,
     print_success,
-    print_table,
 )
 
 VALID_STACKS: tuple[str, ...] = ("infra", "llm", "all")
@@ -310,14 +310,7 @@ def configure_urls(
     if configured:
         save_settings(settings)
 
-    table = Table(title=f"Configured Service Targets ({stack})")
-    table.add_column("Config Key / Service", style="cyan")
-    table.add_column("Detected Target URL", style="green")
-
-    for k, v in configured.items():
-        table.add_row(k, v)
-
-    print_table(table)
+    print(format_k8s_service_targets_table(configured, stack))
 
 
 def port_forward(

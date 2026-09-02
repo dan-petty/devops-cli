@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
 from typer.testing import CliRunner
 
 from devops_cli.commands.workspace import app as workspace_app
@@ -151,3 +152,34 @@ def test_workspace_edge_cases_and_clean(tmp_path: Path) -> None:
             res_clean_pruned = runner.invoke(workspace_app, ["clean"])
             assert res_clean_pruned.exit_code == 0
             assert "Cleaned" in res_clean_pruned.output
+
+
+def test_workspace_load_save_boundaries_and_outside_roots(tmp_path: Path) -> None:
+    """Verify _load size guard, corrupted json, _save boundaries, and add outside roots."""
+    from devops_cli.commands.workspace import _load, _save
+
+    # 1. _load corrupted JSON
+    bad_json = tmp_path / "corrupted.code-workspace"
+    bad_json.write_text("NOT JSON", encoding="utf-8")
+    assert _load(bad_json) == {"folders": [], "settings": {}}
+
+    # 2. _load malformed JSON (dict without list folders)
+    mal_json = tmp_path / "malformed.code-workspace"
+    mal_json.write_text('{"folders": "not_a_list"}', encoding="utf-8")
+    assert _load(mal_json) == {"folders": [], "settings": {}}
+
+    # 3. _load oversized file > 10MB
+    with patch.object(Path, "stat") as mock_stat:
+        mock_stat.return_value.st_size = 11 * 1024 * 1024
+        assert _load(bad_json) == {"folders": [], "settings": {}}
+
+    # 4. _save unsafe filename extension
+    with pytest.raises(Exception):
+        _save(tmp_path / "unsafe.txt", {"folders": []})
+
+    # 5. Add folder outside permitted roots
+    outside_dir = tmp_path / "outside_root" / "my_project"
+    outside_dir.mkdir(parents=True)
+    with patch("devops_cli.commands.workspace._PROJECT_ROOT", tmp_path / "isolated_root"):
+        res_outside = runner.invoke(workspace_app, ["add", str(outside_dir)])
+        assert res_outside.exit_code == 1

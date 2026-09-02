@@ -43,3 +43,34 @@ def test_resolve_audit_log_dest_security_check(
     monkeypatch.setenv("DEVOPS_CLI_AUDIT_LOG_DEST", "/etc/passwd")
     with pytest.raises(SecurityError, match="must be within"):
         _resolve_audit_log_dest(None)
+
+
+def test_resolve_audit_log_dest_and_stream_default_settings(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Verify _resolve_audit_log_dest and stream_audit_records with default settings and OSError handling."""
+    from unittest.mock import MagicMock, patch
+
+    monkeypatch.delenv("DEVOPS_CLI_AUDIT_LOG_DEST", raising=False)
+
+    # 1. Relative destination path in settings
+    mock_settings = MagicMock()
+    mock_settings.data.audit_log_path = Path(".data/audit.jsonl")
+
+    with (
+        patch("devops_cli.config.settings.load_settings", return_value=mock_settings),
+        patch("devops_cli.core.repo.find_top_level_repo_root", return_value=tmp_path),
+    ):
+        resolved = _resolve_audit_log_dest(None)
+        assert resolved == (tmp_path / ".data" / "audit.jsonl").resolve()
+
+        # Stream with log_file=None (resolved from settings)
+        count = stream_audit_records("http://siem.example.test")
+        assert count == 0
+
+    # 2. OSError handling during stream
+    test_file = tmp_path / "test_audit.jsonl"
+    test_file.write_text('{"event": "test"}\n', encoding="utf-8")
+    with patch.object(Path, "open", side_effect=OSError("Read error")):
+        count_err = stream_audit_records("http://siem.example.test", log_file=test_file)
+        assert count_err == 0

@@ -144,3 +144,82 @@ def test_scan_aibom_cli(tmp_path: Path) -> None:
     # 4. Dry run
     res_dry = runner.invoke(scan_app, ["aibom", str(tmp_path), "--dry-run"])
     assert res_dry.exit_code == 0
+
+
+def test_classify_license_all_branches() -> None:
+    """Verify license categorization across all standard governance categories."""
+    from devops_cli.security.aibom import _classify_license
+
+    assert _classify_license("")[0] == ModelLicenseType.UNKNOWN
+    assert _classify_license(None)[0] == ModelLicenseType.UNKNOWN  # type: ignore[arg-type]
+    assert _classify_license("Apache 2.0")[0] == ModelLicenseType.PERMISSIVE_OPEN_WEIGHT
+    assert _classify_license("MIT")[0] == ModelLicenseType.PERMISSIVE_OPEN_WEIGHT
+    assert _classify_license("Llama-3-Community")[0] == ModelLicenseType.OPEN_WEIGHT_CAPPED
+    assert _classify_license("Falcon")[0] == ModelLicenseType.OPEN_WEIGHT_CAPPED
+    assert _classify_license("OpenRAIL-M")[0] == ModelLicenseType.RAIL
+    assert _classify_license("Gemma Terms of Use")[0] == ModelLicenseType.RAIL
+    assert _classify_license("GPL-3.0")[0] == ModelLicenseType.OPEN_SOURCE
+    assert _classify_license("Proprietary Commercial")[0] == ModelLicenseType.PROPRIETARY
+    assert _classify_license("Custom In-House")[0] == ModelLicenseType.UNKNOWN
+
+
+def test_detect_trust_remote_code_branches(tmp_path: Path) -> None:
+    """Verify error handling, custom pipelines, and boolean flags in detect_trust_remote_code."""
+    from devops_cli.security.aibom import _compute_sha256
+
+    # 1. Non-existent directory
+    non_dir = tmp_path / "does_not_exist"
+    assert detect_trust_remote_code(non_dir) is False
+
+    # 2. Config with trust_remote_code: true
+    d1 = tmp_path / "trust_cfg"
+    d1.mkdir()
+    (d1 / "config.json").write_text('{"trust_remote_code": true}', encoding="utf-8")
+    assert detect_trust_remote_code(d1) is True
+
+    # 3. Config with custom_pipelines
+    d2 = tmp_path / "pipe_cfg"
+    d2.mkdir()
+    (d2 / "config.json").write_text('{"custom_pipelines": {"task": "custom"}}', encoding="utf-8")
+    assert detect_trust_remote_code(d2) is True
+
+    # 4. Invalid JSON in config.json
+    d3 = tmp_path / "bad_json"
+    d3.mkdir()
+    (d3 / "config.json").write_text("INVALID JSON", encoding="utf-8")
+    assert detect_trust_remote_code(d3) is False
+
+    # 5. Invalid Python syntax in directory
+    d4 = tmp_path / "bad_py"
+    d4.mkdir()
+    (d4 / "script.py").write_text("def broken_syntax( :", encoding="utf-8")
+    assert detect_trust_remote_code(d4) is False
+
+    # 6. SHA256 of non-existent file
+    assert _compute_sha256(tmp_path / "ghost_file.bin") == ""
+
+
+def test_extract_aibom_modelfile_and_weights(tmp_path: Path) -> None:
+    """Verify extraction from Modelfile and safetensors file hashing."""
+    m_dir = tmp_path / "ollama_model"
+    m_dir.mkdir()
+    (m_dir / "Modelfile").write_text(
+        "FROM mistral:7b\nPARAMETER temperature 0.7\n", encoding="utf-8"
+    )
+    (m_dir / "model_card.json").write_text('{"description": "Mistral 7B"}', encoding="utf-8")
+    (m_dir / "weights.safetensors").write_bytes(b"mock_safetensors_binary_content")
+
+    components = extract_aibom_components(tmp_path)
+    assert len(components) == 1
+    c = components[0]
+    assert c.name == "mistral:7b"
+    assert c.parameters_billion == 7.0
+    assert c.has_safe_weights is True
+    assert "model_card.json" in c.file_digests
+
+    # Test full generate_aibom payload includes hardware estimate properties and digests
+    payload = generate_aibom(tmp_path)
+    assert len(payload["components"]) == 1
+    props = {p["name"]: p["value"] for p in payload["components"][0]["properties"]}
+    assert "devops:estimated_vram_gb" in props
+    assert len(payload["components"][0]["hashes"]) > 0

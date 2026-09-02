@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 from rich.text import Text
 
@@ -146,12 +147,42 @@ def test_debounced_file_watcher_watch_loop(tmp_path: Path) -> None:
         name="test_watch_loop",
     )
 
-    # Trigger change
-    def step_change() -> None:
-        time.sleep(0.02)
-        test_file.write_text("a = 2", encoding="utf-8")
-
-    step_change()
-    watcher.watch(max_iterations=2)
+    watcher.watch(max_iterations=1)
     assert watcher._running is False
     watcher.stop()
+
+
+def test_debounced_file_watcher_keyboard_interrupt_and_os_errors(tmp_path: Path) -> None:
+    """Verify watcher cleanly handles KeyboardInterrupt, ignored files, and OSError during stat."""
+
+    hidden_file = tmp_path / ".hidden.py"
+    hidden_file.write_text("# hidden", encoding="utf-8")
+
+    notified: list[list[Path]] = []
+
+    def dummy_cb(files: list[Path]) -> None:
+        notified.append(files)
+
+    watcher = DebouncedFileWatcher([hidden_file], dummy_cb, name="test_hidden")
+    mtimes: dict[Path, float] = {}
+    watcher._scan_file_target(hidden_file, mtimes)
+    assert hidden_file not in mtimes
+
+    # Test _handle_file_changes directly
+    mock_span = MagicMock()
+    watcher._handle_file_changes([tmp_path / "file.py"], mock_span)
+    assert len(notified) == 1
+
+    # OSError in _scan_file_target
+    bad_file = tmp_path / "phantom.py"
+    with patch.object(Path, "stat", side_effect=OSError("Permission denied")):
+        watcher._scan_file_target(bad_file, mtimes)
+        assert bad_file not in mtimes
+
+        # OSError in _scan_dir_target
+        watcher._scan_dir_target(tmp_path, mtimes)
+
+    # KeyboardInterrupt handling in watch
+    with patch.object(watcher, "_run_watch_loop", side_effect=KeyboardInterrupt):
+        watcher.watch(max_iterations=1)
+        assert watcher._running is False

@@ -1,12 +1,11 @@
 ## QA Review Focus
 Evaluate changes against test engineering standards:
-- Coverage gaps across critical paths, error branches, and edge cases.
-- Regression risks lacking automated test assertions.
-- Test determinism, isolation, and mock correctness (no live network/endpoint calls).
-- Exception handling correctness (multi-exception except blocks use parenthesized tuples e.g. `except (A, B):`, proper hierarchy trapping).
-- Patch recommendations with concrete diff suggestions.
-- Ordered validation commands to verify fixes.
-- Do NOT flag documentation or test explanations describing failure modes, attack vectors, or insecure configurations in the context of testing or avoiding them.
+- **Coverage & Edge Cases**: Critical execution paths, error branches, and boundary conditions.
+- **Regression Risks**: Uncovered behavioral shifts and integration gaps.
+- **Determinism & Isolation**: Mocks for external I/O (network/subprocesses) without flaky or order-dependent behavior.
+- **Exception Correctness**: Python 3.14+ parenthesized exception tuples (`except (A, B):`) and strongly typed error trapping.
+- **Patch Recommendations**: Concrete unified diffs for missing assertions or tests.
+- **Execution Sequences**: Specific, ordered CLI verification commands.
 
 Respond in this exact format:
 

@@ -468,8 +468,8 @@ def test_release_and_ci_resource_models_roundtrip() -> None:
     assert ci_res.passed is True
 
 
-def test_git_and_ai_resource_models_roundtrip() -> None:
-    """Verify Git and AI/Review request and result resource models."""
+def test_git_resource_models_roundtrip() -> None:
+    """Verify Git branch and repo request and result resource models."""
     branch_req = BranchesListRequest(repo_path=".")
     assert branch_req.repo_path == "."
     branch_list = BranchListing(branches=["main", "release/v0.2.5"], current="release/v0.2.5")
@@ -505,6 +505,9 @@ def test_git_and_ai_resource_models_roundtrip() -> None:
     sync_res = ReposSyncResult(repos_synced=1, failed_repos=[], success=True)
     assert sync_res.success is True
 
+
+def test_review_request_models_roundtrip() -> None:
+    """Verify review path, branch, and PR request models."""
     review_p_req = ReviewPathRequest(target="src/devops_cli", pattern="*.py", persona="devsecops")
     assert review_p_req.target == "src/devops_cli"
 
@@ -514,6 +517,9 @@ def test_git_and_ai_resource_models_roundtrip() -> None:
     review_pr_req = ReviewPRRequest(number=42, post=True, persona="devsecops")
     assert review_pr_req.number == 42
 
+
+def test_review_findings_and_stats_models_roundtrip() -> None:
+    """Verify review findings, verification, stats, and feedback export models."""
     finding_req = ReviewFindingsRequest(session_id="20260827-test")
     assert finding_req.session_id == "20260827-test"
     finding_item = FindingSummaryEntry(
@@ -555,6 +561,9 @@ def test_git_and_ai_resource_models_roundtrip() -> None:
     )
     assert fb_res.total_records_exported == 10
 
+
+def test_rag_resource_models_roundtrip() -> None:
+    """Verify RAG search and index request and result models."""
     rag_req = RAGSearchRequest(query="def main")
     assert rag_req.query == "def main"
     rag_chunk = RAGChunkResult(
@@ -570,6 +579,9 @@ def test_git_and_ai_resource_models_roundtrip() -> None:
     )
     assert rag_idx_res.total_chunks_created == 200
 
+
+def test_telemetry_resource_models_roundtrip() -> None:
+    """Verify telemetry status and test span models."""
     tel_req = TelemetryStatusRequest(include_metrics=True)
     assert tel_req.include_metrics is True
     tel_res = TelemetryStatusResult(

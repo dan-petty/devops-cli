@@ -536,6 +536,23 @@ def dotted_get(settings: Settings, key: str) -> Any:
     return operator.attrgetter(normalized_key)(settings)
 
 
+def _coerce_setting_value(current_val: Any, new_value: Any, is_list_field: bool) -> Any:
+    """Coerce string or raw setting input into target type based on current field schema."""
+    if isinstance(current_val, Path):
+        return Path(str(new_value))
+    if isinstance(current_val, bool):
+        return str(new_value).strip().lower() in {"1", "true", "yes", "on"}
+    if isinstance(current_val, int):
+        return int(new_value)
+    if isinstance(current_val, list) or is_list_field:
+        return (
+            [v.strip() for v in str(new_value).split(",") if v.strip()]
+            if isinstance(new_value, str)
+            else new_value
+        )
+    return new_value
+
+
 def dotted_set(settings: Settings, key: str, value: str) -> None:
     """Set a config value by dotted key. Secret keys go to the OS keyring."""
     if key in _SECRET_FIELDS:
@@ -556,16 +573,6 @@ def dotted_set(settings: Settings, key: str, value: str) -> None:
     section = getattr(settings, parts[0])
     field_name = parts[1]
     current = getattr(section, field_name, None)
-    if isinstance(current, Path):
-        setattr(section, field_name, Path(value))
-    elif isinstance(current, bool):
-        setattr(section, field_name, value.strip().lower() in {"1", "true", "yes", "on"})
-    elif isinstance(current, int):
-        setattr(section, field_name, int(value))
-    elif isinstance(current, list) or field_name.endswith("s"):
-        if isinstance(value, str):
-            setattr(section, field_name, [v.strip() for v in value.split(",") if v.strip()])
-        else:
-            setattr(section, field_name, value)
-    else:
-        setattr(section, field_name, value)
+    is_list = field_name.endswith("s")
+    coerced = _coerce_setting_value(current, value, is_list)
+    setattr(section, field_name, coerced)

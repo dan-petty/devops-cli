@@ -25,7 +25,14 @@ from devops_cli.models.benchmark import (
     ServerBenchmarkSummary,
     TaskResponse,
 )
-from devops_cli.output import print_info, print_success, print_table, write_stdout
+from devops_cli.output import (
+    format_benchmark_category_table,
+    format_benchmark_leaderboard_table,
+    format_benchmark_server_table,
+    print,
+    print_info,
+    write_stdout,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -118,38 +125,6 @@ def _extract_peer_grade_scores(data: dict[str, Any]) -> tuple[float, float, floa
     comp = round(min(10.0, max(0.0, raw_comp)), 1)
     clar = round(min(10.0, max(0.0, raw_clar)), 1)
     return acc, sec, comp, clar
-
-
-def _format_server_hardware_row(
-    s: Any,
-    fastest_latency: float,
-    multi_server: bool,
-) -> list[str]:
-    """Format single server hardware performance row."""
-    bias_str = (
-        f"+{s.server_score_bias:.1f}%" if s.server_score_bias > 0 else f"{s.server_score_bias:.1f}%"
-    )
-    lat_breakdown = ", ".join(f"{m.split(':')[0]}: {dur}s" for m, dur in s.model_latencies.items())
-    is_fastest = (
-        multi_server and fastest_latency > 0 and s.generation_duration_avg == fastest_latency
-    )
-    if is_fastest:
-        speed_str = "[bold green]1.00x (fastest)[/bold green]"
-    elif multi_server and fastest_latency > 0:
-        speed_str = f"{s.generation_duration_avg / fastest_latency:.2f}x slower"
-    else:
-        speed_str = "1.00x"
-
-    return [
-        s.server,
-        f"{s.generation_duration_avg:.1f}s",
-        speed_str,
-        f"{s.total_duration_seconds:.1f}s",
-        str(s.tasks_generated_count),
-        f"{s.avg_score_awarded:.1f}%",
-        bias_str,
-        lat_breakdown or "-",
-    ]
 
 
 class BenchmarkRunner:
@@ -988,119 +963,23 @@ class BenchmarkRunner:
 
     def render_results(self, report: BenchmarkReport) -> None:
         """Print summary tables and leaderboards to console."""
-        columns = [
-            ("Rank", "bold"),
-            ("Model", "cyan"),
-            ("Score", "bold green"),
-            ("Peer Score", "green"),
-            "Accuracy",
-            "Security",
-            "Complete",
-            "Clarity",
-            ("Judge Wt", "magenta"),
-            ("Latency", "dim"),
-            ("Bias (Judge)", "dim"),
-            ("Self-Bias", "yellow"),
-        ]
-        rows: list[list[str]] = []
-        for idx, m in enumerate(report.leaderboard, start=1):
-            rank_badge = (
-                "🥇" if idx == 1 else ("🥈" if idx == 2 else ("🥉" if idx == 3 else f"#{idx}"))
-            )
-            bias_str = (
-                f"+{m.grading_strictness_index:.1f}%"
-                if m.grading_strictness_index > 0
-                else f"{m.grading_strictness_index:.1f}%"
-            )
-            if m.self_preference_bias < -5.0:
-                self_bias_str = f"[green]{m.self_preference_bias:.1f}%[/green] (strict)"
-            elif m.self_preference_bias > 15.0:
-                self_bias_str = f"[red]+{m.self_preference_bias:.1f}%[/red] (inflated)"
-            elif m.self_preference_bias > 0:
-                self_bias_str = f"+{m.self_preference_bias:.1f}%"
-            else:
-                self_bias_str = f"{m.self_preference_bias:.1f}%"
-            rows.append(
-                [
-                    rank_badge,
-                    m.model,
-                    f"{m.overall_percentage:.1f}%",
-                    f"{m.peer_only_percentage:.1f}%",
-                    f"{m.accuracy_avg * 10.0:.1f}%",
-                    f"{m.security_avg * 10.0:.1f}%",
-                    f"{m.completeness_avg * 10.0:.1f}%",
-                    f"{m.clarity_avg * 10.0:.1f}%",
-                    f"{m.judge_weight:.2f}",
-                    f"{m.average_duration_seconds:.1f}s",
-                    bias_str,
-                    self_bias_str,
-                ]
-            )
-
         base_bench_dir = _get_benchmarks_base_dir()
         report_path = base_bench_dir / f"{report.session_id}-benchmark.json"
+
         write_stdout("\n")
-        print_table(
-            title=f"AI Benchmark Leaderboard (Session {report.session_id})",
-            columns=columns,
-            rows=rows,
-        )
+        print(format_benchmark_leaderboard_table(report))
 
-        if len(report.tasks_run) > 1:
-            categories = sorted({t.category for t in report.tasks_run})
-            cat_cols: list[Any] = [("Model", "cyan")]
-            for cat in categories:
-                cat_cols.append(cat.capitalize())
-
-            cat_rows: list[list[str]] = []
-            for m in report.leaderboard:
-                r = [m.model]
-                for cat in categories:
-                    score = m.category_scores.get(cat, 0.0)
-                    r.append(f"{score:.1f}%")
-                cat_rows.append(r)
-
+        cat_table = format_benchmark_category_table(report)
+        if cat_table:
             write_stdout("\n")
-            print_table(
-                title=f"Domain Category Breakdown (Session {report.session_id})",
-                columns=cat_cols,
-                rows=cat_rows,
-            )
+            print(cat_table)
 
-        if report.server_benchmarks:
-            server_cols: list[Any] = [
-                ("Server / Worker Node", "cyan"),
-                ("Avg Latency", "bold yellow"),
-                ("Speed Factor", "magenta"),
-                ("Total Time", "dim"),
-                ("Tasks", "dim"),
-                ("Avg Score Given", "magenta"),
-                "Server Bias",
-                ("Per-Model Latency Breakdown", "dim"),
-            ]
-
-            fastest_latency = min(
-                (
-                    s.generation_duration_avg
-                    for s in report.server_benchmarks
-                    if s.generation_duration_avg > 0
-                ),
-                default=0.0,
-            )
-
-            server_rows: list[list[str]] = []
-            multi_server = len(report.server_benchmarks) > 1
-            for s in report.server_benchmarks:
-                server_rows.append(_format_server_hardware_row(s, fastest_latency, multi_server))
-
+        server_table = format_benchmark_server_table(report)
+        if server_table:
             write_stdout("\n")
-            print_table(
-                title=f"Ollama Server Hardware & Node Performance (Session {report.session_id})",
-                columns=server_cols,
-                rows=server_rows,
-            )
+            print(server_table)
 
-        print_success(f"Detailed benchmark report saved → [cyan]{report_path}[/cyan]")
+        print(f"Detailed benchmark report saved → [cyan]{report_path}[/cyan]", level="success")
 
     def to_markdown(self, report: BenchmarkReport) -> str:
         """Generate a clean GitHub-flavored Markdown benchmark report."""
@@ -1124,34 +1003,39 @@ class BenchmarkRunner:
             table_sep,
         ]
 
-        for idx, m in enumerate(report.leaderboard, start=1):
+        for rank_index, model_summary in enumerate(report.leaderboard, start=1):
             rank_badge = (
-                "🥇" if idx == 1 else ("🥈" if idx == 2 else ("🥉" if idx == 3 else f"#{idx}"))
+                "🥇"
+                if rank_index == 1
+                else ("🥈" if rank_index == 2 else ("🥉" if rank_index == 3 else f"#{rank_index}"))
             )
             self_bias_str = (
-                f"+{m.self_preference_bias:.1f}%"
-                if m.self_preference_bias > 0
-                else f"{m.self_preference_bias:.1f}%"
+                f"+{model_summary.self_preference_bias:.1f}%"
+                if model_summary.self_preference_bias > 0
+                else f"{model_summary.self_preference_bias:.1f}%"
             )
             row = (
-                f"| {rank_badge} | `{m.model}` | **{m.overall_percentage:.1f}%** | "
-                f"{m.peer_only_percentage:.1f}% | {m.accuracy_avg * 10.0:.1f}% | "
-                f"{m.security_avg * 10.0:.1f}% | {m.completeness_avg * 10.0:.1f}% | "
-                f"{m.clarity_avg * 10.0:.1f}% | {m.judge_weight:.2f} | "
-                f"{m.average_duration_seconds:.1f}s | {self_bias_str} |"
+                f"| {rank_badge} | `{model_summary.model}` | **{model_summary.overall_percentage:.1f}%** | "
+                f"{model_summary.peer_only_percentage:.1f}% | {model_summary.accuracy_avg * 10.0:.1f}% | "
+                f"{model_summary.security_avg * 10.0:.1f}% | {model_summary.completeness_avg * 10.0:.1f}% | "
+                f"{model_summary.clarity_avg * 10.0:.1f}% | {model_summary.judge_weight:.2f} | "
+                f"{model_summary.average_duration_seconds:.1f}s | {self_bias_str} |"
             )
             lines.append(row)
 
         if len(report.tasks_run) > 1:
             lines.append("\n## Domain Category Breakdown\n")
-            categories = sorted({t.category for t in report.tasks_run})
-            cat_headers = " | ".join(c.capitalize() for c in categories)
+            categories = sorted({task.category for task in report.tasks_run})
+            cat_headers = " | ".join(category.capitalize() for category in categories)
             lines.append(f"| Model | {cat_headers} |")
             lines.append(f"| :--- | {' | '.join(':---:' for _ in categories)} |")
 
-            for m in report.leaderboard:
-                cat_vals = " | ".join(f"{m.category_scores.get(c, 0.0):.1f}%" for c in categories)
-                lines.append(f"| `{m.model}` | {cat_vals} |")
+            for model_summary in report.leaderboard:
+                cat_vals = " | ".join(
+                    f"{model_summary.category_scores.get(category, 0.0):.1f}%"
+                    for category in categories
+                )
+                lines.append(f"| `{model_summary.model}` | {cat_vals} |")
 
         if report.server_benchmarks:
             lines.append("\n## Server Performance & Score Bias\n")
@@ -1162,42 +1046,45 @@ class BenchmarkRunner:
             lines.append("| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :--- |")
             fastest_lat = min(
                 (
-                    s.generation_duration_avg
-                    for s in report.server_benchmarks
-                    if s.generation_duration_avg > 0
+                    server_summary.generation_duration_avg
+                    for server_summary in report.server_benchmarks
+                    if server_summary.generation_duration_avg > 0
                 ),
                 default=0.0,
             )
-            for s in report.server_benchmarks:
+            for server_summary in report.server_benchmarks:
                 bias_str = (
-                    f"+{s.server_score_bias:.1f}%"
-                    if s.server_score_bias > 0
-                    else f"{s.server_score_bias:.1f}%"
+                    f"+{server_summary.server_score_bias:.1f}%"
+                    if server_summary.server_score_bias > 0
+                    else f"{server_summary.server_score_bias:.1f}%"
                 )
                 lat_breakdown = ", ".join(
-                    f"{m.split(':')[0]}: {dur}s" for m, dur in s.model_latencies.items()
+                    f"{model_name.split(':')[0]}: {duration}s"
+                    for model_name, duration in server_summary.model_latencies.items()
                 )
                 is_fastest = (
                     len(report.server_benchmarks) > 1
                     and fastest_lat > 0
-                    and s.generation_duration_avg == fastest_lat
+                    and server_summary.generation_duration_avg == fastest_lat
                 )
                 if is_fastest:
                     speed_str = "1.00x (fastest)"
                 elif len(report.server_benchmarks) > 1 and fastest_lat > 0:
-                    speed_str = f"{s.generation_duration_avg / fastest_lat:.2f}x slower"
+                    speed_str = (
+                        f"{server_summary.generation_duration_avg / fastest_lat:.2f}x slower"
+                    )
                 else:
                     speed_str = "1.00x"
 
                 lines.append(
-                    f"| `{s.server}` | {s.generation_duration_avg:.1f}s | {speed_str} | "
-                    f"{s.total_duration_seconds:.1f}s | {s.tasks_generated_count} | "
-                    f"{s.avg_score_awarded:.1f}% | {bias_str} | {lat_breakdown or '-'} |"
+                    f"| `{server_summary.server}` | {server_summary.generation_duration_avg:.1f}s | {speed_str} | "
+                    f"{server_summary.total_duration_seconds:.1f}s | {server_summary.tasks_generated_count} | "
+                    f"{server_summary.avg_score_awarded:.1f}% | {bias_str} | {lat_breakdown or '-'} |"
                 )
 
         if report.peer_grades:
             lines.append("\n## Model Strengths & Improvement Areas (Peer Feedback)\n")
-            for m in report.leaderboard:
-                lines.extend(_format_model_peer_feedback(m, report.peer_grades))
+            for model_summary in report.leaderboard:
+                lines.extend(_format_model_peer_feedback(model_summary, report.peer_grades))
 
         return "\n".join(lines)

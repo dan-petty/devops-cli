@@ -28,7 +28,7 @@ class SymbolNode(BaseModel):
             "line_number": self.line_number,
             "signature": self.signature,
             "docstring": self.docstring,
-            "children": [c.to_dict() for c in self.children],
+            "children": [child.to_dict() for child in self.children],
         }
 
 
@@ -43,29 +43,29 @@ class FileMapNode(BaseModel):
         return {
             "path": self.path,
             "line_count": self.line_count,
-            "symbols": [s.to_dict() for s in self.symbols],
+            "symbols": [symbol.to_dict() for symbol in self.symbols],
         }
 
 
 def _extract_doc_summary(
     node: ast.AsyncFunctionDef | ast.FunctionDef | ast.ClassDef | ast.Module,
 ) -> str:
-    doc = ast.get_docstring(node)
-    if not doc:
+    docstring = ast.get_docstring(node)
+    if not docstring:
         return ""
-    first_line = doc.strip().splitlines()[0]
+    first_line = docstring.strip().splitlines()[0]
     return first_line[:80] + ("..." if len(first_line) > 80 else "")
 
 
 def _format_function_signature(fn_node: ast.FunctionDef | ast.AsyncFunctionDef) -> str:
     args: list[str] = []
-    for a in fn_node.args.args:
-        if a.arg in ("self", "cls"):
+    for arg_node in fn_node.args.args:
+        if arg_node.arg in ("self", "cls"):
             continue
-        ann = ast.unparse(a.annotation) if a.annotation else ""
-        args.append(f"{a.arg}: {ann}" if ann else a.arg)
-    ret = ast.unparse(fn_node.returns) if fn_node.returns else "None"
-    return f"({', '.join(args)}) -> {ret}"
+        annotation = ast.unparse(arg_node.annotation) if arg_node.annotation else ""
+        args.append(f"{arg_node.arg}: {annotation}" if annotation else arg_node.arg)
+    returns = ast.unparse(fn_node.returns) if fn_node.returns else "None"
+    return f"({', '.join(args)}) -> {returns}"
 
 
 def _extract_class_methods(class_node: ast.ClassDef) -> list[SymbolNode]:
@@ -136,20 +136,20 @@ def generate_repo_map(
 
     py_files = sorted(
         [
-            p
-            for p in target_dir.rglob("*.py")
+            source_file
+            for source_file in target_dir.rglob("*.py")
             if not any(
-                part in p.parts
+                part in source_file.parts
                 for part in (".venv", ".git", "__pycache__", ".pytest_cache", "build", "dist")
             )
-            and (include_tests or "test" not in p.name)
+            and (include_tests or "test" not in source_file.name)
         ],
-        key=lambda p: str(p),
+        key=lambda source_file: str(source_file),
     )
 
     results: list[FileMapNode] = []
-    for p in py_files[:max_files]:
-        node = parse_file_symbols(p, base_root)
+    for source_file in py_files[:max_files]:
+        node = parse_file_symbols(source_file, base_root)
         if node and node.symbols:
             results.append(node)
 
@@ -158,19 +158,6 @@ def generate_repo_map(
 
 def render_repo_map_text(file_nodes: list[FileMapNode]) -> str:
     """Render repository symbol map as clean, indented ASCII text."""
-    lines: list[str] = []
-    for f in file_nodes:
-        lines.append(f"{f.path} ({f.line_count} lines):")
-        for sym in f.symbols:
-            if sym.kind == "class":
-                lines.append(f"  class {sym.name}:")
-                if sym.docstring:
-                    lines.append(f"    # {sym.docstring}")
-                for m in sym.children:
-                    lines.append(f"    def {m.name}{m.signature}")
-            elif sym.kind == "function":
-                lines.append(f"  def {sym.name}{sym.signature}")
-                if sym.docstring:
-                    lines.append(f"    # {sym.docstring}")
-        lines.append("")
-    return "\n".join(lines).strip()
+    from devops_cli.output import format_repo_map_text
+
+    return format_repo_map_text(file_nodes)

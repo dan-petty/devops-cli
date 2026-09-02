@@ -229,14 +229,14 @@ def clone(
         raise typer.Exit(1)
 
     if dest.exists():
-        _get("print_warning")(f"Repository already exists at {dest}", prefix=False)
+        _get("print_warning")(MESSAGES.repos.already_exists.format(dest=dest), prefix=False)
         raise typer.Exit(1)
 
     if url.startswith("-"):
         _get("print_error")(MESSAGES.repos.invalid_url_hyphen, prefix=False)
         raise typer.Exit(1)
 
-    _get("print_info")(f"Cloning [dim]{url}[/dim] → [dim]{dest}[/dim]", prefix=False)
+    _get("print_info")(MESSAGES.repos.cloning_repo.format(url=url, dest=dest), prefix=False)
     _get("clone_repo")(url, dest)
     _sync_and_reload_workspace(root, settings.workspace.file)
     _get("print_success")(MESSAGES.repos.done, prefix=False)
@@ -264,7 +264,7 @@ def list_repos(
     root = base_dir or settings.repos.base_dir
 
     if not root.exists():
-        _get("print_warning")(f"Repos directory not found: {root}", prefix=False)
+        _get("print_warning")(MESSAGES.repos.repos_dir_not_found.format(root=root), prefix=False)
         raise typer.Exit(0)
 
     rows = [
@@ -273,7 +273,7 @@ def list_repos(
     ]
 
     _get("print_table")(
-        title=f"Cloned repositories — {root}",
+        title=MESSAGES.repos.table_title_cloned.format(root=root),
         columns=[("Org / Group", "cyan"), "Repository", ("Branch", "green")],
         rows=rows,
     )

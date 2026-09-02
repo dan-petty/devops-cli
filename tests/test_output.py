@@ -35,6 +35,9 @@ from devops_cli.output.console import (
     write_stdout,
     write_stream,
 )
+from devops_cli.output.console import (
+    print as devops_print,
+)
 from devops_cli.output.file_writer import (
     write_bytes_file,
     write_file,
@@ -61,7 +64,10 @@ from devops_cli.output.formatter import (
 from devops_cli.output.models import (
     KeyValuePayload,
     MarkdownPayload,
+    MessagePayload,
     PanelPayload,
+    PrintRequest,
+    PrintResult,
     ProgressStep,
     RulePayload,
     StatusBadge,
@@ -150,6 +156,107 @@ def test_print_panel_and_table() -> None:
     assert "Alert" in output
     assert "API" in output
     assert "Healthy" in output
+
+
+def test_unified_print_with_pydantic_models() -> None:
+    """Verify unified print() function with various Pydantic payload models and PrintRequest."""
+    buf = io.StringIO()
+    test_console = get_console(file=buf, color_system=None)
+
+    # 1. PrintRequest
+    req = PrintRequest(content="Structured request text", level="info", prefix=True)
+    res_req = devops_print(req, console=test_console)
+    assert isinstance(res_req, PrintResult)
+    assert res_req.success is True
+    assert res_req.level == "info"
+
+    # 2. MessagePayload
+    msg_p = MessagePayload(message="Success message payload", level="success")
+    res_msg = devops_print(msg_p, console=test_console)
+    assert res_msg.success is True
+    assert res_msg.level == "success"
+
+    # 3. TablePayload
+    tbl_p = TablePayload(
+        title="Pydantic Table",
+        columns=[TableColumn(header="Name"), TableColumn(header="Value")],
+        rows=[["Key1", "Val1"]],
+    )
+    res_tbl = devops_print(tbl_p, console=test_console)
+    assert res_tbl.rendered_type == "table"
+
+    # 4. PanelPayload
+    pnl_p = PanelPayload(content="Panel text inside", title="Panel Title")
+    res_pnl = devops_print(pnl_p, console=test_console)
+    assert res_pnl.rendered_type == "panel"
+
+    # 5. MarkdownPayload
+    md_p = MarkdownPayload(content="# Markdown Title\n- Item 1")
+    res_md = devops_print(md_p, console=test_console)
+    assert res_md.rendered_type == "markdown"
+
+    # 6. KeyValuePayload
+    kv_p = KeyValuePayload(title="KV Summary", items={"Cluster": "minikube", "Status": "ready"})
+    res_kv = devops_print(kv_p, console=test_console)
+    assert res_kv.rendered_type == "table"
+
+    # 7. RulePayload
+    rule_p = RulePayload(title="Section Divider")
+    res_rule = devops_print(rule_p, console=test_console)
+    assert res_rule.rendered_type == "rule"
+
+    output = buf.getvalue()
+    assert "Structured request text" in output
+    assert "Success message payload" in output
+    assert "Key1" in output
+    assert "Val1" in output
+    assert "Panel Title" in output
+    assert "Markdown Title" in output
+    assert "minikube" in output
+
+
+def test_unified_print_with_levels_and_result() -> None:
+    """Verify unified print() handles all level types, prefix styles, and returns structured PrintResult."""
+    buf = io.StringIO()
+    err_buf = io.StringIO()
+    test_console = get_console(file=buf, color_system=None)
+    err_console = get_console(file=err_buf, color_system=None)
+
+    # Success
+    r_succ = devops_print("Build successful", level="success", console=test_console)
+    assert r_succ.level == "success"
+    assert r_succ.stream == "stdout"
+
+    # Warning
+    r_warn = devops_print("High memory usage", level="warning", console=test_console)
+    assert r_warn.level == "warning"
+
+    # Info
+    r_info = devops_print("Scanning dependencies", level="info", console=test_console)
+    assert r_info.level == "info"
+
+    # Muted
+    r_muted = devops_print("Skipping cache miss", level="muted", console=test_console)
+    assert r_muted.level == "muted"
+
+    # Step
+    r_step = devops_print("Compiling binaries", level="step", console=test_console)
+    assert r_step.level == "step"
+
+    # Error directed to stderr console
+    r_err = devops_print("Fatal connection timeout", level="error", console=err_console)
+    assert r_err.level == "error"
+    assert r_err.stream == "stderr"
+
+    out = buf.getvalue()
+    err_out = err_buf.getvalue()
+
+    assert "✓ Build successful" in out
+    assert "! High memory usage" in out
+    assert "ℹ Scanning dependencies" in out
+    assert "Skipping cache miss" in out
+    assert "➔ Compiling binaries" in out
+    assert "✗ Fatal connection timeout" in err_out
 
 
 def test_file_writer_atomic_text_json_yaml_bytes(tmp_path: Path) -> None:
@@ -448,6 +555,46 @@ def test_format_output_table_payload_and_pydantic_list() -> None:
 
     direct_table = render_table(container)
     assert direct_table is not None
+
+
+def test_format_repo_map_text() -> None:
+    """Test format_repo_map_text utility."""
+    from devops_cli.ai.repomap import FileMapNode, SymbolNode
+    from devops_cli.output import format_repo_map_text
+
+    nodes = [
+        FileMapNode(
+            path="src/main.py",
+            line_count=20,
+            symbols=[
+                SymbolNode(
+                    name="App",
+                    kind="class",
+                    docstring="Main app class",
+                    line_number=1,
+                    children=[
+                        SymbolNode(
+                            name="run", kind="method", signature="(self) -> None", line_number=5
+                        )
+                    ],
+                ),
+                SymbolNode(
+                    name="helper",
+                    kind="function",
+                    signature="() -> int",
+                    docstring="Helper doc",
+                    line_number=10,
+                ),
+            ],
+        )
+    ]
+    rendered = format_repo_map_text(nodes)
+    assert "src/main.py (20 lines):" in rendered
+    assert "class App:" in rendered
+    assert "# Main app class" in rendered
+    assert "def run(self) -> None" in rendered
+    assert "def helper() -> int" in rendered
+    assert "# Helper doc" in rendered
 
 
 def test_rich_imports_confined_to_output_submodule() -> None:

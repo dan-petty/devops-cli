@@ -50,39 +50,55 @@ The following matrix categorizes all project routine tasks by operational layer,
 
 ## 3. Detailed Workflow Methodologies
 
-### Cadence A: Inner Loop (Iterative Feature Development)
+### Cadence A: Inner Loop (Test-First Iterative Feature Development)
 
-The Inner Development Loop is executed continuously while writing or modifying code. Run targeted tests and linters for immediate feedback; do NOT run the full test suite during this loop.
+The Inner Development Loop follows a strict **Test-First Development (TDD)** methodology. Author tests first as living specifications of intended functionality before writing implementation code. Run targeted tests and linters for immediate feedback; do NOT run the full test suite during this inner loop.
 
 ```mermaid
 flowchart TD
-    A[Edit Code / Tests] --> B[uv sync]
-    B --> C[Centralize Literals & Defaults]
-    C --> D[ruff check & format target files]
-    D --> E[mypy target files]
-    E --> F[pytest target test file]
+    A[Requirement / Feature Goal] --> B[1. Project Planning & Task State Setup]
+    B --> C[2. uv sync Dependencies]
+    C --> D[3. Centralize Literals & Defaults]
+    D --> E[4. Write Tests First in tests/test_*.py]
+    E --> F[5. Implement Feature Code in src/]
+    F --> G[6. ruff check & format modified files]
+    G --> H[7. mypy target files]
+    H --> I[8. pytest target test file]
+    I --> J[9. Update Task Tracking: WIP to Completed]
 ```
 
 #### Step-by-Step Order:
-1. **Sync Dependencies (`uv sync`)**: Always ensure `.venv` is aligned with `uv.lock` before starting work.
-2. **Centralize Constants, Config & Defaults**:
+1. **Document Project Planning & Initialize Task Tracking**:
+   - For multi-step or architectural work, author an implementation plan (`implementation_plan.md`, `task.md`, or update [`docs/ROADMAP.md`](ROADMAP.md)).
+   - Explicitly organize and track all tasks into three states:
+     - **Pending Tasks**: Backlog items, planned features, and unstarted requirements.
+     - **In-Progress Tasks (WIP)**: Active work items, files currently being authored/edited, and active test suites.
+     - **Completed Tasks**: Verified implementations, green test gates, and synchronized documentation.
+2. **Sync Dependencies (`uv sync`)**: Always ensure `.venv` is aligned with `uv.lock` before starting work.
+3. **Centralize Constants, Config & Defaults**:
    - Put configuration options and environment variable schemas in [`src/devops_cli/config/settings.py`](../src/devops_cli/config/settings.py).
    - Put constants, regexes, and protocol strings in [`src/devops_cli/config/constants.py`](../src/devops_cli/config/constants.py).
    - Put timeouts and numeric defaults in [`src/devops_cli/config/defaults.py`](../src/devops_cli/config/defaults.py).
    - Put user-facing messages, summaries, and error logs in [`src/devops_cli/lang/en/`](../src/devops_cli/lang/en/).
-3. **Format & Lint Target Files**:
+4. **Write Tests First (Living Functional Specification)**:
+   - Create or update `tests/test_<feature>.py` to document the intended public interfaces, command-line arguments, expected return structures, edge cases, error conditions, and mocks.
+5. **Implement Feature Logic**:
+   - Author clean, concise, domain-driven implementation code in `src/` specifically to satisfy the pre-written tests with zero extraneous boilerplate.
+6. **Format & Lint Target Files**:
    ```bash
    uv run ruff check --fix <modified_paths>
    uv run ruff format <modified_paths>
    ```
-4. **Verify Static Types for Target Files**:
+7. **Verify Static Types for Target Files**:
    ```bash
    uv run mypy --strict <modified_paths>
    ```
-5. **Run Targeted Unit Tests**:
+8. **Run Targeted Unit Tests**:
    ```bash
    uv run pytest tests/test_<feature>.py -k <test_name>
    ```
+9. **Update Task Status Tracking**:
+   - Transition completed items from **In-Progress (WIP)** to **Completed** with reference to passing test verifications and code artifacts.
 
 ---
 
@@ -95,11 +111,7 @@ Executed at the final stage of work after all iterative feature modifications an
    uv run devops docs generate --sync-readme
    uv run devops docs check
    ```
-2. **Run Full Parallel Unit Test Suite**:
-   ```bash
-   uv run pytest
-   ```
-3. **Run Full Local CI Validation Suite**:
+2. **Run Full Local CI Validation Suite (Primary Gate)**:
    ```bash
    uv run devops ci
    ```

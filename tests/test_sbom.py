@@ -97,3 +97,20 @@ def test_scan_sbom_cli(tmp_path: Path) -> None:
     # Dry run
     res_dry = runner.invoke(scan_app, ["sbom", str(tmp_path), "--dry-run"])
     assert res_dry.exit_code == 0
+
+
+def test_extract_workspace_components_runtime_fallback(tmp_path: Path) -> None:
+    """Verify fallback to importlib.metadata.distributions when uv.lock is missing or corrupted."""
+    # 1. Missing uv.lock
+    empty_dir = tmp_path / "empty_proj"
+    empty_dir.mkdir()
+    comps_fallback = extract_workspace_components(empty_dir)
+    assert len(comps_fallback) > 0  # Should extract installed runtime packages
+    assert any(c.name for c in comps_fallback)
+
+    # 2. Corrupted uv.lock
+    bad_dir = tmp_path / "bad_lock"
+    bad_dir.mkdir()
+    (bad_dir / "uv.lock").write_text("INVALID TOML [[", encoding="utf-8")
+    comps_bad = extract_workspace_components(bad_dir)
+    assert len(comps_bad) > 0

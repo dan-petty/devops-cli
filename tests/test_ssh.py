@@ -200,11 +200,8 @@ def test_ssh_commands(tmp_path: Path) -> None:
         assert res_rot_force.exit_code == 0
 
 
-def test_ssh_error_and_dry_run_branches(tmp_path: Path) -> None:
-    """Verify ssh dry-run, missing keys, registration errors, and age buckets."""
-    from devops_cli.github.ssh import SSHRegistrationError
-
-    # 1. Dry run
+def test_ssh_dry_run_commands(tmp_path: Path) -> None:
+    """Verify dry-run mode across all ssh subcommands."""
     with patch("devops_cli.dry_run.is_dry_run", return_value=True):
         assert runner.invoke(ssh_app, ["generate", "--key-dir", str(tmp_path)]).exit_code == 0
         assert runner.invoke(ssh_app, ["register"]).exit_code == 0
@@ -212,7 +209,9 @@ def test_ssh_error_and_dry_run_branches(tmp_path: Path) -> None:
         assert runner.invoke(ssh_app, ["audit"]).exit_code == 0
         assert runner.invoke(ssh_app, ["status"]).exit_code == 0
 
-    # 2. Generate key collision (exists)
+
+def test_ssh_generate_key_collision(tmp_path: Path) -> None:
+    """Verify ssh generate exits with error when key already exists."""
     with (
         patch("devops_cli.commands.ssh._date_suffix", return_value="20260101"),
         patch("devops_cli.config.settings.load_settings") as mock_load,
@@ -225,7 +224,12 @@ def test_ssh_error_and_dry_run_branches(tmp_path: Path) -> None:
         res_exist = runner.invoke(ssh_app, ["generate"])
         assert res_exist.exit_code == 1
 
-    # 3. Register missing key or pub
+
+def test_ssh_register_error_branches(tmp_path: Path) -> None:
+    """Verify ssh register error paths for missing key, missing pub, and API error."""
+    from devops_cli.github.ssh import SSHRegistrationError
+
+    # Missing newest key
     with (
         patch("devops_cli.crypto.ssh_keys.find_newest_key", return_value=None),
         patch("devops_cli.config.settings.load_settings") as mock_load,
@@ -259,7 +263,12 @@ def test_ssh_error_and_dry_run_branches(tmp_path: Path) -> None:
         res_reg_err = runner.invoke(ssh_app, ["register", "--key-file", str(priv)])
         assert res_reg_err.exit_code == 1
 
-    # 4. Status age checks (>7, <=7, overdue)
+
+def test_ssh_status_key_age_buckets(tmp_path: Path) -> None:
+    """Verify ssh status output for warning threshold and overdue keys."""
+    priv = tmp_path / "custom_priv"
+    priv.touch()
+
     with (
         patch("devops_cli.crypto.ssh_keys.find_newest_key", return_value=priv),
         patch("devops_cli.config.settings.load_settings") as mock_load,
@@ -280,7 +289,9 @@ def test_ssh_error_and_dry_run_branches(tmp_path: Path) -> None:
             assert res_stat_overdue.exit_code == 0
             assert "overdue by 10 days" in res_stat_overdue.output
 
-    # 5. Audit age buckets
+
+def test_ssh_audit_key_age_buckets(tmp_path: Path) -> None:
+    """Verify ssh audit output with multiple managed key ages."""
     from devops_cli.crypto.ssh_keys import ManagedSSHKey
 
     keys = [
@@ -454,3 +465,76 @@ def test_ssh_register_honors_prefix_setting_and_option(tmp_path: Path) -> None:
         assert res_list_other.exit_code == 0
         assert "other-proj-id_ed25519-20260901" in res_list_other.output
         assert "custom-env-id_ed25519-20260901" not in res_list_other.output
+
+
+def test_ssh_empty_states_and_rotation_failure(tmp_path: Path) -> None:
+    """Verify ssh commands when key dir is empty or rotation fails."""
+    from devops_cli.github.ssh import SSHRegistrationError
+
+    empty_dir = tmp_path / "empty_keys"
+    empty_dir.mkdir()
+
+    # 1. Rotate in empty dir
+    res_rot = runner.invoke(ssh_app, ["rotate", "--key-dir", str(empty_dir)])
+    assert res_rot.exit_code == 0
+    assert "No managed SSH keys found" in res_rot.output
+
+    # 2. List in empty dir
+    res_list = runner.invoke(ssh_app, ["list", "--key-dir", str(empty_dir)])
+    assert res_list.exit_code == 0
+    assert "No managed SSH keys found" in res_list.output
+
+    # 3. Status in empty dir
+    res_stat = runner.invoke(ssh_app, ["status", "--key-dir", str(empty_dir)])
+    assert res_stat.exit_code == 0
+    assert "No managed SSH keys found" in res_stat.output
+
+    # 4. Rotation with failed GitHub registration cleanup
+    old_key = tmp_path / "id_ed25519-20240101"
+    old_key.write_text("old_private")
+    (tmp_path / "id_ed25519-20240101.pub").write_text("ssh-ed25519 AAA old@test")
+
+    with (
+        patch(
+            "devops_cli.github.ssh.register_key_on_github",
+            side_effect=SSHRegistrationError("API timeout"),
+        ),
+        patch("devops_cli.config.settings.get_github_token", return_value="ghp_test"),
+        patch("devops_cli.config.settings.load_settings") as mock_load,
+    ):
+        settings = MagicMock()
+        settings.ssh.key_dir = tmp_path
+        settings.ssh.key_prefix = None
+        settings.ssh.rotation_days = 30
+        mock_load.return_value = settings
+
+        res_rot_fail = runner.invoke(ssh_app, ["rotate", "--force"])
+        assert res_rot_fail.exit_code == 0
+        assert "registration failed" in res_rot_fail.output
+
+
+def test_crypto_ssh_keys_edge_cases(tmp_path: Path) -> None:
+    """Verify corrupted devcontainer.json parsing, parse_key_prefix, and format_managed_key_filename."""
+    from devops_cli.crypto.ssh_keys import (
+        format_managed_key_filename,
+        get_ssh_key_prefix,
+        parse_key_prefix,
+    )
+
+    # 1. Corrupted devcontainer.json
+    dev_dir = tmp_path / "bad_devcontainer"
+    dev_cfg = dev_dir / ".devcontainer"
+    dev_cfg.mkdir(parents=True)
+    (dev_cfg / "devcontainer.json").write_text("INVALID JSON // comment", encoding="utf-8")
+
+    with patch("devops_cli.config.settings.load_settings", side_effect=Exception("no settings")):
+        prefix = get_ssh_key_prefix(dev_dir)
+        assert prefix == "bad_devcontainer"
+
+    # 2. format_managed_key_filename with empty prefix
+    fn = format_managed_key_filename(prefix="", key_date=date(2026, 9, 1))
+    assert fn == "id_ed25519-20260901"
+
+    # 3. parse_key_prefix with invalid key name
+    assert parse_key_prefix(Path("unmanaged_rsa_key")) is None
+    assert parse_key_prefix(Path("my-prefix-id_ed25519-20260901")) == "my-prefix"

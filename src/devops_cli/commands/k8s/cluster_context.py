@@ -7,15 +7,15 @@ from typing import Annotated
 import typer
 
 import devops_cli.commands.k8s as k8s
-from devops_cli.config.constants import CONST_K8S_NODE_ROLE_LABEL_PREFIX
 from devops_cli.config.defaults import DEFAULT_K8S_LOGS_TAIL, DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
-    Table,
+    format_k8s_contexts_table,
+    format_k8s_nodes_table,
+    print,
     print_error,
     print_success,
-    print_table,
 )
 
 
@@ -36,21 +36,7 @@ def contexts() -> None:
         raise typer.Exit(1)
 
     active_name = active["name"] if active else ""
-    table = Table(title="Kubernetes Contexts")
-    table.add_column("", width=2)
-    table.add_column("Context", style="cyan")
-    table.add_column("Cluster")
-    table.add_column("User")
-
-    for ctx in ctx_list:
-        indicator = "[green]●[/green]" if ctx["name"] == active_name else ""
-        table.add_row(
-            indicator,
-            ctx["name"],
-            ctx["context"].get("cluster", ""),
-            ctx["context"].get("user", ""),
-        )
-    print_table(table)
+    print(format_k8s_contexts_table(ctx_list, active_name=active_name))
 
 
 def switch_context(
@@ -91,47 +77,7 @@ def status() -> None:
         print_error(f"Failed to query cluster: {exc}", prefix=False)
         raise typer.Exit(1)
 
-    table = Table(title="Nodes")
-    table.add_column("Name", style="cyan")
-    table.add_column("Status")
-    table.add_column("Roles")
-    table.add_column("Version")
-
-    for node in nodes.items:
-        node_status = getattr(node, "status", None)
-        conditions = (
-            node_status.conditions
-            if node_status and getattr(node_status, "conditions", None)
-            else []
-        )
-        ready = next(
-            (
-                condition.status
-                for condition in conditions
-                if getattr(condition, "type", None) == "Ready"
-            ),
-            "Unknown",
-        )
-        roles = (
-            ", ".join(
-                label_key.removeprefix(CONST_K8S_NODE_ROLE_LABEL_PREFIX)
-                for label_key in (node.metadata.labels or {})
-                if label_key.startswith(CONST_K8S_NODE_ROLE_LABEL_PREFIX)
-            )
-            or "worker"
-        )
-        version = (
-            node_status.node_info.kubelet_version
-            if node_status and getattr(node_status, "node_info", None)
-            else "Unknown"
-        )
-        table.add_row(
-            node.metadata.name,
-            "[green]Ready[/green]" if ready == "True" else "[red]NotReady[/red]",
-            roles,
-            version,
-        )
-    print_table(table)
+    print(format_k8s_nodes_table(nodes.items))
 
 
 def apply(

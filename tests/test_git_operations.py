@@ -226,6 +226,10 @@ def test_is_git_clean_and_get_latest_tag(tmp_path: Path) -> None:
     with patch("devops_cli.git.operations.run_subprocess", return_value=mock_dirty):
         assert is_git_clean(tmp_path) is False
 
+    # Exception in is_git_clean
+    with patch("devops_cli.git.operations.run_subprocess", side_effect=Exception("git error")):
+        assert is_git_clean(tmp_path) is False
+
     mock_tag = MagicMock(returncode=0, stdout="v0.2.1\n")
     with patch("devops_cli.git.operations.run_subprocess", return_value=mock_tag):
         assert get_latest_git_tag(tmp_path) == "v0.2.1"
@@ -233,3 +237,39 @@ def test_is_git_clean_and_get_latest_tag(tmp_path: Path) -> None:
     mock_no_tag = MagicMock(returncode=128, stdout="")
     with patch("devops_cli.git.operations.run_subprocess", return_value=mock_no_tag):
         assert get_latest_git_tag(tmp_path) is None
+
+    # Exception in get_latest_git_tag
+    with patch("devops_cli.git.operations.run_subprocess", side_effect=Exception("git error")):
+        assert get_latest_git_tag(tmp_path) is None
+
+
+def test_git_operations_edge_cases(tmp_path: Path) -> None:
+    """Verify pull_tracking error handling, delete_merged_branches empty branches, and keyscan failure."""
+    # 1. pull_tracking handles GitCommandError and IndexError
+    with patch("devops_cli.git.operations.gitlib.Repo") as mock_repo_cls:
+        mock_repo = MagicMock()
+        mock_repo.head.is_detached = False
+        mock_branch = MagicMock()
+        mock_tracking = MagicMock()
+        mock_tracking.remote_name = "origin"
+        mock_branch.tracking_branch.return_value = mock_tracking
+        mock_branch.name = "main"
+        mock_repo.active_branch = mock_branch
+        mock_remote = MagicMock()
+        mock_remote.pull.side_effect = gitlib.GitCommandError("pull", "network down")
+        mock_repo.remotes = {"origin": mock_remote}
+        mock_repo_cls.return_value = mock_repo
+
+        pull_tracking(tmp_path)
+
+    # 2. delete_merged_branches with no default branch
+    with patch("devops_cli.git.operations.gitlib.Repo") as mock_repo_cls:
+        mock_repo = MagicMock()
+        mock_repo.branches = []
+        mock_repo_cls.return_value = mock_repo
+        assert delete_merged_branches(tmp_path) == []
+
+    # 3. _ensure_known_host when keyscan fails
+    with patch("devops_cli.git.operations.run_subprocess") as mock_run:
+        mock_run.side_effect = [MagicMock(returncode=1), MagicMock(returncode=1, stdout="")]
+        _ensure_known_host("invalid.example.test")

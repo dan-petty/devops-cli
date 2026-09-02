@@ -629,6 +629,280 @@ class DocGenerator:
 
         return False, f"Could not find Command Matrix table or markers in {target}"
 
+    def generate_configuration_docs(self) -> str:
+        """Programmatically generate Markdown configuration reference from Settings schema."""
+        from devops_cli.config.env import OPTION_TO_ENV_VAR
+        from devops_cli.config.settings import Settings
+
+        lines: list[str] = [
+            "# DevOps CLI Configuration Reference",
+            "",
+            "This document is automatically generated from `Settings` (`src/devops_cli/config/settings.py`).",
+            "",
+            "DevOps CLI supports hierarchical configuration resolution through:",
+            "1. **CLI Flags & Arguments** (highest precedence)",
+            "2. **Environment Variables** (`DEVOPS_CLI_*`)",
+            "3. **Local Project Configuration** (`.devops-cli.yaml`)",
+            "4. **Global User Configuration** (`~/.config/devops-cli/config.yaml`)",
+            "5. **System Defaults**",
+            "",
+            "---",
+            "",
+        ]
+
+        sections = [
+            (
+                "SSH Configuration (`ssh`)",
+                "ssh",
+                "SSH key generation, rotation, signing, and GitHub registration settings.",
+            ),
+            (
+                "Repositories Configuration (`repos`)",
+                "repos",
+                "Multi-repository workspace discovery, cloning, and sync settings.",
+            ),
+            (
+                "Workspace Configuration (`workspace`)",
+                "workspace",
+                "Multi-root VS Code workspace file management and data tier settings.",
+            ),
+            (
+                "Telemetry & Metrics (`telemetry`)",
+                "telemetry",
+                "OpenTelemetry distributed tracing and Prometheus metric export settings.",
+            ),
+            (
+                "Kubernetes Configuration (`k8s`)",
+                "k8s",
+                "Kubernetes cluster connection, Minikube, Helm, and Kustomize settings.",
+            ),
+            (
+                "Security Scanner Configuration (`security`)",
+                "security",
+                "Security scanning engines, vulnerability audits, and policy enforcement.",
+            ),
+            (
+                "AI & LLM Configuration (`ai`)",
+                "ai",
+                "AI code review, multi-agent pipelines, RAG semantic search, and embeddings.",
+            ),
+            (
+                "Data Storage Tier (`data`)",
+                "data",
+                "Local artifact caches, review findings, session histories, and log paths.",
+            ),
+            (
+                "OIDC & Authentication (`oidc`)",
+                "oidc",
+                "OpenID Connect authentication and identity token settings.",
+            ),
+        ]
+
+        settings = Settings()
+        for title, section_key, description in sections:
+            section_model = getattr(settings, section_key, None)
+            if section_model is None:
+                continue
+
+            lines.append(f"## {title}")
+            lines.append("")
+            lines.append(description)
+            lines.append("")
+            lines.append("| Option | Type | Default | Environment Variable | Description |")
+            lines.append("|---|---|---|---|---|")
+
+            for field_name, field_info in section_model.__class__.model_fields.items():
+                opt_key = f"{section_key}.{field_name}"
+                env_var = OPTION_TO_ENV_VAR.get(opt_key, "-")
+                env_str = f"`{env_var}`" if env_var != "-" else "-"
+                type_ann = field_info.annotation
+                type_str = getattr(type_ann, "__name__", str(type_ann)).replace("pathlib.", "")
+                if "Optional[" in type_str:
+                    type_str = type_str.replace("Optional[", "").rstrip("]")
+                def_val = getattr(section_model, field_name, None)
+                def_str = f"`{def_val}`" if def_val is not None else "-"
+                if isinstance(def_val, Path):
+                    def_str = f"`{_format_param_default_str(def_val, self.root_dir)}`"
+                desc = field_info.description or "-"
+                lines.append(f"| `{field_name}` | `{type_str}` | {def_str} | {env_str} | {desc} |")
+
+            lines.append("")
+
+        return "\n".join(lines)
+
+    def generate_error_catalog_docs(self) -> str:
+        """Programmatically generate Exit Code and Error Taxonomy catalog from DevOpsCLIError hierarchy."""
+        import importlib
+
+        from devops_cli.exceptions.base import DevOpsCLIError
+
+        exception_modules = [
+            ("AI & LLM Subsystem", "devops_cli.exceptions.ai"),
+            ("Configuration Subsystem", "devops_cli.exceptions.config"),
+            ("Git Operations Subsystem", "devops_cli.exceptions.git"),
+            ("Kubernetes Subsystem", "devops_cli.exceptions.k8s"),
+            ("Network & Egress Subsystem", "devops_cli.exceptions.network"),
+            ("Security & Scanner Subsystem", "devops_cli.exceptions.security"),
+            ("SSH Key Management", "devops_cli.exceptions.ssh"),
+            ("Tool Execution Subsystem", "devops_cli.exceptions.tools"),
+            ("Input Validation Subsystem", "devops_cli.exceptions.validation"),
+            ("Core & MCP Subsystem", "devops_cli.exceptions.base"),
+        ]
+
+        for _, mod_name in exception_modules:
+            try:
+                importlib.import_module(mod_name)
+            except Exception:
+                pass
+
+        lines: list[str] = [
+            "# DevOps CLI Exit Code & Error Catalog",
+            "",
+            "This document provides the canonical machine-readable error codes, POSIX exit status codes,",
+            "and domain categorization for all exceptions inheriting from `DevOpsCLIError`.",
+            "",
+            "## Standard Process Exit Codes",
+            "",
+            "| Exit Code | Constant | Meaning |",
+            "|---|---|---|",
+            "| `0` | `CONST_EXIT_SUCCESS` | Command completed successfully with zero defects or violations. |",
+            "| `1` | `CONST_EXIT_FAILURE` | General operational failure, unhandled runtime defect, or schema violation. |",
+            "| `2` | `CONST_EXIT_USAGE` | Invalid CLI arguments, missing parameters, or syntax validation error. |",
+            "| `130` | `CONST_EXIT_CANCELLED` | Execution interrupted by user signal (`SIGINT` / `Ctrl+C`). |",
+            "",
+            "---",
+            "",
+            "## Subsystem Error Code Matrix",
+            "",
+            "| Error Code | Exit Code | Domain | Description |",
+            "|---|---|---|---|",
+        ]
+
+        def get_all_subclasses(cls: type[DevOpsCLIError]) -> list[type[DevOpsCLIError]]:
+            subclasses: list[type[DevOpsCLIError]] = []
+            for sub in cls.__subclasses__():
+                subclasses.append(sub)
+                subclasses.extend(get_all_subclasses(sub))
+            return subclasses
+
+        all_errs = sorted(get_all_subclasses(DevOpsCLIError), key=lambda c: c.__name__)
+
+        for err_cls in all_errs:
+            doc = (err_cls.__doc__ or "").strip().split("\n")[0]
+            # Instantiate dummy to get default error_code and exit_code if possible
+            try:
+                inst = err_cls("error message")
+                err_code = getattr(inst, "error_code", err_cls.__name__)
+                exit_code = getattr(inst, "exit_code", 1)
+            except Exception:
+                err_code = getattr(err_cls, "DEFAULT_ERROR_CODE", err_cls.__name__)
+                exit_code = 1
+
+            domain = (
+                err_cls.__module__.replace("devops_cli.exceptions.", "")
+                .replace("devops_cli.exceptions", "core")
+                .capitalize()
+            )
+            lines.append(f"| `{err_code}` | `{exit_code}` | {domain} | {doc or err_cls.__name__} |")
+
+        lines.append("")
+        return "\n".join(lines)
+
+    def generate_telemetry_docs(self) -> str:
+        """Programmatically generate OpenTelemetry and Prometheus telemetry reference."""
+        lines: list[str] = [
+            "# DevOps CLI Telemetry & Distributed Tracing Reference",
+            "",
+            "DevOps CLI instruments all CLI subcommands, background tasks, and AI pipeline stages",
+            "with distributed OpenTelemetry traces (`@trace_span`) and in-memory Prometheus metrics (`GLOBAL_METRICS`).",
+            "",
+            "---",
+            "",
+            "## Prometheus Metric Instruments",
+            "",
+            "| Metric Name | Type | Description |",
+            "|---|---|---|",
+            "| `devops_cli_command_duration_seconds` | Histogram | CLI execution latency waterfall in seconds by subcommand. |",
+            "| `devops_cli_command_total` | Counter | Total CLI command invocations partitioned by status and command group. |",
+            "| `devops_cli_subprocess_duration_seconds` | Histogram | Subprocess execution latency in seconds across external binaries. |",
+            "| `devops_cli_subprocess_total` | Counter | Total external tool executions partitioned by binary and exit status. |",
+            "| `devops_cli_ai_llm_requests_total` | Counter | Total AI / LLM completions dispatched by provider and model. |",
+            "| `devops_cli_ai_token_usage_total` | Counter | Cumulative input and output token consumption across review stages. |",
+            "| `devops_cli_security_findings_total` | Counter | Total security vulnerabilities and anti-patterns flagged by scanner. |",
+            "| `devops_cli_cache_hits_total` | Counter | Semantic cache hits for embeddings and AI review prompt hashes. |",
+            "| `devops_cli_cache_misses_total` | Counter | Semantic cache misses triggering fresh LLM inference requests. |",
+            "",
+            "---",
+            "",
+            "## Distributed Tracing & W3C Context Propagation",
+            "",
+            "- **Root Trace Context**: CLI delegate sets up root spans (`cli.<subcommand>`) with execution metadata.",
+            "- **W3C `traceparent` Injection**: Subprocess calls inject standard W3C `traceparent` headers into child process environments.",
+            "- **OTLP Exporter**: Spans are emitted to OpenTelemetry Collector via `DEVOPS_CLI_OTEL_ENDPOINT` (`http://localhost:4318/v1/traces`).",
+            "",
+        ]
+        return "\n".join(lines)
+
+    def generate_knowledge_base_index(self) -> str:
+        """Programmatically generate Knowledge Base catalog from bundled articles."""
+        from devops_cli.ai.kb import get_knowledge_base_stats, list_knowledge_base_articles
+
+        stats = get_knowledge_base_stats()
+        devops_cli_articles = sorted(list_knowledge_base_articles("devops_cli"))
+        it_domains_articles = sorted(list_knowledge_base_articles("it_domains"))
+
+        lines: list[str] = [
+            "# DevOps CLI Knowledge Base Catalog",
+            "",
+            f"The bundled Knowledge Base provides **{stats.total_articles} operational and architectural manuals**",
+            "grounding DevOps CLI subcommands, multi-agent AI reviews, and developer workflows.",
+            "",
+            "---",
+            "",
+            "## Division 1: DevOps CLI Information (`devops_cli/`)",
+            "",
+            f"**Total Articles**: {stats.devops_cli_count} manuals covering internals, configuration, tasks, and libraries.",
+            "",
+            "| Category | Article File | Topic & Scope |",
+            "|---|---|---|",
+        ]
+
+        def _format_article_link(art_path: Path) -> str:
+            art_posix = art_path.as_posix()
+            if "src/devops_cli/ai/knowledge_base/" in art_posix:
+                rel_suffix = art_posix.split("src/devops_cli/ai/knowledge_base/", 1)[1]
+                return f"../src/devops_cli/ai/knowledge_base/{rel_suffix}"
+            return art_path.name
+
+        for art in devops_cli_articles:
+            category = art.parent.name
+            art_name = art.stem.replace("_", " ").title()
+            link_target = _format_article_link(art)
+            lines.append(f"| `{category}` | [`{art.name}`]({link_target}) | {art_name} |")
+
+        lines.extend(
+            [
+                "",
+                "---",
+                "",
+                "## Division 2: Information Technology Domain-Specific (`it_domains/`)",
+                "",
+                f"**Total Articles**: {stats.it_domains_count} manuals covering 10 IT topics and 20 tool references.",
+                "",
+                "| Category | Article File | Topic & Scope |",
+                "|---|---|---|",
+            ]
+        )
+
+        for art in it_domains_articles:
+            category = art.parent.name
+            art_name = art.stem.replace("_", " ").title()
+            link_target = _format_article_link(art)
+            lines.append(f"| `{category}` | [`{art.name}`]({link_target}) | {art_name} |")
+
+        lines.append("")
+        return "\n".join(lines)
+
     def generate_all_docs(self, output_dir: Path) -> dict[str, str]:
         """Generate all documentation files and return a dict of {rel_path: content}."""
         groups = self.introspect_all_groups()
@@ -647,7 +921,19 @@ class DocGenerator:
         if mcp_tools:
             results["MCP_TOOLS.md"] = self.render_mcp_tools_markdown(mcp_tools)
 
-        # 4. Individual command group markdown files under commands/
+        # 4. Configuration Reference
+        results["CONFIGURATION.md"] = self.generate_configuration_docs()
+
+        # 5. Exit Code & Error Catalog
+        results["ERRORS.md"] = self.generate_error_catalog_docs()
+
+        # 6. Telemetry & Distributed Tracing Reference
+        results["TELEMETRY.md"] = self.generate_telemetry_docs()
+
+        # 7. Knowledge Base Catalog
+        results["KNOWLEDGE_BASE.md"] = self.generate_knowledge_base_index()
+
+        # 8. Individual command group markdown files under commands/
         for group in groups:
             group_doc = self.render_command_group_markdown(group)
             results[f"commands/{group.name}.md"] = group_doc

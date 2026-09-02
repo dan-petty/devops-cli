@@ -63,6 +63,13 @@ class ReviewMessages:
     no_findings_to_export: str = "No {status} findings found to export under {target}."
     exported_findings: str = "Exported {count} {status} finding(s) → [bold]{path}[/bold]"
     index_out_of_bounds: str = "Index out of bounds (1-{max_index})"
+    table_title_findings: str = "Code Review Findings"
+    table_title_dependencies: str = "[bold yellow]External Dependencies Audit[/bold yellow]"
+    table_title_network_references: str = (
+        "[bold yellow]Network & Egress References Audit[/bold yellow]"
+    )
+    positive_observations: str = "[bold green]Positive Observations[/bold green]"
+    summary: str = "[bold]Summary[/bold]"
 
 
 @dataclass(frozen=True)
@@ -91,6 +98,11 @@ class AIMessages:
 class BenchmarkMessages:
     evaluating_model: str = "Evaluating {model} across {task_count} benchmarks..."
     benchmark_complete: str = "Benchmark evaluation completed for {model}."
+    table_title_leaderboard: str = "AI Benchmark Leaderboard (Session {session_id})"
+    table_title_category_breakdown: str = "Domain Category Breakdown (Session {session_id})"
+    table_title_server_hardware: str = (
+        "Ollama Server Hardware & Node Performance (Session {session_id})"
+    )
 
 
 @dataclass(frozen=True)
@@ -189,6 +201,7 @@ class RepoMessages:
     skip_already_exists: str = "skip {name} (already exists)"
     sync_done: str = "done {name}"
     sync_fail: str = "fail {name}: {exc}"
+    table_title_cloned: str = "Cloned repositories — {root}"
 
 
 @dataclass(frozen=True)
@@ -220,6 +233,19 @@ class K8sMessages:
     )
     applying_manifest: str = "[bold]Applying manifest {name}...[/bold]"
     installing_release: str = "[bold]Installing {name}...[/bold]"
+    table_title_tls_secrets: str = "Kubernetes TLS Secret Deployment"
+    table_title_pods: str = "Kubernetes Pods"
+    table_title_contexts: str = "Kubernetes Contexts"
+    table_title_configured_services: str = "Configured Service Targets ({stack})"
+    table_title_policy_violations: str = "Kubernetes Policy Violations ({engine})"
+    table_title_rbac_audit: str = "Kubernetes RBAC Security Audit"
+    table_title_kube_linter: str = "Kube-Linter Manifest Security Checks"
+    table_title_popeye: str = "Popeye Cluster Health Sanitizer Audit"
+    table_title_pluto: str = "Pluto Deprecated Kubernetes API Version Audit"
+    table_title_kubeconform: str = "Kubeconform Strict Schema Validation"
+    table_title_nodes: str = "Nodes"
+    node_ready: str = "Ready"
+    node_not_ready: str = "NotReady"
 
 
 @dataclass(frozen=True)
@@ -346,6 +372,8 @@ class TfMessages:
     deploy_cloud_success: str = "✓ {provider} cloud infrastructure deployed successfully."
     tflint_executing: str = "Executing TFLint static analysis on '{target}'..."
     tflint_passed: str = "✓ No Terraform / OpenTofu lint issues detected."
+    table_title_status: str = "OpenTofu Status — {name}"
+    table_title_tflint: str = "TFLint Findings: {target}"
 
 
 @dataclass(frozen=True)
@@ -482,6 +510,7 @@ class SSHMessages:
     rotation_overdue: str = "Rotation:    overdue by {days} days — run 'devops ssh rotate'"
     grace_period_notice: str = "\nOld key {name} remains active for {grace_days} grace days. Remove manually from GitHub when ready."
     new_key_already_exists: str = "New key already exists: {path}"
+    table_title_managed_keys: str = "Managed SSH Keys"
 
 
 @dataclass(frozen=True)
@@ -568,6 +597,8 @@ class DevcontainerMessages:
 @dataclass(frozen=True)
 class DockerMessages:
     table_title_images: str = "Docker Images"
+    table_title_containers: str = "Docker Containers"
+    table_title_stats: str = "Docker Container Stats"
     building_from: str = "Building from [dim]{context}[/dim]..."
     built_image: str = "Built: {short_id}{suffix}"
     pushing_image: str = "Pushing [dim]{image}[/dim]..."
@@ -636,9 +667,43 @@ class TestMessages:
 
 
 @dataclass(frozen=True)
+class BadgeMessages:
+    active: str = "Active"
+    disabled: str = "Disabled"
+    verified: str = "✓ VERIFIED"
+    mitigated: str = "~ MITIGATED"
+    flagged: str = "FLAGGED"
+    invalidated: str = "INVALIDATED"
+    unverified: str = "? UNVERIFIED"
+    sev_critical: str = "CRITICAL"
+    sev_high: str = "HIGH"
+    sev_medium: str = "MEDIUM"
+    sev_low: str = "LOW"
+    sev_info: str = "INFO"
+    overdue_deletion: str = "overdue for deletion"
+    grace_period: str = "grace period"
+    rotation_soon: str = "rotation soon"
+
+
+@dataclass(frozen=True)
+class OutputMessages:
+    finding_header: str = "Finding #{index}: [{sev}] {title}"
+    location_label: str = "Location:"
+    description_label: str = "Description:"
+    suggested_fix_label: str = "Suggested Fix:"
+    references_label: str = "References: {refs}"
+    argo_sync_label: str = "Sync:"
+    argo_health_label: str = "Health:"
+    argo_revision_label: str = "Revision:"
+    argo_error_fetching: str = "Error fetching status: {error}"
+
+
+@dataclass(frozen=True)
 class LanguageCatalog:
     persona_titles: PersonaTitles = field(default_factory=PersonaTitles)
     messages: GeneralMessages = field(default_factory=GeneralMessages)
+    badges: BadgeMessages = field(default_factory=BadgeMessages)
+    output: OutputMessages = field(default_factory=OutputMessages)
     review: ReviewMessages = field(default_factory=ReviewMessages)
     ai: AIMessages = field(default_factory=AIMessages)
     benchmark: BenchmarkMessages = field(default_factory=BenchmarkMessages)

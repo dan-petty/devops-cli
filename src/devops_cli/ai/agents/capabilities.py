@@ -168,6 +168,54 @@ class MCPServerTool(BaseModel):
     description: str | None = None
 
 
+_NATIVE_TOOL_SETTINGS_BUILDERS: dict[type, Callable[[Any], dict[str, Any]]] = {
+    WebSearchTool: lambda t: {
+        "native_web_search": True,
+        "web_search_config": t.model_dump(exclude_none=True),
+    },
+    WebFetchTool: lambda t: {
+        "native_web_fetch": True,
+        "web_fetch_config": t.model_dump(exclude_none=True),
+    },
+    CodeExecutionTool: lambda t: {
+        "native_code_execution": True,
+        "code_execution_config": t.model_dump(exclude_none=True),
+    },
+    MCPServerTool: lambda t: {
+        "native_mcp_server": True,
+        "mcp_server_config": t.model_dump(exclude_none=True),
+    },
+}
+
+_NATIVE_TOOL_PROMPT_BUILDERS: dict[type, Callable[[Any], list[str]]] = {
+    WebSearchTool: lambda _: ["Provider-native web search capability is enabled."],
+    WebFetchTool: lambda _: ["Provider-native web fetch capability is enabled."],
+    CodeExecutionTool: lambda _: [
+        "Provider-native sandboxed code execution capability is enabled."
+    ],
+    MCPServerTool: lambda t: [f"Provider-native MCP server capability is enabled (id: {t.id})."],
+}
+
+
+def _extract_local_tools(local_obj: Any) -> list[AgentTool | Callable[..., Any]]:
+    """Extract callable or Tool instances from polymorphic local capability/tool objects."""
+    if not local_obj:
+        return []
+    if isinstance(local_obj, BaseCapability):
+        return local_obj.get_tools()
+    if isinstance(local_obj, Tool):
+        return [local_obj]
+    if callable(local_obj):
+        return [Tool.from_function(local_obj)]
+    if hasattr(local_obj, "get_tools") and callable(local_obj.get_tools):
+        tools_val = local_obj.get_tools()
+        if isinstance(tools_val, list):
+            return [t for t in tools_val if isinstance(t, (AgentTool, Tool)) or callable(t)]
+    if isinstance(local_obj, list):
+        return [t for t in local_obj if isinstance(t, (AgentTool, Tool)) or callable(t)]
+    return []
+
+
 class NativeTool(BaseCapability):
     """Capability that configures and exposes provider-native server tools."""
 
@@ -176,38 +224,14 @@ class NativeTool(BaseCapability):
 
     def get_model_settings(self, ctx: RunContext[Any] | None = None) -> dict[str, Any]:
         """Return model runtime settings configuring the provider-native tool."""
-        if isinstance(self.tool, WebSearchTool):
-            return {
-                "native_web_search": True,
-                "web_search_config": self.tool.model_dump(exclude_none=True),
-            }
-        elif isinstance(self.tool, WebFetchTool):
-            return {
-                "native_web_fetch": True,
-                "web_fetch_config": self.tool.model_dump(exclude_none=True),
-            }
-        elif isinstance(self.tool, CodeExecutionTool):
-            return {
-                "native_code_execution": True,
-                "code_execution_config": self.tool.model_dump(exclude_none=True),
-            }
-        elif isinstance(self.tool, MCPServerTool):
-            return {
-                "native_mcp_server": True,
-                "mcp_server_config": self.tool.model_dump(exclude_none=True),
-            }
+        builder = _NATIVE_TOOL_SETTINGS_BUILDERS.get(type(self.tool))
+        if builder is not None:
+            return builder(self.tool)
         return {"native_tool": self.tool.model_dump(exclude_none=True)}
 
     def get_system_prompt_additions(self, ctx: RunContext[Any] | None = None) -> list[str]:
-        if isinstance(self.tool, WebSearchTool):
-            return ["Provider-native web search capability is enabled."]
-        elif isinstance(self.tool, WebFetchTool):
-            return ["Provider-native web fetch capability is enabled."]
-        elif isinstance(self.tool, CodeExecutionTool):
-            return ["Provider-native sandboxed code execution capability is enabled."]
-        elif isinstance(self.tool, MCPServerTool):
-            return [f"Provider-native MCP server capability is enabled (id: {self.tool.id})."]
-        return []
+        builder = _NATIVE_TOOL_PROMPT_BUILDERS.get(type(self.tool))
+        return builder(self.tool) if builder is not None else []
 
 
 class MCP(BaseCapability):
@@ -230,13 +254,7 @@ class MCP(BaseCapability):
     def get_tools(self) -> list[AgentTool | Callable[..., Any]]:
         if self.local is False:
             return []
-        if hasattr(self.local, "get_tools") and callable(self.local.get_tools):
-            tools_val = self.local.get_tools()
-            if isinstance(tools_val, list):
-                return [t for t in tools_val if isinstance(t, (AgentTool, Tool)) or callable(t)]
-        if isinstance(self.local, list):
-            return [t for t in self.local if isinstance(t, (AgentTool, Tool)) or callable(t)]
-        return []
+        return _extract_local_tools(self.local)
 
     def get_model_settings(self, ctx: RunContext[Any] | None = None) -> dict[str, Any]:
         if self.native:
@@ -245,11 +263,10 @@ class MCP(BaseCapability):
                     "native_mcp_server": True,
                     "mcp_server_config": self.native.model_dump(exclude_none=True),
                 }
-            elif self.url:
-                return {
-                    "native_mcp_server": True,
-                    "mcp_server_config": {"url": self.url, "id": "mcp_server"},
-                }
+            return {
+                "native_mcp_server": True,
+                "mcp_server_config": {"url": self.url} if self.url else {},
+            }
         return {}
 
     def get_system_prompt_additions(self, ctx: RunContext[Any] | None = None) -> list[str]:
@@ -260,7 +277,7 @@ class MCP(BaseCapability):
 
 
 class WebSearch(BaseCapability):
-    """Provider-adaptive Web Search capability supporting native provider search and local fallbacks."""
+    """Provider-adaptive Web Search capability supporting native provider search and local fallback."""
 
     id: str = "web_search"
     local: Any = False
@@ -275,27 +292,13 @@ class WebSearch(BaseCapability):
         super().__init__(local=local, native=native)
 
     def get_tools(self) -> list[AgentTool | Callable[..., Any]]:
-
         if not self.local:
             return []
         if self.local is True or self.local == "duckduckgo":
             from devops_cli.ai.common_tools import duckduckgo_search_tool
 
             return [duckduckgo_search_tool()]
-        elif hasattr(self.local, "get_tools") and callable(self.local.get_tools):
-            tools_val = self.local.get_tools()
-            if isinstance(tools_val, list):
-                return [t for t in tools_val if isinstance(t, Tool) or callable(t)]
-        elif isinstance(self.local, (Tool, BaseCapability)) or callable(self.local):
-            if isinstance(self.local, BaseCapability):
-                return self.local.get_tools()
-            elif isinstance(self.local, Tool):
-                return [self.local]
-            elif callable(self.local):
-                return [Tool.from_function(self.local)]
-        elif isinstance(self.local, list):
-            return [t for t in self.local if isinstance(t, Tool) or callable(t)]
-        return []
+        return _extract_local_tools(self.local)
 
     def get_model_settings(self, ctx: RunContext[Any] | None = None) -> dict[str, Any]:
         if self.native:
@@ -340,27 +343,13 @@ class WebFetch(BaseCapability):
         )
 
     def get_tools(self) -> list[AgentTool | Callable[..., Any]]:
-
         if not self.local:
             return []
         if self.local is True:
             from devops_cli.ai.common_tools import web_fetch_tool
 
             return [web_fetch_tool(allowed_domains=self.allowed_domains)]
-        elif hasattr(self.local, "get_tools") and callable(self.local.get_tools):
-            tools_val = self.local.get_tools()
-            if isinstance(tools_val, list):
-                return [t for t in tools_val if isinstance(t, Tool) or callable(t)]
-        elif isinstance(self.local, (Tool, BaseCapability)) or callable(self.local):
-            if isinstance(self.local, BaseCapability):
-                return self.local.get_tools()
-            elif isinstance(self.local, Tool):
-                return [self.local]
-            elif callable(self.local):
-                return [Tool.from_function(self.local)]
-        elif isinstance(self.local, list):
-            return [t for t in self.local if isinstance(t, Tool) or callable(t)]
-        return []
+        return _extract_local_tools(self.local)
 
     def get_model_settings(self, ctx: RunContext[Any] | None = None) -> dict[str, Any]:
         if self.native:

@@ -27,6 +27,11 @@ from devops_cli.http.validation import validate_service_url
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.models.argo import ArgoCDApp
 from devops_cli.output import (
+    PanelPayload,
+    TablePayload,
+    format_argo_app_status_panel,
+    format_argo_apps_table,
+    print,
     print_error,
     print_success,
 )
@@ -96,24 +101,13 @@ def cd_apps_list(
         )
         return
 
-    def _build_apps_table() -> Any:
-        from devops_cli.output import Table
-
+    def _build_apps_table() -> TablePayload:
         settings = load_settings()
         base, headers = _argocd(settings)
-        table = Table(
-            title=MESSAGES.argo.table_title_apps,
-            show_header=True,
-            header_style="bold cyan",
-        )
-        table.add_column("Name", style="cyan")
-        table.add_column("Project")
-        table.add_column("Sync")
-        table.add_column("Health")
-        table.add_column("Repo", style="dim")
+        rows: list[list[str]] = []
         try:
-            with httpx2.Client() as c:
-                resp = c.get(
+            with httpx2.Client() as client:
+                resp = client.get(
                     f"{base}/api/v1/applications",
                     headers=headers,
                     timeout=DEFAULT_HTTP_TIMEOUT_SECONDS,
@@ -122,31 +116,31 @@ def cd_apps_list(
             data = resp.json()
             items = data.get("items", []) if isinstance(data, dict) else []
         except Exception as exc:
-            table.add_row(f"[red]Error: {exc}[/red]", "—", "—", "—", "—")
-            return table
+            rows.append([f"[red]Error: {exc}[/red]", "—", "—", "—", "—"])
+            return format_argo_apps_table(rows)
         for item in items:
             app_info = ArgoCDApp.from_api_item(item)
             sync_c = "green" if app_info.sync_status == "Synced" else "yellow"
             health_c = "green" if app_info.health_status == "Healthy" else "red"
-            table.add_row(
-                app_info.name,
-                app_info.project,
-                f"[{sync_c}]{app_info.sync_status}[/{sync_c}]",
-                f"[{health_c}]{app_info.health_status}[/{health_c}]",
-                app_info.repo_url,
+            rows.append(
+                [
+                    app_info.name,
+                    app_info.project,
+                    f"[{sync_c}]{app_info.sync_status}[/{sync_c}]",
+                    f"[{health_c}]{app_info.health_status}[/{health_c}]",
+                    app_info.repo_url,
+                ]
             )
-        return table
+        return format_argo_apps_table(rows)
 
     if watch:
         from devops_cli.watchers.live_resource import LiveResourceWatcher
 
         LiveResourceWatcher(
-            _build_apps_table, interval_seconds=interval, name="argo_apps_list"
+            lambda: _build_apps_table().render(), interval_seconds=interval, name="argo_apps_list"
         ).watch()
     else:
-        from devops_cli.output import get_console
-
-        get_console().print(_build_apps_table())
+        print(_build_apps_table())
 
 
 # =============================================================================
@@ -190,14 +184,12 @@ def cd_apps_status(
     """Show sync and health status for an ArgoCD application."""
     _validate_k8s_name(name, "application name")
 
-    def _build_status_panel() -> Any:
-        from devops_cli.output import Panel, Text
-
+    def _build_status_panel() -> PanelPayload:
         settings = load_settings()
         base, headers = _argocd(settings)
         try:
-            with httpx2.Client() as c:
-                resp = c.get(
+            with httpx2.Client() as client:
+                resp = client.get(
                     f"{base}/api/v1/applications/{name}",
                     headers=headers,
                     timeout=DEFAULT_HTTP_TIMEOUT_SECONDS,
@@ -205,28 +197,26 @@ def cd_apps_status(
                 resp.raise_for_status()
             app_info = ArgoCDApp.from_api_item(resp.json())
         except Exception as exc:
-            return Panel(f"[red]Error fetching status: {exc}[/red]", title=name)
-        sync_c = "green" if app_info.sync_status == "Synced" else "yellow"
-        health_c = "green" if app_info.health_status == "Healthy" else "red"
-        body = Text()
-        body.append("  Sync:     ", style="bold")
-        body.append(f"{app_info.sync_status}\n", style=sync_c)
-        body.append("  Health:   ", style="bold")
-        body.append(f"{app_info.health_status}\n", style=health_c)
-        body.append("  Revision: ", style="bold")
-        body.append(f"{app_info.revision}\n")
-        return Panel(body, title=f"[bold cyan]{app_info.name}[/bold cyan]")
+            return format_argo_app_status_panel(
+                name=name, sync_status="", health_status="", revision="", error=str(exc)
+            )
+        return format_argo_app_status_panel(
+            name=app_info.name,
+            sync_status=app_info.sync_status,
+            health_status=app_info.health_status,
+            revision=app_info.revision,
+        )
 
     if watch:
         from devops_cli.watchers.live_resource import LiveResourceWatcher
 
         LiveResourceWatcher(
-            _build_status_panel, interval_seconds=interval, name="argo_app_status"
+            lambda: _build_status_panel().render(),
+            interval_seconds=interval,
+            name="argo_app_status",
         ).watch()
     else:
-        from devops_cli.output import get_console
-
-        get_console().print(_build_status_panel())
+        print(_build_status_panel())
 
 
 # =============================================================================

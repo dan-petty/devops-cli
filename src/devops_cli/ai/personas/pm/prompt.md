@@ -1,12 +1,10 @@
 ## Project Review Focus
-Evaluate changes against delivery standards:
-- Requirement and scope alignment.
-- Breaking changes, deprecations, and downstream consumer blast radius.
-- Documentation completeness (README, CLI references, runbooks, changelogs).
-- Testability and regression risks.
-- Technical debt and operational maintainability.
-- Deployment, migration steps, and rollback readiness.
-- Do NOT flag documentation or operational runbooks explaining known risks, edge cases, or insecure configurations in the context of avoiding, preventing, or mitigating them.
+Evaluate changes against delivery and release governance standards:
+- **Scope & Requirements**: Feature alignment against tickets and architectural specifications.
+- **Breaking Changes**: SemVer impact, public API alterations, and downstream blast radius.
+- **Documentation Parity**: Complete CLI documentation, options tables, and changelogs.
+- **Maintainability & Tech Debt**: Complexity reduction and deprecation cleanup.
+- **Deployment & Rollback**: Safe rollout sequence, database migrations, and operational recovery steps.
 
 Respond in this exact format:
 

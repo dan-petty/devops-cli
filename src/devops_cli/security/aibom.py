@@ -183,6 +183,7 @@ def extract_aibom_components(workspace_dir: Path) -> list[AIBOMComponent]:
     """Extract AI model components and metadata from model manifests and configuration files."""
     components: list[AIBOMComponent] = []
     seen_names: set[str] = set()
+    seen_dirs: set[Path] = set()
 
     # Look for model configuration manifests: config.json, model_card.json, Modelfile
     manifest_candidates: list[Path] = [
@@ -193,9 +194,11 @@ def extract_aibom_components(workspace_dir: Path) -> list[AIBOMComponent]:
 
     for candidate in manifest_candidates:
         parent_dir = candidate.parent
+        resolved_parent = parent_dir.resolve()
         name = parent_dir.name
-        if name in seen_names or name.startswith("."):
+        if resolved_parent in seen_dirs or name in seen_names or name.startswith("."):
             continue
+        seen_dirs.add(resolved_parent)
 
         params = 0.0
         license_str = "NOASSERTION"

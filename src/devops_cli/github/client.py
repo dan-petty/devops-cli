@@ -10,7 +10,7 @@ from pydantic import BaseModel
 
 from devops_cli.config.constants import CONST_URL_GITHUB_API_BASE
 from devops_cli.config.defaults import DEFAULT_HTTP_TIMEOUT_SECONDS
-from devops_cli.models.github import SSHKeyInfo
+from devops_cli.models.ssh import SSHKeyInfo
 
 if TYPE_CHECKING:
     from github.PullRequest import PullRequest

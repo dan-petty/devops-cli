@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.8] - 2026-09-01
+
+### Added
+- **Modular Output Formatters Subpackage (`src/devops_cli/output/formatters/`, `tests/test_fast_dispatch.py`)**:
+  - Deconstructed monolithic formatting engine into modular, single-responsibility submodules: `scalars.py`, `tables.py`, and `panels.py`.
+  - Added dedicated polymorphic TablePayload builders and finding panel formatters exposed via `devops_cli.output`.
+- **Centralized Language Messages & Badges (`src/devops_cli/lang/en/messages.py`)**:
+  - Added `BadgeMessages` and `OutputMessages` dataclasses to `LanguageCatalog` for full localization of terminal badges, status indicators, and headers.
+  - Localized Kubernetes node status strings (`node_ready`, `node_not_ready`) and table titles.
+
+### Changed
+- **Declarative Dispatch Tables & Cyclomatic Complexity Elimination**:
+  - Refactored AST symbol streaming in `src/devops_cli/ai/ast_stream.py` to use table-driven `_NODE_HANDLERS` dictionary and recursive decorator extraction.
+  - Implemented declarative `_NATIVE_TOOL_SETTINGS_BUILDERS` and `_extract_local_tools` in `src/devops_cli/ai/agents/capabilities.py`.
+  - Decoupled sub-agent execution in `src/devops_cli/ai/harness/workflow.py` via `_invoke_agent_callable`.
+  - Replaced procedural truncation in `src/devops_cli/ai/harness/compaction.py` with `_TRUNCATION_FORMATTERS` and `_apply_compactor`.
+  - Simplified settings coercion in `src/devops_cli/config/settings.py` via `_coerce_setting_value`.
+  - Extracted certificate reading in `src/devops_cli/crypto/tls_certificates.py` via `_read_cert_bytes`.
+- **Documentation Alignment & DevContainer Standardization (`docs/`)**:
+  - Pinned container tag examples in `docs/DEVCONTAINER_USAGE.md` to current release (`v0.2.8`).
+  - Aligned `docs/PENDING_FEATURES.md` and `docs/ROADMAP.md` reflecting completed v0.2.8 milestones.
+
+### Removed
+- **Zombie Code & Legacy Shims**:
+  - Removed obsolete shims: `src/devops_cli/ai/review/rendering.py`, `src/devops_cli/models/dry_run.py`, and `src/devops_cli/core/dry_run.py`.
+  - Merged `SSHKeyInfo` into `src/devops_cli/models/ssh.py` and deleted redundant `src/devops_cli/models/github.py`.
+  - Cleaned duplicate entries in `src/devops_cli/output/__init__.py::__all__`.
+
 ## [0.2.7] - 2026-09-01
 
 ### Added

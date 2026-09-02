@@ -81,7 +81,6 @@ from devops_cli.models.git import (
     ReposSyncResult,
     RepoStatusEntry,
 )
-from devops_cli.models.github import SSHKeyInfo
 from devops_cli.models.grafana import GrafanaAlertRule, GrafanaDashboard, GrafanaDatasource
 from devops_cli.models.k8s import (
     K8sBootstrapRequest,
@@ -121,7 +120,7 @@ from devops_cli.models.security import (
     UvAuditRequest,
     UvAuditResult,
 )
-from devops_cli.models.ssh import ManagedSSHKey
+from devops_cli.models.ssh import ManagedSSHKey, SSHKeyInfo
 from devops_cli.models.tf import (
     TFApplyRequest,
     TFApplyResult,

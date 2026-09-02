@@ -42,7 +42,8 @@ spec:
     assert any(f.severity == "CRITICAL" and "Privileged" in f.title for f in findings)
 
 
-def test_run_checkov_scan_mocked_binary(tmp_path: Path) -> None:
+def test_run_checkov_scan_list_output(tmp_path: Path) -> None:
+    """Verify checkov list output parsing with severity and location extraction."""
     fake_output = json.dumps(
         [
             {
@@ -67,55 +68,61 @@ def test_run_checkov_scan_mocked_binary(tmp_path: Path) -> None:
             }
         ]
     )
+    mock_proc = MagicMock(stdout=fake_output)
+    with (
+        patch("shutil.which", return_value="/usr/local/bin/checkov"),
+        patch("subprocess.run", return_value=mock_proc),
+    ):
+        findings = run_checkov_scan(tmp_path, framework="terraform")
+        assert len(findings) == 2
+        assert findings[0].severity == "CRITICAL"
+        assert findings[0].location == "main.tf:10"
 
-    mock_proc = MagicMock()
-    mock_proc.stdout = fake_output
 
-    with patch("shutil.which", return_value="/usr/local/bin/checkov"):
-        with patch("subprocess.run", return_value=mock_proc):
-            findings = run_checkov_scan(tmp_path, framework="terraform")
-            assert len(findings) == 2
-            assert findings[0].severity == "CRITICAL"
-            assert findings[0].location == "main.tf:10"
-        # Single dict output format
-        single_dict_output = json.dumps(
-            {
-                "results": {
-                    "failed_checks": [
-                        {
-                            "check_id": "CKV_DOCKER_1",
-                            "check_name": "Ensure container has healthcheck",
-                            "file_path": "/Dockerfile",
-                            "file_line_range": [1, 2],
-                            "guideline": "Add HEALTHCHECK instruction.",
-                        }
-                    ]
-                }
+def test_run_checkov_scan_single_dict_output(tmp_path: Path) -> None:
+    """Verify checkov single dictionary output format parsing."""
+    single_dict_output = json.dumps(
+        {
+            "results": {
+                "failed_checks": [
+                    {
+                        "check_id": "CKV_DOCKER_1",
+                        "check_name": "Ensure container has healthcheck",
+                        "file_path": "/Dockerfile",
+                        "file_line_range": [1, 2],
+                        "guideline": "Add HEALTHCHECK instruction.",
+                    }
+                ]
             }
-        )
-        mock_proc.stdout = single_dict_output
-        with patch("subprocess.run", return_value=mock_proc):
-            findings_dict = run_checkov_scan(tmp_path)
-            assert len(findings_dict) == 1
+        }
+    )
+    mock_proc = MagicMock(stdout=single_dict_output)
+    with (
+        patch("shutil.which", return_value="/usr/local/bin/checkov"),
+        patch("subprocess.run", return_value=mock_proc),
+    ):
+        findings_dict = run_checkov_scan(tmp_path)
+        assert len(findings_dict) == 1
 
-        # Invalid json output
-        mock_proc.stdout = "invalid json checkov output"
-        with patch("subprocess.run", return_value=mock_proc):
-            findings_invalid = run_checkov_scan(tmp_path)
-            assert isinstance(findings_invalid, list)
+
+def test_run_checkov_scan_error_and_empty_output(tmp_path: Path) -> None:
+    """Verify checkov handling of invalid json, empty stdout, and exceptions."""
+    with patch("shutil.which", return_value="/usr/local/bin/checkov"):
+        # Invalid JSON
+        with patch("subprocess.run", return_value=MagicMock(stdout="invalid json checkov output")):
+            assert isinstance(run_checkov_scan(tmp_path), list)
 
         # Empty output
-        mock_proc.stdout = ""
-        with patch("subprocess.run", return_value=mock_proc):
-            findings_empty = run_checkov_scan(tmp_path)
-            assert len(findings_empty) == 0
+        with patch("subprocess.run", return_value=MagicMock(stdout="")):
+            assert len(run_checkov_scan(tmp_path)) == 0
 
         # Exception fallback
         with patch("subprocess.run", side_effect=Exception("Execution failed")):
-            findings_fb = run_checkov_scan(tmp_path)
-            assert isinstance(findings_fb, list)
+            assert isinstance(run_checkov_scan(tmp_path), list)
 
-    # When checkov binary not in PATH
+
+def test_run_checkov_scan_missing_binary(tmp_path: Path) -> None:
+    """Verify graceful handling when checkov binary is not in PATH."""
     with patch("shutil.which", return_value=None):
         findings_nobin = run_checkov_scan(tmp_path)
         assert isinstance(findings_nobin, list)

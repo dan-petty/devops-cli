@@ -288,15 +288,12 @@ def test_review_multiple_targets_and_findings_options(tmp_path: Path) -> None:
         mock_exec.assert_called_once()
 
 
-def test_review_verify_stats_and_export_extended(tmp_path: Path) -> None:
-    """Verify review verify with title pattern, stats false positive rates, and apply-patch success."""
+def _create_sample_review_session(target_dir: Path) -> Path:
+    """Helper to initialize a test review session fixture."""
     from devops_cli.ai.review_schema import ReviewSessionPayload, SavedFinding
 
-    # Setup session with findings
-    sess_dir = tmp_path / "rev_sess_1"
-    sess_dir.mkdir()
-    findings_file = sess_dir / "findings.json"
-
+    sess_dir = target_dir / "rev_sess_1"
+    sess_dir.mkdir(exist_ok=True)
     f1 = SavedFinding(
         id="f-001",
         persona="devsecops",
@@ -320,11 +317,15 @@ def test_review_verify_stats_and_export_extended(tmp_path: Path) -> None:
         timestamp="2026-08-26T12:00:00Z",
         findings=[f1, f2],
     )
-    findings_file.write_text(payload.model_dump_json(indent=2), encoding="utf-8")
+    (sess_dir / "findings.json").write_text(payload.model_dump_json(indent=2), encoding="utf-8")
+    return sess_dir
+
+
+def test_review_verify_with_title_pattern_and_status(tmp_path: Path) -> None:
+    """Verify review verify with title pattern, invalid status, and out of bounds indices."""
+    sess_dir = _create_sample_review_session(tmp_path)
 
     with patch("devops_cli.ai.review.runner._find_session_dir", return_value=sess_dir):
-        # 1. verify with title pattern
-
         res_ver_title = runner.invoke(
             review_app,
             [
@@ -341,36 +342,41 @@ def test_review_verify_stats_and_export_extended(tmp_path: Path) -> None:
         assert res_ver_title.exit_code == 0
         assert "status → INVALIDATED" in res_ver_title.output
 
-        # 2. verify with invalid status
         res_ver_bad_st = runner.invoke(
             review_app, ["verify", "rev_sess_1", "--index", "2", "--status", "UNKNOWN_STATUS"]
         )
         assert res_ver_bad_st.exit_code == 1
 
-        # 3. verify with index out of bounds
         res_ver_oob = runner.invoke(
             review_app, ["verify", "rev_sess_1", "--index", "99", "--status", "VERIFIED"]
         )
         assert res_ver_oob.exit_code == 1
 
-        # 4. verify with status MITIGATED
         res_ver_mit = runner.invoke(
             review_app, ["verify", "rev_sess_1", "--index", "2", "--status", "MITIGATED"]
         )
         assert res_ver_mit.exit_code == 0
 
-    # 5. stats command with sessions
+
+def test_review_stats_command(tmp_path: Path) -> None:
+    """Verify review stats command execution across saved sessions."""
+    _create_sample_review_session(tmp_path)
     res_stats = runner.invoke(review_app, ["stats", "--reviews-dir", str(tmp_path)])
     assert res_stats.exit_code == 0
     assert "Finding Status Breakdown" in res_stats.output
     assert "Persona False Positive Rate" in res_stats.output
 
-    # 6. apply-patch success
+
+def test_review_apply_patch_success() -> None:
+    """Verify review apply-patch delegation when patching succeeds."""
     with patch("devops_cli.commands.review.stage_finding_patch", return_value=True):
         res_patch_ok = runner.invoke(review_app, ["apply-patch", "rev_sess_1", "--index", "1"])
         assert res_patch_ok.exit_code == 0
 
-    # 7. findings command with --details pretty formatting
+
+def test_review_findings_details_pretty_printing(tmp_path: Path) -> None:
+    """Verify review findings command with --details formatting."""
+    sess_dir = _create_sample_review_session(tmp_path)
     with patch("devops_cli.ai.review.runner._find_session_dir", return_value=sess_dir):
         res_details = runner.invoke(
             review_app, ["findings", "--session", "rev_sess_1", "--details"]

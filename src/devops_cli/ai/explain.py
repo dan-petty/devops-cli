@@ -4,7 +4,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from devops_cli.output import print_panel, print_table, write_stdout
+from devops_cli.output import (
+    PanelPayload,
+    TableColumn,
+    TablePayload,
+    print,
+    write_stdout,
+)
 
 _BENCHMARK_SECTIONS: list[dict[str, Any]] = [
     {
@@ -358,27 +364,27 @@ def render_explanation(topic: str, console_instance: Any = None) -> None:
 
     panel_title = f"[bold white]{data['title']}[/bold white]"
     write_stdout("\n")
-    print_panel(
-        f"[dim]{data['description']}[/dim]",
+    panel = PanelPayload(
+        content=f"[dim]{data['description']}[/dim]",
         title=panel_title,
         border_style="cyan",
-        console=console_instance,
     )
+    print(panel, console=console_instance)
     write_stdout("\n")
 
-    for sec in data["sections"]:
-        rows = [[term, definition, formula] for term, definition, formula in sec["items"]]
-        print_table(
-            title=sec["name"],
+    for section in data["sections"]:
+        rows = [[term, definition, formula] for term, definition, formula in section["items"]]
+        table_payload = TablePayload(
+            title=section["name"],
             columns=[
-                ("Term / Metric", "bold white"),
-                ("Definition & Operational Purpose", "dim white"),
-                ("Formula / Guideline", "yellow"),
+                TableColumn(header="Term / Metric", style="bold white"),
+                TableColumn(header="Definition & Operational Purpose", style="dim white"),
+                TableColumn(header="Formula / Guideline", style="yellow"),
             ],
             rows=rows,
             border_style="dim",
-            console=console_instance,
         )
+        print(table_payload, console=console_instance)
         write_stdout("\n")
 
 
@@ -389,12 +395,12 @@ def get_explanation_markdown(topic: str) -> str:
         data = EXPLANATIONS["benchmark"]
 
     lines = [f"# {data['title']}", "", data["description"], ""]
-    for sec in data["sections"]:
-        lines.append(f"## {sec['name']}")
+    for section in data["sections"]:
+        lines.append(f"## {section['name']}")
         lines.append("")
         lines.append("| Term / Metric | Definition & Purpose | Formula / Guideline |")
         lines.append("| :--- | :--- | :--- |")
-        for term, definition, formula in sec["items"]:
+        for term, definition, formula in section["items"]:
             lines.append(f"| **{term}** | {definition} | `{formula}` |")
         lines.append("")
 

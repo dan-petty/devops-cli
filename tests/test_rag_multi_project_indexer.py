@@ -51,6 +51,11 @@ def test_multi_project_indexing(tmp_path: Path) -> None:
             upserted.setdefault(collection_name, []).extend(points)
             return True
 
+        def delete_points_by_file(
+            self, collection_name: str, file_path: str, project_name: str | None = None
+        ) -> bool:
+            return True
+
     class DummyEmbedder(EmbeddingsEngine):
         def embed_batch(self, texts: list[str], prefix: str = "") -> list[list[float]]:
             return [[0.1] * 384 for _ in texts]

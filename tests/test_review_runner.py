@@ -9,10 +9,6 @@ from unittest.mock import MagicMock, patch
 from typer.testing import CliRunner
 
 from devops_cli.ai.personas import PERSONAS, Persona
-from devops_cli.ai.review.rendering import (
-    _render_review_raw,
-    _render_review_result,
-)
 from devops_cli.ai.review.runner import (
     ReviewClients,
     _build_path_prompt,
@@ -48,6 +44,10 @@ from devops_cli.ai.review_schema import (
 from devops_cli.commands.review import app as review_app
 from devops_cli.config.settings import Settings
 from devops_cli.models.vulnerability import DependencySpec, NetworkReference
+from devops_cli.output import (
+    render_review_raw,
+    render_review_result,
+)
 
 
 def test_rendering_helpers() -> None:
@@ -89,8 +89,8 @@ def test_rendering_helpers() -> None:
         summary="Summary of issues",
         raw_markdown="# Security Review",
     )
-    _render_review_result(persona_def, res)
-    _render_review_raw(persona_def, "## Raw review text")
+    render_review_result(persona_def, res)
+    render_review_raw(persona_def, "## Raw review text")
 
 
 def test_runner_file_and_repo_helpers(tmp_path: Path) -> None:
@@ -470,18 +470,10 @@ def test_review_cli_commands(tmp_path: Path) -> None:
         assert res_exp.exit_code == 0
 
 
-def test_review_runner_extended_functions(tmp_path: Path) -> None:
-    """Verify base branch detection, markdown generation, fallback joining, and boundary isolation."""
-    from devops_cli.ai.review.runner import (
-        _detect_base_branch,
-        _fallback_join,
-        _is_allowed_review_boundary,
-        _make_review_clients,
-        _review_to_markdown,
-    )
-    from devops_cli.config.settings import Settings
+def test_detect_base_branch(tmp_path: Path) -> None:
+    """Verify base branch detection and fallback handling."""
+    from devops_cli.ai.review.runner import _detect_base_branch
 
-    # 1. _detect_base_branch
     with patch("devops_cli.ai.review.runner._run_subprocess") as mock_sub:
         mock_sub.return_value = MagicMock(returncode=0, stdout="origin/release/v0.2.0\n")
         b = _detect_base_branch(tmp_path, preferred_base="release/v0.2.0")
@@ -491,17 +483,30 @@ def test_review_runner_extended_functions(tmp_path: Path) -> None:
         b_fallback = _detect_base_branch(tmp_path)
         assert b_fallback in ("main", "master")
 
-    # 2. _fallback_join
+
+def test_fallback_join() -> None:
+    """Verify fallback list joining helper."""
+    from devops_cli.ai.review.runner import _fallback_join
+
     joined = _fallback_join(["item 1", "item 2", "item 3"])
     assert "item 1" in joined and "item 2" in joined
 
-    # 3. _is_allowed_review_boundary
+
+def test_is_allowed_review_boundary() -> None:
+    """Verify review path boundary isolation and forbidden system path rejections."""
+    from devops_cli.ai.review.runner import _is_allowed_review_boundary
+    from devops_cli.config.settings import Settings
+
     st = Settings()
     assert _is_allowed_review_boundary(Path("src/app.py"), st) is True
     assert _is_allowed_review_boundary(Path("/etc/shadow"), st) is False
     assert _is_allowed_review_boundary(Path("/etc/passwd"), st) is False
 
-    # 4. _review_to_markdown
+
+def test_review_to_markdown() -> None:
+    """Verify review markdown generation formatting."""
+    from devops_cli.ai.review.runner import _review_to_markdown
+
     f = Finding(
         severity="MEDIUM",
         title="Tight Coupling",
@@ -522,7 +527,12 @@ def test_review_runner_extended_functions(tmp_path: Path) -> None:
     assert "Clean typing" in md
     assert "Architecture is mostly sound" in md
 
-    # 5. _make_review_clients
+
+def test_make_review_clients() -> None:
+    """Verify creation of analysis and compose review clients."""
+    from devops_cli.ai.review.runner import _make_review_clients
+    from devops_cli.config.settings import Settings
+
     st = Settings()
     clients = _make_review_clients(st)
     assert clients.analysis is not None

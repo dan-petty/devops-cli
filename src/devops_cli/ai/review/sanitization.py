@@ -114,14 +114,8 @@ def _build_prompt(diff: str, title: str) -> str:
 
 
 def _unique_preserve_order(items: list[str]) -> list[str]:
-    seen: set[str] = set()
-    unique: list[str] = []
-    for item in items:
-        if item in seen:
-            continue
-        seen.add(item)
-        unique.append(item)
-    return unique
+    """Deduplicate string items preserving original sequence order."""
+    return list(dict.fromkeys(items))
 
 
 def _truncate_for_prompt(
