@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.9] - 2026-09-02
+
+### Added
+- **Universal Multi-Stage Workflow Orchestration Pipeline (`src/devops_cli/pipeline/`, `tests/test_pipeline_engine.py`)**:
+  - Introduced generic `StagePipeline[ContextT, ResultT]` and `PipelineStage` framework supporting sequential and DAG-based stage execution with scratchpad context passing.
+  - Granular `@trace_span` telemetry waterfalls, error isolation, and metrics collection (`pipeline_runs_total`, `pipeline_run_duration_seconds`).
+- **Unified Async HTTP/2 Connection & Security Broker (`src/devops_cli/http/broker.py`, `tests/test_http_broker.py`)**:
+  - Centralized thread-safe `HttpClientBroker` managing shared `httpx2` client connection pools with HTTP/2 multiplexing, SSRF private network isolation, and traceparent propagation.
+- **Local Kubernetes Chaos & Fault Injection Runner (`src/devops_cli/k8s/chaos_runner.py`, `tests/test_k8s_chaos_runner.py`)**:
+  - Added `ChaosFaultRunner` supporting declarative pod disruptions, recovery time observation, and automatic rollback handling.
+- **Continuous IDE File Watcher & Instant Review (`devops ai review path --watch`)**:
+  - Added `--watch` / `-w` and `--debounce-ms` options to `devops review path` leveraging `DebouncedFileWatcher` to trigger instant multi-persona reviews on active file changes.
+
 ## [0.2.8] - 2026-09-01
 
 ### Added

@@ -6,6 +6,16 @@ Chronological log of refactoring milestones, quality gates, and security enhance
 
 ## Log Entries
 
+### [2026-09-02] Release v0.2.9 Universal Stage Pipelines, Async HTTP/2 Connection Broker & Local K8s Chaos Runner
+- **Universal Multi-Stage Workflow Orchestration Pipeline (`src/devops_cli/pipeline/`, `tests/test_pipeline_engine.py`)**:
+  - Implemented `StagePipeline[ContextT, ResultT]` and `PipelineStage` framework supporting sequential and DAG-based stage execution with scratchpad context sharing, early termination guards, and metrics recording.
+- **Unified Async HTTP/2 Connection & Security Broker (`src/devops_cli/http/broker.py`, `tests/test_http_broker.py`)**:
+  - Implemented `HttpClientBroker` managing shared `httpx2` client connection pools with HTTP/2 multiplexing, exponential backoff retries, SSRF private network isolation, and automatic traceparent propagation.
+- **Local Kubernetes Chaos & Fault Injection Runner (`src/devops_cli/k8s/chaos_runner.py`, `tests/test_k8s_chaos_runner.py`)**:
+  - Implemented `ChaosFaultRunner` supporting declarative pod disruptions, recovery time observation, and automatic rollback handling.
+- **Continuous IDE File Watcher & Instant Review (`devops ai review path --watch`)**:
+  - Added `--watch` / `-w` and `--debounce-ms` options to `devops review path` leveraging `DebouncedFileWatcher` to trigger instant multi-persona reviews on active file changes.
+
 ### [2026-09-02] Release v0.2.8 Output Subsystem Deconstruction, Language Localization & Complexity Elimination
 - **Output Subsystem Modularization (`src/devops_cli/output/formatters/`)**:
   - Deconstructed monolithic `formatter.py` into dedicated submodules: `scalars.py`, `tables.py`, and `panels.py`.

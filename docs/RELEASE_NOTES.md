@@ -1,6 +1,24 @@
-# Release Notes — devops-cli v0.2.8
+# Release Notes — devops-cli v0.2.9
 
 Workstation-native DevOps CLI for managing repositories, SSH keys, Kubernetes clusters, Kustomize, ArgoCD, Grafana, Prometheus, Docker, workspace files, vector embedding benchmarks, TLS certificate automation, OpenTelemetry observability, and multi-persona AI code reviews.
+
+---
+
+## 🚀 Highlights of v0.2.9
+
+### 🔄 Universal Multi-Stage Workflow Orchestration Pipeline (`src/devops_cli/pipeline/`)
+- **Strongly-Typed Stage Pipelines**: Introduced generic `StagePipeline[ContextT, ResultT]` and `PipelineStage` framework supporting sequential and DAG-based stage execution with scratchpad context passing.
+- **Granular Telemetry & Isolation**: Built-in `@trace_span` waterfalls, error containment, execution metrics (`pipeline_runs_total`, `pipeline_run_duration_seconds`), and fail-fast controls.
+
+### 🌐 Unified Async HTTP/2 Connection Broker (`src/devops_cli/http/broker.py`)
+- **Shared Connection Pooling**: Thread-safe `HttpClientBroker` managing shared `httpx2` client connection pools with HTTP/2 multiplexing and persistent keepalive.
+- **SSRF Defense & Traceparent Propagation**: Integrated destination validation against private network egress and automatic W3C traceparent context header injection.
+
+### 💥 Local Kubernetes Chaos & Fault Injection Runner (`src/devops_cli/k8s/chaos_runner.py`)
+- **Declarative Chaos Experiments**: Introduced `ChaosFaultRunner` supporting declarative pod disruptions, recovery time observation, and automatic rollback handling.
+
+### 👁️ Continuous IDE File Watcher & Instant Review (`devops ai review path --watch`)
+- **Automated Incremental Reviews**: Integrated `--watch` / `-w` and `--debounce-ms` into `devops review path` leveraging `DebouncedFileWatcher` to trigger instant multi-persona reviews upon local file modifications.
 
 ---
 

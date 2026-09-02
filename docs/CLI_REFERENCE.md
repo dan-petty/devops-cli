@@ -2457,6 +2457,8 @@ devops ai review path [OPTIONS] <targets>
 | `--no-cache` | `boolean` | - | Bypass LLM response cache and force fresh inference. |
 | `--force`, `-f` | `boolean` | - | Force fresh review execution without cache. |
 | `--append-cache` | `boolean` | - | Append cached response to the LLM prompt as context instead of using it directly as the final response. |
+| `--watch`, `-w` | `boolean` | - | Continuously watch target paths for changes and re-run reviews. |
+| `--debounce-ms` | `integer` | `500` | Debounce window in milliseconds for filesystem watcher. |
 
 #### `devops ai review branch`
 
@@ -2991,6 +2993,8 @@ devops review path [OPTIONS] <targets>
 | `--no-cache` | `boolean` | - | Bypass LLM response cache and force fresh inference. |
 | `--force`, `-f` | `boolean` | - | Force fresh review execution without cache. |
 | `--append-cache` | `boolean` | - | Append cached response to the LLM prompt as context instead of using it directly as the final response. |
+| `--watch`, `-w` | `boolean` | - | Continuously watch target paths for changes and re-run reviews. |
+| `--debounce-ms` | `integer` | `500` | Debounce window in milliseconds for filesystem watcher. |
 
 ### `devops review branch`
 
