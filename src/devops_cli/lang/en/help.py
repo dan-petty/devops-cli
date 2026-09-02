@@ -60,6 +60,8 @@ class OptionHelp:
     tail: str = "Number of recent lines to display."
     target_dir: str = "Target directory path for operation."
     workspace_dir: str = "Workspace root directory path."
+    watch: str = "Continuously watch target paths for changes and re-run reviews."
+    debounce_ms: str = "Debounce window in milliseconds for filesystem watcher."
 
 
 @dataclass(frozen=True)

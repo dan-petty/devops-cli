@@ -416,3 +416,18 @@ def test_format_clean_text_field_and_finding_unwrapping() -> None:
     assert f.description == "Avoid pickle.loads\nUse json.loads instead"
     assert f.fix == "Replace pickle with json\nAdd schema validation"
     assert f.references == ["https://cwe.mitre.org/995", "https://owasp.org"]
+
+
+def test_review_path_watch_mode(tmp_path: Path) -> None:
+    """Verify devops review path --watch executes DebouncedFileWatcher."""
+    py_file = tmp_path / "app.py"
+    py_file.write_text("def run(): pass\n", encoding="utf-8")
+
+    with (
+        patch("devops_cli.commands.review._make_review_clients"),
+        patch("devops_cli.commands.review.load_settings"),
+        patch("devops_cli.watchers.file_watcher.DebouncedFileWatcher.watch") as mock_watcher_watch,
+    ):
+        res = runner.invoke(review_app, ["path", str(py_file), "--watch", "--debounce-ms", "300"])
+        assert res.exit_code == 0
+        assert mock_watcher_watch.called
