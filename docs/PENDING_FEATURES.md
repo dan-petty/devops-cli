@@ -8,12 +8,11 @@
 
 ## 🎯 Active Release Focus
 
-### Current Milestone: `v0.2.7` (Completed / Active Release)
-1. **Model Curation Pipeline & AI Bill of Materials (`devops scan aibom`)**: CycloneDX 1.5-compliant AI model inventory, `trust_remote_code` AST inspection, and hardware sizing heuristics.
-2. **Zero-Allocation AST & Token Stream Parser (`devops_cli.ai.ast_stream`)**: Generator-based streaming symbol parser for rapid AST traversal.
-3. **Cross-Encoder Context Re-Ranker (`devops_cli.ai.rag.reranker`)**: Cross-token semantic re-ranking for dense/sparse RAG candidate retrieval.
-4. **"Big Decides, Small Types, Big Checks" Synthesis Protocol (`devops_cli.ai.agents.synthesis_protocol`)**: Multi-agent slot offloading and 3-stage synthesis.
-5. **High-Performance Streaming Serializers (`devops_cli.output.streaming_serializer`)**: Low-overhead streaming JSON, JSONL, and YAML document generators.
+### Current Milestone: `v0.2.8` (Completed / Active Release)
+1. **Output Subsystem Modularization (`src/devops_cli/output/formatters/`)**: Deconstructed monolithic formatter into `scalars.py`, `tables.py`, and `panels.py`.
+2. **Language Message Catalog & Badge Localization (`src/devops_cli/lang/en/messages.py`)**: Complete localization of terminal badges, status indicators, and headers via `BadgeMessages` and `OutputMessages`.
+3. **Declarative Dispatch Registries**: Table-driven AST symbols (`ast_stream.py`), AI capability settings (`capabilities.py`, `workflow.py`), and compaction strategies (`compaction.py`).
+4. **Zombie Code & Legacy Shim Elimination**: Removed deprecated re-export shims and merged models directly into authoritative modules.
 
 ### Upcoming Milestone: `v0.3.0` (Scheduled)
 1. **Multi-Region Workstation Mesh & Cluster Federation**: Cross-cluster service discovery and state sync.

@@ -6,10 +6,31 @@ Workstation-native DevOps CLI for managing repositories, SSH keys, Kubernetes cl
 
 ## 🚀 Highlights of v0.2.8
 
-### 📚 Documentation Deduplication & Roadmap Alignment
-- **Verification Workflow Streamlining**: Updated `docs/ROUTINE_TASKS.md` to directly enforce `uv run devops ci` as the primary unified quality gate.
-- **DevContainer Image Reference Standardization**: Pinned references in `docs/DEVCONTAINER_USAGE.md` updated to current stable release (`v0.2.7`).
-- **Milestone v0.2.8 Architectural Specifications**: Expanded `docs/ROADMAP.md` with technical blueprints for Vault secret brokering, rootless container sandboxes, HTTP/2 connection pooling, and automated CVE remediation.
+### 🎨 Output Subsystem Modularization & Formatting Engine Deconstruction (`src/devops_cli/output/formatters/`)
+- **Deconstructed Formatter Hub**: Modularized monolithic formatting logic into dedicated, cohesive submodules under `src/devops_cli/output/formatters/`:
+  - `scalars.py`: Primitive conversions, byte formatting, relative duration/age stamps, code spans, links, and status/severity badges.
+  - `tables.py`: Polymorphic table rendering and domain payload builders across Kubernetes, Docker, ArgoCD, Terraform, Benchmarks, and Reviews.
+  - `panels.py`: Rich finding panels, AI review summaries, and ArgoCD application detail views.
+- **Zero-Boilerplate Public Formatting API**: Enforced public methods in `devops_cli.output` project-wide so CLI commands never build Rich tables, columns, or format strings inline.
+
+### 🌐 Complete Language Localization & Centralized Message Catalog (`src/devops_cli/lang/en/messages.py`)
+- **Centralized Language Catalog Expansion**: Added `BadgeMessages` and `OutputMessages` to ensure 100% of terminal badges, finding headers, labels, ArgoCD status indicators, and Kubernetes node states are sourced from `MESSAGES`.
+- **Zero Hardcoded Display Strings**: Replaced ad-hoc inline text with localized catalog keys across formatting and command layers.
+
+### ⚡ Declarative Dispatch Tables & Cyclomatic Complexity Elimination
+- **Table-Driven AST Streaming (`src/devops_cli/ai/ast_stream.py`)**: Replaced node type `if/elif` ladders with a declarative node handler registry (`_NODE_HANDLERS`) and concise decorator extractors.
+- **Native Tool & Capability Registries (`src/devops_cli/ai/agents/capabilities.py`, `workflow.py`)**: Replaced tool `isinstance` branches with declarative configuration and prompt builders (`_NATIVE_TOOL_SETTINGS_BUILDERS`), unified local tool extraction (`_extract_local_tools`), and decoupled async agent invocation (`_invoke_agent_callable`).
+- **Declarative Truncation & Compaction Handlers (`src/devops_cli/ai/harness/compaction.py`)**: Implemented `_TRUNCATION_FORMATTERS` and `_apply_compactor` for cascading compaction passes.
+- **Type Coercion Extraction (`src/devops_cli/config/settings.py`)**: Extracted `_coerce_setting_value` to simplify dotted-path settings mutation.
+
+### 🧹 Ruthless Zombie Code & Shim Removal
+- **Deleted Obsolete Shims**: Removed legacy re-export shims `src/devops_cli/ai/review/rendering.py`, `src/devops_cli/models/dry_run.py`, and `src/devops_cli/core/dry_run.py`.
+- **Consolidated Models**: Merged `SSHKeyInfo` into `src/devops_cli/models/ssh.py` and deleted redundant `src/devops_cli/models/github.py`.
+- **Clean Re-Exports**: Cleaned `src/devops_cli/output/__init__.py::__all__` duplicates and rewired imports directly to authoritative modules.
+
+### 📚 Documentation Alignment & DevContainer Standardization
+- **DevContainer Image Reference Standardization**: Pinned container tag examples in `docs/DEVCONTAINER_USAGE.md` to current release (`v0.2.8`).
+- **Milestone v0.2.8 Specifications**: Aligned `docs/ROADMAP.md` and `docs/PENDING_FEATURES.md` reflecting completed v0.2.8 architecture milestones.
 
 ---
 

@@ -6,6 +6,25 @@ Chronological log of refactoring milestones, quality gates, and security enhance
 
 ## Log Entries
 
+### [2026-09-02] Release v0.2.8 Output Subsystem Deconstruction, Language Localization & Complexity Elimination
+- **Output Subsystem Modularization (`src/devops_cli/output/formatters/`)**:
+  - Deconstructed monolithic `formatter.py` into dedicated submodules: `scalars.py`, `tables.py`, and `panels.py`.
+  - Re-exported all formatters via `devops_cli.output` with zero breaking changes, enforcing high-level public formatting methods project-wide.
+- **Language Localization & Centralized Messages (`src/devops_cli/lang/en/messages.py`)**:
+  - Added `BadgeMessages` and `OutputMessages` dataclasses to `LanguageCatalog` for full localization of terminal badges, status indicators, finding headers, and Kubernetes node states.
+- **Declarative Dispatch Tables & Cyclomatic Complexity Elimination**:
+  - Refactored AST symbol streaming in `src/devops_cli/ai/ast_stream.py` to use table-driven `_NODE_HANDLERS` dictionary and recursive decorator extraction.
+  - Implemented declarative `_NATIVE_TOOL_SETTINGS_BUILDERS` and `_extract_local_tools` in `src/devops_cli/ai/agents/capabilities.py`.
+  - Decoupled sub-agent execution in `src/devops_cli/ai/harness/workflow.py` via `_invoke_agent_callable`.
+  - Replaced procedural truncation in `src/devops_cli/ai/harness/compaction.py` with `_TRUNCATION_FORMATTERS` and `_apply_compactor`.
+  - Simplified settings coercion in `src/devops_cli/config/settings.py` via `_coerce_setting_value`.
+  - Consolidated certificate source loading in `src/devops_cli/crypto/tls_certificates.py` via `_read_cert_bytes`.
+- **Zombie Code & Legacy Shims Elimination**:
+  - Removed obsolete shims: `src/devops_cli/ai/review/rendering.py`, `src/devops_cli/models/dry_run.py`, and `src/devops_cli/core/dry_run.py`.
+  - Merged `SSHKeyInfo` into `src/devops_cli/models/ssh.py` and deleted redundant `src/devops_cli/models/github.py`.
+  - Cleaned duplicate entries in `src/devops_cli/output/__init__.py::__all__`.
+- **Quality Gate**: Verified 10/10 quality gates via `devops ci` (1,328 unit tests, strict mypy across 275 source files, ruff, bandit, pip-audit, actionlint, docs).
+
 ### [2026-09-01] Release v0.2.7 Model Curation AIBOM, AST Streaming, Re-Ranking & Synthesis Protocol
 - **AI Bill of Materials (AIBOM) Generator & Model Curation (`src/devops_cli/security/aibom.py`, `src/devops_cli/commands/scan.py`, `tests/test_aibom.py`)**:
   - Implemented `devops scan aibom` generating CycloneDX 1.5-compliant AI Bill of Materials manifests from workspace and model repositories.
