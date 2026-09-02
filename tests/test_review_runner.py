@@ -9,10 +9,6 @@ from unittest.mock import MagicMock, patch
 from typer.testing import CliRunner
 
 from devops_cli.ai.personas import PERSONAS, Persona
-from devops_cli.ai.review.rendering import (
-    _render_review_raw,
-    _render_review_result,
-)
 from devops_cli.ai.review.runner import (
     ReviewClients,
     _build_path_prompt,
@@ -48,6 +44,10 @@ from devops_cli.ai.review_schema import (
 from devops_cli.commands.review import app as review_app
 from devops_cli.config.settings import Settings
 from devops_cli.models.vulnerability import DependencySpec, NetworkReference
+from devops_cli.output import (
+    render_review_raw,
+    render_review_result,
+)
 
 
 def test_rendering_helpers() -> None:
@@ -89,8 +89,8 @@ def test_rendering_helpers() -> None:
         summary="Summary of issues",
         raw_markdown="# Security Review",
     )
-    _render_review_result(persona_def, res)
-    _render_review_raw(persona_def, "## Raw review text")
+    render_review_result(persona_def, res)
+    render_review_raw(persona_def, "## Raw review text")
 
 
 def test_runner_file_and_repo_helpers(tmp_path: Path) -> None:

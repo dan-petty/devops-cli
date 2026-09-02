@@ -17,14 +17,16 @@ from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import is_dry_run
 from devops_cli.lang import ERRORS, HELP, MESSAGES
 from devops_cli.output import (
-    format_bytes as _format_bytes,
-)
-from devops_cli.output import (
+    TablePayload,
+    format_docker_stats_table,
     print_error,
     print_info,
     print_success,
     print_table,
     render_dry_run_result,
+)
+from devops_cli.output import (
+    format_bytes as _format_bytes,
 )
 
 app = new_typer(help=HELP.docker.app, no_args_is_help=True)
@@ -244,30 +246,24 @@ def _parse_docker_stats_row(container: Any) -> list[str]:
     ]
 
 
-def _build_docker_stats_table(name_filter: str | None) -> Any:
-    """Build a Rich Table of live Docker container statistics."""
-    from devops_cli.output import Table
-
+def _build_docker_stats_table(name_filter: str | None) -> TablePayload:
+    """Build a TablePayload of live Docker container statistics."""
     client = _client()
     try:
         containers = client.containers.list(filters={"name": name_filter} if name_filter else None)
     except Exception:
         containers = []
 
-    table = Table(title="Docker Container Stats", show_header=True, header_style="bold cyan")
-    table.add_column("Container", style="cyan", no_wrap=True)
-    table.add_column("CPU %", justify="right")
-    table.add_column("MEM Usage / Limit", justify="right")
-    table.add_column("NET I/O (RX/TX)", justify="right")
+    rows: list[list[str]] = []
 
     for container in containers:
         try:
             row = _parse_docker_stats_row(container)
-            table.add_row(*row)
+            rows.append(list(row))
         except Exception:
-            table.add_row(container.name, "—", "—", "—")
+            rows.append([container.name, "—", "—", "—"])
 
-    return table
+    return format_docker_stats_table(rows)
 
 
 @app.command("stats")
@@ -290,15 +286,15 @@ def stats(
         from devops_cli.watchers.live_resource import LiveResourceWatcher
 
         watcher = LiveResourceWatcher(
-            lambda: _build_docker_stats_table(name),
+            lambda: _build_docker_stats_table(name).render(),
             interval_seconds=interval,
             name="docker_stats",
         )
         watcher.watch()
     else:
-        from devops_cli.output import get_console
+        from devops_cli.output import print
 
-        get_console().print(_build_docker_stats_table(name))
+        print(_build_docker_stats_table(name))
 
 
 # =============================================================================

@@ -16,3 +16,11 @@ class ManagedSSHKey(BaseModel):
     path: Path
     key_date: date | None = None
     age_days: int | None = None
+
+
+class SSHKeyInfo(BaseModel):
+    """A GitHub user SSH key."""
+
+    id: int
+    title: str
+    key: str

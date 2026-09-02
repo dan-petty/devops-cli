@@ -12,11 +12,11 @@ from devops_cli.config.constants import CONST_SSH_GRACE_DAYS
 from devops_cli.core.cli import new_typer
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
-    format_status_badge,
+    format_ssh_keys_table,
+    print,
     print_error,
     print_info,
     print_success,
-    print_table,
     print_warning,
     render_dry_run_result,
 )
@@ -297,8 +297,7 @@ def rotate(
         print_warning(MESSAGES.ssh.cleaned_unregistered_keys, prefix=False)
 
     print_info(
-        f"\nOld key {newest.name} remains active for {CONST_SSH_GRACE_DAYS} grace days. "
-        "Remove manually from GitHub when ready.",
+        MESSAGES.ssh.grace_period_notice.format(name=newest.name, grace_days=CONST_SSH_GRACE_DAYS),
         prefix=False,
     )
 
@@ -350,25 +349,7 @@ def list_keys(
         raise typer.Exit(0)
 
     rotation_days = settings.ssh.rotation_days
-    rows: list[list[str]] = []
-
-    for key in keys:
-        age = key.age_days if key.age_days is not None else 0
-        if age > rotation_days + CONST_SSH_GRACE_DAYS:
-            status_text = format_status_badge("overdue for deletion")
-        elif age > rotation_days:
-            status_text = format_status_badge("grace period", warn_color="yellow")
-        elif age > rotation_days - 7:
-            status_text = format_status_badge("rotation soon", warn_color="yellow")
-        else:
-            status_text = format_status_badge("active")
-        rows.append([key.path.name, str(age), status_text])
-
-    print_table(
-        title="Managed SSH Keys",
-        columns=[("Key", "cyan"), ("Age (days)", "right"), "Status"],
-        rows=rows,
-    )
+    print(format_ssh_keys_table(keys, rotation_days))
 
 
 # =============================================================================

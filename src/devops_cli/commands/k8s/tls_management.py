@@ -23,11 +23,11 @@ from devops_cli.dry_run import is_dry_run, render_dry_run_result
 from devops_cli.lang import HELP
 from devops_cli.models.tls import KubernetesTLSSecretResult
 from devops_cli.output import (
-    Table,
+    format_k8s_tls_secrets_table,
+    print,
     print_error,
     print_info,
     print_success,
-    print_table,
 )
 
 
@@ -228,13 +228,4 @@ def enable_tls_stack(
             )
         )
 
-    table = Table(title="Kubernetes TLS Secret Deployment", title_style="bold blue")
-    table.add_column("Namespace", style="cyan")
-    table.add_column("Secret Name", style="white")
-    table.add_column("Status", style="bold")
-
-    for r in results:
-        status_str = "[green]✓ Created[/green]" if r.created else f"[red]✗ Failed: {r.error}[/red]"
-        table.add_row(r.namespace, r.secret_name, status_str)
-
-    print_table(table)
+    print(format_k8s_tls_secrets_table(results))

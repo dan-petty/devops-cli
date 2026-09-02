@@ -26,10 +26,12 @@ from devops_cli.core.validation import validate_dir
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
+    format_tf_status_table,
+    format_tflint_table,
+    print,
     print_error,
     print_info,
     print_success,
-    print_table,
     write_stdout,
 )
 
@@ -403,19 +405,15 @@ def status_command(
     lock_file = target / ".terraform.lock.hcl"
     state_file = target / "terraform.tfstate"
 
-    rows = [
-        ["Directory", str(target)],
-        ["Resolved Binary", binary],
-        ["Initialized (.terraform)", "✓ Yes" if tf_dir.exists() else "[red]✗ No[/red]"],
-        ["Lock File (.lock.hcl)", "✓ Yes" if lock_file.exists() else "[dim]None[/dim]"],
-        ["Local State File", "✓ Yes" if state_file.exists() else "[dim]None[/dim]"],
-    ]
-
-    print_table(
-        title=f"OpenTofu Status — {target.name}",
-        columns=[("Property", "bold white"), ("Status / Value", "green")],
-        rows=rows,
-        border_style="cyan",
+    print(
+        format_tf_status_table(
+            target_name=target.name,
+            target_dir=str(target),
+            binary=binary,
+            initialized=tf_dir.exists(),
+            has_lock=lock_file.exists(),
+            has_state=state_file.exists(),
+        )
     )
 
 
@@ -529,12 +527,7 @@ def tf_lint(
         print_success("✓ No Terraform / OpenTofu lint issues detected.")
         return
 
-    rows = [[f.severity, f.location, f.title, f.description] for f in findings]
-    print_table(
-        title=f"TFLint Findings: {target_dir.name or str(target_dir)}",
-        columns=[("Severity", "bold"), "Location", "Rule / Title", "Description"],
-        rows=rows,
-    )
+    print(format_tflint_table(findings, target_dir.name or str(target_dir)))
 
 
 # =============================================================================

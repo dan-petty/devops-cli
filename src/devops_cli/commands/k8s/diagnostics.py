@@ -14,11 +14,10 @@ from devops_cli.config.defaults import (
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
 from devops_cli.lang import HELP
 from devops_cli.output import (
+    TablePayload,
     format_json,
+    format_k8s_pods_table,
     write_stdout,
-)
-from devops_cli.output import (
-    format_timestamp_age as _parse_pod_age,
 )
 
 
@@ -26,17 +25,8 @@ def _build_pods_table(
     namespace: str | None,
     label_selector: str | None,
     all_namespaces: bool,
-) -> Any:
-    """Build a Rich Table of Kubernetes pod status using the kubernetes SDK."""
-    from devops_cli.output import Table
-
-    table = Table(title="Kubernetes Pods", show_header=True, header_style="bold cyan")
-    table.add_column("Namespace", style="dim")
-    table.add_column("Name", style="cyan", no_wrap=True)
-    table.add_column("Status")
-    table.add_column("Ready", justify="center")
-    table.add_column("Restarts", justify="right")
-    table.add_column("Age", justify="right")
+) -> TablePayload:
+    """Build a TablePayload of Kubernetes pod status using the kubernetes SDK."""
 
     try:
         from kubernetes import client as k8s_client  # type: ignore[import-untyped]
@@ -58,33 +48,9 @@ def _build_pods_table(
             ns = namespace or "default"
             pod_list = v1.list_namespaced_pod(namespace=ns, **kwargs)
 
-        for pod in pod_list.items:
-            pod_ns = pod.metadata.namespace or "default"
-            pod_name = pod.metadata.name or "—"
-            phase = pod.status.phase or "Unknown"
-            created_at = (
-                pod.metadata.creation_timestamp.isoformat()
-                if pod.metadata.creation_timestamp
-                else ""
-            )
-            containers = pod.spec.containers or []
-            ready_containers = sum(1 for cs in (pod.status.container_statuses or []) if cs.ready)
-            restarts = sum(cs.restart_count for cs in (pod.status.container_statuses or []))
-            status_color = (
-                "green" if phase == "Running" else ("yellow" if phase == "Pending" else "red")
-            )
-            table.add_row(
-                pod_ns,
-                pod_name,
-                f"[{status_color}]{phase}[/{status_color}]",
-                f"{ready_containers}/{len(containers)}",
-                str(restarts),
-                _parse_pod_age(created_at),
-            )
+        return format_k8s_pods_table(pod_list.items)
     except Exception as exc:
-        table.add_row("—", f"[red]Error: {exc}[/red]", "—", "—", "—", "—")
-
-    return table
+        return format_k8s_pods_table([["—", f"[red]Error: {exc}[/red]", "—", "—", "—", "—"]])
 
 
 # =============================================================================
@@ -137,15 +103,15 @@ def pods_cmd(
         from devops_cli.watchers.live_resource import LiveResourceWatcher
 
         watcher = LiveResourceWatcher(
-            lambda: _build_pods_table(namespace, label, all_namespaces),
+            lambda: _build_pods_table(namespace, label, all_namespaces).render(),
             interval_seconds=interval,
             name="k8s_pods",
         )
         watcher.watch()
     else:
-        from devops_cli.output import get_console
+        from devops_cli.output import print
 
-        get_console().print(_build_pods_table(namespace, label, all_namespaces))
+        print(_build_pods_table(namespace, label, all_namespaces))
 
 
 def stream_logs_cmd(

@@ -7,9 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 import devops_cli.core
-import devops_cli.core.dry_run
 import devops_cli.dry_run
-import devops_cli.models.dry_run
 from devops_cli.dry_run.state import (
     format_command,
     is_dry_run,
@@ -62,10 +60,10 @@ def test_dry_run_getattr() -> None:
 
 
 def test_core_dry_run_exports() -> None:
-    assert callable(devops_cli.core.dry_run.format_command)
-    assert callable(devops_cli.core.dry_run.is_dry_run)
-    assert callable(devops_cli.core.dry_run.set_dry_run)
-    assert devops_cli.models.dry_run.CommandDryRunResult is not None
+    assert callable(devops_cli.dry_run.format_command)
+    assert callable(devops_cli.dry_run.is_dry_run)
+    assert callable(devops_cli.dry_run.set_dry_run)
+    assert devops_cli.dry_run.CommandDryRunResult is not None
 
 
 def test_core_getattr_exports() -> None:

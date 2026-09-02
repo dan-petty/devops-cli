@@ -2053,63 +2053,77 @@ class ReviewPipelineOrchestrator:
             "INVALIDATED": "[red]INVALIDATED[/red]",
         }
 
-        for idx, f in enumerate(reportable_findings, 1):
-            sev_str = sev_badges.get(f.severity.upper(), f"[white]{f.severity}[/white]")
-            st_str = st_badges.get(f.status.upper(), f"[dim]{f.status}[/dim]")
+        for finding_index, finding in enumerate(reportable_findings, 1):
+            sev_str = sev_badges.get(finding.severity.upper(), f"[white]{finding.severity}[/white]")
+            st_str = st_badges.get(finding.status.upper(), f"[dim]{finding.status}[/dim]")
             conf_str = (
-                f"{int(f.confidence_score * 100)}%" if f.confidence_score is not None else "—"
+                f"{int(finding.confidence_score * 100)}%"
+                if finding.confidence_score is not None
+                else "—"
             )
 
             rows.append(
                 [
-                    str(idx),
+                    str(finding_index),
                     sev_str,
-                    f.location,
-                    f.title.strip(),
+                    finding.location,
+                    finding.title.strip(),
                     st_str,
-                    f.persona_title or f.persona,
+                    finding.persona_title or finding.persona,
                     conf_str,
                 ]
             )
         print_table(title="Code Review Findings", columns=columns, rows=rows, console=console)
 
-        for idx, f in enumerate(reportable_findings, 1):
-            sev_upper = f.severity.upper()
-            sev_color = {
-                "CRITICAL": "red",
-                "HIGH": "orange3",
-                "MEDIUM": "yellow",
-                "LOW": "cyan",
-                "INFO": "green",
-            }.get(sev_upper, "white")
+        for finding_index, finding in enumerate(reportable_findings, 1):
+            self._render_single_finding_panel(console, finding, finding_index)
 
-            st_badge = _get_finding_status_badge(f.status)
-            title_header = f"[{sev_color} bold]Finding #{idx}: [{sev_upper}] {escape_text(f.title)}[/{sev_color} bold]  {st_badge}"
-            panel_lines = [
-                f"[bold]Location:[/bold] [cyan]{escape_text(f.location)}[/cyan]  |  [bold]Persona:[/bold] [magenta]{escape_text(f.persona_title or f.persona)}[/magenta]",
-            ]
-            if f.description:
-                desc_text = format_clean_text_field(f.description).strip()
-                panel_lines.extend(["", "[bold]Description:[/bold]", desc_text])
-            if f.fix:
-                panel_lines.extend(
-                    ["", "[bold]Suggested Fix:[/bold]", format_clean_text_field(f.fix).strip()]
-                )
-            if f.invalidation_reason:
-                inv_text = f"[bold yellow]Invalidation Reason:[/bold yellow] {f.invalidation_reason.strip()}"
-                panel_lines.extend(["", inv_text])
-            if f.references:
-                refs_list = f.references if isinstance(f.references, list) else [str(f.references)]
-                panel_lines.extend(
-                    ["", f"[dim]References: {escape_text(', '.join(refs_list))}[/dim]"]
-                )
+    def _render_single_finding_panel(
+        self, console: Any, finding: SavedFinding, finding_index: int
+    ) -> None:
+        """Render a single finding detail panel with remediation and references."""
+        from devops_cli.output import SEV_COLOR_MAP
 
-            print_panel(
-                "\n".join(panel_lines),
-                title=title_header,
-                border_style=sev_color,
-                console=console,
+        sev_upper = finding.severity.upper()
+        sev_color = SEV_COLOR_MAP.get(sev_upper, "white")
+        st_badge = _get_finding_status_badge(finding.status)
+        title_header = f"[{sev_color} bold]Finding #{finding_index}: [{sev_upper}] {escape_text(finding.title)}[/{sev_color} bold]  {st_badge}"
+        panel_lines = [
+            f"[bold]Location:[/bold] [cyan]{escape_text(finding.location)}[/cyan]  |  [bold]Persona:[/bold] [magenta]{escape_text(finding.persona_title or finding.persona)}[/magenta]",
+        ]
+        if finding.description:
+            panel_lines.extend(
+                [
+                    "",
+                    "[bold]Description:[/bold]",
+                    format_clean_text_field(finding.description).strip(),
+                ]
             )
+        if finding.fix:
+            panel_lines.extend(
+                ["", "[bold]Suggested Fix:[/bold]", format_clean_text_field(finding.fix).strip()]
+            )
+        if finding.invalidation_reason:
+            panel_lines.extend(
+                [
+                    "",
+                    f"[bold yellow]Invalidation Reason:[/bold yellow] {finding.invalidation_reason.strip()}",
+                ]
+            )
+        if finding.references:
+            refs_list = (
+                finding.references
+                if isinstance(finding.references, list)
+                else [str(finding.references)]
+            )
+            panel_lines.extend(["", f"[dim]References: {escape_text(', '.join(refs_list))}[/dim]"])
+
+        print_panel(
+            "\n".join(panel_lines),
+            title=title_header,
+            border_style=sev_color,
+            console=console,
+        )
 
     def _render_console_dependencies_table(
         self, console: Any, all_deps: list[DependencySpec]
@@ -2193,6 +2207,62 @@ class ReviewPipelineOrchestrator:
             console=console,
         )
 
+    def _format_severity_breakdown(
+        self, reportable_findings: list[SavedFinding]
+    ) -> tuple[str, str]:
+        """Format findings summary string and verification rate string."""
+        if not reportable_findings:
+            return "[bold green]0 findings (Clean)[/bold green]", "[green]✓ All clean[/green]"
+
+        counts = {
+            "CRITICAL": sum(
+                1 for finding in reportable_findings if finding.severity.upper() == "CRITICAL"
+            ),
+            "HIGH": sum(1 for finding in reportable_findings if finding.severity.upper() == "HIGH"),
+            "MEDIUM": sum(
+                1 for finding in reportable_findings if finding.severity.upper() == "MEDIUM"
+            ),
+            "LOW": sum(1 for finding in reportable_findings if finding.severity.upper() == "LOW"),
+            "INFO": sum(1 for finding in reportable_findings if finding.severity.upper() == "INFO"),
+        }
+        styles = {
+            "CRITICAL": "[bold red]{cnt} Critical[/bold red]",
+            "HIGH": "[red]{cnt} High[/red]",
+            "MEDIUM": "[yellow]{cnt} Medium[/yellow]",
+            "LOW": "[cyan]{cnt} Low[/cyan]",
+            "INFO": "[green]{cnt} Info[/green]",
+        }
+        sev_parts = [styles[sev].format(cnt=cnt) for sev, cnt in counts.items() if cnt > 0]
+        sev_breakdown = ", ".join(sev_parts) if sev_parts else "None"
+        findings_str = f"{len(reportable_findings)} ({sev_breakdown})"
+
+        ver_count = sum(
+            1 for finding in reportable_findings if finding.status.upper() == "VERIFIED"
+        )
+        ver_pct = ver_count / len(reportable_findings)
+        ver_rate_str = f"{ver_count}/{len(reportable_findings)} verified ({ver_pct:.0%})"
+        return findings_str, ver_rate_str
+
+    def _format_dependency_summary(self, all_deps: list[DependencySpec]) -> str:
+        """Format external dependency audit summary string."""
+        if not all_deps:
+            return "0 scanned"
+        vuln_count = sum(
+            1 for dep in all_deps if dep.severity.upper() not in ("CLEAN", "NONE", "INFO")
+        )
+        vuln_note = (
+            f" ([red]{vuln_count} vulnerable[/red])" if vuln_count else " ([green]clean[/green])"
+        )
+        return f"{len(all_deps)} audited{vuln_note}"
+
+    def _format_network_summary(self, all_nets: list[NetworkReference]) -> str:
+        """Format network endpoints audit summary string."""
+        if not all_nets:
+            return "0 detected"
+        external_count = sum(1 for net in all_nets if not net.is_local)
+        local_count = sum(1 for net in all_nets if net.is_local)
+        return f"{len(all_nets)} audited ({external_count} External, {local_count} Local)"
+
     def _render_console_summary_table(
         self,
         console: Any,
@@ -2203,49 +2273,9 @@ class ReviewPipelineOrchestrator:
         all_nets: list[NetworkReference],
     ) -> None:
         """Render review summary table to console."""
-        crit_cnt = sum(1 for f in reportable_findings if f.severity.upper() == "CRITICAL")
-        high_cnt = sum(1 for f in reportable_findings if f.severity.upper() == "HIGH")
-        med_cnt = sum(1 for f in reportable_findings if f.severity.upper() == "MEDIUM")
-        low_cnt = sum(1 for f in reportable_findings if f.severity.upper() == "LOW")
-        info_cnt = sum(1 for f in reportable_findings if f.severity.upper() == "INFO")
-        ver_cnt = sum(1 for f in reportable_findings if f.status.upper() == "VERIFIED")
-
-        if reportable_findings:
-            sev_parts: list[str] = []
-            if crit_cnt:
-                sev_parts.append(f"[bold red]{crit_cnt} Critical[/bold red]")
-            if high_cnt:
-                sev_parts.append(f"[red]{high_cnt} High[/red]")
-            if med_cnt:
-                sev_parts.append(f"[yellow]{med_cnt} Medium[/yellow]")
-            if low_cnt:
-                sev_parts.append(f"[cyan]{low_cnt} Low[/cyan]")
-            if info_cnt:
-                sev_parts.append(f"[green]{info_cnt} Info[/green]")
-            sev_breakdown = ", ".join(sev_parts) if sev_parts else "None"
-            findings_summary_str = f"{len(reportable_findings)} ({sev_breakdown})"
-            ver_pct = ver_cnt / len(reportable_findings)
-            ver_rate_str = f"{ver_cnt}/{len(reportable_findings)} verified ({ver_pct:.0%})"
-        else:
-            findings_summary_str = "[bold green]0 findings (Clean)[/bold green]"
-            ver_rate_str = "[green]✓ All clean[/green]"
-
-        vuln_deps = sum(1 for d in all_deps if d.severity.upper() not in ("CLEAN", "NONE", "INFO"))
-        if all_deps:
-            vuln_note = (
-                f" ([red]{vuln_deps} vulnerable[/red])" if vuln_deps else " ([green]clean[/green])"
-            )
-            deps_str = f"{len(all_deps)} audited{vuln_note}"
-        else:
-            deps_str = "0 scanned"
-
-        external_nets = [n for n in all_nets if not n.is_local]
-        local_nets = [n for n in all_nets if n.is_local]
-        nets_str = (
-            f"{len(all_nets)} audited ({len(external_nets)} External, {len(local_nets)} Local)"
-            if all_nets
-            else "0 detected"
-        )
+        findings_str, ver_rate_str = self._format_severity_breakdown(reportable_findings)
+        deps_str = self._format_dependency_summary(all_deps)
+        nets_str = self._format_network_summary(all_nets)
 
         rows = [
             ["Session ID", f"[cyan]{session_id}[/cyan]"],
@@ -2260,7 +2290,7 @@ class ReviewPipelineOrchestrator:
             )
         rows.extend(
             [
-                ["Reportable Findings", findings_summary_str],
+                ["Reportable Findings", findings_str],
                 ["Verification Rate", ver_rate_str],
                 ["Dependencies", deps_str],
                 ["Network Endpoints", nets_str],

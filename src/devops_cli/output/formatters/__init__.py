@@ -1,23 +1,41 @@
-"""Data output formatting, table rendering, and canonical location serialization."""
+"""Formatters subpackage re-exporting scalar, table, and panel formatters."""
 
 from __future__ import annotations
 
-from devops_cli.output.formatters import (
+from devops_cli.output.formatters.panels import (
+    format_argo_app_status_panel,
+    format_finding_panel,
+    render_review_raw,
+    render_review_result,
+)
+from devops_cli.output.formatters.scalars import (
     RECOMMENDATION_COLOR_MAP,
     SEV_COLOR_MAP,
-    format_argo_app_status_panel,
+    format_bytes,
+    format_code_span,
+    format_duration,
+    format_finding_status_badge,
+    format_json,
+    format_key_value_pairs,
+    format_latency,
+    format_link,
+    format_location,
+    format_output,
+    format_repo_map_text,
+    format_review_recommendation,
+    format_serialized,
+    format_severity,
+    format_status_badge,
+    format_timestamp_age,
+    format_yaml,
+)
+from devops_cli.output.formatters.tables import (
     format_argo_apps_table,
     format_benchmark_category_table,
     format_benchmark_leaderboard_table,
     format_benchmark_server_table,
-    format_bytes,
-    format_code_span,
     format_dependencies_table,
     format_docker_stats_table,
-    format_duration,
-    format_finding_panel,
-    format_finding_status_badge,
-    format_json,
     format_k8s_contexts_table,
     format_k8s_lint_table,
     format_k8s_nodes_table,
@@ -27,25 +45,11 @@ from devops_cli.output.formatters import (
     format_k8s_schema_table,
     format_k8s_service_targets_table,
     format_k8s_tls_secrets_table,
-    format_key_value_pairs,
-    format_latency,
-    format_link,
-    format_location,
     format_network_references_table,
-    format_output,
-    format_repo_map_text,
     format_review_findings_table,
-    format_review_recommendation,
-    format_serialized,
-    format_severity,
     format_ssh_keys_table,
-    format_status_badge,
     format_tf_status_table,
     format_tflint_table,
-    format_timestamp_age,
-    format_yaml,
-    render_review_raw,
-    render_review_result,
     render_table,
 )
 

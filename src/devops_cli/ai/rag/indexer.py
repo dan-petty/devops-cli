@@ -298,6 +298,74 @@ def _build_chunk_point(chunk: CodeChunk, vector: list[float]) -> dict[str, Any]:
     return {"id": chunk.id, "vector": vector, "payload": payload}
 
 
+def _resolve_indexing_target_metadata(
+    file_path: Path, root_dir: Path, kb_dir: Path, project: str | None
+) -> tuple[str, Path, str]:
+    """Determine project name, relative base directory, and relative path for indexing target."""
+    f_resolved = file_path.resolve()
+    is_kb = False
+    try:
+        is_kb = kb_dir.is_dir() and f_resolved.is_relative_to(kb_dir)
+    except Exception:
+        pass
+
+    if is_kb:
+        proj_name = "devops-cli-kb"
+        rel_base = kb_dir
+    else:
+        proj_name = project or detect_project_name(file_path, root_dir)
+        rel_base = root_dir.resolve()
+
+    try:
+        rel_path = str(f_resolved.relative_to(rel_base))
+    except ValueError:
+        rel_path = file_path.name
+
+    return proj_name, rel_base, rel_path
+
+
+def _scan_single_file_for_indexing(
+    file_path: Path,
+    root_dir: Path,
+    kb_dir: Path,
+    project: str | None,
+    chunker: SemanticChunker,
+    cache: dict[str, str],
+    file_hashes: dict[str, str],
+    force: bool,
+) -> tuple[tuple[Path, str, str], list[CodeChunk]] | None:
+    """Read and chunk a single file if content has changed or force is True."""
+    proj_name, rel_base, rel_path = _resolve_indexing_target_metadata(
+        file_path, root_dir, kb_dir, project
+    )
+    cache_key = f"{proj_name}:{rel_path}"
+
+    try:
+        content = file_path.read_text(encoding="utf-8", errors="replace")
+        content_hash = SemanticChunker._hash_content(content)
+        file_hashes[cache_key] = content_hash
+    except Exception:
+        return None
+
+    if not force and cache.get(cache_key) == content_hash:
+        return None
+
+    file_chunks = chunker.chunk_file(file_path, relative_to=rel_base, project_name=proj_name)
+    return (file_path, rel_path, proj_name), file_chunks
+
+
+def _partition_chunks(all_chunks: list[CodeChunk]) -> tuple[list[CodeChunk], list[CodeChunk]]:
+    """Split chunks into code and documentation sets."""
+    code_chunks: list[CodeChunk] = []
+    doc_chunks: list[CodeChunk] = []
+    for chunk in all_chunks:
+        if chunk.category == "docs" or chunk.doc_type == "doc":
+            doc_chunks.append(chunk)
+        else:
+            code_chunks.append(chunk)
+    return code_chunks, doc_chunks
+
+
 class WorkspaceIndexer:
     """Discovers, chunks, embeds, and indexes workspace source code and docs into Qdrant."""
 
@@ -424,48 +492,17 @@ class WorkspaceIndexer:
 
             kb_dir = get_knowledge_base_dir().resolve()
 
-            def _is_kb_file(f_path: Path) -> bool:
-                try:
-                    return kb_dir.is_dir() and f_path.is_relative_to(kb_dir)
-                except Exception:
-                    return False
-
             for idx, file_path in enumerate(files, 1):
                 if progress_callback:
                     progress_callback("Scanning files", idx, len(files))
 
-                f_resolved = file_path.resolve()
-                is_kb = _is_kb_file(f_resolved)
-
-                if is_kb:
-                    proj_name = "devops-cli-kb"
-                    rel_base = kb_dir
-                else:
-                    proj_name = project or detect_project_name(file_path, root_dir)
-                    rel_base = root_dir.resolve()
-
-                try:
-                    rel_path = str(f_resolved.relative_to(rel_base))
-                except ValueError:
-                    rel_path = file_path.name
-
-                cache_key = f"{proj_name}:{rel_path}"
-
-                try:
-                    content = file_path.read_text(encoding="utf-8", errors="replace")
-                    content_hash = SemanticChunker._hash_content(content)
-                    file_hashes[cache_key] = content_hash
-                except Exception:
-                    continue
-
-                if not force and cache.get(cache_key) == content_hash:
-                    continue
-
-                files_to_reindex.append((file_path, rel_path, proj_name))
-                file_chunks = self.chunker.chunk_file(
-                    file_path, relative_to=rel_base, project_name=proj_name
+                scanned = _scan_single_file_for_indexing(
+                    file_path, root_dir, kb_dir, project, self.chunker, cache, file_hashes, force
                 )
-                all_chunks.extend(file_chunks)
+                if scanned is not None:
+                    file_info, file_chunks = scanned
+                    files_to_reindex.append(file_info)
+                    all_chunks.extend(file_chunks)
 
             # Purge files deleted from disk since last index (scoped to scanned projects)
             removed_files_count = 0
@@ -500,15 +537,7 @@ class WorkspaceIndexer:
                 self.docs_collection,
             )
 
-            # Separate code vs doc chunks
-            code_chunks: list[CodeChunk] = []
-            doc_chunks: list[CodeChunk] = []
-
-            for chunk in all_chunks:
-                if chunk.category == "docs" or chunk.doc_type == "doc":
-                    doc_chunks.append(chunk)
-                else:
-                    code_chunks.append(chunk)
+            code_chunks, doc_chunks = _partition_chunks(all_chunks)
 
             # Upsert chunks to their respective collections with batch embeddings
             if code_chunks:

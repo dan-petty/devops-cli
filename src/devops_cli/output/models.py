@@ -42,6 +42,37 @@ class TablePayload(BaseModel):
     box_style: Any = None
     caption: str | None = None
 
+    @property
+    def row_count(self) -> int:
+        """Return the number of data rows in the table."""
+        return len(self.rows)
+
+    def __len__(self) -> int:
+        return len(self.rows)
+
+    def add_row(self, *items: Any) -> None:
+        """Append a data row to the table payload."""
+        self.rows.append(list(items))
+
+    def add_column(
+        self,
+        header: str,
+        style: str | None = None,
+        justify: JustifyMethod = "left",
+        width: int | None = None,
+        no_wrap: bool = False,
+    ) -> None:
+        """Append a column specification to the table payload."""
+        self.columns.append(
+            TableColumn(
+                header=header,
+                style=style,
+                justify=justify,
+                width=width,
+                no_wrap=no_wrap,
+            )
+        )
+
     def render(self) -> Table:
         """Render this payload into a Rich Table instance."""
         from devops_cli.output.formatter import render_table

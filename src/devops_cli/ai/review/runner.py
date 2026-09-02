@@ -22,7 +22,6 @@ from devops_cli.ai.review.chunker import (
     _split_source_file_blocks,
 )
 from devops_cli.ai.review.flags import ReviewStageFlags
-from devops_cli.ai.review.rendering import _render_review_result
 from devops_cli.ai.review.sanitization import (
     _mask_secrets_in_content,
     _sanitize_prompt_boundary_tags,
@@ -65,6 +64,7 @@ from devops_cli.output import (
     print_section,
     print_table,
     print_warning,
+    render_review_result,
 )
 from devops_cli.telemetry import ContextPropagatingThreadPoolExecutor as ThreadPoolExecutor
 from devops_cli.telemetry import trace_span
@@ -1099,14 +1099,14 @@ def _run_persona_loop(
 def _print_review(persona: PersonaDefinition, review: ReviewResult | str) -> None:
     print_section(f"{persona.title}", style="bold magenta")
     if isinstance(review, ReviewResult):
-        _render_review_result(persona, review)
+        render_review_result(persona, review)
         return
     if not review.strip():
         print_warning("No review content returned by the model.", prefix=False)
         return
     parsed = parse_review_response(review)
     if parsed:
-        _render_review_result(persona, parsed)
+        render_review_result(persona, parsed)
         return
 
     print_markdown(review)

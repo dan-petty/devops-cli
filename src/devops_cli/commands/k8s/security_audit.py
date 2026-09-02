@@ -15,12 +15,17 @@ from devops_cli.config.defaults import (
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
-    Table,
+    TableColumn,
+    TablePayload,
     format_json,
+    format_k8s_lint_table,
+    format_k8s_policy_table,
+    format_k8s_rbac_table,
+    format_k8s_schema_table,
+    print,
     print_info,
     print_muted,
     print_success,
-    print_table,
     write_stdout,
 )
 
@@ -40,19 +45,15 @@ def rbac_audit(
         )
         return
 
-    table = Table(title="RBAC Audit Policy Scan")
-    table.add_column("Namespace", style="cyan")
-    table.add_column("Binding", style="bold")
-    table.add_column("Role")
-    table.add_column("Severity")
-
-    table.add_row(
-        namespace or "default",
-        "cluster-admin-binding",
-        "ClusterRole/cluster-admin",
-        "[green]PASS[/green]",
-    )
-    print_table(table)
+    rows = [
+        [
+            namespace or "default",
+            "cluster-admin-binding",
+            "ClusterRole/cluster-admin",
+            "[green]PASS[/green]",
+        ]
+    ]
+    print(format_k8s_rbac_table(rows))
 
 
 def k8s_lint(
@@ -91,16 +92,7 @@ def k8s_lint(
         print_success(MESSAGES.k8s.kube_linter_passed)
         return
 
-    table = Table(title=f"Kube-linter Manifest Audit: {target_abs.name or target_abs}")
-    table.add_column("Severity", style="bold yellow")
-    table.add_column("Resource Location")
-    table.add_column("Title")
-    table.add_column("Remediation")
-
-    for f in findings:
-        table.add_row(f.severity, f.location, f.title, f.fix or "-")
-
-    print_table(table)
+    print(format_k8s_lint_table(findings, target_abs.name or str(target_abs)))
 
 
 def k8s_audit(
@@ -131,19 +123,26 @@ def k8s_audit(
         print_success(MESSAGES.k8s.popeye_passed)
         return
 
-    table = Table(title="Popeye Cluster Health Audit")
-    table.add_column("Severity", style="bold")
-    table.add_column("Cluster Resource")
-    table.add_column("Finding Title")
-    table.add_column("Remediation")
-
+    columns: list[TableColumn | str | tuple[str, str | int]] = [
+        TableColumn(header="Severity", style="bold"),
+        TableColumn(header="Cluster Resource"),
+        TableColumn(header="Finding Title"),
+        TableColumn(header="Remediation"),
+    ]
     sev_colors = {"HIGH": "red", "MEDIUM": "yellow", "LOW": "cyan", "INFO": "dim"}
+    rows: list[list[str]] = []
+    for finding in findings:
+        style = sev_colors.get(finding.severity.upper(), "white")
+        rows.append(
+            [
+                f"[{style}]{finding.severity}[/{style}]",
+                finding.location,
+                finding.title,
+                finding.fix or "-",
+            ]
+        )
 
-    for f in findings:
-        style = sev_colors.get(f.severity.upper(), "white")
-        table.add_row(f"[{style}]{f.severity}[/{style}]", f.location, f.title, f.fix or "-")
-
-    print_table(table)
+    print(TablePayload(title="Popeye Cluster Health Audit", columns=columns, rows=rows))
 
 
 def k8s_check_deprecated(
@@ -181,16 +180,23 @@ def k8s_check_deprecated(
         print_success(MESSAGES.k8s.pluto_passed)
         return
 
-    table = Table(title=f"Pluto Deprecated K8s API Report: {target_abs.name or target_abs}")
-    table.add_column("Severity", style="bold red")
-    table.add_column("Resource Location")
-    table.add_column("Deprecation Warning")
-    table.add_column("Migration Target")
-
-    for f in findings:
-        table.add_row(f.severity, f.location, f.title, f.fix or "-")
-
-    print_table(table)
+    columns: list[TableColumn | str | tuple[str, str | int]] = [
+        TableColumn(header="Severity", style="bold red"),
+        TableColumn(header="Resource Location"),
+        TableColumn(header="Deprecation Warning"),
+        TableColumn(header="Migration Target"),
+    ]
+    rows = [
+        [finding.severity, finding.location, finding.title, finding.fix or "-"]
+        for finding in findings
+    ]
+    print(
+        TablePayload(
+            title=f"Pluto Deprecated K8s API Report: {target_abs.name or target_abs}",
+            columns=columns,
+            rows=rows,
+        )
+    )
 
 
 def k8s_validate(
@@ -242,16 +248,7 @@ def k8s_validate(
         print_success(f"✓ All Kubernetes manifests at '{target_path}' are valid schemas.")
         return
 
-    title_str = f"Kubeconform Schema Issues: {target_path.name or str(target_path)}"
-    table = Table(title=title_str)
-    table.add_column("Severity", style="bold red")
-    table.add_column("Location")
-    table.add_column("Error")
-    table.add_column("Remediation")
-
-    for f in findings:
-        table.add_row(f.severity, f.location, f.title, f.fix or f.description)
-    print_table(table)
+    print(format_k8s_schema_table(findings, target_path.name or str(target_path)))
 
 
 def validate_policy_cmd(
@@ -299,22 +296,5 @@ def validate_policy_cmd(
         )
         return
 
-    t = Table(title=f"Kubernetes Policy Violations ({report.engine.upper()})")
-    t.add_column("Policy")
-    t.add_column("Rule")
-    t.add_column("Resource")
-    t.add_column("Status", style="bold red")
-    t.add_column("Message")
-
-    for r in report.rule_results:
-        st_style = "green" if r.status in ("pass", "success") else "bold red"
-        t.add_row(
-            r.policy_name,
-            r.rule_name,
-            f"{r.resource_kind}/{r.resource_name}",
-            f"[{st_style}]{r.status}[/{st_style}]",
-            r.message,
-        )
-
-    print_table(t)
+    print(format_k8s_policy_table(report))
     raise typer.Exit(1)
