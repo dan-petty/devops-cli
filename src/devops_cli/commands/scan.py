@@ -644,5 +644,109 @@ def scan_aibom(
     return None
 
 
+@app.command("fix")
+def scan_fix(
+    target: Annotated[
+        Path,
+        typer.Argument(
+            help="Target project directory containing lockfile or dependencies",
+            exists=False,
+        ),
+    ] = DEFAULT_CURRENT_PATH,
+    package: Annotated[
+        str | None,
+        typer.Option("--package", "-p", help="Specific vulnerable package to remediate"),
+    ] = None,
+    min_severity: Annotated[
+        str,
+        typer.Option(
+            "--min-severity", "-s", help="Minimum vulnerability severity (LOW|MEDIUM|HIGH|CRITICAL)"
+        ),
+    ] = "HIGH",
+    apply: Annotated[
+        bool,
+        typer.Option("--apply", help="Apply lockfile upgrades directly"),
+    ] = False,
+    create_branch: Annotated[
+        bool,
+        typer.Option("--create-branch", "-b", help="Create a git topic branch for the remediation"),
+    ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+) -> CommandDryRunResult | None:
+    """Remediate vulnerable dependencies via lockfile upgrades and optional git branch creation."""
+    set_dry_run(dry_run)
+    target_abs = target.resolve() if target.exists() else target
+    from devops_cli.security.dependency_remediator import DependencyRemediator
+
+    remediator = DependencyRemediator(target_dir=target_abs)
+    result = remediator.scan_and_plan(package_filter=package, min_severity=min_severity)
+
+    columns: list[str | tuple[str, str]] = [
+        ("Package", "bold"),
+        "Current",
+        "Fixed",
+        "CVE",
+        "Severity",
+        "Status",
+    ]
+    rows: list[list[str]] = [
+        [
+            a.package,
+            a.current_version or "-",
+            a.fixed_version or "latest",
+            a.cve_id or "-",
+            a.severity,
+            a.status,
+        ]
+        for a in result.actions
+    ]
+
+    if is_dry_run():
+        print_table(
+            "Planned Dependency Vulnerability Remediations (DRY-RUN)", columns=columns, rows=rows
+        )
+        return CommandDryRunResult(
+            command=f"devops scan fix {target}",
+            target=str(target_abs),
+            action="remediate_dependencies",
+            details={"actions_count": len(result.actions), "ecosystem": result.ecosystem},
+        )
+
+    if not apply:
+        print_table("Planned Dependency Vulnerability Remediations", columns=columns, rows=rows)
+        print_muted(
+            "Run with --apply to execute lockfile updates, or --create-branch to isolate on a git branch."
+        )
+        return None
+
+    # Apply remediations
+    exec_result = remediator.remediate(result.actions, create_branch=create_branch)
+    res_columns: list[str | tuple[str, str]] = [
+        ("Package", "bold"),
+        "Fixed",
+        "CVE",
+        "Status",
+        "Message",
+    ]
+    res_rows: list[list[str]] = [
+        [
+            a.package,
+            a.fixed_version or "latest",
+            a.cve_id or "-",
+            a.status,
+            a.error_message or "✓ Applied",
+        ]
+        for a in exec_result.actions
+    ]
+    print_table("Remediation Execution Results", columns=res_columns, rows=res_rows)
+    if exec_result.branch_name:
+        print_success(f"✓ Changes staged on git branch '{exec_result.branch_name}'")
+    return None
+
+
 main = scan_trivy
 scan_main = scan_trivy
+scan_app = app
