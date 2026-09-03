@@ -720,6 +720,74 @@ def get_release_resource() -> str:
     )
 
 
+@mcp.tool()
+def scan_fix(
+    target_path: str = ".",
+    package: str | None = None,
+    min_severity: str = "HIGH",
+    apply: bool = False,
+    create_branch: bool = False,
+) -> str:
+    """Remediate vulnerable dependencies via lockfile upgrades and optional git branch creation."""
+    cmd = ["uv", "run", "devops", "scan", "fix", target_path, "--min-severity", min_severity]
+    if package:
+        cmd.extend(["--package", package])
+    if apply:
+        cmd.append("--apply")
+    if create_branch:
+        cmd.append("--create-branch")
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def docker_sandbox(
+    command: list[str],
+    image: str = "python:3.14-slim",
+    workspace: str = ".",
+    memory: str = "2g",
+    network: str = "bridge",
+    read_only: bool = False,
+) -> str:
+    """Execute command inside an isolated Docker container sandbox."""
+    cmd = [
+        "uv",
+        "run",
+        "devops",
+        "docker",
+        "sandbox",
+        "--image",
+        image,
+        "--workspace",
+        workspace,
+        "--memory",
+        memory,
+        "--network",
+        network,
+    ]
+    if read_only:
+        cmd.append("--read-only")
+    cmd.extend(command)
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def vault_status(vault_addr: str | None = None) -> str:
+    """Check HashiCorp Vault cluster health and sealing status."""
+    cmd = ["uv", "run", "devops", "vault", "status"]
+    if vault_addr:
+        cmd.extend(["--addr", vault_addr])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def vault_get(path: str, key: str | None = None) -> str:
+    """Fetch secret from HashiCorp Vault or OS Keyring fallback."""
+    cmd = ["uv", "run", "devops", "vault", "get", path]
+    if key:
+        cmd.extend(["--key", key])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
 def list_mcp_tools() -> list[MCPToolInfo]:
     """Return a list of tool names and descriptions registered on the FastMCP server."""
     tools = asyncio.run(mcp.list_tools())

@@ -237,3 +237,77 @@ def load_test_cmd(
         else:
             print_error(MESSAGES.test.load_test_failed.format(code=res.returncode), prefix=False)
             raise typer.Exit(res.returncode)
+
+
+@app.command("sandbox")
+def test_sandbox(
+    command: Annotated[
+        list[str],
+        typer.Argument(help="Test command to execute inside container sandbox"),
+    ],
+    image: Annotated[
+        str,
+        typer.Option("--image", "-i", help="Docker container image to execute command within"),
+    ] = "python:3.14-slim",
+    workspace: Annotated[
+        Path,
+        typer.Option("--workspace", "-w", help="Workspace directory to bind mount"),
+    ] = Path(CONST_CURRENT_DIR),
+    memory: Annotated[
+        str,
+        typer.Option("--memory", "-m", help="Memory constraint limit (e.g. 2g, 512m)"),
+    ] = "2g",
+    cpus: Annotated[
+        float,
+        typer.Option("--cpus", "-c", help="CPU quota limit"),
+    ] = 2.0,
+    network: Annotated[
+        str,
+        typer.Option("--network", "-n", help="Network mode: bridge | none | host"),
+    ] = "bridge",
+    read_only: Annotated[
+        bool,
+        typer.Option("--read-only", help="Mount workspace as read-only"),
+    ] = False,
+    rootless: Annotated[
+        bool,
+        typer.Option("--rootless/--root", help="Run container with host user UID/GID"),
+    ] = True,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.test.dry_run),
+    ] = False,
+) -> None:
+    """Execute test command inside an isolated, disposable Docker container sandbox."""
+    from devops_cli.docker.sandbox import WorkloadSandboxConfig, WorkloadSandboxRunner
+
+    cfg = WorkloadSandboxConfig(
+        workspace_dir=workspace,
+        command=command,
+        image=image,
+        read_only=read_only,
+        memory_limit=memory,
+        cpu_limit=cpus,
+        network_mode=network,
+        rootless=rootless,
+    )
+    sandbox_runner = WorkloadSandboxRunner(cfg)
+
+    if dry_run or is_dry_run():
+        render_dry_run_result(
+            command=f"devops test sandbox {' '.join(command)}",
+            action="docker_workload_sandbox",
+            details=sandbox_runner.build_dry_run_details(),
+        )
+        return
+
+    print_info(f"Running command in sandbox ({image}, network={network})...")
+    res = sandbox_runner.run()
+    if res.stdout:
+        print(res.stdout, end="")
+    if res.stderr:
+        print_error(res.stderr, prefix=False)
+
+    if res.exit_code != 0:
+        raise typer.Exit(res.exit_code)
+    print_success(f"✓ Sandbox workload completed in {res.duration_seconds}s")

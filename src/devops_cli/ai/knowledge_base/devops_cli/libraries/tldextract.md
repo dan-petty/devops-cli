@@ -7,7 +7,7 @@
 | **Official Documentation** | [github.com/john-kurkowski/tldextract](https://github.com/john-kurkowski/tldextract) |
 | **Public Git Repository** | [github.com/john-kurkowski/tldextract](https://github.com/john-kurkowski/tldextract) |
 | **Official PyPI Package** | [pypi.org/project/tldextract](https://pypi.org/project/tldextract/) (`5.3.2`) |
-| **DevOps CLI Integration** | [`src/devops_cli/security/`](file:///workspaces/devops-cli/src/devops_cli/security/) • [`src/devops_cli/ai/llm/client/`](file:///workspaces/devops-cli/src/devops_cli/ai/llm/client/) |
+| **DevOps CLI Integration** | [`src/devops_cli/security/`](file:///workspaces/devops-cli/src/devops_cli/security/) • [`src/devops_cli/http/broker.py`](file:///workspaces/devops-cli/src/devops_cli/http/broker.py) |
 
 ---
 

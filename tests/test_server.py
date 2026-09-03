@@ -91,8 +91,10 @@ def test_workspaces_endpoint_with_nested_repos(
 
 
 def test_config_endpoint_sanitization(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Test /api/v1/config returns sanitized configuration."""
+    """Test /api/v1/config returns sanitized configuration for all secret keys."""
     monkeypatch.setenv("DEVOPS_CLI_GITHUB_TOKEN", "ghp_secret_token_12345")
+    monkeypatch.setenv("DEVOPS_CLI_ARGOCD_PASSWORD", "secret_argo_pass")
+    monkeypatch.setenv("DEVOPS_CLI_GRAFANA_PASSWORD", "secret_graf_pass")
     response = client.get("/api/v1/config")
     assert response.status_code == 200
     data = response.json()
@@ -103,6 +105,22 @@ def test_config_endpoint_sanitization(client: TestClient, monkeypatch: pytest.Mo
     assert "repos" in cfg
     assert "workspace" in cfg
     assert cfg.get("github", {}).get("token") in ("***REDACTED***", None)
+    assert cfg.get("argocd", {}).get("password") in ("***REDACTED***", None)
+    assert cfg.get("grafana", {}).get("password") in ("***REDACTED***", None)
+
+
+def test_server_cors_configuration() -> None:
+    """Test server CORS middleware uses safe explicit origin list."""
+    app = create_app(cors_origins=["https://dashboard.example.com"])
+    custom_client = TestClient(app)
+    res = custom_client.options(
+        "/",
+        headers={
+            "Origin": "https://dashboard.example.com",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+    assert res.headers.get("access-control-allow-origin") == "https://dashboard.example.com"
 
 
 def test_workspaces_endpoint_empty_repos(

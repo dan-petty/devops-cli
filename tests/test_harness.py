@@ -2339,7 +2339,7 @@ def test_harness_additional_coverage_suite(tmp_path: Path) -> None:
     shell = Shell(cwd=tmp_path, allowed_commands=["python", "sleep", "echo"])
     sh_tools = {t.name: t for t in shell.get_tools()}
 
-    start_res = sh_tools["start_command"].func(command='python -c "import time; time.sleep(2)"')  # type: ignore[union-attr]
+    start_res = sh_tools["start_command"].func(command='python -c "import time; time.sleep(0.5)"')  # type: ignore[union-attr]
     assert "Background command started with ID:" in start_res
     cmd_id = start_res.split(":")[-1].strip()
 
@@ -2354,9 +2354,9 @@ def test_harness_additional_coverage_suite(tmp_path: Path) -> None:
     assert "not found" in sh_tools["stop_command"].func(command_id="ghost_cmd_id")  # type: ignore[union-attr]
 
     # Command timeout
-    quick_shell = Shell(cwd=tmp_path, allowed_commands=["python"], timeout=0.1)
+    quick_shell = Shell(cwd=tmp_path, allowed_commands=["python"], timeout=0.05)
     q_tools = {t.name: t for t in quick_shell.get_tools()}
-    tout_res = q_tools["run_command"].func(command='python -c "import time; time.sleep(1)"')  # type: ignore[union-attr]
+    tout_res = q_tools["run_command"].func(command='python -c "import time; time.sleep(0.3)"')  # type: ignore[union-attr]
     assert "timed out" in tout_res
 
     # 3. PlanEventEmitter & InMemoryPlanStore & SqlitePlanStore

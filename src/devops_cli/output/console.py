@@ -468,9 +468,20 @@ def print_panel(
         print(renderable, console=console)
     else:
         active_console = console or get_console()
-        active_console.print(
-            _RichPanel(renderable, title=title, border_style=border_style, **kwargs)
-        )
+        try:
+            active_console.print(
+                _RichPanel(renderable, title=title, border_style=border_style, **kwargs)
+            )
+        except Exception:
+            from rich.text import Text
+
+            raw_text = renderable if isinstance(renderable, str) else str(renderable)
+            fallback_title = Text(str(title)) if title is not None else None
+            active_console.print(
+                _RichPanel(
+                    Text(raw_text), title=fallback_title, border_style=border_style, **kwargs
+                )
+            )
 
 
 def print_table(

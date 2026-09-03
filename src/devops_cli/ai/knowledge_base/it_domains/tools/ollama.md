@@ -81,7 +81,7 @@ curl http://localhost:11434/api/embeddings -d '{
 ## 4. Best Practice Guidance & Performance Tuning
 
 1. **Optimize Concurrency in Kubernetes / Host Daemons**:
-   - When deploying Ollama via Kubernetes ([`k8s/llm/ollama-daemonset.yaml`](../../../../k8s/llm/ollama-daemonset.yaml)), configure:
+   - When deploying Ollama via Kubernetes ([`k8s/llm/ollama-daemonset.yaml`](../../../../../../k8s/llm/ollama-daemonset.yaml)), configure:
      ```yaml
      env:
        - name: OLLAMA_NUM_PARALLEL

@@ -13,6 +13,7 @@ from devops_cli.config.defaults import (
     DEFAULT_ANTHROPIC_MODEL,
     DEFAULT_LLM_MAX_TOKENS,
 )
+from devops_cli.http.validation import validate_service_url
 from devops_cli.models.ai import ChatMessage
 
 logger = logging.getLogger(__name__)
@@ -39,6 +40,11 @@ class AnthropicProvider(BaseLLMProvider):
     ) -> Any:
         target_model = model or self.config.model or DEFAULT_ANTHROPIC_MODEL
         base_url = (self.config.api_base_url or "https://api.anthropic.com/v1").rstrip("/")
+        validate_service_url(
+            base_url,
+            purpose="ai",
+            allow=bool(getattr(self.config, "allow_private_network", False)),
+        )
         headers = {
             "anthropic-version": "2023-06-01",
             "content-type": "application/json",

@@ -55,3 +55,32 @@ devops test load [OPTIONS] <script_path>
 | `--dry-run` | `boolean` | - | Simulate test execution. |
 
 ---
+
+## `devops test sandbox`
+
+**Execute test command inside an isolated, disposable Docker container sandbox.**
+
+```bash
+devops test sandbox [OPTIONS] <command>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<command>` | `string` | Yes | Test command to execute inside container sandbox |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--image`, `-i` | `string` | `python:3.14-slim` | Docker container image to execute command within |
+| `--workspace`, `-w` | `path` | `.` | Workspace directory to bind mount |
+| `--memory`, `-m` | `string` | `2g` | Memory constraint limit (e.g. 2g, 512m) |
+| `--cpus`, `-c` | `float` | `2.0` | CPU quota limit |
+| `--network`, `-n` | `string` | `bridge` | Network mode: bridge | none | host |
+| `--read-only` | `boolean` | - | Mount workspace as read-only |
+| `--rootless`, `--root` | `boolean` | `True` | Run container with host user UID/GID |
+| `--dry-run` | `boolean` | - | Simulate test execution. |
+
+---

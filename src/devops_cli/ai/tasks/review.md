@@ -13,7 +13,7 @@ Follow a structured 5-phase reasoning process before reporting findings:
 - **Import & Symbol Validation**: Validate that imported modules and referenced symbols actually exist in the target codebase before flagging missing attributes or import errors. Check the referenced module's definitions, exports, `__all__`, or `__getattr__` dynamically.
 - **Security & Path Containment**: Verify repository/directory path containment (`is_relative_to` or canonical path bounds) on all filesystem writes to prevent path traversal (CWE-22).
 - **Zero-Trust Secrets**: Verify credentials use secure secret managers, OS Keyring, or environment stores; reject plaintext tokens in code or configs.
-- **Language & Ecosystem Idioms**: Validate compatibility with the target project's language runtime, type annotations, structured schemas, and authoritative cryptographic lockfiles (`uv.lock`, `Cargo.lock`, `go.sum`, `package-lock.json`, `poetry.lock`).
+- **Language & Ecosystem Idioms**: Validate compatibility with the target project's language runtime, type annotations, structured schemas, and authoritative cryptographic lockfiles (`uv.lock`, `Cargo.lock`, `go.sum`, `package-lock.json`, `poetry.lock`). In Python 3.14+, syntax features such as comma-separated exceptions (`except A, B:`) are valid runtime syntax (PEP 759) and must never be reported as syntax errors.
 
 ### Phase 3: Falsification & Invalidation Testing
 - **Actively Attempt Disproof**: Before flagging an issue, search surrounding guards, upstream sanitizers, lockfile pins, type guards, module exports, NetworkPolicies, or caller constraints that disprove or mitigate the defect.
@@ -28,8 +28,9 @@ Follow a structured 5-phase reasoning process before reporting findings:
 
 ### Phase 5: Self-Healing Remediation & Verification Synthesis
 - **Drop-In Fix**: Provide a complete, self-contained drop-in code fix (`fix`) that directly resolves the root cause without introducing regressions, syntax errors, or breaking API contracts.
-- **Verification Criteria**: Formulate 1-3 concrete observable conditions proving the defect is present.
-- **Invalidation Criteria**: Formulate 1-3 concrete conditions proving the defect is absent or mitigated.
+- **Verification Criteria**: Formulate 1-3 concrete observable conditions proving the defect is present (strictly stored in `verification_criteria` list).
+- **Invalidation Criteria**: Formulate 1-3 concrete conditions proving the defect is absent or mitigated (strictly stored in `invalidation_criteria` list).
+- **Tool Separation**: Verification and invalidation criteria are tools for automated verification and validation; they must NEVER be included in reporting fields (`title`, `location`, or `description`).
 - **Closed-Loop Feedback**: Ensure each finding provides structured criteria suitable for automated verification, patch application, and continuous feedback dataset export.
 - **If Sound**: If no actionable defects exist, return an empty `findings` array and `APPROVE`.
 
@@ -46,12 +47,12 @@ Follow a structured 5-phase reasoning process before reporting findings:
 ## Finding Schema (JSON)
 Each finding must contain:
 - `severity`: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW"
-- `location`: "path/to/file.ext:start-end"
-- `title`: Concise summary
+- `location`: "path/to/file.ext:start-end" (strictly file path and line numbers only)
+- `title`: Concise summary headline under 80 chars (no prompt instructions or criteria)
 - `description`: Defect explanation, root cause, and concrete impact scenario
 - `fix`: Replacement code or configuration snippet
-- `verification_criteria`: Array of proving conditions
-- `invalidation_criteria`: Array of disproving conditions
+- `verification_criteria`: Array of proving conditions (evaluation tool; not for reporting)
+- `invalidation_criteria`: Array of disproving conditions (evaluation tool; not for reporting)
 - `references`: List of CVE / CWE / RFC / NIST / OWASP references
 
 ---

@@ -15,14 +15,32 @@ from devops_cli.http.client import new_http_client
 def _is_private_or_loopback(host: str) -> bool:
     """Validate if a hostname or IP address resolves to private/loopback space."""
     import ipaddress
+    import socket
 
     try:
         ip = ipaddress.ip_address(host)
         return ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved
     except ValueError:
         pass
+
     lower_host = host.lower()
-    return lower_host in ("localhost", "127.0.0.1", "::1") or lower_host.endswith(".local")
+    if lower_host in ("localhost", "127.0.0.1", "::1") or lower_host.endswith(".local"):
+        return True
+
+    try:
+        resolved_addrs = socket.getaddrinfo(host, None)
+        for _, _, _, _, sockaddr in resolved_addrs:
+            ip_str = sockaddr[0]
+            try:
+                ip = ipaddress.ip_address(ip_str)
+                if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+                    return True
+            except ValueError:
+                continue
+    except socket.gaierror, OSError:
+        pass
+
+    return False
 
 
 def is_private_ip_or_localhost(url_or_host: str) -> bool:

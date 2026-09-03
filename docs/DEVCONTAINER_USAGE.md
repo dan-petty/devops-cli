@@ -12,7 +12,7 @@ The official images are hosted on GHCR at:
 | Tag Pattern | Example | Description | Best For |
 | :--- | :--- | :--- | :--- |
 | `latest` | `ghcr.io/dan-petty/devops-cli/devcontainer:latest` | Latest official stable release | Default development environments |
-| `vX.Y.Z` | `ghcr.io/dan-petty/devops-cli/devcontainer:v0.2.8` | Immutable, pinned version | CI pipelines & reproducible environments |
+| `vX.Y.Z` | `ghcr.io/dan-petty/devops-cli/devcontainer:v0.2.9` | Immutable, pinned version | CI pipelines & reproducible environments |
 
 ### Pulling the Image Directly
 ```bash
@@ -20,7 +20,7 @@ The official images are hosted on GHCR at:
 docker pull ghcr.io/dan-petty/devops-cli/devcontainer:latest
 
 # Or pull a specific pinned release
-docker pull ghcr.io/dan-petty/devops-cli/devcontainer:v0.2.8
+docker pull ghcr.io/dan-petty/devops-cli/devcontainer:v0.2.9
 ```
 
 ---
@@ -49,7 +49,7 @@ You can scaffold a `.devcontainer/` setup targeting the published image using `d
 devops devcontainer init --name my-project --published
 
 # Or specify a custom pinned tag
-devops devcontainer init --name my-project --image ghcr.io/dan-petty/devops-cli/devcontainer:v0.2.8
+devops devcontainer init --name my-project --image ghcr.io/dan-petty/devops-cli/devcontainer:v0.2.9
 ```
 
 This creates:

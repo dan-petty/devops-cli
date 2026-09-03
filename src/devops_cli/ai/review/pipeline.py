@@ -2066,10 +2066,10 @@ class ReviewPipelineOrchestrator:
                 [
                     str(finding_index),
                     sev_str,
-                    finding.location,
-                    finding.title.strip(),
+                    escape_text(finding.location),
+                    escape_text(finding.title.strip()),
                     st_str,
-                    finding.persona_title or finding.persona,
+                    escape_text(finding.persona_title or finding.persona),
                     conf_str,
                 ]
             )
@@ -2092,24 +2092,14 @@ class ReviewPipelineOrchestrator:
             f"[bold]Location:[/bold] [cyan]{escape_text(finding.location)}[/cyan]  |  [bold]Persona:[/bold] [magenta]{escape_text(finding.persona_title or finding.persona)}[/magenta]",
         ]
         if finding.description:
-            panel_lines.extend(
-                [
-                    "",
-                    "[bold]Description:[/bold]",
-                    format_clean_text_field(finding.description).strip(),
-                ]
-            )
+            clean_desc = escape_text(format_clean_text_field(finding.description).strip())
+            panel_lines.extend(["", "[bold]Description:[/bold]", clean_desc])
         if finding.fix:
-            panel_lines.extend(
-                ["", "[bold]Suggested Fix:[/bold]", format_clean_text_field(finding.fix).strip()]
-            )
+            clean_fix = escape_text(format_clean_text_field(finding.fix).strip())
+            panel_lines.extend(["", "[bold]Suggested Fix:[/bold]", clean_fix])
         if finding.invalidation_reason:
-            panel_lines.extend(
-                [
-                    "",
-                    f"[bold yellow]Invalidation Reason:[/bold yellow] {finding.invalidation_reason.strip()}",
-                ]
-            )
+            clean_inv = escape_text(finding.invalidation_reason.strip())
+            panel_lines.extend(["", f"[bold yellow]Invalidation Reason:[/bold yellow] {clean_inv}"])
         if finding.references:
             refs_list = (
                 finding.references

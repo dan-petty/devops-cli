@@ -203,31 +203,30 @@ High-density product roadmap, engineering milestones, and open-source integratio
 - [x] **Streaming JSON/YAML Serializers for High-Volume Data Streams (`devops_cli.output.streaming_serializer`)**: Zero-copy, low-overhead streaming serializers for JSON arrays (`stream_json_array`), line-delimited JSON (`stream_jsonl`), and multi-document YAML (`stream_yaml_docs`).
 - [x] **SSH Key Prefix Configuration & Options Across Subcommands (`devops ssh`)**: Comprehensive key prefix support across `devops ssh register`, `rotate`, `status`, and `list` honoring configured `settings.ssh.key_prefix`.
 
-### Enterprise Secret Brokering, Isolated Sandboxes & Automated Remediation (v0.2.8 - Scheduled)
-- [ ] **Enterprise Vault & Cloud KMS Secret Broker (`devops config vault`, `devops vault`)**:
-  - HashiCorp Vault (`hvac`), AWS KMS, and GCP Cloud KMS integrations supporting dynamic secret leases, automated rotation, and envelope encryption alongside OS Keyring.
-  - Granular token caching with TTL renewal and zero-plaintext memory isolation.
-- [ ] **Isolated Dockerized Workload Sandbox Environment (`devops test sandbox` / `devops docker sandbox`)**:
-  - Ephemeral, rootless container test harness and isolated execution sandbox for running multi-container integration tests, untrusted scripts, and dockerized workloads.
-  - Strict cgroup v2 resource bounds (CPU, memory, PIDs), read-only rootfs, isolated network namespaces, and automated teardown.
-- [ ] **Universal Multi-Stage Workflow Orchestration Protocol (`src/devops_cli/pipeline/`)**:
-  - Generic, strongly typed stage pipeline abstraction (`StagePipeline[ContextT, ResultT]`) unifying multi-agent review, indexing, and compliance validation.
-  - Granular `@trace_span` telemetry waterfalls and scratchpad reasoning handoffs across pipeline transitions.
-- [ ] **Unified Async HTTP/2 Connection & Security Broker (`HttpClientBroker`, `httpx2`)**:
-  - Centralized connection pool manager providing persistent keepalive, exponential backoff, Server-Side Request Forgery (SSRF) private network isolation, and distributed traceparent propagation across all external API clients.
-- [ ] **Automated Dependency Vulnerability Remediation PR Engine (`devops scan fix` / `devops security auto-remediate`)**:
-  - AST- and lockfile-aware autonomous patching engine resolving CVEs in `pyproject.toml`, `requirements.txt`, `package.json`, and `Dockerfile`.
-  - Automatic test isolation validation via pytest before staging fix branches and opening pull requests.
-- [ ] **Local Kubernetes Chaos & Fault Injection Engine (`devops k8s chaos run`)**:
-  - Declarative chaos engineering runner injecting pod disruptions, network latency (`tc`/`netem`), packet loss, and CPU throttling to validate cluster self-healing and auto-recovery.
-- [ ] **Trace-Driven Automated Performance Regression Detection (`devops telemetry regression`)**:
-  - Continuous span latency baseline tracking comparing OpenTelemetry execution traces across commits and PRs to detect runtime regressions before production deployment.
-- [ ] **Automated Vector Storage Compaction & Point Pruning (`devops ai rag compact`)**:
-  - Scheduled Qdrant collection compaction, payload index optimization, and orphaned embedding point pruning for long-running workstation instances.
-- [ ] **Interactive Terminal UI Dashboard (`devops dashboard` / `devops tui`)**:
-  - Full-screen terminal dashboard powered by `Textual` providing responsive tabs for live Kubernetes pods, Minikube services, Docker container metrics, OpenTelemetry span waterfalls, and active AI review findings with keyboard navigation (`1-5`, `q`, `r`).
-- [ ] **Continuous IDE File Watcher & Instant AI Review (`devops ai review path --watch`)**:
-  - Inotify/watchdog-backed background listener executing automated incremental multi-persona reviews on active file changes with configurable debounce windows (`--debounce-ms`).
+### Output Subsystem Modularization, Language Localization & Declarative Dispatch (v0.2.8 - Completed)
+- [x] **Modular Output Formatter Engine (`devops_cli.output.formatters`)**: Monolithic formatting deconstruction into `scalars.py`, `tables.py`, and `panels.py` with zero inline table/column formatting across commands.
+- [x] **Centralized Language Messages & Terminal Badges (`devops_cli.lang.en.messages`)**: Full localization of terminal badges, finding headers, status indicators, and Kubernetes node states.
+- [x] **Declarative Dispatch Tables & Cyclomatic Complexity Elimination**: Replaced procedural `if/elif` branching across AST streaming, AI capabilities, compaction passes, and configuration coercion with declarative registries.
+- [x] **Zombie Code & Legacy Shim Removal**: Eliminated obsolete shims (`ai/review/rendering.py`, `models/dry_run.py`, `core/dry_run.py`, `models/github.py`).
+
+### Universal Stage Pipelines, HTTP/2 Broker & K8s Chaos Runner (v0.2.9 - Active Release)
+- [x] **Universal Multi-Stage Workflow Orchestration Protocol (`src/devops_cli/pipeline/`)**:
+  - Generic, strongly typed stage pipeline abstraction (`StagePipeline[ContextT, ResultT]`, `PipelineStage`) unifying sequential and DAG-based stage execution.
+  - Granular `@trace_span` telemetry waterfalls, error isolation, and metrics collection.
+- [x] **Unified Async HTTP/2 Connection & Security Broker (`HttpClientBroker`, `devops_cli.http.broker`)**:
+  - Centralized connection pool manager providing persistent keepalive, HTTP/2 multiplexing, Server-Side Request Forgery (SSRF) private network isolation, and distributed traceparent propagation.
+- [x] **Local Kubernetes Chaos & Fault Injection Engine (`src/devops_cli/k8s/chaos_runner.py`)**:
+  - Declarative chaos engineering runner injecting pod disruptions and validating cluster recovery.
+- [x] **Continuous IDE File Watcher & Instant AI Review (`devops ai review path --watch`)**:
+  - Watchdog-backed background listener executing automated incremental multi-persona reviews on active file changes with configurable debounce windows (`--debounce-ms`).
+- [x] **Enterprise Vault & Cloud KMS Secret Broker (`devops config vault`, `devops vault`)**:
+  - HashiCorp Vault REST API and Cloud KMS integrations with KV-v2 engine support, zero-plaintext storage, and seamless OS Keyring fallback.
+- [x] **Isolated Dockerized Workload Sandbox Environment (`devops test sandbox` / `devops docker sandbox`)**:
+  - Ephemeral, rootless container test harness and isolated execution sandbox for multi-container integration tests with memory, cpu, and network constraints.
+- [x] **Automated Dependency Vulnerability Remediation PR Engine (`devops scan fix`)**:
+  - AST- and lockfile-aware autonomous patching engine resolving CVEs via lockfile updates (`uv lock --upgrade-package`), dry-run summaries, and git topic branch staging.
+- [x] **Kubernetes Background Port-Forward Daemon Management (`devops k8s port-forward --daemon|status|stop`)**:
+  - Background process lifecycle tracking with managed PID state (`.data/k8s/port_forwards.json`), status inspection, and graceful termination.
 
 ### Multi-Cloud Mesh & Production Ecosystem (v0.3.0 - Future Vision)
 - [ ] **Multi-Region Workstation Mesh & Cluster Federation**: Distributed cluster management across hybrid on-prem homelab and multi-cloud Kubernetes clusters with automatic service mesh routing.

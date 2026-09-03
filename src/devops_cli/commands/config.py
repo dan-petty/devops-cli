@@ -435,15 +435,12 @@ def output_env_vars(
 # =============================================================================
 
 
-# NOTE (Design Justification - v0.1.1 Prep): auth_headless provides the command stub
-# for loading session tokens into ephemeral memory for headless Linux CI environments lacking DBus.
 @app.command("auth-headless")
 def auth_headless(
     key: Annotated[str, typer.Argument(help=HELP.config.secret_key)],
     token: Annotated[str, typer.Argument(help=HELP.config.secret_token)],
 ) -> None:
     """Load secret tokens into ephemeral memory for headless CI environments lacking DBus."""
-    # TODO (v0.1.1 Feature): Implement memory-backed fallback secret storage for headless CI runners
     from devops_cli.config.options import KEYRING_KEYS
     from devops_cli.config.settings import _EPHEMERAL_CI_SECRETS
 

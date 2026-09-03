@@ -39,8 +39,9 @@ def list_knowledge_base_articles(category: str | None = None) -> list[Path]:
         logger.debug("Knowledge base directory not found at %s", kb_dir)
         return []
 
-    search_dir = kb_dir / category if category else kb_dir
-    if not search_dir.exists():
+    kb_resolved = kb_dir.resolve()
+    search_dir = (kb_resolved / category).resolve() if category else kb_resolved
+    if not search_dir.is_relative_to(kb_resolved) or not search_dir.exists():
         return []
 
     articles: list[Path] = []
@@ -61,9 +62,10 @@ def load_kb_article(relative_path: str) -> str | None:
         Article text content, or None if the article is not found or path escapes KB root.
     """
     kb_dir = get_knowledge_base_dir()
-    target = (kb_dir / relative_path).resolve()
+    kb_resolved = kb_dir.resolve()
+    target = (kb_resolved / relative_path).resolve()
 
-    if not target.is_relative_to(kb_dir) or not target.is_file():
+    if not target.is_relative_to(kb_resolved) or not target.is_file():
         return None
 
     try:

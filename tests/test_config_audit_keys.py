@@ -28,12 +28,14 @@ def test_config_audit_keys_json_output() -> None:
     assert "keyring_backend" in data
     assert "keys" in data
     assert "is_compliant" in data
-    assert len(data["keys"]) == 4
+    assert len(data["keys"]) == 6
 
     keys = {k["key"] for k in data["keys"]}
     assert "github.token" in keys
     assert "grafana.token" in keys
+    assert "grafana.password" in keys
     assert "argocd.token" in keys
+    assert "argocd.password" in keys
     assert "ai.api_key" in keys
 
 

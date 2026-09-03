@@ -77,7 +77,8 @@ class ManagedPrompt(BaseCapability):
         vars_dict = {**self.template_vars, **(extra_vars or {})}
         rendered = template
         for k, v in vars_dict.items():
-            rendered = rendered.replace(f"{{{k}}}", str(v))
+            val_clean = str(v).replace("</untrusted", "<\\/untrusted").replace("<system>", "")
+            rendered = rendered.replace(f"{{{k}}}", val_clean)
         return rendered
 
     def get_system_prompt_additions(self, ctx: RunContext[Any] | None = None) -> list[str]:

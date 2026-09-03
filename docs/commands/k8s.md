@@ -143,6 +143,24 @@ devops k8s deploy-stack [OPTIONS]
 
 ---
 
+## `devops k8s sync-secrets`
+
+**Fetch stack admin credentials (ArgoCD, Grafana) from Kubernetes and store in OS Keyring.**
+
+```bash
+devops k8s sync-secrets [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--stack`, `-s` | `string` | `infra` | Stack to operate on: infra | llm | all. |
+| `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---
+
 ## `devops k8s configure-urls`
 
 **Auto-detect Kubernetes stack URLs and update CLI config.**
@@ -184,6 +202,32 @@ devops k8s port-forward [OPTIONS]
 | `--qdrant-port` | `integer` | `6333` | Local port for Qdrant HTTP. |
 | `--valkey-port` | `integer` | `<masked>` | Local port for Valkey. |
 | `--address` | `string` | `127.0.0.1` | Local address to bind for port-forwarding. |
+
+---
+
+## `devops k8s port-forward-status`
+
+**List active background Kubernetes port-forward daemons.**
+
+```bash
+devops k8s port-forward-status
+```
+
+---
+
+## `devops k8s port-forward-stop`
+
+**Terminate active background Kubernetes port-forward daemons.**
+
+```bash
+devops k8s port-forward-stop [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--service`, `-s` | `string` | - | Specific service to stop |
 
 ---
 

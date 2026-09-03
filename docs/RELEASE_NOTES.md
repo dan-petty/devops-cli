@@ -1,8 +1,49 @@
-# Release Notes — devops-cli v0.2.8
+# Release Notes — devops-cli v0.2.9
 
 Workstation-native DevOps CLI for managing repositories, SSH keys, Kubernetes clusters, Kustomize, ArgoCD, Grafana, Prometheus, Docker, workspace files, vector embedding benchmarks, TLS certificate automation, OpenTelemetry observability, and multi-persona AI code reviews.
 
 ---
+
+## 🚀 Highlights of v0.2.9
+
+### 🔄 Universal Multi-Stage Workflow Orchestration Pipeline (`src/devops_cli/pipeline/`)
+- **Strongly-Typed Stage Pipelines**: Introduced generic `StagePipeline[ContextT, ResultT]` and `PipelineStage` framework supporting sequential and DAG-based stage execution with scratchpad context passing.
+- **Granular Telemetry & Isolation**: Built-in `@trace_span` waterfalls, error containment, execution metrics (`pipeline_runs_total`, `pipeline_run_duration_seconds`), and fail-fast controls.
+
+### 🌐 Unified Async HTTP/2 Connection Broker (`src/devops_cli/http/broker.py`)
+- **Shared Connection Pooling**: Thread-safe `HttpClientBroker` managing shared `httpx2` client connection pools with HTTP/2 multiplexing and persistent keepalive.
+- **SSRF Defense & Traceparent Propagation**: Integrated destination validation against private network egress and automatic W3C traceparent context header injection.
+
+### 💥 Local Kubernetes Chaos & Fault Injection Runner (`src/devops_cli/k8s/chaos_runner.py`)
+- **Declarative Chaos Experiments**: Introduced `ChaosFaultRunner` supporting declarative pod disruptions, recovery time observation, and automatic rollback handling.
+
+### 👁️ Continuous IDE File Watcher & Instant Review (`devops ai review path --watch`)
+- **Automated Incremental Reviews**: Integrated `--watch` / `-w` and `--debounce-ms` into `devops review path` leveraging `DebouncedFileWatcher` to trigger instant multi-persona reviews upon local file modifications.
+
+### 🔑 Automated Kubernetes Stack Credential Synchronization (`devops k8s sync-secrets`)
+- **Zero-Plaintext Secret Extraction**: Automated discovery and retrieval of ArgoCD and Grafana admin passwords from Kubernetes cluster secrets directly into OS Keyring (`argocd_password`, `grafana_password`).
+
+### 🛡️ Automated Dependency Vulnerability Remediation PR Engine (`devops scan fix`)
+- **Autonomous CVE Patching**: Analyzes lockfiles (`uv.lock`, `requirements.txt`, `poetry.lock`), queries OSV/GitHub Advisory feeds, computes minimum safe versions, and executes non-breaking package upgrades (`uv lock --upgrade-package`).
+- **Dry-Run & Git Isolation**: Provides structured terminal tables and dry-run previews, with optional automated git topic branch isolation (`fix/security-<package>-<cve>`).
+- **FastMCP Tool**: Exposes `scan_fix` for autonomous remediation workflows directly inside AI coding assistants.
+
+### 📦 Isolated Dockerized Workload Sandbox Environment (`devops test sandbox` / `devops docker sandbox`)
+- **Disposable Execution Harness**: Ephemeral container runner with automatic lifecycle cleanup and strict resource bounds (`--memory`, `--cpus`).
+- **Zero-Trust Isolation**: Runs rootless containers with host user mapping and supports read-only workspace mounts (`--read-only`) or network air-gapping (`--network none`).
+- **FastMCP Tool**: Exposes `docker_sandbox` for safely running untrusted commands or test workloads in isolation.
+
+### 🔐 Enterprise HashiCorp Vault & Cloud KMS Secret Broker (`devops vault`)
+- **Secure Secret Brokering**: Integrated Vault KV-v2 engine support with URI resolution (`vault://<path>#<key>`), zero plaintext on disk, and transparent fallback to OS Keyring.
+- **Keyring Synchronization**: Adds `devops vault sync` to cache credentials into OS Keyring for offline CLI execution.
+- **FastMCP Tools**: Exposes `vault_status` and `vault_get` tools.
+
+### 🔌 Kubernetes Background Port-Forward Daemon Management (`devops k8s port-forward`)
+- **Daemon Lifecycle Tracking**: Manages background `kubectl port-forward` processes with managed PID tracking under `.data/k8s/port_forwards.json`.
+- **Status & Graceful Shutdown**: Inspect active port forward daemons via `devops k8s port-forward-status` and terminate cleanly with `devops k8s port-forward-stop`.
+
+---
+
 
 ## 🚀 Highlights of v0.2.8
 

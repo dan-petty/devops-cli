@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Sequence
 from typing import Any
 
 from fastapi import FastAPI, Request
@@ -32,6 +33,7 @@ def create_app(
     docs_url: str | None = DEFAULT_SERVER_DOCS_URL,
     redoc_url: str | None = DEFAULT_SERVER_REDOC_URL,
     openapi_url: str | None = DEFAULT_SERVER_OPENAPI_URL,
+    cors_origins: Sequence[str] | None = None,
 ) -> FastAPI:
     """Create and configure a production-ready FastAPI application."""
     app = FastAPI(
@@ -44,11 +46,21 @@ def create_app(
     )
 
     # CORS configuration
+    origins = (
+        list(cors_origins)
+        if cors_origins is not None
+        else [
+            "http://localhost",
+            "http://localhost:8000",
+            "http://127.0.0.1",
+            "http://127.0.0.1:8000",
+        ]
+    )
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=origins,
         allow_credentials=True,
-        allow_methods=["*"],
+        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         allow_headers=["*"],
     )
 

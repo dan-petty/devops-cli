@@ -13,9 +13,19 @@ logger = logging.getLogger(__name__)
 
 def _evaluate_finding_invalidation(desc_lower: str, title_lower: str) -> str | None:
     """Determine whether finding matches known false-positive invalidation criteria."""
-    if "httpx2" in desc_lower or "httpx2" in title_lower:
+    combined = f"{title_lower} {desc_lower}"
+    if "httpx2" in combined and any(
+        kw in combined
+        for kw in (
+            "unknown cve",
+            "hallucinated cve",
+            "unverified dependency",
+            "malicious package",
+            "typosquat",
+        )
+    ):
         return "Hallucinated or unverified dependency alert against verified core library (httpx2)."
-    if "unverified stylistic" in desc_lower or "unverified stylistic" in title_lower:
+    if "unverified stylistic" in combined:
         return "Non-actionable stylistic bikeshedding."
     return None
 

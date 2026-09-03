@@ -27,6 +27,10 @@ def run_pre_analysis_stage(
         target_abs = (
             target_dir.resolve() if target_dir.is_absolute() else (repo / target_dir).resolve()
         )
+        if repo is not None and not target_abs.is_relative_to(repo):
+            raise ValueError(
+                f"Target directory '{target_abs}' is outside the repository root '{repo}'"
+            )
         display_ref = str(target_abs) if (not target_ref or target_ref == ".") else target_ref
         print_info(
             f"[dim]Scanning pre-analysis metadata for '{display_ref}'...[/dim]",

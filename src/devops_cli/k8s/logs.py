@@ -38,6 +38,13 @@ def stream_multi_pod_logs(
         )
         return 0
 
+    from devops_cli.core.validation import validate_k8s_name
+
+    if namespace:
+        validate_k8s_name(namespace, "namespace", namespace=True)
+    if container:
+        validate_k8s_name(container, "container")
+
     with trace_span("k8s.stream_logs", attributes={"pod_query": pod_query}):
         has_stern = shutil.which(BIN_STERN) is not None
         if has_stern:

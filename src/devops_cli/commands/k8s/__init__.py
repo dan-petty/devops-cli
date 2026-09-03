@@ -35,6 +35,8 @@ from devops_cli.commands.k8s.networking import (
     _verify_url_reachability,
     configure_urls,
     port_forward,
+    port_forward_status,
+    port_forward_stop,
 )
 from devops_cli.commands.k8s.security_audit import (
     k8s_audit,
@@ -55,6 +57,7 @@ from devops_cli.commands.k8s.stack_lifecycle import (
     _bootstrap_openwebui_account,
     bootstrap_openwebui,
     deploy_stack,
+    sync_secrets,
     teardown_stack,
 )
 from devops_cli.commands.k8s.tls_management import (
@@ -76,8 +79,11 @@ app.command()(logs)
 app.command("bootstrap")(bootstrap)
 app.command("bootstrap-openwebui")(bootstrap_openwebui)
 app.command("deploy-stack")(deploy_stack)
+app.command("sync-secrets")(sync_secrets)
 app.command("configure-urls")(configure_urls)
 app.command("port-forward")(port_forward)
+app.command("port-forward-status")(port_forward_status)
+app.command("port-forward-stop")(port_forward_stop)
 app.command("teardown-stack")(teardown_stack)
 app.command("rbac-audit")(rbac_audit)
 app.command("lint")(k8s_lint)
@@ -117,6 +123,7 @@ __all__ = [
     "status",
     "stream_logs_cmd",
     "switch_context",
+    "sync_secrets",
     "teardown_stack",
     "validate_policy_cmd",
     "_adopt_helm_resource_if_conflict",

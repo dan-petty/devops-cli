@@ -416,3 +416,33 @@ def test_format_clean_text_field_and_finding_unwrapping() -> None:
     assert f.description == "Avoid pickle.loads\nUse json.loads instead"
     assert f.fix == "Replace pickle with json\nAdd schema validation"
     assert f.references == ["https://cwe.mitre.org/995", "https://owasp.org"]
+
+
+def test_review_path_watch_mode(tmp_path: Path) -> None:
+    """Verify devops review path --watch executes DebouncedFileWatcher."""
+    py_file = tmp_path / "app.py"
+    py_file.write_text("def run(): pass\n", encoding="utf-8")
+
+    with (
+        patch("devops_cli.commands.review._make_review_clients"),
+        patch("devops_cli.commands.review.load_settings"),
+        patch("devops_cli.watchers.file_watcher.DebouncedFileWatcher.watch") as mock_watcher_watch,
+    ):
+        res = runner.invoke(review_app, ["path", str(py_file), "--watch", "--debounce-ms", "300"])
+        assert res.exit_code == 0
+        assert mock_watcher_watch.called
+
+
+def test_finding_location_and_title_sanitizes_criteria_leakage() -> None:
+    """Verify that criteria leakage or prompt instructions in location and title are stripped."""
+    from devops_cli.ai.review_schema import Finding
+
+    raw_finding = {
+        "title": "Syntax error in foo: line where defined. Provide verification criteria: None.",
+        "location": "src/devops_cli/commands/install_tools.py: line where _current_version defined. Provide fix: change to except. Provide verification criteria: Running CLI should not crash. Invalidation criteria: CLI runs cleanly.",
+        "description": "Defect details",
+    }
+    f = Finding(**raw_finding)  # type: ignore[arg-type]
+    assert f.location == "src/devops_cli/commands/install_tools.py:1"
+    assert "Provide verification criteria" not in f.title
+    assert "Invalidation criteria" not in f.location

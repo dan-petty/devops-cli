@@ -186,16 +186,20 @@ def test_write_and_check_docs(generator: DocGenerator, tmp_path: Path) -> None:
 
 
 def test_docs_cli_generate_and_check(runner: CliRunner, tmp_path: Path) -> None:
-    res = runner.invoke(docs_app, ["generate", "--output-dir", str(tmp_path)])
+    res = runner.invoke(docs_app, ["generate", "--no-sync-readme", "--output-dir", str(tmp_path)])
     assert res.exit_code == 0
     assert (tmp_path / "CLI_REFERENCE.md").exists()
 
     # Check command passes
-    check_res = runner.invoke(docs_app, ["check", "--output-dir", str(tmp_path)])
+    check_res = runner.invoke(
+        docs_app, ["check", "--no-check-readme", "--output-dir", str(tmp_path)]
+    )
     assert check_res.exit_code == 0
 
     # Generate --check flag
-    gen_check_res = runner.invoke(docs_app, ["generate", "--check", "--output-dir", str(tmp_path)])
+    gen_check_res = runner.invoke(
+        docs_app, ["generate", "--check", "--no-sync-readme", "--output-dir", str(tmp_path)]
+    )
     assert gen_check_res.exit_code == 0
 
     # JSON export
@@ -216,10 +220,10 @@ def test_docs_cli_generate_and_check(runner: CliRunner, tmp_path: Path) -> None:
 
 
 def test_docs_cli_check_fails_on_stale(runner: CliRunner, tmp_path: Path) -> None:
-    runner.invoke(docs_app, ["generate", "--output-dir", str(tmp_path)])
+    runner.invoke(docs_app, ["generate", "--no-sync-readme", "--output-dir", str(tmp_path)])
     (tmp_path / "CLI_REFERENCE.md").write_text("Corrupt", encoding="utf-8")
 
-    res = runner.invoke(docs_app, ["check", "--output-dir", str(tmp_path)])
+    res = runner.invoke(docs_app, ["check", "--no-check-readme", "--output-dir", str(tmp_path)])
     assert res.exit_code == 1
 
 

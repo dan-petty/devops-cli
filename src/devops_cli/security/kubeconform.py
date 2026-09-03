@@ -48,6 +48,11 @@ def _run_native_fallback_k8s_validation(manifest_path: Path) -> list[Finding]:
     for f in files:
         if not f.is_file() or any(part.startswith(".") for part in f.parts):
             continue
+        try:
+            if not f.resolve().is_relative_to(rel_root):
+                continue
+        except ValueError, OSError:
+            continue
         finding = _validate_single_k8s_file_fallback(f, rel_root)
         if finding:
             findings.append(finding)

@@ -345,6 +345,14 @@ def path(
         bool,
         typer.Option("--append-cache", help=HELP.review.append_cache),
     ] = False,
+    watch: Annotated[
+        bool,
+        typer.Option("--watch", "-w", help=HELP.options.watch),
+    ] = False,
+    debounce_ms: Annotated[
+        int,
+        typer.Option("--debounce-ms", help=HELP.options.debounce_ms),
+    ] = 500,
 ) -> None:
     """Review source files directly (no git required)."""
     if explain:
@@ -375,52 +383,72 @@ def path(
     )
     path_targets = targets or [DEFAULT_CURRENT_PATH]
 
-    if len(path_targets) == 1:
-        target = path_targets[0]
-        pages, title, agents_md = _prepare_path_content(target, pattern)
-        target_resolved = target.resolve()
-        target_dir = target_resolved if target_resolved.is_dir() else target_resolved.parent
-        target_ref = str(target_resolved)
-    else:
-        all_pages: list[str] = []
-        agents_md = ""
-        target_names: list[str] = []
-        first_target_dir = Path.cwd().resolve()
-        for t in path_targets:
-            t_resolved = t.resolve()
-            t_pages, _, t_agents = _prepare_path_content(t, pattern)
-            all_pages.extend(t_pages)
-            if not agents_md and t_agents:
-                agents_md = t_agents
-            target_names.append(str(t_resolved))
-            if (
-                first_target_dir == Path.cwd().resolve()
-                and t_resolved.exists()
-                and t_resolved.is_dir()
-            ):
-                first_target_dir = t_resolved
+    def _execute_current_review() -> None:
+        if len(path_targets) == 1:
+            target = path_targets[0]
+            pages, title, agents_md = _prepare_path_content(target, pattern)
+            target_resolved = target.resolve()
+            target_dir = target_resolved if target_resolved.is_dir() else target_resolved.parent
+            target_ref = str(target_resolved)
+        else:
+            all_pages: list[str] = []
+            agents_md = ""
+            target_names: list[str] = []
+            first_target_dir = Path.cwd().resolve()
+            for t in path_targets:
+                t_resolved = t.resolve()
+                t_pages, _, t_agents = _prepare_path_content(t, pattern)
+                all_pages.extend(t_pages)
+                if not agents_md and t_agents:
+                    agents_md = t_agents
+                target_names.append(str(t_resolved))
+                if (
+                    first_target_dir == Path.cwd().resolve()
+                    and t_resolved.exists()
+                    and t_resolved.is_dir()
+                ):
+                    first_target_dir = t_resolved
 
-        pages = all_pages
-        title = f"Multiple targets ({len(path_targets)} paths)"
-        target_dir = first_target_dir
-        target_ref = ", ".join(target_names[:3]) + (
-            f" (+{len(target_names) - 3} more)" if len(target_names) > 3 else ""
+            pages = all_pages
+            title = f"Multiple targets ({len(path_targets)} paths)"
+            target_dir = first_target_dir
+            target_ref = ", ".join(target_names[:3]) + (
+                f" (+{len(target_names) - 3} more)" if len(target_names) > 3 else ""
+            )
+
+        _execute_review_workflow(
+            pages,
+            title,
+            _build_path_prompt,
+            agents_md,
+            all_personas,
+            persona,
+            summary,
+            clients,
+            target_type="path",
+            target_ref=target_ref,
+            target_dir=target_dir,
+            stage_flags=stage_flags,
         )
 
-    _execute_review_workflow(
-        pages,
-        title,
-        _build_path_prompt,
-        agents_md,
-        all_personas,
-        persona,
-        summary,
-        clients,
-        target_type="path",
-        target_ref=target_ref,
-        target_dir=target_dir,
-        stage_flags=stage_flags,
-    )
+    if watch:
+        from devops_cli.output import print_info
+        from devops_cli.watchers.file_watcher import DebouncedFileWatcher
+
+        def _on_change(changed: list[Path]) -> None:
+            print_info(f"Detected changes in {len(changed)} file(s). Running review...")
+            _execute_current_review()
+
+        print_info(f"Watching {len(path_targets)} target(s)... Press Ctrl+C to stop.")
+        watcher = DebouncedFileWatcher(
+            path_targets,
+            on_change=_on_change,
+            debounce_ms=debounce_ms,
+        )
+        watcher.watch()
+        return
+
+    _execute_current_review()
 
 
 # =============================================================================
@@ -768,21 +796,14 @@ def _build_finding_panel_lines(f: Any) -> list[str]:
         f"[bold]Location:[/bold] [cyan]{_get('escape_text')(f.location)}[/cyan]{persona_badge}",
     ]
     if f.description:
-        lines.extend(
-            [
-                "",
-                "[bold]Description:[/bold]",
-                _get("format_clean_text_field")(f.description).strip(),
-            ]
-        )
+        clean_desc = _get("escape_text")(_get("format_clean_text_field")(f.description).strip())
+        lines.extend(["", "[bold]Description:[/bold]", clean_desc])
     if f.fix:
-        lines.extend(
-            ["", "[bold]Suggested Fix:[/bold]", _get("format_clean_text_field")(f.fix).strip()]
-        )
+        clean_fix = _get("escape_text")(_get("format_clean_text_field")(f.fix).strip())
+        lines.extend(["", "[bold]Suggested Fix:[/bold]", clean_fix])
     if f.invalidation_reason:
-        lines.extend(
-            ["", f"[bold yellow]Invalidation Reason:[/bold yellow] {f.invalidation_reason.strip()}"]
-        )
+        clean_inv = _get("escape_text")(f.invalidation_reason.strip())
+        lines.extend(["", f"[bold yellow]Invalidation Reason:[/bold yellow] {clean_inv}"])
     if f.references:
         refs_list = f.references if isinstance(f.references, list) else [str(f.references)]
         lines.extend(["", f"[dim]References: {_get('escape_text')(', '.join(refs_list))}[/dim]"])
@@ -1135,7 +1156,7 @@ def apply_patch(
         bool, typer.Option("--interactive", "-i", help=HELP.review.interactive_patch)
     ] = False,
 ) -> None:
-    """Apply suggested LLM code fix for a verified finding (v0.1.3)."""
+    """Apply suggested LLM code fix for a verified finding."""
     ok = stage_finding_patch(session=session, index=index, interactive=interactive)
     if not ok:
         raise typer.Exit(1)

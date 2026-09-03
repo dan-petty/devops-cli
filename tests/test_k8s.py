@@ -304,6 +304,11 @@ def test_k8s_bootstrap_and_stacks(tmp_path: Path) -> None:
             return_value=_mock_proc(0, "minikube is running"),
         ),
         patch("devops_cli.commands.k8s._run_cmd", return_value=_mock_proc(0, "success")),
+        patch("devops_cli.commands.k8s.port_forward"),
+        patch(
+            "devops_cli.k8s.credentials.sync_k8s_credentials",
+            return_value={"argocd": True, "grafana": True},
+        ),
     ):
         result = runner.invoke(app, ["bootstrap", "--no-auto-start", "--stack", "infra"])
         assert result.exit_code == 0
@@ -317,6 +322,11 @@ def test_k8s_bootstrap_and_stacks(tmp_path: Path) -> None:
             return_value=_mock_proc(0, "success"),
         ),
         patch("devops_cli.commands.k8s._run_cmd", return_value=_mock_proc(0, "success")),
+        patch("devops_cli.commands.k8s.port_forward"),
+        patch(
+            "devops_cli.k8s.credentials.sync_k8s_credentials",
+            return_value={"argocd": True, "grafana": True},
+        ),
     ):
         result = runner.invoke(app, ["deploy-stack", "--stack", "infra"])
         assert result.exit_code == 0

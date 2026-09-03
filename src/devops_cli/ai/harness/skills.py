@@ -154,8 +154,14 @@ class Skills(BaseCapability):
         unsupported_found: set[str] = set()
 
         for lib_dir in self.directories:
+            resolved_lib = lib_dir.resolve()
             for child in sorted(lib_dir.iterdir()):
                 if not child.is_dir():
+                    continue
+                try:
+                    if not child.resolve().is_relative_to(resolved_lib):
+                        continue
+                except ValueError, OSError:
                     continue
                 skill_md = child / "SKILL.md"
                 if not skill_md.is_file():

@@ -16,6 +16,7 @@ from devops_cli.config.defaults import (
     DEFAULT_FORMAT_TYPE,
     DEFAULT_JSON_INDENT,
 )
+from devops_cli.exceptions import SecurityError
 
 FileFormat = Literal["text", "bytes", "json", "yaml", "yml", "auto"]
 
@@ -29,6 +30,7 @@ def write_file(
     encoding: str = DEFAULT_FILE_ENCODING,
     indent: int = DEFAULT_JSON_INDENT,
     mode: int | None = None,
+    base_dir: Path | str | None = None,
 ) -> Path:
     """Write text, binary, JSON, or YAML content to a file with directory creation and atomic replacement.
 
@@ -40,11 +42,17 @@ def write_file(
         encoding: File character encoding for text formats (default utf-8).
         indent: JSON indentation spaces.
         mode: Optional octal file permission mode (e.g. 0o600 for secrets, 0o644 for public files).
+        base_dir: Optional root directory boundary that path must reside within.
 
     Returns:
         The resolved Path to the written file.
     """
     target_path = Path(path).resolve()
+    if base_dir is not None:
+        resolved_base = Path(base_dir).resolve()
+        if not target_path.is_relative_to(resolved_base):
+            msg = f"Target path {target_path} escapes allowed base directory {resolved_base}"
+            raise SecurityError(msg)
     target_path.parent.mkdir(parents=True, exist_ok=True)
     file_mode = mode if mode is not None else 0o644
 

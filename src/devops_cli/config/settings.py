@@ -320,7 +320,6 @@ class Settings(BaseSettings):
     data: DataConfig = DataConfig()
 
 
-# TODO (v0.1.1 Feature): MemoryKeyringStore for headless CI environments lacking DBus/SecretService
 _EPHEMERAL_CI_SECRETS: dict[str, str] = {}
 
 
@@ -380,6 +379,20 @@ def _keyring_set(key: str, value: str) -> None:
         _EPHEMERAL_CI_SECRETS[key] = value
     except Exception as exc:
         raise SecretStorageError(f"Failed to store secret in keyring: {exc}") from exc
+
+
+def get_keyring_secret(key: str) -> str | None:
+    """Public helper to retrieve a secret from OS Keyring or ephemeral store."""
+    return _keyring_get(key)
+
+
+def set_keyring_secret(key: str, value: str) -> bool:
+    """Public helper to store a secret in OS Keyring or ephemeral store."""
+    try:
+        _keyring_set(key, value)
+        return True
+    except Exception:
+        return False
 
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> None:
@@ -512,8 +525,16 @@ def get_grafana_token(settings: Settings) -> str | None:
     return _keyring_get(_KEYRING_KEYS[opt.GRAFANA_TOKEN])
 
 
+def get_grafana_password(settings: Settings) -> str | None:
+    return _keyring_get(_KEYRING_KEYS[opt.GRAFANA_PASSWORD])
+
+
 def get_argocd_token(settings: Settings) -> str | None:
     return _keyring_get(_KEYRING_KEYS[opt.ARGOCD_TOKEN])
+
+
+def get_argocd_password(settings: Settings) -> str | None:
+    return _keyring_get(_KEYRING_KEYS[opt.ARGOCD_PASSWORD])
 
 
 def get_ai_api_key(settings: Settings) -> str | None:

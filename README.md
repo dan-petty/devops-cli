@@ -147,8 +147,11 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 |  | `devops k8s bootstrap [OPTIONS]` | Bootstrap minikube Kubernetes cluster and deploy infrastructure/LLM stack. |
 |  | `devops k8s bootstrap-openwebui [OPTIONS]` | Bootstrap or activate a local administrator account for Open-WebUI. |
 |  | `devops k8s deploy-stack [OPTIONS]` | Deploy infrastructure or LLM stack (Ollama, WebUI, Qdrant, Valkey) to Kubernetes. |
+|  | `devops k8s sync-secrets [OPTIONS]` | Fetch stack admin credentials (ArgoCD, Grafana) from Kubernetes and store in OS Keyring. |
 |  | `devops k8s configure-urls [OPTIONS]` | Auto-detect Kubernetes stack URLs and update CLI config. |
 |  | `devops k8s port-forward [OPTIONS]` | Port-forward k8s monitoring / LLM stack services to localhost ports and update CLI config. |
+|  | `devops k8s port-forward-status` | List active background Kubernetes port-forward daemons. |
+|  | `devops k8s port-forward-stop [OPTIONS]` | Terminate active background Kubernetes port-forward daemons. |
 |  | `devops k8s teardown-stack [OPTIONS]` | Uninstall the k8s infrastructure / LLM stack and delete namespaces. |
 |  | `devops k8s rbac-audit [OPTIONS]` | Audit RBAC RoleBindings and ServiceAccounts for overprivileged access. |
 |  | `devops k8s lint [OPTIONS] <target>` | Validate K8s manifests and Helm charts using Red Hat Kube-linter. |
@@ -171,6 +174,7 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 |  | `devops docker prune [OPTIONS]` | Remove unused containers, images, and networks. |
 |  | `devops docker stats [OPTIONS]` | Display live container CPU, memory, and network I/O statistics. |
 |  | `devops docker analyze-layers [OPTIONS] <image>` | Analyze container image layer efficiency and wasted space using Dive. |
+|  | `devops docker sandbox [OPTIONS] <command>` | Execute workload inside an isolated, disposable Docker container sandbox. |
 | **grafana** | `devops grafana search [OPTIONS]` | Search Grafana dashboards and folders by query string. |
 |  | `devops grafana datasources` | List configured datasources. |
 |  | `devops grafana alerts` | List alert rules (Grafana 9+ unified alerting). |
@@ -217,6 +221,7 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 |  | `devops scan complexity [OPTIONS] <target>` | Run AST-based cyclomatic complexity and indentation depth analysis. |
 |  | `devops scan sbom [OPTIONS] <target>` | Generate Software Bill of Materials (SBOM) in CycloneDX, SPDX, or JSON format. |
 |  | `devops scan aibom [OPTIONS] <target>` | Generate AI Bill of Materials (AIBOM) with model licenses and hardware estimates. |
+|  | `devops scan fix [OPTIONS] <target>` | Remediate vulnerable dependencies via lockfile upgrades and optional git branch creation. |
 | **ai** | `devops ai config [OPTIONS]` | Show or update AI provider configuration. |
 |  | `devops ai models` | List available models for the configured provider. |
 |  | `devops ai preload` | Preload configured model into VRAM across all configured Ollama servers. |
@@ -244,7 +249,7 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 |  | `devops review verify [OPTIONS] <session>` | Validate or invalidate a review finding, persisting feedback reasons. |
 |  | `devops review stats [OPTIONS]` | Compute and display review accuracy statistics across saved sessions. |
 |  | `devops review export-feedback [OPTIONS]` | Export review findings into a JSONL benchmark dataset for prompt tuning and fine-tuning. |
-|  | `devops review apply-patch [OPTIONS] <session>` | Apply suggested LLM code fix for a verified finding (v0.1.3). |
+|  | `devops review apply-patch [OPTIONS] <session>` | Apply suggested LLM code fix for a verified finding. |
 |  | `devops review auto-fix [OPTIONS] <finding_id>` | Create a corrective topic branch with verified unit test patch for an approved finding. |
 | **mcp** | `devops mcp serve [OPTIONS]` | Launch FastMCP server to expose devops-cli tools to MCP clients. |
 |  | `devops mcp tools` | List all registered FastMCP tools and descriptions. |
@@ -286,7 +291,12 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 | **serve** | `devops serve [OPTIONS]` | FastAPI REST & OpenAPI Service Engine for remote automation, health probes, and metrics. |
 | **test** | `devops test run [OPTIONS] <target>` | Execute pytest test suite with optional git-diff aware test selection. |
 |  | `devops test load [OPTIONS] <script_path>` | Execute developer-centric load, spike, and latency tests against services using k6. |
+|  | `devops test sandbox [OPTIONS] <command>` | Execute test command inside an isolated, disposable Docker container sandbox. |
 | **pipeline** | `devops pipeline [OPTIONS] <pipeline_path>` | Execute reproducible, containerized developer pipelines with Dagger. |
+| **vault** | `devops vault status [OPTIONS]` | Inspect HashiCorp Vault cluster health and initialization status. |
+|  | `devops vault get [OPTIONS] <path>` | Fetch secret value from Vault or OS Keyring fallback. |
+|  | `devops vault set [OPTIONS] <path> <key_values>` | Store secret key-value pairs in HashiCorp Vault KV-v2 engine. |
+|  | `devops vault sync [OPTIONS] <path>` | Synchronize secrets from Vault into OS Keyring for offline/local CLI operations. |
 <!-- COMMAND_MATRIX_END -->
 
 ---

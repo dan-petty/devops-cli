@@ -7,7 +7,7 @@
 | **Official Documentation** | [github.com/jlowin/fastmcp](https://github.com/jlowin/fastmcp) • [modelcontextprotocol.io](https://modelcontextprotocol.io/) |
 | **Public Git Repository** | [github.com/jlowin/fastmcp](https://github.com/jlowin/fastmcp) |
 | **Official PyPI Package** | [pypi.org/project/fastmcp](https://pypi.org/project/fastmcp/) (`3.4.7`) |
-| **DevOps CLI Integration** | [`src/devops_cli/mcp/`](file:///workspaces/devops-cli/src/devops_cli/mcp/) • [`src/devops_cli/commands/mcp.py`](file:///workspaces/devops-cli/src/devops_cli/commands/mcp.py) |
+| **DevOps CLI Integration** | [`src/devops_cli/ai/mcp/`](file:///workspaces/devops-cli/src/devops_cli/ai/mcp/) • [`src/devops_cli/commands/mcp.py`](file:///workspaces/devops-cli/src/devops_cli/commands/mcp.py) |
 
 ---
 
