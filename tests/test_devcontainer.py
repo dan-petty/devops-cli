@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import TYPE_CHECKING
+from unittest.mock import MagicMock
 
 import pytest
 from typer.testing import CliRunner
@@ -18,6 +19,14 @@ if TYPE_CHECKING:
 @pytest.fixture
 def runner() -> CliRunner:
     return CliRunner()
+
+
+@pytest.fixture(autouse=True)
+def isolate_devcontainer_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Isolate devcontainer tests from spawning real background system daemons."""
+    monkeypatch.setenv("DEVOPS_MINIKUBE_AUTOSTART", "false")
+    monkeypatch.setenv("DEVOPS_K8S_AUTO_DEPLOY", "false")
+    monkeypatch.setenv("DEVOPS_GIT_DAEMON_AUTOSTART", "false")
 
 
 class TestDevcontainerCli:
@@ -163,6 +172,11 @@ class TestDevcontainerCli:
         monkeypatch.setenv("DEVOPS_K8S_AUTO_DEPLOY", "false")
 
         monkeypatch.setattr("shutil.which", lambda prog: f"/usr/local/bin/{prog}")
+        mock_proc = MagicMock()
+        mock_proc.__enter__.return_value = mock_proc
+        mock_proc.communicate.return_value = ("", "")
+        mock_proc.returncode = 0
+        monkeypatch.setattr("subprocess.Popen", lambda *a, **kw: mock_proc)
 
         result = runner.invoke(app, ["post-start", "--workspace", str(tmp_path)])
         assert result.exit_code == 0
@@ -508,6 +522,11 @@ class TestDevcontainerCli:
         monkeypatch.setenv("DEVOPS_K8S_STACK", "observability")
 
         monkeypatch.setattr("shutil.which", lambda prog: f"/usr/local/bin/{prog}")
+        mock_proc = MagicMock()
+        mock_proc.__enter__.return_value = mock_proc
+        mock_proc.communicate.return_value = ("", "")
+        mock_proc.returncode = 0
+        monkeypatch.setattr("subprocess.Popen", lambda *a, **kw: mock_proc)
         result = runner.invoke(app, ["post-start", "--workspace", str(tmp_path)])
         assert result.exit_code == 0
         assert "Spawned background Minikube & Kubernetes bootstrap" in result.output
