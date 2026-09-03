@@ -243,6 +243,7 @@ def test_all_command_specs_registered() -> None:
         "serve",
         "test",
         "pipeline",
+        "vault",
     }
     assert set(_COMMAND_SPECS.keys()) == expected_commands
 

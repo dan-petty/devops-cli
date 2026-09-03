@@ -185,3 +185,105 @@ def test_cli_scan_fix_dry_run(tmp_path: Path) -> None:
         assert "test-lib" in res.output
         assert "CVE-2026-1111" in res.output
         assert "PENDING" in res.output
+
+
+def test_build_upgrade_commands_and_branch(tmp_path: Path) -> None:
+    """Test build_upgrade_command and create_remediation_branch."""
+    from devops_cli.security.dependency_remediator import (
+        build_upgrade_command,
+        create_remediation_branch,
+    )
+
+    assert build_upgrade_command("npm", "lodash", "4.17.21") == ["npm", "update", "lodash==4.17.21"]
+    assert build_upgrade_command("crates.io", "serde", "1.0.0") == [
+        "cargo",
+        "update",
+        "-p",
+        "serde",
+    ]
+    assert build_upgrade_command("Go", "golang.org/x/crypto", "0.1.0") == [
+        "go",
+        "get",
+        "-u",
+        "golang.org/x/crypto==0.1.0",
+    ]
+
+    with patch("devops_cli.security.dependency_remediator.run_subprocess") as mock_subproc:
+        b_name = create_remediation_branch(tmp_path, "requests", "CVE:2026/1234")
+        assert b_name == "fix/security-requests-cve-2026-1234"
+        assert mock_subproc.called
+
+
+def test_apply_action_edge_cases(tmp_path: Path) -> None:
+    """Test apply_action skipped, failed returncode, and exception branches."""
+    remediator = DependencyRemediator(target_dir=tmp_path)
+
+    # 1. Skipped when upgrade_command is empty
+    act_empty = VulnerabilityFixAction(
+        package="pkg",
+        current_version="1.0",
+        cve_id="CVE-1",
+        severity="LOW",
+        upgrade_command=[],
+    )
+    res_empty = remediator.apply_action(act_empty)
+    assert res_empty.status == "SKIPPED"
+
+    # 2. Failed when subprocess fails
+    act_fail = VulnerabilityFixAction(
+        package="pkg",
+        current_version="1.0",
+        cve_id="CVE-2",
+        severity="HIGH",
+        upgrade_command=["false"],
+    )
+    with patch(
+        "devops_cli.security.dependency_remediator.run_subprocess",
+        return_value=MagicMock(returncode=1, stderr="Upgrade error", stdout=""),
+    ):
+        res_fail = remediator.apply_action(act_fail)
+        assert res_fail.status == "FAILED"
+        assert "Upgrade error" in (res_fail.error_message or "")
+
+    # 3. Exception caught
+    with patch(
+        "devops_cli.security.dependency_remediator.run_subprocess",
+        side_effect=RuntimeError("Subprocess timeout"),
+    ):
+        res_exc = remediator.apply_action(act_fail)
+        assert res_exc.status == "FAILED"
+        assert "Subprocess timeout" in (res_exc.error_message or "")
+
+
+def test_scan_and_plan_with_osv(tmp_path: Path) -> None:
+    """Test scan_and_plan calling OSVClient."""
+    remediator = DependencyRemediator(target_dir=tmp_path)
+
+    mock_record = VulnerabilityRecord(
+        id="GHSA-test-1234",
+        package="vulnerable-pkg",
+        severity="HIGH",
+        fixed_version="2.0.0",
+    )
+
+    with patch(
+        "devops_cli.security.vulnerability_lookup.OSVClient.query_package",
+        return_value=[mock_record],
+    ):
+        result = remediator.scan_and_plan(package_filter="vulnerable-pkg")
+        assert len(result.actions) == 1
+        assert result.actions[0].package == "vulnerable-pkg"
+        assert result.actions[0].fixed_version == "2.0.0"
+
+
+def test_remediator_filter_mismatch_and_fallback_cmd() -> None:
+    """Test unknown ecosystem fallback upgrade command and package_filter skipping."""
+    from devops_cli.security.dependency_remediator import build_upgrade_command
+
+    cmd = build_upgrade_command("UnknownEcosystem", "my-pkg", "1.2.3")
+    assert cmd == ["uv", "lock", "--upgrade-package", "my-pkg==1.2.3"]
+
+    remediator = DependencyRemediator()
+    vuln = VulnerabilityRecord(id="CVE-2026-9999", package="other-pkg", severity="HIGH")
+    plan = remediator.plan_remediation([vuln], package_filter="target-pkg")
+    assert len(plan.actions) == 0

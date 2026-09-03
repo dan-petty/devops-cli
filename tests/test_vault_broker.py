@@ -114,3 +114,48 @@ def test_cli_vault_get_dry_run() -> None:
     assert res.exit_code == 0
     assert "secret/data/app" in res.output
     assert "token" in res.output
+
+
+def test_vault_broker_namespace_and_sync() -> None:
+    """Test vault namespace header and sync_to_keyring functionality."""
+    broker = VaultSecretBroker(
+        vault_addr="http://127.0.0.1:8200",
+        vault_token="s.token",
+        vault_namespace="admin/ns",
+    )
+    headers = broker._get_headers()
+    assert headers["X-Vault-Namespace"] == "admin/ns"
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {"data": {"data": {"api_key": "val1", "db_pass": "val2"}}}
+
+    with (
+        patch("devops_cli.http.broker.HttpClientBroker.request", return_value=mock_resp),
+        patch("devops_cli.security.vault_broker.set_keyring_secret", return_value=True),
+    ):
+        synced = broker.sync_to_keyring("secret/data/app")
+        assert synced == 2
+
+
+def test_vault_broker_error_branches() -> None:
+    """Test error handling in get_secret, set_secret, and get_status."""
+    broker = VaultSecretBroker(vault_addr="http://127.0.0.1:8200", vault_token="s.token")
+
+    with patch(
+        "devops_cli.http.broker.HttpClientBroker.request",
+        side_effect=Exception("Connection refused"),
+    ):
+        # get_secret falls back to keyring
+        with patch(
+            "devops_cli.security.vault_broker.get_keyring_secret", return_value="fallback-keyring"
+        ):
+            assert broker.get_secret("secret/data/app", key="token") == "fallback-keyring"
+
+        # set_secret returns False on exception
+        assert broker.set_secret("secret/data/app", {"k": "v"}) is False
+
+        # get_status returns sealed status with error message
+        status = broker.get_status()
+        assert status.sealed is True
+        assert "Connection refused" in (status.error_message or "")

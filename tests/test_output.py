@@ -633,3 +633,83 @@ def test_rich_imports_confined_to_output_submodule() -> None:
     assert not violations, "Direct 'rich' imports found outside 'output' submodule:\n" + "\n".join(
         violations
     )
+
+
+def test_print_key_values_and_renderable() -> None:
+    """Test print_key_values and objects with .render() method."""
+    from devops_cli.output.console import print as devops_print
+    from devops_cli.output.console import print_key_values
+
+    # Test print_key_values
+    print_key_values("Test Summary", {"Key1": "Val1", "Key2": "Val2"})
+    print_key_values("List Summary", [("A", "1"), ("B", "2")])
+
+    # Test object with .render() method
+    class CustomRenderable:
+        def render(self) -> str:
+            return "Custom Rendered Content"
+
+    res = devops_print(CustomRenderable())
+    assert res.success is True
+    assert res.rendered_type == "renderable"
+
+
+def test_print_syntax_and_raw_panel() -> None:
+    """Test print with syntax highlighting and raw panel title."""
+    from devops_cli.output.console import print as devops_print
+
+    # Syntax without title
+    res1 = devops_print("def hello(): pass", language="python")
+    assert res1.success is True
+    assert res1.rendered_type == "syntax"
+
+    # Syntax with title (syntax_panel)
+    res2 = devops_print("def world(): pass", language="python", title="Python Code")
+    assert res2.success is True
+    assert res2.rendered_type == "syntax_panel"
+
+    # Raw level with title creates panel
+    res3 = devops_print("raw content block", title="Raw Title", level="raw")
+    assert res3.success is True
+    assert res3.rendered_type == "panel"
+
+
+def test_sanitize_command_args_masking() -> None:
+    """Test command argument masking for credentials and tokens."""
+    from devops_cli.output.console import _sanitize_command_args_for_display
+
+    cmd = [
+        "devops",
+        "--password",
+        "secret-pass-123",
+        "-p",
+        "another-secret",
+        "--token=ghp_secretTokenVal",
+        "--api-key",
+        "key-456",
+        "--other-arg",
+        "safe-value",
+    ]
+    sanitized = _sanitize_command_args_for_display(cmd)
+    assert sanitized[0] == "devops"
+    assert sanitized[1] == "--password"
+    assert sanitized[2] == "<masked>"
+    assert sanitized[3] == "-p"
+    assert sanitized[4] == "<masked>"
+    assert sanitized[5] == "--token=<masked>"
+    assert sanitized[6] == "--api-key"
+    assert sanitized[7] == "<masked>"
+    assert sanitized[8] == "--other-arg"
+    assert sanitized[9] == "safe-value"
+
+
+def test_print_panel_fallback_on_exception() -> None:
+    """Test print_panel fallback to rich Text when initial panel render raises."""
+    from devops_cli.output.console import print_panel
+
+    class FailingRenderable:
+        def __rich__(self) -> None:
+            raise TypeError("Cannot render as rich object")
+
+    # Should not raise; catches exception and renders via fallback Text
+    print_panel(FailingRenderable(), title="Fallback Panel")
