@@ -382,6 +382,20 @@ def _keyring_set(key: str, value: str) -> None:
         raise SecretStorageError(f"Failed to store secret in keyring: {exc}") from exc
 
 
+def get_keyring_secret(key: str) -> str | None:
+    """Public helper to retrieve a secret from OS Keyring or ephemeral store."""
+    return _keyring_get(key)
+
+
+def set_keyring_secret(key: str, value: str) -> bool:
+    """Public helper to store a secret in OS Keyring or ephemeral store."""
+    try:
+        _keyring_set(key, value)
+        return True
+    except Exception:
+        return False
+
+
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> None:
     """Merge override into base in-place; override wins on conflict, None skipped."""
     for key, value in override.items():

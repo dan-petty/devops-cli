@@ -76,6 +76,23 @@ class HttpClientBroker:
                 )
             return self._async_client
 
+    def request(
+        self,
+        method: str,
+        url: str,
+        *,
+        headers: dict[str, str] | None = None,
+        timeout: float | None = None,
+        allow_private_network: bool | None = None,
+        **kwargs: Any,
+    ) -> httpx.Response:
+        """Perform a synchronous HTTP request via the managed connection pool."""
+        client = self.get_client()
+        call_headers = self.build_headers(headers)
+        return client.request(
+            method, url, headers=call_headers, timeout=timeout or self.timeout, **kwargs
+        )
+
     def close(self) -> None:
         """Close synchronous client connections."""
         with self._lock:
@@ -105,3 +122,8 @@ class HttpClientBroker:
 
 # Module-level default broker instance
 DEFAULT_HTTP_BROKER = HttpClientBroker()
+
+
+def get_broker() -> HttpClientBroker:
+    """Return the global shared HttpClientBroker instance."""
+    return DEFAULT_HTTP_BROKER
