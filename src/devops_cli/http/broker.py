@@ -37,9 +37,10 @@ class HttpClientBroker:
         self._sync_client: httpx.Client | None = None
         self._async_client: httpx.AsyncClient | None = None
 
-    def validate_url(self, url: str) -> str:
+    def validate_url(self, url: str, allow: bool | None = None) -> str:
         """Validate destination URL against SSRF and private network policies."""
-        validate_service_url(url, allow=self.allow_private_networks)
+        allow_dest = allow if allow is not None else self.allow_private_networks
+        validate_service_url(url, allow=allow_dest)
         return url
 
     def build_headers(self, headers: dict[str, str] | None = None) -> dict[str, str]:
@@ -50,7 +51,10 @@ class HttpClientBroker:
 
     def _validate_request(self, request: httpx.Request) -> None:
         """Validate request and redirect URLs against SSRF policies."""
-        validate_service_url(str(request.url), purpose="http", allow=self.allow_private_networks)
+        allow = request.extensions.get("allow_private_network")
+        if allow is None:
+            allow = self.allow_private_networks
+        validate_service_url(str(request.url), purpose="http", allow=bool(allow))
 
     def get_client(self) -> httpx.Client:
         """Return thread-safe shared synchronous HTTP client."""
@@ -64,6 +68,10 @@ class HttpClientBroker:
                 )
             return self._sync_client
 
+    async def _async_validate_request(self, request: httpx.Request) -> None:
+        """Validate request and redirect URLs against SSRF policies asynchronously."""
+        self._validate_request(request)
+
     async def get_async_client(self) -> httpx.AsyncClient:
         """Return shared asynchronous HTTP client."""
         with self._lock:
@@ -72,7 +80,7 @@ class HttpClientBroker:
                     timeout=self.timeout,
                     http2=self.enable_http2,
                     follow_redirects=True,
-                    event_hooks={"request": [self._validate_request]},
+                    event_hooks={"request": [self._async_validate_request]},
                 )
             return self._async_client
 
@@ -87,11 +95,46 @@ class HttpClientBroker:
         **kwargs: Any,
     ) -> httpx.Response:
         """Perform a synchronous HTTP request via the managed connection pool."""
+        allow = (
+            allow_private_network
+            if allow_private_network is not None
+            else self.allow_private_networks
+        )
+        self.validate_url(url, allow=allow)
         client = self.get_client()
         call_headers = self.build_headers(headers)
-        return client.request(
+        req = client.build_request(
             method, url, headers=call_headers, timeout=timeout or self.timeout, **kwargs
         )
+        if allow_private_network is not None:
+            req.extensions["allow_private_network"] = allow_private_network
+        return client.send(req)
+
+    async def arequest(
+        self,
+        method: str,
+        url: str,
+        *,
+        headers: dict[str, str] | None = None,
+        timeout: float | None = None,
+        allow_private_network: bool | None = None,
+        **kwargs: Any,
+    ) -> httpx.Response:
+        """Perform an asynchronous HTTP request via the managed connection pool."""
+        allow = (
+            allow_private_network
+            if allow_private_network is not None
+            else self.allow_private_networks
+        )
+        self.validate_url(url, allow=allow)
+        client = await self.get_async_client()
+        call_headers = self.build_headers(headers)
+        req = client.build_request(
+            method, url, headers=call_headers, timeout=timeout or self.timeout, **kwargs
+        )
+        if allow_private_network is not None:
+            req.extensions["allow_private_network"] = allow_private_network
+        return await client.send(req)
 
     def close(self) -> None:
         """Close synchronous client connections."""
