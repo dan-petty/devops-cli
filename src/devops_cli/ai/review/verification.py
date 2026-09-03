@@ -442,6 +442,7 @@ def _validate_segment_findings(
     client: Any,
     analysis_metas: dict[str, Any] | None = None,
     repo_root: Path | None = None,
+    enable_thinking: bool = True,
 ) -> tuple[ReviewResult, float | None, str | None]:
     """Ask the LLM to verify each finding using enhanced analysis metadata of related files."""
     if not result.findings:
@@ -466,7 +467,9 @@ def _validate_segment_findings(
     proc_sec: float | None = None
     b_info: str | None = None
     try:
-        res_obj = client.chat(system=_VALIDATION_SYSTEM, user=prompt, enable_thinking=False)
+        res_obj = client.chat(
+            system=_VALIDATION_SYSTEM, user=prompt, enable_thinking=enable_thinking
+        )
         response = str(res_obj)
         proc_sec = getattr(res_obj, "processing_seconds", None)
         b_info = getattr(res_obj, "backend_info", None)

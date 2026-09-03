@@ -290,9 +290,11 @@ class LLMClient(OllamaProviderMixin, ClaudeProviderMixin, OpenAICompatProviderMi
             if p == "ollama":
                 res = self._ollama_messages(system, messages, enable_thinking=enable_thinking)
             elif p == "claude":
-                res = self._claude_messages(system, messages)
+                res = self._claude_messages(system, messages, enable_thinking=enable_thinking)
             elif p in ("copilot", "github_copilot", "openai"):
-                res = self._openai_compat_messages(system, messages)
+                res = self._openai_compat_messages(
+                    system, messages, enable_thinking=enable_thinking
+                )
             else:
                 raise LLMInferenceError(
                     f"Unknown provider: {p!r}. Choose: ollama, claude, copilot, openai",
@@ -593,9 +595,9 @@ class LLMClient(OllamaProviderMixin, ClaudeProviderMixin, OpenAICompatProviderMi
         if p == "ollama":
             return self._ollama_stream(system, messages, enable_thinking=enable_thinking)
         if p == "claude":
-            return self._claude_stream(system, messages)
+            return self._claude_stream(system, messages, enable_thinking=enable_thinking)
         if p in ("copilot", "github_copilot", "openai"):
-            return self._openai_compat_stream(system, messages)
+            return self._openai_compat_stream(system, messages, enable_thinking=enable_thinking)
         raise LLMInferenceError(
             f"Unknown provider: {p!r}. Choose: ollama, claude, copilot, openai", provider=p
         )

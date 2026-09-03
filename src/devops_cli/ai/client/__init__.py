@@ -9,6 +9,7 @@ from devops_cli.ai.client.models import (
     AIClientError,
     LLMResponse,
     _is_json_error_payload,
+    is_reasoning_model,
 )
 from devops_cli.ai.client.network import (
     ALLOW_PRIVATE_NETWORK_ENV,
@@ -41,6 +42,7 @@ __all__ = [
     "_extract_openai_stream_chunk",
     "_is_json_error_payload",
     "httpx2",
+    "is_reasoning_model",
     "model_request",
     "model_request_sync",
     "read_limited_json",

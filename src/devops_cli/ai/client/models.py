@@ -83,3 +83,19 @@ def _is_json_error_payload(raw_str: str) -> bool:
         return has_err_val or (err_code is not None and bool(err_code))
     except json.JSONDecodeError, TypeError, ValueError:
         return False
+
+
+def is_reasoning_model(model: str | None) -> bool:
+    """Return True if model is an OpenAI/Claude/DeepSeek reasoning or thinking model."""
+    if not model or not isinstance(model, str):
+        return False
+    m = model.strip().lower()
+    if ":thinking" in m:
+        return True
+    if m in ("o1", "o3") or m.startswith(("o1-", "o3-", "o4-")):
+        return True
+    if "deepseek-r1" in m or "deepseek-reasoner" in m:
+        return True
+    if "qwq" in m:
+        return True
+    return False

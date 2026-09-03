@@ -933,7 +933,8 @@ def test_ollama_thinking_only_and_total_duration(monkeypatch: pytest.MonkeyPatch
     )
     monkeypatch.setattr(httpx2.Client, "post", lambda *args, **kwargs: mock_resp)
     res = client.chat("sys", "user", enable_thinking=True)
-    assert "<think>" in str(res)
+    assert res.thinking == "reasoning steps"
+    assert res.processing_seconds == 4.0
 
     # 2. HTTP error in ollama request
     def mock_err_post(*args: Any, **kwargs: Any) -> httpx2.Response:

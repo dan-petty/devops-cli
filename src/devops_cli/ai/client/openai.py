@@ -10,7 +10,7 @@ from typing import Any
 import httpx2
 
 from devops_cli.ai.client.base import BaseLLMProviderMixin
-from devops_cli.ai.client.models import AIClientError, LLMResponse
+from devops_cli.ai.client.models import AIClientError, LLMResponse, is_reasoning_model
 from devops_cli.ai.client.network import read_limited_json
 from devops_cli.ai.client.streaming import (
     _consume_streaming_lines,
@@ -36,7 +36,13 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
             return CONST_URL_GITHUB_COPILOT_API_BASE
         return CONST_URL_OPENAI_API_BASE
 
-    def _openai_compat_messages(self, system: str, messages: list[ChatMessage]) -> LLMResponse:
+    def _openai_compat_messages(
+        self,
+        system: str,
+        messages: list[ChatMessage],
+        *,
+        enable_thinking: bool = True,
+    ) -> LLMResponse:
         t0 = time.monotonic()
         headers = inject_trace_context(
             {
@@ -44,6 +50,7 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
                 "Content-Type": "application/json",
             }
         )
+        is_reasoning = is_reasoning_model(self._config.model)
         payload: dict[str, Any] = {
             "model": self._config.model,
             "messages": [
@@ -51,17 +58,25 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
                 *[m.to_dict() for m in messages],
             ],
         }
-        if self._config.reasoning_effort:
-            payload["reasoning_effort"] = self._config.reasoning_effort
-        max_tok = getattr(self._config, "max_tokens", None)
-        if max_tok is not None:
-            payload["max_tokens"] = int(max_tok)
-        openai_temp = getattr(self._config, "temperature", None)
-        if openai_temp is not None:
-            payload["temperature"] = float(openai_temp)
-        openai_top_p = getattr(self._config, "top_p", None)
-        if openai_top_p is not None:
-            payload["top_p"] = float(openai_top_p)
+        if is_reasoning:
+            effort = self._config.reasoning_effort or ("medium" if enable_thinking else "low")
+            if effort:
+                payload["reasoning_effort"] = effort
+            max_tok = getattr(self._config, "max_tokens", None)
+            if max_tok is not None:
+                payload["max_completion_tokens"] = int(max_tok)
+        else:
+            if self._config.reasoning_effort:
+                payload["reasoning_effort"] = self._config.reasoning_effort
+            max_tok = getattr(self._config, "max_tokens", None)
+            if max_tok is not None:
+                payload["max_tokens"] = int(max_tok)
+            openai_temp = getattr(self._config, "temperature", None)
+            if openai_temp is not None:
+                payload["temperature"] = float(openai_temp)
+            openai_top_p = getattr(self._config, "top_p", None)
+            if openai_top_p is not None:
+                payload["top_p"] = float(openai_top_p)
         try:
             with httpx2.Client(timeout=self._request_timeout()) as http_client:
                 response = http_client.post(
@@ -70,17 +85,40 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
                 response.raise_for_status()
                 wall_elapsed = time.monotonic() - t0
                 raw_json = read_limited_json(response)
-                text = str(raw_json["choices"][0]["message"]["content"])
+                choices = raw_json.get("choices", [{}])
+                first_choice = choices[0] if choices else {}
+                msg = first_choice.get("message", {})
+                raw_content = msg.get("content")
+                raw_reasoning = (
+                    msg.get("reasoning_content")
+                    or msg.get("reasoning")
+                    or first_choice.get("reasoning")
+                )
+                thinking_str = str(raw_reasoning).strip() if raw_reasoning else None
+                content = str(raw_content or "")
+
+                from devops_cli.ai.thinking_stream import extract_think_blocks
+
+                if "<think>" in content:
+                    inner_thinks, clean = extract_think_blocks(content)
+                    if inner_thinks:
+                        combined = (thinking_str + "\n" if thinking_str else "") + "\n".join(
+                            inner_thinks
+                        )
+                        thinking_str = combined.strip() or None
+                    content = clean
+
                 usage = raw_json.get("usage", {})
                 prompt_tokens = usage.get("prompt_tokens")
                 completion_tokens = usage.get("completion_tokens")
                 total_tokens = usage.get("total_tokens")
                 b_info = f"{self.backend_type} ({self.backend_host})"
                 return LLMResponse(
-                    text,
+                    content,
                     processing_seconds=None,
                     wall_seconds=wall_elapsed,
                     backend_info=b_info,
+                    thinking=thinking_str,
                     prompt_tokens=prompt_tokens,
                     completion_tokens=completion_tokens,
                     total_tokens=total_tokens,
@@ -92,11 +130,18 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
                 "Provider request failed. Check network access, API endpoint, and credentials."
             ) from exc
 
-    def _openai_compat_stream(self, system: str, messages: list[ChatMessage]) -> Generator[str]:
+    def _openai_compat_stream(
+        self,
+        system: str,
+        messages: list[ChatMessage],
+        *,
+        enable_thinking: bool = True,
+    ) -> Generator[str]:
         headers = {
             "Authorization": f"Bearer {self._api_key}",
             "Content-Type": "application/json",
         }
+        is_reasoning = is_reasoning_model(self._config.model)
         payload: dict[str, Any] = {
             "model": self._config.model,
             "messages": [
@@ -105,7 +150,11 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
             ],
             "stream": True,
         }
-        if self._config.reasoning_effort:
+        if is_reasoning:
+            effort = self._config.reasoning_effort or ("medium" if enable_thinking else "low")
+            if effort:
+                payload["reasoning_effort"] = effort
+        elif self._config.reasoning_effort:
             payload["reasoning_effort"] = self._config.reasoning_effort
         try:
             with (

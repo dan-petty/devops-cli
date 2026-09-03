@@ -93,6 +93,8 @@ class ModelRouteDecision(BaseModel):
     sensitivity: DataSensitivity = DataSensitivity.INTERNAL
     provider_name: str
     model_name: str
+    enable_thinking: bool = False
+    reasoning_effort: str | None = None
     fallback_chain: list[tuple[str, str]] = Field(default_factory=list)
     estimated_cost_usd: float = 0.0
     estimated_latency_tier: str = "fast-interactive"
@@ -270,6 +272,12 @@ class LLMRouter:
             TaskFreshness.EXTERNAL_WEB_SEARCH,
         )
         rationale = self._generate_rationale(complexity, freshness, sensitivity, provider, model)
+        enable_thinking = complexity in (TaskComplexity.HIGH, TaskComplexity.FRONTIER)
+        reasoning_effort = (
+            "high"
+            if complexity == TaskComplexity.FRONTIER
+            else ("medium" if complexity == TaskComplexity.HIGH else None)
+        )
 
         return ModelRouteDecision(
             task_name=task_name,
@@ -278,6 +286,8 @@ class LLMRouter:
             sensitivity=sensitivity,
             provider_name=provider,
             model_name=model,
+            enable_thinking=enable_thinking,
+            reasoning_effort=reasoning_effort,
             fallback_chain=fallback_chain,
             estimated_cost_usd=cost,
             estimated_latency_tier=latency,

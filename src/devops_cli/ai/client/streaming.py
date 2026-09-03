@@ -41,10 +41,15 @@ def _extract_claude_stream_chunk(line: str) -> tuple[str | None, bool]:
         return (None, False)
     if event_json.get("type") == "content_block_delta":
         delta = event_json.get("delta", {})
-        if delta.get("type") == "text_delta":
+        delta_type = delta.get("type")
+        if delta_type == "text_delta":
             text_val = delta.get("text", "")
             if text_val:
                 return (str(text_val), False)
+        if delta_type == "thinking_delta":
+            think_val = delta.get("thinking", "")
+            if think_val:
+                return (f"<think>{think_val}</think>", False)
     return (None, False)
 
 
@@ -62,6 +67,9 @@ def _extract_openai_stream_chunk(line: str) -> tuple[str | None, bool]:
     choices = event_json.get("choices", [])
     if choices:
         delta = choices[0].get("delta", {})
+        reasoning = delta.get("reasoning_content") or delta.get("reasoning")
+        if reasoning:
+            return (f"<think>{reasoning}</think>", False)
         content = delta.get("content")
         if content:
             return (str(content), False)
