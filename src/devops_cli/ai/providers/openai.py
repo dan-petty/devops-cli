@@ -9,6 +9,7 @@ import httpx2
 
 from devops_cli.ai.providers.base import BaseLLMProvider
 from devops_cli.config.defaults import DEFAULT_AI_TIMEOUT_SECONDS, DEFAULT_OPENAI_MODEL
+from devops_cli.http.validation import validate_service_url
 from devops_cli.models.ai import ChatMessage
 
 logger = logging.getLogger(__name__)
@@ -35,6 +36,11 @@ class OpenAIProvider(BaseLLMProvider):
     ) -> Any:
         target_model = model or self.config.model or DEFAULT_OPENAI_MODEL
         base_url = (self.config.api_base_url or "https://api.openai.com/v1").rstrip("/")
+        validate_service_url(
+            base_url,
+            purpose="ai",
+            allow=bool(getattr(self.config, "allow_private_network", False)),
+        )
         payload: dict[str, Any] = {
             "model": target_model,
             "messages": [m.model_dump() if hasattr(m, "model_dump") else m for m in messages],

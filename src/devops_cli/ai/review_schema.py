@@ -242,12 +242,35 @@ class Finding(BaseModel):
         loc = normalize_unicode_text(str(v)).strip()
         if "\n" in loc or "```" in loc:
             return ""
+        # If prompt criteria or instructions leaked into location, strip them out
+        if re.search(
+            r"(?:Provide\s+(?:fix|verification|invalidation)|Verification\s+criteria|Invalidation\s+criteria|line\s+where)",
+            loc,
+            flags=re.IGNORECASE,
+        ):
+            loc = re.split(
+                r"(?:Provide\s+(?:fix|verification|invalidation)|Verification\s+criteria|Invalidation\s+criteria|:\s*line\s+where)",
+                loc,
+                flags=re.IGNORECASE,
+            )[0].strip()
+            # If followed by non-line text, extract canonical path
+            m_file = re.match(r"^([a-zA-Z0-9_\-./\\]+\.[a-zA-Z0-9_]+)(?::(\d+(?:-\d+)?))?", loc)
+            if m_file:
+                f_path = m_file.group(1).replace("\\", "/")
+                lines = m_file.group(2)
+                return f"{f_path}:{lines}" if lines else f"{f_path}:1"
         return loc
 
     @field_validator("title", mode="before")
     @classmethod
     def _clean_title(cls, v: object) -> str:
         text = normalize_unicode_text(str(v)).strip()
+        # Strip prompt criteria leakage
+        text = re.split(
+            r"(?:Provide\s+(?:fix|verification|invalidation)|Verification\s+criteria|Invalidation\s+criteria)",
+            text,
+            flags=re.IGNORECASE,
+        )[0].strip()
         lines = [line.strip() for line in text.splitlines() if line.strip()]
         if not lines:
             return ""

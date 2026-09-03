@@ -31,6 +31,13 @@ def fetch_secret_data(
     """Fetch and decode all data fields from a Kubernetes Secret in a single call."""
     import json
 
+    from devops_cli.core.validation import validate_k8s_name
+
+    validate_k8s_name(secret_name, "secret_name")
+    validate_k8s_name(namespace, "namespace", namespace=True)
+    if context:
+        validate_k8s_name(context, "context")
+
     cmd = [
         "kubectl",
         "get",

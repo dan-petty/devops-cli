@@ -46,3 +46,5 @@ Return ONLY a valid JSON object matching:
   "summary": "High-level summary of code quality, required remediations, and next steps."
 }
 ```
+
+CRITICAL: Verification and invalidation criteria are internal evaluation tools for automated verification; they must NEVER appear inside 'title', 'location', or 'description'. Keep 'title' concise and 'location' canonical (`filename.ext:start-end`).

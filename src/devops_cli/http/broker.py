@@ -48,6 +48,10 @@ class HttpClientBroker:
         base_headers.setdefault("User-Agent", "devops-cli/0.2.9")
         return inject_traceparent_headers(base_headers)
 
+    def _validate_request(self, request: httpx.Request) -> None:
+        """Validate request and redirect URLs against SSRF policies."""
+        validate_service_url(str(request.url), purpose="http", allow=self.allow_private_networks)
+
     def get_client(self) -> httpx.Client:
         """Return thread-safe shared synchronous HTTP client."""
         with self._lock:
@@ -56,18 +60,21 @@ class HttpClientBroker:
                     timeout=self.timeout,
                     http2=self.enable_http2,
                     follow_redirects=True,
+                    event_hooks={"request": [self._validate_request]},
                 )
             return self._sync_client
 
     async def get_async_client(self) -> httpx.AsyncClient:
         """Return shared asynchronous HTTP client."""
-        if self._async_client is None or self._async_client.is_closed:
-            self._async_client = httpx.AsyncClient(
-                timeout=self.timeout,
-                http2=self.enable_http2,
-                follow_redirects=True,
-            )
-        return self._async_client
+        with self._lock:
+            if self._async_client is None or self._async_client.is_closed:
+                self._async_client = httpx.AsyncClient(
+                    timeout=self.timeout,
+                    http2=self.enable_http2,
+                    follow_redirects=True,
+                    event_hooks={"request": [self._validate_request]},
+                )
+            return self._async_client
 
     def close(self) -> None:
         """Close synchronous client connections."""
@@ -78,9 +85,10 @@ class HttpClientBroker:
 
     async def aclose(self) -> None:
         """Close asynchronous client connections."""
-        if self._async_client is not None and not self._async_client.is_closed:
-            await self._async_client.aclose()
-            self._async_client = None
+        with self._lock:
+            if self._async_client is not None and not self._async_client.is_closed:
+                await self._async_client.aclose()
+                self._async_client = None
 
     def __enter__(self) -> HttpClientBroker:
         return self

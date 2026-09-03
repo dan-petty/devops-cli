@@ -91,13 +91,22 @@ async def list_workspaces() -> WorkspacesResponse:
 @router.get("/config", response_model=ConfigResponse, summary="Get sanitized configuration")
 async def get_configuration() -> ConfigResponse:
     """Retrieve active non-secret configuration parameters."""
+    from devops_cli.config.options import SECRET_CONFIG_OPTIONS
+
     settings = Settings()
     config_dict = settings.model_dump(mode="json")
 
     # Sanitize any sensitive tokens/keys
-    if "github" in config_dict and "token" in config_dict["github"]:
-        gh_tok = config_dict["github"]["token"]
-        config_dict["github"]["token"] = "***REDACTED***" if gh_tok else None
+    for sec_opt in SECRET_CONFIG_OPTIONS:
+        if "." in sec_opt:
+            section, key = sec_opt.split(".", 1)
+            if (
+                section in config_dict
+                and isinstance(config_dict[section], dict)
+                and key in config_dict[section]
+            ):
+                val = config_dict[section][key]
+                config_dict[section][key] = "***REDACTED***" if val else None
 
     return ConfigResponse(
         status="ok",

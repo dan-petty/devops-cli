@@ -796,21 +796,14 @@ def _build_finding_panel_lines(f: Any) -> list[str]:
         f"[bold]Location:[/bold] [cyan]{_get('escape_text')(f.location)}[/cyan]{persona_badge}",
     ]
     if f.description:
-        lines.extend(
-            [
-                "",
-                "[bold]Description:[/bold]",
-                _get("format_clean_text_field")(f.description).strip(),
-            ]
-        )
+        clean_desc = _get("escape_text")(_get("format_clean_text_field")(f.description).strip())
+        lines.extend(["", "[bold]Description:[/bold]", clean_desc])
     if f.fix:
-        lines.extend(
-            ["", "[bold]Suggested Fix:[/bold]", _get("format_clean_text_field")(f.fix).strip()]
-        )
+        clean_fix = _get("escape_text")(_get("format_clean_text_field")(f.fix).strip())
+        lines.extend(["", "[bold]Suggested Fix:[/bold]", clean_fix])
     if f.invalidation_reason:
-        lines.extend(
-            ["", f"[bold yellow]Invalidation Reason:[/bold yellow] {f.invalidation_reason.strip()}"]
-        )
+        clean_inv = _get("escape_text")(f.invalidation_reason.strip())
+        lines.extend(["", f"[bold yellow]Invalidation Reason:[/bold yellow] {clean_inv}"])
     if f.references:
         refs_list = f.references if isinstance(f.references, list) else [str(f.references)]
         lines.extend(["", f"[dim]References: {_get('escape_text')(', '.join(refs_list))}[/dim]"])

@@ -431,3 +431,18 @@ def test_review_path_watch_mode(tmp_path: Path) -> None:
         res = runner.invoke(review_app, ["path", str(py_file), "--watch", "--debounce-ms", "300"])
         assert res.exit_code == 0
         assert mock_watcher_watch.called
+
+
+def test_finding_location_and_title_sanitizes_criteria_leakage() -> None:
+    """Verify that criteria leakage or prompt instructions in location and title are stripped."""
+    from devops_cli.ai.review_schema import Finding
+
+    raw_finding = {
+        "title": "Syntax error in foo: line where defined. Provide verification criteria: None.",
+        "location": "src/devops_cli/commands/install_tools.py: line where _current_version defined. Provide fix: change to except. Provide verification criteria: Running CLI should not crash. Invalidation criteria: CLI runs cleanly.",
+        "description": "Defect details",
+    }
+    f = Finding(**raw_finding)  # type: ignore[arg-type]
+    assert f.location == "src/devops_cli/commands/install_tools.py:1"
+    assert "Provide verification criteria" not in f.title
+    assert "Invalidation criteria" not in f.location
