@@ -296,8 +296,6 @@ def _check_syntax_error_hallucination(finding: Finding, file_path: Path) -> Find
         if suffix == ".py":
             ast.parse(content)
         elif suffix == ".json":
-            import json
-
             json.loads(content)
         elif suffix in {".yaml", ".yml"}:
             import yaml
@@ -352,7 +350,7 @@ def _check_line_boundaries(finding: Finding, file_path: Path) -> Finding | None:
 
 
 def _deterministic_pre_verification(finding: Finding, repo_root: Path | None = None) -> Finding:
-    """Run local deterministic parser and structural checks to invalidate obvious false positives."""
+    """Run local deterministic parser and line boundary checks to invalidate obvious hallucinations."""
     if not repo_root:
         return finding
 
@@ -389,7 +387,7 @@ def _apply_single_finding_verification(
 
     ver_matched = [str(x) for x in item.get("verified_criteria_matched", []) if str(x)]
     inv_matched = [str(x) for x in item.get("invalidated_criteria_matched", []) if str(x)]
-    is_v = bool(item.get("verified", True))
+    is_v = bool(item.get("verified", False))
     is_m = bool(item.get("mitigated", False))
 
     if inv_matched:
