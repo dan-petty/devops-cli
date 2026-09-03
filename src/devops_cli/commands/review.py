@@ -1156,7 +1156,7 @@ def apply_patch(
         bool, typer.Option("--interactive", "-i", help=HELP.review.interactive_patch)
     ] = False,
 ) -> None:
-    """Apply suggested LLM code fix for a verified finding (v0.1.3)."""
+    """Apply suggested LLM code fix for a verified finding."""
     ok = stage_finding_patch(session=session, index=index, interactive=interactive)
     if not ok:
         raise typer.Exit(1)

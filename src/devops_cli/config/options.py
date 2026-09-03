@@ -68,7 +68,7 @@ DATA_TLS_DIR = "data.tls_dir"
 DATA_AUDIT_LOG_PATH = "data.audit_log_path"
 DATA_FEEDBACK_DATASET_PATH = "data.feedback_dataset_path"
 
-# v0.1.1 Feature Flags
+# Feature Flags
 FEATURE_PR_INLINE_COMMENTS = "features.pr_inline_comments"
 FEATURE_CUSTOM_PERSONAS = "features.custom_personas"
 FEATURE_HEADLESS_AUTH = "features.headless_auth"

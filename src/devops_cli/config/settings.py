@@ -320,7 +320,6 @@ class Settings(BaseSettings):
     data: DataConfig = DataConfig()
 
 
-# TODO (v0.1.1 Feature): MemoryKeyringStore for headless CI environments lacking DBus/SecretService
 _EPHEMERAL_CI_SECRETS: dict[str, str] = {}
 
 
