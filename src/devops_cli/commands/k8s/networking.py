@@ -31,6 +31,7 @@ from devops_cli.output import (
     print_error,
     print_info,
     print_success,
+    print_table,
 )
 
 VALID_STACKS: tuple[str, ...] = ("infra", "llm", "all")
@@ -416,6 +417,11 @@ def port_forward(
             ]
         )
 
+    from devops_cli.k8s.port_forward_daemon import PortForwardInfo, get_daemon_manager
+
+    daemon_mgr = get_daemon_manager()
+    active_forwards: list[PortForwardInfo] = daemon_mgr.list_forwards()
+
     ctx_args = ["--context", context] if context else []
     for ns, svc, lport, rport in services:
         cmd = [
@@ -428,8 +434,67 @@ def port_forward(
             svc,
             f"{lport}:{rport}",
         ] + ctx_args
-        subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        print_success(f"Forwarding {svc} ({ns}) to http://{address}:{lport}")
+        proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        active_forwards.append(
+            PortForwardInfo(
+                pid=proc.pid,
+                service=svc,
+                namespace=ns,
+                local_port=lport,
+                remote_port=rport,
+                address=address,
+                stack=stack,
+            )
+        )
+        print_success(f"Forwarding {svc} ({ns}) to http://{address}:{lport} (pid {proc.pid})")
 
+    daemon_mgr.save_forwards(active_forwards)
     time.sleep(1.0)
     k8s.configure_urls(stack=stack, context=context)
+
+
+def port_forward_status() -> None:
+    """List active background Kubernetes port-forward daemons."""
+    from devops_cli.k8s.port_forward_daemon import get_daemon_manager
+
+    mgr = get_daemon_manager()
+    forwards = mgr.list_forwards()
+    if not forwards:
+        print_info("No active Kubernetes port-forward daemons running.")
+        return
+
+    columns: list[str | tuple[str, str]] = [
+        ("PID", "bold"),
+        "Service",
+        "Namespace",
+        "Local Port",
+        "Remote Port",
+        "Stack",
+        "Started",
+    ]
+    rows: list[list[str]] = [
+        [
+            str(f.pid),
+            f.service,
+            f.namespace,
+            f"{f.address}:{f.local_port}",
+            str(f.remote_port),
+            f.stack,
+            f.started_at[:19],
+        ]
+        for f in forwards
+    ]
+    print_table("Active Kubernetes Port-Forward Daemons", columns=columns, rows=rows)
+
+
+def port_forward_stop(
+    service: Annotated[
+        str | None, typer.Option("--service", "-s", help="Specific service to stop")
+    ] = None,
+) -> None:
+    """Terminate active background Kubernetes port-forward daemons."""
+    from devops_cli.k8s.port_forward_daemon import get_daemon_manager
+
+    mgr = get_daemon_manager()
+    stopped = mgr.stop_forwards(service_filter=service)
+    print_success(f"✓ Terminated {stopped} active port-forward daemon(s)")
