@@ -1007,3 +1007,28 @@ def test_try_reuse_cached_analysis_meta_invalidation(tmp_path: Path) -> None:
     # 4. File size mismatch -> Invalidated
     size_mismatched = cached_meta.model_copy(update={"size_bytes": 9999})
     assert _try_reuse_cached_analysis_meta(size_mismatched, test_file, new_mtime) is None
+
+
+def test_render_single_finding_panel_escapes_malformed_markup(tmp_path: Path) -> None:
+    """Verify that code snippets with unescaped closing tags like [/{status_color}] do not crash Rich."""
+    from rich.console import Console
+
+    orchestrator = ReviewPipelineOrchestrator(llm_client=MagicMock(), target_dir=tmp_path)
+    console = Console(record=True, color_system=None)
+
+    finding = SavedFinding(
+        severity="HIGH",
+        location="src/devops_cli/output/formatters/tables.py:402",
+        title="Unescaped formatting in f'[{status_color}]{phase}[/{status_color}]'",
+        description="Snippet has malformed markup: [/{status_color}] and [None] and list[int].",
+        fix="Use escape_text(f'[{status_color}]{phase}[/{status_color}]') to sanitize.",
+        invalidation_reason="Criteria: [/{status_color}] was detected.",
+        references=["CWE-116", "https://example.com/cwe/[116]"],
+    )
+
+    # Must execute cleanly without raising rich.errors.MarkupError
+    orchestrator._render_single_finding_panel(console, finding, 1)
+    output = console.export_text()
+    assert "Finding #1" in output
+    assert "tables.py:402" in output
+    assert "[/{status_color}]" in output
