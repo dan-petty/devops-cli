@@ -223,7 +223,7 @@ devops review export-feedback [OPTIONS]
 
 ## `devops review apply-patch`
 
-**Apply suggested LLM code fix for a verified finding (v0.1.3).**
+**Apply suggested LLM code fix for a verified finding.**
 
 ```bash
 devops review apply-patch [OPTIONS] <session>

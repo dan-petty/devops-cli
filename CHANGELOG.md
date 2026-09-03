@@ -5,9 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.2.9] - 2026-09-02
+## [0.2.9] - 2026-09-03
 
 ### Added
+- **Deterministic Prompt Rule Transformations & Location Canonicalization (`src/devops_cli/ai/review_schema.py`, `tests/test_prompt_programmatic_functions.py`)**:
+  - Added pure programmatic functions replacing fragile inline LLM prompt heuristics: `canonicalize_finding_location` (canonical `file:start-end` or `file:line` formatting, markdown reference stripping, inverted range correction), `sanitize_finding_text` (stripping criteria leakage and prompt boilerplate), and `derive_recommendation` (severity-based merge decision mapping).
+  - Added comprehensive unit test suite in `tests/test_prompt_programmatic_functions.py`.
+- **Review Finding Feedback Dataset Export & Self-Improvement Loop**:
+  - Exported verified finding dataset to `.data/feedback_dataset.jsonl` enabling downstream agentic self-improvement and prompt evaluation.
 - **Universal Multi-Stage Workflow Orchestration Pipeline (`src/devops_cli/pipeline/`, `tests/test_pipeline_engine.py`)**:
   - Introduced generic `StagePipeline[ContextT, ResultT]` and `PipelineStage` framework supporting sequential and DAG-based stage execution with scratchpad context passing.
   - Granular `@trace_span` telemetry waterfalls, error isolation, and metrics collection (`pipeline_runs_total`, `pipeline_run_duration_seconds`).
@@ -31,6 +36,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added `devops vault` subcommands (`status`, `get`, `set`, `sync`) and registered `vault_status` and `vault_get` FastMCP tools.
 - **Kubernetes Background Port-Forward Daemon Management (`src/devops_cli/k8s/port_forward_daemon.py`, `devops k8s port-forward`)**:
   - Added `PortForwardDaemonManager` with managed PID lifecycle tracking (`.data/k8s/port_forwards.json`), status inspection (`devops k8s port-forward-status`), and graceful process termination (`devops k8s port-forward-stop`).
+
+### Changed
+- **Removal of Heuristic Invalidation and Validation Functions**:
+  - Removed heuristic auto-invalidation functions (`_check_contextual_exemption`, `_check_kustomization_namespace_exemption`, `_check_iac_operational_outputs`, `_check_missing_symbol_hallucination`, `_check_syntax_error_hallucination`, `_check_line_boundaries`) from `src/devops_cli/ai/review/verification.py` to prevent suppressing valid security defects.
+  - Fixed verification default to `verified=False` preventing unverified findings from falsely validating.
+  - Removed synthetic criteria count ratio scoring in finding verification.
+  - Refined adversarial debate invalidation to preserve valid findings mentioning dependencies like `httpx2`.
+  - Removed blanket exclusion instructions from `guardrails_isolation.md` and `verify_finding_system.md`.
+- **Legacy & Shim Code Elimination**:
+  - Removed legacy sequential single-prompt embedding fallback (`_fetch_fallback_single_embeddings`) in `src/devops_cli/ai/rag/embeddings.py`.
+  - Cleaned up obsolete v0.1.1 feature comments and stubs in `src/devops_cli/commands/config.py`, `src/devops_cli/config/settings.py`, and `src/devops_cli/config/options.py`.
+  - Updated review CLI docstrings to eliminate vestigial version tags.
+
+### Security
+- **Defense-in-Depth Path Traversal & SSRF Hardening**:
+  - Enforced `allow_traversal=False` default in `validate_path` (`src/devops_cli/core/validation.py`).
+  - Added DNS rebinding resolution to `_is_private_or_loopback` in `src/devops_cli/ai/common_tools.py`.
+  - Added secret and credential token redaction (`***REDACTED***`) across agent hooks in `src/devops_cli/ai/agents/persistence.py`.
+  - Added directory traversal guards to SQLite step store and symlink boundary containment guards across `aibom.py`, `kubeconform.py`, `skills.py`, and `pre_analysis.py`.
+  - Sanitized prompt template variables in `ManagedPrompt.render` (`src/devops_cli/ai/agents/prompt.py`).
 
 
 ## [0.2.8] - 2026-09-01
