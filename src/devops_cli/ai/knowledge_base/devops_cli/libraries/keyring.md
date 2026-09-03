@@ -7,7 +7,7 @@
 | **Official Documentation** | [keyring.readthedocs.io](https://keyring.readthedocs.io/) |
 | **Public Git Repository** | [github.com/jaraco/keyring](https://github.com/jaraco/keyring) |
 | **Official PyPI Package** | [pypi.org/project/keyring](https://pypi.org/project/keyring/) (`25.7.0`) |
-| **DevOps CLI Integration** | [`src/devops_cli/config/keyring_vault.py`](file:///workspaces/devops-cli/src/devops_cli/config/keyring_vault.py) • [`src/devops_cli/config/settings.py`](file:///workspaces/devops-cli/src/devops_cli/config/settings.py) |
+| **DevOps CLI Integration** | [`src/devops_cli/security/vault_broker.py`](file:///workspaces/devops-cli/src/devops_cli/security/vault_broker.py) • [`src/devops_cli/config/settings.py`](file:///workspaces/devops-cli/src/devops_cli/config/settings.py) |
 
 ---
 

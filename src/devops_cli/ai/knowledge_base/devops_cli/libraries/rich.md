@@ -7,7 +7,7 @@
 | **Official Documentation** | [rich.readthedocs.io](https://rich.readthedocs.io/) |
 | **Public Git Repository** | [github.com/Textualize/rich](https://github.com/Textualize/rich) |
 | **Official PyPI Package** | [pypi.org/project/rich](https://pypi.org/project/rich/) (`15.0.0`) |
-| **DevOps CLI Integration** | [`src/devops_cli/output/`](file:///workspaces/devops-cli/src/devops_cli/output/) • [`src/devops_cli/ai/review/render.py`](file:///workspaces/devops-cli/src/devops_cli/ai/review/render.py) |
+| **DevOps CLI Integration** | [`src/devops_cli/output/`](file:///workspaces/devops-cli/src/devops_cli/output/) • [`src/devops_cli/output/formatters/`](file:///workspaces/devops-cli/src/devops_cli/output/formatters/) |
 
 ---
 

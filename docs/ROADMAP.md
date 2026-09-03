@@ -219,12 +219,14 @@ High-density product roadmap, engineering milestones, and open-source integratio
   - Declarative chaos engineering runner injecting pod disruptions and validating cluster recovery.
 - [x] **Continuous IDE File Watcher & Instant AI Review (`devops ai review path --watch`)**:
   - Watchdog-backed background listener executing automated incremental multi-persona reviews on active file changes with configurable debounce windows (`--debounce-ms`).
-- [ ] **Enterprise Vault & Cloud KMS Secret Broker (`devops config vault`, `devops vault`)**:
-  - HashiCorp Vault (`hvac`), AWS KMS, and GCP Cloud KMS integrations supporting dynamic secret leases.
-- [ ] **Isolated Dockerized Workload Sandbox Environment (`devops test sandbox` / `devops docker sandbox`)**:
-  - Ephemeral, rootless container test harness and isolated execution sandbox for multi-container integration tests.
-- [ ] **Automated Dependency Vulnerability Remediation PR Engine (`devops scan fix`)**:
-  - AST- and lockfile-aware autonomous patching engine resolving CVEs in lockfiles and manifests.
+- [x] **Enterprise Vault & Cloud KMS Secret Broker (`devops config vault`, `devops vault`)**:
+  - HashiCorp Vault REST API and Cloud KMS integrations with KV-v2 engine support, zero-plaintext storage, and seamless OS Keyring fallback.
+- [x] **Isolated Dockerized Workload Sandbox Environment (`devops test sandbox` / `devops docker sandbox`)**:
+  - Ephemeral, rootless container test harness and isolated execution sandbox for multi-container integration tests with memory, cpu, and network constraints.
+- [x] **Automated Dependency Vulnerability Remediation PR Engine (`devops scan fix`)**:
+  - AST- and lockfile-aware autonomous patching engine resolving CVEs via lockfile updates (`uv lock --upgrade-package`), dry-run summaries, and git topic branch staging.
+- [x] **Kubernetes Background Port-Forward Daemon Management (`devops k8s port-forward --daemon|status|stop`)**:
+  - Background process lifecycle tracking with managed PID state (`.data/k8s/port_forwards.json`), status inspection, and graceful termination.
 
 ### Multi-Cloud Mesh & Production Ecosystem (v0.3.0 - Future Vision)
 - [ ] **Multi-Region Workstation Mesh & Cluster Federation**: Distributed cluster management across hybrid on-prem homelab and multi-cloud Kubernetes clusters with automatic service mesh routing.

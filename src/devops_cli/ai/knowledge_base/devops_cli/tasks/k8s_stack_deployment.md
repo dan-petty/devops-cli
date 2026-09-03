@@ -106,4 +106,4 @@ devops k8s teardown-stack llm
 - **Jaeger Operator Charts**: [github.com/jaegertracing/helm-charts](https://github.com/jaegertracing/helm-charts)
 - **Qdrant Helm Charts**: [github.com/qdrant/qdrant-helm](https://github.com/qdrant/qdrant-helm)
 - **Open-WebUI Helm Charts**: [github.com/open-webui/helm-charts](https://github.com/open-webui/helm-charts)
-- **DevOps CLI Kubernetes Module**: [src/devops_cli/commands/k8s.py](../../../../commands/k8s.py)
+- **DevOps CLI Kubernetes Module**: [src/devops_cli/commands/k8s/](../../../../commands/k8s/)

@@ -118,3 +118,32 @@ devops docker analyze-layers [OPTIONS] <image>
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ---
+
+## `devops docker sandbox`
+
+**Execute workload inside an isolated, disposable Docker container sandbox.**
+
+```bash
+devops docker sandbox [OPTIONS] <command>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<command>` | `string` | Yes | Workload command to execute inside container sandbox |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--image`, `-i` | `string` | `python:3.14-slim` | Docker container image to execute within |
+| `--workspace`, `-w` | `path` | `.` | Workspace directory to mount |
+| `--memory`, `-m` | `string` | `2g` | Memory limit (e.g. 2g, 512m) |
+| `--cpus`, `-c` | `float` | `2.0` | CPU limit |
+| `--network`, `-n` | `string` | `bridge` | Network mode: bridge | none | host |
+| `--read-only` | `boolean` | - | Mount workspace as read-only |
+| `--rootless`, `--root` | `boolean` | `True` | Run container with host user UID/GID |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---

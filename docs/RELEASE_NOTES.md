@@ -22,9 +22,28 @@ Workstation-native DevOps CLI for managing repositories, SSH keys, Kubernetes cl
 
 ### 🔑 Automated Kubernetes Stack Credential Synchronization (`devops k8s sync-secrets`)
 - **Zero-Plaintext Secret Extraction**: Automated discovery and retrieval of ArgoCD and Grafana admin passwords from Kubernetes cluster secrets directly into OS Keyring (`argocd_password`, `grafana_password`).
-- **Seamless Stack Deployment**: Auto-synchronizes admin credentials on `devops k8s deploy-stack` and `devops k8s sync-secrets`.
+
+### 🛡️ Automated Dependency Vulnerability Remediation PR Engine (`devops scan fix`)
+- **Autonomous CVE Patching**: Analyzes lockfiles (`uv.lock`, `requirements.txt`, `poetry.lock`), queries OSV/GitHub Advisory feeds, computes minimum safe versions, and executes non-breaking package upgrades (`uv lock --upgrade-package`).
+- **Dry-Run & Git Isolation**: Provides structured terminal tables and dry-run previews, with optional automated git topic branch isolation (`fix/security-<package>-<cve>`).
+- **FastMCP Tool**: Exposes `scan_fix` for autonomous remediation workflows directly inside AI coding assistants.
+
+### 📦 Isolated Dockerized Workload Sandbox Environment (`devops test sandbox` / `devops docker sandbox`)
+- **Disposable Execution Harness**: Ephemeral container runner with automatic lifecycle cleanup and strict resource bounds (`--memory`, `--cpus`).
+- **Zero-Trust Isolation**: Runs rootless containers with host user mapping and supports read-only workspace mounts (`--read-only`) or network air-gapping (`--network none`).
+- **FastMCP Tool**: Exposes `docker_sandbox` for safely running untrusted commands or test workloads in isolation.
+
+### 🔐 Enterprise HashiCorp Vault & Cloud KMS Secret Broker (`devops vault`)
+- **Secure Secret Brokering**: Integrated Vault KV-v2 engine support with URI resolution (`vault://<path>#<key>`), zero plaintext on disk, and transparent fallback to OS Keyring.
+- **Keyring Synchronization**: Adds `devops vault sync` to cache credentials into OS Keyring for offline CLI execution.
+- **FastMCP Tools**: Exposes `vault_status` and `vault_get` tools.
+
+### 🔌 Kubernetes Background Port-Forward Daemon Management (`devops k8s port-forward`)
+- **Daemon Lifecycle Tracking**: Manages background `kubectl port-forward` processes with managed PID tracking under `.data/k8s/port_forwards.json`.
+- **Status & Graceful Shutdown**: Inspect active port forward daemons via `devops k8s port-forward-status` and terminate cleanly with `devops k8s port-forward-stop`.
 
 ---
+
 
 ## 🚀 Highlights of v0.2.8
 

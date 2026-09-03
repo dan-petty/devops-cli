@@ -15,6 +15,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`config_audit_keys`](#config-audit-keys) | Audit OS Keyring health, token state, and zero-plaintext secret compliance. |
 | [`config_output`](#config-output) | Output environment variables available for configuration (text or json). |
 | [`config_show`](#config-show) | Display configuration settings with masked secret tokens. |
+| [`docker_sandbox`](#docker-sandbox) | Execute command inside an isolated Docker container sandbox. |
 | [`docker_stats`](#docker-stats) | List local Docker images and display container information. |
 | [`grafana_dashboards`](#grafana-dashboards) | List Grafana dashboards, optionally filtered by search query. |
 | [`k8s_bootstrap`](#k8s-bootstrap) | Bootstrap minikube Kubernetes cluster and deploy infrastructure stack. |
@@ -38,6 +39,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`review_path`](#review-path) | Run an AI code review on local files matching pattern using specified persona. |
 | [`review_pr`](#review-pr) | Fetch GitHub PR diff and review using specified persona; optionally post comment. |
 | [`review_stats`](#review-stats) | View accuracy metrics and false-positive rates per reviewer persona. |
+| [`scan_fix`](#scan-fix) | Remediate vulnerable dependencies via lockfile upgrades and optional git branch creation. |
 | [`scan_uv_audit`](#scan-uv-audit) | Run uv dependency audit / pip-audit to check workspace Python dependencies for known CVEs. |
 | [`security_intel_network`](#security-intel-network) | Check IP or domain threat intelligence via Shodan and Cloudflare Radar. |
 | [`security_intel_package`](#security-intel-package) | Query OSV.dev and NVD vulnerability databases for package CVE intelligence. |
@@ -53,6 +55,8 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`tls_generate_ca`](#tls-generate-ca) | Generate an X.509 Root CA key pair for local or homelab infrastructure. |
 | [`tls_generate_cert`](#tls-generate-cert) | Generate an X.509 TLS certificate with Subject Alternative Names signed by local CA. |
 | [`tls_inspect_cert`](#tls-inspect-cert) | Inspect and display metadata, validity, SANs, and expiration of a TLS certificate. |
+| [`vault_get`](#vault-get) | Fetch secret from HashiCorp Vault or OS Keyring fallback. |
+| [`vault_status`](#vault-status) | Check HashiCorp Vault cluster health and sealing status. |
 | [`verify_finding`](#verify-finding) | Validate or invalidate a finding and record human feedback. |
 | [`workspace_list`](#workspace-list) | Show the active VS Code workspace file and configured repository directories. |
 
@@ -136,6 +140,21 @@ Output environment variables available for configuration (text or json).
 Display configuration settings with masked secret tokens.
 
 *No parameters required.*
+
+### `docker_sandbox`
+
+Execute command inside an isolated Docker container sandbox.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `command` | `array` | Yes | - | - |
+| `image` | `string` | No | `python:3.14-slim` | - |
+| `workspace` | `string` | No | `.` | - |
+| `memory` | `string` | No | `2g` | - |
+| `network` | `string` | No | `bridge` | - |
+| `read_only` | `boolean` | No | `False` | - |
 
 ### `docker_stats`
 
@@ -361,6 +380,20 @@ View accuracy metrics and false-positive rates per reviewer persona.
 
 *No parameters required.*
 
+### `scan_fix`
+
+Remediate vulnerable dependencies via lockfile upgrades and optional git branch creation.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `target_path` | `string` | No | `.` | - |
+| `package` | `string` | No | - | - |
+| `min_severity` | `string` | No | `HIGH` | - |
+| `apply` | `boolean` | No | `False` | - |
+| `create_branch` | `boolean` | No | `False` | - |
+
 ### `scan_uv_audit`
 
 Run uv dependency audit / pip-audit to check workspace Python dependencies for known CVEs.
@@ -510,6 +543,27 @@ Inspect and display metadata, validity, SANs, and expiration of a TLS certificat
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `cert_path` | `string` | Yes | - | - |
+
+### `vault_get`
+
+Fetch secret from HashiCorp Vault or OS Keyring fallback.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `path` | `string` | Yes | - | - |
+| `key` | `string` | No | - | - |
+
+### `vault_status`
+
+Check HashiCorp Vault cluster health and sealing status.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `vault_addr` | `string` | No | - | - |
 
 ### `verify_finding`
 

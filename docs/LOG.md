@@ -18,6 +18,18 @@ Chronological log of refactoring milestones, quality gates, and security enhance
 - **Automated Kubernetes Stack Credential Synchronization (`src/devops_cli/k8s/credentials.py`, `devops k8s sync-secrets`)**:
   - Implemented zero-plaintext password extraction from Kubernetes cluster secrets (`argocd-initial-admin-secret`, `kube-prometheus-stack-grafana`, `grafana`) directly into OS Keyring (`argocd_password`, `grafana_password`).
   - Integrated automated credential synchronization into `devops k8s deploy-stack` and `devops k8s sync-secrets`.
+- **Automated Dependency Vulnerability Remediation PR Engine (`src/devops_cli/security/dependency_remediator.py`, `devops scan fix`)**:
+  - Implemented `DependencyRemediator` automating CVE patching across lockfiles (`uv lock --upgrade-package`), dry-run remediation planning, and git topic branch staging (`fix/security-<cve>`).
+  - Registered `scan_fix` FastMCP tool for autonomous agent-driven dependency remediation.
+- **Isolated Dockerized Workload Sandbox Environment (`src/devops_cli/docker/sandbox.py`, `devops test sandbox`, `devops docker sandbox`)**:
+  - Implemented `WorkloadSandboxRunner` providing rootless, ephemeral container test harnesses with bound workspace directories, resource quotas (`--memory`, `--cpus`), network isolation (`--network none`), and automatic container teardown.
+  - Registered `docker_sandbox` FastMCP tool.
+- **Enterprise HashiCorp Vault & Cloud KMS Secret Broker (`src/devops_cli/security/vault_broker.py`, `devops vault`)**:
+  - Implemented `VaultSecretBroker` supporting Vault KV-v2 REST engine, URI references (`vault://<path>#<key>`), zero-plaintext storage, and seamless fallback to OS Keyring.
+  - Added `devops vault` subcommands (`status`, `get`, `set`, `sync`) and registered `vault_status` and `vault_get` FastMCP tools.
+- **Kubernetes Background Port-Forward Daemon Management (`src/devops_cli/k8s/port_forward_daemon.py`, `devops k8s port-forward`)**:
+  - Implemented `PortForwardDaemonManager` with managed PID lifecycle tracking (`.data/k8s/port_forwards.json`), status inspection (`devops k8s port-forward-status`), and graceful process termination (`devops k8s port-forward-stop`).
+
 
 ### [2026-09-02] Release v0.2.8 Output Subsystem Deconstruction, Language Localization & Complexity Elimination
 - **Output Subsystem Modularization (`src/devops_cli/output/formatters/`)**:

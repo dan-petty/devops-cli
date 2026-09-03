@@ -34,7 +34,7 @@ uv run devops ci
   ```bash
   uv run mypy --python-version 3.14 --strict src
   ```
-- **Config & Literal Centralization**: Never scatter hardcoded strings or timeout literals throughout commands. Store constants in [`src/devops_cli/config/constants.py`](src/devops_cli/config/constants.py), defaults in [`src/devops_cli/config/defaults.py`](src/devops_cli/config/defaults.py), and user-facing messages in [`src/devops_cli/lang/en.py`](src/devops_cli/lang/en.py).
+- **Config & Literal Centralization**: Never scatter hardcoded strings or timeout literals throughout commands. Store constants in [`src/devops_cli/config/constants.py`](src/devops_cli/config/constants.py), defaults in [`src/devops_cli/config/defaults.py`](src/devops_cli/config/defaults.py), and user-facing messages in [`src/devops_cli/lang/en/`](src/devops_cli/lang/en/).
 - **Test Mocking Policy**: All automated unit tests must use `unittest.mock` or dummy test doubles. Live network calls in unit tests are prohibited.
 
 ---
@@ -61,7 +61,7 @@ All project workflows follow a strict sequence of operations and cadences docume
 ### Inner Development Loop (Continuous / Iterative Feature Work)
 When implementing features or fixing bugs, follow this sequence:
 1. **Sync Dependencies**: `uv sync`
-2. **Centralize Literals & Defaults**: Move user-facing strings to [`src/devops_cli/lang/en.py`](src/devops_cli/lang/en.py) and constants/defaults to [`src/devops_cli/config/`](src/devops_cli/config/).
+2. **Centralize Literals & Defaults**: Move user-facing strings to [`src/devops_cli/lang/en/`](src/devops_cli/lang/en/) and constants/defaults to [`src/devops_cli/config/`](src/devops_cli/config/).
 3. **Format & Lint Target Files**: `uv run ruff check --fix <target_paths> && uv run ruff format <target_paths>`
 4. **Static Type Checking**: `uv run mypy --strict <target_paths>`
 5. **Targeted Unit Testing**: Run targeted, isolated test files or methods under development (`uv run pytest tests/test_<feature>.py -k <test_name>`). *Do not run the full test suite during rapid iterative edit cycles.*

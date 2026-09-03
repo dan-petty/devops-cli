@@ -7,7 +7,7 @@
 | **Official Documentation** | [github.com/pydantic/httpx2](https://github.com/pydantic/httpx2) |
 | **Public Git Repository** | [github.com/pydantic/httpx2](https://github.com/pydantic/httpx2) |
 | **Official PyPI Package** | [pypi.org/project/httpx2](https://pypi.org/project/httpx2/) (`2.9.0`) |
-| **DevOps CLI Integration** | [`src/devops_cli/ai/llm/client/`](file:///workspaces/devops-cli/src/devops_cli/ai/llm/client/) • [`src/devops_cli/service/`](file:///workspaces/devops-cli/src/devops_cli/service/) |
+| **DevOps CLI Integration** | [`src/devops_cli/http/broker.py`](file:///workspaces/devops-cli/src/devops_cli/http/broker.py) • [`src/devops_cli/server/`](file:///workspaces/devops-cli/src/devops_cli/server/) |
 
 ---
 

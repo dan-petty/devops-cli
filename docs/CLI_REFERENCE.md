@@ -32,6 +32,7 @@ Complete command-line reference for `devops-cli`, automatically generated from C
 - [`devops serve`](#devops-serve) — FastAPI REST & OpenAPI Service Engine for remote automation, health probes, and metrics.
 - [`devops test`](#devops-test) — Test suite orchestration, git-diff aware test selector, and load testing.
 - [`devops pipeline`](#devops-pipeline) — Programmable containerized pipeline execution (Dagger).
+- [`devops vault`](#devops-vault) — Enterprise HashiCorp Vault secret broker
 
 ---
 
@@ -752,6 +753,28 @@ devops k8s port-forward [OPTIONS]
 | `--valkey-port` | `integer` | `<masked>` | Local port for Valkey. |
 | `--address` | `string` | `127.0.0.1` | Local address to bind for port-forwarding. |
 
+### `devops k8s port-forward-status`
+
+**List active background Kubernetes port-forward daemons.**
+
+```bash
+devops k8s port-forward-status
+```
+
+### `devops k8s port-forward-stop`
+
+**Terminate active background Kubernetes port-forward daemons.**
+
+```bash
+devops k8s port-forward-stop [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--service`, `-s` | `string` | - | Specific service to stop |
+
 ### `devops k8s teardown-stack`
 
 **Uninstall the k8s infrastructure / LLM stack and delete namespaces.**
@@ -1182,6 +1205,33 @@ devops docker analyze-layers [OPTIONS] <image>
 |---|---|---|---|
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
+
+### `devops docker sandbox`
+
+**Execute workload inside an isolated, disposable Docker container sandbox.**
+
+```bash
+devops docker sandbox [OPTIONS] <command>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<command>` | `string` | Yes | Workload command to execute inside container sandbox |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--image`, `-i` | `string` | `python:3.14-slim` | Docker container image to execute within |
+| `--workspace`, `-w` | `path` | `.` | Workspace directory to mount |
+| `--memory`, `-m` | `string` | `2g` | Memory limit (e.g. 2g, 512m) |
+| `--cpus`, `-c` | `float` | `2.0` | CPU limit |
+| `--network`, `-n` | `string` | `bridge` | Network mode: bridge | none | host |
+| `--read-only` | `boolean` | - | Mount workspace as read-only |
+| `--rootless`, `--root` | `boolean` | `True` | Run container with host user UID/GID |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -2142,6 +2192,30 @@ devops scan aibom [OPTIONS] <target>
 |---|---|---|---|
 | `--format`, `-f` | `string` | `cyclonedx` | AIBOM format output (cyclonedx, json). |
 | `--output`, `-o` | `path` | - | Destination file path for generated AIBOM manifest. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+### `devops scan fix`
+
+**Remediate vulnerable dependencies via lockfile upgrades and optional git branch creation.**
+
+```bash
+devops scan fix [OPTIONS] <target>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<target>` | `path` | No | Target project directory containing lockfile or dependencies |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--package`, `-p` | `string` | - | Specific vulnerable package to remediate |
+| `--min-severity`, `-s` | `string` | `HIGH` | Minimum vulnerability severity (LOW|MEDIUM|HIGH|CRITICAL) |
+| `--apply` | `boolean` | - | Apply lockfile upgrades directly |
+| `--create-branch`, `-b` | `boolean` | - | Create a git topic branch for the remediation |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
@@ -4001,6 +4075,33 @@ devops test load [OPTIONS] <script_path>
 | `--summary-export`, `-s` | `path` | - | Path to export JSON summary metrics. |
 | `--dry-run` | `boolean` | - | Simulate test execution. |
 
+### `devops test sandbox`
+
+**Execute test command inside an isolated, disposable Docker container sandbox.**
+
+```bash
+devops test sandbox [OPTIONS] <command>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<command>` | `string` | Yes | Test command to execute inside container sandbox |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--image`, `-i` | `string` | `python:3.14-slim` | Docker container image to execute command within |
+| `--workspace`, `-w` | `path` | `.` | Workspace directory to bind mount |
+| `--memory`, `-m` | `string` | `2g` | Memory constraint limit (e.g. 2g, 512m) |
+| `--cpus`, `-c` | `float` | `2.0` | CPU quota limit |
+| `--network`, `-n` | `string` | `bridge` | Network mode: bridge | none | host |
+| `--read-only` | `boolean` | - | Mount workspace as read-only |
+| `--rootless`, `--root` | `boolean` | `True` | Run container with host user UID/GID |
+| `--dry-run` | `boolean` | - | Simulate test execution. |
+
 ---
 
 ## devops pipeline
@@ -4029,6 +4130,93 @@ devops pipeline [OPTIONS] <pipeline_path>
 |---|---|---|---|
 | `--function`, `-f` | `string` | - | Target pipeline function to call. |
 | `--args`, `-a` | `string` | - | Arguments to forward to the pipeline execution. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---
+
+## devops vault
+
+Enterprise HashiCorp Vault secret broker
+
+Enterprise HashiCorp Vault secret broker commands
+
+### `devops vault status`
+
+**Inspect HashiCorp Vault cluster health and initialization status.**
+
+```bash
+devops vault status [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--addr`, `-a` | `string` | - | Vault cluster HTTP API address |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+### `devops vault get`
+
+**Fetch secret value from Vault or OS Keyring fallback.**
+
+```bash
+devops vault get [OPTIONS] <path>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<path>` | `string` | Yes | Vault secret path (e.g. secret/data/myapp or vault://secret/data/myapp#token) |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--key`, `-k` | `string` | - | Specific secret field key to extract |
+| `--show` | `boolean` | - | Display secret in plain text without masking |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+### `devops vault set`
+
+**Store secret key-value pairs in HashiCorp Vault KV-v2 engine.**
+
+```bash
+devops vault set [OPTIONS] <path> <key_values>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<path>` | `string` | Yes | Vault secret path (e.g. secret/data/myapp) |
+| `<key_values>` | `string` | Yes | Key-value pairs to store (format: KEY=VALUE) |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+### `devops vault sync`
+
+**Synchronize secrets from Vault into OS Keyring for offline/local CLI operations.**
+
+```bash
+devops vault sync [OPTIONS] <path>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<path>` | `string` | Yes | Vault secret path to synchronize into OS Keyring |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--key`, `-k` | `string` | - | Specific keys to sync (syncs all keys if omitted) |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---

@@ -205,6 +205,32 @@ devops k8s port-forward [OPTIONS]
 
 ---
 
+## `devops k8s port-forward-status`
+
+**List active background Kubernetes port-forward daemons.**
+
+```bash
+devops k8s port-forward-status
+```
+
+---
+
+## `devops k8s port-forward-stop`
+
+**Terminate active background Kubernetes port-forward daemons.**
+
+```bash
+devops k8s port-forward-stop [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--service`, `-s` | `string` | - | Specific service to stop |
+
+---
+
 ## `devops k8s teardown-stack`
 
 **Uninstall the k8s infrastructure / LLM stack and delete namespaces.**

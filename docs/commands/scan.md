@@ -243,3 +243,29 @@ devops scan aibom [OPTIONS] <target>
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
+
+## `devops scan fix`
+
+**Remediate vulnerable dependencies via lockfile upgrades and optional git branch creation.**
+
+```bash
+devops scan fix [OPTIONS] <target>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<target>` | `path` | No | Target project directory containing lockfile or dependencies |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--package`, `-p` | `string` | - | Specific vulnerable package to remediate |
+| `--min-severity`, `-s` | `string` | `HIGH` | Minimum vulnerability severity (LOW|MEDIUM|HIGH|CRITICAL) |
+| `--apply` | `boolean` | - | Apply lockfile upgrades directly |
+| `--create-branch`, `-b` | `boolean` | - | Create a git topic branch for the remediation |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---
