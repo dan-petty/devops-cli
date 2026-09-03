@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import re
 import sqlite3
 import time
 import uuid
+from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
 from pydantic import BaseModel, Field
@@ -85,8 +87,15 @@ class SqliteStepStore:
     """SQLite-backed persistent step storage implementation."""
 
     def __init__(self, db_path: str = ":memory:") -> None:
-        self.db_path = db_path
-        self._conn = sqlite3.connect(db_path, check_same_thread=False)
+        if db_path != ":memory:":
+            if ".." in str(db_path):
+                raise ValueError(f"Directory traversal not permitted in db_path: {db_path}")
+            path_obj = Path(db_path)
+            path_obj.parent.mkdir(parents=True, exist_ok=True)
+            self.db_path = str(path_obj.resolve())
+        else:
+            self.db_path = db_path
+        self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
         self._init_db()
 
     def _init_db(self) -> None:
@@ -179,6 +188,27 @@ class SqliteStepStore:
         return forked
 
 
+_SENSITIVE_KEY_PATTERN = re.compile(
+    r"(?:token|secret|password|passwd|api[_-]?key|credential|private[_-]?key|auth)",
+    re.IGNORECASE,
+)
+
+
+def _mask_sensitive_data(data: Any) -> Any:
+    """Recursively mask sensitive keys and credentials in step payloads."""
+    if isinstance(data, dict):
+        masked: dict[str, Any] = {}
+        for k, v in data.items():
+            if _SENSITIVE_KEY_PATTERN.search(str(k)):
+                masked[k] = "***REDACTED***"
+            else:
+                masked[k] = _mask_sensitive_data(v)
+        return masked
+    if isinstance(data, list):
+        return [_mask_sensitive_data(x) for x in data]
+    return data
+
+
 class StepPersistence(BaseCapability):
     """Capability providing step-by-step durable execution, checkpointing, and run forking."""
 
@@ -218,9 +248,15 @@ class StepPersistence(BaseCapability):
         """Attach automatic step recording hooks."""
 
         def before_tool(ctx: RunContext[Any], tool_name: str, args: dict[str, Any]) -> None:
-            self.save_step("tool_call", {"tool_name": tool_name, "args": args})
+            clean_args = _mask_sensitive_data(args)
+            self.save_step("tool_call", {"tool_name": tool_name, "args": clean_args})
 
         def after_tool(ctx: RunContext[Any], tool_name: str, result: Any) -> None:
-            self.save_step("tool_result", {"tool_name": tool_name, "result": str(result)[:500]})
+            clean_res = (
+                _mask_sensitive_data(result)
+                if isinstance(result, (dict, list))
+                else str(result)[:500]
+            )
+            self.save_step("tool_result", {"tool_name": tool_name, "result": clean_res})
 
         return AgentHooks(before_tool_execute=[before_tool], after_tool_execute=[after_tool])

@@ -133,9 +133,13 @@ def detect_trust_remote_code(target_dir: Path) -> bool:
             pass
 
     # 2. Inspect Python files for trust_remote_code keyword in AST or modeling definitions
+    resolved_target = target_dir.resolve()
     for py_file in target_dir.glob("*.py"):
         try:
-            tree = ast.parse(py_file.read_text(encoding="utf-8"))
+            resolved_py = py_file.resolve()
+            if not resolved_py.is_relative_to(resolved_target):
+                continue
+            tree = ast.parse(resolved_py.read_text(encoding="utf-8"))
             for node in ast.walk(tree):
                 if isinstance(node, ast.keyword) and node.arg == "trust_remote_code":
                     if isinstance(node.value, ast.Constant) and bool(node.value.value):
@@ -192,7 +196,15 @@ def extract_aibom_components(workspace_dir: Path) -> list[AIBOMComponent]:
         *workspace_dir.glob("**/model_card.json"),
     ]
 
+    resolved_workspace = workspace_dir.resolve()
     for candidate in manifest_candidates:
+        try:
+            resolved_cand = candidate.resolve()
+            if not resolved_cand.is_relative_to(resolved_workspace):
+                continue
+        except ValueError, OSError:
+            continue
+
         parent_dir = candidate.parent
         resolved_parent = parent_dir.resolve()
         name = parent_dir.name

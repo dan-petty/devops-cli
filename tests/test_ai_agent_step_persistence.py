@@ -73,16 +73,28 @@ def test_step_persistence_capability() -> None:
     assert len(hooks.after_tool_execute) > 0
 
     ctx = RunContext()
-    hooks.before_tool_execute[0](ctx, "k8s_pods", {"namespace": "default"})
-    hooks.after_tool_execute[0](ctx, "k8s_pods", "found 2 pods")
+    hooks.before_tool_execute[0](
+        ctx, "k8s_pods", {"namespace": "default", "api_token": "super-secret-key"}
+    )
+    hooks.after_tool_execute[0](ctx, "k8s_pods", {"password": "admin-password", "status": "ok"})
 
     history = cap.continue_run(cap.current_run_id)
     assert len(history) == 3
     assert history[1].kind == "tool_call"
+    assert history[1].payload["args"]["api_token"] == "***REDACTED***"
     assert history[2].kind == "tool_result"
+    assert history[2].payload["result"]["password"] == "***REDACTED***"
 
     # 3. Fork run
     fork_id, forked_steps = cap.fork_run(up_to_step=2)
     assert fork_id != history[0].run_id
     assert len(forked_steps) == 2
     assert cap.current_run_id == fork_id
+
+
+def test_sqlite_step_store_path_traversal() -> None:
+    """Verify SqliteStepStore rejects relative path traversal."""
+    import pytest
+
+    with pytest.raises(ValueError, match="Directory traversal not permitted"):
+        SqliteStepStore(db_path="../escaped.db")

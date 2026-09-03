@@ -142,7 +142,7 @@ def validate_path(
     *,
     must_exist: bool = True,
     kind: PathKind = "any",
-    allow_traversal: bool = True,
+    allow_traversal: bool = False,
     label: str = "Path",
 ) -> Path:
     """Resolve and validate a filesystem path, directory, file, or key location.

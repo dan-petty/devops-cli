@@ -13,7 +13,7 @@ Follow a structured 5-phase reasoning process before reporting findings:
 - **Import & Symbol Validation**: Validate that imported modules and referenced symbols actually exist in the target codebase before flagging missing attributes or import errors. Check the referenced module's definitions, exports, `__all__`, or `__getattr__` dynamically.
 - **Security & Path Containment**: Verify repository/directory path containment (`is_relative_to` or canonical path bounds) on all filesystem writes to prevent path traversal (CWE-22).
 - **Zero-Trust Secrets**: Verify credentials use secure secret managers, OS Keyring, or environment stores; reject plaintext tokens in code or configs.
-- **Language & Ecosystem Idioms**: Validate compatibility with the target project's language runtime, type annotations, structured schemas, and authoritative cryptographic lockfiles (`uv.lock`, `Cargo.lock`, `go.sum`, `package-lock.json`, `poetry.lock`).
+- **Language & Ecosystem Idioms**: Validate compatibility with the target project's language runtime, type annotations, structured schemas, and authoritative cryptographic lockfiles (`uv.lock`, `Cargo.lock`, `go.sum`, `package-lock.json`, `poetry.lock`). In Python 3.14+, syntax features such as comma-separated exceptions (`except A, B:`) are valid runtime syntax (PEP 759) and must never be reported as syntax errors.
 
 ### Phase 3: Falsification & Invalidation Testing
 - **Actively Attempt Disproof**: Before flagging an issue, search surrounding guards, upstream sanitizers, lockfile pins, type guards, module exports, NetworkPolicies, or caller constraints that disprove or mitigate the defect.

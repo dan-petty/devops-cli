@@ -186,6 +186,97 @@ def _extract_dict_finding_fields(data: dict[str, Any]) -> dict[str, Any]:
     return d
 
 
+_PROMPT_CRITERIA_SPLIT_REGEX = re.compile(
+    r"(?:Verification\s+criteria|Invalidation\s+criteria|:\s*line\s+where)",
+    re.IGNORECASE,
+)
+
+_INSTRUCTION_HEADER_PREFIX_REGEX = re.compile(
+    r"^(?:Provide\s+(?:fix|remediation|patch|verification|invalidation)|Title|Issue|Defect|Finding|Problem|Observation):\s*",
+    re.IGNORECASE,
+)
+
+_PROMPT_PLACEHOLDER_BASENAMES: frozenset[str] = frozenset(
+    {"file.ext", "filename.ext", "path/to/file.ext", "src/file.py", "path/to/file.py", "example.py"}
+)
+
+_MARKDOWN_LINK_REGEX = re.compile(r"\[([^\]]+)\]\([^)]+\)")
+
+
+def sanitize_finding_text(text: str) -> str:
+    """Scrub prompt criteria leakage, instruction headers, and markdown noise from text."""
+    val = normalize_unicode_text(str(text)).strip()
+    # Strip leading instruction headers first (e.g., 'Provide fix:', 'Title:', 'Issue:')
+    val = _INSTRUCTION_HEADER_PREFIX_REGEX.sub("", val).strip()
+    # Strip trailing prompt criteria leakage
+    if _PROMPT_CRITERIA_SPLIT_REGEX.search(val):
+        val = _PROMPT_CRITERIA_SPLIT_REGEX.split(val)[0].strip()
+    return val
+
+
+def canonicalize_finding_location(location: str) -> str:
+    """Canonicalize raw LLM location text into standard path/to/file.ext:start-end or path/to/file.ext:line."""
+    loc = normalize_unicode_text(str(location)).strip()
+    if not loc or "\n" in loc or "```" in loc:
+        return ""
+
+    m_link = _MARKDOWN_LINK_REGEX.search(loc)
+    if m_link:
+        loc = m_link.group(1).strip()
+
+    loc = loc.strip("`'\"()[]")
+
+    had_prompt_leakage = False
+    if _PROMPT_CRITERIA_SPLIT_REGEX.search(loc):
+        loc = _PROMPT_CRITERIA_SPLIT_REGEX.split(loc)[0].strip()
+        had_prompt_leakage = True
+
+    loc = re.sub(r"#L?(\d+)(?:-L?(\d+))?", r":\1-\2", loc).rstrip("-")
+    loc = re.sub(
+        r"[,:]\s*lines?\s*(\d+)(?:\s*[-–—:]\s*(\d+))?",
+        r":\1-\2",
+        loc,
+        flags=re.IGNORECASE,
+    ).rstrip("-")
+    loc = re.sub(r"\s*:\s*", ":", loc)
+    loc = re.sub(r"(\d+)\s*[-–—]\s*(\d+)", r"\1-\2", loc)
+
+    loc_file = loc.split(":")[0].strip()
+    from pathlib import Path
+
+    if (
+        loc_file.lower() in _PROMPT_PLACEHOLDER_BASENAMES
+        or Path(loc_file).name.lower() in _PROMPT_PLACEHOLDER_BASENAMES
+    ):
+        return ""
+
+    m_loc = re.match(r"^([a-zA-Z0-9_\-./\\]+)(?::(\d+)(?:-(\d+))?)?$", loc)
+    if m_loc:
+        file_path = m_loc.group(1).replace("\\", "/")
+        s_str = m_loc.group(2)
+        e_str = m_loc.group(3)
+
+        if not s_str:
+            return f"{file_path}:1" if had_prompt_leakage else file_path
+
+        s_line = int(s_str)
+        e_line = int(e_str) if e_str else None
+
+        if e_line is not None and s_line > e_line:
+            s_line, e_line = e_line, s_line
+
+        if e_line is not None and e_line != s_line:
+            return f"{file_path}:{s_line}-{e_line}"
+        return f"{file_path}:{s_line}"
+
+    if had_prompt_leakage:
+        m_file = re.match(r"^([a-zA-Z0-9_\-./\\]+)", loc)
+        if m_file:
+            return f"{m_file.group(1).replace('\\', '/')}:1"
+
+    return loc
+
+
 class Finding(BaseModel):
     severity: str = "MEDIUM"
     location: str = ""
@@ -234,43 +325,17 @@ class Finding(BaseModel):
     @field_validator("description", "fix", mode="before")
     @classmethod
     def _clean_text_fields(cls, v: object) -> str:
-        return normalize_unicode_text(str(v)).strip()
+        return sanitize_finding_text(str(v))
 
     @field_validator("location", mode="before")
     @classmethod
     def _clean_location(cls, v: object) -> str:
-        loc = normalize_unicode_text(str(v)).strip()
-        if "\n" in loc or "```" in loc:
-            return ""
-        # If prompt criteria or instructions leaked into location, strip them out
-        if re.search(
-            r"(?:Provide\s+(?:fix|verification|invalidation)|Verification\s+criteria|Invalidation\s+criteria|line\s+where)",
-            loc,
-            flags=re.IGNORECASE,
-        ):
-            loc = re.split(
-                r"(?:Provide\s+(?:fix|verification|invalidation)|Verification\s+criteria|Invalidation\s+criteria|:\s*line\s+where)",
-                loc,
-                flags=re.IGNORECASE,
-            )[0].strip()
-            # If followed by non-line text, extract canonical path
-            m_file = re.match(r"^([a-zA-Z0-9_\-./\\]+\.[a-zA-Z0-9_]+)(?::(\d+(?:-\d+)?))?", loc)
-            if m_file:
-                f_path = m_file.group(1).replace("\\", "/")
-                lines = m_file.group(2)
-                return f"{f_path}:{lines}" if lines else f"{f_path}:1"
-        return loc
+        return canonicalize_finding_location(str(v))
 
     @field_validator("title", mode="before")
     @classmethod
     def _clean_title(cls, v: object) -> str:
-        text = normalize_unicode_text(str(v)).strip()
-        # Strip prompt criteria leakage
-        text = re.split(
-            r"(?:Provide\s+(?:fix|verification|invalidation)|Verification\s+criteria|Invalidation\s+criteria)",
-            text,
-            flags=re.IGNORECASE,
-        )[0].strip()
+        text = sanitize_finding_text(str(v))
         lines = [line.strip() for line in text.splitlines() if line.strip()]
         if not lines:
             return ""
@@ -555,6 +620,23 @@ class ReviewSessionPayload(BaseModel):
         return consolidate_duplicate_findings(self.findings)
 
 
+def derive_recommendation(findings: list[Finding]) -> str:
+    """Deterministically derive merge recommendation based on verified and reportable findings."""
+    reportable = [
+        f
+        for f in findings
+        if not f.is_empty
+        and f.reportable
+        and f.status not in {"INVALIDATED", "MITIGATED"}
+        and f.severity in {"CRITICAL", "HIGH", "MEDIUM", "LOW"}
+    ]
+    if not reportable:
+        return "APPROVE"
+    if any(f.severity == "CRITICAL" for f in reportable):
+        return "BLOCK"
+    return "REQUEST CHANGES"
+
+
 class ReviewResult(BaseModel):
     findings: list[Finding] = Field(default_factory=list)
     positive_observations: list[str] = Field(default_factory=list)
@@ -571,8 +653,7 @@ class ReviewResult(BaseModel):
 
     @model_validator(mode="after")
     def _sync_recommendation(self) -> ReviewResult:
-        if not self.findings and self.recommendation == "REQUEST CHANGES":
-            self.recommendation = "APPROVE"
+        self.recommendation = derive_recommendation(self.findings)
         return self
 
     @field_validator("summary", mode="before")
@@ -605,11 +686,7 @@ class ReviewResult(BaseModel):
     def merge(self, other: ReviewResult) -> ReviewResult:
         """Merge another ReviewResult, deduplicating and consolidating findings."""
         merged_findings = consolidate_duplicate_findings(self.findings + other.findings)
-        rec_order = {"BLOCK": 0, "REQUEST CHANGES": 1, "APPROVE": 2}
-        recommendation = min(
-            (self.recommendation, other.recommendation),
-            key=lambda r: rec_order.get(r, 99),
-        )
+        recommendation = derive_recommendation(merged_findings)
         scores = [s for s in (self.confidence_score, other.confidence_score) if s is not None]
         merged_conf = round(sum(scores) / len(scores), 2) if scores else None
         return ReviewResult(
