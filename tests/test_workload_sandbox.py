@@ -114,3 +114,26 @@ def test_cli_docker_sandbox_dry_run(tmp_path: Path) -> None:
     )
     assert res.exit_code == 0
     assert "pytest" in res.output
+
+
+def test_sandbox_runner_subprocess_env_propagation(tmp_path: Path) -> None:
+    """Test that WorkloadSandboxConfig.env is propagated as -e flags in subprocess fallback."""
+    cfg = WorkloadSandboxConfig(
+        workspace_dir=tmp_path,
+        command=["python3", "-c", "print('hello')"],
+        env={"TEST_VAR": "custom_val", "API_KEY": "secret123"},
+    )
+    sandbox = WorkloadSandboxRunner(cfg)
+
+    with (
+        patch("devops_cli.docker.sandbox._get_docker_client", return_value=None),
+        patch("devops_cli.docker.sandbox.run_subprocess") as mock_subproc,
+    ):
+        mock_subproc.return_value = MagicMock(returncode=0, stdout="hello", stderr="")
+        res = sandbox.run()
+
+        assert res.exit_code == 0
+        cmd_args = mock_subproc.call_args[0][0]
+        assert "-e" in cmd_args
+        assert "TEST_VAR=custom_val" in cmd_args
+        assert "API_KEY=secret123" in cmd_args

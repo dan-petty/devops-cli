@@ -161,6 +161,8 @@ class WorkloadSandboxRunner:
             f"--cpus={self.config.cpu_limit}",
             f"--network={self.config.network_mode}",
         ]
+        for env_key, env_val in self.config.env.items():
+            cmd.extend(["-e", f"{env_key}={env_val}"])
         if self.config.rootless and hasattr(os, "getuid"):
             cmd.extend(["--user", f"{os.getuid()}:{os.getgid()}"])
         cmd.append(self.config.image)
