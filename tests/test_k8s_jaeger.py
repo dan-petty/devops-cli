@@ -82,6 +82,10 @@ def test_k8s_deploy_stack_shows_jaeger_connection_info(runner: CliRunner) -> Non
         patch("devops_cli.commands.k8s._cluster_reachable", return_value=True),
         patch("devops_cli.commands.k8s._run_cmd") as mock_run,
         patch("devops_cli.commands.k8s.port_forward"),
+        patch(
+            "devops_cli.k8s.credentials.sync_k8s_credentials",
+            return_value={"argocd": True, "grafana": True},
+        ),
     ):
         mock_proc = MagicMock()
         mock_proc.returncode = 0
