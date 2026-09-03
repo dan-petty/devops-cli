@@ -52,17 +52,27 @@ def build_upgrade_command(
     return ["uv", "lock", "--upgrade-package", spec]
 
 
-def create_remediation_branch(target_dir: Path, package: str, cve_id: str | None) -> str:
-    """Create a git topic branch for the remediation and return branch name."""
+_SEVERITY_WEIGHTS: dict[str, int] = {
+    "LOW": 1,
+    "MEDIUM": 2,
+    "HIGH": 3,
+    "CRITICAL": 4,
+}
+
+
+def create_remediation_branch(target_dir: Path, package: str, cve_id: str | None) -> str | None:
+    """Create a git topic branch for the remediation and return branch name if successful."""
     clean_cve = (cve_id or "cve").lower().replace(":", "-").replace("/", "-")
     branch_name = f"fix/security-{package}-{clean_cve}"
-    run_subprocess(
+    res = run_subprocess(
         ["git", "checkout", "-b", branch_name],
         cwd=target_dir,
         timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
         check=False,
     )
-    return branch_name
+    if res.returncode == 0:
+        return branch_name
+    return None
 
 
 class DependencyRemediator:
@@ -77,14 +87,20 @@ class DependencyRemediator:
         vulnerabilities: Sequence[VulnerabilityRecord],
         installed_versions: dict[str, str] | None = None,
         package_filter: str | None = None,
+        min_severity: str = "HIGH",
     ) -> VulnerabilityRemediationResult:
         """Formulate a structured remediation plan without executing lockfile updates."""
         versions = installed_versions or {}
         actions: list[VulnerabilityFixAction] = []
+        min_weight = _SEVERITY_WEIGHTS.get(min_severity.upper(), 3)
 
         for v in vulnerabilities:
             if package_filter and v.package.lower() != package_filter.lower():
                 continue
+            v_weight = _SEVERITY_WEIGHTS.get(v.severity.upper(), 0)
+            if v_weight < min_weight:
+                continue
+
             curr = versions.get(v.package, "")
             fix_ver = v.fixed_version or None
             cmd = build_upgrade_command(self.ecosystem, v.package, fix_ver)
@@ -174,13 +190,32 @@ class DependencyRemediator:
         package_filter: str | None = None,
         min_severity: str = "HIGH",
     ) -> VulnerabilityRemediationResult:
-        """Audit target directory using OSV or uv audit and plan remediations."""
+        """Audit target directory using OSV or scanner findings and plan remediations."""
         from devops_cli.security.vulnerability_lookup import OSVClient
 
         client = OSVClient()
-        # Fallback to demo/sample if lockfile empty
         vulnerabilities: list[VulnerabilityRecord] = []
         if package_filter:
             vulnerabilities = client.query_package(package_filter, ecosystem=self.ecosystem)
+        else:
+            from devops_cli.security.trivy import run_trivy_scan
 
-        return self.plan_remediation(vulnerabilities, package_filter=package_filter)
+            findings = run_trivy_scan(self.target_dir, scan_type="fs")
+            for f in findings:
+                pkg_name = f.location.split(":")[-1] if ":" in f.location else f.location
+                cve_match = (
+                    f.title.split("]")[0].replace("[", "").strip() if "[" in f.title else None
+                )
+                vulnerabilities.append(
+                    VulnerabilityRecord(
+                        id=cve_match or "CVE-UNKNOWN",
+                        summary=f.description,
+                        severity=f.severity,
+                        package=pkg_name,
+                        source="Trivy",
+                    )
+                )
+
+        return self.plan_remediation(
+            vulnerabilities, package_filter=package_filter, min_severity=min_severity
+        )

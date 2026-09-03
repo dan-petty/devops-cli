@@ -209,6 +209,7 @@ def test_build_upgrade_commands_and_branch(tmp_path: Path) -> None:
     ]
 
     with patch("devops_cli.security.dependency_remediator.run_subprocess") as mock_subproc:
+        mock_subproc.return_value = MagicMock(returncode=0)
         b_name = create_remediation_branch(tmp_path, "requests", "CVE:2026/1234")
         assert b_name == "fix/security-requests-cve-2026-1234"
         assert mock_subproc.called
@@ -287,3 +288,82 @@ def test_remediator_filter_mismatch_and_fallback_cmd() -> None:
     vuln = VulnerabilityRecord(id="CVE-2026-9999", package="other-pkg", severity="HIGH")
     plan = remediator.plan_remediation([vuln], package_filter="target-pkg")
     assert len(plan.actions) == 0
+
+
+def test_create_remediation_branch_failure_returns_none(tmp_path: Path) -> None:
+    """Test create_remediation_branch returns None when git command fails."""
+    from devops_cli.security.dependency_remediator import create_remediation_branch
+
+    # Success case (returncode=0)
+    with patch("devops_cli.security.dependency_remediator.run_subprocess") as mock_subproc:
+        mock_subproc.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        b_name = create_remediation_branch(tmp_path, "urllib3", "CVE-2026-0001")
+        assert b_name == "fix/security-urllib3-cve-2026-0001"
+
+    # Failure case (returncode != 0 e.g. branch exists or not git repo)
+    with patch("devops_cli.security.dependency_remediator.run_subprocess") as mock_subproc:
+        mock_subproc.return_value = MagicMock(
+            returncode=128, stdout="", stderr="fatal: not a git repo"
+        )
+        b_name = create_remediation_branch(tmp_path, "urllib3", "CVE-2026-0001")
+        assert b_name is None
+
+
+def test_plan_remediation_min_severity_filtering() -> None:
+    """Test that plan_remediation respects min_severity threshold."""
+    remediator = DependencyRemediator()
+    vulns = [
+        VulnerabilityRecord(id="V-1", package="p1", severity="LOW"),
+        VulnerabilityRecord(id="V-2", package="p2", severity="MEDIUM"),
+        VulnerabilityRecord(id="V-3", package="p3", severity="HIGH"),
+        VulnerabilityRecord(id="V-4", package="p4", severity="CRITICAL"),
+    ]
+
+    # min_severity=CRITICAL -> only CRITICAL
+    plan_crit = remediator.plan_remediation(vulns, min_severity="CRITICAL")
+    assert [a.package for a in plan_crit.actions] == ["p4"]
+
+    # min_severity=HIGH -> HIGH and CRITICAL
+    plan_high = remediator.plan_remediation(vulns, min_severity="HIGH")
+    assert [a.package for a in plan_high.actions] == ["p3", "p4"]
+
+    # min_severity=MEDIUM -> MEDIUM, HIGH, and CRITICAL
+    plan_med = remediator.plan_remediation(vulns, min_severity="MEDIUM")
+    assert [a.package for a in plan_med.actions] == ["p2", "p3", "p4"]
+
+    # min_severity=LOW -> all
+    plan_low = remediator.plan_remediation(vulns, min_severity="LOW")
+    assert [a.package for a in plan_low.actions] == ["p1", "p2", "p3", "p4"]
+
+
+def test_scan_and_plan_without_package_filter(tmp_path: Path) -> None:
+    """Test scan_and_plan scans workspace vulnerabilities when package_filter is None."""
+    remediator = DependencyRemediator(target_dir=tmp_path)
+
+    from devops_cli.ai.review_schema import Finding
+
+    mock_findings = [
+        Finding(
+            severity="HIGH",
+            location="uv.lock:jinja2",
+            title="[CVE-2026-1234] Vulnerability in jinja2",
+            description="High vulnerability",
+            fix="Upgrade jinja2",
+            confidence_score=None,
+        ),
+        Finding(
+            severity="LOW",
+            location="uv.lock:requests",
+            title="[CVE-2026-5678] Low issue in requests",
+            description="Low vulnerability",
+            fix="Upgrade requests",
+            confidence_score=None,
+        ),
+    ]
+
+    with patch("devops_cli.security.trivy.run_trivy_scan", return_value=mock_findings):
+        # min_severity=HIGH filters out LOW
+        res = remediator.scan_and_plan(package_filter=None, min_severity="HIGH")
+        assert len(res.actions) == 1
+        assert res.actions[0].package == "jinja2"
+        assert res.actions[0].severity == "HIGH"
