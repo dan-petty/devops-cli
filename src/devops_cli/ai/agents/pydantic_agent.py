@@ -233,6 +233,16 @@ from devops_cli.ai.direct import (
     to_llm_response,
     to_model_messages,
 )
+from devops_cli.ai.durable import (
+    BaseDurabilityCapability,
+    LocalDurabilityCapability,
+    create_durable_pydantic_agent,
+    get_available_durable_engines,
+    is_dbos_available,
+    is_prefect_available,
+    is_temporal_available,
+    resolve_durability_capability,
+)
 
 __all__ = [
     "ALLOW_MODEL_REQUESTS",
@@ -243,6 +253,14 @@ __all__ = [
     "Agent",
     "AgentHooks",
     "AgentInfo",
+    "BaseDurabilityCapability",
+    "LocalDurabilityCapability",
+    "create_durable_pydantic_agent",
+    "get_available_durable_engines",
+    "is_dbos_available",
+    "is_prefect_available",
+    "is_temporal_available",
+    "resolve_durability_capability",
     "AgentModelSettings",
     "AgentRealtime",
     "AgentResponse",

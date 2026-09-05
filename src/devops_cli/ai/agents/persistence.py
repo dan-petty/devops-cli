@@ -2,219 +2,34 @@
 
 from __future__ import annotations
 
-import re
-import sqlite3
-import time
 import uuid
-from pathlib import Path
-from typing import Any, Protocol, runtime_checkable
+from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 from devops_cli.ai.agents.capabilities import BaseCapability
 from devops_cli.ai.agents.context import AgentHooks, RunContext
-
-
-class StepRecord(BaseModel):
-    """Represents a single persisted execution step or node in an agent run."""
-
-    step_id: str = Field(default_factory=lambda: uuid.uuid4().hex[:12])
-    run_id: str
-    step_number: int = 0
-    kind: str  # "model_request", "tool_call", "tool_result", "checkpoint", "error"
-    payload: dict[str, Any] = Field(default_factory=dict)
-    timestamp: float = Field(default_factory=time.time)
-
-
-@runtime_checkable
-class StepStore(Protocol):
-    """Storage backend protocol for persisting and retrieving agent step records."""
-
-    def save_step(self, step: StepRecord) -> None: ...
-    def get_steps(self, run_id: str) -> list[StepRecord]: ...
-    def get_latest_step(self, run_id: str) -> StepRecord | None: ...
-    def fork_run(
-        self, source_run_id: str, new_run_id: str, up_to_step: int | None = None
-    ) -> list[StepRecord]: ...
-
-
-class InMemoryStepStore(BaseModel):
-    """In-memory step storage implementation."""
-
-    steps_by_run: dict[str, list[StepRecord]] = Field(default_factory=dict)
-
-    def save_step(self, step: StepRecord) -> None:
-        """Persist a single step record."""
-        if step.run_id not in self.steps_by_run:
-            self.steps_by_run[step.run_id] = []
-        if step.step_number == 0:
-            step.step_number = len(self.steps_by_run[step.run_id]) + 1
-        self.steps_by_run[step.run_id].append(step)
-
-    def get_steps(self, run_id: str) -> list[StepRecord]:
-        """Retrieve all step records for a run in sequence."""
-        return list(self.steps_by_run.get(run_id, []))
-
-    def get_latest_step(self, run_id: str) -> StepRecord | None:
-        """Retrieve the most recent step record for a run."""
-        steps = self.steps_by_run.get(run_id, [])
-        return steps[-1] if steps else None
-
-    def fork_run(
-        self, source_run_id: str, new_run_id: str, up_to_step: int | None = None
-    ) -> list[StepRecord]:
-        """Branch execution from a source run up to a specified step number."""
-        source_steps = self.get_steps(source_run_id)
-        if up_to_step is not None:
-            source_steps = [s for s in source_steps if s.step_number <= up_to_step]
-
-        forked_steps = [
-            StepRecord(
-                step_id=uuid.uuid4().hex[:12],
-                run_id=new_run_id,
-                step_number=idx + 1,
-                kind=s.kind,
-                payload=dict(s.payload),
-                timestamp=time.time(),
-            )
-            for idx, s in enumerate(source_steps)
-        ]
-        self.steps_by_run[new_run_id] = forked_steps
-        return forked_steps
-
-
-class SqliteStepStore:
-    """SQLite-backed persistent step storage implementation."""
-
-    def __init__(self, db_path: str = ":memory:") -> None:
-        if db_path != ":memory:":
-            if ".." in str(db_path):
-                raise ValueError(f"Directory traversal not permitted in db_path: {db_path}")
-            path_obj = Path(db_path)
-            path_obj.parent.mkdir(parents=True, exist_ok=True)
-            self.db_path = str(path_obj.resolve())
-        else:
-            self.db_path = db_path
-        self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
-        self._init_db()
-
-    def _init_db(self) -> None:
-        with self._conn:
-            self._conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS agent_steps (
-                    step_id TEXT PRIMARY KEY,
-                    run_id TEXT NOT NULL,
-                    step_number INTEGER NOT NULL,
-                    kind TEXT NOT NULL,
-                    payload TEXT NOT NULL,
-                    timestamp REAL NOT NULL
-                )
-                """
-            )
-            self._conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_steps_run_id ON agent_steps(run_id, step_number)"
-            )
-
-    def save_step(self, step: StepRecord) -> None:
-        import json
-
-        if step.step_number == 0:
-            cur = self._conn.cursor()
-            cur.execute("SELECT COUNT(*) FROM agent_steps WHERE run_id = ?", (step.run_id,))
-            count = cur.fetchone()[0]
-            step.step_number = count + 1
-
-        with self._conn:
-            self._conn.execute(
-                """
-                INSERT OR REPLACE INTO agent_steps (step_id, run_id, step_number, kind, payload, timestamp)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    step.step_id,
-                    step.run_id,
-                    step.step_number,
-                    step.kind,
-                    json.dumps(step.payload),
-                    step.timestamp,
-                ),
-            )
-
-    def get_steps(self, run_id: str) -> list[StepRecord]:
-        import json
-
-        cur = self._conn.cursor()
-        cur.execute(
-            "SELECT step_id, run_id, step_number, kind, payload, timestamp FROM agent_steps WHERE run_id = ? ORDER BY step_number ASC",
-            (run_id,),
-        )
-        rows = cur.fetchall()
-        return [
-            StepRecord(
-                step_id=r[0],
-                run_id=r[1],
-                step_number=r[2],
-                kind=r[3],
-                payload=json.loads(r[4]),
-                timestamp=r[5],
-            )
-            for r in rows
-        ]
-
-    def get_latest_step(self, run_id: str) -> StepRecord | None:
-        steps = self.get_steps(run_id)
-        return steps[-1] if steps else None
-
-    def fork_run(
-        self, source_run_id: str, new_run_id: str, up_to_step: int | None = None
-    ) -> list[StepRecord]:
-        source_steps = self.get_steps(source_run_id)
-        if up_to_step is not None:
-            source_steps = [s for s in source_steps if s.step_number <= up_to_step]
-
-        forked = []
-        for idx, s in enumerate(source_steps):
-            forked_step = StepRecord(
-                step_id=uuid.uuid4().hex[:12],
-                run_id=new_run_id,
-                step_number=idx + 1,
-                kind=s.kind,
-                payload=dict(s.payload),
-                timestamp=time.time(),
-            )
-            self.save_step(forked_step)
-            forked.append(forked_step)
-        return forked
-
-
-_SENSITIVE_KEY_PATTERN = re.compile(
-    r"(?:token|secret|password|passwd|api[_-]?key|credential|private[_-]?key|auth)",
-    re.IGNORECASE,
+from devops_cli.ai.durable import (
+    InMemoryStepStore,
+    LocalDurabilityCapability,
+    SqliteStepStore,
+    StepRecord,
+    StepStore,
+    _mask_sensitive_data,
 )
-
-
-def _mask_sensitive_data(data: Any) -> Any:
-    """Recursively mask sensitive keys and credentials in step payloads."""
-    if isinstance(data, dict):
-        masked: dict[str, Any] = {}
-        for k, v in data.items():
-            if _SENSITIVE_KEY_PATTERN.search(str(k)):
-                masked[k] = "***REDACTED***"
-            else:
-                masked[k] = _mask_sensitive_data(v)
-        return masked
-    if isinstance(data, list):
-        return [_mask_sensitive_data(x) for x in data]
-    return data
 
 
 class StepPersistence(BaseCapability):
     """Capability providing step-by-step durable execution, checkpointing, and run forking."""
 
     id: str = "step_persistence"
+    name: str = "step_persistence"
     store: Any = Field(default_factory=InMemoryStepStore)
     current_run_id: str = Field(default_factory=lambda: uuid.uuid4().hex[:16])
+
+    def to_durability_capability(self) -> LocalDurabilityCapability:
+        """Convert or bridge to a native LocalDurabilityCapability sharing the store."""
+        return LocalDurabilityCapability(name=self.name, store=self.store)
 
     def save_step(
         self, kind: str, payload: dict[str, Any], *, run_id: str | None = None
@@ -260,3 +75,13 @@ class StepPersistence(BaseCapability):
             self.save_step("tool_result", {"tool_name": tool_name, "result": clean_res})
 
         return AgentHooks(before_tool_execute=[before_tool], after_tool_execute=[after_tool])
+
+
+__all__ = [
+    "InMemoryStepStore",
+    "LocalDurabilityCapability",
+    "SqliteStepStore",
+    "StepPersistence",
+    "StepRecord",
+    "StepStore",
+]

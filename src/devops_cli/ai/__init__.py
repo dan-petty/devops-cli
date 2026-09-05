@@ -34,6 +34,19 @@ def __getattr__(name: str) -> Any:
 
         return getattr(devops_cli.ai.direct, name)
     if name in {
+        "BaseDurabilityCapability",
+        "LocalDurabilityCapability",
+        "create_durable_pydantic_agent",
+        "get_available_durable_engines",
+        "is_dbos_available",
+        "is_prefect_available",
+        "is_temporal_available",
+        "resolve_durability_capability",
+    }:
+        import devops_cli.ai.durable
+
+        return getattr(devops_cli.ai.durable, name)
+    if name in {
         "CONST_CLAUDE_MD_FILENAME",
         "CONST_COPILOT_INSTRUCTIONS_PATH",
         "DEFAULT_AGENT_FILES",
@@ -424,4 +437,12 @@ __all__ = [
     "direct_model_request_sync",
     "extract_response_text",
     "extract_response_thinking",
+    "BaseDurabilityCapability",
+    "LocalDurabilityCapability",
+    "create_durable_pydantic_agent",
+    "get_available_durable_engines",
+    "is_dbos_available",
+    "is_prefect_available",
+    "is_temporal_available",
+    "resolve_durability_capability",
 ]

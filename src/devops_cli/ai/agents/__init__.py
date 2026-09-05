@@ -199,6 +199,19 @@ from devops_cli.ai.agents.spend import (
 
 def __getattr__(name: str) -> Any:
     if name in {
+        "BaseDurabilityCapability",
+        "LocalDurabilityCapability",
+        "create_durable_pydantic_agent",
+        "get_available_durable_engines",
+        "is_dbos_available",
+        "is_prefect_available",
+        "is_temporal_available",
+        "resolve_durability_capability",
+    }:
+        import devops_cli.ai.durable
+
+        return getattr(devops_cli.ai.durable, name)
+    if name in {
         "AbstractConcurrencyLimiter",
         "AnyConcurrencyLimit",
         "ConcurrencyLimit",
@@ -368,6 +381,7 @@ __all__ = [
     "AssetRoot",
     "Band",
     "BaseCapability",
+    "BaseDurabilityCapability",
     "BinaryContent",
     "BudgetExceededError",
     "CacheBustWarning",
@@ -628,4 +642,11 @@ __all__ = [
     "model_request_sync",
     "to_llm_response",
     "to_model_messages",
+    "LocalDurabilityCapability",
+    "create_durable_pydantic_agent",
+    "get_available_durable_engines",
+    "is_dbos_available",
+    "is_prefect_available",
+    "is_temporal_available",
+    "resolve_durability_capability",
 ]
