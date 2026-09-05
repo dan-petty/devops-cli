@@ -195,6 +195,17 @@
 
 ---
 
+- [x] Phase 30: Native Pydantic AI Toolsets (`pydantic_ai.toolsets`) Integration
+  - [x] Phase 30.1: Test-First Specifications (`tests/test_pydantic_ai_toolsets.py` — 14/14 green)
+  - [x] Phase 30.2: Core Toolsets Subsystem (`src/devops_cli/ai/toolsets/__init__.py` re-exporting native primitives, types, combinators, and modernizing `AbstractToolset` and `FunctionToolset` with dual sync/async contracts)
+  - [x] Phase 30.3: Eliminate Zombie Code & Subsystem Modernization (`src/devops_cli/ai/agents/tools.py`, `agent.py`, `capabilities.py`, `ext_langchain.py`)
+  - [x] Phase 30.4: Public Package Re-exports (`devops_cli.ai.toolsets`, `devops_cli.ai`, `devops_cli.ai.agents`, `pydantic_agent.py`)
+  - [x] Phase 30.5: Static Typing & Linting Quality Gates (`mypy --strict` 0 errors across 305 files, `ruff check` clean, `ruff format` clean)
+  - [x] Phase 30.6: Regression Test Suite Verification (`tests/test_pydantic_ai_toolsets.py`, `tests/test_pydantic_agent.py`, `tests/test_ai_agent_capabilities.py`, `tests/test_pydantic_ai_tools.py`, `tests/test_harness.py`, `tests/test_ext_langchain.py` — 100% green)
+  - [x] Phase 30.7: Full CI Quality Gate (`uv run devops ci` — 10/10 passed), Documentation Sync (`devops docs generate --sync-readme`), and Conventional Commits
+
+---
+
 ### In-Progress Tasks (WIP)
 None.
 

@@ -2,6 +2,38 @@
 
 Chronological log of refactoring milestones, quality gates, and security enhancements.
 
+### [2026-09-05] Native Pydantic AI Toolsets (`pydantic_ai.toolsets`) Integration
+- **Native Toolsets Subsystem (`src/devops_cli/ai/toolsets/__init__.py`)**:
+  - Full native adoption of `pydantic_ai.toolsets` API specifications:
+    - Re-exports core native primitives, types, and combinators: `AbstractToolset`, `AgentDepsT`, `AgentToolset`, `ApprovalRequiredToolset`, `CombinedToolset`, `DeferredLoadingToolset`, `DynamicToolset`, `ExternalToolset`, `FilteredToolset`, `FunctionToolset`, `IncludeReturnSchemasToolset`, `PrefixedToolset`, `PreparedToolset`, `RenamedToolset`, `SetMetadataToolset`, `ToolsetFunc`, `ToolsetTool`, `WrapperToolset`.
+    - Modernized `AbstractToolset` bridging native asynchronous Pydantic AI execution (`await ts.get_tools(ctx) -> dict[str, ToolsetTool]`) with workstation synchronous tool inspection (`ts.get_tools() -> list[Tool]`) and prompt instructions (`ts.get_instructions()`).
+    - Modernized `FunctionToolset` subclassing native `NativeFunctionToolset` with dual sync/async contracts, `add_tool()`, `add_function()`, and `@ts.tool` / `@ts.tool_plain` decorators supporting argument validators and custom metadata.
+    - Implemented high-level domain toolset utilities and factories:
+      - `create_function_toolset(...) -> FunctionToolset`: Factory for building function toolsets from sequences of tools or callables.
+      - `combine_toolsets(*toolsets) -> CombinedToolset`: Helper combining multiple toolsets.
+      - `prefix_toolset(toolset, prefix) -> PrefixedToolset`: Helper prefixing tool names with automatic underscore normalization.
+      - `filter_toolset(toolset, filter_func) -> FilteredToolset`: Helper filtering tool visibility.
+      - `rename_toolset(toolset, name_map) -> RenamedToolset`: Helper renaming tools within a toolset.
+      - `require_approval_toolset(toolset, approval_func=None) -> ApprovalRequiredToolset`: Helper requiring approvals.
+      - `defer_loading_toolset(toolset) -> DeferredLoadingToolset`: Helper deferring tool loading until unlocked.
+      - `is_toolset(val) -> bool`: Fast predicate checking whether a value is an instance of native or modernized `AbstractToolset`.
+      - `extract_tools_from_toolset(toolset, ctx=None) -> list[Tool]`: Robust extractor extracting `Tool` instances from any toolset synchronously or via inspection.
+- **Elimination of Legacy Code & Remnants (Zero Zombie Code)**:
+  - Eliminated duplicate hand-rolled implementations of `AbstractToolset` and `FunctionToolset` (136+ lines) in `src/devops_cli/ai/agents/tools.py` in favor of importing from `devops_cli.ai.toolsets`.
+  - Modernized `MCPToolset` in `src/devops_cli/ai/agents/tools.py` to inherit from modernized `AbstractToolset`.
+  - Updated `BaseCapability.get_toolset()` in `src/devops_cli/ai/agents/capabilities.py` to return native `FunctionToolset` via `create_function_toolset(tools=tools)`.
+  - Modernized `PydanticAgent` in `src/devops_cli/ai/agents/agent.py` using `extract_tools_from_toolset` for seamless tool registration in `__init__`, `fork()`, and `_build_system_prompt_with_tools`.
+  - Updated `src/devops_cli/ai/ext_langchain.py` to work cleanly with native `FunctionToolset`.
+- **Package Re-exports (`devops_cli.ai.toolsets`, `devops_cli.ai`, `devops_cli.ai.agents`, `devops_cli.ai.agents.pydantic_agent`)**:
+  - Re-exported all native toolset types, schemas, and helper functions across public package tiers with strict typing (`mypy --strict`) and complete `__all__` lists.
+- **Quality Gates & Test-First Verification**:
+  - Authored comprehensive test suite `tests/test_pydantic_ai_toolsets.py` (14/14 tests passing).
+  - Regression verified full test suite (1,756 tests passing), including `tests/test_pydantic_agent.py`, `tests/test_ai_agent_capabilities.py`, `tests/test_pydantic_ai_tools.py`, `tests/test_ext_langchain.py`, and `tests/test_harness.py`.
+  - Strict static typing (`mypy --strict`) 100% clean across all 305 source files (0 errors).
+  - Clean linting and formatting (`ruff check`, `ruff format`).
+  - Documentation generated and README synchronized (`devops docs generate --sync-readme`).
+  - Full CI validation suite (`uv run devops ci`): 10/10 quality gates green (version, test, coverage >= 90%, lint, format, typecheck, audit, security, actionlint, docs).
+
 ### [2026-09-05] Native Pydantic AI Tools (`pydantic_ai.tools`) Integration
 - **Native Tools Subsystem (`src/devops_cli/ai/tools/__init__.py`)**:
   - Full native adoption of `pydantic_ai.tools` API specifications:
