@@ -18,6 +18,22 @@ def __getattr__(name: str) -> Any:
 
         return getattr(devops_cli.ai.client, name)
     if name in {
+        "StreamedResponseSync",
+        "direct_model_request",
+        "direct_model_request_stream",
+        "direct_model_request_stream_sync",
+        "direct_model_request_sync",
+        "extract_response_text",
+        "extract_response_thinking",
+        "model_request_stream",
+        "model_request_stream_sync",
+        "to_llm_response",
+        "to_model_messages",
+    }:
+        import devops_cli.ai.direct
+
+        return getattr(devops_cli.ai.direct, name)
+    if name in {
         "CONST_CLAUDE_MD_FILENAME",
         "CONST_COPILOT_INSTRUCTIONS_PATH",
         "DEFAULT_AGENT_FILES",
@@ -382,6 +398,8 @@ __all__ = [
     "list_knowledge_base_articles",
     "load_kb_article",
     "model_request",
+    "model_request_stream",
+    "model_request_stream_sync",
     "model_request_sync",
     "normalize_to_limiter",
     "parse_project_metadata",
@@ -391,10 +409,19 @@ __all__ = [
     "researcher_agent",
     "reset_llm_response_cache",
     "scaffold_agent_instructions",
+    "StreamedResponseSync",
     "strip_think_blocks",
     "tavily_search_tool",
+    "to_llm_response",
+    "to_model_messages",
     "tool_from_langchain",
     "track_concurrency_slot",
     "web_fetch_tool",
     "x_search_tool",
+    "direct_model_request",
+    "direct_model_request_stream",
+    "direct_model_request_stream_sync",
+    "direct_model_request_sync",
+    "extract_response_text",
+    "extract_response_thinking",
 ]

@@ -215,6 +215,24 @@ def __getattr__(name: str) -> Any:
         import devops_cli.ai.concurrency
 
         return getattr(devops_cli.ai.concurrency, name)
+    if name in {
+        "StreamedResponseSync",
+        "direct_model_request",
+        "direct_model_request_stream",
+        "direct_model_request_stream_sync",
+        "direct_model_request_sync",
+        "extract_response_text",
+        "extract_response_thinking",
+        "model_request",
+        "model_request_stream",
+        "model_request_stream_sync",
+        "model_request_sync",
+        "to_llm_response",
+        "to_model_messages",
+    }:
+        import devops_cli.ai.direct
+
+        return getattr(devops_cli.ai.direct, name)
     if name in {"duckduckgo_search_tool", "tavily_search_tool", "web_fetch_tool"}:
         import devops_cli.ai.common_tools
 
@@ -597,4 +615,17 @@ __all__ = [
     "track_concurrency_slot",
     "web_fetch_tool",
     "x_search_tool",
+    "StreamedResponseSync",
+    "direct_model_request",
+    "direct_model_request_stream",
+    "direct_model_request_stream_sync",
+    "direct_model_request_sync",
+    "extract_response_text",
+    "extract_response_thinking",
+    "model_request",
+    "model_request_stream",
+    "model_request_stream_sync",
+    "model_request_sync",
+    "to_llm_response",
+    "to_model_messages",
 ]

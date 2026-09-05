@@ -218,6 +218,21 @@ from devops_cli.ai.concurrency import (
     normalize_to_limiter,
     track_concurrency_slot,
 )
+from devops_cli.ai.direct import (
+    StreamedResponseSync,
+    direct_model_request,
+    direct_model_request_stream,
+    direct_model_request_stream_sync,
+    direct_model_request_sync,
+    extract_response_text,
+    extract_response_thinking,
+    model_request,
+    model_request_stream,
+    model_request_stream_sync,
+    model_request_sync,
+    to_llm_response,
+    to_model_messages,
+)
 
 __all__ = [
     "ALLOW_MODEL_REQUESTS",
@@ -414,4 +429,17 @@ __all__ = [
     "wrapper",
     "x_search",
     "x_search_tool",
+    "StreamedResponseSync",
+    "direct_model_request",
+    "direct_model_request_stream",
+    "direct_model_request_stream_sync",
+    "direct_model_request_sync",
+    "extract_response_text",
+    "extract_response_thinking",
+    "model_request",
+    "model_request_stream",
+    "model_request_stream_sync",
+    "model_request_sync",
+    "to_llm_response",
+    "to_model_messages",
 ]

@@ -6,7 +6,7 @@ import logging
 import os
 import threading
 import time
-from collections.abc import Callable, Generator
+from collections.abc import AsyncGenerator, Callable, Generator, Sequence
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -663,6 +663,91 @@ class LLMClient(OllamaProviderMixin, ClaudeProviderMixin, OpenAICompatProviderMi
         if p in ("copilot", "openai"):
             return self._openai_models()
         return [self._config.model]
+
+    def direct_request_sync(
+        self,
+        prompt: str | Sequence[Any],
+        model: Any = None,
+        *,
+        system_prompt: str = "",
+        model_concurrency: Any = None,
+        **kwargs: Any,
+    ) -> Any:
+        """Make a synchronous direct model request via native Pydantic AI."""
+        from devops_cli.ai.direct import direct_model_request_sync
+
+        target_model = model or getattr(self._config, "model", "default")
+        return direct_model_request_sync(
+            prompt,
+            target_model,
+            system_prompt=system_prompt,
+            model_concurrency=model_concurrency,
+            **kwargs,
+        )
+
+    async def direct_request(
+        self,
+        prompt: str | Sequence[Any],
+        model: Any = None,
+        *,
+        system_prompt: str = "",
+        model_concurrency: Any = None,
+        **kwargs: Any,
+    ) -> Any:
+        """Make an asynchronous direct model request via native Pydantic AI."""
+        from devops_cli.ai.direct import direct_model_request
+
+        target_model = model or getattr(self._config, "model", "default")
+        return await direct_model_request(
+            prompt,
+            target_model,
+            system_prompt=system_prompt,
+            model_concurrency=model_concurrency,
+            **kwargs,
+        )
+
+    def direct_stream_sync(
+        self,
+        prompt: str | Sequence[Any],
+        model: Any = None,
+        *,
+        system_prompt: str = "",
+        model_concurrency: Any = None,
+        **kwargs: Any,
+    ) -> Generator[str]:
+        """Make a synchronous streamed direct request via native Pydantic AI."""
+        from devops_cli.ai.direct import direct_model_request_stream_sync
+
+        target_model = model or getattr(self._config, "model", "default")
+        yield from direct_model_request_stream_sync(
+            prompt,
+            target_model,
+            system_prompt=system_prompt,
+            model_concurrency=model_concurrency,
+            **kwargs,
+        )
+
+    async def direct_stream(
+        self,
+        prompt: str | Sequence[Any],
+        model: Any = None,
+        *,
+        system_prompt: str = "",
+        model_concurrency: Any = None,
+        **kwargs: Any,
+    ) -> AsyncGenerator[str]:
+        """Make an asynchronous streamed direct request via native Pydantic AI."""
+        from devops_cli.ai.direct import direct_model_request_stream
+
+        target_model = model or getattr(self._config, "model", "default")
+        async for chunk in direct_model_request_stream(
+            prompt,
+            target_model,
+            system_prompt=system_prompt,
+            model_concurrency=model_concurrency,
+            **kwargs,
+        ):
+            yield chunk
 
 
 def model_request_sync(
