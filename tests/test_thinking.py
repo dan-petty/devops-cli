@@ -21,6 +21,30 @@ def test_strip_think_blocks_multiple() -> None:
     assert strip_think_blocks(raw) == "Part 1Part 2"
 
 
+def test_strip_think_blocks_only_thinking_returns_empty() -> None:
+    """strip_think_blocks returns empty string when text contains only thinking blocks."""
+    raw = "<think>\nInternal chain of thought\nAnalyzing the code...\n</think>"
+    assert strip_think_blocks(raw) == ""
+
+
+def test_strip_think_blocks_unclosed_returns_empty() -> None:
+    """strip_think_blocks returns empty string when text contains unclosed think block."""
+    raw = "<think>\nModel ran out of tokens while thinking and never closed tag..."
+    assert strip_think_blocks(raw) == ""
+
+
+def test_strip_think_blocks_thinking_with_json_returns_empty() -> None:
+    """strip_think_blocks returns empty string even if think block contains JSON brackets."""
+    raw = '<think>Let me formulate JSON: {"findings": [], "status": "ok"}</think>'
+    assert strip_think_blocks(raw) == ""
+
+
+def test_strip_think_blocks_unclosed_with_clean_prefix() -> None:
+    """strip_think_blocks preserves clean content preceding unclosed thinking tag."""
+    raw = "Actual answer.<think>Unclosed thinking trailing off..."
+    assert strip_think_blocks(raw) == "Actual answer."
+
+
 def test_extract_think_blocks() -> None:
     """extract_think_blocks separates reasoning blocks from clean text."""
     raw = "<think>First thought</think>Answer text<think>Second thought</think>"

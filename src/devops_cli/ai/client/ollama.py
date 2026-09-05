@@ -206,8 +206,7 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
                     *[m.to_dict() for m in messages],
                 ],
             }
-            if think:
-                payload["think"] = True
+            payload["think"] = bool(think)
             if self._config.reasoning_effort:
                 payload["reasoning_effort"] = self._config.reasoning_effort
             ollama_opts: dict[str, Any] = {}
@@ -250,8 +249,6 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
                 content = clean
 
             text = self._strip_think_blocks(content)
-            if not text.strip() and thinking_str:
-                text = thinking_str
 
             prompt_eval_ns = int(raw_res.get("prompt_eval_duration") or 0)
             eval_ns = int(raw_res.get("eval_duration") or 0)
@@ -364,8 +361,7 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
                 *[m.to_dict() for m in messages],
             ],
         }
-        if think:
-            payload["think"] = True
+        payload["think"] = bool(think)
         if self._config.reasoning_effort:
             payload["reasoning_effort"] = self._config.reasoning_effort
         with (

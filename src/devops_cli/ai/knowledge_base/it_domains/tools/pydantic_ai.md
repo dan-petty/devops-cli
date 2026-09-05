@@ -33,7 +33,7 @@ agent = get_persona_pydantic_agent(Persona.DEVSECOPS)
 
 ## 4. Best Practice Guidance
 
-1. **Strict Output Schemas**: Always define structured Pydantic response models (`result_type`) for agents rather than parsing untyped string output.
+1. **Strict Output Schemas**: Always define structured Pydantic response models (`output_type`) for agents rather than parsing untyped string output.
 2. **Defensive Tool Validation**: Validate tool inputs with Pydantic type annotations to eliminate invalid parameter calls.
 3. **Explicit Token Budgeting**: Combine with `tiktoken` context budgeting to ensure agent message histories do not exceed model context limits.
 

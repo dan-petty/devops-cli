@@ -92,7 +92,7 @@ def test_extract_tool_invocations_function_style_in_thinking() -> None:
     assert fixed.was_repaired is True
 
 
-def test_fix_llm_response_recovers_answer_when_entirely_in_thinking() -> None:
+def test_fix_llm_response_strict_thinking_isolation() -> None:
     raw = """
     <think>
     The user is asking about python-dotenv vulnerabilities.
@@ -101,9 +101,26 @@ def test_fix_llm_response_recovers_answer_when_entirely_in_thinking() -> None:
     </think>
     """
     fixed = fix_llm_response(raw)
-    assert "python-dotenv 1.0.0 has zero known CVEs" in fixed.content
+    assert fixed.content == ""
     assert len(fixed.thoughts) == 1
-    assert fixed.was_repaired is True
+    assert "Conclusion: The package python-dotenv" in fixed.thoughts[0]
+
+
+def test_fix_llm_response_does_not_parse_json_from_thinking_for_schema() -> None:
+    raw = """
+    <think>
+    ```json
+    {
+      "name": "InsideThinking",
+      "count": 99,
+      "active": true
+    }
+    ```
+    </think>
+    """
+    fixed = fix_llm_response(raw, schema=SampleModel)
+    assert fixed.parsed_model is None
+    assert fixed.content == ""
 
 
 def test_fix_llm_response_schema_validation() -> None:

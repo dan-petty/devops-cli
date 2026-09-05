@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from typing import Any
 
 from devops_cli.exceptions import LLMInferenceError
 
@@ -63,6 +64,52 @@ class LLMResponse(str):
     def content(self) -> str:
         """Return the string response content."""
         return str(self)
+
+    def to_model_response(self, model_name: str | None = None) -> Any:
+        """Convert LLMResponse to standard pydantic_ai.messages.ModelResponse."""
+        from pydantic_ai.messages import ModelResponse, TextPart, ThinkingPart
+        from pydantic_ai.usage import RequestUsage
+
+        parts: list[Any] = []
+        if self.thinking and self.thinking.strip():
+            parts.append(ThinkingPart(content=self.thinking.strip()))
+        if str(self):
+            parts.append(TextPart(content=str(self)))
+        usage = RequestUsage(
+            input_tokens=self.prompt_tokens or 0,
+            output_tokens=self.completion_tokens or 0,
+        )
+        return ModelResponse(parts=parts, model_name=model_name or self.backend_info, usage=usage)
+
+    @classmethod
+    def from_model_response(
+        cls,
+        response: Any,
+        wall_seconds: float = 0.0,
+        cached: bool = False,
+    ) -> LLMResponse:
+        """Construct LLMResponse from standard pydantic_ai.messages.ModelResponse."""
+        from pydantic_ai.messages import TextPart, ThinkingPart
+
+        texts = [p.content for p in response.parts if isinstance(p, TextPart) and p.has_content()]
+        thinks = [
+            p.content for p in response.parts if isinstance(p, ThinkingPart) and p.has_content()
+        ]
+        content_str = "\n".join(texts)
+        thinking_str = "\n\n".join(thinks) if thinks else None
+        in_tokens = response.usage.input_tokens if response.usage else None
+        out_tokens = response.usage.output_tokens if response.usage else None
+        tot_tokens = response.usage.total_tokens if response.usage else None
+        return cls(
+            content=content_str,
+            wall_seconds=wall_seconds,
+            backend_info=response.model_name,
+            thinking=thinking_str,
+            prompt_tokens=in_tokens,
+            completion_tokens=out_tokens,
+            total_tokens=tot_tokens,
+            cached=cached,
+        )
 
 
 def _is_json_error_payload(raw_str: str) -> bool:

@@ -205,22 +205,20 @@ class LLMClient(OllamaProviderMixin, ClaudeProviderMixin, OpenAICompatProviderMi
 
     @staticmethod
     def _validate_response_text(
-        content: str,
+        content: str | LLMResponse,
         validator: Callable[[str], bool] | None = None,
     ) -> bool:
         """Quick and effective validation of AI response content."""
-        if not isinstance(content, str):
-            return False
-        raw_str = content.strip()
+        raw_str = (content.content if isinstance(content, LLMResponse) else str(content)).strip()
         thinking_val = getattr(content, "thinking", None)
         if not raw_str and not (thinking_val and str(thinking_val).strip()):
             return False
-        if _is_json_error_payload(raw_str):
+        if raw_str and _is_json_error_payload(raw_str):
             return False
 
         if validator is not None:
             try:
-                return bool(validator(content))
+                return bool(validator(raw_str))
             except Exception:
                 return False
         return True

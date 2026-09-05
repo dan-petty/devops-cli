@@ -13,25 +13,19 @@ def strip_think_blocks(text: str) -> str:
     """Remove <think>...</think> chain-of-thought blocks from complete text."""
     if not text:
         return ""
-    clean = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
-    if not clean and "<think>" in text:
-        inner = re.findall(r"<think>(.*?)(?:</think>|$)", text, flags=re.DOTALL)
-        if inner:
-            for candidate in reversed(inner):
-                cand_strip = str(candidate).strip()
-                if "{" in cand_strip and "}" in cand_strip:
-                    return str(cand_strip)
-            return str(inner[-1]).strip()
-    return clean
+    clean = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
+    if "<think>" in clean:
+        clean = re.sub(r"<think>[\s\S]*$", "", clean)
+    return clean.strip()
 
 
 def extract_think_blocks(text: str) -> tuple[list[str], str]:
     """Extract think blocks and return (list_of_think_contents, clean_text)."""
     if not text:
         return [], ""
-    thinks = re.findall(r"<think>(.*?)</think>", text, flags=re.DOTALL)
+    thinks = re.findall(r"<think>(.*?)(?:</think>|$)", text, flags=re.DOTALL)
     clean = strip_think_blocks(text)
-    return [t.strip() for t in thinks], clean
+    return [t.strip() for t in thinks if t.strip()], clean
 
 
 def _find_suffix_overlap(text: str, target: str) -> int:
@@ -186,3 +180,24 @@ class ThinkingStreamProcessor:
                 self._handle_content_chunk(self._buffer)
             self._buffer = ""
         self._finalize_thinking_footer()
+
+    @property
+    def unique_thinking(self) -> str:
+        """Return accumulated thinking content with duplicate lines removed using a set."""
+        from devops_cli.ai.review_schema import unique_lines
+
+        return unique_lines(self.thinking_content)
+
+    def to_model_response(self, model_name: str | None = None) -> Any:
+        """Construct a ModelResponse from accumulated thinking and content."""
+        from pydantic_ai.messages import ModelResponse, TextPart, ThinkingPart
+        from pydantic_ai.usage import RequestUsage
+
+        from devops_cli.ai.review_schema import unique_lines
+
+        parts: list[Any] = []
+        if self.thinking_content.strip():
+            parts.append(ThinkingPart(content=unique_lines(self.thinking_content.strip())))
+        if self.clean_content.strip():
+            parts.append(TextPart(content=self.clean_content.strip()))
+        return ModelResponse(parts=parts, model_name=model_name, usage=RequestUsage())

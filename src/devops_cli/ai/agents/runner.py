@@ -39,17 +39,6 @@ _INVOKE_TOOL_REQUEST_TEMPLATE = load_task_prompt("agent_invoke_tool_request.md")
 _DIRECT_RESPONSE_FROM_TOOLS_PROMPT = load_task_prompt("agent_direct_response_from_tools.md")
 _DIRECT_RESPONSE_FROM_REASONING_PROMPT = load_task_prompt("agent_direct_response_from_reasoning.md")
 
-_DELIBERATION_PREFIXES: tuple[str, ...] = (
-    "the tool returned",
-    "we need to interpret",
-    "we need to decide",
-    "we should double-check",
-    "let's search",
-    "we need to scan",
-    "let's recall",
-    "not sure. we need",
-)
-
 
 def _execute_single_tool(
     tool_obj: AgentTool,
@@ -147,17 +136,14 @@ def _detect_tool_intent(
 
 
 def _is_scratchpad_deliberation(final_output: str) -> bool:
-    """Check if agent output is raw tool JSON or internal scratchpad deliberation."""
+    """Check if agent output is raw tool JSON rather than a final response."""
     if not final_output:
         return True
-    is_tool_json = (
+    return (
         final_output.startswith('{"tool"')
         or final_output.startswith('```json\n{"tool"')
         or ('"tool":' in final_output and '"arguments":' in final_output)
     )
-    if is_tool_json:
-        return True
-    return final_output.lower().startswith(_DELIBERATION_PREFIXES)
 
 
 def _record_and_broadcast_thoughts(
@@ -178,12 +164,8 @@ def _resolve_fallback_output(
     tool_calls: list[ToolCall],
     all_thoughts: list[str],
 ) -> str:
-    """Resolve final response string, falling back to tool outputs or thoughts if empty."""
+    """Resolve final response string, falling back to tool outputs if empty."""
     if final_output and not _is_scratchpad_deliberation(final_output):
-        return final_output
-    if final_output and not (
-        final_output.startswith('{"tool"') or final_output.startswith('```json\n{"tool"')
-    ):
         return final_output
     if tool_calls:
         last_call = tool_calls[-1]

@@ -42,29 +42,94 @@ def is_pydantic_ai_available() -> bool:
         return False
 
 
+def resolve_pydantic_ai_model(
+    model: str | Any | None = None,
+    settings: Settings | None = None,
+) -> Any:
+    """Resolve and configure native PydanticAI Model instance.
+
+    Supports OllamaProvider with dynamic cluster URLs, TestModel for offline testing,
+    and automatic model inference across providers.
+    """
+    if model is None:
+        return None
+
+    import devops_cli.ai.agents.agent as agent_module
+    import devops_cli.ai.agents.testing as testing_module
+
+    if not getattr(testing_module, "ALLOW_MODEL_REQUESTS", True) or not getattr(
+        agent_module, "ALLOW_MODEL_REQUESTS", True
+    ):
+        from pydantic_ai.models.test import TestModel
+
+        return TestModel()
+
+    from pydantic_ai.models import Model
+
+    if isinstance(model, Model):
+        return model
+
+    if model == "test":
+        from pydantic_ai.models.test import TestModel
+
+        return TestModel()
+
+    if not isinstance(model, str):
+        return model
+
+    active_settings = settings or load_settings()
+    model_str = model.strip()
+    provider = getattr(active_settings.ai, "provider", "ollama")
+
+    if model_str.startswith("ollama:") or provider == "ollama":
+        from pydantic_ai.models.ollama import OllamaModel
+        from pydantic_ai.providers.ollama import OllamaProvider
+
+        clean_name = model_str.removeprefix("ollama:").strip()
+        urls = active_settings.ai.get_ollama_urls if hasattr(active_settings, "ai") else []
+        base_url = urls[0] if urls else "http://localhost:11434"
+        ollama_provider = OllamaProvider(base_url=f"{base_url.rstrip('/')}/v1")
+        return OllamaModel(clean_name, provider=ollama_provider)
+
+    try:
+        from pydantic_ai.models import infer_model
+
+        return infer_model(model_str)
+    except Exception:
+        return model_str
+
+
 def create_pydantic_ai_agent[T: BaseModel](
-    model_name: str | None = None,
+    model_name: str | Any | None = None,
     system_prompt: str = "",
+    output_type: type[T] | None = None,
     result_type: type[T] | None = None,
     deps_type: type[Any] = DevOpsAgentContext,
     capabilities: Sequence[BaseCapability] | None = None,
     tools: Sequence[Any] | None = None,
     client: LLMClient | None = None,
+    end_strategy: str = "graceful",
+    retries: int | None = None,
 ) -> Any:
     """Instantiate a standardized PydanticAI Agent with typed dependencies, capabilities, and outputs."""
     settings: Settings = load_settings()
     target_model = model_name or getattr(getattr(settings, "ai", None), "model", None)
-    res_model = result_type or ReviewResult
+    res_model = output_type or result_type or ReviewResult
     active_caps = list(capabilities or [])
     active_tools = list(tools or [])
 
     try:
         from pydantic_ai import Agent
 
+        resolved_model = resolve_pydantic_ai_model(target_model, settings=settings)
+
         kwargs: dict[str, Any] = {
             "system_prompt": system_prompt,
             "deps_type": deps_type,
+            "end_strategy": end_strategy,
         }
+        if retries is not None:
+            kwargs["retries"] = retries
         sig = inspect.signature(Agent.__init__)
         if "output_type" in sig.parameters:
             kwargs["output_type"] = res_model
@@ -76,11 +141,8 @@ def create_pydantic_ai_agent[T: BaseModel](
         if "tools" in sig.parameters and active_tools:
             kwargs["tools"] = active_tools
 
-        if target_model:
-            try:
-                return Agent(model=target_model, **kwargs)
-            except Exception as exc:
-                logger.debug("Failed initializing model %s on Agent: %s", target_model, exc)
+        if resolved_model is not None:
+            return Agent(model=resolved_model, **kwargs)
 
         return Agent(**kwargs)
     except Exception as exc:
@@ -92,7 +154,7 @@ def create_pydantic_ai_agent[T: BaseModel](
             system_prompt=system_prompt,
             tools=active_tools,
             capabilities=active_caps,
-            output_schema=res_model,
+            output_type=res_model,
         )
 
 
@@ -110,7 +172,7 @@ def get_persona_pydantic_agent(
     return create_pydantic_ai_agent(
         model_name=active_settings.ai.model,
         system_prompt=p_def.system_prompt,
-        result_type=ReviewResult,
+        output_type=ReviewResult,
         deps_type=DevOpsAgentContext,
         capabilities=capabilities,
         tools=tools,

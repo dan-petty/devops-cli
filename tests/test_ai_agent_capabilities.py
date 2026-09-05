@@ -584,6 +584,18 @@ async def test_embedder_and_embedding_result() -> None:
     engine = local_embedder._get_engine()
     assert engine._dimension == 384
 
+    # 6. Pydantic AI TestEmbeddingModel and EmbeddingSettings integration
+    from pydantic_ai.embeddings import TestEmbeddingModel
+
+    from devops_cli.ai.agents import EmbeddingSettings
+
+    test_embedder = Embedder(TestEmbeddingModel(), settings=EmbeddingSettings())
+    res_test = test_embedder.embed_query_sync("Test query")
+    assert isinstance(res_test, EmbeddingResult)
+    assert len(res_test) == 1
+    assert len(res_test[0]) > 0
+    assert res_test["Test query"] == res_test[0]
+
 
 def test_testing_utilities_and_agent_override() -> None:
     """Verify TestModel, FunctionModel, Agent.override, capture_run_messages, and ALLOW_MODEL_REQUESTS."""

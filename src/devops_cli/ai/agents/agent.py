@@ -8,7 +8,7 @@ from collections import defaultdict
 from collections.abc import Callable, Generator, Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 
 from devops_cli.ai.agents.capabilities import (
     BaseCapability,
@@ -63,6 +63,22 @@ T = TypeVar("T")
 DepsT = TypeVar("DepsT")
 
 ALLOW_MODEL_REQUESTS: bool = True
+
+
+class SystemPrompt(str):
+    """String holding the base system prompt while functioning as a decorator callback."""
+
+    _agent: Any
+
+    def __new__(cls, content: str = "", agent: Any = None) -> SystemPrompt:
+        instance = super().__new__(cls, content)
+        instance._agent = agent
+        return instance
+
+    def __call__(self, func: Callable[..., str]) -> Callable[..., str]:
+        if getattr(self, "_agent", None) is not None:
+            return self._agent.system_prompt_fn(func)  # type: ignore[no-any-return]
+        return func
 
 
 class PydanticAgent[T, DepsT = Any]:
@@ -128,6 +144,7 @@ class PydanticAgent[T, DepsT = Any]:
         client: LLMClient | Any = None,
         instructions: str | list[str] | None = None,
         name: str = "Assistant",
+        output_type: type[T] | None = None,
         output_schema: type[T] | None = None,
         tools: list[AgentTool | Callable[..., Any]] | None = None,
         memory: AgentMemory | None = None,
@@ -151,16 +168,18 @@ class PydanticAgent[T, DepsT = Any]:
 
         if instructions is not None:
             if isinstance(instructions, list):
-                self.system_prompt = "\n\n".join(instructions)
+                raw_system_prompt = "\n\n".join(instructions)
             else:
-                self.system_prompt = instructions
+                raw_system_prompt = instructions
         elif system_prompt is not None:
-            self.system_prompt = system_prompt
+            raw_system_prompt = system_prompt
         else:
-            self.system_prompt = "You are a helpful DevOps assistant."
+            raw_system_prompt = "You are a helpful DevOps assistant."
+
+        self.system_prompt: SystemPrompt = SystemPrompt(raw_system_prompt, agent=self)
 
         self.name = name
-        self.output_schema = output_schema
+        self.output_schema = output_type or output_schema
         self.memory: AgentMemory = memory or AgentMemory(session_id=name)
         self.deps_type = deps_type
         self.hooks = hooks or AgentHooks()
@@ -239,6 +258,22 @@ class PydanticAgent[T, DepsT = Any]:
             return str(self.client.model)
         return None
 
+    @property
+    def output_type(self) -> type[T] | None:
+        """Return the structured response model type."""
+        return self.output_schema
+
+    @property
+    def output_json_schema(self) -> dict[str, Any] | None:
+        """Return the JSON schema dictionary for output validation if available."""
+        if self.output_schema is None:
+            return None
+        schema_getter = getattr(self.output_schema, "model_json_schema", None)
+        if callable(schema_getter):
+            res = schema_getter()
+            return cast(dict[str, Any], res) if isinstance(res, dict) else None
+        return None
+
     def tool(
         self,
         func: Callable[..., Any] | None = None,
@@ -301,6 +336,10 @@ class PydanticAgent[T, DepsT = Any]:
         if func is not None:
             return decorator(func)
         return decorator
+
+    def instructions(self, func: Callable[..., str]) -> Callable[..., str]:
+        """Decorator to register dynamic agent instructions (PydanticAI parity alias)."""
+        return self.system_prompt_fn(func)
 
     def system_prompt_fn(self, func: Callable[..., str]) -> Callable[..., str]:
         """Decorator to register a dynamic system prompt function."""
@@ -441,7 +480,7 @@ class PydanticAgent[T, DepsT = Any]:
             self._tools[name] = agent_tool
 
     def _build_system_prompt_with_tools(self, ctx: RunContext[Any] | None = None) -> str:
-        base_prompt = self.system_prompt
+        base_prompt: str = str(self.system_prompt)
         if "{{" in base_prompt and ctx and ctx.deps is not None:
             base_prompt = TemplateStr(base_prompt).render(ctx.deps)
         prompt_parts: list[str] = [base_prompt.strip()]
@@ -983,3 +1022,60 @@ class PydanticAgent[T, DepsT = Any]:
         yield from self.client.chat_messages_stream(
             system, messages, enable_thinking=enable_thinking
         )
+
+    def run_sync(
+        self,
+        user_prompt: str,
+        *,
+        deps: DepsT | None = None,
+        max_turns: int = DEFAULT_AGENT_MAX_TURNS,
+        enable_thinking: bool = True,
+        skip_rag: bool = False,
+        message_history: list[ChatMessage] | None = None,
+        deferred_tool_results: DeferredToolResults | None = None,
+        retries: int | AgentRetries | dict[str, int] | None = None,
+        on_tool_call: Callable[[str, dict[str, Any], Any], None] | None = None,
+        on_thought: Callable[[str], None] | None = None,
+    ) -> AgentResponse[T]:
+        """Synchronously execute the agent tool loop (PydanticAI parity alias for run)."""
+        return self.run(
+            user_prompt,
+            deps=deps,
+            max_turns=max_turns,
+            enable_thinking=enable_thinking,
+            skip_rag=skip_rag,
+            message_history=message_history,
+            deferred_tool_results=deferred_tool_results,
+            retries=retries,
+            on_tool_call=on_tool_call,
+            on_thought=on_thought,
+        )
+
+    def run_stream_sync(
+        self,
+        user_prompt: str,
+        *,
+        enable_thinking: bool = True,
+    ) -> Generator[str]:
+        """Synchronously stream response tokens in real-time (PydanticAI parity alias)."""
+        yield from self.run_stream(user_prompt, enable_thinking=enable_thinking)
+
+    def to_cli(
+        self,
+        user_prompt: str | None = None,
+        *,
+        deps: DepsT | None = None,
+    ) -> str:
+        """Run the agent and print output to the CLI, returning the final response."""
+        return self.to_cli_sync(user_prompt, deps=deps)
+
+    def to_cli_sync(
+        self,
+        user_prompt: str | None = None,
+        *,
+        deps: DepsT | None = None,
+    ) -> str:
+        """Synchronously execute prompt and return content string."""
+        prompt = user_prompt or "Hello"
+        res = self.run(prompt, deps=deps)
+        return str(res.output)

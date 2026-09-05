@@ -26,6 +26,20 @@ class AgentResponse[T](BaseModel):
     messages: list[ChatMessage] = Field(default_factory=list)
     new_messages_list: list[ChatMessage] = Field(default_factory=list)
 
+    @property
+    def output(self) -> T | str:
+        """Return structured data output if present, otherwise raw text content."""
+        return self.data if self.data is not None else self.content
+
+    @property
+    def thinking(self) -> str | None:
+        """Accumulated thinking/reasoning text."""
+        if not self.thoughts:
+            return None
+        from devops_cli.ai.review_schema import unique_lines
+
+        return unique_lines("\n\n".join(self.thoughts))
+
     def all_messages(self) -> list[ChatMessage]:
         """Return the complete message history including prior turns and tool exchanges."""
         return list(self.messages)
@@ -33,6 +47,98 @@ class AgentResponse[T](BaseModel):
     def new_messages(self) -> list[ChatMessage]:
         """Return messages generated in this specific agent run."""
         return list(self.new_messages_list)
+
+    @classmethod
+    def from_run_result(cls, run_res: Any) -> AgentResponse[Any]:
+        """Create AgentResponse from a native pydantic_ai.run.AgentRunResult."""
+        raw_output = getattr(run_res, "output", None)
+        if isinstance(raw_output, str):
+            content = raw_output
+            data = None
+        elif raw_output is not None:
+            content = str(raw_output)
+            data = raw_output
+        else:
+            content = ""
+            data = None
+
+        run_usage = getattr(run_res, "usage", None)
+        in_tok = getattr(run_usage, "input_tokens", 0) if run_usage else 0
+        out_tok = getattr(run_usage, "output_tokens", 0) if run_usage else 0
+        usage = AgentUsage(
+            input_tokens=in_tok,
+            output_tokens=out_tok,
+            total_tokens=in_tok + out_tok,
+        )
+
+        resp = getattr(run_res, "response", None)
+        backend_info = getattr(resp, "model_name", None) if resp else None
+
+        return cls(
+            content=content,
+            data=data,
+            usage=usage,
+            backend_info=backend_info,
+        )
+
+    def to_model_response(self, model_name: str | None = None) -> Any:
+        """Convert AgentResponse to standard pydantic_ai.messages.ModelResponse."""
+        from pydantic_ai.messages import (
+            ModelResponse,
+            TextPart,
+            ThinkingPart,
+            ToolCallPart,
+        )
+        from pydantic_ai.usage import RequestUsage
+
+        parts: list[Any] = []
+        if self.thinking:
+            parts.append(ThinkingPart(content=self.thinking))
+        for tc in self.tool_calls:
+            parts.append(ToolCallPart(tool_name=tc.tool_name, args=tc.arguments))
+        if self.content:
+            parts.append(TextPart(content=self.content))
+        usage = RequestUsage(
+            input_tokens=self.usage.input_tokens,
+            output_tokens=self.usage.output_tokens,
+        )
+        return ModelResponse(parts=parts, model_name=model_name or self.backend_info, usage=usage)
+
+    @classmethod
+    def from_model_response(cls, resp: Any) -> AgentResponse[Any]:
+        """Create AgentResponse from a pydantic_ai.messages.ModelResponse."""
+        from pydantic_ai.messages import ModelResponse, ThinkingPart
+
+        from devops_cli.ai.response_repair import extract_model_response_parts
+
+        if not isinstance(resp, ModelResponse):
+            return cls(content=str(resp))
+
+        content, thinking, tool_parts = extract_model_response_parts(resp)
+        tool_calls = [
+            ToolCall(
+                tool_name=p.tool_name,
+                arguments=p.args if isinstance(p.args, dict) else {},
+            )
+            for p in tool_parts
+        ]
+        thoughts = [
+            p.content for p in resp.parts if isinstance(p, ThinkingPart) and p.has_content()
+        ]
+        in_tok = resp.usage.input_tokens if resp.usage else 0
+        out_tok = resp.usage.output_tokens if resp.usage else 0
+        usage = AgentUsage(
+            input_tokens=in_tok,
+            output_tokens=out_tok,
+            total_tokens=in_tok + out_tok,
+        )
+        return cls(
+            content=content,
+            tool_calls=tool_calls,
+            thoughts=thoughts,
+            usage=usage,
+            backend_info=resp.model_name,
+        )
 
 
 class MCPSamplingModel(BaseModel):
