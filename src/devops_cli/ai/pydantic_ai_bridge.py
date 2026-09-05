@@ -129,11 +129,12 @@ def resolve_pydantic_ai_model(
         return model_str
 
 
-def create_pydantic_ai_agent[T: BaseModel](
+def create_pydantic_ai_agent(
     model_name: str | Any | None = None,
     system_prompt: str = "",
-    output_type: type[T] | None = None,
-    result_type: type[T] | None = None,
+    output_type: Any = None,
+    result_type: Any = None,
+    output_mode: str | None = None,
     deps_type: type[Any] = DevOpsAgentContext,
     capabilities: Sequence[BaseCapability] | None = None,
     tools: Sequence[Any] | None = None,
@@ -148,6 +149,10 @@ def create_pydantic_ai_agent[T: BaseModel](
     settings: Settings = load_settings()
     target_model = model_name or getattr(getattr(settings, "ai", None), "model", None)
     res_model = output_type or result_type or ReviewResult
+    if output_mode is not None:
+        from devops_cli.ai.output import build_output_spec
+
+        res_model = build_output_spec(res_model, mode=output_mode)  # type: ignore[arg-type]
     active_caps = list(capabilities or [])
     active_tools = list(tools or [])
     active_toolsets = list(toolsets or [])

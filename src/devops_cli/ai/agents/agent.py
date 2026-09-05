@@ -9,7 +9,7 @@ from collections import defaultdict
 from collections.abc import AsyncGenerator, Callable, Generator, Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, TypeVar, cast
+from typing import TYPE_CHECKING, Any, Literal, TypeVar
 
 if TYPE_CHECKING:
     from devops_cli.ai.concurrency import AbstractConcurrencyLimiter, AnyConcurrencyLimit
@@ -153,8 +153,8 @@ class PydanticAgent[T, DepsT = Any]:
         client: LLMClient | Any = None,
         instructions: str | list[str] | None = None,
         name: str = "Assistant",
-        output_type: type[T] | None = None,
-        output_schema: type[T] | None = None,
+        output_type: Any = None,
+        output_schema: Any = None,
         tools: list[AgentTool | Callable[..., Any]] | None = None,
         memory: AgentMemory | None = None,
         deps_type: type[DepsT] | None = None,
@@ -288,20 +288,23 @@ class PydanticAgent[T, DepsT = Any]:
         return None
 
     @property
-    def output_type(self) -> type[T] | None:
-        """Return the structured response model type."""
+    def output_type(self) -> Any:
+        """Return the structured response model type or OutputSpec."""
         return self.output_schema
 
     @property
-    def output_json_schema(self) -> dict[str, Any] | None:
-        """Return the JSON schema dictionary for output validation if available."""
+    def output_json_schema(self) -> Any:
+        """Return the JSON schema dictionary for output validation if available.
+
+        Returns a CallableDict supporting both property access (`agent.output_json_schema['properties']`)
+        and function call style (`agent.output_json_schema()`).
+        """
         if self.output_schema is None:
             return None
-        schema_getter = getattr(self.output_schema, "model_json_schema", None)
-        if callable(schema_getter):
-            res = schema_getter()
-            return cast(dict[str, Any], res) if isinstance(res, dict) else None
-        return None
+        from devops_cli.ai.output import CallableDict, extract_output_json_schema
+
+        schema = extract_output_json_schema(self.output_schema)
+        return CallableDict(schema) if schema is not None else None
 
     def tool(
         self,

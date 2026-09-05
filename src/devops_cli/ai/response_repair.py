@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any
+from typing import Any, cast
 
 import json_repair
 from pydantic import BaseModel, Field, TypeAdapter
@@ -292,17 +292,32 @@ def fix_llm_response[T = Any](
     parsed_model: T | None = None
 
     if schema is not None:
-        validator = getattr(schema, "model_validate", None)
-        if callable(validator) and isinstance(json_data, dict | list):
+        from devops_cli.ai.output import TextOutput, unwrap_output_spec
+
+        if isinstance(schema, TextOutput):
             try:
-                parsed_model = validator(json_data)
+                parsed_model = cast(T, schema.output_function(final_content))
             except Exception:
                 pass
-        if parsed_model is None and final_content:
-            try:
-                parsed_model = TypeAdapter(schema).validate_json(final_content)
-            except Exception:
-                pass
+        else:
+            unwrapped = unwrap_output_spec(schema)
+            target_schema = unwrapped[0] if unwrapped else schema
+            validator = getattr(target_schema, "model_validate", None)
+            if callable(validator) and isinstance(json_data, dict | list):
+                try:
+                    parsed_model = validator(json_data)
+                except Exception:
+                    pass
+            if parsed_model is None and json_data is not None:
+                try:
+                    parsed_model = cast(T, TypeAdapter(target_schema).validate_python(json_data))
+                except Exception:
+                    pass
+            if parsed_model is None and final_content:
+                try:
+                    parsed_model = TypeAdapter(target_schema).validate_json(final_content)
+                except Exception:
+                    pass
 
     raw_str = str(raw_response) if raw_response is not None else ""
     was_repaired = bool(
