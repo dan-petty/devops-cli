@@ -521,10 +521,13 @@ class WorkspaceIndexer:
                 root_span.set_attribute("rag.total_chunks", 0)
                 return {
                     "indexed_files": 0,
+                    "files_indexed": 0,
                     "total_chunks": 0,
+                    "chunks_indexed": 0,
                     "code_chunks": 0,
                     "doc_chunks": 0,
                     "removed_files": removed_files_count,
+                    "pruned_chunks": removed_files_count,
                     "skipped_files": len(files),
                     "collections": [self.code_collection, self.docs_collection],
                 }
@@ -571,10 +574,13 @@ class WorkspaceIndexer:
 
             return {
                 "indexed_files": len(files_to_reindex),
+                "files_indexed": len(files_to_reindex),
                 "total_chunks": len(all_chunks),
+                "chunks_indexed": len(all_chunks),
                 "code_chunks": len(code_chunks),
                 "doc_chunks": len(doc_chunks),
                 "removed_files": removed_files_count,
+                "pruned_chunks": removed_files_count,
                 "skipped_files": len(files) - len(files_to_reindex),
                 "collections": [self.code_collection, self.docs_collection],
             }

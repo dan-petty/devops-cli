@@ -6,6 +6,14 @@ Chronological log of refactoring milestones, quality gates, and security enhance
 
 ## Log Entries
 
+### [2026-09-05] RAG Indexing Result Key Normalization & CLI KeyError Remediation
+- **Safe Dictionary Access & Result Key Aliasing (`src/devops_cli/commands/rag.py`, `src/devops_cli/ai/rag/indexer.py`)**:
+  - Fixed `KeyError: 'files_indexed'` in `devops ai rag index` (`index_cmd`) and `index-kb` (`index_kb_cmd`) by using safe `.get()` accessors with fallbacks across `indexed_files` / `files_indexed`, `total_chunks` / `chunks_indexed`, and `removed_files` / `pruned_chunks`.
+  - Normalized `WorkspaceIndexer.index_workspace` and `WorkspaceIndexer.index_knowledge_base` return dictionaries to supply both canonical (`indexed_files`, `total_chunks`, `removed_files`) and alias keys (`files_indexed`, `chunks_indexed`, `pruned_chunks`), guaranteeing 100% backward and forward compatibility for all consumers and tests.
+- **Verification & Quality Gate**:
+  - Authored test `test_rag_index_cmd_handles_canonical_indexer_keys` in `tests/test_rag_cli.py` reproducing the KeyError and verifying clean resolution.
+  - All 10 `devops ci` quality gates passing cleanly.
+
 ### [2026-09-05] Dynamic Embedding Vector Dimension Resolution & Elimination of Lookup Table
 - **Dynamic Embedding Vector Dimension Resolution (`src/devops_cli/ai/rag/embeddings.py`)**:
   - Completely eliminated the brittle model-name substring matching table (`_infer_default_dimension`) in accordance with `AGENTS.md` guidelines against incomplete string literal collections.

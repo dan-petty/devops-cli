@@ -197,13 +197,12 @@ def index_cmd(
             progress_callback=_on_progress,
         )
 
-    removed_msg = (
-        f", pruned {results['pruned_chunks']} stale chunks"
-        if results.get("pruned_chunks", 0) > 0
-        else ""
-    )
+    removed_count = results.get("removed_files", results.get("pruned_chunks", 0))
+    removed_msg = f", pruned {removed_count} stale chunks" if removed_count > 0 else ""
+    indexed_files = results.get("indexed_files", results.get("files_indexed", 0))
+    chunks_count = results.get("total_chunks", results.get("chunks_indexed", 0))
     print_success(
-        f"Indexed {results['files_indexed']} files ({results['chunks_indexed']} chunks) "
+        f"Indexed {indexed_files} files ({chunks_count} chunks) "
         f"into '{code_coll}' & '{docs_coll}'{removed_msg}"
     )
 
@@ -289,10 +288,12 @@ def index_kb_cmd(
             progress_callback=_on_progress,
         )
 
+    indexed_files = results.get("indexed_files", results.get("files_indexed", 0))
+    chunks_count = results.get("total_chunks", results.get("chunks_indexed", 0))
     print_success(
         f"Knowledge Base indexing complete! "
-        f"Indexed [cyan]{results['indexed_files']}[/cyan] KB file(s), "
-        f"upserted [cyan]{results['total_chunks']}[/cyan] chunk(s) "
+        f"Indexed [cyan]{indexed_files}[/cyan] KB file(s), "
+        f"upserted [cyan]{chunks_count}[/cyan] chunk(s) "
         f"into [magenta]{docs_coll}[/magenta]."
     )
 
