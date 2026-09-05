@@ -337,6 +337,15 @@ def __getattr__(name: str) -> Any:
 
         return getattr(devops_cli.ai.settings, name)
     if name in {
+        "TemplateStr",
+        "create_template_str",
+        "is_template_str",
+        "render_template",
+    }:
+        import devops_cli.ai.template
+
+        return getattr(devops_cli.ai.template, name)
+    if name in {
         "CONST_CLAUDE_MD_FILENAME",
         "CONST_COPILOT_INSTRUCTIONS_PATH",
         "DEFAULT_AGENT_FILES",
@@ -965,4 +974,8 @@ __all__ = [
     "normalize_thinking_level",
     "normalize_tool_choice",
     "resolve_runtime_model_settings",
+    "TemplateStr",
+    "create_template_str",
+    "is_template_str",
+    "render_template",
 ]

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import inspect
 import json
-import re
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -481,29 +480,6 @@ class MCPToolset(AbstractToolset):
     async def close(self) -> None:
         """Close client connections."""
         pass
-
-
-class TemplateStr(str):
-    """Template string that renders {{variable}} against deps attributes or keys at runtime."""
-
-    def render(self, deps: Any) -> str:
-        """Render Handlebars-style template variables using fields from deps."""
-        if not deps:
-            return str(self)
-        rendered = str(self)
-        pattern = r"\{\{\s*([a-zA-Z0-9_]+)\s*\}\}"
-
-        def replacer(match: re.Match[str]) -> str:
-            key = match.group(1)
-            if isinstance(deps, dict):
-                val = deps.get(key)
-                return str(val) if val is not None else match.group(0)
-            if hasattr(deps, key):
-                val = getattr(deps, key)
-                return str(val) if val is not None else match.group(0)
-            return match.group(0)
-
-        return re.sub(pattern, replacer, rendered)
 
 
 class AgentSpec(BaseModel):

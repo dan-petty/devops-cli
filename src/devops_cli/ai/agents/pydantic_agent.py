@@ -164,7 +164,6 @@ from devops_cli.ai.agents.tools import (
     AgentTool,
     FunctionToolset,
     MCPToolset,
-    TemplateStr,
     Tool,
     ToolCall,
     ToolReturn,
@@ -449,6 +448,12 @@ from devops_cli.ai.settings import (
     normalize_thinking_level,
     normalize_tool_choice,
     resolve_runtime_model_settings,
+)
+from devops_cli.ai.template import (
+    TemplateStr,
+    create_template_str,
+    is_template_str,
+    render_template,
 )
 
 __all__ = [
@@ -853,4 +858,7 @@ __all__ = [
     "normalize_thinking_level",
     "normalize_tool_choice",
     "resolve_runtime_model_settings",
+    "create_template_str",
+    "is_template_str",
+    "render_template",
 ]

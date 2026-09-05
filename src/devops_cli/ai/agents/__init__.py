@@ -228,6 +228,7 @@ from devops_cli.ai.agents.pydantic_agent import (
     create_mcp_toolset,
     create_ollama_model,
     create_ollama_provider,
+    create_template_str,
     deepseek_model_profile,
     deferred_loading,
     duckduckgo_search_tool,
@@ -246,6 +247,7 @@ from devops_cli.ai.agents.pydantic_agent import (
     image_generation_tool,
     is_ollama_cloud,
     is_private_ip_or_localhost,
+    is_template_str,
     load_devops_mcp_toolsets,
     load_mcp_toolsets,
     meta_model_profile,
@@ -256,6 +258,7 @@ from devops_cli.ai.agents.pydantic_agent import (
     qwen_model_profile,
     renamed,
     render_signatures,
+    render_template,
     render_tool_interface,
     resolve_output_mode,
     signature_from_callable,
@@ -520,6 +523,16 @@ def __getattr__(name: str) -> Any:
         import devops_cli.ai.settings
 
         return getattr(devops_cli.ai.settings, name)
+
+    if name in {
+        "TemplateStr",
+        "create_template_str",
+        "is_template_str",
+        "render_template",
+    }:
+        import devops_cli.ai.template
+
+        return getattr(devops_cli.ai.template, name)
     if name in {
         "Advisor",
         "AgentContextInventory",
@@ -1137,4 +1150,7 @@ __all__ = [
     "normalize_thinking_level",
     "normalize_tool_choice",
     "resolve_runtime_model_settings",
+    "create_template_str",
+    "is_template_str",
+    "render_template",
 ]

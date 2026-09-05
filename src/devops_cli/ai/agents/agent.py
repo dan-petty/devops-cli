@@ -56,12 +56,12 @@ from devops_cli.ai.agents.tools import (
     AbstractToolset,
     AgentSpec,
     AgentTool,
-    TemplateStr,
     Tool,
     ToolCall,
     ToolReturn,
 )
 from devops_cli.ai.client import LLMClient
+from devops_cli.ai.template import TemplateStr
 from devops_cli.config.defaults import DEFAULT_AGENT_MAX_TURNS
 from devops_cli.exceptions import UnexpectedModelBehavior
 from devops_cli.models.ai import ChatMessage
