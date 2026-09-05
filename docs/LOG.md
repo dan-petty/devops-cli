@@ -2,9 +2,24 @@
 
 Chronological log of refactoring milestones, quality gates, and security enhancements.
 
----
+### [2026-09-05] Native Pydantic AI Format Prompt (`pydantic_ai.format_prompt`) & Standardized XML Serialization
+- **Native Prompt Formatting Subsystem (`src/devops_cli/ai/format_prompt.py`)**:
+  - Full native adoption of `pydantic_ai.format_prompt` API:
+    - Re-exports `format_as_xml` directly from `pydantic_ai.format_prompt`.
+    - Implemented high-level domain helpers: `format_prompt_data`, `format_context_as_xml`, `format_examples_as_xml`, `format_rag_context_as_xml`, `format_findings_as_xml`, `format_plan_reminder_as_xml`, and `format_metadata_as_xml`.
+    - Leveraged Pydantic v2 `Field` metadata extraction (`include_field_info="once"` or `True`) for few-shot examples and structured schemas.
+- **Managed Prompt & Subsystem Integration**:
+  - Enhanced `ManagedPrompt` (`src/devops_cli/ai/agents/prompt.py`) with `format_xml_variable()` and `render(format_xml_vars=...)` for structured XML variable substitution with boundary sanitization.
+  - Modernized `PlanStore` (`src/devops_cli/ai/harness/planning.py`) with `to_xml()` and `format_plan_reminder_as_xml()`.
+  - Modernized `format_starting_point_prompt` (`src/devops_cli/ai/response_cache.py`) using `format_as_xml`.
+- **Package Re-exports (`devops_cli.ai`, `devops_cli.ai.agents`, `devops_cli.ai.agents.pydantic_agent`)**:
+  - Re-exported `format_as_xml` and all XML formatting helpers with complete `__all__` definitions.
+- **Quality Gates & Test-First Verification**:
+  - Authored comprehensive test suite `tests/test_pydantic_ai_format_prompt.py` (15/15 tests passing, 100% coverage on `format_prompt.py`).
+  - Full CI validation suite (`uv run devops ci`): 10/10 quality gates green (version, test, coverage >= 90%, lint, format, typecheck, audit, security, actionlint, docs).
 
 ### [2026-09-05] Native Pydantic AI Exceptions (`pydantic_ai.exceptions`) & Unified Domain Error Taxonomy
+
 - **Native AI Exceptions Subsystem (`src/devops_cli/ai/exceptions.py`)**:
   - Full native adoption of `pydantic_ai.exceptions` API specification:
     - Re-exports all native exception classes: `AgentRunError`, `UserError`, `ModelRetry`, `ToolFailed`, `ApprovalRequired`, `CallDeferred`, `SkipModelRequest`, `SkipToolValidation`, `SkipToolExecution`, `UndrainedPendingMessagesError`, `RunCancelled`, `SuspendedResponseExpired`, `UnexpectedModelBehavior`, `UsageLimitExceeded`, `ConcurrencyLimitExceeded`, `ModelAPIError`, `ModelHTTPError`, `ContentFilterError`, `IncompleteToolCall`, `ToolRetryError`, `ToolFailedError`, and `FallbackExceptionGroup`.

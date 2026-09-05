@@ -106,6 +106,13 @@
   - [x] Phase 17.5: Public Package Re-exports (`devops_cli.ai`, `devops_cli.ai.agents`, `devops_cli.ai.agents.pydantic_agent`)
   - [x] Phase 17.6: Full CI Validation Suite (`devops ci`), Documentation Sync & Conventional Commits
 
+- [x] Phase 18: Native Pydantic AI Format Prompt (`pydantic_ai.format_prompt`) & Standardized XML Serialization
+  - [x] Phase 18.1: Test-First Specifications (`tests/test_pydantic_ai_format_prompt.py` — 15/15 green)
+  - [x] Phase 18.2: Core Format Prompt Subsystem (`src/devops_cli/ai/format_prompt.py`)
+  - [x] Phase 18.3: Managed Prompt & Harness Planning/Cache Integration (`prompt.py`, `planning.py`, `response_cache.py`)
+  - [x] Phase 18.4: Public Package Re-exports (`devops_cli.ai`, `devops_cli.ai.agents`, `devops_cli.ai.agents.pydantic_agent`)
+  - [x] Phase 18.5: Full CI Validation Suite (`devops ci`), Documentation Sync & Conventional Commits
+
 ---
 
 ### In-Progress Tasks (WIP)
