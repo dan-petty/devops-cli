@@ -6,7 +6,18 @@ Chronological log of refactoring milestones, quality gates, and security enhance
 
 ## Log Entries
 
+### [2026-09-05] Qdrant Collection Dimension Auto-Recreation & Warning Deduplication
+- **Automatic Vector Dimension Detection & Migration (`src/devops_cli/ai/rag/qdrant.py`)**:
+  - Connected `ensure_collection` into `upsert_points` to inspect payload vector dimensions before upserting batches.
+  - Automatically detects vector dimension mismatches against existing Qdrant collections (e.g. 768 vs 1024), deletes the incompatible collection, and recreates it with the required vector dimension without crashing.
+  - Implemented in-memory verified collection dimension caching (`_verified_collections`) to eliminate redundant round-trips for subsequent batches.
+  - Deduplicated dimension mismatch warnings in `search_points` (`_dim_mismatch_warned`) so that background code reviews log at most once per collection rather than repeating on every reviewed file.
+- **Verification & Quality Gate**:
+  - Authored unit tests in `tests/test_rag_qdrant.py` verifying collection recreation on dimension change and warning deduplication.
+  - All 10 `devops ci` quality gates passed cleanly (100% test pass, coverage >= 90%).
+
 ### [2026-09-05] Review Findings Remediation (Session `20260905-003105`), Python 3.14 PEP 759 Awareness & Review Loop Hardening
+
 - **Codebase Findings Remediation (Session `20260905-003105`)**:
   - **Concurrent Background Process Ceiling (`src/devops_cli/ai/harness/shell.py`)**: Added `max_bg_processes: int = 10` cap to `Shell` and `start_command`, blocking concurrent process unbounded growth.
   - **Command Argument Traversal & Denylist (`src/devops_cli/ai/harness/shell.py`)**: Blocked `..` traversal in arguments and enhanced denied commands prefix matching for `mkfs.*`, `reboot`, `shutdown`, `poweroff`.

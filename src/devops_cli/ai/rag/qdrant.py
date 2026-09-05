@@ -126,6 +126,8 @@ class QdrantClient:
 
         self._client: NativeQdrantClient | None = None
         self._last_alive: tuple[float, bool] | None = None
+        self._verified_collections: dict[str, int] = {}
+        self._dim_mismatch_warned: set[str] = set()
 
     def _get_client(self, force_refresh: bool = False) -> NativeQdrantClient:
         if self._client is None or force_refresh:
@@ -220,10 +222,13 @@ class QdrantClient:
         distance: str = DEFAULT_QDRANT_DISTANCE,
     ) -> bool:
         """Create collection if it does not already exist, recreating if dimension changed."""
+        if self._verified_collections.get(name) == vector_size:
+            return True
+
         info = self.get_collection_info(name)
         if info:
             curr_size = info.get("vector_size")
-            if curr_size is not None and curr_size != vector_size:
+            if isinstance(curr_size, int) and curr_size != vector_size:
                 logger.warning(
                     "Qdrant collection '%s' vector dimension mismatch (existing: %d, required: %d). Recreating...",
                     name,
@@ -231,7 +236,8 @@ class QdrantClient:
                     vector_size,
                 )
                 self.delete_collection(name)
-            else:
+            elif isinstance(curr_size, int):
+                self._verified_collections[name] = vector_size
                 return True
 
         dist_enum = getattr(qmodels.Distance, distance.upper(), qmodels.Distance.COSINE)
@@ -243,6 +249,7 @@ class QdrantClient:
                 ),
                 f"create_collection({name})",
             )
+            self._verified_collections[name] = vector_size
             return True
         except Exception as exc:
             logger.error("Error creating collection %s in Qdrant: %s", name, exc)
@@ -250,6 +257,8 @@ class QdrantClient:
 
     def delete_collection(self, name: str) -> bool:
         """Delete a collection from Qdrant."""
+        self._verified_collections.pop(name, None)
+        self._dim_mismatch_warned.discard(name)
         try:
             res = self._execute_with_retry(
                 lambda c: c.delete_collection(collection_name=name),
@@ -284,6 +293,10 @@ class QdrantClient:
         """Upsert a list of point dictionaries (id, vector, payload) in batches."""
         if not points:
             return 0
+
+        first_vec = points[0].get("vector")
+        if first_vec and isinstance(first_vec, list):
+            self.ensure_collection(name, vector_size=len(first_vec))
 
         with trace_span(
             "qdrant.upsert_points",
@@ -349,7 +362,9 @@ class QdrantClient:
                 if "not found" in err_str or "404" in err_str:
                     return []
                 if "vector dimension error" in err_str or "dimension error" in err_str:
-                    logger.warning("Qdrant vector dimension mismatch in '%s': %s", name, exc)
+                    if name not in self._dim_mismatch_warned:
+                        self._dim_mismatch_warned.add(name)
+                        logger.warning("Qdrant vector dimension mismatch in '%s': %s", name, exc)
                     return []
                 logger.debug("Error searching collection %s: %s", name, exc)
                 raise QdrantClientError(f"Search failed in '{name}': {exc}") from exc
