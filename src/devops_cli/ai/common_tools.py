@@ -1,15 +1,267 @@
-"""Common tool factories for web search, URL fetching with SSRF protection, and search engines."""
+"""Common tool factories for web search, URL fetching with SSRF protection, and search engines.
+
+Bridges and exposes native Pydantic AI common tools (pydantic_ai.common_tools) with
+robust enterprise SSRF protection and zero-dependency fallbacks.
+"""
 
 from __future__ import annotations
 
 import html
 import re
 import urllib.parse
-from typing import Any
+from typing import TYPE_CHECKING, Any, TypedDict
 
-from devops_cli.ai.agents.tools import Tool
+if TYPE_CHECKING:
+    from devops_cli.ai.agents.tools import Tool
+
 from devops_cli.exceptions.security import SSRFBlockedError
 from devops_cli.http.client import new_http_client
+
+# =============================================================================
+# Native TypedDict Schemas (Matching pydantic_ai.common_tools)
+# =============================================================================
+
+
+class WebFetchResult(TypedDict):
+    """Result from web page fetching."""
+
+    url: str
+    title: str
+    content: str
+
+
+class DuckDuckGoResult(TypedDict):
+    """Result from DuckDuckGo web search."""
+
+    title: str
+    href: str
+    body: str
+
+
+class TavilySearchResult(TypedDict):
+    """Result from Tavily search API."""
+
+    title: str
+    url: str
+    content: str
+    score: float
+
+
+class ExaSearchResult(TypedDict):
+    """Result from Exa neural search."""
+
+    title: str
+    url: str
+    published_date: str | None
+    author: str | None
+    text: str
+
+
+class ExaAnswerResult(TypedDict):
+    """Direct answer from Exa."""
+
+    answer: str
+    citations: list[dict[str, Any]]
+
+
+class ExaContentResult(TypedDict):
+    """Extracted content from Exa."""
+
+    url: str
+    title: str
+    text: str
+    author: str | None
+    published_date: str | None
+
+
+# =============================================================================
+# Native Common Tool Re-exports (Image Generation & X Search)
+# =============================================================================
+
+if TYPE_CHECKING:
+    from pydantic_ai.common_tools.duckduckgo import DuckDuckGoSearchTool
+    from pydantic_ai.common_tools.exa import (
+        ExaAnswerTool,
+        ExaFindSimilarTool,
+        ExaGetContentsTool,
+        ExaSearchTool,
+        ExaToolset,
+        exa_answer_tool,
+        exa_find_similar_tool,
+        exa_get_contents_tool,
+        exa_search_tool,
+    )
+    from pydantic_ai.common_tools.image_generation import (
+        ImageGenerationFallbackModel,
+        ImageGenerationFallbackModelFunc,
+        ImageGenerationSubagentTool,
+        image_generation_tool,
+    )
+    from pydantic_ai.common_tools.tavily import TavilySearchTool
+    from pydantic_ai.common_tools.web_fetch import WebFetchLocalTool
+    from pydantic_ai.common_tools.x_search import (
+        XSearchFallbackModel,
+        XSearchFallbackModelFunc,
+        XSearchSubagentTool,
+        x_search_tool,
+    )
+    from pydantic_ai.native_tools import ImageGenerationTool, XSearchTool
+else:
+    try:
+        from pydantic_ai.common_tools.image_generation import (
+            ImageGenerationFallbackModel,
+            ImageGenerationFallbackModelFunc,
+            ImageGenerationSubagentTool,
+            ImageGenerationTool,
+            image_generation_tool,
+        )
+    except Exception:
+
+        class ImageGenerationFallbackModel:  # type: ignore[no-redef]
+            """Fallback model wrapper for image generation."""
+
+        ImageGenerationFallbackModelFunc = None
+
+        class ImageGenerationSubagentTool:  # type: ignore[no-redef]
+            """Fallback subagent tool for image generation."""
+
+        class ImageGenerationTool:  # type: ignore[no-redef]
+            """Fallback tool for image generation."""
+
+        def image_generation_tool(*args: Any, **kwargs: Any) -> Any:
+            raise NotImplementedError("Image generation tool requires pydantic_ai")
+
+    try:
+        from pydantic_ai.common_tools.x_search import (
+            XSearchFallbackModel,
+            XSearchFallbackModelFunc,
+            XSearchSubagentTool,
+            XSearchTool,
+            x_search_tool,
+        )
+    except Exception:
+
+        class XSearchFallbackModel:  # type: ignore[no-redef]
+            """Fallback model wrapper for x search."""
+
+        XSearchFallbackModelFunc = None
+
+        class XSearchSubagentTool:  # type: ignore[no-redef]
+            """Fallback subagent tool for x search."""
+
+        class XSearchTool:  # type: ignore[no-redef]
+            """Fallback tool for x search."""
+
+        def x_search_tool(*args: Any, **kwargs: Any) -> Any:
+            raise NotImplementedError("X search tool requires pydantic_ai")
+
+    try:
+        from pydantic_ai.common_tools.exa import (
+            ExaAnswerTool,
+            ExaFindSimilarTool,
+            ExaGetContentsTool,
+            ExaSearchTool,
+            ExaToolset,
+            exa_answer_tool,
+            exa_find_similar_tool,
+            exa_get_contents_tool,
+            exa_search_tool,
+        )
+    except Exception:
+
+        class ExaAnswerTool:  # type: ignore[no-redef]
+            """Fallback when exa-py is not installed."""
+
+        class ExaFindSimilarTool:  # type: ignore[no-redef]
+            """Fallback when exa-py is not installed."""
+
+        class ExaGetContentsTool:  # type: ignore[no-redef]
+            """Fallback when exa-py is not installed."""
+
+        class ExaSearchTool:  # type: ignore[no-redef]
+            """Fallback when exa-py is not installed."""
+
+        class ExaToolset:  # type: ignore[no-redef]
+            """Fallback when exa-py is not installed."""
+
+        def exa_answer_tool(*args: Any, **kwargs: Any) -> Any:
+            def answer_exa(query: str) -> str:
+                return f"Exa answer for '{query}': optional dependency exa-py not installed."
+
+            from devops_cli.ai.agents.tools import Tool
+
+            return Tool.from_function(answer_exa, name="exa_answer", takes_ctx=False)
+
+        def exa_find_similar_tool(*args: Any, **kwargs: Any) -> Any:
+            def similar_exa(url: str) -> str:
+                return f"Exa find similar for '{url}': optional dependency exa-py not installed."
+
+            from devops_cli.ai.agents.tools import Tool
+
+            return Tool.from_function(similar_exa, name="exa_find_similar", takes_ctx=False)
+
+        def exa_get_contents_tool(*args: Any, **kwargs: Any) -> Any:
+            def contents_exa(urls: list[str]) -> str:
+                return f"Exa contents for {urls}: optional dependency exa-py not installed."
+
+            from devops_cli.ai.agents.tools import Tool
+
+            return Tool.from_function(contents_exa, name="exa_get_contents", takes_ctx=False)
+
+        def exa_search_tool(
+            api_key: str | None = None,
+            *,
+            num_results: int = 5,
+            max_characters: int = 1000,
+        ) -> Any:
+            """Create a Tool that searches Exa neural search API."""
+
+            def search_exa(query: str) -> str:
+                return f"Exa search result for '{query}': optional dependency exa-py not installed."
+
+            from devops_cli.ai.agents.tools import Tool
+
+            return Tool.from_function(
+                search_exa,
+                name="exa_search",
+                description="Search the web using Exa neural search API.",
+                takes_ctx=False,
+            )
+
+    try:
+        from pydantic_ai.common_tools.duckduckgo import DuckDuckGoSearchTool
+    except Exception:
+
+        class DuckDuckGoSearchTool:  # type: ignore[no-redef]
+            """DuckDuckGoSearchTool fallback when optional dependency ddgs is not installed."""
+
+            def __init__(self, *args: Any, **kwargs: Any) -> None:
+                pass
+
+    try:
+        from pydantic_ai.common_tools.tavily import TavilySearchTool
+    except Exception:
+
+        class TavilySearchTool:  # type: ignore[no-redef]
+            """TavilySearchTool fallback when optional dependency tavily-python is not installed."""
+
+            def __init__(self, *args: Any, **kwargs: Any) -> None:
+                pass
+
+    try:
+        from pydantic_ai.common_tools.web_fetch import WebFetchLocalTool
+    except Exception:
+
+        class WebFetchLocalTool:  # type: ignore[no-redef]
+            """WebFetchLocalTool fallback when optional dependency markdownify is not installed."""
+
+            def __init__(self, *args: Any, **kwargs: Any) -> None:
+                pass
+
+
+# =============================================================================
+# SSRF Validation & HTML Parsers
+# =============================================================================
 
 
 def _is_private_or_loopback(host: str) -> bool:
@@ -71,6 +323,11 @@ def _html_to_markdown(raw_html: str) -> str:
     return clean.strip()
 
 
+# =============================================================================
+# Tool Factories with SSRF Guardrails
+# =============================================================================
+
+
 def web_fetch_tool(
     *,
     max_content_length: int | None = 50000,
@@ -127,6 +384,8 @@ def web_fetch_tool(
         except Exception as exc:
             return f"Error fetching web page {url}: {exc}"
 
+    from devops_cli.ai.agents.tools import Tool
+
     return Tool.from_function(
         fetch_web_page,
         name="web_fetch",
@@ -154,7 +413,6 @@ def duckduckgo_search_tool(
                 flags=re.DOTALL,
             )
             if not results:
-                # Fallback pattern
                 snippets = re.findall(r'<a class="result__url"[^>]*>(.*?)</a>', resp.text)
                 if not snippets:
                     return f"No DuckDuckGo results found for '{query}'."
@@ -173,6 +431,8 @@ def duckduckgo_search_tool(
             )
         except Exception as exc:
             return f"DuckDuckGo search error: {exc}"
+
+    from devops_cli.ai.agents.tools import Tool
 
     return Tool.from_function(
         search_duckduckgo,
@@ -222,9 +482,49 @@ def tavily_search_tool(
         except Exception as exc:
             return f"Tavily search error: {exc}"
 
+    from devops_cli.ai.agents.tools import Tool
+
     return Tool.from_function(
         search_tavily,
         name="tavily_search",
         description=f"Search Tavily search API (returns up to {max_results} results).",
         takes_ctx=False,
     )
+
+
+__all__ = [
+    "DuckDuckGoResult",
+    "DuckDuckGoSearchTool",
+    "ExaAnswerResult",
+    "ExaAnswerTool",
+    "ExaContentResult",
+    "ExaFindSimilarTool",
+    "ExaGetContentsTool",
+    "ExaSearchResult",
+    "ExaSearchTool",
+    "ExaToolset",
+    "ImageGenerationFallbackModel",
+    "ImageGenerationFallbackModelFunc",
+    "ImageGenerationSubagentTool",
+    "ImageGenerationTool",
+    "TavilySearchResult",
+    "TavilySearchTool",
+    "WebFetchLocalTool",
+    "WebFetchResult",
+    "XSearchFallbackModel",
+    "XSearchFallbackModelFunc",
+    "XSearchSubagentTool",
+    "XSearchTool",
+    "_html_to_markdown",
+    "_is_private_or_loopback",
+    "duckduckgo_search_tool",
+    "exa_answer_tool",
+    "exa_find_similar_tool",
+    "exa_get_contents_tool",
+    "exa_search_tool",
+    "image_generation_tool",
+    "is_private_ip_or_localhost",
+    "tavily_search_tool",
+    "web_fetch_tool",
+    "x_search_tool",
+]
