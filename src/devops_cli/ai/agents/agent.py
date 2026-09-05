@@ -214,7 +214,7 @@ class PydanticAgent[T, DepsT = Any]:
             self.retries = retries
         else:
             self.retries = AgentRetries()
-        self._tools: dict[str, AgentTool] = {}
+        self._tools: dict[str, AgentTool | Tool] = {}
         self._dynamic_system_prompts: list[Callable[..., str]] = []
         self._output_validators: list[Callable[..., Any]] = []
 
@@ -274,7 +274,7 @@ class PydanticAgent[T, DepsT = Any]:
         self.add_tool(load_capability)
 
     @property
-    def tools(self) -> list[AgentTool]:
+    def tools(self) -> list[AgentTool | Tool]:
         """Return the list of registered tools for this agent."""
         return list(self._tools.values())
 
@@ -485,12 +485,12 @@ class PydanticAgent[T, DepsT = Any]:
             if hasattr(ts, "__aexit__") and callable(ts.__aexit__):
                 await ts.__aexit__(exc_type, exc_val, exc_tb)
 
-    def add_tool(self, tool: AgentTool | Callable[..., Any]) -> None:
-        """Register a tool callback or AgentTool instance."""
-        if isinstance(tool, AgentTool):
+    def add_tool(self, tool: AgentTool | Tool | Callable[..., Any]) -> None:
+        """Register a tool callback, Tool, or AgentTool instance."""
+        if isinstance(tool, (AgentTool, Tool)):
             self._tools[tool.name] = tool
         else:
-            name = tool.__name__
+            name = getattr(tool, "__name__", getattr(tool, "name", str(tool)))
             doc = inspect.getdoc(tool) or name
             sig = inspect.signature(tool)
             params: dict[str, Any] = {}
@@ -503,11 +503,10 @@ class PydanticAgent[T, DepsT = Any]:
                     param.annotation if param.annotation != inspect.Parameter.empty else str
                 )
                 params[param_name] = str(annotation)
-            agent_tool = AgentTool(
+            agent_tool = Tool.from_function(
+                tool,
                 name=name,
                 description=doc,
-                func=tool,
-                parameters=params,
                 takes_ctx=takes_ctx,
             )
             self._tools[name] = agent_tool
@@ -615,9 +614,8 @@ class PydanticAgent[T, DepsT = Any]:
             tools_desc: list[str] = []
             for name, tool in self._tools.items():
                 params_str = json.dumps(tool.parameters, separators=(",", ":"))
-                desc = "".join(
-                    c for c in tool.description.replace("\n", " ") if 32 <= ord(c) <= 126
-                )
+                raw_desc = tool.description or tool.name or ""
+                desc = "".join(c for c in raw_desc.replace("\n", " ") if 32 <= ord(c) <= 126)
                 if len(desc) > 300:
                     desc = desc[:297] + "..."
                 tools_desc.append(f"- `{name}`: {desc} params={params_str}")

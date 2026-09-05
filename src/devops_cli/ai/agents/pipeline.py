@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from devops_cli.ai.concurrency import AbstractConcurrencyLimiter, AnyConcurrencyLimit
 
 from devops_cli.ai.agents.memory import AgentMemory
-from devops_cli.ai.agents.pydantic_agent import AgentTool, PydanticAgent, ToolCall
+from devops_cli.ai.agents.pydantic_agent import AgentTool, PydanticAgent, Tool, ToolCall
 from devops_cli.ai.analyze.outlines import _mask_sensitive_data
 from devops_cli.ai.review_schema import extract_json_block
 from devops_cli.config.defaults import DEFAULT_AGENT_MAX_TURNS
@@ -65,7 +65,7 @@ class MultiAgentPipeline[T]:
         agents: list[PydanticAgent[Any]] | None = None,
         *,
         output_schema: type[T] | None = None,
-        shared_tools: list[AgentTool | Callable[..., Any]] | None = None,
+        shared_tools: list[AgentTool | Tool | Callable[..., Any]] | None = None,
         session_id: str = "pipeline-session",
         memory: AgentMemory | None = None,
         concurrency_limit: AnyConcurrencyLimit = None,
@@ -86,7 +86,7 @@ class MultiAgentPipeline[T]:
             self.concurrency_limiter = None
         if self.shared_tools:
             for tool in self.shared_tools:
-                if not (isinstance(tool, AgentTool) or callable(tool)):
+                if not (isinstance(tool, (AgentTool, Tool)) or callable(tool)):
                     msg = f"Shared tool must be an AgentTool or callable, got {type(tool)}"
                     raise TypeError(msg)
             for agent in self.agents:
@@ -97,7 +97,7 @@ class MultiAgentPipeline[T]:
         """Append a PydanticAgent to the pipeline stage sequence."""
         if self.shared_tools:
             for tool in self.shared_tools:
-                if not (isinstance(tool, AgentTool) or callable(tool)):
+                if not (isinstance(tool, (AgentTool, Tool)) or callable(tool)):
                     msg = f"Shared tool must be an AgentTool or callable, got {type(tool)}"
                     raise TypeError(msg)
                 agent.add_tool(tool)

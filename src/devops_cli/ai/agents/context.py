@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 from pydantic import BaseModel, Field
+from pydantic_ai.tools import RunContext as NativeRunContext
 
 from devops_cli.exceptions import SecurityError
 
@@ -37,17 +38,97 @@ class AgentRetries(BaseModel):
     output: int = 1
 
 
-class RunContext[DepsT](BaseModel):
-    """Runtime context passed to agent tools and system prompt providers."""
+_orig_run_context_init = NativeRunContext.__init__
 
-    deps: DepsT | None = None
-    session_id: str = ""
-    retry: int = 0
-    model: str = ""
-    usage: AgentUsage = Field(default_factory=AgentUsage)
-    loaded_capability_ids: set[str] = Field(default_factory=set)
-    tool_call_approved: bool = False
-    tool_call_metadata: dict[str, Any] = Field(default_factory=dict)
+
+def _run_context_init_shim(
+    self: Any,
+    *args: Any,
+    deps: Any = None,
+    model: Any = None,
+    usage: Any = None,
+    session_id: str = "",
+    retry: int = 0,
+    loaded_capability_ids: set[str] | None = None,
+    tool_call_approved: bool = False,
+    tool_call_metadata: dict[str, Any] | None = None,
+    **kwargs: Any,
+) -> None:
+    try:
+        _orig_run_context_init(
+            self,
+            *args,
+            deps=deps,
+            model=model,
+            usage=usage if usage is not None else cast(Any, AgentUsage()),
+            **kwargs,
+        )
+    except TypeError:
+        _orig_run_context_init(self, *args, **kwargs)
+    self.session_id = session_id
+    self.retry = retry
+    if loaded_capability_ids is not None:
+        self.loaded_capability_ids = loaded_capability_ids
+    elif not hasattr(self, "loaded_capability_ids") or self.loaded_capability_ids is None:
+        self.loaded_capability_ids = set()
+    self.tool_call_approved = tool_call_approved
+    self.tool_call_metadata = tool_call_metadata or {}
+
+
+def _run_context_model_copy(
+    self: Any,
+    *,
+    update: dict[str, Any] | None = None,
+    deep: bool = False,
+) -> Any:
+    """Provide pydantic BaseModel model_copy compatibility on RunContext."""
+    import copy
+
+    copied = copy.deepcopy(self) if deep else copy.copy(self)
+    if update:
+        for k, v in update.items():
+            setattr(copied, k, v)
+    return copied
+
+
+NativeRunContext.__init__ = _run_context_init_shim  # type: ignore[method-assign]
+NativeRunContext.model_copy = _run_context_model_copy  # type: ignore[attr-defined]
+
+if TYPE_CHECKING:
+
+    class RunContext[DepsT]:
+        """Runtime context passed to agent tools and system prompt providers."""
+
+        deps: DepsT | None
+        session_id: str
+        retry: int
+        model: Any
+        usage: AgentUsage
+        loaded_capability_ids: set[str]
+        tool_call_approved: bool
+        tool_call_metadata: dict[str, Any]
+
+        def __init__(
+            self,
+            deps: DepsT | None = None,
+            model: Any = None,
+            usage: AgentUsage | None = None,
+            session_id: str = "",
+            retry: int = 0,
+            loaded_capability_ids: set[str] | None = None,
+            tool_call_approved: bool = False,
+            tool_call_metadata: dict[str, Any] | None = None,
+            **kwargs: Any,
+        ) -> None: ...
+
+        def model_copy(
+            self,
+            *,
+            update: dict[str, Any] | None = None,
+            deep: bool = False,
+        ) -> RunContext[DepsT]: ...
+else:
+    RunContext = NativeRunContext
 
 
 class AgentStepNode(BaseModel):

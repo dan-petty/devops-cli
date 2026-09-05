@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import inspect
 import json
 from collections.abc import Callable
 from pathlib import Path
@@ -17,6 +16,7 @@ if TYPE_CHECKING:
 from pydantic import BaseModel, Field
 
 from devops_cli.ai.agents.context import RunContext, _check_path_traversal
+from devops_cli.ai.tools import Tool as Tool
 
 
 class AgentTool(BaseModel):
@@ -102,89 +102,6 @@ class ToolReturn(BaseModel):
     content: list[Any] | str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
     tools: list[str] = Field(default_factory=list)
-
-
-class Tool(AgentTool):
-    """Pydantic AI Tool model for registering function tools with rich configuration."""
-
-    strict: bool | None = None
-
-    @classmethod
-    def from_function(
-        cls,
-        func: Callable[..., Any],
-        *,
-        name: str | None = None,
-        description: str | None = None,
-        takes_ctx: bool | None = None,
-        strict: bool | None = None,
-        requires_approval: bool = False,
-        timeout: float | None = None,
-        max_retries: int | None = None,
-        include_return_schema: bool | None = None,
-        args_validator_func: Callable[[dict[str, Any]], dict[str, Any] | None] | None = None,
-        metadata: dict[str, Any] | None = None,
-    ) -> Tool:
-        """Construct a Tool instance from a callable."""
-        tool_name = name or func.__name__
-        tool_doc = description or (inspect.getdoc(func) or tool_name)
-        sig = inspect.signature(func)
-        params: dict[str, Any] = {}
-        inferred_takes_ctx = takes_ctx
-        for idx, (p_name, p) in enumerate(sig.parameters.items()):
-            if idx == 0 and (p_name == "ctx" or "RunContext" in str(p.annotation)):
-                if inferred_takes_ctx is None:
-                    inferred_takes_ctx = True
-                continue
-            ann = p.annotation if p.annotation != inspect.Parameter.empty else str
-            params[p_name] = str(ann)
-        return cls(
-            name=tool_name,
-            description=tool_doc,
-            func=func,
-            parameters=params,
-            takes_ctx=bool(inferred_takes_ctx),
-            strict=strict,
-            requires_approval=requires_approval,
-            timeout=timeout,
-            max_retries=max_retries,
-            include_return_schema=include_return_schema,
-            args_validator_func=args_validator_func,
-            metadata=metadata or {},
-        )
-
-    @classmethod
-    def from_schema(
-        cls,
-        function: Callable[..., Any],
-        *,
-        name: str,
-        description: str = "",
-        json_schema: dict[str, Any] | None = None,
-        takes_ctx: bool = False,
-        strict: bool | None = None,
-        requires_approval: bool = False,
-        timeout: float | None = None,
-        max_retries: int | None = None,
-        args_validator_func: Callable[[dict[str, Any]], dict[str, Any] | None] | None = None,
-    ) -> Tool:
-        """Construct a Tool instance from an arbitrary callable and explicit JSON schema."""
-        properties = json_schema.get("properties", {}) if json_schema else {}
-        params = {
-            k: v.get("type", "str") if isinstance(v, dict) else "str" for k, v in properties.items()
-        }
-        return cls(
-            name=name,
-            description=description,
-            func=function,
-            parameters=params,
-            takes_ctx=takes_ctx,
-            strict=strict,
-            requires_approval=requires_approval,
-            timeout=timeout,
-            max_retries=max_retries,
-            args_validator_func=args_validator_func,
-        )
 
 
 class ToolCall(BaseModel):
@@ -514,3 +431,17 @@ class AgentSpec(BaseModel):
         if p.suffix in (".yaml", ".yml"):
             return cls.from_yaml(content)
         return cls.model_validate(json.loads(content))
+
+
+__all__ = [
+    "AbstractToolset",
+    "AgentSpec",
+    "AgentTool",
+    "FunctionToolset",
+    "MCPToolset",
+    "NativeMCPToolset",
+    "PrefixedToolset",
+    "Tool",
+    "ToolCall",
+    "ToolReturn",
+]

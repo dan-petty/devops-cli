@@ -429,17 +429,27 @@ class ToolSearch(BaseCapability):
 
     def get_tools(self) -> list[AgentTool | Callable[..., Any]]:
         async def search_tools(
-            queries: Sequence[str] | str, ctx: RunContext[Any] | None = None
+            ctx: RunContext[Any] = None,  # type: ignore[assignment]
+            queries: Sequence[str] | str = (),
+            **kwargs: Any,
         ) -> dict[str, Any]:
             """Search for deferred tools by keyword, topic, or regex pattern."""
-            query_list = [queries] if isinstance(queries, str) else list(queries)
+            actual_ctx: RunContext[Any] | None = None
+            if isinstance(ctx, (list, tuple, set, str)):
+                query_list = [ctx] if isinstance(ctx, str) else list(ctx)
+            else:
+                actual_ctx = ctx
+                if not queries and "queries" in kwargs:
+                    queries = kwargs["queries"]
+                query_list = [queries] if isinstance(queries, str) else list(queries)
+
             all_tools: list[tuple[str, str, Any]] = [
                 (*_extract_tool_meta(t), t) for t in self.searchable_tools
             ]
 
             matched_names: list[str] = []
             if callable(self.strategy):
-                custom_res = self.strategy(ctx, query_list, [t[2] for t in all_tools])
+                custom_res = self.strategy(actual_ctx, query_list, [t[2] for t in all_tools])
                 if inspect.iscoroutine(custom_res):
                     custom_res = await custom_res
                 if isinstance(custom_res, (list, tuple, set)):
@@ -477,6 +487,7 @@ class ToolSearch(BaseCapability):
                 search_tools,
                 name=self.tool_name,
                 description="Search for available tools matching keywords or topics when you need functionality not in your initial toolset.",
+                takes_ctx=True,
             )
         ]
 

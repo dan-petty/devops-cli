@@ -275,7 +275,7 @@ class SubAgents(BaseCapability):
         agent_map = {sa.name: sa for sa in all_sub_agents}
 
         def delegate_task(
-            ctx: RunContext[Any] | str | None = None,
+            ctx: RunContext[Any] = None,  # type: ignore[assignment]
             agent_name: str = "",
             task: str = "",
             model: str | None = None,
@@ -288,8 +288,10 @@ class SubAgents(BaseCapability):
                 if isinstance(ctx, RunContext)
                 else (kw_ctx if isinstance(kw_ctx, RunContext) else None)
             )
+            actual_agent: str
+            actual_task: str
             if isinstance(ctx, str):
-                actual_agent = ctx
+                actual_agent = str(ctx)
                 actual_task = agent_name or str(kwargs.get("task", ""))
             else:
                 actual_agent = agent_name or str(kwargs.get("agent_name", ""))
@@ -830,7 +832,7 @@ class Advisor(BaseCapability):
             return f"Advisor [{model_target}] guidance: analysis complete for prompt."
 
     def get_tools(self) -> list[AgentTool | Callable[..., Any]]:
-        async def advisor(prompt: str, ctx: RunContext[Any] | None = None) -> str:
+        async def advisor(prompt: str, **kwargs: Any) -> str:
             """Consult the specialist advisor model for guidance or critique."""
             if self.max_uses is not None and self.current_uses >= self.max_uses:
                 return (

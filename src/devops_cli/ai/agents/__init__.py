@@ -533,6 +533,33 @@ def __getattr__(name: str) -> Any:
         import devops_cli.ai.template
 
         return getattr(devops_cli.ai.template, name)
+
+    if name in {
+        "AgentNativeTool",
+        "ArgsValidatorFunc",
+        "DocstringFormat",
+        "NativeToolFunc",
+        "ObjectJsonSchema",
+        "ToolDefinition",
+        "ToolFuncContext",
+        "ToolFuncEither",
+        "ToolFuncPlain",
+        "ToolParams",
+        "ToolPrepareFunc",
+        "ToolSelector",
+        "ToolSelectorFunc",
+        "ToolsPrepareFunc",
+        "approve_all_requests",
+        "create_tool",
+        "create_tool_definition",
+        "deny_all_requests",
+        "is_native_tool",
+        "matches_tool_selector",
+        "matches_tool_selector_sync",
+    }:
+        import devops_cli.ai.tools
+
+        return getattr(devops_cli.ai.tools, name)
     if name in {
         "Advisor",
         "AgentContextInventory",
@@ -1153,4 +1180,25 @@ __all__ = [
     "create_template_str",
     "is_template_str",
     "render_template",
+    "AgentNativeTool",
+    "ArgsValidatorFunc",
+    "DocstringFormat",
+    "NativeToolFunc",
+    "ObjectJsonSchema",
+    "ToolDefinition",
+    "ToolFuncContext",
+    "ToolFuncEither",
+    "ToolFuncPlain",
+    "ToolParams",
+    "ToolPrepareFunc",
+    "ToolSelector",
+    "ToolSelectorFunc",
+    "ToolsPrepareFunc",
+    "approve_all_requests",
+    "create_tool",
+    "create_tool_definition",
+    "deny_all_requests",
+    "is_native_tool",
+    "matches_tool_selector",
+    "matches_tool_selector_sync",
 ]

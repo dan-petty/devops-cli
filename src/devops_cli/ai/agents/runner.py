@@ -27,7 +27,7 @@ from devops_cli.ai.agents.context import (
     RunContext,
 )
 from devops_cli.ai.agents.models import AgentResponse
-from devops_cli.ai.agents.tools import AgentTool, ToolCall
+from devops_cli.ai.agents.tools import AgentTool, Tool, ToolCall
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.exceptions import ModelRetry
 from devops_cli.models.ai import ChatMessage
@@ -41,7 +41,7 @@ _DIRECT_RESPONSE_FROM_REASONING_PROMPT = load_task_prompt("agent_direct_response
 
 
 def _execute_single_tool(
-    tool_obj: AgentTool,
+    tool_obj: AgentTool | Tool,
     tool_name: str,
     args: dict[str, Any],
     tool_calls: list[ToolCall],
@@ -72,7 +72,8 @@ def _execute_single_tool(
         t_limit = tool_obj.timeout if tool_obj.timeout is not None else default_timeout
         if t_limit and t_limit > 0:
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                future = executor.submit(tool_obj.execute, ctx=ctx, **clean_args)
+                exec_fn = cast(Callable[..., Any], tool_obj.execute)
+                future = executor.submit(exec_fn, ctx=ctx, **clean_args)
                 tool_result = future.result(timeout=t_limit)
         else:
             tool_result = tool_obj.execute(ctx=ctx, **clean_args)
@@ -134,7 +135,7 @@ def _execute_single_tool(
 
 
 def _detect_tool_intent(
-    tools: dict[str, AgentTool],
+    tools: dict[str, AgentTool | Tool],
     final_output: str,
     all_thoughts: list[str],
 ) -> str | None:
@@ -191,7 +192,7 @@ def _resolve_fallback_output(
     return final_output
 
 
-def _create_tool_retry_message(detected_tool: str, tool_obj: AgentTool) -> ChatMessage:
+def _create_tool_retry_message(detected_tool: str, tool_obj: AgentTool | Tool) -> ChatMessage:
     """Construct user prompt asking model to output structured tool call invocation."""
     example_args = {k: f"<{k}>" for k in tool_obj.parameters}
     example_json = json.dumps(
@@ -247,7 +248,7 @@ def _handle_deferred_resolution(
     resolved_results: DeferredToolResults,
     tool_name: str,
     clean_args: dict[str, Any],
-    tool_obj: AgentTool,
+    tool_obj: AgentTool | Tool,
     tool_calls: list[ToolCall],
     messages: list[ChatMessage],
     response_text: str,
@@ -365,7 +366,7 @@ def _resolve_thinking_preference(
 
 def _execute_stream_tool_step(
     tc: Any,
-    tool_obj: AgentTool,
+    tool_obj: AgentTool | Tool,
     ctx: RunContext[Any] | None,
     hooks: AgentHooks,
     response_text: str,

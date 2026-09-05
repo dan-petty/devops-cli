@@ -4,20 +4,41 @@ from __future__ import annotations
 
 import inspect
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
-
-try:
-    from pydantic_ai.capabilities import AbstractCapability
-except ImportError:  # pragma: no cover
-
-    class AbstractCapability:  # type: ignore[no-redef]
-        pass
-
+from pydantic_ai.capabilities import AbstractCapability
+from pydantic_ai.messages import (
+    ThinkingPart as NativeThinkingPart,
+)
+from pydantic_ai.messages import (
+    ToolCallPart as ToolCallPart,
+)
 
 from devops_cli.ai.agents.context import AgentHooks, RunContext
 from devops_cli.ai.agents.tools import AgentTool, Tool
+from devops_cli.ai.tools import (
+    DeferredToolRequests as DeferredToolRequests,
+)
+from devops_cli.ai.tools import (
+    DeferredToolResults as DeferredToolResults,
+)
+from devops_cli.ai.tools import (
+    ToolApproved as ToolApproved,
+)
+from devops_cli.ai.tools import (
+    ToolDenied as ToolDenied,
+)
+
+
+@dataclass
+class ThinkingPart(NativeThinkingPart):
+    """A structured model thinking/reasoning part."""
+
+    content: str = ""
+    encrypted_content: str | None = None
+    signature: str | None = None
 
 
 class BaseCapability(BaseModel, AbstractCapability[Any]):
@@ -149,84 +170,6 @@ class BaseCapability(BaseModel, AbstractCapability[Any]):
             for hook in hooks.after_tool_execute:
                 hook(ctx, tool_name, result)
         return result
-
-
-class ToolApproved(BaseModel):
-    """Signals approval of a deferred tool call with optional argument overrides."""
-
-    override_args: dict[str, Any] | None = None
-
-    def __init__(self, override_args: dict[str, Any] | None = None, **kwargs: Any) -> None:
-        super().__init__(override_args=override_args, **kwargs)
-
-
-class ToolDenied(BaseModel):
-    """Signals denial of a deferred tool call with feedback message for the model."""
-
-    message: str = "Tool call was denied"
-
-    def __init__(self, message: str = "Tool call was denied", **kwargs: Any) -> None:
-        super().__init__(message=message, **kwargs)
-
-
-class ToolCallPart(BaseModel):
-    """A tool call specification requiring approval or external execution."""
-
-    tool_name: str
-    args: dict[str, Any] = Field(default_factory=dict)
-    tool_call_id: str = ""
-
-
-class ThinkingPart(BaseModel):
-    """A structured model thinking/reasoning part."""
-
-    content: str = ""
-    encrypted_content: str | None = None
-    signature: str | None = None
-    part_kind: str = "thinking"
-
-
-class DeferredToolResults(BaseModel):
-    """Resolution of deferred tool calls providing approval decisions and external results."""
-
-    approvals: dict[str, bool | ToolApproved | ToolDenied] = Field(default_factory=dict)
-    calls: dict[str, Any] = Field(default_factory=dict)
-    metadata: dict[str, dict[str, Any]] = Field(default_factory=dict)
-
-
-class DeferredToolRequests(BaseModel):
-    """Collection of tool calls pending human approval or external execution."""
-
-    calls: list[ToolCallPart] = Field(default_factory=list)
-    approvals: list[ToolCallPart] = Field(default_factory=list)
-    metadata: dict[str, dict[str, Any]] = Field(default_factory=dict)
-
-    def build_results(
-        self,
-        approvals: dict[str, bool | ToolApproved | ToolDenied] | None = None,
-        calls: dict[str, Any] | None = None,
-        metadata: dict[str, dict[str, Any]] | None = None,
-        *,
-        approve_all: bool = False,
-        deny_all: bool = False,
-    ) -> DeferredToolResults:
-        """Construct a DeferredToolResults object matching this request."""
-        appr_map = dict(approvals or {})
-        if approve_all:
-            for p in self.approvals:
-                key = p.tool_call_id or p.tool_name
-                if key and key not in appr_map:
-                    appr_map[key] = ToolApproved()
-        elif deny_all:
-            for p in self.approvals:
-                key = p.tool_call_id or p.tool_name
-                if key and key not in appr_map:
-                    appr_map[key] = ToolDenied()
-        return DeferredToolResults(
-            approvals=appr_map,
-            calls=calls or {},
-            metadata=metadata or {},
-        )
 
 
 class WebSearchUserLocation(BaseModel):
@@ -718,7 +661,7 @@ class ModelSelectionContext[DepsT](BaseModel):
     session_id: str = ""
     turn: int = 1
     step_number: int = 1
-    current_model: str = ""
+    current_model: str | None = ""
 
 
 class SelectModel(BaseCapability):
@@ -745,10 +688,11 @@ class SelectModel(BaseCapability):
         if ctx is None:
             return str(self.selector(ModelSelectionContext[Any]()))
         if isinstance(ctx, RunContext):
+            current_model_str = str(ctx.model) if getattr(ctx, "model", None) is not None else ""
             sel_ctx: ModelSelectionContext[Any] = ModelSelectionContext(
                 deps=ctx.deps,
                 session_id=ctx.session_id,
-                current_model=ctx.model,
+                current_model=current_model_str,
             )
             return str(self.selector(sel_ctx))
         return str(self.selector(ctx))
