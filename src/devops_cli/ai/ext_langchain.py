@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from devops_cli.ai.agents.pydantic_agent import AgentTool, FunctionToolset, Tool
+from devops_cli.ai.agents.pydantic_agent import FunctionToolset, Tool
 
 
 def tool_from_langchain(
@@ -126,6 +126,3 @@ class LangChainToolset(FunctionToolset):
             timeout=timeout,
             max_retries=max_retries,
         )
-
-
-LangChainToolset.model_rebuild(_types_namespace={"AgentTool": AgentTool})

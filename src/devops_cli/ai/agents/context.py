@@ -96,14 +96,11 @@ NativeRunContext.model_copy = _run_context_model_copy  # type: ignore[attr-defin
 
 if TYPE_CHECKING:
 
-    class RunContext[DepsT]:
+    class RunContext[DepsT](NativeRunContext[DepsT]):
         """Runtime context passed to agent tools and system prompt providers."""
 
-        deps: DepsT | None
         session_id: str
         retry: int
-        model: Any
-        usage: AgentUsage
         loaded_capability_ids: set[str]
         tool_call_approved: bool
         tool_call_metadata: dict[str, Any]

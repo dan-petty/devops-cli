@@ -97,7 +97,9 @@ class Tool(NativeTool):
         if target_fn is None:
             raise ValueError("A callable function must be provided to Tool.")
         validator = cast(Any, args_validator or args_validator_func)
-        self._args_validator_func = args_validator_func
+        self._args_validator_func: Callable[[dict[str, Any]], dict[str, Any] | None] | None = (
+            args_validator_func or (cast(Any, args_validator) if callable(args_validator) else None)
+        )
         super().__init__(
             target_fn,
             takes_ctx=takes_ctx,
@@ -164,7 +166,7 @@ class Tool(NativeTool):
 
         if self._args_validator_func is not None:
             validated = self._args_validator_func(clean_args)
-            if validated is not None:
+            if isinstance(validated, dict):
                 clean_args = validated
 
         return clean_args

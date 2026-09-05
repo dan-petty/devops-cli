@@ -17,6 +17,12 @@ from pydantic import BaseModel, Field
 
 from devops_cli.ai.agents.context import RunContext, _check_path_traversal
 from devops_cli.ai.tools import Tool as Tool
+from devops_cli.ai.toolsets import (
+    AbstractToolset as AbstractToolset,
+)
+from devops_cli.ai.toolsets import (
+    FunctionToolset as FunctionToolset,
+)
 
 
 class AgentTool(BaseModel):
@@ -113,142 +119,6 @@ class ToolCall(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
-class AbstractToolset(BaseModel):
-    """Abstract base class for modular agent toolsets."""
-
-    def get_tools(self) -> list[AgentTool | Callable[..., Any]]:
-        """Return tools provided by this toolset."""
-        return []
-
-    def get_instructions(self, ctx: RunContext[Any] | None = None) -> list[str]:
-        """Return system prompt instructions for this toolset."""
-        return []
-
-
-class FunctionToolset[DepsT = Any](AbstractToolset):
-    """Bundles local functions and domain instructions into a reusable toolset."""
-
-    instructions: str = ""
-    tools: list[AgentTool | Callable[..., Any]] = Field(default_factory=list)
-    timeout: float | None = None
-    max_retries: int | None = None
-
-    def tool(
-        self,
-        func: Callable[..., Any] | None = None,
-        *,
-        name: str | None = None,
-        description: str | None = None,
-        strict: bool | None = None,
-        requires_approval: bool = False,
-        timeout: float | None = None,
-        max_retries: int | None = None,
-        include_return_schema: bool | None = None,
-        args_validator_func: Callable[[dict[str, Any]], dict[str, Any] | None] | None = None,
-    ) -> Any:
-        """Decorator to register a tool on this toolset."""
-
-        def decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
-            self.tools.append(
-                Tool.from_function(
-                    fn,
-                    name=name,
-                    description=description,
-                    strict=strict,
-                    requires_approval=requires_approval,
-                    timeout=timeout if timeout is not None else self.timeout,
-                    max_retries=max_retries if max_retries is not None else self.max_retries,
-                    include_return_schema=include_return_schema,
-                    args_validator_func=args_validator_func,
-                )
-            )
-            return fn
-
-        if func is not None:
-            return decorator(func)
-        return decorator
-
-    def tool_plain(
-        self,
-        func: Callable[..., Any] | None = None,
-        *,
-        name: str | None = None,
-        description: str | None = None,
-        strict: bool | None = None,
-        requires_approval: bool = False,
-        timeout: float | None = None,
-        max_retries: int | None = None,
-        include_return_schema: bool | None = None,
-        args_validator_func: Callable[[dict[str, Any]], dict[str, Any] | None] | None = None,
-    ) -> Any:
-        """Decorator to register a plain tool on this toolset."""
-
-        def decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
-            self.tools.append(
-                Tool.from_function(
-                    fn,
-                    name=name,
-                    description=description,
-                    takes_ctx=False,
-                    strict=strict,
-                    requires_approval=requires_approval,
-                    timeout=timeout if timeout is not None else self.timeout,
-                    max_retries=max_retries if max_retries is not None else self.max_retries,
-                    include_return_schema=include_return_schema,
-                    args_validator_func=args_validator_func,
-                )
-            )
-            return fn
-
-        if func is not None:
-            return decorator(func)
-        return decorator
-
-    def add_tool(self, tool: AgentTool | Callable[..., Any]) -> None:
-        """Add a tool or callable to this toolset."""
-        self.tools.append(tool)
-
-    def add_function(
-        self,
-        func: Callable[..., Any],
-        *,
-        name: str | None = None,
-        description: str | None = None,
-        takes_ctx: bool = False,
-        strict: bool | None = None,
-        requires_approval: bool = False,
-        timeout: float | None = None,
-        max_retries: int | None = None,
-        include_return_schema: bool | None = None,
-        args_validator_func: Callable[[dict[str, Any]], dict[str, Any] | None] | None = None,
-    ) -> None:
-        """Add a function as a Tool instance with custom metadata."""
-        self.tools.append(
-            Tool.from_function(
-                func,
-                name=name,
-                description=description,
-                takes_ctx=takes_ctx,
-                strict=strict,
-                requires_approval=requires_approval,
-                timeout=timeout if timeout is not None else self.timeout,
-                max_retries=max_retries if max_retries is not None else self.max_retries,
-                include_return_schema=include_return_schema,
-                args_validator_func=args_validator_func,
-            )
-        )
-
-    def get_tools(self) -> list[AgentTool | Callable[..., Any]]:
-        """Return all tools registered on this toolset."""
-        return list(self.tools)
-
-    def get_instructions(self, ctx: RunContext[Any] | None = None) -> list[str]:
-        """Return static instructions for this toolset."""
-        if self.instructions and self.instructions.strip():
-            return [self.instructions.strip()]
-        return []
-
-
 class MCPToolset(AbstractToolset):
     """Toolset connecting to a Model Context Protocol (MCP) server over SSE/HTTP, stdio, or local FastMCP."""
 
@@ -315,7 +185,7 @@ class MCPToolset(AbstractToolset):
             **kwargs,
         )
 
-    def get_tools(self) -> list[AgentTool | Callable[..., Any]]:
+    def get_tools(self, ctx: Any = None) -> Any:
         """Return discovered or registered MCP tools, applying tool_prefix if configured."""
         if not self.tool_prefix:
             return list(self.tools)
@@ -329,7 +199,7 @@ class MCPToolset(AbstractToolset):
             prefixed.append(t.model_copy(update={"name": name}))
         return prefixed
 
-    def get_instructions(self, ctx: RunContext[Any] | None = None) -> list[str]:
+    def get_instructions(self, ctx: Any = None) -> Any:
         """Return system prompt guidance for this MCP server."""
         if self.instructions:
             return [self.instructions.strip()]

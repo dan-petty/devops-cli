@@ -9,7 +9,7 @@ from collections import defaultdict
 from collections.abc import AsyncGenerator, Callable, Generator, Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, TypeVar
+from typing import TYPE_CHECKING, Any, Literal, TypeVar, cast
 
 if TYPE_CHECKING:
     from devops_cli.ai.concurrency import AbstractConcurrencyLimiter, AnyConcurrencyLimit
@@ -62,6 +62,7 @@ from devops_cli.ai.agents.tools import (
 )
 from devops_cli.ai.client import LLMClient
 from devops_cli.ai.template import TemplateStr
+from devops_cli.ai.toolsets import extract_tools_from_toolset
 from devops_cli.config.defaults import DEFAULT_AGENT_MAX_TURNS
 from devops_cli.exceptions import UnexpectedModelBehavior
 from devops_cli.models.ai import ChatMessage
@@ -225,8 +226,8 @@ class PydanticAgent[T, DepsT = Any]:
         # Register tools from toolsets
         for ts in self.toolsets:
             try:
-                if isinstance(ts, AbstractToolset):
-                    for ts_tool in ts.get_tools():
+                if isinstance(ts, (AbstractToolset, PyAIAbstractToolset)):
+                    for ts_tool in extract_tools_from_toolset(ts):
                         self.add_tool(ts_tool)
             except Exception:
                 pass
@@ -458,8 +459,8 @@ class PydanticAgent[T, DepsT = Any]:
             if toolsets is not None:
                 self.toolsets = list(toolsets)
                 for ts in self.toolsets:
-                    if isinstance(ts, AbstractToolset):
-                        for ts_tool in ts.get_tools():
+                    if isinstance(ts, (AbstractToolset, PyAIAbstractToolset)):
+                        for ts_tool in extract_tools_from_toolset(ts):
                             self.add_tool(ts_tool)
 
             if capabilities is not None:
@@ -560,13 +561,15 @@ class PydanticAgent[T, DepsT = Any]:
         # Toolset instruction additions
         for ts in self.toolsets:
             try:
-                if isinstance(ts, AbstractToolset):
-                    sig = inspect.signature(ts.get_instructions)
-                    instructions = (
-                        ts.get_instructions(ctx=ctx)
-                        if len(sig.parameters) > 0 and ctx is not None
-                        else ts.get_instructions()
-                    )
+                if isinstance(ts, (AbstractToolset, PyAIAbstractToolset)):
+                    try:
+                        instructions = (
+                            cast(Any, ts).get_instructions(ctx)
+                            if ctx is not None
+                            else cast(Any, ts).get_instructions()
+                        )
+                    except TypeError:
+                        instructions = cast(Any, ts).get_instructions()
                 else:
                     instructions = None
             except Exception:

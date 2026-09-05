@@ -94,24 +94,9 @@ class BaseCapability(BaseModel, AbstractCapability[Any]):
         if not tools:
             return None
         try:
-            from pydantic_ai.toolsets.function import FunctionToolset
+            from devops_cli.ai.toolsets import create_function_toolset
 
-            ts = FunctionToolset()
-            for t in tools:
-                if isinstance(t, Tool):
-                    ts.add_function(
-                        t.func,
-                        name=t.name,
-                        description=t.description,
-                        retries=t.max_retries,
-                        timeout=t.timeout,
-                        requires_approval=t.requires_approval,
-                        include_return_schema=t.include_return_schema,
-                        metadata=t.metadata or None,
-                    )
-                elif callable(t):
-                    ts.add_function(t)
-            return ts
+            return create_function_toolset(tools=tools)
         except Exception:
             return None
 
