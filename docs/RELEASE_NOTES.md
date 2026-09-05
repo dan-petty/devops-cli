@@ -1,6 +1,36 @@
-# Release Notes — devops-cli v0.2.9
+# Release Notes — devops-cli v0.2.10
 
 Workstation-native DevOps CLI for managing repositories, SSH keys, Kubernetes clusters, Kustomize, ArgoCD, Grafana, Prometheus, Docker, workspace files, vector embedding benchmarks, TLS certificate automation, OpenTelemetry observability, and multi-persona AI code reviews.
+
+---
+
+## 🚀 Highlights of v0.2.10
+
+### 🤖 Comprehensive Native Pydantic AI Framework Subsystem Adoption
+- **18 Subsystems Fully Modernized**: Native adoption of `pydantic_ai` framework modules across `toolsets`, `tools`, `template`, `settings`, `run`, `retries`, `result`, `profiles`, `providers`, `output`, `models.ollama`, `mcp`, `function_signature`, `format_prompt`, `exceptions`, `durable_exec`, `direct`, `concurrency`, `capabilities`, and `common_tools`.
+- **Zero Legacy Shims**: Ruthlessly eliminated obsolete custom wrapper implementations and legacy fallbacks in favor of clean, declarative Pydantic AI primitives.
+- **SSRF-Defended Native Common Tools**: Exposed and bridged native tools (`web_fetch_tool`, `duckduckgo_search_tool`, `tavily_search_tool`, `exa_search_tool`, `image_generation_tool`, `x_search_tool`) with strict SSRF defense.
+
+### 🛡️ Autonomous Common Hallucinations Registry & Matching Engine Hardening
+- **Centralized Declarative Catalog (`src/devops_cli/ai/review/common_hallucinations.json`)**: Tracks recurring false positives (PEP 758 multi-exception syntax, `<masked-*>` placeholders, test mock credentials, HTTPX parameter conventions, documentation anti-patterns).
+- **Category-Aligned Similarity Guards**: Guaranteed that syntax grammar rules never cross-match and suppress genuine security vulnerabilities (CWE-22 path traversal, SSRF, command injection).
+- **Comprehensive Stop-Word Filtering**: Expanded `_FORBIDDEN_COMMON_WORDS` to eliminate false similarity score inflation.
+- **Ground-Truth Verification**: Mandatory AST/parser and ground-truth validation (`verify_ground_truth_hallucination`) prior to finding invalidation.
+
+### 🔒 Secret Sanitizer Regex Hardening (`src/devops_cli/ai/review/sanitization.py`)
+- **Context-Aware Secret Masking**: Updated secret detection patterns to require assignment/token context, preventing valid Python variable names (e.g., `secret_storage_failed`, `secret_rotation_interval`) from being masked into false-positive secrets in code review diffs.
+
+### 🔐 Codebase Security & Robustness Remediations
+- **Path Containment Hardening**: Added URL-decoding (`unquote`) and strict path containment guards across `ext_langchain.py`, `DiskMediaStore` in `media.py`, `VaultSecretBroker` in `vault_broker.py`, and `generate_remediation_branch` in `auto_fix.py`.
+- **SSRF Egress Defense**: Reordered domain validation in `web_fetch_tool`, added case-insensitive matching, enforced strict post-redirect validation, and forwarded `blocked_domains` from capabilities.
+- **Command & Flag Injection Prevention**: Validated Kubernetes chaos test parameters in `chaos_runner.py` and git references in `difftastic.py` against leading hyphens.
+- **System Path Disclosure Mitigation**: Relativized file paths against repository roots in `complexity.py` and `kubelinter.py`.
+
+### 📝 Persona & Verification System Prompt Enhancements
+- **Modern Python 3.14+ Standards**: Added explicit PEP 758 multi-exception syntax awareness and redaction placeholder guidance to `devsecops`, `architect`, and `verify_finding_system.md`.
+
+### 📋 Dedicated Agent Operational Task Tracking Tier (`docs/agent/`)
+- Relocated continuous agent task tracking from the repository root to `docs/agent/task.md` with explicit operational governance in `docs/agent/README.md`.
 
 ---
 
