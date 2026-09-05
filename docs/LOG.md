@@ -2,6 +2,30 @@
 
 Chronological log of refactoring milestones, quality gates, and security enhancements.
 
+### [2026-09-05] Native Pydantic AI Output (`pydantic_ai.output`) Integration
+- **Native Output Subsystem (`src/devops_cli/ai/output/__init__.py`)**:
+  - Full native adoption of `pydantic_ai.output` API specifications:
+    - Re-exports core native classes and schemas: `ToolOutput`, `NativeOutput`, `PromptedOutput`, `TextOutput`, `StructuredDict`, `OutputObjectDefinition`, and `OutputContext`.
+    - Re-exports types: `OutputDataT`, `OutputMode`, `StructuredOutputMode`, `OutputSpec`, `OutputTypeOrFunction`, and `TextOutputFunc`.
+    - Implemented domain utilities and factories:
+      - `CallableDict`: Dictionary subclass supporting both dict lookup/key inspection and callable invocation (`__call__`), enabling dual syntax compatibility between Pydantic AI's `agent.output_json_schema()` and existing property access `agent.output_json_schema["properties"]`.
+      - `unwrap_output_spec`: Recursively unwraps any `OutputSpec` into underlying target Python type(s), callable(s), or dictionary definitions (handling bare BaseModels, `NativeOutput`, `ToolOutput`, `PromptedOutput`, `TextOutput`, `StructuredDict`, and sequence unions).
+      - `extract_output_json_schema`: Extracts clean JSON schema dictionaries from any output marker, BaseModel, `StructuredDict`, or `TextOutput` (producing `{"type": "string"}`).
+      - `resolve_output_mode`: Determines optimal output mode (`"native"`, `"tool"`, `"prompted"`, `"text"`) integrating with Ollama local vs cloud detection.
+      - `build_output_spec`: High-level factory wrapping any schema in the appropriate marker based on mode.
+      - Predefined review output specifications: `REVIEW_RESULT_NATIVE`, `REVIEW_RESULT_TOOL`, `REVIEW_RESULT_PROMPTED`, and dynamic factory `get_review_output_spec`.
+- **Bridge & Agent Modernization (`src/devops_cli/ai/pydantic_ai_bridge.py`, `agent.py`, `response_repair.py`)**:
+  - `create_pydantic_ai_agent`: Broadened to accept `OutputSpec[Any]` and optional `output_mode`, automatically wrapping schemas with `build_output_spec`.
+  - `PydanticAgent`: Updated `output_type` and `output_schema` to accept `OutputSpec[Any]`, with `output_json_schema` returning `CallableDict`.
+  - `fix_llm_response`: Added support for all `OutputSpec` markers, unwrapping target models, calling `TextOutput` processors on string outputs, and validating dictionary structures with `StructuredDict`.
+- **Package Re-exports (`devops_cli.ai.output`, `devops_cli.ai`, `devops_cli.ai.agents`, `devops_cli.ai.agents.pydantic_agent`)**:
+  - Re-exported all output types, markers, and factories across all public package tiers with strict typing and comprehensive `__all__` definitions.
+- **Quality Gates & Test-First Verification**:
+  - Authored comprehensive test suite `tests/test_pydantic_ai_output.py` (11/11 tests passing).
+  - Strict static typing (`mypy --strict`) 100% clean across all modified files.
+  - Clean linting and formatting (`ruff check`, `ruff format`).
+  - Full CI validation suite (`uv run devops ci`): 10/10 quality gates green (version, test, coverage >= 90%, lint, format, typecheck, audit, security, actionlint, docs).
+
 ### [2026-09-05] Native Pydantic AI Ollama Model (`pydantic_ai.models.ollama`) & Provider Integration
 - **Native Ollama Models Subsystem (`src/devops_cli/ai/models/ollama.py`, `src/devops_cli/ai/models/__init__.py`)**:
   - Full native adoption of `pydantic_ai.models.ollama` and `pydantic_ai.providers.ollama` API specifications:
