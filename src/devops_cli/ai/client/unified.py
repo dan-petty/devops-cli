@@ -226,6 +226,23 @@ class LLMClient(OllamaProviderMixin, ClaudeProviderMixin, OpenAICompatProviderMi
     def _request_timeout(self) -> httpx2.Timeout:
         return request_timeout(read=self._request_timeout_seconds or DEFAULT_HTTP_TIMEOUT_SECONDS)
 
+    def _create_retry_transport(self) -> Any:
+        """Create a native HTTPX2TenacityTransport with exponential backoff and Retry-After support."""
+        from devops_cli.ai.retries import create_retry_transport
+
+        retries = getattr(self._config, "max_retries", None)
+        max_attempts = int(retries) if retries is not None and int(retries) > 0 else 3
+        return create_retry_transport(max_attempts=max_attempts)
+
+    def _create_http_client(self, timeout: httpx2.Timeout | None = None) -> httpx2.Client:
+        """Create an httpx2.Client with standard timeout and native retry transport."""
+        req_timeout = timeout or self._request_timeout()
+        try:
+            transport = self._create_retry_transport()
+            return httpx2.Client(timeout=req_timeout, transport=transport)
+        except Exception:
+            return httpx2.Client(timeout=req_timeout)
+
     def _allow_private_network(self) -> bool:
         if self._config.allow_private_network:
             return True

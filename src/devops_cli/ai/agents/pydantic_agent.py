@@ -401,6 +401,20 @@ from devops_cli.ai.result import (
     to_agent_response,
     to_final_result,
 )
+from devops_cli.ai.retries import (
+    DEFAULT_RETRYABLE_STATUS_CODES,
+    AsyncHTTPX2TenacityTransport,
+    AsyncTenacityTransport,
+    HTTPX2TenacityTransport,
+    RetryConfig,
+    TenacityTransport,
+    create_async_retry_transport,
+    create_retry_config,
+    create_retry_transport,
+    is_retryable_status_code,
+    normalize_agent_retries,
+    wait_retry_after,
+)
 
 __all__ = [
     "ALLOW_MODEL_REQUESTS",
@@ -761,4 +775,16 @@ __all__ = [
     "run_output_with_hooks",
     "to_agent_response",
     "to_final_result",
+    "AsyncHTTPX2TenacityTransport",
+    "AsyncTenacityTransport",
+    "DEFAULT_RETRYABLE_STATUS_CODES",
+    "HTTPX2TenacityTransport",
+    "RetryConfig",
+    "TenacityTransport",
+    "create_async_retry_transport",
+    "create_retry_config",
+    "create_retry_transport",
+    "is_retryable_status_code",
+    "normalize_agent_retries",
+    "wait_retry_after",
 ]

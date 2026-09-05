@@ -459,6 +459,23 @@ def __getattr__(name: str) -> Any:
 
         return getattr(devops_cli.ai.result, name)
     if name in {
+        "AsyncHTTPX2TenacityTransport",
+        "AsyncTenacityTransport",
+        "DEFAULT_RETRYABLE_STATUS_CODES",
+        "HTTPX2TenacityTransport",
+        "RetryConfig",
+        "TenacityTransport",
+        "create_async_retry_transport",
+        "create_retry_config",
+        "create_retry_transport",
+        "is_retryable_status_code",
+        "normalize_agent_retries",
+        "wait_retry_after",
+    }:
+        import devops_cli.ai.retries
+
+        return getattr(devops_cli.ai.retries, name)
+    if name in {
         "Advisor",
         "AgentContextInventory",
         "AgentOverride",
@@ -1032,4 +1049,16 @@ __all__ = [
     "run_output_with_hooks",
     "to_agent_response",
     "to_final_result",
+    "AsyncHTTPX2TenacityTransport",
+    "AsyncTenacityTransport",
+    "DEFAULT_RETRYABLE_STATUS_CODES",
+    "HTTPX2TenacityTransport",
+    "RetryConfig",
+    "TenacityTransport",
+    "create_async_retry_transport",
+    "create_retry_config",
+    "create_retry_transport",
+    "is_retryable_status_code",
+    "normalize_agent_retries",
+    "wait_retry_after",
 ]
