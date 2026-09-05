@@ -12,6 +12,7 @@ from typing import Any
 import httpx2
 
 from devops_cli.config.defaults import (
+    DEFAULT_DRY_RUN_EMBEDDING_DIMENSION,
     DEFAULT_HTTP_TIMEOUT_SECONDS,
     DEFAULT_RAG_EMBEDDING_CACHE_SIZE,
     DEFAULT_RAG_EMBEDDING_MODEL,
@@ -26,6 +27,9 @@ from devops_cli.telemetry import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Shared in-memory cache for resolved (provider, model) -> dimension
+_MODEL_DIMENSION_CACHE: dict[tuple[str, str], int] = {}
 
 
 # =============================================================================
@@ -108,22 +112,121 @@ class EmbeddingsEngine:
         self._dimension: int | None = None
         self._cache = _EmbeddingLRUCache(maxsize=cache_size)
 
-    def _infer_default_dimension(self) -> int:
-        """Infer default embedding dimension from active model name."""
+    @property
+    def dimension(self) -> int:
+        """Return dynamically resolved or observed vector dimension for the active model."""
         if self._dimension is not None:
             return self._dimension
-        m = self.model.lower()
-        if "qwen" in m:
-            return 1024
-        if "nomic" in m or "bge-base" in m:
-            return 768
-        if "text-embedding-3-small" in m:
-            return 1536
-        if "text-embedding-3-large" in m:
-            return 3072
-        if "all-minilm" in m or "bge-small" in m:
-            return 384
-        return 1024
+        cache_key = (self.ai_config.provider.lower(), self.model)
+        if cache_key in _MODEL_DIMENSION_CACHE:
+            self._dimension = _MODEL_DIMENSION_CACHE[cache_key]
+            return self._dimension
+        resolved = self._probe_dimension()
+        if resolved is not None:
+            self._record_dimension(resolved)
+            return resolved
+        return DEFAULT_DRY_RUN_EMBEDDING_DIMENSION
+
+    def _record_dimension(self, dim: int) -> None:
+        """Store observed model dimension in instance and module cache."""
+        if dim > 0:
+            self._dimension = dim
+            _MODEL_DIMENSION_CACHE[(self.ai_config.provider.lower(), self.model)] = dim
+
+    def _get_ollama_urls(self) -> list[str]:
+        """Resolve candidate Ollama endpoint URLs."""
+        if self.ai_config.rag.embedding_url:
+            raw_url = self.ai_config.rag.embedding_url.strip().rstrip("/")
+            if not raw_url.startswith(("http://", "https://")):
+                raw_url = f"http://{raw_url}"
+            return [raw_url]
+        urls = (
+            getattr(self.ai_config, "get_ollama_urls", None)
+            or self.ai_config.ollama_urls
+            or [self.ai_config.api_base_url or "http://localhost:11434"]
+        )
+        return list(urls)
+
+    def _probe_dimension(self) -> int | None:
+        """Dynamically probe active provider to determine the model's actual embedding dimension."""
+        provider = self.ai_config.provider.lower()
+        api_base = self.ai_config.api_base_url or ""
+        if provider in ("openai", "copilot"):
+            return self._probe_openai_dimension()
+        if (
+            provider == "ollama"
+            or (not provider and ":11434" in api_base)
+            or self.ai_config.ollama_urls
+        ):
+            return self._probe_ollama_dimension()
+        return None
+
+    def _probe_ollama_dimension(self) -> int | None:
+        """Probe Ollama nodes for actual embedding vector dimension or model architecture metadata."""
+        urls = self._get_ollama_urls()
+        client_timeout = httpx2.Timeout(min(self.timeout, 5.0), connect=min(self.timeout, 2.0))
+        for raw_url in urls:
+            base_url = raw_url.rstrip("/")
+            try:
+                validate_service_url(base_url, "Ollama", allow=self.ai_config.allow_private_network)
+                with httpx2.Client(timeout=client_timeout) as client:
+                    # 1. Attempt /api/embed with minimal probe sample
+                    res = client.post(
+                        f"{base_url}/api/embed",
+                        json={"model": self.model, "input": ["probe"]},
+                    )
+                    if res.status_code == 200:
+                        data = res.json()
+                        embs = data.get("embeddings") or (
+                            [data["embedding"]] if "embedding" in data else None
+                        )
+                        if embs and embs[0]:
+                            return len(embs[0])
+
+                    # 2. Attempt /api/show for model architecture metadata
+                    show_res = client.post(f"{base_url}/api/show", json={"model": self.model})
+                    if show_res.status_code == 200:
+                        model_info = show_res.json().get("model_info") or {}
+                        for key, val in model_info.items():
+                            if (
+                                key.endswith(".embedding_length")
+                                and isinstance(val, int)
+                                and val > 0
+                            ):
+                                return val
+            except Exception as exc:
+                logger.debug("Probing Ollama node %s failed: %s", base_url, exc)
+                continue
+        return None
+
+    def _probe_openai_dimension(self) -> int | None:
+        """Probe OpenAI-compatible endpoint for actual embedding vector dimension."""
+        base_url = (self.ai_config.api_base_url or "https://api.openai.com/v1").rstrip("/")
+        try:
+            validate_service_url(base_url, "OpenAI", allow=self.ai_config.allow_private_network)
+            headers: dict[str, str] = {"Content-Type": "application/json"}
+            if self.api_key:
+                headers["Authorization"] = f"Bearer {self.api_key}"
+            endpoint = (
+                f"{base_url}/embeddings"
+                if base_url.endswith("/v1")
+                else f"{base_url}/v1/embeddings"
+            )
+            client_timeout = httpx2.Timeout(min(self.timeout, 5.0), connect=min(self.timeout, 2.0))
+            with httpx2.Client(timeout=client_timeout) as client:
+                res = client.post(
+                    endpoint,
+                    headers=headers,
+                    json={"model": self.model, "input": ["probe"]},
+                )
+                if res.status_code == 200:
+                    data = res.json()
+                    items = data.get("data", [])
+                    if items and "embedding" in items[0]:
+                        return len(items[0]["embedding"])
+        except Exception as exc:
+            logger.debug("Probing OpenAI endpoint failed: %s", exc)
+        return None
 
     def embed_texts(self, texts: list[str], *, is_query: bool = False) -> list[list[float]]:
         """Generate vector embeddings for a list of text strings with LRU cache acceleration."""
@@ -228,26 +331,13 @@ class EmbeddingsEngine:
                 "rag.model": str(self.model),
             },
         ):
-            client_timeout = httpx2.Timeout(self.timeout, connect=1.0)
+            client_timeout = httpx2.Timeout(self.timeout, connect=min(self.timeout, 5.0))
             with httpx2.Client(timeout=client_timeout) as client:
                 return self._try_batch_embed_endpoint(client, base_url, batch_texts)
 
     def _embed_ollama(self, texts: list[str]) -> list[list[float]]:
         """Compute Ollama embeddings with multi-node round-robin distribution and batching."""
-        if self.ai_config.rag.embedding_url:
-            raw_url = self.ai_config.rag.embedding_url.strip().rstrip("/")
-            if not raw_url.startswith(("http://", "https://")):
-                raw_url = f"http://{raw_url}"
-            urls = [raw_url]
-        else:
-            urls = (
-                self.ai_config.get_ollama_urls
-                if hasattr(self.ai_config, "get_ollama_urls")
-                else (
-                    self.ai_config.ollama_urls
-                    or [self.ai_config.api_base_url or "http://localhost:11434"]
-                )
-            )
+        urls = self._get_ollama_urls()
         chunk_batch_size = 8
         max_parallel = max(1, min(16, getattr(self.ai_config, "ollama_max_parallel", 2)))
 
@@ -275,7 +365,7 @@ class EmbeddingsEngine:
                     continue
                 if not (embs and embs[0]):
                     continue
-                self._dimension = self._dimension or len(embs[0])
+                self._record_dimension(len(embs[0]))
                 return (batch_idx, embs)
 
             if last_err:
@@ -332,8 +422,8 @@ class EmbeddingsEngine:
                 data = res.json()
                 items = sorted(data.get("data", []), key=lambda x: x.get("index", 0))
                 embs = [item["embedding"] for item in items]
-                if embs and self._dimension is None:
-                    self._dimension = len(embs[0])
+                if embs:
+                    self._record_dimension(len(embs[0]))
                 return embs
         except Exception as exc:
             logger.warning("OpenAI embeddings failed: %s. Using fallback.", exc)
@@ -343,7 +433,7 @@ class EmbeddingsEngine:
         self, texts: list[str], dimensions: int | None = None
     ) -> list[list[float]]:
         """Generate deterministic normalized hash-based embeddings when no model is reachable."""
-        dim = dimensions or self._infer_default_dimension()
+        dim = dimensions or self.dimension
         embeddings: list[list[float]] = []
         for text in texts:
             vec = [0.0] * dim

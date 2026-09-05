@@ -6,6 +6,26 @@ Chronological log of refactoring milestones, quality gates, and security enhance
 
 ## Log Entries
 
+### [2026-09-05] Dynamic Embedding Vector Dimension Resolution & Elimination of Lookup Table
+- **Dynamic Embedding Vector Dimension Resolution (`src/devops_cli/ai/rag/embeddings.py`)**:
+  - Completely eliminated the brittle model-name substring matching table (`_infer_default_dimension`) in accordance with `AGENTS.md` guidelines against incomplete string literal collections.
+  - Implemented dynamic active endpoint probing (`_probe_dimension`):
+    - Queries active Ollama node (`/api/embed`) with a minimal probe sample (`["probe"]`) to measure the model's actual vector dimension directly from the running inference engine.
+    - If `/api/embed` is unavailable, queries `/api/show` to extract model architecture parameters (`model_info["*.embedding_length"]`).
+    - For OpenAI/Copilot endpoints, queries `/embeddings` with probe input to determine actual dimension.
+  - Implemented dynamic runtime dimension observation: records `self._dimension = len(embs[0])` on any successful embedding call.
+  - Added module-level `_MODEL_DIMENSION_CACHE` keyed by `(provider, model)` to avoid redundant probe calls across `EmbeddingsEngine` instances.
+  - Unified default offline/disconnected fallback dimension to standard `DEFAULT_DRY_RUN_EMBEDDING_DIMENSION` (768) without any model-name guessing heuristics.
+  - Simplified Ollama endpoint URL resolution via shared helper `_get_ollama_urls()`.
+- **Quality Gates & Test-First Verification**:
+  - Authored comprehensive test specifications in `tests/test_rag_embeddings.py`:
+    - `test_dynamic_probe_ollama_embed`: Validates dynamic probe via `/api/embed`.
+    - `test_dynamic_probe_ollama_show_metadata`: Validates dynamic dimension inspection via `/api/show` `model_info`.
+    - `test_dynamic_probe_openai_embeddings`: Validates dynamic probe via OpenAI `/embeddings`.
+    - `test_runtime_dimension_cache_and_learning`: Validates runtime dimension observation and cross-instance caching.
+    - `test_deterministic_fallback_embeddings`: Validates offline fallback behavior without lookup table substring matching.
+  - Full `devops ci` quality gate passed cleanly (10/10 checks: tests, coverage >= 90%, lint, format, typecheck, audit, security, actionlint, docs).
+
 ### [2026-09-05] Qdrant Collection Dimension Auto-Recreation & Warning Deduplication
 - **Automatic Vector Dimension Detection & Migration (`src/devops_cli/ai/rag/qdrant.py`)**:
   - Connected `ensure_collection` into `upsert_points` to inspect payload vector dimensions before upserting batches.

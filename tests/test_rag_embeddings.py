@@ -16,10 +16,78 @@ def test_deterministic_fallback_embeddings() -> None:
     engine = EmbeddingsEngine(ai_cfg)
     embs = engine.embed_texts(["hello world", "test query"])
     assert len(embs) == 2
-    assert len(embs[0]) == 1024
+    assert len(embs[0]) == 768
     # Ensure cosine normalization (~1.0 magnitude)
     norm = sum(v * v for v in embs[0]) ** 0.5
     assert 0.99 <= norm <= 1.01
+
+
+def test_dynamic_probe_ollama_embed(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_post(url: str, json: dict[str, Any] | None = None, **kwargs: Any) -> httpx2.Response:
+        if "/api/embed" in url:
+            return httpx2.Response(200, json={"embeddings": [[0.05] * 512]})
+        return httpx2.Response(404)
+
+    monkeypatch.setattr(httpx2.Client, "post", lambda self, url, **kwargs: fake_post(url, **kwargs))
+    ai_cfg = AIConfig(
+        provider="ollama", ollama_urls=["http://localhost:11434"], allow_private_network=True
+    )
+    ai_cfg.rag.embedding_model = "unknown-custom-model"
+    engine = EmbeddingsEngine(ai_cfg)
+    assert engine.dimension == 512
+
+
+def test_dynamic_probe_ollama_show_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_post(url: str, json: dict[str, Any] | None = None, **kwargs: Any) -> httpx2.Response:
+        if "/api/embed" in url:
+            return httpx2.Response(500, text="Internal Error")
+        if "/api/show" in url:
+            return httpx2.Response(200, json={"model_info": {"custom.embedding_length": 1024}})
+        return httpx2.Response(404)
+
+    monkeypatch.setattr(httpx2.Client, "post", lambda self, url, **kwargs: fake_post(url, **kwargs))
+    ai_cfg = AIConfig(
+        provider="ollama", ollama_urls=["http://localhost:11434"], allow_private_network=True
+    )
+    ai_cfg.rag.embedding_model = "custom-ollama-model"
+    engine = EmbeddingsEngine(ai_cfg)
+    assert engine.dimension == 1024
+
+
+def test_dynamic_probe_openai_embeddings(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "devops_cli.ai.rag.embeddings.validate_service_url", lambda *args, **kwargs: None
+    )
+
+    def fake_post(url: str, json: dict[str, Any] | None = None, **kwargs: Any) -> httpx2.Response:
+        return httpx2.Response(200, json={"data": [{"index": 0, "embedding": [0.1] * 1536}]})
+
+    monkeypatch.setattr(httpx2.Client, "post", lambda self, url, **kwargs: fake_post(url, **kwargs))
+    ai_cfg = AIConfig(provider="openai", allow_private_network=True)
+    ai_cfg.rag.embedding_model = "arbitrary-openai-model"
+    engine = EmbeddingsEngine(ai_cfg, api_key="test-key")
+    assert engine.dimension == 1536
+
+
+def test_runtime_dimension_cache_and_learning(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_post(url: str, json: dict[str, Any] | None = None, **kwargs: Any) -> httpx2.Response:
+        return httpx2.Response(200, json={"embeddings": [[0.1] * 256]})
+
+    monkeypatch.setattr(httpx2.Client, "post", lambda self, url, **kwargs: fake_post(url, **kwargs))
+    ai_cfg = AIConfig(
+        provider="ollama", ollama_urls=["http://localhost:11434"], allow_private_network=True
+    )
+    ai_cfg.rag.embedding_model = "dynamic-cached-model"
+    engine1 = EmbeddingsEngine(ai_cfg)
+    embs = engine1.embed_texts(["sample"])
+    assert len(embs[0]) == 256
+    assert engine1.dimension == 256
+
+    # Second instance with same model reuses cached dimension
+    ai_offline = AIConfig(provider="ollama", ollama_urls=[], allow_private_network=True)
+    ai_offline.rag.embedding_model = "dynamic-cached-model"
+    engine2 = EmbeddingsEngine(ai_offline)
+    assert engine2.dimension == 256
 
 
 def test_ollama_embeddings_success(monkeypatch: pytest.MonkeyPatch) -> None:
