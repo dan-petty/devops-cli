@@ -437,6 +437,28 @@ def __getattr__(name: str) -> Any:
 
         return getattr(devops_cli.ai.providers, name)
     if name in {
+        "AgentStream",
+        "FinalResult",
+        "OutputSchema",
+        "OutputValidator",
+        "OutputValidatorFunc",
+        "RunUsage",
+        "StreamedRunResult",
+        "StreamedRunResultSync",
+        "SyncStreamBridge",
+        "TextOutputSchema",
+        "best_effort_price",
+        "calculate_usage_cost",
+        "create_run_usage",
+        "run_image_process_hooks",
+        "run_output_with_hooks",
+        "to_agent_response",
+        "to_final_result",
+    }:
+        import devops_cli.ai.result
+
+        return getattr(devops_cli.ai.result, name)
+    if name in {
         "Advisor",
         "AgentContextInventory",
         "AgentOverride",
@@ -993,4 +1015,21 @@ __all__ = [
     "get_provider",
     "infer_provider",
     "infer_provider_class",
+    "AgentStream",
+    "FinalResult",
+    "OutputSchema",
+    "OutputValidator",
+    "OutputValidatorFunc",
+    "RunUsage",
+    "StreamedRunResult",
+    "StreamedRunResultSync",
+    "SyncStreamBridge",
+    "TextOutputSchema",
+    "best_effort_price",
+    "calculate_usage_cost",
+    "create_run_usage",
+    "run_image_process_hooks",
+    "run_output_with_hooks",
+    "to_agent_response",
+    "to_final_result",
 ]

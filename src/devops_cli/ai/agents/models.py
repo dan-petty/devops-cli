@@ -40,6 +40,24 @@ class AgentResponse[T](BaseModel):
 
         return unique_lines("\n\n".join(self.thoughts))
 
+    @property
+    def run_usage(self) -> Any:
+        """Return native pydantic_ai.result.RunUsage tracking instance."""
+        from pydantic_ai.usage import RunUsage
+
+        return RunUsage(
+            input_tokens=self.usage.input_tokens,
+            output_tokens=self.usage.output_tokens,
+            requests=self.turns,
+            tool_calls=len(self.tool_calls),
+        )
+
+    def to_final_result(self) -> Any:
+        """Wrap output into a native pydantic_ai.result.FinalResult marker container."""
+        from pydantic_ai.result import FinalResult
+
+        return FinalResult(output=self.output)
+
     def all_messages(self) -> list[ChatMessage]:
         """Return the complete message history including prior turns and tool exchanges."""
         return list(self.messages)
@@ -50,8 +68,14 @@ class AgentResponse[T](BaseModel):
 
     @classmethod
     def from_run_result(cls, run_res: Any) -> AgentResponse[Any]:
-        """Create AgentResponse from a native pydantic_ai.run.AgentRunResult."""
+        """Create AgentResponse from a native pydantic_ai.run.AgentRunResult or StreamedRunResult."""
         raw_output = getattr(run_res, "output", None)
+        if raw_output is None and hasattr(run_res, "get_output") and callable(run_res.get_output):
+            try:
+                raw_output = run_res.get_output()
+            except Exception:
+                raw_output = None
+
         if isinstance(raw_output, str):
             content = raw_output
             data = None
@@ -63,8 +87,13 @@ class AgentResponse[T](BaseModel):
             data = None
 
         run_usage = getattr(run_res, "usage", None)
-        in_tok = getattr(run_usage, "input_tokens", 0) if run_usage else 0
-        out_tok = getattr(run_usage, "output_tokens", 0) if run_usage else 0
+        if callable(run_usage) and not hasattr(run_usage, "input_tokens"):
+            try:
+                run_usage = run_usage()
+            except Exception:
+                pass
+        in_tok = int(getattr(run_usage, "input_tokens", 0) or 0) if run_usage else 0
+        out_tok = int(getattr(run_usage, "output_tokens", 0) or 0) if run_usage else 0
         usage = AgentUsage(
             input_tokens=in_tok,
             output_tokens=out_tok,
