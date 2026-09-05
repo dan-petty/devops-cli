@@ -150,6 +150,29 @@ def __getattr__(name: str) -> Any:
 
         return getattr(devops_cli.ai.mcp, name)
     if name in {
+        "DEFAULT_OLLAMA_BASE_URL",
+        "OllamaModel",
+        "OllamaProvider",
+        "OpenAIChatModel",
+        "OpenAIJsonSchemaTransformer",
+        "OpenAIModelProfile",
+        "cohere_model_profile",
+        "create_ollama_model",
+        "create_ollama_provider",
+        "deepseek_model_profile",
+        "get_recommended_output_mode",
+        "google_model_profile",
+        "harmony_model_profile",
+        "is_ollama_cloud",
+        "meta_model_profile",
+        "mistral_model_profile",
+        "normalize_ollama_base_url",
+        "qwen_model_profile",
+    }:
+        import devops_cli.ai.models.ollama
+
+        return getattr(devops_cli.ai.models.ollama, name)
+    if name in {
         "CONST_CLAUDE_MD_FILENAME",
         "CONST_COPILOT_INSTRUCTIONS_PATH",
         "DEFAULT_AGENT_FILES",
@@ -631,4 +654,22 @@ __all__ = [
     "create_mcp_toolset",
     "load_devops_mcp_toolsets",
     "load_mcp_toolsets",
+    "DEFAULT_OLLAMA_BASE_URL",
+    "OllamaModel",
+    "OllamaProvider",
+    "OpenAIChatModel",
+    "OpenAIJsonSchemaTransformer",
+    "OpenAIModelProfile",
+    "cohere_model_profile",
+    "create_ollama_model",
+    "create_ollama_provider",
+    "deepseek_model_profile",
+    "get_recommended_output_mode",
+    "google_model_profile",
+    "harmony_model_profile",
+    "is_ollama_cloud",
+    "meta_model_profile",
+    "mistral_model_profile",
+    "normalize_ollama_base_url",
+    "qwen_model_profile",
 ]

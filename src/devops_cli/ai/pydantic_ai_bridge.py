@@ -86,14 +86,36 @@ def resolve_pydantic_ai_model(
     provider = getattr(active_settings.ai, "provider", "ollama")
 
     if model_str.startswith("ollama:") or provider == "ollama":
-        from pydantic_ai.models.ollama import OllamaModel
-        from pydantic_ai.providers.ollama import OllamaProvider
+        from devops_cli.ai.models.ollama import create_ollama_model
 
-        clean_name = model_str.removeprefix("ollama:").strip()
         urls = active_settings.ai.get_ollama_urls if hasattr(active_settings, "ai") else []
-        base_url = urls[0] if urls else "http://localhost:11434"
-        ollama_provider = OllamaProvider(base_url=f"{base_url.rstrip('/')}/v1")
-        om = OllamaModel(clean_name, provider=ollama_provider)
+        temperature = (
+            getattr(active_settings.ai, "temperature", None)
+            if hasattr(active_settings, "ai")
+            else None
+        )
+        max_tokens = (
+            getattr(active_settings.ai, "max_tokens", None)
+            if hasattr(active_settings, "ai")
+            else None
+        )
+        reasoning_effort = (
+            getattr(active_settings.ai, "reasoning_effort", None)
+            if hasattr(active_settings, "ai")
+            else None
+        )
+        api_key = (
+            getattr(active_settings.ai, "api_key", None) if hasattr(active_settings, "ai") else None
+        )
+
+        om = create_ollama_model(
+            model_str,
+            urls=urls,
+            api_key=api_key,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            reasoning_effort=reasoning_effort,
+        )
         return limit_model_concurrency(om, model_concurrency) if model_concurrency else om
 
     try:
