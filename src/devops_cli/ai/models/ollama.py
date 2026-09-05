@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from typing import Any, Literal, cast
+from typing import Any, Literal
 from urllib.parse import urlsplit, urlunsplit
 
 from openai import AsyncOpenAI
@@ -20,7 +20,12 @@ from pydantic_ai.profiles.openai import OpenAIJsonSchemaTransformer, OpenAIModel
 from pydantic_ai.profiles.qwen import qwen_model_profile
 from pydantic_ai.providers import Provider
 from pydantic_ai.providers.ollama import OllamaProvider
-from pydantic_ai.settings import ModelSettings
+
+from devops_cli.ai.settings import (
+    ModelSettings,
+    create_model_settings,
+    merge_model_settings,
+)
 
 DEFAULT_OLLAMA_BASE_URL: str = "http://localhost:11434"
 
@@ -166,23 +171,20 @@ def create_ollama_model(
             http_client=http_client,
         )
 
-    # Build ModelSettings from explicit arguments and settings dict
-    settings_dict: dict[str, Any] = dict(settings or {})
-    if temperature is not None:
-        settings_dict["temperature"] = temperature
-    if max_tokens is not None:
-        settings_dict["max_tokens"] = max_tokens
-    if top_p is not None:
-        settings_dict["top_p"] = top_p
-    if timeout is not None:
-        settings_dict["timeout"] = timeout
+    explicit_settings = create_model_settings(
+        temperature=temperature,
+        max_tokens=max_tokens,
+        top_p=top_p,
+        timeout=timeout,
+        **kwargs,
+    )
     if reasoning_effort is not None:
-        settings_dict["reasoning_effort"] = reasoning_effort
-    for key, value in kwargs.items():
-        if value is not None:
-            settings_dict[key] = value
-
-    model_settings = cast(ModelSettings, settings_dict) if settings_dict else None
+        explicit_settings["reasoning_effort"] = reasoning_effort  # type: ignore[typeddict-unknown-key]
+    model_settings = (
+        merge_model_settings(settings, explicit_settings)
+        if (settings or explicit_settings)
+        else None
+    )
 
     return OllamaModel(
         clean_model_name,

@@ -5,7 +5,6 @@ from __future__ import annotations
 from pydantic_ai.agent import (
     AbstractAgent,
     Agent,
-    AgentModelSettings,
     AgentRealtime,
     AgentRun,
     AgentRunEvents,
@@ -326,7 +325,6 @@ from devops_cli.ai.mcp.toolset import (
 from devops_cli.ai.models.ollama import (
     DEFAULT_OLLAMA_BASE_URL,
     ModelProfileSpec,
-    ModelSettings,
     OllamaModel,
     OllamaProvider,
     OpenAIChatModel,
@@ -433,6 +431,24 @@ from devops_cli.ai.run import (
     current_otel_traceparent,
     format_run_summary,
     get_active_traceparent,
+)
+from devops_cli.ai.settings import (
+    AgentModelSettings,
+    ModelSettings,
+    ServiceTier,
+    ThinkingEffort,
+    ThinkingLevel,
+    Timeout,
+    ToolChoice,
+    ToolChoiceScalar,
+    ToolOrOutput,
+    create_model_settings,
+    create_tool_or_output,
+    merge_model_settings,
+    normalize_service_tier,
+    normalize_thinking_level,
+    normalize_tool_choice,
+    resolve_runtime_model_settings,
 )
 
 __all__ = [
@@ -823,4 +839,18 @@ __all__ = [
     "current_otel_traceparent",
     "format_run_summary",
     "get_active_traceparent",
+    "ServiceTier",
+    "ThinkingEffort",
+    "ThinkingLevel",
+    "Timeout",
+    "ToolChoice",
+    "ToolChoiceScalar",
+    "ToolOrOutput",
+    "create_model_settings",
+    "create_tool_or_output",
+    "merge_model_settings",
+    "normalize_service_tier",
+    "normalize_thinking_level",
+    "normalize_tool_choice",
+    "resolve_runtime_model_settings",
 ]

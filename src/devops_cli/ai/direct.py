@@ -31,9 +31,9 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.models import KnownModelName, Model, ModelRequestParameters
 from pydantic_ai.models.instrumented import InstrumentationSettings
-from pydantic_ai.settings import ModelSettings
 
 from devops_cli.ai.concurrency import AnyConcurrencyLimit
+from devops_cli.ai.settings import ModelSettings
 from devops_cli.telemetry import trace_span
 
 if TYPE_CHECKING:

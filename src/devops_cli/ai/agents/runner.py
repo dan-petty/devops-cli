@@ -355,7 +355,10 @@ def _resolve_thinking_preference(
     for cap in capabilities:
         if not cap.defer_loading or cap.id in loaded_ids:
             cap_settings = cap.get_model_settings(ctx=ctx)
-            if "enable_thinking" in cap_settings:
+            if "thinking" in cap_settings:
+                val = cap_settings["thinking"]
+                thinking = bool(val) if val is not None else default_thinking
+            elif "enable_thinking" in cap_settings:
                 thinking = bool(cap_settings["enable_thinking"])
     return thinking
 

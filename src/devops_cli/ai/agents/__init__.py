@@ -500,6 +500,27 @@ def __getattr__(name: str) -> Any:
 
         return getattr(devops_cli.ai.run, name)
     if name in {
+        "AgentModelSettings",
+        "ModelSettings",
+        "ServiceTier",
+        "ThinkingEffort",
+        "ThinkingLevel",
+        "Timeout",
+        "ToolChoice",
+        "ToolChoiceScalar",
+        "ToolOrOutput",
+        "create_model_settings",
+        "create_tool_or_output",
+        "merge_model_settings",
+        "normalize_service_tier",
+        "normalize_thinking_level",
+        "normalize_tool_choice",
+        "resolve_runtime_model_settings",
+    }:
+        import devops_cli.ai.settings
+
+        return getattr(devops_cli.ai.settings, name)
+    if name in {
         "Advisor",
         "AgentContextInventory",
         "AgentOverride",
@@ -1102,4 +1123,18 @@ __all__ = [
     "current_otel_traceparent",
     "format_run_summary",
     "get_active_traceparent",
+    "ServiceTier",
+    "ThinkingEffort",
+    "ThinkingLevel",
+    "Timeout",
+    "ToolChoice",
+    "ToolChoiceScalar",
+    "ToolOrOutput",
+    "create_model_settings",
+    "create_tool_or_output",
+    "merge_model_settings",
+    "normalize_service_tier",
+    "normalize_thinking_level",
+    "normalize_tool_choice",
+    "resolve_runtime_model_settings",
 ]
