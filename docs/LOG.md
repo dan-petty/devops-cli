@@ -2,6 +2,28 @@
 
 Chronological log of refactoring milestones, quality gates, and security enhancements.
 
+### [2026-09-05] Native Pydantic AI Template (`pydantic_ai.template`) Integration
+- **Native Template Subsystem (`src/devops_cli/ai/template/__init__.py`)**:
+  - Full native adoption of `pydantic_ai.template` API specifications:
+    - Installed official runtime dependency `pydantic-handlebars==0.2.1` in `pyproject.toml` and `uv.lock`.
+    - Re-exports core native `TemplateStr` (Handlebars compiled template string supporting `RunContext.deps`, Pydantic models, dataclasses, or untyped dictionaries).
+    - Implemented high-level domain template utilities and factories:
+      - `create_template_str(source, deps_type=None, deps_schema=None) -> TemplateStr[Any]`: Typed factory for compiling native `TemplateStr` instances.
+      - `render_template(template, deps=None) -> str`: Multi-modal template renderer executing native `TemplateStr`, string templates, or Pydantic models with graceful dictionary or attribute resolution.
+      - `is_template_str(val) -> bool`: Fast predicate checking whether a value is an instance of `TemplateStr` or contains Handlebars expressions (`{{...}}`).
+- **Elimination of Legacy Code & Remnants (Zero Zombie Code)**:
+  - Ruthlessly removed legacy hand-rolled regex string subclass `class TemplateStr(str)` from `src/devops_cli/ai/agents/tools.py`.
+  - Migrated `src/devops_cli/ai/agents/agent.py` to import native `TemplateStr` from `devops_cli.ai.template`.
+- **Package Re-exports (`devops_cli.ai.template`, `devops_cli.ai`, `devops_cli.ai.agents`, `devops_cli.ai.agents.pydantic_agent`)**:
+  - Re-exported all template classes and helper functions across public package tiers with strict typing (`mypy --strict`) and complete `__all__` lists.
+- **Quality Gates & Test-First Verification**:
+  - Authored comprehensive test suite `tests/test_pydantic_ai_template.py` (9/9 tests passing).
+  - Regression verified `tests/test_pydantic_agent.py` (33/33 tests passing, 42/42 total).
+  - Strict static typing (`mypy --strict`) 100% clean across all new and modified modules.
+  - Clean linting and formatting (`ruff check`, `ruff format`).
+  - Documentation generated and README synchronized (`devops docs generate --sync-readme`).
+  - Full CI validation suite (`uv run devops ci`): 10/10 quality gates green.
+
 ### [2026-09-05] Native Pydantic AI Settings (`pydantic_ai.settings`) Integration
 - **Native Settings Subsystem (`src/devops_cli/ai/settings/__init__.py`)**:
   - Full native adoption of `pydantic_ai.settings` API specifications:

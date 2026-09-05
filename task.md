@@ -177,6 +177,13 @@
   - [x] Phase 27.4: Public Package Re-exports (`devops_cli.ai.settings`, `devops_cli.ai`, `devops_cli.ai.agents`, `pydantic_agent.py`)
   - [x] Phase 27.5: Full CI Validation Suite (`devops ci` — 10/10 green), Documentation Sync & Conventional Commits
 
+- [x] Phase 28: Native Pydantic AI Template (`pydantic_ai.template`) Integration
+  - [x] Phase 28.1: Test-First Specifications (`tests/test_pydantic_ai_template.py` — 9/9 green)
+  - [x] Phase 28.2: Core Template Subsystem (`src/devops_cli/ai/template/__init__.py`)
+  - [x] Phase 28.3: Agent & Spec Modernization (eliminated legacy hand-rolled regex `TemplateStr(str)` from `tools.py`, imported native `TemplateStr` in `agent.py`)
+  - [x] Phase 28.4: Public Package Re-exports (`devops_cli.ai.template`, `devops_cli.ai`, `devops_cli.ai.agents`, `pydantic_agent.py`)
+  - [x] Phase 28.5: Full CI Validation Suite (`devops ci` — 10/10 green), Documentation Sync & Conventional Commits
+
 ---
 
 ### In-Progress Tasks (WIP)
