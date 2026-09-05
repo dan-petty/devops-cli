@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from devops_cli.ai.rag.chunker import SemanticChunker
-from devops_cli.ai.rag.embeddings import EmbeddingsEngine, EmbeddingsError
+from devops_cli.ai.rag.embeddings import EmbeddingsEngine, EmbeddingsError, OllamaEmbeddingModel
 from devops_cli.ai.rag.indexer import WorkspaceIndexer
 from devops_cli.ai.rag.investigator import (
     format_rag_investigation_for_prompt,
@@ -18,6 +18,7 @@ __all__ = [
     "EmbeddingsEngine",
     "EmbeddingsError",
     "IndexStats",
+    "OllamaEmbeddingModel",
     "QdrantClient",
     "QdrantClientError",
     "RAGContext",

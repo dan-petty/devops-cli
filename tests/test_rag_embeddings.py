@@ -247,3 +247,62 @@ def test_embeddings_engine_embed_query_cached(monkeypatch: pytest.MonkeyPatch) -
     v2 = engine.embed_query("test query")
     assert v1 == v2
     assert call_count == 1
+
+
+@pytest.mark.anyio
+async def test_ollama_embedding_model_properties_and_embed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify OllamaEmbeddingModel conforms to Pydantic AI EmbeddingModel protocol."""
+    from devops_cli.ai.rag.embeddings import OllamaEmbeddingModel
+
+    def fake_deterministic(
+        self: object, texts: list[str], dimensions: int | None = None
+    ) -> list[list[float]]:
+        return [[0.2] * 384 for _ in texts]
+
+    monkeypatch.setattr(EmbeddingsEngine, "_deterministic_fallback", fake_deterministic)
+    ai_cfg = AIConfig(provider="ollama", ollama_urls=[])
+    model = OllamaEmbeddingModel(model_name="all-minilm", ai_config=ai_cfg, dimensions=384)
+
+    assert model.model_name == "all-minilm"
+    assert model.system == "ollama"
+
+    # Query embedding
+    res_query = await model.embed("What is Kubernetes?", input_type="query")
+    assert len(res_query.embeddings) == 1
+    assert len(res_query.embeddings[0]) == 384
+    assert res_query.inputs == ["What is Kubernetes?"]
+    assert res_query.input_type == "query"
+    assert res_query.model_name == "all-minilm"
+    assert res_query.provider_name == "ollama"
+    assert res_query.usage.input_tokens > 0
+
+    # Document embedding
+    docs = ["Doc 1", "Doc 2"]
+    res_docs = await model.embed(docs, input_type="document")
+    assert len(res_docs.embeddings) == 2
+    assert res_docs.inputs == docs
+    assert res_docs.input_type == "document"
+
+
+def test_embeddings_engine_to_embedder(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify EmbeddingsEngine.to_embedder returns an operational Pydantic AI Embedder."""
+    from devops_cli.ai.agents import Embedder
+
+    def fake_deterministic(
+        self: object, texts: list[str], dimensions: int | None = None
+    ) -> list[list[float]]:
+        return [[0.3] * 512 for _ in texts]
+
+    monkeypatch.setattr(EmbeddingsEngine, "_deterministic_fallback", fake_deterministic)
+    ai_cfg = AIConfig(provider="ollama", ollama_urls=[])
+    engine = EmbeddingsEngine(ai_cfg)
+
+    embedder = engine.to_embedder()
+    assert isinstance(embedder, Embedder)
+
+    res = embedder.embed_query_sync("Engine test")
+    assert len(res) == 1
+    assert len(res[0]) == 512
+    assert res["Engine test"] == [0.3] * 512

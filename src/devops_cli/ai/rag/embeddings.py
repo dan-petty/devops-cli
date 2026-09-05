@@ -2,14 +2,28 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 import threading
 from collections import OrderedDict
+from collections.abc import Sequence
 from concurrent.futures import as_completed
-from typing import Any
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any, Literal
 
 import httpx2
+from pydantic_ai.embeddings import (
+    EmbeddingModel,
+    EmbeddingSettings,
+)
+from pydantic_ai.embeddings import (
+    EmbeddingResult as PydanticEmbeddingResult,
+)
+from pydantic_ai.usage import RequestUsage
+
+if TYPE_CHECKING:
+    from devops_cli.ai.agents.embeddings import Embedder
 
 from devops_cli.config.defaults import (
     DEFAULT_DRY_RUN_EMBEDDING_DIMENSION,
@@ -449,3 +463,66 @@ class EmbeddingsEngine:
                 vec = [round(v / norm, 6) for v in vec]
             embeddings.append(vec)
         return embeddings
+
+    def to_embedder(self) -> Embedder:
+        """Create a standard Pydantic AI Embedder backed by this engine."""
+        from devops_cli.ai.agents.embeddings import Embedder, EngineEmbeddingModel
+
+        model = EngineEmbeddingModel(
+            self, model_name=self.model, provider_name=self.ai_config.provider
+        )
+        return Embedder(model=model)
+
+
+class OllamaEmbeddingModel(EmbeddingModel):
+    """Pydantic AI EmbeddingModel implementation for distributed multi-node Ollama clusters."""
+
+    def __init__(
+        self,
+        model_name: str = DEFAULT_RAG_EMBEDDING_MODEL,
+        *,
+        engine: EmbeddingsEngine | None = None,
+        ai_config: AIConfig | None = None,
+        dimensions: int | None = None,
+    ) -> None:
+        self._model_name = model_name
+        self.engine = engine or EmbeddingsEngine(
+            ai_config or AIConfig(rag={"embedding_model": model_name})
+        )
+        if dimensions is not None:
+            self.engine._dimension = dimensions
+
+    @property
+    def model_name(self) -> str:
+        return self._model_name
+
+    @property
+    def system(self) -> str:
+        return "ollama"
+
+    def __str__(self) -> str:
+        return self._model_name
+
+    def __repr__(self) -> str:
+        return f"OllamaEmbeddingModel({self._model_name!r})"
+
+    async def embed(
+        self,
+        inputs: str | Sequence[str],
+        *,
+        input_type: Literal["query", "document"],
+        settings: EmbeddingSettings | None = None,
+    ) -> PydanticEmbeddingResult:
+        texts = [inputs] if isinstance(inputs, str) else list(inputs)
+        is_query = input_type == "query"
+        vectors = await asyncio.to_thread(self.engine.embed_texts, texts, is_query=is_query)
+        est_tokens = sum(max(1, int(len(t.split()) * 1.3)) for t in texts)
+        return PydanticEmbeddingResult(
+            vectors,
+            inputs=texts,
+            input_type=input_type,
+            model_name=self._model_name,
+            provider_name="ollama",
+            timestamp=datetime.now(UTC),
+            usage=RequestUsage(input_tokens=est_tokens),
+        )
