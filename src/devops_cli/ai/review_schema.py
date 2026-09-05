@@ -208,12 +208,35 @@ _SCRATCHPAD_PREFIX_REGEX = re.compile(
     re.IGNORECASE,
 )
 
+_APPROVAL_PREFIX_REGEX = re.compile(
+    r"^(?:Good|Looks\s+good|Great)\.\s*But\s+",
+    re.IGNORECASE,
+)
+
+_PRAISE_PREFIX_REGEX = re.compile(
+    r"^(?:No issues(?:\s+found)?|Looks\s+solid|Looks\s+good|All\s+good|Clean\s+implementation|Properly\s+implemented|Correctly\s+handled)\b.*$",
+    re.IGNORECASE,
+)
+
+_DEFECT_KEYWORD_REGEX = re.compile(
+    r"\b(?:but|however|although|except|potential|issue|risk|bug|vulnerability|flaw|leak|fail|race|error|insecure|missing|unhandled|unvalidated)\b",
+    re.IGNORECASE,
+)
+
 
 def sanitize_finding_text(text: str) -> str:
     """Scrub prompt criteria leakage, instruction headers, scratchpad prefixes, and markdown noise from text."""
     val = normalize_unicode_text(str(text)).strip()
     # Strip leading instruction headers first (e.g., 'Provide fix:', 'Title:', 'Issue:')
     val = _INSTRUCTION_HEADER_PREFIX_REGEX.sub("", val).strip()
+
+    # Strip conversational approval prefix (e.g., 'Good. But potential...' -> 'Potential...')
+    m_app = _APPROVAL_PREFIX_REGEX.match(val)
+    if m_app:
+        val = val[m_app.end() :].strip()
+        if val:
+            val = val[0].upper() + val[1:]
+
     # Strip leading chain-of-thought scratchpad sentences
     while True:
         m = _SCRATCHPAD_PREFIX_REGEX.match(val)
@@ -223,6 +246,15 @@ def sanitize_finding_text(text: str) -> str:
     # Strip trailing prompt criteria leakage
     if _PROMPT_CRITERIA_SPLIT_REGEX.search(val):
         val = _PROMPT_CRITERIA_SPLIT_REGEX.split(val)[0].strip()
+
+    # Check for pure praise / no-issue confirmation
+    if _PRAISE_PREFIX_REGEX.match(val):
+        return ""
+    if val.endswith(
+        ("Good.", "Good", "Looks good.", "Looks solid.")
+    ) and not _DEFECT_KEYWORD_REGEX.search(val):
+        return ""
+
     return val
 
 
@@ -232,11 +264,16 @@ def canonicalize_finding_location(location: str) -> str:
     if not loc or "\n" in loc or "```" in loc:
         return ""
 
+    if loc.startswith("#") or not any(c.isalnum() for c in loc):
+        return ""
+
     m_link = _MARKDOWN_LINK_REGEX.search(loc)
     if m_link:
         loc = m_link.group(1).strip()
 
-    loc = loc.strip("`'\"()[]")
+    loc = loc.strip("`'\"()[]*# ")
+    if not loc or not any(c.isalnum() for c in loc):
+        return ""
 
     had_prompt_leakage = False
     if _PROMPT_CRITERIA_SPLIT_REGEX.search(loc):
@@ -357,11 +394,13 @@ class Finding(BaseModel):
     @property
     def is_empty(self) -> bool:
         """Check if finding is blank or lacks a valid target location."""
-        clean_title = self.title.strip()
-        clean_loc = self.location.strip()
+        clean_title = sanitize_finding_text(self.title).strip()
+        clean_loc = canonicalize_finding_location(self.location).strip()
         if not clean_title or not clean_loc:
             return True
         if "\n" in clean_loc or "```" in clean_loc:
+            return True
+        if clean_loc in {"**", "*", "---", "##", "###"} or not any(c.isalnum() for c in clean_loc):
             return True
 
         file_part, _, _ = _parse_location(clean_loc)
@@ -369,7 +408,7 @@ class Finding(BaseModel):
             return True
         return False
 
-    @field_validator("description", "fix", mode="before")
+    @field_validator("title", "description", "fix", mode="before")
     @classmethod
     def _clean_text_fields(cls, v: object) -> str:
         return sanitize_finding_text(str(v))
