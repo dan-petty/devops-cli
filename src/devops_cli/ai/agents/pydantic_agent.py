@@ -279,9 +279,11 @@ from devops_cli.ai.exceptions import (
     is_pydantic_ai_exception,
     normalize_to_pydantic_ai_error,
 )
+from devops_cli.ai.format_prompt import format_as_xml
 
 __all__ = [
     "ALLOW_MODEL_REQUESTS",
+    "format_as_xml",
     "AbstractAgent",
     "AbstractCapability",
     "AbstractConcurrencyLimiter",

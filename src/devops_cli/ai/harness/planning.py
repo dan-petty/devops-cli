@@ -98,6 +98,12 @@ class PlanStore:
     def remove_item(self, item_id: str) -> bool:
         raise NotImplementedError
 
+    def to_xml(self, root_tag: str = "plan_reminder") -> str:
+        """Serialize store plan items as XML using native Pydantic AI format_as_xml."""
+        from devops_cli.ai.format_prompt import format_plan_reminder_as_xml
+
+        return format_plan_reminder_as_xml(self.get_items(), root_tag=root_tag)
+
 
 def _make_status_event(item: PlanItem, old: str, new_status: str) -> PlanEvent:
     """Construct a PlanEvent for status transitions."""
@@ -155,6 +161,19 @@ class InMemoryPlanStore(PlanStore):
         initial_len = len(self._items)
         self._items = [it for it in self._items if it.id != item_id]
         return len(self._items) < initial_len
+
+    def add(
+        self,
+        content: str,
+        status: PlanStatus = "pending",
+        active_form: str | None = None,
+    ) -> PlanItem:
+        """Ergonomic helper to add a plan item by content."""
+        item = PlanItem(content=content, status=status, active_form=active_form)
+        return self.add_item(item)
+
+
+PlanningStore = InMemoryPlanStore
 
 
 class SqlitePlanStore(PlanStore):

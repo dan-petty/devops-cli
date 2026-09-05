@@ -87,6 +87,19 @@ def __getattr__(name: str) -> Any:
 
         return getattr(devops_cli.ai.exceptions, name)
     if name in {
+        "format_as_xml",
+        "format_context_as_xml",
+        "format_examples_as_xml",
+        "format_findings_as_xml",
+        "format_metadata_as_xml",
+        "format_plan_reminder_as_xml",
+        "format_prompt_data",
+        "format_rag_context_as_xml",
+    }:
+        import devops_cli.ai.format_prompt
+
+        return getattr(devops_cli.ai.format_prompt, name)
+    if name in {
         "CONST_CLAUDE_MD_FILENAME",
         "CONST_COPILOT_INSTRUCTIONS_PATH",
         "DEFAULT_AGENT_FILES",
@@ -517,7 +530,15 @@ __all__ = [
     "UserError",
     "extract_cancellation_state",
     "extract_retry_after",
+    "format_as_xml",
+    "format_context_as_xml",
+    "format_examples_as_xml",
+    "format_findings_as_xml",
+    "format_metadata_as_xml",
+    "format_plan_reminder_as_xml",
+    "format_prompt_data",
     "format_pydantic_ai_error",
+    "format_rag_context_as_xml",
     "is_pydantic_ai_exception",
     "normalize_to_pydantic_ai_error",
 ]
