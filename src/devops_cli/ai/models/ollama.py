@@ -66,7 +66,7 @@ def is_ollama_cloud(base_url: str | None = None, model_name: str | None = None) 
     if base_url:
         parsed = urlsplit(base_url.strip())
         hostname = (parsed.hostname or "").lower()
-        if "ollama.com" in hostname:
+        if hostname == "ollama.com" or hostname.endswith(".ollama.com"):
             return True
 
     if model_name and model_name.strip().lower().endswith("-cloud"):

@@ -70,6 +70,8 @@ def test_is_ollama_cloud() -> None:
     assert is_ollama_cloud(base_url="https://api.ollama.com/v1") is True
     assert is_ollama_cloud(base_url="http://localhost:11434/v1") is False
     assert is_ollama_cloud(base_url="http://192.168.1.50:11434/v1") is False
+    assert is_ollama_cloud(base_url="https://attacker-ollama.com/v1") is False
+    assert is_ollama_cloud(base_url="https://ollama.com.attacker.com/v1") is False
 
     # By model_name
     assert is_ollama_cloud(model_name="qwen3-cloud") is True
