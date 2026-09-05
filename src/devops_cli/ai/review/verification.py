@@ -272,7 +272,22 @@ def _build_validation_prompt(
     )
 
 
-_SYNTAX_INVALIDATION_REASON = "Syntax validation passed cleanly via language parser"
+_SYNTAX_CLAIM_PATTERNS: tuple[str, ...] = (
+    "syntax",
+    "parse error",
+    "syntaxerror",
+    "invalid syntax",
+    "except clause",
+    "exception clause",
+    "except statement",
+    "cannot be imported",
+    "fails to import",
+    "prevents module import",
+    "breaks import",
+    "python 2 syntax",
+    "python 2 style",
+    "deprecated syntax",
+)
 
 
 def _check_syntax_error_hallucination(finding: Finding, file_path: Path) -> Finding | None:
@@ -282,14 +297,7 @@ def _check_syntax_error_hallucination(finding: Finding, file_path: Path) -> Find
 
     title_lower = finding.title.lower()
     desc_lower = (finding.description or "").lower()
-    is_syntax_claim = (
-        "syntax" in title_lower
-        or "syntax" in desc_lower
-        or "parse error" in title_lower
-        or "parse error" in desc_lower
-        or "syntaxerror" in title_lower
-        or "syntaxerror" in desc_lower
-    )
+    is_syntax_claim = any(kw in title_lower or kw in desc_lower for kw in _SYNTAX_CLAIM_PATTERNS)
     if not is_syntax_claim:
         return None
 
@@ -312,17 +320,70 @@ def _check_syntax_error_hallucination(finding: Finding, file_path: Path) -> Find
         else:
             return None
 
-        return finding.model_copy(
+        res = finding.model_copy(
             update={
                 "verified": False,
                 "mitigated": False,
                 "reportable": False,
                 "status": "INVALIDATED",
-                "invalidation_reason": _SYNTAX_INVALIDATION_REASON,
+                "invalidation_reason": "Syntax validation passed cleanly via language parser (valid Python 3.14+ syntax)",
             }
         )
+        try:
+            from devops_cli.ai.review.common_hallucinations import auto_record_invalidated_finding
+
+            auto_record_invalidated_finding(
+                res, file_path=file_path, reason=res.invalidation_reason
+            )
+        except Exception:
+            pass
+        return res
     except Exception:
         return None
+
+
+def _resolve_target_file(loc_file: str, repo_root: Path | None) -> Path | None:
+    """Resolve finding location file path against repo_root or current working directory."""
+    if not loc_file:
+        return None
+    p = Path(loc_file)
+    if p.is_absolute() and p.exists() and p.is_file():
+        return p.resolve()
+
+    if repo_root is not None:
+        resolved_root = repo_root.resolve()
+        cand = (resolved_root / p).resolve()
+        if cand.exists() and cand.is_file():
+            return cand
+        try:
+            from devops_cli.core.repo import find_repo_root
+
+            repo = find_repo_root(resolved_root).resolve()
+            cand_repo = (repo / p).resolve()
+            if cand_repo.exists() and cand_repo.is_file():
+                return cand_repo
+        except Exception:
+            pass
+        if len(p.parts) > 1 and p.parts[0] == resolved_root.name:
+            cand_sub = (resolved_root / Path(*p.parts[1:])).resolve()
+            if cand_sub.exists() and cand_sub.is_file():
+                return cand_sub
+
+    cwd = Path.cwd().resolve()
+    cand_cwd = (cwd / p).resolve()
+    if cand_cwd.exists() and cand_cwd.is_file():
+        return cand_cwd
+    try:
+        from devops_cli.core.repo import find_repo_root
+
+        cwd_repo = find_repo_root(cwd).resolve()
+        cand_cwd_repo = (cwd_repo / p).resolve()
+        if cand_cwd_repo.exists() and cand_cwd_repo.is_file():
+            return cand_cwd_repo
+    except Exception:
+        pass
+
+    return None
 
 
 def _check_line_boundaries(finding: Finding, file_path: Path) -> Finding | None:
@@ -339,7 +400,7 @@ def _check_line_boundaries(finding: Finding, file_path: Path) -> Finding | None:
         target_line = nums[0]
         total_lines = len(file_path.read_text(encoding="utf-8", errors="replace").splitlines())
         if target_line > max(1, total_lines):
-            return finding.model_copy(
+            res = finding.model_copy(
                 update={
                     "verified": False,
                     "mitigated": False,
@@ -348,6 +409,17 @@ def _check_line_boundaries(finding: Finding, file_path: Path) -> Finding | None:
                     "invalidation_reason": f"Line {target_line} exceeds total file lines ({total_lines})",
                 }
             )
+            try:
+                from devops_cli.ai.review.common_hallucinations import (
+                    auto_record_invalidated_finding,
+                )
+
+                auto_record_invalidated_finding(
+                    res, file_path=file_path, reason=res.invalidation_reason
+                )
+            except Exception:
+                pass
+            return res
     except Exception:
         pass
     return None
@@ -355,20 +427,12 @@ def _check_line_boundaries(finding: Finding, file_path: Path) -> Finding | None:
 
 def _deterministic_pre_verification(finding: Finding, repo_root: Path | None = None) -> Finding:
     """Run local deterministic parser and line boundary checks to invalidate obvious hallucinations."""
-    if not repo_root:
-        return finding
-
     loc_file = finding.location.split(":")[0].strip()
     if not loc_file or _is_secret_path(loc_file):
         return finding
 
-    try:
-        resolved_file = (repo_root / loc_file).resolve()
-        resolved_root = repo_root.resolve()
-        if not resolved_file.is_relative_to(resolved_root):
-            return finding
-        file_path = resolved_file
-    except ValueError, OSError:
+    file_path = _resolve_target_file(loc_file, repo_root)
+    if file_path is None:
         return finding
 
     line_res = _check_line_boundaries(finding, file_path)
@@ -378,6 +442,29 @@ def _deterministic_pre_verification(finding: Finding, repo_root: Path | None = N
     syntax_res = _check_syntax_error_hallucination(finding, file_path)
     if syntax_res:
         return syntax_res
+
+    try:
+        from devops_cli.ai.review.common_hallucinations import (
+            auto_record_invalidated_finding,
+            is_common_hallucination,
+            verify_ground_truth_hallucination,
+        )
+
+        match = is_common_hallucination(finding, threshold=0.8, file_path=file_path)
+        if match and verify_ground_truth_hallucination(finding, match.hallucination, file_path):
+            entry = match.hallucination
+            auto_record_invalidated_finding(finding, file_path=file_path, reason=entry.resolution)
+            return finding.model_copy(
+                update={
+                    "verified": False,
+                    "mitigated": False,
+                    "reportable": False,
+                    "status": "INVALIDATED",
+                    "invalidation_reason": f"Matches verified common hallucination [{entry.id}]: {entry.resolution}",
+                }
+            )
+    except Exception:
+        pass
 
     return finding
 
@@ -399,6 +486,12 @@ def _apply_single_finding_verification(
         is_m = True
         status_val = "INVALIDATED"
         is_rep = False
+        try:
+            from devops_cli.ai.review.common_hallucinations import auto_record_invalidated_finding
+
+            auto_record_invalidated_finding(f, reason="; ".join(inv_matched))
+        except Exception:
+            pass
     elif is_m:
         status_val = "MITIGATED"
         is_rep = False

@@ -604,12 +604,12 @@ def test_deterministic_pre_verification_handles_json_yaml_toml_syntax(tmp_path: 
     assert checked_toml.status == "INVALIDATED"
 
 
-def test_check_syntax_error_hallucination_invalidates_pep759_claims(tmp_path: Path) -> None:
-    """Python 3.14 PEP 759 unparenthesized exception syntax must not be flagged as SyntaxError."""
+def test_check_syntax_error_hallucination_invalidates_pep758_claims(tmp_path: Path) -> None:
+    """Python 3.14 PEP 758 unparenthesized exception syntax must not be flagged as SyntaxError."""
     from devops_cli.ai.review.verification import _check_syntax_error_hallucination
 
     code = "try:\n    x = 1 / 0\nexcept ZeroDivisionError, ArithmeticError:\n    pass\n"
-    test_file = tmp_path / "valid_pep759.py"
+    test_file = tmp_path / "valid_pep758.py"
     test_file.write_text(code, encoding="utf-8")
 
     f = Finding(
