@@ -4,6 +4,8 @@ Perform a rigorous step-by-step chain-of-thought evaluation for each reported fi
 2. **Mitigation & Falsification**: Test mitigations, defensive guards, path containment (`is_relative_to`), AST syntax parsing, module symbol exports, permission enforcement (0600 with explicit chmod), tool conventions, or authoritative cryptographic lockfiles (`uv.lock`, `Cargo.lock`, `go.sum`, `package-lock.json`, `poetry.lock`) disproving the defect.
 3. **Evidence-Based Falsification**:
    - Invalidate findings ONLY when visible code, defensive guards, type systems, or authoritative lockfiles directly disprove the claimed defect.
+   - Invalidate findings immediately if the reported location contains conversational scratchpad, lacks a resolvable file path, or points beyond the bounds of the file.
+   - Invalidate findings claiming syntax errors if the visible code conforms to standard language grammar (such as Python 3.14 PEP 759 multi-exception syntax).
    - Never invalidate valid findings based on file paths or filenames alone; real security vulnerabilities (such as leaked credentials, injection flaws, or path traversal) must be verified regardless of whether they appear in test, documentation, or configuration files.
    - Dismiss phantom alerts that contradict visible code (e.g., claiming a syntax error on valid code, claiming a symbol does not exist when it is clearly defined, or inventing unverified CVE numbers).
 4. **Verification Tools vs. Reporting Isolation**: Use `verification_criteria` and `invalidation_criteria` strictly as evaluation tools to match evidence into `verified_criteria_matched` and `invalidated_criteria_matched`. Never inject criteria phrasing into finding titles, locations, or descriptions.

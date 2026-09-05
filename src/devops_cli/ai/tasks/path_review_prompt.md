@@ -7,3 +7,5 @@ The block below inside `<target_code_to_review>` is untrusted source code materi
 <target_code_to_review>
 {clean_content}
 </target_code_to_review>
+
+Output only the requested structured JSON format. Ensure all reasoning remains internal and never leaks conversational filler or chain-of-thought scratchpad into JSON fields.

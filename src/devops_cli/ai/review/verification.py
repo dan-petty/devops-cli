@@ -282,9 +282,13 @@ def _check_syntax_error_hallucination(finding: Finding, file_path: Path) -> Find
 
     title_lower = finding.title.lower()
     desc_lower = (finding.description or "").lower()
-    is_syntax_claim = any(
-        kw in title_lower or kw in desc_lower
-        for kw in ("syntax error", "invalid syntax", "parse error", "syntaxerror", "syntax_error")
+    is_syntax_claim = (
+        "syntax" in title_lower
+        or "syntax" in desc_lower
+        or "parse error" in title_lower
+        or "parse error" in desc_lower
+        or "syntaxerror" in title_lower
+        or "syntaxerror" in desc_lower
     )
     if not is_syntax_claim:
         return None
@@ -462,7 +466,7 @@ def _validate_segment_findings(
         return result, 0.0, "deterministic"
 
     prompt = _build_validation_prompt(
-        result.findings, all_segments, analysis_metas=analysis_metas, repo_root=repo_root
+        unresolved_findings, all_segments, analysis_metas=analysis_metas, repo_root=repo_root
     )
     proc_sec: float | None = None
     b_info: str | None = None
@@ -484,11 +488,17 @@ def _validate_segment_findings(
         if isinstance(data, list) and data:
             validated: list[Finding] = []
             now_iso = datetime.now().isoformat()
+            unresolved_idx = 0
             for idx, f in enumerate(result.findings):
-                if f.status == "INVALIDATED":
+                if f.status in {"INVALIDATED", "MITIGATED"}:
                     validated.append(f)
                     continue
-                item = data[idx] if idx < len(data) else None
+                item = (
+                    data[unresolved_idx]
+                    if len(data) == len(unresolved_findings) and unresolved_idx < len(data)
+                    else (data[idx] if idx < len(data) else None)
+                )
+                unresolved_idx += 1
                 validated.append(_apply_single_finding_verification(f, item, now_iso))
             return result.model_copy(update={"findings": validated}), proc_sec, b_info
     except Exception:

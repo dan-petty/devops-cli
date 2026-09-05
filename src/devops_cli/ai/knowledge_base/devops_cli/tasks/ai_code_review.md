@@ -39,7 +39,10 @@ graph TD
 
 - **Closed-Loop Feedback & Self-Improvement**:
   - `verify_finding`: Tests observable verification and invalidation criteria against visible code and AST structures to eliminate false positives.
+  - **Strict Canonical Location Enforcement**: Normalizes all finding locations to standard `path/to/file.ext:start-end` or `path/to/file.ext:line` format, rejecting conversational text, prompt leakage, and malformed non-path tokens.
+  - **Zero Scratchpad Leakage Defense**: Cleans model titles, descriptions, and locations to isolate internal reasoning and chain-of-thought scratchpad text from structured review artifacts.
   - **Verification vs. Reporting Separation**: Verification criteria and invalidation criteria are internal tools for automated validation during Stage 4 (`verification`). They are used to match observable evidence and calibrate confidence, but are strictly excluded from user-facing reports (`review.md`, terminal tables, console panels).
+  - **Deterministic Invalidation & Aligned Verification**: In Stage 4, deterministic AST/syntax and line boundary checks run first. Unresolved findings are cleanly passed to the LLM verifier with 1:1 index alignment, ensuring pre-invalidated items never cause downstream response mapping skews.
   - **Python 3.14+ PEP 759 Syntax Awareness**: Recognizes modern Python 3.14 multi-exception syntax (`except FileNotFoundError, OSError:`) without parentheses to prevent false-positive "SyntaxError" flags.
   - **Confidence Calibration**: Weighs findings based on concrete criteria satisfaction, discarding unverified or mitigated items.
   - **Lockfile-Aware Dependency Scanning**: Resolves exact package releases from lockfiles (`uv.lock`, `poetry.lock`, `package-lock.json`, `Cargo.lock`, `go.sum`) before querying OSV.dev and NVD vulnerability databases.

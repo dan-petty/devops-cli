@@ -203,11 +203,23 @@ _PROMPT_PLACEHOLDER_BASENAMES: frozenset[str] = frozenset(
 _MARKDOWN_LINK_REGEX = re.compile(r"\[([^\]]+)\]\([^)]+\)")
 
 
+_SCRATCHPAD_PREFIX_REGEX = re.compile(
+    r"^(?:(?:We|I)\s+(?:need to|must|should|will|have to)\b|Let's\b|Looking at\b|Reviewing\b|Checking\b|Based on\b)[^.\n]*[.?!:]\s*",
+    re.IGNORECASE,
+)
+
+
 def sanitize_finding_text(text: str) -> str:
-    """Scrub prompt criteria leakage, instruction headers, and markdown noise from text."""
+    """Scrub prompt criteria leakage, instruction headers, scratchpad prefixes, and markdown noise from text."""
     val = normalize_unicode_text(str(text)).strip()
     # Strip leading instruction headers first (e.g., 'Provide fix:', 'Title:', 'Issue:')
     val = _INSTRUCTION_HEADER_PREFIX_REGEX.sub("", val).strip()
+    # Strip leading chain-of-thought scratchpad sentences
+    while True:
+        m = _SCRATCHPAD_PREFIX_REGEX.match(val)
+        if not m:
+            break
+        val = val[m.end() :].strip()
     # Strip trailing prompt criteria leakage
     if _PROMPT_CRITERIA_SPLIT_REGEX.search(val):
         val = _PROMPT_CRITERIA_SPLIT_REGEX.split(val)[0].strip()
@@ -269,10 +281,45 @@ def canonicalize_finding_location(location: str) -> str:
             return f"{file_path}:{s_line}-{e_line}"
         return f"{file_path}:{s_line}"
 
-    if had_prompt_leakage:
-        m_file = re.match(r"^([a-zA-Z0-9_\-./\\]+)", loc)
-        if m_file:
-            return f"{m_file.group(1).replace('\\', '/')}:1"
+    # Match general target specifiers without spaces, e.g. uv.lock:jinja2, Dockerfile:cve-1, k8s/app.yaml:Deployment/app
+    m_target = re.match(r"^([a-zA-Z0-9_\-./\\]+):([a-zA-Z0-9_\-./\\]+)$", loc)
+    if m_target:
+        return f"{m_target.group(1).replace('\\', '/')}:{m_target.group(2)}"
+
+    # Extract embedded valid file location if present in conversational or scratchpad text
+    m_embedded = re.search(
+        r"(?:^|[\s:\"'`])([a-zA-Z0-9_\-./\\]+/[a-zA-Z0-9_\-.]+|[a-zA-Z0-9_\-]+\.[a-zA-Z0-9_\-]+)(?::(\d+)(?:-(\d+))?)?",
+        loc,
+    )
+    if m_embedded:
+        candidate_file = m_embedded.group(1).replace("\\", "/").rstrip(".")
+        if (
+            candidate_file.lower() not in _PROMPT_PLACEHOLDER_BASENAMES
+            and Path(candidate_file).name.lower() not in _PROMPT_PLACEHOLDER_BASENAMES
+        ):
+            s_str = m_embedded.group(2)
+            e_str = m_embedded.group(3)
+            if s_str:
+                s_line = int(s_str)
+                e_line = int(e_str) if e_str else None
+                if e_line is not None and s_line > e_line:
+                    s_line, e_line = e_line, s_line
+                if e_line is not None and e_line != s_line:
+                    return f"{candidate_file}:{s_line}-{e_line}"
+                return f"{candidate_file}:{s_line}"
+            return candidate_file
+
+    # Reject conversational scratchpad or prompt instruction leakage
+    has_scratchpad_phrase = bool(
+        re.search(
+            r"\b(?:file path and line numbers|we need to|let's|where the vulnerability occurs)\b",
+            loc,
+            re.IGNORECASE,
+        )
+    )
+    is_conversational_sentence = len(loc.split()) > 3 and any(p in loc for p in (".", "!", "?"))
+    if has_scratchpad_phrase or is_conversational_sentence:
+        return ""
 
     return loc
 
