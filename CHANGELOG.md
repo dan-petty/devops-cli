@@ -5,10 +5,55 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.2.10] - 2026-09-03
+## [0.2.10] - 2026-09-05
 
 ### Added
-- Release version 0.2.10.
+- **Native Pydantic AI Framework Subsystem Adoption**:
+  - Adopted native `pydantic_ai.toolsets` (`AbstractToolset`, `FunctionToolset`, `create_function_toolset`, combinators) with dual sync/async contracts, replacing legacy custom toolsets in `src/devops_cli/ai/toolsets/`.
+  - Adopted native `pydantic_ai.tools` (`Tool`, `ToolDefinition`, `DeferredToolRequests`, `ToolApproved`, `ToolDenied`) in `src/devops_cli/ai/tools/`.
+  - Adopted native `pydantic_ai.template` (`TemplateStr`, `PromptTemplate`, `PromptRunner`) in `src/devops_cli/ai/template/`.
+  - Adopted native `pydantic_ai.settings` (`ModelSettings`) and model modernizations in `src/devops_cli/ai/settings/`.
+  - Adopted native `pydantic_ai.run` (`format_run_summary`, `create_pending_message`, traceparent header integration) in `src/devops_cli/ai/run/`.
+  - Adopted native `pydantic_ai.retries` (`RetryClient`, `create_retry_transport`) in `src/devops_cli/ai/retries/`.
+  - Adopted native `pydantic_ai.result` (`Usage`, `AgentRunResult`, `CostSummary`) in `src/devops_cli/ai/result/`.
+  - Adopted native `pydantic_ai.profiles` and `pydantic_ai.providers` (`create_pydantic_ai_provider`, `ThinkingStreamProcessor` dynamic delimiters) in `src/devops_cli/ai/profiles/` and `providers/`.
+  - Adopted native `pydantic_ai.output` (`ToolOutput`, `NativeOutput`, `PromptedOutput`, `TextOutput`, `StructuredDict`, `CallableDict`, `OutputSpec`) in `src/devops_cli/ai/output/`.
+  - Adopted native `pydantic_ai.models.ollama` (`OllamaModel`, `create_ollama_model`, `create_ollama_provider`, profile overrides) in `src/devops_cli/ai/models/ollama.py`.
+  - Adopted native `pydantic_ai.mcp` (`MCPToolset`, `create_devops_mcp_toolset`, dynamic in-process FastMCP discovery) in `src/devops_cli/ai/mcp/`.
+  - Adopted native `pydantic_ai.function_signature` (`FunctionSignature`, `signature_from_schema`, `signature_from_callable`, `render_tool_interface`) in `src/devops_cli/ai/function_signature.py`.
+  - Adopted native `pydantic_ai.format_prompt` (`format_as_xml`, `format_context_as_xml`, `format_findings_as_xml`) in `src/devops_cli/ai/format_prompt.py`.
+  - Adopted native `pydantic_ai.exceptions` and unified domain error taxonomy in `src/devops_cli/ai/exceptions.py`.
+  - Adopted native `pydantic_ai.durable_exec` (`DurableWorkflowEngine`, `WorkflowStepRecord`) in `src/devops_cli/ai/durable.py`.
+  - Adopted native `pydantic_ai.direct` (`direct_request`, `direct_request_stream`) in `src/devops_cli/ai/direct.py`.
+  - Adopted native `pydantic_ai.concurrency` (`ConcurrencyLimitedModel`, `ConcurrencyLimiter`) in `src/devops_cli/ai/concurrency.py`.
+  - Re-exported native common tools (`web_fetch_tool`, `duckduckgo_search_tool`, `tavily_search_tool`, `exa_search_tool`, `image_generation_tool`, `x_search_tool`) with SSRF guardrails in `src/devops_cli/ai/common_tools.py`.
+- **Autonomous Common Hallucinations Registry & Hardened Matching Engine**:
+  - Centralized declarative hallucination catalog (`.data/common_hallucinations.json` and `src/devops_cli/ai/review/common_hallucinations.json`) tracking recurring false positives.
+  - Category-aligned similarity guards preventing syntax rules from over-matching security findings (path traversal, SSRF, command injection).
+  - Stop-words filtering in `_FORBIDDEN_COMMON_WORDS` to prevent generic words from contaminating signature keywords.
+  - Ground-truth verification (`verify_ground_truth_hallucination`) before invalidating findings.
+- **Dedicated Agent Operational Task Tracking**:
+  - Relocated continuous, real-time agent task tracking to `docs/agent/task.md` with `docs/agent/README.md` governance.
+
+### Changed
+- **Persona & System Review Prompts**:
+  - Added Python 3.14+ PEP 758 bracketless multi-exception syntax awareness (`except Exc1, Exc2:`) and sanitization placeholder guidance (`<masked-*>`, `[REDACTED]`) to `devsecops/prompt.md`, `architect/prompt.md`, and `verify_finding_system.md`.
+  - Added explicit invalidation rules disallowing false alarms on valid variable identifiers (e.g. `secret_storage_failed`).
+- **Elimination of Legacy Boilerplate & Zombie Code**:
+  - Cleaned up custom implementations of toolsets and tools in favor of native Pydantic AI primitives.
+
+### Security
+- **Secret Sanitizer Regex Hardening (`src/devops_cli/ai/review/sanitization.py`)**:
+  - Required assignment/token context to prevent redacting standard Python identifiers like `secret_storage_failed`.
+- **Codebase Security Remediations (Review Session 141532)**:
+  - `src/devops_cli/ai/ext_langchain.py`: Added percent-decoding `unquote` before path traversal checks.
+  - `src/devops_cli/ai/agents/media.py`: Added 64-character hex regex validation and directory containment in `DiskMediaStore`.
+  - `src/devops_cli/security/vault_broker.py`: Added percent-decoding `unquote` in `parse_vault_uri`.
+  - `src/devops_cli/ai/review/auto_fix.py`: Added path containment check before writing candidate remediation branches.
+  - `src/devops_cli/ai/common_tools.py` & `src/devops_cli/ai/agents/capabilities.py`: Reordered `blocked_domains` check before allowlists and SSRF DNS, added case-insensitivity and strict redirect SSRF validation, and forwarded `blocked_domains` from `WebFetch`.
+  - `src/devops_cli/k8s/chaos_runner.py`: Validated arguments against CLI flag injection (`-` prefix) and inserted `--` into `kubectl delete pod`.
+  - `src/devops_cli/ai/diff/difftastic.py`: Validated branch and base references against leading hyphens.
+  - `src/devops_cli/security/complexity.py` & `src/devops_cli/security/kubelinter.py`: Relativized target file paths to prevent system path disclosure.
 
 ## [0.2.9] - 2026-09-03
 

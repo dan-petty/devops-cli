@@ -228,16 +228,19 @@ High-density product roadmap, engineering milestones, and open-source integratio
 - [x] **Kubernetes Background Port-Forward Daemon Management (`devops k8s port-forward --daemon|status|stop`)**:
   - Background process lifecycle tracking with managed PID state (`.data/k8s/port_forwards.json`), status inspection, and graceful termination.
 
-### PydanticAI Native Framework & Hallucination Scrutiny Pipeline (v0.2.10 - Active Release)
-- [x] **PydanticAI Native Agent Optimization**: Native `pydantic_ai.agent.Agent` integration, native model resolution via `resolve_pydantic_ai_model`, standardized `output_type=ReviewResult`, and dynamic system prompt / instructions decorators.
+### PydanticAI Native Framework & Hallucination Scrutiny Pipeline (v0.2.10 - Completed)
+- [x] **PydanticAI Native Framework Subsystems**: Comprehensive adoption of native `pydantic_ai` modules (`toolsets`, `tools`, `template`, `settings`, `run`, `retries`, `result`, `profiles`, `providers`, `output`, `models.ollama`, `mcp`, `function_signature`, `format_prompt`, `exceptions`, `durable_exec`, `direct`, `concurrency`, `capabilities`, `common_tools`).
 - [x] **Python 3.14 PEP 758 Bracketless Exception Compliance**: Elimination of legacy instructions demanding parenthesized tuples; standardizing modern `except Exc1, Exc2:` syntax recognition across review personas and verification gates.
 - [x] **Common AI Hallucination Catalog & Autonomous Management (`devops_cli.ai.review.common_hallucinations`)**:
   - Centralized registry of recurring AI hallucinations (`CommonHallucinationEntry`), similarity matching (`find_similar_hallucinations`), and autonomous learning from invalidated findings (`auto_record_invalidated_finding`).
   - Native tracking of high-frequency false positives: PEP 758 bracketless exceptions, masked secret placeholders (`<masked-*>`), test fixtures, `httpx2` reputation, and documentation anti-pattern citations.
-- [ ] **Multi-Layer Verification Scrutiny for Common Hallucinations**:
-  - **Tier 1 (Deterministic AST/Parser Gating)**: Instant invalidation for findings with high similarity ($\ge 0.75$) matching syntax grammar or secret masking invariants.
-  - **Tier 2 (Confidence Penalties & Adversarial Cross-Examination)**: Findings exhibiting moderate similarity ($0.40 \le s < 0.75$) to common hallucinations receive an automated confidence penalty and trigger mandatory multi-agent adversarial debate (MAD) cross-examination.
-  - **Tier 3 (Automated Prompt Guardrail Mutation)**: High-frequency hallucination patterns automatically synthesize negative few-shot examples injected into reviewer persona prompts to suppress hallucination generation at the source.
+- [x] **Multi-Layer Verification Scrutiny for Common Hallucinations**:
+  - Category-aligned similarity guards preventing syntax rules from over-matching security defects (path traversal, SSRF, injection).
+  - Stop-words filtering in `_FORBIDDEN_COMMON_WORDS` to prevent generic words from contaminating signature keywords.
+  - Ground-truth verification (`verify_ground_truth_hallucination`) before invalidating findings.
+  - Persona and verification prompt tuning (`devsecops`, `architect`, `verify_finding_system.md`).
+- [x] **Dedicated Agent Operational Task Tracking Tier (`docs/agent/`)**:
+  - Canonical task status tracking under `docs/agent/task.md` with explicit lifecycle guidelines (`docs/agent/README.md`).
 
 ### Multi-Cloud Mesh & Production Ecosystem (v0.3.0 - Future Vision)
 - [ ] **Multi-Region Workstation Mesh & Cluster Federation**: Distributed cluster management across hybrid on-prem homelab and multi-cloud Kubernetes clusters with automatic service mesh routing.
@@ -352,7 +355,8 @@ High-density product roadmap, engineering milestones, and open-source integratio
 | | Trace-Driven Automated Performance Regression Detection | OTel / Prometheus | High | Medium | v0.2.8 | 📋 Scheduled |
 | | Isolated Dockerized Workload Sandbox Environment | Docker / Testcontainers / Dagger | High | Medium | v0.2.8 | 📋 Scheduled |
 | | Automated Vector Storage Compaction & Pruning | Qdrant Client / SQLite | Medium | Medium | v0.2.8 | 📋 Scheduled |
-| | Common AI Hallucination Scrutiny Pipeline | Pydantic / AST / Verification | High | Medium | v0.2.10 | 🚀 In Progress |
+| | Common AI Hallucination Scrutiny Pipeline | Pydantic / AST / Verification | High | Medium | v0.2.10 | ✅ Completed |
+| | Native Pydantic AI Framework Subsystems | PydanticAI / FastMCP | High | Medium | v0.2.10 | ✅ Completed |
 | | Multi-Region Workstation Mesh & Cluster Federation | Kubernetes / Fleet | High | High | v0.3.0 | 💡 Future Vision |
 | | Autonomous Self-Healing Agent Pipeline | PydanticAI / Diagnostic | High | High | v0.3.0 | 💡 Future Vision |
 | | Cloud-Native Ephemeral Test Environment Engine | Minikube / Helm / Ingress | High | Medium | v0.3.0 | 💡 Future Vision |
