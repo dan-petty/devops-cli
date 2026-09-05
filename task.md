@@ -90,12 +90,20 @@
   - [x] Phase 15.5: Full Quality Gates & CI Validation (`devops ci`, strict mypy, 100% coverage on `direct.py`)
   - [x] Phase 15.6: Documentation Synchronization & Conventional Commits
 
+- [x] Phase 16: Native Pydantic AI Durable Execution (`pydantic_ai.durable_exec`) & Workstation Workflow Durability
+  - [x] Phase 16.1: Test-First Specifications (`tests/test_pydantic_ai_durable.py` — 14/14 green)
+  - [x] Phase 16.2: Core Durable Execution Subsystem (`src/devops_cli/ai/durable.py`)
+  - [x] Phase 16.3: Step Persistence Modernization & Harmonization (`persistence.py`)
+  - [x] Phase 16.4: Configuration & Settings Support (`defaults.py`, `settings.py`)
+  - [x] Phase 16.5: Public Package Re-exports (`devops_cli.ai`, `devops_cli.ai.agents`, `devops_cli.ai.agents.pydantic_agent`)
+  - [x] Phase 16.6: Full CI Validation Suite (`devops ci`), Documentation Sync & Conventional Commits
+
 ---
 
 ### In-Progress Tasks (WIP)
-- [ ] Push atomic conventional commits to `origin/release/v0.2.10` and finalize session walkthrough.
+- [x] None (All Phase 16 tasks verified and passed).
 
 ---
 
 ### Pending Tasks
-- [ ] Monitor ongoing review findings or future native Pydantic AI capability expansions.
+- [ ] Next architectural milestone or user instruction.

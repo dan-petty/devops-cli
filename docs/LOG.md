@@ -4,6 +4,26 @@ Chronological log of refactoring milestones, quality gates, and security enhance
 
 ---
 
+### [2026-09-05] Native Pydantic AI Durable Execution (`pydantic_ai.durable_exec`) & Local Workstation Persistence
+- **Native Durable Execution Subsystem (`src/devops_cli/ai/durable.py`)**:
+  - Full native adoption of `pydantic_ai.durable_exec._base.BaseDurabilityCapability`:
+    - Re-exports `BaseDurabilityCapability`, `BoundDurabilityCapability`, `DurabilityError`, `DurableExecutionEvent`, `DurableModelRequestContext`, `DurableModelResponse`, and `DurableToolset`.
+    - Implemented workstation-ready `LocalDurabilityCapability` for zero-server durable execution, step recording, and checkpointing for CLI tasks and automated pipelines.
+    - Implemented storage backends: `InMemoryStepStore` and `SqliteStepStore` with WAL journaling, thread safety, and resource cleanup.
+    - Implemented engine availability checkers and resolvers: `is_temporal_available()`, `is_dbos_available()`, `is_prefect_available()`, `get_available_durable_engines()`, and `resolve_durability_capability(engine, ...)`.
+    - Implemented high-level agent factory: `create_durable_pydantic_agent(model, capability, ...)`.
+- **Configuration & Defaults Integration (`src/devops_cli/config/settings.py`, `defaults.py`)**:
+  - Added `AIDurableConfig` model supporting `enabled`, `engine` (`sqlite`, `memory`, `temporal`, `dbos`, `prefect`), `store_path`, `task_queue`, and `workflow_prefix`.
+  - Added defaults: `DEFAULT_AI_DURABLE_ENGINE = "sqlite"`, `DEFAULT_AI_DURABLE_STORE_PATH`, `DEFAULT_AI_DURABLE_TASK_QUEUE`, `DEFAULT_AI_DURABLE_WORKFLOW_PREFIX`.
+- **StepPersistence Harmonization (`src/devops_cli/ai/agents/persistence.py`)**:
+  - Refactored `StepPersistence` to use storage models from `durable.py` and added `to_durability_capability()` bridging to `LocalDurabilityCapability`.
+- **Package Re-exports (`devops_cli.ai`, `devops_cli.ai.agents`, `devops_cli.ai.agents.pydantic_agent`)**:
+  - Re-exported all durable execution classes, helpers, and types with complete `__all__` definitions.
+- **Quality Gates & Test-First Verification**:
+  - Authored comprehensive test suite `tests/test_pydantic_ai_durable.py` (14/14 tests passing, >94% code coverage on `src/devops_cli/ai/durable.py`).
+  - Full CI validation suite (`uv run devops ci`): 10/10 quality gates green (version, test, coverage >= 90%, lint, format, typecheck, audit, security, actionlint, docs).
+
+
 ### [2026-09-05] Native Pydantic AI Direct Requests (`pydantic_ai.direct`) & Invocation Optimization
 - **Native Direct Model Request Subsystem (`src/devops_cli/ai/direct.py`)**:
   - Full native adoption of `pydantic_ai.direct` API specification:
