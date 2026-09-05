@@ -118,11 +118,26 @@ class EmbeddingsEngine:
         timeout: float = DEFAULT_HTTP_TIMEOUT_SECONDS,
         cache_size: int = DEFAULT_RAG_EMBEDDING_CACHE_SIZE,
     ) -> None:
-        base_config = ai_config or AIConfig()
+        if ai_config is None:
+            try:
+                from devops_cli.config.settings import load_settings
+
+                base_config = load_settings().ai
+            except Exception:
+                base_config = AIConfig()
+        else:
+            base_config = ai_config
+
         self.ai_config = base_config.for_task("embedding")
         self.api_key = api_key
         self.timeout = min(timeout, 120.0)
-        self.model = self.ai_config.rag.embedding_model or DEFAULT_RAG_EMBEDDING_MODEL
+        task_model = getattr(getattr(base_config.tasks, "embedding", None), "model", None)
+        self.model = (
+            task_model
+            or self.ai_config.rag.embedding_model
+            or self.ai_config.model
+            or DEFAULT_RAG_EMBEDDING_MODEL
+        )
         self._dimension: int | None = None
         self._cache = _EmbeddingLRUCache(maxsize=cache_size)
 
@@ -485,10 +500,24 @@ class OllamaEmbeddingModel(EmbeddingModel):
         ai_config: AIConfig | None = None,
         dimensions: int | None = None,
     ) -> None:
-        self._model_name = model_name
-        self.engine = engine or EmbeddingsEngine(
-            ai_config or AIConfig(rag={"embedding_model": model_name})
-        )
+        if ai_config is None:
+            try:
+                from devops_cli.config.settings import load_settings
+
+                resolved_cfg = load_settings().ai.model_copy(deep=True)
+            except Exception:
+                resolved_cfg = AIConfig()
+        else:
+            resolved_cfg = ai_config.model_copy(deep=True)
+
+        resolved_model = model_name
+        if resolved_model == DEFAULT_RAG_EMBEDDING_MODEL and resolved_cfg.rag.embedding_model:
+            resolved_model = resolved_cfg.rag.embedding_model
+        else:
+            resolved_cfg.rag.embedding_model = resolved_model
+
+        self._model_name = resolved_model
+        self.engine = engine or EmbeddingsEngine(resolved_cfg)
         if dimensions is not None:
             self.engine._dimension = dimensions
 

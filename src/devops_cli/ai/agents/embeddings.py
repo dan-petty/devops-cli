@@ -194,11 +194,11 @@ class Embedder(PydanticEmbedder):
             resolved_model = model
         elif isinstance(model, str):
             clean_model = model.strip()
-            if "ollama" in clean_model.lower():
+            if clean_model.lower().startswith("ollama:"):
                 from devops_cli.ai.rag.embeddings import OllamaEmbeddingModel
 
                 resolved_model = OllamaEmbeddingModel(
-                    model_name=clean_model.split(":")[-1],
+                    model_name=clean_model[7:],
                     dimensions=dimensions,
                 )
             else:
@@ -230,15 +230,21 @@ class Embedder(PydanticEmbedder):
         if hasattr(active, "engine"):
             return getattr(active, "engine")
         from devops_cli.ai.rag.embeddings import EmbeddingsEngine
+        from devops_cli.config.settings import load_settings
 
-        cfg = AIConfig()
-        model_str = str(self._model_arg)
-        clean_model = model_str.split(":")[-1]
-        cfg.rag.embedding_model = clean_model
-        if "openai" in model_str.lower():
-            cfg.provider = "openai"
-        elif "ollama" in model_str.lower():
+        try:
+            cfg = load_settings().ai.model_copy(deep=True)
+        except Exception:
+            cfg = AIConfig()
+        model_str = str(self._model_arg).strip()
+        clean_model = model_str
+        if clean_model.lower().startswith("ollama:"):
+            clean_model = clean_model[7:]
             cfg.provider = "ollama"
+        elif clean_model.lower().startswith("openai:"):
+            clean_model = clean_model[7:]
+            cfg.provider = "openai"
+        cfg.rag.embedding_model = clean_model
         eng = EmbeddingsEngine(cfg)
         if self.dimensions is not None:
             eng._dimension = self.dimensions
