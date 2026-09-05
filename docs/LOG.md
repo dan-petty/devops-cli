@@ -6,7 +6,27 @@ Chronological log of refactoring milestones, quality gates, and security enhance
 
 ## Log Entries
 
-### [2026-09-05] RAG Indexing Result Key Normalization & CLI KeyError Remediation
+### [2026-09-05] Common AI Hallucinations External JSON Catalog, Ground Truth Safety & Autonomous Management
+- **JSON Catalog Externalization & Separation (`src/devops_cli/ai/review/common_hallucinations.json`, `common_hallucinations.py`)**:
+  - Extracted built-in common hallucinations catalog from inline Python definitions into a dedicated declarative JSON resource (`common_hallucinations.json`).
+  - Implemented dynamic loading in `_build_builtin_hallucinations()` with safe error handling and fallback parsing.
+  - Exported `CONST_HALLUCINATIONS_FILE_NAME` and `DEFAULT_HALLUCINATIONS_FILE_PATH` across `devops_cli.config` and `devops_cli.ai.review`.
+- **Strict Ground-Truth Safety Guards & Invariant Enforcement**:
+  - Enforced strict safety invariant: common English words (such as `"secret"`, `"token"`, `"key"`, `"test"`, `"error"`, `"syntax"`, `"code"`, `"mutable"`, etc.) are declared in `_FORBIDDEN_COMMON_WORDS` and strictly blocked from contributing to similarity matching or auto-recording.
+  - Real defects, genuine syntax errors, and valid security vulnerabilities are protected from false-positive hallucination tagging.
+  - Implemented `verify_ground_truth_hallucination` requiring concrete AST or file inspection (e.g. verifying `ast.parse` for syntax claims or checking placeholder tokens in source) before any finding can be matched as a hallucination.
+- **Verification Pipeline & CLI Integration**:
+  - Connected `is_common_hallucination` and `verify_ground_truth_hallucination` into `_deterministic_pre_verification` in `src/devops_cli/ai/review/verification.py`.
+  - Integrated `auto_record_invalidated_finding` across syntax check invalidations, line boundary checks, LLM verification rejections, and manual CLI invalidation in `devops ai review verify`.
+- **Strategic Roadmap Multi-Tier Scrutiny (`docs/ROADMAP.md`)**:
+  - Updated `docs/ROADMAP.md` under `v0.2.10 - Active Release` with multi-tier scrutiny architecture:
+    - Tier 1: Deterministic AST/Parser Ground-Truth Pre-Gating ($\ge 0.80$ similarity).
+    - Tier 2: Confidence Penalties & Multi-Agent Adversarial Debate ($0.40 \le s < 0.80$).
+    - Tier 3: Automated Negative Few-Shot Prompt Guardrail Mutation.
+- **Comprehensive Quality Gates & Testing**:
+  - Authored 13 unit tests in `tests/test_common_hallucinations.py` validating JSON loading, persistence, similarity calculations, forbidden words exclusion, and real vulnerability protection.
+  - Full `devops ci` quality gate passed cleanly (10/10 checks: 100% test pass, coverage >= 90%, lint, format, typecheck, audit, security, actionlint, docs).
+
 - **Safe Dictionary Access & Result Key Aliasing (`src/devops_cli/commands/rag.py`, `src/devops_cli/ai/rag/indexer.py`)**:
   - Fixed `KeyError: 'files_indexed'` in `devops ai rag index` (`index_cmd`) and `index-kb` (`index_kb_cmd`) by using safe `.get()` accessors with fallbacks across `indexed_files` / `files_indexed`, `total_chunks` / `chunks_indexed`, and `removed_files` / `pruned_chunks`.
   - Normalized `WorkspaceIndexer.index_workspace` and `WorkspaceIndexer.index_knowledge_base` return dictionaries to supply both canonical (`indexed_files`, `total_chunks`, `removed_files`) and alias keys (`files_indexed`, `chunks_indexed`, `pruned_chunks`), guaranteeing 100% backward and forward compatibility for all consumers and tests.
@@ -44,7 +64,7 @@ Chronological log of refactoring milestones, quality gates, and security enhance
   - Authored unit tests in `tests/test_rag_qdrant.py` verifying collection recreation on dimension change and warning deduplication.
   - All 10 `devops ci` quality gates passed cleanly (100% test pass, coverage >= 90%).
 
-### [2026-09-05] Review Findings Remediation (Session `20260905-003105`), Python 3.14 PEP 759 Awareness & Review Loop Hardening
+### [2026-09-05] Review Findings Remediation (Session `20260905-003105`), Python 3.14 PEP 758 Awareness & Review Loop Hardening
 
 - **Codebase Findings Remediation (Session `20260905-003105`)**:
   - **Concurrent Background Process Ceiling (`src/devops_cli/ai/harness/shell.py`)**: Added `max_bg_processes: int = 10` cap to `Shell` and `start_command`, blocking concurrent process unbounded growth.
@@ -65,7 +85,7 @@ Chronological log of refactoring milestones, quality gates, and security enhance
   - **Conversational Praise & Approval Scrubbing (`src/devops_cli/ai/review_schema.py`)**: Added `_APPROVAL_PREFIX_REGEX` and `_PRAISE_PREFIX_REGEX` in `sanitize_finding_text` to strip leading praise ("Good. But ...") and filter pure approvals ("The function uses ... Good.") from review findings.
   - **Finding Emptiness Detection (`src/devops_cli/ai/review_schema.py`)**: Updated `Finding.is_empty` and added `title` to `_clean_text_fields` to automatically discard findings with conversational approval or invalid locations.
   - **Prompt Task Definitions & Knowledge Base Synchronization**:
-    - Updated `verify_finding_system.md` and `review_output_instruction.md` with explicit Python 3.14 PEP 759 modern syntax awareness (`except E1, E2:`) and zero-praise rules in structured finding lists.
+    - Updated `verify_finding_system.md` and `review_output_instruction.md` with explicit Python 3.14 PEP 758 modern syntax awareness (`except E1, E2:`) and zero-praise rules in structured finding lists.
     - Synchronized `src/devops_cli/ai/knowledge_base/devops_cli/tasks/ai_code_review.md` and generated all CLI docs and README via `devops docs generate --sync-readme`.
 - **Quality Gates & Test-First Verification**:
   - Authored 20 new test specifications integrated into canonical domain test suites (`test_prompt_programmatic_functions.py`, `test_review_verification.py`, `test_harness.py`, `test_k8s_context.py`, `test_vault_broker.py`, `test_ai_agent_prompt.py`, `test_common_tools.py`, `test_difftastic.py`, `test_ext_langchain.py`, `test_model_bundle.py`, `test_k8s_logs_diff_chaos.py`, `test_load_and_pipeline.py`) — 100% passing.
@@ -87,9 +107,9 @@ Chronological log of refactoring milestones, quality gates, and security enhance
 - **Review Engine & Self-Improvement Loop Hardening**:
   - **Prompt Leakage & Conversational Scratchpad Defense (`src/devops_cli/ai/review_schema.py`)**: Hardened `canonicalize_finding_location` to scan for embedded file paths with line ranges and reject conversational scratchpad text or prompt instructions, while preserving canonical locations and target specifiers (`file:start-end`, `file:resource`, `lockfile:package`). Hardened `sanitize_finding_text` with `_SCRATCHPAD_PREFIX_REGEX` to strip chain-of-thought deliberation sentences.
   - **Verification Index Alignment (`src/devops_cli/ai/review/verification.py`)**: Aligned LLM verification response parsing strictly to unresolved candidate findings, eliminating index mapping skews when earlier findings are deterministically invalidated.
-  - **Deterministic Syntax Hallucination Elimination (`src/devops_cli/ai/review/verification.py`)**: Generalized `_check_syntax_error_hallucination` to invalidate false-positive syntax error claims across language-agnostic parsers (`ast`, `json`, `yaml`, `tomllib`), including Python 3.14 PEP 759 unparenthesized multi-exception syntax.
+  - **Deterministic Syntax Hallucination Elimination (`src/devops_cli/ai/review/verification.py`)**: Generalized `_check_syntax_error_hallucination` to invalidate false-positive syntax error claims across language-agnostic parsers (`ast`, `json`, `yaml`, `tomllib`), including Python 3.14 PEP 758 unparenthesized multi-exception syntax.
 - **Prompt Task Definitions & Knowledge Base Synchronization**:
-  - Hardened `review_output_instruction.md`, `verify_finding_system.md`, `diff_review_prompt.md`, and `path_review_prompt.md` with strict prohibitions against chain-of-thought leakage in structured JSON fields and explicit PEP 759 modern syntax awareness.
+  - Hardened `review_output_instruction.md`, `verify_finding_system.md`, `diff_review_prompt.md`, and `path_review_prompt.md` with strict prohibitions against chain-of-thought leakage in structured JSON fields and explicit PEP 758 modern syntax awareness.
   - Synchronized `src/devops_cli/ai/knowledge_base/devops_cli/tasks/ai_code_review.md` and regenerated all CLI documentation and README references via `devops docs generate --sync-readme`.
 - **Quality Gates & Test Coverage Expansion**:
   - Created 38 new unit tests across `tests/test_findings_remediation.py`, `tests/test_review_loop_hardening.py`, `tests/test_vault_cmd.py`, and `tests/test_k8s_runtime_cmd.py` (100% pass rate).

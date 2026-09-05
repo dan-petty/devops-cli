@@ -32,13 +32,32 @@
 - [x] Phase 5: Documentation Synchronization (`uv run devops docs generate --sync-readme`).
 - [x] Phase 6: Update `docs/LOG.md` and `walkthrough.md`.
 - [x] Phase 7: Atomic Conventional Commits on `release/v0.2.10` and push to origin.
+- [x] Phase 8: Pydantic AI Embeddings & Agent Native Optimization
+  - [x] Standardized `embeddings.py` on Pydantic AI Embeddings API patterns (`pydantic_ai.embeddings`).
+  - [x] Native `Agent`, `resolve_pydantic_ai_model`, `output_type=ReviewResult`, and system prompt / instructions decorators.
+  - [x] Authored 33 unit tests in `tests/test_pydantic_agent.py` (100% passing).
+- [x] Phase 9: Python 3.14 PEP 758 Bracketless Exception Compliance & Prompt Harmonization
+  - [x] Removed/aligned all instructions across personas (`qa/prompt.md`), prompt tasks, and knowledge base files to embrace PEP 758 bracketless `except E1, E2:` syntax.
+  - [x] Fixed all PEP 759 typographical references to canonical PEP 758.
+  - [x] Phase 10: Common AI Hallucinations Catalog & Autonomous Management
+    - [x] Implemented `src/devops_cli/ai/review/common_hallucinations.py` with `CommonHallucinationEntry`, `HallucinationCategory`, `HallucinationMatch`.
+    - [x] Separated built-in catalog into declarative JSON (`src/devops_cli/ai/review/common_hallucinations.json`) rather than inline Python code.
+    - [x] Implemented strict safety invariants with `_FORBIDDEN_COMMON_WORDS` and `verify_ground_truth_hallucination` preventing false hallucination classifications of real bugs or security defects.
+    - [x] Default catalog: PEP 758 bracketless exceptions, masked secret placeholders (`<masked-*>`), test fixture credentials, `httpx2` package reputation, Pydantic mutable defaults, and documentation anti-pattern examples.
+    - [x] Similarity engine (`find_similar_hallucinations`, `is_common_hallucination`) and auto-recording (`auto_record_invalidated_finding`).
+    - [x] Integrated into `_deterministic_pre_verification`, `_apply_single_finding_verification`, and `devops ai review verify`.
+    - [x] Planned multi-tier scrutiny in `docs/ROADMAP.md` (Tier 1 deterministic AST/parser, Tier 2 confidence penalty & MAD debate, Tier 3 prompt mutation).
+    - [x] Authored comprehensive unit tests in `tests/test_common_hallucinations.py` (13/13 passing, including safety tests).
+- [x] Full CI Quality Gate execution (`uv run devops ci` — 10/10 passed cleanly).
+- [x] Documentation synchronization (`uv run devops docs generate --sync-readme`).
+- [x] Updated `docs/LOG.md` and `docs/ROADMAP.md`.
 
 ---
 
 ### In-Progress Tasks (WIP)
-*None*
+- [ ] Conventional atomic commit and git push to `release/v0.2.10`.
 
 ---
 
 ### Pending Tasks
-*None*
+- [ ] Update `walkthrough.md`.
