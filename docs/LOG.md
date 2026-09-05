@@ -2,6 +2,26 @@
 
 Chronological log of refactoring milestones, quality gates, and security enhancements.
 
+### [2026-09-05] Native Pydantic AI Function Signature (`pydantic_ai.function_signature`) & Tool Interface Introspection
+- **Native Function Signature Subsystem (`src/devops_cli/ai/function_signature.py`)**:
+  - Full native adoption of `pydantic_ai.function_signature` API specification:
+    - Re-exports all core native classes and expressions: `FunctionSignature`, `FunctionParam`, `TypeSignature`, `TypeFieldSignature`, `TypeExpr`, `SimpleTypeName`, `SimpleTypeExpr`, `LiteralTypeExpr`, `GenericTypeExpr`, and `UnionTypeExpr`.
+    - Implemented high-level domain adapters:
+      - `signature_from_schema`: Constructs `FunctionSignature` directly from JSON Schema definitions with async and description overrides.
+      - `signature_from_callable`: Inspects any sync or async Python callable and extracts a `FunctionSignature` using Pydantic AI `Tool` schema generation (automatically stripping internal context dependencies such as `RunContext`).
+      - `signature_from_tool`: Universal signature extractor supporting native `pydantic_ai.tools.Tool`, `AgentTool`, duck-typed tools, or raw callables with graceful JSON schema fallback.
+      - `get_tool_signatures`: Batch signature extraction across sequences of tool instances or callables.
+      - `render_signatures`: Code generation utility that renders clean Python function stubs alongside any referenced `TypedDict` schema definitions with collision detection and disambiguation via `FunctionSignature.get_conflicting_type_names`.
+      - `render_tool_interface`: Multi-format interface renderer producing either raw Python stub strings or Markdown-fenced code blocks (`"python"` or `"markdown"`).
+- **Subsystem & Agent Integration (`src/devops_cli/ai/agents/tools.py`, `src/devops_cli/ai/agents/agent.py`)**:
+  - Enhanced `AgentTool` with `.to_function_signature() -> FunctionSignature` method for immediate introspection into native Pydantic AI signatures.
+  - Enhanced `PydanticAgent` with `.get_tool_signatures() -> list[FunctionSignature]` and `.render_tool_interface(*, format="python", include_type_defs=True) -> str` methods for inspecting and rendering all registered agent tools.
+- **Package Re-exports (`devops_cli.ai`, `devops_cli.ai.agents`, `devops_cli.ai.agents.pydantic_agent`)**:
+  - Re-exported all native function signature types, expressions, and utility adapters across package tiers with comprehensive `__all__` definitions and dynamic module lookups.
+- **Quality Gates & Test-First Verification**:
+  - Authored comprehensive test suite `tests/test_pydantic_ai_function_signature.py` (15/15 tests passing, 100% code coverage on `src/devops_cli/ai/function_signature.py`).
+  - Full CI validation suite (`uv run devops ci`): 10/10 quality gates green (version, test, coverage >= 90%, lint, format, typecheck, audit, security, actionlint, docs).
+
 ### [2026-09-05] Native Pydantic AI Format Prompt (`pydantic_ai.format_prompt`) & Standardized XML Serialization
 - **Native Prompt Formatting Subsystem (`src/devops_cli/ai/format_prompt.py`)**:
   - Full native adoption of `pydantic_ai.format_prompt` API:
