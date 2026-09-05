@@ -2413,3 +2413,61 @@ def test_harness_additional_coverage_suite(tmp_path: Path) -> None:
     assert "not found" in sh_tools["check_command"].func("nonexistent_id")  # type: ignore[union-attr]
     assert "not found" in sh_tools["stop_command"].func("nonexistent_id")  # type: ignore[union-attr]
     assert "Error: empty command" in sh_tools["start_command"].func("")  # type: ignore[union-attr]
+
+
+def test_shell_denies_destructive_commands() -> None:
+    shell = Shell(cwd=Path("."))
+    for cmd in ["reboot", "shutdown -h now", "poweroff", "mkfs.ext4 /dev/sda"]:
+        ok, err, _ = shell._validate_command(cmd)
+        assert ok is False
+        assert "blocked" in err.lower()
+
+
+def test_shell_blocks_path_traversal_in_command_arguments() -> None:
+    shell = Shell(cwd=Path("."))
+    ok, err, _ = shell._validate_command("cat ../../etc/passwd")
+    assert ok is False
+    assert "traversal" in err.lower() or "blocked" in err.lower()
+
+
+def test_shell_limits_concurrent_background_processes() -> None:
+    from unittest.mock import patch
+
+    shell = Shell(cwd=Path("."), max_bg_processes=2)
+    tools = {t.name if hasattr(t, "name") else t.__name__: t for t in shell.get_tools()}
+    start_cmd = tools["start_command"]
+
+    with patch("subprocess.Popen") as mock_popen:
+        mock_proc = MagicMock()
+        mock_proc.poll.return_value = None  # Running
+        mock_popen.return_value = mock_proc
+
+        res1 = start_cmd("echo 1")
+        assert "ID: cmd_" in res1
+        res2 = start_cmd("echo 2")
+        assert "ID: cmd_" in res2
+        # Third command exceeds limit of 2
+        res3 = start_cmd("echo 3")
+        assert "maximum limit" in res3.lower() or "blocked" in res3.lower()
+
+
+def test_macroscope_rejects_path_traversal_in_base_ref() -> None:
+    from devops_cli.ai.harness.agents import Macroscope
+
+    macroscope = Macroscope()
+    tools = {t.name if hasattr(t, "name") else t.__name__: t for t in macroscope.get_tools()}
+    review_tool = tools["run_macroscope_review"]
+    fn = review_tool.func if hasattr(review_tool, "func") else review_tool
+    res = fn(base="../../refs/heads/main")
+    assert "invalid" in res.lower() or "blocked" in res.lower() or "traversal" in res.lower()
+
+
+def test_playwright_navigate_blocks_unsupported_schemes() -> None:
+    from devops_cli.ai.harness.agents import PlaywrightBrowser
+
+    browser = PlaywrightBrowser()
+    tools = {t.name if hasattr(t, "name") else t.__name__: t for t in browser.get_tools()}
+    nav_tool = tools["navigate"]
+    fn = nav_tool.func if hasattr(nav_tool, "func") else nav_tool
+    res = fn("javascript:alert(1)")
+    assert "blocked" in res.lower() or "unsupported" in res.lower()

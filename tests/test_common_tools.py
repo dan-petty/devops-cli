@@ -104,3 +104,22 @@ def test_tavily_search_tool(mock_get_client: MagicMock) -> None:
     res = tav_tool.execute(query="pydantic ai")
     lines = [line.strip() for line in res.splitlines()]
     assert any(line.startswith("- **Pydantic AI** (https://ai.pydantic.dev)") for line in lines)
+
+
+def test_web_fetch_tool_blocks_post_redirect_to_private_host() -> None:
+    tool = web_fetch_tool()
+    fn = tool.func
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.content = b"<html>Private Data</html>"
+    mock_resp.text = "Private Data"
+    mock_resp.url = MagicMock()
+    mock_resp.url.host = "169.254.169.254"
+
+    mock_client = MagicMock()
+    mock_client.get.return_value = mock_resp
+
+    with patch("devops_cli.ai.common_tools.new_http_client", return_value=mock_client):
+        res = fn("https://public-redirector.com/forward")
+        assert "blocked" in res.lower() or "error" in res.lower() or "ssrf" in res.lower()

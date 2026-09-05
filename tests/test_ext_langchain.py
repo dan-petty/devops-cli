@@ -85,3 +85,19 @@ def test_langchain_toolset_and_agent_integration() -> None:
     assert "mock_langchain_search" in agent._tools
     sys_prompt = agent._build_system_prompt_with_tools()
     assert "Always cite LangChain sources" in sys_prompt
+
+
+def test_tool_from_langchain_sanitizes_path_traversal() -> None:
+    dummy_lc_tool = MagicMock()
+    dummy_lc_tool.name = "read_file"
+    dummy_lc_tool.description = "Read file contents"
+    dummy_lc_tool.run.return_value = "file contents"
+
+    tool = tool_from_langchain(dummy_lc_tool)
+    fn = tool.func
+    res = fn(path="../../etc/passwd")
+    assert (
+        "traversal" in str(res).lower()
+        or "blocked" in str(res).lower()
+        or "error" in str(res).lower()
+    )

@@ -602,3 +602,23 @@ def test_deterministic_pre_verification_handles_json_yaml_toml_syntax(tmp_path: 
     )
     checked_toml = _deterministic_pre_verification(finding_toml, repo_root=tmp_path)
     assert checked_toml.status == "INVALIDATED"
+
+
+def test_check_syntax_error_hallucination_invalidates_pep759_claims(tmp_path: Path) -> None:
+    """Python 3.14 PEP 759 unparenthesized exception syntax must not be flagged as SyntaxError."""
+    from devops_cli.ai.review.verification import _check_syntax_error_hallucination
+
+    code = "try:\n    x = 1 / 0\nexcept ZeroDivisionError, ArithmeticError:\n    pass\n"
+    test_file = tmp_path / "valid_pep759.py"
+    test_file.write_text(code, encoding="utf-8")
+
+    f = Finding(
+        severity="HIGH",
+        location=f"{test_file.name}:3",
+        title="Syntax error: invalid Python 2 syntax in except clause",
+        description="Except clause must use parentheses around multiple exception types.",
+    )
+    res = _check_syntax_error_hallucination(f, test_file)
+    assert res is not None
+    assert res.status == "INVALIDATED"
+    assert res.reportable is False

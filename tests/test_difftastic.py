@@ -87,3 +87,12 @@ def test_get_structural_diff_file_size_limit(tmp_path: Path) -> None:
     with patch("devops_cli.ai.diff.difftastic.CONST_MAX_FILE_SIZE_BYTES", 50):
         diff = get_structural_diff(file_a, file_b, repo_root=tmp_path)
         assert "exceeds maximum allowed size" in diff
+
+
+def test_diff_memory_ceiling() -> None:
+    from devops_cli.ai.diff.difftastic import MAX_DIFF_TEXT_CHARS, sanitize_diff_output
+
+    huge_diff = "+" * (MAX_DIFF_TEXT_CHARS + 100)
+    sanitized = sanitize_diff_output(huge_diff)
+    assert "truncated" in sanitized.lower()
+    assert len(sanitized) < len(huge_diff)

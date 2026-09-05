@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
 from typer.testing import CliRunner
 
 from devops_cli.commands.vault import app as vault_app
@@ -159,3 +160,11 @@ def test_vault_broker_error_branches() -> None:
         status = broker.get_status()
         assert status.sealed is True
         assert "Connection refused" in (status.error_message or "")
+
+
+def test_vault_broker_validates_address_scheme() -> None:
+    with pytest.raises(ValueError, match="scheme"):
+        VaultSecretBroker(vault_addr="ftp://vault.example.com:8200")
+
+    with pytest.raises(ValueError, match="traversal|format|invalid"):
+        VaultSecretBroker(vault_addr="http://vault.example.com/../traversal")

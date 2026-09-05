@@ -126,3 +126,15 @@ def test_k8s_pods_table_builder() -> None:
 
         table_all = _build_pods_table(None, label_selector="app=web", all_namespaces=True)
         assert table_all.row_count == 1
+
+
+def test_build_pods_table_masks_credentials_in_exceptions() -> None:
+    from devops_cli.commands.k8s.diagnostics import _build_pods_table
+
+    with patch(
+        "kubernetes.config.load_kube_config",
+        side_effect=RuntimeError("Token secret_token_xyz123 failed"),
+    ):
+        table = _build_pods_table("default", None, False)
+        rendered = str(table.rows)
+        assert "secret_token_xyz123" not in rendered

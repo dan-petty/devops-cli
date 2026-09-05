@@ -63,3 +63,26 @@ def test_k8s_bootstrap_success(tmp_path: Path) -> None:
         result = runner.invoke(app, ["bootstrap", "--dir", str(manifest_dir), "--stack", "infra"])
         assert result.exit_code == 0
         assert mock_deploy.called
+
+
+def test_k8s_apply_rejects_ssrf_and_private_metadata_urls() -> None:
+    import pytest
+    import typer
+
+    from devops_cli.commands.k8s.cluster_context import apply
+
+    with pytest.raises((ValueError, typer.Exit)):
+        apply("http://169.254.169.254/latest/meta-data/")
+
+    with pytest.raises((ValueError, typer.Exit)):
+        apply("http://127.0.0.1:8080/manifest.yaml")
+
+
+def test_k8s_apply_rejects_path_traversal() -> None:
+    import pytest
+    import typer
+
+    from devops_cli.commands.k8s.cluster_context import apply
+
+    with pytest.raises((ValueError, typer.Exit)):
+        apply("../../sensitive/secret.yaml")
