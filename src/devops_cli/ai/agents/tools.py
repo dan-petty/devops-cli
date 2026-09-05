@@ -10,6 +10,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from pydantic_ai.mcp import MCPToolset as NativeMCPToolset
+    from pydantic_ai.toolsets import PrefixedToolset
+
     from devops_cli.ai.function_signature import FunctionSignature
 
 from pydantic import BaseModel, Field
@@ -456,6 +459,18 @@ class MCPToolset(AbstractToolset):
                 )
             )
         return toolsets
+
+    def to_native_toolset(self) -> NativeMCPToolset | PrefixedToolset:
+        """Convert to a native pydantic_ai.mcp.MCPToolset with optional prefixing."""
+        from devops_cli.ai.mcp.toolset import create_mcp_toolset
+
+        target = self.server or self.client or self.url or self.script_path
+        if target is None:
+            from devops_cli.ai.mcp.server import mcp as devops_server
+
+            target = devops_server
+
+        return create_mcp_toolset(target, tool_prefix=self.tool_prefix)
 
     async def __aenter__(self) -> MCPToolset:
         return self

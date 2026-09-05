@@ -120,6 +120,7 @@ def create_pydantic_ai_agent[T: BaseModel](
     retries: int | None = None,
     max_concurrency: AnyConcurrencyLimit = None,
     model_concurrency: AnyConcurrencyLimit = None,
+    toolsets: Sequence[Any] | None = None,
 ) -> Any:
     """Instantiate a standardized PydanticAI Agent with typed dependencies, capabilities, outputs, and concurrency limits."""
     settings: Settings = load_settings()
@@ -127,6 +128,7 @@ def create_pydantic_ai_agent[T: BaseModel](
     res_model = output_type or result_type or ReviewResult
     active_caps = list(capabilities or [])
     active_tools = list(tools or [])
+    active_toolsets = list(toolsets or [])
 
     try:
         from pydantic_ai import Agent
@@ -152,6 +154,8 @@ def create_pydantic_ai_agent[T: BaseModel](
             kwargs["capabilities"] = active_caps
         if "tools" in sig.parameters and active_tools:
             kwargs["tools"] = active_tools
+        if "toolsets" in sig.parameters and active_toolsets:
+            kwargs["toolsets"] = active_toolsets
         if "max_concurrency" in sig.parameters and max_concurrency is not None:
             kwargs["max_concurrency"] = max_concurrency
 
@@ -167,6 +171,7 @@ def create_pydantic_ai_agent[T: BaseModel](
             name=f"agent-{target_model or 'default'}",
             system_prompt=system_prompt,
             tools=active_tools,
+            toolsets=active_toolsets,
             capabilities=active_caps,
             output_type=res_model,
             max_concurrency=max_concurrency,

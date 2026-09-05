@@ -15,6 +15,8 @@ if TYPE_CHECKING:
     from devops_cli.ai.concurrency import AbstractConcurrencyLimiter, AnyConcurrencyLimit
     from devops_cli.ai.function_signature import FunctionSignature
 
+from pydantic_ai.toolsets import AbstractToolset as PyAIAbstractToolset
+
 from devops_cli.ai.agents.capabilities import (
     BaseCapability,
     DeferredToolRequests,
@@ -63,6 +65,8 @@ from devops_cli.ai.client import LLMClient
 from devops_cli.config.defaults import DEFAULT_AGENT_MAX_TURNS
 from devops_cli.exceptions import UnexpectedModelBehavior
 from devops_cli.models.ai import ChatMessage
+
+AgentToolset = AbstractToolset | PyAIAbstractToolset[Any]
 
 T = TypeVar("T")
 DepsT = TypeVar("DepsT")
@@ -156,7 +160,7 @@ class PydanticAgent[T, DepsT = Any]:
         deps_type: type[DepsT] | None = None,
         hooks: AgentHooks | None = None,
         capabilities: list[BaseCapability] | None = None,
-        toolsets: list[AbstractToolset] | None = None,
+        toolsets: list[AgentToolset] | None = None,
         retries: int | AgentRetries | dict[str, int] | None = None,
         tool_timeout: float | None = None,
         max_concurrency: AnyConcurrencyLimit = None,
@@ -190,7 +194,7 @@ class PydanticAgent[T, DepsT = Any]:
         self.deps_type = deps_type
         self.hooks = hooks or AgentHooks()
         self.capabilities: list[BaseCapability] = list(capabilities or [])
-        self.toolsets: list[AbstractToolset] = list(toolsets or [])
+        self.toolsets: list[AgentToolset] = list(toolsets or [])
         self.tool_timeout = tool_timeout
         self.max_concurrency = max_concurrency
         if max_concurrency is not None:
@@ -220,8 +224,12 @@ class PydanticAgent[T, DepsT = Any]:
 
         # Register tools from toolsets
         for ts in self.toolsets:
-            for ts_tool in ts.get_tools():
-                self.add_tool(ts_tool)
+            try:
+                if isinstance(ts, AbstractToolset):
+                    for ts_tool in ts.get_tools():
+                        self.add_tool(ts_tool)
+            except Exception:
+                pass
 
         # Register non-deferred capability tools and hooks
         for cap in self.capabilities:
@@ -423,7 +431,7 @@ class PydanticAgent[T, DepsT = Any]:
         model: str | Any | None = None,
         client: LLMClient | Any = None,
         deps: DepsT | None = None,
-        toolsets: list[AbstractToolset] | None = None,
+        toolsets: list[AgentToolset] | None = None,
         capabilities: list[BaseCapability] | None = None,
         native_tools: list[Any] | None = None,
     ) -> Iterator[None]:
@@ -447,8 +455,9 @@ class PydanticAgent[T, DepsT = Any]:
             if toolsets is not None:
                 self.toolsets = list(toolsets)
                 for ts in self.toolsets:
-                    for ts_tool in ts.get_tools():
-                        self.add_tool(ts_tool)
+                    if isinstance(ts, AbstractToolset):
+                        for ts_tool in ts.get_tools():
+                            self.add_tool(ts_tool)
 
             if capabilities is not None:
                 self.capabilities = list(capabilities)
@@ -548,11 +557,33 @@ class PydanticAgent[T, DepsT = Any]:
 
         # Toolset instruction additions
         for ts in self.toolsets:
-            prompt_parts.extend(
-                ts_inst.strip()
-                for ts_inst in ts.get_instructions(ctx=ctx)
-                if ts_inst and ts_inst.strip()
-            )
+            try:
+                if isinstance(ts, AbstractToolset):
+                    sig = inspect.signature(ts.get_instructions)
+                    instructions = (
+                        ts.get_instructions(ctx=ctx)
+                        if len(sig.parameters) > 0 and ctx is not None
+                        else ts.get_instructions()
+                    )
+                else:
+                    instructions = None
+            except Exception:
+                instructions = None
+
+            if instructions is None:
+                continue
+            if isinstance(instructions, str):
+                if instructions.strip():
+                    prompt_parts.append(instructions.strip())
+            elif hasattr(instructions, "content"):
+                c_text = str(instructions.content).strip()
+                if c_text:
+                    prompt_parts.append(c_text)
+            elif isinstance(instructions, (list, tuple)):
+                for item in instructions:
+                    text = str(getattr(item, "content", item)).strip()
+                    if text:
+                        prompt_parts.append(text)
 
         # Advertise available deferred capabilities in prompt catalog
         unloaded_caps = [
