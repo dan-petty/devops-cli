@@ -357,6 +357,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
 | | Automated Vector Storage Compaction & Pruning | Qdrant Client / SQLite | Medium | Medium | v0.2.8 | 📋 Scheduled |
 | | Common AI Hallucination Scrutiny Pipeline | Pydantic / AST / Verification | High | Medium | v0.2.10 | ✅ Completed |
 | | Native Pydantic AI Framework Subsystems | PydanticAI / FastMCP | High | Medium | v0.2.10 | ✅ Completed |
+| | Codebase Hygiene & Zombie Code Elimination | Standard Lib / AST / Mimetypes | High | Medium | v0.2.10 | ✅ Completed |
 | | Multi-Region Workstation Mesh & Cluster Federation | Kubernetes / Fleet | High | High | v0.3.0 | 💡 Future Vision |
 | | Autonomous Self-Healing Agent Pipeline | PydanticAI / Diagnostic | High | High | v0.3.0 | 💡 Future Vision |
 | | Cloud-Native Ephemeral Test Environment Engine | Minikube / Helm / Ingress | High | Medium | v0.3.0 | 💡 Future Vision |

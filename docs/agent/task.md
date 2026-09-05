@@ -226,10 +226,24 @@
 
 ---
 
+- [x] Phase 33: Codebase Hygiene, Elimination of Forbidden Patterns, and Zombie Code Removal
+  - [x] Phase 33.1: Test-First Specifications (`tests/test_codebase_hygiene_and_shims.py` — 14/14 green)
+  - [x] Phase 33.2: Eliminate Incomplete Literal Collections of File Extensions (`chunker.py`, `indexer.py`, `reference_extractor.py`)
+  - [x] Phase 33.3: Remove Monkey-Patch Shims & Implement Native `RunContext` Subclass (`context.py`)
+  - [x] Phase 33.4: Remove Unnecessary Aliases (`Tool.func`, `NativeMCPToolset`, `DevOpsCLIError.code`, `scan gitleaks/semgrep/checkov`, `rag reset`, `run_shell`)
+  - [x] Phase 33.5: Consolidate Duplicative Parameters and Fallbacks (`compaction.py`, `settings.py`, `DEVOPS_DATA_DIR` -> `DEVOPS_CLI_DATA_DIR`)
+  - [x] Phase 33.6: Replace Synthetic Scoring Floats with Mathematical Set Similarity (`common_hallucinations.py`)
+  - [x] Phase 33.7: Regression Testing & Full CI Quality Gate (`uv run devops ci` — 10/10 green)
+  - [x] Phase 33.8: Documentation Synchronization (`devops docs generate --sync-readme`) & Conventional Commits
+  - [/] Phase 33.9: Release PR Creation, CI Monitoring, and Copilot Review Handling
+
+---
+
 ### In-Progress Tasks (WIP)
-None.
+- Phase 33: Codebase Hygiene, Elimination of Forbidden Patterns, and Zombie Code Removal
+  - Phase 33.9: Release PR Creation, CI Monitoring, and Copilot Review Handling
 
 ---
 
 ### Pending Tasks
-None.
+- Phase 33.9: Release PR Creation, CI Monitoring, and Copilot Review Handling

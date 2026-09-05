@@ -2,6 +2,30 @@
 
 Chronological log of refactoring milestones, quality gates, and security enhancements.
 
+### [2026-09-05] Codebase Hygiene, Elimination of Forbidden Patterns, and Zombie Code Removal
+- **Elimination of Incomplete Literal Collections of File Extensions**:
+  - `src/devops_cli/ai/rag/chunker.py`: Removed hardcoded extension sets (`_DOC_EXTENSIONS`, `_IAC_EXTENSIONS`, `_CONFIG_EXTENSIONS`, `_JS_TS_EXTENSIONS`, `_C_LIKE_EXTENSIONS`). Refactored category resolution and language dispatch to dynamic `mimetypes` and `detect_language` inspection.
+  - `src/devops_cli/ai/rag/indexer.py`: Removed 63-element hardcoded `_INDEXABLE_EXTENSIONS` set. Implemented dynamic POSIX null-byte text detection (`is_text_file`).
+  - `src/devops_cli/security/reference_extractor.py`: Removed 62-element `_COMMON_FILE_EXTENSIONS` and 9-element `_PACKAGE_ARCHIVE_EXTENSIONS`. Registered archive formats dynamically in `mimetypes` and refactored `is_file_reference` and `is_package_repository_asset` to leverage `mimetypes`, `detect_language`, Public Suffix List (`tldextract`), and filesystem queries.
+- **Monkey-Patch Shim Elimination & Native `RunContext` Subclass**:
+  - `src/devops_cli/ai/agents/context.py`: Removed monkey-patching shims (`_run_context_init_shim`, `_run_context_model_copy`) on `NativeRunContext`. Implemented clean, native `class RunContext[DepsT](NativeRunContext[DepsT])` with complete type annotations.
+- **Unnecessary Aliases & Zombie Code Removal**:
+  - `src/devops_cli/ai/tools/__init__.py`: Removed legacy `.func` alias on `Tool` in favor of canonical `.function`.
+  - `src/devops_cli/ai/mcp/toolset.py`: Removed duplicate `NativeMCPToolset = MCPToolset` alias.
+  - `src/devops_cli/exceptions/base.py`: Removed legacy `.code` alias on `DevOpsCLIError` in favor of canonical `.error_code`.
+  - `src/devops_cli/commands/scan.py`: Removed command aliases `scan gitleaks`, `scan semgrep`, `scan checkov` and module aliases `main`, `scan_main`, `scan_app` in favor of canonical subcommands (`secrets`, `sast`, `iac`).
+  - `src/devops_cli/commands/rag.py`: Removed `reset` command alias in favor of canonical `clear`.
+  - `src/devops_cli/ai/harness/shell.py`: Removed duplicate `run_shell` alias tool from `Shell.get_tools()`.
+- **Parameter & Fallback Consolidation**:
+  - `src/devops_cli/ai/harness/compaction.py`: Consolidated `record_usage` into `record_request`, eliminating duplicate `current_time` in favor of unified `now`.
+  - `src/devops_cli/config/settings.py` & `runner.py`: Removed legacy fallback `DEVOPS_DATA_DIR` in favor of canonical `DEVOPS_CLI_DATA_DIR`.
+- **Mathematical Similarity Over Synthetic Scoring**:
+  - `src/devops_cli/ai/review/common_hallucinations.py`: Replaced arbitrary synthetic scoring floats (`0.85`, `0.15`, `0.35`) in `calculate_hallucination_similarity` with mathematical set keyword overlap ratios and structural signature matching.
+- **Comprehensive Quality Gates**:
+  - Authored test-first specification suite `tests/test_codebase_hygiene_and_shims.py` (14/14 green).
+  - Synchronized documentation via `devops docs generate --sync-readme`.
+  - Strict type checking (`mypy --strict`) 100% clean across 306 source files.
+
 ### [2026-09-05] Code Review Findings Remediation (Session 141532) & Review Loop Hardening
 - **Autonomous Hallucination Catalog & Matching Engine Hardening (`src/devops_cli/ai/review/common_hallucinations.py`, `.data/common_hallucinations.json`)**:
   - Expanded `_FORBIDDEN_COMMON_WORDS` with comprehensive English stop words, grammatical markers, and engineering vocabulary to prevent generic words from entering hallucination signature keywords.

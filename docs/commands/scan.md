@@ -52,53 +52,6 @@ devops scan secrets [OPTIONS] <target>
 
 ---
 
-## `devops scan gitleaks`
-
-**Alias for devops scan secrets.**
-
-```bash
-devops scan gitleaks [OPTIONS] <target>
-```
-
-**Arguments:**
-
-| Argument | Type | Required | Description |
-|---|---|---|---|
-| `<target>` | `path` | No | Target directory or file to scan for secrets. |
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
-| `--json` | `boolean` | - | Output findings or metrics as JSON. |
-
----
-
-## `devops scan semgrep`
-
-**Run Semgrep multilingual static AST pattern matching scan.**
-
-```bash
-devops scan semgrep [OPTIONS] <target>
-```
-
-**Arguments:**
-
-| Argument | Type | Required | Description |
-|---|---|---|---|
-| `<target>` | `path` | No | Target directory or file to scan with Semgrep AST rules. |
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--config`, `-c` | `string` | `p/default` | Semgrep ruleset config (e.g. p/default, p/security-audit). |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
-| `--json` | `boolean` | - | Output findings or metrics as JSON. |
-
----
-
 ## `devops scan sast`
 
 **Run static application security testing (SAST) via Semgrep.**
@@ -118,30 +71,6 @@ devops scan sast [OPTIONS] <target>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--config`, `-c` | `string` | `p/default` | Semgrep ruleset config (e.g. p/default, p/security-audit). |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
-| `--json` | `boolean` | - | Output findings or metrics as JSON. |
-
----
-
-## `devops scan checkov`
-
-**Run Checkov Infrastructure-as-Code (IaC) compliance scanner.**
-
-```bash
-devops scan checkov [OPTIONS] <target>
-```
-
-**Arguments:**
-
-| Argument | Type | Required | Description |
-|---|---|---|---|
-| `<target>` | `path` | No | Target directory or file to scan with Checkov IaC rules. |
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--framework`, `-f` | `string` | - | Specific IaC framework (e.g. terraform). |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
