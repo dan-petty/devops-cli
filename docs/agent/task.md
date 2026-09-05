@@ -206,6 +206,15 @@
 
 ---
 
+- [x] Phase 31: Relocate Agent Task Tracking Under `docs/agent/`
+  - [x] Phase 31.1: Create dedicated directory `docs/agent/` and move `task.md` via `git mv task.md docs/agent/task.md` (preserving full git history).
+  - [x] Phase 31.2: Author `docs/agent/README.md` defining directory purpose, structure, and operational conventions for AI agent task tracking.
+  - [x] Phase 31.3: Update `AGENTS.md` and `docs/ROUTINE_TASKS.md` to reference `docs/agent/task.md` as the canonical location for continuous task status tracking.
+  - [x] Phase 31.4: Update documentation synchronization via `devops docs generate --sync-readme`.
+  - [x] Phase 31.5: Record in `docs/LOG.md` and verify all 10 CI quality gates via `uv run devops ci`.
+
+---
+
 ### In-Progress Tasks (WIP)
 None.
 

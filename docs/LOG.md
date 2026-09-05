@@ -2,6 +2,13 @@
 
 Chronological log of refactoring milestones, quality gates, and security enhancements.
 
+### [2026-09-05] Relocation of Agent Task Tracking Under `docs/agent/`
+- **Dedicated Agent Operational Documentation & Task Tracking (`docs/agent/`)**:
+  - Relocated continuous, real-time agent task tracking from workspace root (`task.md`) to dedicated tier `docs/agent/task.md` using `git mv` to preserve commit history.
+  - Created `docs/agent/README.md` documenting directory structure, purpose, and operational conventions for AI coding assistants.
+  - Updated `AGENTS.md` and `docs/ROUTINE_TASKS.md` to establish `docs/agent/task.md` as the canonical location for continuous task status tracking (Pending, In Progress, Completed).
+  - Synchronized documentation via `devops docs generate --sync-readme`.
+
 ### [2026-09-05] Native Pydantic AI Toolsets (`pydantic_ai.toolsets`) Integration
 - **Native Toolsets Subsystem (`src/devops_cli/ai/toolsets/__init__.py`)**:
   - Full native adoption of `pydantic_ai.toolsets` API specifications:

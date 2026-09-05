@@ -69,7 +69,7 @@ flowchart TD
 
 #### Step-by-Step Order:
 1. **Document Project Planning & Initialize Task Tracking**:
-   - For multi-step or architectural work, author an implementation plan (`implementation_plan.md`, `task.md`, or update [`docs/ROADMAP.md`](ROADMAP.md)).
+   - For multi-step or architectural work, author an implementation plan (`implementation_plan.md`, `docs/agent/task.md`, or update [`docs/ROADMAP.md`](ROADMAP.md)).
    - Explicitly organize and track all tasks into three states:
      - **Pending Tasks**: Backlog items, planned features, and unstarted requirements.
      - **In-Progress Tasks (WIP)**: Active work items, files currently being authored/edited, and active test suites.
