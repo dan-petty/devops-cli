@@ -215,6 +215,17 @@
 
 ---
 
+- [x] Phase 32: Address Review Findings (Session 20260905-141532) & Review Loop Hardening
+  - [x] Phase 32.1: Test-First Specifications (`tests/test_common_hallucinations_hardening.py` & `tests/test_review_session_141532_remediation.py` — 16/16 green)
+  - [x] Phase 32.2: Review Engine & Hallucination System Hardening (`common_hallucinations.py`, reset `.data/common_hallucinations.json`)
+  - [x] Phase 32.3: Secret Sanitizer Regex Hardening (`sanitization.py`)
+  - [x] Phase 32.4: Persona & Review Prompt Hardening (`devsecops/prompt.md`, `architect/prompt.md`, `verify_finding_system.md`)
+  - [x] Phase 32.5: Codebase Findings Remediations (`media.py`, `vault_broker.py`, `auto_fix.py`, `common_tools.py`, `capabilities.py`, `chaos_runner.py`, `complexity.py`, `kubelinter.py`, `difftastic.py`, `ext_langchain.py`)
+  - [x] Phase 32.6: Knowledge Base Documentation Update (`ai_code_review.md`)
+  - [x] Phase 32.7: Full CI Quality Gate (`uv run devops ci` — 10/10 green), Docs Sync (`devops docs generate --sync-readme`), Log & Commit
+
+---
+
 ### In-Progress Tasks (WIP)
 None.
 

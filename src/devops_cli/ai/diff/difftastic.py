@@ -58,6 +58,8 @@ def get_structural_diff(
 
         # Fallback to git branch diff
         if branch and base:
+            if branch.startswith("-") or base.startswith("-"):
+                return "Error: Invalid git reference; leading hyphens are forbidden."
             git_cmd = build_git_diff_cmd(branch=branch, base=base)
             git_res = run_subprocess(git_cmd, check=False, cwd=root)
             return sanitize_diff_output(git_res.stdout)

@@ -344,19 +344,19 @@ def web_fetch_tool(
         if parsed.scheme not in ("http", "https"):
             raise ValueError(f"Unsupported URL scheme: {parsed.scheme}")
 
-        hostname = parsed.hostname or ""
-        if _is_private_or_loopback(hostname):
-            raise SSRFBlockedError(target_url=url)
+        hostname = (parsed.hostname or "").lower()
+        if blocked_domains and any(
+            hostname == d.lower() or hostname.endswith(f".{d.lower()}") for d in blocked_domains
+        ):
+            raise ValueError(f"Domain '{hostname}' is in blocked_domains")
 
         if allowed_domains and not any(
-            hostname == d or hostname.endswith(f".{d}") for d in allowed_domains
+            hostname == d.lower() or hostname.endswith(f".{d.lower()}") for d in allowed_domains
         ):
             raise ValueError(f"Domain '{hostname}' is not in allowed_domains")
 
-        if blocked_domains and any(
-            hostname == d or hostname.endswith(f".{d}") for d in blocked_domains
-        ):
-            raise ValueError(f"Domain '{hostname}' is in blocked_domains")
+        if _is_private_or_loopback(hostname):
+            raise SSRFBlockedError(target_url=url)
 
         client = new_http_client(headers=headers or {})
         try:
@@ -370,6 +370,8 @@ def web_fetch_tool(
                     final_host = urllib.parse.urlparse(str(resp.url)).hostname or ""
             if final_host and _is_private_or_loopback(str(final_host)):
                 raise SSRFBlockedError(target_url=str(getattr(resp, "url", url)))
+            if not final_host and _is_private_or_loopback(hostname):
+                raise SSRFBlockedError(target_url=url)
 
             resp.raise_for_status()
             if max_download_bytes is not None and len(resp.content) > max_download_bytes:

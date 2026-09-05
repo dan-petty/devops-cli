@@ -6,7 +6,7 @@ import logging
 import os
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 from pydantic import BaseModel
 
@@ -47,13 +47,25 @@ def parse_vault_uri(uri: str) -> tuple[str, str | None]:
         cleaned, key = cleaned.split("#", 1)
         key = key.strip() or None
 
-    if any(part == ".." for part in Path(cleaned).parts) or ".." in cleaned:
+    decoded_uri = unquote(cleaned)
+    if (
+        any(part == ".." for part in Path(decoded_uri).parts)
+        or ".." in decoded_uri
+        or any(part == ".." for part in Path(cleaned).parts)
+        or ".." in cleaned
+    ):
         raise ValueError(f"Path traversal detected in Vault URI: '{uri}'")
 
     if cleaned.startswith("vault://"):
         parsed = urlparse(cleaned)
         path = f"{parsed.netloc}{parsed.path}".lstrip("/")
-        if any(part == ".." for part in Path(path).parts) or ".." in path:
+        decoded_path = unquote(path)
+        if (
+            any(part == ".." for part in Path(decoded_path).parts)
+            or ".." in decoded_path
+            or any(part == ".." for part in Path(path).parts)
+            or ".." in path
+        ):
             raise ValueError(f"Path traversal detected in Vault URI: '{uri}'")
         return path, key
 

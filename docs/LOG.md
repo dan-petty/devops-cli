@@ -2,6 +2,37 @@
 
 Chronological log of refactoring milestones, quality gates, and security enhancements.
 
+### [2026-09-05] Code Review Findings Remediation (Session 141532) & Review Loop Hardening
+- **Autonomous Hallucination Catalog & Matching Engine Hardening (`src/devops_cli/ai/review/common_hallucinations.py`, `.data/common_hallucinations.json`)**:
+  - Expanded `_FORBIDDEN_COMMON_WORDS` with comprehensive English stop words, grammatical markers, and engineering vocabulary to prevent generic words from entering hallucination signature keywords.
+  - Implemented category-aligned similarity guards (`syntax_grammar` never matches security findings like path traversal, SSRF, or command injection).
+  - Enforced minimum compound keyword threshold (at least 2 distinct keywords) when no signature regex matches.
+  - Protected canonical builtin definitions against unintended resolution overwrites in auto-recording.
+  - Reset `.data/common_hallucinations.json` back to canonical definitions.
+- **Secret Sanitizer Regex Protection (`src/devops_cli/ai/review/sanitization.py`)**:
+  - Updated secret detection regex to require assignment/token context (`(?:[:=]\s*["']?|\bBearer\s+|\btoken\s+|["'])`), preventing variable identifiers (e.g. `secret_storage_failed`, `secret_rotation_interval`) from being masked in code diffs.
+- **Codebase Security & Robustness Remediations**:
+  - `src/devops_cli/ai/ext_langchain.py`: Added `urllib.parse.unquote` decoding before path traversal checks and decomposed nested argument validation into pure module-level `_validate_langchain_kwargs`.
+  - `src/devops_cli/ai/agents/media.py`: Added SHA-256 64-character hex regex validation and directory containment checks on `media_id` in `DiskMediaStore.get()` and `delete()`.
+  - `src/devops_cli/security/vault_broker.py`: Added percent-decoding `unquote` in `parse_vault_uri()` before path containment checks to prevent URL-encoded directory traversal.
+  - `src/devops_cli/ai/review/auto_fix.py`: Added strict repository containment verification before writing to candidate remediation branches.
+  - `src/devops_cli/ai/common_tools.py` & `src/devops_cli/ai/agents/capabilities.py`: Reordered validation in `web_fetch_tool` so `blocked_domains` is evaluated before allowlists and SSRF DNS resolution. Added case-insensitive domain matching and strict redirect SSRF validation. Forwarded `blocked_domains` from `WebFetch` capability to `web_fetch_tool`.
+  - `src/devops_cli/k8s/chaos_runner.py`: Validated `namespace` and `victim` against CLI flag injection (`-` prefix) and inserted `--` before the pod victim argument in `kubectl delete pod`.
+  - `src/devops_cli/ai/diff/difftastic.py`: Validated git `branch` and `base` ref arguments against leading hyphens.
+  - `src/devops_cli/security/complexity.py` & `src/devops_cli/security/kubelinter.py`: Relativized output file paths against the repository root to prevent absolute system path disclosure.
+- **Persona & System Prompt Enhancements**:
+  - `src/devops_cli/ai/personas/devsecops/prompt.md`: Added Python 3.14+ PEP 758 bracketless exception awareness and sanitization placeholder guidance.
+  - `src/devops_cli/ai/personas/architect/prompt.md`: Added modern Python runtime standards (PEP 758, union syntax).
+  - `src/devops_cli/ai/tasks/verify_finding_system.md`: Added explicit invalidation criteria for variable identifiers (e.g. `secret_storage_failed`) and mandated cross-category integrity.
+- **Knowledge Base & Documentation**:
+  - `src/devops_cli/ai/knowledge_base/devops_cli/tasks/ai_code_review.md`: Documented category-aligned hallucination filtering, stop words, and ground-truth verification.
+  - Introspected CLI and synchronized documentation via `devops docs generate --sync-readme`.
+- **Quality Gates & Test-First Verification**:
+  - Authored comprehensive test suites: `tests/test_common_hallucinations_hardening.py` (5/5 passing) and `tests/test_review_session_141532_remediation.py` (11/11 passing).
+  - Strict static typing (`mypy --strict`) 100% clean across all 305 source files (0 errors).
+  - Clean linting and formatting (`ruff check`, `ruff format`).
+  - Full CI validation suite (`uv run devops ci`): 10/10 quality gates green (version, test, coverage >= 90%, lint, format, typecheck, audit, security, actionlint, docs).
+
 ### [2026-09-05] Relocation of Agent Task Tracking Under `docs/agent/`
 - **Dedicated Agent Operational Documentation & Task Tracking (`docs/agent/`)**:
   - Relocated continuous, real-time agent task tracking from workspace root (`task.md`) to dedicated tier `docs/agent/task.md` using `git mv` to preserve commit history.

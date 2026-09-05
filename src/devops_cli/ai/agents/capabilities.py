@@ -391,7 +391,12 @@ class WebFetch(BaseCapability):
         if self.local is True:
             from devops_cli.ai.common_tools import web_fetch_tool
 
-            return [web_fetch_tool(allowed_domains=self.allowed_domains)]
+            return [
+                web_fetch_tool(
+                    allowed_domains=self.allowed_domains,
+                    blocked_domains=self.blocked_domains,
+                )
+            ]
         return _extract_local_tools(self.local)
 
     def get_model_settings(  # type: ignore[override]

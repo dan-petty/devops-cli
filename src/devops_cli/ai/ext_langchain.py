@@ -2,10 +2,33 @@
 
 from __future__ import annotations
 
+import urllib.parse
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 from devops_cli.ai.agents.pydantic_agent import FunctionToolset, Tool
+
+
+def _validate_langchain_kwargs(kwargs: dict[str, Any]) -> str | None:
+    """Validate tool keyword arguments against path traversal sequences, including percent-encoding."""
+    for k, v in kwargs.items():
+        if any(
+            pat in k.lower()
+            for pat in ("path", "file", "dir", "dest", "filename", "filepath", "uri")
+        ):
+            if isinstance(v, (str, Path)):
+                raw_str = str(v)
+                decoded = urllib.parse.unquote(raw_str)
+                if (
+                    ".." in raw_str
+                    or "../" in raw_str
+                    or "..\\" in raw_str
+                    or ".." in decoded
+                    or any(part == ".." for part in Path(decoded).parts)
+                ):
+                    return f"Path traversal in argument '{k}' is blocked by security policy: {v}"
+    return None
 
 
 def tool_from_langchain(
@@ -20,16 +43,6 @@ def tool_from_langchain(
     """Adapt a LangChain tool instance (BaseTool or StructuredTool) into a Pydantic AI Tool."""
     tool_name = str(name or getattr(langchain_tool, "name", "") or type(langchain_tool).__name__)
     tool_desc = str(description or getattr(langchain_tool, "description", "") or tool_name)
-
-    def _validate_langchain_kwargs(kwargs: dict[str, Any]) -> str | None:
-        for k, v in kwargs.items():
-            if any(
-                pat in k.lower()
-                for pat in ("path", "file", "dir", "dest", "filename", "filepath", "uri")
-            ):
-                if isinstance(v, str) and (".." in v or "../" in v or "..\\" in v):
-                    return f"Path traversal in argument '{k}' is blocked by security policy: {v}"
-        return None
 
     # Extract runner callback
     run_func: Callable[..., Any]

@@ -50,8 +50,11 @@ _SECRET_PATTERNS = (
         "<masked-jwt>",
     ),
     (
-        re.compile(r"\bsecret_[A-Za-z0-9_]{10,}\b", re.IGNORECASE),
-        "<masked-secret>",
+        re.compile(
+            r"((?:[:=]\s*[\"']?|\bBearer\s+|\btoken\s+|[\"']))secret_[A-Za-z0-9_]{10,}\b",
+            re.IGNORECASE,
+        ),
+        r"\g<1><masked-secret>",
     ),
     (
         re.compile(

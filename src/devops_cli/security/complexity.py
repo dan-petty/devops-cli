@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from devops_cli.ai.review_schema import Finding
+from devops_cli.core.repo import find_top_level_repo_root
 
 
 @dataclass
@@ -177,12 +178,13 @@ def run_complexity_scan(
     else:
         return findings
 
+    root = find_top_level_repo_root(Path.cwd())
     for py_file in files:
         rep = analyze_file_complexity(py_file)
         try:
-            rel_path = py_file.relative_to(Path.cwd())
+            rel_path = str(py_file.resolve().relative_to(root))
         except ValueError:
-            rel_path = py_file
+            rel_path = py_file.name
 
         for fn in rep.functions:
             loc = f"{rel_path}:{fn.line_number}-{fn.end_line_number}"

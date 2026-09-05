@@ -108,6 +108,142 @@ _FORBIDDEN_COMMON_WORDS: frozenset[str] = frozenset(
         "high",
         "medium",
         "low",
+        # Stop words & structural descriptors
+        "this",
+        "that",
+        "these",
+        "those",
+        "which",
+        "what",
+        "who",
+        "whom",
+        "whose",
+        "will",
+        "would",
+        "shall",
+        "should",
+        "can",
+        "could",
+        "may",
+        "might",
+        "must",
+        "from",
+        "with",
+        "without",
+        "about",
+        "above",
+        "below",
+        "into",
+        "through",
+        "during",
+        "before",
+        "after",
+        "over",
+        "under",
+        "again",
+        "further",
+        "then",
+        "once",
+        "here",
+        "there",
+        "their",
+        "theirs",
+        "them",
+        "they",
+        "when",
+        "where",
+        "why",
+        "how",
+        "all",
+        "any",
+        "both",
+        "each",
+        "few",
+        "more",
+        "most",
+        "other",
+        "some",
+        "such",
+        "no",
+        "nor",
+        "not",
+        "only",
+        "own",
+        "same",
+        "so",
+        "than",
+        "too",
+        "very",
+        "time",
+        "pipeline",
+        "runtime",
+        "leading",
+        "crash",
+        "blocks",
+        "causing",
+        "potential",
+        "entire",
+        "occur",
+        "occurs",
+        "occurring",
+        "occurred",
+        "lead",
+        "leads",
+        "causes",
+        "caused",
+        "cause",
+        "call",
+        "calls",
+        "called",
+        "calling",
+        "prevent",
+        "prevents",
+        "preventing",
+        "prevented",
+        "fail",
+        "fails",
+        "failed",
+        "failing",
+        "failure",
+        "failures",
+        "pass",
+        "passes",
+        "passed",
+        "passing",
+        "check",
+        "checks",
+        "checked",
+        "checking",
+        "use",
+        "uses",
+        "used",
+        "using",
+        "make",
+        "makes",
+        "made",
+        "making",
+        "get",
+        "gets",
+        "got",
+        "getting",
+        "set",
+        "sets",
+        "setting",
+        "have",
+        "has",
+        "had",
+        "having",
+        "do",
+        "does",
+        "did",
+        "doing",
+        "be",
+        "been",
+        "being",
+        "is",
+        "are",
+        "was",
+        "were",
     }
 )
 
@@ -412,8 +548,29 @@ def calculate_hallucination_similarity(
             reason="No signature pattern or distinctive compound keyword match",
         )
 
-    # Domain-specific verification guards
+    finding_text_lower = finding_text.lower()
+
+    # Category-specific domain validation guards
     if entry.category == HallucinationCategory.SYNTAX_GRAMMAR:
+        syntax_indicators = (
+            "syntax",
+            "grammar",
+            "except",
+            "exception clause",
+            "bracketless",
+            "parentheses",
+            "unparenthesized",
+            "pep758",
+            "python 2",
+        )
+        if not any(si in finding_text_lower for si in syntax_indicators):
+            return HallucinationMatch(
+                hallucination=entry,
+                similarity_score=0.0,
+                matched_keywords=[],
+                reason="Finding does not describe a syntax or grammar issue",
+            )
+
         if file_path and file_path.exists() and file_path.suffix.lower() == ".py":
             try:
                 ast.parse(file_path.read_text(encoding="utf-8", errors="replace"))
@@ -427,6 +584,23 @@ def calculate_hallucination_similarity(
                 )
 
     if entry.category == HallucinationCategory.SECRET_SCANNING:
+        secret_indicators = (
+            "secret",
+            "token",
+            "key",
+            "password",
+            "credential",
+            "masked",
+            "redacted",
+        )
+        if not any(si in finding_text_lower for si in secret_indicators):
+            return HallucinationMatch(
+                hallucination=entry,
+                similarity_score=0.0,
+                matched_keywords=[],
+                reason="Finding does not describe a secret, token, or credential issue",
+            )
+
         # If it's a secret finding, it MUST match a masked placeholder pattern specifically
         has_masked_sig = bool(
             re.search(
@@ -443,10 +617,23 @@ def calculate_hallucination_similarity(
                 reason="Finding does not reference a verified masked/redacted placeholder",
             )
 
+    # Require minimum 2 compound keywords if no explicit regex signature matched
+    if not sig_matches and len(matched_kws) < 2:
+        return HallucinationMatch(
+            hallucination=entry,
+            similarity_score=0.0,
+            matched_keywords=matched_kws,
+            reason="Insufficient compound keywords matched without signature pattern",
+        )
+
     all_matched = list(dict.fromkeys(sig_matches + matched_kws))
-    score = 0.85 if sig_matches else 0.65
-    if matched_kws:
-        score = min(1.0, score + 0.15)
+    if sig_matches:
+        score = 0.85
+        if matched_kws:
+            score = min(1.0, score + 0.15)
+    else:
+        score = min(0.65, 0.35 + (0.10 * len(matched_kws)))
+
     if not file_matched:
         score = round(score * 0.5, 3)
 
@@ -454,7 +641,7 @@ def calculate_hallucination_similarity(
         hallucination=entry,
         similarity_score=score,
         matched_keywords=all_matched,
-        reason=f"Matched explicit signature pattern for [{entry.id}]",
+        reason=f"Matched signature/keywords for [{entry.id}]",
     )
 
 
@@ -536,12 +723,17 @@ def auto_record_invalidated_finding(
             h for h in _extract_keyword_hints(finding) if h not in _FORBIDDEN_COMMON_WORDS
         ]
         new_keywords = list(dict.fromkeys(entry.pattern_keywords + safe_hints))[:30]
+        # Never overwrite canonical resolution of builtin entries
+        resolution_to_use = entry.resolution
+        if entry.source != "builtin" and effective_reason:
+            resolution_to_use = effective_reason
+
         updated_entry = entry.model_copy(
             update={
                 "occurrence_count": entry.occurrence_count + 1,
                 "last_seen": datetime.now().isoformat(),
                 "pattern_keywords": new_keywords,
-                "resolution": effective_reason or entry.resolution,
+                "resolution": resolution_to_use,
             }
         )
         return register_common_hallucination(updated_entry, target_file=target_file)
