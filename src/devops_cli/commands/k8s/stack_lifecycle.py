@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+import secrets
 from pathlib import Path
 from typing import Annotated
 
@@ -149,10 +150,13 @@ def _adopt_helm_resource_if_conflict(
 
 def _get_openwebui_bootstrap_credentials() -> dict[str, str]:
     """Resolve OpenWebUI admin bootstrap credentials from environment or secure defaults."""
+    env_password = os.environ.get("OPENWEBUI_ADMIN_PASSWORD")
+    if not env_password:
+        env_password = secrets.token_urlsafe(24)
     return {
         "email": os.environ.get("OPENWEBUI_ADMIN_EMAIL", "admin@localhost"),
         "name": os.environ.get("OPENWEBUI_ADMIN_NAME", "Admin"),
-        "password": os.environ.get("OPENWEBUI_ADMIN_PASSWORD", "admin123"),
+        "password": env_password,
     }
 
 

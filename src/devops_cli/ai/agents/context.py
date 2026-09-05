@@ -94,18 +94,28 @@ class RunContext[DepsT](NativeRunContext[DepsT]):
         return copied
 
 
-# Allow pydantic_ai._function_schema to recognize subclasses of NativeRunContext
-_orig_fs_is_call_ctx = _pydantic_fs._is_call_ctx
+# Guarded, idempotent compatibility registration for RunContext subclasses in pydantic_ai
+_orig_fs_is_call_ctx = getattr(_pydantic_fs, "_is_call_ctx", None)
 
+if _orig_fs_is_call_ctx is not None and not getattr(
+    _orig_fs_is_call_ctx, "_is_subclass_aware", False
+):
 
-def _subclass_aware_is_call_ctx(annotation: Any) -> bool:
-    if _orig_fs_is_call_ctx(annotation):
-        return True
-    origin = getattr(annotation, "__origin__", None) or annotation
-    return isinstance(origin, type) and issubclass(origin, NativeRunContext)
+    def _subclass_aware_is_call_ctx(annotation: Any) -> bool:
+        if _orig_fs_is_call_ctx is not None:
+            try:
+                if _orig_fs_is_call_ctx(annotation):
+                    return True
+            except Exception:
+                pass
+        origin = getattr(annotation, "__origin__", None) or annotation
+        try:
+            return isinstance(origin, type) and issubclass(origin, NativeRunContext)
+        except TypeError:
+            return False
 
-
-_pydantic_fs._is_call_ctx = _subclass_aware_is_call_ctx
+    _subclass_aware_is_call_ctx._is_subclass_aware = True  # type: ignore[attr-defined]
+    _pydantic_fs._is_call_ctx = _subclass_aware_is_call_ctx
 
 
 class AgentStepNode(BaseModel):

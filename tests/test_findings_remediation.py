@@ -249,3 +249,13 @@ def test_bootstrap_openwebui_account_env_overrides(monkeypatch: pytest.MonkeyPat
     creds = _get_openwebui_bootstrap_credentials()
     assert creds["email"] == "custom_admin@corp.internal"
     assert creds["password"] == "SuperSecureCorpSecret!"
+
+
+def test_bootstrap_openwebui_account_secure_random_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    from devops_cli.commands.k8s.stack_lifecycle import _get_openwebui_bootstrap_credentials
+
+    monkeypatch.delenv("OPENWEBUI_ADMIN_PASSWORD", raising=False)
+    creds = _get_openwebui_bootstrap_credentials()
+    assert creds["email"] == "admin@localhost"
+    assert creds["password"] != "admin123"
+    assert len(creds["password"]) >= 24
