@@ -170,6 +170,13 @@
   - [x] Phase 26.4: Public Package Re-exports (`devops_cli.ai.run`, `devops_cli.ai`, `devops_cli.ai.agents`, `pydantic_agent.py`)
   - [x] Phase 26.5: Full CI Validation Suite (`devops ci` — 10/10 green), Documentation Sync & Conventional Commits
 
+- [x] Phase 27: Native Pydantic AI Settings (`pydantic_ai.settings`) Integration
+  - [x] Phase 27.1: Test-First Specifications (`tests/test_pydantic_ai_settings.py` — 9/9 green)
+  - [x] Phase 27.2: Core Settings Subsystem (`src/devops_cli/ai/settings/__init__.py`)
+  - [x] Phase 27.3: Subsystem Modernization (`ollama.py`, `direct.py`, `runner.py`)
+  - [x] Phase 27.4: Public Package Re-exports (`devops_cli.ai.settings`, `devops_cli.ai`, `devops_cli.ai.agents`, `pydantic_agent.py`)
+  - [x] Phase 27.5: Full CI Validation Suite (`devops ci` — 10/10 green), Documentation Sync & Conventional Commits
+
 ---
 
 ### In-Progress Tasks (WIP)

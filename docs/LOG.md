@@ -2,6 +2,30 @@
 
 Chronological log of refactoring milestones, quality gates, and security enhancements.
 
+### [2026-09-05] Native Pydantic AI Settings (`pydantic_ai.settings`) Integration
+- **Native Settings Subsystem (`src/devops_cli/ai/settings/__init__.py`)**:
+  - Full native adoption of `pydantic_ai.settings` API specifications:
+    - Re-exports core native classes and schemas: `ModelSettings`, `ServiceTier`, `ThinkingEffort`, `ThinkingLevel`, `Timeout`, `ToolChoice`, `ToolChoiceScalar`, `ToolOrOutput`, `merge_model_settings`, and `AgentModelSettings`.
+    - Implemented high-level domain settings utilities and factories:
+      - `create_model_settings(...) -> ModelSettings`: Strongly-typed builder for constructing `ModelSettings` omitting None values while supporting all native cross-provider fields (`thinking`, `service_tier`, `tool_choice`, `parallel_tool_calls`, `stop_sequences`, `extra_headers`, `extra_body`).
+      - `create_tool_or_output(*tools) -> ToolOrOutput`: Factory restricting function tools while permitting output tools, text, or image completion.
+      - `normalize_thinking_level(thinking) -> ThinkingLevel | None`: Normalizes booleans and string levels (`minimal`, `low`, `medium`, `high`, `xhigh`).
+      - `normalize_service_tier(tier) -> ServiceTier | None`: Validates and canonicalizes service tier strings (`auto`, `default`, `flex`, `priority`).
+      - `normalize_tool_choice(choice) -> ToolChoice | None`: Normalizes scalar tool choices (`auto`, `none`, `required`), lists of tool names, or `ToolOrOutput`.
+      - `resolve_runtime_model_settings(base, overrides, **kwargs) -> ModelSettings`: Multi-tier settings resolver combining base, override, and dynamic kwargs.
+- **Subsystem Modernizations**:
+  - `src/devops_cli/ai/models/ollama.py`: Integrated `create_model_settings` and `merge_model_settings` for clean model settings compilation.
+  - `src/devops_cli/ai/direct.py`: Updated `ModelSettings` import to reference `devops_cli.ai.settings`.
+  - `src/devops_cli/ai/agents/runner.py`: Enhanced `_resolve_thinking_preference` to check both native `thinking` (`ThinkingLevel`) and `enable_thinking`.
+- **Package Re-exports (`devops_cli.ai.settings`, `devops_cli.ai`, `devops_cli.ai.agents`, `devops_cli.ai.agents.pydantic_agent`)**:
+  - Re-exported all settings classes, types, and factories across public package tiers with strict typing (`mypy --strict`) and complete `__all__` lists.
+- **Quality Gates & Test-First Verification**:
+  - Authored comprehensive test suite `tests/test_pydantic_ai_settings.py` (9/9 tests passing).
+  - Strict static typing (`mypy --strict`) 100% clean across all new and modified modules.
+  - Clean linting and formatting (`ruff check`, `ruff format`).
+  - Documentation generated and README synchronized (`devops docs generate --sync-readme`).
+  - Full CI validation suite (`uv run devops ci`): 10/10 quality gates green in 131s (version, test, coverage >= 90%, lint, format, typecheck, audit, security, actionlint, docs).
+
 ### [2026-09-05] Native Pydantic AI Run (`pydantic_ai.run`) Integration
 - **Native Run Subsystem (`src/devops_cli/ai/run/__init__.py`)**:
   - Full native adoption of `pydantic_ai.run` API specifications:
