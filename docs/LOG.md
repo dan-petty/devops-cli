@@ -6,6 +6,32 @@ Chronological log of refactoring milestones, quality gates, and security enhance
 
 ## Log Entries
 
+### [2026-09-05] Review Findings Remediation (Session `20260905-003105`), Python 3.14 PEP 759 Awareness & Review Loop Hardening
+- **Codebase Findings Remediation (Session `20260905-003105`)**:
+  - **Concurrent Background Process Ceiling (`src/devops_cli/ai/harness/shell.py`)**: Added `max_bg_processes: int = 10` cap to `Shell` and `start_command`, blocking concurrent process unbounded growth.
+  - **Command Argument Traversal & Denylist (`src/devops_cli/ai/harness/shell.py`)**: Blocked `..` traversal in arguments and enhanced denied commands prefix matching for `mkfs.*`, `reboot`, `shutdown`, `poweroff`.
+  - **Kubernetes Apply Manifest SSRF & Traversal Defense (`src/devops_cli/commands/k8s/cluster_context.py`)**: Added URL scheme (`http`/`https`), loopback/private IP (`127.0.0.1`, `169.254.169.254`), and local filesystem traversal validation (`..`) to `kubectl apply`.
+  - **Vault Address Validation (`src/devops_cli/security/vault_broker.py`)**: Enforced `http`/`https` scheme check and traversal sequence validation on `vault_addr`.
+  - **Prompt Injection Tag Neutralization (`src/devops_cli/ai/agents/prompt.py`)**: Added `_PROMPT_INJECTION_TAGS_REGEX` in `ManagedPrompt.render` to scrub `<system>`, `<instructions>`, `<prompt>`, and `<untrusted>` tags from substituted variables.
+  - **Web Fetch Tool Post-Redirect SSRF Protection (`src/devops_cli/ai/common_tools.py`)**: Added post-redirect host validation against private/loopback/link-local addresses in `web_fetch_tool`.
+  - **Diff Memory Ceiling (`src/devops_cli/ai/diff/difftastic.py`)**: Added `MAX_DIFF_TEXT_CHARS = 500_000` ceiling in `sanitize_diff_output`.
+  - **LangChain Tool Adapter Traversal Defense (`src/devops_cli/ai/ext_langchain.py`)**: Added `_validate_langchain_kwargs` checking path/file arguments for traversal sequences in `tool_from_langchain`.
+  - **Macroscope Base Ref Validation & Playwright Scheme Enforcement (`src/devops_cli/ai/harness/agents.py`)**: Validated `diff_base` ref in `Macroscope` against traversal sequences and constrained `PlaywrightBrowser.navigate` to `http`/`https` schemes.
+  - **Model Bundler Output Directory Validation (`src/devops_cli/ai/model_bundler.py`)**: Added traversal and system directory containment validation to `bundle_ollama_models`.
+  - **Kubernetes Pod Diagnostics Secret Masking (`src/devops_cli/commands/k8s/diagnostics.py`, `sanitization.py`)**: Masked exception messages in `_build_pods_table` using `_sanitize_output_text` and enhanced `_SECRET_PATTERNS` to catch token/secret labels.
+  - **Pipeline Path & Function Name Validation (`src/devops_cli/commands/pipeline.py`)**: Enforced file existence check on `pipeline_path` and identifier safety validation on `function_name`.
+  - **Async Coroutine Support in CodeMode (`src/devops_cli/ai/harness/os_access.py`, `tools.py`)**: Added `__call__` to `AgentTool` and coroutine-awaiting support in `CodeMode._make_sandboxed_tool_wrapper`.
+- **Review Engine & Self-Improvement Loop Hardening**:
+  - **Strict Location Canonicalization & Noise Filtering (`src/devops_cli/ai/review_schema.py`)**: Updated `canonicalize_finding_location` to reject non-alphanumeric tokens, markdown asterisks (`**`), section headers (`###`), and non-path tokens.
+  - **Conversational Praise & Approval Scrubbing (`src/devops_cli/ai/review_schema.py`)**: Added `_APPROVAL_PREFIX_REGEX` and `_PRAISE_PREFIX_REGEX` in `sanitize_finding_text` to strip leading praise ("Good. But ...") and filter pure approvals ("The function uses ... Good.") from review findings.
+  - **Finding Emptiness Detection (`src/devops_cli/ai/review_schema.py`)**: Updated `Finding.is_empty` and added `title` to `_clean_text_fields` to automatically discard findings with conversational approval or invalid locations.
+  - **Prompt Task Definitions & Knowledge Base Synchronization**:
+    - Updated `verify_finding_system.md` and `review_output_instruction.md` with explicit Python 3.14 PEP 759 modern syntax awareness (`except E1, E2:`) and zero-praise rules in structured finding lists.
+    - Synchronized `src/devops_cli/ai/knowledge_base/devops_cli/tasks/ai_code_review.md` and generated all CLI docs and README via `devops docs generate --sync-readme`.
+- **Quality Gates & Test-First Verification**:
+  - Authored 20 new tests across `tests/test_findings_remediation_session_003105.py` (15 tests) and `tests/test_review_schema_hardening_session_003105.py` (5 tests) — 100% passing.
+  - Verified full `devops ci` quality gate: all 10 checks passed cleanly (1,487 tests passed, 90.69% code coverage).
+
 ### [2026-09-04] Review Findings Remediation, Prompt Leakage Defense & Closed-Loop Review Engine Hardening
 - **Codebase Findings Remediation (Session `20260904-192102`)**:
   - **Path Traversal Prefix Collision (`src/devops_cli/ai/harness/filesystem.py`)**: Fixed `_resolve_safe_path` using `resolved.is_relative_to(root_res)` rather than prefix string matching to prevent sibling-directory breakout attacks.
