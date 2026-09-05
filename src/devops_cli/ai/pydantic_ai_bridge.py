@@ -121,7 +121,15 @@ def resolve_pydantic_ai_model(
     try:
         from pydantic_ai.models import infer_model
 
-        inferred = infer_model(model_str)
+        from devops_cli.ai.providers import create_pydantic_ai_provider
+
+        api_key = get_ai_api_key(active_settings) or getattr(active_settings.ai, "api_key", None)
+        base_url = getattr(active_settings.ai, "api_base_url", None)
+
+        def _provider_factory(prov_name: str) -> Any:
+            return create_pydantic_ai_provider(prov_name, base_url=base_url, api_key=api_key)
+
+        inferred = infer_model(model_str, provider_factory=_provider_factory)
         return (
             limit_model_concurrency(inferred, model_concurrency) if model_concurrency else inferred
         )

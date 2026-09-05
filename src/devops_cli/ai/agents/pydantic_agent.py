@@ -366,6 +366,22 @@ from devops_cli.ai.output import (
     resolve_output_mode,
     unwrap_output_spec,
 )
+from devops_cli.ai.profiles import (
+    DEFAULT_PROFILE,
+    DEFAULT_THINKING_TAGS,
+    ModelProfile,
+    get_model_profile_builder,
+    get_model_thinking_tags,
+    resolve_model_profile,
+    supports_thinking,
+    thinking_always_enabled,
+)
+from devops_cli.ai.providers import (
+    Provider,
+    create_pydantic_ai_provider,
+    infer_provider,
+    infer_provider_class,
+)
 
 __all__ = [
     "ALLOW_MODEL_REQUESTS",
@@ -697,4 +713,16 @@ __all__ = [
     "get_review_output_spec",
     "resolve_output_mode",
     "unwrap_output_spec",
+    "DEFAULT_PROFILE",
+    "DEFAULT_THINKING_TAGS",
+    "ModelProfile",
+    "get_model_profile_builder",
+    "get_model_thinking_tags",
+    "resolve_model_profile",
+    "supports_thinking",
+    "thinking_always_enabled",
+    "Provider",
+    "create_pydantic_ai_provider",
+    "infer_provider",
+    "infer_provider_class",
 ]
