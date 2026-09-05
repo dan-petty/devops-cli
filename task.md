@@ -52,12 +52,34 @@
 - [x] Documentation synchronization (`uv run devops docs generate --sync-readme`).
 - [x] Updated `docs/LOG.md` and `docs/ROADMAP.md`.
 
+- [x] Phase 11: Address Review Findings (Session 20260905-035954) & Self-Improvement Loop Hardening
+  - [x] Phase 11.1: Security & Robustness Remediations (Test-First)
+  - [x] Phase 11.2: Invalidate False-Positive Hallucinations & Update Review Session
+  - [x] Phase 11.3: Verification Pipeline & Catalog Hardening
+  - [x] Phase 11.4: Prompt & Guidelines Hardening
+  - [x] Phase 11.5: Test Suite & CI Validation (8/8 green tests, full CI green)
+  - [x] Phase 11.6: Documentation & Commit
+
+- [x] Phase 12: Pydantic AI Native Functionality & Capabilities API Optimization
+  - [x] Phase 12.1: Native `AbstractCapability` Architecture & Protocol Implementation
+  - [x] Phase 12.2: Pydantic Agent & Bridge Alignment
+  - [x] Phase 12.3: Test-First Verification Suite (`tests/test_pydantic_ai_native_capabilities.py` — 9/9 green)
+  - [x] Phase 12.4: Full CI Validation Suite & Documentation Sync
+
+- [x] Phase 13: Native Pydantic AI Common Tools (`pydantic_ai.common_tools`) & Vector Dimension Drift Remediation
+  - [x] Phase 13.1: Expose and bridge native `pydantic_ai.common_tools` (`web_fetch_tool`, `duckduckgo_search_tool`, `tavily_search_tool`, `exa_search_tool`, `image_generation_tool`, `x_search_tool`) in `src/devops_cli/ai/common_tools.py` with SSRF protection and TypedDict schemas (`WebFetchResult`, `DuckDuckGoResult`, `TavilySearchResult`, `ExaSearchResult`, `ExaAnswerResult`, `ExaContentResult`).
+  - [x] Phase 13.2: Re-export native common tools and toolsets in `src/devops_cli/ai/agents/pydantic_agent.py`, `src/devops_cli/ai/agents/__init__.py`, and `src/devops_cli/ai/__init__.py`.
+  - [x] Phase 13.3: Wire `WebSearch`, `WebFetch`, `ImageGeneration`, and `XSearch` capabilities in `src/devops_cli/ai/agents/capabilities.py` to native common tools and toolsets.
+  - [x] Phase 13.4: Resolve vector dimension drift in `src/devops_cli/ai/agents/embeddings.py` (`load_settings().ai`, colon tag preservation) and `src/devops_cli/ai/rag/embeddings.py` (`load_settings().ai`, task overrides).
+  - [x] Phase 13.5: Author comprehensive unit tests (`tests/test_native_common_tools.py` [10/10 green] and `tests/test_embedding_config_retention.py` [4/4 green]).
+  - [x] Phase 13.6: Full CI Quality Gate execution (`uv run devops ci`), documentation sync (`devops docs generate --sync-readme`), and conventional commits on `release/v0.2.10`.
+
 ---
 
 ### In-Progress Tasks (WIP)
-- [ ] Conventional atomic commit and git push to `release/v0.2.10`.
+- [ ] Push atomic conventional commits to `origin/release/v0.2.10`.
 
 ---
 
 ### Pending Tasks
-- [ ] Update `walkthrough.md`.
+- [ ] User review and PR readiness.

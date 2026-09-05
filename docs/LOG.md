@@ -4,7 +4,25 @@ Chronological log of refactoring milestones, quality gates, and security enhance
 
 ---
 
-## Log Entries
+### [2026-09-05] Native Pydantic AI Common Tools (`pydantic_ai.common_tools`) & Embedding Config Retention
+- **Native Common Tools & TypedDict Schemas (`src/devops_cli/ai/common_tools.py`)**:
+  - Bridged and re-exported native Pydantic AI common tools (`pydantic_ai.common_tools`) with robust enterprise SSRF protection and zero-dependency fallbacks.
+  - Implemented TypedDict result schemas conforming to native Pydantic AI: `WebFetchResult`, `DuckDuckGoResult`, `TavilySearchResult`, `ExaSearchResult`, `ExaAnswerResult`, `ExaContentResult`.
+  - Re-exported native tool classes and subagents: `ImageGenerationTool`, `ImageGenerationSubagentTool`, `ImageGenerationFallbackModel`, `XSearchTool`, `XSearchSubagentTool`, `XSearchFallbackModel`, `DuckDuckGoSearchTool`, `TavilySearchTool`, `WebFetchLocalTool`, `ExaSearchTool`, `ExaToolset`.
+  - Maintained zero-trust egress security: `web_fetch_tool` rejects private, loopback, and link-local IP addresses (`_is_private_or_loopback`) and validates post-redirect destination hostnames.
+- **Native Toolsets & Agent Facade Re-exports (`src/devops_cli/ai/agents/pydantic_agent.py`, `agents/__init__.py`, `ai/__init__.py`)**:
+  - Re-exported native toolsets from `pydantic_ai.toolsets`: `ApprovalRequiredToolset`, `CombinedToolset`, `DeferredLoadingToolset`, `DynamicToolset`, `ExternalToolset`, `FilteredToolset`, `FunctionToolset`, `IncludeReturnSchemasToolset`, `PrefixedToolset`, `PreparedToolset`, `RenamedToolset`, `SetMetadataToolset`, `WrapperToolset`.
+  - Re-exported all native common tools and schemas across `devops_cli.ai.agents` and `devops_cli.ai` packages with complete `__all__` definitions.
+- **Embedding Configuration Retention & Model Tag Preservation (`src/devops_cli/ai/agents/embeddings.py`, `src/devops_cli/ai/rag/embeddings.py`)**:
+  - Resolved root cause of vector dimension drift between 1024 and 768:
+    - Fixed `Embedder._get_engine` to inherit active configuration from `load_settings().ai` instead of defaulting to unconfigured `AIConfig()` (`localhost:11434` and `qwen3-embedding:0.6b` 1024-dim).
+    - Fixed model name parsing in `Embedder`: replaced destructive `.split(":")[-1]` with `.removeprefix("ollama:").removeprefix("openai:")`, preserving model tags like `embeddinggemma:300m`.
+    - Fixed `EmbeddingsEngine` and `OllamaEmbeddingModel` to inherit active settings from `load_settings().ai` and prioritize task overrides `ai.tasks.embedding.model`.
+- **Quality Gates & Test-First Verification**:
+  - Authored `tests/test_embedding_config_retention.py` (4/4 tests passing) verifying config retention, Ollama tag preservation, and task overrides.
+  - Authored `tests/test_native_common_tools.py` (10/10 tests passing) verifying TypedDict schemas, native tool exports, SSRF blocking, and agent re-exports.
+  - Authored `tests/test_pydantic_ai_native_capabilities.py` (9/9 tests passing) verifying dual compatibility between native `pydantic_ai.Agent` and `devops_cli.ai.agents.agent.PydanticAgent`.
+  - Full static typing verification with strict mypy targeting Python 3.14 across all 288 source files in `src/`.
 
 ### [2026-09-05] Common AI Hallucinations External JSON Catalog, Ground Truth Safety & Autonomous Management
 - **JSON Catalog Externalization & Separation (`src/devops_cli/ai/review/common_hallucinations.json`, `common_hallucinations.py`)**:
