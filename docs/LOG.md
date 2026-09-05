@@ -2,6 +2,25 @@
 
 Chronological log of refactoring milestones, quality gates, and security enhancements.
 
+### [2026-09-05] Native Pydantic AI MCP (`pydantic_ai.mcp`) & Dynamic In-Process FastMCP Toolset Integration
+- **Native MCP Toolset Subsystem (`src/devops_cli/ai/mcp/toolset.py`)**:
+  - Full native adoption of `pydantic_ai.mcp` API specification:
+    - Re-exports all core native classes, protocols, models, and types: `MCPToolset`, `MCPToolsetClient`, `load_mcp_toolsets`, `MCPError`, `Resource`, `ResourceAnnotations`, `ResourceTemplate`, `ServerCapabilities`, `ProcessToolCallback`, `CallToolFunc`, `ToolResult`, `Prompt`, `PromptArgument`, `PromptMessage`, `PromptResult`, `Icon`, `ResourceLink`, `EmbeddedResource`, `ContentBlock`, and `PromptRole`.
+    - Implemented high-level domain factories and helpers:
+      - `create_devops_mcp_toolset`: Connects a native `pydantic_ai.mcp.MCPToolset` to the in-process `devops-cli` FastMCP server (`devops_cli.ai.mcp.server.mcp`), exposing all 53+ DevOps tools with zero network overhead.
+      - `create_mcp_toolset`: Multi-target factory creating toolsets from FastMCP servers, HTTP/SSE/WebSocket URLs, Python script paths, or pre-configured clients, with optional tool prefixing (`PrefixedToolset`).
+      - `load_devops_mcp_toolsets`: Multi-format configuration loader for JSON and YAML definitions supporting `${VAR:-default}` environment variable expansion.
+- **Dynamic Bridge & Subsystem Integration (`src/devops_cli/ai/tools/mcp_bridge.py`, `src/devops_cli/ai/agents/tools.py`, `src/devops_cli/ai/agents/agent.py`)**:
+  - Modernized `mcp_bridge.py`: replaced hardcoded list of 31 tools with dynamic component extraction from FastMCP (`mcp.local_provider._components`), satisfying AGENTS.md rule against incomplete string literal collections. Added `get_devops_mcp_toolset()`.
+  - Added `.to_native_toolset()` on `MCPToolset` (`devops_cli.ai.agents.tools`) for seamless bridge between legacy and native toolsets.
+  - Enhanced `PydanticAgent` (`agent.py`) to accept union `AgentToolset = AbstractToolset | PyAIAbstractToolset[Any]`, type-safely separating synchronous tool extraction from asynchronous native MCP execution pipelines.
+  - Enhanced `create_pydantic_ai_agent` (`devops_cli.ai.pydantic_ai_bridge`) with `toolsets` argument forwarding.
+- **Package Re-exports (`devops_cli.ai`, `devops_cli.ai.agents`, `devops_cli.ai.agents.pydantic_agent`, `devops_cli.ai.mcp`, `devops_cli.ai.tools`)**:
+  - Re-exported all native MCP types, protocols, and helper functions across all public package tiers with strict typing and comprehensive `__all__` definitions.
+- **Quality Gates & Test-First Verification**:
+  - Authored comprehensive test suite `tests/test_pydantic_ai_mcp.py` (10/10 tests passing).
+  - Full CI validation suite (`uv run devops ci`): 10/10 quality gates green (version, test, coverage >= 90%, lint, format, typecheck, audit, security, actionlint, docs).
+
 ### [2026-09-05] Native Pydantic AI Function Signature (`pydantic_ai.function_signature`) & Tool Interface Introspection
 - **Native Function Signature Subsystem (`src/devops_cli/ai/function_signature.py`)**:
   - Full native adoption of `pydantic_ai.function_signature` API specification:

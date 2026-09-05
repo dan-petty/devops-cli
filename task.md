@@ -120,12 +120,19 @@
   - [x] Phase 19.4: Public Package Re-exports (`devops_cli.ai`, `devops_cli.ai.agents`, `devops_cli.ai.agents.pydantic_agent`)
   - [x] Phase 19.5: Full CI Validation Suite (`devops ci` — 10/10 green), Documentation Sync & Conventional Commits
 
+- [x] Phase 20: Native Pydantic AI MCP (`pydantic_ai.mcp`) & FastMCP Toolset Modernization
+  - [x] Phase 20.1: Test-First Specifications (`tests/test_pydantic_ai_mcp.py` — 10/10 green)
+  - [x] Phase 20.2: Core MCP Toolset Subsystem (`src/devops_cli/ai/mcp/toolset.py`)
+  - [x] Phase 20.3: FastMCP Dynamic Introspection & Bridge Modernization (`mcp_bridge.py`, `tools.py`, `agent.py`, `pydantic_ai_bridge.py`)
+  - [x] Phase 20.4: Public Package Re-exports (`devops_cli.ai.mcp`, `devops_cli.ai`, `devops_cli.ai.agents`, `devops_cli.ai.agents.pydantic_agent`)
+  - [x] Phase 20.5: Full CI Validation Suite (`devops ci` — 10/10 green), Documentation Sync & Conventional Commits
+
 ---
 
 ### In-Progress Tasks (WIP)
-- None.
+None.
 
 ---
 
 ### Pending Tasks
-- None.
+None.
