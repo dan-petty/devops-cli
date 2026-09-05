@@ -352,9 +352,9 @@ def test_runner_executes_with_pydantic_exceptions() -> None:
     def retrying_tool() -> None:
         raise ModelRetry("Please specify a valid cluster context")
 
-    tool_fail = Tool(name="fail_op", description="fail op", func=failing_tool)
-    tool_skip = Tool(name="skip_op", description="skip op", func=skipping_tool)
-    tool_retry = Tool(name="retry_op", description="retry op", func=retrying_tool)
+    tool_fail = Tool(name="fail_op", description="fail op", function=failing_tool)
+    tool_skip = Tool(name="skip_op", description="skip op", function=skipping_tool)
+    tool_retry = Tool(name="retry_op", description="retry op", function=retrying_tool)
 
     dummy_ctx: Any = RunContext(deps=None)
 

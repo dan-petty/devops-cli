@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 from typer.testing import CliRunner
 
-from devops_cli.commands.scan import scan_app
+from devops_cli.commands.scan import app as scan_app
 from devops_cli.models.vulnerability import (
     VulnerabilityFixAction,
     VulnerabilityRecord,

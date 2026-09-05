@@ -97,10 +97,10 @@ def test_scan_semgrep_cli(tmp_path: Path) -> None:
     test_file.write_text("x = 1\n", encoding="utf-8")
 
     with patch("devops_cli.security.semgrep.run_semgrep_scan", return_value=[]):
-        res = runner.invoke(scan_app, ["semgrep", str(test_file)])
+        res = runner.invoke(scan_app, ["sast", str(test_file)])
         assert res.exit_code == 0
         assert "No static AST pattern flaws detected" in res.stdout
 
-        res_json = runner.invoke(scan_app, ["semgrep", str(test_file), "--json"])
+        res_json = runner.invoke(scan_app, ["sast", str(test_file), "--json"])
         assert res_json.exit_code == 0
         assert "[]" in res_json.stdout

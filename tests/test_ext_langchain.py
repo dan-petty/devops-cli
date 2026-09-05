@@ -94,7 +94,7 @@ def test_tool_from_langchain_sanitizes_path_traversal() -> None:
     dummy_lc_tool.run.return_value = "file contents"
 
     tool = tool_from_langchain(dummy_lc_tool)
-    fn = tool.func
+    fn = tool.function
     res = fn(path="../../etc/passwd")
     assert (
         "traversal" in str(res).lower()

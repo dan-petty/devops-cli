@@ -38,7 +38,6 @@ def isolate_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     test_data_dir = (tmp_path / ".data").resolve()
     test_data_dir.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(test_data_dir))
-    monkeypatch.setenv("DEVOPS_DATA_DIR", str(test_data_dir))
     yield test_data_dir
 
 

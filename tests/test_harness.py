@@ -183,7 +183,7 @@ def test_coder_and_researcher_harness_stacks(tmp_path: Path) -> None:
     coder_tools = coder.get_tools()
     coder_tool_names = {t.name for t in coder_tools if hasattr(t, "name")}
     assert "read_file" in coder_tool_names
-    assert "run_shell" in coder_tool_names
+    assert "run_command" in coder_tool_names
     assert "update_plan" in coder_tool_names
 
     researcher = Researcher()
@@ -202,7 +202,7 @@ def test_coder_agent_factory(tmp_path: Path) -> None:
     agent = coder_agent(client=mock_client, workspace_dir=tmp_path)
     assert agent.name == "coder"
     assert "read_file" in agent._tools
-    assert "run_shell" in agent._tools
+    assert "run_command" in agent._tools
     assert "update_plan" in agent._tools
 
 
@@ -225,7 +225,7 @@ def test_macroscope_capability_missing_cli(tmp_path: Path) -> None:
     cap = Macroscope(command="nonexistent_macroscope_bin", cwd=tmp_path)
     tools = cap.get_tools()
     assert len(tools) == 1
-    tool_func = tools[0].func  # type: ignore[union-attr]
+    tool_func = tools[0].function  # type: ignore[union-attr]
     result = tool_func()
     assert "not found" in result
     assert "curl -sSL https://raw.githubusercontent.com/prassoai/macroscope-local" in result
@@ -272,7 +272,7 @@ def test_macroscope_capability_streaming_findings(tmp_path: Path) -> None:
         mock_run.return_value = mock_proc
 
         tool = cap.get_tools()[0]
-        res = tool.func()  # type: ignore[union-attr]
+        res = tool.function()  # type: ignore[union-attr]
         assert "Macroscope Review (rev-12345)" in res
         assert "[HIGH] src/app.py:42 (security)" in res
         assert "Unsanitized user input" in res
@@ -311,30 +311,32 @@ def test_playwright_browser_capability() -> None:
     assert "network_requests" in tools
 
     # Navigate
-    assert "Egress blocked" in tools["navigate"].func("http://127.0.0.1:8080/admin")  # type: ignore[union-attr]
-    assert "Navigated to https://example.com" in tools["navigate"].func("https://example.com")  # type: ignore[union-attr]
+    assert "Egress blocked" in tools["navigate"].function("http://127.0.0.1:8080/admin")  # type: ignore[union-attr]
+    assert "Navigated to https://example.com" in tools["navigate"].function("https://example.com")  # type: ignore[union-attr]
 
     # Inspect other tools
-    assert "RootWebArea" in tools["snapshot"].func()  # type: ignore[union-attr]
-    assert "Clicked element '#btn'" in tools["click"].func(selector="#btn")  # type: ignore[union-attr]
-    assert "Typed 'hello'" in tools["type_text"].func(selector="#input", text="hello")  # type: ignore[union-attr]
-    assert "Pressed key 'Enter'" in tools["press_key"].func(key="Enter")  # type: ignore[union-attr]
-    assert "Selected options" in tools["select_option"].func(selector="#dropdown", values=["val1"])  # type: ignore[union-attr]
-    assert "Hovered over" in tools["hover"].func(selector="#item")  # type: ignore[union-attr]
-    assert "Waited until #modal appeared" in tools["wait_for"].func(selector="#modal")  # type: ignore[union-attr]
-    assert "Waited until #loader disappeared" in tools["wait_for"].func(
+    assert "RootWebArea" in tools["snapshot"].function()  # type: ignore[union-attr]
+    assert "Clicked element '#btn'" in tools["click"].function(selector="#btn")  # type: ignore[union-attr]
+    assert "Typed 'hello'" in tools["type_text"].function(selector="#input", text="hello")  # type: ignore[union-attr]
+    assert "Pressed key 'Enter'" in tools["press_key"].function(key="Enter")  # type: ignore[union-attr]
+    assert "Selected options" in tools["select_option"].function(
+        selector="#dropdown", values=["val1"]
+    )  # type: ignore[union-attr]
+    assert "Hovered over" in tools["hover"].function(selector="#item")  # type: ignore[union-attr]
+    assert "Waited until #modal appeared" in tools["wait_for"].function(selector="#modal")  # type: ignore[union-attr]
+    assert "Waited until #loader disappeared" in tools["wait_for"].function(
         selector="#loader", gone=True
     )  # type: ignore[union-attr]
-    assert "Screenshot captured" in tools["screenshot"].func()  # type: ignore[union-attr]
-    assert "Page text content" in tools["get_text"].func()  # type: ignore[union-attr]
-    assert "Scrolled page down" in tools["scroll"].func(direction="down")  # type: ignore[union-attr]
-    assert "Navigated back" in tools["go_back"].func()  # type: ignore[union-attr]
-    assert "Navigated forward" in tools["go_forward"].func()  # type: ignore[union-attr]
-    assert "Script executed" in tools["execute_js"].func(script="console.log('hi')")  # type: ignore[union-attr]
-    assert "Console logs:" in tools["console_messages"].func()  # type: ignore[union-attr]
-    assert "Tabs action 'list'" in tools["tabs"].func(action="list")  # type: ignore[union-attr]
-    assert "Next dialog configured" in tools["handle_next_dialog"].func(accept=True)  # type: ignore[union-attr]
-    assert "Network requests:" in tools["network_requests"].func()  # type: ignore[union-attr]
+    assert "Screenshot captured" in tools["screenshot"].function()  # type: ignore[union-attr]
+    assert "Page text content" in tools["get_text"].function()  # type: ignore[union-attr]
+    assert "Scrolled page down" in tools["scroll"].function(direction="down")  # type: ignore[union-attr]
+    assert "Navigated back" in tools["go_back"].function()  # type: ignore[union-attr]
+    assert "Navigated forward" in tools["go_forward"].function()  # type: ignore[union-attr]
+    assert "Script executed" in tools["execute_js"].function(script="console.log('hi')")  # type: ignore[union-attr]
+    assert "Console logs:" in tools["console_messages"].function()  # type: ignore[union-attr]
+    assert "Tabs action 'list'" in tools["tabs"].function(action="list")  # type: ignore[union-attr]
+    assert "Next dialog configured" in tools["handle_next_dialog"].function(accept=True)  # type: ignore[union-attr]
+    assert "Network requests:" in tools["network_requests"].function()  # type: ignore[union-attr]
 
 
 def test_file_system_edge_cases(tmp_path: Path) -> None:
@@ -407,7 +409,7 @@ def test_macroscope_empty_and_exceptions(tmp_path: Path) -> None:
         mock_proc.stdout = '{"type": "review_id", "id": "rev-999"}\n{"type": "issue_status", "status": "completed"}'
         mock_run.return_value = mock_proc
 
-        res = tool.func()  # type: ignore[union-attr]
+        res = tool.function()  # type: ignore[union-attr]
         assert "0 issues found" in res
 
     # TimeoutExpired exception
@@ -415,7 +417,7 @@ def test_macroscope_empty_and_exceptions(tmp_path: Path) -> None:
         patch("shutil.which", return_value="/usr/local/bin/macroscope"),
         patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="macroscope", timeout=5)),
     ):
-        res = tool.func()  # type: ignore[union-attr]
+        res = tool.function()  # type: ignore[union-attr]
         assert "timed out after" in res
 
     # General Exception
@@ -423,7 +425,7 @@ def test_macroscope_empty_and_exceptions(tmp_path: Path) -> None:
         patch("shutil.which", return_value="/usr/local/bin/macroscope"),
         patch("subprocess.run", side_effect=OSError("Process failed")),
     ):
-        res = tool.func()  # type: ignore[union-attr]
+        res = tool.function()  # type: ignore[union-attr]
         assert "Macroscope review error:" in res
 
 
@@ -525,14 +527,14 @@ def test_planning_capability_tools() -> None:
     assert "update_plan" in tools
 
     # Test write_plan and read_plan
-    write_res = tools["write_plan"].func([{"content": "Step 1"}, {"content": "Step 2"}])  # type: ignore[union-attr]
+    write_res = tools["write_plan"].function([{"content": "Step 1"}, {"content": "Step 2"}])  # type: ignore[union-attr]
     assert "2 steps" in write_res
 
-    read_res = tools["read_plan"].func()  # type: ignore[union-attr]
+    read_res = tools["read_plan"].function()  # type: ignore[union-attr]
     assert "Plan Progress: 0/2 completed" in read_res
 
     # Test add_task
-    add_res = tools["add_task"].func(content="Step 3", active_form="Implementing Step 3")  # type: ignore[union-attr]
+    add_res = tools["add_task"].function(content="Step 3", active_form="Implementing Step 3")  # type: ignore[union-attr]
     assert "Step 3" in add_res
 
     store_items = planning.resolve_store().get_items()
@@ -540,26 +542,28 @@ def test_planning_capability_tools() -> None:
     t1_id = store_items[0].id
 
     # Test update_task_status
-    up_res = tools["update_task_status"].func(task_id=t1_id, status="in_progress")  # type: ignore[union-attr]
+    up_res = tools["update_task_status"].function(task_id=t1_id, status="in_progress")  # type: ignore[union-attr]
     assert "updated to 'in_progress'" in up_res
 
-    invalid_st_res = tools["update_task_status"].func(task_id=t1_id, status="invalid_status")  # type: ignore[union-attr]
+    invalid_st_res = tools["update_task_status"].function(task_id=t1_id, status="invalid_status")  # type: ignore[union-attr]
     assert "Error: invalid status" in invalid_st_res
 
-    not_found_res = tools["update_task_status"].func(task_id="unknown-999", status="completed")  # type: ignore[union-attr]
+    not_found_res = tools["update_task_status"].function(task_id="unknown-999", status="completed")  # type: ignore[union-attr]
     assert "not found" in not_found_res
 
     # Test update_task_statuses batch
-    batch_res = tools["update_task_statuses"].func(updates=[{"id": t1_id, "status": "completed"}])  # type: ignore[union-attr]
+    batch_res = tools["update_task_statuses"].function(
+        updates=[{"id": t1_id, "status": "completed"}]
+    )  # type: ignore[union-attr]
     assert "Successfully updated" in batch_res
 
-    batch_err = tools["update_task_statuses"].func(
+    batch_err = tools["update_task_statuses"].function(
         updates=[{"id": "unknown-id", "status": "completed"}]
     )  # type: ignore[union-attr]
     assert "Error: task id 'unknown-id' not found" in batch_err
 
     # Test remove_task
-    rem_res = tools["remove_task"].func(task_id=t1_id)  # type: ignore[union-attr]
+    rem_res = tools["remove_task"].function(task_id=t1_id)  # type: ignore[union-attr]
     assert "removed from plan" in rem_res
 
 
@@ -573,33 +577,33 @@ def test_planning_subtasks_and_dependencies() -> None:
     assert "set_dependency" in tools
     assert "get_available_tasks" in tools
 
-    tools["write_plan"].func([{"content": "Parent Task"}])  # type: ignore[union-attr]
+    tools["write_plan"].function([{"content": "Parent Task"}])  # type: ignore[union-attr]
     parent_id = planning.resolve_store().get_items()[0].id
 
     # Add subtask
-    sub_res = tools["add_subtask"].func(parent_id=parent_id, content="Child Task")  # type: ignore[union-attr]
+    sub_res = tools["add_subtask"].function(parent_id=parent_id, content="Child Task")  # type: ignore[union-attr]
     assert "Child Task" in sub_res
     child_id = planning.resolve_store().get_items()[1].id
 
     # Set dependency (child depends on parent)
-    dep_res = tools["set_dependency"].func(task_id=child_id, depends_on_id=parent_id)  # type: ignore[union-attr]
+    dep_res = tools["set_dependency"].function(task_id=child_id, depends_on_id=parent_id)  # type: ignore[union-attr]
     assert "status: blocked" in dep_res
 
     # Self-dependency error
-    self_dep = tools["set_dependency"].func(task_id=child_id, depends_on_id=child_id)  # type: ignore[union-attr]
+    self_dep = tools["set_dependency"].function(task_id=child_id, depends_on_id=child_id)  # type: ignore[union-attr]
     assert "self-dependency not allowed" in self_dep
 
     # Hierarchical read
-    h_read = tools["read_plan"].func(view="hierarchical")  # type: ignore[union-attr]
+    h_read = tools["read_plan"].function(view="hierarchical")  # type: ignore[union-attr]
     assert "Parent Task" in h_read
     assert "Child Task" in h_read
 
     # Complete parent -> child auto unblocks
-    tools["update_task_status"].func(task_id=parent_id, status="completed")  # type: ignore[union-attr]
+    tools["update_task_status"].function(task_id=parent_id, status="completed")  # type: ignore[union-attr]
     assert planning.resolve_store().get_items()[1].status == "pending"
 
     # Get available tasks
-    avail = tools["get_available_tasks"].func()  # type: ignore[union-attr]
+    avail = tools["get_available_tasks"].function()  # type: ignore[union-attr]
     assert "Child Task" in avail
 
 
@@ -622,7 +626,7 @@ def test_planning_hooks_and_options() -> None:
     plain_plan = Planning(enable_subtasks=False)
     plain_tools = {t.name: t for t in plain_plan.get_tools()}
     with pytest.raises(ValueError, match="require enable_subtasks=True"):
-        plain_tools["write_plan"].func([{"content": "Step", "status": "blocked"}])  # type: ignore[union-attr]
+        plain_tools["write_plan"].function([{"content": "Step", "status": "blocked"}])  # type: ignore[union-attr]
 
     # Custom store resolver
     custom_store = InMemoryPlanStore()
@@ -697,19 +701,19 @@ def test_subagent_run_controls_and_budget() -> None:
     assert "delegate_to_worker" in tools
 
     # First call succeeds
-    res1 = tools["delegate_task"].func(agent_name="worker", task="Task 1")  # type: ignore[union-attr]
+    res1 = tools["delegate_task"].function(agent_name="worker", task="Task 1")  # type: ignore[union-attr]
     assert res1 == "Processed: Task 1"
 
     # Second call succeeds
-    res2 = tools["delegate_to_worker"].func(prompt="Task 2")  # type: ignore[union-attr]
+    res2 = tools["delegate_to_worker"].function(prompt="Task 2")  # type: ignore[union-attr]
     assert res2 == "Processed: Task 2"
 
     # Third call exhausts budget
-    res3 = tools["delegate_task"].func(agent_name="worker", task="Task 3")  # type: ignore[union-attr]
+    res3 = tools["delegate_task"].function(agent_name="worker", task="Task 3")  # type: ignore[union-attr]
     assert "Fallback message for failure" in res3
 
     # Test unknown agent
-    unknown_res = tools["delegate_task"].func(agent_name="unknown", task="Task")  # type: ignore[union-attr]
+    unknown_res = tools["delegate_task"].function(agent_name="unknown", task="Task")  # type: ignore[union-attr]
     assert "Error: unknown sub-agent 'unknown'" in unknown_res
 
     # Test error containment and fallback
@@ -720,7 +724,7 @@ def test_subagent_run_controls_and_budget() -> None:
     )
     subagents_err = SubAgents(agents=[failing_sub])
     err_tools = {t.name: t for t in subagents_err.get_tools()}
-    crashed_res = err_tools["delegate_task"].func(agent_name="failing_worker", task="fail now")  # type: ignore[union-attr]
+    crashed_res = err_tools["delegate_task"].function(agent_name="failing_worker", task="fail now")  # type: ignore[union-attr]
     assert "Sub-agent 'failing_worker' crashed" in crashed_res
 
 
@@ -744,17 +748,17 @@ def test_subagent_model_routing() -> None:
     tools = {t.name: t for t in subagents.get_tools()}
 
     # Call with allowed model
-    ok_res = tools["delegate_task"].func(agent_name="fast_bot", task="fast task", model="fast")  # type: ignore[union-attr]
+    ok_res = tools["delegate_task"].function(agent_name="fast_bot", task="fast task", model="fast")  # type: ignore[union-attr]
     assert ok_res == "OK: fast task"
 
     # Call with disallowed model for pinned subagent
-    disallowed_res = tools["delegate_task"].func(
+    disallowed_res = tools["delegate_task"].function(
         agent_name="fast_bot", task="fast task", model="deep"
     )  # type: ignore[union-attr]
     assert "Error: model 'deep' not allowed for sub-agent 'fast_bot'" in disallowed_res
 
     # Call with unknown model
-    unknown_model_res = tools["delegate_task"].func(
+    unknown_model_res = tools["delegate_task"].function(
         agent_name="general_bot", task="gen task", model="unknown_model"
     )  # type: ignore[union-attr]
     assert "Error: model 'unknown_model' not in model menu" in unknown_model_res
@@ -809,7 +813,7 @@ def test_dynamic_workflow_script_execution() -> None:
     tools = {t.name: t for t in workflow.get_tools()}
     assert "run_workflow" in tools
 
-    run_wf = tools["run_workflow"].func
+    run_wf = tools["run_workflow"].function
 
     # Test sequential chaining and last expression value
     script1 = """
@@ -852,7 +856,7 @@ def test_dynamic_workflow_structured_outputs_and_prints() -> None:
 
     critic = WorkflowAgent(agent=critic_func, name="critic", output_type=ReviewScore)
     workflow = DynamicWorkflow(agents=[critic])
-    run_wf = {t.name: t for t in workflow.get_tools()}["run_workflow"].func
+    run_wf = {t.name: t for t in workflow.get_tools()}["run_workflow"].function
 
     # Test subscript access to Pydantic model outputs and print capture
     script = """
@@ -899,7 +903,7 @@ def test_dynamic_workflow_budget_and_reveal() -> None:
     assert len(workflow.agents) == 2
 
     # Test positional task error
-    run_wf = {t.name: t for t in workflow.get_tools()}["run_workflow"].func
+    run_wf = {t.name: t for t in workflow.get_tools()}["run_workflow"].function
     err_pos = asyncio.run(run_wf(code='await w1("positional")'))  # type: ignore[union-attr]
     assert "must be called with keyword argument task=" in err_pos
 
@@ -932,7 +936,7 @@ def test_dynamic_workflow_edge_cases_and_syntax() -> None:
             WorkflowAgent(agent="static_string_agent", name="str_bot"),
         ]
     )
-    run_wf = {t.name: t for t in workflow.get_tools()}["run_workflow"].func
+    run_wf = {t.name: t for t in workflow.get_tools()}["run_workflow"].function
 
     # Test syntax error handling
     err_syntax = asyncio.run(run_wf(code="def invalid syntax here: : :"))  # type: ignore[union-attr]
@@ -987,7 +991,7 @@ def test_subagents_edge_cases() -> None:
 
     # Tool invocation
     tools = {t.name: t for t in sa.get_tools()}
-    res = tools["delegate_task"].func(agent_name="echoer", task="hello")  # type: ignore[union-attr]
+    res = tools["delegate_task"].function(agent_name="echoer", task="hello")  # type: ignore[union-attr]
     assert res == "Echo: hello"
 
 
@@ -1031,7 +1035,7 @@ def test_advisor_consultation_execution_and_limits() -> None:
     adv_sync = Advisor(model=mock_advisor_sync, max_uses=2)
     tools = {t.name: t for t in adv_sync.get_tools()}
     assert "advisor" in tools
-    adv_fn = tools["advisor"].func
+    adv_fn = tools["advisor"].function
 
     # First call
     res1 = asyncio.run(adv_fn(prompt="How to refactor?"))  # type: ignore[union-attr]
@@ -1049,12 +1053,12 @@ def test_advisor_consultation_execution_and_limits() -> None:
     adv_fresh = adv_sync.for_run()
     assert adv_fresh.current_uses == 0
     fresh_tools = {t.name: t for t in adv_fresh.get_tools()}
-    fresh_res = asyncio.run(fresh_tools["advisor"].func(prompt="Fresh start"))  # type: ignore[union-attr]
+    fresh_res = asyncio.run(fresh_tools["advisor"].function(prompt="Fresh start"))  # type: ignore[union-attr]
     assert fresh_res == "Advice: Fresh start"
 
     # Test async runner model
     adv_async = Advisor(model=AsyncMockAdvisor())
-    async_tool = {t.name: t for t in adv_async.get_tools()}["advisor"].func
+    async_tool = {t.name: t for t in adv_async.get_tools()}["advisor"].function
     res_async = asyncio.run(async_tool(prompt="Async check"))  # type: ignore[union-attr]
     assert res_async == "Async advice: Async check"
 
@@ -1087,7 +1091,7 @@ def test_code_mode_execution_and_tool_wrapping() -> None:
     )
     tools = {t.name: t for t in cm.get_tools()}
     assert "run_code" in tools
-    run_fn = tools["run_code"].func
+    run_fn = tools["run_code"].function
 
     # Test concurrent fan-out and last expression return
     script1 = """
@@ -1177,7 +1181,7 @@ def test_tool_search_discovery_and_strategies() -> None:
     )
     tools = {t.name: t for t in ts.get_tools()}
     assert "search_tools" in tools
-    search_fn = tools["search_tools"].func
+    search_fn = tools["search_tools"].function
 
     # First search for finance loans
     res1 = asyncio.run(search_fn(queries=["mortgage loan"]))  # type: ignore[union-attr]
@@ -1195,7 +1199,7 @@ def test_tool_search_discovery_and_strategies() -> None:
         strategy="regex",
         searchable_tools=[t_mortgage, t_interest, t_weather],
     )
-    search_regex_fn = {t.name: t for t in ts_regex.get_tools()}["search_tools"].func
+    search_regex_fn = {t.name: t for t in ts_regex.get_tools()}["search_tools"].function
     res_regex = asyncio.run(search_regex_fn(queries=[r"weather_.*"]))  # type: ignore[union-attr]
     assert res_regex["count"] == 1
     assert res_regex["matched_tools"][0]["name"] == "weather_lookup"
@@ -1205,7 +1209,7 @@ def test_tool_search_discovery_and_strategies() -> None:
         strategy="bm25",
         searchable_tools=[t_mortgage, t_interest, t_weather],
     )
-    search_bm25_fn = {t.name: t for t in ts_bm25.get_tools()}["search_tools"].func
+    search_bm25_fn = {t.name: t for t in ts_bm25.get_tools()}["search_tools"].function
     res_bm25 = asyncio.run(search_bm25_fn(queries=["forecast rain sunny"]))  # type: ignore[union-attr]
     assert res_bm25["count"] == 1
     assert res_bm25["matched_tools"][0]["name"] == "weather_lookup"
@@ -1218,14 +1222,14 @@ def test_tool_search_discovery_and_strategies() -> None:
         strategy=custom_filter,
         searchable_tools=[t_mortgage, t_interest, t_weather],
     )
-    search_custom_fn = {t.name: t for t in ts_custom.get_tools()}["search_tools"].func
+    search_custom_fn = {t.name: t for t in ts_custom.get_tools()}["search_tools"].function
     res_custom = asyncio.run(search_custom_fn(queries=["custom query"]))  # type: ignore[union-attr]
     assert res_custom["count"] == 1
     assert res_custom["matched_tools"][0]["name"] == "calculate_compound_interest"
 
     # 5. Test empty queries / no tools
     ts_empty = ToolSearch(searchable_tools=[])
-    search_empty_fn = {t.name: t for t in ts_empty.get_tools()}["search_tools"].func
+    search_empty_fn = {t.name: t for t in ts_empty.get_tools()}["search_tools"].function
     res_empty = asyncio.run(search_empty_fn(queries=[]))  # type: ignore[union-attr]
     assert res_empty["count"] == 0
 
@@ -1533,24 +1537,24 @@ def test_warn_on_cache_busts_suite() -> None:
     )
 
     # First request establishes prefix of 2000 tokens (read=0, write=2000)
-    w1 = monitor.record_usage(
+    w1 = monitor.record_request(
         "anthropic",
         "claude-3-5-sonnet",
         cache_read_tokens=0,
         cache_write_tokens=2000,
-        current_time=100.0,
+        now=100.0,
     )
     assert w1 is None
     mark = monitor.marks[("anthropic", "claude-3-5-sonnet")]
     assert mark.established_prefix == 2000
 
     # Second request hits cache with 2000 tokens -> healthy
-    w2 = monitor.record_usage(
+    w2 = monitor.record_request(
         "anthropic",
         "claude-3-5-sonnet",
         cache_read_tokens=2000,
         cache_write_tokens=500,
-        current_time=110.0,
+        now=110.0,
     )
     assert w2 is None
     assert mark.established_prefix == 2500
@@ -1559,35 +1563,35 @@ def test_warn_on_cache_busts_suite() -> None:
     with pytest.warns(
         CacheBustWarning, match="Prompt cache collapsed for anthropic:claude-3-5-sonnet"
     ):
-        w3 = monitor.record_usage(
+        w3 = monitor.record_request(
             "anthropic",
             "claude-3-5-sonnet",
             cache_read_tokens=500,
             cache_write_tokens=100,
-            current_time=120.0,
+            now=120.0,
         )
         assert w3 is not None
         assert "read 500 cached tokens" in w3
 
     # Fourth request in sustained collapse -> stays latched and silent
-    w4 = monitor.record_usage(
+    w4 = monitor.record_request(
         "anthropic",
         "claude-3-5-sonnet",
         cache_read_tokens=400,
         cache_write_tokens=0,
-        current_time=130.0,
+        now=130.0,
     )
     assert w4 is None
 
     # Fifth request with cache expiry gap (> 300s)
     mark.latched_warning = False
     with pytest.warns(CacheBustWarning, match="exceeds assumed cache TTL"):
-        w5 = monitor.record_usage(
+        w5 = monitor.record_request(
             "anthropic",
             "claude-3-5-sonnet",
             cache_read_tokens=100,
             cache_write_tokens=0,
-            current_time=500.0,
+            now=500.0,
         )
         assert w5 is not None
         assert "exceeds assumed cache TTL" in w5
@@ -1763,21 +1767,21 @@ def test_harness_memory_suite(tmp_path: Path) -> None:
     assert set(tools.keys()) == {"write_memory", "read_memory", "delete_memory", "search_memory"}
 
     # Tool invocation: write
-    wr_msg = tools["write_memory"].func(path="MEMORY.md", content="Added deployment notes")  # type: ignore[union-attr]
+    wr_msg = tools["write_memory"].function(path="MEMORY.md", content="Added deployment notes")  # type: ignore[union-attr]
     assert "Memory updated" in wr_msg
 
     # Tool invocation: read
-    rd_msg = tools["read_memory"].func(path="MEMORY.md")  # type: ignore[union-attr]
+    rd_msg = tools["read_memory"].function(path="MEMORY.md")  # type: ignore[union-attr]
     assert "Added deployment notes" in rd_msg
 
     # Tool invocation: search
-    sr_msg = tools["search_memory"].func(query="deployment")  # type: ignore[union-attr]
+    sr_msg = tools["search_memory"].function(query="deployment")  # type: ignore[union-attr]
     assert "MEMORY.md" in sr_msg
-    no_sr_msg = tools["search_memory"].func(query="nonexistent_needle_123")  # type: ignore[union-attr]
+    no_sr_msg = tools["search_memory"].function(query="nonexistent_needle_123")  # type: ignore[union-attr]
     assert "No memory entries matching" in no_sr_msg
 
     # Tool invocation: delete protection on MEMORY.md
-    del_msg = tools["delete_memory"].func(path="MEMORY.md")  # type: ignore[union-attr]
+    del_msg = tools["delete_memory"].function(path="MEMORY.md")  # type: ignore[union-attr]
     assert "Cannot delete protected root notebook" in del_msg
 
     # System prompt injection
@@ -1920,12 +1924,14 @@ def test_conversation_search_suite() -> None:
     assert "search_conversation_history" in tools
 
     # Tool invocation: match found
-    res = tools["search_conversation_history"].func(query="OpenTelemetry", conversation_id="conv-1")  # type: ignore[union-attr]
+    res = tools["search_conversation_history"].function(
+        query="OpenTelemetry", conversation_id="conv-1"
+    )  # type: ignore[union-attr]
     assert "Found 1 historical match" in res
     assert "run: run-1" in res
 
     # Tool invocation: no match
-    no_res = tools["search_conversation_history"].func(
+    no_res = tools["search_conversation_history"].function(
         query="nonexistent_concept_xyz", conversation_id="conv-1"
     )  # type: ignore[union-attr]
     assert "No matching conversation turns" in no_res
@@ -1933,7 +1939,7 @@ def test_conversation_search_suite() -> None:
     # Tool invocation: empty history
     empty_source_cap = ConversationSearch(source=SnapshotHistorySource(), scope="conversation")
     empty_tools = {t.name: t for t in empty_source_cap.get_tools()}
-    empty_res = empty_tools["search_conversation_history"].func(
+    empty_res = empty_tools["search_conversation_history"].function(
         query="test", conversation_id="conv-empty"
     )  # type: ignore[union-attr]
     assert "No persisted conversation history found" in empty_res
@@ -2034,11 +2040,11 @@ def test_skills_harness_suite(tmp_path: Path) -> None:
     assert "load_capability" in tools
     assert "list_skills" in tools
 
-    list_out = tools["list_skills"].func()  # type: ignore[union-attr]
+    list_out = tools["list_skills"].function()  # type: ignore[union-attr]
     assert "[AVAILABLE] **code-review**" in list_out
 
     # Load skill
-    load_res = tools["load_capability"].func(name="code-review")  # type: ignore[union-attr]
+    load_res = tools["load_capability"].function(name="code-review")  # type: ignore[union-attr]
     assert "# Skill: code-review" in load_res
     assert "Analyze diffs carefully." in load_res
 
@@ -2048,7 +2054,7 @@ def test_skills_harness_suite(tmp_path: Path) -> None:
     assert "# Skill: code-review" in loaded_prompts[1]
 
     # Load unknown skill
-    err_load = tools["load_capability"].func(name="ghost-skill")  # type: ignore[union-attr]
+    err_load = tools["load_capability"].function(name="ghost-skill")  # type: ignore[union-attr]
     assert "Error: Skill 'ghost-skill' not found" in err_load
 
     # 9. Additional edge cases: malformed frontmatter, mismatch, missing description, long description, duplicate
@@ -2100,7 +2106,7 @@ def test_skills_harness_suite(tmp_path: Path) -> None:
     empty_lib.mkdir()
     empty_cap = Skills(empty_lib)
     empty_tools = {t.name: t for t in empty_cap.get_tools()}
-    assert empty_tools["list_skills"].func() == "No skills configured."
+    assert empty_tools["list_skills"].function() == "No skills configured."
     assert empty_cap.get_system_prompt_additions() == []
 
 
@@ -2176,7 +2182,7 @@ def test_repo_context_suite(tmp_path: Path) -> None:
     # Tool invocation
     tools = {t.name: t for t in inv_ctx.get_tools()}
     assert "inventory_agent_context" in tools
-    report = tools["inventory_agent_context"].func()  # type: ignore[union-attr]
+    report = tools["inventory_agent_context"].function()  # type: ignore[union-attr]
     assert "Repository Context Inventory" in report
     assert ".agents" in report
     assert "k8s-deploy" in report
@@ -2267,7 +2273,7 @@ def test_pydantic_ai_docs_suite(tmp_path: Path) -> None:
     # 4. Tool execution
     tools = {t.name: t for t in cap.get_tools()}
     assert "read_pyai_docs" in tools
-    tool_res = tools["read_pyai_docs"].func(topic="capabilities")  # type: ignore[union-attr]
+    tool_res = tools["read_pyai_docs"].function(topic="capabilities")  # type: ignore[union-attr]
     assert "# Capabilities Guide" in tool_res
 
     # 5. Remote fetch fallback
@@ -2312,51 +2318,53 @@ def test_harness_additional_coverage_suite(tmp_path: Path) -> None:
     fs_tools = {t.name: t for t in fs.get_tools()}
 
     # create_directory
-    res_mkdir = fs_tools["create_directory"].func(path="sub/nested/dir")  # type: ignore[union-attr]
+    res_mkdir = fs_tools["create_directory"].function(path="sub/nested/dir")  # type: ignore[union-attr]
     assert "successfully created" in res_mkdir
     assert (tmp_path / "sub/nested/dir").is_dir()
 
     # file_info on dir, file, and nonexistent
-    dir_info = fs_tools["file_info"].func(path="sub/nested")  # type: ignore[union-attr]
+    dir_info = fs_tools["file_info"].function(path="sub/nested")  # type: ignore[union-attr]
     assert "Type: directory" in dir_info
 
     sample_f = tmp_path / "sample.txt"
     sample_f.write_text("line1\nline2\nline3\n", encoding="utf-8")
-    file_info_res = fs_tools["file_info"].func(path="sample.txt")  # type: ignore[union-attr]
+    file_info_res = fs_tools["file_info"].function(path="sample.txt")  # type: ignore[union-attr]
     assert "Type: regular file" in file_info_res
     assert "Lines: 3" in file_info_res
 
-    missing_info = fs_tools["file_info"].func(path="ghost.txt")  # type: ignore[union-attr]
+    missing_info = fs_tools["file_info"].function(path="ghost.txt")  # type: ignore[union-attr]
     assert "does not exist" in missing_info
 
     # Search with max_search_results truncation
     for i in range(5):
         (tmp_path / f"test_{i}.py").write_text("match_keyword = True\n", encoding="utf-8")
-    search_res = fs_tools["search_files"].func(query="match_keyword")  # type: ignore[union-attr]
+    search_res = fs_tools["search_files"].function(query="match_keyword")  # type: ignore[union-attr]
     assert "truncated at 2 results" in search_res
 
     # 2. Shell start_command, check_command, stop_command
     shell = Shell(cwd=tmp_path, allowed_commands=["python", "sleep", "echo"])
     sh_tools = {t.name: t for t in shell.get_tools()}
 
-    start_res = sh_tools["start_command"].func(command='python -c "import time; time.sleep(0.5)"')  # type: ignore[union-attr]
+    start_res = sh_tools["start_command"].function(
+        command='python -c "import time; time.sleep(0.5)"'
+    )  # type: ignore[union-attr]
     assert "Background command started with ID:" in start_res
     cmd_id = start_res.split(":")[-1].strip()
 
-    check_res = sh_tools["check_command"].func(command_id=cmd_id)  # type: ignore[union-attr]
+    check_res = sh_tools["check_command"].function(command_id=cmd_id)  # type: ignore[union-attr]
     assert "status:" in check_res
 
-    stop_res = sh_tools["stop_command"].func(command_id=cmd_id)  # type: ignore[union-attr]
+    stop_res = sh_tools["stop_command"].function(command_id=cmd_id)  # type: ignore[union-attr]
     assert "stopped" in stop_res.lower() or "terminated" in stop_res.lower()
 
     # Ghost command checks
-    assert "not found" in sh_tools["check_command"].func(command_id="ghost_cmd_id")  # type: ignore[union-attr]
-    assert "not found" in sh_tools["stop_command"].func(command_id="ghost_cmd_id")  # type: ignore[union-attr]
+    assert "not found" in sh_tools["check_command"].function(command_id="ghost_cmd_id")  # type: ignore[union-attr]
+    assert "not found" in sh_tools["stop_command"].function(command_id="ghost_cmd_id")  # type: ignore[union-attr]
 
     # Command timeout
     quick_shell = Shell(cwd=tmp_path, allowed_commands=["python"], timeout=0.05)
     q_tools = {t.name: t for t in quick_shell.get_tools()}
-    tout_res = q_tools["run_command"].func(command='python -c "import time; time.sleep(0.3)"')  # type: ignore[union-attr]
+    tout_res = q_tools["run_command"].function(command='python -c "import time; time.sleep(0.3)"')  # type: ignore[union-attr]
     assert "timed out" in tout_res
 
     # 3. PlanEventEmitter & InMemoryPlanStore & SqlitePlanStore
@@ -2408,11 +2416,11 @@ def test_harness_additional_coverage_suite(tmp_path: Path) -> None:
     # 5. Shell edge cases
     sh_edge = Shell(cwd=tmp_path, denied_operators=[";", "&&"], timeout=1.0)
     sh_tools = {t.name: t for t in sh_edge.get_tools()}
-    assert "Error: empty command" in sh_tools["run_command"].func("")  # type: ignore[union-attr]
-    assert "blocked by security policy" in sh_tools["run_command"].func("echo 1; echo 2")  # type: ignore[union-attr]
-    assert "not found" in sh_tools["check_command"].func("nonexistent_id")  # type: ignore[union-attr]
-    assert "not found" in sh_tools["stop_command"].func("nonexistent_id")  # type: ignore[union-attr]
-    assert "Error: empty command" in sh_tools["start_command"].func("")  # type: ignore[union-attr]
+    assert "Error: empty command" in sh_tools["run_command"].function("")  # type: ignore[union-attr]
+    assert "blocked by security policy" in sh_tools["run_command"].function("echo 1; echo 2")  # type: ignore[union-attr]
+    assert "not found" in sh_tools["check_command"].function("nonexistent_id")  # type: ignore[union-attr]
+    assert "not found" in sh_tools["stop_command"].function("nonexistent_id")  # type: ignore[union-attr]
+    assert "Error: empty command" in sh_tools["start_command"].function("")  # type: ignore[union-attr]
 
 
 def test_shell_denies_destructive_commands() -> None:
@@ -2457,7 +2465,7 @@ def test_macroscope_rejects_path_traversal_in_base_ref() -> None:
     macroscope = Macroscope()
     tools = {t.name if hasattr(t, "name") else t.__name__: t for t in macroscope.get_tools()}
     review_tool = tools["run_macroscope_review"]
-    fn = review_tool.func if hasattr(review_tool, "func") else review_tool
+    fn = review_tool.function if hasattr(review_tool, "func") else review_tool
     res = fn(base="../../refs/heads/main")
     assert "invalid" in res.lower() or "blocked" in res.lower() or "traversal" in res.lower()
 
@@ -2468,6 +2476,6 @@ def test_playwright_navigate_blocks_unsupported_schemes() -> None:
     browser = PlaywrightBrowser()
     tools = {t.name if hasattr(t, "name") else t.__name__: t for t in browser.get_tools()}
     nav_tool = tools["navigate"]
-    fn = nav_tool.func if hasattr(nav_tool, "func") else nav_tool
+    fn = nav_tool.function if hasattr(nav_tool, "func") else nav_tool
     res = fn("javascript:alert(1)")
     assert "blocked" in res.lower() or "unsupported" in res.lower()

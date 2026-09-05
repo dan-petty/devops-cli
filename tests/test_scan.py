@@ -50,25 +50,19 @@ def test_scan_individual_tools(tmp_path: Path) -> None:
         res_secrets = runner.invoke(scan_app, ["secrets", str(tmp_path), "--json"])
         assert res_secrets.exit_code == 0
 
-        res_semgrep = runner.invoke(scan_app, ["semgrep", str(tmp_path), "--json"])
-        assert res_semgrep.exit_code == 0
-
-        res_checkov = runner.invoke(scan_app, ["checkov", str(tmp_path), "--json"])
-        assert res_checkov.exit_code == 0
-
-        res_sast = runner.invoke(scan_app, ["sast", str(tmp_path)])
+        res_sast = runner.invoke(scan_app, ["sast", str(tmp_path), "--json"])
         assert res_sast.exit_code == 0
 
-        res_iac = runner.invoke(scan_app, ["iac", str(tmp_path)])
+        res_iac = runner.invoke(scan_app, ["iac", str(tmp_path), "--json"])
         assert res_iac.exit_code == 0
 
-        res_gitleaks_alias = runner.invoke(scan_app, ["gitleaks", str(tmp_path), "--dry-run"])
-        assert res_gitleaks_alias.exit_code == 0
+        res_secrets_dry = runner.invoke(scan_app, ["secrets", str(tmp_path), "--dry-run"])
+        assert res_secrets_dry.exit_code == 0
 
-        res_checkov_alias = runner.invoke(
-            scan_app, ["checkov", str(tmp_path), "--framework", "terraform", "--dry-run"]
+        res_iac_framework = runner.invoke(
+            scan_app, ["iac", str(tmp_path), "--framework", "terraform", "--dry-run"]
         )
-        assert res_checkov_alias.exit_code == 0
+        assert res_iac_framework.exit_code == 0
 
 
 def test_scan_clean_and_dry_run(tmp_path: Path) -> None:

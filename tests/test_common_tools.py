@@ -108,7 +108,7 @@ def test_tavily_search_tool(mock_get_client: MagicMock) -> None:
 
 def test_web_fetch_tool_blocks_post_redirect_to_private_host() -> None:
     tool = web_fetch_tool()
-    fn = tool.func
+    fn = tool.function
 
     mock_resp = MagicMock()
     mock_resp.status_code = 200

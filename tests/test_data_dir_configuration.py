@@ -130,10 +130,10 @@ def test_load_settings_cascades_devops_cli_data_dir(
     assert settings.data.feedback_dataset_path == custom_dir / "feedback_dataset.jsonl"
 
 
-def test_load_settings_cascades_devops_data_dir_alias(
+def test_load_settings_ignores_deprecated_devops_data_dir(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Verify that DEVOPS_DATA_DIR alias populates all 10 child data paths."""
+    """Verify that deprecated DEVOPS_DATA_DIR alias is ignored in favor of canonical DEVOPS_CLI_DATA_DIR."""
     from devops_cli.config.settings import load_settings
 
     custom_dir = tmp_path / "custom_alias_dir"
@@ -141,10 +141,7 @@ def test_load_settings_cascades_devops_data_dir_alias(
     monkeypatch.setenv("DEVOPS_DATA_DIR", str(custom_dir))
 
     settings = load_settings()
-    assert settings.data.dir == custom_dir
-    assert settings.data.reviews_dir == custom_dir / "reviews"
-    assert settings.data.benchmarks_dir == custom_dir / "benchmarks"
-    assert settings.data.tls_dir == custom_dir / "tls"
+    assert settings.data.dir != custom_dir
 
 
 def test_load_settings_preserves_explicit_child_env_overrides(
@@ -182,7 +179,6 @@ def test_load_settings_cascades_yaml_data_dir(
     custom_cfg.write_text(f"data:\n  dir: {custom_data}\n", encoding="utf-8")
     monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(custom_cfg))
     monkeypatch.delenv("DEVOPS_CLI_DATA_DIR", raising=False)
-    monkeypatch.delenv("DEVOPS_DATA_DIR", raising=False)
 
     settings = load_settings()
     assert settings.data.dir == custom_data

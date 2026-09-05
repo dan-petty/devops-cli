@@ -464,7 +464,7 @@ def test_subagents_usage_forwarding() -> None:
     parent_usage = AgentUsage(input_tokens=20, output_tokens=10, total_tokens=30)
     ctx = RunContext(usage=parent_usage)
 
-    res = delegate_tool.func(ctx=ctx, agent_name="specialist", task="analyze logs")
+    res = delegate_tool.function(ctx=ctx, agent_name="specialist", task="analyze logs")
     assert res == "Child agent result"
     assert parent_usage.input_tokens == 120
     assert parent_usage.output_tokens == 60

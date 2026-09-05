@@ -47,5 +47,5 @@ def test_exception_sanitization_masks_sensitive_tokens() -> None:
     )
     msg = str(err)
     assert "github.token" in msg
-    assert err.code == "E_INSECURE_CONFIG"
+    assert err.error_code == "E_INSECURE_CONFIG"
     assert err.exit_code == 126
