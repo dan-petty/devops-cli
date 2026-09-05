@@ -2,6 +2,29 @@
 
 Chronological log of refactoring milestones, quality gates, and security enhancements.
 
+### [2026-09-05] Native Pydantic AI Result (`pydantic_ai.result`) Integration
+- **Native Result Subsystem (`src/devops_cli/ai/result/__init__.py`)**:
+  - Full native adoption of `pydantic_ai.result` API specifications:
+    - Re-exports core native classes and schemas: `RunUsage`, `FinalResult`, `StreamedRunResult`, `StreamedRunResultSync`, `SyncStreamBridge`, `OutputValidator`, `OutputValidatorFunc`, `OutputSchema`, `TextOutputSchema`, `AgentStream`, `AgentStreamEvent`, `best_effort_price`, `run_image_process_hooks`, and `run_output_with_hooks`.
+    - Implemented high-level domain result utilities and factories:
+      - `create_run_usage(input_tokens, output_tokens, requests, tool_calls, **kwargs) -> RunUsage`: Unified builder for native `RunUsage` tracking instances.
+      - `calculate_usage_cost(usage, model_name, **kwargs)`: Live, dynamic cost calculation leveraging `best_effort_price`, handling `RunUsage`, `AgentUsage`, and custom usage payloads.
+      - `to_final_result(output, tool_name=None, tool_call_id=None) -> FinalResult[Any]`: Constructs native `FinalResult` marker containers.
+      - `to_agent_response(result) -> AgentResponse[Any]`: Universal converter transforming `AgentRunResult`, `StreamedRunResult`, `StreamedRunResultSync`, or `FinalResult` into typed `AgentResponse[T]`.
+- **Agent Models Modernization (`src/devops_cli/ai/agents/models.py`)**:
+  - `AgentResponse`:
+    - Added `.run_usage -> RunUsage` property dynamically mapping token usage and turns to a native `pydantic_ai.usage.RunUsage` tracking instance with `opentelemetry_attributes()`.
+    - Added `.to_final_result() -> FinalResult[Any]` wrapping structured or content output into a native result marker.
+    - Enhanced `.from_run_result(run_res)` to dynamically extract output and usage from `AgentRunResult`, `StreamedRunResult`, `StreamedRunResultSync`, and `FinalResult`.
+- **Package Re-exports (`devops_cli.ai.result`, `devops_cli.ai`, `devops_cli.ai.agents`, `devops_cli.ai.agents.pydantic_agent`)**:
+  - Re-exported all result classes, streaming types, and price calculation utilities across public package tiers with strict typing (`mypy --strict`) and complete `__all__` lists.
+- **Quality Gates & Test-First Verification**:
+  - Authored comprehensive test suite `tests/test_pydantic_ai_result.py` (9/9 tests passing).
+  - Strict static typing (`mypy --strict`) 100% clean across all new and modified modules.
+  - Clean linting and formatting (`ruff check`, `ruff format`).
+  - Documentation generated and README synchronized (`devops docs generate --sync-readme`).
+  - Full CI validation suite (`uv run devops ci`): 10/10 quality gates green in 107s (version, test, coverage >= 90%, lint, format, typecheck, audit, security, actionlint, docs).
+
 ### [2026-09-05] Native Pydantic AI Profiles (`pydantic_ai.profiles`) & Providers (`pydantic_ai.providers`) Integration
 - **Native Profiles Subsystem (`src/devops_cli/ai/profiles/__init__.py`)**:
   - Full native adoption of `pydantic_ai.profiles` API specifications:

@@ -149,12 +149,30 @@
   - [x] Phase 23.5: Public Package Re-exports (`devops_cli.ai`, `devops_cli.ai.agents`, `pydantic_agent.py`)
   - [x] Phase 23.6: Full CI Validation Suite (`devops ci` — 10/10 green), Documentation Sync & Conventional Commits
 
+- [x] Phase 24: Native Pydantic AI Result (`pydantic_ai.result`) Integration
+  - [x] Phase 24.1: Test-First Specifications (`tests/test_pydantic_ai_result.py` — 9/9 green)
+  - [x] Phase 24.2: Result Subsystem (`src/devops_cli/ai/result/__init__.py`)
+  - [x] Phase 24.3: Agent Models Modernization (`src/devops_cli/ai/agents/models.py`)
+  - [x] Phase 24.4: Public Package Re-exports (`devops_cli.ai`, `devops_cli.ai.agents`, `pydantic_agent.py`)
+  - [x] Phase 24.5: Full CI Validation Suite (`devops ci` — 10/10 green), Documentation Sync & Conventional Commits
+
+- [ ] Phase 25: Native Pydantic AI Retries (`pydantic_ai.retries`) Integration
+  - [ ] Phase 25.1: Test-First Specifications (`tests/test_pydantic_ai_retries.py`)
+  - [ ] Phase 25.2: Core Retries Subsystem (`src/devops_cli/ai/retries/__init__.py`)
+  - [ ] Phase 25.3: HTTP Client & Transport Modernization (`src/devops_cli/ai/client/unified.py`, `ollama.py`, `openai.py`)
+  - [ ] Phase 25.4: Public Package Re-exports (`devops_cli.ai.retries`, `devops_cli.ai`, `devops_cli.ai.agents`, `pydantic_agent.py`)
+  - [ ] Phase 25.5: Full CI Validation Suite (`devops ci` — 10/10 green), Documentation Sync & Conventional Commits
+
 ---
 
 ### In-Progress Tasks (WIP)
-None.
+- [ ] Phase 25: Native Pydantic AI Retries (`pydantic_ai.retries`) Integration
 
 ---
 
 ### Pending Tasks
-None.
+- [ ] Phase 25.1: Test-First Specifications (`tests/test_pydantic_ai_retries.py`)
+- [ ] Phase 25.2: Core Retries Subsystem (`src/devops_cli/ai/retries/__init__.py`)
+- [ ] Phase 25.3: HTTP Client & Transport Modernization (`src/devops_cli/ai/client/unified.py`, `ollama.py`, `openai.py`)
+- [ ] Phase 25.4: Public Package Re-exports (`devops_cli.ai.retries`, `devops_cli.ai`, `devops_cli.ai.agents`, `pydantic_agent.py`)
+- [ ] Phase 25.5: Full CI Validation Suite (`devops ci` — 10/10 green), Documentation Sync & Conventional Commits
