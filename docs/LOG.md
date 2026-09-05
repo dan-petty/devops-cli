@@ -2,6 +2,29 @@
 
 Chronological log of refactoring milestones, quality gates, and security enhancements.
 
+### [2026-09-05] Native Pydantic AI Retries (`pydantic_ai.retries`) Integration
+- **Native Retries Subsystem (`src/devops_cli/ai/retries/__init__.py`)**:
+  - Full native adoption of `pydantic_ai.retries` API specifications:
+    - Re-exports core native classes and types: `HTTPX2TenacityTransport`, `AsyncHTTPX2TenacityTransport`, `TenacityTransport`, `AsyncTenacityTransport`, `RetryConfig`, `wait_retry_after`, and `AgentRetries`.
+    - Implemented high-level domain retry utilities and factories:
+      - `DEFAULT_RETRYABLE_STATUS_CODES`: Standard transient error code tuple `(408, 429, 500, 502, 503, 504)`.
+      - `is_retryable_status_code(status_code, retry_statuses)`: Pure predicate helper identifying transient HTTP error codes.
+      - `create_retry_config(max_attempts, min_wait, max_wait, retry_statuses, reraise, **kwargs) -> RetryConfig`: Constructs production-ready tenacity retry configuration with `stop_after_attempt`, `wait_retry_after` (with exponential fallback), and exception filtering on `httpx2.TransportError`, `TimeoutException`, and retryable `HTTPStatusError`.
+      - `create_retry_transport(...) -> HTTPX2TenacityTransport`: Factory constructing a synchronous HTTPX2TenacityTransport with automatic response validation and Retry-After header parsing.
+      - `create_async_retry_transport(...) -> AsyncHTTPX2TenacityTransport`: Factory constructing an asynchronous AsyncHTTPX2TenacityTransport with automatic response validation and Retry-After header parsing.
+      - `normalize_agent_retries(retries) -> AgentRetries`: Normalizes integer budgets, dictionaries, and Pydantic `AgentRetries` models into canonical Pydantic AI `AgentRetries` TypedDicts (`tools` and `output`).
+- **HTTP Client Modernization (`src/devops_cli/ai/client/unified.py`)**:
+  - `UnifiedLLMClient`:
+    - Added `_create_retry_transport()` and `_create_http_client()` methods equipping HTTP clients with native `HTTPX2TenacityTransport` whenever `max_retries > 0`.
+- **Package Re-exports (`devops_cli.ai.retries`, `devops_cli.ai`, `devops_cli.ai.agents`, `devops_cli.ai.agents.pydantic_agent`)**:
+  - Re-exported all retry classes, transports, and factories across public package tiers with strict type annotations (`mypy --strict`) and complete `__all__` lists.
+- **Quality Gates & Test-First Verification**:
+  - Authored comprehensive test suite `tests/test_pydantic_ai_retries.py` (10/10 tests passing).
+  - Strict static typing (`mypy --strict`) 100% clean across all new and modified modules.
+  - Clean linting and formatting (`ruff check`, `ruff format`).
+  - Documentation generated and README synchronized (`devops docs generate --sync-readme`).
+  - Full CI validation suite (`uv run devops ci`): 10/10 quality gates green in 113s (version, test, coverage >= 90%, lint, format, typecheck, audit, security, actionlint, docs).
+
 ### [2026-09-05] Native Pydantic AI Result (`pydantic_ai.result`) Integration
 - **Native Result Subsystem (`src/devops_cli/ai/result/__init__.py`)**:
   - Full native adoption of `pydantic_ai.result` API specifications:
