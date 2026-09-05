@@ -141,6 +141,14 @@
   - [x] Phase 22.4: Public Package Re-exports (`devops_cli.ai.output`, `devops_cli.ai`, `devops_cli.ai.agents`, `pydantic_agent.py`)
   - [x] Phase 22.5: Full CI Validation Suite (`devops ci` — 10/10 green), Documentation Sync & Conventional Commits
 
+- [x] Phase 23: Native Pydantic AI Profiles (`pydantic_ai.profiles`) & Providers (`pydantic_ai.providers`) Integration
+  - [x] Phase 23.1: Test-First Specifications (`tests/test_pydantic_ai_profiles_and_providers.py` — 22/22 green)
+  - [x] Phase 23.2: Profiles Subsystem (`src/devops_cli/ai/profiles/__init__.py`)
+  - [x] Phase 23.3: Providers Subsystem Modernization (`src/devops_cli/ai/providers/__init__.py`)
+  - [x] Phase 23.4: Bridge & Thinking Stream Integration (`pydantic_ai_bridge.py`, `thinking_stream.py`)
+  - [x] Phase 23.5: Public Package Re-exports (`devops_cli.ai`, `devops_cli.ai.agents`, `pydantic_agent.py`)
+  - [x] Phase 23.6: Full CI Validation Suite (`devops ci` — 10/10 green), Documentation Sync & Conventional Commits
+
 ---
 
 ### In-Progress Tasks (WIP)

@@ -2,6 +2,34 @@
 
 Chronological log of refactoring milestones, quality gates, and security enhancements.
 
+### [2026-09-05] Native Pydantic AI Profiles (`pydantic_ai.profiles`) & Providers (`pydantic_ai.providers`) Integration
+- **Native Profiles Subsystem (`src/devops_cli/ai/profiles/__init__.py`)**:
+  - Full native adoption of `pydantic_ai.profiles` API specifications:
+    - Re-exports core types and constants: `ModelProfile`, `ModelProfileSpec`, `DEFAULT_PROFILE`, `DEFAULT_THINKING_TAGS`, `DEFAULT_PROMPTED_OUTPUT_TEMPLATE`, `merge_profile`, `JsonSchemaTransformer`, `InlineDefsJsonSchemaTransformer`, `StructuredOutputMode`, `ToolAdditionMode`, `ToolDeferralMode`, and `SUPPORTED_NATIVE_TOOLS`.
+    - Re-exports all 14 family model profile builders: `amazon_model_profile`, `anthropic_model_profile`, `cohere_model_profile`, `deepseek_model_profile`, `google_model_profile`, `google_realtime_model_profile`, `grok_model_profile`, `grok_realtime_model_profile`, `groq_model_profile`, `harmony_model_profile`, `meta_model_profile`, `mistral_model_profile`, `moonshotai_model_profile`, `openai_model_profile`, `openai_realtime_model_profile`, `qwen_model_profile`, and `zai_model_profile`.
+    - Implemented high-level domain resolution and introspection utilities:
+      - `resolve_model_profile`: Resolves unified `ModelProfile` from model strings (`"openai:gpt-4o"`, `"ollama:qwen2.5-coder:7b"`, `"anthropic:claude-3-5-sonnet"`), provider hints, or `ModelProfileSpec` callables, seamlessly merging custom overrides with `merge_profile`.
+      - `get_model_thinking_tags`: Introspects model-specific reasoning block delimiters (e.g. Anthropic `('<thinking>', '</thinking>')` vs default `('<think>', '</think>')`).
+      - `supports_thinking`: Evaluates if a model profile natively supports chain-of-thought/reasoning output blocks.
+      - `thinking_always_enabled`: Checks whether reasoning is permanent and non-suppressible (e.g. DeepSeek-R1).
+      - `get_model_profile_builder`: Dynamic registry lookup mapping canonical family names to their respective profile builder functions.
+- **Modernized Providers Subsystem (`src/devops_cli/ai/providers/__init__.py`)**:
+  - Full native adoption of `pydantic_ai.providers` API specifications:
+    - Re-exports native abstract base class `Provider`, alongside dynamic discovery utilities `infer_provider` and `infer_provider_class`.
+    - Re-exports concrete native provider classes: `NativeOllamaProvider`, `NativeOpenAIProvider`, `NativeAnthropicProvider`, `NativeGoogleProvider`, `NativeDeepSeekProvider`, and `NativeOpenRouterProvider`.
+    - Implemented unified factory `create_pydantic_ai_provider(provider, base_url=None, api_key=None, **kwargs)` configuring endpoint URLs, API keys, and client parameters according to provider type.
+    - Preserved 100% backward compatibility for existing `BaseLLMProvider`, `get_provider(name, config)`, and legacy provider classes (`OllamaProvider`, `OpenAIProvider`, `AnthropicProvider`, `CopilotProvider`, `MockProvider`).
+- **Bridge & Thinking Stream Integration (`src/devops_cli/ai/pydantic_ai_bridge.py`, `src/devops_cli/ai/thinking_stream.py`)**:
+  - `resolve_pydantic_ai_model`: Configured non-ollama providers to pass user credentials and base URLs to `infer_model` via a `provider_factory` backed by `create_pydantic_ai_provider`.
+  - `ThinkingStreamProcessor`, `strip_think_blocks`, and `extract_think_blocks`: Enhanced to accept dynamic `thinking_tags: tuple[str, str]` (defaulting to `DEFAULT_THINKING_TAGS`), natively supporting Anthropic's `<thinking>...</thinking>` tags and custom model delimiters.
+- **Package Re-exports (`devops_cli.ai.profiles`, `devops_cli.ai.providers`, `devops_cli.ai`, `devops_cli.ai.agents`, `devops_cli.ai.agents.pydantic_agent`)**:
+  - Re-exported all profile and provider utilities across public package tiers with strict type annotations and comprehensive `__all__` lists.
+- **Quality Gates & Test-First Verification**:
+  - Authored comprehensive test suite `tests/test_pydantic_ai_profiles_and_providers.py` (22/22 tests passing).
+  - Strict static typing (`mypy --strict`) 100% clean across all new and modified modules.
+  - Clean linting and formatting (`ruff check`, `ruff format`).
+  - Full CI validation suite (`uv run devops ci`): 10/10 quality gates green in 133s (version, test, coverage >= 90%, lint, format, typecheck, audit, security, actionlint, docs).
+
 ### [2026-09-05] Native Pydantic AI Output (`pydantic_ai.output`) Integration
 - **Native Output Subsystem (`src/devops_cli/ai/output/__init__.py`)**:
   - Full native adoption of `pydantic_ai.output` API specifications:
