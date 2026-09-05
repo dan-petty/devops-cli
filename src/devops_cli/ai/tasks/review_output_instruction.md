@@ -33,4 +33,4 @@ Recommendation must be one of: APPROVE, REQUEST CHANGES, BLOCK.
 - **Zero Scratchpad Leakage**: Do NOT leak conversational thinking, chain-of-thought phrases ("We need to...", "Let's check..."), or instruction headers into `location`, `title`, `description`, or `fix`.
 - **Zero Conversational Praise in Findings**: Never put compliments, approvals, or "Good." remarks in finding `title` or `description`. Positive observations belong strictly in the `positive_observations` array.
 - **Concise Title**: Provide a direct, descriptive summary headline identifying the specific defect (e.g., "Missing signature verification in token decoder").
-- **Language & Runtime Standards**: In Python 3.14+, comma-separated exceptions (`except A, B:`) are valid runtime syntax (PEP 759). Never report valid language syntax features or modern runtime idioms as "SyntaxError" or "Python 2 syntax".
+- **Language & Runtime Standards**: In Python 3.14+, comma-separated exceptions (`except A, B:`) are valid runtime syntax (PEP 758). Never report valid language syntax features or modern runtime idioms as "SyntaxError" or "Python 2 syntax".

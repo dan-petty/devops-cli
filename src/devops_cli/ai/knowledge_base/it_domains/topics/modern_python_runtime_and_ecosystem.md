@@ -22,7 +22,7 @@ graph LR
   - Native union syntax (`int | str`) replacing legacy `Union[int, str]`.
   - Built-in generic collection types (`list[str]`, `dict[str, Any]`, `set[Path]`).
   - Abstract base collections from `collections.abc` (`Sequence`, `Mapping`, `Callable`).
-  - Modern Exception Tuples: When catching multiple exception types, always use parenthesized tuple syntax (`except (Exc1, Exc2):`) rather than bare commas to ensure standard multi-exception trapping behavior.
+  - Modern Exception Handling (PEP 758): In Python 3.14+, unparenthesized multi-exception clauses (`except Exc1, Exc2:`) are valid standard syntax (and formatted without brackets by Ruff when no `as` clause is used). Both bracketless expressions and parenthesized tuples are standard grammar.
 - **Cryptographic Lockfile & Packaging Governance**:
   - `uv.lock` serves as the authoritative, cross-platform cryptographic lockfile providing deterministic SHA-256 integrity verification across dependencies.
   - `[build-system]` declarations in `pyproject.toml` should specify explicit version bounds (e.g. `requires = ["hatchling>=1.26.0"]`) to protect build environments against dependency confusion and supply-chain drift.
