@@ -163,14 +163,16 @@ def get_persona_pydantic_agent(
     settings: Settings | None = None,
     capabilities: Sequence[BaseCapability] | None = None,
     tools: Sequence[Any] | None = None,
+    model_name: str | Any | None = None,
 ) -> Any:
     """Build a persona-specialized PydanticAI agent instance."""
     p_enum = Persona(persona) if isinstance(persona, str) else persona
     p_def = PERSONAS[p_enum]
     active_settings = settings or load_settings()
+    target_model = model_name or active_settings.ai.model
 
     return create_pydantic_ai_agent(
-        model_name=active_settings.ai.model,
+        model_name=target_model,
         system_prompt=p_def.system_prompt,
         output_type=ReviewResult,
         deps_type=DevOpsAgentContext,

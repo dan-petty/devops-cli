@@ -129,7 +129,7 @@ class CodeMode(BaseCapability):
             sandboxed_tools=list(sandboxed_tools),
         )
 
-    def for_run(self, ctx: RunContext[Any] | None = None) -> CodeMode:
+    def for_run(self, ctx: RunContext[Any] | None = None) -> CodeMode:  # type: ignore[override]
         """Return a fresh instance so concurrent runs do not share execution state."""
         return CodeMode(
             tools=self.tools,
@@ -411,7 +411,7 @@ class ToolSearch(BaseCapability):
             discovered_tools=set(),
         )
 
-    def for_run(self, ctx: RunContext[Any] | None = None) -> ToolSearch:
+    def for_run(self, ctx: RunContext[Any] | None = None) -> ToolSearch:  # type: ignore[override]
         """Return a fresh instance so concurrent runs do not share discovered tools."""
         return ToolSearch(
             strategy=self.strategy,

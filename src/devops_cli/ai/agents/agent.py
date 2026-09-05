@@ -250,6 +250,11 @@ class PydanticAgent[T, DepsT = Any]:
         self.add_tool(load_capability)
 
     @property
+    def tools(self) -> list[AgentTool]:
+        """Return the list of registered tools for this agent."""
+        return list(self._tools.values())
+
+    @property
     def model(self) -> str | None:
         """Return the model identifier configured on this agent's LLM client."""
         if hasattr(self.client, "config") and hasattr(self.client.config, "model"):

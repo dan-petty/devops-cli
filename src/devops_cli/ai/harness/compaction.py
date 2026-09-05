@@ -849,7 +849,7 @@ class WarnOnCacheBusts(BaseCapability):
             marks={},
         )
 
-    def for_run(self, ctx: RunContext[Any] | None = None) -> WarnOnCacheBusts:
+    def for_run(self, ctx: RunContext[Any] | None = None) -> WarnOnCacheBusts:  # type: ignore[override]
         """Return a fresh capability instance with clean per-run state."""
         return WarnOnCacheBusts(
             collapse_ratio=self.collapse_ratio,
@@ -958,7 +958,7 @@ class WarnOnCacheBusts(BaseCapability):
             current_time=current_time,
         )
 
-    def after_model_request(
+    def after_model_request(  # type: ignore[override]
         self,
         ctx: RunContext[Any] | None = None,
         *,

@@ -788,7 +788,7 @@ class Advisor(BaseCapability):
             current_uses=0,
         )
 
-    def for_run(self, ctx: RunContext[Any] | None = None) -> Advisor:
+    def for_run(self, ctx: RunContext[Any] | None = None) -> Advisor:  # type: ignore[override]
         """Return a fresh capability instance with local usage isolated to this run."""
         return Advisor(
             model=self.model,

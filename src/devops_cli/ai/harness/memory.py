@@ -540,7 +540,7 @@ class Memory(BaseCapability):
             tool_prefix=tool_prefix,
         )
 
-    def prefix_tools(self, prefix: str) -> Memory:
+    def prefix_tools(self, prefix: str) -> Memory:  # type: ignore[override]
         """Return a copy of this Memory capability with prefixed tool names."""
         return Memory(
             store=self.store,

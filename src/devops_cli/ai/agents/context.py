@@ -60,6 +60,8 @@ class AgentStepNode(BaseModel):
 class AgentHooks(BaseModel):
     """Lifecycle hooks for intercepting agent model requests, tool calls, and errors."""
 
+    before_run: list[Callable[..., None]] = Field(default_factory=list)
+    after_run: list[Callable[..., None]] = Field(default_factory=list)
     before_model_request: list[Callable[..., None]] = Field(default_factory=list)
     after_model_request: list[Callable[..., None]] = Field(default_factory=list)
     before_tool_execute: list[Callable[..., None]] = Field(default_factory=list)

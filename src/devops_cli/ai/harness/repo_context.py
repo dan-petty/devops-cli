@@ -123,7 +123,7 @@ class RepoContext(BaseCapability):
             asset_roots=tuple(asset_roots),
         )
 
-    def for_run(self, ctx: RunContext[Any] | None = None) -> RepoContext:
+    def for_run(self, ctx: RunContext[Any] | None = None) -> RepoContext:  # type: ignore[override]
         """Return a fresh per-run instance with isolated traversal/cache state."""
         return RepoContext(
             workspace_dir=self.workspace_dir,
@@ -274,7 +274,7 @@ class RepoContext(BaseCapability):
             )
         return additions
 
-    def after_tool_execute(
+    def after_tool_execute(  # type: ignore[override]
         self,
         tool_name: str,
         args: dict[str, Any],
