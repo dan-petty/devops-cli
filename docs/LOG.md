@@ -4,6 +4,21 @@ Chronological log of refactoring milestones, quality gates, and security enhance
 
 ---
 
+### [2026-09-05] Native Pydantic AI Direct Requests (`pydantic_ai.direct`) & Invocation Optimization
+- **Native Direct Model Request Subsystem (`src/devops_cli/ai/direct.py`)**:
+  - Full native adoption of `pydantic_ai.direct` API specification:
+    - Re-exports `model_request`, `model_request_sync`, `model_request_stream`, `model_request_stream_sync`, and `StreamedResponseSync`.
+    - Implemented high-level ergonomic functions: `direct_model_request`, `direct_model_request_sync`, `direct_model_request_stream`, and `direct_model_request_stream_sync` with automatic model resolution via `resolve_pydantic_ai_model`, concurrency limits, and OpenTelemetry instrumentation (`pydantic_ai.direct.*`).
+    - Implemented message normalization helper `to_model_messages` supporting raw strings, `ChatMessage` lists, and native `ModelMessage` objects.
+    - Implemented response extractors: `extract_response_text`, `extract_response_thinking`, and `to_llm_response` adapter.
+- **Unified Client Integration (`src/devops_cli/ai/client/unified.py`)**:
+  - Added native direct request methods to `LLMClient`: `direct_request`, `direct_request_sync`, `direct_stream`, and `direct_stream_sync`.
+- **Package Re-exports (`devops_cli.ai`, `devops_cli.ai.agents`, `devops_cli.ai.agents.pydantic_agent`)**:
+  - Re-exported all direct model request primitives, types, and helpers with complete `__all__` definitions.
+- **Quality Gates & Test-First Verification**:
+  - Authored comprehensive test suite `tests/test_pydantic_ai_direct.py` (14/14 tests passing, 100% code coverage on `src/devops_cli/ai/direct.py`).
+  - Full CI validation suite (`uv run devops ci`): 10/10 quality gates green.
+
 ### [2026-09-05] Native Pydantic AI Concurrency (`pydantic_ai.concurrency`) & Model-Level Concurrency Wrappers
 - **Native Concurrency Subsystem (`src/devops_cli/ai/concurrency.py`)**:
   - Direct integration with native Pydantic AI concurrency primitives per Pydantic AI API specification:

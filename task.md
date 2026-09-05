@@ -82,12 +82,20 @@
   - [x] Phase 14.5: Full Quality Gates & CI Validation (`devops ci`, strict mypy, 100% coverage on `concurrency.py`)
   - [x] Phase 14.6: Documentation Synchronization & Conventional Commits
 
+- [x] Phase 15: Native Pydantic AI Direct Requests (`pydantic_ai.direct`) & Model Invocation Optimization
+  - [x] Phase 15.1: Test-First Specifications (`tests/test_pydantic_ai_direct.py`)
+  - [x] Phase 15.2: Direct Request Subsystem Implementation (`src/devops_cli/ai/direct.py`)
+  - [x] Phase 15.3: Client Integration & Shims Harmonization (`unified.py`)
+  - [x] Phase 15.4: Package Re-exports (`devops_cli.ai`, `devops_cli.ai.agents`)
+  - [x] Phase 15.5: Full Quality Gates & CI Validation (`devops ci`, strict mypy, 100% coverage on `direct.py`)
+  - [x] Phase 15.6: Documentation Synchronization & Conventional Commits
+
 ---
 
 ### In-Progress Tasks (WIP)
-- [ ] Finalize conventional commit and push to `origin/release/v0.2.10`.
+- [ ] Push atomic conventional commits to `origin/release/v0.2.10` and finalize session walkthrough.
 
 ---
 
 ### Pending Tasks
-- [ ] Conclude session and present walkthrough artifact.
+- [ ] Monitor ongoing review findings or future native Pydantic AI capability expansions.
