@@ -2,6 +2,26 @@
 
 Chronological log of refactoring milestones, quality gates, and security enhancements.
 
+### [2026-09-05] Native Pydantic AI Ollama Model (`pydantic_ai.models.ollama`) & Provider Integration
+- **Native Ollama Models Subsystem (`src/devops_cli/ai/models/ollama.py`, `src/devops_cli/ai/models/__init__.py`)**:
+  - Full native adoption of `pydantic_ai.models.ollama` and `pydantic_ai.providers.ollama` API specifications:
+    - Re-exports core native classes and schemas: `OllamaModel`, `OllamaProvider`, `OpenAIChatModel`, `OpenAIJsonSchemaTransformer`, `OpenAIModelProfile`, `ModelSettings`, and `ModelProfileSpec`.
+    - Re-exports specialized model profile builders: `qwen_model_profile`, `deepseek_model_profile` (with native thinking extraction via `openai_chat_thinking_field: 'reasoning'`), `meta_model_profile`, `mistral_model_profile`, `google_model_profile`, `cohere_model_profile`, and `harmony_model_profile`.
+    - Implemented high-level domain helpers and factories:
+      - `normalize_ollama_base_url`: Robust URL normalizer ensuring a clean `/v1` endpoint path without duplication (`/v1/v1`).
+      - `is_ollama_cloud`: Identifies Ollama Cloud endpoints (`ollama.com`) and cloud model suffixes (`-cloud`).
+      - `get_recommended_output_mode`: Returns `"native"` (`NativeOutput`) for self-hosted Ollama (v0.5.0+ grammar-constrained schema enforcement) and `"tool"` (`ToolOutput`) for Ollama Cloud (mitigating unconstrained schema generation).
+      - `create_ollama_provider`: Builds native `OllamaProvider` with cluster endpoint fallback, environment variable inspection (`OLLAMA_BASE_URL`, `OLLAMA_API_KEY`), and authentication token forwarding.
+      - `create_ollama_model`: High-level factory configuring `OllamaModel` with resolved provider, domain `ModelSettings` (temperature, max_tokens, reasoning_effort, timeout), and profile overrides.
+- **Bridge & Model Resolution Modernization (`src/devops_cli/ai/pydantic_ai_bridge.py`)**:
+  - Refactored `resolve_pydantic_ai_model` to delegate Ollama model resolution to `create_ollama_model`, passing active settings (`temperature`, `max_tokens`, `reasoning_effort`, `ollama_urls`, `api_key`).
+- **Package Re-exports (`devops_cli.ai.models.ollama`, `devops_cli.ai.models`, `devops_cli.ai`, `devops_cli.ai.agents`, `devops_cli.ai.agents.pydantic_agent`)**:
+  - Re-exported all native Ollama types, profile builders, and factories across all public package tiers with strict typing and comprehensive `__all__` definitions.
+- **Quality Gates & Test-First Verification**:
+  - Authored comprehensive test suite `tests/test_pydantic_ai_ollama.py` (9/9 tests passing).
+  - Strict static typing (`mypy --strict`) 100% clean across all modified files.
+  - Full CI validation suite (`uv run devops ci`): 10/10 quality gates green (version, test, coverage >= 90%, lint, format, typecheck, audit, security, actionlint, docs).
+
 ### [2026-09-05] Native Pydantic AI MCP (`pydantic_ai.mcp`) & Dynamic In-Process FastMCP Toolset Integration
 - **Native MCP Toolset Subsystem (`src/devops_cli/ai/mcp/toolset.py`)**:
   - Full native adoption of `pydantic_ai.mcp` API specification:

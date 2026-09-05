@@ -127,6 +127,13 @@
   - [x] Phase 20.4: Public Package Re-exports (`devops_cli.ai.mcp`, `devops_cli.ai`, `devops_cli.ai.agents`, `devops_cli.ai.agents.pydantic_agent`)
   - [x] Phase 20.5: Full CI Validation Suite (`devops ci` — 10/10 green), Documentation Sync & Conventional Commits
 
+- [x] Phase 21: Native Pydantic AI Ollama Model (`pydantic_ai.models.ollama`) & Provider Integration
+  - [x] Phase 21.1: Test-First Specifications (`tests/test_pydantic_ai_ollama.py` — 9/9 green)
+  - [x] Phase 21.2: Core Models & Ollama Subsystem (`src/devops_cli/ai/models/__init__.py`, `ollama.py`)
+  - [x] Phase 21.3: Bridge & Model Resolution Modernization (`src/devops_cli/ai/pydantic_ai_bridge.py`)
+  - [x] Phase 21.4: Public Package Re-exports (`devops_cli.ai.models`, `devops_cli.ai`, `devops_cli.ai.agents`)
+  - [x] Phase 21.5: Full CI Validation Suite (`devops ci` — 10/10 green), Documentation Sync & Conventional Commits
+
 ---
 
 ### In-Progress Tasks (WIP)
