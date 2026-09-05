@@ -476,6 +476,30 @@ def __getattr__(name: str) -> Any:
 
         return getattr(devops_cli.ai.retries, name)
     if name in {
+        "AgentRun",
+        "AgentRunResult",
+        "AgentRunResultEvent",
+        "BaseNode",
+        "End",
+        "EndMarker",
+        "EnqueueContent",
+        "ErrorMarker",
+        "GraphRun",
+        "GraphRunContext",
+        "GraphTaskRequest",
+        "JoinItem",
+        "NodeStep",
+        "PendingMessage",
+        "PendingMessagePriority",
+        "create_pending_message",
+        "current_otel_traceparent",
+        "format_run_summary",
+        "get_active_traceparent",
+    }:
+        import devops_cli.ai.run
+
+        return getattr(devops_cli.ai.run, name)
+    if name in {
         "Advisor",
         "AgentContextInventory",
         "AgentOverride",
@@ -1061,4 +1085,21 @@ __all__ = [
     "is_retryable_status_code",
     "normalize_agent_retries",
     "wait_retry_after",
+    "AgentRunResultEvent",
+    "BaseNode",
+    "End",
+    "EndMarker",
+    "EnqueueContent",
+    "ErrorMarker",
+    "GraphRun",
+    "GraphRunContext",
+    "GraphTaskRequest",
+    "JoinItem",
+    "NodeStep",
+    "PendingMessage",
+    "PendingMessagePriority",
+    "create_pending_message",
+    "current_otel_traceparent",
+    "format_run_summary",
+    "get_active_traceparent",
 ]
