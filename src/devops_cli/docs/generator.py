@@ -796,7 +796,7 @@ class DocGenerator:
                 exit_code = getattr(inst, "exit_code", 1)
             except Exception:
                 err_code = getattr(err_cls, "DEFAULT_ERROR_CODE", err_cls.__name__)
-                exit_code = 1
+                exit_code = getattr(err_cls, "DEFAULT_EXIT_CODE", 1)
 
             domain = (
                 err_cls.__module__.replace("devops_cli.exceptions.", "")

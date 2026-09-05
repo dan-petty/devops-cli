@@ -101,8 +101,23 @@ def _execute_single_tool(
                     pass
         return "retry_requested", clean_args, str(retry_exc)
     except Exception as exc:
-        from devops_cli.exceptions.ai import ApprovalRequired, CallDeferred
+        from devops_cli.exceptions.ai import (
+            ApprovalRequired,
+            CallDeferred,
+            SkipToolExecution,
+            ToolFailed,
+        )
 
+        if isinstance(exc, SkipToolExecution):
+            return "ok", clean_args, exc.result
+        if isinstance(exc, ToolFailed):
+            if hooks and ctx is not None:
+                for h_err in hooks.on_tool_error:
+                    try:
+                        h_err(ctx, tool_name, exc)
+                    except Exception:
+                        pass
+            return "tool_failed", clean_args, exc.message
         if isinstance(exc, ApprovalRequired):
             return "approval_required", clean_args, exc
         if isinstance(exc, CallDeferred):
