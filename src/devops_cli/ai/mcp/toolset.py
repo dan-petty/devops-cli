@@ -33,8 +33,6 @@ from pydantic_ai.mcp import (
 )
 from pydantic_ai.toolsets import AbstractToolset, PrefixedToolset
 
-NativeMCPToolset = MCPToolset
-
 __all__ = (
     "CallToolFunc",
     "ContentBlock",
@@ -43,7 +41,6 @@ __all__ = (
     "MCPError",
     "MCPToolset",
     "MCPToolsetClient",
-    "NativeMCPToolset",
     "ProcessToolCallback",
     "Prompt",
     "PromptArgument",

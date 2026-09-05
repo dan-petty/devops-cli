@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+from pydantic_ai.tools import RunContext as NativeRunContext
 
 from devops_cli.ai.agents.pydantic_agent import AgentTool, BaseCapability, RunContext, Tool
 
@@ -429,12 +430,12 @@ class ToolSearch(BaseCapability):
 
     def get_tools(self) -> list[AgentTool | Callable[..., Any]]:
         async def search_tools(
-            ctx: RunContext[Any] = None,  # type: ignore[assignment]
+            ctx: NativeRunContext[Any] = None,  # type: ignore[assignment]
             queries: Sequence[str] | str = (),
             **kwargs: Any,
         ) -> dict[str, Any]:
             """Search for deferred tools by keyword, topic, or regex pattern."""
-            actual_ctx: RunContext[Any] | None = None
+            actual_ctx: NativeRunContext[Any] | None = None
             if isinstance(ctx, (list, tuple, set, str)):
                 query_list = [ctx] if isinstance(ctx, str) else list(ctx)
             else:

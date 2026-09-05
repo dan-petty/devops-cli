@@ -25,78 +25,16 @@ from devops_cli.telemetry import record_metric, trace_span
 
 logger = logging.getLogger(__name__)
 
-_INDEXABLE_EXTENSIONS = {
-    # Python & dynamic languages
-    ".py",
-    ".pyi",
-    ".rb",
-    ".php",
-    ".lua",
-    ".r",
-    ".dart",
-    # Systems & Compiled
-    ".go",
-    ".rs",
-    ".java",
-    ".kt",
-    ".kts",
-    ".scala",
-    ".cs",
-    ".c",
-    ".cc",
-    ".cpp",
-    ".cxx",
-    ".h",
-    ".hpp",
-    ".swift",
-    # Web & Frontend
-    ".ts",
-    ".tsx",
-    ".js",
-    ".jsx",
-    ".mjs",
-    ".cjs",
-    ".html",
-    ".css",
-    ".scss",
-    # Shell & Scripts
-    ".sh",
-    ".bash",
-    ".zsh",
-    ".fish",
-    ".ps1",
-    # Infrastructure & Data
-    ".tf",
-    ".hcl",
-    ".tfvars",
-    ".sql",
-    ".proto",
-    ".graphql",
-    ".gql",
-    # Config & Manifests
-    ".yaml",
-    ".yml",
-    ".json",
-    ".json5",
-    ".jsonc",
-    ".toml",
-    ".ini",
-    ".cfg",
-    ".conf",
-    ".xml",
-    # Technical Documentation & Specs
-    ".md",
-    ".markdown",
-    ".rst",
-    ".adoc",
-    ".asciidoc",
-    ".org",
-    ".txt",
-    ".tex",
-    ".mmd",
-    ".mermaid",
-    ".puml",
-}
+
+def is_text_file(p: Path) -> bool:
+    """Determine if a file contains textual content by checking for null bytes in initial chunk."""
+    try:
+        with open(p, "rb") as f:
+            chunk = f.read(1024)
+            return b"\x00" not in chunk
+    except OSError:
+        return False
+
 
 _EXCLUDED_PARTS = {
     ".git",
@@ -165,19 +103,13 @@ def _is_indexable_file(p: Path, root: Path, *, gitignore_spec: Any = None) -> bo
         return False
     if gitignore_spec is not None and gitignore_spec.match_file(str(p.relative_to(root))):
         return False
-    named_match = p.name in {
-        "Dockerfile",
-        "Containerfile",
-        "Makefile",
-        "Vagrantfile",
-        "Jenkinsfile",
-    }
-    if not (p.suffix.lower() in _INDEXABLE_EXTENSIONS or named_match):
-        return False
     try:
-        return p.stat().st_size <= 2 * 1024 * 1024
+        if p.stat().st_size > 2 * 1024 * 1024:
+            return False
     except OSError:
         return False
+
+    return is_text_file(p)
 
 
 def _collect_all_indexing_files(

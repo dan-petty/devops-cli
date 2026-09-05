@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, TypeVar, cast
+from typing import Any, TypeVar, cast
 
+import pydantic_ai._function_schema as _pydantic_fs
 from pydantic import BaseModel, Field
 from pydantic_ai.tools import RunContext as NativeRunContext
 
@@ -38,94 +39,73 @@ class AgentRetries(BaseModel):
     output: int = 1
 
 
-_orig_run_context_init = NativeRunContext.__init__
+class RunContext[DepsT](NativeRunContext[DepsT]):
+    """Runtime context passed to agent tools and system prompt providers."""
 
+    session_id: str
+    retry: int
+    loaded_capability_ids: set[str]
+    tool_call_approved: bool
+    tool_call_metadata: dict[str, Any]
 
-def _run_context_init_shim(
-    self: Any,
-    *args: Any,
-    deps: Any = None,
-    model: Any = None,
-    usage: Any = None,
-    session_id: str = "",
-    retry: int = 0,
-    loaded_capability_ids: set[str] | None = None,
-    tool_call_approved: bool = False,
-    tool_call_metadata: dict[str, Any] | None = None,
-    **kwargs: Any,
-) -> None:
-    try:
-        _orig_run_context_init(
-            self,
-            *args,
-            deps=deps,
-            model=model,
-            usage=usage if usage is not None else cast(Any, AgentUsage()),
-            **kwargs,
+    def __init__(
+        self,
+        deps: DepsT | None = None,
+        model: Any = None,
+        usage: Any = None,
+        session_id: str = "",
+        retry: int = 0,
+        loaded_capability_ids: set[str] | None = None,
+        tool_call_approved: bool = False,
+        tool_call_metadata: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        try:
+            super().__init__(
+                deps=deps,  # type: ignore[arg-type]
+                model=model,
+                usage=usage if usage is not None else cast(Any, AgentUsage()),
+                **kwargs,
+            )
+        except TypeError:
+            super().__init__(deps=deps, **kwargs)  # type: ignore[arg-type]
+
+        self.session_id = session_id
+        self.retry = retry
+        self.loaded_capability_ids = (
+            loaded_capability_ids if loaded_capability_ids is not None else set()
         )
-    except TypeError:
-        _orig_run_context_init(self, *args, **kwargs)
-    self.session_id = session_id
-    self.retry = retry
-    if loaded_capability_ids is not None:
-        self.loaded_capability_ids = loaded_capability_ids
-    elif not hasattr(self, "loaded_capability_ids") or self.loaded_capability_ids is None:
-        self.loaded_capability_ids = set()
-    self.tool_call_approved = tool_call_approved
-    self.tool_call_metadata = tool_call_metadata or {}
+        self.tool_call_approved = tool_call_approved
+        self.tool_call_metadata = tool_call_metadata or {}
+
+    def model_copy(
+        self,
+        *,
+        update: dict[str, Any] | None = None,
+        deep: bool = False,
+    ) -> RunContext[DepsT]:
+        """Provide pydantic BaseModel model_copy compatibility on RunContext."""
+        import copy
+
+        copied = copy.deepcopy(self) if deep else copy.copy(self)
+        if update:
+            for k, v in update.items():
+                setattr(copied, k, v)
+        return copied
 
 
-def _run_context_model_copy(
-    self: Any,
-    *,
-    update: dict[str, Any] | None = None,
-    deep: bool = False,
-) -> Any:
-    """Provide pydantic BaseModel model_copy compatibility on RunContext."""
-    import copy
-
-    copied = copy.deepcopy(self) if deep else copy.copy(self)
-    if update:
-        for k, v in update.items():
-            setattr(copied, k, v)
-    return copied
+# Allow pydantic_ai._function_schema to recognize subclasses of NativeRunContext
+_orig_fs_is_call_ctx = _pydantic_fs._is_call_ctx
 
 
-NativeRunContext.__init__ = _run_context_init_shim  # type: ignore[method-assign]
-NativeRunContext.model_copy = _run_context_model_copy  # type: ignore[attr-defined]
+def _subclass_aware_is_call_ctx(annotation: Any) -> bool:
+    if _orig_fs_is_call_ctx(annotation):
+        return True
+    origin = getattr(annotation, "__origin__", None) or annotation
+    return isinstance(origin, type) and issubclass(origin, NativeRunContext)
 
-if TYPE_CHECKING:
 
-    class RunContext[DepsT](NativeRunContext[DepsT]):
-        """Runtime context passed to agent tools and system prompt providers."""
-
-        session_id: str
-        retry: int
-        loaded_capability_ids: set[str]
-        tool_call_approved: bool
-        tool_call_metadata: dict[str, Any]
-
-        def __init__(
-            self,
-            deps: DepsT | None = None,
-            model: Any = None,
-            usage: AgentUsage | None = None,
-            session_id: str = "",
-            retry: int = 0,
-            loaded_capability_ids: set[str] | None = None,
-            tool_call_approved: bool = False,
-            tool_call_metadata: dict[str, Any] | None = None,
-            **kwargs: Any,
-        ) -> None: ...
-
-        def model_copy(
-            self,
-            *,
-            update: dict[str, Any] | None = None,
-            deep: bool = False,
-        ) -> RunContext[DepsT]: ...
-else:
-    RunContext = NativeRunContext
+_pydantic_fs._is_call_ctx = _subclass_aware_is_call_ctx
 
 
 class AgentStepNode(BaseModel):

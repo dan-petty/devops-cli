@@ -235,11 +235,6 @@ class Shell(BaseCapability):
                 description="Run a command synchronously and return labelled stdout/stderr plus exit code.",
             ),
             Tool.from_function(
-                run_command,
-                name="run_shell",
-                description="Run a shell command synchronously (alias for run_command).",
-            ),
-            Tool.from_function(
                 start_command,
                 name="start_command",
                 description="Launch a long-running command in the background; returns command_id.",

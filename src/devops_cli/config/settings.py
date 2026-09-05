@@ -433,8 +433,7 @@ def load_settings() -> Settings:
 
     settings = Settings.model_validate(raw)
 
-    # Check for DEVOPS_DATA_DIR fallback alias if DEVOPS_CLI_DATA_DIR not present
-    env_data_dir = os.environ.get("DEVOPS_CLI_DATA_DIR") or os.environ.get("DEVOPS_DATA_DIR")
+    env_data_dir = os.environ.get("DEVOPS_CLI_DATA_DIR")
     if env_data_dir:
         settings.data.dir = Path(env_data_dir)
 

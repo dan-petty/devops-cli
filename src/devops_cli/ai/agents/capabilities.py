@@ -795,7 +795,7 @@ class PrefixTools(BaseCapability):
                 )
                 prefixed_tools.append(
                     Tool(
-                        func=t.func,
+                        function=t.function,
                         name=new_name,
                         description=t.description,
                         parameters=t.parameters,
@@ -883,7 +883,7 @@ class SetToolMetadata(BaseCapability):
                 merged_meta = {**getattr(t, "metadata", {}), **self.metadata}
                 tools_with_meta.append(
                     Tool(
-                        func=t.func,
+                        function=t.function,
                         name=t.name,
                         description=t.description,
                         parameters=t.parameters,

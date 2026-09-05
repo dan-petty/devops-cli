@@ -25,6 +25,7 @@ import tldextract
 import yaml
 from packaging.requirements import InvalidRequirement, Requirement
 
+from devops_cli.ai.analyze.scanner import detect_language
 from devops_cli.config.constants import CONST_DEFAULT_LINE_NUMBER
 from devops_cli.config.defaults import DEFAULT_FORMAT_TYPE
 from devops_cli.models.vulnerability import DependencySpec, NetworkReference
@@ -38,6 +39,12 @@ mimetypes.add_type("text/x-lock", ".lock")
 mimetypes.add_type("text/x-terraform", ".tf")
 mimetypes.add_type("text/x-terraform-vars", ".tfvars")
 mimetypes.add_type("text/x-hcl", ".hcl")
+mimetypes.add_type("application/x-wheel+zip", ".whl")
+mimetypes.add_type("application/x-crate+tar", ".crate")
+mimetypes.add_type("application/x-nupkg+zip", ".nupkg")
+mimetypes.add_type("application/x-gem+tar", ".gem")
+mimetypes.add_type("application/java-archive", ".war")
+mimetypes.add_type("application/java-archive", ".ear")
 
 _TLD_EXTRACTOR = tldextract.TLDExtract(cache_dir=None)
 
@@ -89,18 +96,6 @@ _EXCLUDED_PUBLIC_REGISTRIES = {
     "shodan.io",
     "cloudflare.com",
 }
-
-_PACKAGE_ARCHIVE_EXTENSIONS = (
-    ".whl",
-    ".tar.gz",
-    ".tgz",
-    ".crate",
-    ".nupkg",
-    ".gem",
-    ".jar",
-    ".war",
-    ".ear",
-)
 
 _WORKSPACE_SKIP_DIRS = {
     ".git",
@@ -235,71 +230,6 @@ def _get_workspace_filenames(root_dir_str: str = "") -> tuple[set[str], tuple[st
     return exact_names, tuple(all_paths)
 
 
-_COMMON_FILE_EXTENSIONS = (
-    ".py",
-    ".pyi",
-    ".pyx",
-    ".md",
-    ".markdown",
-    ".rst",
-    ".adoc",
-    ".txt",
-    ".sh",
-    ".bash",
-    ".zsh",
-    ".fish",
-    ".bat",
-    ".cmd",
-    ".ps1",
-    ".tf",
-    ".tfvars",
-    ".hcl",
-    ".yaml",
-    ".yml",
-    ".json",
-    ".toml",
-    ".ini",
-    ".cfg",
-    ".conf",
-    ".rs",
-    ".go",
-    ".ts",
-    ".tsx",
-    ".js",
-    ".jsx",
-    ".mjs",
-    ".cjs",
-    ".html",
-    ".htm",
-    ".css",
-    ".scss",
-    ".sass",
-    ".less",
-    ".xml",
-    ".svg",
-    ".png",
-    ".jpg",
-    ".jpeg",
-    ".gif",
-    ".webp",
-    ".ico",
-    ".lock",
-    ".lockb",
-    ".pid",
-    ".env",
-    ".example",
-    ".sample",
-    ".template",
-    ".sql",
-    ".db",
-    ".sqlite",
-    ".log",
-    ".out",
-    ".err",
-    ".bak",
-    ".tmp",
-)
-
 _CODE_CONFIG_PREFIXES = (
     "self.",
     "cls.",
@@ -346,30 +276,13 @@ def is_file_reference(target: str, source_file: str = "") -> bool:
     if "/" in clean or "\\" in clean or clean.startswith("."):
         return True
 
-    # 1. Standard source code, documentation, template, script, and config extensions
-    if any(clean.endswith(ext) for ext in _COMMON_FILE_EXTENSIONS):
-        return True
-
-    exact_names, all_paths = _get_workspace_filenames(str(Path.cwd().resolve()))
-
-    # 2. Exact match against any filename or relative path across workspace
-    if clean in exact_names:
-        return True
-
-    # 3. Match as a substring of a filename in workspace file tree
-    for path_str in all_paths:
-        if clean == path_str or clean in path_str.split("/"):
-            return True
-        if "." in clean and (path_str.endswith("/" + clean) or path_str.endswith(clean)):
-            return True
-
     target_path = Path(clean)
 
-    # 4. Direct or cwd-relative filesystem existence
+    # 1. Direct or cwd-relative filesystem existence
     if target_path.is_file() or (Path.cwd() / target_path).is_file():
         return True
 
-    # 5. Source file relative existence
+    # 2. Source file relative existence
     if source_file:
         src = Path(source_file)
         if (src.parent / target_path).is_file():
@@ -380,6 +293,52 @@ def is_file_reference(target: str, source_file: str = "") -> bool:
             if sibling.is_dir() and not sibling.name.startswith(".")
         ):
             return True
+
+    exact_names, all_paths = _get_workspace_filenames(str(Path.cwd().resolve()))
+
+    # 3. Exact match against any filename or relative path across workspace
+    if clean in exact_names:
+        return True
+
+    # 4. Match as a substring of a filename in workspace file tree
+    for path_str in all_paths:
+        if clean == path_str or clean in path_str.split("/"):
+            return True
+        if "." in clean and (path_str.endswith("/" + clean) or path_str.endswith(clean)):
+            return True
+
+    # 5. Network domains and reserved hostnames without disk presence are not files
+    if is_local_or_reserved_domain(clean):
+        return False
+
+    ext = _TLD_EXTRACTOR(clean)
+    if ext.domain and ext.suffix:
+        if ext.subdomain or ext.suffix.lower() in (
+            "com",
+            "org",
+            "net",
+            "io",
+            "dev",
+            "app",
+            "gov",
+            "edu",
+            "info",
+            "co",
+            "me",
+            "internal",
+            "local",
+        ):
+            return False
+
+    # 6. Standard MIME or recognized language file reference
+    mime_type, encoding = mimetypes.guess_type(clean)
+    if encoding or (
+        mime_type
+        and mime_type not in ("application/x-msdos-program", "application/vnd.lotus-organizer")
+    ):
+        return True
+    if Path(clean).suffix and detect_language(clean) not in ("plaintext", "org"):
+        return True
 
     return False
 
@@ -731,7 +690,24 @@ def is_package_repository_asset(url: str, host: str = "") -> bool:
         return True
 
     path_lower = parsed.path.lower()
-    if path_lower.endswith(_PACKAGE_ARCHIVE_EXTENSIONS):
+    mime_type, encoding = mimetypes.guess_type(path_lower)
+    if encoding in ("gzip", "bzip2", "xz") or (
+        mime_type
+        and any(
+            arch in mime_type
+            for arch in (
+                "zip",
+                "tar",
+                "archive",
+                "octet-stream",
+                "java-archive",
+                "x-wheel",
+                "x-crate",
+                "x-nupkg",
+                "x-gem",
+            )
+        )
+    ):
         return True
 
     if any(

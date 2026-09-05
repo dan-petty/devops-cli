@@ -494,12 +494,11 @@ def status_cmd() -> None:
 
 
 # =============================================================================
-# Command: devops rag clear / reset
+# Command: devops rag clear
 # =============================================================================
 
 
 @app.command("clear")
-@app.command("reset", help=HELP.rag.reset)
 def clear_cmd(
     collection: Annotated[
         str | None,

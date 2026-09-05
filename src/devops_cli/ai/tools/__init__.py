@@ -73,7 +73,6 @@ class Tool(NativeTool):
         self,
         function: Callable[..., Any] | None = None,
         *,
-        func: Callable[..., Any] | None = None,
         takes_ctx: bool | None = None,
         max_retries: int | None = None,
         name: str | None = None,
@@ -93,15 +92,14 @@ class Tool(NativeTool):
         parameters: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> None:
-        target_fn = function or func
-        if target_fn is None:
+        if function is None:
             raise ValueError("A callable function must be provided to Tool.")
         validator = cast(Any, args_validator or args_validator_func)
         self._args_validator_func: Callable[[dict[str, Any]], dict[str, Any] | None] | None = (
             args_validator_func or (cast(Any, args_validator) if callable(args_validator) else None)
         )
         super().__init__(
-            target_fn,
+            function,
             takes_ctx=takes_ctx,
             max_retries=max_retries,
             name=name,
@@ -119,11 +117,6 @@ class Tool(NativeTool):
             include_return_schema=include_return_schema,
         )
         self._custom_parameters = parameters
-
-    @property
-    def func(self) -> Callable[..., Any]:
-        """Alias for function to maintain backward compatibility."""
-        return self.function
 
     @property
     def parameters(self) -> dict[str, Any]:

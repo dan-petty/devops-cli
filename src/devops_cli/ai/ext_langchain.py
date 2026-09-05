@@ -97,7 +97,7 @@ def tool_from_langchain(
         return Tool(
             name=tool_name,
             description=tool_desc,
-            func=run_func,
+            function=run_func,
             parameters=properties,
             takes_ctx=False,
             strict=strict,

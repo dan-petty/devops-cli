@@ -10,6 +10,7 @@ from typing import Any, Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
+from pydantic_ai.tools import RunContext as NativeRunContext
 
 from devops_cli.ai.agents.pydantic_agent import (
     AgentTool,
@@ -275,7 +276,7 @@ class SubAgents(BaseCapability):
         agent_map = {sa.name: sa for sa in all_sub_agents}
 
         def delegate_task(
-            ctx: RunContext[Any] = None,  # type: ignore[assignment]
+            ctx: NativeRunContext[Any] = None,  # type: ignore[assignment]
             agent_name: str = "",
             task: str = "",
             model: str | None = None,

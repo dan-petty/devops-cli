@@ -322,9 +322,9 @@ def _build_builtin_hallucinations() -> list[CommonHallucinationEntry]:
 def get_common_hallucinations_file_path() -> Path:
     """Resolve the persistent storage file path for common hallucinations catalog.
 
-    Respects DEVOPS_CLI_DATA_DIR / DEVOPS_DATA_DIR environment overrides.
+    Respects DEVOPS_CLI_DATA_DIR environment override.
     """
-    env_dir = os.environ.get("DEVOPS_CLI_DATA_DIR") or os.environ.get("DEVOPS_DATA_DIR")
+    env_dir = os.environ.get("DEVOPS_CLI_DATA_DIR")
     if env_dir:
         target = Path(env_dir) / CONST_HALLUCINATIONS_FILE_NAME
     else:
@@ -627,12 +627,16 @@ def calculate_hallucination_similarity(
         )
 
     all_matched = list(dict.fromkeys(sig_matches + matched_kws))
+    total_expected = max(1, len(entry.pattern_keywords))
+    keyword_overlap = len(matched_kws) / total_expected
+
     if sig_matches:
-        score = 0.85
-        if matched_kws:
-            score = min(1.0, score + 0.15)
+        # Regex signature match represents structural pattern match (>= 0.70 confidence)
+        # Scaled by keyword overlap for bonus confidence up to 1.0
+        score = round(min(1.0, 0.70 + 0.30 * keyword_overlap), 3)
     else:
-        score = min(0.65, 0.35 + (0.10 * len(matched_kws)))
+        # Without regex signature, score reflects normalized keyword overlap capped at 0.65
+        score = round(min(0.65, keyword_overlap), 3)
 
     if not file_matched:
         score = round(score * 0.5, 3)

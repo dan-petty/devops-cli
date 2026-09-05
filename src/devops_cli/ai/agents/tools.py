@@ -5,10 +5,10 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Self
 
 if TYPE_CHECKING:
-    from pydantic_ai.mcp import MCPToolset as NativeMCPToolset
+    import pydantic_ai.mcp as pydantic_mcp
     from pydantic_ai.toolsets import PrefixedToolset
 
     from devops_cli.ai.function_signature import FunctionSignature
@@ -246,7 +246,7 @@ class MCPToolset(AbstractToolset):
             )
         return toolsets
 
-    def to_native_toolset(self) -> NativeMCPToolset | PrefixedToolset:
+    def to_native_toolset(self) -> pydantic_mcp.MCPToolset[Any] | PrefixedToolset:
         """Convert to a native pydantic_ai.mcp.MCPToolset with optional prefixing."""
         from devops_cli.ai.mcp.toolset import create_mcp_toolset
 
@@ -258,7 +258,7 @@ class MCPToolset(AbstractToolset):
 
         return create_mcp_toolset(target, tool_prefix=self.tool_prefix)
 
-    async def __aenter__(self) -> MCPToolset:
+    async def __aenter__(self) -> Self:
         return self
 
     async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
@@ -309,7 +309,6 @@ __all__ = [
     "AgentTool",
     "FunctionToolset",
     "MCPToolset",
-    "NativeMCPToolset",
     "PrefixedToolset",
     "Tool",
     "ToolCall",
