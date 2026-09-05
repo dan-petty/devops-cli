@@ -163,6 +163,13 @@
   - [x] Phase 25.4: Public Package Re-exports (`devops_cli.ai.retries`, `devops_cli.ai`, `devops_cli.ai.agents`, `pydantic_agent.py`)
   - [x] Phase 25.5: Full CI Validation Suite (`devops ci` — 10/10 green), Documentation Sync & Conventional Commits
 
+- [x] Phase 26: Native Pydantic AI Run (`pydantic_ai.run`) Integration
+  - [x] Phase 26.1: Test-First Specifications (`tests/test_pydantic_ai_run.py` — 6/6 green)
+  - [x] Phase 26.2: Core Run Subsystem (`src/devops_cli/ai/run/__init__.py`)
+  - [x] Phase 26.3: Bridge & Traceparent Integration (`get_active_traceparent`, `format_run_summary`, `create_pending_message`)
+  - [x] Phase 26.4: Public Package Re-exports (`devops_cli.ai.run`, `devops_cli.ai`, `devops_cli.ai.agents`, `pydantic_agent.py`)
+  - [x] Phase 26.5: Full CI Validation Suite (`devops ci` — 10/10 green), Documentation Sync & Conventional Commits
+
 ---
 
 ### In-Progress Tasks (WIP)

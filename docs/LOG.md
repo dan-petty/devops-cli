@@ -2,6 +2,23 @@
 
 Chronological log of refactoring milestones, quality gates, and security enhancements.
 
+### [2026-09-05] Native Pydantic AI Run (`pydantic_ai.run`) Integration
+- **Native Run Subsystem (`src/devops_cli/ai/run/__init__.py`)**:
+  - Full native adoption of `pydantic_ai.run` API specifications:
+    - Re-exports core native classes and schemas: `AgentRun`, `AgentRunResult`, `AgentRunResultEvent`, `BaseNode`, `End`, `EndMarker`, `ErrorMarker`, `EnqueueContent`, `GraphRun`, `GraphRunContext`, `GraphTaskRequest`, `JoinItem`, `NodeStep`, `PendingMessage`, `PendingMessagePriority`, and `current_otel_traceparent`.
+    - Implemented high-level domain run utilities and factories:
+      - `create_pending_message(content, priority="when_idle") -> PendingMessage`: Unified factory assembling native `PendingMessage` instances using `PendingMessage.from_content` with robust fallback to `ModelRequest` with `UserPromptPart` or existing message sequences.
+      - `get_active_traceparent() -> str | None`: Resolves active W3C OpenTelemetry traceparent string, prioritizing native `current_otel_traceparent()` from `pydantic_ai._instrumentation` and falling back to OpenTelemetry span context `00-<trace_id>-<span_id>-<flags>`.
+      - `format_run_summary(result) -> dict[str, Any]`: Formats structured run telemetry summaries (extracting `run_id`, `conversation_id`, ISO timestamp, stringified output, token usage breakdown, and W3C traceparent).
+- **Package Re-exports (`devops_cli.ai.run`, `devops_cli.ai`, `devops_cli.ai.agents`, `devops_cli.ai.agents.pydantic_agent`)**:
+  - Re-exported all run classes, graph components, enqueue types, and traceparent resolution utilities across public package tiers with strict typing (`mypy --strict`) and complete `__all__` lists.
+- **Quality Gates & Test-First Verification**:
+  - Authored comprehensive test suite `tests/test_pydantic_ai_run.py` (6/6 tests passing).
+  - Strict static typing (`mypy --strict`) 100% clean across all new and modified modules.
+  - Clean linting and formatting (`ruff check`, `ruff format`).
+  - Documentation generated and README synchronized (`devops docs generate --sync-readme`).
+  - Full CI validation suite (`uv run devops ci`): 10/10 quality gates green in 143s (version, test, coverage >= 90%, lint, format, typecheck, audit, security, actionlint, docs).
+
 ### [2026-09-05] Native Pydantic AI Retries (`pydantic_ai.retries`) Integration
 - **Native Retries Subsystem (`src/devops_cli/ai/retries/__init__.py`)**:
   - Full native adoption of `pydantic_ai.retries` API specifications:
