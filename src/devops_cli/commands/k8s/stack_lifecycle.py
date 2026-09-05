@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 from typing import Annotated
@@ -146,13 +147,26 @@ def _adopt_helm_resource_if_conflict(
     return adopted_any
 
 
+def _get_openwebui_bootstrap_credentials() -> dict[str, str]:
+    """Resolve OpenWebUI admin bootstrap credentials from environment or secure defaults."""
+    return {
+        "email": os.environ.get("OPENWEBUI_ADMIN_EMAIL", "admin@localhost"),
+        "name": os.environ.get("OPENWEBUI_ADMIN_NAME", "Admin"),
+        "password": os.environ.get("OPENWEBUI_ADMIN_PASSWORD", "admin123"),
+    }
+
+
 def _bootstrap_openwebui_account(
     context: str | None = None,
-    email: str = "admin@localhost",
-    name: str = "Admin",
-    password: str = "admin123",
+    email: str | None = None,
+    name: str | None = None,
+    password: str | None = None,
 ) -> bool:
     """Ensure Open-WebUI signups are enabled and a local admin account is bootstrapped."""
+    creds = _get_openwebui_bootstrap_credentials()
+    admin_email = email or creds["email"]
+    admin_name = name or creds["name"]
+    admin_password = password or creds["password"]
     py_script = (
         "import sqlite3, uuid, time, json, bcrypt, os\n"
         "db_path = '/app/backend/data/webui.db'\n"
@@ -167,10 +181,10 @@ def _bootstrap_openwebui_account(
         "count = cur.fetchone()[0]\n"
         "if count == 0:\n"
         "    uid = str(uuid.uuid4())\n"
-        f"    hashed = bcrypt.hashpw({repr(password)}.encode('utf-8'), bcrypt.gensalt(12)).decode('utf-8')\n"
+        f"    hashed = bcrypt.hashpw({repr(admin_password)}.encode('utf-8'), bcrypt.gensalt(12)).decode('utf-8')\n"
         "    cur.execute('INSERT INTO \"user\" (id, name, email, role, profile_image_url, last_active_at, updated_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', "
-        f"(uid, {repr(name)}, {repr(email)}, 'admin', '/user.png', now, now, now))\n"
-        f"    cur.execute('INSERT INTO auth (id, email, password, active) VALUES (?, ?, ?, ?)', (uid, {repr(email)}, hashed, 1))\n"
+        f"(uid, {repr(admin_name)}, {repr(admin_email)}, 'admin', '/user.png', now, now, now))\n"
+        f"    cur.execute('INSERT INTO auth (id, email, password, active) VALUES (?, ?, ?, ?)', (uid, {repr(admin_email)}, hashed, 1))\n"
         "else:\n"
         "    cur.execute('UPDATE auth SET active = 1')\n"
         '    cur.execute(\'UPDATE "user" SET role = "admin" WHERE role = "pending"\')\n'

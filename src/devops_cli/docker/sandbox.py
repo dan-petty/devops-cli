@@ -35,6 +35,7 @@ class WorkloadSandboxConfig(BaseModel):
     cpu_limit: float = 2.0
     network_mode: str = "bridge"  # bridge | none | host
     rootless: bool = True
+    timeout: float = 300.0
     env: dict[str, str] = Field(default_factory=dict)
 
 
@@ -114,7 +115,7 @@ class WorkloadSandboxRunner:
 
             try:
                 container.start()
-                res = container.wait()
+                res = container.wait(timeout=int(self.config.timeout))
                 exit_code = res.get("StatusCode", 0) if isinstance(res, dict) else int(res)
                 raw_out = container.logs(stdout=True, stderr=False)
                 raw_err = container.logs(stdout=False, stderr=True)
@@ -128,6 +129,10 @@ class WorkloadSandboxRunner:
                     if isinstance(raw_err, bytes)
                     else str(raw_err)
                 )
+            except Exception as wait_exc:
+                logger.debug("Container wait failed or timed out: %s", wait_exc)
+                exit_code = 124
+                stderr = f"Container execution timed out after {self.config.timeout}s: {wait_exc}"
             finally:
                 try:
                     container.remove(force=True)

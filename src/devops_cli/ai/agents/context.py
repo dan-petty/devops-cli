@@ -14,8 +14,11 @@ DepsT = TypeVar("DepsT")
 
 def _check_path_traversal(key: str, value: Any) -> None:
     """Validate that path parameters do not contain traversal sequences."""
-    if isinstance(value, str) and any(sub in key.lower() for sub in ("path", "file", "dest")):
-        if ".." in value and not value.startswith("."):
+    if isinstance(value, str) and any(
+        sub in key.lower() for sub in ("path", "file", "dest", "target")
+    ):
+        clean_val = value.strip()
+        if ".." in clean_val:
             raise SecurityError(f"Path traversal sequence detected in parameter '{key}': {value}")
 
 

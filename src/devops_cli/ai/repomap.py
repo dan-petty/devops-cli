@@ -83,9 +83,14 @@ def _extract_class_methods(class_node: ast.ClassDef) -> list[SymbolNode]:
     ]
 
 
+MAX_REPOMAP_FILE_SIZE_BYTES: int = 5 * 1024 * 1024  # 5 MiB
+
+
 def parse_file_symbols(file_path: Path, relative_to: Path) -> FileMapNode | None:
     """Parse a Python source file using AST and extract class and function symbols."""
     try:
+        if file_path.stat().st_size > MAX_REPOMAP_FILE_SIZE_BYTES:
+            return None
         content = file_path.read_text(encoding="utf-8", errors="replace")
     except Exception:
         return None
@@ -138,7 +143,8 @@ def generate_repo_map(
         [
             source_file
             for source_file in target_dir.rglob("*.py")
-            if not any(
+            if not source_file.is_symlink()
+            and not any(
                 part in source_file.parts
                 for part in (".venv", ".git", "__pycache__", ".pytest_cache", "build", "dist")
             )
@@ -148,7 +154,13 @@ def generate_repo_map(
     )
 
     results: list[FileMapNode] = []
+    base_resolved = base_root.resolve()
     for source_file in py_files[:max_files]:
+        try:
+            if not source_file.resolve().is_relative_to(base_resolved):
+                continue
+        except ValueError, OSError:
+            continue
         node = parse_file_symbols(source_file, base_root)
         if node and node.symbols:
             results.append(node)

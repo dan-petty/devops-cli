@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Lock
 
 from devops_cli.ai.review_schema import Finding, SavedFinding
 from devops_cli.models.ai import FileAnalysisMeta
@@ -50,6 +51,9 @@ def _scan_bandit(py_files: list[Path], findings_map: dict[str, list[SavedFinding
         logger.debug("Bandit scan skipped: %s", exc)
 
 
+_findings_lock = Lock()
+
+
 def _scan_single_yaml(
     yf: Path,
     findings_map: dict[str, list[SavedFinding]],
@@ -59,8 +63,10 @@ def _scan_single_yaml(
         pluto_res = run_pluto_scan(yf)
         kl_res = run_kubelinter_scan(yf)
         key = path_to_key.get(yf, str(yf))
-        if key in findings_map:
-            findings_map[key].extend(_wrap_findings(pluto_res + kl_res))
+        wrapped = _wrap_findings(pluto_res + kl_res)
+        with _findings_lock:
+            if key in findings_map:
+                findings_map[key].extend(wrapped)
     except Exception as exc:
         logger.debug("K8s manifest scan skipped for %s: %s", yf, exc)
 
@@ -90,8 +96,10 @@ def _scan_single_universal(
         gl_res = run_gitleaks_scan(vp)
         sg_res = run_semgrep_scan(vp)
         key = path_to_key.get(vp, str(vp))
-        if key in findings_map:
-            findings_map[key].extend(_wrap_findings(gl_res + sg_res))
+        wrapped = _wrap_findings(gl_res + sg_res)
+        with _findings_lock:
+            if key in findings_map:
+                findings_map[key].extend(wrapped)
     except Exception as exc:
         logger.debug("Gitleaks/Semgrep scan skipped for %s: %s", vp, exc)
 
@@ -116,12 +124,27 @@ def _resolve_target_path(f: str, target_dir: Path, repo: Path) -> Path:
     """Resolve file path relative to absolute path, target directory, or repository root."""
     fp = Path(f)
     if fp.is_absolute() and fp.exists():
-        return fp.resolve()
-    if (target_dir / fp).exists():
-        return (target_dir / fp).resolve()
-    if (repo / fp).exists():
-        return (repo / fp).resolve()
-    return (target_dir / fp).resolve()
+        resolved = fp.resolve()
+    elif (target_dir / fp).exists():
+        resolved = (target_dir / fp).resolve()
+    elif (repo / fp).exists():
+        resolved = (repo / fp).resolve()
+    else:
+        resolved = (target_dir / fp).resolve()
+
+    target_res = target_dir.resolve()
+    repo_res = repo.resolve()
+    try:
+        if not (resolved.is_relative_to(target_res) or resolved.is_relative_to(repo_res)):
+            from devops_cli.exceptions import SecurityError
+
+            raise SecurityError(f"Resolved path {resolved} is outside allowed boundaries")
+    except ValueError:
+        from devops_cli.exceptions import SecurityError
+
+        raise SecurityError(f"Resolved path {resolved} is outside allowed boundaries")
+
+    return resolved
 
 
 def _extract_file_references(vp: Path) -> tuple[list[DependencySpec], list[NetworkReference]]:

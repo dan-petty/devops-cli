@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import ipaddress
 import time
+from urllib.parse import urlparse
 
 from fastapi import APIRouter
 from fastapi.responses import PlainTextResponse
@@ -15,6 +17,27 @@ router = APIRouter(tags=["Telemetry & Metrics"])
 
 _SERVICE_START_TIME = time.time()
 _REQUEST_COUNTER: dict[str, int] = {}
+
+
+def _sanitize_telemetry_endpoint(endpoint: str) -> str:
+    """Sanitize OTLP collector URL to prevent leaking internal network topology."""
+    if not endpoint:
+        return ""
+    try:
+        parsed = urlparse(endpoint)
+        host = parsed.hostname or ""
+        if host in ("localhost", "127.0.0.1", "::1"):
+            return endpoint
+        try:
+            ip = ipaddress.ip_address(host)
+            if ip.is_private or ip.is_loopback:
+                sanitized_netloc = parsed.netloc.replace(host, "<internal-ip>")
+                return parsed._replace(netloc=sanitized_netloc).geturl()
+        except ValueError:
+            pass
+        return endpoint
+    except Exception:
+        return "<internal-endpoint>"
 
 
 class TelemetryStatusResponse(BaseModel):
@@ -37,11 +60,12 @@ class TelemetryStatusResponse(BaseModel):
 async def get_telemetry() -> TelemetryStatusResponse:
     """Inspect OpenTelemetry configuration and ping the OTLP collector endpoint."""
     tracer = get_tracer()
-    ok, _msg, latency = tracer.test_connection(timeout=2.0)
+    ok, _msg, latency = tracer.test_connection(timeout=0.5)
     safe_msg = "Connected successfully" if ok else "Collector probe failed or unreachable"
+    safe_endpoint = _sanitize_telemetry_endpoint(tracer.endpoint)
     return TelemetryStatusResponse(
         enabled=tracer.enabled,
-        endpoint=tracer.endpoint,
+        endpoint=safe_endpoint,
         service_name="devops-cli",
         service_version=__version__,
         ping_ok=ok,
