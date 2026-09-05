@@ -425,13 +425,58 @@ def _check_line_boundaries(finding: Finding, file_path: Path) -> Finding | None:
     return None
 
 
-def _deterministic_pre_verification(finding: Finding, repo_root: Path | None = None) -> Finding:
-    """Run local deterministic parser and line boundary checks to invalidate obvious hallucinations."""
+def _deterministic_pre_verification(
+    finding: Finding,
+    repo_root: Path | None = None,
+    target_dir: Path | None = None,
+    **kwargs: Any,
+) -> Finding:
+    """Run local deterministic parser, line boundary, and hallucination checks to invalidate obvious false positives."""
+    title_lower = finding.title.lower()
+    desc_lower = (finding.description or "").lower()
+
+    # Invalidate conversational chain-of-thought monologue leaked into title
+    monologue_indicators = (
+        "chain of thought",
+        'indeed, "except',
+        "the fix: replace",
+        "it uses try/except with",
+        "we need to review",
+        "during our audit we noticed",
+    )
+    if any(ind in title_lower for ind in monologue_indicators):
+        return finding.model_copy(
+            update={
+                "verified": False,
+                "mitigated": False,
+                "reportable": False,
+                "status": "INVALIDATED",
+                "invalidation_reason": "Conversational chain-of-thought monologue leaked into finding title",
+            }
+        )
+
+    # Invalidate masked placeholder false identifier/syntax claims
+    if "<masked-" in title_lower or "<masked-" in desc_lower:
+        if any(
+            kw in title_lower or kw in desc_lower
+            for kw in ("invalid identifier", "syntax error", "causes syntax error", "not a valid")
+        ):
+            return finding.model_copy(
+                update={
+                    "verified": False,
+                    "mitigated": False,
+                    "reportable": False,
+                    "status": "INVALIDATED",
+                    "invalidation_reason": "Sanitization marker '<masked-*>' is a prompt redaction indicator, not an invalid identifier or syntax defect",
+                }
+            )
+
     loc_file = finding.location.split(":")[0].strip()
     if not loc_file or _is_secret_path(loc_file):
         return finding
 
-    file_path = _resolve_target_file(loc_file, repo_root)
+    effective_root = repo_root or target_dir
+    file_path = _resolve_target_file(loc_file, effective_root)
     if file_path is None:
         return finding
 

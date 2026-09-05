@@ -141,5 +141,48 @@
     "occurrence_count": 1,
     "last_seen": "2026-09-05T00:00:00",
     "source": "builtin"
+  },
+  {
+    "id": "HALLUCINATION-MASKED-IDENTIFIER",
+    "name": "Masked Placeholder Claimed as Invalid Syntax Identifier",
+    "category": "syntax_grammar",
+    "description": "Claiming that sanitization placeholders like <masked-secret> or <masked-token> are invalid Python syntax identifiers or cause SyntaxError during import.",
+    "signature_patterns": [
+      "invalid\\s+identifier.*<masked-[a-zA-Z0-9_\\-]+>",
+      "<masked-[a-zA-Z0-9_\\-]+>.*(?:syntaxerror|invalid\\s+identifier)",
+      "<masked-[a-zA-Z0-9_\\-]+>\\s*causes\\s+syntax\\s+error"
+    ],
+    "pattern_keywords": [
+      "masked_identifier",
+      "masked_syntax_error"
+    ],
+    "file_patterns": [
+      "*.py"
+    ],
+    "resolution": "<masked-*> markers are prompt sanitization indicators, not literal code syntax identifiers.",
+    "occurrence_count": 1,
+    "last_seen": "2026-09-05T00:00:00",
+    "source": "builtin"
+  },
+  {
+    "id": "HALLUCINATION-HTTPX-TIMEOUT-PARAM",
+    "name": "HTTPX Timeout Constructor Positional and Keyword Conflict Claim",
+    "category": "dependency_ecosystem",
+    "description": "Claiming httpx or httpx2 Timeout(timeout, connect=...) raises TypeError or conflicts with positional arguments.",
+    "signature_patterns": [
+      "httpx2?\\.timeout.*(?:multiple\\s+values|conflict|positional\\s+argument)",
+      "(?:multiple\\s+values|conflict).*httpx2?\\.timeout"
+    ],
+    "pattern_keywords": [
+      "httpx_timeout_conflict",
+      "httpx2_timeout_params"
+    ],
+    "file_patterns": [
+      "*.py"
+    ],
+    "resolution": "HTTPX Timeout accepts a positional default timeout alongside specific keyword overrides (e.g. connect, read).",
+    "occurrence_count": 1,
+    "last_seen": "2026-09-05T00:00:00",
+    "source": "builtin"
   }
 ]

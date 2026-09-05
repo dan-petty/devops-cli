@@ -20,22 +20,25 @@ _REQUEST_COUNTER: dict[str, int] = {}
 
 
 def _sanitize_telemetry_endpoint(endpoint: str) -> str:
-    """Sanitize OTLP collector URL to prevent leaking internal network topology."""
+    """Sanitize OTLP collector URL to prevent leaking internal network topology and credentials."""
     if not endpoint:
         return ""
     try:
         parsed = urlparse(endpoint)
         host = parsed.hostname or ""
+        port = f":{parsed.port}" if parsed.port is not None else ""
+
         if host in ("localhost", "127.0.0.1", "::1"):
-            return endpoint
-        try:
-            ip = ipaddress.ip_address(host)
-            if ip.is_private or ip.is_loopback:
-                sanitized_netloc = parsed.netloc.replace(host, "<internal-ip>")
-                return parsed._replace(netloc=sanitized_netloc).geturl()
-        except ValueError:
-            pass
-        return endpoint
+            clean_host = host
+        else:
+            try:
+                ip = ipaddress.ip_address(host)
+                clean_host = "<internal-ip>" if (ip.is_private or ip.is_loopback) else host
+            except ValueError:
+                clean_host = host
+
+        clean_netloc = f"{clean_host}{port}"
+        return parsed._replace(netloc=clean_netloc).geturl()
     except Exception:
         return "<internal-endpoint>"
 

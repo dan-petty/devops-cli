@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ipaddress
+import socket
 from pathlib import Path
 from typing import Annotated
 from urllib.parse import urlparse
@@ -106,6 +107,23 @@ def apply(
                 raise ValueError(f"Manifest URL points to private or reserved IP: {host}")
         except ValueError:
             pass
+
+        try:
+            resolved_addrs = socket.getaddrinfo(host, None)
+            for addr in resolved_addrs:
+                ip_str = str(addr[4][0])
+                resolved_ip = ipaddress.ip_address(ip_str)
+                if (
+                    resolved_ip.is_private
+                    or resolved_ip.is_loopback
+                    or resolved_ip.is_link_local
+                    or resolved_ip.is_reserved
+                ):
+                    raise ValueError(
+                        f"Manifest URL resolves to private or reserved IP: {ip_str} for host {host}"
+                    )
+        except (socket.gaierror, socket.herror) as err:
+            raise ValueError(f"Failed to resolve manifest URL host '{host}': {err}") from err
     else:
         if ".." in Path(path).parts or ".." in path:
             raise ValueError(f"Path traversal detected in manifest path: {path}")
