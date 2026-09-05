@@ -280,6 +280,24 @@ from devops_cli.ai.exceptions import (
     normalize_to_pydantic_ai_error,
 )
 from devops_cli.ai.format_prompt import format_as_xml
+from devops_cli.ai.function_signature import (
+    FunctionParam,
+    FunctionSignature,
+    GenericTypeExpr,
+    LiteralTypeExpr,
+    SimpleTypeExpr,
+    SimpleTypeName,
+    TypeExpr,
+    TypeFieldSignature,
+    TypeSignature,
+    UnionTypeExpr,
+    get_tool_signatures,
+    render_signatures,
+    render_tool_interface,
+    signature_from_callable,
+    signature_from_schema,
+    signature_from_tool,
+)
 
 __all__ = [
     "ALLOW_MODEL_REQUESTS",
@@ -533,4 +551,20 @@ __all__ = [
     "format_pydantic_ai_error",
     "is_pydantic_ai_exception",
     "normalize_to_pydantic_ai_error",
+    "FunctionSignature",
+    "FunctionParam",
+    "TypeSignature",
+    "TypeFieldSignature",
+    "TypeExpr",
+    "SimpleTypeName",
+    "SimpleTypeExpr",
+    "LiteralTypeExpr",
+    "GenericTypeExpr",
+    "UnionTypeExpr",
+    "signature_from_schema",
+    "signature_from_callable",
+    "signature_from_tool",
+    "get_tool_signatures",
+    "render_signatures",
+    "render_tool_interface",
 ]

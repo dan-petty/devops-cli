@@ -100,6 +100,27 @@ def __getattr__(name: str) -> Any:
 
         return getattr(devops_cli.ai.format_prompt, name)
     if name in {
+        "FunctionSignature",
+        "FunctionParam",
+        "TypeSignature",
+        "TypeFieldSignature",
+        "TypeExpr",
+        "SimpleTypeName",
+        "SimpleTypeExpr",
+        "LiteralTypeExpr",
+        "GenericTypeExpr",
+        "UnionTypeExpr",
+        "signature_from_schema",
+        "signature_from_callable",
+        "signature_from_tool",
+        "get_tool_signatures",
+        "render_signatures",
+        "render_tool_interface",
+    }:
+        import devops_cli.ai.function_signature
+
+        return getattr(devops_cli.ai.function_signature, name)
+    if name in {
         "CONST_CLAUDE_MD_FILENAME",
         "CONST_COPILOT_INSTRUCTIONS_PATH",
         "DEFAULT_AGENT_FILES",
@@ -541,4 +562,20 @@ __all__ = [
     "format_rag_context_as_xml",
     "is_pydantic_ai_exception",
     "normalize_to_pydantic_ai_error",
+    "FunctionSignature",
+    "FunctionParam",
+    "TypeSignature",
+    "TypeFieldSignature",
+    "TypeExpr",
+    "SimpleTypeName",
+    "SimpleTypeExpr",
+    "LiteralTypeExpr",
+    "GenericTypeExpr",
+    "UnionTypeExpr",
+    "signature_from_schema",
+    "signature_from_callable",
+    "signature_from_tool",
+    "get_tool_signatures",
+    "render_signatures",
+    "render_tool_interface",
 ]

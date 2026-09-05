@@ -7,7 +7,10 @@ import json
 import re
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from devops_cli.ai.function_signature import FunctionSignature
 
 from pydantic import BaseModel, Field
 
@@ -61,6 +64,33 @@ class AgentTool(BaseModel):
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
         """Allow invoking the underlying tool function directly."""
         return self.func(*args, **kwargs)
+
+    def to_function_signature(self) -> FunctionSignature:
+        """Convert this tool into a native Pydantic AI FunctionSignature."""
+        from devops_cli.ai.function_signature import signature_from_callable, signature_from_schema
+
+        try:
+            return signature_from_callable(
+                self.func,
+                name=self.name,
+                description=self.description,
+                takes_ctx=self.takes_ctx,
+            )
+        except Exception:
+            params = self.parameters or {}
+            if isinstance(params, dict) and "properties" in params and "type" in params:
+                schema_dict = params
+            else:
+                schema_dict = {
+                    "type": "object",
+                    "properties": {p: {"type": "string"} for p in params},
+                    "required": list(params.keys()),
+                }
+            return signature_from_schema(
+                name=self.name,
+                parameters_schema=schema_dict,
+                description=self.description,
+            )
 
 
 class ToolReturn(BaseModel):

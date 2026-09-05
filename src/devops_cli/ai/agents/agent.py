@@ -9,10 +9,11 @@ from collections import defaultdict
 from collections.abc import AsyncGenerator, Callable, Generator, Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, TypeVar, cast
+from typing import TYPE_CHECKING, Any, Literal, TypeVar, cast
 
 if TYPE_CHECKING:
     from devops_cli.ai.concurrency import AbstractConcurrencyLimiter, AnyConcurrencyLimit
+    from devops_cli.ai.function_signature import FunctionSignature
 
 from devops_cli.ai.agents.capabilities import (
     BaseCapability,
@@ -498,6 +499,27 @@ class PydanticAgent[T, DepsT = Any]:
                 takes_ctx=takes_ctx,
             )
             self._tools[name] = agent_tool
+
+    def get_tool_signatures(self) -> list[FunctionSignature]:
+        """Extract native Pydantic AI FunctionSignatures for all registered tools."""
+        from devops_cli.ai.function_signature import get_tool_signatures
+
+        return get_tool_signatures(list(self._tools.values()))
+
+    def render_tool_interface(
+        self,
+        *,
+        format: Literal["python", "markdown"] = "python",
+        include_type_defs: bool = True,
+    ) -> str:
+        """Render registered tools as Python function stubs or Markdown code blocks."""
+        from devops_cli.ai.function_signature import render_tool_interface
+
+        return render_tool_interface(
+            list(self._tools.values()),
+            format=format,
+            include_type_defs=include_type_defs,
+        )
 
     def _build_system_prompt_with_tools(self, ctx: RunContext[Any] | None = None) -> str:
         base_prompt: str = str(self.system_prompt)
