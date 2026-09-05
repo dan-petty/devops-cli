@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from devops_cli.ai.agents.pydantic_agent import BaseCapability, PydanticAgent
 from devops_cli.ai.client import LLMClient
+from devops_cli.ai.concurrency import AnyConcurrencyLimit, limit_model_concurrency
 from devops_cli.ai.personas import PERSONAS, Persona
 from devops_cli.ai.review_schema import ReviewResult
 from devops_cli.config.settings import Settings, get_ai_api_key, load_settings
@@ -45,11 +46,12 @@ def is_pydantic_ai_available() -> bool:
 def resolve_pydantic_ai_model(
     model: str | Any | None = None,
     settings: Settings | None = None,
+    model_concurrency: AnyConcurrencyLimit = None,
 ) -> Any:
     """Resolve and configure native PydanticAI Model instance.
 
     Supports OllamaProvider with dynamic cluster URLs, TestModel for offline testing,
-    and automatic model inference across providers.
+    and automatic model inference across providers with optional concurrency limiting.
     """
     if model is None:
         return None
@@ -62,20 +64,22 @@ def resolve_pydantic_ai_model(
     ):
         from pydantic_ai.models.test import TestModel
 
-        return TestModel()
+        test_m = TestModel()
+        return limit_model_concurrency(test_m, model_concurrency) if model_concurrency else test_m
 
     from pydantic_ai.models import Model
 
     if isinstance(model, Model):
-        return model
+        return limit_model_concurrency(model, model_concurrency) if model_concurrency else model
 
     if model == "test":
         from pydantic_ai.models.test import TestModel
 
-        return TestModel()
+        test_m = TestModel()
+        return limit_model_concurrency(test_m, model_concurrency) if model_concurrency else test_m
 
     if not isinstance(model, str):
-        return model
+        return limit_model_concurrency(model, model_concurrency) if model_concurrency else model
 
     active_settings = settings or load_settings()
     model_str = model.strip()
@@ -89,12 +93,16 @@ def resolve_pydantic_ai_model(
         urls = active_settings.ai.get_ollama_urls if hasattr(active_settings, "ai") else []
         base_url = urls[0] if urls else "http://localhost:11434"
         ollama_provider = OllamaProvider(base_url=f"{base_url.rstrip('/')}/v1")
-        return OllamaModel(clean_name, provider=ollama_provider)
+        om = OllamaModel(clean_name, provider=ollama_provider)
+        return limit_model_concurrency(om, model_concurrency) if model_concurrency else om
 
     try:
         from pydantic_ai.models import infer_model
 
-        return infer_model(model_str)
+        inferred = infer_model(model_str)
+        return (
+            limit_model_concurrency(inferred, model_concurrency) if model_concurrency else inferred
+        )
     except Exception:
         return model_str
 
@@ -110,8 +118,10 @@ def create_pydantic_ai_agent[T: BaseModel](
     client: LLMClient | None = None,
     end_strategy: str = "graceful",
     retries: int | None = None,
+    max_concurrency: AnyConcurrencyLimit = None,
+    model_concurrency: AnyConcurrencyLimit = None,
 ) -> Any:
-    """Instantiate a standardized PydanticAI Agent with typed dependencies, capabilities, and outputs."""
+    """Instantiate a standardized PydanticAI Agent with typed dependencies, capabilities, outputs, and concurrency limits."""
     settings: Settings = load_settings()
     target_model = model_name or getattr(getattr(settings, "ai", None), "model", None)
     res_model = output_type or result_type or ReviewResult
@@ -121,7 +131,9 @@ def create_pydantic_ai_agent[T: BaseModel](
     try:
         from pydantic_ai import Agent
 
-        resolved_model = resolve_pydantic_ai_model(target_model, settings=settings)
+        resolved_model = resolve_pydantic_ai_model(
+            target_model, settings=settings, model_concurrency=model_concurrency
+        )
 
         kwargs: dict[str, Any] = {
             "system_prompt": system_prompt,
@@ -140,6 +152,8 @@ def create_pydantic_ai_agent[T: BaseModel](
             kwargs["capabilities"] = active_caps
         if "tools" in sig.parameters and active_tools:
             kwargs["tools"] = active_tools
+        if "max_concurrency" in sig.parameters and max_concurrency is not None:
+            kwargs["max_concurrency"] = max_concurrency
 
         if resolved_model is not None:
             return Agent(model=resolved_model, **kwargs)
@@ -155,6 +169,7 @@ def create_pydantic_ai_agent[T: BaseModel](
             tools=active_tools,
             capabilities=active_caps,
             output_type=res_model,
+            max_concurrency=max_concurrency,
         )
 
 
@@ -164,8 +179,10 @@ def get_persona_pydantic_agent(
     capabilities: Sequence[BaseCapability] | None = None,
     tools: Sequence[Any] | None = None,
     model_name: str | Any | None = None,
+    max_concurrency: AnyConcurrencyLimit = None,
+    model_concurrency: AnyConcurrencyLimit = None,
 ) -> Any:
-    """Build a persona-specialized PydanticAI agent instance."""
+    """Build a persona-specialized PydanticAI agent instance with optional concurrency limiting."""
     p_enum = Persona(persona) if isinstance(persona, str) else persona
     p_def = PERSONAS[p_enum]
     active_settings = settings or load_settings()
@@ -178,4 +195,6 @@ def get_persona_pydantic_agent(
         deps_type=DevOpsAgentContext,
         capabilities=capabilities,
         tools=tools,
+        max_concurrency=max_concurrency,
+        model_concurrency=model_concurrency,
     )

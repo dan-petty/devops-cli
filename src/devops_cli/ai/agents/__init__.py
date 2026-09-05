@@ -198,6 +198,23 @@ from devops_cli.ai.agents.spend import (
 
 
 def __getattr__(name: str) -> Any:
+    if name in {
+        "AbstractConcurrencyLimiter",
+        "AnyConcurrencyLimit",
+        "ConcurrencyLimit",
+        "ConcurrencyLimitExceeded",
+        "ConcurrencyLimitedModel",
+        "ConcurrencyLimiter",
+        "get_concurrency_context",
+        "get_model_concurrency_limiter",
+        "get_shared_concurrency_limiter",
+        "limit_model_concurrency",
+        "normalize_to_limiter",
+        "track_concurrency_slot",
+    }:
+        import devops_cli.ai.concurrency
+
+        return getattr(devops_cli.ai.concurrency, name)
     if name in {"duckduckgo_search_tool", "tavily_search_tool", "web_fetch_tool"}:
         import devops_cli.ai.common_tools
 
@@ -307,6 +324,7 @@ __all__ = [
     "ALLOW_MODEL_REQUESTS",
     "AbstractAgent",
     "AbstractCapability",
+    "AbstractConcurrencyLimiter",
     "AbstractToolset",
     "Advisor",
     "Agent",
@@ -327,6 +345,7 @@ __all__ = [
     "AgentStreamEvent",
     "AgentTool",
     "AgentUsage",
+    "AnyConcurrencyLimit",
     "ApprovalRequiredToolset",
     "AssetRoot",
     "Band",
@@ -345,6 +364,10 @@ __all__ = [
     "CombinedCapability",
     "CombinedToolset",
     "CompactionReceipt",
+    "ConcurrencyLimit",
+    "ConcurrencyLimitExceeded",
+    "ConcurrencyLimitedModel",
+    "ConcurrencyLimiter",
     "ContextUsage",
     "ConversationSearch",
     "ConversationSearchMatch",
@@ -552,11 +575,16 @@ __all__ = [
     "external",
     "externalize_media",
     "filtered",
+    "get_concurrency_context",
+    "get_model_concurrency_limiter",
+    "get_shared_concurrency_limiter",
     "image_generation_tool",
     "indented_json",
     "is_pinned",
     "is_private_ip_or_localhost",
     "json_lines",
+    "limit_model_concurrency",
+    "normalize_to_limiter",
     "pin",
     "prefixed",
     "prepared",
@@ -566,6 +594,7 @@ __all__ = [
     "restore_media",
     "tavily_search_tool",
     "tool_from_langchain",
+    "track_concurrency_slot",
     "web_fetch_tool",
     "x_search_tool",
 ]

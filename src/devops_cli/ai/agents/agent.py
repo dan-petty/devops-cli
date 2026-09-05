@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import json
 from collections import defaultdict
-from collections.abc import Callable, Generator, Iterator
+from collections.abc import AsyncGenerator, Callable, Generator, Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, TypeVar, cast
+from typing import TYPE_CHECKING, Any, TypeVar, cast
+
+if TYPE_CHECKING:
+    from devops_cli.ai.concurrency import AbstractConcurrencyLimiter, AnyConcurrencyLimit
 
 from devops_cli.ai.agents.capabilities import (
     BaseCapability,
@@ -154,6 +158,7 @@ class PydanticAgent[T, DepsT = Any]:
         toolsets: list[AbstractToolset] | None = None,
         retries: int | AgentRetries | dict[str, int] | None = None,
         tool_timeout: float | None = None,
+        max_concurrency: AnyConcurrencyLimit = None,
     ) -> None:
         if client is not None:
             self.client = client
@@ -186,6 +191,16 @@ class PydanticAgent[T, DepsT = Any]:
         self.capabilities: list[BaseCapability] = list(capabilities or [])
         self.toolsets: list[AbstractToolset] = list(toolsets or [])
         self.tool_timeout = tool_timeout
+        self.max_concurrency = max_concurrency
+        if max_concurrency is not None:
+            from devops_cli.ai.concurrency import normalize_to_limiter
+
+            self._concurrency_limiter: AbstractConcurrencyLimiter | None = normalize_to_limiter(
+                max_concurrency, name=f"agent:{name}"
+            )
+        else:
+            self._concurrency_limiter = None
+
         if isinstance(retries, int):
             self.retries = AgentRetries(tools=retries, output=retries)
         elif isinstance(retries, dict):
@@ -1064,6 +1079,55 @@ class PydanticAgent[T, DepsT = Any]:
     ) -> Generator[str]:
         """Synchronously stream response tokens in real-time (PydanticAI parity alias)."""
         yield from self.run_stream(user_prompt, enable_thinking=enable_thinking)
+
+    async def run_async(
+        self,
+        user_prompt: str,
+        *,
+        deps: DepsT | None = None,
+        max_turns: int = DEFAULT_AGENT_MAX_TURNS,
+        enable_thinking: bool = True,
+        skip_rag: bool = False,
+        message_history: list[ChatMessage] | None = None,
+        deferred_tool_results: DeferredToolResults | None = None,
+        retries: int | AgentRetries | dict[str, int] | None = None,
+        on_tool_call: Callable[[str, dict[str, Any], Any], None] | None = None,
+        on_thought: Callable[[str], None] | None = None,
+    ) -> AgentResponse[T]:
+        """Asynchronously execute the agent tool loop with concurrency limiting."""
+        from functools import partial
+
+        from devops_cli.ai.concurrency import get_concurrency_context
+
+        async with get_concurrency_context(self._concurrency_limiter, f"agent:{self.name}"):
+            loop = asyncio.get_running_loop()
+            fn = partial(
+                self.run,
+                user_prompt,
+                deps=deps,
+                max_turns=max_turns,
+                enable_thinking=enable_thinking,
+                skip_rag=skip_rag,
+                message_history=message_history,
+                deferred_tool_results=deferred_tool_results,
+                retries=retries,
+                on_tool_call=on_tool_call,
+                on_thought=on_thought,
+            )
+            return await loop.run_in_executor(None, fn)
+
+    async def run_stream_async(
+        self,
+        user_prompt: str,
+        *,
+        enable_thinking: bool = True,
+    ) -> AsyncGenerator[str]:
+        """Asynchronously stream response tokens in real-time with concurrency limiting."""
+        from devops_cli.ai.concurrency import get_concurrency_context
+
+        async with get_concurrency_context(self._concurrency_limiter, f"agent:{self.name}"):
+            for token in self.run_stream(user_prompt, enable_thinking=enable_thinking):
+                yield token
 
     def to_cli(
         self,

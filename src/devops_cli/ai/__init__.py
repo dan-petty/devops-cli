@@ -109,6 +109,24 @@ def __getattr__(name: str) -> Any:
         import devops_cli.ai.common_tools
 
         return getattr(devops_cli.ai.common_tools, name)
+
+    if name in {
+        "AbstractConcurrencyLimiter",
+        "AnyConcurrencyLimit",
+        "ConcurrencyLimit",
+        "ConcurrencyLimitExceeded",
+        "ConcurrencyLimitedModel",
+        "ConcurrencyLimiter",
+        "get_concurrency_context",
+        "get_model_concurrency_limiter",
+        "get_shared_concurrency_limiter",
+        "limit_model_concurrency",
+        "normalize_to_limiter",
+        "track_concurrency_slot",
+    }:
+        import devops_cli.ai.concurrency
+
+        return getattr(devops_cli.ai.concurrency, name)
     if name in {"tool_from_langchain", "LangChainToolset"}:
         import devops_cli.ai.ext_langchain
 
@@ -212,9 +230,11 @@ def __getattr__(name: str) -> Any:
 
 __all__ = [
     "AIClientError",
+    "AbstractConcurrencyLimiter",
     "Advisor",
     "AgentContextInventory",
     "AgentOverride",
+    "AnyConcurrencyLimit",
     "AssetRoot",
     "Band",
     "CacheBustWarning",
@@ -225,6 +245,10 @@ __all__ = [
     "CodeMode",
     "Coder",
     "CompactionReceipt",
+    "ConcurrencyLimit",
+    "ConcurrencyLimitExceeded",
+    "ConcurrencyLimitedModel",
+    "ConcurrencyLimiter",
     "CONST_CLAUDE_MD_FILENAME",
     "CONST_COPILOT_INSTRUCTIONS_PATH",
     "ContextUsage",
@@ -344,17 +368,22 @@ __all__ = [
     "generate_agents_md",
     "generate_instruction_content",
     "generate_pointer_stub",
+    "get_concurrency_context",
     "get_knowledge_base_dir",
     "get_knowledge_base_stats",
     "get_llm_response_cache",
+    "get_model_concurrency_limiter",
+    "get_shared_concurrency_limiter",
     "image_generation_tool",
     "indented_json",
     "is_pinned",
     "json_lines",
+    "limit_model_concurrency",
     "list_knowledge_base_articles",
     "load_kb_article",
     "model_request",
     "model_request_sync",
+    "normalize_to_limiter",
     "parse_project_metadata",
     "pin",
     "reinject_pinned",
@@ -365,6 +394,7 @@ __all__ = [
     "strip_think_blocks",
     "tavily_search_tool",
     "tool_from_langchain",
+    "track_concurrency_slot",
     "web_fetch_tool",
     "x_search_tool",
 ]
