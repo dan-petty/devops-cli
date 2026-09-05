@@ -247,7 +247,17 @@ class Macroscope(BaseCapability):
     def get_tools(self) -> list[AgentTool | Callable[..., Any]]:
         def run_macroscope_review(base: str | None = None) -> str:
             """Run macroscope codereview and return findings."""
+            import re
             import shutil
+
+            diff_base = base or self.base
+            if diff_base and (
+                ".." in diff_base or not re.match(r"^[a-zA-Z0-9_\-./~^]+$", diff_base)
+            ):
+                return (
+                    f"Invalid base reference '{diff_base}': "
+                    "path traversal or invalid characters blocked by security policy."
+                )
 
             bin_path = shutil.which(self.command)
             if not bin_path:
@@ -256,7 +266,6 @@ class Macroscope(BaseCapability):
                     "Install via: curl -sSL https://raw.githubusercontent.com/prassoai/macroscope-local/main/install.sh | bash"
                 )
 
-            diff_base = base or self.base
             cmd = [self.command, "codereview", "--raw"]
             if diff_base:
                 cmd.extend(["--base", diff_base])
@@ -351,6 +360,10 @@ class PlaywrightBrowser(BaseCapability):
         def navigate(url: str, timeout_ms: int | None = None) -> str:
             """Navigate to a URL and return title, URL, and visible page text."""
             from urllib.parse import urlparse
+
+            parsed = urlparse(url)
+            if parsed.scheme.lower() not in ("http", "https"):
+                return f"Navigation blocked: Unsupported URL scheme '{parsed.scheme}'. Only http and https are allowed."
 
             from devops_cli.ai.common_tools import is_private_ip_or_localhost
 

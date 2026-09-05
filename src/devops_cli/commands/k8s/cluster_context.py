@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import ipaddress
+from pathlib import Path
 from typing import Annotated
+from urllib.parse import urlparse
 
 import typer
 
@@ -88,6 +91,25 @@ def apply(
     ] = None,
 ) -> None:
     """Apply a Kubernetes manifest (delegates to kubectl)."""
+    if "://" in path:
+        u = urlparse(path)
+        if u.scheme not in ("http", "https"):
+            raise ValueError(f"Unsupported manifest URL scheme: {u.scheme}")
+        host = u.hostname or ""
+        if not host:
+            raise ValueError(f"Invalid manifest URL: {path}")
+        if host.lower() in ("localhost", "127.0.0.1", "169.254.169.254", "::1"):
+            raise ValueError(f"Manifest URL points to forbidden host: {host}")
+        try:
+            ip = ipaddress.ip_address(host)
+            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+                raise ValueError(f"Manifest URL points to private or reserved IP: {host}")
+        except ValueError:
+            pass
+    else:
+        if ".." in Path(path).parts or ".." in path:
+            raise ValueError(f"Path traversal detected in manifest path: {path}")
+
     if namespace:
         k8s._validate_k8s_identifier(namespace, "namespace", namespace=True)
     cmd = ["kubectl", "apply", "-f", path]

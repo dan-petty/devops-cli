@@ -58,6 +58,10 @@ class AgentTool(BaseModel):
             return self.func(ctx, **kwargs)
         return self.func(**kwargs)
 
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        """Allow invoking the underlying tool function directly."""
+        return self.func(*args, **kwargs)
+
 
 class ToolReturn(BaseModel):
     """Rich tool return object separating return value, LLM message content, and metadata."""

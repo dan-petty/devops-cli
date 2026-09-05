@@ -69,6 +69,16 @@ class VaultSecretBroker:
             or os.getenv("DEVOPS_CLI_VAULT_ADDR")
             or "http://127.0.0.1:8200"
         ).rstrip("/")
+        parsed = urlparse(self.vault_addr)
+        if parsed.scheme not in ("http", "https"):
+            raise ValueError(
+                f"Invalid Vault address scheme '{parsed.scheme}'; expected 'http' or 'https'"
+            )
+        if not parsed.netloc:
+            raise ValueError(f"Invalid Vault address host/netloc: '{self.vault_addr}'")
+        if ".." in self.vault_addr or ".." in parsed.path:
+            raise ValueError(f"Path traversal detected in Vault address: '{self.vault_addr}'")
+
         self.vault_token = (
             vault_token or os.getenv("VAULT_TOKEN") or os.getenv("DEVOPS_CLI_VAULT_TOKEN")
         )

@@ -154,11 +154,17 @@ class CodeMode(BaseCapability):
                 msg = f"Nested tool call limit exceeded: maximum {self.max_tool_calls} calls reached at '{fn_name}'."
                 raise RuntimeError(msg)
             self.tool_call_count += 1
-            if inspect.iscoroutinefunction(fn):
-                return await fn(*args, **kwargs)
-            if callable(fn):
-                return fn(*args, **kwargs)
-            return fn
+            target = getattr(fn, "func", fn)
+            if inspect.iscoroutinefunction(target) or inspect.iscoroutinefunction(fn):
+                return await (target(*args, **kwargs) if callable(target) else fn(*args, **kwargs))
+            res = (
+                target(*args, **kwargs)
+                if callable(target)
+                else (fn(*args, **kwargs) if callable(fn) else fn)
+            )
+            if inspect.iscoroutine(res):
+                return await res
+            return res
 
         return _sandboxed_tool_call
 

@@ -104,6 +104,16 @@ def web_fetch_tool(
         client = new_http_client(headers=headers or {})
         try:
             resp = client.get(url, follow_redirects=True, timeout=15.0)
+            final_host = ""
+            if hasattr(resp, "url"):
+                final_host = (
+                    getattr(resp.url, "host", None) or getattr(resp.url, "hostname", None) or ""
+                )
+                if not final_host:
+                    final_host = urllib.parse.urlparse(str(resp.url)).hostname or ""
+            if final_host and _is_private_or_loopback(str(final_host)):
+                raise SSRFBlockedError(target_url=str(getattr(resp, "url", url)))
+
             resp.raise_for_status()
             if max_download_bytes is not None and len(resp.content) > max_download_bytes:
                 content_text = resp.text[:max_download_bytes]

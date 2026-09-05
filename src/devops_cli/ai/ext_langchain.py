@@ -21,22 +21,45 @@ def tool_from_langchain(
     tool_name = str(name or getattr(langchain_tool, "name", "") or type(langchain_tool).__name__)
     tool_desc = str(description or getattr(langchain_tool, "description", "") or tool_name)
 
+    def _validate_langchain_kwargs(kwargs: dict[str, Any]) -> str | None:
+        for k, v in kwargs.items():
+            if any(
+                pat in k.lower()
+                for pat in ("path", "file", "dir", "dest", "filename", "filepath", "uri")
+            ):
+                if isinstance(v, str) and (".." in v or "../" in v or "..\\" in v):
+                    return f"Path traversal in argument '{k}' is blocked by security policy: {v}"
+        return None
+
     # Extract runner callback
     run_func: Callable[..., Any]
     if hasattr(langchain_tool, "invoke") and callable(langchain_tool.invoke):
 
         def _invoke_wrapper(**kwargs: Any) -> Any:
+            err = _validate_langchain_kwargs(kwargs)
+            if err:
+                return err
             return langchain_tool.invoke(kwargs)
 
         run_func = _invoke_wrapper
     elif hasattr(langchain_tool, "run") and callable(langchain_tool.run):
 
         def _run_wrapper(**kwargs: Any) -> Any:
+            err = _validate_langchain_kwargs(kwargs)
+            if err:
+                return err
             return langchain_tool.run(kwargs)
 
         run_func = _run_wrapper
     elif callable(langchain_tool):
-        run_func = langchain_tool
+
+        def _callable_wrapper(**kwargs: Any) -> Any:
+            err = _validate_langchain_kwargs(kwargs)
+            if err:
+                return err
+            return langchain_tool(**kwargs)
+
+        run_func = _callable_wrapper
     else:
         raise TypeError(f"Object {langchain_tool!r} is not a valid callable or LangChain tool")
 

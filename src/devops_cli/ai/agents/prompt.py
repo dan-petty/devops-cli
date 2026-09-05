@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import time
 from typing import Any
 
@@ -9,6 +10,11 @@ from pydantic import BaseModel, Field
 
 from devops_cli.ai.agents.capabilities import BaseCapability
 from devops_cli.ai.agents.context import RunContext
+
+_PROMPT_INJECTION_TAGS_REGEX = re.compile(
+    r"<\/?(?:system|instructions?|prompt|untrusted)[^>]*>",
+    re.IGNORECASE,
+)
 
 
 class PromptRegistry(BaseModel):
@@ -77,7 +83,7 @@ class ManagedPrompt(BaseCapability):
         vars_dict = {**self.template_vars, **(extra_vars or {})}
         rendered = template
         for k, v in vars_dict.items():
-            val_clean = str(v).replace("</untrusted", "<\\/untrusted").replace("<system>", "")
+            val_clean = _PROMPT_INJECTION_TAGS_REGEX.sub("", str(v))
             rendered = rendered.replace(f"{{{k}}}", val_clean)
         return rendered
 

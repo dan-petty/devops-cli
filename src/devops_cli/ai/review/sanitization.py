@@ -50,6 +50,17 @@ _SECRET_PATTERNS = (
         "<masked-jwt>",
     ),
     (
+        re.compile(r"\bsecret_[A-Za-z0-9_]{10,}\b", re.IGNORECASE),
+        "<masked-secret>",
+    ),
+    (
+        re.compile(
+            r"\b(?:token|bearer|secret|password|api_key)\s+([A-Za-z0-9_\-.]{10,})\b",
+            re.IGNORECASE,
+        ),
+        "<masked-token>",
+    ),
+    (
         re.compile(
             r"-----BEGIN (?:[A-Z0-9_-]+\s+)?PRIVATE KEY-----"
             r"[\s\S]+?-----END (?:[A-Z0-9_-]+\s+)?PRIVATE KEY-----"

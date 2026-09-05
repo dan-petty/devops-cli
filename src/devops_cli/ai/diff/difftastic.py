@@ -26,11 +26,20 @@ _SECRET_PATTERNS = [
 ]
 
 
+MAX_DIFF_TEXT_CHARS: int = 500_000
+
+
 def sanitize_diff_output(diff_text: str) -> str:
     """Sanitize sensitive credentials, secrets, private keys, and tokens from diff output."""
     if not diff_text:
         return ""
-    sanitized = diff_text
+    text = diff_text
+    if len(text) > MAX_DIFF_TEXT_CHARS:
+        text = (
+            text[:MAX_DIFF_TEXT_CHARS]
+            + f"\n... [Diff truncated at {MAX_DIFF_TEXT_CHARS} characters] ...\n"
+        )
+    sanitized = text
     for pat in _SECRET_PATTERNS:
         sanitized = pat.sub("[REDACTED_SECRET]", sanitized)
     return sanitized

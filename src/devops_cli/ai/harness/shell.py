@@ -35,6 +35,7 @@ class Shell(BaseCapability):
     denied_env_patterns: list[str] = Field(default_factory=lambda: list(LLM_API_KEY_ENV_PATTERNS))
     timeout: float = 60.0
     max_output_chars: int = 20000
+    max_bg_processes: int = 10
 
     def __init__(
         self,
@@ -48,6 +49,7 @@ class Shell(BaseCapability):
         denied_env_patterns: list[str] | None = None,
         timeout: float = 60.0,
         max_output_chars: int = 20000,
+        max_bg_processes: int = 10,
     ) -> None:
         p = Path(cwd)
         if allowed_commands is not None and denied_commands is not None:
@@ -68,6 +70,7 @@ class Shell(BaseCapability):
             else denied_env_patterns,
             timeout=timeout,
             max_output_chars=max_output_chars,
+            max_bg_processes=max_bg_processes,
         )
 
     def _sanitize_env(self) -> dict[str, str]:
@@ -97,6 +100,9 @@ class Shell(BaseCapability):
         if not parts:
             return False, "Error: empty command", []
 
+        if any(".." in part for part in parts):
+            return False, "Path traversal in command arguments is blocked by security policy.", []
+
         cmd_name = Path(parts[0]).name
 
         if not self.allow_interactive and cmd_name in INTERACTIVE_COMMANDS:
@@ -110,7 +116,11 @@ class Shell(BaseCapability):
             if cmd_name not in self.allowed_commands and parts[0] not in self.allowed_commands:
                 return False, f"Command '{cmd_name}' is blocked by security allowlist.", []
         elif self.denied_commands:
-            if cmd_name in self.denied_commands or parts[0] in self.denied_commands:
+            if (
+                cmd_name in self.denied_commands
+                or parts[0] in self.denied_commands
+                or any(cmd_name.startswith(f"{d}.") for d in self.denied_commands)
+            ):
                 return False, f"Command '{cmd_name}' is blocked by security denylist.", []
 
         return True, "", parts
@@ -161,6 +171,10 @@ class Shell(BaseCapability):
 
         def start_command(command: str) -> str:
             """Launch a long-running command in the background and return a tracking ID."""
+            active_count = sum(1 for p in bg_processes.values() if p.poll() is None)
+            if active_count >= self.max_bg_processes:
+                return f"Maximum limit of concurrent background processes ({self.max_bg_processes}) reached. Blocked."
+
             ok, err, parts = self._validate_command(command)
             if not ok:
                 return err
