@@ -184,6 +184,15 @@
   - [x] Phase 28.4: Public Package Re-exports (`devops_cli.ai.template`, `devops_cli.ai`, `devops_cli.ai.agents`, `pydantic_agent.py`)
   - [x] Phase 28.5: Full CI Validation Suite (`devops ci` — 10/10 green), Documentation Sync & Conventional Commits
 
+- [x] Phase 29: Native Pydantic AI Tools (`pydantic_ai.tools`) Integration
+  - [x] Phase 29.1: Test-First Specifications (`tests/test_pydantic_ai_tools.py` — 11/11 green)
+  - [x] Phase 29.2: Core Tools Subsystem Modernization (`src/devops_cli/ai/tools/__init__.py` subclassing native `Tool`, native `DeferredToolRequests`, `ToolApproved`, `ToolDenied`, and re-exporting all native tool types)
+  - [x] Phase 29.3: Eliminate Zombie Code & Modernize Capabilities (`capabilities.py`, `tools.py`, `agent.py`, `runner.py`, `pipeline.py`, `context.py` with native `RunContext`)
+  - [x] Phase 29.4: Public Package Re-exports (`devops_cli.ai.tools`, `devops_cli.ai`, `devops_cli.ai.agents`, `pydantic_agent.py`)
+  - [x] Phase 29.5: Static Typing & Linting Quality Gates (`mypy --strict` green, `ruff check` green, `ruff format` clean)
+  - [x] Phase 29.6: Regression Test Suite Verification (`tests/test_pydantic_ai_tools.py`, `tests/test_pydantic_agent.py`, `tests/test_ai_agent_deferred_tools.py`, `tests/test_harness.py`, `tests/test_ai_agent_capabilities.py` — 100% green)
+  - [x] Phase 29.7: Full CI Validation Suite (`devops ci` — 10/10 green), Documentation Sync (`devops docs generate --sync-readme`), and Conventional Commits
+
 ---
 
 ### In-Progress Tasks (WIP)

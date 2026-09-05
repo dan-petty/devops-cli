@@ -2,6 +2,38 @@
 
 Chronological log of refactoring milestones, quality gates, and security enhancements.
 
+### [2026-09-05] Native Pydantic AI Tools (`pydantic_ai.tools`) Integration
+- **Native Tools Subsystem (`src/devops_cli/ai/tools/__init__.py`)**:
+  - Full native adoption of `pydantic_ai.tools` API specifications:
+    - Re-exports core native primitives, types, and schemas: `Tool`, `ToolDefinition`, `DocstringFormat`, `ToolPrepareFunc`, `ToolsPrepareFunc`, `ToolSelector`, `ToolSelectorFunc`, `matches_tool_selector`, `AgentNativeTool`, `NativeToolFunc`, `ObjectJsonSchema`, `DeferredToolRequests`, `DeferredToolResults`, `ToolApproved`, `ToolDenied`, `ArgsValidatorFunc`, `ToolFuncContext`, `ToolFuncPlain`, `ToolFuncEither`, `ToolParams`.
+    - Modernized `Tool` subclassing native `pydantic_ai.tools.Tool`:
+      - Backward-compatible `func` property alias and `parameters` dictionary inspection.
+      - Direct callable invocation via `__call__` and `execute(ctx=None, **kwargs)`.
+      - Safe argument filtering and traversal validation via `validate_args()`.
+      - Function signature serialization via `to_function_signature()`.
+      - Constructors `Tool.from_function` and `Tool.from_schema` supporting explicit schemas and custom validators.
+    - Subclassed `DeferredToolRequests` with enhanced `build_results(approve_all=..., deny_all=...)` for streamlined human-in-the-loop approvals.
+    - Implemented high-level domain tool utilities and factories:
+      - `create_tool(...) -> Tool`: Flexible factory for wrapping callables into native `Tool` instances.
+      - `create_tool_definition(name, description="", parameters_json_schema=None, ...) -> ToolDefinition`: Builder for native tool schemas.
+      - `is_native_tool(val) -> bool`: Fast predicate checking whether a value is an instance of native `Tool`.
+      - `approve_all_requests(requests) -> DeferredToolResults` and `deny_all_requests(requests, reason=...) -> DeferredToolResults`.
+      - `matches_tool_selector_sync(selector, ctx, tool_def) -> bool`: Synchronous evaluation helper for tool selectors.
+- **Elimination of Legacy Code & Remnants (Zero Zombie Code)**:
+  - Eliminated duplicate hand-rolled implementations of `ToolApproved`, `ToolDenied`, `DeferredToolRequests`, `DeferredToolResults` in `src/devops_cli/ai/agents/capabilities.py` in favor of native `pydantic_ai.tools` classes.
+  - Eliminated duplicate 170+ line `class Tool(AgentTool)` in `src/devops_cli/ai/agents/tools.py` in favor of importing native `Tool` from `devops_cli.ai.tools`.
+  - Upgraded `src/devops_cli/ai/agents/context.py` to use native `pydantic_ai.tools.RunContext` with backward-compatible session and approval fields.
+  - Modernized `PydanticAgent` (`agent.py`), `runner.py`, and `pipeline.py` to accept and dispatch `AgentTool | Tool` seamlessly.
+- **Package Re-exports (`devops_cli.ai.tools`, `devops_cli.ai`, `devops_cli.ai.agents`, `devops_cli.ai.agents.pydantic_agent`)**:
+  - Re-exported all native tool types, schemas, and helper functions across public package tiers with strict typing (`mypy --strict`) and complete `__all__` lists.
+- **Quality Gates & Test-First Verification**:
+  - Authored comprehensive test suite `tests/test_pydantic_ai_tools.py` (11/11 tests passing).
+  - Regression verified full test suite (1,742 tests passing), including `tests/test_pydantic_agent.py`, `tests/test_ai_agent_deferred_tools.py`, `tests/test_harness.py`, and `tests/test_ai_agent_capabilities.py`.
+  - Strict static typing (`mypy --strict`) 100% clean across all 14 modified source files.
+  - Clean linting and formatting (`ruff check`, `ruff format`).
+  - Documentation generated and README synchronized (`devops docs generate --sync-readme`).
+  - Full CI validation suite (`uv run devops ci`): 10/10 quality gates green (version, test, coverage >= 90%, lint, format, typecheck, audit, security, actionlint, docs).
+
 ### [2026-09-05] Native Pydantic AI Template (`pydantic_ai.template`) Integration
 - **Native Template Subsystem (`src/devops_cli/ai/template/__init__.py`)**:
   - Full native adoption of `pydantic_ai.template` API specifications:
