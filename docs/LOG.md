@@ -4,6 +4,23 @@ Chronological log of refactoring milestones, quality gates, and security enhance
 
 ---
 
+### [2026-09-05] Native Pydantic AI Concurrency (`pydantic_ai.concurrency`) & Model-Level Concurrency Wrappers
+- **Native Concurrency Subsystem (`src/devops_cli/ai/concurrency.py`)**:
+  - Direct integration with native Pydantic AI concurrency primitives per Pydantic AI API specification:
+    - Re-exports `AbstractConcurrencyLimiter`, `ConcurrencyLimiter`, `ConcurrencyLimit`, `AnyConcurrencyLimit`, `ConcurrencyLimitExceeded`, `ConcurrencyLimitedModel`, `limit_model_concurrency`, `get_concurrency_context`, and `normalize_to_limiter`.
+    - Implemented thread-safe shared limiter registry (`get_shared_concurrency_limiter` and `get_model_concurrency_limiter`) for orchestrating model inference capacity across agents and pipeline stages.
+    - Implemented `track_concurrency_slot` context manager helper.
+- **Bridge & Multi-Agent Architecture Integration (`src/devops_cli/ai/pydantic_ai_bridge.py`, `agent.py`, `pipeline.py`)**:
+  - `resolve_pydantic_ai_model`: added optional `model_concurrency: AnyConcurrencyLimit = None` parameter, automatically wrapping resolved models via `limit_model_concurrency(model, model_concurrency)`.
+  - `create_pydantic_ai_agent` and `get_persona_pydantic_agent`: added support for `max_concurrency` and `model_concurrency` parameters, passing concurrency limits to both native `pydantic_ai.Agent` and `devops_cli.ai.agents.agent.PydanticAgent`.
+  - `PydanticAgent`: added `max_concurrency: AnyConcurrencyLimit = None` with normalized `self._concurrency_limiter`, wrapped asynchronous calls in `run_async` and `run_stream_async` with `get_concurrency_context(self._concurrency_limiter, f"agent:{self.name}")`.
+  - `MultiAgentPipeline`: added `concurrency_limit: AnyConcurrencyLimit = None` with `self.concurrency_limiter`, and implemented `run_parallel_async` with cooperative limiter backpressure.
+- **Package Re-exports (`src/devops_cli/ai/__init__.py`, `agents/__init__.py`, `agents/pydantic_agent.py`)**:
+  - Full re-exports and `__all__` definitions for all concurrency types and functions.
+- **Quality Gates & Test-First Verification**:
+  - Authored comprehensive test suite `tests/test_pydantic_ai_concurrency.py` (10/10 tests passing, 100% code coverage on `src/devops_cli/ai/concurrency.py`).
+  - Full CI validation suite (`uv run devops ci`): 10/10 checks green (test, coverage >= 90%, lint, format, typecheck, audit, security, actionlint, docs).
+
 ### [2026-09-05] Native Pydantic AI Common Tools (`pydantic_ai.common_tools`) & Embedding Config Retention
 - **Native Common Tools & TypedDict Schemas (`src/devops_cli/ai/common_tools.py`)**:
   - Bridged and re-exported native Pydantic AI common tools (`pydantic_ai.common_tools`) with robust enterprise SSRF protection and zero-dependency fallbacks.
