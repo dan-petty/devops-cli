@@ -4,6 +4,24 @@ Chronological log of refactoring milestones, quality gates, and security enhance
 
 ---
 
+### [2026-09-05] Native Pydantic AI Exceptions (`pydantic_ai.exceptions`) & Unified Domain Error Taxonomy
+- **Native AI Exceptions Subsystem (`src/devops_cli/ai/exceptions.py`)**:
+  - Full native adoption of `pydantic_ai.exceptions` API specification:
+    - Re-exports all native exception classes: `AgentRunError`, `UserError`, `ModelRetry`, `ToolFailed`, `ApprovalRequired`, `CallDeferred`, `SkipModelRequest`, `SkipToolValidation`, `SkipToolExecution`, `UndrainedPendingMessagesError`, `RunCancelled`, `SuspendedResponseExpired`, `UnexpectedModelBehavior`, `UsageLimitExceeded`, `ConcurrencyLimitExceeded`, `ModelAPIError`, `ModelHTTPError`, `ContentFilterError`, `IncompleteToolCall`, `ToolRetryError`, `ToolFailedError`, and `FallbackExceptionGroup`.
+    - Re-exports native warnings: `MessageHistoryMutatedWarning`, `CostCalculationFailedWarning`, `CostNotFoundWarning`, `PydanticAIDeprecationWarning`.
+    - Implemented ergonomic utility functions: `is_pydantic_ai_exception(exc)`, `extract_retry_after(exc)`, `extract_cancellation_state(exc)`, `format_pydantic_ai_error(exc)`, and `normalize_to_pydantic_ai_error(exc)`.
+- **Domain Error Taxonomy Harmonization (`src/devops_cli/exceptions/ai.py`, `__init__.py`)**:
+  - Unified all AI domain exceptions to dual-inherit from both their native Pydantic AI base class and `DevOpsCLIError` (or `LLMInferenceError`), guaranteeing full compatibility with native Pydantic AI engine mechanics while preserving POSIX exit codes and error metadata.
+  - Added domain classes: `AgentRunError` (exit 20), `UserError` (exit 21), `ModelAPIError` (exit 22), `ModelHTTPError` (exit 23), `UsageLimitExceeded` (exit 24), `ConcurrencyLimitExceeded` (exit 25), `RunCancelled` (exit 26), `IncompleteToolCall` (exit 27), `SuspendedResponseExpired` (exit 28).
+  - Updated `CLIDocumentationGenerator` (`docs/generator.py`) and generated canonical catalog in `docs/ERRORS.md`.
+- **Agent & Runner Integration (`src/devops_cli/ai/agents/runner.py`)**:
+  - Enhanced `_execute_single_tool` to recognize `ToolFailed` as terminal failure (without consuming retry budget or generating correction prompts) and `SkipToolExecution` as immediate success with provided result.
+- **Package Re-exports (`devops_cli.ai`, `devops_cli.ai.agents`, `devops_cli.ai.agents.pydantic_agent`)**:
+  - Re-exported all native exception types, helper functions, and warnings with complete `__all__` definitions.
+- **Quality Gates & Test-First Verification**:
+  - Authored comprehensive test suite `tests/test_pydantic_ai_exceptions.py` (15/15 tests passing).
+  - Full CI validation suite (`uv run devops ci`): 10/10 quality gates green (version, test, coverage >= 90%, lint, format, typecheck, audit, security, actionlint, docs).
+
 ### [2026-09-05] Native Pydantic AI Durable Execution (`pydantic_ai.durable_exec`) & Local Workstation Persistence
 - **Native Durable Execution Subsystem (`src/devops_cli/ai/durable.py`)**:
   - Full native adoption of `pydantic_ai.durable_exec._base.BaseDurabilityCapability`:

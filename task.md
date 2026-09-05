@@ -98,12 +98,20 @@
   - [x] Phase 16.5: Public Package Re-exports (`devops_cli.ai`, `devops_cli.ai.agents`, `devops_cli.ai.agents.pydantic_agent`)
   - [x] Phase 16.6: Full CI Validation Suite (`devops ci`), Documentation Sync & Conventional Commits
 
+- [x] Phase 17: Native Pydantic AI Exceptions (`pydantic_ai.exceptions`) & Unified Domain Error Taxonomy
+  - [x] Phase 17.1: Test-First Specifications (`tests/test_pydantic_ai_exceptions.py` — 15/15 green)
+  - [x] Phase 17.2: Core AI Exceptions Subsystem (`src/devops_cli/ai/exceptions.py`)
+  - [x] Phase 17.3: Standardized Domain Error Taxonomy Harmonization (`src/devops_cli/exceptions/ai.py` & `__init__.py`)
+  - [x] Phase 17.4: Agent & Runner Integration (`src/devops_cli/ai/agents/runner.py`)
+  - [x] Phase 17.5: Public Package Re-exports (`devops_cli.ai`, `devops_cli.ai.agents`, `devops_cli.ai.agents.pydantic_agent`)
+  - [x] Phase 17.6: Full CI Validation Suite (`devops ci`), Documentation Sync & Conventional Commits
+
 ---
 
 ### In-Progress Tasks (WIP)
-- [x] None (All Phase 16 tasks verified and passed).
+- None.
 
 ---
 
 ### Pending Tasks
-- [ ] Next architectural milestone or user instruction.
+- None.
