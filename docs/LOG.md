@@ -2,6 +2,21 @@
 
 Chronological log of refactoring milestones, quality gates, and security enhancements.
 
+### [2026-09-06] Valkey Integration Investigation, Tooling Design & Roadmap Expansion
+- **Valkey Ecosystem & Architecture Investigation**:
+  - Investigated multi-tier Valkey 8.0 integration across workstation CLI management, distributed AI caching, cross-process LLM token bucket rate limiting, FastMCP tools, and ephemeral testcontainers fixtures.
+- **Knowledge Base Manual Authoring**:
+  - Authored comprehensive IT domain technical manual `src/devops_cli/ai/knowledge_base/it_domains/tools/valkey.md` detailing Valkey 8.0 architecture, RESP3 protocol, memory optimization, async Python integration (`valkey-py`), and zero-trust security guidelines.
+  - Registered Valkey in Division 2 of `src/devops_cli/ai/knowledge_base/README.md`.
+- **Master Strategic Roadmap & Pending Features Expansion (Milestone v0.2.12)**:
+  - Scheduled Milestone `v0.2.12` in `docs/ROADMAP.md` and `docs/PENDING_FEATURES.md`:
+    - `devops valkey` workstation management CLI (`ping`, `info`, `stats`, `keys`, `get`, `set`, `flush`, `cli`, `backup`, `restore`).
+    - Valkey-backed distributed AI embedding & review cache tier (`ai.cache.backend=valkey`).
+    - Distributed LLM token bucket & concurrency rate limiter.
+    - FastMCP Valkey toolset (`valkey_ping`, `valkey_info`, `valkey_get`, `valkey_set`, `valkey_keys`, `valkey_flush`, `resource://valkey/status`).
+    - Ephemeral Testcontainers Valkey testing sandbox fixture.
+  - Updated Value vs. Effort Prioritization Matrix in `docs/ROADMAP.md`.
+
 ### [2026-09-06] FastMCP Server Expansion, Tool Parity & Pydantic AI MCP Integration Validation
 - **FastMCP Server Expansion to 72 Registered Tools**:
   - Added 19 missing tools bringing full parity with all core CLI subcommands:
