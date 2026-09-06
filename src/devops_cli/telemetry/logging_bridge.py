@@ -12,7 +12,7 @@ class TraceCorrelationFilter(logging.Filter):
 
     def filter(self, record: logging.LogRecord) -> bool:
         """Enrich LogRecord with active trace_id and span_id attributes."""
-        ctx = get_current_span_context()
+        ctx = get_current_span_context() or {}
         setattr(record, "trace_id", ctx.get("trace_id") or "")
         setattr(record, "span_id", ctx.get("span_id") or "")
         return True
@@ -20,7 +20,7 @@ class TraceCorrelationFilter(logging.Filter):
 
 def get_current_trace_correlation() -> dict[str, str]:
     """Retrieve the current active trace_id and span_id as a dictionary."""
-    ctx = get_current_span_context()
+    ctx = get_current_span_context() or {}
     return {
         "trace_id": ctx.get("trace_id") or "",
         "span_id": ctx.get("span_id") or "",

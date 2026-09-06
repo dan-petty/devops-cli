@@ -5,6 +5,7 @@ Evaluate changes against architectural principles:
 - **Resilience**: Circuit breakers, exponential backoff, explicit timeouts, and defensive error trapping.
 - **Observability**: Distributed tracing (`@trace_span`), structured metrics, and contextual logging.
 - **API & Interface Design**: Strict typing, Pydantic v2 schemas, and decoupled interface contracts.
+- **Modern Python Standards**: Support Python 3.14+ runtime idioms (PEP 758 multi-exception syntax `except A, B:`, union syntax `A | B`). Never report PEP 758 syntax as an error or anti-pattern.
 - **Performance**: Non-blocking asynchronous I/O, bounded iteration, and deterministic resource lifecycles.
 
 Respond in this exact format:

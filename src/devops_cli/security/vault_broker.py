@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import logging
 import os
+from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 from pydantic import BaseModel
 
@@ -46,9 +47,26 @@ def parse_vault_uri(uri: str) -> tuple[str, str | None]:
         cleaned, key = cleaned.split("#", 1)
         key = key.strip() or None
 
+    decoded_uri = unquote(cleaned)
+    if (
+        any(part == ".." for part in Path(decoded_uri).parts)
+        or ".." in decoded_uri
+        or any(part == ".." for part in Path(cleaned).parts)
+        or ".." in cleaned
+    ):
+        raise ValueError(f"Path traversal detected in Vault URI: '{uri}'")
+
     if cleaned.startswith("vault://"):
         parsed = urlparse(cleaned)
         path = f"{parsed.netloc}{parsed.path}".lstrip("/")
+        decoded_path = unquote(path)
+        if (
+            any(part == ".." for part in Path(decoded_path).parts)
+            or ".." in decoded_path
+            or any(part == ".." for part in Path(path).parts)
+            or ".." in path
+        ):
+            raise ValueError(f"Path traversal detected in Vault URI: '{uri}'")
         return path, key
 
     return cleaned, key
@@ -69,6 +87,16 @@ class VaultSecretBroker:
             or os.getenv("DEVOPS_CLI_VAULT_ADDR")
             or "http://127.0.0.1:8200"
         ).rstrip("/")
+        parsed = urlparse(self.vault_addr)
+        if parsed.scheme not in ("http", "https"):
+            raise ValueError(
+                f"Invalid Vault address scheme '{parsed.scheme}'; expected 'http' or 'https'"
+            )
+        if not parsed.netloc:
+            raise ValueError(f"Invalid Vault address host/netloc: '{self.vault_addr}'")
+        if ".." in self.vault_addr or ".." in parsed.path:
+            raise ValueError(f"Path traversal detected in Vault address: '{self.vault_addr}'")
+
         self.vault_token = (
             vault_token or os.getenv("VAULT_TOKEN") or os.getenv("DEVOPS_CLI_VAULT_TOKEN")
         )

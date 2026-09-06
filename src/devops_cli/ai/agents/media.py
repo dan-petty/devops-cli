@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 import sqlite3
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
@@ -81,8 +82,10 @@ class DiskMediaStore:
         if parsed.scheme != "media+sha256":
             return None
         digest = parsed.netloc
-        file_path = self.root_dir / digest
-        if not file_path.exists():
+        if not re.fullmatch(r"^[0-9a-fA-F]{64}$", digest):
+            return None
+        file_path = (self.root_dir / digest).resolve()
+        if not file_path.is_relative_to(self.root_dir.resolve()) or not file_path.is_file():
             return None
         data = file_path.read_bytes()
         media_type = parse_qs(parsed.query).get("media_type", ["application/octet-stream"])[0]
@@ -94,11 +97,13 @@ class DiskMediaStore:
         if parsed.scheme != "media+sha256":
             return False
         digest = parsed.netloc
-        file_path = self.root_dir / digest
-        if file_path.exists():
-            file_path.unlink()
-            return True
-        return False
+        if not re.fullmatch(r"^[0-9a-fA-F]{64}$", digest):
+            return False
+        file_path = (self.root_dir / digest).resolve()
+        if not file_path.is_relative_to(self.root_dir.resolve()) or not file_path.is_file():
+            return False
+        file_path.unlink()
+        return True
 
 
 class SqliteMediaStore:

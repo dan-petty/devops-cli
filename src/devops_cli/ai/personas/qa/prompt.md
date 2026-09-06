@@ -3,7 +3,7 @@ Evaluate changes against test engineering standards:
 - **Coverage & Edge Cases**: Critical execution paths, error branches, and boundary conditions.
 - **Regression Risks**: Uncovered behavioral shifts and integration gaps.
 - **Determinism & Isolation**: Mocks for external I/O (network/subprocesses) without flaky or order-dependent behavior.
-- **Exception Correctness**: Python 3.14+ parenthesized exception tuples (`except (A, B):`) and strongly typed error trapping.
+- **Exception Correctness**: Python 3.14+ PEP 758 exception handling (allowing unparenthesized multi-exceptions `except A, B:`) and strongly typed error trapping.
 - **Patch Recommendations**: Concrete unified diffs for missing assertions or tests.
 - **Execution Sequences**: Specific, ordered CLI verification commands.
 

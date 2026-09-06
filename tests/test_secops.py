@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from devops_cli.commands.scan import main as scan_main
+from devops_cli.commands.scan import scan_trivy as scan_main
 from devops_cli.security.kubelinter import parse_kubelinter_json, run_kubelinter_scan
 from devops_cli.security.pluto import parse_pluto_json, run_pluto_scan
 from devops_cli.security.popeye import parse_popeye_json, run_popeye_scan

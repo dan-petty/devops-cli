@@ -464,7 +464,7 @@ def test_subagents_usage_forwarding() -> None:
     parent_usage = AgentUsage(input_tokens=20, output_tokens=10, total_tokens=30)
     ctx = RunContext(usage=parent_usage)
 
-    res = delegate_tool.func(ctx=ctx, agent_name="specialist", task="analyze logs")
+    res = delegate_tool.function(ctx=ctx, agent_name="specialist", task="analyze logs")
     assert res == "Child agent result"
     assert parent_usage.input_tokens == 120
     assert parent_usage.output_tokens == 60
@@ -583,6 +583,18 @@ async def test_embedder_and_embedding_result() -> None:
     local_embedder = Embedder(model="ollama:all-minilm", dimensions=384)
     engine = local_embedder._get_engine()
     assert engine._dimension == 384
+
+    # 6. Pydantic AI TestEmbeddingModel and EmbeddingSettings integration
+    from pydantic_ai.embeddings import TestEmbeddingModel
+
+    from devops_cli.ai.agents import EmbeddingSettings
+
+    test_embedder = Embedder(TestEmbeddingModel(), settings=EmbeddingSettings())
+    res_test = test_embedder.embed_query_sync("Test query")
+    assert isinstance(res_test, EmbeddingResult)
+    assert len(res_test) == 1
+    assert len(res_test[0]) > 0
+    assert res_test["Test query"] == res_test[0]
 
 
 def test_testing_utilities_and_agent_override() -> None:

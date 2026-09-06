@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from devops_cli.ai.review_schema import Finding
+from devops_cli.core.repo import find_top_level_repo_root
 
 
 @dataclass
@@ -167,22 +168,28 @@ def run_complexity_scan(
     findings: list[Finding] = []
     target = target_path.resolve()
 
+    if target_path.is_symlink():
+        return findings
+
     if target.is_file() and target.suffix == ".py":
         files = [target]
     elif target.is_dir():
         ignored_dirs = {".venv", ".data", ".git", "repos", "scratch"}
         files = [
-            p for p in target.rglob("*.py") if not any(part in ignored_dirs for part in p.parts)
+            p
+            for p in target.rglob("*.py")
+            if not p.is_symlink() and not any(part in ignored_dirs for part in p.parts)
         ]
     else:
         return findings
 
+    root = find_top_level_repo_root(Path.cwd())
     for py_file in files:
         rep = analyze_file_complexity(py_file)
         try:
-            rel_path = py_file.relative_to(Path.cwd())
+            rel_path = str(py_file.resolve().relative_to(root))
         except ValueError:
-            rel_path = py_file
+            rel_path = py_file.name
 
         for fn in rep.functions:
             loc = f"{rel_path}:{fn.line_number}-{fn.end_line_number}"

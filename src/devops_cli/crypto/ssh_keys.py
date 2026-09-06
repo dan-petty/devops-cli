@@ -86,6 +86,18 @@ def generate_ed25519_key(key_path: Path, comment: str = "") -> None:
     Public key is written to *key_path*.pub (mode 0644).
     """
     key_path = validate_safe_key_path(key_path)
+    pub_path = key_path.with_name(f"{key_path.name}.pub")
+
+    if key_path.is_symlink() or key_path.parent.is_symlink():
+        raise ValidationError(
+            f"SSH key path '{key_path}' must not be a symlink to avoid arbitrary file overwrite",
+            field="key_path",
+        )
+    if pub_path.is_symlink():
+        raise ValidationError(
+            f"SSH public key path '{pub_path}' must not be a symlink to avoid arbitrary file overwrite",
+            field="key_path",
+        )
 
     private_key = Ed25519PrivateKey.generate()
 
@@ -98,7 +110,8 @@ def generate_ed25519_key(key_path: Path, comment: str = "") -> None:
     # Write with restricted permissions atomically to avoid a world-readable window.
     import os as _os
 
-    fd = _os.open(key_path, _os.O_WRONLY | _os.O_CREAT | _os.O_TRUNC, CONST_PERM_PRIVATE_KEY)
+    flags = _os.O_WRONLY | _os.O_CREAT | _os.O_TRUNC | getattr(_os, "O_NOFOLLOW", 0)
+    fd = _os.open(key_path, flags, CONST_PERM_PRIVATE_KEY)
     with _os.fdopen(fd, "wb") as file_handle:
         file_handle.write(private_bytes)
     _os.chmod(key_path, CONST_PERM_PRIVATE_KEY)
@@ -113,8 +126,7 @@ def generate_ed25519_key(key_path: Path, comment: str = "") -> None:
     )
     clean_comment = re.sub(r"[\r\n\t\x00-\x1f]", " ", comment).strip()
     pub_line = f"{pub_raw} {clean_comment}".strip() + "\n"
-    pub_path = key_path.with_name(f"{key_path.name}.pub")
-    pub_fd = _os.open(pub_path, _os.O_WRONLY | _os.O_CREAT | _os.O_TRUNC, CONST_PERM_PUBLIC_KEY)
+    pub_fd = _os.open(pub_path, flags, CONST_PERM_PUBLIC_KEY)
     with _os.fdopen(pub_fd, "w", encoding="utf-8") as pub_fh:
         pub_fh.write(pub_line)
     _os.chmod(pub_path, CONST_PERM_PUBLIC_KEY)

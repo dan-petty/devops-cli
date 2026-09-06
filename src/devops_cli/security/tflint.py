@@ -47,12 +47,18 @@ def _inspect_tf_file_fallback(f: Path, rel_root: Path) -> list[Finding]:
 def _run_native_fallback_tf_lint(target_dir: Path) -> list[Finding]:
     """Fallback static checks for Terraform files when tflint is not installed."""
     findings: list[Finding] = []
+    if target_dir.is_symlink():
+        return findings
+
     resolved = target_dir.resolve()
-    tf_files = list(resolved.rglob("*.tf")) if resolved.is_dir() else [resolved]
+    if resolved.is_dir():
+        tf_files = [p for p in resolved.rglob("*.tf") if not p.is_symlink()]
+    else:
+        tf_files = [resolved] if not resolved.is_symlink() else []
     rel_root = resolved if resolved.is_dir() else resolved.parent
 
     for f in tf_files:
-        if f.is_file():
+        if f.is_file() and not f.is_symlink():
             findings.extend(_inspect_tf_file_fallback(f, rel_root))
 
     return findings

@@ -28,7 +28,16 @@ def bundle_ollama_models(
 
     Returns (count, bundle_path).
     """
-    target = output_dir or DEFAULT_MODELS_DATA_DIR
+    if output_dir is not None:
+        target = Path(output_dir)
+        if ".." in target.parts or ".." in str(output_dir):
+            raise ValueError(f"Path traversal detected in output directory: {output_dir}")
+        resolved = target.resolve()
+        for sys_dir in ("/etc", "/sys", "/proc", "/dev", "/boot", "/bin", "/sbin", "/usr"):
+            if str(resolved) == sys_dir or str(resolved).startswith(f"{sys_dir}/"):
+                raise ValueError(f"Output directory outside allowed workspace: {output_dir}")
+    else:
+        target = DEFAULT_MODELS_DATA_DIR
     target.mkdir(parents=True, exist_ok=True)
 
     model_list = models or list(DEFAULT_BUNDLE_MODELS)

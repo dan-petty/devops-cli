@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import time
 from enum import StrEnum
 
@@ -82,6 +83,15 @@ class ChaosFaultRunner:
         """Inject chaos fault and observe system recovery."""
         start_time = time.perf_counter()
         try:
+            if experiment.namespace.startswith("-") or not re.fullmatch(
+                r"^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", experiment.namespace
+            ):
+                return ChaosExecutionReport(
+                    experiment_name=experiment.name,
+                    status=ChaosReportStatus.FAILED,
+                    error=f"Invalid Kubernetes namespace identifier '{experiment.namespace}'",
+                )
+
             target_pods = self._list_target_pods(
                 experiment.namespace, experiment.target_label_selector
             )
@@ -94,10 +104,20 @@ class ChaosFaultRunner:
 
             # Inject fault (e.g. kill first matching pod)
             victim = target_pods[0]
+            if victim.startswith("-") or not re.fullmatch(
+                r"^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", victim
+            ):
+                return ChaosExecutionReport(
+                    experiment_name=experiment.name,
+                    status=ChaosReportStatus.FAILED,
+                    error=f"Invalid pod identifier '{victim}' for chaos fault injection",
+                )
+
             del_cmd = [
                 "kubectl",
                 "delete",
                 "pod",
+                "--",
                 victim,
                 "-n",
                 experiment.namespace,

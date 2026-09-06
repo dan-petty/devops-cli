@@ -34,11 +34,6 @@ class DevOpsCLIError(Exception):
     def __str__(self) -> str:
         return self.message
 
-    @property
-    def code(self) -> str:
-        """Alias for error_code property."""
-        return self.error_code
-
     def to_dict(self) -> dict[str, Any]:
         """Convert exception attributes into a serialized dictionary representation."""
         return {

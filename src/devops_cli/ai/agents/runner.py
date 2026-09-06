@@ -27,7 +27,7 @@ from devops_cli.ai.agents.context import (
     RunContext,
 )
 from devops_cli.ai.agents.models import AgentResponse
-from devops_cli.ai.agents.tools import AgentTool, ToolCall
+from devops_cli.ai.agents.tools import AgentTool, Tool, ToolCall
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.exceptions import ModelRetry
 from devops_cli.models.ai import ChatMessage
@@ -39,20 +39,9 @@ _INVOKE_TOOL_REQUEST_TEMPLATE = load_task_prompt("agent_invoke_tool_request.md")
 _DIRECT_RESPONSE_FROM_TOOLS_PROMPT = load_task_prompt("agent_direct_response_from_tools.md")
 _DIRECT_RESPONSE_FROM_REASONING_PROMPT = load_task_prompt("agent_direct_response_from_reasoning.md")
 
-_DELIBERATION_PREFIXES: tuple[str, ...] = (
-    "the tool returned",
-    "we need to interpret",
-    "we need to decide",
-    "we should double-check",
-    "let's search",
-    "we need to scan",
-    "let's recall",
-    "not sure. we need",
-)
-
 
 def _execute_single_tool(
-    tool_obj: AgentTool,
+    tool_obj: AgentTool | Tool,
     tool_name: str,
     args: dict[str, Any],
     tool_calls: list[ToolCall],
@@ -64,7 +53,13 @@ def _execute_single_tool(
     try:
         clean_args = tool_obj.validate_args(args)
     except Exception as exc:
-        return "validation_error", args, f"Tool argument validation error for {tool_name}: {exc}"
+        from devops_cli.ai.review.sanitization import _mask_secrets_in_content
+
+        return (
+            "validation_error",
+            args,
+            _mask_secrets_in_content(f"Tool argument validation error for {tool_name}: {exc}"),
+        )
 
     prior = next(
         (c for c in tool_calls if c.tool_name == tool_name and c.arguments == clean_args), None
@@ -83,7 +78,8 @@ def _execute_single_tool(
         t_limit = tool_obj.timeout if tool_obj.timeout is not None else default_timeout
         if t_limit and t_limit > 0:
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                future = executor.submit(tool_obj.execute, ctx=ctx, **clean_args)
+                exec_fn = cast(Callable[..., Any], tool_obj.execute)
+                future = executor.submit(exec_fn, ctx=ctx, **clean_args)
                 tool_result = future.result(timeout=t_limit)
         else:
             tool_result = tool_obj.execute(ctx=ctx, **clean_args)
@@ -112,8 +108,23 @@ def _execute_single_tool(
                     pass
         return "retry_requested", clean_args, str(retry_exc)
     except Exception as exc:
-        from devops_cli.exceptions.ai import ApprovalRequired, CallDeferred
+        from devops_cli.exceptions.ai import (
+            ApprovalRequired,
+            CallDeferred,
+            SkipToolExecution,
+            ToolFailed,
+        )
 
+        if isinstance(exc, SkipToolExecution):
+            return "ok", clean_args, exc.result
+        if isinstance(exc, ToolFailed):
+            if hooks and ctx is not None:
+                for h_err in hooks.on_tool_error:
+                    try:
+                        h_err(ctx, tool_name, exc)
+                    except Exception:
+                        pass
+            return "tool_failed", clean_args, exc.message
         if isinstance(exc, ApprovalRequired):
             return "approval_required", clean_args, exc
         if isinstance(exc, CallDeferred):
@@ -125,12 +136,18 @@ def _execute_single_tool(
                     h_err(ctx, tool_name, exc)
                 except Exception:
                     pass
-        return "error", clean_args, f"Tool execution failed for {tool_name}: {exc}"
+        from devops_cli.ai.review.sanitization import _mask_secrets_in_content
+
+        return (
+            "error",
+            clean_args,
+            _mask_secrets_in_content(f"Tool execution failed for {tool_name}: {exc}"),
+        )
     return "ok", clean_args, tool_result
 
 
 def _detect_tool_intent(
-    tools: dict[str, AgentTool],
+    tools: dict[str, AgentTool | Tool],
     final_output: str,
     all_thoughts: list[str],
 ) -> str | None:
@@ -147,17 +164,14 @@ def _detect_tool_intent(
 
 
 def _is_scratchpad_deliberation(final_output: str) -> bool:
-    """Check if agent output is raw tool JSON or internal scratchpad deliberation."""
+    """Check if agent output is raw tool JSON rather than a final response."""
     if not final_output:
         return True
-    is_tool_json = (
+    return (
         final_output.startswith('{"tool"')
         or final_output.startswith('```json\n{"tool"')
         or ('"tool":' in final_output and '"arguments":' in final_output)
     )
-    if is_tool_json:
-        return True
-    return final_output.lower().startswith(_DELIBERATION_PREFIXES)
 
 
 def _record_and_broadcast_thoughts(
@@ -178,12 +192,8 @@ def _resolve_fallback_output(
     tool_calls: list[ToolCall],
     all_thoughts: list[str],
 ) -> str:
-    """Resolve final response string, falling back to tool outputs or thoughts if empty."""
+    """Resolve final response string, falling back to tool outputs if empty."""
     if final_output and not _is_scratchpad_deliberation(final_output):
-        return final_output
-    if final_output and not (
-        final_output.startswith('{"tool"') or final_output.startswith('```json\n{"tool"')
-    ):
         return final_output
     if tool_calls:
         last_call = tool_calls[-1]
@@ -194,7 +204,7 @@ def _resolve_fallback_output(
     return final_output
 
 
-def _create_tool_retry_message(detected_tool: str, tool_obj: AgentTool) -> ChatMessage:
+def _create_tool_retry_message(detected_tool: str, tool_obj: AgentTool | Tool) -> ChatMessage:
     """Construct user prompt asking model to output structured tool call invocation."""
     example_args = {k: f"<{k}>" for k in tool_obj.parameters}
     example_json = json.dumps(
@@ -250,7 +260,7 @@ def _handle_deferred_resolution(
     resolved_results: DeferredToolResults,
     tool_name: str,
     clean_args: dict[str, Any],
-    tool_obj: AgentTool,
+    tool_obj: AgentTool | Tool,
     tool_calls: list[ToolCall],
     messages: list[ChatMessage],
     response_text: str,
@@ -358,14 +368,17 @@ def _resolve_thinking_preference(
     for cap in capabilities:
         if not cap.defer_loading or cap.id in loaded_ids:
             cap_settings = cap.get_model_settings(ctx=ctx)
-            if "enable_thinking" in cap_settings:
+            if "thinking" in cap_settings:
+                val = cap_settings["thinking"]
+                thinking = bool(val) if val is not None else default_thinking
+            elif "enable_thinking" in cap_settings:
                 thinking = bool(cap_settings["enable_thinking"])
     return thinking
 
 
 def _execute_stream_tool_step(
     tc: Any,
-    tool_obj: AgentTool,
+    tool_obj: AgentTool | Tool,
     ctx: RunContext[Any] | None,
     hooks: AgentHooks,
     response_text: str,

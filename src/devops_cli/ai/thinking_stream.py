@@ -8,30 +8,34 @@ from typing import Any
 
 from devops_cli.output import escape_text, get_console
 
+DEFAULT_TAGS: tuple[str, str] = ("<think>", "</think>")
 
-def strip_think_blocks(text: str) -> str:
-    """Remove <think>...</think> chain-of-thought blocks from complete text."""
+
+def strip_think_blocks(
+    text: str,
+    thinking_tags: tuple[str, str] = DEFAULT_TAGS,
+) -> str:
+    """Remove chain-of-thought blocks from complete text."""
     if not text:
         return ""
-    clean = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
-    if not clean and "<think>" in text:
-        inner = re.findall(r"<think>(.*?)(?:</think>|$)", text, flags=re.DOTALL)
-        if inner:
-            for candidate in reversed(inner):
-                cand_strip = str(candidate).strip()
-                if "{" in cand_strip and "}" in cand_strip:
-                    return str(cand_strip)
-            return str(inner[-1]).strip()
-    return clean
+    open_tag, close_tag = re.escape(thinking_tags[0]), re.escape(thinking_tags[1])
+    clean = re.sub(rf"{open_tag}.*?{close_tag}", "", text, flags=re.DOTALL)
+    if thinking_tags[0] in clean:
+        clean = re.sub(rf"{open_tag}[\s\S]*$", "", clean)
+    return clean.strip()
 
 
-def extract_think_blocks(text: str) -> tuple[list[str], str]:
+def extract_think_blocks(
+    text: str,
+    thinking_tags: tuple[str, str] = DEFAULT_TAGS,
+) -> tuple[list[str], str]:
     """Extract think blocks and return (list_of_think_contents, clean_text)."""
     if not text:
         return [], ""
-    thinks = re.findall(r"<think>(.*?)</think>", text, flags=re.DOTALL)
-    clean = strip_think_blocks(text)
-    return [t.strip() for t in thinks], clean
+    open_tag, close_tag = re.escape(thinking_tags[0]), re.escape(thinking_tags[1])
+    thinks = re.findall(rf"{open_tag}(.*?)(?:{close_tag}|$)", text, flags=re.DOTALL)
+    clean = strip_think_blocks(text, thinking_tags=thinking_tags)
+    return [t.strip() for t in thinks if t.strip()], clean
 
 
 def _find_suffix_overlap(text: str, target: str) -> int:
@@ -50,6 +54,7 @@ class ThinkingStreamProcessor:
         self,
         show_thinking: bool = True,
         console: Any = None,
+        thinking_tags: tuple[str, str] = DEFAULT_TAGS,
         on_think_start: Callable[[], None] | None = None,
         on_think_chunk: Callable[[str], None] | None = None,
         on_think_end: Callable[[], None] | None = None,
@@ -57,6 +62,9 @@ class ThinkingStreamProcessor:
     ) -> None:
         self.show_thinking = show_thinking
         self.console = console
+        self.thinking_tags = thinking_tags
+        self.open_tag = thinking_tags[0]
+        self.close_tag = thinking_tags[1]
         self.on_think_start = on_think_start
         self.on_think_chunk = on_think_chunk
         self.on_think_end = on_think_end
@@ -123,19 +131,23 @@ class ThinkingStreamProcessor:
         self._buffer += chunk
         self._process_buffer()
 
+    def process_token(self, chunk: str) -> None:
+        """Alias to feed for streaming token ingestion."""
+        self.feed(chunk)
+
     def _process_outside_think(self) -> bool:
-        """Process buffer while outside <think> block. Returns False to break loop."""
-        pos = self._buffer.find("<think>")
+        """Process buffer while outside think block. Returns False to break loop."""
+        pos = self._buffer.find(self.open_tag)
         if pos != -1:
             content = self._buffer[:pos]
             if content:
                 self._handle_content_chunk(content)
             self.in_think = True
             self._handle_think_start()
-            self._buffer = self._buffer[pos + 7 :]
+            self._buffer = self._buffer[pos + len(self.open_tag) :]
             return True
 
-        match_len = _find_suffix_overlap(self._buffer, "<think>")
+        match_len = _find_suffix_overlap(self._buffer, self.open_tag)
         if match_len > 0:
             safe_content = self._buffer[:-match_len]
             if safe_content:
@@ -148,17 +160,17 @@ class ThinkingStreamProcessor:
         return True
 
     def _process_inside_think(self) -> bool:
-        """Process buffer while inside <think> block. Returns False to break loop."""
-        pos = self._buffer.find("</think>")
+        """Process buffer while inside think block. Returns False to break loop."""
+        pos = self._buffer.find(self.close_tag)
         if pos != -1:
             think_chunk = self._buffer[:pos]
             if think_chunk:
                 self._handle_think_chunk(think_chunk)
             self._handle_think_end()
-            self._buffer = self._buffer[pos + 8 :]
+            self._buffer = self._buffer[pos + len(self.close_tag) :]
             return True
 
-        match_len = _find_suffix_overlap(self._buffer, "</think>")
+        match_len = _find_suffix_overlap(self._buffer, self.close_tag)
         if match_len > 0:
             safe_think = self._buffer[:-match_len]
             if safe_think:
@@ -186,3 +198,24 @@ class ThinkingStreamProcessor:
                 self._handle_content_chunk(self._buffer)
             self._buffer = ""
         self._finalize_thinking_footer()
+
+    @property
+    def unique_thinking(self) -> str:
+        """Return accumulated thinking content with duplicate lines removed using a set."""
+        from devops_cli.ai.review_schema import unique_lines
+
+        return unique_lines(self.thinking_content)
+
+    def to_model_response(self, model_name: str | None = None) -> Any:
+        """Construct a ModelResponse from accumulated thinking and content."""
+        from pydantic_ai.messages import ModelResponse, TextPart, ThinkingPart
+        from pydantic_ai.usage import RequestUsage
+
+        from devops_cli.ai.review_schema import unique_lines
+
+        parts: list[Any] = []
+        if self.thinking_content.strip():
+            parts.append(ThinkingPart(content=unique_lines(self.thinking_content.strip())))
+        if self.clean_content.strip():
+            parts.append(TextPart(content=self.clean_content.strip()))
+        return ModelResponse(parts=parts, model_name=model_name, usage=RequestUsage())

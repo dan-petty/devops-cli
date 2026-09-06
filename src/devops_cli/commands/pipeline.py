@@ -40,6 +40,21 @@ def run_pipeline_cmd(
     ] = False,
 ) -> None:
     """Execute reproducible, containerized developer pipelines with Dagger."""
+    if not pipeline_path.exists():
+        safe_path = pipeline_path.name or str(pipeline_path)
+        print_error(f"Pipeline path does not exist: {safe_path}", prefix=False)
+        raise typer.Exit(1)
+
+    if function_name is not None:
+        import re
+
+        if not re.match(r"^[a-zA-Z0-9_\-]+$", function_name):
+            print_error(
+                f"Invalid function name '{function_name}': contains unsafe characters.",
+                prefix=False,
+            )
+            raise typer.Exit(1)
+
     if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops pipeline run",

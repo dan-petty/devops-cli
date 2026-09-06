@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Annotated
 
 import typer
@@ -17,6 +18,20 @@ from devops_cli.output import (
     render_dry_run_result,
 )
 from devops_cli.security.vault_broker import VaultSecretBroker
+
+VAULT_PATH_PATTERN = re.compile(r"^(?:vault://)?[a-zA-Z0-9_\-./#]+$")
+
+
+def _validate_vault_path(path: str) -> None:
+    """Validate Vault secret path format and reject path traversal sequences."""
+    clean = path.strip()
+    if not clean:
+        raise ValueError("Vault secret path cannot be empty.")
+    if ".." in clean:
+        raise ValueError("Vault secret path cannot contain '..' traversal sequences.")
+    if not VAULT_PATH_PATTERN.match(clean):
+        raise ValueError(f"Vault secret path contains invalid characters: '{path}'")
+
 
 app = new_typer(help="Enterprise HashiCorp Vault secret broker commands", no_args_is_help=False)
 
@@ -84,6 +99,11 @@ def vault_get(
 ) -> CommandDryRunResult | None:
     """Fetch secret value from Vault or OS Keyring fallback."""
     set_dry_run(dry_run)
+    try:
+        _validate_vault_path(path)
+    except ValueError as exc:
+        print_error(str(exc), prefix=False)
+        raise typer.Exit(1)
     broker = VaultSecretBroker()
 
     if is_dry_run():
@@ -126,6 +146,11 @@ def vault_set(
 ) -> CommandDryRunResult | None:
     """Store secret key-value pairs in HashiCorp Vault KV-v2 engine."""
     set_dry_run(dry_run)
+    try:
+        _validate_vault_path(path)
+    except ValueError as exc:
+        print_error(str(exc), prefix=False)
+        raise typer.Exit(1)
     broker = VaultSecretBroker()
     payload: dict[str, str] = {}
 
@@ -172,6 +197,11 @@ def vault_sync(
 ) -> CommandDryRunResult | None:
     """Synchronize secrets from Vault into OS Keyring for offline/local CLI operations."""
     set_dry_run(dry_run)
+    try:
+        _validate_vault_path(path)
+    except ValueError as exc:
+        print_error(str(exc), prefix=False)
+        raise typer.Exit(1)
     broker = VaultSecretBroker()
 
     if is_dry_run():

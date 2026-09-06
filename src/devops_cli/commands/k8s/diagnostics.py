@@ -50,7 +50,10 @@ def _build_pods_table(
 
         return format_k8s_pods_table(pod_list.items)
     except Exception as exc:
-        return format_k8s_pods_table([["—", f"[red]Error: {exc}[/red]", "—", "—", "—", "—"]])
+        from devops_cli.output.console import _sanitize_output_text
+
+        safe_err = _sanitize_output_text(str(exc))
+        return format_k8s_pods_table([["—", f"[red]Error: {safe_err}[/red]", "—", "—", "—", "—"]])
 
 
 # =============================================================================

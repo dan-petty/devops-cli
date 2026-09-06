@@ -46,8 +46,10 @@ def diff_helm_release(
             namespace=namespace,
             values_files=values_files,
         )
+        from devops_cli.ai.review.sanitization import _mask_secrets_in_content
+
         res = run_subprocess(cmd, check=False)
-        output = res.stdout or res.stderr
+        output = _mask_secrets_in_content(res.stdout or res.stderr)
         if res.returncode not in (0, 2):  # 2 is helm-diff exit code when differences exist
             print_error(f"Helm diff failed: {output.strip()}", prefix=False)
         return res.returncode, output

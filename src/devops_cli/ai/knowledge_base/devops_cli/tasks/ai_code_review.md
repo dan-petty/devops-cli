@@ -39,14 +39,18 @@ graph TD
 
 - **Closed-Loop Feedback & Self-Improvement**:
   - `verify_finding`: Tests observable verification and invalidation criteria against visible code and AST structures to eliminate false positives.
+  - **Strict Canonical Location Enforcement**: Normalizes all finding locations to standard `path/to/file.ext:start-end` or `path/to/file.ext:line` format, rejecting conversational text, markdown noise (`**`, `###`), approval remarks ("Good.", "Looks solid."), prompt leakage, and malformed non-path tokens.
+  - **Zero Scratchpad Leakage Defense**: Cleans model titles, descriptions, and locations to isolate internal reasoning and chain-of-thought scratchpad text from structured review artifacts.
   - **Verification vs. Reporting Separation**: Verification criteria and invalidation criteria are internal tools for automated validation during Stage 4 (`verification`). They are used to match observable evidence and calibrate confidence, but are strictly excluded from user-facing reports (`review.md`, terminal tables, console panels).
-  - **Python 3.14+ PEP 759 Syntax Awareness**: Recognizes modern Python 3.14 multi-exception syntax (`except FileNotFoundError, OSError:`) without parentheses to prevent false-positive "SyntaxError" flags.
+  - **Deterministic Invalidation & Aligned Verification**: In Stage 4, deterministic AST/syntax and line boundary checks run first. Unresolved findings are cleanly passed to the LLM verifier with 1:1 index alignment, ensuring pre-invalidated items never cause downstream response mapping skews.
+  - **Python 3.14+ PEP 758 Syntax Awareness**: Recognizes modern Python 3.14 multi-exception syntax (`except FileNotFoundError, OSError:`) without parentheses to prevent false-positive "SyntaxError" flags.
   - **Confidence Calibration**: Weighs findings based on concrete criteria satisfaction, discarding unverified or mitigated items.
   - **Lockfile-Aware Dependency Scanning**: Resolves exact package releases from lockfiles (`uv.lock`, `poetry.lock`, `package-lock.json`, `Cargo.lock`, `go.sum`) before querying OSV.dev and NVD vulnerability databases.
   - **Network Reference Disambiguation**: Differentiates legitimate network endpoints from source file extensions (`*.py`, `*.md`, `*.sh`, `*.tf`, `*.rs`, `*.pid`) and telemetry/code property paths (`service.name`, `ci.step.*`, `host.name`, `process.pid`).
   - **Self-Healing & Patch Application**: Generates drop-in remediation code patches that can be applied and verified against automated CI quality gates (`devops ai review patch`).
   - **Continuous Feedback Dataset Export**: Persists validated, invalidated, and mitigated review findings to structured JSONL feedback datasets (`.data/reviews/feedback_dataset.jsonl`) via `devops ai review export-feedback` to continuously ground RAG indices and calibrate LLM evaluation prompts.
   - **Continuous Knowledge Feedback**: Synthesizes recurrent review findings into repository architecture guides and test fixtures to prevent recurrence.
+  - **Autonomous Common Hallucinations Registry & Ground-Truth Safety**: Centralized declarative catalog (`src/devops_cli/ai/review/common_hallucinations.json`) tracking recurring false positives (PEP 758 exceptions, masked secret placeholders `<masked-*>`, test mock credentials, HTTPX parameter conventions, and documentation anti-patterns). Automatically records invalidated findings into `.data/common_hallucinations.json` and enforces strict category-aligned guards (preventing syntax rules from over-matching security defects like path traversal or SSRF), comprehensive stop-word filtering, and ground-truth verification (`verify_ground_truth_hallucination`) before invalidation to ensure real security defects and genuine bugs are never suppressed.
 
 ---
 
@@ -106,6 +110,7 @@ devops ai review export-feedback --status ALL --output .data/reviews/feedback_da
 3. **Declare Project Conventions**: Maintain an accurate `AGENTS.md` file in target repositories; the review engine automatically injects it into prompt context.
 4. **Use Response Repair**: The review pipeline automatically normalizes LLM outputs using `repair_json_string` and `fix_llm_response` to ensure valid structured schemas.
 5. **Context-Aware Documentation & Avoidance Context**: Never flag documentation, architectural guides, security tutorials, or prompt tasks that explain known vulnerabilities or insecure configurations in the context of avoiding, preventing, or mitigating them.
+6. **Ground-Truth Symbol & Export Verification**: Review personas and verification engines must inspect actual source module ASTs or exports before asserting that imported variables, constants, or classes are missing or cause `ImportError`. False-alarm missing symbol claims must be registered in the hallucination catalog and invalidated.
 
 ---
 

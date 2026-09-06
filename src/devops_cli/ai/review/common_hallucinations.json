@@ -1,0 +1,211 @@
+[
+  {
+    "id": "HALLUCINATION-PEP758-EXCEPT",
+    "name": "Python 3.14 PEP 758 Bracketless Multi-Exception Clause",
+    "category": "syntax_grammar",
+    "description": "Claiming that unparenthesized or bracketless multi-exception clauses (e.g. 'except TimeoutError, ConnectionRefusedError:') are invalid syntax, SyntaxError, or Python 2 syntax.",
+    "signature_patterns": [
+      "(?:bracketless|unparenthesized)\\s+except",
+      "except\\s+[a-zA-Z0-9_]+,\\s*[a-zA-Z0-9_]+.*(?:syntaxerror|invalid\\s*syntax|python\\s*2)",
+      "(?:syntaxerror|invalid\\s*syntax).*(?:bracketless|unparenthesized|without\\s+parentheses)"
+    ],
+    "pattern_keywords": [
+      "pep758",
+      "bracketless_except",
+      "unparenthesized_except"
+    ],
+    "file_patterns": [
+      "*.py"
+    ],
+    "resolution": "Python 3.14 PEP 758 officially permits omitting brackets in except and except* expressions when no 'as' clause is used. Ruff formats them without brackets.",
+    "occurrence_count": 1,
+    "last_seen": "2026-09-05T00:00:00",
+    "source": "builtin"
+  },
+  {
+    "id": "HALLUCINATION-MASKED-SECRET",
+    "name": "Masked Secret Placeholder False Positive",
+    "category": "secret_scanning",
+    "description": "Flagging intentional redaction placeholders such as <masked-*>, ***REDACTED***, or <secret-placeholder> as exposed plaintext secrets.",
+    "signature_patterns": [
+      "<masked-[a-zA-Z0-9_\\-]+>",
+      "\\*{3,}redacted\\*{3,}",
+      "<secret-placeholder>",
+      "\\[redacted[-_a-zA-Z0-9]*\\]"
+    ],
+    "pattern_keywords": [
+      "masked_placeholder",
+      "redacted_token",
+      "secret_placeholder"
+    ],
+    "file_patterns": [
+      "*"
+    ],
+    "resolution": "Masked placeholders and redacted tokens are sanitization markers, not live secrets.",
+    "occurrence_count": 1,
+    "last_seen": "2026-09-05T00:00:00",
+    "source": "builtin"
+  },
+  {
+    "id": "HALLUCINATION-TEST-MOCK-CRED",
+    "name": "Test Mock or Fixture Dummy Credential",
+    "category": "test_mocks",
+    "description": "Flagging dummy test tokens, mock keys, example.com URLs, or dummy UUIDs in test files, fixtures, or .env.example as production security vulnerabilities.",
+    "signature_patterns": [
+      "\\bexample\\.(?:com|org|net)\\b",
+      "\\b00000000-0000-0000-0000-000000000000\\b",
+      "\\b(?:dummy|fake|mock)_(?:token|key|secret|password)\\b"
+    ],
+    "pattern_keywords": [
+      "rfc2606_domain",
+      "dummy_uuid",
+      "mock_credential"
+    ],
+    "file_patterns": [
+      "test_*",
+      "*_test.py",
+      "tests/*",
+      "*.example",
+      "*.sample"
+    ],
+    "resolution": "Test fixtures and sample configuration templates legitimately utilize synthetic mock credentials for deterministic test execution.",
+    "occurrence_count": 1,
+    "last_seen": "2026-09-05T00:00:00",
+    "source": "builtin"
+  },
+  {
+    "id": "HALLUCINATION-HTTPX2-DEPENDENCY",
+    "name": "HTTPX2 Package Malicious / CVE Hallucination",
+    "category": "dependency_ecosystem",
+    "description": "Claiming httpx2 is a typosquat, malicious package, or unverified dependency.",
+    "signature_patterns": [
+      "\\bhttpx2\\b.*(?:typosquat|malicious|unverified\\s*package|supply\\s*chain)",
+      "(?:typosquat|malicious|unverified\\s*package).*\\bhttpx2\\b"
+    ],
+    "pattern_keywords": [
+      "httpx2_typosquat_claim",
+      "httpx2_malicious_claim"
+    ],
+    "file_patterns": [
+      "pyproject.toml",
+      "uv.lock",
+      "*.py"
+    ],
+    "resolution": "httpx2 is an established modern HTTP/2 client library for Pydantic AI and Python 3.14, verified by uv audit and lockfile integrity.",
+    "occurrence_count": 1,
+    "last_seen": "2026-09-05T00:00:00",
+    "source": "builtin"
+  },
+  {
+    "id": "HALLUCINATION-PYDANTIC-MUTABLE-DEFAULT",
+    "name": "Pydantic Field(default_factory=...) Flagged as Mutable Default",
+    "category": "mutable_defaults",
+    "description": "Claiming Field(default_factory=list/dict) has dangerous mutable default arguments.",
+    "signature_patterns": [
+      "\\bdefault_factory\\b.*(?:mutable\\s*default|shared\\s*state)",
+      "(?:mutable\\s*default|shared\\s*state).*\\bdefault_factory\\b",
+      "\\bfield\\s*\\(\\s*default_factory\\s*=.*mutable"
+    ],
+    "pattern_keywords": [
+      "default_factory_mutable",
+      "pydantic_default_factory"
+    ],
+    "file_patterns": [
+      "*.py"
+    ],
+    "resolution": "Pydantic Field(default_factory=...) safely creates a fresh instance per model instantiation and does not leak shared state across instances.",
+    "occurrence_count": 1,
+    "last_seen": "2026-09-05T00:00:00",
+    "source": "builtin"
+  },
+  {
+    "id": "HALLUCINATION-DOC-ANTI-PATTERN",
+    "name": "Documentation Vulnerability Anti-Pattern Example",
+    "category": "documentation_context",
+    "description": "Flagging security anti-patterns, warning notes, or attack explanations in markdown documentation or knowledge base files as actual vulnerabilities in code.",
+    "signature_patterns": [
+      "\\banti-pattern\\s+example\\b",
+      "\\bvulnerable\\s+code\\s+example\\b",
+      "\\bfor\\s+illustrative\\s+purposes\\s+only\\b"
+    ],
+    "pattern_keywords": [
+      "documentation_antipattern",
+      "tutorial_vulnerability_example"
+    ],
+    "file_patterns": [
+      "*.md",
+      "*.rst",
+      "*.txt"
+    ],
+    "resolution": "Documentation discussing known risks or anti-patterns in an educational context does not represent exploitable production code.",
+    "occurrence_count": 1,
+    "last_seen": "2026-09-05T00:00:00",
+    "source": "builtin"
+  },
+  {
+    "id": "HALLUCINATION-MASKED-IDENTIFIER",
+    "name": "Masked Placeholder Claimed as Invalid Syntax Identifier",
+    "category": "syntax_grammar",
+    "description": "Claiming that sanitization placeholders like <masked-secret> or <masked-token> are invalid Python syntax identifiers or cause SyntaxError during import.",
+    "signature_patterns": [
+      "invalid\\s+identifier.*<masked-[a-zA-Z0-9_\\-]+>",
+      "<masked-[a-zA-Z0-9_\\-]+>.*(?:syntaxerror|invalid\\s+identifier)",
+      "<masked-[a-zA-Z0-9_\\-]+>\\s*causes\\s+syntax\\s+error"
+    ],
+    "pattern_keywords": [
+      "masked_identifier",
+      "masked_syntax_error"
+    ],
+    "file_patterns": [
+      "*.py"
+    ],
+    "resolution": "<masked-*> markers are prompt sanitization indicators, not literal code syntax identifiers.",
+    "occurrence_count": 1,
+    "last_seen": "2026-09-05T00:00:00",
+    "source": "builtin"
+  },
+  {
+    "id": "HALLUCINATION-HTTPX-TIMEOUT-PARAM",
+    "name": "HTTPX Timeout Constructor Positional and Keyword Conflict Claim",
+    "category": "dependency_ecosystem",
+    "description": "Claiming httpx or httpx2 Timeout(timeout, connect=...) raises TypeError or conflicts with positional arguments.",
+    "signature_patterns": [
+      "httpx2?\\.timeout.*(?:multiple\\s+values|conflict|positional\\s+argument)",
+      "(?:multiple\\s+values|conflict).*httpx2?\\.timeout"
+    ],
+    "pattern_keywords": [
+      "httpx_timeout_conflict",
+      "httpx2_timeout_params"
+    ],
+    "file_patterns": [
+      "*.py"
+    ],
+    "resolution": "HTTPX Timeout accepts a positional default timeout alongside specific keyword overrides (e.g. connect, read).",
+    "occurrence_count": 1,
+    "last_seen": "2026-09-05T00:00:00",
+    "source": "builtin"
+  },
+  {
+    "id": "HALLUCINATION-MISSING-SYMBOL-FALSE-ALARM",
+    "name": "False-Positive Missing Import or Symbol Claim",
+    "category": "syntax_grammar",
+    "description": "Claiming that an imported or re-exported variable, class, or function does not exist in the source module or causes an ImportError when it is actually defined in the module.",
+    "signature_patterns": [
+      "(?:missing|undefined)\\s+[A-Z0-9_]+\\s+(?:import|symbol|variable|constant)",
+      "does\\s+not\\s+define\\s+(?:this\\s+name|DEFAULT_HTTP_BROKER)",
+      "causes?\\s+importerror.*(?:does\\s+not\\s+define|never\\s+defined)"
+    ],
+    "pattern_keywords": [
+      "missing_symbol_false_alarm",
+      "false_importerror",
+      "default_http_broker"
+    ],
+    "file_patterns": [
+      "*.py"
+    ],
+    "resolution": "Verify ground-truth AST or module definitions before claiming an imported symbol is missing or causes ImportError.",
+    "occurrence_count": 1,
+    "last_seen": "2026-09-06T00:00:00",
+    "source": "builtin"
+  }
+]

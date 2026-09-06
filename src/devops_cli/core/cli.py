@@ -55,10 +55,13 @@ def _record_cli_failure(span_h: Any, cmd_name: str, dur: float, exc: Exception) 
             attributes={"command": cmd_name, "status": "ok"},
         )
     else:
-        span_h.set_attribute("cli.error", str(exc))
+        from devops_cli.ai.review.sanitization import _mask_secrets_in_content
+
+        clean_err = _mask_secrets_in_content(str(exc))
+        span_h.set_attribute("cli.error", clean_err)
         span_h.add_event(
             "subcommand_failed",
-            {"command": cmd_name, "error": str(exc)},
+            {"command": cmd_name, "error": clean_err},
         )
         record_metric(
             "devops_cli_subcommand_seconds",

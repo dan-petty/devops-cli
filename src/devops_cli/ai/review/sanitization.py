@@ -12,14 +12,26 @@ from devops_cli.config.defaults import (
 
 _SECRET_PATTERNS = (
     (
-        re.compile(
-            r"(?:ghp_[A-Za-z0-9_]{36,40}|gho_[A-Za-z0-9_]{36,40}|github_pat_[A-Za-z0-9_]{82})"
-        ),
+        re.compile(r"(?:ghp_[A-Za-z0-9_]{10,}|gho_[A-Za-z0-9_]{10,}|github_pat_[A-Za-z0-9_]{20,})"),
         "<masked-github-token>",
+    ),
+    (
+        re.compile(
+            r"\b(?:password|passwd|pwd)\s*[:=]\s*[\"']?(?!<masked-)[^\s\"',;]{8,}[\"']?",
+            re.IGNORECASE,
+        ),
+        "password=<masked-password>",
     ),
     (re.compile(r"sk-[A-Za-z0-9_-]{20,}"), "<masked-openai-key>"),
     (re.compile(r"sk-ant-[A-Za-z0-9_-]{20,}"), "<masked-anthropic-key>"),
     (re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"), "<masked-aws-key-id>"),
+    (
+        re.compile(
+            r"\b(?:token|auth_token)\s*[:=]\s*[\"']?(?!<masked-)[^\s\"',;]{8,}[\"']?",
+            re.IGNORECASE,
+        ),
+        "token=<masked-token>",
+    ),
     (
         re.compile(
             r"(?:aws_secret_access_key|AWS_SECRET_ACCESS_KEY)\s*[:=]\s*[\"']?[A-Za-z0-9/+=]{40}[\"']?"
@@ -48,6 +60,20 @@ _SECRET_PATTERNS = (
     (
         re.compile(r"eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"),
         "<masked-jwt>",
+    ),
+    (
+        re.compile(
+            r"((?:[:=]\s*[\"']?|\bBearer\s+|\btoken\s+|[\"']))secret_[A-Za-z0-9_]{10,}\b",
+            re.IGNORECASE,
+        ),
+        r"\g<1><masked-secret>",
+    ),
+    (
+        re.compile(
+            r"\b(?:token|bearer|secret|password|api_key)\s+([A-Za-z0-9_\-.]{10,})\b",
+            re.IGNORECASE,
+        ),
+        "<masked-token>",
     ),
     (
         re.compile(

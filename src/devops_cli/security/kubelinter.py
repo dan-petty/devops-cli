@@ -24,6 +24,17 @@ def parse_kubelinter_json(data: dict[str, Any], target_path: str = "") -> list[F
     findings: list[Finding] = []
     reports = data.get("Reports") or []
 
+    clean_target = ""
+    if target_path:
+        p = Path(target_path)
+        try:
+            from devops_cli.core.repo import find_top_level_repo_root
+
+            root = find_top_level_repo_root(Path.cwd())
+            clean_target = str(p.resolve().relative_to(root))
+        except Exception:
+            clean_target = p.name
+
     for report in reports:
         diag = report.get("Diagnostic") or {}
         msg = diag.get("Message") or "Kube-linter static manifest diagnostic warning"
@@ -34,7 +45,7 @@ def parse_kubelinter_json(data: dict[str, Any], target_path: str = "") -> list[F
         name = obj_info.get("Name") or "unnamed"
         namespace = obj_info.get("Namespace") or "default"
         location_str = (
-            f"{target_path}:{kind}/{name}" if target_path else f"{kind}/{name} ({namespace})"
+            f"{clean_target}:{kind}/{name}" if clean_target else f"{kind}/{name} ({namespace})"
         )
 
         findings.append(

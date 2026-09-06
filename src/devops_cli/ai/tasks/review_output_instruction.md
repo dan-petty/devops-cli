@@ -29,5 +29,10 @@ Recommendation must be one of: APPROVE, REQUEST CHANGES, BLOCK.
 
 ### Instructions:
 - **Evaluation Criteria**: `verification_criteria` and `invalidation_criteria` are internal automated verification tools for the verification engine; keep them focused and contained within their respective schema fields.
-- **Canonical Location**: Specify exact file paths and line ranges (`path/to/file.ext:start-end` or `path/to/file.ext:line`).
-- **Concise Title**: Provide a direct, descriptive summary headline identifying the specific defect.
+- **Strict Canonical Location**: Specify ONLY exact file paths and line ranges (`path/to/file.ext:start-end` or `path/to/file.ext:line`). Never include sentences, conversational reasoning, markdown asterisks (`**`), section headers (`##`), or thinking scratchpad in `location`.
+- **Zero Scratchpad Leakage**: Do NOT leak conversational thinking, chain-of-thought phrases ("We need to...", "Let's check..."), or instruction headers into `location`, `title`, `description`, or `fix`.
+- **Zero Conversational Praise in Findings**: Never put compliments, approvals, or "Good." remarks in finding `title` or `description`. Positive observations belong strictly in the `positive_observations` array.
+- **Concise Title**: Provide a direct, descriptive summary headline identifying the specific defect (e.g., "Missing signature verification in token decoder").
+- **Language & Runtime Standards**: In Python 3.14+, comma-separated exceptions (`except A, B:`) are valid runtime syntax (PEP 758). Never report valid language syntax features or modern runtime idioms as "SyntaxError" or "Python 2 syntax".
+- **Sanitization Placeholders**: Never report `<masked-*>` or `<secret-placeholder>` markers as invalid identifiers or syntax errors; these are prompt redaction tokens, not literal source code bugs.
+- **Accurate API Signatures**: Validate library APIs and constructor arguments against actual runtime documentation and signatures before claiming conflicting or illegal arguments (e.g., HTTPX `Timeout` accepts positional defaults alongside keyword overrides).

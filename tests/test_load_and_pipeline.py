@@ -5,9 +5,12 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+import typer
 from typer.testing import CliRunner
 
 from devops_cli.commands.pipeline import app as pipeline_app
+from devops_cli.commands.pipeline import run_pipeline_cmd
 from devops_cli.commands.test_cmd import app as app_test_cli
 
 runner = CliRunner()
@@ -59,3 +62,11 @@ def test_pipeline_run_failure(mock_run: MagicMock, mock_which: MagicMock, tmp_pa
     result = runner.invoke(pipeline_app, [str(tmp_path)])
     assert result.exit_code == 2
     assert "Pipeline execution failed with exit code 2" in result.output
+
+
+def test_pipeline_run_validates_path_and_function_name(tmp_path: Path) -> None:
+    with pytest.raises((typer.Exit, ValueError)):
+        run_pipeline_cmd(pipeline_path=Path("/non/existent/dagger/pipeline.go"))
+
+    with pytest.raises((typer.Exit, ValueError)):
+        run_pipeline_cmd(pipeline_path=tmp_path, function_name="invalid;rm -rf /")

@@ -26,14 +26,28 @@ _SECRET_PATTERNS = [
 ]
 
 
+MAX_DIFF_TEXT_CHARS: int = 500_000
+
+
 def sanitize_diff_output(diff_text: str) -> str:
     """Sanitize sensitive credentials, secrets, private keys, and tokens from diff output."""
     if not diff_text:
         return ""
-    sanitized = diff_text
+    text = diff_text
+    if len(text) > MAX_DIFF_TEXT_CHARS:
+        text = (
+            text[:MAX_DIFF_TEXT_CHARS]
+            + f"\n... [Diff truncated at {MAX_DIFF_TEXT_CHARS} characters] ...\n"
+        )
+    sanitized = text
     for pat in _SECRET_PATTERNS:
         sanitized = pat.sub("[REDACTED_SECRET]", sanitized)
-    return sanitized
+    from devops_cli.ai.review.sanitization import _mask_secrets_in_content
+
+    return _mask_secrets_in_content(sanitized)
+
+
+_GIT_REF_RE = re.compile(r"^[A-Za-z0-9_\-./]+$")
 
 
 def get_structural_diff(
@@ -49,9 +63,21 @@ def get_structural_diff(
 
         # Fallback to git branch diff
         if branch and base:
+            if (
+                not _GIT_REF_RE.fullmatch(branch)
+                or not _GIT_REF_RE.fullmatch(base)
+                or branch.startswith("-")
+                or base.startswith("-")
+            ):
+                return "Error: Invalid git reference; illegal characters or leading hyphens are forbidden."
             git_cmd = build_git_diff_cmd(branch=branch, base=base)
             git_res = run_subprocess(git_cmd, check=False, cwd=root)
-            return sanitize_diff_output(git_res.stdout)
+            raw_out = (
+                git_res.stdout
+                if git_res.returncode == 0
+                else (git_res.stdout or git_res.stderr or "")
+            )
+            return sanitize_diff_output(raw_out)
 
         if path_b is not None:
             # Validate path containment to prevent arbitrary file read / CWE-200

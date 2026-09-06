@@ -732,7 +732,6 @@ class RAGCommandHelp:
     top_k: str = "Number of results to return."
     min_score: str = "Minimum similarity score (0.0 - 1.0)."
     file_filter: str = "Filter by filepath glob pattern."
-    reset: str = "Alias for clear — clear vector index collections and reset local cache."
     explain: str = "Explain RAG vector embeddings, Qdrant indexing, and terminology."
 
 

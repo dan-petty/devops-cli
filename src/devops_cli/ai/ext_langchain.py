@@ -2,10 +2,33 @@
 
 from __future__ import annotations
 
+import urllib.parse
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
-from devops_cli.ai.agents.pydantic_agent import AgentTool, FunctionToolset, Tool
+from devops_cli.ai.agents.pydantic_agent import FunctionToolset, Tool
+
+
+def _validate_langchain_kwargs(kwargs: dict[str, Any]) -> str | None:
+    """Validate tool keyword arguments against path traversal sequences, including percent-encoding."""
+    for k, v in kwargs.items():
+        if any(
+            pat in k.lower()
+            for pat in ("path", "file", "dir", "dest", "filename", "filepath", "uri")
+        ):
+            if isinstance(v, (str, Path)):
+                raw_str = str(v)
+                decoded = urllib.parse.unquote(raw_str)
+                if (
+                    ".." in raw_str
+                    or "../" in raw_str
+                    or "..\\" in raw_str
+                    or ".." in decoded
+                    or any(part == ".." for part in Path(decoded).parts)
+                ):
+                    return f"Path traversal in argument '{k}' is blocked by security policy: {v}"
+    return None
 
 
 def tool_from_langchain(
@@ -26,17 +49,30 @@ def tool_from_langchain(
     if hasattr(langchain_tool, "invoke") and callable(langchain_tool.invoke):
 
         def _invoke_wrapper(**kwargs: Any) -> Any:
+            err = _validate_langchain_kwargs(kwargs)
+            if err:
+                return err
             return langchain_tool.invoke(kwargs)
 
         run_func = _invoke_wrapper
     elif hasattr(langchain_tool, "run") and callable(langchain_tool.run):
 
         def _run_wrapper(**kwargs: Any) -> Any:
+            err = _validate_langchain_kwargs(kwargs)
+            if err:
+                return err
             return langchain_tool.run(kwargs)
 
         run_func = _run_wrapper
     elif callable(langchain_tool):
-        run_func = langchain_tool
+
+        def _callable_wrapper(**kwargs: Any) -> Any:
+            err = _validate_langchain_kwargs(kwargs)
+            if err:
+                return err
+            return langchain_tool(**kwargs)
+
+        run_func = _callable_wrapper
     else:
         raise TypeError(f"Object {langchain_tool!r} is not a valid callable or LangChain tool")
 
@@ -61,7 +97,7 @@ def tool_from_langchain(
         return Tool(
             name=tool_name,
             description=tool_desc,
-            func=run_func,
+            function=run_func,
             parameters=properties,
             takes_ctx=False,
             strict=strict,
@@ -103,6 +139,3 @@ class LangChainToolset(FunctionToolset):
             timeout=timeout,
             max_retries=max_retries,
         )
-
-
-LangChainToolset.model_rebuild(_types_namespace={"AgentTool": AgentTool})

@@ -650,13 +650,14 @@ def print_dry_run_result(
     active_console.print(MESSAGES.dry_run.command_response_header)
     dump_fn = getattr(result, "model_dump_json", None)
     if callable(dump_fn):
-        active_console.print_json(dump_fn(indent=2))
+        raw = dump_fn(indent=2)
     elif isinstance(result, str):
-        active_console.print_json(result)
+        raw = result
     else:
         import json
 
-        active_console.print_json(json.dumps(result, indent=2, default=str))
+        raw = json.dumps(result, indent=2, default=str)
+    active_console.print_json(_sanitize_output_text(raw))
 
 
 def render_dry_run_result(

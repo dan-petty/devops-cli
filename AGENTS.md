@@ -34,10 +34,10 @@ This document provides foundational context, architectural principles, and opera
   - Tests serve as the authoritative, executable documentation of the intended functionality, public interfaces, expected inputs/outputs, edge cases, error conditions, and architectural boundaries.
   - Implementation code must be written specifically to satisfy the pre-written tests, ensuring zero extraneous boilerplate, 100% adherence to specifications, and immediate verification feedback.
 - **Mandatory Project Planning & Implementation Documentation**:
-  - AI agents and assistants **MUST ALWAYS document project planning and technical implementation designs** in dedicated planning documents (`implementation_plan.md`, `task.md`, `docs/ROADMAP.md`, `docs/PENDING_FEATURES.md`, and `docs/LOG.md`) prior to executing complex, multi-step, or architectural changes.
+  - AI agents and assistants **MUST ALWAYS document project planning and technical implementation designs** in dedicated planning documents (`implementation_plan.md`, `docs/agent/task.md`, `docs/ROADMAP.md`, `docs/PENDING_FEATURES.md`, and `docs/LOG.md`) prior to executing complex, multi-step, or architectural changes.
   - Planning documents must clearly articulate background motivation, architectural diagrams, proposed file changes (with `[NEW]`, `[MODIFY]`, `[DELETE]` annotations), error handling strategies, and comprehensive verification criteria.
-- **Continuous Task Status Tracking (Pending, In Progress, Completed)**:
-  - AI agents and coding assistants **MUST ALWAYS maintain and track transparent task statuses** across all operational lifecycles, organizing tasks into three unambiguous categories:
+- **Continuous Task Status Tracking (Pending, In Progress, Completed) (`docs/agent/task.md`)**:
+  - AI agents and coding assistants **MUST ALWAYS maintain and track transparent task statuses** under `docs/agent/task.md` across all operational lifecycles, organizing tasks into three unambiguous categories:
     - **Pending Tasks**: Queued deliverables, backlog requirements, upcoming milestones, and planned features awaiting execution.
     - **In-Progress Tasks (WIP)**: Active focus items, specific files under modification, ongoing test specifications, and intermediate stages.
     - **Completed Tasks**: Verified implementations, green test gates, synchronized documentation references, and closed operational loops.

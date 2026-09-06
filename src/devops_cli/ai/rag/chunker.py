@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import mimetypes
 import re
 from pathlib import Path
 
@@ -12,11 +13,6 @@ from devops_cli.ai.rag.metadata import extract_code_metadata, extract_doc_metada
 from devops_cli.ai.rag.models import CodeChunk
 from devops_cli.config.defaults import DEFAULT_RAG_CHUNK_OVERLAP, DEFAULT_RAG_CHUNK_SIZE
 
-_DOC_EXTENSIONS = {".md", ".markdown", ".rst", ".adoc", ".asciidoc", ".org", ".txt"}
-_IAC_EXTENSIONS = {".tf", ".hcl", ".tfvars"}
-_CONFIG_EXTENSIONS = {".yaml", ".yml", ".json", ".toml", ".ini", ".cfg", ".conf", ".xml"}
-_JS_TS_EXTENSIONS = {".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"}
-_C_LIKE_EXTENSIONS = {".java", ".kt", ".kts", ".cs", ".cpp", ".cc", ".cxx", ".c", ".h", ".hpp"}
 MAX_CHUNK_FILE_SIZE_BYTES = 20 * 1024 * 1024  # 20 MiB safety cap
 
 _LANGUAGE_PATTERNS: dict[str, tuple[re.Pattern[str], str]] = {
@@ -101,14 +97,27 @@ _C_LIKE_PATTERN = (
 )
 
 
-def _resolve_file_category(suffix: str, rel_path: str) -> str:
-    """Categorize file into docs, iac, config, or code based on extension and path."""
-    if suffix in _DOC_EXTENSIONS or "doc" in rel_path.lower():
-        return "docs"
-    if suffix in _IAC_EXTENSIONS or "k8s" in rel_path or "terraform" in rel_path:
+def _resolve_file_category(suffix: str, rel_path: str, language: str = "") -> str:
+    """Categorize file into docs, iac, config, or code based on language, mimetypes, and path."""
+    rel_lower = rel_path.lower()
+    if not language:
+        language = detect_language(rel_path)
+
+    if language in ("hcl", "terraform") or any(
+        k in rel_lower for k in ("k8s", "terraform", "helm")
+    ):
         return "iac"
-    if suffix in _CONFIG_EXTENSIONS:
+    if language in ("yaml", "json", "toml", "ini", "xml"):
         return "config"
+    mime, _ = mimetypes.guess_type(rel_path)
+    if mime and any(c in mime for c in ("json", "yaml", "xml", "toml", "config")):
+        return "config"
+    if language in ("markdown", "rst", "asciidoc", "org") or "doc" in rel_lower:
+        return "docs"
+    if mime and any(d in mime for d in ("markdown", "rst", "asciidoc", "msword", "pdf")):
+        return "docs"
+    if mime == "text/plain" and language in ("text", "plain", "unknown", ""):
+        return "docs"
     return "code"
 
 
@@ -133,29 +142,29 @@ class SemanticChunker:
         project_name: str,
     ) -> list[CodeChunk]:
         """Dispatch file content to language-specific structural chunker."""
-        if suffix == ".py":
+        if language == "python":
             return self._chunk_python(content, rel_path, project_name=project_name)
-        if suffix in (".yaml", ".yml"):
+        if language == "yaml":
             return self._chunk_yaml(content, rel_path, project_name=project_name)
-        if suffix in _DOC_EXTENSIONS:
+        if category == "docs" or language in ("markdown", "rst", "asciidoc", "org"):
             return self._chunk_tech_docs(
                 content, rel_path, language=language, project_name=project_name
             )
-        if suffix == ".go":
+        if language == "go":
             return self._chunk_go(content, rel_path, project_name=project_name)
-        if suffix == ".rs":
+        if language == "rust":
             return self._chunk_rust(content, rel_path, project_name=project_name)
-        if suffix in _JS_TS_EXTENSIONS:
+        if language in ("javascript", "typescript"):
             return self._chunk_js_ts(
                 content, rel_path, language=language, project_name=project_name
             )
-        if suffix in _C_LIKE_EXTENSIONS:
+        if language in ("java", "kotlin", "csharp", "cpp", "c"):
             return self._chunk_c_like(
                 content, rel_path, language=language, project_name=project_name
             )
-        if suffix in (".tf", ".hcl"):
+        if language in ("hcl", "terraform"):
             return self._chunk_terraform(content, rel_path, project_name=project_name)
-        if suffix == ".sql":
+        if language == "sql":
             return self._chunk_sql(content, rel_path, project_name=project_name)
         return self._chunk_line_window(
             content,
@@ -180,7 +189,7 @@ class SemanticChunker:
         rel_path = str(file_path.relative_to(relative_to)) if relative_to else str(file_path)
         suffix = file_path.suffix.lower()
         language = detect_language(file_path, content)
-        category = _resolve_file_category(suffix, rel_path)
+        category = _resolve_file_category(suffix, rel_path, language=language)
 
         chunks = self._dispatch_language_chunker(
             suffix, content, rel_path, language, category, project_name

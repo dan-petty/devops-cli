@@ -1345,7 +1345,7 @@ class ReviewPipelineOrchestrator:
                 client=self.llm_client,
                 name=p_def.title,
                 system_prompt=sys_prompt,
-                output_schema=ReviewResult,
+                output_type=ReviewResult,
             )
             pipeline.add_agent(agent)
 
@@ -1357,7 +1357,7 @@ class ReviewPipelineOrchestrator:
                 client=self.llm_client,
                 name=p_def.title,
                 system_prompt=f"You are {p_def.title}.\n{p_def.system_prompt}\n\n{_REVIEW_PIPELINE_EVAL}\n{target_conventions}",
-                output_schema=ReviewResult,
+                output_type=ReviewResult,
             )
             pipeline.add_agent(agent)
 

@@ -6,11 +6,18 @@ import ast
 import json
 import re
 import unicodedata
+from collections.abc import Hashable, Iterable
 from typing import Any
 
 import json_repair
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from devops_cli.config import (
+    DEFAULT_REVIEW_LINE_OVERLAP_TOLERANCE,
+    DEFAULT_REVIEW_MAX_SUMMARY_PREVIEW_LENGTH,
+    DEFAULT_REVIEW_MAX_TITLE_LENGTH,
+    DEFAULT_REVIEW_TITLE_SIMILARITY_THRESHOLD,
+)
 from devops_cli.models.ai import FileAnalysisMeta
 from devops_cli.models.vulnerability import (
     DependencySpec,
@@ -32,10 +39,10 @@ VALID_SEVERITIES: frozenset[str] = frozenset(_SEVERITY_RANK.keys())
 VALID_STATUSES: frozenset[str] = frozenset({"UNVERIFIED", "VERIFIED", "INVALIDATED", "MITIGATED"})
 VALID_RECOMMENDATIONS: frozenset[str] = frozenset({"APPROVE", "REQUEST CHANGES", "BLOCK"})
 
-LINE_OVERLAP_TOLERANCE: int = 2
-TITLE_SIMILARITY_THRESHOLD: float = 0.5
-MAX_TITLE_LENGTH: int = 200
-MAX_SUMMARY_PREVIEW_LENGTH: int = 300
+LINE_OVERLAP_TOLERANCE: int = DEFAULT_REVIEW_LINE_OVERLAP_TOLERANCE
+TITLE_SIMILARITY_THRESHOLD: float = DEFAULT_REVIEW_TITLE_SIMILARITY_THRESHOLD
+MAX_TITLE_LENGTH: int = DEFAULT_REVIEW_MAX_TITLE_LENGTH
+MAX_SUMMARY_PREVIEW_LENGTH: int = DEFAULT_REVIEW_MAX_SUMMARY_PREVIEW_LENGTH
 
 _RECOMMENDATION_ALIASES: dict[str, str] = {
     "approve": "APPROVE",
@@ -121,69 +128,17 @@ def _tokenize_title(title: str) -> set[str]:
     return {w for w in words if len(w) > 2}
 
 
-def _parse_string_finding(text: str) -> dict[str, Any]:
-    """Parse unstructured finding string into structured dictionary."""
-    clean = normalize_unicode_text(text).strip()
-    if not clean:
-        return {"title": "", "location": "", "description": ""}
-    m = re.match(
-        r"^\[?(CRITICAL|HIGH|MEDIUM|LOW|INFO)\]?\s*`?([^`:\s]+(?::\d+(?:-\d+)?)?)`?\s*[-:—]\s*(.+)$",
-        clean,
-        re.IGNORECASE,
-    )
-    if m:
-        return {
-            "severity": m.group(1).upper(),
-            "location": m.group(2).strip(),
-            "title": m.group(3).strip(),
-            "description": clean,
-        }
-    return {"title": "", "location": "", "description": ""}
-
-
 def _parse_finding_references(raw_ref: Any) -> list[str]:
     """Parse references from list, string, or literal representation."""
     if isinstance(raw_ref, list):
-        return [str(r).strip() for r in raw_ref if str(r).strip()]
+        return [normalize_unicode_text(str(r)).strip() for r in raw_ref if str(r).strip()]
     if not isinstance(raw_ref, str):
         return []
-    if raw_ref.startswith("[") and raw_ref.endswith("]"):
-        try:
-            parsed = ast.literal_eval(raw_ref)
-            if isinstance(parsed, list):
-                return [str(r).strip() for r in parsed if str(r).strip()]
-        except Exception:
-            pass
-    return [r.strip() for r in raw_ref.split(",") if r.strip()]
-
-
-def _extract_dict_finding_fields(data: dict[str, Any]) -> dict[str, Any]:
-    """Extract and normalize finding fields from dictionary synonyms."""
-    d = dict(data)
-    title_keys = ("title", "issue", "problem", "name", "summary", "heading", "finding")
-    title_val = next((d[k] for k in title_keys if d.get(k)), "")
-    if isinstance(title_val, (list, tuple, set)):
-        d["title"] = " ".join(str(item).strip() for item in title_val if str(item).strip())
-    else:
-        d["title"] = format_clean_text_field(title_val)
-
-    desc_keys = ("description", "details", "detail", "impact", "explanation", "message", "body")
-    d["description"] = format_clean_text_field(next((d[k] for k in desc_keys if d.get(k)), ""))
-
-    loc_keys = ("location", "file", "path", "target", "line", "lines")
-    d["location"] = format_clean_text_field(next((d[k] for k in loc_keys if d.get(k)), ""))
-
-    fix_keys = ("fix", "remediation", "recommendation", "suggested_fix", "solution", "patch")
-    d["fix"] = format_clean_text_field(next((d[k] for k in fix_keys if d.get(k)), ""))
-
-    if "references" in d:
-        d["references"] = _parse_finding_references(d["references"])
-
-    if not d.get("verification_criteria") and d.get("verification"):
-        d["verification_criteria"] = d.get("verification")
-    if not d.get("invalidation_criteria") and d.get("invalidation"):
-        d["invalidation_criteria"] = d.get("invalidation")
-    return d
+    cleaned = normalize_unicode_text(raw_ref).strip()
+    coll = _parse_stringified_collection(cleaned)
+    if coll is not None:
+        return [normalize_unicode_text(str(r)).strip() for r in coll if str(r).strip()]
+    return [r.strip() for r in cleaned.split(",") if r.strip()]
 
 
 _PROMPT_CRITERIA_SPLIT_REGEX = re.compile(
@@ -203,15 +158,88 @@ _PROMPT_PLACEHOLDER_BASENAMES: frozenset[str] = frozenset(
 _MARKDOWN_LINK_REGEX = re.compile(r"\[([^\]]+)\]\([^)]+\)")
 
 
+_SCRATCHPAD_PREFIX_REGEX = re.compile(
+    r"^(?:(?:We|I)\s+(?:need to|must|should|will|have to)\b|Let's\b|Looking at\b|Reviewing\b|Checking\b|Based on\b)[^.\n]*[.?!:]\s*",
+    re.IGNORECASE,
+)
+
+_APPROVAL_PREFIX_REGEX = re.compile(
+    r"^(?:Good|Looks\s+good|Great)\.\s*But\s+",
+    re.IGNORECASE,
+)
+
+_PRAISE_PREFIX_REGEX = re.compile(
+    r"^(?:No issues(?:\s+found)?|Looks\s+solid|Looks\s+good|All\s+good|Clean\s+implementation|Properly\s+implemented|Correctly\s+handled)\b.*$",
+    re.IGNORECASE,
+)
+
+_DEFECT_KEYWORD_REGEX = re.compile(
+    r"\b(?:but|however|although|except|potential|issue|risk|bug|vulnerability|flaw|leak|fail|race|error|insecure|missing|unhandled|unvalidated)\b",
+    re.IGNORECASE,
+)
+
+
 def sanitize_finding_text(text: str) -> str:
-    """Scrub prompt criteria leakage, instruction headers, and markdown noise from text."""
+    """Scrub prompt criteria leakage, instruction headers, scratchpad prefixes, and markdown noise from text."""
     val = normalize_unicode_text(str(text)).strip()
     # Strip leading instruction headers first (e.g., 'Provide fix:', 'Title:', 'Issue:')
     val = _INSTRUCTION_HEADER_PREFIX_REGEX.sub("", val).strip()
+
+    # Strip conversational approval prefix (e.g., 'Good. But potential...' -> 'Potential...')
+    m_app = _APPROVAL_PREFIX_REGEX.match(val)
+    if m_app:
+        val = val[m_app.end() :].strip()
+        if val:
+            val = val[0].upper() + val[1:]
+
+    # Strip leading chain-of-thought scratchpad sentences
+    while True:
+        m = _SCRATCHPAD_PREFIX_REGEX.match(val)
+        if not m:
+            break
+        val = val[m.end() :].strip()
     # Strip trailing prompt criteria leakage
     if _PROMPT_CRITERIA_SPLIT_REGEX.search(val):
         val = _PROMPT_CRITERIA_SPLIT_REGEX.split(val)[0].strip()
+
+    # Check for pure praise / no-issue confirmation
+    if _PRAISE_PREFIX_REGEX.match(val):
+        return ""
+    if val.endswith(
+        ("Good.", "Good", "Looks good.", "Looks solid.")
+    ) and not _DEFECT_KEYWORD_REGEX.search(val):
+        return ""
+
     return val
+
+
+def unique_items[T: Hashable](items: Iterable[T]) -> list[T]:
+    """Preserve only the first instance of each item in a collection using a set."""
+    seen: set[T] = set()
+    result: list[T] = []
+    for item in items:
+        if item not in seen:
+            seen.add(item)
+            result.append(item)
+    return result
+
+
+def unique_lines(text: str) -> str:
+    """Preserve only the first instance of each line or string in text or thinking responses using a set."""
+    if not text:
+        return ""
+    seen: set[str] = set()
+    result: list[str] = []
+    for line in text.splitlines():
+        trimmed = line.strip()
+        if not trimmed:
+            if result and result[-1] != "":
+                result.append("")
+            continue
+        if trimmed not in seen:
+            seen.add(trimmed)
+            result.append(line)
+    return "\n".join(result)
 
 
 def canonicalize_finding_location(location: str) -> str:
@@ -220,11 +248,16 @@ def canonicalize_finding_location(location: str) -> str:
     if not loc or "\n" in loc or "```" in loc:
         return ""
 
+    if loc.startswith("#") or not any(c.isalnum() for c in loc):
+        return ""
+
     m_link = _MARKDOWN_LINK_REGEX.search(loc)
     if m_link:
         loc = m_link.group(1).strip()
 
-    loc = loc.strip("`'\"()[]")
+    loc = loc.strip("`'\"()[]*# ")
+    if not loc or not any(c.isalnum() for c in loc):
+        return ""
 
     had_prompt_leakage = False
     if _PROMPT_CRITERIA_SPLIT_REGEX.search(loc):
@@ -269,23 +302,84 @@ def canonicalize_finding_location(location: str) -> str:
             return f"{file_path}:{s_line}-{e_line}"
         return f"{file_path}:{s_line}"
 
-    if had_prompt_leakage:
-        m_file = re.match(r"^([a-zA-Z0-9_\-./\\]+)", loc)
-        if m_file:
-            return f"{m_file.group(1).replace('\\', '/')}:1"
+    # Match general target specifiers without spaces, e.g. uv.lock:jinja2, Dockerfile:cve-1, k8s/app.yaml:Deployment/app
+    m_target = re.match(r"^([a-zA-Z0-9_\-./\\]+):([a-zA-Z0-9_\-./\\]+)$", loc)
+    if m_target:
+        return f"{m_target.group(1).replace('\\', '/')}:{m_target.group(2)}"
+
+    # Extract embedded valid file location if present in conversational or scratchpad text
+    m_embedded = re.search(
+        r"(?:^|[\s:\"'`])([a-zA-Z0-9_\-./\\]+/[a-zA-Z0-9_\-.]+|[a-zA-Z0-9_\-]+\.[a-zA-Z0-9_\-]+)(?::(\d+)(?:-(\d+))?)?",
+        loc,
+    )
+    if m_embedded:
+        candidate_file = m_embedded.group(1).replace("\\", "/").rstrip(".")
+        if (
+            candidate_file.lower() not in _PROMPT_PLACEHOLDER_BASENAMES
+            and Path(candidate_file).name.lower() not in _PROMPT_PLACEHOLDER_BASENAMES
+        ):
+            s_str = m_embedded.group(2)
+            e_str = m_embedded.group(3)
+            if s_str:
+                s_line = int(s_str)
+                e_line = int(e_str) if e_str else None
+                if e_line is not None and s_line > e_line:
+                    s_line, e_line = e_line, s_line
+                if e_line is not None and e_line != s_line:
+                    return f"{candidate_file}:{s_line}-{e_line}"
+                return f"{candidate_file}:{s_line}"
+            return candidate_file
+
+    # Reject conversational scratchpad or prompt instruction leakage
+    has_scratchpad_phrase = bool(
+        re.search(
+            r"\b(?:file path and line numbers|we need to|let's|where the vulnerability occurs)\b",
+            loc,
+            re.IGNORECASE,
+        )
+    )
+    is_conversational_sentence = len(loc.split()) > 3 and any(p in loc for p in (".", "!", "?"))
+    if has_scratchpad_phrase or is_conversational_sentence:
+        return ""
 
     return loc
 
 
 class Finding(BaseModel):
-    severity: str = "MEDIUM"
-    location: str = ""
-    title: str = ""
-    description: str = ""
-    fix: str = ""
+    model_config = ConfigDict(populate_by_name=True)
+
+    severity: str = Field(
+        default="MEDIUM", validation_alias=AliasChoices("severity", "level", "priority")
+    )
+    location: str = Field(
+        default="",
+        validation_alias=AliasChoices("location", "file", "path", "target", "line", "lines"),
+    )
+    title: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "title", "issue", "problem", "name", "summary", "heading", "finding"
+        ),
+    )
+    description: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "description", "details", "detail", "impact", "explanation", "message", "body"
+        ),
+    )
+    fix: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "fix", "remediation", "recommendation", "suggested_fix", "solution", "patch"
+        ),
+    )
     references: list[str] = Field(default_factory=list)
-    verification_criteria: list[str] = Field(default_factory=list)
-    invalidation_criteria: list[str] = Field(default_factory=list)
+    verification_criteria: list[str] = Field(
+        default_factory=list, validation_alias=AliasChoices("verification_criteria", "verification")
+    )
+    invalidation_criteria: list[str] = Field(
+        default_factory=list, validation_alias=AliasChoices("invalidation_criteria", "invalidation")
+    )
     verified_criteria_matched: list[str] = Field(default_factory=list)
     invalidated_criteria_matched: list[str] = Field(default_factory=list)
     reportable: bool = True
@@ -297,24 +391,18 @@ class Finding(BaseModel):
     verified_by: str | None = None  # "llm" | "human"
     verified_at: str | None = None
     confidence_score: float | None = None
-
-    @model_validator(mode="before")
-    @classmethod
-    def _pre_validate_finding(cls, data: Any) -> Any:
-        if isinstance(data, str):
-            return _parse_string_finding(data)
-        if isinstance(data, dict):
-            return _extract_dict_finding_fields(data)
-        return data
+    thinking: str | None = None
 
     @property
     def is_empty(self) -> bool:
         """Check if finding is blank or lacks a valid target location."""
-        clean_title = self.title.strip()
-        clean_loc = self.location.strip()
+        clean_title = sanitize_finding_text(self.title).strip()
+        clean_loc = canonicalize_finding_location(self.location).strip()
         if not clean_title or not clean_loc:
             return True
         if "\n" in clean_loc or "```" in clean_loc:
+            return True
+        if clean_loc in {"**", "*", "---", "##", "###"} or not any(c.isalnum() for c in clean_loc):
             return True
 
         file_part, _, _ = _parse_location(clean_loc)
@@ -324,8 +412,18 @@ class Finding(BaseModel):
 
     @field_validator("description", "fix", mode="before")
     @classmethod
-    def _clean_text_fields(cls, v: object) -> str:
-        return sanitize_finding_text(str(v))
+    def _clean_body_fields(cls, v: object) -> str:
+        text = format_clean_text_field(v)
+        sanitized = sanitize_finding_text(text)
+        return unique_lines(sanitized)
+
+    @field_validator("thinking", mode="before")
+    @classmethod
+    def _clean_thinking(cls, v: object) -> str | None:
+        if not v:
+            return None
+        cleaned = unique_lines(normalize_unicode_text(str(v)))
+        return cleaned if cleaned.strip() else None
 
     @field_validator("location", mode="before")
     @classmethod
@@ -335,7 +433,11 @@ class Finding(BaseModel):
     @field_validator("title", mode="before")
     @classmethod
     def _clean_title(cls, v: object) -> str:
-        text = sanitize_finding_text(str(v))
+        if isinstance(v, (list, tuple, set)):
+            text = " ".join(str(item).strip() for item in v if str(item).strip())
+        else:
+            text = format_clean_text_field(v)
+        text = sanitize_finding_text(text)
         lines = [line.strip() for line in text.splitlines() if line.strip()]
         if not lines:
             return ""
@@ -353,11 +455,7 @@ class Finding(BaseModel):
     )
     @classmethod
     def _clean_references(cls, v: object) -> list[str]:
-        if isinstance(v, list):
-            return [normalize_unicode_text(str(r)).strip() for r in v if str(r).strip()]
-        if isinstance(v, str) and v.strip():
-            return [normalize_unicode_text(v).strip()]
-        return []
+        return _parse_finding_references(v)
 
     @field_validator("severity", mode="before")
     @classmethod
@@ -591,6 +689,7 @@ class FileReviewPayload(BaseModel):
     linked_files: list[FileAnalysisMeta] = Field(default_factory=list)
     findings: list[SavedFinding] = Field(default_factory=list)
     ai_scratchpad: dict[str, Any] = Field(default_factory=dict)
+    thinking_traces: dict[str, str] = Field(default_factory=dict)
     external_dependencies: list[DependencySpec] = Field(default_factory=list)
     network_references: list[NetworkReference] = Field(default_factory=list)
     reportable: bool = True
@@ -642,6 +741,7 @@ class ReviewResult(BaseModel):
     positive_observations: list[str] = Field(default_factory=list)
     recommendation: str = "REQUEST CHANGES"
     summary: str = ""
+    thinking: str | None = None
     confidence_score: float | None = None
     external_dependencies: list[DependencySpec] = Field(default_factory=list)
     network_references: list[NetworkReference] = Field(default_factory=list)
@@ -660,6 +760,14 @@ class ReviewResult(BaseModel):
     @classmethod
     def _clean_summary(cls, v: object) -> str:
         return normalize_unicode_text(str(v)).strip()
+
+    @field_validator("thinking", mode="before")
+    @classmethod
+    def _clean_thinking(cls, v: object) -> str | None:
+        if not v:
+            return None
+        cleaned = unique_lines(normalize_unicode_text(str(v)))
+        return cleaned if cleaned.strip() else None
 
     @field_validator("positive_observations", mode="before")
     @classmethod
@@ -724,75 +832,6 @@ def extract_json_block(text: str) -> Any:
     return None
 
 
-def _parse_markdown_review_findings(text: str) -> list[Finding]:
-    """Fallback parser to extract Finding objects from Markdown-formatted review text."""
-    findings: list[Finding] = []
-    blocks = re.split(
-        r"\n+(?=(?:###?\s*(?:Finding|\d+\.)|\d+\.\s+|\*{1,2}Location\*{0,2}:|Location:))",
-        text,
-    )
-    for block in blocks:
-        loc_m = re.search(r"(?:Location|File):\s*`?([^`\n]+)`?", block, re.IGNORECASE)
-        if not loc_m:
-            continue
-        loc = loc_m.group(1).strip()
-        if "\n" in loc or "```" in loc:
-            continue
-
-        sev_m = re.search(
-            r"Severity:\s*\*?(CRITICAL|HIGH|MEDIUM|LOW|INFO)\*?", block, re.IGNORECASE
-        )
-        sev_from_block = (
-            sev_m.group(1).upper()
-            if (sev_m and sev_m.group(1).upper() in VALID_SEVERITIES)
-            else None
-        )
-
-        title_m = re.search(
-            r"(?:###?\s*(?:Finding\s*\d*:?\s*)?|\d+\.\s+|\*\*Title\*\*:\s*)([^\n]+)",
-            block,
-        )
-        raw_title = title_m.group(1).strip("* ") if title_m else f"Issue at {loc}"
-
-        if not sev_from_block:
-            title_sev_m = re.match(
-                r"^\[?(CRITICAL|HIGH|MEDIUM|LOW|INFO)\]?\s*[-:—]?\s*(.+)$",
-                raw_title,
-                re.IGNORECASE,
-            )
-            if title_sev_m:
-                sev_from_block = title_sev_m.group(1).upper()
-                raw_title = title_sev_m.group(2).strip()
-
-        sev = sev_from_block or "MEDIUM"
-
-        desc_m = re.search(
-            r"(?:Description|Impact):\s*(.+?)(?=\n\s*(?:Fix|Remediation|Verification|Severity|Location):|\Z)",
-            block,
-            re.DOTALL | re.IGNORECASE,
-        )
-        desc = desc_m.group(1).strip() if desc_m else block[:MAX_TITLE_LENGTH]
-        fix_m = re.search(
-            r"(?:Fix|Remediation):\s*(.+?)(?=\n\s*(?:Verification|Invalidation|Severity|Location):|\Z)",
-            block,
-            re.DOTALL | re.IGNORECASE,
-        )
-        fix = fix_m.group(1).strip() if fix_m else ""
-
-        f = Finding(
-            severity=sev,
-            location=loc,
-            title=raw_title,
-            description=desc,
-            fix=fix,
-            confidence_score=None,
-        )
-        if not f.is_empty:
-            findings.append(f)
-
-    return findings
-
-
 def _validate_raw_findings_list(data: list[Any]) -> list[Finding]:
     """Validate and filter list of raw dictionary findings."""
     parsed_findings: list[Finding] = []
@@ -808,15 +847,17 @@ def _validate_raw_findings_list(data: list[Any]) -> list[Finding]:
     return parsed_findings
 
 
-def parse_review_response(text: str) -> ReviewResult | None:
-    """Parse review LLM response, prioritizing Pydantic structured output."""
+def parse_review_response(response: str | Any) -> ReviewResult | None:
+    """Parse review LLM response, prioritizing standard Pydantic and pydantic_ai.messages structured output."""
     from devops_cli.ai.response_repair import fix_llm_response
 
-    fixed = fix_llm_response(text, schema=ReviewResult)
+    fixed = fix_llm_response(response, schema=ReviewResult)
     if fixed.parsed_model is not None and isinstance(fixed.parsed_model, ReviewResult):
+        if fixed.thinking and not fixed.parsed_model.thinking:
+            fixed.parsed_model.thinking = fixed.thinking
         return fixed.parsed_model
 
-    data = fixed.json_data or extract_json_block(text)
+    data = fixed.json_data or extract_json_block(fixed.content)
     if isinstance(data, list):
         parsed_findings = _validate_raw_findings_list(data)
         if parsed_findings:
@@ -824,16 +865,15 @@ def parse_review_response(text: str) -> ReviewResult | None:
                 findings=parsed_findings,
                 recommendation="APPROVE" if not parsed_findings else "REQUEST CHANGES",
                 summary=f"Extracted {len(parsed_findings)} finding(s)",
+                thinking=fixed.thinking,
             )
     elif isinstance(data, dict):
         try:
-            return ReviewResult.model_validate(data)
+            res = ReviewResult.model_validate(data)
+            if fixed.thinking and not res.thinking:
+                res.thinking = fixed.thinking
+            return res
         except Exception:
             pass
-
-    target_text = fixed.content or text
-    md_findings = _parse_markdown_review_findings(target_text)
-    if md_findings:
-        return ReviewResult(findings=md_findings, summary=target_text[:MAX_SUMMARY_PREVIEW_LENGTH])
 
     return None

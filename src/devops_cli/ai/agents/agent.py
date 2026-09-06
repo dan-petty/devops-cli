@@ -2,13 +2,20 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import json
 from collections import defaultdict
-from collections.abc import Callable, Generator, Iterator
+from collections.abc import AsyncGenerator, Callable, Generator, Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import TYPE_CHECKING, Any, Literal, TypeVar, cast
+
+if TYPE_CHECKING:
+    from devops_cli.ai.concurrency import AbstractConcurrencyLimiter, AnyConcurrencyLimit
+    from devops_cli.ai.function_signature import FunctionSignature
+
+from pydantic_ai.toolsets import AbstractToolset as PyAIAbstractToolset
 
 from devops_cli.ai.agents.capabilities import (
     BaseCapability,
@@ -49,20 +56,39 @@ from devops_cli.ai.agents.tools import (
     AbstractToolset,
     AgentSpec,
     AgentTool,
-    TemplateStr,
     Tool,
     ToolCall,
     ToolReturn,
 )
 from devops_cli.ai.client import LLMClient
+from devops_cli.ai.template import TemplateStr
+from devops_cli.ai.toolsets import extract_tools_from_toolset
 from devops_cli.config.defaults import DEFAULT_AGENT_MAX_TURNS
 from devops_cli.exceptions import UnexpectedModelBehavior
 from devops_cli.models.ai import ChatMessage
+
+AgentToolset = AbstractToolset | PyAIAbstractToolset[Any]
 
 T = TypeVar("T")
 DepsT = TypeVar("DepsT")
 
 ALLOW_MODEL_REQUESTS: bool = True
+
+
+class SystemPrompt(str):
+    """String holding the base system prompt while functioning as a decorator callback."""
+
+    _agent: Any
+
+    def __new__(cls, content: str = "", agent: Any = None) -> SystemPrompt:
+        instance = super().__new__(cls, content)
+        instance._agent = agent
+        return instance
+
+    def __call__(self, func: Callable[..., str]) -> Callable[..., str]:
+        if getattr(self, "_agent", None) is not None:
+            return self._agent.system_prompt_fn(func)  # type: ignore[no-any-return]
+        return func
 
 
 class PydanticAgent[T, DepsT = Any]:
@@ -128,15 +154,17 @@ class PydanticAgent[T, DepsT = Any]:
         client: LLMClient | Any = None,
         instructions: str | list[str] | None = None,
         name: str = "Assistant",
-        output_schema: type[T] | None = None,
+        output_type: Any = None,
+        output_schema: Any = None,
         tools: list[AgentTool | Callable[..., Any]] | None = None,
         memory: AgentMemory | None = None,
         deps_type: type[DepsT] | None = None,
         hooks: AgentHooks | None = None,
         capabilities: list[BaseCapability] | None = None,
-        toolsets: list[AbstractToolset] | None = None,
+        toolsets: list[AgentToolset] | None = None,
         retries: int | AgentRetries | dict[str, int] | None = None,
         tool_timeout: float | None = None,
+        max_concurrency: AnyConcurrencyLimit = None,
     ) -> None:
         if client is not None:
             self.client = client
@@ -151,22 +179,34 @@ class PydanticAgent[T, DepsT = Any]:
 
         if instructions is not None:
             if isinstance(instructions, list):
-                self.system_prompt = "\n\n".join(instructions)
+                raw_system_prompt = "\n\n".join(instructions)
             else:
-                self.system_prompt = instructions
+                raw_system_prompt = instructions
         elif system_prompt is not None:
-            self.system_prompt = system_prompt
+            raw_system_prompt = system_prompt
         else:
-            self.system_prompt = "You are a helpful DevOps assistant."
+            raw_system_prompt = "You are a helpful DevOps assistant."
+
+        self.system_prompt: SystemPrompt = SystemPrompt(raw_system_prompt, agent=self)
 
         self.name = name
-        self.output_schema = output_schema
+        self.output_schema = output_type or output_schema
         self.memory: AgentMemory = memory or AgentMemory(session_id=name)
         self.deps_type = deps_type
         self.hooks = hooks or AgentHooks()
         self.capabilities: list[BaseCapability] = list(capabilities or [])
-        self.toolsets: list[AbstractToolset] = list(toolsets or [])
+        self.toolsets: list[AgentToolset] = list(toolsets or [])
         self.tool_timeout = tool_timeout
+        self.max_concurrency = max_concurrency
+        if max_concurrency is not None:
+            from devops_cli.ai.concurrency import normalize_to_limiter
+
+            self._concurrency_limiter: AbstractConcurrencyLimiter | None = normalize_to_limiter(
+                max_concurrency, name=f"agent:{name}"
+            )
+        else:
+            self._concurrency_limiter = None
+
         if isinstance(retries, int):
             self.retries = AgentRetries(tools=retries, output=retries)
         elif isinstance(retries, dict):
@@ -175,7 +215,7 @@ class PydanticAgent[T, DepsT = Any]:
             self.retries = retries
         else:
             self.retries = AgentRetries()
-        self._tools: dict[str, AgentTool] = {}
+        self._tools: dict[str, AgentTool | Tool] = {}
         self._dynamic_system_prompts: list[Callable[..., str]] = []
         self._output_validators: list[Callable[..., Any]] = []
 
@@ -185,8 +225,12 @@ class PydanticAgent[T, DepsT = Any]:
 
         # Register tools from toolsets
         for ts in self.toolsets:
-            for ts_tool in ts.get_tools():
-                self.add_tool(ts_tool)
+            try:
+                if isinstance(ts, (AbstractToolset, PyAIAbstractToolset)):
+                    for ts_tool in extract_tools_from_toolset(ts):
+                        self.add_tool(ts_tool)
+            except Exception:
+                pass
 
         # Register non-deferred capability tools and hooks
         for cap in self.capabilities:
@@ -231,6 +275,11 @@ class PydanticAgent[T, DepsT = Any]:
         self.add_tool(load_capability)
 
     @property
+    def tools(self) -> list[AgentTool | Tool]:
+        """Return the list of registered tools for this agent."""
+        return list(self._tools.values())
+
+    @property
     def model(self) -> str | None:
         """Return the model identifier configured on this agent's LLM client."""
         if hasattr(self.client, "config") and hasattr(self.client.config, "model"):
@@ -238,6 +287,25 @@ class PydanticAgent[T, DepsT = Any]:
         if hasattr(self.client, "model"):
             return str(self.client.model)
         return None
+
+    @property
+    def output_type(self) -> Any:
+        """Return the structured response model type or OutputSpec."""
+        return self.output_schema
+
+    @property
+    def output_json_schema(self) -> Any:
+        """Return the JSON schema dictionary for output validation if available.
+
+        Returns a CallableDict supporting both property access (`agent.output_json_schema['properties']`)
+        and function call style (`agent.output_json_schema()`).
+        """
+        if self.output_schema is None:
+            return None
+        from devops_cli.ai.output import CallableDict, extract_output_json_schema
+
+        schema = extract_output_json_schema(self.output_schema)
+        return CallableDict(schema) if schema is not None else None
 
     def tool(
         self,
@@ -302,6 +370,10 @@ class PydanticAgent[T, DepsT = Any]:
             return decorator(func)
         return decorator
 
+    def instructions(self, func: Callable[..., str]) -> Callable[..., str]:
+        """Decorator to register dynamic agent instructions (PydanticAI parity alias)."""
+        return self.system_prompt_fn(func)
+
     def system_prompt_fn(self, func: Callable[..., str]) -> Callable[..., str]:
         """Decorator to register a dynamic system prompt function."""
         self._dynamic_system_prompts.append(func)
@@ -363,7 +435,7 @@ class PydanticAgent[T, DepsT = Any]:
         model: str | Any | None = None,
         client: LLMClient | Any = None,
         deps: DepsT | None = None,
-        toolsets: list[AbstractToolset] | None = None,
+        toolsets: list[AgentToolset] | None = None,
         capabilities: list[BaseCapability] | None = None,
         native_tools: list[Any] | None = None,
     ) -> Iterator[None]:
@@ -387,8 +459,9 @@ class PydanticAgent[T, DepsT = Any]:
             if toolsets is not None:
                 self.toolsets = list(toolsets)
                 for ts in self.toolsets:
-                    for ts_tool in ts.get_tools():
-                        self.add_tool(ts_tool)
+                    if isinstance(ts, (AbstractToolset, PyAIAbstractToolset)):
+                        for ts_tool in extract_tools_from_toolset(ts):
+                            self.add_tool(ts_tool)
 
             if capabilities is not None:
                 self.capabilities = list(capabilities)
@@ -413,12 +486,12 @@ class PydanticAgent[T, DepsT = Any]:
             if hasattr(ts, "__aexit__") and callable(ts.__aexit__):
                 await ts.__aexit__(exc_type, exc_val, exc_tb)
 
-    def add_tool(self, tool: AgentTool | Callable[..., Any]) -> None:
-        """Register a tool callback or AgentTool instance."""
-        if isinstance(tool, AgentTool):
+    def add_tool(self, tool: AgentTool | Tool | Callable[..., Any]) -> None:
+        """Register a tool callback, Tool, or AgentTool instance."""
+        if isinstance(tool, (AgentTool, Tool)):
             self._tools[tool.name] = tool
         else:
-            name = tool.__name__
+            name = getattr(tool, "__name__", getattr(tool, "name", str(tool)))
             doc = inspect.getdoc(tool) or name
             sig = inspect.signature(tool)
             params: dict[str, Any] = {}
@@ -431,17 +504,37 @@ class PydanticAgent[T, DepsT = Any]:
                     param.annotation if param.annotation != inspect.Parameter.empty else str
                 )
                 params[param_name] = str(annotation)
-            agent_tool = AgentTool(
+            agent_tool = Tool.from_function(
+                tool,
                 name=name,
                 description=doc,
-                func=tool,
-                parameters=params,
                 takes_ctx=takes_ctx,
             )
             self._tools[name] = agent_tool
 
+    def get_tool_signatures(self) -> list[FunctionSignature]:
+        """Extract native Pydantic AI FunctionSignatures for all registered tools."""
+        from devops_cli.ai.function_signature import get_tool_signatures
+
+        return get_tool_signatures(list(self._tools.values()))
+
+    def render_tool_interface(
+        self,
+        *,
+        format: Literal["python", "markdown"] = "python",
+        include_type_defs: bool = True,
+    ) -> str:
+        """Render registered tools as Python function stubs or Markdown code blocks."""
+        from devops_cli.ai.function_signature import render_tool_interface
+
+        return render_tool_interface(
+            list(self._tools.values()),
+            format=format,
+            include_type_defs=include_type_defs,
+        )
+
     def _build_system_prompt_with_tools(self, ctx: RunContext[Any] | None = None) -> str:
-        base_prompt = self.system_prompt
+        base_prompt: str = str(self.system_prompt)
         if "{{" in base_prompt and ctx and ctx.deps is not None:
             base_prompt = TemplateStr(base_prompt).render(ctx.deps)
         prompt_parts: list[str] = [base_prompt.strip()]
@@ -467,11 +560,35 @@ class PydanticAgent[T, DepsT = Any]:
 
         # Toolset instruction additions
         for ts in self.toolsets:
-            prompt_parts.extend(
-                ts_inst.strip()
-                for ts_inst in ts.get_instructions(ctx=ctx)
-                if ts_inst and ts_inst.strip()
-            )
+            try:
+                if isinstance(ts, (AbstractToolset, PyAIAbstractToolset)):
+                    try:
+                        instructions = (
+                            cast(Any, ts).get_instructions(ctx)
+                            if ctx is not None
+                            else cast(Any, ts).get_instructions()
+                        )
+                    except TypeError:
+                        instructions = cast(Any, ts).get_instructions()
+                else:
+                    instructions = None
+            except Exception:
+                instructions = None
+
+            if instructions is None:
+                continue
+            if isinstance(instructions, str):
+                if instructions.strip():
+                    prompt_parts.append(instructions.strip())
+            elif hasattr(instructions, "content"):
+                c_text = str(instructions.content).strip()
+                if c_text:
+                    prompt_parts.append(c_text)
+            elif isinstance(instructions, (list, tuple)):
+                for item in instructions:
+                    text = str(getattr(item, "content", item)).strip()
+                    if text:
+                        prompt_parts.append(text)
 
         # Advertise available deferred capabilities in prompt catalog
         unloaded_caps = [
@@ -500,9 +617,8 @@ class PydanticAgent[T, DepsT = Any]:
             tools_desc: list[str] = []
             for name, tool in self._tools.items():
                 params_str = json.dumps(tool.parameters, separators=(",", ":"))
-                desc = "".join(
-                    c for c in tool.description.replace("\n", " ") if 32 <= ord(c) <= 126
-                )
+                raw_desc = tool.description or tool.name or ""
+                desc = "".join(c for c in raw_desc.replace("\n", " ") if 32 <= ord(c) <= 126)
                 if len(desc) > 300:
                     desc = desc[:297] + "..."
                 tools_desc.append(f"- `{name}`: {desc} params={params_str}")
@@ -983,3 +1099,109 @@ class PydanticAgent[T, DepsT = Any]:
         yield from self.client.chat_messages_stream(
             system, messages, enable_thinking=enable_thinking
         )
+
+    def run_sync(
+        self,
+        user_prompt: str,
+        *,
+        deps: DepsT | None = None,
+        max_turns: int = DEFAULT_AGENT_MAX_TURNS,
+        enable_thinking: bool = True,
+        skip_rag: bool = False,
+        message_history: list[ChatMessage] | None = None,
+        deferred_tool_results: DeferredToolResults | None = None,
+        retries: int | AgentRetries | dict[str, int] | None = None,
+        on_tool_call: Callable[[str, dict[str, Any], Any], None] | None = None,
+        on_thought: Callable[[str], None] | None = None,
+    ) -> AgentResponse[T]:
+        """Synchronously execute the agent tool loop (PydanticAI parity alias for run)."""
+        return self.run(
+            user_prompt,
+            deps=deps,
+            max_turns=max_turns,
+            enable_thinking=enable_thinking,
+            skip_rag=skip_rag,
+            message_history=message_history,
+            deferred_tool_results=deferred_tool_results,
+            retries=retries,
+            on_tool_call=on_tool_call,
+            on_thought=on_thought,
+        )
+
+    def run_stream_sync(
+        self,
+        user_prompt: str,
+        *,
+        enable_thinking: bool = True,
+    ) -> Generator[str]:
+        """Synchronously stream response tokens in real-time (PydanticAI parity alias)."""
+        yield from self.run_stream(user_prompt, enable_thinking=enable_thinking)
+
+    async def run_async(
+        self,
+        user_prompt: str,
+        *,
+        deps: DepsT | None = None,
+        max_turns: int = DEFAULT_AGENT_MAX_TURNS,
+        enable_thinking: bool = True,
+        skip_rag: bool = False,
+        message_history: list[ChatMessage] | None = None,
+        deferred_tool_results: DeferredToolResults | None = None,
+        retries: int | AgentRetries | dict[str, int] | None = None,
+        on_tool_call: Callable[[str, dict[str, Any], Any], None] | None = None,
+        on_thought: Callable[[str], None] | None = None,
+    ) -> AgentResponse[T]:
+        """Asynchronously execute the agent tool loop with concurrency limiting."""
+        from functools import partial
+
+        from devops_cli.ai.concurrency import get_concurrency_context
+
+        async with get_concurrency_context(self._concurrency_limiter, f"agent:{self.name}"):
+            loop = asyncio.get_running_loop()
+            fn = partial(
+                self.run,
+                user_prompt,
+                deps=deps,
+                max_turns=max_turns,
+                enable_thinking=enable_thinking,
+                skip_rag=skip_rag,
+                message_history=message_history,
+                deferred_tool_results=deferred_tool_results,
+                retries=retries,
+                on_tool_call=on_tool_call,
+                on_thought=on_thought,
+            )
+            return await loop.run_in_executor(None, fn)
+
+    async def run_stream_async(
+        self,
+        user_prompt: str,
+        *,
+        enable_thinking: bool = True,
+    ) -> AsyncGenerator[str]:
+        """Asynchronously stream response tokens in real-time with concurrency limiting."""
+        from devops_cli.ai.concurrency import get_concurrency_context
+
+        async with get_concurrency_context(self._concurrency_limiter, f"agent:{self.name}"):
+            for token in self.run_stream(user_prompt, enable_thinking=enable_thinking):
+                yield token
+
+    def to_cli(
+        self,
+        user_prompt: str | None = None,
+        *,
+        deps: DepsT | None = None,
+    ) -> str:
+        """Run the agent and print output to the CLI, returning the final response."""
+        return self.to_cli_sync(user_prompt, deps=deps)
+
+    def to_cli_sync(
+        self,
+        user_prompt: str | None = None,
+        *,
+        deps: DepsT | None = None,
+    ) -> str:
+        """Synchronously execute prompt and return content string."""
+        prompt = user_prompt or "Hello"
+        res = self.run(prompt, deps=deps)
+        return str(res.output)

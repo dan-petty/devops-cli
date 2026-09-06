@@ -1,26 +1,35 @@
-"""AI/LLM Response Sanitizer and Output Repair Engine.
+"""AI/LLM Response Sanitizer and Output Repair Engine built on pydantic_ai.messages.
 
-Repairs malformed outputs, extracts embedded tool calls, recovers answers from
-reasoning/thinking blocks, heals malformed/truncated JSON, and standardizes responses
-across all LLM providers and local models (Ollama, DeepSeek, Qwen, GPT-OSS).
+Repairs malformed outputs, extracts embedded tool calls, separates reasoning/thinking blocks,
+and normalizes responses across all LLM providers using standard pydantic_ai.messages.
 """
 
 from __future__ import annotations
 
 import json
 import re
-from typing import Any
+from typing import Any, cast
 
 import json_repair
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, TypeAdapter
+from pydantic_ai.messages import (
+    ModelResponse,
+    ModelResponsePart,
+    TextPart,
+    ThinkingPart,
+    ToolCallPart,
+)
+from pydantic_ai.usage import RequestUsage
 
-from devops_cli.ai.review_schema import normalize_unicode_text
+from devops_cli.ai.review_schema import normalize_unicode_text, unique_lines
 
 __all__ = [
     "ExtractedToolCall",
     "FormattedLLMResponse",
+    "extract_model_response_parts",
     "extract_tool_invocations",
     "fix_llm_response",
+    "parse_model_response",
     "repair_json_string",
 ]
 
@@ -33,7 +42,11 @@ def repair_json_string(text: str) -> Any:
     if not text or not text.strip():
         return None
 
-    cleaned = normalize_unicode_text(text).strip()
+    from devops_cli.ai.thinking_stream import strip_think_blocks
+
+    cleaned = strip_think_blocks(normalize_unicode_text(text)).strip()
+    if not cleaned:
+        return None
 
     # 1. First pass: use standard json_repair to parse JSON, objects, lists, or markdown fences
     try:
@@ -67,12 +80,14 @@ class ExtractedToolCall(BaseModel):
 
 
 class FormattedLLMResponse[T](BaseModel):
-    """Standardized, repaired, and formatted LLM response."""
+    """Standardized, repaired, and formatted LLM response backed by pydantic_ai.messages."""
 
     content: str
     raw_content: str
     thoughts: list[str] = Field(default_factory=list)
+    thinking: str | None = None
     tool_calls: list[ExtractedToolCall] = Field(default_factory=list)
+    model_response: ModelResponse | None = None
     json_data: Any = None
     parsed_model: T | None = None
     was_repaired: bool = False
@@ -103,7 +118,7 @@ def _extract_tool_invocations_from_chunk(
     text: str,
     known_tool_names: set[str],
 ) -> list[ExtractedToolCall]:
-    """Extract tool calls from a single text chunk with bounded regex processing."""
+    """Extract tool calls from a single text chunk with bounded parsing."""
     calls: list[ExtractedToolCall] = []
 
     # 1. JSON-based tool call detection
@@ -169,7 +184,6 @@ def extract_tool_invocations(
     if len(text) <= _TOOL_EXTRACT_PAGE_SIZE:
         return _extract_tool_invocations_from_chunk(text, known_tool_names)
 
-    # Paging with sliding window for complete coverage on large text
     all_calls: list[ExtractedToolCall] = []
     seen_calls: set[tuple[str, str]] = set()
     offset = 0
@@ -188,19 +202,67 @@ def extract_tool_invocations(
     return all_calls
 
 
-def _extract_tools_from_thoughts(
-    thoughts: list[str], available_tools: list[str] | set[str] | None
-) -> tuple[list[ExtractedToolCall], list[str]]:
-    """Extract tool calls embedded inside reasoning/thinking blocks."""
-    tool_calls: list[ExtractedToolCall] = []
-    repair_notes: list[str] = []
-    for thought in thoughts:
-        extracted = extract_tool_invocations(thought, available_tools)
-        for call in extracted:
-            if not any(c.tool_name == call.tool_name for c in tool_calls):
-                tool_calls.append(call)
-                repair_notes.append(f"extracted_tool_call_from_thinking:{call.tool_name}")
-    return tool_calls, repair_notes
+def parse_model_response(
+    raw_response: str | Any,
+    model_name: str | None = None,
+) -> ModelResponse:
+    """Parse raw response, string, or LLMResponse into standard pydantic_ai.messages.ModelResponse."""
+    if isinstance(raw_response, ModelResponse):
+        return raw_response
+
+    if hasattr(raw_response, "to_model_response") and callable(raw_response.to_model_response):
+        res = raw_response.to_model_response(model_name=model_name)
+        if isinstance(res, ModelResponse):
+            return res
+
+    raw_str = str(raw_response) if raw_response is not None else ""
+    norm_text = normalize_unicode_text(raw_str)
+
+    parts: list[ModelResponsePart] = []
+
+    # Check for direct thinking attribute on response object
+    raw_thinking = getattr(raw_response, "thinking", None)
+    if raw_thinking and isinstance(raw_thinking, str) and raw_thinking.strip():
+        parts.append(ThinkingPart(content=unique_lines(raw_thinking.strip())))
+
+    # Extract all <think>...</think> and unclosed <think> blocks
+    think_matches = re.findall(r"<think>(.*?)(?:</think>|$)", norm_text, flags=re.DOTALL)
+    for think_match in think_matches:
+        think_clean = unique_lines(think_match.strip())
+        if think_clean and not any(
+            isinstance(p, ThinkingPart) and p.content == think_clean for p in parts
+        ):
+            parts.append(ThinkingPart(content=think_clean))
+
+    # Clean text outside <think> tags
+    clean_text = re.sub(r"<think>.*?</think>", "", norm_text, flags=re.DOTALL).strip()
+    if "<think>" in clean_text:
+        clean_text = re.sub(r"<think>[\s\S]*$", "", clean_text).strip()
+
+    # Extract tool calls from clean text, or fall back to full normalized text if tool calls were inside reasoning
+    tool_calls = extract_tool_invocations(clean_text)
+    if not tool_calls and norm_text != clean_text:
+        tool_calls = extract_tool_invocations(norm_text)
+
+    for tc in tool_calls:
+        parts.append(ToolCallPart(tool_name=tc.tool_name, args=tc.arguments))
+
+    if clean_text:
+        parts.append(TextPart(content=clean_text))
+
+    return ModelResponse(parts=parts, model_name=model_name, usage=RequestUsage())
+
+
+def extract_model_response_parts(
+    response: ModelResponse,
+) -> tuple[str, str | None, list[ToolCallPart]]:
+    """Extract clean content, isolated thinking, and tool calls from ModelResponse."""
+    texts = [p.content for p in response.parts if isinstance(p, TextPart) and p.has_content()]
+    thinks = [p.content for p in response.parts if isinstance(p, ThinkingPart) and p.has_content()]
+    tool_calls = [p for p in response.parts if isinstance(p, ToolCallPart)]
+    clean_text = "\n".join(texts)
+    thinking_text = unique_lines("\n\n".join(thinks)) if thinks else None
+    return clean_text, thinking_text, tool_calls
 
 
 def fix_llm_response[T = Any](
@@ -208,73 +270,72 @@ def fix_llm_response[T = Any](
     schema: type[T] | None = None,
     available_tools: list[str] | set[str] | None = None,
 ) -> FormattedLLMResponse[T]:
-    """Universal AI/LLM response fixer and formatter.
+    """Universal AI/LLM response parser and formatter built on pydantic_ai.messages.ModelResponse."""
+    resp = parse_model_response(raw_response)
+    final_content, thinking_str, tool_parts = extract_model_response_parts(resp)
 
-    Ensures zero-loss recovery of valid thoughts, answers, tool calls, and structured models.
-    """
-    raw_str = str(raw_response) if raw_response is not None else ""
-    norm_text = normalize_unicode_text(raw_str)
-
-    thoughts: list[str] = []
-    repair_notes: list[str] = []
-    was_repaired = False
-
-    # Extract all <think>...</think> and unclosed <think> blocks
-    think_matches = re.findall(r"<think>(.*?)(?:</think>|$)", norm_text, flags=re.DOTALL)
-    for think_match in think_matches:
-        think_clean = think_match.strip()
-        if think_clean and think_clean not in thoughts:
-            thoughts.append(think_clean)
-
-    # Clean text outside <think> tags
-    clean_text = re.sub(r"<think>.*?</think>", "", norm_text, flags=re.DOTALL).strip()
-    if "<think>" in clean_text:
-        # Strip unclosed <think>
-        clean_text = re.sub(r"<think>[\s\S]*$", "", clean_text).strip()
-
-    # Tool call extraction across both clean text and thoughts
-    tool_calls = extract_tool_invocations(clean_text, available_tools)
-    if not tool_calls and thoughts:
-        extracted_tools, thought_notes = _extract_tools_from_thoughts(thoughts, available_tools)
-        if extracted_tools:
-            tool_calls.extend(extracted_tools)
-            was_repaired = True
-            repair_notes.extend(thought_notes)
-
-    # Content Recovery Heuristic: Only recover if explicit user-facing conclusion/answer exists
-    final_content = clean_text
-    if not final_content.strip() and thoughts:
-        combined_thoughts = "\n\n".join(thoughts)
-        conclusion_pattern = (
-            r"(?:###?\s*(?:Conclusion|Summary|Findings|Report|Analysis)|"
-            r"(?:Conclusion|Answer|Summary|Final Response):)\s*\n*"
-            r"([\s\S]+)$"
+    tool_calls = [
+        ExtractedToolCall(
+            tool_name=p.tool_name,
+            arguments=p.args if isinstance(p.args, dict) else {},
+            raw_syntax=f'{{"tool": "{p.tool_name}", "arguments": {json.dumps(p.args if isinstance(p.args, dict) else {})}}}',
         )
-        conclusion_match = re.search(conclusion_pattern, combined_thoughts, re.IGNORECASE)
-        if conclusion_match and len(conclusion_match.group(1).strip()) > 10:
-            final_content = conclusion_match.group(1).strip()
-            was_repaired = True
-            repair_notes.append("recovered_conclusion_from_thinking")
+        for p in tool_parts
+    ]
+    if available_tools:
+        known = set(available_tools)
+        tool_calls = [c for c in tool_calls if c.tool_name in known]
 
-    # Structured JSON & Pydantic model parsing
-    json_data = repair_json_string(final_content or norm_text)
+    thoughts = [p.content for p in resp.parts if isinstance(p, ThinkingPart) and p.has_content()]
+
+    json_data = repair_json_string(final_content)
     parsed_model: T | None = None
 
     if schema is not None:
-        validator = getattr(schema, "model_validate", None)
-        if callable(validator) and isinstance(json_data, dict | list):
+        from devops_cli.ai.output import TextOutput, unwrap_output_spec
+
+        if isinstance(schema, TextOutput):
             try:
-                parsed_model = validator(json_data)
+                parsed_model = cast(T, schema.output_function(final_content))
             except Exception:
                 pass
+        else:
+            unwrapped = unwrap_output_spec(schema)
+            target_schema = unwrapped[0] if unwrapped else schema
+            validator = getattr(target_schema, "model_validate", None)
+            if callable(validator) and isinstance(json_data, dict | list):
+                try:
+                    parsed_model = validator(json_data)
+                except Exception:
+                    pass
+            if parsed_model is None and json_data is not None:
+                try:
+                    parsed_model = cast(T, TypeAdapter(target_schema).validate_python(json_data))
+                except Exception:
+                    pass
+            if parsed_model is None and final_content:
+                try:
+                    parsed_model = TypeAdapter(target_schema).validate_json(final_content)
+                except Exception:
+                    pass
+
+    raw_str = str(raw_response) if raw_response is not None else ""
+    was_repaired = bool(
+        tool_calls
+        or thoughts
+        or (json_data is not None and json_data != final_content)
+        or (final_content.strip() != raw_str.strip())
+    )
 
     return FormattedLLMResponse[T](
         content=final_content,
         raw_content=raw_str,
         thoughts=thoughts,
+        thinking=thinking_str,
         tool_calls=tool_calls,
+        model_response=resp,
         json_data=json_data,
         parsed_model=parsed_model,
         was_repaired=was_repaired,
-        repair_notes=repair_notes,
+        repair_notes=[],
     )

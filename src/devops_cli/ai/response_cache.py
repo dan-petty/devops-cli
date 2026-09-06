@@ -317,21 +317,17 @@ class LLMResponseCache:
         instruction: str | None = None,
     ) -> str:
         """Wrap prompt with prior cached starting point as a baseline for refinement."""
+        from devops_cli.ai.format_prompt import format_as_xml
+
         default_inst = (
             "Use the baseline starting point below as prior reference. "
             "Review the current context, retain valid conclusions, correct outdated findings, "
             "and produce the complete updated response."
         )
         inst_text = instruction or default_inst
-        return (
-            f"<starting_point>\n"
-            f"{starting_point.strip()}\n"
-            f"</starting_point>\n\n"
-            f"<current_request>\n"
-            f"{prompt.strip()}\n"
-            f"</current_request>\n\n"
-            f"Instruction: {inst_text}"
-        )
+        sp_xml = format_as_xml(starting_point.strip(), root_tag="starting_point")
+        cr_xml = format_as_xml(prompt.strip(), root_tag="current_request")
+        return f"{sp_xml}\n\n{cr_xml}\n\nInstruction: {inst_text}"
 
     def clear(self) -> int:
         """Clear all memory and persistent disk cache entries."""

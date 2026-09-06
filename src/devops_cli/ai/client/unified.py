@@ -6,7 +6,7 @@ import logging
 import os
 import threading
 import time
-from collections.abc import Callable, Generator
+from collections.abc import AsyncGenerator, Callable, Generator, Sequence
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -205,28 +205,43 @@ class LLMClient(OllamaProviderMixin, ClaudeProviderMixin, OpenAICompatProviderMi
 
     @staticmethod
     def _validate_response_text(
-        content: str,
+        content: str | LLMResponse,
         validator: Callable[[str], bool] | None = None,
     ) -> bool:
         """Quick and effective validation of AI response content."""
-        if not isinstance(content, str):
-            return False
-        raw_str = content.strip()
+        raw_str = (content.content if isinstance(content, LLMResponse) else str(content)).strip()
         thinking_val = getattr(content, "thinking", None)
         if not raw_str and not (thinking_val and str(thinking_val).strip()):
             return False
-        if _is_json_error_payload(raw_str):
+        if raw_str and _is_json_error_payload(raw_str):
             return False
 
         if validator is not None:
             try:
-                return bool(validator(content))
+                return bool(validator(raw_str))
             except Exception:
                 return False
         return True
 
     def _request_timeout(self) -> httpx2.Timeout:
         return request_timeout(read=self._request_timeout_seconds or DEFAULT_HTTP_TIMEOUT_SECONDS)
+
+    def _create_retry_transport(self) -> Any:
+        """Create a native HTTPX2TenacityTransport with exponential backoff and Retry-After support."""
+        from devops_cli.ai.retries import create_retry_transport
+
+        retries = getattr(self._config, "max_retries", None)
+        max_attempts = int(retries) if retries is not None and int(retries) > 0 else 3
+        return create_retry_transport(max_attempts=max_attempts)
+
+    def _create_http_client(self, timeout: httpx2.Timeout | None = None) -> httpx2.Client:
+        """Create an httpx2.Client with standard timeout and native retry transport."""
+        req_timeout = timeout or self._request_timeout()
+        try:
+            transport = self._create_retry_transport()
+            return httpx2.Client(timeout=req_timeout, transport=transport)
+        except Exception:
+            return httpx2.Client(timeout=req_timeout)
 
     def _allow_private_network(self) -> bool:
         if self._config.allow_private_network:
@@ -290,9 +305,11 @@ class LLMClient(OllamaProviderMixin, ClaudeProviderMixin, OpenAICompatProviderMi
             if p == "ollama":
                 res = self._ollama_messages(system, messages, enable_thinking=enable_thinking)
             elif p == "claude":
-                res = self._claude_messages(system, messages)
+                res = self._claude_messages(system, messages, enable_thinking=enable_thinking)
             elif p in ("copilot", "github_copilot", "openai"):
-                res = self._openai_compat_messages(system, messages)
+                res = self._openai_compat_messages(
+                    system, messages, enable_thinking=enable_thinking
+                )
             else:
                 raise LLMInferenceError(
                     f"Unknown provider: {p!r}. Choose: ollama, claude, copilot, openai",
@@ -593,9 +610,9 @@ class LLMClient(OllamaProviderMixin, ClaudeProviderMixin, OpenAICompatProviderMi
         if p == "ollama":
             return self._ollama_stream(system, messages, enable_thinking=enable_thinking)
         if p == "claude":
-            return self._claude_stream(system, messages)
+            return self._claude_stream(system, messages, enable_thinking=enable_thinking)
         if p in ("copilot", "github_copilot", "openai"):
-            return self._openai_compat_stream(system, messages)
+            return self._openai_compat_stream(system, messages, enable_thinking=enable_thinking)
         raise LLMInferenceError(
             f"Unknown provider: {p!r}. Choose: ollama, claude, copilot, openai", provider=p
         )
@@ -663,6 +680,91 @@ class LLMClient(OllamaProviderMixin, ClaudeProviderMixin, OpenAICompatProviderMi
         if p in ("copilot", "openai"):
             return self._openai_models()
         return [self._config.model]
+
+    def direct_request_sync(
+        self,
+        prompt: str | Sequence[Any],
+        model: Any = None,
+        *,
+        system_prompt: str = "",
+        model_concurrency: Any = None,
+        **kwargs: Any,
+    ) -> Any:
+        """Make a synchronous direct model request via native Pydantic AI."""
+        from devops_cli.ai.direct import direct_model_request_sync
+
+        target_model = model or getattr(self._config, "model", "default")
+        return direct_model_request_sync(
+            prompt,
+            target_model,
+            system_prompt=system_prompt,
+            model_concurrency=model_concurrency,
+            **kwargs,
+        )
+
+    async def direct_request(
+        self,
+        prompt: str | Sequence[Any],
+        model: Any = None,
+        *,
+        system_prompt: str = "",
+        model_concurrency: Any = None,
+        **kwargs: Any,
+    ) -> Any:
+        """Make an asynchronous direct model request via native Pydantic AI."""
+        from devops_cli.ai.direct import direct_model_request
+
+        target_model = model or getattr(self._config, "model", "default")
+        return await direct_model_request(
+            prompt,
+            target_model,
+            system_prompt=system_prompt,
+            model_concurrency=model_concurrency,
+            **kwargs,
+        )
+
+    def direct_stream_sync(
+        self,
+        prompt: str | Sequence[Any],
+        model: Any = None,
+        *,
+        system_prompt: str = "",
+        model_concurrency: Any = None,
+        **kwargs: Any,
+    ) -> Generator[str]:
+        """Make a synchronous streamed direct request via native Pydantic AI."""
+        from devops_cli.ai.direct import direct_model_request_stream_sync
+
+        target_model = model or getattr(self._config, "model", "default")
+        yield from direct_model_request_stream_sync(
+            prompt,
+            target_model,
+            system_prompt=system_prompt,
+            model_concurrency=model_concurrency,
+            **kwargs,
+        )
+
+    async def direct_stream(
+        self,
+        prompt: str | Sequence[Any],
+        model: Any = None,
+        *,
+        system_prompt: str = "",
+        model_concurrency: Any = None,
+        **kwargs: Any,
+    ) -> AsyncGenerator[str]:
+        """Make an asynchronous streamed direct request via native Pydantic AI."""
+        from devops_cli.ai.direct import direct_model_request_stream
+
+        target_model = model or getattr(self._config, "model", "default")
+        async for chunk in direct_model_request_stream(
+            prompt,
+            target_model,
+            system_prompt=system_prompt,
+            model_concurrency=model_concurrency,
+            **kwargs,
+        ):
+            yield chunk
 
 
 def model_request_sync(

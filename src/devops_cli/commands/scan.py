@@ -238,51 +238,9 @@ def scan_secrets(
     return None
 
 
-@app.command("gitleaks")
-def scan_gitleaks_cmd(
-    target: Annotated[
-        Path,
-        typer.Argument(help=HELP.scan.target_secrets),
-    ] = DEFAULT_CURRENT_PATH,
-    dry_run: Annotated[
-        bool,
-        typer.Option("--dry-run", help=HELP.options.dry_run),
-    ] = False,
-    json_output: Annotated[
-        bool,
-        typer.Option("--json", help=HELP.options.json_output),
-    ] = False,
-) -> CommandDryRunResult | None:
-    """Alias for devops scan secrets."""
-    return scan_secrets(target=target, dry_run=dry_run, json_output=json_output)
-
-
 # =============================================================================
-# Command: devops scan semgrep / devops scan sast
+# Command: devops scan sast
 # =============================================================================
-
-
-@app.command("semgrep")
-def scan_semgrep_cmd(
-    target: Annotated[
-        Path,
-        typer.Argument(help=HELP.scan.target_semgrep),
-    ] = DEFAULT_CURRENT_PATH,
-    config: Annotated[
-        str,
-        typer.Option("--config", "-c", help=HELP.scan.semgrep_config),
-    ] = DEFAULT_SEMGREP_CONFIG,
-    dry_run: Annotated[
-        bool,
-        typer.Option("--dry-run", help=HELP.options.dry_run),
-    ] = False,
-    json_output: Annotated[
-        bool,
-        typer.Option("--json", help=HELP.options.json_output),
-    ] = False,
-) -> CommandDryRunResult | None:
-    """Run Semgrep multilingual static AST pattern matching scan."""
-    return scan_sast(target=target, config=config, dry_run=dry_run, json_output=json_output)
 
 
 @app.command("sast")
@@ -349,29 +307,6 @@ def scan_sast(
             details={"config": config, "findings_count": len(findings)},
         )
     return None
-
-
-@app.command("checkov")
-def scan_checkov(
-    target: Annotated[
-        Path,
-        typer.Argument(help=HELP.scan.target_checkov),
-    ] = DEFAULT_CURRENT_PATH,
-    framework: Annotated[
-        str | None,
-        typer.Option("--framework", "-f", help=HELP.scan.framework),
-    ] = None,
-    dry_run: Annotated[
-        bool,
-        typer.Option("--dry-run", help=HELP.options.dry_run),
-    ] = False,
-    json_output: Annotated[
-        bool,
-        typer.Option("--json", help=HELP.options.json_output),
-    ] = False,
-) -> CommandDryRunResult | None:
-    """Run Checkov Infrastructure-as-Code (IaC) compliance scanner."""
-    return scan_iac(target=target, framework=framework, dry_run=dry_run, json_output=json_output)
 
 
 @app.command("iac")
@@ -745,8 +680,3 @@ def scan_fix(
     if exec_result.branch_name:
         print_success(f"✓ Changes staged on git branch '{exec_result.branch_name}'")
     return None
-
-
-main = scan_trivy
-scan_main = scan_trivy
-scan_app = app

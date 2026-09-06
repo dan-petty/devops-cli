@@ -35,6 +35,7 @@ class WorkloadSandboxConfig(BaseModel):
     cpu_limit: float = 2.0
     network_mode: str = "bridge"  # bridge | none | host
     rootless: bool = True
+    timeout: float = 300.0
     env: dict[str, str] = Field(default_factory=dict)
 
 
@@ -72,10 +73,35 @@ class WorkloadSandboxRunner:
             "user": user_str,
         }
 
+    _FORBIDDEN_ROOTS: set[str] = {
+        "/",
+        "/etc",
+        "/usr",
+        "/bin",
+        "/sbin",
+        "/boot",
+        "/sys",
+        "/proc",
+        "/dev",
+        "/var",
+    }
+
+    def _validate_workspace_dir(self) -> Path:
+        ws = self.config.workspace_dir
+        if ws.is_symlink():
+            raise ValueError(f"Workspace directory cannot be a symbolic link: {ws}")
+        resolved = ws.resolve()
+        if str(resolved) in self._FORBIDDEN_ROOTS or resolved == Path(resolved.anchor):
+            raise ValueError(
+                f"Mounting sensitive root system directory into sandbox is forbidden: {resolved}"
+            )
+        return resolved
+
     def run(self) -> WorkloadSandboxResult:
         """Spawn, execute, capture output, and tear down ephemeral sandbox container."""
         start_time = time.monotonic()
-        ws_abs = str(self.config.workspace_dir.resolve())
+        ws_resolved = self._validate_workspace_dir()
+        ws_abs = str(ws_resolved)
         mount_mode = "ro" if self.config.read_only else "rw"
         volumes = {ws_abs: {"bind": "/workspace", "mode": mount_mode}}
 
@@ -114,7 +140,7 @@ class WorkloadSandboxRunner:
 
             try:
                 container.start()
-                res = container.wait()
+                res = container.wait(timeout=int(self.config.timeout))
                 exit_code = res.get("StatusCode", 0) if isinstance(res, dict) else int(res)
                 raw_out = container.logs(stdout=True, stderr=False)
                 raw_err = container.logs(stdout=False, stderr=True)
@@ -128,6 +154,10 @@ class WorkloadSandboxRunner:
                     if isinstance(raw_err, bytes)
                     else str(raw_err)
                 )
+            except Exception as wait_exc:
+                logger.debug("Container wait failed or timed out: %s", wait_exc)
+                exit_code = 124
+                stderr = f"Container execution timed out after {self.config.timeout}s: {wait_exc}"
             finally:
                 try:
                     container.remove(force=True)

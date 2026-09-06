@@ -6,6 +6,7 @@ import json
 import logging
 import shutil
 import subprocess
+from pathlib import Path
 
 from pydantic import BaseModel, Field
 
@@ -42,8 +43,8 @@ def run_dive_analysis(
 ) -> DiveAnalysisResult:
     """Analyze container image layers using Dive CLI or fallback inspect."""
     dive_bin = shutil.which("dive")
-    if not dive_bin:
-        logger.debug("Dive CLI not found in PATH; synthesizing layer inspection.")
+    if not dive_bin or Path(dive_bin).is_symlink():
+        logger.debug("Dive CLI not found in PATH or is a symlink; synthesizing layer inspection.")
         # Fallback inspection
         return DiveAnalysisResult(
             image_name=image_name,

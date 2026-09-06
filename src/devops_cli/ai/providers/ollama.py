@@ -13,6 +13,7 @@ from devops_cli.config.defaults import (
     DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
     DEFAULT_OLLAMA_HOST,
 )
+from devops_cli.http.validation import validate_service_url
 from devops_cli.models.ai import ChatMessage
 
 logger = logging.getLogger(__name__)
@@ -31,6 +32,7 @@ class OllamaProvider(BaseLLMProvider):
             return False
         base_url = urls[0]
         try:
+            validate_service_url(base_url, purpose="ollama", allow=True)
             res = httpx2.get(
                 f"{base_url.rstrip('/')}/api/tags", timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS
             )
@@ -50,6 +52,7 @@ class OllamaProvider(BaseLLMProvider):
         target_model = model or self.config.model
         urls = self.config.get_ollama_urls
         base_url = urls[0].rstrip("/") if urls else DEFAULT_OLLAMA_HOST
+        validate_service_url(base_url, purpose="ollama", allow=True)
         payload: dict[str, Any] = {
             "model": target_model,
             "messages": [m.model_dump() if hasattr(m, "model_dump") else m for m in messages],

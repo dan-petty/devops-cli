@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 from devops_cli.config.settings import load_settings
 from devops_cli.core.repo import find_top_level_repo_root
+from devops_cli.exceptions import SecurityError
 
 
 class PromptEvalBenchmarkResult(BaseModel):
@@ -44,12 +45,24 @@ def evaluate_persona_prompts(
     if dataset_path is None:
         settings = load_settings()
         ds = settings.data.feedback_dataset_path
-        dataset_path = ds if ds.is_absolute() else (top_root / ds).resolve()
+        target_path = ds if ds.is_absolute() else (top_root / ds)
+    else:
+        target_path = dataset_path if dataset_path.is_absolute() else (top_root / dataset_path)
+
+    if target_path.is_symlink():
+        raise SecurityError(f"dataset_path must not be a symbolic link: {target_path}")
+
+    resolved_path = target_path.resolve()
+    if dataset_path is not None and not dataset_path.is_absolute():
+        if not resolved_path.is_relative_to(top_root) and not resolved_path.is_relative_to(
+            Path.cwd()
+        ):
+            raise SecurityError(f"dataset_path must not escape workspace root: {resolved_path}")
 
     records: list[dict[str, Any]] = []
-    if dataset_path.exists():
+    if resolved_path.exists():
         try:
-            for line in dataset_path.read_text(encoding="utf-8").splitlines():
+            for line in resolved_path.read_text(encoding="utf-8").splitlines():
                 if line.strip():
                     records.append(json.loads(line))
         except Exception:

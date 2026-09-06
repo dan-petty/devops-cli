@@ -849,7 +849,7 @@ class WarnOnCacheBusts(BaseCapability):
             marks={},
         )
 
-    def for_run(self, ctx: RunContext[Any] | None = None) -> WarnOnCacheBusts:
+    def for_run(self, ctx: RunContext[Any] | None = None) -> WarnOnCacheBusts:  # type: ignore[override]
         """Return a fresh capability instance with clean per-run state."""
         return WarnOnCacheBusts(
             collapse_ratio=self.collapse_ratio,
@@ -912,15 +912,9 @@ class WarnOnCacheBusts(BaseCapability):
         *,
         request_context: Any = None,
         now: float | None = None,
-        current_time: float | None = None,
     ) -> str | None:
         """Record token usage for a model request and detect cache prefix collapse."""
-        effective_now = (
-            time.time()
-            if now is None and current_time is None
-            else (now if now is not None else current_time)
-        )
-        assert effective_now is not None
+        effective_now = time.time() if now is None else now
         key = (provider_name, model_name)
         if key not in self.marks:
             self.marks[key] = CacheMark(last_request_time=effective_now)
@@ -936,29 +930,7 @@ class WarnOnCacheBusts(BaseCapability):
         mark.last_request_time = effective_now
         return warning_msg
 
-    def record_usage(
-        self,
-        provider_name: str,
-        model_name: str,
-        cache_read_tokens: int,
-        cache_write_tokens: int,
-        *,
-        request_context: Any = None,
-        now: float | None = None,
-        current_time: float | None = None,
-    ) -> str | None:
-        """Alias for record_request."""
-        return self.record_request(
-            provider_name=provider_name,
-            model_name=model_name,
-            cache_read_tokens=cache_read_tokens,
-            cache_write_tokens=cache_write_tokens,
-            request_context=request_context,
-            now=now,
-            current_time=current_time,
-        )
-
-    def after_model_request(
+    def after_model_request(  # type: ignore[override]
         self,
         ctx: RunContext[Any] | None = None,
         *,

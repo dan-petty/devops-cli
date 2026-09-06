@@ -62,6 +62,59 @@ class TestTextAndLocationSanitization:
         assert "Invalidation criteria:" not in f.description
         assert f.location == "tests/test_auth.py:25-30"
 
+    def test_canonicalize_location_rejects_markdown_headers_and_stars(self) -> None:
+        """Markdown asterisks, bold syntax, or section headers should not be parsed as locations."""
+        assert canonicalize_finding_location("**") == ""
+        assert canonicalize_finding_location("***") == ""
+        assert canonicalize_finding_location("## Security Review") == ""
+        assert canonicalize_finding_location("---") == ""
+        assert canonicalize_finding_location("### 1. Location") == ""
+
+    def test_canonicalize_location_preserves_valid_paths_and_targets(self) -> None:
+        """Canonical paths, lockfile package targets, and embedded locations must be preserved."""
+        assert (
+            canonicalize_finding_location("src/devops_cli/ai/context_budget.py:20-21")
+            == "src/devops_cli/ai/context_budget.py:20-21"
+        )
+        assert canonicalize_finding_location("uv.lock:jinja2") == "uv.lock:jinja2"
+        assert (
+            canonicalize_finding_location(
+                "In file `src/devops_cli/commands/vault.py:10-25` we found"
+            )
+            == "src/devops_cli/commands/vault.py:10-25"
+        )
+
+    def test_sanitize_finding_text_strips_approvals_and_conversational_filler(self) -> None:
+        """Conversational approvals ('Good. But ...') and pure praise must be scrubbed."""
+        assert (
+            sanitize_finding_text(
+                "Good. But potential race condition: known_hosts file may be modified concurrently."
+            )
+            == "Potential race condition: known_hosts file may be modified concurrently."
+        )
+        assert (
+            sanitize_finding_text("The function uses write_file for write_bytes_file. Good.") == ""
+        )
+        assert sanitize_finding_text("No issues found in this module. Looks solid.") == ""
+
+    def test_finding_is_empty_filters_markdown_garbage_and_praise(self) -> None:
+        """Findings with punctuation locations or conversational praise must be marked empty."""
+        f_garbage = Finding(
+            severity="MEDIUM",
+            location="**",
+            title="Security Review - Principal DevSecOps Engineer",
+            description="The generate command accepts an output_dir option...",
+        )
+        assert f_garbage.is_empty is True
+
+        f_praise = Finding(
+            severity="MEDIUM",
+            location="src/devops_cli/output/file_writer.py:1-60",
+            title="The function uses write_file for write_bytes_file. Good.",
+            description="The function uses write_file for write_bytes_file. Good.",
+        )
+        assert f_praise.is_empty is True
+
 
 class TestRecommendationDerivation:
     """Test deterministic programmatic calculation of merge recommendations."""

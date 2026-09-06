@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import time
 from typing import Any
 
@@ -9,6 +10,11 @@ from pydantic import BaseModel, Field
 
 from devops_cli.ai.agents.capabilities import BaseCapability
 from devops_cli.ai.agents.context import RunContext
+
+_PROMPT_INJECTION_TAGS_REGEX = re.compile(
+    r"<\/?(?:system|instructions?|prompt|untrusted)[^>]*>",
+    re.IGNORECASE,
+)
 
 
 class PromptRegistry(BaseModel):
@@ -68,16 +74,41 @@ class ManagedPrompt(BaseCapability):
         self._last_fetch_time = now
         return self._cached_template
 
-    def render(self, extra_vars: dict[str, Any] | None = None) -> str:
-        """Render the prompt template substituting variables."""
+    @staticmethod
+    def format_xml_variable(
+        root_tag: str,
+        value: Any,
+        item_tag: str = "item",
+        include_field_info: Any = False,
+    ) -> str:
+        """Format an object or mapping as clean XML for template interpolation."""
+        from devops_cli.ai.format_prompt import format_as_xml
+
+        return format_as_xml(
+            obj=value,
+            root_tag=root_tag,
+            item_tag=item_tag,
+            include_field_info=include_field_info,
+        )
+
+    def render(
+        self,
+        extra_vars: dict[str, Any] | None = None,
+        format_xml_vars: dict[str, Any] | None = None,
+    ) -> str:
+        """Render the prompt template substituting variables, including XML-formatted variables."""
         template = self.fetch_template()
         if not template:
             return ""
 
         vars_dict = {**self.template_vars, **(extra_vars or {})}
+        if format_xml_vars:
+            for k, val in format_xml_vars.items():
+                vars_dict[k] = self.format_xml_variable(root_tag=k, value=val)
+
         rendered = template
         for k, v in vars_dict.items():
-            val_clean = str(v).replace("</untrusted", "<\\/untrusted").replace("<system>", "")
+            val_clean = _PROMPT_INJECTION_TAGS_REGEX.sub("", str(v))
             rendered = rendered.replace(f"{{{k}}}", val_clean)
         return rendered
 

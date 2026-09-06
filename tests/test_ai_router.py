@@ -124,3 +124,18 @@ def test_router_low_complexity_allowed_providers() -> None:
 
     assert decision.provider_name == "openai"
     assert decision.model_name == "gpt-4o-mini"
+
+
+def test_router_thinking_configuration_by_complexity() -> None:
+    router = LLMRouter(AIConfig(provider="claude"))
+    low = router.route_task("summarize", token_count=100)
+    assert low.enable_thinking is False
+    assert low.reasoning_effort is None
+
+    high = router.route_task("architecture", token_count=12000)
+    assert high.enable_thinking is True
+    assert high.reasoning_effort == "medium"
+
+    frontier = router.route_task("adversarial_debate", requires_frontier=True)
+    assert frontier.enable_thinking is True
+    assert frontier.reasoning_effort == "high"

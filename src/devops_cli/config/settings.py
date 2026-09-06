@@ -30,6 +30,10 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.defaults import (
     DEFAULT_AI_CONTEXT_WINDOW,
+    DEFAULT_AI_DURABLE_ENGINE,
+    DEFAULT_AI_DURABLE_STORE_PATH,
+    DEFAULT_AI_DURABLE_TASK_QUEUE,
+    DEFAULT_AI_DURABLE_WORKFLOW_PREFIX,
     DEFAULT_AI_MAX_RETRIES,
     DEFAULT_AI_MODEL,
     DEFAULT_AI_PROVIDER,
@@ -173,6 +177,15 @@ class AICacheConfig(BaseModel):
     append_cache: bool = False
 
 
+class AIDurableConfig(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    engine: str = DEFAULT_AI_DURABLE_ENGINE
+    store_path: Path = Field(default_factory=lambda: DEFAULT_AI_DURABLE_STORE_PATH)
+    task_queue: str = DEFAULT_AI_DURABLE_TASK_QUEUE
+    workflow_id_prefix: str = DEFAULT_AI_DURABLE_WORKFLOW_PREFIX
+
+
 class AITaskOverride(BaseModel):
     """Per-task model/server override; unset fields fall back to the parent AIConfig."""
 
@@ -219,6 +232,7 @@ class AIConfig(BaseModel):
     tasks: AITasksConfig = AITasksConfig()
     rag: AIRAGConfig = AIRAGConfig()
     cache: AICacheConfig = AICacheConfig()
+    durable: AIDurableConfig = AIDurableConfig()
 
     @property
     def get_ollama_urls(self) -> list[str]:
@@ -419,8 +433,7 @@ def load_settings() -> Settings:
 
     settings = Settings.model_validate(raw)
 
-    # Check for DEVOPS_DATA_DIR fallback alias if DEVOPS_CLI_DATA_DIR not present
-    env_data_dir = os.environ.get("DEVOPS_CLI_DATA_DIR") or os.environ.get("DEVOPS_DATA_DIR")
+    env_data_dir = os.environ.get("DEVOPS_CLI_DATA_DIR")
     if env_data_dir:
         settings.data.dir = Path(env_data_dir)
 

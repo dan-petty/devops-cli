@@ -57,11 +57,15 @@ def generate_remediation_branch(
             message=f"Simulated branch creation {target_branch} and patch verification",
         )
 
-    # In active mode: verify target file existence
-    top_root = find_top_level_repo_root(Path.cwd())
-    file_path = top_root / target_file
+    # In active mode: verify target file existence and containment
+    top_root = find_top_level_repo_root(Path.cwd()).resolve()
+    file_path = (top_root / target_file).resolve()
 
-    if not file_path.exists():
+    if (
+        not file_path.is_relative_to(top_root)
+        or ".." in Path(target_file).parts
+        or not file_path.exists()
+    ):
         return AutoFixResult(
             finding_id=finding_id,
             branch_name=target_branch,
@@ -69,7 +73,7 @@ def generate_remediation_branch(
             applied=False,
             test_verified=False,
             status="TARGET_FILE_NOT_FOUND",
-            message=f"Target file {target_file} does not exist",
+            message=f"Target file {target_file} is outside repository boundary or does not exist",
         )
 
     return AutoFixResult(

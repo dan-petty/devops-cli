@@ -15,13 +15,17 @@ Example:
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
+if TYPE_CHECKING:
+    from devops_cli.ai.concurrency import AbstractConcurrencyLimiter, AnyConcurrencyLimit
+
 from devops_cli.ai.agents.memory import AgentMemory
-from devops_cli.ai.agents.pydantic_agent import AgentTool, PydanticAgent, ToolCall
+from devops_cli.ai.agents.pydantic_agent import AgentTool, PydanticAgent, Tool, ToolCall
 from devops_cli.ai.analyze.outlines import _mask_sensitive_data
 from devops_cli.ai.review_schema import extract_json_block
 from devops_cli.config.defaults import DEFAULT_AGENT_MAX_TURNS
@@ -61,18 +65,28 @@ class MultiAgentPipeline[T]:
         agents: list[PydanticAgent[Any]] | None = None,
         *,
         output_schema: type[T] | None = None,
-        shared_tools: list[AgentTool | Callable[..., Any]] | None = None,
+        shared_tools: list[AgentTool | Tool | Callable[..., Any]] | None = None,
         session_id: str = "pipeline-session",
         memory: AgentMemory | None = None,
+        concurrency_limit: AnyConcurrencyLimit = None,
     ) -> None:
         self.agents: list[PydanticAgent[Any]] = agents or []
         self.output_schema = output_schema
         self.shared_tools = shared_tools or []
         self.scratchpad = ScratchpadBuffer(session_id=session_id)
         self.memory: AgentMemory = memory or AgentMemory(session_id=session_id)
+        self.concurrency_limit = concurrency_limit
+        if concurrency_limit is not None:
+            from devops_cli.ai.concurrency import normalize_to_limiter
+
+            self.concurrency_limiter: AbstractConcurrencyLimiter | None = normalize_to_limiter(
+                concurrency_limit, name=f"pipeline:{session_id}"
+            )
+        else:
+            self.concurrency_limiter = None
         if self.shared_tools:
             for tool in self.shared_tools:
-                if not (isinstance(tool, AgentTool) or callable(tool)):
+                if not (isinstance(tool, (AgentTool, Tool)) or callable(tool)):
                     msg = f"Shared tool must be an AgentTool or callable, got {type(tool)}"
                     raise TypeError(msg)
             for agent in self.agents:
@@ -83,7 +97,7 @@ class MultiAgentPipeline[T]:
         """Append a PydanticAgent to the pipeline stage sequence."""
         if self.shared_tools:
             for tool in self.shared_tools:
-                if not (isinstance(tool, AgentTool) or callable(tool)):
+                if not (isinstance(tool, (AgentTool, Tool)) or callable(tool)):
                     msg = f"Shared tool must be an AgentTool or callable, got {type(tool)}"
                     raise TypeError(msg)
                 agent.add_tool(tool)
@@ -230,6 +244,109 @@ class MultiAgentPipeline[T]:
         with ThreadPoolExecutor(max_workers=workers) as executor:
             raw_results = list(executor.map(_execute_agent, list(enumerate(self.agents, 1))))
 
+        raw_results.sort(key=lambda x: x[0])
+        steps = [r[1] for r in raw_results]
+        total_turns = sum(r[2] for r in raw_results)
+        all_tool_calls = [tc for r in raw_results for tc in r[3]]
+
+        for r in raw_results:
+            idx, step, _, _ = r
+            raw_hyp = step.content[:150].replace("\n", " ") + "..."
+            self.scratchpad.add_entry(
+                persona=step.agent_name,
+                stage=f"Stage {idx}",
+                hypothesis=_mask_sensitive_data(raw_hyp),
+                notes=[f"Executed {len(step.tool_calls)} tool calls."],
+            )
+
+        final_content = steps[-1].content if steps else ""
+        parsed_data: T | None = None
+        if self.output_schema is not None and final_content:
+            try:
+                json_data = extract_json_block(final_content)
+                if isinstance(json_data, dict):
+                    parsed_data = self.output_schema.model_validate(json_data)  # type: ignore[attr-defined]
+            except Exception:
+                pass
+
+        return MultiAgentPipelineResult[T](
+            final_content=final_content,
+            final_data=parsed_data,
+            steps=steps,
+            total_turns=total_turns,
+            all_tool_calls=all_tool_calls,
+            scratchpad=self.scratchpad,
+            memory=self.memory,
+        )
+
+    async def run_async(
+        self,
+        initial_prompt: str,
+        *,
+        max_turns_per_agent: int = DEFAULT_AGENT_MAX_TURNS,
+        enable_thinking: bool = True,
+        parallel: bool = False,
+        skip_rag: bool = False,
+    ) -> MultiAgentPipelineResult[T]:
+        """Run the multi-agent pipeline asynchronously, sequentially or in parallel."""
+        if parallel:
+            return await self.run_parallel_async(
+                initial_prompt,
+                max_turns_per_agent=max_turns_per_agent,
+                enable_thinking=enable_thinking,
+                skip_rag=skip_rag,
+            )
+        from functools import partial
+
+        loop = asyncio.get_running_loop()
+        fn = partial(
+            self.run,
+            initial_prompt,
+            max_turns_per_agent=max_turns_per_agent,
+            enable_thinking=enable_thinking,
+            parallel=False,
+            skip_rag=skip_rag,
+        )
+        return await loop.run_in_executor(None, fn)
+
+    async def run_parallel_async(
+        self,
+        initial_prompt: str,
+        *,
+        max_turns_per_agent: int = 1,
+        enable_thinking: bool = False,
+        skip_rag: bool = True,
+    ) -> MultiAgentPipelineResult[T]:
+        """Run multi-agent stages concurrently with native concurrency limits."""
+        if not self.agents:
+            return MultiAgentPipelineResult[T](final_content="")
+
+        from devops_cli.ai.concurrency import get_concurrency_context
+
+        async def _execute_agent(
+            idx: int, agent: PydanticAgent[Any]
+        ) -> tuple[int, PipelineStepResult, int, list[ToolCall]]:
+            limiter = self.concurrency_limiter or getattr(agent, "_concurrency_limiter", None)
+            async with get_concurrency_context(limiter, f"stage:{agent.name}"):
+                res = await agent.run_async(
+                    initial_prompt,
+                    max_turns=max_turns_per_agent,
+                    enable_thinking=enable_thinking,
+                    skip_rag=skip_rag,
+                )
+                step = PipelineStepResult(
+                    agent_name=agent.name,
+                    content=res.content,
+                    parsed_data=res.data,
+                    tool_calls=res.tool_calls,
+                    thoughts=res.thoughts,
+                    passed_context=res.content,
+                    backend_info=res.backend_info,
+                )
+                return idx, step, res.turns, res.tool_calls
+
+        tasks = [_execute_agent(idx, agent) for idx, agent in enumerate(self.agents, 1)]
+        raw_results = list(await asyncio.gather(*tasks))
         raw_results.sort(key=lambda x: x[0])
         steps = [r[1] for r in raw_results]
         total_turns = sum(r[2] for r in raw_results)

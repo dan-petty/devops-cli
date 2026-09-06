@@ -146,7 +146,7 @@ class AgentMemory(BaseModel):
             if len(new_summary) > self.max_chars // 2:
                 new_summary = new_summary[: (self.max_chars // 2) - 3] + "..."
 
-        self.summary = new_summary
+        self.summary = _mask_secrets_in_content(_sanitize_prompt_boundary_tags(new_summary))
         self.entries = to_keep
         return True
 

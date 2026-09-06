@@ -213,10 +213,7 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 |  | `devops uv run` | Run an arbitrary command using `uv run`. |
 | **scan** | `devops scan trivy [OPTIONS] <target>` | Run Aqua Trivy vulnerability, secret, and misconfiguration scan. |
 |  | `devops scan secrets [OPTIONS] <target>` | Run Gitleaks secret pre-filter scan across workspace or targets. |
-|  | `devops scan gitleaks [OPTIONS] <target>` | Alias for devops scan secrets. |
-|  | `devops scan semgrep [OPTIONS] <target>` | Run Semgrep multilingual static AST pattern matching scan. |
 |  | `devops scan sast [OPTIONS] <target>` | Run static application security testing (SAST) via Semgrep. |
-|  | `devops scan checkov [OPTIONS] <target>` | Run Checkov Infrastructure-as-Code (IaC) compliance scanner. |
 |  | `devops scan iac [OPTIONS] <target>` | Run Checkov IaC static policy and security compliance scan. |
 |  | `devops scan complexity [OPTIONS] <target>` | Run AST-based cyclomatic complexity and indentation depth analysis. |
 |  | `devops scan sbom [OPTIONS] <target>` | Generate Software Bill of Materials (SBOM) in CycloneDX, SPDX, or JSON format. |

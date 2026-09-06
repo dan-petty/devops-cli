@@ -374,7 +374,7 @@ def _fallback_join(reviews: list[str]) -> str:
 def _get_reviews_base_dir() -> Path:
     from devops_cli.core.repo import find_top_level_repo_root
 
-    env_data_dir = os.environ.get("DEVOPS_CLI_DATA_DIR") or os.environ.get("DEVOPS_DATA_DIR")
+    env_data_dir = os.environ.get("DEVOPS_CLI_DATA_DIR")
     if env_data_dir:
         d = Path(env_data_dir) / "reviews"
     else:

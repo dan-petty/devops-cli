@@ -206,8 +206,7 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
                     *[m.to_dict() for m in messages],
                 ],
             }
-            if think:
-                payload["think"] = True
+            payload["think"] = bool(think)
             if self._config.reasoning_effort:
                 payload["reasoning_effort"] = self._config.reasoning_effort
             ollama_opts: dict[str, Any] = {}
@@ -236,12 +235,20 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
             msg = raw_res.get("message", {})
             content = str(msg.get("content", ""))
             raw_thinking = msg.get("thinking")
-            thinking_str = str(raw_thinking) if raw_thinking is not None else None
+            thinking_str = str(raw_thinking).strip() if raw_thinking is not None else None
 
-            if thinking_str and not content:
-                content = f"<think>\n{thinking_str}\n</think>"
+            from devops_cli.ai.thinking_stream import extract_think_blocks
 
-            text = content if think else self._strip_think_blocks(content)
+            if "<think>" in content:
+                inner_thinks, clean = extract_think_blocks(content)
+                if inner_thinks:
+                    combined = (thinking_str + "\n" if thinking_str else "") + "\n".join(
+                        inner_thinks
+                    )
+                    thinking_str = combined.strip() or None
+                content = clean
+
+            text = self._strip_think_blocks(content)
 
             prompt_eval_ns = int(raw_res.get("prompt_eval_duration") or 0)
             eval_ns = int(raw_res.get("eval_duration") or 0)
@@ -354,8 +361,7 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
                 *[m.to_dict() for m in messages],
             ],
         }
-        if think:
-            payload["think"] = True
+        payload["think"] = bool(think)
         if self._config.reasoning_effort:
             payload["reasoning_effort"] = self._config.reasoning_effort
         with (

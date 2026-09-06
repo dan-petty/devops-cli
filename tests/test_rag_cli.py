@@ -149,3 +149,37 @@ def test_rag_error_branches(runner: CliRunner, tmp_path: Path) -> None:
 
         res_kb_down = runner.invoke(app, ["index-kb"])
         assert res_kb_down.exit_code == 1
+
+
+def test_rag_index_cmd_handles_canonical_indexer_keys(runner: CliRunner, tmp_path: Path) -> None:
+    """Verify index_cmd cleanly handles canonical indexer result keys without KeyError."""
+    mock_qdrant = MagicMock()
+    mock_qdrant.is_alive.return_value = True
+    mock_qdrant.base_url = "http://localhost:6333"
+    mock_embedder = MagicMock()
+    mock_embedder.model = "test-model"
+
+    canonical_results = {
+        "indexed_files": 5,
+        "total_chunks": 12,
+        "code_chunks": 8,
+        "doc_chunks": 4,
+        "removed_files": 2,
+        "skipped_files": 10,
+        "collections": ["code", "docs"],
+    }
+
+    with (
+        patch(
+            "devops_cli.commands.rag._get_rag_components",
+            return_value=(mock_qdrant, mock_embedder, "code", "docs"),
+        ),
+        patch(
+            "devops_cli.ai.rag.indexer.WorkspaceIndexer.index_workspace",
+            return_value=canonical_results,
+        ),
+    ):
+        res = runner.invoke(app, ["index", str(tmp_path)])
+        assert res.exit_code == 0
+        assert "Indexed 5 files (12 chunks)" in res.output
+        assert "pruned 2 stale chunks" in res.output

@@ -767,21 +767,6 @@ devops ai rag query [OPTIONS] <query>
 devops ai rag status
 ```
 
-### `devops ai rag reset`
-
-**Alias for clear — clear vector index collections and reset local cache.**
-
-```bash
-devops ai rag reset [OPTIONS]
-```
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--collection`, `-c` | `string` | - | Target collection override. |
-| `--force`, `-f` | `boolean` | - | Force execution ignoring non-blocking warnings. |
-
 ### `devops ai rag clear`
 
 **Clear vector index collections from Qdrant.**

@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+from pydantic_ai.tools import RunContext as NativeRunContext
 
 from devops_cli.ai.agents.pydantic_agent import AgentTool, BaseCapability, RunContext, Tool
 
@@ -129,7 +130,7 @@ class CodeMode(BaseCapability):
             sandboxed_tools=list(sandboxed_tools),
         )
 
-    def for_run(self, ctx: RunContext[Any] | None = None) -> CodeMode:
+    def for_run(self, ctx: RunContext[Any] | None = None) -> CodeMode:  # type: ignore[override]
         """Return a fresh instance so concurrent runs do not share execution state."""
         return CodeMode(
             tools=self.tools,
@@ -154,11 +155,17 @@ class CodeMode(BaseCapability):
                 msg = f"Nested tool call limit exceeded: maximum {self.max_tool_calls} calls reached at '{fn_name}'."
                 raise RuntimeError(msg)
             self.tool_call_count += 1
-            if inspect.iscoroutinefunction(fn):
-                return await fn(*args, **kwargs)
-            if callable(fn):
-                return fn(*args, **kwargs)
-            return fn
+            target = getattr(fn, "func", fn)
+            if inspect.iscoroutinefunction(target) or inspect.iscoroutinefunction(fn):
+                return await (target(*args, **kwargs) if callable(target) else fn(*args, **kwargs))
+            res = (
+                target(*args, **kwargs)
+                if callable(target)
+                else (fn(*args, **kwargs) if callable(fn) else fn)
+            )
+            if inspect.iscoroutine(res):
+                return await res
+            return res
 
         return _sandboxed_tool_call
 
@@ -181,7 +188,87 @@ class CodeMode(BaseCapability):
             import typing
             import unicodedata
 
+            _allowed_modules: dict[str, Any] = {
+                "asyncio": asyncio,
+                "json": json,
+                "re": re,
+                "math": math,
+                "typing": typing,
+                "sys": sys,
+                "unicodedata": unicodedata,
+                "datetime": datetime,
+            }
+
+            def _sandboxed_import(name: str, *args: Any, **kwargs: Any) -> Any:
+                mod_name = name.split(".")[0]
+                if mod_name in _allowed_modules:
+                    return _allowed_modules[mod_name]
+                raise ImportError(f"Module '{name}' is not permitted in sandboxed code mode")
+
+            safe_builtins: dict[str, Any] = {
+                "True": True,
+                "False": False,
+                "None": None,
+                "abs": abs,
+                "all": all,
+                "any": any,
+                "bin": bin,
+                "bool": bool,
+                "bytearray": bytearray,
+                "bytes": bytes,
+                "chr": chr,
+                "dict": dict,
+                "divmod": divmod,
+                "enumerate": enumerate,
+                "filter": filter,
+                "float": float,
+                "format": format,
+                "frozenset": frozenset,
+                "getattr": getattr,
+                "hasattr": hasattr,
+                "hash": hash,
+                "hex": hex,
+                "id": id,
+                "int": int,
+                "isinstance": isinstance,
+                "issubclass": issubclass,
+                "iter": iter,
+                "len": len,
+                "list": list,
+                "map": map,
+                "max": max,
+                "min": min,
+                "next": next,
+                "oct": oct,
+                "ord": ord,
+                "pow": pow,
+                "print": _custom_print,
+                "range": range,
+                "repr": repr,
+                "reversed": reversed,
+                "round": round,
+                "set": set,
+                "slice": slice,
+                "sorted": sorted,
+                "str": str,
+                "sum": sum,
+                "tuple": tuple,
+                "type": type,
+                "zip": zip,
+                "Exception": Exception,
+                "ValueError": ValueError,
+                "TypeError": TypeError,
+                "KeyError": KeyError,
+                "IndexError": IndexError,
+                "AttributeError": AttributeError,
+                "RuntimeError": RuntimeError,
+                "ImportError": ImportError,
+                "NameError": NameError,
+                "__import__": _sandboxed_import,
+            }
+
             sandbox_env: dict[str, Any] = {
+                "__builtins__": safe_builtins,
                 "asyncio": asyncio,
                 "json": json,
                 "re": re,
@@ -405,7 +492,7 @@ class ToolSearch(BaseCapability):
             discovered_tools=set(),
         )
 
-    def for_run(self, ctx: RunContext[Any] | None = None) -> ToolSearch:
+    def for_run(self, ctx: RunContext[Any] | None = None) -> ToolSearch:  # type: ignore[override]
         """Return a fresh instance so concurrent runs do not share discovered tools."""
         return ToolSearch(
             strategy=self.strategy,
@@ -423,17 +510,27 @@ class ToolSearch(BaseCapability):
 
     def get_tools(self) -> list[AgentTool | Callable[..., Any]]:
         async def search_tools(
-            queries: Sequence[str] | str, ctx: RunContext[Any] | None = None
+            ctx: NativeRunContext[Any] = None,  # type: ignore[assignment]
+            queries: Sequence[str] | str = (),
+            **kwargs: Any,
         ) -> dict[str, Any]:
             """Search for deferred tools by keyword, topic, or regex pattern."""
-            query_list = [queries] if isinstance(queries, str) else list(queries)
+            actual_ctx: NativeRunContext[Any] | None = None
+            if isinstance(ctx, (list, tuple, set, str)):
+                query_list = [ctx] if isinstance(ctx, str) else list(ctx)
+            else:
+                actual_ctx = ctx
+                if not queries and "queries" in kwargs:
+                    queries = kwargs["queries"]
+                query_list = [queries] if isinstance(queries, str) else list(queries)
+
             all_tools: list[tuple[str, str, Any]] = [
                 (*_extract_tool_meta(t), t) for t in self.searchable_tools
             ]
 
             matched_names: list[str] = []
             if callable(self.strategy):
-                custom_res = self.strategy(ctx, query_list, [t[2] for t in all_tools])
+                custom_res = self.strategy(actual_ctx, query_list, [t[2] for t in all_tools])
                 if inspect.iscoroutine(custom_res):
                     custom_res = await custom_res
                 if isinstance(custom_res, (list, tuple, set)):
@@ -471,6 +568,7 @@ class ToolSearch(BaseCapability):
                 search_tools,
                 name=self.tool_name,
                 description="Search for available tools matching keywords or topics when you need functionality not in your initial toolset.",
+                takes_ctx=True,
             )
         ]
 

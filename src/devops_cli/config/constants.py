@@ -53,6 +53,7 @@ CONST_EMBEDDING_REPORT_FILENAME = "embedding_report.json"
 CONST_TLS_DIR_NAME = "tls"
 CONST_RAG_DIR_NAME = "rag"
 CONST_INDEX_CACHE_FILENAME = "index_cache.json"
+CONST_HALLUCINATIONS_FILE_NAME = "common_hallucinations.json"
 
 # ── Memory & Byte Sizing Constants ────────────────────────────────────────────
 CONST_FP32_BYTES_PER_ELEMENT: int = 4

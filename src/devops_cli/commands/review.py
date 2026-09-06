@@ -1014,6 +1014,14 @@ def verify_finding(
     if reason:
         finding.invalidation_reason = reason
 
+    if new_status == "INVALIDATED":
+        try:
+            from devops_cli.ai.review.common_hallucinations import auto_record_invalidated_finding
+
+            auto_record_invalidated_finding(finding, reason=reason)
+        except Exception:
+            pass
+
     _get("write_json_file")(findings_file, payload)
     _get("print_success")(f"Updated finding #{target_idx + 1} status → {new_status}")
 

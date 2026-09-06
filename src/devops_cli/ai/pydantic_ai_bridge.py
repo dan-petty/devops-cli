@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from devops_cli.ai.agents.pydantic_agent import BaseCapability, PydanticAgent
 from devops_cli.ai.client import LLMClient
+from devops_cli.ai.concurrency import AnyConcurrencyLimit, limit_model_concurrency
 from devops_cli.ai.personas import PERSONAS, Persona
 from devops_cli.ai.review_schema import ReviewResult
 from devops_cli.config.settings import Settings, get_ai_api_key, load_settings
@@ -42,29 +43,142 @@ def is_pydantic_ai_available() -> bool:
         return False
 
 
-def create_pydantic_ai_agent[T: BaseModel](
-    model_name: str | None = None,
+def resolve_pydantic_ai_model(
+    model: str | Any | None = None,
+    settings: Settings | None = None,
+    model_concurrency: AnyConcurrencyLimit = None,
+) -> Any:
+    """Resolve and configure native PydanticAI Model instance.
+
+    Supports OllamaProvider with dynamic cluster URLs, TestModel for offline testing,
+    and automatic model inference across providers with optional concurrency limiting.
+    """
+    if model is None:
+        return None
+
+    import devops_cli.ai.agents.agent as agent_module
+    import devops_cli.ai.agents.testing as testing_module
+
+    if not getattr(testing_module, "ALLOW_MODEL_REQUESTS", True) or not getattr(
+        agent_module, "ALLOW_MODEL_REQUESTS", True
+    ):
+        from pydantic_ai.models.test import TestModel
+
+        test_m = TestModel()
+        return limit_model_concurrency(test_m, model_concurrency) if model_concurrency else test_m
+
+    from pydantic_ai.models import Model
+
+    if isinstance(model, Model):
+        return limit_model_concurrency(model, model_concurrency) if model_concurrency else model
+
+    if model == "test":
+        from pydantic_ai.models.test import TestModel
+
+        test_m = TestModel()
+        return limit_model_concurrency(test_m, model_concurrency) if model_concurrency else test_m
+
+    if not isinstance(model, str):
+        return limit_model_concurrency(model, model_concurrency) if model_concurrency else model
+
+    active_settings = settings or load_settings()
+    model_str = model.strip()
+    provider = getattr(active_settings.ai, "provider", "ollama")
+
+    if model_str.startswith("ollama:") or provider == "ollama":
+        from devops_cli.ai.models.ollama import create_ollama_model
+
+        urls = active_settings.ai.get_ollama_urls if hasattr(active_settings, "ai") else []
+        temperature = (
+            getattr(active_settings.ai, "temperature", None)
+            if hasattr(active_settings, "ai")
+            else None
+        )
+        max_tokens = (
+            getattr(active_settings.ai, "max_tokens", None)
+            if hasattr(active_settings, "ai")
+            else None
+        )
+        reasoning_effort = (
+            getattr(active_settings.ai, "reasoning_effort", None)
+            if hasattr(active_settings, "ai")
+            else None
+        )
+        api_key = (
+            getattr(active_settings.ai, "api_key", None) if hasattr(active_settings, "ai") else None
+        )
+
+        om = create_ollama_model(
+            model_str,
+            urls=urls,
+            api_key=api_key,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            reasoning_effort=reasoning_effort,
+        )
+        return limit_model_concurrency(om, model_concurrency) if model_concurrency else om
+
+    try:
+        from pydantic_ai.models import infer_model
+
+        from devops_cli.ai.providers import create_pydantic_ai_provider
+
+        api_key = get_ai_api_key(active_settings) or getattr(active_settings.ai, "api_key", None)
+        base_url = getattr(active_settings.ai, "api_base_url", None)
+
+        def _provider_factory(prov_name: str) -> Any:
+            return create_pydantic_ai_provider(prov_name, base_url=base_url, api_key=api_key)
+
+        inferred = infer_model(model_str, provider_factory=_provider_factory)
+        return (
+            limit_model_concurrency(inferred, model_concurrency) if model_concurrency else inferred
+        )
+    except Exception:
+        return model_str
+
+
+def create_pydantic_ai_agent(
+    model_name: str | Any | None = None,
     system_prompt: str = "",
-    result_type: type[T] | None = None,
+    output_type: Any = None,
+    result_type: Any = None,
+    output_mode: str | None = None,
     deps_type: type[Any] = DevOpsAgentContext,
     capabilities: Sequence[BaseCapability] | None = None,
     tools: Sequence[Any] | None = None,
     client: LLMClient | None = None,
+    end_strategy: str = "graceful",
+    retries: int | None = None,
+    max_concurrency: AnyConcurrencyLimit = None,
+    model_concurrency: AnyConcurrencyLimit = None,
+    toolsets: Sequence[Any] | None = None,
 ) -> Any:
-    """Instantiate a standardized PydanticAI Agent with typed dependencies, capabilities, and outputs."""
+    """Instantiate a standardized PydanticAI Agent with typed dependencies, capabilities, outputs, and concurrency limits."""
     settings: Settings = load_settings()
     target_model = model_name or getattr(getattr(settings, "ai", None), "model", None)
-    res_model = result_type or ReviewResult
+    res_model = output_type or result_type or ReviewResult
+    if output_mode is not None:
+        from devops_cli.ai.output import build_output_spec
+
+        res_model = build_output_spec(res_model, mode=output_mode)  # type: ignore[arg-type]
     active_caps = list(capabilities or [])
     active_tools = list(tools or [])
+    active_toolsets = list(toolsets or [])
 
     try:
         from pydantic_ai import Agent
 
+        resolved_model = resolve_pydantic_ai_model(
+            target_model, settings=settings, model_concurrency=model_concurrency
+        )
+
         kwargs: dict[str, Any] = {
             "system_prompt": system_prompt,
             "deps_type": deps_type,
+            "end_strategy": end_strategy,
         }
+        if retries is not None:
+            kwargs["retries"] = retries
         sig = inspect.signature(Agent.__init__)
         if "output_type" in sig.parameters:
             kwargs["output_type"] = res_model
@@ -75,12 +189,13 @@ def create_pydantic_ai_agent[T: BaseModel](
             kwargs["capabilities"] = active_caps
         if "tools" in sig.parameters and active_tools:
             kwargs["tools"] = active_tools
+        if "toolsets" in sig.parameters and active_toolsets:
+            kwargs["toolsets"] = active_toolsets
+        if "max_concurrency" in sig.parameters and max_concurrency is not None:
+            kwargs["max_concurrency"] = max_concurrency
 
-        if target_model:
-            try:
-                return Agent(model=target_model, **kwargs)
-            except Exception as exc:
-                logger.debug("Failed initializing model %s on Agent: %s", target_model, exc)
+        if resolved_model is not None:
+            return Agent(model=resolved_model, **kwargs)
 
         return Agent(**kwargs)
     except Exception as exc:
@@ -91,8 +206,10 @@ def create_pydantic_ai_agent[T: BaseModel](
             name=f"agent-{target_model or 'default'}",
             system_prompt=system_prompt,
             tools=active_tools,
+            toolsets=active_toolsets,
             capabilities=active_caps,
-            output_schema=res_model,
+            output_type=res_model,
+            max_concurrency=max_concurrency,
         )
 
 
@@ -101,17 +218,23 @@ def get_persona_pydantic_agent(
     settings: Settings | None = None,
     capabilities: Sequence[BaseCapability] | None = None,
     tools: Sequence[Any] | None = None,
+    model_name: str | Any | None = None,
+    max_concurrency: AnyConcurrencyLimit = None,
+    model_concurrency: AnyConcurrencyLimit = None,
 ) -> Any:
-    """Build a persona-specialized PydanticAI agent instance."""
+    """Build a persona-specialized PydanticAI agent instance with optional concurrency limiting."""
     p_enum = Persona(persona) if isinstance(persona, str) else persona
     p_def = PERSONAS[p_enum]
     active_settings = settings or load_settings()
+    target_model = model_name or active_settings.ai.model
 
     return create_pydantic_ai_agent(
-        model_name=active_settings.ai.model,
+        model_name=target_model,
         system_prompt=p_def.system_prompt,
-        result_type=ReviewResult,
+        output_type=ReviewResult,
         deps_type=DevOpsAgentContext,
         capabilities=capabilities,
         tools=tools,
+        max_concurrency=max_concurrency,
+        model_concurrency=model_concurrency,
     )

@@ -4,16 +4,47 @@ from __future__ import annotations
 
 import inspect
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+from pydantic_ai.capabilities import AbstractCapability
+from pydantic_ai.messages import (
+    ThinkingPart as NativeThinkingPart,
+)
+from pydantic_ai.messages import (
+    ToolCallPart as ToolCallPart,
+)
 
 from devops_cli.ai.agents.context import AgentHooks, RunContext
 from devops_cli.ai.agents.tools import AgentTool, Tool
+from devops_cli.ai.tools import (
+    DeferredToolRequests as DeferredToolRequests,
+)
+from devops_cli.ai.tools import (
+    DeferredToolResults as DeferredToolResults,
+)
+from devops_cli.ai.tools import (
+    ToolApproved as ToolApproved,
+)
+from devops_cli.ai.tools import (
+    ToolDenied as ToolDenied,
+)
 
 
-class BaseCapability(BaseModel):
+@dataclass
+class ThinkingPart(NativeThinkingPart):
+    """A structured model thinking/reasoning part."""
+
+    content: str = ""
+    encrypted_content: str | None = None
+    signature: str | None = None
+
+
+class BaseCapability(BaseModel, AbstractCapability[Any]):
     """Abstract base class for modular agent capabilities."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True, extra="allow")
 
     id: str = ""
     description: str = ""
@@ -31,7 +62,9 @@ class BaseCapability(BaseModel):
         """Return lifecycle hooks provided by this capability."""
         return None
 
-    def get_model_settings(self, ctx: RunContext[Any] | None = None) -> dict[str, Any]:
+    def get_model_settings(  # type: ignore[override]
+        self, ctx: RunContext[Any] | None = None
+    ) -> dict[str, Any]:
         """Return model runtime settings provided by this capability."""
         return {}
 
@@ -44,83 +77,84 @@ class BaseCapability(BaseModel):
         combined = {**(metadata or {}), **kwargs}
         return SetToolMetadata(capability=self, metadata=combined)
 
+    # ── Pydantic AI AbstractCapability Protocol Implementation ─────────────────
 
-class ToolApproved(BaseModel):
-    """Signals approval of a deferred tool call with optional argument overrides."""
+    def get_instructions(self) -> list[str] | None:
+        """Return instructions to include in the system prompt for native Pydantic AI agents."""
+        additions = self.get_system_prompt_additions()
+        if additions:
+            return additions
+        if hasattr(self, "instructions") and getattr(self, "instructions"):
+            return [str(getattr(self, "instructions"))]
+        return None
 
-    override_args: dict[str, Any] | None = None
+    def get_toolset(self) -> Any:
+        """Return native FunctionToolset wrapping tools for native Pydantic AI agents."""
+        tools = self.get_tools()
+        if not tools:
+            return None
+        try:
+            from devops_cli.ai.toolsets import create_function_toolset
 
-    def __init__(self, override_args: dict[str, Any] | None = None, **kwargs: Any) -> None:
-        super().__init__(override_args=override_args, **kwargs)
+            return create_function_toolset(tools=tools)
+        except Exception:
+            return None
 
+    def get_native_tools(self) -> list[Any]:
+        """Return native provider tools registered with this capability."""
+        return []
 
-class ToolDenied(BaseModel):
-    """Signals denial of a deferred tool call with feedback message for the model."""
+    def get_description(self) -> str | None:
+        """Return a human-readable description of this capability."""
+        return self.description or None
 
-    message: str = "Tool call was denied"
+    async def before_run(self, ctx: Any) -> None:
+        """Lifecycle hook invoked before an agent run starts."""
+        hooks = self.get_hooks()
+        if hooks:
+            for hook in hooks.before_run:
+                hook(ctx)
 
-    def __init__(self, message: str = "Tool call was denied", **kwargs: Any) -> None:
-        super().__init__(message=message, **kwargs)
+    async def after_run(self, ctx: Any, *, result: Any) -> Any:
+        """Lifecycle hook invoked after an agent run completes."""
+        hooks = self.get_hooks()
+        if hooks:
+            for hook in hooks.after_run:
+                hook(ctx, result)
+        return result
 
-
-class ToolCallPart(BaseModel):
-    """A tool call specification requiring approval or external execution."""
-
-    tool_name: str
-    args: dict[str, Any] = Field(default_factory=dict)
-    tool_call_id: str = ""
-
-
-class ThinkingPart(BaseModel):
-    """A structured model thinking/reasoning part."""
-
-    content: str = ""
-    encrypted_content: str | None = None
-    signature: str | None = None
-    part_kind: str = "thinking"
-
-
-class DeferredToolResults(BaseModel):
-    """Resolution of deferred tool calls providing approval decisions and external results."""
-
-    approvals: dict[str, bool | ToolApproved | ToolDenied] = Field(default_factory=dict)
-    calls: dict[str, Any] = Field(default_factory=dict)
-    metadata: dict[str, dict[str, Any]] = Field(default_factory=dict)
-
-
-class DeferredToolRequests(BaseModel):
-    """Collection of tool calls pending human approval or external execution."""
-
-    calls: list[ToolCallPart] = Field(default_factory=list)
-    approvals: list[ToolCallPart] = Field(default_factory=list)
-    metadata: dict[str, dict[str, Any]] = Field(default_factory=dict)
-
-    def build_results(
+    async def before_tool_execute(
         self,
-        approvals: dict[str, bool | ToolApproved | ToolDenied] | None = None,
-        calls: dict[str, Any] | None = None,
-        metadata: dict[str, dict[str, Any]] | None = None,
+        ctx: Any,
         *,
-        approve_all: bool = False,
-        deny_all: bool = False,
-    ) -> DeferredToolResults:
-        """Construct a DeferredToolResults object matching this request."""
-        appr_map = dict(approvals or {})
-        if approve_all:
-            for p in self.approvals:
-                key = p.tool_call_id or p.tool_name
-                if key and key not in appr_map:
-                    appr_map[key] = ToolApproved()
-        elif deny_all:
-            for p in self.approvals:
-                key = p.tool_call_id or p.tool_name
-                if key and key not in appr_map:
-                    appr_map[key] = ToolDenied()
-        return DeferredToolResults(
-            approvals=appr_map,
-            calls=calls or {},
-            metadata=metadata or {},
-        )
+        call: Any = None,
+        tool_def: Any = None,
+        args: Any = None,
+    ) -> Any:
+        """Lifecycle hook invoked before executing a tool."""
+        hooks = self.get_hooks()
+        if hooks:
+            tool_name = getattr(call, "tool_name", getattr(tool_def, "name", str(tool_def)))
+            for hook in hooks.before_tool_execute:
+                hook(ctx, tool_name, args)
+        return args
+
+    async def after_tool_execute(
+        self,
+        ctx: Any,
+        *,
+        call: Any = None,
+        tool_def: Any = None,
+        args: Any = None,
+        result: Any = None,
+    ) -> Any:
+        """Lifecycle hook invoked after executing a tool."""
+        hooks = self.get_hooks()
+        if hooks:
+            tool_name = getattr(call, "tool_name", getattr(tool_def, "name", str(tool_def)))
+            for hook in hooks.after_tool_execute:
+                hook(ctx, tool_name, result)
+        return result
 
 
 class WebSearchUserLocation(BaseModel):
@@ -222,12 +256,17 @@ class NativeTool(BaseCapability):
     id: str = "native_tool"
     tool: WebSearchTool | WebFetchTool | CodeExecutionTool | MCPServerTool | BaseModel
 
-    def get_model_settings(self, ctx: RunContext[Any] | None = None) -> dict[str, Any]:
+    def get_model_settings(  # type: ignore[override]
+        self, ctx: RunContext[Any] | None = None
+    ) -> dict[str, Any]:
         """Return model runtime settings configuring the provider-native tool."""
         builder = _NATIVE_TOOL_SETTINGS_BUILDERS.get(type(self.tool))
         if builder is not None:
             return builder(self.tool)
-        return {"native_tool": self.tool.model_dump(exclude_none=True)}
+        dumped = self.tool.model_dump(exclude_none=True)
+        if isinstance(dumped, dict):
+            dumped.pop("authorization_token", None)
+        return {"native_tool": dumped}
 
     def get_system_prompt_additions(self, ctx: RunContext[Any] | None = None) -> list[str]:
         builder = _NATIVE_TOOL_PROMPT_BUILDERS.get(type(self.tool))
@@ -256,7 +295,9 @@ class MCP(BaseCapability):
             return []
         return _extract_local_tools(self.local)
 
-    def get_model_settings(self, ctx: RunContext[Any] | None = None) -> dict[str, Any]:
+    def get_model_settings(  # type: ignore[override]
+        self, ctx: RunContext[Any] | None = None
+    ) -> dict[str, Any]:
         if self.native:
             if isinstance(self.native, MCPServerTool):
                 return {
@@ -300,7 +341,9 @@ class WebSearch(BaseCapability):
             return [duckduckgo_search_tool()]
         return _extract_local_tools(self.local)
 
-    def get_model_settings(self, ctx: RunContext[Any] | None = None) -> dict[str, Any]:
+    def get_model_settings(  # type: ignore[override]
+        self, ctx: RunContext[Any] | None = None
+    ) -> dict[str, Any]:
         if self.native:
             if isinstance(self.native, WebSearchTool):
                 return {
@@ -348,10 +391,17 @@ class WebFetch(BaseCapability):
         if self.local is True:
             from devops_cli.ai.common_tools import web_fetch_tool
 
-            return [web_fetch_tool(allowed_domains=self.allowed_domains)]
+            return [
+                web_fetch_tool(
+                    allowed_domains=self.allowed_domains,
+                    blocked_domains=self.blocked_domains,
+                )
+            ]
         return _extract_local_tools(self.local)
 
-    def get_model_settings(self, ctx: RunContext[Any] | None = None) -> dict[str, Any]:
+    def get_model_settings(  # type: ignore[override]
+        self, ctx: RunContext[Any] | None = None
+    ) -> dict[str, Any]:
         if self.native:
             if isinstance(self.native, WebFetchTool):
                 return {
@@ -401,7 +451,9 @@ class Thinking(BaseCapability):
             reasoning_format=reasoning_format,
         )
 
-    def get_model_settings(self, ctx: RunContext[Any] | None = None) -> dict[str, Any]:
+    def get_model_settings(  # type: ignore[override]
+        self, ctx: RunContext[Any] | None = None
+    ) -> dict[str, Any]:
         settings: dict[str, Any] = {
             "thinking": self.effort if isinstance(self.effort, (str, bool)) else True,
             "include_thoughts": self.include_thoughts,
@@ -476,7 +528,9 @@ class Capability(BaseCapability):
             return [self.instructions]
         return []
 
-    def get_model_settings(self, ctx: RunContext[Any] | None = None) -> dict[str, Any]:
+    def get_model_settings(  # type: ignore[override]
+        self, ctx: RunContext[Any] | None = None
+    ) -> dict[str, Any]:
         return dict(self.model_settings)
 
 
@@ -597,7 +651,7 @@ class ModelSelectionContext[DepsT](BaseModel):
     session_id: str = ""
     turn: int = 1
     step_number: int = 1
-    current_model: str = ""
+    current_model: str | None = ""
 
 
 class SelectModel(BaseCapability):
@@ -624,10 +678,11 @@ class SelectModel(BaseCapability):
         if ctx is None:
             return str(self.selector(ModelSelectionContext[Any]()))
         if isinstance(ctx, RunContext):
+            current_model_str = str(ctx.model) if getattr(ctx, "model", None) is not None else ""
             sel_ctx: ModelSelectionContext[Any] = ModelSelectionContext(
                 deps=ctx.deps,
                 session_id=ctx.session_id,
-                current_model=ctx.model,
+                current_model=current_model_str,
             )
             return str(self.selector(sel_ctx))
         return str(self.selector(ctx))
@@ -694,7 +749,7 @@ class PrepareTools(BaseCapability):
     ) -> None:
         super().__init__(id=id, prepare_fn=prepare_fn or kwargs.get("prepare_fn"), **kwargs)
 
-    def prepare_tools(
+    def prepare_tools(  # type: ignore[override]
         self,
         ctx: RunContext[Any],
         tools: list[Any],
@@ -740,7 +795,7 @@ class PrefixTools(BaseCapability):
                 )
                 prefixed_tools.append(
                     Tool(
-                        func=t.func,
+                        function=t.function,
                         name=new_name,
                         description=t.description,
                         parameters=t.parameters,
@@ -765,7 +820,9 @@ class PrefixTools(BaseCapability):
     def get_hooks(self) -> AgentHooks | None:
         return self.capability.get_hooks() if self.capability else None
 
-    def get_model_settings(self, ctx: RunContext[Any] | None = None) -> dict[str, Any]:
+    def get_model_settings(  # type: ignore[override]
+        self, ctx: RunContext[Any] | None = None
+    ) -> dict[str, Any]:
         return self.capability.get_model_settings(ctx) if self.capability else {}
 
 
@@ -784,7 +841,7 @@ class IncludeToolReturnSchemas(BaseCapability):
     ) -> None:
         super().__init__(id=id, include_return_schema=include_return_schema, **kwargs)
 
-    def prepare_tools(
+    def prepare_tools(  # type: ignore[override]
         self,
         ctx: RunContext[Any],
         tools: list[Any],
@@ -826,7 +883,7 @@ class SetToolMetadata(BaseCapability):
                 merged_meta = {**getattr(t, "metadata", {}), **self.metadata}
                 tools_with_meta.append(
                     Tool(
-                        func=t.func,
+                        function=t.function,
                         name=t.name,
                         description=t.description,
                         parameters=t.parameters,
@@ -844,7 +901,7 @@ class SetToolMetadata(BaseCapability):
                 tools_with_meta.append(t)
         return tools_with_meta
 
-    def prepare_tools(
+    def prepare_tools(  # type: ignore[override]
         self,
         ctx: RunContext[Any],
         tools: list[Any],
@@ -861,7 +918,9 @@ class SetToolMetadata(BaseCapability):
     def get_hooks(self) -> AgentHooks | None:
         return self.capability.get_hooks() if self.capability else None
 
-    def get_model_settings(self, ctx: RunContext[Any] | None = None) -> dict[str, Any]:
+    def get_model_settings(  # type: ignore[override]
+        self, ctx: RunContext[Any] | None = None
+    ) -> dict[str, Any]:
         return self.capability.get_model_settings(ctx) if self.capability else {}
 
 

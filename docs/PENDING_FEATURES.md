@@ -8,21 +8,18 @@
 
 ## 🎯 Active Release Focus
 
-### Current Milestone: `v0.2.9` (Active Release)
-1. **Universal Multi-Stage Workflow Orchestration Pipeline (`src/devops_cli/pipeline/`)**: Generic strongly typed `StagePipeline[ContextT, ResultT]` framework with `@trace_span` telemetry, context scratchpad handoffs, and error containment.
-2. **Unified Async HTTP/2 Connection Broker (`src/devops_cli/http/broker.py`)**: Centralized `HttpClientBroker` with HTTP/2 multiplexing, SSRF private network isolation, and traceparent propagation.
-3. **Local Kubernetes Chaos & Fault Injection Engine (`src/devops_cli/k8s/chaos_runner.py`)**: Declarative chaos fault injector supporting pod disruption, latency simulation, and auto-recovery validation.
-4. **Continuous IDE File Watcher & Instant Review (`devops ai review path --watch`)**: Watchdog-backed listener triggering incremental multi-persona reviews on active file changes.
-5. **Automated Dependency Vulnerability Remediation PR Engine (`devops scan fix`)**: Lockfile-aware automated CVE patching via `uv lock --upgrade-package`, dry-run summaries, and git topic branch staging.
-6. **Isolated Dockerized Workload Sandbox Environment (`devops test sandbox` / `devops docker sandbox`)**: Ephemeral, rootless container test harness and isolated execution sandbox for multi-container integration tests.
-7. **Enterprise Vault & Cloud KMS Secret Broker (`devops vault`, `devops config vault`)**: HashiCorp Vault REST API and Cloud KMS secret broker with KV-v2 engine support, zero-plaintext storage, and OS Keyring fallback.
-8. **Kubernetes Background Port-Forward Daemon Management (`devops k8s port-forward --daemon|status|stop`)**: Background process lifecycle tracking with managed PID state (`.data/k8s/port_forwards.json`), status inspection, and graceful termination.
+### Current Milestone: `v0.2.10` (Release Candidate)
+1. **Native Pydantic AI Framework Subsystem Adoption**: Full adoption of native `pydantic_ai` modules (`toolsets`, `tools`, `template`, `settings`, `run`, `retries`, `result`, `profiles`, `providers`, `output`, `models.ollama`, `mcp`, `function_signature`, `format_prompt`, `exceptions`, `durable_exec`, `direct`, `concurrency`, `capabilities`, `common_tools`).
+2. **Autonomous Common Hallucinations Registry & Hardened Matching Engine**: Category-aligned similarity guards, stop words filter, ground-truth verification, and protected canonical definitions in `src/devops_cli/ai/review/common_hallucinations.py`.
+3. **Secret Sanitizer Regex Hardening**: Protected variable identifiers (e.g. `secret_storage_failed`) from accidental diff masking in `sanitization.py`.
+4. **Codebase Security & Robustness Remediations**: Hardened path containment across `ext_langchain.py`, `media.py`, `vault_broker.py`, `auto_fix.py`; SSRF domain handling in `common_tools.py` and `capabilities.py`; flag injection protections in `chaos_runner.py` and `difftastic.py`; and system path disclosure sanitization in `complexity.py` and `kubelinter.py`.
+5. **Persona & Verification Prompt Tuning**: Harmonized modern Python 3.14 PEP 758 multi-exception syntax and sanitization placeholder guidance across review prompts (`devsecops`, `architect`, `verify_finding_system.md`).
+6. **Dedicated Agent Operational Task Tracking**: Canonical task status tracking under `docs/agent/task.md` (`docs/agent/README.md`).
+7. **Codebase Hygiene, Elimination of Forbidden Patterns, and Zombie Code Removal**: Eradication of hardcoded extension sets, elimination of monkey-patch shims on `NativeRunContext` in favor of clean subclassing, removal of legacy aliases (`Tool.func`, `NativeMCPToolset`, `DevOpsCLIError.code`, `scan gitleaks/semgrep/checkov`, `rag reset`, `run_shell`, `main`, `scan_main`, `scan_app`), parameter and fallback consolidation (`now`, `DEVOPS_CLI_DATA_DIR`), and replacement of arbitrary synthetic scoring floats with mathematical keyword overlap ratios.
 
-### Previous Milestone: `v0.2.8` (Completed)
-1. **Output Subsystem Modularization (`src/devops_cli/output/formatters/`)**: Deconstructed monolithic formatter into `scalars.py`, `tables.py`, and `panels.py`.
-2. **Language Message Catalog & Badge Localization (`src/devops_cli/lang/en/messages.py`)**: Complete localization of terminal badges, status indicators, and headers via `BadgeMessages` and `OutputMessages`.
-3. **Declarative Dispatch Registries**: Table-driven AST symbols (`ast_stream.py`), AI capability settings (`capabilities.py`, `workflow.py`), and compaction strategies (`compaction.py`).
-4. **Zombie Code & Legacy Shim Elimination**: Removed deprecated re-export shims and merged models directly into authoritative modules.
+### Previous Milestones
+- **`v0.2.9` (Completed)**: Universal Multi-Stage Workflow Orchestration Pipeline (`src/devops_cli/pipeline/`), Unified Async HTTP/2 Connection Broker (`src/devops_cli/http/broker.py`), Local Kubernetes Chaos & Fault Injection Engine (`src/devops_cli/k8s/chaos_runner.py`), Continuous IDE File Watcher (`devops ai review path --watch`), Automated Dependency Vulnerability Remediation PR Engine (`devops scan fix`), Isolated Dockerized Workload Sandbox (`devops docker sandbox`), Enterprise Vault & Cloud KMS Secret Broker (`devops vault`), Kubernetes Background Port-Forward Daemon (`devops k8s port-forward`).
+- **`v0.2.8` (Completed)**: Output Subsystem Modularization (`src/devops_cli/output/formatters/`), Language Message Catalog & Badge Localization (`src/devops_cli/lang/en/messages.py`), Declarative Dispatch Registries, Zombie Code Elimination.
 
 ### Upcoming Milestone: `v0.3.0` (Scheduled)
 1. **Multi-Region Workstation Mesh & Cluster Federation**: Cross-cluster service discovery and state sync.

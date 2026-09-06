@@ -50,12 +50,21 @@ async def get_system_status() -> SystemStatusResponse:
         "ollama",
         "gh",
     ]
+    from pathlib import Path
+
     tool_status: dict[str, ToolStatus] = {}
     for tool in tools_to_check:
         tool_path = shutil.which(tool)
+        masked_path: str | None = None
+        if tool_path:
+            p = Path(tool_path)
+            if any(part in ("home", "Users", "root") for part in p.parts):
+                masked_path = f"[bin]/{p.name}"
+            else:
+                masked_path = tool_path
         tool_status[tool] = ToolStatus(
             installed=tool_path is not None,
-            path=tool_path,
+            path=masked_path,
         )
 
     tracer = get_tracer()

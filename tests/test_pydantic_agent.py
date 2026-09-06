@@ -1055,3 +1055,159 @@ def test_web_search_and_web_fetch_full_branches() -> None:
     # WebFetch local=list
     wf_list = WebFetch(native=False, local=[fetch_fn])
     assert len(wf_list.get_tools()) == 1
+
+
+def test_native_agent_exports_and_models() -> None:
+    """Verify native pydantic_ai Agent types are re-exported and accessible."""
+    from devops_cli.ai.agents import (
+        AbstractAgent,
+        Agent,
+        AgentModelSettings,
+        AgentRun,
+        AgentRunResult,
+        EndStrategy,
+        InstrumentationSettings,
+    )
+    from devops_cli.ai.agents.pydantic_agent import (
+        CallToolsNode,
+        EventStreamHandler,
+        EventStreamProcessor,
+        ModelRequestNode,
+        NativeToolFunc,
+        ParallelExecutionMode,
+        ToolsPrepareFunc,
+        UserPromptNode,
+    )
+
+    assert Agent is not None
+    assert AbstractAgent is not None
+    assert AgentRun is not None
+    assert AgentRunResult is not None
+    assert AgentModelSettings is not None
+    assert InstrumentationSettings is not None
+    assert EndStrategy is not None
+    assert CallToolsNode is not None
+    assert EventStreamHandler is not None
+    assert EventStreamProcessor is not None
+    assert ModelRequestNode is not None
+    assert NativeToolFunc is not None
+    assert ToolsPrepareFunc is not None
+    assert UserPromptNode is not None
+    assert ParallelExecutionMode is not None
+
+
+def test_resolve_pydantic_ai_model() -> None:
+    """Verify resolve_pydantic_ai_model correctly handles Ollama, TestModel, and models."""
+    from pydantic_ai.models.ollama import OllamaModel
+    from pydantic_ai.models.test import TestModel
+
+    from devops_cli.ai.pydantic_ai_bridge import resolve_pydantic_ai_model
+    from devops_cli.config.settings import Settings
+
+    # 1. Test model string
+    m_test = resolve_pydantic_ai_model("test")
+    assert isinstance(m_test, TestModel)
+
+    # 2. Existing Model instance passed directly
+    existing = TestModel()
+    assert resolve_pydantic_ai_model(existing) is existing
+
+    # 3. None model returns None
+    assert resolve_pydantic_ai_model(None) is None
+
+    # 4. Ollama model resolution with settings
+    custom_settings = Settings()
+    custom_settings.ai.ollama_urls = ["http://my-ollama-cluster:11434"]
+    m_ollama = resolve_pydantic_ai_model("ollama:qwen2.5-coder:latest", settings=custom_settings)
+    assert isinstance(m_ollama, OllamaModel)
+    assert m_ollama.model_name == "qwen2.5-coder:latest"
+    assert "my-ollama-cluster" in str(m_ollama.provider.base_url)
+
+
+def test_create_pydantic_ai_agent_native_execution() -> None:
+    """Verify create_pydantic_ai_agent constructs native Agent and supports run_sync with TestModel."""
+    from pydantic_ai.agent import Agent
+    from pydantic_ai.models.test import TestModel
+
+    from devops_cli.ai.pydantic_ai_bridge import create_pydantic_ai_agent
+    from devops_cli.ai.review_schema import ReviewResult
+
+    agent = create_pydantic_ai_agent(
+        model_name=TestModel(custom_output_args={"summary": "Automated code review passed"}),
+        system_prompt="You are a reviewer.",
+        output_type=ReviewResult,
+    )
+    assert isinstance(agent, Agent)
+    assert agent.output_type is ReviewResult
+
+    # Run native run_sync
+    run_res = agent.run_sync("Review this diff")
+    assert run_res.output.summary == "Automated code review passed"
+    assert run_res.usage.requests >= 1
+
+
+def test_pydantic_agent_native_parity() -> None:
+    """Verify PydanticAgent supports output_type, output_json_schema, run_sync, and decorators."""
+    from unittest.mock import MagicMock
+
+    from devops_cli.ai.agents.agent import PydanticAgent
+    from devops_cli.ai.review_schema import ReviewResult
+
+    mock_client = MagicMock()
+    mock_client.chat_messages.return_value = '{"summary": "Parity test passed"}'
+    mock_client.chat_messages_stream.return_value = iter(["Parity ", "passed"])
+
+    agent = PydanticAgent[ReviewResult](
+        client=mock_client,
+        name="ParityAgent",
+        output_type=ReviewResult,
+    )
+
+    assert agent.output_type is ReviewResult
+    assert isinstance(agent.output_json_schema, dict)
+    assert "properties" in agent.output_json_schema
+
+    # Decorator parity
+    @agent.system_prompt
+    def dynamic_inst() -> str:
+        return "Always check boundaries"
+
+    assert dynamic_inst in agent._dynamic_system_prompts
+
+    # run_sync execution
+    resp = agent.run_sync("Check security")
+    assert resp.content == '{"summary": "Parity test passed"}'
+    assert resp.output == resp.data if resp.data is not None else resp.content
+
+    # run_stream_sync execution
+    tokens = list(agent.run_stream_sync("Check stream"))
+    assert "".join(tokens) == "Parity passed"
+
+    # to_cli execution
+    cli_out = agent.to_cli_sync("Run CLI prompt")
+    assert cli_out == str(resp.output)
+
+
+def test_agent_response_output_and_from_run_result() -> None:
+    """Verify AgentResponse.output and AgentResponse.from_run_result adaptation."""
+    from pydantic_ai.agent import Agent
+    from pydantic_ai.models.test import TestModel
+
+    from devops_cli.ai.agents.models import AgentResponse
+
+    # 1. Output property fallback
+    resp_text = AgentResponse(content="Simple text")
+    assert resp_text.output == "Simple text"
+
+    resp_data = AgentResponse(content="{}", data={"key": "val"})
+    assert resp_data.output == {"key": "val"}
+
+    # 2. Adaptation from native AgentRunResult
+    native_agent = Agent(TestModel(custom_output_text="From native run"))
+    native_run_res = native_agent.run_sync("Hi")
+
+    adapted = AgentResponse.from_run_result(native_run_res)
+    assert adapted.content == "From native run"
+    assert adapted.output == "From native run"
+    assert adapted.usage.input_tokens == native_run_res.usage.input_tokens
+    assert adapted.usage.output_tokens == native_run_res.usage.output_tokens

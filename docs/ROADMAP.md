@@ -31,7 +31,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
 - [x] **Pydantic Model Response Outputs**: Standardized Pydantic models for all `--dry-run` subcommands (`ReviewResult`, `AnalysisMetadata`, `CommandDryRunResult`).
 - [x] **Modular Dry-Run Package**: Modular `devops_cli.dry_run` package (`state.py`, `models.py`).
 - [x] **Dependency Vulnerability Scanner**: Automated package auditing (`devops ci audit` via `uv audit`) and `UV_MALWARE_CHECK=1` devcontainer integration.
-- [x] **Python 3.14 Exception Standardization**: Enforced parenthesized tuples (`except (Err1, Err2):`) and centralized `LanguageCatalog` literal management.
+- [x] **Python 3.14 Exception Standardization**: Standardized exception clauses supporting modern PEP 758 bracketless syntax (`except Err1, Err2:`) alongside parenthesized tuples and centralized `LanguageCatalog` literal management.
 
 ### Line-Level PR Comments & Custom Personas (v0.1.1 - Completed)
 - [x] **Line-Level GitHub PR Inline Comments**: Post persona review findings directly to PR diff line hunks via GitHub API (`create_pr_review_comment`).
@@ -90,7 +90,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
 - [x] **Multi-Cloud Kubernetes Infrastructure Modules (`tf/`)**: Production OpenTofu manifests for provisioning Kubernetes clusters and VPC networking across AWS (EKS), Azure (AKS), and Google Cloud (GKE) tailored for deploying project `k8s/` resources.
 - [x] **Reusable Docker Dev Container Package (GHCR Image)**: Integrated `devcontainers/ci@v0.3` and `docker/login-action@v3` into release workflow publishing pre-built workstation containers to `ghcr.io/dan-petty/devops-cli/devcontainer:<version>` and `latest`.
 - [x] **OpenTofu FastMCP Tools (`tf_plan`, `tf_apply`, `tf_output`)**: Model Context Protocol bridge and agent tools for autonomous infrastructure operations.
-- [x] **AI Review Feedback & Verification Remediation**: Standardized Python 3 exception tuples, Pydantic `Field(default_factory=...)` mutable defaults, and verified finding invalidation benchmark exports (`.data/feedback_dataset.jsonl`).
+- [x] **AI Review Feedback & Verification Remediation**: Modernized Python 3 exception handling (PEP 758 compatibility), Pydantic `Field(default_factory=...)` mutable defaults, and verified finding invalidation benchmark exports (`.data/feedback_dataset.jsonl`).
 
 ### Distributed Observability, Tracing & Telemetry (v0.2.0 - Completed)
 - [x] **FastAPI REST & OpenAPI Service Engine (`devops serve`)**: Native asynchronous FastAPI HTTP service (`uvicorn` / `fastapi`) exposing REST endpoints for remote CLI invocation, AI review triggers, workspace status queries, and health probes with auto-generated OpenAPI documentation and Swagger UI.
@@ -209,7 +209,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
 - [x] **Declarative Dispatch Tables & Cyclomatic Complexity Elimination**: Replaced procedural `if/elif` branching across AST streaming, AI capabilities, compaction passes, and configuration coercion with declarative registries.
 - [x] **Zombie Code & Legacy Shim Removal**: Eliminated obsolete shims (`ai/review/rendering.py`, `models/dry_run.py`, `core/dry_run.py`, `models/github.py`).
 
-### Universal Stage Pipelines, HTTP/2 Broker & K8s Chaos Runner (v0.2.9 - Active Release)
+### Universal Stage Pipelines, HTTP/2 Broker & K8s Chaos Runner (v0.2.9 - Completed)
 - [x] **Universal Multi-Stage Workflow Orchestration Protocol (`src/devops_cli/pipeline/`)**:
   - Generic, strongly typed stage pipeline abstraction (`StagePipeline[ContextT, ResultT]`, `PipelineStage`) unifying sequential and DAG-based stage execution.
   - Granular `@trace_span` telemetry waterfalls, error isolation, and metrics collection.
@@ -227,6 +227,20 @@ High-density product roadmap, engineering milestones, and open-source integratio
   - AST- and lockfile-aware autonomous patching engine resolving CVEs via lockfile updates (`uv lock --upgrade-package`), dry-run summaries, and git topic branch staging.
 - [x] **Kubernetes Background Port-Forward Daemon Management (`devops k8s port-forward --daemon|status|stop`)**:
   - Background process lifecycle tracking with managed PID state (`.data/k8s/port_forwards.json`), status inspection, and graceful termination.
+
+### PydanticAI Native Framework & Hallucination Scrutiny Pipeline (v0.2.10 - Completed)
+- [x] **PydanticAI Native Framework Subsystems**: Comprehensive adoption of native `pydantic_ai` modules (`toolsets`, `tools`, `template`, `settings`, `run`, `retries`, `result`, `profiles`, `providers`, `output`, `models.ollama`, `mcp`, `function_signature`, `format_prompt`, `exceptions`, `durable_exec`, `direct`, `concurrency`, `capabilities`, `common_tools`).
+- [x] **Python 3.14 PEP 758 Bracketless Exception Compliance**: Elimination of legacy instructions demanding parenthesized tuples; standardizing modern `except Exc1, Exc2:` syntax recognition across review personas and verification gates.
+- [x] **Common AI Hallucination Catalog & Autonomous Management (`devops_cli.ai.review.common_hallucinations`)**:
+  - Centralized registry of recurring AI hallucinations (`CommonHallucinationEntry`), similarity matching (`find_similar_hallucinations`), and autonomous learning from invalidated findings (`auto_record_invalidated_finding`).
+  - Native tracking of high-frequency false positives: PEP 758 bracketless exceptions, masked secret placeholders (`<masked-*>`), test fixtures, `httpx2` reputation, and documentation anti-pattern citations.
+- [x] **Multi-Layer Verification Scrutiny for Common Hallucinations**:
+  - Category-aligned similarity guards preventing syntax rules from over-matching security defects (path traversal, SSRF, injection).
+  - Stop-words filtering in `_FORBIDDEN_COMMON_WORDS` to prevent generic words from contaminating signature keywords.
+  - Ground-truth verification (`verify_ground_truth_hallucination`) before invalidating findings.
+  - Persona and verification prompt tuning (`devsecops`, `architect`, `verify_finding_system.md`).
+- [x] **Dedicated Agent Operational Task Tracking Tier (`docs/agent/`)**:
+  - Canonical task status tracking under `docs/agent/task.md` with explicit lifecycle guidelines (`docs/agent/README.md`).
 
 ### Multi-Cloud Mesh & Production Ecosystem (v0.3.0 - Future Vision)
 - [ ] **Multi-Region Workstation Mesh & Cluster Federation**: Distributed cluster management across hybrid on-prem homelab and multi-cloud Kubernetes clusters with automatic service mesh routing.
@@ -341,6 +355,9 @@ High-density product roadmap, engineering milestones, and open-source integratio
 | | Trace-Driven Automated Performance Regression Detection | OTel / Prometheus | High | Medium | v0.2.8 | 📋 Scheduled |
 | | Isolated Dockerized Workload Sandbox Environment | Docker / Testcontainers / Dagger | High | Medium | v0.2.8 | 📋 Scheduled |
 | | Automated Vector Storage Compaction & Pruning | Qdrant Client / SQLite | Medium | Medium | v0.2.8 | 📋 Scheduled |
+| | Common AI Hallucination Scrutiny Pipeline | Pydantic / AST / Verification | High | Medium | v0.2.10 | ✅ Completed |
+| | Native Pydantic AI Framework Subsystems | PydanticAI / FastMCP | High | Medium | v0.2.10 | ✅ Completed |
+| | Codebase Hygiene & Zombie Code Elimination | Standard Lib / AST / Mimetypes | High | Medium | v0.2.10 | ✅ Completed |
 | | Multi-Region Workstation Mesh & Cluster Federation | Kubernetes / Fleet | High | High | v0.3.0 | 💡 Future Vision |
 | | Autonomous Self-Healing Agent Pipeline | PydanticAI / Diagnostic | High | High | v0.3.0 | 💡 Future Vision |
 | | Cloud-Native Ephemeral Test Environment Engine | Minikube / Helm / Ingress | High | Medium | v0.3.0 | 💡 Future Vision |

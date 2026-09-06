@@ -87,7 +87,7 @@ class FileSystem(BaseCapability):
     def _resolve_safe_path(self, rel_path: str) -> Path:
         resolved = (self.root.resolve() / rel_path).resolve()
         root_res = self.root.resolve()
-        if not str(resolved).startswith(str(root_res)):
+        if not resolved.is_relative_to(root_res):
             raise PermissionError(f"Access denied: path '{rel_path}' is outside root '{self.root}'")
         return resolved
 
