@@ -147,3 +147,47 @@ def test_common_hallucinations_missing_symbol_false_alarm(tmp_path: Path) -> Non
     # Ground truth verification should confirm symbol exists in module AST
     is_hallucination = verify_ground_truth_hallucination(finding, entry, py_file)
     assert is_hallucination is True
+
+
+def test_mask_secrets_unquoted_token_with_dots() -> None:
+    yaml_snippet = "api_key: abc.def.1234567890abcdef12345\n"
+    masked = _mask_secrets_in_content(yaml_snippet)
+    assert "abc.def" not in masked
+    assert "api_key=<masked-api-key>" in masked
+
+
+def test_verify_symbol_defined_in_ast_or_module_fallback(tmp_path: Path) -> None:
+    import ast
+
+    from devops_cli.ai.review.common_hallucinations import _verify_symbol_defined_in_ast_or_module
+
+    py_file = tmp_path / "sample.py"
+    py_file.write_text("x = 1\n", encoding="utf-8")
+    tree = ast.parse("x = 1\n")
+
+    # Case 1: No candidate symbol in finding text -> must return False to avoid false invalidation
+    finding_no_symbol = Finding(
+        severity="LOW",
+        location=f"{py_file}:1",
+        title="Generic issue without identifier",
+        description="Something is missing here",
+    )
+    assert _verify_symbol_defined_in_ast_or_module(finding_no_symbol, tree, py_file) is False
+
+    # Case 2: Candidate symbol is genuinely missing -> must return False
+    finding_missing_symbol = Finding(
+        severity="HIGH",
+        location=f"{py_file}:1",
+        title="Missing NON_EXISTENT_VAR",
+        description="NON_EXISTENT_VAR is not defined",
+    )
+    assert _verify_symbol_defined_in_ast_or_module(finding_missing_symbol, tree, py_file) is False
+
+    # Case 3: Candidate symbol is defined in AST -> returns True
+    finding_existing_symbol = Finding(
+        severity="HIGH",
+        location=f"{py_file}:1",
+        title="Missing `x` variable",
+        description="`x` is not defined",
+    )
+    assert _verify_symbol_defined_in_ast_or_module(finding_existing_symbol, tree, py_file) is True

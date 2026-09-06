@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import collections
 import json
+import re
 from pathlib import Path
 
 from devops_cli.ai.review.pipeline import _get_reviews_base_dir
@@ -12,69 +14,24 @@ from devops_cli.models.vulnerability import DependencySpec, NetworkReference
 from devops_cli.output import print_info, print_success
 from devops_cli.telemetry.tracer import trace_span
 
-_ANTI_PATTERN_CATEGORIES: tuple[tuple[tuple[str, ...], str, str], ...] = (
-    (
-        (
-            "path traversal",
-            "traversal",
-            "symlink",
-            "relative_to",
-            "arbitrary file",
-            "outside repository",
-        ),
-        "Path Traversal & Filesystem Boundary Violations",
-        "Unvalidated file paths, missing containment checks, or unverified symlinks allowing access outside repository bounds.",
-    ),
-    (
-        (
-            "git://",
-            "insecure",
-            "unencrypted",
-            "cleartext",
-            "public access",
-            "cors",
-            "publicly accessible",
-            "unauthenticated",
-        ),
-        "Insecure Transport Protocols & Cleartext Endpoints",
-        "Use of unencrypted transport protocols (such as cleartext git://), overly permissive CORS, or unauthenticated services exposed to network access.",
-    ),
-    (
-        (
-            "argument validation",
-            "missing validation",
-            "unvalidated",
-            "unbounded",
-            "redos",
-            "regex",
-        ),
-        "Missing Parameter Validation & Unbounded Inputs",
-        "Tool arguments, search queries, or user inputs executed without strict length constraints, types, or sanitization.",
-    ),
-    (
-        (
-            "denial of service",
-            "dos",
-            "resource limit",
-            "large input",
-            "exhaustion",
-            "concurrency",
-        ),
-        "Resource Exhaustion & Denial-of-Service Hazards",
-        "Unbounded data ingestion, missing process count ceilings, or unconstrained memory caching risking resource starvation.",
-    ),
-    (
-        (
-            "information exposure",
-            "credential",
-            "leakage",
-            "admin credentials",
-            "secret",
-        ),
-        "Information Exposure & Sensitive Data Handling",
-        "Unmasked credentials, internal exception traces, or repository structures disclosed in outputs or logs.",
-    ),
-)
+_SEVERITY_WEIGHTS: dict[str, int] = {
+    "CRITICAL": 0,
+    "HIGH": 1,
+    "MEDIUM": 2,
+    "LOW": 3,
+    "INFORMATIONAL": 4,
+}
+
+
+def _derive_finding_theme(finding: SavedFinding) -> str:
+    """Extract a canonical theme or topic for a finding without brittle keyword lists."""
+    for ref in finding.references:
+        clean_ref = ref.strip()
+        if clean_ref.upper().startswith(("CWE-", "OWASP", "CVE-")):
+            return clean_ref.split(":")[0].strip()
+
+    clean_title = re.split(r"[:\-\(]", finding.title)[0].strip()
+    return clean_title or finding.title
 
 
 def extract_good_patterns(
@@ -102,32 +59,33 @@ def extract_good_patterns(
 
 
 def extract_bad_patterns(reportable_findings: list[SavedFinding]) -> list[str]:
-    """Synthesize recurring anti-patterns and defect classes from reportable findings."""
+    """Synthesize recurring anti-patterns and defect classes dynamically from findings."""
     if not reportable_findings:
         return [
             "No critical anti-patterns or recurring defect patterns identified across the evaluated scope."
         ]
 
+    groups: dict[str, list[SavedFinding]] = collections.defaultdict(list)
+    for f in reportable_findings:
+        theme = _derive_finding_theme(f)
+        groups[theme].append(f)
+
+    sorted_groups = sorted(
+        groups.items(),
+        key=lambda item: (
+            -len(item[1]),
+            min(_SEVERITY_WEIGHTS.get(f.severity.upper(), 5) for f in item[1]),
+        ),
+    )
+
     bad_patterns: list[str] = []
-    matched_indices: set[int] = set()
-
-    for keywords, category_title, description in _ANTI_PATTERN_CATEGORIES:
-        matching_count = 0
-        for idx, f in enumerate(reportable_findings):
-            text = f"{f.title} {f.description or ''} {f.location}".lower()
-            if any(kw in text for kw in keywords):
-                matching_count += 1
-                matched_indices.add(idx)
-
-        if matching_count > 0:
-            bad_patterns.append(
-                f"**{category_title}**: {description} (Observed in {matching_count} finding(s))."
-            )
-
-    unmatched_count = len(reportable_findings) - len(matched_indices)
-    if unmatched_count > 0:
+    for theme, findings in sorted_groups:
+        rep = findings[0]
+        max_sev = min(
+            findings, key=lambda f: _SEVERITY_WEIGHTS.get(f.severity.upper(), 5)
+        ).severity.upper()
         bad_patterns.append(
-            f"**Domain-Specific Edge Case Defects**: {unmatched_count} isolated finding(s) with specific functional or configuration flaws."
+            f"**{theme}**: {len(findings)} finding(s) identified (highest severity: {max_sev}). Representative issue: `{rep.title}` at `{rep.location}`."
         )
 
     return bad_patterns

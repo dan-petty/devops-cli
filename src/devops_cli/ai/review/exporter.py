@@ -97,7 +97,7 @@ def export_invalidated_feedback(
             for root in allowed_review_roots
         ):
             raise SecurityError(
-                f"Reviews directory escapes allowed workspace directory: {reviews_dir}"
+                f"Reviews directory escapes allowed workspace, reviews data, or temporary directory: {reviews_dir}"
             )
         r_dir = resolved_r_dir
     else:

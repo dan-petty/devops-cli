@@ -52,7 +52,7 @@ _SECRET_PATTERNS = (
     ),
     (
         re.compile(
-            r"\b(?:api[_-]?key|access[_-]?token|bearer[_-]?token|auth[_-]?token)\s*[:=]\s*(?:[\"'][A-Za-z0-9_\-.]{16,}[\"']|(?![\"'])[A-Za-z0-9_\-]{20,}(?!\s*[\(\.]))",
+            r"\b(?:api[_-]?key|access[_-]?token|bearer[_-]?token|auth[_-]?token)\s*[:=]\s*(?:[\"'][A-Za-z0-9_\-.]{16,}[\"']|(?![\"'])[A-Za-z0-9_\-.]{20,}\b(?!\s*\())",
             re.IGNORECASE,
         ),
         "api_key=<masked-api-key>",

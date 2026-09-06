@@ -482,14 +482,22 @@ def _verify_symbol_defined_in_ast_or_module(
 ) -> bool:
     """Verify whether a symbol claimed as missing actually exists in the file AST or exports."""
     finding_text = f"{finding.title} {finding.description or ''}"
-    symbols = re.findall(r"\b[A-Z0-9_]{3,}\b", finding_text)
-    if not symbols:
-        return True
+    backtick_candidates = set(re.findall(r"`([A-Za-z0-9_]+)`", finding_text))
+    word_candidates = set(re.findall(r"\b[A-Z0-9_]{3,}\b", finding_text))
+    all_candidates = backtick_candidates | {w for w in word_candidates if len(w) >= 3}
+    clean_symbols = [s for s in all_candidates if s.lower() not in _FORBIDDEN_COMMON_WORDS]
+    if not clean_symbols:
+        return False
 
     defined_names = _extract_defined_ast_names(tree)
     raw_text = file_path.read_text(encoding="utf-8", errors="replace")
-    for sym in symbols:
-        if sym in defined_names or f"{sym} =" in raw_text or f"def {sym}" in raw_text:
+    for sym in clean_symbols:
+        if (
+            sym in defined_names
+            or f"{sym} =" in raw_text
+            or f"def {sym}" in raw_text
+            or f"class {sym}" in raw_text
+        ):
             return True
 
     return False
