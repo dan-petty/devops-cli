@@ -314,6 +314,5 @@
 ---
 
 ### Pending Tasks
-- Await maintainer review and merge approval for PR #32 (`refactor/codebase-drift-remediation`) targeting `release/v0.2.11`.
-- Await maintainer review and merge approval for PR #34 (`docs/valkey-roadmap-and-knowledge-base`) targeting `release/v0.2.11`.
-- Await maintainer review and merge approval for PR #35 (`docs/library-ingestion-roadmap-and-features`) targeting `release/v0.2.11`.
+- Await maintainer review and merge approval for PR #34 targeting `release/v0.2.11` (PR #32 and PR #33 merged).
+- Await maintainer review and merge approval for PR #35 targeting `release/v0.2.11`.
