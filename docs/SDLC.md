@@ -216,7 +216,11 @@ flowchart LR
   - `pm`: Evaluates documentation alignment, user-facing error messages, and release notes accuracy.
   - `auditor`: Verifies license compliance, supply chain provenance, and invariant gate conformance.
 - **Knowledge Base Fact Grounding**: Review personas cross-reference findings against the DevOps CLI Knowledge Base (`src/devops_cli/ai/knowledge_base/`) to eliminate hallucinations (such as flagging verified dependencies like `httpx2` as suspicious).
-- **Finding Verification Engine**: `devops review verify` inspects findings using AST analysis and git diff validation before presenting recommendations to developers.
+- **Finding Verification Engine & Feedback Loop**: `devops review verify` inspects findings using AST analysis, prompt sanitization marker protection (`<masked-*>`), and git diff validation before presenting recommendations to developers. Invalidated items are automatically ingested into `.data/common_hallucinations.json` and feedback datasets (`feedback_dataset.jsonl`) to continuously improve future reviews.
+- **Executive Summary & Pattern Synthesis**: Review reports (`review.md`) lead with an Executive Summary statement detailing:
+  - High-level synthesis of code health and risk distribution across evaluated files.
+  - **Key Good Patterns Observed**: Explicit recognition of architectural invariants, strong typing, bounded subprocesses, and test isolation.
+  - **Key Anti-Patterns / Bad Patterns Observed**: Categorized breakdown of recurring defect classes (path traversal, insecure transport protocols, unvalidated parameters, resource limits) or confirmation of a clean assessment.
 
 ---
 
