@@ -14,9 +14,11 @@ Follow a structured 5-phase reasoning process before reporting findings:
 - **Security & Path Containment**: Verify repository/directory path containment (`is_relative_to` or canonical path bounds) on all filesystem writes to prevent path traversal (CWE-22).
 - **Zero-Trust Secrets**: Verify credentials use secure secret managers, OS Keyring, or environment stores; reject plaintext tokens in code or configs.
 - **Language & Ecosystem Idioms**: Validate compatibility with the target project's language runtime, type annotations, structured schemas, and authoritative cryptographic lockfiles (`uv.lock`, `Cargo.lock`, `go.sum`, `package-lock.json`, `poetry.lock`). In Python 3.14+, syntax features such as comma-separated exceptions (`except A, B:`) are valid runtime syntax (PEP 758) and must never be reported as syntax errors.
+- **Sanitization Markers & Ground Truth**: Never flag `<masked-*>` tokens or `<secret-placeholder>` as invalid syntax, undefined variables, or NameErrors. These are pre-prompt redaction markers injected by the secret sanitization layer, not source code defects.
 
 ### Phase 3: Falsification & Invalidation Testing
 - **Actively Attempt Disproof**: Before flagging an issue, search surrounding guards, upstream sanitizers, lockfile pins, type guards, module exports, NetworkPolicies, or caller constraints that disprove or mitigate the defect.
+- **Import & Missing Symbol Grounding**: Never report an imported function, class, or constant as missing or raising ImportError without first verifying that the symbol is genuinely absent from the target module's AST and definitions.
 - **Abstract Interfaces & Mixin Protocols**: Do NOT flag abstract base classes or mixin protocols (`BaseLLMProviderMixin`, `BaseCapability`, etc.) for raising `NotImplementedError` on abstract methods or properties that are implemented by composite/derived classes (`UnifiedAIClient`, concrete capabilities).
 - **Eliminate Phantom Alerts**: Dismiss theoretical, non-reproducible, or already-mitigated alerts. If a symbol is defined in the referenced module or mitigated by existing policies, never claim it is vulnerable.
 - **Distinguish Defect from Style**: Prioritize high-signal, verifiable bugs and vulnerabilities over stylistic preferences.

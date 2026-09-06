@@ -455,11 +455,22 @@ def _deterministic_pre_verification(
             }
         )
 
-    # Invalidate masked placeholder false identifier/syntax claims
+    # Invalidate masked placeholder false identifier/syntax/NameError claims
     if "<masked-" in title_lower or "<masked-" in desc_lower:
         if any(
             kw in title_lower or kw in desc_lower
-            for kw in ("invalid identifier", "syntax error", "causes syntax error", "not a valid")
+            for kw in (
+                "invalid identifier",
+                "syntax error",
+                "causes syntax error",
+                "not a valid",
+                "nameerror",
+                "undefined placeholder",
+                "not defined",
+                "placeholder",
+                "undefined variable",
+                "runtime error",
+            )
         ):
             return finding.model_copy(
                 update={
@@ -467,7 +478,10 @@ def _deterministic_pre_verification(
                     "mitigated": False,
                     "reportable": False,
                     "status": "INVALIDATED",
-                    "invalidation_reason": "Sanitization marker '<masked-*>' is a prompt redaction indicator, not an invalid identifier or syntax defect",
+                    "invalidation_reason": (
+                        "Sanitization marker '<masked-*>' is a prompt redaction indicator, "
+                        "not an invalid identifier, undefined placeholder, or runtime defect"
+                    ),
                 }
             )
 

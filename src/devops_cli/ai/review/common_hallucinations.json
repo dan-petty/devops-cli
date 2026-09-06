@@ -143,25 +143,30 @@
     "source": "builtin"
   },
   {
-    "id": "HALLUCINATION-MASKED-IDENTIFIER",
-    "name": "Masked Placeholder Claimed as Invalid Syntax Identifier",
+    "id": "HALLUCINATION-MASKED-PLACEHOLDER",
+    "name": "Masked Placeholder Claimed as Invalid Syntax or NameError",
     "category": "syntax_grammar",
-    "description": "Claiming that sanitization placeholders like <masked-secret> or <masked-token> are invalid Python syntax identifiers or cause SyntaxError during import.",
+    "description": "Claiming that sanitization placeholders like <masked-secret>, <masked-token>, or <masked-api-key> are invalid Python syntax identifiers, undefined placeholders, or cause NameError/SyntaxError at runtime.",
     "signature_patterns": [
       "invalid\\s+identifier.*<masked-[a-zA-Z0-9_\\-]+>",
-      "<masked-[a-zA-Z0-9_\\-]+>.*(?:syntaxerror|invalid\\s+identifier)",
-      "<masked-[a-zA-Z0-9_\\-]+>\\s*causes\\s+syntax\\s+error"
+      "<masked-[a-zA-Z0-9_\\-]+>.*(?:syntaxerror|invalid\\s+identifier|nameerror|undefined)",
+      "<masked-[a-zA-Z0-9_\\-]+>\\s*causes\\s+(?:syntax\\s+error|nameerror)",
+      "undefined\\s+placeholder.*(?:<masked-|api\\s+key)",
+      "(?:placeholder\\s+<masked-[a-zA-Z0-9_\\-]+>|uses\\s+a\\s+placeholder\\s+<masked-)"
     ],
     "pattern_keywords": [
       "masked_identifier",
-      "masked_syntax_error"
+      "masked_syntax_error",
+      "masked_placeholder",
+      "undefined_placeholder",
+      "masked_nameerror"
     ],
     "file_patterns": [
       "*.py"
     ],
-    "resolution": "<masked-*> markers are prompt sanitization indicators, not literal code syntax identifiers.",
-    "occurrence_count": 1,
-    "last_seen": "2026-09-05T00:00:00",
+    "resolution": "<masked-*> markers are prompt sanitization indicators, not literal code syntax identifiers or undefined variables.",
+    "occurrence_count": 2,
+    "last_seen": "2026-09-06T00:00:00",
     "source": "builtin"
   },
   {
@@ -193,18 +198,22 @@
     "signature_patterns": [
       "(?:missing|undefined)\\s+[A-Z0-9_]+\\s+(?:import|symbol|variable|constant)",
       "does\\s+not\\s+define\\s+(?:this\\s+name|DEFAULT_HTTP_BROKER)",
-      "causes?\\s+importerror.*(?:does\\s+not\\s+define|never\\s+defined)"
+      "causes?\\s+importerror.*(?:does\\s+not\\s+define|never\\s+defined)",
+      "importerror.*(?:DEFAULT_HTTP_BROKER|not\\s+defined)",
+      "DEFAULT_HTTP_BROKER.*(?:importerror|not\\s+defined|missing)"
     ],
     "pattern_keywords": [
       "missing_symbol_false_alarm",
       "false_importerror",
-      "default_http_broker"
+      "default_http_broker",
+      "missing_symbol",
+      "importerror"
     ],
     "file_patterns": [
       "*.py"
     ],
     "resolution": "Verify ground-truth AST or module definitions before claiming an imported symbol is missing or causes ImportError.",
-    "occurrence_count": 1,
+    "occurrence_count": 2,
     "last_seen": "2026-09-06T00:00:00",
     "source": "builtin"
   }
