@@ -52,6 +52,8 @@ class AgentInfo(BaseModel):
 class TestModel(BaseModel):
     """Deterministic mock model for unit testing agent logic and tool orchestration without real LLMs."""
 
+    __test__ = False
+
     model_name: str = "test"
     custom_output_text: str | None = None
     custom_output_args: dict[str, Any] | None = None

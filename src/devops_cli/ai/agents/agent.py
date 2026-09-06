@@ -91,6 +91,55 @@ class SystemPrompt(str):
         return func
 
 
+def _extract_single_toolset_instructions(ts: Any, ctx: RunContext[Any] | None) -> list[str]:
+    """Safely extract system prompt instructions from a toolset instance."""
+    try:
+        if not isinstance(ts, (AbstractToolset, PyAIAbstractToolset)):
+            return []
+        try:
+            instructions = (
+                cast(Any, ts).get_instructions(ctx)
+                if ctx is not None
+                else cast(Any, ts).get_instructions()
+            )
+        except TypeError:
+            instructions = cast(Any, ts).get_instructions()
+
+        if inspect.iscoroutine(instructions):
+            instructions.close()
+            return []
+    except Exception:
+        return []
+
+    if instructions is None:
+        return []
+    if isinstance(instructions, str):
+        return [instructions.strip()] if instructions.strip() else []
+    if hasattr(instructions, "content"):
+        c_text = str(instructions.content).strip()
+        return [c_text] if c_text else []
+    if isinstance(instructions, (list, tuple)):
+        return [
+            str(getattr(item, "content", item)).strip()
+            for item in instructions
+            if str(getattr(item, "content", item)).strip()
+        ]
+    return []
+
+
+def _format_tools_description_block(tools: dict[str, Any]) -> str:
+    """Format available tools into prompt description block."""
+    tools_desc: list[str] = []
+    for name, tool in tools.items():
+        params_str = json.dumps(tool.parameters, separators=(",", ":"))
+        raw_desc = tool.description or tool.name or ""
+        desc = "".join(c for c in raw_desc.replace("\n", " ") if 32 <= ord(c) <= 126)
+        if len(desc) > 300:
+            desc = desc[:297] + "..."
+        tools_desc.append(f"- `{name}`: {desc} params={params_str}")
+    return _TOOL_PROTOCOL_TEMPLATE.format(tools_desc="\n".join(tools_desc))
+
+
 class PydanticAgent[T, DepsT = Any]:
     """Agent built on Pydantic models supporting tools, memory, reasoning, streaming, and context."""
 
@@ -560,35 +609,7 @@ class PydanticAgent[T, DepsT = Any]:
 
         # Toolset instruction additions
         for ts in self.toolsets:
-            try:
-                if isinstance(ts, (AbstractToolset, PyAIAbstractToolset)):
-                    try:
-                        instructions = (
-                            cast(Any, ts).get_instructions(ctx)
-                            if ctx is not None
-                            else cast(Any, ts).get_instructions()
-                        )
-                    except TypeError:
-                        instructions = cast(Any, ts).get_instructions()
-                else:
-                    instructions = None
-            except Exception:
-                instructions = None
-
-            if instructions is None:
-                continue
-            if isinstance(instructions, str):
-                if instructions.strip():
-                    prompt_parts.append(instructions.strip())
-            elif hasattr(instructions, "content"):
-                c_text = str(instructions.content).strip()
-                if c_text:
-                    prompt_parts.append(c_text)
-            elif isinstance(instructions, (list, tuple)):
-                for item in instructions:
-                    text = str(getattr(item, "content", item)).strip()
-                    if text:
-                        prompt_parts.append(text)
+            prompt_parts.extend(_extract_single_toolset_instructions(ts, ctx))
 
         # Advertise available deferred capabilities in prompt catalog
         unloaded_caps = [
@@ -614,17 +635,7 @@ class PydanticAgent[T, DepsT = Any]:
             prompt_parts.append(f"## Prior Interaction & Memory Summary\n{sanitized_summary}")
 
         if self._tools:
-            tools_desc: list[str] = []
-            for name, tool in self._tools.items():
-                params_str = json.dumps(tool.parameters, separators=(",", ":"))
-                raw_desc = tool.description or tool.name or ""
-                desc = "".join(c for c in raw_desc.replace("\n", " ") if 32 <= ord(c) <= 126)
-                if len(desc) > 300:
-                    desc = desc[:297] + "..."
-                tools_desc.append(f"- `{name}`: {desc} params={params_str}")
-
-            tools_block = _TOOL_PROTOCOL_TEMPLATE.format(tools_desc="\n".join(tools_desc))
-            prompt_parts.append(tools_block)
+            prompt_parts.append(_format_tools_description_block(self._tools))
 
         if self.output_schema is not None:
             schema_getter = getattr(self.output_schema, "model_json_schema", None)
