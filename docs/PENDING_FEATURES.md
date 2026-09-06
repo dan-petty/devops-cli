@@ -16,6 +16,11 @@
    - Standardized domain exception taxonomy inheriting from `DevOpsCLIError`, completely eradicating bare `ValueError`/`RuntimeError` across domain logic.
    - Clean test collection hygiene (`__test__ = False` on mock models) and unawaited coroutine prevention.
    - Automated architectural invariant quality gates in CI (`tests/test_architectural_invariants.py`).
+3. **FastMCP Server Tool Expansion & Antigravity Schema Integration**:
+   - Expanded FastMCP server from 53 to 72 registered tools achieving 1:1 parity with CLI subcommands (Kubernetes chaos/audit/lint/validate/diff, Trivy, Gitleaks, Semgrep, Checkov, AIBOM, SBOM, Vault, benchmark, git branch/PR).
+   - Introduced 4 FastMCP prompt templates and 6 dynamic system resources.
+   - Added `devops mcp export-schemas` subcommand.
+   - Synchronized lazy tool schemas directly to Antigravity IDE (`/home/vscode/.gemini/antigravity-ide/mcp/devops-cli/`).
 
 ### Previous Milestones
 - **`v0.2.10` (Completed)**: Native Pydantic AI Framework Subsystem Adoption, Autonomous Common Hallucinations Registry & Hardened Matching Engine, Secret Sanitizer Regex Hardening, Codebase Hygiene & Zombie Code Elimination.

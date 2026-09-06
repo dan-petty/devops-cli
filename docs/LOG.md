@@ -2,6 +2,25 @@
 
 Chronological log of refactoring milestones, quality gates, and security enhancements.
 
+### [2026-09-06] FastMCP Server Expansion, Tool Parity & Pydantic AI MCP Integration Validation
+- **FastMCP Server Expansion to 72 Registered Tools**:
+  - Added 19 missing tools bringing full parity with all core CLI subcommands:
+    - Security scanning: `scan_trivy`, `scan_gitleaks`, `scan_semgrep`, `scan_checkov`, `scan_complexity`, `scan_aibom`, `scan_sbom`.
+    - Kubernetes resilience & audit: `k8s_chaos`, `k8s_audit`, `k8s_lint`, `k8s_validate`, `k8s_diff_helm`.
+    - HashiCorp Vault enterprise secrets: `vault_set`, `vault_sync`.
+    - AI benchmarking & architecture analysis: `benchmark_embeddings`, `ai_architecture`.
+    - Git & PR governance: `branches_list`, `pr_list`, `pr_checks`.
+  - All tools strictly enforce zero nesting depth > 5, complexity <= 10, argument validation (`_validate_mcp_arg`), and defensive timeouts.
+- **FastMCP Prompt Templates & Dynamic System Resources**:
+  - Implemented 4 prompt templates via `@mcp.prompt()`: `code_review_prompt`, `security_audit_prompt`, `k8s_diagnostics_prompt`, `architecture_analysis_prompt`.
+  - Implemented 2 additional dynamic system resources: `resource://vault/status` (live Vault health and sealing) and `resource://mcp/tools` (live tool catalog).
+- **Submodule Re-Export & IDE Integration**:
+  - Fully re-exported all 72 tools, 4 prompts, 6 resources, and Pydantic AI toolset types in `src/devops_cli/ai/mcp/__init__.py`.
+  - Added `devops mcp export-schemas` CLI command to export JSON schemas directly into `/home/vscode/.gemini/antigravity-ide/mcp/devops-cli/`.
+- **Documentation & Test Verification**:
+  - Regenerated `docs/MCP_TOOLS.md` and `README.md` via `devops docs generate --sync-readme`.
+  - Updated `tests/test_fastmcp_contracts.py`, `tests/test_mcp.py`, and `tests/test_pydantic_ai_mcp.py` verifying contracts, execution, and Pydantic AI MCPToolset discovery.
+
 ### [2026-09-06] Codebase Stylistic & Structural Drift Remediation & Development Parameters
 - **Architectural Invariant Enforcement & Quality Gate Integration**:
   - Authored `tests/test_architectural_invariants.py` asserting strict adherence to architectural standards across the codebase:
