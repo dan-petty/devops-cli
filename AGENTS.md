@@ -46,6 +46,7 @@ All work follows a test-first progressive verification strategy to optimize deve
   - **Pending Tasks**: Queued deliverables, backlog requirements, and upcoming milestones awaiting execution.
   - **In-Progress Tasks (WIP)**: Active focus items, specific files under modification, and ongoing test specifications.
   - **Completed Tasks**: Verified implementations, green test gates, synchronized documentation, and closed operational loops.
+- **GitHub Projects v2 & Issue Alignment**: Ground all task lifecycles, issue tracking, and sprint planning in GitHub Projects v2 (`.github/project-template.json`) and roadmap milestones (`docs/ROADMAP.md`), continuously reconciling state transitions (`Backlog` $\to$ `Ready` $\to$ `In Progress` $\to$ `In Review` $\to$ `Done`) and auditing issue/PR taxonomies.
 
 ### Knowledge Base Consultation
 Before planning, implementing, debugging, refactoring, or reviewing code, consult the **DevOps CLI Knowledge Base** under [`src/devops_cli/ai/knowledge_base/README.md`](src/devops_cli/ai/knowledge_base/README.md):
@@ -84,13 +85,26 @@ Before planning, implementing, debugging, refactoring, or reviewing code, consul
   - **GitHub Release Titles**: Strictly the version tag / number from `pyproject.toml` (e.g. `v0.2.11`) without conventional commit prefixes.
   - **Human-in-the-Loop Merging**: AI agents prepare clean commits, open/update PRs, monitor remote CI checks (`gh pr checks`), and leave merge approval to maintainers. Never merge autonomously.
   - **Active CI Monitoring & Remediation**: Actively monitor remote GitHub Actions status. If any check fails, inspect logs, diagnose root causes, push corrective commits, and verify green status.
-- **GitHub Projects, Views, Milestones & Label Governance**:
+- **GitHub Projects, Issues, Views, Milestones & Label Governance (Project Management Integration)**:
+  - **Issue Tracking, Triage & PR Linkage**:
+    - Track all engineering issues, bug reports, feature requests, and technical chores using standardized issue templates (`.github/ISSUE_TEMPLATE/`: `bug_report.yml`, `feature_request.yml`, `security_advisory.yml`, `task.yml`).
+    - Every PR addressing an issue MUST explicitly link to it using canonical GitHub closing keywords in the PR body (`Fixes #<issue>`, `Closes #<issue>`, `Resolves #<issue>`).
+    - Enforce declarative taxonomy labels on all issues matching `.github/labels.yml` across `type/*`, `scope/*`, `priority/*`, and `status/*`.
+    - Prioritize incoming defects and blockers using the standardized *Triage & Quality Table* view (`type/bug`, `status/blocked`, `status/triage`) ordered by `Priority` (`P0-Critical` through `P3-Low`).
   - **Mandatory PR Taxonomy Labels**: Every PR MUST possess at least one `type/*` label and at least one `scope/*` label. Validate compliance with `devops gh labels audit`.
-  - **Roadmap-Driven Milestone Linking**: Every PR targeting a release branch MUST link to the active release milestone in [`docs/ROADMAP.md`](docs/ROADMAP.md). Synchronize via `devops gh milestones sync`.
+  - **Roadmap-Driven Milestone Linking**: Every issue and PR targeting a release branch MUST link to the active release milestone in [`docs/ROADMAP.md`](docs/ROADMAP.md). Synchronize via `devops gh milestones sync` and inspect progress via `devops gh milestones status <version>`.
   - **GitHub Projects v2 Lifecycle & Views Integration**:
     - Track tasks according to the 4 standardized views in `.github/project-template.json` (*Sprint Kanban*, *Roadmap Timeline*, *Triage & Quality Table*, *Value vs Effort Priority Matrix*).
-    - Manage state transitions strictly (`Backlog` $\to$ `In Progress` $\to$ `In Review` $\to$ `Done`) in [`docs/agent/task.md`](docs/agent/task.md) and verify alignment via `devops gh project sync --dry-run` and `devops gh views list`.
+    - Manage state transitions strictly (`Backlog` $\to$ `Ready` $\to$ `In Progress` $\to$ `In Review` $\to$ `Done`) across issues and tasks in [`docs/agent/task.md`](docs/agent/task.md):
+      - `Backlog`: Queued items awaiting milestone assignment or scheduling.
+      - `Ready`: Scoped items ready for immediate development.
+      - `In Progress`: Active work items currently being authored/edited (mirrored in `docs/agent/task.md` under `### In-Progress Tasks (WIP)`).
+      - `In Review`: Pull Request opened with CI checks running and code reviews in progress.
+      - `Done`: Pull Request squash-merged by maintainer into release branch, remote CI verified, and issue closed.
+    - Populate and maintain custom project fields: `Status`, `Milestone`, `Priority`, `Category`, `Value`, `Effort`.
+    - Validate alignment via `devops gh project sync --dry-run`, `devops gh project status`, and `devops gh views list`.
     - Never invent ad-hoc status tags or unregistered labels outside `.github/labels.yml` and `.github/project-template.json`.
+  - **FastMCP Agent Project Management Integration**: AI coding assistants MUST leverage the built-in FastMCP project management tools (`gh_project_status`, `gh_view_spec`, `gh_milestone_list`, `gh_milestone_sync`, `gh_label_list`, `gh_label_sync`) and CLI equivalents (`devops gh project`, `devops gh views`, `devops gh milestones`, `devops gh labels`) for all project tracking, milestone inspection, and taxonomy auditing.
 
 ---
 
