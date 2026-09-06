@@ -257,6 +257,14 @@ High-density product roadmap, engineering milestones, and open-source integratio
 - [ ] **Ephemeral Testcontainers Valkey Testing Harness**: Rootless container fixture for offline unit and integration test suites without requiring live Minikube cluster dependencies.
 - [x] **Valkey IT Domain Knowledge Base Manual (`it_domains/tools/valkey.md`)**: Comprehensive technical guide covering Valkey 8.0 architecture, RESP3 wire protocol, memory optimization, eviction policies, and cluster topologies.
 
+### Library & Reference Ingestion Engine & Grounded AI Guidance (v0.2.13 - Scheduled)
+- [ ] **Dynamic Package Introspection & Type Stub Parser (`devops ai ingest library`)**: Automated AST and type stub (`.pyi`) extractor indexing installed library classes, method signatures, parameter types, defaults, and docstrings.
+- [ ] **Multi-Source Documentation & Standards Ingester (`devops ai ingest docs`)**: SSRF-guarded crawler ingesting local and remote documentation sets (Sphinx, MkDocs, DevDocs, PEPs, CIS benchmarks).
+- [ ] **Dedicated Library Vector Tier (`devops_libraries`) & Valkey Symbol Store**: Segregated Qdrant collection and Valkey cache tier providing sub-millisecond API signature lookups and hybrid dense-sparse search.
+- [ ] **Import-Driven AST Prompt Grounding**: Automatic detection of third-party imports across review diffs and on-the-fly injection of verified library API contracts into LLM prompts.
+- [ ] **FastMCP Library Ingestion & Symbol Tools**: Exposing `ai_ingest_library`, `ai_query_library`, and dynamic resource `resource://libraries/indexed` to IDE AI coding assistants.
+- [ ] **Library API Drift & Deprecation Auditor (`devops ai audit-library-usage`)**: Static AST analyzer comparing workspace calls against library contracts to detect deprecated parameters and removed APIs.
+
 ### Multi-Cloud Mesh & Production Ecosystem (v0.3.0 - Future Vision)
 - [ ] **Multi-Region Workstation Mesh & Cluster Federation**: Distributed cluster management across hybrid on-prem homelab and multi-cloud Kubernetes clusters with automatic service mesh routing.
 - [ ] **Autonomous Self-Healing Agent Pipeline**: Closed-loop diagnostic engine capable of discovering cluster incidents, generating corrective patches, running CI gates, and executing rollback.
@@ -382,6 +390,12 @@ High-density product roadmap, engineering milestones, and open-source integratio
 | | FastMCP Valkey Toolset & Live System Resource | FastMCP / Valkey | High | Low | v0.2.12 | 📋 Scheduled |
 | | Ephemeral Testcontainers Valkey Testing Harness | `testcontainers-python` | High | Medium | v0.2.12 | 📋 Scheduled |
 | | Valkey IT Domain Knowledge Base Manual | Markdown / Docs | Medium | Low | v0.2.12 | ✅ Completed |
+| | Dynamic Package Introspection (`devops ai ingest library`) | `ast` / `pkgutil` / `inspect` | High | Medium | v0.2.13 | 📋 Scheduled |
+| | Multi-Source Docs Ingester (`devops ai ingest docs`) | `httpx2` / `pathspec` | High | Medium | v0.2.13 | 📋 Scheduled |
+| | Dedicated Library Vector Tier (`devops_libraries`) | Qdrant / Valkey | High | Low | v0.2.13 | 📋 Scheduled |
+| | Import-Driven AST Prompt Grounding | AST / PydanticAI | High | Medium | v0.2.13 | 📋 Scheduled |
+| | FastMCP Library Tools & Indexed Resource | FastMCP / Qdrant | High | Low | v0.2.13 | 📋 Scheduled |
+| | Library API Drift & Deprecation Auditor | AST / McCabe | High | Medium | v0.2.13 | 📋 Scheduled |
 | | Multi-Region Workstation Mesh & Cluster Federation | Kubernetes / Fleet | High | High | v0.3.0 | 💡 Future Vision |
 | | Autonomous Self-Healing Agent Pipeline | PydanticAI / Diagnostic | High | High | v0.3.0 | 💡 Future Vision |
 | | Cloud-Native Ephemeral Test Environment Engine | Minikube / Helm / Ingress | High | Medium | v0.3.0 | 💡 Future Vision |

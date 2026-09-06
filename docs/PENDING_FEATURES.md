@@ -37,6 +37,14 @@
 5. **Ephemeral Testcontainers Valkey Testing Harness**: Rootless container fixture for offline unit and integration test suites without requiring live Minikube cluster dependencies.
 6. **Valkey IT Domain Knowledge Base Manual (`it_domains/tools/valkey.md`)**: Comprehensive technical guide covering Valkey 8.0 architecture, RESP3 wire protocol, memory optimization, eviction policies, and cluster topologies.
 
+#### Milestone: `v0.2.13` (Scheduled)
+1. **Dynamic Package Introspection & Type Stub Parser (`devops ai ingest library`)**: Automated AST and type stub (`.pyi`) extractor indexing installed library classes, method signatures, parameter types, defaults, and docstrings.
+2. **Multi-Source Documentation & Standards Ingester (`devops ai ingest docs`)**: SSRF-guarded crawler ingesting local and remote documentation sets (Sphinx, MkDocs, DevDocs, PEPs, CIS benchmarks).
+3. **Dedicated Library Vector Tier (`devops_libraries`) & Valkey Symbol Store**: Segregated Qdrant collection and Valkey cache tier providing sub-millisecond API signature lookups and hybrid dense-sparse search.
+4. **Import-Driven AST Prompt Grounding**: Automatic detection of third-party imports across review diffs and on-the-fly injection of verified library API contracts into LLM prompts.
+5. **FastMCP Library Ingestion & Symbol Tools**: Exposing `ai_ingest_library`, `ai_query_library`, and dynamic resource `resource://libraries/indexed` to IDE AI coding assistants.
+6. **Library API Drift & Deprecation Auditor (`devops ai audit-library-usage`)**: Static AST analyzer comparing workspace calls against library contracts to detect deprecated parameters and removed APIs.
+
 #### Milestone: `v0.3.0` (Scheduled)
 1. **Multi-Region Workstation Mesh & Cluster Federation**: Cross-cluster service discovery and state sync.
 2. **Autonomous Self-Healing Agent Pipeline**: Self-diagnostic remediation loops.

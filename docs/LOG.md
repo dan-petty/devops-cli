@@ -2,6 +2,20 @@
 
 Chronological log of refactoring milestones, quality gates, and security enhancements.
 
+### [2026-09-06] Library & Reference Ingestion Engine & Grounded AI Guidance (Roadmap Expansion)
+- **Library & Reference Ingestion Architecture Research**:
+  - Investigated automated ingestion of installed library ASTs, docstrings, type stubs (`.pyi`), official documentation frameworks (Sphinx, MkDocs, DevDocs), and architectural standards (OWASP, CIS, PEPs).
+  - Formulated the 6 core pillars: dynamic package introspection, multi-source docs crawler, dedicated Qdrant/Valkey library vector tier (`devops_libraries`), import-driven AST prompt grounding, FastMCP IDE tools, and static deprecation/drift auditing.
+- **Master Strategic Roadmap & Pending Features Expansion (Milestone v0.2.13)**:
+  - Scheduled Milestone `v0.2.13` in `docs/ROADMAP.md` and `docs/PENDING_FEATURES.md`:
+    - `devops ai ingest library <pkg>` automated package AST & type stub extractor.
+    - `devops ai ingest docs <source>` SSRF-guarded documentation crawler.
+    - Dedicated Qdrant `devops_libraries` collection and Valkey symbol lookup tier.
+    - Import-driven prompt grounding injecting verified library contracts into multi-persona code reviews.
+    - FastMCP library tools (`ai_ingest_library`, `ai_query_library`, `resource://libraries/indexed`).
+    - Static library API drift and deprecation auditor (`devops ai audit-library-usage`).
+  - Updated Value vs. Effort Prioritization Matrix in `docs/ROADMAP.md`.
+
 ### [2026-09-06] Valkey Integration Investigation, Tooling Design & Roadmap Expansion
 - **Valkey Ecosystem & Architecture Investigation**:
   - Investigated multi-tier Valkey 8.0 integration across workstation CLI management, distributed AI caching, cross-process LLM token bucket rate limiting, FastMCP tools, and ephemeral testcontainers fixtures.
