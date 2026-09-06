@@ -285,10 +285,10 @@ def test_file_writer_atomic_text_json_yaml_bytes(tmp_path: Path) -> None:
 
     # 3. YAML file with list serialization
     yaml_file = tmp_path / "configs" / "stack.yaml"
-    data = [{"service": "redis", "port": 6379}]
+    data = [{"service": "valkey", "port": 6379}]
     written_yaml = write_yaml_file(yaml_file, data, atomic=True)
     assert written_yaml.is_file()
-    assert "service: redis" in written_yaml.read_text(encoding="utf-8")
+    assert "service: valkey" in written_yaml.read_text(encoding="utf-8")
 
     # 4. Binary file
     bin_file = tmp_path / "bin" / "data.bin"
@@ -420,7 +420,7 @@ def test_output_pydantic_models() -> None:
             TableColumn(header="Name", style="cyan"),
             TableColumn(header="Port", justify="right"),
         ],
-        rows=[["api", 8080], ["redis", 6379]],
+        rows=[["api", 8080], ["valkey", 6379]],
     )
     rich_table = table_p.render()
     assert rich_table.title == "Services"

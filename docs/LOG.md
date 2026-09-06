@@ -2,6 +2,18 @@
 
 Chronological log of refactoring milestones, quality gates, and security enhancements.
 
+### [2026-09-06] Replace Redis with Valkey Across Workstation Infrastructure & LLM Stack
+- **ArgoCD In-Memory Cache Migration**:
+  - `k8s/argocd/values.yaml`: Overrode default Redis container image with `valkey/valkey:8.0-alpine` under the BSD-3-Clause open-source license.
+  - Rolled out the upgrade on the live minikube cluster (`helm upgrade argocd argo/argo-cd`), validating the rollout of `deployment/argocd-redis` and verifying responsive `valkey-cli ping` -> `PONG`.
+- **LLM Stack & OpenWebUI Coordination**:
+  - `k8s/llm/values-open-webui.yaml`: Documented python-socketio driver configuration connecting to standalone Valkey (`valkey.llm.svc.cluster.local:6379/0`) and kept embedded Redis subchart disabled.
+  - Confirmed active cluster Valkey deployment (`deployment/valkey`) is healthy and responsive in the `llm` namespace.
+- **Test-First Verification & Hygiene**:
+  - Authored `tests/test_k8s_valkey_stack.py` verifying stack values, image overrides, and the absence of unmaintained/proprietary Redis images across `k8s/`.
+  - Updated mock data and prompt fixtures in `tests/test_output.py` and `tests/test_pydantic_ai_format_prompt.py` to reference Valkey.
+  - Updated `k8s/README.md` and `docs/DEVCONTAINER_USAGE.md`.
+
 ### [2026-09-06] Address Review Findings (Session 20260905-202119) & Self-Improvement Loop Hardening
 - **Codebase Security & Hardening Remediations (18 Findings Across 16 Modules)**:
   - `src/devops_cli/ai/ast_stream.py`: Added explicit symlink check (`p.is_symlink()`) in `stream_python_symbols` to prevent following untrusted symbolic links during AST parsing.

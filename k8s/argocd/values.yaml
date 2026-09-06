@@ -45,8 +45,12 @@ repoServer:
       cpu: 1000m
       memory: 1024Mi
 
+# Valkey replacement for Redis under BSD-3-Clause open-source license
 redis:
   enabled: true
+  image:
+    repository: valkey/valkey
+    tag: 8.0-alpine
   resources:
     requests:
       cpu: 50m
