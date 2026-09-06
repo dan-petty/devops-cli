@@ -271,7 +271,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
   - [x] **Kubernetes Pod Security Admission (PSA) Enforcement**: Apply PSA enforcement and audit labels across all namespaces in `k8s/namespaces.yaml` and `k8s/llm/namespace.yaml`.
   - [ ] **Cluster Default-Deny NetworkPolicies**: Author granular `NetworkPolicy` manifests for `k8s/monitoring/` and `k8s/argocd/` with explicit DNS and inter-service egress rules.
   - [ ] **Subprocess Environment Isolation & Credential Boundary**: Restrict default environment inheritance in `run_subprocess` (`src/devops_cli/core/process.py`) to prevent ambient token leakage to untrusted child binaries.
-  - [ ] **Immutable GitHub Actions Commit SHA Pinning**: Pin all actions across `.github/workflows/ci.yml` and `release.yml` to immutable 40-character commit SHAs with inline version comments.
+  - [x] **Immutable GitHub Actions Commit SHA Pinning**: Pin all actions across `.github/workflows/ci.yml`, `codeql.yml`, and `release.yml` to immutable 40-character commit SHAs with inline version comments.
   - [ ] **Qdrant Vector Database API Key Secret Protection**: Add optional API key authentication support and ClusterIP default configuration for production deployments in `k8s/llm/values-qdrant.yaml`.
 
 ### Advanced Agentic Harness, Sub-Agent Local Offloading & Terminal UX (v0.2.13 - Scheduled)
@@ -388,7 +388,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
 | | Review Gitleaks Test Scoping & Noise Elimination | Gitleaks / Test Scope | Medium | Low | v0.2.11 | ✅ Completed |
 | | Kubernetes Pod Security Admission (PSA) Labels | `k8s/namespaces.yaml` | High | Low | v0.2.11 | ✅ Completed |
 | | Automated PR DevContainer Pruning Workflow | `.github/workflows/` | High | Low | v0.2.12 | ✅ Completed |
-| | Immutable GitHub Actions Commit SHA Pinning | `.github/workflows/` | High | Low | v0.2.12 | 📋 Scheduled |
+| | Immutable GitHub Actions Commit SHA Pinning | `.github/workflows/` | High | Low | v0.2.12 | ✅ Completed |
 | | Valkey Workstation Management CLI (`devops valkey`) | `valkey-py` / Socket | High | Low | v0.2.12 | 📋 Scheduled |
 | | Distributed LLM Token Bucket & Rate Limiter | Valkey Lua / Atomics | High | Low | v0.2.12 | 📋 Scheduled |
 | | FastMCP Valkey Toolset & Live System Resource | FastMCP / Valkey | High | Low | v0.2.12 | 📋 Scheduled |
