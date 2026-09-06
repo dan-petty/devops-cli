@@ -277,9 +277,9 @@
 ---
 
 ### In-Progress Tasks (WIP)
-- None (Phase 36 fully implemented, verified, and passing all CI gates).
+- [ ] Monitor GitHub Actions CI checks for PR #32 (`refactor(architecture): codebase stylistic and structural drift remediation`).
 
 ---
 
 ### Pending Tasks
-- Open PR for topic branch `refactor/codebase-drift-remediation` targeting `release/v0.2.11` (PR #31 merged).
+- Await maintainer review and merge approval for PR #32 targeting `release/v0.2.11`.
