@@ -9,6 +9,7 @@ from typing import Annotated, Any
 import typer
 
 from devops_cli.config.constants import CONST_GH_CLI
+from devops_cli.config.env import ENV_GITHUB_TOKEN
 from devops_cli.config.settings import get_keyring_secret
 from devops_cli.core.cli import new_typer
 from devops_cli.core.process import run_subprocess
@@ -66,7 +67,11 @@ def _get_github_client() -> GitHubClient | None:
     if not token:
         import os
 
-        token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+        token = (
+            os.environ.get(ENV_GITHUB_TOKEN)
+            or os.environ.get("GITHUB_TOKEN")
+            or os.environ.get("GH_TOKEN")
+        )
     if not token:
         res = run_subprocess([CONST_GH_CLI, "auth", "token"], check=False, quiet=True)
         if res.returncode == 0 and res.stdout.strip():
@@ -114,7 +119,8 @@ def _get_repo_milestones(repo: str | None = None, state: str = "all") -> list[di
     cmd = [
         CONST_GH_CLI,
         "api",
-        f"repos/{target_repo}/milestones?state={state}",
+        "--paginate",
+        f"repos/{target_repo}/milestones?state={state}&per_page=100",
     ]
     res = run_subprocess(cmd, check=False, quiet=True)
     if res.returncode == 0 and res.stdout.strip():
