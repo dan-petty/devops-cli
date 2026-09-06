@@ -45,6 +45,14 @@
 5. **FastMCP Library Ingestion & Symbol Tools**: Exposing `ai_ingest_library`, `ai_query_library`, and dynamic resource `resource://libraries/indexed` to IDE AI coding assistants.
 6. **Library API Drift & Deprecation Auditor (`devops ai audit-library-usage`)**: Static AST analyzer comparing workspace calls against library contracts to detect deprecated parameters and removed APIs.
 
+#### Milestone: `v0.2.14` (Scheduled)
+1. **GitHub Issue Triage & Management Engine (`devops gh issues`)**: Automated issue classification, duplicate detection, sentiment/urgency analysis, and automated milestone/label assignment.
+2. **GitHub Projects v2 Bi-Directional Synchronization (`devops gh project`)**: Two-way synchronization between local task tracking (`docs/agent/task.md`) and GitHub Projects v2 Kanban boards and roadmap views.
+3. **Declarative Branch Protection & Repository Rule Auditor (`devops gh branch-protection`)**: Automated auditing and policy enforcement for repository branch protection rules, required reviews, and status check gates.
+4. **Workstation Secret to GitHub Actions Secret Sync (`devops gh secrets`)**: Secure synchronization of developer workstation credentials (OS Keyring / Vault) to GitHub repository and environment secrets via libsodium public-key encryption.
+5. **Declarative GitHub Label Schema Provisioner (`devops gh labels`)**: Automated reconciliation of repository labels and colors defined in `.github/labels.yml`.
+6. **FastMCP GitHub Tools & Project Resources**: 4 FastMCP tools (`gh_issue_list`, `gh_issue_create`, `gh_project_status`, `gh_branch_protect_audit`) and live resource `resource://github/issues/open`.
+
 #### Milestone: `v0.3.0` (Scheduled)
 1. **Multi-Region Workstation Mesh & Cluster Federation**: Cross-cluster service discovery and state sync.
 2. **Autonomous Self-Healing Agent Pipeline**: Self-diagnostic remediation loops.
