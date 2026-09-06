@@ -14,7 +14,7 @@ spec:
     # 1. Allow intra-namespace pod communications (Prometheus, Grafana, node-exporter, kube-state-metrics)
     - from:
         - podSelector: {}
-    # 2. Allow UI access to Grafana (3000) and Prometheus (9090) from workstation / ingress controllers
+    # 2. Allow external ingress to Grafana (3000) and Prometheus (9090) via NodePort, LoadBalancer, or ingress controllers (0.0.0.0/0)
     - from:
         - ipBlock:
             cidr: 0.0.0.0/0

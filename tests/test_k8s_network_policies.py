@@ -94,14 +94,16 @@ def test_argocd_networkpolicy_specifics() -> None:
 
     ingress_rules = spec.get("ingress", [])
     allowed_ports = {p.get("port") for rule in ingress_rules for p in rule.get("ports", [])}
-    # UI/API ports 8080 and 443 must be allowed for ingress
-    assert 8080 in allowed_ports or 443 in allowed_ports
+    # UI/API ports 8080 and 443 must both be allowed for ingress
+    assert 8080 in allowed_ports
+    assert 443 in allowed_ports
 
     egress_rules = spec.get("egress", [])
     egress_ports = {p.get("port") for rule in egress_rules for p in rule.get("ports", [])}
     # Git / Helm egress ports (443, 9418, 22)
     assert 443 in egress_ports
     assert 9418 in egress_ports
+    assert 22 in egress_ports
 
 
 def test_monitoring_networkpolicy_specifics() -> None:

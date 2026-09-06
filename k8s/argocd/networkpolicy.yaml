@@ -14,7 +14,7 @@ spec:
     # 1. Allow intra-namespace pod communications (server, repo-server, controller, valkey/redis)
     - from:
         - podSelector: {}
-    # 2. Allow UI and API access to ArgoCD Server (8080, 443) from workstation / ingress controllers
+    # 2. Allow external ingress to ArgoCD Server UI and API (ports 8080, 443) via NodePort, LoadBalancer, or ingress controllers (0.0.0.0/0)
     - from:
         - ipBlock:
             cidr: 0.0.0.0/0
@@ -49,9 +49,14 @@ spec:
           port: 53
         - protocol: TCP
           port: 53
-    # 3. Allow Kubernetes API server access across cluster for resource reconciliation
+    # 3. Allow Kubernetes API server access (default and kube-system) for cluster resource reconciliation
     - to:
-        - namespaceSelector: {}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: default
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
       ports:
         - protocol: TCP
           port: 443
