@@ -277,10 +277,21 @@
 
 ---
 
+- [ ] Phase 37: FastMCP Server Expansion, Tool Parity & Pydantic AI MCP Integration Validation
+  - [ ] Phase 37.1: Test-First Specifications for Expanded MCP Tools, Prompts & Resources (`tests/test_mcp.py`, `tests/test_fastmcp_contracts.py`, `tests/test_pydantic_ai_mcp.py`)
+  - [ ] Phase 37.2: FastMCP Server Implementation of Missing Tools, Prompts & Resources (`src/devops_cli/ai/mcp/server.py`)
+  - [ ] Phase 37.3: Submodule Re-Exports & CLI Command Expansion (`src/devops_cli/ai/mcp/__init__.py`, `src/devops_cli/commands/mcp.py`)
+  - [ ] Phase 37.4: Schema Synchronization to Antigravity IDE (`/home/vscode/.gemini/antigravity-ide/mcp/devops-cli/`)
+  - [ ] Phase 37.5: Documentation & Roadmap Synchronization (`docs/MCP_TOOLS.md`, `README.md`, `docs/ROADMAP.md`, `docs/LOG.md`, `docs/PENDING_FEATURES.md`)
+  - [ ] Phase 37.6: Full CI Quality Gate Validation (`uv run devops ci`)
+
+---
+
 ### In-Progress Tasks (WIP)
-- None (Phase 36 fully completed, PR #32 passing all CI checks and Copilot review comments addressed).
+- [ ] Phase 37.1: Author test-first specifications for expanded MCP tools, prompts, and resources.
 
 ---
 
 ### Pending Tasks
 - Await maintainer review and merge approval for PR #32 targeting `release/v0.2.11`.
+- Open PR for topic branch `feat/mcp-expansion-and-validation` targeting `release/v0.2.11`.
