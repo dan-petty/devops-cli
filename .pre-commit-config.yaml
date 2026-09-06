@@ -13,7 +13,7 @@ repos:
         exclude: ^(\.devcontainer/|\.vscode/)
       - id: check-added-large-files
       - id: detect-private-key
-        exclude: ^tests/
+        exclude: ^tests/(test_review_prompt_guardrails\.py|test_security_gitleaks\.py)$
       - id: check-merge-conflict
       - id: check-toml
       - id: check-json

@@ -26,7 +26,7 @@
 - [ ] **Full CI Quality Gate**: `devops ci` (or `uv run devops ci`) executed locally with 10/10 green quality gates.
 - [ ] **Strict Code Coverage**: Maintained strict $\ge 90\%$ code coverage requirement across `src/`.
 - [ ] **Architectural Invariants Gate**:
-  - [ ] Cyclomatic complexity $\le 10$ project-wide across all functions and closures (`test_complexity_invariants`).
+  - [ ] Cyclomatic complexity $\le 10$ project-wide across all functions and closures (`devops scan complexity`).
   - [ ] Maximum nesting depth $\le 5$ (< 6 indentation levels) across all code blocks (`test_no_excessive_nesting_in_src`).
   - [ ] Standardized domain exceptions inheriting from `DevOpsCLIError` with zero bare `ValueError`/`RuntimeError`.
   - [ ] Pytest collection hygiene enforced (`__test__ = False` on dummy/mock models).
