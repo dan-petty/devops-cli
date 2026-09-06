@@ -445,6 +445,8 @@ class MCPCommandHelp:
     host: str = "Host interface for SSE transport."
     port: str = "Port number for SSE transport."
     allow_remote: str = "Permit binding SSE transport to non-loopback network interfaces."
+    export_schemas: str = "Export FastMCP tool JSON schemas and instructions for MCP clients."
+    output_dir: str = "Destination directory for tool schema JSON files."
 
 
 @dataclass(frozen=True)

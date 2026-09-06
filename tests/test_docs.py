@@ -435,3 +435,31 @@ def test_doc_generator_knowledge_base_index(generator: DocGenerator) -> None:
     assert "Division 2: Information Technology Domain-Specific" in content
     assert "tasks/" in content
     assert "tools/" in content
+
+
+def test_parse_mcp_input_schema_parameters_with_anyof_array() -> None:
+    """Verify that optional array parameters using anyOf resolve to 'array' rather than falling back."""
+    from devops_cli.docs.generator import _parse_mcp_input_schema_parameters
+
+    schema = {
+        "type": "object",
+        "properties": {
+            "path": {"type": "string", "description": "Vault path"},
+            "keys": {
+                "anyOf": [
+                    {"type": "array", "items": {"type": "string"}},
+                    {"type": "null"},
+                ],
+                "default": None,
+                "description": "Optional secret keys",
+            },
+        },
+        "required": ["path"],
+    }
+    params = _parse_mcp_input_schema_parameters(schema)
+    assert len(params) == 2
+    by_name = {p["name"]: p for p in params}
+    assert by_name["path"]["type"] == "string"
+    assert by_name["path"]["required"] is True
+    assert by_name["keys"]["type"] == "array"
+    assert by_name["keys"]["required"] is False

@@ -277,8 +277,18 @@
 
 ---
 
+- [x] Phase 37: FastMCP Server Expansion, Tool Parity & Pydantic AI MCP Integration Validation
+  - [x] Phase 37.1: Test-First Specifications for Expanded MCP Tools, Prompts & Resources (`tests/test_mcp.py`, `tests/test_fastmcp_contracts.py`, `tests/test_pydantic_ai_mcp.py`)
+  - [x] Phase 37.2: FastMCP Server Implementation of Missing Tools, Prompts & Resources (`src/devops_cli/ai/mcp/server.py` — 72 tools, 4 prompts, 6 resources)
+  - [x] Phase 37.3: Submodule Re-Exports & CLI Command Expansion (`src/devops_cli/ai/mcp/__init__.py`, `src/devops_cli/commands/mcp.py` `export-schemas`)
+  - [x] Phase 37.4: Schema Synchronization to Antigravity IDE (`/home/vscode/.gemini/antigravity-ide/mcp/devops-cli/` — 72 JSON schemas & instructions)
+  - [x] Phase 37.5: Documentation & Roadmap Synchronization (`docs/MCP_TOOLS.md`, `README.md`, `docs/ROADMAP.md`, `docs/LOG.md`, `docs/PENDING_FEATURES.md`)
+  - [x] Phase 37.6: Full CI Quality Gate Validation (`uv run devops ci` — 10/10 green), Docs Sync, Schema Export & PR Submission (PR #33 merged)
+
+---
+
 ### In-Progress Tasks (WIP)
-- None (Phase 36 fully completed, PR #32 passing all CI checks and Copilot review comments addressed).
+- None (Phase 36 fully completed, PR #32 passing all CI checks, merge conflicts resolved, and Copilot review comments addressed).
 
 ---
 
