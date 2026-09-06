@@ -21,37 +21,42 @@ class EmbeddingEvalPair(BaseModel):
     target_passage: str
 
 
+def _parse_single_eval_pair(sec: str) -> EmbeddingEvalPair | None:
+    lines = sec.strip().splitlines()
+    if not lines:
+        return None
+    pair_id = lines[0].strip()
+    fields: dict[str, str] = {}
+    prefixes = {
+        "- **Category:**": "category",
+        "- **Query:**": "query",
+        "- **Target Passage:**": "target_passage",
+    }
+    for line in lines[1:]:
+        line_str = line.strip()
+        for prefix, field_name in prefixes.items():
+            if line_str.startswith(prefix):
+                fields[field_name] = line_str[len(prefix) :].strip()
+                break
+
+    if pair_id and "category" in fields and "query" in fields and "target_passage" in fields:
+        return EmbeddingEvalPair(
+            id=pair_id,
+            category=fields["category"],
+            query=fields["query"],
+            target_passage=fields["target_passage"],
+        )
+    return None
+
+
 def _parse_embedding_eval_pairs(md_text: str) -> list[EmbeddingEvalPair]:
     """Parse Markdown sections into structured EmbeddingEvalPair objects."""
     pairs: list[EmbeddingEvalPair] = []
     sections = re.split(r"(?m)^##\s+", md_text)
     for sec in sections:
-        sec = sec.strip()
-        if not sec:
-            continue
-        lines = sec.splitlines()
-        pair_id = lines[0].strip()
-        category = ""
-        query = ""
-        target_passage = ""
-        for line in lines[1:]:
-            line_str = line.strip()
-            if line_str.startswith("- **Category:**"):
-                category = line_str[len("- **Category:**") :].strip()
-            elif line_str.startswith("- **Query:**"):
-                query = line_str[len("- **Query:**") :].strip()
-            elif line_str.startswith("- **Target Passage:**"):
-                target_passage = line_str[len("- **Target Passage:**") :].strip()
-
-        if pair_id and category and query and target_passage:
-            pairs.append(
-                EmbeddingEvalPair(
-                    id=pair_id,
-                    category=category,
-                    query=query,
-                    target_passage=target_passage,
-                )
-            )
+        pair = _parse_single_eval_pair(sec)
+        if pair is not None:
+            pairs.append(pair)
     return pairs
 
 

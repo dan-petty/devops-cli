@@ -196,36 +196,39 @@ class EmbeddingsEngine:
         client_timeout = httpx2.Timeout(min(self.timeout, 5.0), connect=min(self.timeout, 2.0))
         for raw_url in urls:
             base_url = raw_url.rstrip("/")
-            try:
-                validate_service_url(base_url, "Ollama", allow=self.ai_config.allow_private_network)
-                with httpx2.Client(timeout=client_timeout) as client:
-                    # 1. Attempt /api/embed with minimal probe sample
-                    res = client.post(
-                        f"{base_url}/api/embed",
-                        json={"model": self.model, "input": ["probe"]},
-                    )
-                    if res.status_code == 200:
-                        data = res.json()
-                        embs = data.get("embeddings") or (
-                            [data["embedding"]] if "embedding" in data else None
-                        )
-                        if embs and embs[0]:
-                            return len(embs[0])
+            dim = self._probe_single_ollama_url(base_url, client_timeout)
+            if dim is not None:
+                return dim
+        return None
 
-                    # 2. Attempt /api/show for model architecture metadata
-                    show_res = client.post(f"{base_url}/api/show", json={"model": self.model})
-                    if show_res.status_code == 200:
-                        model_info = show_res.json().get("model_info") or {}
-                        for key, val in model_info.items():
-                            if (
-                                key.endswith(".embedding_length")
-                                and isinstance(val, int)
-                                and val > 0
-                            ):
-                                return val
-            except Exception as exc:
-                logger.debug("Probing Ollama node %s failed: %s", base_url, exc)
-                continue
+    def _probe_single_ollama_url(self, base_url: str, timeout: httpx2.Timeout) -> int | None:
+        try:
+            validate_service_url(base_url, "Ollama", allow=self.ai_config.allow_private_network)
+            with httpx2.Client(timeout=timeout) as client:
+                return self._parse_ollama_node_metadata(client, base_url)
+        except Exception as exc:
+            logger.debug("Probing Ollama node %s failed: %s", base_url, exc)
+            return None
+
+    def _parse_ollama_node_metadata(self, client: httpx2.Client, base_url: str) -> int | None:
+        # 1. Attempt /api/embed with minimal probe sample
+        res = client.post(
+            f"{base_url}/api/embed",
+            json={"model": self.model, "input": ["probe"]},
+        )
+        if res.status_code == 200:
+            data = res.json()
+            embs = data.get("embeddings") or ([data["embedding"]] if "embedding" in data else None)
+            if embs and embs[0]:
+                return len(embs[0])
+
+        # 2. Attempt /api/show for model architecture metadata
+        show_res = client.post(f"{base_url}/api/show", json={"model": self.model})
+        if show_res.status_code == 200:
+            model_info = show_res.json().get("model_info") or {}
+            for key, val in model_info.items():
+                if key.endswith(".embedding_length") and isinstance(val, int) and val > 0:
+                    return val
         return None
 
     def _probe_openai_dimension(self) -> int | None:
@@ -257,6 +260,32 @@ class EmbeddingsEngine:
             logger.debug("Probing OpenAI endpoint failed: %s", exc)
         return None
 
+    def _partition_cache(
+        self, texts: list[str]
+    ) -> tuple[dict[int, list[float]], list[int], list[str]]:
+        cached: dict[int, list[float]] = {}
+        miss_indices: list[int] = []
+        miss_texts: list[str] = []
+        for idx, text in enumerate(texts):
+            hit = self._cache.get(text, self.model)
+            if hit is not None:
+                cached[idx] = hit
+            else:
+                miss_indices.append(idx)
+                miss_texts.append(text)
+        return cached, miss_indices, miss_texts
+
+    def _dispatch_embed(self, prefixed_miss: list[str]) -> list[list[float]]:
+        provider = self.ai_config.provider.lower()
+        api_base = self.ai_config.api_base_url or ""
+        if provider in ("openai", "copilot"):
+            return self._embed_openai(prefixed_miss)
+        if provider == "ollama" or (not provider and ":11434" in api_base):
+            return self._embed_ollama(prefixed_miss)
+        if self.ai_config.ollama_urls:
+            return self._embed_ollama(prefixed_miss)
+        return self._deterministic_fallback(prefixed_miss)
+
     def embed_texts(self, texts: list[str], *, is_query: bool = False) -> list[list[float]]:
         """Generate vector embeddings for a list of text strings with LRU cache acceleration."""
         if not texts:
@@ -271,40 +300,19 @@ class EmbeddingsEngine:
                 "rag.is_query": is_query,
             },
         ):
-            # Split texts into cache hits and misses
-            cached: dict[int, list[float]] = {}
-            miss_indices: list[int] = []
-            miss_texts: list[str] = []
-            for idx, text in enumerate(texts):
-                hit = self._cache.get(text, self.model)
-                if hit is not None:
-                    cached[idx] = hit
-                else:
-                    miss_indices.append(idx)
-                    miss_texts.append(text)
-
             from devops_cli.telemetry import record_metric
 
+            cached, miss_indices, miss_texts = self._partition_cache(texts)
             record_metric("devops_cli_embedding_cache_hits_total", len(cached), unit="1")
             record_metric("devops_cli_embedding_cache_misses_total", len(miss_texts), unit="1")
             record_metric("devops_cli_embedding_cache_size", self._cache.size, unit="1")
 
             if miss_texts:
-                # Model-aware task prefixing for asymmetric models (only for misses)
                 prefixed_miss = self._apply_model_prefix(miss_texts, is_query=is_query)
-
-                provider = self.ai_config.provider.lower()
-                api_base = self.ai_config.api_base_url or ""
-                if provider in ("openai", "copilot"):
-                    fresh = self._embed_openai(prefixed_miss)
-                elif provider == "ollama" or (not provider and ":11434" in api_base):
-                    fresh = self._embed_ollama(prefixed_miss)
-                elif self.ai_config.ollama_urls:
-                    fresh = self._embed_ollama(prefixed_miss)
-                else:
-                    fresh = self._deterministic_fallback(prefixed_miss)
-
-                for miss_idx, (original_text, vector) in zip(miss_indices, zip(miss_texts, fresh)):
+                fresh = self._dispatch_embed(prefixed_miss)
+                for miss_idx, original_text, vector in zip(
+                    miss_indices, miss_texts, fresh, strict=False
+                ):
                     self._cache.put(original_text, self.model, vector)
                     cached[miss_idx] = vector
 

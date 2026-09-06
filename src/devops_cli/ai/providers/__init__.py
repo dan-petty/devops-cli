@@ -36,6 +36,26 @@ def get_provider(name: str, config: AIConfig) -> BaseLLMProvider:
     return provider_cls(config)
 
 
+_PYDANTIC_PROVIDERS: dict[str, type[Provider[Any]]] = {
+    "ollama": NativeOllamaProvider,
+    "ollama-chat": NativeOllamaProvider,
+    "openai": NativeOpenAIProvider,
+    "openai-chat": NativeOpenAIProvider,
+    "openai-responses": NativeOpenAIProvider,
+    "anthropic": NativeAnthropicProvider,
+    "claude": NativeAnthropicProvider,
+    "google": NativeGoogleProvider,
+    "gemini": NativeGoogleProvider,
+    "deepseek": NativeDeepSeekProvider,
+    "openrouter": NativeOpenRouterProvider,
+}
+
+_EXCLUDE_BASE_URL_PROVIDERS: set[type[Provider[Any]]] = {
+    NativeDeepSeekProvider,
+    NativeOpenRouterProvider,
+}
+
+
 def create_pydantic_ai_provider(
     provider: str,
     base_url: str | None = None,
@@ -52,33 +72,16 @@ def create_pydantic_ai_provider(
 
         validate_service_url(base_url, purpose=prov_name, allow=True)
 
-    if prov_name in ("ollama", "ollama-chat"):
-        return NativeOllamaProvider(base_url=base_url, api_key=api_key, **kwargs)
-    elif prov_name in ("openai", "openai-chat", "openai-responses"):
-        return NativeOpenAIProvider(base_url=base_url, api_key=api_key, **kwargs)
-    elif prov_name in ("anthropic", "claude"):
-        return NativeAnthropicProvider(base_url=base_url, api_key=api_key, **kwargs)
-    elif prov_name in ("google", "gemini"):
-        init_google: dict[str, Any] = dict(kwargs)
-        if api_key is not None:
-            init_google["api_key"] = api_key
-        if base_url is not None:
-            init_google["base_url"] = base_url
-        return NativeGoogleProvider(**init_google)
-    elif prov_name == "deepseek":
-        return NativeDeepSeekProvider(api_key=api_key, **kwargs)
-    elif prov_name == "openrouter":
-        init_openrouter: dict[str, Any] = dict(kwargs)
-        if api_key is not None:
-            init_openrouter["api_key"] = api_key
-        return NativeOpenRouterProvider(**init_openrouter)
+    provider_cls = _PYDANTIC_PROVIDERS.get(prov_name)
+    if provider_cls is None:
+        provider_cls = infer_provider_class(provider)
 
-    provider_cls = infer_provider_class(provider)
     init_kwargs: dict[str, Any] = dict(kwargs)
-    if base_url is not None:
+    if base_url is not None and provider_cls not in _EXCLUDE_BASE_URL_PROVIDERS:
         init_kwargs["base_url"] = base_url
     if api_key is not None:
         init_kwargs["api_key"] = api_key
+
     return provider_cls(**init_kwargs)
 
 

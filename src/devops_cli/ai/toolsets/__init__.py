@@ -355,20 +355,21 @@ class FunctionToolset(NativeFunctionToolset[DepsT], Generic[DepsT]):
         If ctx is None, returns a synchronous list of string instructions.
         If ctx is provided, returns native coroutine resolving to instructions.
         """
-        if ctx is None:
-            instructions = self._instructions
-            if isinstance(instructions, str):
-                return [instructions.strip()] if instructions.strip() else []
-            if isinstance(instructions, (list, tuple)):
-                res: list[str] = []
-                for inst in instructions:
-                    if isinstance(inst, str) and inst.strip():
-                        res.append(inst.strip())
-                    elif hasattr(inst, "content") and getattr(inst, "content"):
-                        res.append(str(getattr(inst, "content")).strip())
-                return res
-            return []
-        return super().get_instructions(ctx)
+        if ctx is not None:
+            return super().get_instructions(ctx)
+
+        instructions = self._instructions
+        if isinstance(instructions, str):
+            stripped = instructions.strip()
+            return [stripped] if stripped else []
+        if isinstance(instructions, (list, tuple)):
+            res: list[str] = []
+            for inst in instructions:
+                val = inst if isinstance(inst, str) else getattr(inst, "content", None)
+                if val and (clean := str(val).strip()):
+                    res.append(clean)
+            return res
+        return []
 
 
 def create_function_toolset(
@@ -447,79 +448,70 @@ def is_toolset(val: Any) -> bool:
     return isinstance(val, (NativeAbstractToolset, AbstractToolset))
 
 
+def _convert_to_tool(t: Any) -> Tool | None:
+    """Normalize raw tool representations into unified Tool instances."""
+    if isinstance(t, Tool):
+        return t
+    if isinstance(t, NativeTool):
+        return Tool.from_function(
+            t.function,
+            name=t.name,
+            description=t.description,
+            takes_ctx=t.takes_ctx,
+            timeout=t.timeout,
+            max_retries=t.max_retries,
+            requires_approval=t.requires_approval,
+        )
+    if hasattr(t, "func"):
+        return Tool.from_function(
+            t.func,
+            name=getattr(t, "name", None),
+            description=getattr(t, "description", None),
+            takes_ctx=getattr(t, "takes_ctx", False),
+        )
+    if callable(t):
+        return Tool.from_function(t)
+    return None
+
+
+def _call_get_tools(toolset: Any, ctx: Any = None) -> Any:
+    """Safely invoke get_tools on a toolset handling varied call signatures."""
+    res = None
+    try:
+        res = toolset.get_tools() if ctx is None else toolset.get_tools(ctx)
+    except TypeError:
+        try:
+            res = toolset.get_tools(None) if ctx is None else toolset.get_tools()
+        except Exception:
+            return None
+    except Exception:
+        return None
+
+    if inspect.iscoroutine(res):
+        res.close()
+        return None
+    return res
+
+
 def extract_tools_from_toolset(
     toolset: Any,
     ctx: Any = None,
 ) -> list[Tool]:
     """Extract list of Tool instances from a toolset synchronously or via inspection."""
     if hasattr(toolset, "get_tools"):
-        res = None
-        try:
-            if ctx is None:
-                try:
-                    res = toolset.get_tools()
-                except TypeError:
-                    res = toolset.get_tools(None)
-            else:
-                try:
-                    res = toolset.get_tools(ctx)
-                except TypeError:
-                    res = toolset.get_tools()
-        except Exception:
-            res = None
-
+        res = _call_get_tools(toolset, ctx)
         if isinstance(res, list):
-            out: list[Tool] = []
-            for t in res:
-                if isinstance(t, Tool):
-                    out.append(t)
-                elif isinstance(t, NativeTool):
-                    out.append(
-                        Tool.from_function(
-                            t.function,
-                            name=t.name,
-                            description=t.description,
-                            takes_ctx=t.takes_ctx,
-                            timeout=t.timeout,
-                            max_retries=t.max_retries,
-                            requires_approval=t.requires_approval,
-                        )
-                    )
-                elif hasattr(t, "func"):
-                    out.append(
-                        Tool.from_function(
-                            t.func,
-                            name=getattr(t, "name", None),
-                            description=getattr(t, "description", None),
-                            takes_ctx=getattr(t, "takes_ctx", False),
-                        )
-                    )
-                elif callable(t):
-                    out.append(Tool.from_function(t))
-            return out
+            return [tool for t in res if (tool := _convert_to_tool(t)) is not None]
         if isinstance(res, dict):
             return [
                 Tool.from_function(getattr(item, "call_func", lambda: None), name=k)
                 for k, item in res.items()
             ]
-    if hasattr(toolset, "tools") and isinstance(toolset.tools, dict):
-        dict_out: list[Tool] = []
-        for t in toolset.tools.values():
-            if isinstance(t, Tool):
-                dict_out.append(t)
-            elif isinstance(t, NativeTool):
-                dict_out.append(
-                    Tool.from_function(
-                        t.function,
-                        name=t.name,
-                        description=t.description,
-                        takes_ctx=t.takes_ctx,
-                        timeout=t.timeout,
-                        max_retries=t.max_retries,
-                        requires_approval=t.requires_approval,
-                    )
-                )
-        return dict_out
+
+    raw_tools = getattr(toolset, "tools", None)
+    if isinstance(raw_tools, dict):
+        return [tool for t in raw_tools.values() if (tool := _convert_to_tool(t)) is not None]
+
     return []
 
 
