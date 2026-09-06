@@ -91,10 +91,13 @@ def _run_tool_with_timeout(
 ) -> Any:
     t_limit = tool_obj.timeout if tool_obj.timeout is not None else default_timeout
     if t_limit and t_limit > 0:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-            exec_fn = cast(Callable[..., Any], tool_obj.execute)
-            future = executor.submit(exec_fn, ctx=ctx, **clean_args)
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        exec_fn = cast(Callable[..., Any], tool_obj.execute)
+        future = executor.submit(exec_fn, ctx=ctx, **clean_args)
+        try:
             return future.result(timeout=t_limit)
+        finally:
+            executor.shutdown(wait=False, cancel_futures=True)
     return tool_obj.execute(ctx=ctx, **clean_args)
 
 

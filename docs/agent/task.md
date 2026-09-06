@@ -283,15 +283,14 @@
   - [x] Phase 37.3: Submodule Re-Exports & CLI Command Expansion (`src/devops_cli/ai/mcp/__init__.py`, `src/devops_cli/commands/mcp.py` `export-schemas`)
   - [x] Phase 37.4: Schema Synchronization to Antigravity IDE (`/home/vscode/.gemini/antigravity-ide/mcp/devops-cli/` — 72 JSON schemas & instructions)
   - [x] Phase 37.5: Documentation & Roadmap Synchronization (`docs/MCP_TOOLS.md`, `README.md`, `docs/ROADMAP.md`, `docs/LOG.md`, `docs/PENDING_FEATURES.md`)
-  - [x] Phase 37.6: Full CI Quality Gate Validation (`uv run devops ci` — 10/10 green), Docs Sync, Schema Export & PR Submission
+  - [x] Phase 37.6: Full CI Quality Gate Validation (`uv run devops ci` — 10/10 green), Docs Sync, Schema Export & PR Submission (PR #33 merged)
 
 ---
 
 ### In-Progress Tasks (WIP)
-- [ ] Push topic branch `feat/mcp-expansion-and-validation` and open PR targeting `release/v0.2.11`.
+- None (Phase 36 fully completed, PR #32 passing all CI checks, merge conflicts resolved, and Copilot review comments addressed).
 
 ---
 
 ### Pending Tasks
 - Await maintainer review and merge approval for PR #32 targeting `release/v0.2.11`.
-- Await maintainer review and merge approval for PR on topic branch `feat/mcp-expansion-and-validation`.
