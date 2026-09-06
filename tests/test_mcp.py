@@ -6,7 +6,7 @@ import asyncio
 import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING
-from unittest.mock import patch
+from unittest.mock import PropertyMock, patch
 
 import pytest
 from typer.testing import CliRunner
@@ -184,6 +184,20 @@ class TestMcpCli:
         assert (out_dir / "scan_trivy.json").exists()
         assert (out_dir / "vault_set.json").exists()
         assert "Exported" in result.output
+        assert "instructions" in result.output
+
+    def test_export_schemas_without_instructions(self, runner: CliRunner, tmp_path: Path) -> None:
+        """devops mcp export-schemas without instructions writes empty file and adjusts message."""
+        from devops_cli.ai.mcp.server import mcp
+
+        out_dir = tmp_path / "mcp_schemas_no_inst"
+        with patch.object(type(mcp), "instructions", new_callable=PropertyMock, return_value=""):
+            result = runner.invoke(app, ["export-schemas", "--output-dir", str(out_dir)])
+            assert result.exit_code == 0
+            assert (out_dir / "instructions.md").exists()
+            assert (out_dir / "instructions.md").read_text(encoding="utf-8") == ""
+            assert "Exported" in result.output
+            assert "instructions" not in result.output
 
 
 # ── OpenTofu / Terraform MCP Tools ───────────────────────────────────────────
@@ -427,3 +441,43 @@ def test_mcp_helpers_and_error_branches() -> None:
         assert review_findings("20260826-session", status="verified") == "Review Output"
         assert verify_finding("20260826-session", 1, "VALIDATED", "Fixed in PR") == "Review Output"
         assert review_stats() == "Review Output"
+
+
+def test_mcp_integer_bounds_validation() -> None:
+    """Verify integer bounds validation rejecting non-positive or negative values."""
+    from devops_cli.ai.mcp.server import (
+        _validate_mcp_int_bound,
+        ai_architecture,
+        pr_checks,
+        pr_list,
+        review_pr,
+        verify_finding,
+    )
+
+    # Helper directly
+    _validate_mcp_int_bound("valid_field", 1, min_val=1)
+    _validate_mcp_int_bound("valid_field", 0, min_val=0)
+    with pytest.raises(ValidationError, match="Must be >= 1"):
+        _validate_mcp_int_bound("bad_field", 0, min_val=1)
+    with pytest.raises(ValidationError, match="Must be >= 1"):
+        _validate_mcp_int_bound("bad_field", -1, min_val=1)
+
+    # Tools bounds
+    with pytest.raises(ValidationError, match="pr_number"):
+        pr_checks(0)
+    with pytest.raises(ValidationError, match="pr_number"):
+        pr_checks(-5)
+
+    with pytest.raises(ValidationError, match="number"):
+        review_pr(0)
+    with pytest.raises(ValidationError, match="number"):
+        review_pr(-1)
+
+    with pytest.raises(ValidationError, match="index"):
+        verify_finding("session-1", -1, "verified")
+
+    with pytest.raises(ValidationError, match="limit"):
+        pr_list(limit=0)
+
+    with pytest.raises(ValidationError, match="max_depth"):
+        ai_architecture(target="src", max_depth=0)

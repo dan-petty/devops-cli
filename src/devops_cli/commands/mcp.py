@@ -146,7 +146,10 @@ def export_schemas_cmd(
         count += 1
 
     instructions_file = output_dir / "instructions.md"
-    if hasattr(mcp, "instructions") and mcp.instructions:
-        instructions_file.write_text(mcp.instructions, encoding="utf-8")
+    instructions_text = getattr(mcp, "instructions", "") or ""
+    instructions_file.write_text(instructions_text, encoding="utf-8")
 
-    _get("print_info")(f"✓ Exported {count} tool schema(s) and instructions to {output_dir}")
+    if instructions_text:
+        _get("print_info")(f"✓ Exported {count} tool schema(s) and instructions to {output_dir}")
+    else:
+        _get("print_info")(f"✓ Exported {count} tool schema(s) to {output_dir}")

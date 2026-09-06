@@ -56,6 +56,15 @@ def _validate_mcp_arg(name: str, value: str) -> None:
         )
 
 
+def _validate_mcp_int_bound(name: str, value: int, min_val: int = 1) -> None:
+    """Reject integer MCP arguments below min_val to prevent negative flag-like injection or invalid arguments."""
+    if value < min_val:
+        raise ValidationError(
+            f"Invalid value for '{name}': {value}. Must be >= {min_val}.",
+            field=name,
+        )
+
+
 @mcp.tool()
 def review_path(target: str = ".", pattern: str = "*", persona: str = "devsecops") -> str:
     """Run an AI code review on local files matching pattern using specified persona."""
@@ -96,6 +105,8 @@ def review_branch(branch: str = "", base: str = "main", persona: str = "devsecop
 @mcp.tool()
 def review_pr(number: int, post: bool = False, persona: str = "devsecops") -> str:
     """Fetch GitHub PR diff and review using specified persona; optionally post comment."""
+    _validate_mcp_int_bound("number", number, min_val=1)
+    _validate_mcp_arg("persona", persona)
     cmd = ["uv", "run", "devops", "review", "pr", str(number), "--persona", persona]
     if post:
         cmd.append("--post")
@@ -119,6 +130,7 @@ def review_findings(session_id: str = "", status: str = "") -> str:
 def verify_finding(session_id: str, index: int, status: str, reason: str = "") -> str:
     """Validate or invalidate a finding and record human feedback."""
     _validate_mcp_arg("session_id", session_id)
+    _validate_mcp_int_bound("index", index, min_val=0)
     _validate_mcp_arg("status", status)
     cmd = [
         "uv",
@@ -1029,6 +1041,7 @@ def benchmark_embeddings(
 def ai_architecture(target: str = "src", max_depth: int = 4) -> str:
     """Analyze architectural module boundaries, dependency graphs, and cyclic imports."""
     _validate_mcp_arg("target", target)
+    _validate_mcp_int_bound("max_depth", max_depth, min_val=1)
     return _run_mcp_cmd(
         [
             "uv",
@@ -1056,6 +1069,7 @@ def branches_list(remote: bool = True) -> str:
 @mcp.tool()
 def pr_list(limit: int = 10, state: str = "open") -> str:
     """List GitHub pull requests with review approval state and CI check summaries."""
+    _validate_mcp_int_bound("limit", limit, min_val=1)
     _validate_mcp_arg("state", state)
     return _run_mcp_cmd(
         ["uv", "run", "devops", "pr", "list", "--limit", str(limit), "--state", state],
@@ -1066,6 +1080,7 @@ def pr_list(limit: int = 10, state: str = "open") -> str:
 @mcp.tool()
 def pr_checks(pr_number: int) -> str:
     """Inspect detailed status of GitHub Actions CI checks for a pull request."""
+    _validate_mcp_int_bound("pr_number", pr_number, min_val=1)
     return _run_mcp_cmd(
         ["uv", "run", "devops", "pr", "checks", str(pr_number)],
         timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
