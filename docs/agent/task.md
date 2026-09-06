@@ -261,14 +261,14 @@
   - [x] Phase 35.3: Live Minikube Cluster Rollout (`helm upgrade argocd argo/argo-cd -n argocd -f k8s/argocd/values.yaml`, verify pods)
   - [x] Phase 35.4: Documentation Updates (`k8s/README.md`, `docs/DEVCONTAINER_USAGE.md`, `docs/LOG.md`, `docs/ROADMAP.md`)
   - [x] Phase 35.5: Full CI Quality Gate (`uv run devops ci`) & Docs Sync (`devops docs generate --sync-readme`)
+  - [x] Phase 35.6: Address Copilot Review Comments on PR #31 & Verify Green Checks (`tests/test_k8s_valkey_stack.py`, all 4 CI checks passing green)
 
 ---
 
 ### In-Progress Tasks (WIP)
-- Preparing atomic commit, pushing to `origin/feat/replace-redis-with-valkey`, and creating pull request targeting `release/v0.2.10`.
+*None — All tasks completed, PR #31 green and ready for human review.*
 
 ---
 
 ### Pending Tasks
-- Remote CI checks monitoring on PR.
-- Human review and merge.
+- Human review and merge of PR #31 targeting `release/v0.2.11`.
