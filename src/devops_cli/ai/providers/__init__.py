@@ -47,6 +47,11 @@ def create_pydantic_ai_provider(
     Configures endpoint URLs, API keys, and client parameters according to provider type.
     """
     prov_name = provider.lower().strip()
+    if base_url is not None:
+        from devops_cli.http.validation import validate_service_url
+
+        validate_service_url(base_url, purpose=prov_name, allow=True)
+
     if prov_name in ("ollama", "ollama-chat"):
         return NativeOllamaProvider(base_url=base_url, api_key=api_key, **kwargs)
     elif prov_name in ("openai", "openai-chat", "openai-responses"):

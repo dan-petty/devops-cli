@@ -168,12 +168,17 @@ def run_complexity_scan(
     findings: list[Finding] = []
     target = target_path.resolve()
 
+    if target_path.is_symlink():
+        return findings
+
     if target.is_file() and target.suffix == ".py":
         files = [target]
     elif target.is_dir():
         ignored_dirs = {".venv", ".data", ".git", "repos", "scratch"}
         files = [
-            p for p in target.rglob("*.py") if not any(part in ignored_dirs for part in p.parts)
+            p
+            for p in target.rglob("*.py")
+            if not p.is_symlink() and not any(part in ignored_dirs for part in p.parts)
         ]
     else:
         return findings

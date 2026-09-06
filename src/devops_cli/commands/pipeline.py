@@ -41,7 +41,8 @@ def run_pipeline_cmd(
 ) -> None:
     """Execute reproducible, containerized developer pipelines with Dagger."""
     if not pipeline_path.exists():
-        print_error(f"Pipeline path does not exist: {pipeline_path}", prefix=False)
+        safe_path = pipeline_path.name or str(pipeline_path)
+        print_error(f"Pipeline path does not exist: {safe_path}", prefix=False)
         raise typer.Exit(1)
 
     if function_name is not None:

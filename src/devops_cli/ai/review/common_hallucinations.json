@@ -184,5 +184,28 @@
     "occurrence_count": 1,
     "last_seen": "2026-09-05T00:00:00",
     "source": "builtin"
+  },
+  {
+    "id": "HALLUCINATION-MISSING-SYMBOL-FALSE-ALARM",
+    "name": "False-Positive Missing Import or Symbol Claim",
+    "category": "syntax_grammar",
+    "description": "Claiming that an imported or re-exported variable, class, or function does not exist in the source module or causes an ImportError when it is actually defined in the module.",
+    "signature_patterns": [
+      "(?:missing|undefined)\\s+[A-Z0-9_]+\\s+(?:import|symbol|variable|constant)",
+      "does\\s+not\\s+define\\s+(?:this\\s+name|DEFAULT_HTTP_BROKER)",
+      "causes?\\s+importerror.*(?:does\\s+not\\s+define|never\\s+defined)"
+    ],
+    "pattern_keywords": [
+      "missing_symbol_false_alarm",
+      "false_importerror",
+      "default_http_broker"
+    ],
+    "file_patterns": [
+      "*.py"
+    ],
+    "resolution": "Verify ground-truth AST or module definitions before claiming an imported symbol is missing or causes ImportError.",
+    "occurrence_count": 1,
+    "last_seen": "2026-09-06T00:00:00",
+    "source": "builtin"
   }
 ]

@@ -188,7 +188,87 @@ class CodeMode(BaseCapability):
             import typing
             import unicodedata
 
+            _allowed_modules: dict[str, Any] = {
+                "asyncio": asyncio,
+                "json": json,
+                "re": re,
+                "math": math,
+                "typing": typing,
+                "sys": sys,
+                "unicodedata": unicodedata,
+                "datetime": datetime,
+            }
+
+            def _sandboxed_import(name: str, *args: Any, **kwargs: Any) -> Any:
+                mod_name = name.split(".")[0]
+                if mod_name in _allowed_modules:
+                    return _allowed_modules[mod_name]
+                raise ImportError(f"Module '{name}' is not permitted in sandboxed code mode")
+
+            safe_builtins: dict[str, Any] = {
+                "True": True,
+                "False": False,
+                "None": None,
+                "abs": abs,
+                "all": all,
+                "any": any,
+                "bin": bin,
+                "bool": bool,
+                "bytearray": bytearray,
+                "bytes": bytes,
+                "chr": chr,
+                "dict": dict,
+                "divmod": divmod,
+                "enumerate": enumerate,
+                "filter": filter,
+                "float": float,
+                "format": format,
+                "frozenset": frozenset,
+                "getattr": getattr,
+                "hasattr": hasattr,
+                "hash": hash,
+                "hex": hex,
+                "id": id,
+                "int": int,
+                "isinstance": isinstance,
+                "issubclass": issubclass,
+                "iter": iter,
+                "len": len,
+                "list": list,
+                "map": map,
+                "max": max,
+                "min": min,
+                "next": next,
+                "oct": oct,
+                "ord": ord,
+                "pow": pow,
+                "print": _custom_print,
+                "range": range,
+                "repr": repr,
+                "reversed": reversed,
+                "round": round,
+                "set": set,
+                "slice": slice,
+                "sorted": sorted,
+                "str": str,
+                "sum": sum,
+                "tuple": tuple,
+                "type": type,
+                "zip": zip,
+                "Exception": Exception,
+                "ValueError": ValueError,
+                "TypeError": TypeError,
+                "KeyError": KeyError,
+                "IndexError": IndexError,
+                "AttributeError": AttributeError,
+                "RuntimeError": RuntimeError,
+                "ImportError": ImportError,
+                "NameError": NameError,
+                "__import__": _sandboxed_import,
+            }
+
             sandbox_env: dict[str, Any] = {
+                "__builtins__": safe_builtins,
                 "asyncio": asyncio,
                 "json": json,
                 "re": re,

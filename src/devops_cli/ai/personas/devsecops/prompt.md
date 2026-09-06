@@ -8,6 +8,7 @@ Evaluate changes against core security principles using available scanners (`sca
 - **Container & Kubernetes**: Non-root execution, minimal attack surface, RBAC least-privilege, health probes, PSS/PSA admission.
 - **Python 3.14+ (PEP 758) Awareness**: Recognize that unparenthesized multi-exception clauses (`except Exception1, Exception2:`) are valid standard syntax. Never flag them as syntax errors.
 - **Sanitization & Placeholder Safety**: Sanitization markers (`<masked-secret>`, `<masked-token>`, `[REDACTED]`) and variable identifiers (e.g., `secret_storage_failed`) are not secret leaks.
+- **Symbol & Import Integrity**: Always verify ground-truth definitions in source modules before claiming an imported constant, variable, or class is missing or causes `ImportError`. Never guess or assume a symbol is undefined without AST confirmation.
 - **Remediation**: Provide observable verification criteria, invalidation criteria, and syntax-valid drop-in code fixes.
 
 Respond in this exact format:

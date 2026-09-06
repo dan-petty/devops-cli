@@ -108,11 +108,14 @@ def run_subprocess(
 
         if ret_code != 0 and check:
             span_h.set_attribute("error", True)
-            err_sample = (
+            raw_sample = (
                 (stderr_val or stdout_val or "")[:400]
                 if isinstance(stderr_val or stdout_val, str)
                 else ""
             )
+            from devops_cli.ai.review.sanitization import _mask_secrets_in_content
+
+            err_sample = _mask_secrets_in_content(raw_sample) if raw_sample else ""
             if err_sample:
                 span_h.set_attribute("subprocess.error_sample", err_sample)
             span_h.add_event(
@@ -244,7 +247,10 @@ async def run_subprocess_async(
 
         if ret_code != 0 and check:
             span_h.set_attribute("error", True)
-            err_sample = (stderr_str or stdout_str or "")[:400]
+            raw_sample = (stderr_str or stdout_str or "")[:400]
+            from devops_cli.ai.review.sanitization import _mask_secrets_in_content
+
+            err_sample = _mask_secrets_in_content(raw_sample) if raw_sample else ""
             if err_sample:
                 span_h.set_attribute("subprocess.error_sample", err_sample)
             span_h.add_event(

@@ -1,4 +1,4 @@
-"""Unit tests for review session 20260905-035954 remediations and loop hardening."""
+"""Unit tests for network security validation, SSRF protection, and OpenTelemetry trace correlation in logs."""
 
 from __future__ import annotations
 

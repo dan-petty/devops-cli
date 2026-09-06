@@ -11,6 +11,8 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from devops_cli.exceptions import SecurityError
+
 
 class ASTSymbolType(StrEnum):
     """Categorization of Python AST structural symbols."""
@@ -66,7 +68,12 @@ def _extract_decorator_names(decorator_list: list[ast.expr]) -> list[str]:
 
 def stream_ast_symbols(source: str | Path) -> Iterator[ASTSymbol]:
     """Yield structural code symbols (classes, functions, imports) directly via AST streaming."""
-    source_code = source.read_text(encoding="utf-8") if isinstance(source, Path) else source
+    if isinstance(source, Path):
+        if source.is_symlink():
+            raise SecurityError(f"Symlinks not permitted in stream_ast_symbols: {source}")
+        source_code = source.read_text(encoding="utf-8")
+    else:
+        source_code = source
     try:
         tree = ast.parse(source_code)
     except SyntaxError:

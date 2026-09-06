@@ -53,7 +53,13 @@ def _execute_single_tool(
     try:
         clean_args = tool_obj.validate_args(args)
     except Exception as exc:
-        return "validation_error", args, f"Tool argument validation error for {tool_name}: {exc}"
+        from devops_cli.ai.review.sanitization import _mask_secrets_in_content
+
+        return (
+            "validation_error",
+            args,
+            _mask_secrets_in_content(f"Tool argument validation error for {tool_name}: {exc}"),
+        )
 
     prior = next(
         (c for c in tool_calls if c.tool_name == tool_name and c.arguments == clean_args), None
@@ -130,7 +136,13 @@ def _execute_single_tool(
                     h_err(ctx, tool_name, exc)
                 except Exception:
                     pass
-        return "error", clean_args, f"Tool execution failed for {tool_name}: {exc}"
+        from devops_cli.ai.review.sanitization import _mask_secrets_in_content
+
+        return (
+            "error",
+            clean_args,
+            _mask_secrets_in_content(f"Tool execution failed for {tool_name}: {exc}"),
+        )
     return "ok", clean_args, tool_result
 
 

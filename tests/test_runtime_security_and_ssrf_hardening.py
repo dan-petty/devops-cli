@@ -1,4 +1,4 @@
-"""Test suite verifying remediations for codebase findings identified in session 20260905-141532."""
+"""Unit tests for agent runtime security, media storage traversal prevention, and SSRF hardening."""
 
 from __future__ import annotations
 

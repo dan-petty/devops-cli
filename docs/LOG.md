@@ -2,6 +2,38 @@
 
 Chronological log of refactoring milestones, quality gates, and security enhancements.
 
+### [2026-09-06] Address Review Findings (Session 20260905-202119) & Self-Improvement Loop Hardening
+- **Codebase Security & Hardening Remediations (18 Findings Across 16 Modules)**:
+  - `src/devops_cli/ai/ast_stream.py`: Added explicit symlink check (`p.is_symlink()`) in `stream_python_symbols` to prevent following untrusted symbolic links during AST parsing.
+  - `src/devops_cli/ai/diff/difftastic.py`: Validated git `branch` and `base` ref arguments against command-injection metacharacters (`_GIT_REF_RE`), masked raw stderr on subprocess failure, and integrated secret sanitization.
+  - `src/devops_cli/ai/prompt_eval.py`: Validated `dataset_path` against symbolic links and path traversal outside the repository or workspace root.
+  - `src/devops_cli/crypto/ssh_keys.py`: Checked that target key file paths (`private_key_path`, `public_key_path`) are not existing symlinks prior to writing.
+  - `src/devops_cli/ai/providers/ollama.py`: Validated `base_url` using `validate_service_url` to prevent SSRF against unauthorized destinations.
+  - `src/devops_cli/ai/harness/os_access.py`: Blocked dangerous `os`, `sys`, `subprocess`, `shutil`, `socket` modules and dynamic execution builtins in safe code mode.
+  - `src/devops_cli/core/process.py`: Masked sensitive credentials in `subprocess.error_sample` recorded to telemetry spans on subprocess failures.
+  - `src/devops_cli/ai/agents/memory.py`: Sanitized sensitive tokens and secrets before auto-summarizing conversation memory.
+  - `src/devops_cli/core/cli.py`: Masked sensitive credentials in `cli.error` telemetry span attributes on subcommand failures.
+  - `src/devops_cli/ai/agents/runner.py`: Masked credentials in tool validation and runtime exception messages.
+  - `src/devops_cli/docker/sandbox.py`: Added `_validate_workspace_dir` to reject symbolic link mounts and forbid mounting sensitive host root filesystems (`/`, `/etc`, `/usr`, `/var`, `/dev`, etc.).
+  - `src/devops_cli/security/dive.py`: Checked that dive executable in `PATH` is not a symbolic link.
+  - `src/devops_cli/ai/providers/__init__.py`: Validated `base_url` using `validate_service_url` in `create_pydantic_ai_provider`.
+  - `src/devops_cli/k8s/diff.py`: Masked secrets in Helm diff output.
+  - `src/devops_cli/security/complexity.py`: Skipped symbolic links in `run_complexity_scan`.
+  - `src/devops_cli/security/tflint.py`: Skipped symbolic links in `_run_native_fallback_tf_lint`.
+  - `src/devops_cli/commands/pipeline.py`: Sanitized pipeline path error messages to prevent full host path disclosure.
+  - `src/devops_cli/server/routes/status.py`: Masked sensitive user home directory paths (`/home/...`, `/Users/...`) in workstation status endpoint.
+- **Review Session & Hallucination System Hardening**:
+  - Invalidate false-positive findings claiming `DEFAULT_HTTP_BROKER` does not exist (symbol was and is defined in `devops_cli.config.constants`).
+  - Registered `DEFAULT_HTTP_BROKER` missing export claim in `common_hallucinations.json` and invalidated session finding 20260905-202119-001.
+  - Renamed test files to domain-specific names (`test_network_security_and_trace_correlation.py`, `test_runtime_security_and_ssrf_hardening.py`).
+- **Prompts, Personas, and Verification Hardening**:
+  - `src/devops_cli/ai/personas/devsecops/prompt.md`: Mandated ground-truth verification in source modules before asserting missing imports or undefined symbols.
+  - `src/devops_cli/ai/tasks/verify_finding_system.md`: Added rule to immediately invalidate findings claiming missing symbols without AST confirmation.
+  - `src/devops_cli/ai/knowledge_base/devops_cli/tasks/ai_code_review.md`: Documented ground-truth symbol verification in review task manual.
+- **Quality Gates & Test-First Verification**:
+  - Authored comprehensive test suite `tests/test_security_remediation_and_hardening.py` (19/19 tests passing).
+  - All 10 CI quality gates verified green via `uv run devops ci` (coverage 90.08%, strict mypy, ruff format/lint, security audit, docs sync).
+
 ### [2026-09-05] Codebase Hygiene, Elimination of Forbidden Patterns, and Zombie Code Removal
 - **Elimination of Incomplete Literal Collections of File Extensions**:
   - `src/devops_cli/ai/rag/chunker.py`: Removed hardcoded extension sets (`_DOC_EXTENSIONS`, `_IAC_EXTENSIONS`, `_CONFIG_EXTENSIONS`, `_JS_TS_EXTENSIONS`, `_C_LIKE_EXTENSIONS`). Refactored category resolution and language dispatch to dynamic `mimetypes` and `detect_language` inspection.
@@ -52,7 +84,7 @@ Chronological log of refactoring milestones, quality gates, and security enhance
   - `src/devops_cli/ai/knowledge_base/devops_cli/tasks/ai_code_review.md`: Documented category-aligned hallucination filtering, stop words, and ground-truth verification.
   - Introspected CLI and synchronized documentation via `devops docs generate --sync-readme`.
 - **Quality Gates & Test-First Verification**:
-  - Authored comprehensive test suites: `tests/test_common_hallucinations_hardening.py` (5/5 passing) and `tests/test_review_session_141532_remediation.py` (11/11 passing).
+  - Authored comprehensive test suites: `tests/test_common_hallucinations_hardening.py` (5/5 passing) and `tests/test_runtime_security_and_ssrf_hardening.py` (11/11 passing).
   - Strict static typing (`mypy --strict`) 100% clean across all 305 source files (0 errors).
   - Clean linting and formatting (`ruff check`, `ruff format`).
   - Full CI validation suite (`uv run devops ci`): 10/10 quality gates green (version, test, coverage >= 90%, lint, format, typecheck, audit, security, actionlint, docs).
