@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import urllib.parse
+from datetime import date, datetime
 from typing import TYPE_CHECKING, Any
 
 import httpx2
@@ -127,3 +128,85 @@ class GitHubClient:
             path=path,
             line=line,
         )
+
+    # ── Labels ───────────────────────────────────────────────────────────────
+
+    def get_labels(self, repo: str) -> list[dict[str, Any]]:
+        """Fetch all labels for a repository."""
+        labels = self._gh.get_repo(repo).get_labels()
+        return [
+            {
+                "name": lbl.name,
+                "color": lbl.color,
+                "description": lbl.description or "",
+            }
+            for lbl in labels
+        ]
+
+    def create_label(self, repo: str, name: str, color: str, description: str = "") -> Any:
+        """Create a new label in the specified repository."""
+        return self._gh.get_repo(repo).create_label(
+            name=name,
+            color=color.lstrip("#"),
+            description=description,
+        )
+
+    def edit_label(self, repo: str, name: str, color: str, description: str = "") -> Any:
+        """Update an existing label's color and description."""
+        label = self._gh.get_repo(repo).get_label(name)
+        return label.edit(
+            name=name,
+            color=color.lstrip("#"),
+            description=description,
+        )
+
+    # ── Milestones ────────────────────────────────────────────────────────────
+
+    def get_milestones(self, repo: str, state: str = "all") -> list[dict[str, Any]]:
+        """Fetch all milestones for a repository."""
+        milestones = self._gh.get_repo(repo).get_milestones(state=state)
+        results: list[dict[str, Any]] = []
+        for m in milestones:
+            due = getattr(m, "due_on", None)
+            due_str = (
+                due.isoformat()
+                if due and hasattr(due, "isoformat")
+                else (str(due) if due else None)
+            )
+            results.append(
+                {
+                    "title": m.title,
+                    "number": m.number,
+                    "state": m.state,
+                    "description": m.description or "",
+                    "open_issues": m.open_issues,
+                    "closed_issues": m.closed_issues,
+                    "due_on": due_str,
+                }
+            )
+        return results
+
+    def create_milestone(
+        self,
+        repo: str,
+        title: str,
+        description: str = "",
+        state: str = "open",
+        due_on: str | date | datetime | None = None,
+    ) -> Any:
+        """Create a new milestone in the specified repository."""
+        kwargs: dict[str, Any] = {
+            "title": title,
+            "description": description,
+            "state": state,
+        }
+        if due_on is not None:
+            if isinstance(due_on, (datetime, date)):
+                kwargs["due_on"] = due_on
+            elif isinstance(due_on, str) and due_on.strip():
+                clean_due = due_on.strip()
+                try:
+                    kwargs["due_on"] = datetime.fromisoformat(clean_due.replace("Z", "+00:00"))
+                except ValueError:
+                    kwargs["due_on"] = date.fromisoformat(clean_due)
+        return self._gh.get_repo(repo).create_milestone(**kwargs)

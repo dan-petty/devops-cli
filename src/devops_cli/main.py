@@ -51,6 +51,7 @@ _COMMAND_SPECS: Final[dict[str, tuple[str, str]]] = {
     "docs": ("devops_cli.commands.docs", HELP.docs.app),
     "release": ("devops_cli.commands.release", HELP.release.app),
     "pr": ("devops_cli.commands.pr", HELP.pr.app),
+    "gh": ("devops_cli.commands.gh", HELP.gh.app),
     "tf": ("devops_cli.commands.tf", HELP.tf.app),
     "tls": ("devops_cli.commands.tls", HELP.tls.app),
     "telemetry": ("devops_cli.commands.telemetry", HELP.telemetry.app),

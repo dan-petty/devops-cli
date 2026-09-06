@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from devops_cli.dry_run.decorator import dry_run_command
 from devops_cli.dry_run.state import (
     format_command,
     is_dry_run,
@@ -23,6 +24,7 @@ def __getattr__(name: str) -> Any:
 
 __all__ = [
     "CommandDryRunResult",
+    "dry_run_command",
     "format_command",
     "is_dry_run",
     "is_dry_run_requested",

@@ -56,6 +56,15 @@ def _validate_mcp_arg(name: str, value: str) -> None:
         )
 
 
+def _validate_mcp_int_bound(name: str, value: int, min_val: int = 1) -> None:
+    """Reject integer MCP arguments below min_val to prevent negative flag-like injection or invalid arguments."""
+    if value < min_val:
+        raise ValidationError(
+            f"Invalid value for '{name}': {value}. Must be >= {min_val}.",
+            field=name,
+        )
+
+
 @mcp.tool()
 def review_path(target: str = ".", pattern: str = "*", persona: str = "devsecops") -> str:
     """Run an AI code review on local files matching pattern using specified persona."""
@@ -96,6 +105,8 @@ def review_branch(branch: str = "", base: str = "main", persona: str = "devsecop
 @mcp.tool()
 def review_pr(number: int, post: bool = False, persona: str = "devsecops") -> str:
     """Fetch GitHub PR diff and review using specified persona; optionally post comment."""
+    _validate_mcp_int_bound("number", number, min_val=1)
+    _validate_mcp_arg("persona", persona)
     cmd = ["uv", "run", "devops", "review", "pr", str(number), "--persona", persona]
     if post:
         cmd.append("--post")
@@ -119,6 +130,7 @@ def review_findings(session_id: str = "", status: str = "") -> str:
 def verify_finding(session_id: str, index: int, status: str, reason: str = "") -> str:
     """Validate or invalidate a finding and record human feedback."""
     _validate_mcp_arg("session_id", session_id)
+    _validate_mcp_int_bound("index", index, min_val=0)
     _validate_mcp_arg("status", status)
     cmd = [
         "uv",
@@ -786,6 +798,412 @@ def vault_get(path: str, key: str | None = None) -> str:
     if key:
         cmd.extend(["--key", key])
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def gh_label_list(repo: str | None = None) -> str:
+    """List declarative repository labels and descriptions."""
+    cmd = ["uv", "run", "devops", "gh", "labels", "list"]
+    if repo:
+        _validate_mcp_arg("repo", repo)
+        cmd.extend(["--repo", repo])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def gh_label_sync(repo: str | None = None, dry_run: bool = True) -> str:
+    """Synchronize repository labels against .github/labels.yml schema."""
+    cmd = ["uv", "run", "devops", "gh", "labels", "sync"]
+    if dry_run:
+        cmd.append("--dry-run")
+    if repo:
+        _validate_mcp_arg("repo", repo)
+        cmd.extend(["--repo", repo])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def gh_milestone_list(repo: str | None = None) -> str:
+    """List repository milestones and progress rates."""
+    cmd = ["uv", "run", "devops", "gh", "milestones", "list"]
+    if repo:
+        _validate_mcp_arg("repo", repo)
+        cmd.extend(["--repo", repo])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def gh_milestone_sync(repo: str | None = None, dry_run: bool = True) -> str:
+    """Synchronize repository milestones from docs/ROADMAP.md."""
+    cmd = ["uv", "run", "devops", "gh", "milestones", "sync"]
+    if dry_run:
+        cmd.append("--dry-run")
+    if repo:
+        _validate_mcp_arg("repo", repo)
+        cmd.extend(["--repo", repo])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def gh_project_status() -> str:
+    """Inspect GitHub Projects v2 template configuration, fields, and view definitions."""
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "gh", "project", "status"],
+        timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.tool()
+def gh_view_spec() -> str:
+    """Return JSON specification for GitHub Projects v2 views."""
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "gh", "views", "spec"],
+        timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.tool()
+def scan_trivy(
+    target: str = ".",
+    scan_type: str = "fs",
+    severity: str = "HIGH,CRITICAL",
+) -> str:
+    """Run container, filesystem, or repository vulnerability scanning via Trivy."""
+    _validate_mcp_arg("target", target)
+    _validate_mcp_arg("scan_type", scan_type)
+    _validate_mcp_arg("severity", severity)
+    return _run_mcp_cmd(
+        [
+            "uv",
+            "run",
+            "devops",
+            "scan",
+            "trivy",
+            target,
+            "--type",
+            scan_type,
+            "--severity",
+            severity,
+        ],
+        timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.tool()
+def scan_gitleaks(target: str = ".") -> str:
+    """Scan git repository or directory for hardcoded secrets, tokens, and private keys."""
+    _validate_mcp_arg("target", target)
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "scan", "gitleaks", target],
+        timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.tool()
+def scan_semgrep(target: str = ".", config: str = "auto") -> str:
+    """Perform AST-based static code security analysis and rule enforcement via Semgrep."""
+    _validate_mcp_arg("target", target)
+    _validate_mcp_arg("config", config)
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "scan", "semgrep", target, "--config", config],
+        timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.tool()
+def scan_checkov(target: str = ".") -> str:
+    """Scan Infrastructure-as-Code (Terraform, Helm, Kubernetes, Dockerfile) via Checkov."""
+    _validate_mcp_arg("target", target)
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "scan", "checkov", target],
+        timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.tool()
+def scan_complexity(
+    target: str = "src",
+    max_complexity: int = 10,
+    max_nesting_depth: int = 5,
+) -> str:
+    """Inspect Python codebase for cyclomatic complexity and excessive indentation depth."""
+    _validate_mcp_arg("target", target)
+    return _run_mcp_cmd(
+        [
+            "uv",
+            "run",
+            "devops",
+            "scan",
+            "complexity",
+            target,
+            "--max-complexity",
+            str(max_complexity),
+            "--max-nesting-depth",
+            str(max_nesting_depth),
+        ],
+        timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.tool()
+def scan_aibom(target: str = ".") -> str:
+    """Generate an AI Bill of Materials (AIBOM) cataloging models, datasets, and licenses."""
+    _validate_mcp_arg("target", target)
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "scan", "aibom", target],
+        timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.tool()
+def scan_sbom(target: str = ".", format: str = "cyclonedx") -> str:
+    """Generate CycloneDX or SPDX Software Bill of Materials for target workspace."""
+    _validate_mcp_arg("target", target)
+    _validate_mcp_arg("format", format)
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "scan", "sbom", target, "--format", format],
+        timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.tool()
+def k8s_chaos(
+    action: str = "validate",
+    experiment: str = "pod-failure",
+    namespace: str = "default",
+) -> str:
+    """Inject or validate Kubernetes chaos engineering experiments and cluster resilience."""
+    _validate_mcp_arg("action", action)
+    _validate_mcp_arg("experiment", experiment)
+    _validate_mcp_arg("namespace", namespace)
+    return _run_mcp_cmd(
+        [
+            "uv",
+            "run",
+            "devops",
+            "k8s",
+            "chaos",
+            action,
+            "--experiment",
+            experiment,
+            "--namespace",
+            namespace,
+        ],
+        timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.tool()
+def k8s_audit(namespace: str = "default") -> str:
+    """Audit Kubernetes cluster security posture, RBAC policies, and CIS benchmarks."""
+    _validate_mcp_arg("namespace", namespace)
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "k8s", "audit", "--namespace", namespace],
+        timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.tool()
+def k8s_lint(manifest_path: str = ".") -> str:
+    """Lint Kubernetes manifests against security best practices and deprecated APIs."""
+    _validate_mcp_arg("manifest_path", manifest_path)
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "k8s", "lint", manifest_path],
+        timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.tool()
+def k8s_validate(manifest_path: str = ".") -> str:
+    """Validate Kubernetes manifest syntax and schemas against OpenAPI specifications."""
+    _validate_mcp_arg("manifest_path", manifest_path)
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "k8s", "validate", manifest_path],
+        timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.tool()
+def k8s_diff_helm(
+    release_name: str,
+    chart: str,
+    namespace: str = "default",
+) -> str:
+    """Compare local Helm values or charts against deployed cluster releases."""
+    _validate_mcp_arg("release_name", release_name)
+    _validate_mcp_arg("chart", chart)
+    _validate_mcp_arg("namespace", namespace)
+    return _run_mcp_cmd(
+        [
+            "uv",
+            "run",
+            "devops",
+            "k8s",
+            "diff-helm",
+            release_name,
+            chart,
+            "--namespace",
+            namespace,
+        ],
+        timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.tool()
+def vault_set(path: str, key_values: list[str]) -> str:
+    """Store secret key-value pairs in HashiCorp Vault KV-v2 engine."""
+    _validate_mcp_arg("path", path)
+    for kv in key_values:
+        _validate_mcp_arg("key_value", kv)
+    cmd = ["uv", "run", "devops", "vault", "set", path]
+    cmd.extend(key_values)
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def vault_sync(path: str, keys: list[str] | None = None) -> str:
+    """Synchronize secrets from HashiCorp Vault into the local OS Keyring."""
+    _validate_mcp_arg("path", path)
+    cmd = ["uv", "run", "devops", "vault", "sync", path]
+    if keys:
+        for k in keys:
+            _validate_mcp_arg("key", k)
+            cmd.extend(["--key", k])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def benchmark_embeddings(
+    provider: str = "ollama",
+    model: str = "bge-m3",
+    samples: int = 10,
+) -> str:
+    """Benchmark embedding model inference latency, dimensions, and retrieval accuracy."""
+    _validate_mcp_arg("provider", provider)
+    _validate_mcp_arg("model", model)
+    return _run_mcp_cmd(
+        [
+            "uv",
+            "run",
+            "devops",
+            "benchmark",
+            "embeddings",
+            "--provider",
+            provider,
+            "--model",
+            model,
+            "--samples",
+            str(samples),
+        ],
+        timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.tool()
+def ai_architecture(target: str = "src", max_depth: int = 4) -> str:
+    """Analyze architectural module boundaries, dependency graphs, and cyclic imports."""
+    _validate_mcp_arg("target", target)
+    _validate_mcp_int_bound("max_depth", max_depth, min_val=1)
+    return _run_mcp_cmd(
+        [
+            "uv",
+            "run",
+            "devops",
+            "analyze",
+            "architecture",
+            target,
+            "--max-depth",
+            str(max_depth),
+        ],
+        timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.tool()
+def branches_list(remote: bool = True) -> str:
+    """List git branches across repositories with tracking status and stale detection."""
+    cmd = ["uv", "run", "devops", "branches", "list"]
+    if remote:
+        cmd.append("--remote")
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def pr_list(limit: int = 10, state: str = "open") -> str:
+    """List GitHub pull requests with review approval state and CI check summaries."""
+    _validate_mcp_int_bound("limit", limit, min_val=1)
+    _validate_mcp_arg("state", state)
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "pr", "list", "--limit", str(limit), "--state", state],
+        timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.tool()
+def pr_checks(pr_number: int) -> str:
+    """Inspect detailed status of GitHub Actions CI checks for a pull request."""
+    _validate_mcp_int_bound("pr_number", pr_number, min_val=1)
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "pr", "checks", str(pr_number)],
+        timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.resource("resource://vault/status")
+def get_vault_resource() -> str:
+    """Return live HashiCorp Vault cluster health, sealing, and initialization status."""
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "vault", "status"],
+        timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.resource("resource://mcp/tools")
+def get_mcp_catalog_resource() -> str:
+    """Return live catalog of registered FastMCP tools and descriptions."""
+    tools = list_mcp_tools()
+    return "\n".join(f"- {t.name}: {t.description}" for t in tools)
+
+
+@mcp.prompt()
+def code_review_prompt(persona: str = "devsecops", target: str = ".") -> str:
+    """Prompt template for performing an AI code review with a specialized persona."""
+    return (
+        f"Perform an in-depth code review on '{target}' using the '{persona}' persona.\n"
+        "- Ground all findings against OWASP, CIS, and project architectural invariants.\n"
+        "- Format findings with canonical file:line locations and actionable recommendations."
+    )
+
+
+@mcp.prompt()
+def security_audit_prompt(target: str = ".") -> str:
+    """Prompt template for running a multi-layer security audit across dependencies and code."""
+    return (
+        f"Conduct a comprehensive security audit of '{target}'.\n"
+        "1. Scan dependencies for CVEs and outdated packages.\n"
+        "2. Check for hardcoded credentials and token leakage.\n"
+        "3. Inspect cyclomatic complexity and excessive indentation."
+    )
+
+
+@mcp.prompt()
+def k8s_diagnostics_prompt(namespace: str = "default") -> str:
+    """Prompt template for diagnosing Kubernetes cluster, workload, and pod health."""
+    return (
+        f"Diagnose Kubernetes workloads in the '{namespace}' namespace.\n"
+        "- Inspect pod status, container restarts, and resource limits.\n"
+        "- Verify accessible service endpoints and TLS configuration."
+    )
+
+
+@mcp.prompt()
+def architecture_analysis_prompt(target: str = "src") -> str:
+    """Prompt template for analyzing software architecture, modularity, and dependencies."""
+    return (
+        f"Analyze the software architecture of '{target}'.\n"
+        "- Trace dependency boundaries and identify cyclic imports.\n"
+        "- Evaluate compliance with modular domain-driven design principles."
+    )
 
 
 def list_mcp_tools() -> list[MCPToolInfo]:

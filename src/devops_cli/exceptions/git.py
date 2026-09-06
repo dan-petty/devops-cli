@@ -73,3 +73,21 @@ class BranchAlreadyExistsError(GitOperationError):
             error_code="BRANCH_ALREADY_EXISTS",
             details=err_details,
         )
+
+
+class GitHubOperationError(DevOpsCLIError, RuntimeError):
+    """Exception raised for GitHub API or CLI automation failures."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        operation: str | None = None,
+        exit_code: int = CONST_EXIT_FAILURE,
+        error_code: str = "GITHUB_OPERATION_FAILED",
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        err_details = {"operation": operation} if operation else {}
+        if details:
+            err_details.update(details)
+        super().__init__(message, exit_code=exit_code, error_code=error_code, details=err_details)

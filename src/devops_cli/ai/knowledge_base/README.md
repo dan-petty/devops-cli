@@ -76,6 +76,7 @@ The Knowledge Base is divided into two primary structural divisions:
 | **Telemetry & Observability** | Observability | OpenTelemetry span tracing, Prometheus client metric scraping, and latency profiling. | [telemetry_and_observability.md](devops_cli/tasks/telemetry_and_observability.md) |
 | **REST API Service Engine** | Workstation API | Running the background REST and OpenAPI service engine (`devops serve`) for tool inspection. | [rest_api_service.md](devops_cli/tasks/rest_api_service.md) |
 | **DevContainer Lifecycle** | Dev Environments | Containerized workstation scaffolding, SSH commit signing, and MCP server synchronization. | [devcontainer_lifecycle.md](devops_cli/tasks/devcontainer_lifecycle.md) |
+| **GitHub Project Governance** | Project Management | Declarative labels, roadmap milestones, Projects v2 templates, and 4 standardized views. | [github_project_management.md](devops_cli/tasks/github_project_management.md) |
 
 ---
 
@@ -129,3 +130,4 @@ The Knowledge Base is divided into two primary structural divisions:
 | **TFLint** | Cloud Provider Terraform Linter | [terraform-linters/tflint](https://github.com/terraform-linters/tflint) | [TFLint Releases](https://github.com/terraform-linters/tflint/releases) | [tflint.md](it_domains/tools/tflint.md) |
 | **Dive** | Container Layer Efficiency | [wagoodman/dive](https://github.com/wagoodman/dive) | [Dive Releases](https://github.com/wagoodman/dive/releases) | [dive.md](it_domains/tools/dive.md) |
 | **Kubeconform** | OpenAPI Manifest Validator | [yannh/kubeconform](https://github.com/yannh/kubeconform) | [Kubeconform Releases](https://github.com/yannh/kubeconform/releases) | [kubeconform.md](it_domains/tools/kubeconform.md) |
+| **Valkey** | In-Memory Store & Cache | [valkey-io/valkey](https://github.com/valkey-io/valkey) | [valkey/valkey (Docker Hub)](https://hub.docker.com/r/valkey/valkey) | [valkey.md](it_domains/tools/valkey.md) |

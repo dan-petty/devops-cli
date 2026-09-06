@@ -306,3 +306,16 @@ def test_embeddings_engine_to_embedder(monkeypatch: pytest.MonkeyPatch) -> None:
     assert len(res) == 1
     assert len(res[0]) == 512
     assert res["Engine test"] == [0.3] * 512
+
+
+def test_embed_texts_vector_count_mismatch(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify EmbeddingsEngine raises EmbeddingsError when provider returns vector count mismatch."""
+    from devops_cli.ai.rag.embeddings import EmbeddingsError
+
+    ai_cfg = AIConfig(provider="custom", ollama_urls=[])
+    engine = EmbeddingsEngine(ai_cfg)
+
+    monkeypatch.setattr(engine, "_dispatch_embed", lambda texts: [[0.1] * 768])
+
+    with pytest.raises(EmbeddingsError, match="returned 1 vectors for 2 texts"):
+        engine.embed_texts(["text1", "text2"])

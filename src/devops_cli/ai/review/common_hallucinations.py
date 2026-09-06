@@ -462,6 +462,47 @@ def _check_keyword_compound_match(finding_text: str, keywords: list[str]) -> lis
     return matches
 
 
+def _extract_defined_ast_names(tree: ast.AST) -> set[str]:
+    """Extract all function, class, and assignment symbol names defined in an AST."""
+    defined_names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            defined_names.add(node.name)
+        elif isinstance(node, ast.Assign):
+            defined_names.update(
+                target.id for target in node.targets if isinstance(target, ast.Name)
+            )
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            defined_names.add(node.target.id)
+    return defined_names
+
+
+def _verify_symbol_defined_in_ast_or_module(
+    finding: Finding, tree: ast.AST, file_path: Path
+) -> bool:
+    """Verify whether a symbol claimed as missing actually exists in the file AST or exports."""
+    finding_text = f"{finding.title} {finding.description or ''}"
+    backtick_candidates = set(re.findall(r"`([A-Za-z0-9_]+)`", finding_text))
+    word_candidates = set(re.findall(r"\b[A-Z0-9_]{3,}\b", finding_text))
+    all_candidates = backtick_candidates | {w for w in word_candidates if len(w) >= 3}
+    clean_symbols = [s for s in all_candidates if s.lower() not in _FORBIDDEN_COMMON_WORDS]
+    if not clean_symbols:
+        return False
+
+    defined_names = _extract_defined_ast_names(tree)
+    raw_text = file_path.read_text(encoding="utf-8", errors="replace")
+    for sym in clean_symbols:
+        if (
+            sym in defined_names
+            or f"{sym} =" in raw_text
+            or f"def {sym}" in raw_text
+            or f"class {sym}" in raw_text
+        ):
+            return True
+
+    return False
+
+
 def verify_ground_truth_hallucination(
     finding: Finding, entry: CommonHallucinationEntry, file_path: Path | None
 ) -> bool:
@@ -476,11 +517,15 @@ def verify_ground_truth_hallucination(
         if file_path.suffix.lower() != ".py":
             return False
         try:
-            ast.parse(file_path.read_text(encoding="utf-8", errors="replace"))
-            return True
+            tree = ast.parse(file_path.read_text(encoding="utf-8", errors="replace"))
         except SyntaxError:
             # Genuinely broken syntax! NEVER invalidate a real syntax error.
             return False
+
+        if "missing" in entry.id.lower() or "symbol" in entry.id.lower():
+            return _verify_symbol_defined_in_ast_or_module(finding, tree, file_path)
+
+        return True
 
     if entry.category == HallucinationCategory.SECRET_SCANNING:
         # Check if finding explicitly points to masked/redacted placeholder
@@ -562,6 +607,14 @@ def calculate_hallucination_similarity(
             "unparenthesized",
             "pep758",
             "python 2",
+            "nameerror",
+            "importerror",
+            "undefined",
+            "placeholder",
+            "symbol",
+            "import",
+            "missing",
+            "identifier",
         )
         if not any(si in finding_text_lower for si in syntax_indicators):
             return HallucinationMatch(

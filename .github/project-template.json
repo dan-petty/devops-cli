@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "name": "DevOps CLI — Enterprise Development & Release Roadmap",
+  "description": "Standardized GitHub Projects v2 template for tracking devops-cli features, sprints, milestones, and agentic workflows.",
+  "short_name": "devops-cli-roadmap",
+  "fields": [
+    {
+      "name": "Status",
+      "type": "single_select",
+      "options": [
+        {"name": "Backlog", "color": "GRAY", "description": "Queued backlog items awaiting milestone assignment"},
+        {"name": "Ready", "color": "BLUE", "description": "Scoped and ready for implementation"},
+        {"name": "In Progress", "color": "YELLOW", "description": "Actively under active development (WIP)"},
+        {"name": "In Review", "color": "PURPLE", "description": "Pull Request opened undergoing multi-persona review & CI"},
+        {"name": "Done", "color": "GREEN", "description": "Merged into release branch and verified"}
+      ]
+    },
+    {
+      "name": "Milestone",
+      "type": "iteration_or_text",
+      "description": "Release milestone version matching docs/ROADMAP.md (e.g. v0.2.11, v0.2.12)"
+    },
+    {
+      "name": "Priority",
+      "type": "single_select",
+      "options": [
+        {"name": "P0-Critical", "color": "RED", "description": "Urgent blocker or security defect"},
+        {"name": "P1-High", "color": "ORANGE", "description": "High-priority milestone deliverable"},
+        {"name": "P2-Medium", "color": "YELLOW", "description": "Standard release deliverable"},
+        {"name": "P3-Low", "color": "GREEN", "description": "Minor optimization or polish"}
+      ]
+    },
+    {
+      "name": "Category",
+      "type": "single_select",
+      "options": [
+        {"name": "Quick Win", "color": "GREEN", "description": "High value, low effort enhancement"},
+        {"name": "Major Project", "color": "PURPLE", "description": "High value, high effort strategic investment"},
+        {"name": "Fill-In", "color": "BLUE", "description": "Medium value, low effort tactical addition"},
+        {"name": "Foundation", "color": "GRAY", "description": "Core architecture, testing, or maintenance"}
+      ]
+    },
+    {
+      "name": "Value",
+      "type": "single_select",
+      "options": [
+        {"name": "High", "color": "GREEN"},
+        {"name": "Medium", "color": "YELLOW"},
+        {"name": "Low", "color": "GRAY"}
+      ]
+    },
+    {
+      "name": "Effort",
+      "type": "single_select",
+      "options": [
+        {"name": "Low", "color": "GREEN"},
+        {"name": "Medium", "color": "YELLOW"},
+        {"name": "High", "color": "RED"}
+      ]
+    }
+  ],
+  "views": [
+    {
+      "name": "Sprint Kanban",
+      "layout": "board",
+      "group_by": "Status",
+      "visible_fields": ["Title", "Assignees", "Milestone", "Priority", "Labels"],
+      "filter": "no:milestone or milestone:\"current\"",
+      "description": "Active sprint board tracking tasks from Backlog to Done."
+    },
+    {
+      "name": "Roadmap Timeline",
+      "layout": "roadmap",
+      "group_by": "Milestone",
+      "date_fields": ["Start Date", "Target Date"],
+      "visible_fields": ["Title", "Status", "Priority", "Category", "Assignees"],
+      "description": "Release roadmap timeline grouped chronologically by release version."
+    },
+    {
+      "name": "Triage & Quality Table",
+      "layout": "table",
+      "filter": "is:open label:status/triage,status/blocked,type/bug",
+      "sort_by": [{"field": "Priority", "direction": "asc"}],
+      "visible_fields": ["Title", "Status", "Priority", "Labels", "Assignees", "Updated"],
+      "description": "Incoming issue and PR triage table prioritizing bugs and blockers."
+    },
+    {
+      "name": "Value vs Effort Priority Matrix",
+      "layout": "table",
+      "group_by": "Category",
+      "sort_by": [{"field": "Value", "direction": "desc"}, {"field": "Effort", "direction": "asc"}],
+      "visible_fields": ["Title", "Milestone", "Value", "Effort", "Status"],
+      "description": "Strategic portfolio matrix aligning deliverables with the ROADMAP.md matrix."
+    }
+  ]
+}

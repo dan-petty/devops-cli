@@ -12,6 +12,7 @@ from pydantic import BaseModel
 
 from devops_cli.config.defaults import DEFAULT_HTTP_PROBE_TIMEOUT_SECONDS
 from devops_cli.config.settings import get_keyring_secret, set_keyring_secret
+from devops_cli.exceptions.vault import VaultConfigurationError
 from devops_cli.http.broker import get_broker
 from devops_cli.telemetry import trace_span
 
@@ -54,7 +55,7 @@ def parse_vault_uri(uri: str) -> tuple[str, str | None]:
         or any(part == ".." for part in Path(cleaned).parts)
         or ".." in cleaned
     ):
-        raise ValueError(f"Path traversal detected in Vault URI: '{uri}'")
+        raise VaultConfigurationError(f"Path traversal detected in Vault URI: '{uri}'")
 
     if cleaned.startswith("vault://"):
         parsed = urlparse(cleaned)
@@ -66,7 +67,7 @@ def parse_vault_uri(uri: str) -> tuple[str, str | None]:
             or any(part == ".." for part in Path(path).parts)
             or ".." in path
         ):
-            raise ValueError(f"Path traversal detected in Vault URI: '{uri}'")
+            raise VaultConfigurationError(f"Path traversal detected in Vault URI: '{uri}'")
         return path, key
 
     return cleaned, key
@@ -89,13 +90,15 @@ class VaultSecretBroker:
         ).rstrip("/")
         parsed = urlparse(self.vault_addr)
         if parsed.scheme not in ("http", "https"):
-            raise ValueError(
+            raise VaultConfigurationError(
                 f"Invalid Vault address scheme '{parsed.scheme}'; expected 'http' or 'https'"
             )
         if not parsed.netloc:
-            raise ValueError(f"Invalid Vault address host/netloc: '{self.vault_addr}'")
+            raise VaultConfigurationError(f"Invalid Vault address host/netloc: '{self.vault_addr}'")
         if ".." in self.vault_addr or ".." in parsed.path:
-            raise ValueError(f"Path traversal detected in Vault address: '{self.vault_addr}'")
+            raise VaultConfigurationError(
+                f"Path traversal detected in Vault address: '{self.vault_addr}'"
+            )
 
         self.vault_token = (
             vault_token or os.getenv("VAULT_TOKEN") or os.getenv("DEVOPS_CLI_VAULT_TOKEN")
@@ -110,6 +113,28 @@ class VaultSecretBroker:
             headers["X-Vault-Namespace"] = self.vault_namespace
         return headers
 
+    def _fetch_vault_kv2_secret(self, clean_path: str, effective_key: str | None) -> Any:
+        """Query Vault HTTP API for KV-v2 secret data."""
+        url = f"{self.vault_addr}/v1/{clean_path.lstrip('/')}"
+        broker = get_broker()
+        try:
+            resp = broker.request(
+                "GET",
+                url,
+                headers=self._get_headers(),
+                timeout=DEFAULT_HTTP_PROBE_TIMEOUT_SECONDS,
+                allow_private_network=True,
+            )
+            if resp.status_code != 200:
+                return None
+            payload = resp.json()
+            raw_data = payload.get("data", {})
+            secret_data = raw_data.get("data", raw_data)
+            return secret_data.get(effective_key) if effective_key else secret_data
+        except Exception as exc:
+            logger.debug("Vault request failed for %s: %s", url, exc)
+            return None
+
     def get_secret(self, path: str, key: str | None = None) -> Any:
         """Retrieve secret data from Vault KV-v2 engine, falling back to OS Keyring."""
         clean_path, fragment_key = parse_vault_uri(path)
@@ -120,26 +145,9 @@ class VaultSecretBroker:
             attributes={"path": clean_path, "has_key": bool(effective_key)},
         ):
             if self.vault_token:
-                url = f"{self.vault_addr}/v1/{clean_path.lstrip('/')}"
-                broker = get_broker()
-                try:
-                    resp = broker.request(
-                        "GET",
-                        url,
-                        headers=self._get_headers(),
-                        timeout=DEFAULT_HTTP_PROBE_TIMEOUT_SECONDS,
-                        allow_private_network=True,
-                    )
-                    if resp.status_code == 200:
-                        payload = resp.json()
-                        # KV-v2 data nesting: payload["data"]["data"]
-                        raw_data = payload.get("data", {})
-                        secret_data = raw_data.get("data", raw_data)
-                        if effective_key:
-                            return secret_data.get(effective_key)
-                        return secret_data
-                except Exception as exc:
-                    logger.debug("Vault request failed for %s: %s", url, exc)
+                val = self._fetch_vault_kv2_secret(clean_path, effective_key)
+                if val is not None:
+                    return val
 
             # Seamless fallback to OS Keyring
             lookup_key = effective_key or clean_path.split("/")[-1]

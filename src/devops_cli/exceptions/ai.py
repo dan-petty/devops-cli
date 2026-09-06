@@ -7,7 +7,14 @@ from typing import TYPE_CHECKING, Any
 
 import pydantic_ai.exceptions as p_exc
 
-from devops_cli.config.constants import CONST_ERROR_CODE_LLM_INFERENCE, CONST_EXIT_ERROR_INFERENCE
+from devops_cli.config.constants import (
+    CONST_ERROR_CODE_HARNESS_EXECUTION,
+    CONST_ERROR_CODE_HARNESS_VALIDATION,
+    CONST_ERROR_CODE_LLM_INFERENCE,
+    CONST_ERROR_CODE_MODEL_BUNDLE,
+    CONST_EXIT_ERROR_INFERENCE,
+    CONST_EXIT_FAILURE,
+)
 from devops_cli.exceptions.base import DevOpsCLIError
 
 if TYPE_CHECKING:
@@ -462,6 +469,60 @@ class SuspendedResponseExpired(p_exc.SuspendedResponseExpired, DevOpsCLIError):
         )
 
 
+class ModelBundleError(DevOpsCLIError, ValueError):
+    """Raised when an AI model bundle cannot be located, resolved, or loaded."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        bundle_path: str | None = None,
+        exit_code: int = CONST_EXIT_FAILURE,
+        error_code: str = CONST_ERROR_CODE_MODEL_BUNDLE,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        err_details = {"bundle_path": bundle_path}
+        if details:
+            err_details.update(details)
+        super().__init__(message, exit_code=exit_code, error_code=error_code, details=err_details)
+
+
+class HarnessValidationError(DevOpsCLIError, ValueError):
+    """Raised when an AI evaluation or harness schema validation fails."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        field_name: str | None = None,
+        exit_code: int = CONST_EXIT_FAILURE,
+        error_code: str = CONST_ERROR_CODE_HARNESS_VALIDATION,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        err_details = {"field_name": field_name}
+        if details:
+            err_details.update(details)
+        super().__init__(message, exit_code=exit_code, error_code=error_code, details=err_details)
+
+
+class HarnessExecutionError(DevOpsCLIError, RuntimeError):
+    """Raised when execution of an AI test harness or benchmark fails."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        harness_name: str | None = None,
+        exit_code: int = CONST_EXIT_FAILURE,
+        error_code: str = CONST_ERROR_CODE_HARNESS_EXECUTION,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        err_details = {"harness_name": harness_name}
+        if details:
+            err_details.update(details)
+        super().__init__(message, exit_code=exit_code, error_code=error_code, details=err_details)
+
+
 # Native re-exports for control flow, groups, and warnings
 SkipModelRequest = p_exc.SkipModelRequest
 SkipToolValidation = p_exc.SkipToolValidation
@@ -485,10 +546,13 @@ __all__ = [
     "CostCalculationFailedWarning",
     "CostNotFoundWarning",
     "FallbackExceptionGroup",
+    "HarnessExecutionError",
+    "HarnessValidationError",
     "IncompleteToolCall",
     "LLMInferenceError",
     "MessageHistoryMutatedWarning",
     "ModelAPIError",
+    "ModelBundleError",
     "ModelHTTPError",
     "ModelRetry",
     "ModelUnavailableError",

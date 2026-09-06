@@ -12,7 +12,8 @@ from devops_cli.config.defaults import (
     DEFAULT_K8S_ALL_STACK,
     DEFAULT_K8S_DIR,
 )
-from devops_cli.dry_run import is_dry_run, render_dry_run_result
+from devops_cli.core.binaries import check_binary
+from devops_cli.dry_run import dry_run_command
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
     print_error,
@@ -20,6 +21,12 @@ from devops_cli.output import (
 )
 
 
+@dry_run_command(
+    command="devops k8s bootstrap",
+    action="minikube_bootstrap",
+    target_param="k8s_dir",
+    detail_params=["auto_start", "k8s_dir", "stack"],
+)
 def bootstrap(
     k8s_dir: Annotated[
         Path, typer.Option("--dir", "-d", help=HELP.k8s.manifests_dir)
@@ -33,25 +40,10 @@ def bootstrap(
     ] = DEFAULT_K8S_ALL_STACK,
 ) -> None:
     """Bootstrap minikube Kubernetes cluster and deploy infrastructure/LLM stack."""
-    selected_stacks = k8s._resolve_stacks(stack)
-    if is_dry_run():
-        render_dry_run_result(
-            command="devops k8s bootstrap",
-            target=str(k8s_dir),
-            action="minikube_bootstrap",
-            details={
-                "auto_start": auto_start,
-                "k8s_dir": str(k8s_dir),
-                "stack": stack,
-                "stacks": selected_stacks,
-            },
-        )
-        return
-
     if not k8s._minikube_running():
         if auto_start:
             print_info(MESSAGES.k8s.starting_minikube, prefix=False)
-            has_gpu = k8s.shutil.which("nvidia-smi") is not None
+            has_gpu = check_binary("nvidia-smi")
             started = False
             if has_gpu:
                 start_res = k8s._run_cmd(

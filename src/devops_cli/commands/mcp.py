@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib
 import sys
+from pathlib import Path
 from typing import Annotated, Any
 
 import typer
@@ -111,3 +112,44 @@ def tools_cmd() -> None:
         rows=[[t["name"], t["description"]] for t in tools],
     )
     _get("print_table")(table)
+
+
+@app.command("export-schemas", help=HELP.mcp.export_schemas)
+def export_schemas_cmd(
+    output_dir: Annotated[
+        Path,
+        typer.Option(
+            "--output-dir",
+            "-o",
+            help=HELP.mcp.output_dir,
+        ),
+    ] = Path.home() / ".gemini" / "antigravity-ide" / "mcp" / "devops-cli",
+) -> None:
+    """Export tool JSON schemas and instructions for MCP clients and Antigravity IDE."""
+    import asyncio
+    import json
+
+    from devops_cli.ai.mcp.server import mcp
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    tools = asyncio.run(mcp.list_tools())
+
+    count = 0
+    for t in tools:
+        schema = {
+            "name": t.name,
+            "description": t.description,
+            "parameters": t.parameters,
+        }
+        dest = output_dir / f"{t.name}.json"
+        dest.write_text(json.dumps(schema, separators=(",", ":")), encoding="utf-8")
+        count += 1
+
+    instructions_file = output_dir / "instructions.md"
+    instructions_text = getattr(mcp, "instructions", "") or ""
+    instructions_file.write_text(instructions_text, encoding="utf-8")
+
+    if instructions_text:
+        _get("print_info")(f"✓ Exported {count} tool schema(s) and instructions to {output_dir}")
+    else:
+        _get("print_info")(f"✓ Exported {count} tool schema(s) to {output_dir}")

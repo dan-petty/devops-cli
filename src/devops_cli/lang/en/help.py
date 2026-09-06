@@ -445,6 +445,8 @@ class MCPCommandHelp:
     host: str = "Host interface for SSE transport."
     port: str = "Port number for SSE transport."
     allow_remote: str = "Permit binding SSE transport to non-loopback network interfaces."
+    export_schemas: str = "Export FastMCP tool JSON schemas and instructions for MCP clients."
+    output_dir: str = "Destination directory for tool schema JSON files."
 
 
 @dataclass(frozen=True)
@@ -490,6 +492,26 @@ class PRCommandHelp:
     edit_base: str = "Change the base branch for this pull request."
     edit_title: str = "Set the new title."
     edit_body: str = "Set the new body."
+
+
+@dataclass(frozen=True)
+class GHCommandHelp:
+    app: str = "GitHub Views, Projects, Milestones, and Labels automation."
+    labels_app: str = "Manage declarative repository labels and audit PR taxonomy."
+    labels_list: str = "List all repository labels."
+    labels_sync: str = "Synchronize repository labels against declarative schema."
+    labels_audit: str = "Audit pull requests for mandatory type/ and scope/ taxonomy."
+    milestones_app: str = "Manage roadmap milestones and track release progress."
+    milestones_list: str = "List milestones and progress rates."
+    milestones_sync: str = "Extract milestones from ROADMAP.md and sync to repository."
+    milestones_status: str = "Inspect progress and health for a specific milestone."
+    project_app: str = "Manage GitHub Projects v2 templates and task item synchronization."
+    project_status: str = "Inspect project template structure and configured views."
+    project_sync: str = "Sync task items from task.md into GitHub Projects status."
+    project_template: str = "Display the declarative GitHub Projects v2 JSON template."
+    views_app: str = "Inspect standardized GitHub Projects v2 views."
+    views_list: str = "List all 4 standardized project views."
+    views_spec: str = "Output JSON schema specification for project views."
 
 
 @dataclass(frozen=True)
@@ -784,6 +806,7 @@ class HelpCatalog:
     serve: ServeCommandHelp = field(default_factory=ServeCommandHelp)
     docs: DocsCommandHelp = field(default_factory=DocsCommandHelp)
     pr: PRCommandHelp = field(default_factory=PRCommandHelp)
+    gh: GHCommandHelp = field(default_factory=GHCommandHelp)
     release: ReleaseCommandHelp = field(default_factory=ReleaseCommandHelp)
     review: ReviewCommandHelp = field(default_factory=ReviewCommandHelp)
     scan: ScanCommandHelp = field(default_factory=ScanCommandHelp)

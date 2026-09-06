@@ -1,6 +1,7 @@
-"""Unit and integration tests for security hardening, sandboxed code execution, and symlink protection.
+"""Unit and integration tests for security sandboxed code execution, symlink protection, and secret redaction.
 
 TDD specifications covering:
+
 - Ground-truth importability of DEFAULT_HTTP_BROKER
 - CodeMode sandboxed execution built-in and import safety
 - Path traversal and symlink prevention across prompt_eval, ssh_keys, ast_stream, complexity, tflint, sandbox
@@ -250,6 +251,29 @@ def test_docker_sandbox_rejects_symlinks_and_system_roots(tmp_path: Path) -> Non
     runner_root = WorkloadSandboxRunner(cfg_root)
     with pytest.raises(ValueError):
         runner_root.run()
+
+    # User home path
+    cfg_home = WorkloadSandboxConfig(workspace_dir=Path.home(), command=["echo", "test"])
+    runner_home = WorkloadSandboxRunner(cfg_home)
+    with pytest.raises(ValueError):
+        runner_home.run()
+
+    # Sensitive credential and metadata subpaths
+    for sensitive_name in [".ssh", ".aws", ".kube", ".git"]:
+        sens_dir = tmp_path / sensitive_name
+        sens_dir.mkdir(exist_ok=True)
+        cfg_sens = WorkloadSandboxConfig(workspace_dir=sens_dir, command=["echo", "test"])
+        runner_sens = WorkloadSandboxRunner(cfg_sens)
+        with pytest.raises(ValueError):
+            runner_sens.run()
+
+    # Docker socket reference
+    sock_path = tmp_path / "var_run_docker.sock"
+    sock_path.touch()
+    cfg_sock = WorkloadSandboxConfig(workspace_dir=sock_path, command=["echo", "test"])
+    runner_sock = WorkloadSandboxRunner(cfg_sock)
+    with pytest.raises(ValueError):
+        runner_sock.run()
 
     # Symlinked workspace path
     real_ws = tmp_path / "real_ws"

@@ -1,44 +1,53 @@
-# Security Policy & Enterprise Threat Model — devops-cli
+# Security Policy — DevOps CLI
 
-`devops-cli` is designed with a defense-in-depth security architecture suitable for enterprise DevOps and SRE workstations. This document details our security model, threat mitigations, and responsible vulnerability disclosure process.
-
----
-
-## 1. Core Security Guarantees & Defenses
-
-### Zero-Plaintext Secret Policy (OS Keyring)
-- Sensitive credentials (GitHub Personal Access Tokens, LLM API Keys, Grafana Service Account Tokens, ArgoCD JWTs) are **never stored as plaintext** in configuration files (`config.yaml` or environment variables).
-- All sensitive tokens are securely isolated in the OS Keyring via Python `keyring` (using SecretService on Linux, Keychain on macOS, or Credential Vault on Windows).
-- Secrets are masked during CLI logging and persona reasoning runs (`<masked-token>`).
-
-### Server-Side Request Forgery (SSRF) Mitigations
-- Outbound network requests to external APIs (LLM endpoints, GitHub, Grafana, ArgoCD) pass through strict IP and hostname validation (`validate_service_url`).
-- Connections to RFC 1918 private subnets (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`), loopback (`127.0.0.0/8`), and link-local (`169.254.0.0/16`) addresses are blocked by default.
-- Private network egress can only be enabled via explicit runtime authorization (`DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true`).
-
-### Subprocess Safety & Command Injection Prevention
-- All OS commands are executed via parameterized arguments (`run_subprocess`) without shell interpolation (`shell=False`).
-- Execution timeouts are strictly enforced across all subprocess calls (defaulting to 30s) to prevent resource starvation or hanging processes.
-
-### Static Vulnerability Scanning & SecOps Gate
-- Built-in static security scanners (`devops scan`, `devops k8s lint`, `devops k8s audit`, `devops k8s check-deprecated`) provide automated vulnerability discovery across files, Kubernetes manifests, and clusters before applying changes.
+DevOps CLI follows an enterprise zero-trust security model designed to safeguard developer workstations, local and remote Kubernetes clusters, CI/CD pipelines, and agentic AI execution environments.
 
 ---
 
-## 2. Reporting a Vulnerability
+## Supported Versions
 
-We welcome responsible security disclosures. If you discover a security vulnerability in `devops-cli`:
+Security updates and critical vulnerability fixes are applied to the active release stream.
 
-1. **Do NOT open a public GitHub issue.**
-2. Send a detailed report via encrypted email or GitHub Private Vulnerability Reporting to the maintainers:
-   - **Email**: `security@example.com` (or maintainer contact)
-   - **Subject**: `[SECURITY VULNERABILITY] devops-cli — <Brief Description>`
-3. Include:
-   - Reproduction steps or proof-of-concept script.
-   - Affected CLI versions and commands.
-   - Potential impact analysis and recommended remediations.
+| Version | Supported | Security Policy |
+| :--- | :--- | :--- |
+| `0.2.x` | :white_check_mark: | Full active security support & rapid patch cycle |
+| `0.1.x` | :x: | End of Life (upgrade to `0.2.x`) |
+| `< 0.1.0` | :x: | Unsupported prototype releases |
 
-### Response Timelines
-- **Initial Acknowledgment**: Within 48 hours.
-- **Triage & Impact Assessment**: Within 5 business days.
-- **Patch Release & Security Advisory**: Coordinated within 14 business days.
+---
+
+## Zero-Trust Security & Egress Safety Principles
+
+All code authored in or evaluated by DevOps CLI must strictly adhere to the following security guarantees:
+
+1. **Zero Secret Leakage**: Plaintext secrets, tokens, private keys, or API credentials must never be committed to code repositories, written to unencrypted configuration files, or emitted into terminal outputs/logs. All sensitive values are managed through OS Keyring or HashiCorp Vault.
+2. **Strict Egress & SSRF Protection**: All outbound network requests originating from AI models, documentation crawlers, or Kubernetes API clients must validate destination endpoints against private/loopback IP address ranges to prevent Server-Side Request Forgery (SSRF).
+3. **Subprocess Bounded Execution**: All external commands (`git`, `helm`, `kubectl`, `tofu`, `docker`) are executed via bounded argument lists (preventing shell injection) with mandatory non-infinite timeouts.
+4. **Data Isolation**: Agent-generated review logs, benchmarks, and temporary telemetry artifacts are isolated under dedicated agent subfolders (`<data_dir>/agent`, e.g. `./.data/agent`), completely segregated from the primary user workspace data tier (`DEVOPS_CLI_DATA_DIR` / `data.dir`).
+5. **Least Privilege Runtime**: Kubernetes pods, Docker containers, and CI jobs run under unprivileged, non-root user contexts (`USER 1000:1000`).
+
+---
+
+## Reporting a Vulnerability
+
+We deeply appreciate responsible security disclosures. If you discover a security vulnerability within DevOps CLI:
+
+1. **Do NOT open a public issue, pull request, or discussion.**
+2. Report the vulnerability privately via **[GitHub Security Advisory](https://github.com/dan-petty/devops-cli/security/advisories/new)**.
+3. If you cannot use GitHub Security Advisories, contact the project maintainers directly via email at `contact@danielpetty.com` with the subject prefix `[SECURITY VULNERABILITY]`.
+
+### What to Include
+To help us triage and remediate the issue rapidly, please include:
+- A detailed description of the vulnerability and its potential impact.
+- Affected component or CLI subcommand.
+- Step-by-step reproduction instructions or a minimal Proof of Concept (PoC).
+- Any proposed remediation or mitigation steps.
+
+---
+
+## Response & Remediation SLA
+
+- **Initial Triage & Acknowledgment**: Within **24 hours** of receipt.
+- **Vulnerability Assessment & Severity Rating**: Within **48 hours** using CVSS v3.1 scoring.
+- **Patch Development & Release**: Critical security fixes will be published to `main` and active release branches within **72 hours** of triage confirmation.
+- **Public Disclosure**: Coordinated after the patch release is confirmed and deployed.

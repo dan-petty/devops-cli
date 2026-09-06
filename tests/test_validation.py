@@ -148,7 +148,7 @@ def test_validation_edge_cases() -> None:
         validate_safe_directory_path,
         validate_session_id,
     )
-    from devops_cli.exceptions import InvalidVersionError, ValidationError
+    from devops_cli.exceptions import InvalidVersionError, SSRFBlockedError, ValidationError
 
     # 1. validate_safe_directory_path
     assert validate_safe_directory_path("src/devops_cli") == Path("src/devops_cli")
@@ -170,7 +170,24 @@ def test_validation_edge_cases() -> None:
     with pytest.raises(InvalidVersionError):
         validate_version_str("")
 
-    # 4. _enforce_non_private_ssrf with unparseable IP in addrinfo
+    # 4. _enforce_non_private_ssrf fails closed with unparseable IP or DNS failure
     mock_invalid_ip_addrinfo = [(2, 1, 6, "", ("invalid_ip_format", 80))]
     with patch("socket.getaddrinfo", return_value=mock_invalid_ip_addrinfo):
-        _enforce_non_private_ssrf("http://hostname.test", "hostname.test", "http", 80, "service")
+        with pytest.raises(SSRFBlockedError):
+            _enforce_non_private_ssrf(
+                "http://hostname.test", "hostname.test", "http", 80, "service"
+            )
+
+    import socket
+
+    with patch("socket.getaddrinfo", side_effect=socket.gaierror("Name or service not known")):
+        with pytest.raises(SSRFBlockedError):
+            _enforce_non_private_ssrf(
+                "http://unresolvable.invalid", "unresolvable.invalid", "http", 80, "service"
+            )
+
+    with patch("socket.getaddrinfo", side_effect=TimeoutError("DNS query timed out")):
+        with pytest.raises(SSRFBlockedError):
+            _enforce_non_private_ssrf(
+                "http://timeout.invalid", "timeout.invalid", "http", 80, "service"
+            )

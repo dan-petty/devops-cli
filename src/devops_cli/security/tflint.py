@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import shutil
 import subprocess
@@ -11,6 +10,7 @@ from typing import Any
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.defaults import DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS
+from devops_cli.core.serialization import extract_json_block
 from devops_cli.telemetry import trace_span
 
 logger = logging.getLogger(__name__)
@@ -117,8 +117,8 @@ def run_tflint_scan(
         if not proc.stdout.strip():
             return []
 
-        data = json.loads(proc.stdout)
-        issues = data.get("issues", [])
+        data = extract_json_block(proc.stdout)
+        issues = data.get("issues", []) if isinstance(data, dict) else []
         return [_parse_tflint_issue(issue) for issue in issues]
     except Exception as exc:
         logger.debug("TFLint error: %s", exc)

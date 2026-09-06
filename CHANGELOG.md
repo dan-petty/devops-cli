@@ -5,7 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.11] - 2026-09-06
+
+### Added
+- **DevSecOps Architectural Hardening & Zero-Trust Defense-in-Depth**:
+  - Expanded universal secret sanitizer pattern catalog with HashiCorp Vault tokens (`s.*`, `hvs.*`, `hvb.*`), GitLab PATs (`glpat-*`), Slack webhooks, and HuggingFace API tokens (`hf_*`).
+  - Injected `Authorization: Bearer <key>` into `OpenAIProvider` and `x-api-key` into `AnthropicProvider` with OS Keyring and environment variable fallbacks.
+  - Implemented fail-closed SSRF DNS resolution guard in `_enforce_non_private_ssrf`, eliminating DNS-rebinding and unresolvable destination bypasses when `allow_private=False`.
+  - Hardened Docker workload sandbox (`WorkloadSandboxRunner`) with default `read_only=True`, `cap_drop=["ALL"]`, `security_opt=["no-new-privileges:true"]`, `pids_limit=256`, path containment blocking `~`, `.ssh`, `.aws`, `.kube`, `.git`, and `docker.sock`, and bounded subprocess timeouts.
+  - Added `ignore_tests` parameter to `run_gitleaks_scan` and review static analysis stages to eliminate false alerts from mock test credentials per `AGENTS.md` guidelines.
+  - Added Pod Security Admission (`restricted` / `baseline`) labels to `k8s/namespaces.yaml` and `k8s/llm/namespace.yaml`.
+  - Created `k8s/llm/networkpolicy.yaml` with default-deny perimeter, intra-namespace routing, CoreDNS (port 53), and cloud metadata (`169.254.169.254/32`) egress blocking.
+  - Configured restricted `securityContext` and `podSecurityContext` in `k8s/llm/values-qdrant.yaml`.
+  - Pinned `uv` to `0.12.3` in `.devcontainer/Dockerfile`.
+- **GitHub Integration Subsystem (`devops gh`)**:
+  - Declarative label management (`devops gh labels sync`, `devops gh labels audit`) using `.github/labels.yml`.
+  - Roadmap-driven milestone synchronization (`devops gh milestones sync`, `devops gh milestones list`).
+  - GitHub Projects v2 lifecycle & template provisioning (`devops gh project sync`, `devops gh views list`).
+  - Registered 6 new FastMCP tools for GitHub automation.
+- **Architectural & Submodule Boilerplate Consolidation**:
+  - Declarative `@dry_run_command` and `@cli_command_handler` decorators across CLI command modules.
+  - Unified path containment helpers (`safe_resolve_subpath`), subprocess execution (`run_json_subprocess`), and binary checking (`require_binary`).
+  - Consolidated security scanner base (`BaseSecurityScanner`, `ScannerRegistry`) and unified AST cache (`ASTCache`).
+  - Table rendering helper (`render_table`, `TableBuilder`).
+
+### Changed
+- **Token Efficiency & Documentation Optimization**:
+  - Streamlined `AGENTS.md` by 36% (10.5KB reduction) to resolve assistant context window truncation.
+  - Deduplicated AI review prompt stack across `review.md`, `guardrails_isolation.md`, and `verify_finding_system.md` (34% token reduction per review segment).
+  - Clarified workspace data tier (`.data`) versus dedicated agent work product tier (`.data/agent`).
+
 ## [0.2.10] - 2026-09-05
+
 
 ### Added
 - **Native Pydantic AI Framework Subsystem Adoption**:

@@ -137,3 +137,61 @@ def test_gitleaks_binary_and_all_secret_patterns(tmp_path: Path) -> None:
     with patch("devops_cli.security.gitleaks.run_subprocess", side_effect=FileNotFoundError):
         findings_dir = run_gitleaks_scan(dir_target)
         assert len(findings_dir) >= 1
+
+
+def test_run_gitleaks_scan_ignore_tests(tmp_path: Path) -> None:
+    """Verify ignore_tests=True filters out test fixtures and test file paths."""
+    test_dir = tmp_path / "tests"
+    test_dir.mkdir()
+    test_file = test_dir / "test_auth.py"
+    test_file.write_text("AWS_KEY=AKIAIOSFODNN7EXAMPLE\n", encoding="utf-8")
+
+    src_file = tmp_path / "src_auth.py"
+    src_file.write_text("AWS_KEY=AKIAIOSFODNN7EXAMPLE\n", encoding="utf-8")
+
+    with patch("devops_cli.security.gitleaks.run_subprocess", side_effect=FileNotFoundError):
+        # Scanning test file directly with ignore_tests=True returns no findings
+        res_test_ignored = run_gitleaks_scan(test_file, ignore_tests=True)
+        assert len(res_test_ignored) == 0
+
+        # Scanning test file with ignore_tests=False returns findings
+        res_test_included = run_gitleaks_scan(test_file, ignore_tests=False)
+        assert len(res_test_included) >= 1
+
+        # Scanning directory containing both ignores the test file
+        res_dir = run_gitleaks_scan(tmp_path, ignore_tests=True)
+        assert len(res_dir) == 1
+        assert "src_auth.py" in res_dir[0].location
+
+
+def test_run_gitleaks_scan_ignore_tests_windows_paths(tmp_path: Path) -> None:
+    """Verify ignore_tests=True properly filters Windows paths (e.g. C:\\...:line)."""
+    fake_gitleaks_json = """[
+        {
+            "RuleID": "generic-api-key",
+            "Description": "Generic Key in Test",
+            "File": "C:\\\\Users\\\\dev\\\\project\\\\tests\\\\test_login.py",
+            "StartLine": 25,
+            "Match": "secret12345"
+        },
+        {
+            "RuleID": "generic-api-key",
+            "Description": "Generic Key in Source",
+            "File": "C:\\\\Users\\\\dev\\\\project\\\\src\\\\login.py",
+            "StartLine": 10,
+            "Match": "secret12345"
+        }
+    ]"""
+    mock_proc = subprocess.CompletedProcess(
+        args=["gitleaks"], returncode=0, stdout=fake_gitleaks_json, stderr=""
+    )
+    with patch("devops_cli.security.gitleaks.run_subprocess", return_value=mock_proc):
+        # With ignore_tests=True, only the src file is kept
+        res_ignored = run_gitleaks_scan(tmp_path, ignore_tests=True)
+        assert len(res_ignored) == 1
+        assert "login.py" in res_ignored[0].location
+        assert "test_login" not in res_ignored[0].location
+
+        # With ignore_tests=False, both are kept
+        res_all = run_gitleaks_scan(tmp_path, ignore_tests=False)
+        assert len(res_all) == 2

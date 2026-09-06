@@ -3,86 +3,12 @@
 from __future__ import annotations
 
 import html
-import re
 
 from devops_cli.config.defaults import (
     DEFAULT_MAX_CONTEXT_TOKENS,
     DEFAULT_TIKTOKEN_MODEL,
 )
-
-_SECRET_PATTERNS = (
-    (
-        re.compile(r"(?:ghp_[A-Za-z0-9_]{10,}|gho_[A-Za-z0-9_]{10,}|github_pat_[A-Za-z0-9_]{20,})"),
-        "<masked-github-token>",
-    ),
-    (
-        re.compile(
-            r"\b(?:password|passwd|pwd)\s*[:=]\s*[\"']?(?!<masked-)[^\s\"',;]{8,}[\"']?",
-            re.IGNORECASE,
-        ),
-        "password=<masked-password>",
-    ),
-    (re.compile(r"sk-[A-Za-z0-9_-]{20,}"), "<masked-openai-key>"),
-    (re.compile(r"sk-ant-[A-Za-z0-9_-]{20,}"), "<masked-anthropic-key>"),
-    (re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"), "<masked-aws-key-id>"),
-    (
-        re.compile(
-            r"\b(?:token|auth_token)\s*[:=]\s*[\"']?(?!<masked-)[^\s\"',;]{8,}[\"']?",
-            re.IGNORECASE,
-        ),
-        "token=<masked-token>",
-    ),
-    (
-        re.compile(
-            r"(?:aws_secret_access_key|AWS_SECRET_ACCESS_KEY)\s*[:=]\s*[\"']?[A-Za-z0-9/+=]{40}[\"']?"
-        ),
-        "aws_secret_access_key=<masked-aws-secret>",
-    ),
-    (
-        re.compile(
-            r"(?:client_secret|client-secret|AZURE_CLIENT_SECRET)\s*[:=]\s*[\"']?[A-Za-z0-9_\-~.]{20,}[\"']?"
-        ),
-        "client_secret=<masked-client-secret>",
-    ),
-    (
-        re.compile(
-            r"(?:gcloud[- ]?auth[- ]?token|google[-\s]?service[-\s]?account|gcp_[A-Za-z0-9_]{20,})"
-        ),
-        "<masked-gcp-service-account>",
-    ),
-    (
-        re.compile(
-            r"\b(?:api[_-]?key|access[_-]?token|bearer[_-]?token|auth[_-]?token)\s*[:=]\s*[\"']?[A-Za-z0-9_\-.]{20,}[\"']?",
-            re.IGNORECASE,
-        ),
-        "api_key=<masked-api-key>",
-    ),
-    (
-        re.compile(r"eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"),
-        "<masked-jwt>",
-    ),
-    (
-        re.compile(
-            r"((?:[:=]\s*[\"']?|\bBearer\s+|\btoken\s+|[\"']))secret_[A-Za-z0-9_]{10,}\b",
-            re.IGNORECASE,
-        ),
-        r"\g<1><masked-secret>",
-    ),
-    (
-        re.compile(
-            r"\b(?:token|bearer|secret|password|api_key)\s+([A-Za-z0-9_\-.]{10,})\b",
-            re.IGNORECASE,
-        ),
-        "<masked-token>",
-    ),
-    (
-        re.compile(
-            r"-----BEGIN (?:[A-Z0-9_-]+\s+)?PRIVATE KEY-----"
-            r"[\s\S]+?-----END (?:[A-Z0-9_-]+\s+)?PRIVATE KEY-----"
-        ),
-        "<masked-private-key>",
-    ),
-)
+from devops_cli.security.sanitizer import mask_secrets
 
 
 def _escape_backticks(text: str) -> str:
@@ -161,10 +87,7 @@ def _truncate_for_prompt(
 # to LLM providers. They are not hardcoded credentials.
 def _mask_secrets_in_content(text: str) -> str:
     """Scrub sensitive credentials (tokens, keys, JWTs) from review text before LLM call."""
-    scrubbed = text
-    for pattern, replacement in _SECRET_PATTERNS:
-        scrubbed = pattern.sub(replacement, scrubbed)
-    return scrubbed
+    return mask_secrets(text)
 
 
 def _sanitize_filename(path: str) -> str:

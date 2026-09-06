@@ -1,0 +1,123 @@
+# GitHub Declarative Labels Schema for devops-cli
+# Synced via: devops gh labels sync
+
+# ── Type Labels ─────────────────────────────────────────────────────────────
+- name: "type/feature"
+  color: "0E8A16"
+  description: "New user-facing functionality or capability addition"
+
+- name: "type/bug"
+  color: "D73A4A"
+  description: "Defect, regression, or incorrect runtime behavior"
+
+- name: "type/security"
+  color: "B60205"
+  description: "Security vulnerability, CVE, or credential protection"
+
+- name: "type/refactor"
+  color: "1D76DB"
+  description: "Code simplification, deduplication, or structural reorganization"
+
+- name: "type/docs"
+  color: "0075CA"
+  description: "Documentation additions, guides, manuals, or README updates"
+
+- name: "type/infra"
+  color: "5319E7"
+  description: "Kubernetes, Docker, DevContainer, or OpenTofu infrastructure"
+
+- name: "type/test"
+  color: "FBCA04"
+  description: "Unit, integration, invariant, or benchmark test authoring"
+
+- name: "type/chore"
+  color: "CFD3D7"
+  description: "Dependency upgrades, tooling adjustments, or maintenance"
+
+# ── Scope Labels ────────────────────────────────────────────────────────────
+- name: "scope/ai"
+  color: "6F42C1"
+  description: "AI review pipeline, personas, prompts, LLM client, or RAG"
+
+- name: "scope/k8s"
+  color: "326CE5"
+  description: "Kubernetes commands, Helm charts, pods, services, and policies"
+
+- name: "scope/security"
+  color: "E99695"
+  description: "Security linters (trivy, bandit, checkov, gitleaks) and Vault"
+
+- name: "scope/cli"
+  color: "C2E0C6"
+  description: "Core CLI framework, Typer subcommands, options, and tables"
+
+- name: "scope/review"
+  color: "D4C5F9"
+  description: "Multi-persona code review engine, verification, and findings"
+
+- name: "scope/config"
+  color: "BFD4F2"
+  description: "Settings, OS Keyring, environment variables, and defaults"
+
+- name: "scope/mcp"
+  color: "F9D0C4"
+  description: "Model Context Protocol tools, system resources, and prompts"
+
+- name: "scope/telemetry"
+  color: "FEF2C0"
+  description: "OpenTelemetry tracing spans, Prometheus metrics, and Jaeger"
+
+- name: "scope/github"
+  color: "24292E"
+  description: "GitHub Projects v2, Views, Milestones, Labels, and PR automation"
+
+# ── Priority Labels ─────────────────────────────────────────────────────────
+- name: "priority/p0-critical"
+  color: "B60205"
+  description: "Urgent blockages, critical vulnerabilities, or release blockers"
+
+- name: "priority/p1-high"
+  color: "D93F0B"
+  description: "High impact work required for upcoming release milestone"
+
+- name: "priority/p2-medium"
+  color: "FBCA04"
+  description: "Standard priority feature work and architectural improvements"
+
+- name: "priority/p3-low"
+  color: "0E8A16"
+  description: "Minor polish, low-severity improvements, and backlogged tasks"
+
+# ── Status Labels ───────────────────────────────────────────────────────────
+- name: "status/triage"
+  color: "EDEDED"
+  description: "New issue or PR awaiting technical triage and scoping"
+
+- name: "status/in-progress"
+  color: "BFDADC"
+  description: "Actively being designed or implemented by developer or agent"
+
+- name: "status/in-review"
+  color: "D4C5F9"
+  description: "Pull request open and undergoing multi-persona review or CI gates"
+
+- name: "status/blocked"
+  color: "E11D21"
+  description: "Execution blocked by external dependency or upstream review"
+
+- name: "status/ready-to-merge"
+  color: "0E8A16"
+  description: "All quality gates passed and approved by maintainer for merge"
+
+# ── Review Feedback Labels ──────────────────────────────────────────────────
+- name: "review/approved"
+  color: "0E8A16"
+  description: "Code changes reviewed and approved across all personas"
+
+- name: "review/changes-requested"
+  color: "D73A4A"
+  description: "Findings or defects identified that require remediation"
+
+- name: "review/ai-reviewed"
+  color: "8A2BE2"
+  description: "Automated multi-persona AI review executed on changeset"

@@ -85,7 +85,23 @@ def export_invalidated_feedback(
 
     Returns (count, output_path).
     """
-    r_dir = reviews_dir if reviews_dir is not None else _get_reviews_base_dir()
+    if reviews_dir is not None:
+        import tempfile
+
+        resolved_r_dir = reviews_dir.resolve()
+        workspace_root = Path.cwd().resolve()
+        data_root = _get_reviews_base_dir().resolve().parent
+        allowed_review_roots = [workspace_root, data_root, Path(tempfile.gettempdir()).resolve()]
+        if not any(
+            resolved_r_dir == root or resolved_r_dir.is_relative_to(root)
+            for root in allowed_review_roots
+        ):
+            raise SecurityError(
+                f"Reviews directory escapes allowed workspace, reviews data, or temporary directory: {reviews_dir}"
+            )
+        r_dir = resolved_r_dir
+    else:
+        r_dir = _get_reviews_base_dir()
     if output_file is not None:
         out_path = output_file
     else:

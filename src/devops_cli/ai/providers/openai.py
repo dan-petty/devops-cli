@@ -9,6 +9,7 @@ import httpx2
 
 from devops_cli.ai.providers.base import BaseLLMProvider
 from devops_cli.config.defaults import DEFAULT_AI_TIMEOUT_SECONDS, DEFAULT_OPENAI_MODEL
+from devops_cli.config.settings import get_keyring_secret
 from devops_cli.http.validation import validate_service_url
 from devops_cli.models.ai import ChatMessage
 
@@ -34,6 +35,8 @@ class OpenAIProvider(BaseLLMProvider):
         stream: bool = False,
         **kwargs: Any,
     ) -> Any:
+        import os
+
         target_model = model or self.config.model or DEFAULT_OPENAI_MODEL
         base_url = (self.config.api_base_url or "https://api.openai.com/v1").rstrip("/")
         validate_service_url(
@@ -48,9 +51,18 @@ class OpenAIProvider(BaseLLMProvider):
         }
         if getattr(self.config, "reasoning_effort", None):
             payload["reasoning_effort"] = self.config.reasoning_effort
+
+        headers: dict[str, str] = {}
+        api_key = self.api_key or getattr(self.config, "api_key", None)
+        if not api_key:
+            api_key = os.environ.get("OPENAI_API_KEY") or get_keyring_secret("ai_api_key")
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+
         res = httpx2.post(
             f"{base_url}/chat/completions",
             json=payload,
+            headers=headers,
             timeout=timeout or DEFAULT_AI_TIMEOUT_SECONDS,
         )
         res.raise_for_status()

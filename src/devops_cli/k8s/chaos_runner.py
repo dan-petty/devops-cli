@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.core.process import run_subprocess
+from devops_cli.exceptions.k8s import ChaosExecutionError
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
 from devops_cli.telemetry.tracer import trace_span
 
@@ -74,7 +75,7 @@ class ChaosFaultRunner:
         ]
         result = run_subprocess(cmd, quiet=True, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS)
         if result.returncode != 0:
-            raise RuntimeError(result.stderr or "Failed to list pods")
+            raise ChaosExecutionError(result.stderr or "Failed to list pods")
         names = result.stdout.strip().split()
         return [n for n in names if n]
 

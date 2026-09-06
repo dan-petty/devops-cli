@@ -237,6 +237,44 @@ def _extract_file_symbols(content: str, lang: str) -> list[str]:
     return symbols[:15]
 
 
+def _extract_js_dep(line_str: str, pat: re.Pattern[str]) -> list[str]:
+    """Extract JavaScript/TypeScript package identifiers from a code line."""
+    res: list[str] = []
+    for match in pat.finditer(line_str):
+        raw = match.group(1)
+        pkg = raw.split("/")[0] if not raw.startswith("@") else "/".join(raw.split("/")[:2])
+        if pkg and not pkg.startswith("."):
+            res.append(pkg)
+    return res
+
+
+def _extract_line_deps(
+    line_str: str,
+    lang: str,
+    js_pattern: re.Pattern[str],
+    go_pattern: re.Pattern[str],
+    rust_pattern: re.Pattern[str],
+) -> list[str]:
+    """Extract package dependencies from a single non-comment code line."""
+    if lang in ("javascript", "typescript"):
+        return _extract_js_dep(line_str, js_pattern)
+    if lang == "go":
+        return [m.group(1) for m in go_pattern.finditer(line_str) if m.group(1)]
+    if lang == "rust":
+        return [
+            m.group(1)
+            for m in rust_pattern.finditer(line_str)
+            if m.group(1) and m.group(1) not in ("crate", "super", "self", "std")
+        ]
+    if line_str.startswith(("import ", "from ", "require(")):
+        parts = line_str.split()
+        if len(parts) >= 2:
+            raw_pkg = parts[1].strip("'\"`;,")
+            if raw_pkg and not raw_pkg.startswith("."):
+                return [raw_pkg]
+    return []
+
+
 def _extract_file_dependencies(content: str, lang: str) -> list[str]:
     """Extract package dependencies with submodules using AST or import scanners."""
     if lang == "python":
@@ -248,46 +286,17 @@ def _extract_file_dependencies(content: str, lang: str) -> list[str]:
         return []
 
     deps: list[str] = []
-    # Match JS/TS import ... from 'pkg', require('pkg'), import('pkg')
-    js_patterns = [
-        re.compile(r"""(?:from|import|require)\s*\(?['"]([^'"./][^'"]*)['"]\)?"""),
-    ]
-    # Match Go imports
-    go_pattern = re.compile(r"""import\s+['"]([^'"]+)['"]""")
-    # Match Rust use declarations
-    rust_pattern = re.compile(r"""use\s+([a-zA-Z0-9_]+)::""")
+    js_pat = re.compile(r"""(?:from|import|require)\s*\(?['"]([^'"./][^'"]*)['"]\)?""")
+    go_pat = re.compile(r"""import\s+['"]([^'"]+)['"]""")
+    rust_pat = re.compile(r"""use\s+([a-zA-Z0-9_]+)::""")
 
     for line in content.splitlines():
         line_str = line.strip()
         if not line_str or line_str.startswith(("#", "//")):
             continue
-        if lang in ("javascript", "typescript"):
-            for pat in js_patterns:
-                for match in pat.finditer(line_str):
-                    pkg = (
-                        match.group(1).split("/")[0]
-                        if not match.group(1).startswith("@")
-                        else "/".join(match.group(1).split("/")[:2])
-                    )
-                    if pkg and pkg not in deps and not pkg.startswith("."):
-                        deps.append(pkg)
-        elif lang == "go":
-            for match in go_pattern.finditer(line_str):
-                pkg = match.group(1)
-                if pkg and pkg not in deps:
-                    deps.append(pkg)
-        elif lang == "rust":
-            for match in rust_pattern.finditer(line_str):
-                pkg = match.group(1)
-                if pkg and pkg not in deps and pkg not in ("crate", "super", "self", "std"):
-                    deps.append(pkg)
-        else:
-            if line_str.startswith(("import ", "from ", "require(")):
-                parts = line_str.split()
-                if len(parts) >= 2:
-                    raw_pkg = parts[1].strip("'\"`;,")
-                    if raw_pkg and raw_pkg not in deps and not raw_pkg.startswith("."):
-                        deps.append(raw_pkg)
+        for dep in _extract_line_deps(line_str, lang, js_pat, go_pat, rust_pat):
+            if dep not in deps:
+                deps.append(dep)
     return deps[:12]
 
 

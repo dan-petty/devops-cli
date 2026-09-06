@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from pydantic_ai.tools import RunContext as NativeRunContext
 
 from devops_cli.ai.agents.pydantic_agent import AgentTool, BaseCapability, RunContext, Tool
+from devops_cli.exceptions.ai import HarnessExecutionError
 
 logger = logging.getLogger(__name__)
 
@@ -153,7 +154,7 @@ class CodeMode(BaseCapability):
         async def _sandboxed_tool_call(*args: Any, **kwargs: Any) -> Any:
             if self.tool_call_count >= self.max_tool_calls:
                 msg = f"Nested tool call limit exceeded: maximum {self.max_tool_calls} calls reached at '{fn_name}'."
-                raise RuntimeError(msg)
+                raise HarnessExecutionError(msg)
             self.tool_call_count += 1
             target = getattr(fn, "func", fn)
             if inspect.iscoroutinefunction(target) or inspect.iscoroutinefunction(fn):

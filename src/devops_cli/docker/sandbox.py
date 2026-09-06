@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 
 from devops_cli.config.defaults import DEFAULT_CURRENT_PATH, DEFAULT_DOCKER_TIMEOUT_SECONDS
 from devops_cli.core.process import run_subprocess
+from devops_cli.exceptions.docker import DockerSandboxError
 from devops_cli.telemetry import trace_span
 
 logger = logging.getLogger(__name__)
@@ -30,7 +31,7 @@ class WorkloadSandboxConfig(BaseModel):
     workspace_dir: Path = Field(default_factory=lambda: Path(DEFAULT_CURRENT_PATH).resolve())
     command: list[str]
     image: str = "python:3.14-slim"
-    read_only: bool = False
+    read_only: bool = True
     memory_limit: str = "2g"
     cpu_limit: float = 2.0
     network_mode: str = "bridge"  # bridge | none | host
@@ -85,15 +86,35 @@ class WorkloadSandboxRunner:
         "/dev",
         "/var",
     }
+    _SENSITIVE_SUBPATHS: set[str] = {".ssh", ".aws", ".kube", ".git"}
 
     def _validate_workspace_dir(self) -> Path:
         ws = self.config.workspace_dir
         if ws.is_symlink():
-            raise ValueError(f"Workspace directory cannot be a symbolic link: {ws}")
+            raise DockerSandboxError(f"Workspace directory cannot be a symbolic link: {ws}")
         resolved = ws.resolve()
         if str(resolved) in self._FORBIDDEN_ROOTS or resolved == Path(resolved.anchor):
-            raise ValueError(
+            raise DockerSandboxError(
                 f"Mounting sensitive root system directory into sandbox is forbidden: {resolved}"
+            )
+        try:
+            if resolved == Path.home().resolve():
+                raise DockerSandboxError(
+                    f"Mounting user home directory into sandbox is forbidden: {resolved}"
+                )
+        except RuntimeError:
+            pass
+
+        if resolved.name in self._SENSITIVE_SUBPATHS or any(
+            p in self._SENSITIVE_SUBPATHS for p in resolved.parts
+        ):
+            raise DockerSandboxError(
+                f"Mounting sensitive credential or repository metadata directory into sandbox is forbidden: {resolved}"
+            )
+
+        if "docker.sock" in str(resolved):
+            raise DockerSandboxError(
+                f"Mounting Docker socket into sandbox is forbidden: {resolved}"
             )
         return resolved
 
@@ -127,6 +148,9 @@ class WorkloadSandboxRunner:
                     nano_cpus=nano_cpus,
                     network_mode=self.config.network_mode,
                     environment=self.config.env,
+                    cap_drop=["ALL"],
+                    security_opt=["no-new-privileges:true"],
+                    pids_limit=256,
                     detach=True,
                 )
             except Exception as exc:
@@ -182,6 +206,9 @@ class WorkloadSandboxRunner:
             "docker",
             "run",
             "--rm",
+            "--cap-drop=ALL",
+            "--security-opt=no-new-privileges",
+            "--pids-limit=256",
             "-v",
             f"{ws_abs}:/workspace:{mount_mode}",
             "-w",
@@ -198,7 +225,7 @@ class WorkloadSandboxRunner:
         cmd.append(self.config.image)
         cmd.extend(self.config.command)
 
-        proc = run_subprocess(cmd, check=False)
+        proc = run_subprocess(cmd, check=False, timeout=int(self.config.timeout))
         duration = round(time.monotonic() - start_time, 2)
         return WorkloadSandboxResult(
             exit_code=proc.returncode,

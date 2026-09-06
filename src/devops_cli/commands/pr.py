@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import json
 import re
-import shutil
 from typing import Annotated
 
 import typer
 
 from devops_cli.config.constants import CONST_GH_CLI
 from devops_cli.config.defaults import DEFAULT_PR_LIMIT, DEFAULT_PR_STATE
+from devops_cli.core.binaries import check_binary
 from devops_cli.core.cli import new_typer
 from devops_cli.core.process import run_subprocess
 from devops_cli.lang import HELP, MESSAGES
@@ -28,7 +28,7 @@ app = new_typer(
 
 
 def _require_gh_cli() -> None:
-    if not shutil.which(CONST_GH_CLI):
+    if not check_binary(CONST_GH_CLI):
         print_error(MESSAGES.pr.gh_cli_required, prefix=False)
         raise typer.Exit(1)
 

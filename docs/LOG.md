@@ -2,6 +2,318 @@
 
 Chronological log of refactoring milestones, quality gates, and security enhancements.
 
+### [2026-09-06] Release v0.2.11 Cutting, PR #38 CI Validation & Automated Copilot Review Remediation (Phase 47.3)
+- **Version Bump & Release Governance**:
+  - Bumped version to `0.2.11` across `pyproject.toml` and `src/devops_cli/__init__.py`.
+  - Authored comprehensive `[0.2.11] - 2026-09-06` entry in `CHANGELOG.md`.
+  - Synchronized CLI references and README: `devops docs generate --sync-readme`.
+  - Verified synchronized release status (`devops release status` — 100% matched).
+  - Synchronized remote labels and milestones (`devops gh labels sync`, `devops gh milestones sync`).
+- **Pull Request #38 Creation & Quality Gate Monitoring**:
+  - Authored and pushed atomic conventional commits to `origin/release/v0.2.11`.
+  - Opened PR #38 (`feat(release): cut v0.2.11 release with DevSecOps hardening and GitHub management`) targeting `main` with standard SDLC checklist and taxonomy labels (`type/feature`, `scope/security`, `scope/cli`, `scope/github`, `release`).
+  - Monitored remote GitHub Actions CI checks (`CodeQL Advanced/Analyze (actions)`, `CodeQL Advanced/Analyze (python)`, `CodeQL`, `CI Quality Gate/Validation`) — all 4 passed cleanly.
+- **GitHub Copilot Automated Code Review & TDD Remediation**:
+  - Evaluated 4 high-signal review comments posted by `copilot-pull-request-reviewer`:
+    1. `src/devops_cli/security/checkov.py`: Fixed `run_checkov_scan` dropping findings on non-zero exit codes by adding `check: bool = True` to `run_json_subprocess` and passing `check=False` to preserve valid JSON outputs from Checkov and `BaseSecurityScanner`. Authored regression tests in `tests/test_consolidation_process_json.py` and `tests/test_security_checkov.py`.
+    2. `src/devops_cli/github/client.py`: Fixed `create_milestone` silently ignoring `due_on` by parsing ISO date strings and `datetime.date`/`datetime.datetime` objects and forwarding to PyGithub. Authored unit tests in `tests/test_github_client.py`.
+    3. `src/devops_cli/security/gitleaks.py`: Fixed `ignore_tests` path parsing by introducing `_extract_location_path` to strip line numbers/ranges cleanly and normalizing slashes in `_is_test_file` to support cross-platform Windows drive letter paths without truncating at colons. Authored test in `tests/test_security_gitleaks.py`.
+    4. `src/devops_cli/core/paths.py`: Clarified `safe_resolve_subpath` docstring and semantics for `allow_symlinks`. When `False`, any symbolic link along the path is strictly rejected; when `True`, internal symlinks within `base_dir` are permitted while directory escape remains strictly blocked by `resolved.is_relative_to(base)`. Authored tests in `tests/test_consolidation_core_paths.py`.
+  - Verified local quality gate (`devops ci` — 10/10 gates green, 100% passing).
+  - Authored atomic commit `4feb91c` (`fix(review): address Copilot findings for Checkov exit handling, milestone due_on, gitleaks Windows paths, and symlink semantics`), pushed to `origin/release/v0.2.11`, and replied to all Copilot discussion threads.
+  - Monitored remote CI quality gates on `4feb91c` until 100% green (`gh pr checks 38` — 4/4 passed).
+
+### [2026-09-06] Principal DevSecOps Architectural Review & Zero-Trust Defense-in-Depth Hardening (Phase 47)
+
+- **Principal DevSecOps Architectural Evaluation**:
+  - Conducted comprehensive code review and threat analysis from a Principal DevSecOps Engineer perspective across the entire project codebase, process execution, cryptographic stores, container sandboxing, network perimeter/SSRF, Kubernetes infrastructure manifests, CI/CD supply chain, and AI multi-agent pipelines.
+  - Authored comprehensive architectural evaluation report (`devsecops_architectural_review.md`) detailing:
+    - **1 Critical Finding**: Ephemeral Docker sandbox host escape, missing capability dropping (`cap_drop=["ALL"]`), missing `no-new-privileges`, and unsafe root directory mounting (`src/devops_cli/docker/sandbox.py`).
+    - **4 High Findings**: Fail-open SSRF DNS resolution error handling (`src/devops_cli/core/validation.py`), missing `Authorization: Bearer` header in `OpenAIProvider` (`src/devops_cli/ai/providers/openai.py`), unbounded child subprocess environment variable leakage (`src/devops_cli/core/process.py`), and Kubernetes perimeter isolation gaps (missing PSA labels in `k8s/namespaces.yaml`, unauthenticated Qdrant NodePort).
+    - **4 Medium/Low Findings**: Unpinned mutable GitHub Actions tags in CI/CD workflows, secret sanitizer regex gaps (Vault, GitLab, Slack, HuggingFace), and Gitleaks test fixture noise.
+    - **Observed Positive Practices**: OS Keyring zero-plaintext architecture, shell-injection-free subprocess execution, atomic 0600 file creation with `O_NOFOLLOW` / symlink defenses, and PSS Restricted Valkey deployment.
+- **Roadmap & Specification Integration**:
+  - Incorporated **Phase 47: DevSecOps Architectural Hardening & Zero-Trust Defense-in-Depth** into active release `v0.2.11` in `docs/ROADMAP.md` and `docs/PENDING_FEATURES.md`.
+  - Incorporated **Phase 48: Infrastructure Perimeter, Supply Chain & Workstation Zero-Trust** into upcoming milestone `v0.2.12`.
+  - Expanded the Value vs. Effort Prioritization Matrix in `docs/ROADMAP.md` with all new DevSecOps deliverables across Quick Wins and Strategic Investments.
+- **Phase 47.2 Implementation & Defense-in-Depth Verification**:
+  - **Universal Secret Sanitizer Pattern Catalog Expansion (`src/devops_cli/security/sanitizer.py`)**: Added high-precision regex detectors for HashiCorp Vault tokens (`s.*`, `hvs.*`, `hvb.*`), GitLab Personal Access Tokens (`glpat-*`), Slack Webhooks (`hooks.slack.com/services/...`), and HuggingFace API tokens (`hf_*`). Tested in `tests/test_consolidation_security_sanitizer.py`.
+  - **AI Provider Authentication Header Injection (`src/devops_cli/ai/providers/`)**: Updated `BaseLLMProvider` to accept `api_key`, injected `Authorization: Bearer <key>` into `OpenAIProvider`, and `x-api-key` into `AnthropicProvider` with seamless Keyring / environment fallback. Tested in `tests/test_openai_auth.py`.
+  - **Fail-Closed SSRF DNS Resolution Guard (`src/devops_cli/core/validation.py`)**: Updated `_enforce_non_private_ssrf` to fail closed upon DNS resolution errors, unresolvable domains, or timeouts when `allow_private=False`, eliminating DNS-rebinding and unresolvable destination bypasses. Tested in `tests/test_validation.py` and `tests/test_http.py`.
+  - **Docker Workload Sandbox Security Hardening (`src/devops_cli/docker/sandbox.py`)**: Enforced default `read_only=True`, blocked mounting sensitive roots, user home (`~`), `.ssh`, `.aws`, `.kube`, `.git`, and `docker.sock`. Applied `cap_drop=["ALL"]`, `security_opt=["no-new-privileges:true"]`, `pids_limit=256`, and explicit timeout bounds across both Docker SDK and subprocess fallback executions. Tested in `tests/test_workload_sandbox.py` and `tests/test_security_sandbox_and_protection.py`.
+  - **Review Pre-Filter Gitleaks Test Noise Elimination (`src/devops_cli/security/gitleaks.py`, `src/devops_cli/ai/review/`)**: Added `ignore_tests` parameter to `run_gitleaks_scan` and integrated it into the AI review pipeline and static scan stage to scope out test fixtures and mock credentials from generating false alerts. Tested in `tests/test_security_gitleaks.py`.
+  - **Kubernetes Infrastructure Hardening (`k8s/`)**: Added Pod Security Admission (`restricted` / `baseline`) labels to `k8s/namespaces.yaml` and `k8s/llm/namespace.yaml`. Authored `k8s/llm/networkpolicy.yaml` with default-deny perimeter, intra-namespace routing, CoreDNS (port 53), and cloud metadata (`169.254.169.254/32`) egress blocking. Added restricted `securityContext` and `podSecurityContext` to `k8s/llm/values-qdrant.yaml`.
+  - **DevContainer Dockerfile Hardening (`.devcontainer/Dockerfile`)**: Pinned `ghcr.io/astral-sh/uv` to explicit `0.12.3` release tag.
+  - **Quality Gates**: Verified all 10 CI gates (`devops ci` — 100% green, 1,898 tests passed, $\ge 90\%$ code coverage, strict mypy across 285 source files, ruff format/check, bandit, pip-audit, actionlint, docs).
+
+
+### [2026-09-06] Strategic Roadmap Review, Milestone Harmonization & Feature Prioritization (Phase 46)
+- **Milestone Version & Status Harmonization (`docs/ROADMAP.md`)**:
+  - Resolved chronological and status anomalies: marked past releases `v0.2.4` and `v0.2.5` as `(Completed)`.
+  - Re-scoped milestone `v0.2.6` from `(Scheduled)` with 22 unchecked draft items to `### Live State Watchers, Complexity Analysis & SBOM Generation (v0.2.6 - Completed)`, aligning strictly with features shipped in git tag `v0.2.6` (complexity analysis, SBOM generation, git-diff aware test sharding, `--watch` real-time state streamers, adaptive multi-axis model router, in-memory embedding LRU cache, devcontainer path modernization).
+  - Consolidated recent deliverables into current active release `v0.2.11` (`Workstation Infrastructure, FastMCP 72 Tools & Quality Architecture`): Phase 42 (submodule boilerplate consolidation, `@dry_run_command`, `@cli_command_handler`, `safe_resolve_subpath`, `run_json_subprocess`, `require_binary`), Phase 43 (`BaseSecurityScanner`, `ScannerRegistry`, `ASTCache`, `render_table`), Phase 44 (GitHub CLI `devops gh`, labels, milestones, projects v2, views, 6 FastMCP tools), and Phase 45 (documentation and prompt token optimization).
+- **Upcoming Milestone Re-prioritization & Detailed Specifications**:
+  - Re-sequenced upcoming releases into 4 cohesive, logically phased milestones:
+    - **`v0.2.12` (Scheduled - P0)**: *Valkey Workstation Management & High-Performance Distributed Caching Tier* (`devops valkey` CLI, distributed SHA-256 AI/embedding cache tier slashing duplicate LLM calls by up to 85%, Valkey Lua token-bucket rate limiter, 6 FastMCP tools, Testcontainers harness).
+    - **`v0.2.13` (Scheduled - P0)**: *Advanced Agentic Harness, Sub-Agent Local Offloading & Terminal UX* (Modular Harness Slots for local small-weight model offloading under "Big decides, small types, big checks", full-screen Textual TUI dashboard `devops dashboard`, Model Chaos Engineering `devops ai chaos-model`, emergency quiesce/failover controller `devops ai quiesce`, multi-model benchmark evaluation harness, Python 3.14 `TaskGroup` parallel async review pool and streaming diff parser).
+    - **`v0.2.14` (Scheduled - P1)**: *Multilingual Code Intelligence & Library Ingestion Engine* (Tree-Sitter multilingual AST graph across Python, TypeScript, Go, Rust, Java, and HCL; `devops ai ingest library|docs`, dedicated library vector tier & Valkey symbol store, import-driven AST prompt grounding, library API drift auditor).
+    - **`v0.2.15` (Scheduled - P1)**: *GitOps Fleet, FinOps & Production Security Mesh* (Complete migration of all 11 security scanners to `BaseSecurityScanner` & `ScannerRegistry`, Infracost FinOps CLI `devops tf cost`, Falco eBPF security streamer `devops k8s security-stream`, multi-cluster ArgoCD fleet rollouts, automated gitops drift detection, Sigstore Cosign signing, GitHub Enterprise Phase 2 issue triage and secrets sync).
+    - **`v0.3.0` (Future Vision - P2)**: *Multi-Cloud Mesh & Production Ecosystem* (Cross-cluster federation, autonomous self-healing agent pipeline, cloud-native ephemeral test environments, zero-trust git commit signature verification).
+- **Prioritization Matrix Overhaul & Documentation Synchronization**:
+  - Overhauled Value vs. Effort Prioritization Matrix in `docs/ROADMAP.md`: verified target release accuracy and corrected statuses (`✅ Completed`, `📋 Scheduled`, `💡 Future Vision`) across 100+ roadmap items.
+  - Synchronized `docs/PENDING_FEATURES.md` with active release focus and upcoming milestone specifications.
+  - Verified milestone heading extraction and CLI listing with `tests/test_github_milestones.py` and `devops gh milestones list` (100% compliant).
+
+### [2026-09-06] Documentation & AI Instruction Optimization for Clarity and Token Efficiency (Phase 45)
+- **Root Agent Instructions Optimization (`AGENTS.md`)**:
+  - Streamlined and deduplicated canonical `AGENTS.md` instructions, reducing file size by 10,508 bytes (from 29,066 bytes down to 18,558 bytes; 1,309 words eliminated; ~36% token reduction).
+  - Completely resolved assistant context window truncation, restoring 100% rule visibility across all AI coding turns.
+  - Eliminated redundant section duplicates (Prompt Isolation in §4/§5, Zero Leakage in §1/§5, Doc Sync in §1/§4, TDD in §1/§2, Routine Tasks in §1/§2).
+  - Preserved 100% of architectural invariants (complexity $\le 10$, nesting depth $\le 5$, zero bare built-in exceptions), security mandates, and governance policies.
+  - Clarified data isolation to cleanly distinguish the workspace data directory (`DEVOPS_CLI_DATA_DIR` / `data.dir`, defaulting to `./.data`) from the dedicated agent subfolder (`<data_dir>/agent`, e.g. `./.data/agent`).
+- **AI Review Prompt Stack Deduplication (`src/devops_cli/ai/tasks/`)**:
+  - Deduplicated overlapping instructions across `review.md`, `review_output_instruction.md`, `guardrails_isolation.md`, and `verify_finding_system.md`, reducing prompt stack by 5,434 bytes (from 16,009 bytes down to 10,575 bytes; ~34% token reduction on every review segment call).
+  - `review.md`: Focused purely on the 5-phase analytical review protocol and severity definitions; removed duplicate output schema and merge recommendation blocks.
+  - `guardrails_isolation.md`: Reduced from 1,550 bytes to 718 bytes (54% reduction) by focusing strictly on untrusted data boundaries, zero leakage, and prompt injection defense.
+  - `verify_finding_system.md`: Consolidated 11 verbose rambling bullet points into structured falsification rules (Language Standards, Redactions, Symbol Grounding, API Signatures, Schema Hygiene).
+  - `personas/devsecops/prompt.md`: Streamlined to focus on security domain lenses, removing redundant global review guidelines.
+- **Instruction Generator Alignment (`src/devops_cli/ai/instruction_generator.py`)**:
+  - Aligned embedded `generate_agents_md()` template with the concise style and added `data.dir` reference.
+  - Verified 100% compatibility with `tests/test_instruction_generator.py`.
+- **Comprehensive Quality Gates & Verification**:
+  - Validated targeted test suites: `test_instruction_generator.py` (10/10), `test_review_runner.py` (28/28), `test_review_pipeline.py` (22/22), `test_architectural_invariants.py` (16/16).
+  - Passed 12/12 pre-commit hooks and all 10 `devops ci` quality gates (coverage $\ge 90\%$).
+
+### [2026-09-06] GitHub Views, Projects v2, Milestones & Declarative Labels Integration (Phase 44)
+- **Declarative GitHub Schemas**:
+  - Authored `.github/labels.yml`: Standardized declarative taxonomy across `type/*` (8), `scope/*` (9), `priority/*` (4), `status/*` (5), and `review/*` (3) with distinct hex colors and descriptions.
+  - Authored `.github/project-template.json`: Declarative GitHub Projects v2 template defining custom fields (`Status`, `Milestone`, `Priority`, `Category`, `Value`, `Effort`) and 4 standardized views (*Sprint Kanban*, *Roadmap Timeline*, *Triage & Quality Table*, *Value vs Effort Priority Matrix*).
+- **GitHub Integration Subsystem (`src/devops_cli/github/`)**:
+  - `src/devops_cli/github/labels.py`: Implemented declarative label schema loading, 3-way diffing (`to_create`, `to_update`, `unchanged`), dry-run reconciliation, and PR taxonomy auditing (`audit_repository_labels`).
+  - `src/devops_cli/github/milestones.py`: Implemented roadmap milestone extraction from `docs/ROADMAP.md` headings, remote milestone diffing, dry-run synchronization, and completion progress metrics (`MilestoneProgress`).
+  - `src/devops_cli/github/projects.py`: Implemented Projects v2 template schema validation, view configurations, and task item parsing from `docs/agent/task.md` (`parse_tasks_to_project_items`).
+  - `src/devops_cli/github/client.py`: Added `get_labels`, `create_label`, `edit_label`, `get_milestones`, and `create_milestone` methods to `GitHubClient`.
+- **Native CLI Command Group (`devops gh`)**:
+  - Implemented `src/devops_cli/commands/gh.py` with 4 sub-typers (`labels`, `milestones`, `project`, `views`):
+    - `devops gh labels list|sync|audit`: Manage labels and audit PR taxonomy compliance.
+    - `devops gh milestones list|sync|status`: Reconcile roadmap milestones and track issue progress.
+    - `devops gh project status|sync|template`: Manage Projects v2 template and task item synchronization.
+    - `devops gh views list|spec`: Inspect 4 standardized views and export JSON schemas.
+  - Registered `"gh"` in lazy command dispatcher in `src/devops_cli/main.py`.
+  - Added `GHCommandHelp` in `src/devops_cli/lang/en/help.py`.
+- **FastMCP Tool Integration (`src/devops_cli/ai/mcp/server.py`)**:
+  - Registered 6 FastMCP tools for AI coding assistants: `gh_label_list`, `gh_label_sync`, `gh_milestone_list`, `gh_milestone_sync`, `gh_project_status`, `gh_view_spec`.
+- **Agent Governance & Knowledge Base Documentation**:
+  - Authored Knowledge Base Task Manual 13: `src/devops_cli/ai/knowledge_base/devops_cli/tasks/github_project_management.md`.
+  - Updated `AGENTS.md` Section 3 with mandatory PR taxonomy labels (`type/*` and `scope/*`), roadmap milestone linking, and Projects v2 item state transitions.
+  - Updated `docs/SDLC.md` Phase 6 and `docs/ROUTINE_TASKS.md` with GitHub governance workflows.
+- **Comprehensive Quality Gates & Verification**:
+  - Authored and verified 4 test suites: `tests/test_github_labels.py` (4/4), `tests/test_github_milestones.py` (4/4), `tests/test_github_projects.py` (2/2), `tests/test_gh_cmd.py` (6/6).
+  - Verified architectural invariants (`tests/test_architectural_invariants.py`, complexity $\le 10$, nesting depth $\le 5$, zero bare exceptions).
+
+### [2026-09-06] Comprehensive Codebase Cleanup, Optimization Architecture & Lifecycle Roadmap (Phase 43)
+- **Master Strategic Roadmap & Lifecycle Expansion**:
+  - Authored Milestone `v0.2.15` ("Declarative Security Framework, Unified Output & Review Engine Optimization") in `docs/ROADMAP.md` and `docs/PENDING_FEATURES.md`.
+  - Added 6 strategic initiatives to the Value vs. Effort Prioritization Matrix (Declarative Security Scanner Framework, AST Caching Tier, Universal Binary Verification, Universal Path Containment, Declarative CLI Table Builder, Streaming Diff Parser).
+  - Updated Enterprise SDLC Framework (`docs/SDLC.md`) Section 3.1 establishing strict Subsystem Consolidation, Deduplication & Helper Architecture Standards.
+  - Updated Master Routine Tasks Matrix (`docs/ROUTINE_TASKS.md`) with automated codebase deduplication and invariant audits, plus explicit helper reuse steps in the Inner Development Loop.
+- **Declarative Security Scanner Framework (`src/devops_cli/security/base.py`, `registry.py`)**:
+  - Implemented `BaseSecurityScanner` abstract base class standardizing execution lifecycle, binary detection, arguments formulation, timeout management, JSON deserialization, and normalized `Finding` creation.
+  - Implemented `ScannerRegistry` enabling dynamic scanner registration, capability introspection, and batch execution dispatch.
+- **In-Memory High-Performance AST Cache Tier (`src/devops_cli/ai/ast_cache.py`)**:
+  - Implemented thread-safe `ASTCache` keyed by `(filepath, st_mtime)` to eliminate redundant AST parsing during multi-persona reviews, hallucination verifications, and benchmark evaluations.
+- **Declarative Rich Table Builder & Output Engine (`src/devops_cli/output/table_builder.py`)**:
+  - Implemented `render_table` unifying console table formatting, empty state messaging, and automatic JSON/YAML serialization.
+- **Subsystem Migrations & Security Containment**:
+  - Migrated remaining occurrences of `shutil.which` across CLI commands to memoized `check_binary` and `require_binary`.
+  - Migrated remaining brittle `".."` string checks across commands and agent harnesses to `safe_resolve_subpath`.
+- **Test-First Verification (TDD)**:
+  - Authored comprehensive test suites verifying scanner framework lifecycle, AST cache invalidation and thread safety, and declarative table rendering.
+  - Verified 100% compliance with architectural invariants (complexity $\le 10$, nesting depth $\le 5$, zero bare exceptions).
+
+### [2026-09-06] Submodule Boilerplate Consolidation & Usability Architecture (Phase 42)
+- **Declarative Dry-Run Command Execution**:
+  - Implemented `@dry_run_command` in `src/devops_cli/dry_run/decorator.py`, automatically resolving target and detail parameters via signature introspection, setting dry-run state, rendering formatted results, and bypassing function bodies cleanly.
+  - Exported `dry_run_command` in `devops_cli.dry_run` and migrated commands in `commands/argo.py` and `commands/k8s/bootstrap.py`.
+  - Authored comprehensive unit tests in `tests/test_consolidation_dry_run_decorator.py` (4/4 passed).
+- **Universal CLI Error Boundary & Decorator**:
+  - Enhanced `cli_command_handler` in `src/devops_cli/core/command_decorator.py` to capture `DevOpsCLIError`, record span errors and metric counters, format error output, and cleanly raise `typer.Exit(code=exc.exit_code)`.
+  - Authored comprehensive unit tests in `tests/test_consolidation_cli_errors.py` (3/3 passed).
+- **Filesystem Subpath Containment & Traversal Defense**:
+  - Implemented pure domain helper `safe_resolve_subpath` in `src/devops_cli/core/paths.py` guarding against directory traversal (`..`), absolute path overrides, and symlink escapes without Typer coupling.
+  - Exported `safe_resolve_subpath` in `devops_cli.core` and integrated into `ai/review/verification.py`.
+  - Authored comprehensive unit tests in `tests/test_consolidation_core_paths.py` (6/6 passed).
+- **Subprocess Execution with Structured JSON Deserialization**:
+  - Implemented `run_json_subprocess` in `src/devops_cli/core/process.py`, handling return codes, stdout decoding, JSON parsing, and type-safe domain error conversion.
+  - Migrated `security/tflint.py`, `security/kubeconform.py`, `security/dive.py`, and `security/checkov.py` to `run_json_subprocess` / `run_subprocess`, eliminating raw subprocess calls.
+  - Authored comprehensive unit tests in `tests/test_consolidation_process_json.py` (4/4 passed).
+- **External Binary Pre-flight Verification**:
+  - Implemented `require_binary` and `check_binary` in `src/devops_cli/core/binaries.py` with typed `DependencyError`.
+  - Authored comprehensive unit tests in `tests/test_consolidation_binaries.py` (3/3 passed).
+- **Universal Secret Sanitization & Credential Redaction**:
+  - Implemented `devops_cli.security.sanitizer` with `mask_secrets`, `mask_dict_secrets`, `mask_uri_credentials`.
+  - Replaced 80 lines of duplicate regex pattern lists in `ai/review/sanitization.py` with delegation to `security.sanitizer`.
+  - Authored comprehensive unit tests in `tests/test_consolidation_security_sanitizer.py` (3/3 passed).
+- **Markdown Codeblock JSON Deserializer**:
+  - Implemented `extract_json_block` in `src/devops_cli/core/serialization.py` supporting markdown fences, bracket heuristics, and `json_repair` fallback.
+  - Delegated `ai/review_schema.py:extract_json_block` to `core.serialization`.
+  - Authored comprehensive unit tests in `tests/test_consolidation_serialization.py` (5/5 passed).
+- **Quality Gates & Invariants**:
+  - All 28 new consolidation unit tests pass cleanly (100% success).
+  - All 6 architectural invariant gates pass (`tests/test_architectural_invariants.py`).
+  - Strict static type checking (`mypy`) and zero lint errors (`ruff check`) verified across all modified files.
+
+### [2026-09-06] Review Findings Remediation, Feedback Loop Hardening & Executive Summary Report Generation
+- **Review Session 20260906-002449 Findings Remediation**:
+  - `src/devops_cli/core/repo.py`: Enhanced `list_repo_files` and `_list_git_tracked_files` with `is_relative_to(repo_root_resolved)` containment to strictly prevent symlink directory traversal outside repository boundaries; standardized exception handling to `except (OSError, RuntimeError):`.
+  - `src/devops_cli/commands/argo.py`: Hardened `cd_apps_bootstrap_gitops` with repository workspace containment, file existence, and `.yaml`/`.yml` extension validation on `root_app_path`.
+  - `src/devops_cli/ai/agents/tools.py`: Enforced `_check_path_traversal` parameter validation across all arguments even when `self.parameters` schema is empty.
+  - `src/devops_cli/commands/vault.py`: URL-decoded input paths with `urllib.parse.unquote` prior to checking for `..` directory traversal sequences in `_validate_vault_path`.
+  - `src/devops_cli/ai/review/exporter.py`: Added root containment validation on `reviews_dir` in `export_invalidated_feedback` preventing unauthorized filesystem scanning.
+  - `k8s/argocd/apps/*.yaml`: Updated `infra-apps.yaml`, `llm-apps.yaml`, and `root-app.yaml` to secure `https://` repository URLs, replacing unauthenticated cleartext `git://`.
+  - `tf/aws/main.tf`: Disabled public cluster endpoint access (`endpoint_public_access = false`) for AWS EKS.
+  - `src/devops_cli/ai/harness/filesystem.py`: Enforced a 256-character length boundary on regex queries in `_search_files` to mitigate ReDoS.
+  - `src/devops_cli/ai/review/sanitization.py`: Tightened secret masking regex so unquoted Python function/method invocations (such as `api_key=settings_mod.get_ai_api_key(st)`) are preserved without incorrect mangling into `<masked-api-key>(st)`.
+- **Review & Self-Improvement Feedback Loop Hardening**:
+  - `src/devops_cli/ai/review/common_hallucinations.json`: Expanded `HALLUCINATION-MASKED-PLACEHOLDER` to detect `NameError`, `undefined placeholder`, `not defined`, and prompt sanitization false positives; expanded `HALLUCINATION-MISSING-SYMBOL-FALSE-ALARM` with signatures matching `DEFAULT_HTTP_BROKER`.
+  - `src/devops_cli/ai/review/common_hallucinations.py`: Broadened `syntax_indicators` under `SYNTAX_GRAMMAR` to recognize `nameerror`, `undefined`, `importerror`, `symbol`, `missing`, and `placeholder`; added `_verify_symbol_defined_in_ast_or_module` to verify actual AST exports before invalidating false missing-symbol claims.
+  - `src/devops_cli/ai/review/verification.py`: Strengthened `_deterministic_pre_verification` to immediately invalidate false claims that `<masked-*>` markers cause `NameError` or undefined placeholder failures.
+  - Prompt tasks (`verify_finding_system.md`, `review_output_instruction.md`, `review.md`): Updated instructions explicitly forbidding reporting `<masked-*>` sanitization markers as undefined symbols, missing runtime variables, or NameErrors.
+- **Executive Summary & Good/Bad Pattern Report Generation**:
+  - `src/devops_cli/ai/review/stages/reporting.py`: Implemented `_ANTI_PATTERN_CATEGORIES`, `extract_good_patterns`, `extract_bad_patterns`, and `synthesize_report_executive_summary` with cyclomatic complexity $\le 5$ and nesting depth $\le 2$.
+  - `src/devops_cli/ai/review/pipeline.py`: Integrated `synthesize_report_executive_summary` into `_build_consolidated_markdown_report`, generating an Executive Summary statement at the top of every `review.md` detailing code health, Key Good Patterns Observed, and dynamically synthesized Key Bad Patterns Observed.
+- **Documentation & Verification Suites**:
+  - Authored comprehensive test suites `tests/test_review_report_summary.py` (3/3 green) and `tests/test_review_defenses_and_verification.py` (11/11 green).
+
+
+### [2026-09-06] Enterprise SDLC Conventions, Tooling Upgrades & GitHub Integrations Roadmap
+- **Enterprise SDLC Investigation & Standards Adoption**:
+  - Investigated modern enterprise software development life cycle (SDLC) standards across OpenSSF Best Practices, SLSA Level 3 supply chain security, Google Engineering Practices, and DORA operational metrics.
+  - Authored comprehensive Enterprise SDLC architecture manual `docs/SDLC.md` covering the 7-phase lifecycle (Inception -> TDD Specification -> Implementation & Invariants -> Shift-Left Verification -> Multi-Persona AI Review -> PR & Release Choreography -> Observability & DORA).
+- **Enterprise Community Health & Repository Governance**:
+  - Authored standardized `.github/pull_request_template.md` with complete SDLC quality gate checklist (TDD, CI, architectural invariants, zero secret leakage, canonical location formatting, conventional commits).
+  - Authored validated GitHub Issue Forms `.github/ISSUE_TEMPLATE/bug_report.yml` and `feature_request.yml`, configured via `config.yml`.
+  - Established declarative code ownership `.github/CODEOWNERS` across all functional domains (`@dan-petty`).
+  - Added automated weekly dependency updates `.github/dependabot.yml` for `github-actions` and `pip` targeting `release/v0.2.11`.
+  - Authored enterprise `SECURITY.md` defining supported version matrix, zero-trust security principles, private disclosure channels, and 24h/72h SLA.
+  - Updated `CONTRIBUTING.md` aligning with TDD workflow, architectural invariants (complexity <= 10, nesting <= 5), and routine tasks.
+- **Pre-Commit Tooling Hardening**:
+  - Hardened `.pre-commit-config.yaml` with `detect-private-key` (excluding `^tests/`), `check-merge-conflict`, `check-toml`, and `check-json`.
+- **Master Strategic Roadmap & Pending Features Expansion (Milestone v0.2.14)**:
+  - Scheduled Milestone `v0.2.14` (GitHub Enterprise Repository & Project Management Automation) in `docs/ROADMAP.md` and `docs/PENDING_FEATURES.md`:
+    - `devops gh issues` automated issue triage, duplicate detection, and milestone/label assignment.
+    - `devops gh project` bidirectional sync between `docs/agent/task.md` and GitHub Projects v2 Kanban boards.
+    - `devops gh branch-protection` declarative branch protection rule and status check auditor.
+    - `devops gh secrets` workstation-to-GitHub Actions secret sync via OS Keyring/Vault.
+    - `devops gh labels` declarative repository label schema provisioner.
+    - FastMCP GitHub tools (`gh_issue_list`, `gh_issue_create`, `gh_project_status`, `gh_branch_protect_audit`).
+  - Expanded Value vs. Effort Prioritization Matrix with 6 new deliverables.
+
+### [2026-09-06] Library & Reference Ingestion Engine & Grounded AI Guidance (Roadmap Expansion)
+- **Library & Reference Ingestion Architecture Research**:
+  - Investigated automated ingestion of installed library ASTs, docstrings, type stubs (`.pyi`), official documentation frameworks (Sphinx, MkDocs, DevDocs), and architectural standards (OWASP, CIS, PEPs).
+  - Formulated the 6 core pillars: dynamic package introspection, multi-source docs crawler, dedicated Qdrant/Valkey library vector tier (`devops_libraries`), import-driven AST prompt grounding, FastMCP IDE tools, and static deprecation/drift auditing.
+- **Master Strategic Roadmap & Pending Features Expansion (Milestone v0.2.13)**:
+  - Scheduled Milestone `v0.2.13` in `docs/ROADMAP.md` and `docs/PENDING_FEATURES.md`:
+    - `devops ai ingest library <pkg>` automated package AST & type stub extractor.
+    - `devops ai ingest docs <source>` SSRF-guarded documentation crawler.
+    - Dedicated Qdrant `devops_libraries` collection and Valkey symbol lookup tier.
+    - Import-driven prompt grounding injecting verified library contracts into multi-persona code reviews.
+    - FastMCP library tools (`ai_ingest_library`, `ai_query_library`, `resource://libraries/indexed`).
+    - Static library API drift and deprecation auditor (`devops ai audit-library-usage`).
+  - Updated Value vs. Effort Prioritization Matrix in `docs/ROADMAP.md`.
+
+### [2026-09-06] Valkey Integration Investigation, Tooling Design & Roadmap Expansion
+- **Valkey Ecosystem & Architecture Investigation**:
+  - Investigated multi-tier Valkey 8.0 integration across workstation CLI management, distributed AI caching, cross-process LLM token bucket rate limiting, FastMCP tools, and ephemeral testcontainers fixtures.
+- **Knowledge Base Manual Authoring**:
+  - Authored comprehensive IT domain technical manual `src/devops_cli/ai/knowledge_base/it_domains/tools/valkey.md` detailing Valkey 8.0 architecture, RESP3 protocol, memory optimization, async Python integration (`valkey-py`), and zero-trust security guidelines.
+  - Registered Valkey in Division 2 of `src/devops_cli/ai/knowledge_base/README.md`.
+- **Master Strategic Roadmap & Pending Features Expansion (Milestone v0.2.12)**:
+  - Scheduled Milestone `v0.2.12` in `docs/ROADMAP.md` and `docs/PENDING_FEATURES.md`:
+    - `devops valkey` workstation management CLI (`ping`, `info`, `stats`, `keys`, `get`, `set`, `flush`, `cli`, `backup`, `restore`).
+    - Valkey-backed distributed AI embedding & review cache tier (`ai.cache.backend=valkey`).
+    - Distributed LLM token bucket & concurrency rate limiter.
+    - FastMCP Valkey toolset (`valkey_ping`, `valkey_info`, `valkey_get`, `valkey_set`, `valkey_keys`, `valkey_flush`, `resource://valkey/status`).
+    - Ephemeral Testcontainers Valkey testing sandbox fixture.
+  - Updated Value vs. Effort Prioritization Matrix in `docs/ROADMAP.md`.
+
+### [2026-09-06] FastMCP Server Expansion, Tool Parity & Pydantic AI MCP Integration Validation
+- **FastMCP Server Expansion to 72 Registered Tools**:
+  - Added 19 missing tools bringing full parity with all core CLI subcommands:
+    - Security scanning: `scan_trivy`, `scan_gitleaks`, `scan_semgrep`, `scan_checkov`, `scan_complexity`, `scan_aibom`, `scan_sbom`.
+    - Kubernetes resilience & audit: `k8s_chaos`, `k8s_audit`, `k8s_lint`, `k8s_validate`, `k8s_diff_helm`.
+    - HashiCorp Vault enterprise secrets: `vault_set`, `vault_sync`.
+    - AI benchmarking & architecture analysis: `benchmark_embeddings`, `ai_architecture`.
+    - Git & PR governance: `branches_list`, `pr_list`, `pr_checks`.
+  - All tools strictly enforce zero nesting depth > 5, complexity <= 10, argument validation (`_validate_mcp_arg`), and defensive timeouts.
+- **FastMCP Prompt Templates & Dynamic System Resources**:
+  - Implemented 4 prompt templates via `@mcp.prompt()`: `code_review_prompt`, `security_audit_prompt`, `k8s_diagnostics_prompt`, `architecture_analysis_prompt`.
+  - Implemented 2 additional dynamic system resources: `resource://vault/status` (live Vault health and sealing) and `resource://mcp/tools` (live tool catalog).
+- **Submodule Re-Export & IDE Integration**:
+  - Fully re-exported all 72 tools, 4 prompts, 6 resources, and Pydantic AI toolset types in `src/devops_cli/ai/mcp/__init__.py`.
+  - Added `devops mcp export-schemas` CLI command to export JSON schemas directly into `/home/vscode/.gemini/antigravity-ide/mcp/devops-cli/`.
+- **Documentation & Test Verification**:
+  - Regenerated `docs/MCP_TOOLS.md` and `README.md` via `devops docs generate --sync-readme`.
+  - Updated `tests/test_fastmcp_contracts.py`, `tests/test_mcp.py`, and `tests/test_pydantic_ai_mcp.py` verifying contracts, execution, and Pydantic AI MCPToolset discovery.
+
+### [2026-09-06] Codebase Stylistic & Structural Drift Remediation & Development Parameters
+- **Architectural Invariant Enforcement & Quality Gate Integration**:
+  - Authored `tests/test_architectural_invariants.py` asserting strict adherence to architectural standards across the codebase:
+    - Zero functions or methods with nesting depth $> 5$ across all of `src/devops_cli`.
+    - Cyclomatic complexity $\le 10$ for complex tool factories (`FileSystem.get_tools`).
+    - Zero bare Python built-in exceptions (`ValueError`, `RuntimeError`, `TypeError`) raised in domain logic.
+    - Mandatory inheritance of all domain exceptions from `DevOpsCLIError`.
+    - Test collection hygiene (`__test__ = False` on dummy/mock models).
+- **Domain Exception Taxonomy Expansion**:
+  - Added canonical error codes in `src/devops_cli/config/constants.py`: `CONST_ERROR_CODE_VAULT`, `CONST_ERROR_CODE_DOCKER_SANDBOX`, `CONST_ERROR_CODE_K8S`, `CONST_ERROR_CODE_MODEL_BUNDLE`, `CONST_ERROR_CODE_HARNESS`.
+  - Created strongly typed domain exceptions inheriting from `DevOpsCLIError` and standard Python exception types:
+    - `src/devops_cli/exceptions/vault.py`: `VaultError`, `VaultKeyError`, `VaultConfigurationError`, `VaultOperationError`.
+    - `src/devops_cli/exceptions/k8s.py`: `KubernetesError`, `KubernetesContextError`, `ChaosExecutionError`, `KubernetesDeployError`.
+    - `src/devops_cli/exceptions/docker.py`: `DockerError`, `DockerSandboxError`.
+    - `src/devops_cli/exceptions/ai.py`: `ModelBundleError`, `HarnessValidationError`, `HarnessExecutionError`.
+  - Re-exported new exception classes through `src/devops_cli/exceptions/__init__.py` and updated `docs/ERRORS.md`.
+- **Bare Generic Exception Remediation (22 Modules)**:
+  - Replaced bare `ValueError` and `RuntimeError` with strongly typed domain exceptions across:
+    - Docker sandbox (`sandbox.py`)
+    - Kubernetes chaos runner (`chaos_runner.py`)
+    - Kubernetes cluster context (`cluster_context.py`)
+    - Vault broker & CLI (`vault_broker.py`, `commands/vault.py`)
+    - AI model bundler & durable sessions (`model_bundler.py`, `durable.py`)
+    - AI harness subsystems (`skills.py`, `workflow.py`, `planning.py`, `shell.py`, `memory.py`, `os_access.py`, `compaction.py`).
+- **Nesting Depth & Cyclomatic Complexity Reductions**:
+  - Refactored high indentation hotspots to $\le 4$ levels project-wide:
+    - `toolsets/__init__.py`: Flattened `extract_tools_from_toolset` and `get_instructions`.
+    - `providers/__init__.py`: Decomposed `create_pydantic_ai_provider` into table-driven provider factories.
+    - `rag/embeddings.py`: Flattened `_probe_ollama_dimension` and `embed_texts`.
+    - `k8s/credentials.py`: Flattened `fetch_grafana_password` via `itertools.product` and dedicated field locator.
+    - `security/aibom.py`: Flattened `extract_aibom_components` via dedicated parameter parsers.
+    - `security/complexity.py`: Flattened `run_complexity_scan` via `_evaluate_function_findings`.
+    - `security/vault_broker.py`: Flattened `get_secret` via `_fetch_vault_kv2_secret`.
+    - `ai/harness/filesystem.py`: Extracted 8 helper methods from `get_tools()` on `FileSystem`, reducing complexity from 49 to $\le 6$.
+    - `ai/ast_stream.py`: Flattened `stream_ast_symbols` and `stream_token_lines` by extracting AST and token classification helpers.
+    - `ai/response_repair.py`: Flattened `_extract_tool_invocations_from_chunk`.
+    - `output/formatters/scalars.py`: Flattened `format_repo_map_text`.
+    - `ai/analyze/scanner.py`: Flattened `_extract_file_dependencies`.
+    - `ai/agents/runner.py`: Flattened `_execute_single_tool`.
+- **Test Collection & Warning Hygiene**:
+  - Set `__test__ = False` on `TestModel` in `src/devops_cli/ai/agents/testing.py` to eliminate `PytestCollectionWarning`.
+  - Safely closed unawaited coroutine objects during synchronous toolset introspection in `toolsets/__init__.py` and `agents/agent.py` to eliminate `RuntimeWarning`.
+- **Quality Gate**:
+  - Full CI validation suite (`uv run devops ci`): 10/10 quality gates green (test, coverage $\ge 90\%$, lint, format, typecheck, audit, security, actionlint, docs).
+
+### [2026-09-06] Replace Redis with Valkey Across Workstation Infrastructure & LLM Stack
+- **ArgoCD In-Memory Cache Migration**:
+  - `k8s/argocd/values.yaml`: Overrode default Redis container image with `valkey/valkey:8.0-alpine` under the BSD-3-Clause open-source license.
+  - Rolled out the upgrade on the live minikube cluster (`helm upgrade argocd argo/argo-cd`), validating the rollout of `deployment/argocd-redis` and verifying responsive `valkey-cli ping` -> `PONG`.
+- **LLM Stack & OpenWebUI Coordination**:
+  - `k8s/llm/values-open-webui.yaml`: Documented python-socketio driver configuration connecting to standalone Valkey (`valkey.llm.svc.cluster.local:6379/0`) and kept embedded Redis subchart disabled.
+  - Confirmed active cluster Valkey deployment (`deployment/valkey`) is healthy and responsive in the `llm` namespace.
+- **Test-First Verification & Hygiene**:
+  - Authored `tests/test_k8s_valkey_stack.py` verifying stack values, image overrides, and the absence of unmaintained/proprietary Redis images across `k8s/`.
+  - Updated mock data and prompt fixtures in `tests/test_output.py` and `tests/test_pydantic_ai_format_prompt.py` to reference Valkey.
+  - Updated `k8s/README.md` and `docs/DEVCONTAINER_USAGE.md`.
+
 ### [2026-09-06] Address Review Findings (Session 20260905-202119) & Self-Improvement Loop Hardening
 - **Codebase Security & Hardening Remediations (18 Findings Across 16 Modules)**:
   - `src/devops_cli/ai/ast_stream.py`: Added explicit symlink check (`p.is_symlink()`) in `stream_python_symbols` to prevent following untrusted symbolic links during AST parsing.

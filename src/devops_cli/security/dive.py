@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import shutil
-import subprocess
 from pathlib import Path
 
 from pydantic import BaseModel, Field
@@ -68,17 +66,13 @@ def run_dive_analysis(
         )
 
     try:
-        proc = subprocess.run(
-            [dive_bin, image_name, "--json", "-"],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            check=False,
-        )
-        if not proc.stdout.strip():
-            return DiveAnalysisResult(image_name=image_name)
+        from devops_cli.core.process import run_json_subprocess
 
-        data = json.loads(proc.stdout)
+        data = run_json_subprocess(
+            [dive_bin, image_name, "--json", "-"],
+            timeout=timeout,
+            default={},
+        )
         layer_list: list[DiveLayerInfo] = []
         for idx, lyr in enumerate(data.get("layer", [])):
             layer_list.append(

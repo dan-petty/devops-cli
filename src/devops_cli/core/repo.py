@@ -145,11 +145,18 @@ def _list_git_tracked_files(repo_root: Path, resolved_target: Path) -> list[Path
             timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
         )
         files: list[Path] = []
+        repo_root_resolved = repo_root.resolve()
         for line in proc.stdout.splitlines():
             line_str = line.strip()
             if not line_str:
                 continue
             p = repo_root / line_str
+            try:
+                p_res = p.resolve()
+                if not p_res.is_relative_to(repo_root_resolved):
+                    continue
+            except OSError, RuntimeError:
+                continue
             if p.is_file() and p.suffix.lower() not in CONST_BINARY_EXTENSIONS:
                 files.append(p)
         return sorted(files)
@@ -177,13 +184,12 @@ def list_repo_files(target: Path | str = ".") -> list[Path]:
     walked_files: list[Path] = []
     repo_root_resolved = repo_root.resolve()
     for p in resolved_target.rglob("*"):
-        if p.is_symlink():
-            try:
-                resolved_p = p.resolve()
-                if not str(resolved_p).startswith(str(repo_root_resolved)):
-                    continue
-            except OSError, RuntimeError:
+        try:
+            resolved_p = p.resolve()
+            if not resolved_p.is_relative_to(repo_root_resolved):
                 continue
+        except OSError, RuntimeError:
+            continue
         if p.is_file() and not is_ignored_by_git(repo_root, p):
             walked_files.append(p)
     return sorted(walked_files)

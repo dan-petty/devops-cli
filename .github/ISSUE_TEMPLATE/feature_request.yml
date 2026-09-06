@@ -1,0 +1,64 @@
+name: "✨ Feature Proposal"
+description: "Propose a new capability, CLI subcommand, or architectural enhancement for DevOps CLI."
+title: "feat(<scope>): <description>"
+labels: ["enhancement", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        We welcome feature proposals aligned with modern DevOps automation, agentic workflows, and zero-trust workstation security!
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or Motivation
+      description: What challenge or user workflow does this feature address?
+      placeholder: As a developer/DevOps engineer, I need ... so that ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed-solution
+    attributes:
+      label: Proposed Solution & Architectural Design
+      description: Describe your proposed CLI subcommand, API contract, or architectural design.
+      placeholder: |
+        - Command signature: `devops ...`
+        - Key abstractions and Pydantic v2 schemas:
+        - Expected terminal output (Rich tables, JSON):
+    validations:
+      required: true
+
+  - type: dropdown
+    id: subsystem
+    attributes:
+      label: Target Subsystem
+      description: Which area of the codebase does this proposal primarily affect?
+      options:
+        - "AI & Agentic Review Pipeline"
+        - "FastMCP & IDE Integrations"
+        - "Kubernetes & Minikube Automation"
+        - "Security & Vulnerability Scanners"
+        - "HashiCorp Vault & Secret Management"
+        - "Workstation Caching & Valkey"
+        - "OpenTofu / Infrastructure as Code"
+        - "SDLC, Git & PR Governance"
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: What other approaches or existing tools have you considered?
+      placeholder: Describe alternative libraries, manual workarounds, or reason for rejection.
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Standards Compliance
+      options:
+        - label: I confirm this proposal aligns with AGENTS.md engineering principles (cyclomatic complexity <= 10, nesting <= 5, zero bare exceptions, >= 90% coverage).
+          required: true
+        - label: I am willing to submit a pull request implementing this feature with accompanying tests.
+          required: false

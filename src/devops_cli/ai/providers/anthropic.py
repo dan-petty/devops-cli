@@ -45,10 +45,19 @@ class AnthropicProvider(BaseLLMProvider):
             purpose="ai",
             allow=bool(getattr(self.config, "allow_private_network", False)),
         )
+        import os
+
+        from devops_cli.config.settings import get_keyring_secret
+
         headers = {
             "anthropic-version": "2023-06-01",
             "content-type": "application/json",
         }
+        api_key = self.api_key or getattr(self.config, "api_key", None)
+        if not api_key:
+            api_key = os.environ.get("ANTHROPIC_API_KEY") or get_keyring_secret("ai_api_key")
+        if api_key:
+            headers["x-api-key"] = api_key
         system_prompt = ""
         claude_messages: list[dict[str, str]] = []
         for m in messages:

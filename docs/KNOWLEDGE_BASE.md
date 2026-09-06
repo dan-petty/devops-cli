@@ -1,13 +1,13 @@
 # DevOps CLI Knowledge Base Catalog
 
-The bundled Knowledge Base provides **78 operational and architectural manuals**
+The bundled Knowledge Base provides **80 operational and architectural manuals**
 grounding DevOps CLI subcommands, multi-agent AI reviews, and developer workflows.
 
 ---
 
 ## Division 1: DevOps CLI Information (`devops_cli/`)
 
-**Total Articles**: 39 manuals covering internals, configuration, tasks, and libraries.
+**Total Articles**: 40 manuals covering internals, configuration, tasks, and libraries.
 
 | Category | Article File | Topic & Scope |
 |---|---|---|
@@ -42,6 +42,7 @@ grounding DevOps CLI subcommands, multi-agent AI reviews, and developer workflow
 | `tasks` | [`ai_code_review.md`](../src/devops_cli/ai/knowledge_base/devops_cli/tasks/ai_code_review.md) | Ai Code Review |
 | `tasks` | [`ci_quality_gate.md`](../src/devops_cli/ai/knowledge_base/devops_cli/tasks/ci_quality_gate.md) | Ci Quality Gate |
 | `tasks` | [`devcontainer_lifecycle.md`](../src/devops_cli/ai/knowledge_base/devops_cli/tasks/devcontainer_lifecycle.md) | Devcontainer Lifecycle |
+| `tasks` | [`github_project_management.md`](../src/devops_cli/ai/knowledge_base/devops_cli/tasks/github_project_management.md) | Github Project Management |
 | `tasks` | [`infrastructure_provisioning.md`](../src/devops_cli/ai/knowledge_base/devops_cli/tasks/infrastructure_provisioning.md) | Infrastructure Provisioning |
 | `tasks` | [`k8s_stack_deployment.md`](../src/devops_cli/ai/knowledge_base/devops_cli/tasks/k8s_stack_deployment.md) | K8S Stack Deployment |
 | `tasks` | [`rag_context_indexing.md`](../src/devops_cli/ai/knowledge_base/devops_cli/tasks/rag_context_indexing.md) | Rag Context Indexing |
@@ -55,7 +56,7 @@ grounding DevOps CLI subcommands, multi-agent AI reviews, and developer workflow
 
 ## Division 2: Information Technology Domain-Specific (`it_domains/`)
 
-**Total Articles**: 39 manuals covering 10 IT topics and 20 tool references.
+**Total Articles**: 40 manuals covering 11 IT topics and 29 tool references.
 
 | Category | Article File | Topic & Scope |
 |---|---|---|
@@ -87,6 +88,7 @@ grounding DevOps CLI subcommands, multi-agent AI reviews, and developer workflow
 | `tools` | [`tiktoken.md`](../src/devops_cli/ai/knowledge_base/it_domains/tools/tiktoken.md) | Tiktoken |
 | `tools` | [`trivy.md`](../src/devops_cli/ai/knowledge_base/it_domains/tools/trivy.md) | Trivy |
 | `tools` | [`uv.md`](../src/devops_cli/ai/knowledge_base/it_domains/tools/uv.md) | Uv |
+| `tools` | [`valkey.md`](../src/devops_cli/ai/knowledge_base/it_domains/tools/valkey.md) | Valkey |
 | `topics` | [`agentic_ai_and_code_reviews.md`](../src/devops_cli/ai/knowledge_base/it_domains/topics/agentic_ai_and_code_reviews.md) | Agentic Ai And Code Reviews |
 | `topics` | [`cloud_native_kubernetes_and_gitops.md`](../src/devops_cli/ai/knowledge_base/it_domains/topics/cloud_native_kubernetes_and_gitops.md) | Cloud Native Kubernetes And Gitops |
 | `topics` | [`continuous_integration_and_progressive_verification.md`](../src/devops_cli/ai/knowledge_base/it_domains/topics/continuous_integration_and_progressive_verification.md) | Continuous Integration And Progressive Verification |

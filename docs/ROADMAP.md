@@ -132,7 +132,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
 - [x] **Dead Code & Unused Symbol Pruning (`vulture` / AST Audit)**: Project-wide static dead code, orphaned import, and unused test fixture sweeps to maintain zero boilerplate.
 - [x] **Toolchain & Lockfile Maintenance Review Gate (`devops ci maintain`)**: Automated weekly dependency freshness scans, lockfile synchronization, and devcontainer binary validation.
 
-### Real-Time Agent Streaming & Diagram Generation (v0.2.4 - Current Release)
+### Real-Time Agent Streaming & Diagram Generation (v0.2.4 - Completed)
 - [x] **Streaming SSE / WebSocket Agent Reasoning Feed (`devops serve /stream` & `/ws`)**: Server-Sent Events (SSE) and WebSocket streams delivering real-time LLM token generation, multi-agent reasoning steps, and scratchpad updates to IDE extensions and web UIs.
 - [x] **Automated Unit Test Synthesizer & Execution Verifier (`devops ai test-gen`)**: Generates and executes isolated pytest test suites for uncommitted diffs to maximize branch coverage.
 - [x] **Prompt Mutation Testing & Benchmark Guardrails (`devops ai prompt-eval`)**: Automated evaluation framework benchmarking persona prompt variations against verified feedback datasets.
@@ -148,7 +148,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
 
 ---
 
-### Enterprise Stability, Performance & Quality Hardening (v0.2.5 - Current Release)
+### Enterprise Stability, Performance & Quality Hardening (v0.2.5 - Completed)
 - [x] **Cold Import Latency Optimization & Lazy Loader Consolidation**: Defer heavy third-party dependencies (`kubernetes`, `fastmcp`, `boto3`, `trivy`) to command execution time to maintain sub-second CLI startup.
 - [x] **AST Structural Standardization & Strict Indentation Budgeting**: Audited project-wide control flow to ensure zero functions exceed 5 levels of indentation, decomposing nested loops into standard library functional pipelines.
 - [x] **Zero-Plaintext Invariant & Keyring Egress Security Audit**: Automated test scanner ensuring zero plaintext secrets, tokens, or credentials exist across `.data/`, `.devops/`, test fixtures, or docs.
@@ -160,40 +160,14 @@ High-density product roadmap, engineering milestones, and open-source integratio
 - [x] **Self-Healing Vector Dimension Adaptation & Embedding Chunking**: Auto-recovery on Qdrant collection vector dimension changes with adaptive batch chunking preventing Ollama embedding timeouts.
 - [x] **Automated Review Feedback Dataset Continuous Learning (`devops ai review export-feedback`)**: Exporting verified and invalidated findings into structured benchmark datasets (`.data/feedback_dataset.jsonl`) for prompt tuning and fine-tuning.
 
-### Live State Watchers, Continuous Automation & Declarative Command Pipeline (v0.2.6 - Scheduled)
-- [x] **Continuous Live Resource & State Watchers (`--watch` / `-w`)**: Real-time terminal auto-refresh and live event streaming across `devops k8s pods --watch`, `devops argo status --watch`, `devops docker stats --watch`, and `devops release status --watch` utilizing `rich.live.Live` with configurable intervals (`--interval`).
-- [x] **Adaptive Two-Axis LLM & Freshness Router (`devops_cli.ai.router`)**: Dynamic task routing along Complexity (Simple/Moderate/Complex/Frontier) and Freshness (live web/MCP search vs static context) axes, delivering up to 92% cost savings over uniform frontier calls.
-- [ ] **Sub-Agent Local Offloading Engine & Agent Harness Slots (`devops_cli.ai.harness.slots`)**: Modular Harness Slots (Model, Skills, Tools, Sub-Agents) offloading token-intensive exploration and symbol searching to local open models (Granite, Qwen, DeepSeek), achieving 87% input token savings while retaining frontier models for architectural planning.
-- [ ] **Model Dependency Chaos Engineering Suite (`devops ai chaos-model`)**: "Chaos Monkey for Models" validation framework deliberately degrading frontier connections to verify that fallback/local models can pilot tools and pass CI quality gates without human coaching.
-- [ ] **Agent Constellation Quiesce & Emergency Failover Controller (`devops ai quiesce`, `devops ai failover`)**: Centralized emergency control to cleanly suspend active agent loops, schedulers, and background cron jobs during upstream provider outages or model cutovers.
-- [ ] **Interactive Terminal UI Dashboard (`devops dashboard` / `devops tui`)**: Full-screen terminal dashboard powered by `Textual` providing responsive tabs for live Kubernetes pods, Minikube services, Docker container metrics, OpenTelemetry span waterfalls, and active AI review findings with keyboard navigation (`1-5`, `q`, `r`).
-- [ ] **Continuous IDE File Watcher & Instant AI Review (`devops ai review path --watch`)**: Inotify/watchdog-backed background listener executing automated incremental multi-persona reviews on active file changes with configurable debounce windows (`--debounce-ms`).
-- [ ] **Declarative CLI Command Dispatch & Output Presenter Engine (`@cli_command_handler`)**: Universal decorator eliminating boilerplate formatting, dry-run routing, OpenTelemetry span creation, and multi-format serialization (`json|yaml|table|markdown`) across all 30+ Typer subcommands.
-- [ ] **Universal Subprocess Execution & SIEM Audit Pipeline (`ProcessExecutionPipeline`)**: Centralized command runner enforcing strict argument list sanitization, bounded timeouts, non-root safety, traceparent propagation, and structured audit trail recording (`.data/logs/audit.jsonl`).
-- [ ] **Parallel Async Multi-File Review Pipeline Pool (`devops ai review path`)**: Concurrent async file processing with semaphore bounding (`asyncio.Semaphore`) and token budgeting, cutting multi-file directory review runtimes by up to 70%.
-- [ ] **Deterministic Mock LLM Test Isolation & Test Suite Acceleration (< 60s)**: Strict offline mock isolation for LLM/Ollama and Qdrant network calls across test files (`test_ai_cmd`, `test_review_repos`, `test_analyze`), accelerating full test suite execution from 39 minutes to under 60 seconds.
-- [x] **In-Memory Embedding LRU Cache & Chunk Dedup (`ai.rag.embeddings`)**: In-memory SHA-256 keyed embedding cache eliminating redundant vector generation calls for identical code chunks across files and commits.
-- [x] **Adaptive Test Sharding & Fast Path Test Selector (`devops test run --diff`)**: Git diff-aware test selection executing only impacted test files during local iterations, reducing developer test loop latency from minutes to seconds.
-- [x] **Static Code Complexity & Cyclomatic Depth Linter (`devops scan complexity`)**: Automated AST scanner enforcing maximum cyclomatic complexity (< 10) and strict nesting limits across the codebase.
-- [ ] **Deterministic Async Memory & Connection Pool Profiler (`devops test profile-memory`)**: Memory leak detection and async socket lifecycle validation across background daemons and MCP workers using `asyncio` and `tracemalloc`.
-- [ ] **Autonomous RAG Index Drift Detection & Auto-Reindexing**: Scheduled background verification of vector store sync against workspace git tracking branches.
-- [ ] **Multi-Model LLM Benchmark Evaluation Harness (`devops ai benchmark --suite`)**: Automated evaluation suite testing model responses against human-in-the-loop validated feedback datasets.
-- [ ] **Sigstore Cosign Container Provenance (`cosign`)**: Keyless container image and manifest signing (`devops docker sign|verify`) integrating with OS Keyring and OIDC tokens for verifiable supply-chain provenance.
-- [x] **Syft & Grype Automated SBOM & Vulnerability Scanning (`syft`, `grype`)**: Automated Software Bill of Materials (SBOM) generation (`devops scan sbom`) in CycloneDX/SPDX formats and Grype container runtime vulnerability auditing with configurable severity thresholds (`--fail-on high|critical`).
-- [ ] **Infracost FinOps Cloud Cost Engine (`infracost`)**: `devops tf cost` integrating Infracost CLI to evaluate cloud financial impacts on Terraform/OpenTofu diffs, enriching `pm` & `architect` review personas with monthly cost deltas.
-- [ ] **Falco eBPF Runtime Security & Anomaly Streamer (`devops k8s security-stream`)**: Real-time streaming kernel anomaly and container syscall events via eBPF probes.
-- [ ] **Multi-Cluster ArgoCD Fleet Sync & Rollouts (`devops argo sync --fleet`)**: Advanced canary and blue-green rollout management with Prometheus metric-based rollback gates.
-- [ ] **Local GitOps Project Orchestration Pipeline (`devops argo cd apps bootstrap-gitops`)**: End-to-end declarative reconciliation connecting local background Git daemon (`git://host.minikube.internal:9418/k8s`), ArgoCD Root Application ("App of Apps" pattern), and multi-stack lifecycle (`infra`, `llm`).
-- [ ] **Automated GitOps Drift Detection & Webhook Synchronization (`devops argo gitops watch`)**: Real-time git commit and inotify/watchdog triggers automatically signaling ArgoCD applications to reconcile local workspace modifications.
-- [ ] **PydanticAI Native Tool Call & Streaming Reasoning Protocol (`pydantic-ai`)**: Deepen native PydanticAI patterns across all AI subcommands with typed dependency injection (`RunContext[DevOpsAgentContext]`), automatic model retry backoff (`@agent.tool(retries=3)`), structured output validation (`result_type=ReviewResult`), and thinking token extraction.
-- [ ] **Logfire Structured AI Observability Bridge (`logfire`)**: Native Pydantic Logfire integration binding with OpenTelemetry distributed spans and Rich terminal formatters for live agent reasoning inspection, token throughput counters, and trace waterfalls.
-- [ ] **Tree-Sitter Multilingual AST Graph & Code Intelligence Engine (`tree-sitter`)**: Incremental multi-language syntax tree parsing across Python, TypeScript, Go, Rust, Java, and HCL for whole-repository symbol navigation, call-graph synthesis, and structural diff analysis.
-- [ ] **Testcontainers Ephemeral Workstation Testing Sandbox (`testcontainers`)**: Isolated Dockerized container fixtures (`testcontainers-python`) spinning up ephemeral Qdrant vector stores, Valkey caches, and Minikube test harnesses during automated unit and integration tests.
-- [ ] **Core Dependency Ecosystem Alignment (`pyproject.toml`)**: Routine version upgrades and compatibility validation across runtime and development dependencies:
-  - `click` (`8.4.2` → `8.5.0`) & `typer` (`0.27.1` → `0.27.2`)
-  - `pydantic` (`2.13.4` → `2.13.5`) & `pydantic-ai` (`2.35.0` → `2.35.3`)
-  - `gitpython` (`3.1.60` → `3.1.61`) & `httpx2` (`2.9.0` → `2.12.0`)
-  - `ruff` (`0.16.4` → `0.16.5`) & sub-dependencies (`anthropic v1.2.0`, `grpcio v1.83.1`, `platformdirs v4.11.5`)
+### Live State Watchers, Complexity Analysis & SBOM Generation (v0.2.6 - Completed)
+- [x] **Static Code Complexity & Cyclomatic Depth Linter (`devops scan complexity`)**: Automated AST scanner calculating McCabe cyclomatic complexity and strict nesting depth to prevent code maintainability degradation.
+- [x] **Syft & Grype Automated SBOM & Vulnerability Scanning (`syft`, `grype`)**: Automated Software Bill of Materials (SBOM) generation (`devops scan sbom`) in CycloneDX/SPDX formats and container runtime vulnerability auditing with configurable severity gates (`--fail-on high|critical`).
+- [x] **Git-Diff Aware Test Selector (`devops test run --diff`)**: Targeted test selection discovering and running only test files impacted by active unstaged or branch-level git diffs, reducing inner-loop test cycle latency.
+- [x] **Continuous Live Resource & State Watchers (`--watch` / `-w`)**: Real-time terminal auto-refresh and live event streaming across `devops k8s pods --watch`, `devops argo cd apps list --watch`, `devops docker stats --watch`, and `devops release status --watch` utilizing `rich.live.Live` with configurable refresh intervals (`--interval`).
+- [x] **Adaptive Multi-Axis LLM & Freshness Router (`devops_cli.ai.router`)**: Dynamic task routing along Complexity (`LOW`, `MEDIUM`, `HIGH`, `FRONTIER`), Freshness (`STATIC_CONTEXT`, `LIVE_MCP_LOOKUP`, `EXTERNAL_WEB_SEARCH`), and Data Sensitivity (`PUBLIC`, `INTERNAL`, `CONFIDENTIAL_AIRGAP`) axes, delivering up to 92% cost savings over uniform frontier calls while preventing proprietary code egress.
+- [x] **In-Memory Embedding LRU Cache & Chunk Dedup (`devops_cli.ai.rag.embeddings`)**: In-memory SHA-256 keyed embedding cache eliminating redundant vector generation calls for identical code chunks across files and commits.
+- [x] **DevContainer Path Modernization & Lifecycle Hook Migration**: Dynamic interpreter detection, system binary preservation, and native Python lifecycle hooks (`devops devcontainer run-lifecycle`) replacing fragile shell scripts.
 
 ### Model Curation, AST Streaming & Synthesis Protocol (v0.2.7 - Completed)
 - [x] **Model Curation Pipeline & AI Bill of Materials (AIBOM) Generator (`devops scan aibom`)**: Automated supply-chain governance pre-screening model weights with Semgrep/Bandit to block `trust_remote_code=True`, computing RAM/VRAM/MoE sizing heuristics, and compiling verifiable CycloneDX 1.5 AIBOM documents (licenses, security findings, quant benchmarks, runnable manifests).
@@ -241,6 +215,98 @@ High-density product roadmap, engineering milestones, and open-source integratio
   - Persona and verification prompt tuning (`devsecops`, `architect`, `verify_finding_system.md`).
 - [x] **Dedicated Agent Operational Task Tracking Tier (`docs/agent/`)**:
   - Canonical task status tracking under `docs/agent/task.md` with explicit lifecycle guidelines (`docs/agent/README.md`).
+
+### Workstation Infrastructure, FastMCP 72 Tools & Quality Architecture (v0.2.11 - Current Release)
+- [x] **Workstation Infrastructure Valkey Migration**: Replaced Redis components with Valkey 8.0-alpine under BSD-3-Clause across ArgoCD and LLM cluster stacks.
+- [x] **Codebase Stylistic Drift Remediation & Invariants**: Enforced strict nesting depth $\le 5$ (< 6 indentations), cyclomatic complexity $\le 10$, standardized domain exception taxonomy (`DevOpsCLIError`), and automated CI architectural invariant gates (`tests/test_architectural_invariants.py`).
+- [x] **FastMCP Server Tool Parity Expansion (72 Tools)**: Expanded registered FastMCP tools from 53 to 72 tools covering security scans (Trivy, Gitleaks, Semgrep, Checkov, AIBOM, SBOM), Kubernetes operations (chaos, audit, lint, validate, diff), HashiCorp Vault (set, sync), benchmarking, and Git/PR governance.
+- [x] **FastMCP Prompt Templates & Dynamic System Resources**: Implemented 4 prompt templates (`code_review_prompt`, `security_audit_prompt`, `k8s_diagnostics_prompt`, `architecture_analysis_prompt`) and 6 dynamic system resources (`resource://workspace/status`, `resource://config/active`, `resource://telemetry/status`, `resource://release/status`, `resource://vault/status`, `resource://mcp/tools`).
+- [x] **FastMCP JSON Schema Exporter (`devops mcp export-schemas`)**: Built introspection CLI command exporting JSON tool schemas and markdown instructions, synchronizing with Antigravity IDE lazy tool loader.
+- [x] **Enterprise SDLC Governance & Community Health**: Authored `docs/SDLC.md`, standardized `.github/pull_request_template.md`, issue forms, `CODEOWNERS`, `dependabot.yml`, `SECURITY.md`, and `CONTRIBUTING.md`.
+- [x] **Review Findings Remediation & Invariant Hardening**: Remediated path traversal in repo listing and ArgoCD manifests, Vault percent-encoded traversal, tool argument validation, and AWS EKS public endpoint exposure.
+- [x] **AI Review Report Executive Summary Statement**: Synthesized high-level overview statements, key good patterns, and dynamically categorized defect anti-patterns directly under report titles in markdown artifacts and console output.
+- [x] **Autonomous Review Feedback & Self-Improvement Loop Hardening**: Grounded missing-symbol and masked-placeholder hallucination detection with AST export verification, word boundary lookaheads, and prompt guardrails.
+- [x] **Submodule Boilerplate Consolidation & Usability Architecture (Phase 42)**:
+  - **Declarative Dry-Run Execution (`@dry_run_command`)**: Implemented `@dry_run_command` in `devops_cli.dry_run.decorator` eliminating repetitive manual dry-run interception blocks and cyclomatic overhead across 35 command files.
+  - **Universal CLI Error Boundary & Decorator (`@cli_command_handler`)**: Unified OpenTelemetry span tracing, command duration/counter metrics, clean error output, and standard `typer.Exit(code=exc.exit_code)` dispatch.
+  - **Filesystem Subpath Containment & Traversal Defense (`safe_resolve_subpath`)**: Standardized secure path resolution in `devops_cli.core.paths` guarding against directory traversal, absolute path escapes, and symlink dereference attacks.
+  - **Subprocess Execution with Structured JSON Extraction (`run_json_subprocess`)**: Automated JSON deserialization, error formatting, and type-safe domain exception handling in `devops_cli.core.process`, eliminating raw `subprocess.run` calls.
+  - **External Binary Pre-flight Verification (`require_binary` / `check_binary`)**: Built dependency verification utilities in `devops_cli.core.binaries` raising strongly typed `DependencyError` with actionable installation hints.
+  - **Universal Secret Masking & Credential Sanitizer (`devops_cli.security.sanitizer`)**: Centralized secret redaction (`mask_secrets`, `mask_dict_secrets`, `mask_uri_credentials`), eliminating 80 lines of duplicate pattern arrays.
+  - **Markdown Codeblock JSON Deserializer (`extract_json_block`)**: Centralized markdown JSON parsing in `devops_cli.core.serialization` with `json_repair` fallback.
+- [x] **Declarative Security Framework Foundation & AST Cache Tier (Phase 43)**:
+  - **Declarative Security Scanner Framework (`BaseSecurityScanner`)**: Universal abstract base class in `devops_cli.security.base` standardizing scanner lifecycle, binary pre-flight checks, timeout execution, JSON extraction, and normalized `Finding` creation.
+  - **Centralized Scanner Registry (`ScannerRegistry`)**: Dynamic scanner registry in `devops_cli.security.registry` providing introspection, capability filtering, and batch dispatch.
+  - **In-Memory High-Performance AST Cache Tier (`ASTCache`)**: Thread-safe in-memory cache in `devops_cli.ai.ast_cache` keyed by `(filepath, st_mtime)` eliminating redundant AST parsing during multi-persona reviews.
+  - **Declarative Rich Table Builder (`render_table`)**: Declarative table rendering helper in `devops_cli.output.table_builder` unifying table layouts, empty states, and JSON/YAML serialization.
+- [x] **GitHub Management & Quality Automation (Phase 44)**:
+  - **Declarative GitHub Taxonomy (`.github/labels.yml`)**: Standardized 29 labels across `type/*`, `scope/*`, `priority/*`, `status/*`, and `review/*`.
+  - **GitHub Projects v2 Life Cycle Template (`.github/project-template.json`)**: Configured 4 standardized views (*Sprint Kanban*, *Roadmap Timeline*, *Triage & Quality Table*, *Value vs Effort Priority Matrix*).
+  - **Native GitHub CLI Command Group (`devops gh`)**: Added `devops gh labels list|sync|audit`, `devops gh milestones list|sync|status`, `devops gh project status|sync|template`, and `devops gh views list|spec`.
+  - **FastMCP GitHub Tools**: Added 6 FastMCP tools (`gh_label_list`, `gh_label_sync`, `gh_milestone_list`, `gh_milestone_sync`, `gh_project_status`, `gh_view_spec`).
+  - **Task Manual 13**: Authored `src/devops_cli/ai/knowledge_base/devops_cli/tasks/github_project_management.md`.
+- [x] **Documentation & AI Instruction Token Optimization (Phase 45)**:
+  - **Root Agent Instructions Optimization (`AGENTS.md`)**: Reduced file size by 36% (10.5 KB saved) to eliminate assistant context truncation while preserving all architectural invariants and security mandates.
+  - **Review Prompt Stack Deduplication (`src/devops_cli/ai/tasks/`)**: Deduplicated overlapping instructions across `review.md`, `guardrails_isolation.md`, and `verify_finding_system.md` saving 34% prompt tokens per segment.
+  - **Dedicated Agent Data Isolation**: Cleanly separated workspace data root (`./.data`) from isolated agent task artifacts (`<data_dir>/agent`, e.g. `./.data/agent`).
+- [x] **Principal DevSecOps Architectural Review & Threat Evaluation (Phase 47.1)**:
+  - Comprehensive architectural review by Principal DevSecOps Engineer evaluating supply chain, process execution, container sandboxing, network perimeter/SSRF, secret management, Kubernetes posture, and AI/LLM safety.
+  - Authored full evaluation report detailing 1 Critical, 4 High, and 4 Medium/Low findings with verified exploit scenarios and remediation specifications.
+- [ ] **DevSecOps Architectural Hardening & Zero-Trust Defense-in-Depth (Phase 47.2)**:
+  - **OpenAIProvider Authentication Header Injection**: Inject `Authorization: Bearer <token>` in `OpenAIProvider.generate()` leveraging `settings.ai.openai_api_key` or OS Keyring, eliminating 401 Unauthorized failures on authenticated OpenAI-compatible endpoints.
+  - **Fail-Closed SSRF DNS Resolution Guard**: Harden `_enforce_non_private_ssrf` in `devops_cli.core.validation` to fail closed when `allow_private=False` upon DNS timeouts, `socket.gaierror`, or `OSError`, mitigating DNS rebinding and delayed resolution bypasses.
+  - **Universal Secret Sanitizer Pattern Expansion**: Expand `_SECRET_PATTERNS` in `devops_cli.security.sanitizer` with Vault tokens (`hvs.*`, `s.*`), GitLab PATs (`glpat-*`), Slack/Discord webhooks, and HuggingFace API keys (`hf_*`).
+  - **Docker Workload Sandbox Security Hardening**: Harden `WorkloadSandboxRunner` in `devops_cli.docker.sandbox` by enforcing `cap_drop=["ALL"]`, `security_opt=["no-new-privileges:true"]`, `pids_limit=256`, default read-only volume mounting, and blocking sensitive host paths (`~/.ssh`, `~/.aws`, `~/.kube`, `.git`).
+  - **Context-Aware Review Pre-Filter & Test Noise Reduction**: Scope Gitleaks scanner pre-filter to ignore test mock fixtures (`tests/test_*.py`) and documentation examples in compliance with `AGENTS.md` guidelines.
+
+### Valkey Workstation Management & High-Performance Distributed Caching (v0.2.12 - Scheduled)
+- [ ] **Valkey Workstation CLI Subsystem (`devops valkey`)**: Dedicated command group providing `ping`, `info`, `stats`, `keys [pattern]`, `get <key>`, `set <key> <val> [--ttl <sec>]`, `flush [--all]`, `cli`, and snapshot `backup`/`restore` managing local and remote Valkey instances via lightweight RESP3 socket communication without C dependencies.
+- [ ] **Valkey High-Performance AI & Embedding Cache (`ai.cache.backend=valkey`)**: Distributed SHA-256 keyed embedding and review finding cache tier (`sha256(chunk + model + dim)`) slashing duplicate LLM inference by up to 85% across concurrent CLI runs, file watchers, and CI workers with configurable TTL and LRU memory management.
+- [ ] **Distributed LLM Token Bucket & Concurrency Rate Limiter**: Valkey-backed atomic sliding-window rate limiter powered by Lua scripts (`valkey_token_bucket.lua`) enforcing Requests-Per-Minute (RPM) and Tokens-Per-Minute (TPM) caps to eliminate local Ollama GPU VRAM thrashing and cloud API 429 throttling.
+- [ ] **FastMCP Valkey Toolset & Live System Resource**: 6 FastMCP tools (`valkey_ping`, `valkey_info`, `valkey_get`, `valkey_set`, `valkey_keys`, `valkey_flush`) and dynamic system resource `resource://valkey/status` reporting real-time memory usage, connected clients, and cache hit ratios.
+- [ ] **Ephemeral Testcontainers Valkey Testing Harness**: Rootless container fixture (`testcontainers-python` running `valkey/valkey:8.0-alpine`) for offline unit and integration test suites without requiring live Minikube cluster dependencies.
+- [x] **Valkey IT Domain Knowledge Base Manual (`it_domains/tools/valkey.md`)**: Comprehensive technical guide covering Valkey 8.0 architecture, RESP3 wire protocol, memory optimization, eviction policies, and cluster topologies.
+- [ ] **Infrastructure Perimeter, Supply Chain & Workstation Zero-Trust (Phase 48)**:
+  - **Kubernetes Pod Security Admission (PSA) Enforcement**: Apply PSA enforcement and audit labels (`pod-security.kubernetes.io/enforce: restricted`, `pod-security.kubernetes.io/warn: restricted`) across all namespaces in `k8s/namespaces.yaml`.
+  - **Cluster Default-Deny NetworkPolicies**: Author granular `NetworkPolicy` manifests for `k8s/llm/`, `k8s/monitoring/`, and `k8s/argocd/` with explicit DNS and inter-service egress rules.
+  - **Subprocess Environment Isolation & Credential Boundary**: Restrict default environment inheritance in `run_subprocess` (`src/devops_cli/core/process.py`) to prevent ambient token leakage to untrusted child binaries.
+  - **Immutable GitHub Actions Commit SHA Pinning**: Pin all actions across `.github/workflows/ci.yml` and `release.yml` to immutable 40-character commit SHAs with inline version comments.
+  - **Qdrant Vector Database API Key Secret Protection**: Add optional API key authentication support and ClusterIP default configuration for production deployments in `k8s/llm/values-qdrant.yaml`.
+
+### Advanced Agentic Harness, Sub-Agent Local Offloading & Terminal UX (v0.2.13 - Scheduled)
+- [ ] **Sub-Agent Local Offloading Engine & Agent Harness Slots (`devops_cli.ai.harness.slots`)**: Modular Harness Slots (`ModelSlot`, `SkillSlot`, `ToolSlot`, `SubAgentSlot`) offloading token-intensive exploration and symbol searching to local open models (Granite, Qwen2.5-Coder) under a "Big decides, small types, big checks" synthesis protocol, achieving 85%+ token savings.
+- [ ] **Interactive Terminal UI Dashboard (`devops dashboard` / `devops tui`)**: Full-screen responsive terminal dashboard powered by `Textual` providing real-time tabs for live Kubernetes pods, Minikube services, Docker container metrics, OpenTelemetry span waterfalls, active AI review findings, and Valkey cache metrics with keyboard navigation (`1-5`, `q`, `r`, `?`).
+- [ ] **Model Dependency Chaos Engineering Suite (`devops ai chaos-model`)**: "Chaos Monkey for Models" validation framework deliberately degrading frontier connections, injecting latency, and enforcing local open model fallbacks to verify that automation tools pass CI quality gates without human coaching.
+- [ ] **Agent Constellation Quiesce & Emergency Failover Controller (`devops ai quiesce`, `devops ai failover`)**: Centralized emergency control to cleanly suspend active agent loops, schedulers, and background cron jobs during upstream provider outages, with zero-state-loss failover to local endpoints.
+- [ ] **Multi-Model LLM Benchmark Evaluation Harness (`devops ai benchmark --suite`)**: Automated evaluation suite benchmarking candidate models against human-in-the-loop validated feedback datasets (`.data/feedback_dataset.jsonl`), calculating precision, recall, and hallucination scores.
+- [ ] **Parallel Async Multi-File Review Worker Pool & Streaming Diff Parser**: Concurrent async file review execution utilizing Python 3.14 `asyncio.TaskGroup` bounded by semaphores and token budgets, combined with streaming generator-based unified diff chunking reducing peak memory by 60% and cutting review runtimes by up to 70%.
+- [ ] **Logfire Structured AI Observability Bridge (`logfire`)**: Native Pydantic Logfire integration binding with OpenTelemetry distributed spans and Rich terminal formatters for live agent reasoning inspection, token throughput counters, and trace waterfalls.
+
+### Multilingual Code Intelligence & Library Ingestion Engine (v0.2.14 - Scheduled)
+- [ ] **Tree-Sitter Multilingual AST Graph & Code Intelligence Engine (`tree-sitter`)**: Incremental multi-language syntax tree parsing across Python, TypeScript, Go, Rust, Java, and HCL for whole-repository symbol navigation, call-graph synthesis, and structural diff analysis.
+- [ ] **Dynamic Package Introspection & Type Stub Parser (`devops ai ingest library`)**: Automated AST and type stub (`.pyi`) extractor indexing installed library classes, method signatures, parameter types, defaults, and docstrings into a structured contract store.
+- [ ] **Multi-Source Documentation & Standards Ingester (`devops ai ingest docs`)**: SSRF-guarded crawler ingesting local and remote documentation sets (Sphinx, MkDocs, DevDocs, PEPs, CIS benchmarks) into clean, chunked markdown reference collections.
+- [ ] **Dedicated Library Vector Tier (`devops_libraries`) & Valkey Symbol Store**: Segregated Qdrant collection and Valkey cache tier providing sub-millisecond API signature lookups and hybrid dense-sparse search.
+- [ ] **Import-Driven AST Prompt Grounding & Contract Injection**: Automatic detection of third-party imports across review diffs and on-the-fly injection of verified library API contracts into LLM prompts, eliminating 99% of third-party API hallucinations.
+- [ ] **Library API Drift & Deprecation Auditor (`devops ai audit-library-usage`)**: Static AST analyzer comparing workspace calls against library contracts to detect deprecated parameters, removed APIs, and signature drift prior to library upgrades.
+- [ ] **FastMCP Library Tools & Dynamic System Resource**: Exposing `ai_ingest_library`, `ai_query_library`, `ai_inspect_symbol`, and dynamic resource `resource://libraries/indexed` to IDE AI coding assistants.
+- [ ] **Autonomous RAG Index Drift Detection & Auto-Reindexing**: Scheduled background verification of vector store sync against workspace git tracking branches.
+
+### GitOps Fleet, FinOps & Production Security Mesh (v0.2.15 - Scheduled)
+- [ ] **Complete Security Scanner Migration to `BaseSecurityScanner` & `ScannerRegistry`**: Complete migration of all 11 scanner modules (`bandit`, `checkov`, `dive`, `gitleaks`, `kubeconform`, `kubelinter`, `pluto`, `popeye`, `semgrep`, `tflint`, `trivy`) to inherit from `BaseSecurityScanner`, standardizing execution, timeouts, JSON parsing, and normalized `Finding` models.
+- [ ] **Infracost FinOps Cloud Cost Engine (`devops tf cost`)**: Integrated Infracost CLI evaluating financial impacts of Terraform/OpenTofu diffs, enriching `pm` & `architect` review personas with monthly cost deltas.
+- [ ] **Falco eBPF Runtime Security & Anomaly Streamer (`devops k8s security-stream`)**: Real-time streaming kernel anomaly and container syscall events via eBPF probes with automated severity threshold filtering.
+- [ ] **Multi-Cluster ArgoCD Fleet Sync & Rollouts (`devops argo sync --fleet`)**: Advanced canary and blue-green rollout management across multi-cluster fleets with Prometheus metric-based rollback gates.
+- [ ] **Automated GitOps Drift Detection & Webhook Synchronization (`devops argo gitops watch`)**: Real-time git commit and inotify/watchdog triggers automatically signaling ArgoCD applications to reconcile local workspace modifications.
+- [ ] **Local GitOps Project Orchestration Pipeline (`devops argo cd apps bootstrap-gitops`)**: End-to-end declarative reconciliation connecting local background Git daemon (`git://host.minikube.internal:9418/k8s`), ArgoCD Root Application ("App of Apps" pattern), and multi-stack lifecycle (`infra`, `llm`).
+- [ ] **Sigstore Cosign Container Provenance & Image Signing (`devops docker sign|verify`)**: Keyless container image and manifest signing integrating with OS Keyring and OIDC tokens for verifiable supply-chain provenance.
+- [ ] **GitHub Enterprise Automation Phase 2 (`devops gh issues`, `branch-protection`, `secrets`)**: Automated issue triage/dedup, declarative branch protection policy enforcement, and libsodium workstation-to-GitHub secret sync.
+- [ ] **Deterministic Async Memory & Connection Pool Profiler (`devops test profile-memory`)**: Memory leak detection and async socket lifecycle validation across background daemons and MCP workers using `asyncio` and `tracemalloc`.
+- [ ] **Core Dependency Ecosystem Alignment (`pyproject.toml`)**: Routine version upgrades and compatibility validation across runtime and development dependencies:
+  - `click` (`8.4.2` → `8.5.0`) & `typer` (`0.27.1` → `0.27.2`)
+  - `pydantic` (`2.13.4` → `2.13.5`) & `pydantic-ai` (`2.35.0` → `2.35.3`)
+  - `gitpython` (`3.1.60` → `3.1.61`) & `httpx2` (`2.9.0` → `2.12.0`)
+  - `ruff` (`0.16.4` → `0.16.5`) & sub-dependencies (`anthropic v1.2.0`, `grpcio v1.83.1`, `platformdirs v4.11.5`)
 
 ### Multi-Cloud Mesh & Production Ecosystem (v0.3.0 - Future Vision)
 - [ ] **Multi-Region Workstation Mesh & Cluster Federation**: Distributed cluster management across hybrid on-prem homelab and multi-cloud Kubernetes clusters with automatic service mesh routing.
@@ -300,17 +366,38 @@ High-density product roadmap, engineering milestones, and open-source integratio
 | | AI Review Cache Invalidation & `--append-cache` | SHA-256 / Prompt Augmentation | High | Low | v0.2.5 | ✅ Completed |
 | | Self-Healing Vector Dimension & Embedding Chunking | Qdrant / Ollama | High | Low | v0.2.5 | ✅ Completed |
 | | Automated Review Feedback Dataset Learning | Dataset Export / Fine-Tuning | High | Low | v0.2.5 | ✅ Completed |
-| | Model Dependency Chaos Engineering Suite | Pytest / Fallback Routing | High | Low | v0.2.6 | 📋 Scheduled |
-| | Agent Constellation Quiesce & Failover Controller | Asyncio / State Machine | High | Low | v0.2.6 | 📋 Scheduled |
-| | Static Code Complexity & Cyclomatic Depth Linter | AST / Standard Library | High | Low | v0.2.6 | 📋 Scheduled |
-| | Deterministic Mock LLM Test Isolation (< 60s CI) | `unittest.mock` / Pytest | High | Low | v0.2.6 | 📋 Scheduled |
-| | In-Memory Embedding LRU Cache & Chunk Dedup | `functools` / Hash | High | Low | v0.2.6 | 📋 Scheduled |
-| | Adaptive Test Sharding & Fast Path Test Selector | Pytest / Git | High | Low | v0.2.6 | 📋 Scheduled |
-| | Autonomous RAG Index Drift Detection & Auto-Reindex | Git / Qdrant Sync | High | Low | v0.2.6 | 📋 Scheduled |
-| | Multi-Model LLM Benchmark Evaluation Harness | Pytest / Feedback Dataset | High | Low | v0.2.6 | 📋 Scheduled |
-| | Deterministic Async Memory & Pool Profiler | `asyncio` / `tracemalloc` | Medium | Low | v0.2.6 | 📋 Scheduled |
+| | Static Code Complexity & Cyclomatic Depth Linter | AST / McCabe | High | Low | v0.2.6 | ✅ Completed |
+| | In-Memory Embedding LRU Cache & Chunk Dedup | `functools` / Hash | High | Low | v0.2.6 | ✅ Completed |
+| | Adaptive Test Sharding & Fast Path Test Selector | Pytest / Git | High | Low | v0.2.6 | ✅ Completed |
 | | Streaming JSON/YAML Serializer for Large Reviews | `orjson` / Pydantic | High | Low | v0.2.7 | ✅ Completed |
 | | Zero-Allocation Tokenizer & AST Stream Parser | `tokenize` / Generator | High | Low | v0.2.7 | ✅ Completed |
+| | Declarative Dry-Run Execution (`@dry_run_command`) | Python Decorator / Pydantic | High | Low | v0.2.11 | ✅ Completed |
+| | Declarative Rich Table Builder (`render_table`) | Rich / Pydantic | High | Low | v0.2.11 | ✅ Completed |
+| | High-Performance In-Memory AST Caching Tier (`ASTCache`) | AST / `mtime` Cache | High | Low | v0.2.11 | ✅ Completed |
+| | Universal Binary Pre-Flight Verification (`require_binary`) | `core/binaries.py` | High | Low | v0.2.11 | ✅ Completed |
+| | Subpath Containment & Traversal Defense (`safe_resolve_subpath`) | `core/paths.py` | High | Low | v0.2.11 | ✅ Completed |
+| | Declarative GitHub Label Schema & CLI (`devops gh labels`) | YAML / GitHub REST API | High | Low | v0.2.11 | ✅ Completed |
+| | Roadmap Milestone Sync & Metrics (`devops gh milestones`) | Markdown AST / GitHub API | High | Low | v0.2.11 | ✅ Completed |
+| | GitHub Projects v2 Task Item Parser (`devops gh project`) | Markdown / Pydantic | High | Low | v0.2.11 | ✅ Completed |
+| | Documentation & Prompt Token Optimization | Markdown / System Prompts | High | Low | v0.2.11 | ✅ Completed |
+| | Principal DevSecOps Architectural Review | Threat Modeling / Scanners | High | Low | v0.2.11 | ✅ Completed |
+| | Fail-Closed SSRF DNS Resolution Guard | `core/validation.py` | High | Low | v0.2.11 | 📋 Scheduled |
+| | Universal Secret Sanitizer Pattern Expansion | `security/sanitizer.py` | High | Low | v0.2.11 | 📋 Scheduled |
+| | OpenAIProvider Bearer Header & Keyring Injection | `ai/providers/openai.py` | High | Low | v0.2.11 | 📋 Scheduled |
+| | Review Gitleaks Test Scoping & Noise Elimination | Gitleaks / Test Scope | Medium | Low | v0.2.11 | 📋 Scheduled |
+| | Kubernetes Pod Security Admission (PSA) Labels | `k8s/namespaces.yaml` | High | Low | v0.2.12 | 📋 Scheduled |
+| | Immutable GitHub Actions Commit SHA Pinning | `.github/workflows/` | High | Low | v0.2.12 | 📋 Scheduled |
+| | Valkey Workstation Management CLI (`devops valkey`) | `valkey-py` / Socket | High | Low | v0.2.12 | 📋 Scheduled |
+| | Distributed LLM Token Bucket & Rate Limiter | Valkey Lua / Atomics | High | Low | v0.2.12 | 📋 Scheduled |
+| | FastMCP Valkey Toolset & Live System Resource | FastMCP / Valkey | High | Low | v0.2.12 | 📋 Scheduled |
+| | Valkey IT Domain Knowledge Base Manual | Markdown / Docs | Medium | Low | v0.2.12 | ✅ Completed |
+| | Agent Constellation Quiesce & Failover Controller | Asyncio / State Machine | High | Low | v0.2.13 | 📋 Scheduled |
+| | Deterministic Mock LLM Test Isolation (< 60s CI) | `unittest.mock` / Pytest | High | Low | v0.2.13 | 📋 Scheduled |
+| | Dedicated Library Vector Tier (`devops_libraries`) | Qdrant / Valkey | High | Low | v0.2.14 | 📋 Scheduled |
+| | FastMCP Library Tools & Indexed Resource | FastMCP / Qdrant | High | Low | v0.2.14 | 📋 Scheduled |
+| | Declarative Branch Protection Auditor (`devops gh branch-protection`) | GitHub REST / Policy | High | Low | v0.2.15 | 📋 Scheduled |
+| | Workstation Secret to GitHub Secret Sync (`devops gh secrets`) | `PyNaCl` / Keyring / Vault | High | Low | v0.2.15 | 📋 Scheduled |
+| | Deterministic Async Memory & Pool Profiler | `asyncio` / `tracemalloc` | Medium | Low | v0.2.15 | 📋 Scheduled |
 | | Zero-Trust Git Commit & Tag Signature Verifier | `git`, GPG, Sigstore | High | Low | v0.3.0 | 💡 Future Vision |
 | | JIT Python 3.14 Bytecode Optimization Benchmarking | `pytest-benchmark` / JIT | Medium | Low | v0.3.0 | 💡 Future Vision |
 | **Strategic Investments** | OpenTofu Multi-Cloud IaC Modules (`tf/`) | OpenTofu / AWS / Azure / GCP | High | High | v0.1.9 | ✅ Completed |
@@ -329,35 +416,52 @@ High-density product roadmap, engineering milestones, and open-source integratio
 | | Aider-Style Tree-Sitter / AST Repository Map Generator | AST / Pydantic | High | Medium | v0.2.4 | ✅ Completed |
 | | Hybrid Dense-Sparse RAG Search (BM25 + Qdrant) | Qdrant / RRF | High | Medium | v0.2.4 | ✅ Completed |
 | | Adaptive Two-Axis LLM & Freshness Router | RouteLLM / Pydantic | High | Medium | v0.2.6 | ✅ Completed |
-| | Sub-Agent Local Offloading Engine & Harness Slots | PydanticAI / Ollama / vLLM | High | Medium | v0.2.8 | 📋 Scheduled |
 | | Continuous Live Resource & State Watchers (`--watch`) | `rich.live.Live` | High | Medium | v0.2.6 | ✅ Completed |
-| | Interactive Terminal UI Dashboard (`devops dashboard`) | `textual` TUI | High | Medium | v0.2.8 | 📋 Scheduled |
-| | Continuous IDE File Watcher & Instant AI Review | `watchdog` / AST | High | Medium | v0.2.8 | 📋 Scheduled |
-| | Parallel Async Multi-File Review Pipeline Pool | `asyncio` / Typer | High | Medium | v0.2.8 | 📋 Scheduled |
-| | Declarative CLI Command Dispatch Engine | Typer / Python Decorators | High | Medium | v0.2.8 | 📋 Scheduled |
-| | Universal Subprocess Execution Pipeline | Python Subprocess / OTel | High | Medium | v0.2.8 | 📋 Scheduled |
-| | Sigstore Cosign Container Provenance | `cosign` CLI / OS Keyring | High | Medium | v0.2.8 | 📋 Scheduled |
 | | Syft & Grype Automated SBOM & Vulnerability Scanning | `syft`, `grype` | High | Medium | v0.2.6 | ✅ Completed |
-| | Infracost FinOps Cloud Cost Engine | `infracost` CLI | High | Medium | v0.2.8 | 📋 Scheduled |
-| | Multi-Cluster ArgoCD Fleet Sync & Rollouts | Argo Rollouts / Prometheus | High | High | v0.2.8 | 📋 Scheduled |
-| | Local GitOps Project Orchestration Pipeline | Git Daemon / ArgoCD App-of-Apps | High | Medium | v0.2.8 | 📋 Scheduled |
-| | Automated GitOps Drift Detection & Webhook Sync | Watchdog / ArgoCD REST | High | Medium | v0.2.8 | 📋 Scheduled |
-| | Core Dependency Ecosystem Alignment | `uv lock --upgrade` / PyPI | Medium | Low | v0.2.8 | 📋 Scheduled |
-| | Falco eBPF Runtime Security & Anomaly Streamer | `falco` / eBPF | High | Medium | v0.2.8 | 📋 Scheduled |
 | | Model Curation Pipeline & AIBOM Generator | Semgrep / AST / CycloneDX | High | Medium | v0.2.7 | ✅ Completed |
 | | "Big Decides, Small Types, Big Checks" Synthesis Protocol | Multi-Agent / PydanticAI | High | Medium | v0.2.7 | ✅ Completed |
-| | Universal Multi-Stage Workflow Orchestration Protocol | Python Generics / Pydantic | High | Medium | v0.2.8 | 📋 Scheduled |
-| | Unified Async HTTP/2 Connection & Security Broker | `httpx2` / SSRF Guard | High | Medium | v0.2.8 | 📋 Scheduled |
-| | Automated Vulnerability Remediation PR Engine | AST / Pytest / Git | High | Medium | v0.2.8 | 📋 Scheduled |
 | | Cross-Encoder Context Re-Ranker & Deep Semantic RAG | Cross-Encoder / Qdrant | High | Medium | v0.2.7 | ✅ Completed |
-| | Local Kubernetes Chaos & Fault Injection Engine | `chaos-mesh` / `tc` | High | Medium | v0.2.8 | 📋 Scheduled |
-| | Enterprise Vault & KMS Secret Broker | `hvac`, Cloud KMS SDKs | Medium | High | v0.2.8 | 📋 Scheduled |
-| | Trace-Driven Automated Performance Regression Detection | OTel / Prometheus | High | Medium | v0.2.8 | 📋 Scheduled |
-| | Isolated Dockerized Workload Sandbox Environment | Docker / Testcontainers / Dagger | High | Medium | v0.2.8 | 📋 Scheduled |
-| | Automated Vector Storage Compaction & Pruning | Qdrant Client / SQLite | Medium | Medium | v0.2.8 | 📋 Scheduled |
-| | Common AI Hallucination Scrutiny Pipeline | Pydantic / AST / Verification | High | Medium | v0.2.10 | ✅ Completed |
+| | Output Subsystem Modularization & Formatter Engine | Python Subpackage Architecture | High | Medium | v0.2.8 | ✅ Completed |
+| | Centralized Language Message Catalog & Badges | `messages.py` / Localization | High | Medium | v0.2.8 | ✅ Completed |
+| | Universal Multi-Stage Workflow Orchestration Protocol | Python Generics / Pydantic | High | Medium | v0.2.9 | ✅ Completed |
+| | Unified Async HTTP/2 Connection Broker | `httpx2` / SSRF Guard | High | Medium | v0.2.9 | ✅ Completed |
+| | Local Kubernetes Chaos & Fault Injection Engine | `chaos-mesh` / `tc` | High | Medium | v0.2.9 | ✅ Completed |
+| | Continuous IDE File Watcher & Instant AI Review | `watchdog` / AST | High | Medium | v0.2.9 | ✅ Completed |
+| | Automated Vulnerability Remediation PR Engine | AST / Pytest / Git | High | Medium | v0.2.9 | ✅ Completed |
+| | Enterprise Vault & KMS Secret Broker | `hvac`, Cloud KMS SDKs | Medium | High | v0.2.9 | ✅ Completed |
+| | Isolated Dockerized Workload Sandbox Environment | Docker / Rootless Sandbox | High | Medium | v0.2.9 | ✅ Completed |
 | | Native Pydantic AI Framework Subsystems | PydanticAI / FastMCP | High | Medium | v0.2.10 | ✅ Completed |
-| | Codebase Hygiene & Zombie Code Elimination | Standard Lib / AST / Mimetypes | High | Medium | v0.2.10 | ✅ Completed |
+| | Common AI Hallucination Scrutiny Pipeline | Pydantic / AST / Verification | High | Medium | v0.2.10 | ✅ Completed |
+| | Workstation Infrastructure Valkey Migration | Valkey / Helm / ArgoCD | High | Medium | v0.2.11 | ✅ Completed |
+| | Codebase Stylistic Drift Remediation & Invariants | AST / McCabe / DevOpsCLIError | High | Medium | v0.2.11 | ✅ Completed |
+| | FastMCP Server Tool Parity (72 Tools) | FastMCP / PydanticAI / Toolset | High | Medium | v0.2.11 | ✅ Completed |
+| | Declarative CLI Command Dispatch & Universal Error Boundary | Typer / Python Decorators | High | Medium | v0.2.11 | ✅ Completed |
+| | Subprocess Execution & JSON Deserializer | Python Subprocess / Pydantic | High | Medium | v0.2.11 | ✅ Completed |
+| | Declarative Security Scanner Framework Foundation | Python ABC / Registry | High | Medium | v0.2.11 | ✅ Completed |
+| | GitHub Views & Standardized Projects v2 Lifecycle | GitHub API / Views Template | High | Medium | v0.2.11 | ✅ Completed |
+| | Docker Workload Sandbox Security Hardening | Docker SDK / Capabilities | High | Medium | v0.2.11 | 📋 Scheduled |
+| | Cluster Default-Deny NetworkPolicies | K8s NetworkPolicy | High | Medium | v0.2.12 | 📋 Scheduled |
+| | Subprocess Environment Isolation & Credential Boundary | `core/process.py` | High | Medium | v0.2.12 | 📋 Scheduled |
+| | Qdrant Vector DB API Key Secret Protection | Helm / Secret Store | High | Medium | v0.2.12 | 📋 Scheduled |
+| | Valkey High-Performance Distributed AI Cache Tier | Valkey / Pydantic | High | Medium | v0.2.12 | 📋 Scheduled |
+| | Ephemeral Testcontainers Valkey Testing Harness | `testcontainers-python` | High | Medium | v0.2.12 | 📋 Scheduled |
+| | Sub-Agent Local Offloading Engine & Harness Slots | PydanticAI / Ollama / vLLM | High | Medium | v0.2.13 | 📋 Scheduled |
+| | Interactive Terminal UI Dashboard (`devops dashboard`) | `textual` TUI | High | Medium | v0.2.13 | 📋 Scheduled |
+| | Model Dependency Chaos Engineering Suite (`devops ai chaos-model`) | Pytest / Fallback Routing | High | Medium | v0.2.13 | 📋 Scheduled |
+| | Multi-Model LLM Benchmark Evaluation Harness | Pytest / Feedback Dataset | High | Low | v0.2.13 | 📋 Scheduled |
+| | Parallel Async Multi-File Review Worker Pool & Streaming Diff | Python 3.14 TaskGroup / Generator | High | Medium | v0.2.13 | 📋 Scheduled |
+| | Tree-Sitter Multilingual AST Graph & Code Intelligence Engine | `tree-sitter` / Multi-Language | High | Medium | v0.2.14 | 📋 Scheduled |
+| | Dynamic Package Introspection & Type Stub Parser (`devops ai ingest library`) | `ast` / `pkgutil` / `inspect` | High | Medium | v0.2.14 | 📋 Scheduled |
+| | Multi-Source Documentation & Standards Ingester (`devops ai ingest docs`) | `httpx2` / `pathspec` | High | Medium | v0.2.14 | 📋 Scheduled |
+| | Import-Driven AST Prompt Grounding & Contract Injection | AST / PydanticAI | High | Medium | v0.2.14 | 📋 Scheduled |
+| | Library API Drift & Deprecation Auditor | AST / McCabe | High | Medium | v0.2.14 | 📋 Scheduled |
+| | Complete Security Scanner Migration to `BaseSecurityScanner` & `ScannerRegistry` | Python ABC / Subprocess | High | Medium | v0.2.15 | 📋 Scheduled |
+| | Infracost FinOps Cloud Cost Engine (`devops tf cost`) | `infracost` CLI | High | Medium | v0.2.15 | 📋 Scheduled |
+| | Falco eBPF Runtime Security & Anomaly Streamer | `falco` / eBPF | High | Medium | v0.2.15 | 📋 Scheduled |
+| | Multi-Cluster ArgoCD Fleet Sync & Rollouts | Argo Rollouts / Prometheus | High | High | v0.2.15 | 📋 Scheduled |
+| | Automated GitOps Drift Detection & Webhook Sync | Watchdog / ArgoCD REST | High | Medium | v0.2.15 | 📋 Scheduled |
+| | Sigstore Cosign Container Provenance (`devops docker sign|verify`) | `cosign` CLI / OS Keyring | High | Medium | v0.2.15 | 📋 Scheduled |
+| | GitHub Issue Triage & Management Engine (`devops gh issues`) | GitHub API / `httpx2` | High | Medium | v0.2.15 | 📋 Scheduled |
 | | Multi-Region Workstation Mesh & Cluster Federation | Kubernetes / Fleet | High | High | v0.3.0 | 💡 Future Vision |
 | | Autonomous Self-Healing Agent Pipeline | PydanticAI / Diagnostic | High | High | v0.3.0 | 💡 Future Vision |
 | | Cloud-Native Ephemeral Test Environment Engine | Minikube / Helm / Ingress | High | Medium | v0.3.0 | 💡 Future Vision |
@@ -366,11 +470,17 @@ High-density product roadmap, engineering milestones, and open-source integratio
 | **Tactical Additions** | Line-Level GitHub PR Inline Comments | PyGithub / GitHub REST API | High | High | v0.1.1 | ✅ Completed |
 | | Human Feedback Dataset Exporter | JSONL / Pydantic | High | Medium | v0.1.1 | ✅ Completed |
 | | Custom Team Persona Overrides (`.devops/personas/`) | Jinja2 / Markdown | High | Medium | v0.1.1 | ✅ Completed |
+| | Ephemeral Headless Keyring Auth | `keyring.backends` | Medium | Medium | v0.1.1 | ✅ Completed |
 | | Kyverno & OPA Gatekeeper Admission Validator | `kyverno-cli`, `opa` | Medium | Medium | v0.2.3 | ✅ Completed |
 | | k6 Performance & Latency Smoke Tester | `k6` CLI | Medium | Medium | v0.2.3 | ✅ Completed |
 | | Dagger Containerized Python Pipeline Engine | `dagger-io` SDK | Medium | High | v0.2.3 | ✅ Completed |
 | | Architecture & Threat Diagram Synthesis | `diagrams`, `mermaid-cli` | Medium | Medium | v0.2.4 | ✅ Completed |
 | | Automated PR Remediation Branch Generator | Git / GitHub API | Medium | Medium | v0.2.4 | ✅ Completed |
-| | Ephemeral Headless Keyring Auth | `keyring.backends` | Medium | Medium | v0.1.1 | ✅ Completed |
+| | FastMCP JSON Schema Exporter CLI (`devops mcp export-schemas`) | FastMCP / Introspection | Medium | Low | v0.2.11 | ✅ Completed |
+| | Executive Summary & Good/Bad Pattern Report Generation | Markdown / Rich Panels | Medium | Low | v0.2.11 | ✅ Completed |
+| | Logfire Structured AI Observability Bridge | `logfire` SDK / OTel | Medium | Medium | v0.2.13 | 📋 Scheduled |
+| | Autonomous RAG Index Drift Detection & Auto-Reindexing | Git / Qdrant Sync | Medium | Low | v0.2.14 | 📋 Scheduled |
+| | Local GitOps Project Orchestration Pipeline | Git Daemon / ArgoCD App-of-Apps | High | Medium | v0.2.15 | 📋 Scheduled |
+| | Core Dependency Ecosystem Alignment | `uv lock --upgrade` / PyPI | Medium | Low | v0.2.15 | 📋 Scheduled |
 | **De-prioritized** | Bare-Metal OS Installers | Shell scripts | Low | High | — | ❌ Rejected (DevContainer native) |
 | | Heavyweight Monolithic Orchestrators | Full LangChain | Low | High | — | ❌ Rejected (FastMCP + PydanticAI) |

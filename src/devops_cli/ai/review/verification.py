@@ -139,9 +139,10 @@ def _read_and_mask_related_file(
     if _is_secret_path(rel_path):
         return None
     try:
-        candidate = repo_root / rel_path
-        resolved = candidate.resolve()
-        if not resolved.is_relative_to(repo_root.resolve()) or not resolved.is_file():
+        from devops_cli.core.paths import safe_resolve_subpath
+
+        resolved = safe_resolve_subpath(repo_root, rel_path, must_exist=True)
+        if not resolved.is_file():
             return None
         raw_text = resolved.read_text(encoding="utf-8", errors="replace")[:max_chars]
         clean_text = _sanitize_prompt_boundary_tags(_mask_secrets_in_content(raw_text))
@@ -342,43 +343,50 @@ def _check_syntax_error_hallucination(finding: Finding, file_path: Path) -> Find
         return None
 
 
+def _check_candidate_paths(base_dir: Path, rel_path: Path) -> Path | None:
+    """Check direct relative path and src-prefixed path under base directory."""
+    cand = (base_dir / rel_path).resolve()
+    if cand.is_file():
+        return cand
+    cand_src = (base_dir / "src" / rel_path).resolve()
+    if cand_src.is_file():
+        return cand_src
+    return None
+
+
 def _resolve_target_file(loc_file: str, repo_root: Path | None) -> Path | None:
     """Resolve finding location file path against repo_root or current working directory."""
     if not loc_file:
         return None
     p = Path(loc_file)
-    if p.is_absolute() and p.exists() and p.is_file():
+    if p.is_absolute() and p.is_file():
         return p.resolve()
 
     if repo_root is not None:
         resolved_root = repo_root.resolve()
-        cand = (resolved_root / p).resolve()
-        if cand.exists() and cand.is_file():
+        if cand := _check_candidate_paths(resolved_root, p):
             return cand
         try:
             from devops_cli.core.repo import find_repo_root
 
             repo = find_repo_root(resolved_root).resolve()
-            cand_repo = (repo / p).resolve()
-            if cand_repo.exists() and cand_repo.is_file():
+            if cand_repo := _check_candidate_paths(repo, p):
                 return cand_repo
         except Exception:
             pass
         if len(p.parts) > 1 and p.parts[0] == resolved_root.name:
             cand_sub = (resolved_root / Path(*p.parts[1:])).resolve()
-            if cand_sub.exists() and cand_sub.is_file():
+            if cand_sub.is_file():
                 return cand_sub
 
     cwd = Path.cwd().resolve()
-    cand_cwd = (cwd / p).resolve()
-    if cand_cwd.exists() and cand_cwd.is_file():
+    if cand_cwd := _check_candidate_paths(cwd, p):
         return cand_cwd
     try:
         from devops_cli.core.repo import find_repo_root
 
         cwd_repo = find_repo_root(cwd).resolve()
-        cand_cwd_repo = (cwd_repo / p).resolve()
-        if cand_cwd_repo.exists() and cand_cwd_repo.is_file():
+        if cand_cwd_repo := _check_candidate_paths(cwd_repo, p):
             return cand_cwd_repo
     except Exception:
         pass
@@ -455,11 +463,22 @@ def _deterministic_pre_verification(
             }
         )
 
-    # Invalidate masked placeholder false identifier/syntax claims
+    # Invalidate masked placeholder false identifier/syntax/NameError claims
     if "<masked-" in title_lower or "<masked-" in desc_lower:
         if any(
             kw in title_lower or kw in desc_lower
-            for kw in ("invalid identifier", "syntax error", "causes syntax error", "not a valid")
+            for kw in (
+                "invalid identifier",
+                "syntax error",
+                "causes syntax error",
+                "not a valid",
+                "nameerror",
+                "undefined placeholder",
+                "not defined",
+                "placeholder",
+                "undefined variable",
+                "runtime error",
+            )
         ):
             return finding.model_copy(
                 update={
@@ -467,7 +486,10 @@ def _deterministic_pre_verification(
                     "mitigated": False,
                     "reportable": False,
                     "status": "INVALIDATED",
-                    "invalidation_reason": "Sanitization marker '<masked-*>' is a prompt redaction indicator, not an invalid identifier or syntax defect",
+                    "invalidation_reason": (
+                        "Sanitization marker '<masked-*>' is a prompt redaction indicator, "
+                        "not an invalid identifier, undefined placeholder, or runtime defect"
+                    ),
                 }
             )
 

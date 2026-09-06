@@ -1,0 +1,69 @@
+name: "🐛 Bug Report"
+description: "File a reproducible defect or unexpected behavior in DevOps CLI."
+title: "fix(<scope>): <description>"
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting an issue! Please provide the details below so we can diagnose and resolve the problem efficiently.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Problem Description
+      description: A clear and concise description of the bug.
+      placeholder: What unexpected behavior did you observe?
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction Steps
+      description: Exact CLI commands or code execution steps to reproduce the issue.
+      placeholder: |
+        1. Run `devops ...`
+        2. Inspect output
+        3. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected vs Actual Behavior
+      description: What did you expect to happen versus what actually happened?
+      placeholder: Expected ... but received ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment Diagnostics
+      description: Run `devops --version` and provide your OS and runtime details.
+      placeholder: |
+        - DevOps CLI Version: (e.g. 0.2.11)
+        - Python Version: (e.g. 3.14.7)
+        - OS & Architecture: (e.g. Ubuntu 24.04 LTS x86_64)
+        - Execution Environment: (DevContainer / Native Workstation / Minikube)
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs, Traces, or Terminal Output
+      description: Paste any relevant terminal logs, stack traces, or command output (ensure secrets are redacted).
+      render: shell
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Pre-Submission Checklist
+      options:
+        - label: I have verified that no sensitive credentials, private keys, or internal tokens are contained in this issue report.
+          required: true
+        - label: I have checked existing issues and pull requests to ensure this is not a duplicate.
+          required: true

@@ -1,6 +1,7 @@
-"""Unit and integration tests for verified review findings remediation.
+"""Unit and integration tests for subsystem containment, path traversal prevention, and secret redaction.
 
 Tests cover:
+
 1. FileSystem._resolve_safe_path prefix collision prevention.
 2. NativeTool and MCP authorization token redaction.
 3. Repomap symlink skipping, directory containment, and file size limits.

@@ -107,8 +107,8 @@ Every stage in the review pipeline can be selectively enabled or bypassed via CL
 - Dual-tier storage: Plaintext non-sensitive properties in `~/.config/devops-cli/config.json`, encrypted secrets (tokens, API keys) stored securely via OS `keyring`.
 - Secret audit tooling: `devops config audit-keys` verifies that zero unencrypted secrets exist in plaintext config files.
 
-### Dedicated Agent Workspace Data Isolation (`DEVOPS_CLI_DATA_DIR=./.data/agent`)
-- AI review agents and test automation runs configure `DEVOPS_CLI_DATA_DIR=./.data/agent` to isolate agent-generated reviews, logs, traces, and metadata from primary user workspace data.
+### Dedicated Agent Workspace Data Isolation (`<data_dir>/agent`)
+- AI review agents and test automation runs isolate agent-generated reviews, logs, traces, and metadata under the dedicated `agent/` subfolder (`<data_dir>/agent`, e.g. `./.data/agent`) within the workspace data directory (`DEVOPS_CLI_DATA_DIR` / `data.dir`).
 
 ### Output & Dry-Run Subsystem (`devops_cli.output` & `devops_cli.dry_run`)
 - Centralized terminal rendering using Rich (`print_success`, `print_error`, `print_info`, `print_table`, `print_muted`).

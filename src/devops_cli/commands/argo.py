@@ -22,7 +22,7 @@ from devops_cli.config.defaults import (
 from devops_cli.core.cli import new_typer
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.validation import validate_k8s_name
-from devops_cli.dry_run import is_dry_run, render_dry_run_result
+from devops_cli.dry_run import dry_run_command
 from devops_cli.http.validation import validate_service_url
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.models.argo import ArgoCDApp
@@ -88,18 +88,16 @@ def _argocd(settings: Any) -> tuple[str, dict[str, str]]:
 
 
 @cd_apps_app.command("list")
+@dry_run_command(
+    command="devops argo cd apps list",
+    action="list_argocd_apps",
+    detail_params=["watch"],
+)
 def cd_apps_list(
     watch: Annotated[bool, typer.Option("--watch", "-w", help=HELP.argo.watch)] = False,
     interval: Annotated[float, typer.Option("--interval", "-i", help=HELP.argo.interval)] = 3.0,
 ) -> None:
     """List all ArgoCD applications."""
-    if is_dry_run():
-        render_dry_run_result(
-            command="devops argo cd apps list",
-            action="list_argocd_apps",
-            details={"apps": [], "watch": watch},
-        )
-        return
 
     def _build_apps_table() -> TablePayload:
         settings = load_settings()
@@ -225,6 +223,12 @@ def cd_apps_status(
 
 
 @cd_apps_app.command("bootstrap-gitops")
+@dry_run_command(
+    command="devops argo cd apps bootstrap-gitops",
+    action="bootstrap_argocd_gitops",
+    target_param="root_app_path",
+    detail_params=["context"],
+)
 def cd_apps_bootstrap_gitops(
     root_app_path: Annotated[
         Path,
@@ -240,20 +244,37 @@ def cd_apps_bootstrap_gitops(
     ] = None,
 ) -> None:
     """Bootstrap local GitOps project orchestration via ArgoCD and the Git daemon."""
-    if is_dry_run():
-        render_dry_run_result(
-            command="devops argo cd apps bootstrap-gitops",
-            target=str(root_app_path),
-            action="bootstrap_argocd_gitops",
-            details={"root_app": str(root_app_path), "context": context},
-        )
-        return
-
-    if not root_app_path.exists():
-        print_error(f"Root app manifest not found at {root_app_path}", prefix=False)
+    resolved_manifest = root_app_path.resolve()
+    if not resolved_manifest.exists() or not resolved_manifest.is_file():
+        print_error(f"Root app manifest not found or not a file: {root_app_path}", prefix=False)
         raise typer.Exit(1)
 
-    cmd = ["kubectl", "apply", "-f", str(root_app_path)]
+    if resolved_manifest.suffix.lower() not in (".yaml", ".yml"):
+        print_error(
+            f"Invalid root app manifest format '{root_app_path}'; expected .yaml or .yml",
+            prefix=False,
+        )
+        raise typer.Exit(1)
+
+    import tempfile
+
+    from devops_cli.core.repo import find_repo_root
+
+    repo_root = find_repo_root().resolve()
+    cwd_root = Path.cwd().resolve()
+    temp_root = Path(tempfile.gettempdir()).resolve()
+    if not (
+        resolved_manifest.is_relative_to(repo_root)
+        or resolved_manifest.is_relative_to(cwd_root)
+        or resolved_manifest.is_relative_to(temp_root)
+    ):
+        print_error(
+            f"Root app manifest '{root_app_path}' resolves outside allowed workspace or temporary directory",
+            prefix=False,
+        )
+        raise typer.Exit(1)
+
+    cmd = ["kubectl", "apply", "-f", str(resolved_manifest)]
     if context:
         cmd.extend(["--context", context])
 

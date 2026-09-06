@@ -250,6 +250,7 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 |  | `devops review auto-fix [OPTIONS] <finding_id>` | Create a corrective topic branch with verified unit test patch for an approved finding. |
 | **mcp** | `devops mcp serve [OPTIONS]` | Launch FastMCP server to expose devops-cli tools to MCP clients. |
 |  | `devops mcp tools` | List all registered FastMCP tools and descriptions. |
+|  | `devops mcp export-schemas [OPTIONS]` | Export FastMCP tool JSON schemas and instructions for MCP clients. |
 | **docs** | `devops docs generate [OPTIONS]` | Generate comprehensive Markdown or JSON documentation for all CLI commands and tools. |
 |  | `devops docs check [OPTIONS]` | Check that generated documentation and README.md are up to date with codebase. |
 |  | `devops docs sync-readme [OPTIONS]` | Synchronize the Complete Command Matrix table in README.md with live CLI commands. |
@@ -264,6 +265,10 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 |  | `devops pr checks [OPTIONS] <number>` | Check remote CI quality gate status on a pull request. |
 |  | `devops pr edit [OPTIONS] <number>` | Edit pull request base branch, title, or body. |
 |  | `devops pr create [OPTIONS]` | Create a pull request with automatic release branch target validation. |
+| **gh** | `devops gh labels COMMAND [ARGS]...` | GitHub Views, Projects, Milestones, and Labels automation. |
+|  | `devops gh milestones COMMAND [ARGS]...` | GitHub Views, Projects, Milestones, and Labels automation. |
+|  | `devops gh project COMMAND [ARGS]...` | GitHub Views, Projects, Milestones, and Labels automation. |
+|  | `devops gh views COMMAND [ARGS]...` | GitHub Views, Projects, Milestones, and Labels automation. |
 | **tf** | `devops tf init [OPTIONS] <directory>` | Initialize an OpenTofu working directory. |
 |  | `devops tf plan [OPTIONS] <directory>` | Generate and show an OpenTofu execution plan. |
 |  | `devops tf apply [OPTIONS] <directory>` | Create or update OpenTofu infrastructure. |

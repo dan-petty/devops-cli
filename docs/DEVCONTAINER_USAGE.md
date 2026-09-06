@@ -121,7 +121,7 @@ USER root
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     postgresql-client \
-    redis-tools \
+    valkey-tools \
     && rm -rf /var/lib/apt/lists/*
 
 # Switch back to non-root developer user

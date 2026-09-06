@@ -28,7 +28,7 @@ def test_sandbox_config_defaults(tmp_path: Path) -> None:
     assert cfg.cpu_limit == 2.0
     assert cfg.network_mode == "bridge"
     assert cfg.rootless is True
-    assert cfg.read_only is False
+    assert cfg.read_only is True
 
 
 def test_sandbox_runner_dry_run(tmp_path: Path) -> None:
@@ -70,6 +70,10 @@ def test_sandbox_runner_docker_execution_success(tmp_path: Path) -> None:
         assert "sandbox-ok" in res.stdout
         assert mock_container.start.called
         assert mock_container.remove.called
+        create_kwargs = mock_client.containers.create.call_args.kwargs
+        assert create_kwargs.get("cap_drop") == ["ALL"]
+        assert create_kwargs.get("security_opt") == ["no-new-privileges:true"]
+        assert create_kwargs.get("pids_limit") == 256
 
 
 def test_sandbox_runner_docker_execution_failure(tmp_path: Path) -> None:
@@ -137,3 +141,7 @@ def test_sandbox_runner_subprocess_env_propagation(tmp_path: Path) -> None:
         assert "-e" in cmd_args
         assert "TEST_VAR=custom_val" in cmd_args
         assert "API_KEY=secret123" in cmd_args
+        assert "--cap-drop=ALL" in cmd_args
+        assert "--security-opt=no-new-privileges" in cmd_args
+        assert "--pids-limit=256" in cmd_args
+        assert mock_subproc.call_args.kwargs.get("timeout") == int(cfg.timeout)

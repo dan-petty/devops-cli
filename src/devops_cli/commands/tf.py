@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 from typing import Annotated
 
@@ -19,6 +18,7 @@ from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
     DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
 )
+from devops_cli.core.binaries import check_binary
 from devops_cli.core.cli import new_typer
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import find_top_level_repo_root
@@ -49,7 +49,7 @@ app = new_typer(
 def _resolve_tf_binary() -> str:
     """Find available OpenTofu or Terraform executable in PATH."""
     for binary_name in CONST_OPENTOFU_BINARIES:
-        if shutil.which(binary_name):
+        if check_binary(binary_name):
             return binary_name
 
     if is_dry_run():

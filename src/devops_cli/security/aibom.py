@@ -182,6 +182,48 @@ def _compute_sha256(path: Path) -> str:
         return ""
 
 
+def _parse_model_config(parent_dir: Path) -> tuple[float, str, str]:
+    """Parse parameters, license, and publisher from config.json if present."""
+    cfg_file = parent_dir / "config.json"
+    if not cfg_file.is_file():
+        return 0.0, "NOASSERTION", "local"
+    try:
+        cfg_data = json.loads(cfg_file.read_text(encoding="utf-8"))
+        if not isinstance(cfg_data, dict):
+            return 0.0, "NOASSERTION", "local"
+        hidden = cfg_data.get("hidden_size", 0)
+        layers = cfg_data.get("num_hidden_layers", 0)
+        params = (
+            round((hidden * hidden * layers * 12) / 1_000_000_000.0, 1)
+            if hidden > 0 and layers > 0
+            else 0.0
+        )
+        license_str = str(cfg_data.get("license", "NOASSERTION"))
+        publisher = str(cfg_data.get("_name_or_path", "local")).split("/")[0]
+        return params, license_str, publisher
+    except Exception:
+        return 0.0, "NOASSERTION", "local"
+
+
+def _parse_modelfile_params(parent_dir: Path) -> tuple[str, float] | None:
+    """Parse model tag and estimated parameter size from Modelfile FROM line."""
+    modelfile = parent_dir / "Modelfile"
+    if not modelfile.is_file():
+        return None
+    try:
+        for line in modelfile.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if not stripped.upper().startswith("FROM "):
+                continue
+            model_tag = stripped.split(maxsplit=1)[1]
+            m = re.search(r":?(\d+)b", model_tag.lower())
+            params = float(m.group(1)) if m else 0.0
+            return model_tag, params
+    except Exception:
+        pass
+    return None
+
+
 @trace_span("extract_aibom_components")
 def extract_aibom_components(workspace_dir: Path) -> list[AIBOMComponent]:
     """Extract AI model components and metadata from model manifests and configuration files."""
@@ -212,41 +254,15 @@ def extract_aibom_components(workspace_dir: Path) -> list[AIBOMComponent]:
             continue
         seen_dirs.add(resolved_parent)
 
-        params = 0.0
-        license_str = "NOASSERTION"
-        publisher = "local"
+        params, license_str, publisher = _parse_model_config(parent_dir)
+
+        if params == 0.0:
+            mf_res = _parse_modelfile_params(parent_dir)
+            if mf_res:
+                name, params = mf_res
+
         has_safetensors = any(parent_dir.glob("*.safetensors"))
         trust_remote = detect_trust_remote_code(parent_dir)
-
-        # Parse config.json if present
-        cfg_file = parent_dir / "config.json"
-        if cfg_file.is_file():
-            try:
-                cfg_data = json.loads(cfg_file.read_text(encoding="utf-8"))
-                if isinstance(cfg_data, dict):
-                    # Estimate parameters from architecture configuration
-                    hidden = cfg_data.get("hidden_size", 0)
-                    layers = cfg_data.get("num_hidden_layers", 0)
-                    if hidden > 0 and layers > 0:
-                        params = round((hidden * hidden * layers * 12) / 1_000_000_000.0, 1)
-                    license_str = str(cfg_data.get("license", "NOASSERTION"))
-                    publisher = str(cfg_data.get("_name_or_path", "local")).split("/")[0]
-            except Exception:
-                pass
-
-        # Check Modelfile for FROM declaration
-        modelfile = parent_dir / "Modelfile"
-        if modelfile.is_file() and params == 0.0:
-            try:
-                for line in modelfile.read_text(encoding="utf-8").splitlines():
-                    if line.strip().upper().startswith("FROM "):
-                        model_tag = line.strip().split(maxsplit=1)[1]
-                        name = model_tag
-                        m = re.search(r":?(\d+)b", model_tag.lower())
-                        if m:
-                            params = float(m.group(1))
-            except Exception:
-                pass
 
         lic_type, lic_id = _classify_license(license_str)
         hw_est = estimate_hardware_requirements(params, quantization_bits=16)

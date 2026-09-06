@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -126,3 +127,37 @@ def test_run_checkov_scan_missing_binary(tmp_path: Path) -> None:
     with patch("shutil.which", return_value=None):
         findings_nobin = run_checkov_scan(tmp_path)
         assert isinstance(findings_nobin, list)
+
+
+def test_run_checkov_scan_nonzero_exit_with_findings(tmp_path: Path) -> None:
+    """Verify checkov scan parses findings even when checkov CLI exits non-zero (failed checks found)."""
+    fake_output = json.dumps(
+        {
+            "results": {
+                "failed_checks": [
+                    {
+                        "check_id": "CKV_AWS_1",
+                        "check_name": "S3 bucket has public read policy",
+                        "file_path": "/main.tf",
+                        "file_line_range": [10, 20],
+                        "guideline": "Restrict public access.",
+                    }
+                ]
+            }
+        }
+    )
+    # Checkov returns exit code 1 when failed checks exist
+    mock_proc = subprocess.CompletedProcess(
+        args=["checkov", "-d", str(tmp_path), "-o", "json"],
+        returncode=1,
+        stdout=fake_output,
+        stderr="",
+    )
+    with (
+        patch("shutil.which", return_value="/usr/local/bin/checkov"),
+        patch("subprocess.run", return_value=mock_proc),
+    ):
+        findings = run_checkov_scan(tmp_path)
+        assert len(findings) == 1
+        assert findings[0].location == "main.tf:10"
+        assert "[CKV_AWS_1]" in findings[0].title

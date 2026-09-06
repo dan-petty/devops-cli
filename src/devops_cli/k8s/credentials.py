@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import itertools
 
 from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.config.settings import _keyring_set
@@ -95,6 +96,22 @@ def fetch_argocd_password(
     return pw
 
 
+def _find_grafana_field_in_secret(
+    secret_name: str,
+    namespace: str,
+    candidate_fields: list[str],
+    context: str | None,
+) -> str | None:
+    data = fetch_secret_data(secret_name, namespace, context=context)
+    if not data:
+        return None
+    for field in candidate_fields:
+        pw = data.get(field)
+        if pw:
+            return pw
+    return None
+
+
 @trace_span("k8s.credentials.grafana")
 def fetch_grafana_password(
     namespaces: list[str] | None = None,
@@ -106,20 +123,16 @@ def fetch_grafana_password(
     candidate_secrets = ["kube-prometheus-stack-grafana", "grafana", "grafana-admin-credentials"]
     candidate_fields = ["admin-password", "admin_password", "password"]
 
-    for ns in candidate_namespaces:
-        for secret_name in candidate_secrets:
-            data = fetch_secret_data(secret_name, ns, context=context)
-            if not data:
-                continue
-            for field in candidate_fields:
-                pw = data.get(field)
-                if pw:
-                    if save_to_keyring:
-                        _keyring_set("grafana_password", pw)
-                        GLOBAL_METRICS.increment_counter(
-                            "k8s_credentials_synced_total", labels={"service": "grafana"}
-                        )
-                    return pw
+    for ns, secret_name in itertools.product(candidate_namespaces, candidate_secrets):
+        pw = _find_grafana_field_in_secret(secret_name, ns, candidate_fields, context)
+        if not pw:
+            continue
+        if save_to_keyring:
+            _keyring_set("grafana_password", pw)
+            GLOBAL_METRICS.increment_counter(
+                "k8s_credentials_synced_total", labels={"service": "grafana"}
+            )
+        return pw
     return None
 
 

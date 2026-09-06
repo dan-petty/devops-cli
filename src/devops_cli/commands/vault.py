@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import urllib.parse
 from typing import Annotated
 
 import typer
@@ -10,6 +11,7 @@ import typer
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run.models import CommandDryRunResult
 from devops_cli.dry_run.state import is_dry_run, set_dry_run
+from devops_cli.exceptions.vault import VaultConfigurationError
 from devops_cli.lang import HELP
 from devops_cli.output import (
     print_error,
@@ -26,11 +28,12 @@ def _validate_vault_path(path: str) -> None:
     """Validate Vault secret path format and reject path traversal sequences."""
     clean = path.strip()
     if not clean:
-        raise ValueError("Vault secret path cannot be empty.")
-    if ".." in clean:
-        raise ValueError("Vault secret path cannot contain '..' traversal sequences.")
+        raise VaultConfigurationError("Vault secret path cannot be empty.")
+    unquoted = urllib.parse.unquote(clean)
+    if ".." in clean or ".." in unquoted:
+        raise VaultConfigurationError("Vault secret path cannot contain '..' traversal sequences.")
     if not VAULT_PATH_PATTERN.match(clean):
-        raise ValueError(f"Vault secret path contains invalid characters: '{path}'")
+        raise VaultConfigurationError(f"Vault secret path contains invalid characters: '{path}'")
 
 
 app = new_typer(help="Enterprise HashiCorp Vault secret broker commands", no_args_is_help=False)

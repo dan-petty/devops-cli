@@ -75,3 +75,51 @@ class ChecksumMismatchError(ToolExecutionError):
             error_code="CHECKSUM_MISMATCH",
             details=err_details,
         )
+
+
+class SubprocessError(ToolExecutionError):
+    """Raised when an external subprocess command exits with a non-zero code or fails execution."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        command: list[str] | None = None,
+        exit_code: int = 1,
+        stderr: str | None = None,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        err_details = {"command": command, "stderr": stderr} if (command or stderr) else {}
+        if details:
+            err_details.update(details)
+        super().__init__(
+            message,
+            exit_code=exit_code,
+            error_code="SUBPROCESS_FAILED",
+            details=err_details,
+        )
+
+
+class DependencyError(ToolExecutionError):
+    """Raised when a required external binary/dependency is missing from the system PATH."""
+
+    def __init__(
+        self,
+        tool_name: str,
+        *,
+        install_hint: str | None = None,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        msg = f"Required dependency '{tool_name}' is not installed or not available in PATH."
+        if install_hint:
+            msg += f" {install_hint}"
+        err_details = {"tool_name": tool_name, "install_hint": install_hint}
+        if details:
+            err_details.update(details)
+        super().__init__(
+            msg,
+            tool_name=tool_name,
+            exit_code=1,
+            error_code="DEPENDENCY_MISSING",
+            details=err_details,
+        )
