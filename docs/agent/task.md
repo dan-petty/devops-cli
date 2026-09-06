@@ -459,22 +459,38 @@
 
 ---
 
-### In-Progress Tasks (WIP)
-- [ ] Phase 48.1: Immutable GitHub Actions Commit SHA Pinning (Release v0.2.12 — Issue #42)
+- [x] Phase 48.1: Immutable GitHub Actions Commit SHA Pinning (Release v0.2.12 — Issue #42)
   - [x] Create Topic Branch `feat/actions-sha-pinning` tracking `origin/release/v0.2.12`
   - [x] Pin third-party GitHub Actions steps in `.github/workflows/ci.yml`
   - [x] Pin third-party GitHub Actions steps in `.github/workflows/codeql.yml`
   - [x] Pin third-party GitHub Actions steps in `.github/workflows/release.yml`
+  - [x] Validate workflows via `actionlint` and `devops ci` (10/10 gates green)
   - [x] Author atomic commit and open PR targeting `release/v0.2.12` linking `Closes #42` (PR #45)
   - [x] Monitor Remote CI Checks on PR #45 (all checks passed)
   - [x] Address GitHub Copilot review feedback in `docs/ROADMAP.md` and `docs/agent/task.md` and reply to discussion threads
+  - [x] PR #45 squash-merged by maintainer Daniel Petty (commit `347bed4`) into `release/v0.2.12`
+  - [x] Automated devcontainer pruning verified for `pr-45` (run ID `34061068046`, 3 images deleted)
+  - [x] Closed tracking Issue #42 on GitHub
+  - [x] Fast-forwarded local `release/v0.2.12` and deleted merged topic branch `feat/actions-sha-pinning`
+
+---
+
+### In-Progress Tasks (WIP)
+- [/] Phase 48.2: Subprocess Environment Isolation & Credential Boundary (Release v0.2.12 — Issue #41)
+  - [x] Author unit tests in `tests/test_subprocess_env_boundary.py` establishing environment sanitization contracts
+  - [x] Implement environment sanitization and credential boundary in `src/devops_cli/core/process.py` (`build_subprocess_env`, `DEFAULT_ALLOWED_ENV_VARS`, `DEFAULT_DENIED_ENV_PATTERNS`, `isolate_env=True`)
+  - [x] Verify local quality gate (`uv run devops ci` — 10/10 gates green, coverage >= 90%)
+  - [x] Author atomic commit and open PR #46 targeting `release/v0.2.12` linking `Closes #41`
+  - [x] Monitor Remote CI Checks on PR #46 (all 4 checks passed 100% green)
+  - [x] Address GitHub Copilot review feedback (case-insensitive env keys and test baseline monkeypatching) in commit `92aab39`
+  - [x] Verify updated remote CI checks on PR #46 (all 4 checks green)
+  - [ ] Maintainer squash-merge PR #46 into `release/v0.2.12`
 
 ---
 
 ### Pending Tasks
 - [ ] Phase 48: Infrastructure Perimeter, Supply Chain & Workstation Zero-Trust (Release v0.2.12)
   - [ ] Cluster Default-Deny NetworkPolicies for remaining namespaces (`k8s/monitoring/`, `k8s/argocd/` — Issue #40)
-  - [ ] Subprocess Environment Isolation & Credential Boundary (`src/devops_cli/core/process.py` — Issue #41)
   - [ ] Qdrant Vector Database API Key Secret Protection (`k8s/llm/values-qdrant.yaml` — Issue #43)
 - [ ] Valkey Workstation Management & High-Performance Distributed Caching Tier (Milestone v0.2.12)
   - [ ] Valkey Workstation CLI Subsystem (`devops valkey` — ping, info, stats, keys, get, set, flush, cli, backup/restore)

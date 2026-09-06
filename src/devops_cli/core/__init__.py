@@ -9,6 +9,10 @@ from devops_cli.core.cli import new_typer, repo_label
 _CORE_EXPORTS: dict[str, tuple[str, str]] = {
     "run_subprocess": ("devops_cli.core.process", "run_subprocess"),
     "run_subprocess_async": ("devops_cli.core.process", "run_subprocess_async"),
+    "build_subprocess_env": ("devops_cli.core.process", "build_subprocess_env"),
+    "DEFAULT_ALLOWED_ENV_VARS": ("devops_cli.core.process", "DEFAULT_ALLOWED_ENV_VARS"),
+    "DEFAULT_ALLOWED_ENV_PREFIXES": ("devops_cli.core.process", "DEFAULT_ALLOWED_ENV_PREFIXES"),
+    "DEFAULT_DENIED_ENV_PATTERNS": ("devops_cli.core.process", "DEFAULT_DENIED_ENV_PATTERNS"),
     "find_repo_root": ("devops_cli.core.repo", "find_repo_root"),
     "find_top_level_repo_root": ("devops_cli.core.repo", "find_top_level_repo_root"),
     "is_ignored_by_git": ("devops_cli.core.repo", "is_ignored_by_git"),
@@ -49,9 +53,13 @@ def __getattr__(name: str) -> Any:
 
 
 __all__ = [
+    "DEFAULT_ALLOWED_ENV_PREFIXES",
+    "DEFAULT_ALLOWED_ENV_VARS",
+    "DEFAULT_DENIED_ENV_PATTERNS",
     "PathKind",
     "ProcessExecutionPipeline",
     "ProcessExecutionResult",
+    "build_subprocess_env",
     "check_binary",
     "cli_command_handler",
     "extract_json_block",
