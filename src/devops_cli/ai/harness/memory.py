@@ -18,11 +18,12 @@ from devops_cli.ai.agents.pydantic_agent import (
     RunContext,
     Tool,
 )
+from devops_cli.exceptions.ai import HarnessExecutionError, HarnessValidationError
 
 logger = logging.getLogger(__name__)
 
 
-class MemoryOperationConflictError(Exception):
+class MemoryOperationConflictError(HarnessExecutionError):
     """Raised when an optimistic concurrency conflict or duplicate operation occurs in memory store."""
 
 
@@ -144,7 +145,7 @@ class InMemoryStore(BaseModel):
         if mode == "replace" and target_fragment is not None:
             base = existing.content if existing else ""
             if target_fragment not in base:
-                raise ValueError(f"Target fragment not found in memory file '{clean}'")
+                raise HarnessValidationError(f"Target fragment not found in memory file '{clean}'")
             new_content = base.replace(target_fragment, replacement or "", 1)
         elif mode == "replace":
             new_content = content
@@ -269,7 +270,7 @@ class FileStore(BaseModel):
 
         if mode == "replace" and target_fragment is not None:
             if target_fragment not in existing_text:
-                raise ValueError(f"Target fragment not found in memory file '{path}'")
+                raise HarnessValidationError(f"Target fragment not found in memory file '{path}'")
             new_text = existing_text.replace(target_fragment, replacement or "", 1)
         elif mode == "replace":
             new_text = content
@@ -399,7 +400,9 @@ class SqliteMemoryStore(BaseModel):
 
             if mode == "replace" and target_fragment is not None:
                 if target_fragment not in existing:
-                    raise ValueError(f"Target fragment not found in memory file '{clean}'")
+                    raise HarnessValidationError(
+                        f"Target fragment not found in memory file '{clean}'"
+                    )
                 new_text = existing.replace(target_fragment, replacement or "", 1)
             elif mode == "replace":
                 new_text = content

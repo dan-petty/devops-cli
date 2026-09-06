@@ -20,6 +20,7 @@ from devops_cli.ai.agents.pydantic_agent import (
     Tool,
 )
 from devops_cli.ai.harness.constants import DEFAULT_ADVISOR_INSTRUCTIONS
+from devops_cli.exceptions.ai import HarnessExecutionError, HarnessValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -502,9 +503,11 @@ class DynamicWorkflow(BaseCapability):
         wrapped = agent if isinstance(agent, WorkflowAgent) else WorkflowAgent(agent)
         name = wrapped.name
         if not name or not name.isidentifier():
-            raise ValueError(f"Invalid agent name identifier: {name!r}")
+            raise HarnessValidationError(f"Invalid agent name identifier: {name!r}")
         if any(a.name == name for a in self.agents):
-            raise ValueError(f"Agent name collision: {name!r} already exists in workflow catalog")
+            raise HarnessValidationError(
+                f"Agent name collision: {name!r} already exists in workflow catalog"
+            )
         self.agents.append(wrapped)
 
     async def _execute_sub_agent(self, agent_obj: Any, name_str: str, task: str) -> Any:
@@ -513,7 +516,7 @@ class DynamicWorkflow(BaseCapability):
         if total_calls >= self.max_agent_calls:
             preview_summary = "\n".join(self.completed_previews[-20:])
             msg = f"Workflow budget exhausted: reached maximum agent calls ({self.max_agent_calls}).\nCompleted results preview:\n{preview_summary}"
-            raise RuntimeError(msg)
+            raise HarnessExecutionError(msg)
 
         self.call_counts[name_str] = self.call_counts.get(name_str, 0) + 1
         resp = await _invoke_agent_callable(agent_obj, task)
@@ -527,7 +530,7 @@ class DynamicWorkflow(BaseCapability):
 
         async def _call_sub_agent(*args: Any, task: str | None = None, **kwargs: Any) -> Any:
             if args:
-                raise ValueError(
+                raise HarnessValidationError(
                     f"Sub-agent '{name_str}' must be called with keyword argument task='...'"
                 )
             effective_task = str(task if task is not None else kwargs.get("task", ""))
@@ -759,16 +762,18 @@ class Advisor(BaseCapability):
         defer_loading: bool = False,
     ) -> None:
         if max_uses is not None and max_uses < 1:
-            raise ValueError(f"max_uses must be at least 1, got {max_uses}")
+            raise HarnessValidationError(f"max_uses must be at least 1, got {max_uses}")
         if max_tokens is not None and max_tokens < 1024:
-            raise ValueError(f"max_tokens must be at least 1024, got {max_tokens}")
+            raise HarnessValidationError(f"max_tokens must be at least 1024, got {max_tokens}")
 
         model_name = str(model)
         if mode == "native":
             if model_name.startswith("openrouter:") and max_uses is not None:
-                raise ValueError("OpenRouter native advisor does not support max_uses")
+                raise HarnessValidationError("OpenRouter native advisor does not support max_uses")
             if caching is not None and not model_name.startswith("anthropic:"):
-                raise ValueError("caching is only supported on Anthropic native advisor")
+                raise HarnessValidationError(
+                    "caching is only supported on Anthropic native advisor"
+                )
 
         resolved_id = str(id or "advisor")
         resolved_inst = instructions or DEFAULT_ADVISOR_INSTRUCTIONS

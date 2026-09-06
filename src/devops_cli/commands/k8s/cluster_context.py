@@ -13,6 +13,7 @@ import typer
 import devops_cli.commands.k8s as k8s
 from devops_cli.config.defaults import DEFAULT_K8S_LOGS_TAIL, DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
+from devops_cli.exceptions.k8s import KubernetesContextError
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
     format_k8s_contexts_table,
@@ -95,16 +96,18 @@ def apply(
     if "://" in path:
         u = urlparse(path)
         if u.scheme not in ("http", "https"):
-            raise ValueError(f"Unsupported manifest URL scheme: {u.scheme}")
+            raise KubernetesContextError(f"Unsupported manifest URL scheme: {u.scheme}")
         host = u.hostname or ""
         if not host:
-            raise ValueError(f"Invalid manifest URL: {path}")
+            raise KubernetesContextError(f"Invalid manifest URL: {path}")
         if host.lower() in ("localhost", "127.0.0.1", "169.254.169.254", "::1"):
-            raise ValueError(f"Manifest URL points to forbidden host: {host}")
+            raise KubernetesContextError(f"Manifest URL points to forbidden host: {host}")
         try:
             ip = ipaddress.ip_address(host)
             if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
-                raise ValueError(f"Manifest URL points to private or reserved IP: {host}")
+                raise KubernetesContextError(
+                    f"Manifest URL points to private or reserved IP: {host}"
+                )
         except ValueError:
             pass
 
@@ -119,14 +122,16 @@ def apply(
                     or resolved_ip.is_link_local
                     or resolved_ip.is_reserved
                 ):
-                    raise ValueError(
+                    raise KubernetesContextError(
                         f"Manifest URL resolves to private or reserved IP: {ip_str} for host {host}"
                     )
         except (socket.gaierror, socket.herror) as err:
-            raise ValueError(f"Failed to resolve manifest URL host '{host}': {err}") from err
+            raise KubernetesContextError(
+                f"Failed to resolve manifest URL host '{host}': {err}"
+            ) from err
     else:
         if ".." in Path(path).parts or ".." in path:
-            raise ValueError(f"Path traversal detected in manifest path: {path}")
+            raise KubernetesContextError(f"Path traversal detected in manifest path: {path}")
 
     if namespace:
         k8s._validate_k8s_identifier(namespace, "namespace", namespace=True)

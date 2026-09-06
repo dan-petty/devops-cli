@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from devops_cli.ai.agents.pydantic_agent import AgentTool, BaseCapability, RunContext, Tool
 from devops_cli.ai.harness.constants import UNSUPPORTED_BEHAVIORAL_SKILL_FIELDS
+from devops_cli.exceptions.ai import HarnessValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +36,7 @@ def normalize_skill_name(name: str) -> str:
     """Normalize and validate an Agent Skill name using Unicode NFKC."""
     norm = unicodedata.normalize("NFKC", str(name)).strip().lower()
     if not re.match(r"^[a-z0-9]+(-[a-z0-9]+)*$", norm) or len(norm) > 64:
-        raise ValueError(
+        raise HarnessValidationError(
             f"Invalid skill name '{name}': normalized name must be 1-64 lowercase alphanumeric characters separated by hyphens"
         )
     return norm
@@ -53,7 +54,7 @@ def _parse_skill_frontmatter_and_body(raw_text: str, skill_md: Path) -> tuple[di
         parsed_fm = yaml.safe_load(fm_str)
         return (parsed_fm if isinstance(parsed_fm, dict) else {}), body_text
     except Exception as e:
-        raise ValueError(f"Malformed YAML frontmatter in '{skill_md}': {e}") from e
+        raise HarnessValidationError(f"Malformed YAML frontmatter in '{skill_md}': {e}") from e
 
 
 def _resolve_skill_name(frontmatter_dict: dict[str, Any], dir_name: str) -> str:
@@ -64,7 +65,9 @@ def _resolve_skill_name(frontmatter_dict: dict[str, Any], dir_name: str) -> str:
         return dir_norm_name
     norm_decl = normalize_skill_name(str(declared_name))
     if norm_decl != dir_norm_name:
-        raise ValueError(f"Skill name '{declared_name}' does not match directory '{dir_name}'")
+        raise HarnessValidationError(
+            f"Skill name '{declared_name}' does not match directory '{dir_name}'"
+        )
     return norm_decl
 
 
@@ -78,11 +81,15 @@ def _validate_and_build_parsed_skill(
 ) -> ParsedSkill:
     """Validate skill frontmatter rules and construct ParsedSkill."""
     if final_name in discovered:
-        raise ValueError(f"Duplicate skill name '{final_name}' discovered across libraries")
+        raise HarnessValidationError(
+            f"Duplicate skill name '{final_name}' discovered across libraries"
+        )
 
     desc = str(frontmatter_dict.get("description", "")).strip()
     if not desc:
-        raise ValueError(f"Skill '{final_name}' missing required 'description' in frontmatter")
+        raise HarnessValidationError(
+            f"Skill '{final_name}' missing required 'description' in frontmatter"
+        )
     if len(desc) > 1024:
         warnings.warn(
             f"Skill '{final_name}' description exceeds 1024 character limit ({len(desc)} chars)",
@@ -121,7 +128,7 @@ class Skills(BaseCapability):
         id: str | None = None,
     ) -> None:
         if include is not None and exclude is not None:
-            raise ValueError("Skills cannot specify both 'include' and 'exclude'")
+            raise HarnessValidationError("Skills cannot specify both 'include' and 'exclude'")
 
         # Normalize directories
         dirs_seq = [directories] if isinstance(directories, (str, Path)) else list(directories)
@@ -129,7 +136,7 @@ class Skills(BaseCapability):
         for d in dirs_seq:
             p = Path(d)
             if not p.exists() or not p.is_dir():
-                raise ValueError(
+                raise HarnessValidationError(
                     f"Skill library directory does not exist or is not a directory: {d}"
                 )
             norm_dirs.append(p)
@@ -188,7 +195,7 @@ class Skills(BaseCapability):
         if self.include is not None:
             missing_included = self.include - set(discovered.keys())
             if missing_included:
-                raise ValueError(
+                raise HarnessValidationError(
                     f"Unknown skill(s) specified in 'include': {sorted(missing_included)}"
                 )
 
