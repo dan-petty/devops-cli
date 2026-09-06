@@ -465,8 +465,8 @@
   - [x] Pin third-party GitHub Actions steps in `.github/workflows/ci.yml`
   - [x] Pin third-party GitHub Actions steps in `.github/workflows/codeql.yml`
   - [x] Pin third-party GitHub Actions steps in `.github/workflows/release.yml`
-  - [x] Validate workflows via `actionlint` and `devops ci` (10/10 gates green)
-  - [ ] Author atomic commit and open PR targeting `release/v0.2.12` linking `Closes #42`
+  - [x] Author atomic commit and open PR targeting `release/v0.2.12` linking `Closes #42` (PR #45)
+  - [ ] Monitor Remote CI Checks on PR #45
 
 ---
 
