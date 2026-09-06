@@ -42,15 +42,12 @@ class AgentTool(BaseModel):
 
     def validate_args(self, args: dict[str, Any]) -> dict[str, Any]:
         """Validate and filter tool arguments against the declared parameter schema."""
-        if not self.parameters:
-            clean_args = dict(args)
-        else:
-            valid_params = set(self.parameters.keys())
-            clean_args = {}
-            for k, v in args.items():
-                if k in valid_params:
-                    _check_path_traversal(k, v)
-                    clean_args[k] = v
+        clean_args: dict[str, Any] = {}
+        valid_params = set(self.parameters.keys()) if self.parameters else None
+        for k, v in args.items():
+            if valid_params is None or k in valid_params:
+                _check_path_traversal(k, v)
+                clean_args[k] = v
 
         if self.args_validator_func is not None:
             validated = self.args_validator_func(clean_args)

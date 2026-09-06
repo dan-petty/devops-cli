@@ -1931,15 +1931,27 @@ class ReviewPipelineOrchestrator:
         all_deps: list[DependencySpec],
         all_nets: list[NetworkReference],
     ) -> str:
-        """Construct full Markdown review report containing summary, details, and audits."""
+        from devops_cli.ai.review.stages.reporting import synthesize_report_executive_summary
+
         lines = [
             f"# Code Review Report (Session `{session_id}`)",
             f"*Generated at: {generated_at}*",
             "",
-            "## Summary of Reportable Findings",
-            f"Total Findings: **{len(reportable_findings)}**",
-            "",
         ]
+        lines.extend(
+            synthesize_report_executive_summary(
+                reportable_findings=reportable_findings,
+                all_deps=all_deps,
+                all_nets=all_nets,
+            )
+        )
+        lines.extend(
+            [
+                "## Summary of Reportable Findings",
+                f"Total Findings: **{len(reportable_findings)}**",
+                "",
+            ]
+        )
 
         if not reportable_findings:
             lines.append("✅ **No critical issues found during review.**")
