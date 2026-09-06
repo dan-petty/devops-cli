@@ -1,11 +1,32 @@
 """Tests verifying Valkey is configured as the key-value store across all Kubernetes stacks."""
 
 from pathlib import Path
+from typing import Any
 
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 K8S_DIR = REPO_ROOT / "k8s"
+
+
+def _extract_images_from_yaml(data: Any) -> list[str]:
+    """Recursively extract all image field values from parsed YAML structures."""
+    extracted: list[str] = []
+    if isinstance(data, dict):
+        for k, v in data.items():
+            if k == "image":
+                if isinstance(v, str):
+                    extracted.append(v)
+                elif isinstance(v, dict) and "repository" in v:
+                    repo = v.get("repository", "")
+                    tag = v.get("tag", "")
+                    extracted.append(f"{repo}:{tag}" if tag else str(repo))
+            else:
+                extracted.extend(_extract_images_from_yaml(v))
+    elif isinstance(data, list):
+        for item in data:
+            extracted.extend(_extract_images_from_yaml(item))
+    return extracted
 
 
 def test_argocd_values_specifies_valkey_image() -> None:
@@ -30,17 +51,27 @@ def test_llm_valkey_manifest_specification() -> None:
     assert valkey_path.is_file(), f"Missing {valkey_path}"
 
     docs = list(yaml.safe_load_all(valkey_path.read_text(encoding="utf-8")))
-    assert len(docs) >= 2, "Expected Deployment and Service in valkey.yaml"
+    assert len(docs) >= 2, f"Expected at least 2 YAML documents in {valkey_path}"
 
-    deployment = next(d for d in docs if d.get("kind") == "Deployment")
-    container = deployment["spec"]["template"]["spec"]["containers"][0]
-    assert container["name"] == "valkey"
-    assert container["image"] == "valkey/valkey:8.0-alpine"
-    assert "valkey-server" in container["command"]
+    deployment = next(
+        (d for d in docs if isinstance(d, dict) and d.get("kind") == "Deployment"), None
+    )
+    assert deployment is not None, f"Expected Deployment document in {valkey_path}"
 
-    service = next(d for d in docs if d.get("kind") == "Service")
-    assert service["metadata"]["name"] == "valkey"
-    assert service["spec"]["ports"][0]["port"] == 6379
+    containers = (
+        deployment.get("spec", {}).get("template", {}).get("spec", {}).get("containers", [])
+    )
+    assert containers, f"Expected container definitions in Deployment in {valkey_path}"
+    container = containers[0]
+    assert container.get("name") == "valkey"
+    assert container.get("image") == "valkey/valkey:8.0-alpine"
+    assert "valkey-server" in container.get("command", [])
+
+    service = next((d for d in docs if isinstance(d, dict) and d.get("kind") == "Service"), None)
+    assert service is not None, f"Expected Service document in {valkey_path}"
+    assert service.get("metadata", {}).get("name") == "valkey"
+    ports = service.get("spec", {}).get("ports", [])
+    assert ports and ports[0].get("port") == 6379
 
 
 def test_open_webui_values_connects_to_valkey() -> None:
@@ -59,18 +90,13 @@ def test_open_webui_values_connects_to_valkey() -> None:
 
 
 def test_no_proprietary_redis_images_in_stack() -> None:
-    """Ensure no un-overridden legacy or proprietary Redis images exist in k8s manifests."""
-    forbidden_image_patterns = [
-        "docker.io/library/redis",
-        "redis:7.",
-        "redis:6.",
-        "redis:latest",
-        "redis:alpine",
-    ]
-
+    """Ensure no un-overridden legacy or proprietary Redis images exist in parsed k8s manifests."""
     for yml_file in K8S_DIR.rglob("*.yaml"):
-        content = yml_file.read_text(encoding="utf-8")
-        for pattern in forbidden_image_patterns:
-            assert pattern not in content, (
-                f"Found forbidden redis pattern {pattern!r} in {yml_file.relative_to(REPO_ROOT)}"
-            )
+        docs = list(yaml.safe_load_all(yml_file.read_text(encoding="utf-8")))
+        for doc in docs:
+            images = _extract_images_from_yaml(doc)
+            for img in images:
+                image_name = img.split("/")[-1].split(":")[0].split("@")[0].lower()
+                assert image_name != "redis", (
+                    f"Found proprietary redis image {img!r} in {yml_file.relative_to(REPO_ROOT)}"
+                )
