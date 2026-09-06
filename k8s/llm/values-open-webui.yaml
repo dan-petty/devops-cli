@@ -30,12 +30,13 @@ extraEnvVars:
   - name: WEBUI_AUTH
     value: "true"
 
+# Valkey cache integration (replaces Redis)
 websocket:
   enabled: true
-  manager: redis
+  manager: redis  # python-socketio driver connects via Redis protocol to Valkey
   url: "redis://valkey.llm.svc.cluster.local:6379/0"
   redis:
-    enabled: false
+    enabled: false  # Embedded Redis subchart disabled in favor of standalone Valkey service
 
 service:
   # Local minikube: NodePort allows direct browser access without ingress controller.

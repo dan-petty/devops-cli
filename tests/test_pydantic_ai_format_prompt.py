@@ -134,7 +134,7 @@ def test_format_examples_as_xml() -> None:
     """Verify format_examples_as_xml formats few-shot examples with field info."""
     examples = [
         {"input": "find vulnerabilities in auth.py", "expected_action": "run_security_scan"},
-        {"input": "deploy redis helm chart", "expected_action": "k8s_deploy_stack"},
+        {"input": "deploy valkey helm chart", "expected_action": "k8s_deploy_stack"},
     ]
     xml_out = format_examples_as_xml(examples)
     assert "<examples>" in xml_out

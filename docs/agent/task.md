@@ -255,10 +255,20 @@
 
 ---
 
+- [x] Phase 35: Replace All Redis in Stack with Valkey
+  - [x] Phase 35.1: Test-First Specifications (`tests/test_k8s_valkey_stack.py`, update `tests/test_output.py`, `tests/test_pydantic_ai_format_prompt.py`)
+  - [x] Phase 35.2: Stack Manifest Updates (`k8s/argocd/values.yaml` image override to `valkey/valkey:8.0-alpine`, `k8s/llm/values-open-webui.yaml` comments)
+  - [x] Phase 35.3: Live Minikube Cluster Rollout (`helm upgrade argocd argo/argo-cd -n argocd -f k8s/argocd/values.yaml`, verify pods)
+  - [x] Phase 35.4: Documentation Updates (`k8s/README.md`, `docs/DEVCONTAINER_USAGE.md`, `docs/LOG.md`, `docs/ROADMAP.md`)
+  - [x] Phase 35.5: Full CI Quality Gate (`uv run devops ci`) & Docs Sync (`devops docs generate --sync-readme`)
+
+---
+
 ### In-Progress Tasks (WIP)
-- Preparing commit, pushing to `origin/release/v0.2.10`, monitoring PR #30 checks, and scheduling 5-minute timer.
+- Preparing atomic commit, pushing to `origin/feat/replace-redis-with-valkey`, and creating pull request targeting `release/v0.2.10`.
 
 ---
 
 ### Pending Tasks
-*All planned development phases complete. Awaiting remote CI check completion, timer firing, and Copilot comment inspection on PR #30.*
+- Remote CI checks monitoring on PR.
+- Human review and merge.
