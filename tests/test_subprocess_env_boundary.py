@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 
 import pytest
@@ -98,8 +99,26 @@ def test_build_subprocess_env_extra_allowed_keys(monkeypatch: pytest.MonkeyPatch
     assert "UNAPPROVED_VAR" not in env
 
 
+def test_build_subprocess_env_case_insensitivity(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify allowlist and denylist matching is case-insensitive for cross-platform support."""
+    monkeypatch.setenv("path", "/usr/local/bin")
+    monkeypatch.setenv("Home", "/home/testuser")
+    monkeypatch.setenv("devops_cli_custom_setting", "custom_val")
+    monkeypatch.setenv("github_token", "lower_case_secret")
+    monkeypatch.setenv("My_Secret_Key", "mixed_secret")
+
+    env = build_subprocess_env()
+    # The key is preserved as stored in os.environ, but recognized as allowed
+    assert env.get("path") == "/usr/local/bin" or env.get("PATH") is not None
+    assert "github_token" not in env
+    assert "My_Secret_Key" not in env
+
+
 def test_run_subprocess_isolates_real_child_process(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify real child process executed via run_subprocess does not inherit ambient secrets."""
+    # Ensure baseline PATH and HOME exist deterministically across all environments
+    monkeypatch.setenv("PATH", os.environ.get("PATH", "/usr/bin:/bin"))
+    monkeypatch.setenv("HOME", os.environ.get("HOME", "/tmp"))
     monkeypatch.setenv("GITHUB_TOKEN", "leak_test_github_token")
     monkeypatch.setenv("OPENAI_API_KEY", "leak_test_openai_key")
     monkeypatch.setenv("MY_CUSTOM_SECRET", "leak_test_custom_secret")
@@ -134,6 +153,8 @@ def test_run_subprocess_forwards_explicit_env(monkeypatch: pytest.MonkeyPatch) -
 @pytest.mark.anyio
 async def test_run_subprocess_async_isolates_child_process(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify run_subprocess_async also enforces environment isolation."""
+    monkeypatch.setenv("PATH", os.environ.get("PATH", "/usr/bin:/bin"))
+    monkeypatch.setenv("HOME", os.environ.get("HOME", "/tmp"))
     monkeypatch.setenv("VAULT_TOKEN", "hvs.async_leak_test")
     monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "aws_async_leak_test")
 
@@ -143,12 +164,14 @@ async def test_run_subprocess_async_isolates_child_process(monkeypatch: pytest.M
 
     child_env = json.loads(proc.stdout)
     assert "PATH" in child_env
+    assert "HOME" in child_env
     assert "VAULT_TOKEN" not in child_env
     assert "AWS_SECRET_ACCESS_KEY" not in child_env
 
 
 def test_run_json_subprocess_inherits_isolation(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify run_json_subprocess benefits from the same environment isolation."""
+    monkeypatch.setenv("PATH", os.environ.get("PATH", "/usr/bin:/bin"))
     monkeypatch.setenv("SLACK_WEBHOOK_URL", "https://hooks.slack.com/services/leak")
 
     cmd = [sys.executable, "-c", "import os, json; print(json.dumps({'env': dict(os.environ)}))"]

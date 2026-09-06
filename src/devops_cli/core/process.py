@@ -109,11 +109,12 @@ def _is_env_var_allowed(
     extra_allowed: frozenset[str] | set[str] | None = None,
 ) -> bool:
     """Predicate determining if an environment variable key is safe to pass to child processes."""
-    if key in allowed_vars:
+    upper_key = key.upper()
+    if upper_key in allowed_vars:
         return True
-    if extra_allowed and key in extra_allowed:
+    if extra_allowed and (key in extra_allowed or upper_key in extra_allowed):
         return True
-    return any(key.startswith(p) for p in allowed_prefixes)
+    return any(upper_key.startswith(p.upper()) for p in allowed_prefixes)
 
 
 def build_subprocess_env(
@@ -132,7 +133,11 @@ def build_subprocess_env(
     if not isolate_env:
         base_env = dict(os.environ)
     else:
-        extra_set = frozenset(extra_allowed_keys) if extra_allowed_keys else frozenset()
+        extra_set = (
+            frozenset(extra_allowed_keys) | frozenset(k.upper() for k in extra_allowed_keys)
+            if extra_allowed_keys
+            else frozenset()
+        )
         base_env = {
             k: v
             for k, v in os.environ.items()
