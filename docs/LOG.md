@@ -25,6 +25,14 @@ Chronological log of refactoring milestones, quality gates, and security enhance
   - Squash-merged PR #38 into `main` by maintainer Daniel Petty (commit `22bba04`).
   - Automated Release Orchestrator workflow triggered on `main` push, successfully cutting git tag `v0.2.11` and publishing release assets.
 
+### [2026-09-06] Immutable GitHub Actions Commit SHA Pinning (Phase 48.1 — Issue #42)
+- **Supply Chain Security & Immutable Actions Pinning**:
+  - Pinned all third-party GitHub Actions across `.github/workflows/` to immutable 40-character commit SHAs with inline version comments, eliminating mutable tag spoofing risks.
+  - `.github/workflows/ci.yml`: Pinned `actions/checkout` (v7), `astral-sh/setup-uv` (v10.0.1), `docker/login-action` (v4), `devcontainers/ci` (v0.3).
+  - `.github/workflows/codeql.yml`: Pinned `actions/checkout` (v7), `github/codeql-action/init` (v4), `github/codeql-action/analyze` (v4).
+  - `.github/workflows/release.yml`: Pinned `actions/checkout` (v7), `astral-sh/setup-uv` (v10.0.1), `softprops/action-gh-release` (v3), `docker/login-action` (v4), `devcontainers/ci` (v0.3).
+  - Validated all workflows via `actionlint` with zero errors.
+
 ### [2026-09-06] PR DevContainer Image Pruning, Release Branch v0.2.12 & GitHub Project Tracking (Phase 47.4)
 - **Release Branch Setup (`release/v0.2.12`)**:
   - Cut next version release branch `release/v0.2.12` directly from `origin/main` at commit `22bba04` and pushed to `origin/release/v0.2.12`.
@@ -36,6 +44,13 @@ Chronological log of refactoring milestones, quality gates, and security enhance
   - Enabled multi-architecture OCI image cleanup options (`delete-untagged: true`, `delete-ghost-images: true`, `delete-orphaned-images: true`).
   - Supply chain security: pinned cleanup action to commit SHA `dataaxiom/ghcr-cleanup-action@d52806a0dc70b430571a37da1fde39733ffd640f` (# v1).
   - Validated with `uv run devops ci actionlint`.
+- **Pull Request #44 & GHCR Verification**:
+  - Opened PR #44 (`feat(devcontainer): automate PR devcontainer cleanup on PR merge in GHCR`) targeting `release/v0.2.12` with standard taxonomy labels (`type/feature`, `scope/github`, `priority/P2-Medium`) and linking Issue #39 (`Closes #39`).
+  - Remote CI quality gates (`CI Quality Gate/Validation`, `CodeQL Advanced/Analyze`) passed 100% green.
+  - PR #44 squash-merged by maintainer Daniel Petty (commit `d156680`).
+  - Automatic `Cleanup PR DevContainer` workflow triggered on PR closure (run ID `34057041455`), successfully pruning 132 stale and orphaned images/manifests from `ghcr.io/dan-petty/devops-cli/devcontainer`.
+  - Closed tracking Issue #39 on GitHub.
+  - Fast-forwarded local `release/v0.2.12` and pruned merged topic branch `feat/cleanup-pr-devcontainers`.
 - **GitHub Projects v2 & Task Tracking Synchronization**:
   - Updated `docs/agent/task.md` with active Phase 47.4 tasks and synchronized with `.github/project-template.json`.
   - Verified project lifecycle alignment via `devops gh project sync --dry-run` (366 items: Backlog 5, In Progress 10, Done 351).

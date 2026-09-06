@@ -266,12 +266,13 @@ High-density product roadmap, engineering milestones, and open-source integratio
 - [ ] **FastMCP Valkey Toolset & Live System Resource**: 6 FastMCP tools (`valkey_ping`, `valkey_info`, `valkey_get`, `valkey_set`, `valkey_keys`, `valkey_flush`) and dynamic system resource `resource://valkey/status` reporting real-time memory usage, connected clients, and cache hit ratios.
 - [ ] **Ephemeral Testcontainers Valkey Testing Harness**: Rootless container fixture (`testcontainers-python` running `valkey/valkey:8.0-alpine`) for offline unit and integration test suites without requiring live Minikube cluster dependencies.
 - [x] **Valkey IT Domain Knowledge Base Manual (`it_domains/tools/valkey.md`)**: Comprehensive technical guide covering Valkey 8.0 architecture, RESP3 wire protocol, memory optimization, eviction policies, and cluster topologies.
+- [x] **Automated PR DevContainer Pruning & Package Lifecycle (Phase 47.4)**: Author automated GHCR cleanup workflow (`cleanup-devcontainer.yml`) pruning PR-specific devcontainer tags upon PR closure.
 - [ ] **Infrastructure Perimeter, Supply Chain & Workstation Zero-Trust (Phase 48)**:
-  - **Kubernetes Pod Security Admission (PSA) Enforcement**: Apply PSA enforcement and audit labels (`pod-security.kubernetes.io/enforce: restricted`, `pod-security.kubernetes.io/warn: restricted`) across all namespaces in `k8s/namespaces.yaml`.
-  - **Cluster Default-Deny NetworkPolicies**: Author granular `NetworkPolicy` manifests for `k8s/llm/`, `k8s/monitoring/`, and `k8s/argocd/` with explicit DNS and inter-service egress rules.
-  - **Subprocess Environment Isolation & Credential Boundary**: Restrict default environment inheritance in `run_subprocess` (`src/devops_cli/core/process.py`) to prevent ambient token leakage to untrusted child binaries.
-  - **Immutable GitHub Actions Commit SHA Pinning**: Pin all actions across `.github/workflows/ci.yml` and `release.yml` to immutable 40-character commit SHAs with inline version comments.
-  - **Qdrant Vector Database API Key Secret Protection**: Add optional API key authentication support and ClusterIP default configuration for production deployments in `k8s/llm/values-qdrant.yaml`.
+  - [x] **Kubernetes Pod Security Admission (PSA) Enforcement**: Apply PSA enforcement and audit labels across all namespaces in `k8s/namespaces.yaml` and `k8s/llm/namespace.yaml`.
+  - [ ] **Cluster Default-Deny NetworkPolicies**: Author granular `NetworkPolicy` manifests for `k8s/monitoring/` and `k8s/argocd/` with explicit DNS and inter-service egress rules.
+  - [ ] **Subprocess Environment Isolation & Credential Boundary**: Restrict default environment inheritance in `run_subprocess` (`src/devops_cli/core/process.py`) to prevent ambient token leakage to untrusted child binaries.
+  - [ ] **Immutable GitHub Actions Commit SHA Pinning**: Pin all actions across `.github/workflows/ci.yml` and `release.yml` to immutable 40-character commit SHAs with inline version comments.
+  - [ ] **Qdrant Vector Database API Key Secret Protection**: Add optional API key authentication support and ClusterIP default configuration for production deployments in `k8s/llm/values-qdrant.yaml`.
 
 ### Advanced Agentic Harness, Sub-Agent Local Offloading & Terminal UX (v0.2.13 - Scheduled)
 - [ ] **Sub-Agent Local Offloading Engine & Agent Harness Slots (`devops_cli.ai.harness.slots`)**: Modular Harness Slots (`ModelSlot`, `SkillSlot`, `ToolSlot`, `SubAgentSlot`) offloading token-intensive exploration and symbol searching to local open models (Granite, Qwen2.5-Coder) under a "Big decides, small types, big checks" synthesis protocol, achieving 85%+ token savings.
@@ -381,11 +382,12 @@ High-density product roadmap, engineering milestones, and open-source integratio
 | | GitHub Projects v2 Task Item Parser (`devops gh project`) | Markdown / Pydantic | High | Low | v0.2.11 | ✅ Completed |
 | | Documentation & Prompt Token Optimization | Markdown / System Prompts | High | Low | v0.2.11 | ✅ Completed |
 | | Principal DevSecOps Architectural Review | Threat Modeling / Scanners | High | Low | v0.2.11 | ✅ Completed |
-| | Fail-Closed SSRF DNS Resolution Guard | `core/validation.py` | High | Low | v0.2.11 | 📋 Scheduled |
-| | Universal Secret Sanitizer Pattern Expansion | `security/sanitizer.py` | High | Low | v0.2.11 | 📋 Scheduled |
-| | OpenAIProvider Bearer Header & Keyring Injection | `ai/providers/openai.py` | High | Low | v0.2.11 | 📋 Scheduled |
-| | Review Gitleaks Test Scoping & Noise Elimination | Gitleaks / Test Scope | Medium | Low | v0.2.11 | 📋 Scheduled |
-| | Kubernetes Pod Security Admission (PSA) Labels | `k8s/namespaces.yaml` | High | Low | v0.2.12 | 📋 Scheduled |
+| | Fail-Closed SSRF DNS Resolution Guard | `core/validation.py` | High | Low | v0.2.11 | ✅ Completed |
+| | Universal Secret Sanitizer Pattern Expansion | `security/sanitizer.py` | High | Low | v0.2.11 | ✅ Completed |
+| | OpenAIProvider Bearer Header & Keyring Injection | `ai/providers/openai.py` | High | Low | v0.2.11 | ✅ Completed |
+| | Review Gitleaks Test Scoping & Noise Elimination | Gitleaks / Test Scope | Medium | Low | v0.2.11 | ✅ Completed |
+| | Kubernetes Pod Security Admission (PSA) Labels | `k8s/namespaces.yaml` | High | Low | v0.2.11 | ✅ Completed |
+| | Automated PR DevContainer Pruning Workflow | `.github/workflows/` | High | Low | v0.2.12 | ✅ Completed |
 | | Immutable GitHub Actions Commit SHA Pinning | `.github/workflows/` | High | Low | v0.2.12 | 📋 Scheduled |
 | | Valkey Workstation Management CLI (`devops valkey`) | `valkey-py` / Socket | High | Low | v0.2.12 | 📋 Scheduled |
 | | Distributed LLM Token Bucket & Rate Limiter | Valkey Lua / Atomics | High | Low | v0.2.12 | 📋 Scheduled |
@@ -439,7 +441,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
 | | Subprocess Execution & JSON Deserializer | Python Subprocess / Pydantic | High | Medium | v0.2.11 | ✅ Completed |
 | | Declarative Security Scanner Framework Foundation | Python ABC / Registry | High | Medium | v0.2.11 | ✅ Completed |
 | | GitHub Views & Standardized Projects v2 Lifecycle | GitHub API / Views Template | High | Medium | v0.2.11 | ✅ Completed |
-| | Docker Workload Sandbox Security Hardening | Docker SDK / Capabilities | High | Medium | v0.2.11 | 📋 Scheduled |
+| | Docker Workload Sandbox Security Hardening | Docker SDK / Capabilities | High | Medium | v0.2.11 | ✅ Completed |
 | | Cluster Default-Deny NetworkPolicies | K8s NetworkPolicy | High | Medium | v0.2.12 | 📋 Scheduled |
 | | Subprocess Environment Isolation & Credential Boundary | `core/process.py` | High | Medium | v0.2.12 | 📋 Scheduled |
 | | Qdrant Vector DB API Key Secret Protection | Helm / Secret Store | High | Medium | v0.2.12 | 📋 Scheduled |

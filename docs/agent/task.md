@@ -441,8 +441,7 @@
 
 ---
 
-### In-Progress Tasks (WIP)
-- [ ] Phase 47.4: Automated PR DevContainer Pruning & GHCR Package Lifecycle (Release v0.2.12 — Issue #39)
+- [x] Phase 47.4: Automated PR DevContainer Pruning & GHCR Package Lifecycle (Release v0.2.12 — Issue #39)
   - [x] Create Next Version Release Branch (`release/v0.2.12` branched from `origin/main` and pushed to `origin/release/v0.2.12`)
   - [x] Initialize Topic Branch (`feat/cleanup-pr-devcontainers` tracking `origin/release/v0.2.12`)
   - [x] Author GitHub Actions PR Cleanup Workflow (`.github/workflows/cleanup-devcontainer.yml` pruning `devops-cli/devcontainer:pr-<number>` on PR close & supporting manual `workflow_dispatch` with `dry_run` safety option)
@@ -452,9 +451,22 @@
   - [x] Create Tracking Issue #39 on GitHub linked to milestone `v0.2.12`
   - [x] Author Atomic Commit on `feat/cleanup-pr-devcontainers` (commit `21711bd`)
   - [x] Open Pull Request Targeting `release/v0.2.12` with Conventional Commit Title & Labels linking Issue #39 (`Closes #39` on PR #44)
-  - [ ] Monitor Remote CI Checks on PR #44
-  - [ ] Execute Workflow Dispatch Stale Pruning for Historical `pr-38` Tag
+  - [x] Monitor Remote CI Checks on PR #44 (all checks passed)
+  - [x] PR #44 squash-merged by maintainer Daniel Petty (commit `d156680`) into `release/v0.2.12`
+  - [x] Cleanup workflow triggered and verified on PR merge (run ID `34057041455`, successfully pruned 132 stale/orphaned GHCR images)
+  - [x] Closed tracking Issue #39 on GitHub
+  - [x] Fast-forwarded local `release/v0.2.12` and deleted merged topic branch `feat/cleanup-pr-devcontainers`
 
+---
+
+### In-Progress Tasks (WIP)
+- [ ] Phase 48.1: Immutable GitHub Actions Commit SHA Pinning (Release v0.2.12 — Issue #42)
+  - [x] Create Topic Branch `feat/actions-sha-pinning` tracking `origin/release/v0.2.12`
+  - [x] Pin third-party GitHub Actions steps in `.github/workflows/ci.yml`
+  - [x] Pin third-party GitHub Actions steps in `.github/workflows/codeql.yml`
+  - [x] Pin third-party GitHub Actions steps in `.github/workflows/release.yml`
+  - [x] Validate workflows via `actionlint` and `devops ci` (10/10 gates green)
+  - [ ] Author atomic commit and open PR targeting `release/v0.2.12` linking `Closes #42`
 
 ---
 
@@ -462,5 +474,10 @@
 - [ ] Phase 48: Infrastructure Perimeter, Supply Chain & Workstation Zero-Trust (Release v0.2.12)
   - [ ] Cluster Default-Deny NetworkPolicies for remaining namespaces (`k8s/monitoring/`, `k8s/argocd/` — Issue #40)
   - [ ] Subprocess Environment Isolation & Credential Boundary (`src/devops_cli/core/process.py` — Issue #41)
-  - [ ] Immutable GitHub Actions Commit SHA Pinning (`.github/workflows/ci.yml`, `release.yml` — Issue #42)
   - [ ] Qdrant Vector Database API Key Secret Protection (`k8s/llm/values-qdrant.yaml` — Issue #43)
+- [ ] Valkey Workstation Management & High-Performance Distributed Caching Tier (Milestone v0.2.12)
+  - [ ] Valkey Workstation CLI Subsystem (`devops valkey` — ping, info, stats, keys, get, set, flush, cli, backup/restore)
+  - [ ] Distributed AI Embedding Cache Tier (`ai.cache.backend=valkey` — SHA-256 keyed cache with LRU eviction)
+  - [ ] Distributed LLM Token Bucket & Concurrency Rate Limiter (`valkey_token_bucket.lua`)
+  - [ ] FastMCP Valkey Toolset & Live System Resource (`valkey_ping`, `valkey_info`, `valkey_get`, `valkey_set`, `valkey_keys`, `valkey_flush`, `resource://valkey/status`)
+  - [ ] Ephemeral Testcontainers Valkey Testing Harness (`valkey/valkey:8.0-alpine`)
