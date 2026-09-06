@@ -265,6 +265,14 @@ High-density product roadmap, engineering milestones, and open-source integratio
 - [ ] **FastMCP Library Ingestion & Symbol Tools**: Exposing `ai_ingest_library`, `ai_query_library`, and dynamic resource `resource://libraries/indexed` to IDE AI coding assistants.
 - [ ] **Library API Drift & Deprecation Auditor (`devops ai audit-library-usage`)**: Static AST analyzer comparing workspace calls against library contracts to detect deprecated parameters and removed APIs.
 
+### GitHub Enterprise Repository & Project Management Automation (v0.2.14 - Scheduled)
+- [ ] **GitHub Issue Triage & Management Engine (`devops gh issues`)**: Automated issue classification, duplicate detection, sentiment/urgency analysis, and automated milestone/label assignment.
+- [ ] **GitHub Projects v2 Bi-Directional Synchronization (`devops gh project`)**: Two-way synchronization between local task tracking (`docs/agent/task.md`) and GitHub Projects v2 Kanban boards and roadmap views.
+- [ ] **Declarative Branch Protection & Repository Rule Auditor (`devops gh branch-protection`)**: Automated auditing and policy enforcement for repository branch protection rules, required reviews, and status check gates.
+- [ ] **Workstation Secret to GitHub Actions Secret Sync (`devops gh secrets`)**: Secure synchronization of developer workstation credentials (OS Keyring / Vault) to GitHub repository and environment secrets via libsodium public-key encryption.
+- [ ] **Declarative GitHub Label Schema Provisioner (`devops gh labels`)**: Automated reconciliation of repository labels and colors defined in `.github/labels.yml`.
+- [ ] **FastMCP GitHub Tools & Project Resources**: 4 FastMCP tools (`gh_issue_list`, `gh_issue_create`, `gh_project_status`, `gh_branch_protect_audit`) and live resource `resource://github/issues/open`.
+
 ### Multi-Cloud Mesh & Production Ecosystem (v0.3.0 - Future Vision)
 - [ ] **Multi-Region Workstation Mesh & Cluster Federation**: Distributed cluster management across hybrid on-prem homelab and multi-cloud Kubernetes clusters with automatic service mesh routing.
 - [ ] **Autonomous Self-Healing Agent Pipeline**: Closed-loop diagnostic engine capable of discovering cluster incidents, generating corrective patches, running CI gates, and executing rollback.
@@ -396,6 +404,12 @@ High-density product roadmap, engineering milestones, and open-source integratio
 | | Import-Driven AST Prompt Grounding | AST / PydanticAI | High | Medium | v0.2.13 | 📋 Scheduled |
 | | FastMCP Library Tools & Indexed Resource | FastMCP / Qdrant | High | Low | v0.2.13 | 📋 Scheduled |
 | | Library API Drift & Deprecation Auditor | AST / McCabe | High | Medium | v0.2.13 | 📋 Scheduled |
+| | GitHub Issue Triage & Management Engine (`devops gh issues`) | GitHub API / `httpx2` | High | Medium | v0.2.14 | 📋 Scheduled |
+| | GitHub Projects v2 Bi-Directional Sync (`devops gh project`) | GraphQL API / Pydantic | High | Medium | v0.2.14 | 📋 Scheduled |
+| | Declarative Branch Protection Auditor (`devops gh branch-protection`) | GitHub REST / Policy | High | Low | v0.2.14 | 📋 Scheduled |
+| | Workstation Secret to GitHub Secret Sync (`devops gh secrets`) | `PyNaCl` / Keyring / Vault | High | Low | v0.2.14 | 📋 Scheduled |
+| | Declarative GitHub Label Schema Provisioner (`devops gh labels`) | PyYAML / GitHub API | Medium | Low | v0.2.14 | 📋 Scheduled |
+| | FastMCP GitHub Tools & Project Resources | FastMCP / GitHub API | High | Low | v0.2.14 | 📋 Scheduled |
 | | Multi-Region Workstation Mesh & Cluster Federation | Kubernetes / Fleet | High | High | v0.3.0 | 💡 Future Vision |
 | | Autonomous Self-Healing Agent Pipeline | PydanticAI / Diagnostic | High | High | v0.3.0 | 💡 Future Vision |
 | | Cloud-Native Ephemeral Test Environment Engine | Minikube / Helm / Ingress | High | Medium | v0.3.0 | 💡 Future Vision |
