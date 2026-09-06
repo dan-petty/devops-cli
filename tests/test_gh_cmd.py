@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
 from typer.testing import CliRunner
 
 from devops_cli.commands.gh import app
@@ -82,3 +83,36 @@ def test_gh_views_spec() -> None:
     assert result.exit_code == 0
     assert "Sprint Kanban" in result.output
     assert "layout" in result.output
+
+
+def test_get_github_client_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    """_get_github_client respects DEVOPS_CLI_GITHUB_TOKEN."""
+    from devops_cli.commands.gh import _get_github_client
+    from devops_cli.config.env import ENV_GITHUB_TOKEN
+
+    with patch("devops_cli.commands.gh.get_keyring_secret", return_value=None):
+        monkeypatch.setenv(ENV_GITHUB_TOKEN, "test-env-token-12345")
+        client = _get_github_client()
+        assert client is not None
+        assert client._token == "test-env-token-12345"
+
+
+def test_get_repo_milestones_paginated() -> None:
+    """_get_repo_milestones passes --paginate and per_page=100 to gh api."""
+    from devops_cli.commands.gh import _get_repo_milestones
+
+    mock_res = MagicMock()
+    mock_res.returncode = 0
+    mock_res.stdout = '[{"title": "v0.2.12", "number": 1, "state": "open"}]'
+
+    with (
+        patch("devops_cli.commands.gh._get_github_client", return_value=None),
+        patch("devops_cli.commands.gh.run_subprocess", return_value=mock_res) as mock_run,
+    ):
+        milestones = _get_repo_milestones("org/test-repo", state="all")
+        assert len(milestones) == 1
+        assert milestones[0]["title"] == "v0.2.12"
+        mock_run.assert_called_once()
+        cmd = mock_run.call_args[0][0]
+        assert "--paginate" in cmd
+        assert any("per_page=100" in arg for arg in cmd)

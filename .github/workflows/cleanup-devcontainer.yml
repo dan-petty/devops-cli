@@ -1,0 +1,67 @@
+name: Cleanup PR DevContainer
+
+on:
+  pull_request:
+    types:
+      - closed
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR number to delete devcontainer image for (e.g. 38)"
+        required: false
+        type: string
+      tag:
+        description: "Exact tag or wildcard pattern to delete (e.g. pr-38, pr-*)"
+        required: false
+        type: string
+        default: "pr-*"
+      dry_run:
+        description: "Simulate cleanup without deleting images"
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: cleanup-devcontainer-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    name: Prune PR DevContainer Images
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      packages: write
+      contents: read
+
+    steps:
+      - name: Resolve Target Cleanup Tag
+        id: target
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            TAG="pr-${{ github.event.pull_request.number }}"
+            echo "Triggered by PR #${{ github.event.pull_request.number }} closure (merged: ${{ github.event.pull_request.merged }})"
+          elif [ -n "${{ github.event.inputs.pr_number }}" ]; then
+            TAG="pr-${{ github.event.inputs.pr_number }}"
+            echo "Triggered manually for PR #${{ github.event.inputs.pr_number }}"
+          elif [ -n "${{ github.event.inputs.tag }}" ]; then
+            TAG="${{ github.event.inputs.tag }}"
+            echo "Triggered manually for tag: ${TAG}"
+          else
+            TAG="pr-*"
+            echo "Defaulting to all PR tags: ${TAG}"
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "Selected target tag pattern: ${TAG}"
+
+      - name: Delete PR DevContainer from GHCR
+        uses: dataaxiom/ghcr-cleanup-action@d52806a0dc70b430571a37da1fde39733ffd640f # v1
+        with:
+          packages: devops-cli/devcontainer
+          delete-tags: ${{ steps.target.outputs.tag }}
+          exclude-tags: "latest,v*,main"
+          delete-untagged: true
+          delete-ghost-images: true
+          delete-orphaned-images: true
+          dry-run: ${{ inputs.dry_run || false }}
+          token: ${{ secrets.GITHUB_TOKEN }}

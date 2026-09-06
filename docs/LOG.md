@@ -22,6 +22,25 @@ Chronological log of refactoring milestones, quality gates, and security enhance
   - Verified local quality gate (`devops ci` — 10/10 gates green, 100% passing).
   - Authored atomic commit `4feb91c` (`fix(review): address Copilot findings for Checkov exit handling, milestone due_on, gitleaks Windows paths, and symlink semantics`), pushed to `origin/release/v0.2.11`, and replied to all Copilot discussion threads.
   - Monitored remote CI quality gates on `4feb91c` until 100% green (`gh pr checks 38` — 4/4 passed).
+  - Squash-merged PR #38 into `main` by maintainer Daniel Petty (commit `22bba04`).
+  - Automated Release Orchestrator workflow triggered on `main` push, successfully cutting git tag `v0.2.11` and publishing release assets.
+
+### [2026-09-06] PR DevContainer Image Pruning, Release Branch v0.2.12 & GitHub Project Tracking (Phase 47.4)
+- **Release Branch Setup (`release/v0.2.12`)**:
+  - Cut next version release branch `release/v0.2.12` directly from `origin/main` at commit `22bba04` and pushed to `origin/release/v0.2.12`.
+  - Created topic branch `feat/cleanup-pr-devcontainers` tracking `origin/release/v0.2.12`.
+- **Automated DevContainer Cleanup Workflow (`.github/workflows/cleanup-devcontainer.yml`)**:
+  - Implemented automated GHCR image pruning workflow triggered on `pull_request: [closed]` and manual `workflow_dispatch`.
+  - Target package: `devops-cli/devcontainer` under owner `dan-petty`.
+  - Scoped to prune `pr-<number>` or wildcard `pr-*` tags, with strict exclusion of permanent release tags (`latest,v*,main`).
+  - Enabled multi-architecture OCI image cleanup options (`delete-untagged: true`, `delete-ghost-images: true`, `delete-orphaned-images: true`).
+  - Supply chain security: pinned cleanup action to commit SHA `dataaxiom/ghcr-cleanup-action@d52806a0dc70b430571a37da1fde39733ffd640f` (# v1).
+  - Validated with `uv run devops ci actionlint`.
+- **GitHub Projects v2 & Task Tracking Synchronization**:
+  - Updated `docs/agent/task.md` with active Phase 47.4 tasks and synchronized with `.github/project-template.json`.
+  - Verified project lifecycle alignment via `devops gh project sync --dry-run` (366 items: Backlog 5, In Progress 10, Done 351).
+  - Validated standardized views via `devops gh views list` (Sprint Kanban, Roadmap Timeline, Triage & Quality Table, Value vs Effort Priority Matrix).
+
 
 ### [2026-09-06] Principal DevSecOps Architectural Review & Zero-Trust Defense-in-Depth Hardening (Phase 47)
 

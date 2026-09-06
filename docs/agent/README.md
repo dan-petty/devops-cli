@@ -13,3 +13,4 @@ This directory contains automated, agent-specific task tracking, operational sta
 
 - All AI coding assistants and automation agents must maintain and update task tracking under `docs/agent/` rather than placing temporary or agent tracking files in the project root.
 - References in `AGENTS.md` and `docs/ROUTINE_TASKS.md` reflect `docs/agent/task.md` as the canonical location for agent task tracking.
+- AI agents must continuously align `docs/agent/task.md` with GitHub Projects v2 integration (`.github/project-template.json`) via `devops gh project sync --dry-run` and link PRs to tracked issues and roadmap milestones.

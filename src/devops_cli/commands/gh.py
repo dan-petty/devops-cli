@@ -9,6 +9,7 @@ from typing import Annotated, Any
 import typer
 
 from devops_cli.config.constants import CONST_GH_CLI
+from devops_cli.config.env import ENV_GITHUB_TOKEN
 from devops_cli.config.settings import get_keyring_secret
 from devops_cli.core.cli import new_typer
 from devops_cli.core.process import run_subprocess
@@ -58,11 +59,23 @@ def _resolve_repo(repo: str | None) -> str:
 
 def _get_github_client() -> GitHubClient | None:
     """Construct an authenticated GitHub client if token is available."""
-    token = get_keyring_secret("github_token") or get_keyring_secret("github")
+    token = (
+        get_keyring_secret("github.token")
+        or get_keyring_secret("github_token")
+        or get_keyring_secret("github")
+    )
     if not token:
         import os
 
-        token = os.environ.get("GITHUB_TOKEN")
+        token = (
+            os.environ.get(ENV_GITHUB_TOKEN)
+            or os.environ.get("GITHUB_TOKEN")
+            or os.environ.get("GH_TOKEN")
+        )
+    if not token:
+        res = run_subprocess([CONST_GH_CLI, "auth", "token"], check=False, quiet=True)
+        if res.returncode == 0 and res.stdout.strip():
+            token = res.stdout.strip()
     if token:
         try:
             return GitHubClient(token)
@@ -94,31 +107,39 @@ def _get_repo_labels(repo: str | None = None) -> list[dict[str, Any]]:
 
 
 def _get_repo_milestones(repo: str | None = None, state: str = "all") -> list[dict[str, Any]]:
-    """Retrieve repository milestones via gh CLI or GitHubClient."""
+    """Retrieve repository milestones via GitHubClient or gh api."""
     target_repo = _resolve_repo(repo)
-    cmd = [
-        CONST_GH_CLI,
-        "milestone",
-        "list",
-        "--state",
-        state,
-        "--json",
-        "title,state,open_issues,closed_issues,due_on",
-    ]
-    if repo:
-        cmd.extend(["--repo", repo])
-    res = run_subprocess(cmd, check=False, quiet=True)
-    if res.returncode == 0 and res.stdout.strip():
-        try:
-            return json.loads(res.stdout)  # type: ignore[no-any-return]
-        except json.JSONDecodeError:
-            pass
-
     client = _get_github_client()
     if client and target_repo != "unknown/repo":
         try:
             return client.get_milestones(target_repo, state=state)
         except Exception:
+            pass
+
+    cmd = [
+        CONST_GH_CLI,
+        "api",
+        "--paginate",
+        f"repos/{target_repo}/milestones?state={state}&per_page=100",
+    ]
+    res = run_subprocess(cmd, check=False, quiet=True)
+    if res.returncode == 0 and res.stdout.strip():
+        try:
+            raw = json.loads(res.stdout)
+            return [
+                {
+                    "title": m.get("title", ""),
+                    "number": m.get("number", 0),
+                    "state": m.get("state", "open"),
+                    "description": m.get("description", "") or "",
+                    "open_issues": m.get("open_issues", 0),
+                    "closed_issues": m.get("closed_issues", 0),
+                    "due_on": m.get("due_on"),
+                }
+                for m in raw
+                if isinstance(m, dict)
+            ]
+        except json.JSONDecodeError:
             pass
     return []
 
@@ -319,22 +340,29 @@ def sync_milestones(
 
         class _GhCliMilestoneShim:
             def get_milestones(self, r: str, state: str = "all") -> list[dict[str, Any]]:
-                return _get_repo_milestones(repo, state=state)
+                return _get_repo_milestones(r, state=state)
 
             def create_milestone(
-                self, r: str, title: str, description: str = "", state: str = "open"
+                self,
+                r: str,
+                title: str,
+                description: str = "",
+                state: str = "open",
+                due_on: Any = None,
             ) -> None:
                 cmd = [
                     CONST_GH_CLI,
-                    "milestone",
-                    "create",
-                    "--title",
-                    title,
-                    "--description",
-                    description,
+                    "api",
+                    f"repos/{r}/milestones",
+                    "-f",
+                    f"title={title}",
+                    "-f",
+                    f"description={description}",
+                    "-f",
+                    f"state={state}",
                 ]
-                if repo:
-                    cmd.extend(["--repo", repo])
+                if due_on:
+                    cmd.extend(["-f", f"due_on={due_on}"])
                 run_subprocess(cmd, check=False)
 
         client = _GhCliMilestoneShim()  # type: ignore[assignment]

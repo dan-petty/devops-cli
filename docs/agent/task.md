@@ -436,18 +436,31 @@
   - [x] Authored and pushed atomic commit `4feb91c` to `origin/release/v0.2.11`
   - [x] Replied to all 4 Copilot discussion threads on PR #38
   - [x] Monitored remote CI quality gates on `4feb91c` until 100% green (`gh pr checks 38` — 4/4 checks passed)
-
+  - [x] PR #38 squash-merged into `main` by maintainer Daniel Petty (commit `22bba04`)
+  - [x] Release Orchestrator workflow run completed successfully (`v0.2.11` release tag and release published)
 
 ---
 
 ### In-Progress Tasks (WIP)
-- None (Phase 47 DevSecOps Architectural Review and Hardening complete)
+- [ ] Phase 47.4: Automated PR DevContainer Pruning & GHCR Package Lifecycle (Release v0.2.12 — Issue #39)
+  - [x] Create Next Version Release Branch (`release/v0.2.12` branched from `origin/main` and pushed to `origin/release/v0.2.12`)
+  - [x] Initialize Topic Branch (`feat/cleanup-pr-devcontainers` tracking `origin/release/v0.2.12`)
+  - [x] Author GitHub Actions PR Cleanup Workflow (`.github/workflows/cleanup-devcontainer.yml` pruning `devops-cli/devcontainer:pr-<number>` on PR close & supporting manual `workflow_dispatch` with `dry_run` safety option)
+  - [x] Workflow Syntax & Actionlint Gate Validation (`uv run devops ci actionlint` passed cleanly)
+  - [x] Synchronize GitHub Projects v2 Task Tracking (`docs/agent/task.md` aligned with `.github/project-template.json`)
+  - [x] Update Agent Instructions for GitHub Project & Issue Integrations (`AGENTS.md`, `docs/ROUTINE_TASKS.md`, `docs/agent/README.md`)
+  - [x] Create Tracking Issue #39 on GitHub linked to milestone `v0.2.12`
+  - [x] Author Atomic Commit on `feat/cleanup-pr-devcontainers` (commit `21711bd`)
+  - [x] Open Pull Request Targeting `release/v0.2.12` with Conventional Commit Title & Labels linking Issue #39 (`Closes #39` on PR #44)
+  - [ ] Monitor Remote CI Checks on PR #44
+  - [ ] Execute Workflow Dispatch Stale Pruning for Historical `pr-38` Tag
+
 
 ---
 
 ### Pending Tasks
 - [ ] Phase 48: Infrastructure Perimeter, Supply Chain & Workstation Zero-Trust (Release v0.2.12)
-  - [ ] Cluster Default-Deny NetworkPolicies for remaining namespaces (`k8s/monitoring/`, `k8s/argocd/`)
-  - [ ] Subprocess Environment Isolation & Credential Boundary (`src/devops_cli/core/process.py`)
-  - [ ] Immutable GitHub Actions Commit SHA Pinning (`.github/workflows/ci.yml`, `release.yml`)
-  - [ ] Qdrant Vector Database API Key Secret Protection (`k8s/llm/values-qdrant.yaml`)
+  - [ ] Cluster Default-Deny NetworkPolicies for remaining namespaces (`k8s/monitoring/`, `k8s/argocd/` — Issue #40)
+  - [ ] Subprocess Environment Isolation & Credential Boundary (`src/devops_cli/core/process.py` — Issue #41)
+  - [ ] Immutable GitHub Actions Commit SHA Pinning (`.github/workflows/ci.yml`, `release.yml` — Issue #42)
+  - [ ] Qdrant Vector Database API Key Secret Protection (`k8s/llm/values-qdrant.yaml` — Issue #43)
