@@ -380,6 +380,32 @@ def test_runner_executes_with_pydantic_exceptions() -> None:
     assert "Please specify a valid cluster context" in str(res_retry)
 
 
+def test_runner_tool_timeout_enforced_without_blocking() -> None:
+    """Verify _execute_single_tool enforces timeout and does not block on hung worker threads."""
+    import time
+
+    from devops_cli.ai.agents.context import RunContext
+    from devops_cli.ai.agents.runner import _execute_single_tool
+    from devops_cli.ai.agents.tools import Tool
+
+    def slow_tool() -> str:
+        time.sleep(1.0)
+        return "slow_done"
+
+    tool = Tool(name="slow_tool", description="slow tool", function=slow_tool, timeout=0.05)
+    dummy_ctx: Any = RunContext(deps=None)
+
+    start_time = time.perf_counter()
+    status, _, res = _execute_single_tool(
+        tool, "slow_tool", {}, [], ctx=dummy_ctx, default_timeout=None
+    )
+    elapsed = time.perf_counter() - start_time
+
+    assert status == "retry_requested"
+    assert "Timed out after 0.05 seconds" in str(res)
+    assert elapsed < 0.5
+
+
 def test_generate_error_catalog_includes_all_ai_exceptions() -> None:
     """Verify that all AI domain exceptions are detected by docs generator error catalog."""
     from devops_cli.docs.generator import DocGenerator
