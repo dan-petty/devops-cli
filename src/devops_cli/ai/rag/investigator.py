@@ -55,6 +55,7 @@ def _get_or_create_retriever(
     )
     qdrant = QdrantClient(
         base_url=qdrant_url,
+        api_key=settings_mod.get_qdrant_api_key(st),
         allow_private_network=st.ai.allow_private_network,
     )
     if not qdrant.is_alive():

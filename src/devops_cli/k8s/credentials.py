@@ -136,6 +136,27 @@ def fetch_grafana_password(
     return None
 
 
+@trace_span("k8s.credentials.qdrant")
+def fetch_qdrant_api_key(
+    namespace: str = "llm",
+    context: str | None = None,
+    save_to_keyring: bool = True,
+) -> str | None:
+    """Fetch Qdrant API key from Kubernetes Secret and store in keyring."""
+    key = fetch_secret_field(
+        secret_name="qdrant-api-key",
+        field="api-key",
+        namespace=namespace,
+        context=context,
+    )
+    if key and save_to_keyring:
+        _keyring_set("qdrant_api_key", key)
+        GLOBAL_METRICS.increment_counter(
+            "k8s_credentials_synced_total", labels={"service": "qdrant"}
+        )
+    return key
+
+
 @trace_span("k8s.credentials.sync")
 def sync_k8s_credentials(
     context: str | None = None,
@@ -150,5 +171,9 @@ def sync_k8s_credentials(
 
         grafana_pw = fetch_grafana_password(context=context, save_to_keyring=save_to_keyring)
         results["grafana"] = grafana_pw is not None
+
+    if stack in ("llm", "all"):
+        qdrant_key = fetch_qdrant_api_key(context=context, save_to_keyring=save_to_keyring)
+        results["qdrant"] = qdrant_key is not None
 
     return results

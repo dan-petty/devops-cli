@@ -490,8 +490,7 @@
 
 ---
 
-### In-Progress Tasks (WIP)
-- [/] Phase 48.3: Cluster Default-Deny NetworkPolicies (Release v0.2.12 — Issue #40)
+- [x] Phase 48.3: Cluster Default-Deny NetworkPolicies (Release v0.2.12 — Issue #40)
   - [x] Audit existing NetworkPolicies across `k8s/` (`k8s/llm/` and root `k8s/`)
   - [x] Author declarative default-deny ingress & egress NetworkPolicy manifests for `k8s/monitoring/` and `k8s/argocd/` with explicit DNS and intra-namespace rules
   - [x] Update kustomization manifests (`k8s/monitoring/kustomization.yaml`, `k8s/argocd/kustomization.yaml`) to incorporate new NetworkPolicies
@@ -500,13 +499,31 @@
   - [x] Monitor Remote CI Checks on PR #47 (all 4 checks passed 100% green)
   - [x] Address GitHub Copilot review feedback (API server egress scoping, tightened assertions, ingress comment clarification) in commit `1003b75`
   - [x] Verify updated remote CI checks on PR #47 (all 4 checks green)
-  - [ ] Maintainer squash-merge PR #47 into `release/v0.2.12`
+  - [x] PR #47 squash-merged by maintainer Daniel Petty (commit `b7657a9`) into `release/v0.2.12`
+  - [x] Automated devcontainer pruning verified for `pr-47` (run ID `34064003310`, 3 images deleted)
+  - [x] Closed tracking Issue #40 on GitHub
+  - [x] Fast-forwarded local `release/v0.2.12` and deleted merged topic branch `feat/cluster-default-deny-networkpolicies`
+
+---
+
+### In-Progress Tasks (WIP)
+- [/] Phase 48.4: Qdrant Vector Database API Key Secret Protection (Release v0.2.12 — Issue #43)
+  - [x] Update `k8s/llm/values-qdrant.yaml` to configure `service.type: ClusterIP`, `apiKey: false`, `readOnlyApiKey: false`, and `extraEnv` injecting `QDRANT__SERVICE__API_KEY` from secret `qdrant-api-key`.
+  - [x] Register `qdrant.api_key` in config options (`src/devops_cli/config/options.py`), environment mapping (`src/devops_cli/config/env.py`), secret audit list, and settings model (`src/devops_cli/config/settings.py`).
+  - [x] Update RAG subsystem (`src/devops_cli/ai/rag/indexer.py`, `qdrant.py`, `investigator.py`, `commands/rag.py`, `builtin_tools.py`) to authenticate using OS Keyring via `get_qdrant_api_key(settings)`.
+  - [x] Update Kubernetes secret provisioning (`src/devops_cli/k8s/credentials.py`, `src/devops_cli/commands/k8s/stack_lifecycle.py`) to create and sync `qdrant-api-key` secret during LLM stack deployment.
+  - [x] Author test suite `tests/test_k8s_qdrant_security.py` validating manifest, env injection, ClusterIP, and RAG keyring resolution.
+  - [x] Update `tests/test_config_audit_keys.py` to assert audited secret options.
+  - [x] Validate Checkov IaC scan on `k8s/` and architectural invariants.
+  - [x] Run full CI verification gate (`uv run devops ci`).
+  - [x] Author atomic commit and open PR #48 targeting `release/v0.2.12` linking `Closes #43`.
+  - [x] Monitor Remote CI Checks on PR #48 (all 4 checks passed 100% green).
+  - [x] Address GitHub Copilot review feedback (stdin secret apply, deploy_stack fail-fast, debug logging) in commit `29bdabe`, reply to comments, and mark all 4 review threads resolved.
+  - [ ] Maintainer squash-merge PR #48 into `release/v0.2.12`.
 
 ---
 
 ### Pending Tasks
-- [ ] Phase 48: Infrastructure Perimeter, Supply Chain & Workstation Zero-Trust (Release v0.2.12)
-  - [ ] Qdrant Vector Database API Key Secret Protection (`k8s/llm/values-qdrant.yaml` — Issue #43)
 - [ ] Valkey Workstation Management & High-Performance Distributed Caching Tier (Milestone v0.2.12)
   - [ ] Valkey Workstation CLI Subsystem (`devops valkey` — ping, info, stats, keys, get, set, flush, cli, backup/restore)
   - [ ] Distributed AI Embedding Cache Tier (`ai.cache.backend=valkey` — SHA-256 keyed cache with LRU eviction)

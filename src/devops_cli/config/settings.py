@@ -144,6 +144,7 @@ class QdrantConfig(BaseModel):
     model_config = ConfigDict(frozen=False)
     url: str | None = DEFAULT_QDRANT_URL
     collection_prefix: str = "devops"
+    api_key: str | None = None
 
 
 class JaegerConfig(BaseModel):
@@ -552,6 +553,10 @@ def get_argocd_password(settings: Settings) -> str | None:
 
 def get_ai_api_key(settings: Settings) -> str | None:
     return _keyring_get(_KEYRING_KEYS[opt.AI_API_KEY])
+
+
+def get_qdrant_api_key(settings: Settings) -> str | None:
+    return _keyring_get(_KEYRING_KEYS[opt.QDRANT_API_KEY]) or settings.qdrant.api_key
 
 
 def get_llm_client(task: str | None = None) -> Any:
