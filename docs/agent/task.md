@@ -477,10 +477,14 @@
 
 ### In-Progress Tasks (WIP)
 - [/] Phase 48.2: Subprocess Environment Isolation & Credential Boundary (Release v0.2.12 — Issue #41)
-  - [x] Author failing unit tests in `tests/test_subprocess_env_boundary.py` establishing environment sanitization contracts
+  - [x] Author unit tests in `tests/test_subprocess_env_boundary.py` establishing environment sanitization contracts
   - [x] Implement environment sanitization and credential boundary in `src/devops_cli/core/process.py` (`build_subprocess_env`, `DEFAULT_ALLOWED_ENV_VARS`, `DEFAULT_DENIED_ENV_PATTERNS`, `isolate_env=True`)
   - [x] Verify local quality gate (`uv run devops ci` — 10/10 gates green, coverage >= 90%)
-  - [ ] Open PR targeting `release/v0.2.12` linking `Closes #41`
+  - [x] Author atomic commit and open PR #46 targeting `release/v0.2.12` linking `Closes #41`
+  - [x] Monitor Remote CI Checks on PR #46 (all 4 checks passed 100% green)
+  - [x] Address GitHub Copilot review feedback (case-insensitive env keys and test baseline monkeypatching) in commit `92aab39`
+  - [x] Verify updated remote CI checks on PR #46 (all 4 checks green)
+  - [ ] Maintainer squash-merge PR #46 into `release/v0.2.12`
 
 ---
 
