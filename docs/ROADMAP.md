@@ -269,7 +269,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
 - [x] **Automated PR DevContainer Pruning & Package Lifecycle (Phase 47.4)**: Author automated GHCR cleanup workflow (`cleanup-devcontainer.yml`) pruning PR-specific devcontainer tags upon PR closure.
 - [ ] **Infrastructure Perimeter, Supply Chain & Workstation Zero-Trust (Phase 48)**:
   - [x] **Kubernetes Pod Security Admission (PSA) Enforcement**: Apply PSA enforcement and audit labels across all namespaces in `k8s/namespaces.yaml` and `k8s/llm/namespace.yaml`.
-  - [ ] **Cluster Default-Deny NetworkPolicies**: Author granular `NetworkPolicy` manifests for `k8s/monitoring/` and `k8s/argocd/` with explicit DNS and inter-service egress rules.
+  - [x] **Cluster Default-Deny NetworkPolicies**: Author granular `NetworkPolicy` manifests for `k8s/monitoring/` and `k8s/argocd/` with explicit DNS and inter-service egress rules.
   - [x] **Subprocess Environment Isolation & Credential Boundary**: Restrict default environment inheritance in `run_subprocess` (`src/devops_cli/core/process.py`) to prevent ambient token leakage to untrusted child binaries.
   - [x] **Immutable GitHub Actions Commit SHA Pinning**: Pin all actions across `.github/workflows/ci.yml`, `codeql.yml`, and `release.yml` to immutable 40-character commit SHAs with inline version comments.
   - [ ] **Qdrant Vector Database API Key Secret Protection**: Add optional API key authentication support and ClusterIP default configuration for production deployments in `k8s/llm/values-qdrant.yaml`.

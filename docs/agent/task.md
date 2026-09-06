@@ -475,8 +475,7 @@
 
 ---
 
-### In-Progress Tasks (WIP)
-- [/] Phase 48.2: Subprocess Environment Isolation & Credential Boundary (Release v0.2.12 — Issue #41)
+- [x] Phase 48.2: Subprocess Environment Isolation & Credential Boundary (Release v0.2.12 — Issue #41)
   - [x] Author unit tests in `tests/test_subprocess_env_boundary.py` establishing environment sanitization contracts
   - [x] Implement environment sanitization and credential boundary in `src/devops_cli/core/process.py` (`build_subprocess_env`, `DEFAULT_ALLOWED_ENV_VARS`, `DEFAULT_DENIED_ENV_PATTERNS`, `isolate_env=True`)
   - [x] Verify local quality gate (`uv run devops ci` — 10/10 gates green, coverage >= 90%)
@@ -484,13 +483,29 @@
   - [x] Monitor Remote CI Checks on PR #46 (all 4 checks passed 100% green)
   - [x] Address GitHub Copilot review feedback (case-insensitive env keys and test baseline monkeypatching) in commit `92aab39`
   - [x] Verify updated remote CI checks on PR #46 (all 4 checks green)
-  - [ ] Maintainer squash-merge PR #46 into `release/v0.2.12`
+  - [x] PR #46 squash-merged by maintainer Daniel Petty (commit `5595ff6`) into `release/v0.2.12`
+  - [x] Automated devcontainer pruning verified for `pr-46` (run ID `34062560747`, 3 images deleted)
+  - [x] Closed tracking Issue #41 on GitHub
+  - [x] Fast-forwarded local `release/v0.2.12` and deleted merged topic branch `feat/subprocess-env-boundary`
+
+---
+
+### In-Progress Tasks (WIP)
+- [/] Phase 48.3: Cluster Default-Deny NetworkPolicies (Release v0.2.12 — Issue #40)
+  - [x] Audit existing NetworkPolicies across `k8s/` (`k8s/llm/` and root `k8s/`)
+  - [x] Author declarative default-deny ingress & egress NetworkPolicy manifests for `k8s/monitoring/` and `k8s/argocd/` with explicit DNS and intra-namespace rules
+  - [x] Update kustomization manifests (`k8s/monitoring/kustomization.yaml`, `k8s/argocd/kustomization.yaml`) to incorporate new NetworkPolicies
+  - [x] Author automated tests validating manifest syntax and policy rules via pytest (`tests/test_k8s_network_policies.py` — 14/14 passed) and Checkov IaC validation
+  - [x] Author atomic commit and open PR #47 targeting `release/v0.2.12` linking `Closes #40`
+  - [x] Monitor Remote CI Checks on PR #47 (all 4 checks passed 100% green)
+  - [x] Address GitHub Copilot review feedback (API server egress scoping, tightened assertions, ingress comment clarification) in commit `1003b75`
+  - [x] Verify updated remote CI checks on PR #47 (all 4 checks green)
+  - [ ] Maintainer squash-merge PR #47 into `release/v0.2.12`
 
 ---
 
 ### Pending Tasks
 - [ ] Phase 48: Infrastructure Perimeter, Supply Chain & Workstation Zero-Trust (Release v0.2.12)
-  - [ ] Cluster Default-Deny NetworkPolicies for remaining namespaces (`k8s/monitoring/`, `k8s/argocd/` — Issue #40)
   - [ ] Qdrant Vector Database API Key Secret Protection (`k8s/llm/values-qdrant.yaml` — Issue #43)
 - [ ] Valkey Workstation Management & High-Performance Distributed Caching Tier (Milestone v0.2.12)
   - [ ] Valkey Workstation CLI Subsystem (`devops valkey` — ping, info, stats, keys, get, set, flush, cli, backup/restore)
