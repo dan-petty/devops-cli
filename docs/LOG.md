@@ -25,6 +25,19 @@ Chronological log of refactoring milestones, quality gates, and security enhance
   - Squash-merged PR #38 into `main` by maintainer Daniel Petty (commit `22bba04`).
   - Automated Release Orchestrator workflow triggered on `main` push, successfully cutting git tag `v0.2.11` and publishing release assets.
 
+### [2026-09-06] Cluster Default-Deny NetworkPolicies for Monitoring and ArgoCD (Phase 48.3 — Issue #40)
+- **Zero-Trust Infrastructure Perimeter & Network Isolation**:
+  - Implemented declarative default-deny ingress and egress `NetworkPolicy` manifests for `monitoring` (`k8s/monitoring/networkpolicy.yaml`) and `argocd` (`k8s/argocd/networkpolicy.yaml`).
+  - Strict intra-namespace pod-to-pod isolation with explicit exceptions for core communication flows.
+  - CoreDNS egress on port 53 (UDP and TCP) to `kube-system` explicitly permitted across both policies.
+  - Cloud instance metadata endpoint (`169.254.169.254/32`) strictly blocked via `ipBlock.except` on all outbound internet/egress rules to eliminate SSRF attack vectors.
+  - `monitoring`: Permits UI/NodePort ingress to Grafana (3000) and Prometheus (9090), remote-write metrics push from `otel` namespace, Kubernetes API server / kubelet scraping, and cross-namespace metric scraping of `llm` (qdrant:6333, ollama:11434) and `otel` (jaeger:16686, otel-collector:8888).
+  - `argocd`: Permits UI/API ingress on ports 8080 and 443, Prometheus metric scraping from `monitoring`, Kubernetes API server cluster reconciliation, and Git / Helm egress (HTTPS 443, SSH 22, Git 9418) with metadata SSRF blocked.
+  - Updated `k8s/monitoring/kustomization.yaml` and `k8s/argocd/kustomization.yaml` to include `networkpolicy.yaml`.
+- **Quality Gates & Test-First Verification**:
+  - Authored comprehensive test suite `tests/test_k8s_network_policies.py` (14/14 green) validating schema structure, policyTypes, DNS egress, SSRF exception rules, and namespace-specific port allocations.
+  - Validated with `devops k8s validate` (Kubeconform OpenAPI schema validation) and `devops scan iac` (Checkov IaC compliance scan — 0 violations).
+
 ### [2026-09-06] Subprocess Environment Isolation & Credential Boundary (Phase 48.2 — Issue #41)
 - **Zero Ambient Credential Leakage & Subprocess Boundary**:
   - Implemented ambient environment variable isolation in `src/devops_cli/core/process.py` (`build_subprocess_env`), strictly stripping ambient secrets (`GITHUB_TOKEN`, `GH_TOKEN`, `VAULT_TOKEN`, LLM API keys, cloud provider secrets, passwords) matching `DEFAULT_DENIED_ENV_PATTERNS` (`*TOKEN*`, `*SECRET*`, `*KEY*`, `*PASSWORD*`, `*CREDENTIAL*`, `*AUTH*`, `*PRIVATE*`).
@@ -38,6 +51,14 @@ Chronological log of refactoring milestones, quality gates, and security enhance
   - All existing process test suites (`tests/test_process.py`, `tests/test_consolidation_process_json.py`) passing 100%.
   - Verified full quality gate via `uv run devops ci` (10/10 gates green, coverage >= 90%).
   - Architectural invariants validated (`devops scan complexity`, `tests/test_architectural_invariants.py` — cyclomatic complexity <= 10, nesting depth <= 5).
+- **Pull Request #46 Verification & Copilot Feedback**:
+  - Opened PR #46 targeting `release/v0.2.12` linking `Closes #41` with taxonomy labels `type/security`, `scope/security`, `priority/P1-High`.
+  - Addressed Copilot code review comments in commit `92aab39`: normalized environment variable key casing for cross-platform matching (Windows) and established deterministic baseline `PATH` and `HOME` variables in child execution tests; added `test_build_subprocess_env_case_insensitivity`.
+  - Remote CI quality gates (`CodeQL Advanced/Analyze (actions)`, `CodeQL Advanced/Analyze (python)`, `CodeQL`, `CI Quality Gate/Validation`) passed 100% green.
+  - PR #46 squash-merged into `release/v0.2.12` by maintainer Daniel Petty (commit `5595ff6`).
+  - Automated `Cleanup PR DevContainer` workflow triggered on PR close (run ID `34062560747`), successfully pruning 3 `pr-46` images/layers from GHCR.
+  - Closed tracking Issue #41 on GitHub.
+  - Fast-forwarded local `release/v0.2.12` and pruned merged topic branch `feat/subprocess-env-boundary`.
 
 ### [2026-09-06] Immutable GitHub Actions Commit SHA Pinning (Phase 48.1 — Issue #42)
 - **Supply Chain Security & Immutable Actions Pinning**:

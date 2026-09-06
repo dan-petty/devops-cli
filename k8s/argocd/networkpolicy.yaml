@@ -1,0 +1,76 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: argocd-default-perimeter
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # 1. Allow intra-namespace pod communications (server, repo-server, controller, valkey/redis)
+    - from:
+        - podSelector: {}
+    # 2. Allow UI and API access to ArgoCD Server (8080, 443) from workstation / ingress controllers
+    - from:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - protocol: TCP
+          port: 8080
+        - protocol: TCP
+          port: 443
+    # 3. Allow Prometheus in monitoring namespace to scrape ArgoCD component metrics
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 8082
+        - protocol: TCP
+          port: 8084
+        - protocol: TCP
+          port: 9121
+  egress:
+    # 1. Allow intra-namespace pod communications
+    - to:
+        - podSelector: {}
+    # 2. Allow CoreDNS lookups in kube-system
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # 3. Allow Kubernetes API server access across cluster for resource reconciliation
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 6443
+        - protocol: TCP
+          port: 8443
+    # 4. Allow Git (HTTPS 443, SSH 22, Git daemon 9418) and Helm pulls while strictly blocking cloud metadata SSRF
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 169.254.169.254/32
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 80
+        - protocol: TCP
+          port: 22
+        - protocol: TCP
+          port: 9418
