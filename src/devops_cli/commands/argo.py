@@ -249,11 +249,37 @@ def cd_apps_bootstrap_gitops(
         )
         return
 
-    if not root_app_path.exists():
-        print_error(f"Root app manifest not found at {root_app_path}", prefix=False)
+    resolved_manifest = root_app_path.resolve()
+    if not resolved_manifest.exists() or not resolved_manifest.is_file():
+        print_error(f"Root app manifest not found or not a file: {root_app_path}", prefix=False)
         raise typer.Exit(1)
 
-    cmd = ["kubectl", "apply", "-f", str(root_app_path)]
+    if resolved_manifest.suffix.lower() not in (".yaml", ".yml"):
+        print_error(
+            f"Invalid root app manifest format '{root_app_path}'; expected .yaml or .yml",
+            prefix=False,
+        )
+        raise typer.Exit(1)
+
+    import tempfile
+
+    from devops_cli.core.repo import find_repo_root
+
+    repo_root = find_repo_root().resolve()
+    cwd_root = Path.cwd().resolve()
+    temp_root = Path(tempfile.gettempdir()).resolve()
+    if not (
+        resolved_manifest.is_relative_to(repo_root)
+        or resolved_manifest.is_relative_to(cwd_root)
+        or resolved_manifest.is_relative_to(temp_root)
+    ):
+        print_error(
+            f"Root app manifest '{root_app_path}' resolves outside allowed workspace or temporary directory",
+            prefix=False,
+        )
+        raise typer.Exit(1)
+
+    cmd = ["kubectl", "apply", "-f", str(resolved_manifest)]
     if context:
         cmd.extend(["--context", context])
 

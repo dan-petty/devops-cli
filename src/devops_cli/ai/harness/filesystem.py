@@ -248,6 +248,9 @@ class FileSystem(BaseCapability):
         if not safe_p.is_dir():
             return f"Error: not a directory: {path}"
 
+        if len(query) > 256:
+            return f"Error: Search query exceeds maximum length of 256 characters ({len(query)} characters)."
+
         try:
             pattern_re = re.compile(query, re.IGNORECASE)
         except re.error as e:

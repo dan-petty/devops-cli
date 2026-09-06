@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import urllib.parse
 from typing import Annotated
 
 import typer
@@ -28,7 +29,8 @@ def _validate_vault_path(path: str) -> None:
     clean = path.strip()
     if not clean:
         raise VaultConfigurationError("Vault secret path cannot be empty.")
-    if ".." in clean:
+    unquoted = urllib.parse.unquote(clean)
+    if ".." in clean or ".." in unquoted:
         raise VaultConfigurationError("Vault secret path cannot contain '..' traversal sequences.")
     if not VAULT_PATH_PATTERN.match(clean):
         raise VaultConfigurationError(f"Vault secret path contains invalid characters: '{path}'")

@@ -8,9 +8,8 @@ metadata:
 spec:
   project: default
   source:
-    # Local minikube: Uses local workstation git daemon over unauthenticated git:// protocol.
-    # Production: Replace with authenticated HTTPS (https://github.com/org/repo.git) or SSH (git@github.com:org/repo.git).
-    repoURL: git://host.minikube.internal:9418/k8s
+    # Secure GitOps repository via HTTPS (or authenticated SSH)
+    repoURL: https://github.com/dan-petty/devops-cli.git
     targetRevision: HEAD
     path: monitoring
   destination:
@@ -33,7 +32,8 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: git://host.minikube.internal:9418/k8s
+    # Secure GitOps repository via HTTPS (or authenticated SSH)
+    repoURL: https://github.com/dan-petty/devops-cli.git
     targetRevision: HEAD
     path: otel
   destination:
