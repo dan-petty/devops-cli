@@ -25,6 +25,20 @@ Chronological log of refactoring milestones, quality gates, and security enhance
   - Squash-merged PR #38 into `main` by maintainer Daniel Petty (commit `22bba04`).
   - Automated Release Orchestrator workflow triggered on `main` push, successfully cutting git tag `v0.2.11` and publishing release assets.
 
+### [2026-09-06] Subprocess Environment Isolation & Credential Boundary (Phase 48.2 — Issue #41)
+- **Zero Ambient Credential Leakage & Subprocess Boundary**:
+  - Implemented ambient environment variable isolation in `src/devops_cli/core/process.py` (`build_subprocess_env`), strictly stripping ambient secrets (`GITHUB_TOKEN`, `GH_TOKEN`, `VAULT_TOKEN`, LLM API keys, cloud provider secrets, passwords) matching `DEFAULT_DENIED_ENV_PATTERNS` (`*TOKEN*`, `*SECRET*`, `*KEY*`, `*PASSWORD*`, `*CREDENTIAL*`, `*AUTH*`, `*PRIVATE*`).
+  - Preserved essential workstation, system, and tooling environment variables via `DEFAULT_ALLOWED_ENV_VARS` (`PATH`, `HOME`, `USER`, `TMPDIR`, `VIRTUAL_ENV`, `LANG`, `LC_*`, `OTEL_*`, `W3C_*`, `DEVOPS_CLI_*`, `KUBECONFIG`, `DOCKER_*`, `GIT_*`).
+  - Added support for caller-provided explicit environment variable overrides (`env`), always giving precedence to intentional caller-specified tokens without leaking parent environment secrets.
+  - Added opt-out capability via `isolate_env=False` and selective extension via `extra_allowed_env`.
+  - Propagated environment isolation uniformly across `run_subprocess`, `run_subprocess_async`, and `run_json_subprocess`.
+  - Exported `build_subprocess_env`, `DEFAULT_ALLOWED_ENV_VARS`, `DEFAULT_ALLOWED_ENV_PREFIXES`, and `DEFAULT_DENIED_ENV_PATTERNS` in `src/devops_cli/core/__init__.py`.
+- **Quality Gates & Test-First Verification**:
+  - Authored comprehensive test suite `tests/test_subprocess_env_boundary.py` (8/8 green) covering allowlists, denylists, caller overrides, isolation bypass, extra keys, real child process execution via `sys.executable`, async parity, and JSON subprocess parity.
+  - All existing process test suites (`tests/test_process.py`, `tests/test_consolidation_process_json.py`) passing 100%.
+  - Verified full quality gate via `uv run devops ci` (10/10 gates green, coverage >= 90%).
+  - Architectural invariants validated (`devops scan complexity`, `tests/test_architectural_invariants.py` — cyclomatic complexity <= 10, nesting depth <= 5).
+
 ### [2026-09-06] Immutable GitHub Actions Commit SHA Pinning (Phase 48.1 — Issue #42)
 - **Supply Chain Security & Immutable Actions Pinning**:
   - Pinned all third-party GitHub Actions across `.github/workflows/` to immutable 40-character commit SHAs with inline version comments, eliminating mutable tag spoofing risks.
@@ -32,6 +46,14 @@ Chronological log of refactoring milestones, quality gates, and security enhance
   - `.github/workflows/codeql.yml`: Pinned `actions/checkout` (v7), `github/codeql-action/init` (v4), `github/codeql-action/analyze` (v4).
   - `.github/workflows/release.yml`: Pinned `actions/checkout` (v7), `astral-sh/setup-uv` (v10.0.1), `softprops/action-gh-release` (v3), `docker/login-action` (v4), `devcontainers/ci` (v0.3).
   - Validated all workflows via `actionlint` with zero errors.
+- **Pull Request #45 Verification & Copilot Feedback**:
+  - Opened PR #45 targeting `release/v0.2.12` linking `Closes #42` with taxonomy labels `type/security`, `scope/github`, `priority/P2-Medium`.
+  - Addressed Copilot code review comments by updating `docs/ROADMAP.md` status to completed and broadening workflow references.
+  - Remote CI quality gates (`CodeQL Advanced/Analyze (actions)`, `CodeQL Advanced/Analyze (python)`, `CodeQL`, `CI Quality Gate/Validation`) passed 100% green.
+  - PR #45 squash-merged into `release/v0.2.12` by maintainer Daniel Petty (commit `347bed4`).
+  - Automated `Cleanup PR DevContainer` workflow triggered on PR close (run ID `34061068046`), successfully pruning 3 `pr-45` images/layers from GHCR.
+  - Closed tracking Issue #42 on GitHub.
+  - Fast-forwarded local `release/v0.2.12` and pruned merged topic branch `feat/actions-sha-pinning`.
 
 ### [2026-09-06] PR DevContainer Image Pruning, Release Branch v0.2.12 & GitHub Project Tracking (Phase 47.4)
 - **Release Branch Setup (`release/v0.2.12`)**:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import fnmatch
 import json
 import os
 import subprocess
@@ -22,6 +23,125 @@ _QUIET_SUBPROCESS_ARGS = frozenset(
     {"rev-parse", "symbolic-ref", "for-each-ref", "diff", "cat-file", "tag", "remote", "status"}
 )
 
+DEFAULT_ALLOWED_ENV_VARS: frozenset[str] = frozenset(
+    {
+        "PATH",
+        "PATHEXT",
+        "SHELL",
+        "COMSPEC",
+        "SYSTEMROOT",
+        "WINDIR",
+        "SYSTEMDRIVE",
+        "HOME",
+        "USER",
+        "LOGNAME",
+        "HOMEDRIVE",
+        "HOMEPATH",
+        "USERPROFILE",
+        "TMPDIR",
+        "TMP",
+        "TEMP",
+        "TERM",
+        "COLORTERM",
+        "LANG",
+        "LC_ALL",
+        "LC_CTYPE",
+        "LC_MESSAGES",
+        "LC_COLLATE",
+        "TZ",
+        "VIRTUAL_ENV",
+        "PYTHONPATH",
+        "PYTHONHOME",
+        "PYTHONUNBUFFERED",
+        "PYTHONDONTWRITEBYTECODE",
+        "TRACEPARENT",
+        "TRACESTATE",
+        "KUBECONFIG",
+        "DOCKER_HOST",
+        "DOCKER_CONFIG",
+        "DOCKER_TLS_VERIFY",
+        "DOCKER_CERT_PATH",
+        "PAGER",
+        "EDITOR",
+        "GIT_AUTHOR_NAME",
+        "GIT_AUTHOR_EMAIL",
+        "GIT_COMMITTER_NAME",
+        "GIT_COMMITTER_EMAIL",
+        "GIT_CONFIG_GLOBAL",
+        "GIT_CONFIG_SYSTEM",
+        "GIT_EXEC_PATH",
+        "CI",
+        "PYTEST_CURRENT_TEST",
+    }
+)
+
+DEFAULT_ALLOWED_ENV_PREFIXES: tuple[str, ...] = (
+    "DEVOPS_CLI_",
+    "OTEL_",
+    "W3C_",
+    "LC_",
+)
+
+DEFAULT_DENIED_ENV_PATTERNS: tuple[str, ...] = (
+    "*TOKEN*",
+    "*SECRET*",
+    "*KEY*",
+    "*PASSWORD*",
+    "*CREDENTIAL*",
+    "*AUTH*",
+    "*PRIVATE*",
+)
+
+
+def _is_env_var_denied(
+    key: str, denied_patterns: tuple[str, ...] = DEFAULT_DENIED_ENV_PATTERNS
+) -> bool:
+    """Predicate determining if an environment variable key matches sensitive credential patterns."""
+    upper_key = key.upper()
+    return any(fnmatch.fnmatchcase(upper_key, pat) for pat in denied_patterns)
+
+
+def _is_env_var_allowed(
+    key: str,
+    *,
+    allowed_vars: frozenset[str] = DEFAULT_ALLOWED_ENV_VARS,
+    allowed_prefixes: tuple[str, ...] = DEFAULT_ALLOWED_ENV_PREFIXES,
+    extra_allowed: frozenset[str] | set[str] | None = None,
+) -> bool:
+    """Predicate determining if an environment variable key is safe to pass to child processes."""
+    if key in allowed_vars:
+        return True
+    if extra_allowed and key in extra_allowed:
+        return True
+    return any(key.startswith(p) for p in allowed_prefixes)
+
+
+def build_subprocess_env(
+    env: dict[str, str] | None = None,
+    *,
+    isolate_env: bool = True,
+    extra_allowed_keys: set[str] | list[str] | frozenset[str] | None = None,
+) -> dict[str, str]:
+    """Build a sanitized subprocess environment isolating ambient credentials and secrets.
+
+    When isolate_env is True (default), ambient environment variables are filtered
+    against DEFAULT_ALLOWED_ENV_VARS and DEFAULT_ALLOWED_ENV_PREFIXES, while stripping
+    any variables matching DEFAULT_DENIED_ENV_PATTERNS. Caller-provided env overrides
+    are merged on top of the sanitized base, preserving explicit caller intent.
+    """
+    if not isolate_env:
+        base_env = dict(os.environ)
+    else:
+        extra_set = frozenset(extra_allowed_keys) if extra_allowed_keys else frozenset()
+        base_env = {
+            k: v
+            for k, v in os.environ.items()
+            if not _is_env_var_denied(k) and _is_env_var_allowed(k, extra_allowed=extra_set)
+        }
+    if env:
+        base_env.update(env)
+    return base_env
+
 
 def run_subprocess(
     cmd: list[str],
@@ -34,9 +154,11 @@ def run_subprocess(
     check: bool = False,
     quiet: bool = False,
     timeout: float = DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
+    isolate_env: bool = True,
+    extra_allowed_env: set[str] | list[str] | frozenset[str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Execute a subprocess command with unified timeout bounds, dry-run reporting,
-    W3C trace context propagation, and OTel tracing."""
+    W3C trace context propagation, OpenTelemetry tracing, and ambient environment isolation."""
     if is_dry_run() and not quiet and not _QUIET_SUBPROCESS_ARGS.intersection(cmd):
         print_dry_run_command(cmd, cwd=str(cwd) if cwd else None)
 
@@ -44,7 +166,11 @@ def run_subprocess(
     cmd_summary = " ".join(cmd[:8]) + ("..." if len(cmd) > 8 else "") if cmd else ""
     t0 = time.perf_counter()
 
-    sub_env = dict(env or os.environ)
+    sub_env = build_subprocess_env(
+        env=env,
+        isolate_env=isolate_env,
+        extra_allowed_keys=extra_allowed_env,
+    )
 
     with trace_span(
         f"subprocess.{bin_name}",
@@ -151,9 +277,11 @@ async def run_subprocess_async(
     check: bool = False,
     quiet: bool = False,
     timeout: float = DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
+    isolate_env: bool = True,
+    extra_allowed_env: set[str] | list[str] | frozenset[str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Execute a subprocess command asynchronously with non-blocking I/O, unified timeout bounds,
-    dry-run reporting, W3C trace context propagation, and OpenTelemetry tracing."""
+    dry-run reporting, W3C trace context propagation, OpenTelemetry tracing, and ambient environment isolation."""
     if getattr(subprocess.run, "__module__", "") != "subprocess":
         return await asyncio.to_thread(
             run_subprocess,
@@ -165,6 +293,8 @@ async def run_subprocess_async(
             check=check,
             quiet=quiet,
             timeout=timeout,
+            isolate_env=isolate_env,
+            extra_allowed_env=extra_allowed_env,
         )
 
     if is_dry_run() and not quiet and not _QUIET_SUBPROCESS_ARGS.intersection(cmd):
@@ -174,7 +304,11 @@ async def run_subprocess_async(
     cmd_summary = " ".join(cmd[:8]) + ("..." if len(cmd) > 8 else "") if cmd else ""
     t0 = time.perf_counter()
 
-    sub_env = dict(env or os.environ)
+    sub_env = build_subprocess_env(
+        env=env,
+        isolate_env=isolate_env,
+        extra_allowed_keys=extra_allowed_env,
+    )
 
     with trace_span(
         f"subprocess.{bin_name}",
@@ -319,6 +453,8 @@ def run_json_subprocess(
     default: Any = _JSON_UNSET,
     error_cls: type[DevOpsCLIError] | None = None,
     check: bool = True,
+    isolate_env: bool = True,
+    extra_allowed_env: set[str] | list[str] | frozenset[str] | None = None,
 ) -> Any:
     """Execute subprocess and safely deserialize its stdout as JSON.
 
@@ -332,6 +468,8 @@ def run_json_subprocess(
         default: Fallback value if JSON parsing fails.
         error_cls: Exception class to raise upon command or parsing failure (defaults to SubprocessError).
         check: Whether to raise on non-zero exit code immediately. If False, attempts to parse valid stdout JSON first.
+        isolate_env: Whether to isolate ambient environment secrets.
+        extra_allowed_env: Additional environment variable keys to preserve.
 
     Returns:
         Parsed JSON data structure (dict or list), or default if fallback provided.
@@ -348,6 +486,8 @@ def run_json_subprocess(
         quiet=quiet,
         timeout=timeout,
         check=False,
+        isolate_env=isolate_env,
+        extra_allowed_env=extra_allowed_env,
     )
 
     ret_code = res.returncode if isinstance(res.returncode, int) else 0
