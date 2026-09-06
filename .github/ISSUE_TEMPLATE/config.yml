@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 💬 GitHub Discussions
+    url: https://github.com/dan-petty/devops-cli/discussions
+    about: Ask questions, share ideas, and discuss DevOps CLI features with the community.
+  - name: 🔒 Security Vulnerability Reporting
+    url: https://github.com/dan-petty/devops-cli/security/policy
+    about: Privately disclose sensitive security vulnerabilities according to our SECURITY.md policy.

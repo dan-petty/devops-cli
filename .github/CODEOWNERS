@@ -1,0 +1,34 @@
+# DevOps CLI — Enterprise Code Ownership
+# Lines starting with '#' are comments.
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Global Fallback Owner
+* @dan-petty
+
+# Core Framework & CLI Commands
+/src/devops_cli/core/ @dan-petty
+/src/devops_cli/commands/ @dan-petty
+/src/devops_cli/config/ @dan-petty
+/src/devops_cli/exceptions/ @dan-petty
+
+# AI Subsystem & FastMCP Integrations
+/src/devops_cli/ai/ @dan-petty
+/src/devops_cli/ai/mcp/ @dan-petty
+/src/devops_cli/ai/review/ @dan-petty
+/src/devops_cli/ai/knowledge_base/ @dan-petty
+
+# Kubernetes, Cluster & Cloud Stacks
+/src/devops_cli/k8s/ @dan-petty
+/k8s/ @dan-petty
+
+# Security & Static Scanning Engines
+/src/devops_cli/security/ @dan-petty
+/src/devops_cli/vault/ @dan-petty
+
+# Telemetry & Distributed Observability
+/src/devops_cli/telemetry/ @dan-petty
+
+# CI/CD, Workflows & GitHub Governance
+/.github/ @dan-petty
+/pyproject.toml @dan-petty
+/uv.lock @dan-petty
