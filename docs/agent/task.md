@@ -304,5 +304,5 @@
 ---
 
 ### Pending Tasks
-- Await maintainer review and merge approval for PR #32 targeting `release/v0.2.11`.
-- Await maintainer review and merge approval for PR #34 targeting `release/v0.2.11`.
+- Await maintainer review and merge approval for PR #34 targeting `release/v0.2.11` (PR #32 and PR #33 merged).
+- Await maintainer review and merge approval for PR #35 targeting `release/v0.2.11`.
