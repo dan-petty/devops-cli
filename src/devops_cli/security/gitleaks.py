@@ -118,12 +118,20 @@ def parse_gitleaks_json(data: list[dict[str, Any]]) -> list[Finding]:
     return [_parse_single_gitleaks_item(item) for item in data]
 
 
-def _is_test_file(path: Path) -> bool:
+def _extract_location_path(location: str) -> Path:
+    """Extract normalized Path from canonical location string 'path/file.ext:line' or 'C:\\path\\file.ext:line'."""
+    clean_loc = re.sub(r":\d+(?:-\d+)?$", "", location.strip()).replace("\\", "/")
+    return Path(clean_loc)
+
+
+def _is_test_file(path: Path | str) -> bool:
     """Check whether path represents a test file or resides within a test directory."""
-    name = path.name.lower()
+    raw = str(path).replace("\\", "/")
+    norm_path = Path(raw)
+    name = norm_path.name.lower()
     if name.startswith("test_") or name.endswith(("_test.py", "_test.go", "_test.ts", "_test.js")):
         return True
-    parts = {p.lower() for p in path.parts}
+    parts = {p.lower() for p in norm_path.parts}
     return bool({"tests", "test", "__tests__"}.intersection(parts))
 
 
@@ -182,10 +190,13 @@ def run_gitleaks_scan(
                     parsed = parse_gitleaks_json(data)
                     if ignore_tests:
                         parsed = [
-                            f for f in parsed if not _is_test_file(Path(f.location.split(":")[0]))
+                            f
+                            for f in parsed
+                            if not _is_test_file(_extract_location_path(f.location))
                         ]
                     span_h.set_attribute("findings_count", len(parsed))
                     return parsed
+
         except FileNotFoundError, OSError, subprocess.SubprocessError:
             pass
         except Exception as exc:

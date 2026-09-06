@@ -158,7 +158,7 @@ def run_checkov_scan(
     try:
         from devops_cli.core.process import run_json_subprocess
 
-        raw_data = run_json_subprocess(cmd, timeout=timeout, default={})
+        raw_data = run_json_subprocess(cmd, timeout=timeout, default={}, check=False)
         return _parse_checkov_results(raw_data)
     except Exception as exc:
         logger.debug("Checkov execution encountered an error: %s; falling back", exc)

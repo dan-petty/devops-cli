@@ -52,6 +52,46 @@ def test_safe_resolve_subpath_symlink_escape_blocked(tmp_path: Path) -> None:
         safe_resolve_subpath(tmp_path, "link_to_outside", allow_symlinks=False)
 
 
+def test_safe_resolve_subpath_external_symlink_blocked_even_with_allow_symlinks(
+    tmp_path: Path,
+) -> None:
+    """Even when allow_symlinks=True, symlinks pointing outside base_dir are strictly blocked."""
+    outside_dir = tmp_path.parent / "outside_dir_allowed"
+    outside_dir.mkdir(exist_ok=True)
+    outside_file = outside_dir / "secret.txt"
+    outside_file.write_text("secret", encoding="utf-8")
+
+    symlink_path = tmp_path / "link_to_outside_allowed"
+    try:
+        symlink_path.symlink_to(outside_file)
+    except OSError:
+        pytest.skip("Symlink creation not permitted in this test environment")
+
+    with pytest.raises(SecurityError):
+        safe_resolve_subpath(tmp_path, "link_to_outside_allowed", allow_symlinks=True)
+
+
+def test_safe_resolve_subpath_internal_symlink_allowed(tmp_path: Path) -> None:
+    """When allow_symlinks=True, symlinks pointing inside base_dir are safely permitted."""
+    internal_file = tmp_path / "target.txt"
+    internal_file.write_text("internal", encoding="utf-8")
+
+    symlink_path = tmp_path / "link_internal"
+    try:
+        symlink_path.symlink_to(internal_file)
+    except OSError:
+        pytest.skip("Symlink creation not permitted in this test environment")
+
+    # allow_symlinks=True succeeds
+    resolved = safe_resolve_subpath(tmp_path, "link_internal", allow_symlinks=True)
+    assert resolved == internal_file.resolve()
+
+    # allow_symlinks=False rejects any symlink
+    with pytest.raises(SecurityError) as exc_info:
+        safe_resolve_subpath(tmp_path, "link_internal", allow_symlinks=False)
+    assert "symlink" in str(exc_info.value).lower()
+
+
 def test_safe_resolve_subpath_must_exist(tmp_path: Path) -> None:
     """When must_exist=True, non-existent target raises ValidationError or SecurityError."""
     with pytest.raises((ValidationError, SecurityError)):

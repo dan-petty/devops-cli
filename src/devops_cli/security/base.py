@@ -53,7 +53,9 @@ class BaseSecurityScanner(ABC):
         @trace_span(f"security.{self.name}")
         def _run() -> list[Finding]:
             try:
-                data = run_json_subprocess(cmd, cwd=cwd_dir, timeout=timeout, default={})
+                data = run_json_subprocess(
+                    cmd, cwd=cwd_dir, timeout=timeout, default={}, check=False
+                )
                 return self.parse_output(data, target_path)
             except Exception as exc:
                 logger.debug("Scanner '%s' failed: %s; running fallback.", self.name, exc)

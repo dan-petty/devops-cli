@@ -242,3 +242,40 @@ def test_get_pr_diff_normal_and_redirect(monkeypatch) -> None:
     diff_redir = client.get_pr_diff("octo/repo", 42)
     assert "diff --git a/redirected" in diff_redir
     assert len(calls) == 2
+
+
+def test_create_milestone_forwards_due_on(monkeypatch) -> None:
+    """Verify create_milestone parses and forwards due_on to GitHub repository."""
+    import datetime
+    from unittest.mock import MagicMock
+
+    client = GitHubClient("token123")
+    mock_repo = MagicMock()
+    monkeypatch.setattr(client._gh, "get_repo", lambda r: mock_repo)
+
+    # String date
+    client.create_milestone(
+        repo="octo/repo",
+        title="v1.0.0",
+        description="Launch",
+        state="open",
+        due_on="2026-12-31",
+    )
+    mock_repo.create_milestone.assert_called_once()
+    called_kwargs = mock_repo.create_milestone.call_args[1]
+    assert called_kwargs["title"] == "v1.0.0"
+    assert called_kwargs["description"] == "Launch"
+    assert called_kwargs["state"] == "open"
+    assert isinstance(called_kwargs["due_on"], (datetime.date, datetime.datetime))
+    assert called_kwargs["due_on"].year == 2026
+
+    # Native date object
+    mock_repo.reset_mock()
+    target_date = datetime.date(2027, 1, 15)
+    client.create_milestone(
+        repo="octo/repo",
+        title="v1.1.0",
+        due_on=target_date,
+    )
+    called_kwargs2 = mock_repo.create_milestone.call_args[1]
+    assert called_kwargs2["due_on"] == target_date

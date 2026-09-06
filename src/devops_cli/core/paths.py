@@ -29,7 +29,7 @@ def safe_resolve_subpath(
         base_dir: Root anchor directory.
         subpath: Relative or absolute subpath to validate.
         must_exist: Whether the target path must already exist on disk.
-        allow_symlinks: Whether to allow symlinks pointing outside base_dir.
+        allow_symlinks: Whether to permit symbolic links within base_dir (all destinations must still reside strictly within base_dir).
         error_cls: Specific DevOpsCLIError subclass to raise upon violation.
 
     Returns:
@@ -55,22 +55,20 @@ def safe_resolve_subpath(
     except (OSError, RuntimeError) as exc:
         raise error_cls(f"Failed to resolve path '{subpath}': {exc}") from exc
 
-    # Enforce strict directory containment
+    # Enforce strict directory containment (symlinks or traversal outside base are never permitted)
     if not resolved.is_relative_to(base):
         raise error_cls(
             f"Path traversal detected: path '{subpath}' escapes base directory '{base}'."
         )
 
-    # Symlink escape verification
+    # Symlink rejection when allow_symlinks=False
     if not allow_symlinks:
         current = candidate
         while True:
             if current.is_symlink():
-                target_dest = current.resolve()
-                if not target_dest.is_relative_to(base):
-                    raise error_cls(
-                        f"Symlink escape detected: '{current}' points outside base directory '{base}'."
-                    )
+                raise error_cls(
+                    f"Symlink rejected: '{current}' is a symbolic link and allow_symlinks is False."
+                )
             if current == base or current.parent == current:
                 break
             current = current.parent

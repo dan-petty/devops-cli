@@ -285,6 +285,29 @@ async def run_subprocess_async(
 _JSON_UNSET = object()
 
 
+def _raise_subprocess_error(
+    err_type: type[DevOpsCLIError],
+    cmd: list[str],
+    ret_code: int,
+    stderr: str | None,
+    msg: str,
+) -> None:
+    """Helper to raise SubprocessError or custom DevOpsCLIError with command context."""
+    bin_name = cmd[0] if cmd else "unknown"
+    if issubclass(err_type, SubprocessError):
+        raise err_type(
+            f"Subprocess failed for command '{bin_name}': {msg}",
+            command=cmd,
+            exit_code=ret_code,
+            stderr=stderr,
+        )
+    raise err_type(
+        f"Subprocess failed for command '{bin_name}': {msg}",
+        exit_code=ret_code,
+        details={"command": cmd, "stderr": stderr},
+    )
+
+
 def run_json_subprocess(
     cmd: list[str],
     *,
@@ -295,6 +318,7 @@ def run_json_subprocess(
     timeout: float = DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
     default: Any = _JSON_UNSET,
     error_cls: type[DevOpsCLIError] | None = None,
+    check: bool = True,
 ) -> Any:
     """Execute subprocess and safely deserialize its stdout as JSON.
 
@@ -307,12 +331,13 @@ def run_json_subprocess(
         timeout: Subprocess timeout in seconds.
         default: Fallback value if JSON parsing fails.
         error_cls: Exception class to raise upon command or parsing failure (defaults to SubprocessError).
+        check: Whether to raise on non-zero exit code immediately. If False, attempts to parse valid stdout JSON first.
 
     Returns:
         Parsed JSON data structure (dict or list), or default if fallback provided.
 
     Raises:
-        SubprocessError or error_cls: If subprocess exits with non-zero code or JSON is invalid and default is unset.
+        SubprocessError or error_cls: If subprocess exits with non-zero code and check is True, or JSON is invalid and default is unset.
     """
     err_type = error_cls or SubprocessError
     res = run_subprocess(
@@ -325,47 +350,25 @@ def run_json_subprocess(
         check=False,
     )
 
-    ret_code = res.returncode
-    is_non_zero = isinstance(ret_code, int) and ret_code != 0
-
-    if is_non_zero:
-        err_msg = (
-            (res.stderr or "").strip()
-            or (res.stdout or "").strip()
-            or f"Process exited with code {ret_code}"
-        )
-        if issubclass(err_type, SubprocessError):
-            raise err_type(
-                f"Subprocess failed for command '{cmd[0] if cmd else 'unknown'}': {err_msg}",
-                command=cmd,
-                exit_code=ret_code,
-                stderr=res.stderr,
-            )
-        raise err_type(
-            f"Subprocess failed for command '{cmd[0] if cmd else 'unknown'}': {err_msg}",
-            exit_code=ret_code,
-            details={"command": cmd, "stderr": res.stderr},
-        )
-
+    ret_code = res.returncode if isinstance(res.returncode, int) else 0
     raw_stdout = (res.stdout or "").strip()
-    if not raw_stdout and default is not _JSON_UNSET:
-        return default
+
+    if ret_code != 0 and check:
+        err_msg = (res.stderr or "").strip() or raw_stdout or f"Process exited with code {ret_code}"
+        _raise_subprocess_error(err_type, cmd, ret_code, res.stderr, err_msg)
+
+    if not raw_stdout:
+        if default is not _JSON_UNSET:
+            return default
+        err_msg = (
+            res.stderr or ""
+        ).strip() or f"Process exited with code {ret_code} and produced no output"
+        _raise_subprocess_error(err_type, cmd, ret_code, res.stderr, err_msg)
 
     try:
         return json.loads(raw_stdout)
     except (json.JSONDecodeError, ValueError) as exc:
         if default is not _JSON_UNSET:
             return default
-        exit_val = ret_code if isinstance(ret_code, int) else 1
-        if issubclass(err_type, SubprocessError):
-            raise err_type(
-                f"Failed to parse JSON output from command '{cmd[0] if cmd else 'unknown'}': {exc}",
-                command=cmd,
-                exit_code=exit_val,
-                details={"raw_stdout": raw_stdout[:500]},
-            ) from exc
-        raise err_type(
-            f"Failed to parse JSON output from command '{cmd[0] if cmd else 'unknown'}': {exc}",
-            exit_code=exit_val,
-            details={"command": cmd, "raw_stdout": raw_stdout[:500]},
-        ) from exc
+        exit_val = ret_code if ret_code != 0 else 1
+        _raise_subprocess_error(err_type, cmd, exit_val, res.stderr, f"Invalid JSON output: {exc}")

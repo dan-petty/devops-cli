@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import urllib.parse
+from datetime import date, datetime
 from typing import TYPE_CHECKING, Any
 
 import httpx2
@@ -191,7 +192,7 @@ class GitHubClient:
         title: str,
         description: str = "",
         state: str = "open",
-        due_on: str | None = None,
+        due_on: str | date | datetime | None = None,
     ) -> Any:
         """Create a new milestone in the specified repository."""
         kwargs: dict[str, Any] = {
@@ -199,4 +200,13 @@ class GitHubClient:
             "description": description,
             "state": state,
         }
+        if due_on is not None:
+            if isinstance(due_on, (datetime, date)):
+                kwargs["due_on"] = due_on
+            elif isinstance(due_on, str) and due_on.strip():
+                clean_due = due_on.strip()
+                try:
+                    kwargs["due_on"] = datetime.fromisoformat(clean_due.replace("Z", "+00:00"))
+                except ValueError:
+                    kwargs["due_on"] = date.fromisoformat(clean_due)
         return self._gh.get_repo(repo).create_milestone(**kwargs)
