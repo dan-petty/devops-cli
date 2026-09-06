@@ -788,7 +788,7 @@ Synchronize secrets from HashiCorp Vault into the local OS Keyring.
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `path` | `string` | Yes | - | - |
-| `keys` | `string` | No | - | - |
+| `keys` | `array` | No | - | - |
 
 ### `verify_finding`
 
