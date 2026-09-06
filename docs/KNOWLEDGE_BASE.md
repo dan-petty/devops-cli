@@ -1,6 +1,6 @@
 # DevOps CLI Knowledge Base Catalog
 
-The bundled Knowledge Base provides **78 operational and architectural manuals**
+The bundled Knowledge Base provides **79 operational and architectural manuals**
 grounding DevOps CLI subcommands, multi-agent AI reviews, and developer workflows.
 
 ---
@@ -55,7 +55,7 @@ grounding DevOps CLI subcommands, multi-agent AI reviews, and developer workflow
 
 ## Division 2: Information Technology Domain-Specific (`it_domains/`)
 
-**Total Articles**: 39 manuals covering 10 IT topics and 20 tool references.
+**Total Articles**: 40 manuals covering 11 IT topics and 29 tool references.
 
 | Category | Article File | Topic & Scope |
 |---|---|---|
@@ -87,6 +87,7 @@ grounding DevOps CLI subcommands, multi-agent AI reviews, and developer workflow
 | `tools` | [`tiktoken.md`](../src/devops_cli/ai/knowledge_base/it_domains/tools/tiktoken.md) | Tiktoken |
 | `tools` | [`trivy.md`](../src/devops_cli/ai/knowledge_base/it_domains/tools/trivy.md) | Trivy |
 | `tools` | [`uv.md`](../src/devops_cli/ai/knowledge_base/it_domains/tools/uv.md) | Uv |
+| `tools` | [`valkey.md`](../src/devops_cli/ai/knowledge_base/it_domains/tools/valkey.md) | Valkey |
 | `topics` | [`agentic_ai_and_code_reviews.md`](../src/devops_cli/ai/knowledge_base/it_domains/topics/agentic_ai_and_code_reviews.md) | Agentic Ai And Code Reviews |
 | `topics` | [`cloud_native_kubernetes_and_gitops.md`](../src/devops_cli/ai/knowledge_base/it_domains/topics/cloud_native_kubernetes_and_gitops.md) | Cloud Native Kubernetes And Gitops |
 | `topics` | [`continuous_integration_and_progressive_verification.md`](../src/devops_cli/ai/knowledge_base/it_domains/topics/continuous_integration_and_progressive_verification.md) | Continuous Integration And Progressive Verification |

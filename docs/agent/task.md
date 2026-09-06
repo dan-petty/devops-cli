@@ -287,10 +287,22 @@
 
 ---
 
+- [x] Phase 38: Valkey Integration Investigation, Tooling Design & Roadmap Expansion
+  - [x] Phase 38.1: Architectural Investigation across CLI Subsystems, Distributed AI Caching, Token Bucket Rate Limiting, FastMCP & Testcontainers
+  - [x] Phase 38.2: Author Technical Knowledge Base Reference Manual (`src/devops_cli/ai/knowledge_base/it_domains/tools/valkey.md`)
+  - [x] Phase 38.3: Register Valkey in Knowledge Base Division 2 Catalog (`src/devops_cli/ai/knowledge_base/README.md`)
+  - [x] Phase 38.4: Master Strategic Roadmap (`docs/ROADMAP.md`) & Pending Features (`docs/PENDING_FEATURES.md`) Expansion for Milestone `v0.2.12`
+  - [x] Phase 38.5: Verification Suite (`tests/test_docs.py`, `tests/test_kb.py`, `devops docs generate --sync-readme`) & Full CI Quality Gate (`uv run devops ci` — 10/10 green)
+  - [x] Phase 38.6: Open Pull Request for `docs/valkey-roadmap-and-knowledge-base` targeting `release/v0.2.11` (PR #34)
+  - [x] Phase 38.7: Address Copilot Review Comments on PR #34 (runner timeout non-blocking executor shutdown, stack context explanation, threads resolved)
+
+---
+
 ### In-Progress Tasks (WIP)
-- None (Phase 36 fully completed, PR #32 passing all CI checks, merge conflicts resolved, and Copilot review comments addressed).
+- None (Phase 38 fully completed, PR #34 passing CI and all review threads resolved).
 
 ---
 
 ### Pending Tasks
-- Await maintainer review and merge approval for PR #32 targeting `release/v0.2.11`.
+- Await maintainer review and merge approval for PR #34 targeting `release/v0.2.11` (PR #32 and PR #33 merged).
+- Await maintainer review and merge approval for PR #35 targeting `release/v0.2.11`.

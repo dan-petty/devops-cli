@@ -27,7 +27,17 @@
 - **`v0.2.9` (Completed)**: Universal Multi-Stage Workflow Orchestration Pipeline (`src/devops_cli/pipeline/`), Unified Async HTTP/2 Connection Broker (`src/devops_cli/http/broker.py`), Local Kubernetes Chaos & Fault Injection Engine (`src/devops_cli/k8s/chaos_runner.py`), Continuous IDE File Watcher (`devops ai review path --watch`), Automated Dependency Vulnerability Remediation PR Engine (`devops scan fix`), Isolated Dockerized Workload Sandbox (`devops docker sandbox`), Enterprise Vault & Cloud KMS Secret Broker (`devops vault`), Kubernetes Background Port-Forward Daemon (`devops k8s port-forward`).
 - **`v0.2.8` (Completed)**: Output Subsystem Modularization (`src/devops_cli/output/formatters/`), Language Message Catalog & Badge Localization (`src/devops_cli/lang/en/messages.py`), Declarative Dispatch Registries, Zombie Code Elimination.
 
-### Upcoming Milestone: `v0.3.0` (Scheduled)
+### Upcoming Milestones
+
+#### Milestone: `v0.2.12` (Scheduled)
+1. **Valkey Workstation CLI Subsystem (`devops valkey`)**: Dedicated command group providing `ping`, `info`, `stats`, `keys`, `get`, `set`, `flush`, `cli`, and snapshot `backup`/`restore` managing local and remote Valkey instances.
+2. **Valkey High-Performance Distributed AI & Embedding Cache (`ai.cache.backend=valkey`)**: Distributed SHA-256 keyed embedding and review finding cache tier slashing duplicate LLM inference by up to 85%.
+3. **Distributed LLM Token Bucket & Concurrency Rate Limiter**: Valkey-backed atomic sliding-window rate limiter preventing GPU memory exhaustion on local Ollama endpoints and HTTP 429 throttling against cloud AI APIs.
+4. **FastMCP Valkey Toolset & Live System Resource**: 6 FastMCP tools (`valkey_ping`, `valkey_info`, `valkey_get`, `valkey_set`, `valkey_keys`, `valkey_flush`) and dynamic system resource `resource://valkey/status`.
+5. **Ephemeral Testcontainers Valkey Testing Harness**: Rootless container fixture for offline unit and integration test suites without requiring live Minikube cluster dependencies.
+6. **Valkey IT Domain Knowledge Base Manual (`it_domains/tools/valkey.md`)**: Comprehensive technical guide covering Valkey 8.0 architecture, RESP3 wire protocol, memory optimization, eviction policies, and cluster topologies.
+
+#### Milestone: `v0.3.0` (Scheduled)
 1. **Multi-Region Workstation Mesh & Cluster Federation**: Cross-cluster service discovery and state sync.
 2. **Autonomous Self-Healing Agent Pipeline**: Self-diagnostic remediation loops.
 3. **Cloud-Native Ephemeral Test Environment Engine**: Dynamic Minikube/Helm ephemeral environments.

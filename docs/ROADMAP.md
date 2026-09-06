@@ -249,6 +249,14 @@ High-density product roadmap, engineering milestones, and open-source integratio
 - [x] **FastMCP Prompt Templates & Dynamic System Resources**: Implemented 4 prompt templates (`code_review_prompt`, `security_audit_prompt`, `k8s_diagnostics_prompt`, `architecture_analysis_prompt`) and 6 dynamic system resources (`resource://workspace/status`, `resource://config/active`, `resource://telemetry/status`, `resource://release/status`, `resource://vault/status`, `resource://mcp/tools`).
 - [x] **FastMCP JSON Schema Exporter (`devops mcp export-schemas`)**: Built introspection CLI command exporting JSON tool schemas and markdown instructions, synchronizing with Antigravity IDE lazy tool loader.
 
+### Valkey Workstation Management & High-Performance Distributed Caching (v0.2.12 - Scheduled)
+- [ ] **Valkey Workstation CLI Subsystem (`devops valkey`)**: Dedicated command group providing `ping`, `info`, `stats`, `keys`, `get`, `set`, `flush`, `cli`, and snapshot `backup`/`restore` managing local and remote Valkey instances.
+- [ ] **Valkey High-Performance AI & Embedding Cache (`ai.cache.backend=valkey`)**: Distributed SHA-256 keyed embedding and review finding cache tier slashing duplicate LLM inference by up to 85% across concurrent CLI runs, file watchers, and CI workers.
+- [ ] **Distributed LLM Token Bucket & Concurrency Rate Limiter**: Valkey-backed atomic sliding-window rate limiter preventing GPU memory exhaustion on local Ollama endpoints and HTTP 429 throttling against cloud AI APIs.
+- [ ] **FastMCP Valkey Toolset & Live System Resource**: 6 FastMCP tools (`valkey_ping`, `valkey_info`, `valkey_get`, `valkey_set`, `valkey_keys`, `valkey_flush`) and dynamic system resource `resource://valkey/status`.
+- [ ] **Ephemeral Testcontainers Valkey Testing Harness**: Rootless container fixture for offline unit and integration test suites without requiring live Minikube cluster dependencies.
+- [x] **Valkey IT Domain Knowledge Base Manual (`it_domains/tools/valkey.md`)**: Comprehensive technical guide covering Valkey 8.0 architecture, RESP3 wire protocol, memory optimization, eviction policies, and cluster topologies.
+
 ### Multi-Cloud Mesh & Production Ecosystem (v0.3.0 - Future Vision)
 - [ ] **Multi-Region Workstation Mesh & Cluster Federation**: Distributed cluster management across hybrid on-prem homelab and multi-cloud Kubernetes clusters with automatic service mesh routing.
 - [ ] **Autonomous Self-Healing Agent Pipeline**: Closed-loop diagnostic engine capable of discovering cluster incidents, generating corrective patches, running CI gates, and executing rollback.
@@ -368,6 +376,12 @@ High-density product roadmap, engineering milestones, and open-source integratio
 | | Workstation Infrastructure Valkey Migration | Valkey / Helm / ArgoCD | High | Medium | v0.2.11 | ✅ Completed |
 | | Codebase Stylistic Drift Remediation & Invariants | AST / McCabe / DevOpsCLIError | High | Medium | v0.2.11 | ✅ Completed |
 | | FastMCP Server Tool Expansion & Schema Export | FastMCP / PydanticAI / Toolset | High | Medium | v0.2.11 | ✅ Completed |
+| | Valkey Workstation Management CLI (`devops valkey`) | `valkey-py` / Socket | High | Low | v0.2.12 | 📋 Scheduled |
+| | Valkey High-Performance Distributed AI Cache Tier | Valkey / Pydantic | High | Medium | v0.2.12 | 📋 Scheduled |
+| | Distributed LLM Token Bucket & Rate Limiter | Valkey Lua / Atomics | High | Low | v0.2.12 | 📋 Scheduled |
+| | FastMCP Valkey Toolset & Live System Resource | FastMCP / Valkey | High | Low | v0.2.12 | 📋 Scheduled |
+| | Ephemeral Testcontainers Valkey Testing Harness | `testcontainers-python` | High | Medium | v0.2.12 | 📋 Scheduled |
+| | Valkey IT Domain Knowledge Base Manual | Markdown / Docs | Medium | Low | v0.2.12 | ✅ Completed |
 | | Multi-Region Workstation Mesh & Cluster Federation | Kubernetes / Fleet | High | High | v0.3.0 | 💡 Future Vision |
 | | Autonomous Self-Healing Agent Pipeline | PydanticAI / Diagnostic | High | High | v0.3.0 | 💡 Future Vision |
 | | Cloud-Native Ephemeral Test Environment Engine | Minikube / Helm / Ingress | High | Medium | v0.3.0 | 💡 Future Vision |

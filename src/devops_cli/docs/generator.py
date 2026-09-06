@@ -899,7 +899,7 @@ class DocGenerator:
                 "",
                 "## Division 2: Information Technology Domain-Specific (`it_domains/`)",
                 "",
-                f"**Total Articles**: {stats.it_domains_count} manuals covering 10 IT topics and 20 tool references.",
+                f"**Total Articles**: {stats.it_domains_count} manuals covering {stats.topics_count} IT topics and {stats.tools_count} tool references.",
                 "",
                 "| Category | Article File | Topic & Scope |",
                 "|---|---|---|",
