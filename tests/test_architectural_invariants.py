@@ -60,6 +60,19 @@ def test_domain_specific_exceptions_exist() -> None:
     k_err = KubernetesContextError("invalid context")
     assert k_err.error_code == "K8S_CONTEXT_ERROR"
 
+    h_val = HarnessValidationError("invalid harness schema")
+    assert h_val.error_code == "HARNESS_VALIDATION_ERROR"
+    assert h_val.exit_code == 1
+
+    h_exec = HarnessExecutionError("harness run failed")
+    assert h_exec.error_code == "HARNESS_EXECUTION_ERROR"
+    assert h_exec.exit_code == 1
+
+    from devops_cli.ai.rag.embeddings import EmbeddingsError
+
+    assert issubclass(EmbeddingsError, DevOpsCLIError)
+    assert issubclass(EmbeddingsError, RuntimeError)
+
 
 def test_test_model_pytest_collection_disabled() -> None:
     """Ensure TestModel in testing.py disables Pytest collection to avoid PytestCollectionWarning."""
@@ -88,9 +101,7 @@ def test_filesystem_get_tools_complexity() -> None:
 
     mod = Path("src/devops_cli/ai/harness/filesystem.py")
     findings = run_complexity_scan(mod, max_complexity=10, max_nesting_depth=5)
-    tools_findings = [
-        f for f in findings if "FileSystem.get_tools" in f.title or "get_tools" in f.location
-    ]
+    tools_findings = [f for f in findings if "get_tools" in f.title]
     assert not tools_findings, f"FileSystem.get_tools exceeded complexity limit: {tools_findings}"
 
 

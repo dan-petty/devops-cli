@@ -25,6 +25,10 @@ from pydantic_ai.usage import RequestUsage
 if TYPE_CHECKING:
     from devops_cli.ai.agents.embeddings import Embedder
 
+from devops_cli.config.constants import (
+    CONST_ERROR_CODE_LLM_INFERENCE,
+    CONST_EXIT_FAILURE,
+)
 from devops_cli.config.defaults import (
     DEFAULT_DRY_RUN_EMBEDDING_DIMENSION,
     DEFAULT_HTTP_TIMEOUT_SECONDS,
@@ -32,6 +36,7 @@ from devops_cli.config.defaults import (
     DEFAULT_RAG_EMBEDDING_MODEL,
 )
 from devops_cli.config.settings import AIConfig
+from devops_cli.exceptions.base import DevOpsCLIError
 from devops_cli.http.validation import validate_service_url
 from devops_cli.telemetry import (
     ContextPropagatingThreadPoolExecutor as ThreadPoolExecutor,
@@ -103,8 +108,24 @@ class _EmbeddingLRUCache:
             self.misses = 0
 
 
-class EmbeddingsError(RuntimeError):
+class EmbeddingsError(DevOpsCLIError, RuntimeError):
     """Raised when embeddings generation fails across all endpoints."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        exit_code: int = CONST_EXIT_FAILURE,
+        error_code: str = CONST_ERROR_CODE_LLM_INFERENCE,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        DevOpsCLIError.__init__(
+            self,
+            message,
+            exit_code=exit_code,
+            error_code=error_code,
+            details=details or {},
+        )
 
 
 class EmbeddingsEngine:
@@ -310,8 +331,13 @@ class EmbeddingsEngine:
             if miss_texts:
                 prefixed_miss = self._apply_model_prefix(miss_texts, is_query=is_query)
                 fresh = self._dispatch_embed(prefixed_miss)
+                if len(fresh) != len(miss_texts):
+                    raise EmbeddingsError(
+                        f"Embedding provider returned {len(fresh)} vectors for {len(miss_texts)} texts",
+                        details={"expected": len(miss_texts), "received": len(fresh)},
+                    )
                 for miss_idx, original_text, vector in zip(
-                    miss_indices, miss_texts, fresh, strict=False
+                    miss_indices, miss_texts, fresh, strict=True
                 ):
                     self._cache.put(original_text, self.model, vector)
                     cached[miss_idx] = vector

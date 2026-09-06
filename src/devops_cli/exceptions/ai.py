@@ -8,7 +8,8 @@ from typing import TYPE_CHECKING, Any
 import pydantic_ai.exceptions as p_exc
 
 from devops_cli.config.constants import (
-    CONST_ERROR_CODE_HARNESS,
+    CONST_ERROR_CODE_HARNESS_EXECUTION,
+    CONST_ERROR_CODE_HARNESS_VALIDATION,
     CONST_ERROR_CODE_LLM_INFERENCE,
     CONST_ERROR_CODE_MODEL_BUNDLE,
     CONST_EXIT_ERROR_INFERENCE,
@@ -495,7 +496,7 @@ class HarnessValidationError(DevOpsCLIError, ValueError):
         *,
         field_name: str | None = None,
         exit_code: int = CONST_EXIT_FAILURE,
-        error_code: str = CONST_ERROR_CODE_HARNESS,
+        error_code: str = CONST_ERROR_CODE_HARNESS_VALIDATION,
         details: dict[str, Any] | None = None,
     ) -> None:
         err_details = {"field_name": field_name}
@@ -513,7 +514,7 @@ class HarnessExecutionError(DevOpsCLIError, RuntimeError):
         *,
         harness_name: str | None = None,
         exit_code: int = CONST_EXIT_FAILURE,
-        error_code: str = CONST_ERROR_CODE_HARNESS,
+        error_code: str = CONST_ERROR_CODE_HARNESS_EXECUTION,
         details: dict[str, Any] | None = None,
     ) -> None:
         err_details = {"harness_name": harness_name}

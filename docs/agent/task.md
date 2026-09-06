@@ -273,11 +273,12 @@
   - [x] Phase 36.5: Clean Test Collection Hygiene & Warning Eliminations (`testing.py` `__test__ = False`, `agent.py` coroutine close)
   - [x] Phase 36.6: Documentation & Master Parameter Updates (`AGENTS.md`, `LOG.md`, `ROADMAP.md`, `PENDING_FEATURES.md`)
   - [x] Phase 36.7: Full CI Quality Gate (`uv run devops ci` — 10/10 green), Docs Sync (`devops docs generate --sync-readme`)
+  - [x] Phase 36.8: Address Copilot Review Comments on PR #32 (`embeddings.py` strict vector validation, `test_architectural_invariants.py` get_tools title check, distinct `HARNESS_VALIDATION_ERROR` and `HARNESS_EXECUTION_ERROR` codes, docs sync)
 
 ---
 
 ### In-Progress Tasks (WIP)
-- [ ] Monitor GitHub Actions CI checks for PR #32 (`refactor(architecture): codebase stylistic and structural drift remediation`).
+- None (Phase 36 fully completed, PR #32 passing all CI checks and Copilot review comments addressed).
 
 ---
 

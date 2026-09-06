@@ -33,8 +33,8 @@ and domain categorization for all exceptions inheriting from `DevOpsCLIError`.
 | `DOCKER_ERROR` | `1` | Docker | Base exception for Docker operations. |
 | `DOCKER_SANDBOX_ERROR` | `1` | Docker | Raised when docker sandbox execution, container creation, or termination fails. |
 | `GIT_OPERATION_ERROR` | `1` | Git | Base exception for Git repository and branch operation failures. |
-| `HARNESS_ERROR` | `1` | Ai | Raised when execution of an AI test harness or benchmark fails. |
-| `HARNESS_ERROR` | `1` | Ai | Raised when an AI evaluation or harness schema validation fails. |
+| `HARNESS_EXECUTION_ERROR` | `1` | Ai | Raised when execution of an AI test harness or benchmark fails. |
+| `HARNESS_VALIDATION_ERROR` | `1` | Ai | Raised when an AI evaluation or harness schema validation fails. |
 | `INCOMPLETE_TOOL_CALL` | `27` | Ai | Raised when a model stops due to token limit while emitting a tool call. |
 | `E_INSECURE_CONFIG` | `126` | Security | Raised when an unencrypted plaintext secret token is found in configuration files. |
 | `INVALID_BRANCH_NAME` | `1` | Git | Raised when a proposed Git branch name violates naming conventions. |
