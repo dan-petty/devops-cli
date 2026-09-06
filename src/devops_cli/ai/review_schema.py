@@ -9,7 +9,6 @@ import unicodedata
 from collections.abc import Hashable, Iterable
 from typing import Any
 
-import json_repair
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from devops_cli.config import (
@@ -809,27 +808,10 @@ class ReviewResult(BaseModel):
 
 
 def extract_json_block(text: str) -> Any:
-    """Extract and repair the first parseable JSON object or array from text using json-repair."""
-    if not text or not text.strip():
-        return None
+    """Extract and repair the first parseable JSON object or array from text."""
+    from devops_cli.core.serialization import extract_json_block as _core_extract
 
-    try:
-        data = json_repair.loads(text)
-        if data != "" and data is not None:
-            return data
-    except Exception:
-        pass
-
-    for pattern in (r"```(?:json)?\s*([\s\S]*?)```",):
-        m = re.search(pattern, text, re.DOTALL)
-        if m:
-            try:
-                data = json_repair.loads(m.group(1))
-                if data != "" and data is not None:
-                    return data
-            except Exception:
-                pass
-    return None
+    return _core_extract(text, default=None)
 
 
 def _validate_raw_findings_list(data: list[Any]) -> list[Finding]:

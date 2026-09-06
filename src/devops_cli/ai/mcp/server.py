@@ -801,6 +801,68 @@ def vault_get(path: str, key: str | None = None) -> str:
 
 
 @mcp.tool()
+def gh_label_list(repo: str | None = None) -> str:
+    """List declarative repository labels and descriptions."""
+    cmd = ["uv", "run", "devops", "gh", "labels", "list"]
+    if repo:
+        _validate_mcp_arg("repo", repo)
+        cmd.extend(["--repo", repo])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def gh_label_sync(repo: str | None = None, dry_run: bool = True) -> str:
+    """Synchronize repository labels against .github/labels.yml schema."""
+    cmd = ["uv", "run", "devops", "gh", "labels", "sync"]
+    if dry_run:
+        cmd.append("--dry-run")
+    if repo:
+        _validate_mcp_arg("repo", repo)
+        cmd.extend(["--repo", repo])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def gh_milestone_list(repo: str | None = None) -> str:
+    """List repository milestones and progress rates."""
+    cmd = ["uv", "run", "devops", "gh", "milestones", "list"]
+    if repo:
+        _validate_mcp_arg("repo", repo)
+        cmd.extend(["--repo", repo])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def gh_milestone_sync(repo: str | None = None, dry_run: bool = True) -> str:
+    """Synchronize repository milestones from docs/ROADMAP.md."""
+    cmd = ["uv", "run", "devops", "gh", "milestones", "sync"]
+    if dry_run:
+        cmd.append("--dry-run")
+    if repo:
+        _validate_mcp_arg("repo", repo)
+        cmd.extend(["--repo", repo])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def gh_project_status() -> str:
+    """Inspect GitHub Projects v2 template configuration, fields, and view definitions."""
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "gh", "project", "status"],
+        timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.tool()
+def gh_view_spec() -> str:
+    """Return JSON specification for GitHub Projects v2 views."""
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "gh", "views", "spec"],
+        timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.tool()
 def scan_trivy(
     target: str = ".",
     scan_type: str = "fs",

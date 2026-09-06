@@ -9,13 +9,21 @@ from devops_cli.http.validation import validate_service_url
 
 
 def test_public_https_url_allowed(monkeypatch: pytest.MonkeyPatch) -> None:
+    from unittest.mock import patch
+
     monkeypatch.delenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", raising=False)
-    validate_service_url("https://grafana.example.com", "Grafana")
+    mock_addr = [(2, 1, 6, "", ("93.184.216.34", 443))]
+    with patch("socket.getaddrinfo", return_value=mock_addr):
+        validate_service_url("https://grafana.example.com", "Grafana")
 
 
 def test_public_http_url_allowed(monkeypatch: pytest.MonkeyPatch) -> None:
+    from unittest.mock import patch
+
     monkeypatch.delenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", raising=False)
-    validate_service_url("http://argocd.example.com:8080", "ArgoCD")
+    mock_addr = [(2, 1, 6, "", ("93.184.216.34", 8080))]
+    with patch("socket.getaddrinfo", return_value=mock_addr):
+        validate_service_url("http://argocd.example.com:8080", "ArgoCD")
 
 
 @pytest.mark.parametrize(

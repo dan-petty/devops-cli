@@ -63,8 +63,10 @@ def _enforce_non_private_ssrf(
         effective_port = port or (443 if scheme == "https" else 80)
         addrinfos = socket.getaddrinfo(host, effective_port, type=socket.SOCK_STREAM)
     except socket.gaierror, TimeoutError, OSError:
-        # Unable to resolve IP address (e.g. offline or unresolvable domain)
-        return
+        raise SSRFBlockedError(
+            url,
+            reason=f"DNS resolution failed or timed out for {purpose} URL",
+        )
     finally:
         socket.setdefaulttimeout(old_timeout)
 
@@ -75,7 +77,7 @@ def _enforce_non_private_ssrf(
         except ValueError:
             continue
 
-    if resolved_ips and any(is_non_public_ip(ip) for ip in resolved_ips):
+    if not resolved_ips or any(is_non_public_ip(ip) for ip in resolved_ips):
         raise SSRFBlockedError(
             url, reason=MESSAGES.messages.refusing_non_public_url.format(purpose=purpose)
         )

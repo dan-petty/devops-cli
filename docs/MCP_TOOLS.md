@@ -20,6 +20,12 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`config_show`](#config-show) | Display configuration settings with masked secret tokens. |
 | [`docker_sandbox`](#docker-sandbox) | Execute command inside an isolated Docker container sandbox. |
 | [`docker_stats`](#docker-stats) | List local Docker images and display container information. |
+| [`gh_label_list`](#gh-label-list) | List declarative repository labels and descriptions. |
+| [`gh_label_sync`](#gh-label-sync) | Synchronize repository labels against .github/labels.yml schema. |
+| [`gh_milestone_list`](#gh-milestone-list) | List repository milestones and progress rates. |
+| [`gh_milestone_sync`](#gh-milestone-sync) | Synchronize repository milestones from docs/ROADMAP.md. |
+| [`gh_project_status`](#gh-project-status) | Inspect GitHub Projects v2 template configuration, fields, and view definitions. |
+| [`gh_view_spec`](#gh-view-spec) | Return JSON specification for GitHub Projects v2 views. |
 | [`grafana_dashboards`](#grafana-dashboards) | List Grafana dashboards, optionally filtered by search query. |
 | [`k8s_audit`](#k8s-audit) | Audit Kubernetes cluster security posture, RBAC policies, and CIS benchmarks. |
 | [`k8s_bootstrap`](#k8s-bootstrap) | Bootstrap minikube Kubernetes cluster and deploy infrastructure stack. |
@@ -211,6 +217,60 @@ Execute command inside an isolated Docker container sandbox.
 ### `docker_stats`
 
 List local Docker images and display container information.
+
+*No parameters required.*
+
+### `gh_label_list`
+
+List declarative repository labels and descriptions.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `repo` | `string` | No | - | - |
+
+### `gh_label_sync`
+
+Synchronize repository labels against .github/labels.yml schema.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `repo` | `string` | No | - | - |
+| `dry_run` | `boolean` | No | `True` | - |
+
+### `gh_milestone_list`
+
+List repository milestones and progress rates.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `repo` | `string` | No | - | - |
+
+### `gh_milestone_sync`
+
+Synchronize repository milestones from docs/ROADMAP.md.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `repo` | `string` | No | - | - |
+| `dry_run` | `boolean` | No | `True` | - |
+
+### `gh_project_status`
+
+Inspect GitHub Projects v2 template configuration, fields, and view definitions.
+
+*No parameters required.*
+
+### `gh_view_spec`
+
+Return JSON specification for GitHub Projects v2 views.
 
 *No parameters required.*
 

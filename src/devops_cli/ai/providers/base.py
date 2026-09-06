@@ -12,8 +12,9 @@ from devops_cli.models.ai import ChatMessage
 class BaseLLMProvider(ABC):
     """Abstract interface for LLM model providers (Ollama, OpenAI, Anthropic, Copilot, Mock)."""
 
-    def __init__(self, config: AIConfig) -> None:
+    def __init__(self, config: AIConfig, api_key: str | None = None) -> None:
         self.config = config
+        self.api_key = api_key
 
     @property
     @abstractmethod

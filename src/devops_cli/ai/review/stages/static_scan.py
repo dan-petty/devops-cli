@@ -93,8 +93,9 @@ def _scan_single_universal(
     path_to_key: dict[Path, str],
 ) -> None:
     try:
-        gl_res = run_gitleaks_scan(vp)
+        gl_res = run_gitleaks_scan(vp, ignore_tests=True)
         sg_res = run_semgrep_scan(vp)
+
         key = path_to_key.get(vp, str(vp))
         wrapped = _wrap_findings(gl_res + sg_res)
         with _findings_lock:

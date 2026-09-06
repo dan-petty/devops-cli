@@ -133,6 +133,12 @@ graph TD
    - All CLI terminal outputs, Rich tables, Markdown review reports, and audit logs must use the canonical `filename.ext:n-n` or `filename.ext:line` format for IDE clickability and automated parsing.
 5. **Zero Hardcoded Scoring or Synthetic Confidence Metrics**:
    - Never hardcode arbitrary numerical scores or confidence weights. Scores must originate directly from external security tools (CVSS, Trivy, Bandit) or structured AI model outputs. When unavailable, values remain `None` or `0.0`.
+6. **Subsystem Consolidation & Helper Architecture Standards**:
+   - **Binary Pre-Flight Verification**: Always use `check_binary(name)` or `require_binary(name)` (`devops_cli.core.binaries`) rather than raw `shutil.which` to guarantee uniform exception handling, actionable install guidance, and path resolution caching.
+   - **Filesystem Containment & Traversal Defense**: Always use `safe_resolve_subpath(base_dir, subpath)` (`devops_cli.core.paths`) rather than ad-hoc string-based `".."` checks or manual `.resolve()` guards to defend against path traversal, symlink escapes, and directory spoofing.
+   - **Subprocess Safety & JSON Deserialization**: Always use `run_json_subprocess(cmd, ...)` (`devops_cli.core.process`) and `extract_json_block(text)` (`devops_cli.core.serialization`) rather than raw `subprocess.run` / `json.loads` procedural blocks.
+   - **Declarative Security Scanner Architecture**: Security scanners must inherit from `BaseSecurityScanner` (`devops_cli.security.base`) and register with `ScannerRegistry` (`devops_cli.security.registry`), standardizing execution, fallbacks, and normalized `Finding` translation.
+   - **Declarative Dry-Run Execution**: State-mutating CLI commands must utilize `@dry_run_command` (`devops_cli.dry_run.decorator`), eliminating procedural dry-run branch checks.
 
 ---
 
@@ -251,6 +257,10 @@ gitGraph
 - **Atomic Conventional Commits**: All commit messages and PR titles must follow Conventional Commits: `feat(scope): ...`, `fix(scope): ...`, `docs(scope): ...`, `refactor(scope): ...`, `chore(scope): ...`.
 - **Declarative Code Ownership (`.github/CODEOWNERS`)**: Pull requests automatically assign reviews based on touched file paths (Core CLI, AI/MCP, K8s, Security, CI/CD).
 - **Automated Dependency Updates (`.github/dependabot.yml`)**: Dependabot monitors `github-actions` and `pip` dependencies weekly, targeting active release branches with prefix `chore(deps)`.
+- **GitHub Project Governance, Views & Labeling Standards**:
+  - **Declarative Taxonomy (`.github/labels.yml`)**: Every PR must possess mandatory `type/*` and `scope/*` classification labels, verified in CI and audited via `devops gh labels audit`.
+  - **Roadmap-Linked Milestones (`docs/ROADMAP.md`)**: Release branches and topic PRs associate directly with release milestones extracted from `ROADMAP.md` and reconciled via `devops gh milestones sync`.
+  - **Standardized Projects v2 Views (`.github/project-template.json`)**: Four standardized views (*Sprint Kanban*, *Roadmap Timeline*, *Triage & Quality Table*, *Value vs Effort Priority Matrix*) track features across lifecycles (`Backlog` -> `Ready` -> `In Progress` -> `In Review` -> `Done`), audited via `devops gh views list` and synced via `devops gh project sync --dry-run`.
 - **Human-in-the-Loop Merging**: AI agents prepare PRs, monitor remote GitHub Actions CI, and remediate failures. AI agents **never merge PRs autonomously**. Maintainers approve and squash-merge.
 
 ---

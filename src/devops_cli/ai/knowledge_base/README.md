@@ -76,6 +76,7 @@ The Knowledge Base is divided into two primary structural divisions:
 | **Telemetry & Observability** | Observability | OpenTelemetry span tracing, Prometheus client metric scraping, and latency profiling. | [telemetry_and_observability.md](devops_cli/tasks/telemetry_and_observability.md) |
 | **REST API Service Engine** | Workstation API | Running the background REST and OpenAPI service engine (`devops serve`) for tool inspection. | [rest_api_service.md](devops_cli/tasks/rest_api_service.md) |
 | **DevContainer Lifecycle** | Dev Environments | Containerized workstation scaffolding, SSH commit signing, and MCP server synchronization. | [devcontainer_lifecycle.md](devops_cli/tasks/devcontainer_lifecycle.md) |
+| **GitHub Project Governance** | Project Management | Declarative labels, roadmap milestones, Projects v2 templates, and 4 standardized views. | [github_project_management.md](devops_cli/tasks/github_project_management.md) |
 
 ---
 

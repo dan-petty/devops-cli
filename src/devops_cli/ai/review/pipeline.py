@@ -597,7 +597,7 @@ def _scan_gitleaks_and_semgrep(all_resolved: list[Path]) -> list[SavedFinding]:
     from devops_cli.security.semgrep import run_semgrep_scan
 
     findings: list[SavedFinding] = []
-    findings.extend(_wrap_static_findings(run_gitleaks_scan(all_resolved)))
+    findings.extend(_wrap_static_findings(run_gitleaks_scan(all_resolved, ignore_tests=True)))
     findings.extend(_wrap_static_findings(run_semgrep_scan(all_resolved)))
     return findings
 

@@ -1,13 +1,13 @@
 # DevOps CLI Knowledge Base Catalog
 
-The bundled Knowledge Base provides **79 operational and architectural manuals**
+The bundled Knowledge Base provides **80 operational and architectural manuals**
 grounding DevOps CLI subcommands, multi-agent AI reviews, and developer workflows.
 
 ---
 
 ## Division 1: DevOps CLI Information (`devops_cli/`)
 
-**Total Articles**: 39 manuals covering internals, configuration, tasks, and libraries.
+**Total Articles**: 40 manuals covering internals, configuration, tasks, and libraries.
 
 | Category | Article File | Topic & Scope |
 |---|---|---|
@@ -42,6 +42,7 @@ grounding DevOps CLI subcommands, multi-agent AI reviews, and developer workflow
 | `tasks` | [`ai_code_review.md`](../src/devops_cli/ai/knowledge_base/devops_cli/tasks/ai_code_review.md) | Ai Code Review |
 | `tasks` | [`ci_quality_gate.md`](../src/devops_cli/ai/knowledge_base/devops_cli/tasks/ci_quality_gate.md) | Ci Quality Gate |
 | `tasks` | [`devcontainer_lifecycle.md`](../src/devops_cli/ai/knowledge_base/devops_cli/tasks/devcontainer_lifecycle.md) | Devcontainer Lifecycle |
+| `tasks` | [`github_project_management.md`](../src/devops_cli/ai/knowledge_base/devops_cli/tasks/github_project_management.md) | Github Project Management |
 | `tasks` | [`infrastructure_provisioning.md`](../src/devops_cli/ai/knowledge_base/devops_cli/tasks/infrastructure_provisioning.md) | Infrastructure Provisioning |
 | `tasks` | [`k8s_stack_deployment.md`](../src/devops_cli/ai/knowledge_base/devops_cli/tasks/k8s_stack_deployment.md) | K8S Stack Deployment |
 | `tasks` | [`rag_context_indexing.md`](../src/devops_cli/ai/knowledge_base/devops_cli/tasks/rag_context_indexing.md) | Rag Context Indexing |

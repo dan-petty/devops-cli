@@ -42,7 +42,7 @@ All configuration values can be overridden via `DEVOPS_CLI_*` environment variab
 | Environment Variable | Target Setting | Description / Example |
 | :--- | :--- | :--- |
 | `DEVOPS_CLI_CONFIG_PATH` | System | Path to persistent configuration file (`~/.config/devops-cli/config.yaml`) |
-| `DEVOPS_CLI_DATA_DIR` | System | Base directory for data, sessions, reviews, and logs (use `./.data/agent` for isolated AI tasks) |
+| `DEVOPS_CLI_DATA_DIR` | System | Base workspace directory for data, sessions, reviews, and logs (defaults to `./.data`; agent artifacts isolate under `<data_dir>/agent`) |
 | `DEVOPS_CLI_DRY_RUN` | System | Enable global dry-run mode (`1`, `true`, `yes`) |
 | `DEVOPS_CLI_LOG_LEVEL` | System | Logging verbosity (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
 | `DEVOPS_CLI_AI_PROVIDER` | `ai.provider` | AI provider backend (`ollama`, `openai`, `anthropic`, `deepseek`) |

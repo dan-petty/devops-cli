@@ -1,4 +1,4 @@
-"""Tests for findings remediation from review session 20260906-002449 and feedback loop hardening."""
+"""Unit and integration tests for review defenses, path traversal guards, and hallucination verification."""
 
 from __future__ import annotations
 
@@ -191,3 +191,19 @@ def test_verify_symbol_defined_in_ast_or_module_fallback(tmp_path: Path) -> None
         description="`x` is not defined",
     )
     assert _verify_symbol_defined_in_ast_or_module(finding_existing_symbol, tree, py_file) is True
+
+
+def test_resolve_target_file_src_layout_fallback(tmp_path: Path) -> None:
+    from devops_cli.ai.review.verification import _resolve_target_file
+
+    repo_dir = tmp_path / "my_project"
+    repo_dir.mkdir()
+    src_dir = repo_dir / "src" / "pkg"
+    src_dir.mkdir(parents=True)
+    target = src_dir / "module.py"
+    target.write_text("a = 1\n", encoding="utf-8")
+
+    # Finding omits "src/"
+    resolved = _resolve_target_file("pkg/module.py", repo_root=repo_dir)
+    assert resolved is not None
+    assert resolved.resolve() == target.resolve()
