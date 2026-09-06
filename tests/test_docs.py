@@ -435,6 +435,8 @@ def test_doc_generator_knowledge_base_index(generator: DocGenerator) -> None:
     assert "Division 2: Information Technology Domain-Specific" in content
     assert "tasks/" in content
     assert "tools/" in content
+    assert "valkey.md" in content
+    assert "Valkey" in content
 
 
 def test_parse_mcp_input_schema_parameters_with_anyof_array() -> None:
