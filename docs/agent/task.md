@@ -309,10 +309,9 @@
 ---
 
 ### In-Progress Tasks (WIP)
-- None (All tasks completed, PRs #32, #34, #35 merge conflicts resolved, all review threads resolved, passing all CI gates).
+- None (All tasks completed, PRs #31, #32, #33, #34 merged into release/v0.2.11, PR #35 merge conflicts resolved, all review threads resolved, passing all CI gates).
 
 ---
 
 ### Pending Tasks
-- Await maintainer review and merge approval for PR #34 targeting `release/v0.2.11` (PR #32 and PR #33 merged).
 - Await maintainer review and merge approval for PR #35 targeting `release/v0.2.11`.
