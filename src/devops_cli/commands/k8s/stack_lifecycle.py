@@ -14,7 +14,9 @@ import devops_cli.commands.k8s as k8s
 from devops_cli.config.defaults import (
     DEFAULT_K8S_DIR,
     DEFAULT_K8S_STACK,
+    DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
 )
+from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run import is_dry_run, render_dry_run_result, set_dry_run
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
@@ -252,6 +254,42 @@ def bootstrap_openwebui(
         raise typer.Exit(1)
 
 
+def _ensure_qdrant_api_key_secret(
+    context: str | None = None,
+    namespace: str = "llm",
+) -> str | None:
+    """Ensure qdrant-api-key Secret exists in Kubernetes and is synchronized with OS Keyring."""
+    from devops_cli.config.settings import _keyring_get, _keyring_set
+    from devops_cli.k8s.credentials import fetch_qdrant_api_key
+
+    k8s._validate_k8s_identifier(namespace, "namespace", namespace=True)
+    if context:
+        k8s._validate_k8s_identifier(context, "context")
+    kubectl_ctx = ["--context", context] if context else []
+
+    check_cmd = ["kubectl", "get", "secret", "qdrant-api-key", "-n", namespace] + kubectl_ctx
+    res = run_subprocess(check_cmd, quiet=True, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS)
+    if res.returncode == 0:
+        return fetch_qdrant_api_key(namespace=namespace, context=context, save_to_keyring=True)
+
+    key = _keyring_get("qdrant_api_key") or secrets.token_urlsafe(32)
+    create_cmd = [
+        "kubectl",
+        "create",
+        "secret",
+        "generic",
+        "qdrant-api-key",
+        f"--from-literal=api-key={key}",
+        "-n",
+        namespace,
+    ] + kubectl_ctx
+    create_res = run_subprocess(create_cmd, quiet=True, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS)
+    if create_res.returncode == 0:
+        _keyring_set("qdrant_api_key", key)
+        return key
+    return None
+
+
 def deploy_stack(
     k8s_dir: Annotated[Path, typer.Option("--k8s-dir", help=HELP.k8s.k8s_dir)] = DEFAULT_K8S_DIR,
     stack: Annotated[str, typer.Option("--stack", "-s", help=HELP.k8s.stack)] = DEFAULT_K8S_STACK,
@@ -319,6 +357,8 @@ def deploy_stack(
 
     # 5. Install Helm releases
     for release in all_releases:
+        if release["name"] == "qdrant":
+            _ensure_qdrant_api_key_secret(context=context, namespace=release["namespace"])
         print_info(f"[bold]Installing {release['name']}...[/bold]", prefix=False)
         helm_cmd = (
             [
@@ -383,6 +423,11 @@ def deploy_stack(
             prefix=False,
         )
     if "llm" in selected_stacks:
+        from devops_cli.k8s.credentials import sync_k8s_credentials
+
+        synced_llm = sync_k8s_credentials(context=context, stack="llm")
+        if synced_llm.get("qdrant"):
+            print_success("Qdrant API key securely synced to OS Keyring.")
         k8s._bootstrap_openwebui_account(context=context)
         print_info("[dim]Ollama: http://localhost:11434 (namespace: llm)[/dim]", prefix=False)
         print_info(
@@ -415,7 +460,7 @@ def sync_secrets(
             details={
                 "stack": stack,
                 "context": context or "active",
-                "targets": "argocd.password, grafana.password",
+                "targets": "argocd.password, grafana.password, qdrant.api_key",
             },
         )
         return

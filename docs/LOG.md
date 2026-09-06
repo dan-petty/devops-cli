@@ -25,6 +25,29 @@ Chronological log of refactoring milestones, quality gates, and security enhance
   - Squash-merged PR #38 into `main` by maintainer Daniel Petty (commit `22bba04`).
   - Automated Release Orchestrator workflow triggered on `main` push, successfully cutting git tag `v0.2.11` and publishing release assets.
 
+### [2026-09-06] Qdrant Vector Database API Key Secret Protection & ClusterIP Default (Phase 48.4 — Issue #43)
+- **Zero-Trust Infrastructure Perimeter & Vector Database Security**:
+  - Enforced mandatory API key secret protection on local Qdrant vector database Helm deployment in `k8s/llm/values-qdrant.yaml`.
+  - Configured `service.type: ClusterIP` to prevent unauthenticated NodePort exposure.
+  - Disabled plain-text API key configuration in values (`apiKey: false`, `readOnlyApiKey: false`) in favor of Kubernetes Secret injection via `extraEnv` binding `QDRANT__SERVICE__API_KEY` from secret `qdrant-api-key:api-key`.
+- **Configuration & Keyring Secret Storage Integration**:
+  - Registered `qdrant.url`, `qdrant.api_key`, and `qdrant.collection_prefix` in `src/devops_cli/config/options.py`.
+  - Added `qdrant.api_key` to `SECRET_CONFIG_OPTIONS` (bringing audited secret count to 7) and `KEYRING_KEYS` (`qdrant_api_key`).
+  - Added environment variable mapping in `src/devops_cli/config/env.py` (`DEVOPS_CLI_QDRANT_API_KEY`, `DEVOPS_CLI_QDRANT_URL`, `DEVOPS_CLI_QDRANT_COLLECTION_PREFIX`) with `is_secret=True`.
+  - Added `api_key: str | None = None` to `QdrantConfig` in `src/devops_cli/config/settings.py` and implemented `get_qdrant_api_key(settings)`.
+- **RAG Subsystem & Tool Authentication**:
+  - Updated `src/devops_cli/ai/rag/indexer.py` (`resolve_qdrant_client`, `WorkspaceIndexer.__init__`) to resolve API keys from OS Keyring when connecting to Qdrant.
+  - Updated `src/devops_cli/ai/rag/qdrant.py` (`QdrantClient.__init__`) to accept and default `api_key` to `get_qdrant_api_key(load_settings())`.
+  - Updated `src/devops_cli/ai/rag/investigator.py`, `src/devops_cli/commands/rag.py`, and `src/devops_cli/ai/tools/builtin_tools.py` to forward OS Keyring API keys to RAG and Qdrant clients.
+- **Kubernetes Secret Provisioning & Stack Lifecycle**:
+  - Implemented `fetch_qdrant_api_key()` and updated `sync_k8s_credentials()` in `src/devops_cli/k8s/credentials.py` to manage `qdrant-api-key` in the `llm` namespace.
+  - Added `_ensure_qdrant_api_key_secret()` in `src/devops_cli/commands/k8s/stack_lifecycle.py` to automatically provision the Kubernetes Secret prior to Qdrant Helm installation and synchronize post-deployment.
+- **Quality Gates & Test-First Verification**:
+  - Authored comprehensive test suite `tests/test_k8s_qdrant_security.py` (10/10 green) validating manifest parameters, env injection, ClusterIP service type, settings, env parsing, and RAG keyring resolution.
+  - Updated `tests/test_config_audit_keys.py` to assert 7 audited secrets.
+  - Validated Checkov IaC scan on `k8s/` (0 violations) and architectural invariants (`tests/test_architectural_invariants.py`).
+  - Full CI validation suite (`uv run devops ci` — 10/10 gates green, coverage >= 90%).
+
 ### [2026-09-06] Cluster Default-Deny NetworkPolicies for Monitoring and ArgoCD (Phase 48.3 — Issue #40)
 - **Zero-Trust Infrastructure Perimeter & Network Isolation**:
   - Implemented declarative default-deny ingress and egress `NetworkPolicy` manifests for `monitoring` (`k8s/monitoring/networkpolicy.yaml`) and `argocd` (`k8s/argocd/networkpolicy.yaml`).

@@ -117,7 +117,14 @@ class QdrantClient:
         if not parsed.scheme or not parsed.netloc:
             raise InvalidURLError(base_url, reason="missing scheme or host")
         self.base_url = urllib.parse.urlunparse(parsed).rstrip("/")
-        self.api_key = api_key
+        self.api_key: str | None = api_key
+        if self.api_key is None:
+            try:
+                from devops_cli.config.settings import get_qdrant_api_key, load_settings
+
+                self.api_key = get_qdrant_api_key(load_settings())
+            except Exception:
+                self.api_key = None
         self.allow_private_network = allow_private_network
         self.timeout = max(timeout, 60.0)
 

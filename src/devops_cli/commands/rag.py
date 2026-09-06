@@ -70,7 +70,7 @@ def _get_rag_components() -> tuple[Any, Any, str, str]:
     """Resolve configured Qdrant client, Embeddings engine, and collection names."""
     from devops_cli.ai.rag.embeddings import EmbeddingsEngine
     from devops_cli.ai.rag.qdrant import QdrantClient
-    from devops_cli.config.settings import get_ai_api_key, load_settings
+    from devops_cli.config.settings import get_ai_api_key, get_qdrant_api_key, load_settings
 
     settings = load_settings()
     qdrant_url = settings.qdrant.url or "http://localhost:6333"
@@ -80,6 +80,7 @@ def _get_rag_components() -> tuple[Any, Any, str, str]:
 
     qdrant = QdrantClient(
         base_url=qdrant_url,
+        api_key=get_qdrant_api_key(settings),
         allow_private_network=settings.ai.allow_private_network,
     )
     embedder = EmbeddingsEngine(

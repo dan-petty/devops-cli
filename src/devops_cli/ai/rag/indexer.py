@@ -298,13 +298,37 @@ def _partition_chunks(all_chunks: list[CodeChunk]) -> tuple[list[CodeChunk], lis
     return code_chunks, doc_chunks
 
 
+def resolve_qdrant_client(
+    base_url: str | None = None,
+    api_key: str | None = None,
+    *,
+    allow_private_network: bool | None = None,
+) -> QdrantClient:
+    """Resolve authenticated QdrantClient using OS Keyring when api_key is not explicitly provided."""
+    from devops_cli.config.settings import get_qdrant_api_key, load_settings
+
+    settings = load_settings()
+    url = base_url or settings.qdrant.url or "http://localhost:6333"
+    resolved_api_key = api_key or get_qdrant_api_key(settings)
+    private_net = (
+        allow_private_network
+        if allow_private_network is not None
+        else settings.ai.allow_private_network
+    )
+    return QdrantClient(
+        base_url=url,
+        api_key=resolved_api_key,
+        allow_private_network=private_net,
+    )
+
+
 class WorkspaceIndexer:
     """Discovers, chunks, embeds, and indexes workspace source code and docs into Qdrant."""
 
     def __init__(
         self,
-        qdrant: QdrantClient,
-        embedder: EmbeddingsEngine,
+        qdrant: QdrantClient | None = None,
+        embedder: EmbeddingsEngine | None = None,
         *,
         code_collection: str = DEFAULT_RAG_COLLECTION,
         docs_collection: str = DEFAULT_RAG_DOCS_COLLECTION,
@@ -312,8 +336,29 @@ class WorkspaceIndexer:
         chunk_size: int = DEFAULT_RAG_CHUNK_SIZE,
         chunk_overlap: int = DEFAULT_RAG_CHUNK_OVERLAP,
     ) -> None:
-        self.qdrant = qdrant
-        self.embedder = embedder
+        if qdrant is None:
+            self.qdrant = resolve_qdrant_client()
+        else:
+            self.qdrant = qdrant
+            if not self.qdrant.api_key:
+                from devops_cli.config.settings import get_qdrant_api_key, load_settings
+
+                try:
+                    self.qdrant.api_key = get_qdrant_api_key(load_settings())
+                except Exception:
+                    pass
+
+        if embedder is None:
+            from devops_cli.config.settings import get_ai_api_key, load_settings
+
+            settings = load_settings()
+            self.embedder = EmbeddingsEngine(
+                ai_config=settings.ai,
+                api_key=get_ai_api_key(settings),
+            )
+        else:
+            self.embedder = embedder
+
         self.code_collection = code_collection
         self.docs_collection = docs_collection
         self.cache_dir = cache_dir
