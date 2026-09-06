@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import subprocess
+from pathlib import Path
 from typing import TYPE_CHECKING
 from unittest.mock import patch
 
@@ -173,6 +174,16 @@ class TestMcpCli:
             mock_run.assert_called_once_with(
                 transport="sse", host="0.0.0.0", port=9090, allow_remote=False
             )
+
+    def test_export_schemas_command(self, runner: CliRunner, tmp_path: Path) -> None:
+        """devops mcp export-schemas must write JSON files and instructions."""
+        out_dir = tmp_path / "mcp_schemas"
+        result = runner.invoke(app, ["export-schemas", "--output-dir", str(out_dir)])
+        assert result.exit_code == 0
+        assert (out_dir / "instructions.md").exists()
+        assert (out_dir / "scan_trivy.json").exists()
+        assert (out_dir / "vault_set.json").exists()
+        assert "Exported" in result.output
 
 
 # ── OpenTofu / Terraform MCP Tools ───────────────────────────────────────────
