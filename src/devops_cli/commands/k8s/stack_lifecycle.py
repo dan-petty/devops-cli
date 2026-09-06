@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import secrets
@@ -273,17 +274,27 @@ def _ensure_qdrant_api_key_secret(
         return fetch_qdrant_api_key(namespace=namespace, context=context, save_to_keyring=True)
 
     key = _keyring_get("qdrant_api_key") or secrets.token_urlsafe(32)
-    create_cmd = [
-        "kubectl",
-        "create",
-        "secret",
-        "generic",
-        "qdrant-api-key",
-        f"--from-literal=api-key={key}",
-        "-n",
-        namespace,
-    ] + kubectl_ctx
-    create_res = run_subprocess(create_cmd, quiet=True, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS)
+    secret_manifest = json.dumps(
+        {
+            "apiVersion": "v1",
+            "kind": "Secret",
+            "metadata": {
+                "name": "qdrant-api-key",
+                "namespace": namespace,
+            },
+            "type": "Opaque",
+            "stringData": {
+                "api-key": key,
+            },
+        }
+    )
+    apply_cmd = ["kubectl", "apply", "-f", "-"] + kubectl_ctx
+    create_res = run_subprocess(
+        apply_cmd,
+        input=secret_manifest,
+        quiet=True,
+        timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
+    )
     if create_res.returncode == 0:
         _keyring_set("qdrant_api_key", key)
         return key
@@ -358,7 +369,15 @@ def deploy_stack(
     # 5. Install Helm releases
     for release in all_releases:
         if release["name"] == "qdrant":
-            _ensure_qdrant_api_key_secret(context=context, namespace=release["namespace"])
+            qdrant_key = _ensure_qdrant_api_key_secret(
+                context=context, namespace=release["namespace"]
+            )
+            if not qdrant_key:
+                print_error(
+                    f"Failed to ensure Qdrant API key secret in namespace '{release['namespace']}'. Aborting deployment.",
+                    prefix=False,
+                )
+                raise typer.Exit(1)
         print_info(f"[bold]Installing {release['name']}...[/bold]", prefix=False)
         helm_cmd = (
             [

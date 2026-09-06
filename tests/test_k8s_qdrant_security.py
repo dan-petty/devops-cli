@@ -10,9 +10,12 @@ Validates:
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+import typer
 import yaml
 
 from devops_cli.config import env as env_mod
@@ -211,7 +214,7 @@ def test_ensure_qdrant_api_key_secret_lifecycle() -> None:
         patch("devops_cli.config.settings._keyring_set") as mock_keyring_set,
     ):
         # First call: kubectl get secret -> returncode 1 (not found)
-        # Second call: kubectl create secret -> returncode 0
+        # Second call: kubectl apply -f - via stdin -> returncode 0
         mock_run.side_effect = [
             MagicMock(returncode=1, stderr="Error: secrets 'qdrant-api-key' not found"),
             MagicMock(returncode=0, stdout="secret/qdrant-api-key created"),
@@ -220,3 +223,69 @@ def test_ensure_qdrant_api_key_secret_lifecycle() -> None:
         assert key is not None
         assert len(key) >= 32
         mock_keyring_set.assert_called_once_with("qdrant_api_key", key)
+
+        # Assert secret was applied via stdin and secret key was NOT passed in argv
+        apply_call = mock_run.call_args_list[1]
+        assert apply_call.args[0] == ["kubectl", "apply", "-f", "-"]
+        assert apply_call.kwargs.get("input") is not None
+        assert f'"api-key": "{key}"' in apply_call.kwargs["input"]
+        assert not any(key in arg for arg in apply_call.args[0])
+
+
+def test_deploy_stack_fails_fast_when_qdrant_secret_fails() -> None:
+    """Verify deploy_stack fails fast with typer.Exit(1) if Qdrant secret creation fails."""
+    from devops_cli.commands.k8s.stack_lifecycle import deploy_stack
+
+    with (
+        patch("devops_cli.commands.k8s._cluster_reachable", return_value=True),
+        patch("devops_cli.commands.k8s._run_cmd"),
+        patch(
+            "devops_cli.commands.k8s.stack_lifecycle._ensure_qdrant_api_key_secret",
+            return_value=None,
+        ),
+        patch("devops_cli.dry_run.is_dry_run", return_value=False),
+        pytest.raises(typer.Exit) as exc_info,
+    ):
+        deploy_stack(stack="llm")
+    assert exc_info.value.exit_code == 1
+
+
+def test_workspace_indexer_debug_logs_on_keyring_failure(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Verify WorkspaceIndexer logs at DEBUG level when keyring lookup fails."""
+    from devops_cli.ai.rag.indexer import WorkspaceIndexer
+    from devops_cli.ai.rag.qdrant import QdrantClient
+
+    caplog.set_level(logging.DEBUG)
+    mock_embedder = MagicMock()
+    mock_embedder.model = "test-model"
+    unauth_client = QdrantClient("http://localhost:6333", api_key=None, allow_private_network=True)
+    unauth_client.api_key = None
+
+    with patch(
+        "devops_cli.config.settings.get_qdrant_api_key",
+        side_effect=RuntimeError("Keyring unavailable"),
+    ):
+        indexer = WorkspaceIndexer(qdrant=unauth_client, embedder=mock_embedder, cache_dir=tmp_path)
+        assert indexer.qdrant.api_key is None
+        assert any(
+            "Failed to resolve Qdrant API key from keyring" in rec.message for rec in caplog.records
+        )
+
+
+def test_qdrant_client_debug_logs_on_settings_failure(caplog: pytest.LogCaptureFixture) -> None:
+    """Verify QdrantClient logs at DEBUG level when settings resolution fails."""
+    from devops_cli.ai.rag.qdrant import QdrantClient
+
+    caplog.set_level(logging.DEBUG)
+    with patch(
+        "devops_cli.config.settings.get_qdrant_api_key",
+        side_effect=RuntimeError("Keyring unavailable"),
+    ):
+        client = QdrantClient("http://localhost:6333", allow_private_network=True)
+        assert client.api_key is None
+        assert any(
+            "Failed to resolve Qdrant API key from settings" in rec.message
+            for rec in caplog.records
+        )

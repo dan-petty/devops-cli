@@ -123,7 +123,10 @@ class QdrantClient:
                 from devops_cli.config.settings import get_qdrant_api_key, load_settings
 
                 self.api_key = get_qdrant_api_key(load_settings())
-            except Exception:
+            except Exception as err:
+                logger.debug(
+                    "Failed to resolve Qdrant API key from settings: %s", type(err).__name__
+                )
                 self.api_key = None
         self.allow_private_network = allow_private_network
         self.timeout = max(timeout, 60.0)

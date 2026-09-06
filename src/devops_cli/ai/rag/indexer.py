@@ -345,8 +345,10 @@ class WorkspaceIndexer:
 
                 try:
                     self.qdrant.api_key = get_qdrant_api_key(load_settings())
-                except Exception:
-                    pass
+                except Exception as err:
+                    logger.debug(
+                        "Failed to resolve Qdrant API key from keyring: %s", type(err).__name__
+                    )
 
         if embedder is None:
             from devops_cli.config.settings import get_ai_api_key, load_settings
