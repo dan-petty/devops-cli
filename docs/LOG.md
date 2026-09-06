@@ -2,6 +2,51 @@
 
 Chronological log of refactoring milestones, quality gates, and security enhancements.
 
+### [2026-09-06] Codebase Stylistic & Structural Drift Remediation & Development Parameters
+- **Architectural Invariant Enforcement & Quality Gate Integration**:
+  - Authored `tests/test_architectural_invariants.py` asserting strict adherence to architectural standards across the codebase:
+    - Zero functions or methods with nesting depth $> 5$ across all of `src/devops_cli`.
+    - Cyclomatic complexity $\le 10$ for complex tool factories (`FileSystem.get_tools`).
+    - Zero bare Python built-in exceptions (`ValueError`, `RuntimeError`, `TypeError`) raised in domain logic.
+    - Mandatory inheritance of all domain exceptions from `DevOpsCLIError`.
+    - Test collection hygiene (`__test__ = False` on dummy/mock models).
+- **Domain Exception Taxonomy Expansion**:
+  - Added canonical error codes in `src/devops_cli/config/constants.py`: `CONST_ERROR_CODE_VAULT`, `CONST_ERROR_CODE_DOCKER_SANDBOX`, `CONST_ERROR_CODE_K8S`, `CONST_ERROR_CODE_MODEL_BUNDLE`, `CONST_ERROR_CODE_HARNESS`.
+  - Created strongly typed domain exceptions inheriting from `DevOpsCLIError` and standard Python exception types:
+    - `src/devops_cli/exceptions/vault.py`: `VaultError`, `VaultKeyError`, `VaultConfigurationError`, `VaultOperationError`.
+    - `src/devops_cli/exceptions/k8s.py`: `KubernetesError`, `KubernetesContextError`, `ChaosExecutionError`, `KubernetesDeployError`.
+    - `src/devops_cli/exceptions/docker.py`: `DockerError`, `DockerSandboxError`.
+    - `src/devops_cli/exceptions/ai.py`: `ModelBundleError`, `HarnessValidationError`, `HarnessExecutionError`.
+  - Re-exported new exception classes through `src/devops_cli/exceptions/__init__.py` and updated `docs/ERRORS.md`.
+- **Bare Generic Exception Remediation (22 Modules)**:
+  - Replaced bare `ValueError` and `RuntimeError` with strongly typed domain exceptions across:
+    - Docker sandbox (`sandbox.py`)
+    - Kubernetes chaos runner (`chaos_runner.py`)
+    - Kubernetes cluster context (`cluster_context.py`)
+    - Vault broker & CLI (`vault_broker.py`, `commands/vault.py`)
+    - AI model bundler & durable sessions (`model_bundler.py`, `durable.py`)
+    - AI harness subsystems (`skills.py`, `workflow.py`, `planning.py`, `shell.py`, `memory.py`, `os_access.py`, `compaction.py`).
+- **Nesting Depth & Cyclomatic Complexity Reductions**:
+  - Refactored high indentation hotspots to $\le 4$ levels project-wide:
+    - `toolsets/__init__.py`: Flattened `extract_tools_from_toolset` and `get_instructions`.
+    - `providers/__init__.py`: Decomposed `create_pydantic_ai_provider` into table-driven provider factories.
+    - `rag/embeddings.py`: Flattened `_probe_ollama_dimension` and `embed_texts`.
+    - `k8s/credentials.py`: Flattened `fetch_grafana_password` via `itertools.product` and dedicated field locator.
+    - `security/aibom.py`: Flattened `extract_aibom_components` via dedicated parameter parsers.
+    - `security/complexity.py`: Flattened `run_complexity_scan` via `_evaluate_function_findings`.
+    - `security/vault_broker.py`: Flattened `get_secret` via `_fetch_vault_kv2_secret`.
+    - `ai/harness/filesystem.py`: Extracted 8 helper methods from `get_tools()` on `FileSystem`, reducing complexity from 49 to $\le 6$.
+    - `ai/ast_stream.py`: Flattened `stream_ast_symbols` and `stream_token_lines` by extracting AST and token classification helpers.
+    - `ai/response_repair.py`: Flattened `_extract_tool_invocations_from_chunk`.
+    - `output/formatters/scalars.py`: Flattened `format_repo_map_text`.
+    - `ai/analyze/scanner.py`: Flattened `_extract_file_dependencies`.
+    - `ai/agents/runner.py`: Flattened `_execute_single_tool`.
+- **Test Collection & Warning Hygiene**:
+  - Set `__test__ = False` on `TestModel` in `src/devops_cli/ai/agents/testing.py` to eliminate `PytestCollectionWarning`.
+  - Safely closed unawaited coroutine objects during synchronous toolset introspection in `toolsets/__init__.py` and `agents/agent.py` to eliminate `RuntimeWarning`.
+- **Quality Gate**:
+  - Full CI validation suite (`uv run devops ci`): 10/10 quality gates green (test, coverage $\ge 90\%$, lint, format, typecheck, audit, security, actionlint, docs).
+
 ### [2026-09-06] Replace Redis with Valkey Across Workstation Infrastructure & LLM Stack
 - **ArgoCD In-Memory Cache Migration**:
   - `k8s/argocd/values.yaml`: Overrode default Redis container image with `valkey/valkey:8.0-alpine` under the BSD-3-Clause open-source license.

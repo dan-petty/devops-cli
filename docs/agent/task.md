@@ -1,4 +1,4 @@
-# Task Tracking: Address Review Findings (Session 20260905-003105) & Review Loop Hardening
+# Task Tracking:
 
 ## Task Status Summary
 
@@ -265,10 +265,21 @@
 
 ---
 
+- [x] Phase 36: Codebase Stylistic and Structural Drift Remediation & Parameter Establishment
+  - [x] Phase 36.1: Test-First Invariant Specifications (`tests/test_architectural_invariants.py`)
+  - [x] Phase 36.2: Exception Taxonomy Expansion (`exceptions/vault.py`, `exceptions/k8s.py`, `exceptions/docker.py`, `exceptions/ai.py`)
+  - [x] Phase 36.3: Refactor High Indentation & Complexity Hotspots (`toolsets`, `providers`, `embeddings`, `credentials`, `aibom`, `complexity`, `vault_broker`, `filesystem`, `ast_stream`, `response_repair`, `scalars`, `scanner`, `runner`)
+  - [x] Phase 36.4: Replace Bare Generic Exceptions with Domain Exceptions across 22 Modules (`sandbox`, `chaos_runner`, `cluster_context`, `vault`, `model_bundler`, `durable`, `skills`, `workflow`, `planning`, `shell`, `memory`, `os_access`, `compaction`)
+  - [x] Phase 36.5: Clean Test Collection Hygiene & Warning Eliminations (`testing.py` `__test__ = False`, `agent.py` coroutine close)
+  - [x] Phase 36.6: Documentation & Master Parameter Updates (`AGENTS.md`, `LOG.md`, `ROADMAP.md`, `PENDING_FEATURES.md`)
+  - [x] Phase 36.7: Full CI Quality Gate (`uv run devops ci` — 10/10 green), Docs Sync (`devops docs generate --sync-readme`)
+
+---
+
 ### In-Progress Tasks (WIP)
-*None — All tasks completed, PR #31 green and ready for human review.*
+- None (Phase 36 fully implemented, verified, and passing all CI gates).
 
 ---
 
 ### Pending Tasks
-- Human review and merge of PR #31 targeting `release/v0.2.11`.
+- Open PR for topic branch `refactor/codebase-drift-remediation` targeting `release/v0.2.11` (PR #31 merged).
