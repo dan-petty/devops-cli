@@ -61,11 +61,25 @@ async def test_create_devops_mcp_toolset() -> None:
     # Discovered tools on in-process FastMCP server
     tools = await ts.list_tools()
     tool_names = {t.name for t in tools}
-    assert len(tools) >= 50
+    assert len(tools) >= 70
     assert "review_path" in tool_names
     assert "k8s_pods" in tool_names
     assert "docker_stats" in tool_names
     assert "config_show" in tool_names
+    assert "scan_trivy" in tool_names
+    assert "vault_set" in tool_names
+    assert "ai_architecture" in tool_names
+
+    # Discovered prompts and resources on in-process server
+    prompts = await ts.list_prompts()
+    prompt_names = {p.name for p in prompts}
+    assert "code_review_prompt" in prompt_names
+    assert "security_audit_prompt" in prompt_names
+
+    resources = await ts.list_resources()
+    resource_uris = {str(r.uri) for r in resources}
+    assert "resource://vault/status" in resource_uris
+    assert "resource://mcp/tools" in resource_uris
 
     # Direct tool call via in-process server
     res = await ts.direct_call_tool("config_output", {"output_format": "json"})

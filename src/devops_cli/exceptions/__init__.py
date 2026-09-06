@@ -9,9 +9,12 @@ from devops_cli.exceptions.ai import (
     ConcurrencyLimitExceeded,
     ContentFilterError,
     ContextBudgetExceededError,
+    HarnessExecutionError,
+    HarnessValidationError,
     IncompleteToolCall,
     LLMInferenceError,
     ModelAPIError,
+    ModelBundleError,
     ModelHTTPError,
     ModelRetry,
     ModelUnavailableError,
@@ -25,10 +28,20 @@ from devops_cli.exceptions.ai import (
 )
 from devops_cli.exceptions.base import DevOpsCLIError
 from devops_cli.exceptions.config import ConfigurationError
+from devops_cli.exceptions.docker import (
+    DockerError,
+    DockerSandboxError,
+)
 from devops_cli.exceptions.git import (
     BranchAlreadyExistsError,
     GitOperationError,
     InvalidBranchNameError,
+)
+from devops_cli.exceptions.k8s import (
+    ChaosExecutionError,
+    KubernetesContextError,
+    KubernetesDeployError,
+    KubernetesError,
 )
 from devops_cli.exceptions.security import (
     KeyringUnavailableError,
@@ -46,26 +59,41 @@ from devops_cli.exceptions.validation import (
     InvalidVersionError,
     ValidationError,
 )
+from devops_cli.exceptions.vault import (
+    VaultConfigurationError,
+    VaultError,
+    VaultKeyError,
+    VaultOperationError,
+)
 
 __all__ = [
     "AgentRunError",
     "ApprovalRequired",
     "BranchAlreadyExistsError",
     "CallDeferred",
+    "ChaosExecutionError",
     "ChecksumMismatchError",
     "ConcurrencyLimitExceeded",
     "ConfigurationError",
     "ContentFilterError",
     "ContextBudgetExceededError",
     "DevOpsCLIError",
+    "DockerError",
+    "DockerSandboxError",
     "GitOperationError",
+    "HarnessExecutionError",
+    "HarnessValidationError",
     "IncompleteToolCall",
     "InvalidBranchNameError",
     "InvalidURLError",
     "InvalidVersionError",
     "KeyringUnavailableError",
+    "KubernetesContextError",
+    "KubernetesDeployError",
+    "KubernetesError",
     "LLMInferenceError",
     "ModelAPIError",
+    "ModelBundleError",
     "ModelHTTPError",
     "ModelRetry",
     "ModelUnavailableError",
@@ -82,4 +110,8 @@ __all__ = [
     "UsageLimitExceeded",
     "UserError",
     "ValidationError",
+    "VaultConfigurationError",
+    "VaultError",
+    "VaultKeyError",
+    "VaultOperationError",
 ]

@@ -96,6 +96,18 @@ class MCPToolDoc(BaseModel):
     parameters: list[dict[str, Any]] = Field(default_factory=list)
 
 
+def _extract_mcp_prop_type(prop_data: dict[str, Any]) -> str:
+    """Extract human-readable schema type from an MCP property schema, supporting anyOf/oneOf."""
+    direct_type = prop_data.get("type")
+    if direct_type:
+        return str(direct_type)
+    variants = prop_data.get("anyOf") or prop_data.get("oneOf") or []
+    for sub in variants:
+        if isinstance(sub, dict) and sub.get("type") and sub.get("type") != "null":
+            return str(sub["type"])
+    return "string"
+
+
 def _parse_mcp_input_schema_parameters(input_schema: Any) -> list[dict[str, Any]]:
     """Extract structured parameter specifications from an MCP tool input schema."""
     if not isinstance(input_schema, dict):
@@ -105,9 +117,9 @@ def _parse_mcp_input_schema_parameters(input_schema: Any) -> list[dict[str, Any]
     return [
         {
             "name": prop_name,
-            "type": prop_data.get("type", "string"),
-            "description": prop_data.get("description", ""),
-            "default": prop_data.get("default", None),
+            "type": _extract_mcp_prop_type(prop_data) if isinstance(prop_data, dict) else "string",
+            "description": prop_data.get("description", "") if isinstance(prop_data, dict) else "",
+            "default": prop_data.get("default", None) if isinstance(prop_data, dict) else None,
             "required": prop_name in reqs,
         }
         for prop_name, prop_data in props.items()

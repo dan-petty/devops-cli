@@ -40,6 +40,64 @@ _DIRECT_RESPONSE_FROM_TOOLS_PROMPT = load_task_prompt("agent_direct_response_fro
 _DIRECT_RESPONSE_FROM_REASONING_PROMPT = load_task_prompt("agent_direct_response_from_reasoning.md")
 
 
+def _dispatch_before_tool_hooks(
+    hooks: AgentHooks | None,
+    ctx: RunContext[Any] | None,
+    tool_name: str,
+    clean_args: dict[str, Any],
+) -> None:
+    if not hooks or ctx is None:
+        return
+    for h_bt in hooks.before_tool_execute:
+        try:
+            h_bt(ctx, tool_name, clean_args)
+        except Exception:
+            pass
+
+
+def _dispatch_after_tool_hooks(
+    hooks: AgentHooks | None,
+    ctx: RunContext[Any] | None,
+    tool_name: str,
+    clean_args: dict[str, Any],
+    tool_result: Any,
+) -> None:
+    if not hooks or ctx is None:
+        return
+    for h_at in hooks.after_tool_execute:
+        try:
+            h_at(ctx, tool_name, clean_args, tool_result)
+        except Exception:
+            pass
+
+
+def _dispatch_tool_error_hooks(
+    hooks: AgentHooks | None, ctx: RunContext[Any] | None, tool_name: str, exc: Exception
+) -> None:
+    if not hooks or ctx is None:
+        return
+    for h_err in hooks.on_tool_error:
+        try:
+            h_err(ctx, tool_name, exc)
+        except Exception:
+            pass
+
+
+def _run_tool_with_timeout(
+    tool_obj: AgentTool | Tool,
+    clean_args: dict[str, Any],
+    ctx: RunContext[Any] | None,
+    default_timeout: float | None,
+) -> Any:
+    t_limit = tool_obj.timeout if tool_obj.timeout is not None else default_timeout
+    if t_limit and t_limit > 0:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            exec_fn = cast(Callable[..., Any], tool_obj.execute)
+            future = executor.submit(exec_fn, ctx=ctx, **clean_args)
+            return future.result(timeout=t_limit)
+    return tool_obj.execute(ctx=ctx, **clean_args)
+
+
 def _execute_single_tool(
     tool_obj: AgentTool | Tool,
     tool_name: str,
@@ -67,45 +125,17 @@ def _execute_single_tool(
     if prior is not None:
         return "already_called", clean_args, None
 
-    if hooks and ctx is not None:
-        for h_bt in hooks.before_tool_execute:
-            try:
-                h_bt(ctx, tool_name, clean_args)
-            except Exception:
-                pass
+    _dispatch_before_tool_hooks(hooks, ctx, tool_name, clean_args)
 
     try:
-        t_limit = tool_obj.timeout if tool_obj.timeout is not None else default_timeout
-        if t_limit and t_limit > 0:
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                exec_fn = cast(Callable[..., Any], tool_obj.execute)
-                future = executor.submit(exec_fn, ctx=ctx, **clean_args)
-                tool_result = future.result(timeout=t_limit)
-        else:
-            tool_result = tool_obj.execute(ctx=ctx, **clean_args)
-        if hooks and ctx is not None:
-            for h_at in hooks.after_tool_execute:
-                try:
-                    h_at(ctx, tool_name, clean_args, tool_result)
-                except Exception:
-                    pass
+        tool_result = _run_tool_with_timeout(tool_obj, clean_args, ctx, default_timeout)
+        _dispatch_after_tool_hooks(hooks, ctx, tool_name, clean_args, tool_result)
     except (TimeoutError, concurrent.futures.TimeoutError) as timeout_exc:
         t_sec = tool_obj.timeout if tool_obj.timeout is not None else default_timeout
-        timeout_msg = f"Timed out after {t_sec} seconds."
-        if hooks and ctx is not None:
-            for h_err in hooks.on_tool_error:
-                try:
-                    h_err(ctx, tool_name, timeout_exc)
-                except Exception:
-                    pass
-        return "retry_requested", clean_args, timeout_msg
+        _dispatch_tool_error_hooks(hooks, ctx, tool_name, timeout_exc)
+        return "retry_requested", clean_args, f"Timed out after {t_sec} seconds."
     except ModelRetry as retry_exc:
-        if hooks and ctx is not None:
-            for h_err in hooks.on_tool_error:
-                try:
-                    h_err(ctx, tool_name, retry_exc)
-                except Exception:
-                    pass
+        _dispatch_tool_error_hooks(hooks, ctx, tool_name, retry_exc)
         return "retry_requested", clean_args, str(retry_exc)
     except Exception as exc:
         from devops_cli.exceptions.ai import (
@@ -118,24 +148,14 @@ def _execute_single_tool(
         if isinstance(exc, SkipToolExecution):
             return "ok", clean_args, exc.result
         if isinstance(exc, ToolFailed):
-            if hooks and ctx is not None:
-                for h_err in hooks.on_tool_error:
-                    try:
-                        h_err(ctx, tool_name, exc)
-                    except Exception:
-                        pass
+            _dispatch_tool_error_hooks(hooks, ctx, tool_name, exc)
             return "tool_failed", clean_args, exc.message
         if isinstance(exc, ApprovalRequired):
             return "approval_required", clean_args, exc
         if isinstance(exc, CallDeferred):
             return "call_deferred", clean_args, exc
 
-        if hooks and ctx is not None:
-            for h_err in hooks.on_tool_error:
-                try:
-                    h_err(ctx, tool_name, exc)
-                except Exception:
-                    pass
+        _dispatch_tool_error_hooks(hooks, ctx, tool_name, exc)
         from devops_cli.ai.review.sanitization import _mask_secrets_in_content
 
         return (

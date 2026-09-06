@@ -18,6 +18,7 @@ from devops_cli.ai.harness.constants import (
     INTERACTIVE_COMMANDS,
     LLM_API_KEY_ENV_PATTERNS,
 )
+from devops_cli.exceptions.ai import HarnessValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +54,7 @@ class Shell(BaseCapability):
     ) -> None:
         p = Path(cwd)
         if allowed_commands is not None and denied_commands is not None:
-            raise ValueError(
+            raise HarnessValidationError(
                 "allowed_commands and denied_commands are mutually exclusive; specify one or the other."
             )
         super().__init__(

@@ -31,6 +31,7 @@ from devops_cli.config.defaults import (
     DEFAULT_AI_DURABLE_WORKFLOW_PREFIX,
 )
 from devops_cli.exceptions import ConfigurationError
+from devops_cli.exceptions.ai import HarnessValidationError
 from devops_cli.telemetry.tracer import trace_span
 
 if TYPE_CHECKING:
@@ -115,7 +116,10 @@ class SqliteStepStore:
         self._conn: sqlite3.Connection | None = None
         if db_path != ":memory:":
             if ".." in str(db_path):
-                raise ValueError(f"Directory traversal not permitted in db_path: {db_path}")
+                raise HarnessValidationError(
+                    f"Directory traversal not permitted in db_path: {db_path}",
+                    field_name="db_path",
+                )
             path_obj = Path(db_path)
             path_obj.parent.mkdir(parents=True, exist_ok=True)
             self.db_path = str(path_obj.resolve())

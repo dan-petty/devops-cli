@@ -1,4 +1,4 @@
-# Task Tracking: Address Review Findings (Session 20260905-003105) & Review Loop Hardening
+# Task Tracking:
 
 ## Task Status Summary
 
@@ -265,10 +265,33 @@
 
 ---
 
+- [x] Phase 36: Codebase Stylistic and Structural Drift Remediation & Parameter Establishment
+  - [x] Phase 36.1: Test-First Invariant Specifications (`tests/test_architectural_invariants.py`)
+  - [x] Phase 36.2: Exception Taxonomy Expansion (`exceptions/vault.py`, `exceptions/k8s.py`, `exceptions/docker.py`, `exceptions/ai.py`)
+  - [x] Phase 36.3: Refactor High Indentation & Complexity Hotspots (`toolsets`, `providers`, `embeddings`, `credentials`, `aibom`, `complexity`, `vault_broker`, `filesystem`, `ast_stream`, `response_repair`, `scalars`, `scanner`, `runner`)
+  - [x] Phase 36.4: Replace Bare Generic Exceptions with Domain Exceptions across 22 Modules (`sandbox`, `chaos_runner`, `cluster_context`, `vault`, `model_bundler`, `durable`, `skills`, `workflow`, `planning`, `shell`, `memory`, `os_access`, `compaction`)
+  - [x] Phase 36.5: Clean Test Collection Hygiene & Warning Eliminations (`testing.py` `__test__ = False`, `agent.py` coroutine close)
+  - [x] Phase 36.6: Documentation & Master Parameter Updates (`AGENTS.md`, `LOG.md`, `ROADMAP.md`, `PENDING_FEATURES.md`)
+  - [x] Phase 36.7: Full CI Quality Gate (`uv run devops ci` — 10/10 green), Docs Sync (`devops docs generate --sync-readme`)
+  - [x] Phase 36.8: Address Copilot Review Comments on PR #32 (`embeddings.py` strict vector validation, `test_architectural_invariants.py` get_tools title check, distinct `HARNESS_VALIDATION_ERROR` and `HARNESS_EXECUTION_ERROR` codes, docs sync)
+
+---
+
+- [x] Phase 37: FastMCP Server Expansion, Tool Parity & Pydantic AI MCP Integration Validation
+  - [x] Phase 37.1: Test-First Specifications for Expanded MCP Tools, Prompts & Resources (`tests/test_mcp.py`, `tests/test_fastmcp_contracts.py`, `tests/test_pydantic_ai_mcp.py`)
+  - [x] Phase 37.2: FastMCP Server Implementation of Missing Tools, Prompts & Resources (`src/devops_cli/ai/mcp/server.py` — 72 tools, 4 prompts, 6 resources)
+  - [x] Phase 37.3: Submodule Re-Exports & CLI Command Expansion (`src/devops_cli/ai/mcp/__init__.py`, `src/devops_cli/commands/mcp.py` `export-schemas`)
+  - [x] Phase 37.4: Schema Synchronization to Antigravity IDE (`/home/vscode/.gemini/antigravity-ide/mcp/devops-cli/` — 72 JSON schemas & instructions)
+  - [x] Phase 37.5: Documentation & Roadmap Synchronization (`docs/MCP_TOOLS.md`, `README.md`, `docs/ROADMAP.md`, `docs/LOG.md`, `docs/PENDING_FEATURES.md`)
+  - [x] Phase 37.6: Full CI Quality Gate Validation (`uv run devops ci` — 10/10 green), Docs Sync, Schema Export & PR Submission
+
+---
+
 ### In-Progress Tasks (WIP)
-*None — All tasks completed, PR #31 green and ready for human review.*
+- [ ] Push topic branch `feat/mcp-expansion-and-validation` and open PR targeting `release/v0.2.11`.
 
 ---
 
 ### Pending Tasks
-- Human review and merge of PR #31 targeting `release/v0.2.11`.
+- Await maintainer review and merge approval for PR #32 targeting `release/v0.2.11`.
+- Await maintainer review and merge approval for PR on topic branch `feat/mcp-expansion-and-validation`.

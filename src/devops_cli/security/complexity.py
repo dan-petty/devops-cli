@@ -158,6 +158,46 @@ def analyze_file_complexity(file_path: Path) -> FileComplexityReport:
     return report
 
 
+def _evaluate_function_findings(
+    fn: FunctionComplexity,
+    rel_path: str,
+    max_complexity: int,
+    max_nesting_depth: int,
+) -> list[Finding]:
+    """Generate Finding objects for functions violating complexity or nesting limits."""
+    findings: list[Finding] = []
+    loc = f"{rel_path}:{fn.line_number}-{fn.end_line_number}"
+
+    if fn.cyclomatic_complexity > max_complexity:
+        findings.append(
+            Finding(
+                severity="HIGH" if fn.cyclomatic_complexity > max_complexity * 1.5 else "MEDIUM",
+                location=loc,
+                title=f"High Cyclomatic Complexity in `{fn.name}` ({fn.cyclomatic_complexity} > {max_complexity})",
+                description=(
+                    f"Function `{fn.name}` has a Cyclomatic Complexity of {fn.cyclomatic_complexity}, "
+                    f"which exceeds the configured threshold of {max_complexity}."
+                ),
+                fix="Decompose function into smaller helper functions or functional pipelines.",
+            )
+        )
+
+    if fn.max_nesting_depth > max_nesting_depth:
+        findings.append(
+            Finding(
+                severity="HIGH" if fn.max_nesting_depth > max_nesting_depth + 2 else "MEDIUM",
+                location=loc,
+                title=f"Excessive Nesting Depth in `{fn.name}` ({fn.max_nesting_depth} > {max_nesting_depth})",
+                description=(
+                    f"Function `{fn.name}` reaches a nesting depth of {fn.max_nesting_depth}, "
+                    f"exceeding the strict limit of {max_nesting_depth} levels."
+                ),
+                fix="Flatten nested loops and branches using guard clauses or early returns.",
+            )
+        )
+    return findings
+
+
 def run_complexity_scan(
     target_path: Path,
     *,
@@ -192,38 +232,8 @@ def run_complexity_scan(
             rel_path = py_file.name
 
         for fn in rep.functions:
-            loc = f"{rel_path}:{fn.line_number}-{fn.end_line_number}"
-
-            if fn.cyclomatic_complexity > max_complexity:
-                findings.append(
-                    Finding(
-                        severity="HIGH"
-                        if fn.cyclomatic_complexity > max_complexity * 1.5
-                        else "MEDIUM",
-                        location=loc,
-                        title=f"High Cyclomatic Complexity in `{fn.name}` ({fn.cyclomatic_complexity} > {max_complexity})",
-                        description=(
-                            f"Function `{fn.name}` has a Cyclomatic Complexity of {fn.cyclomatic_complexity}, "
-                            f"which exceeds the configured threshold of {max_complexity}."
-                        ),
-                        fix="Decompose function into smaller helper functions or functional pipelines.",
-                    )
-                )
-
-            if fn.max_nesting_depth > max_nesting_depth:
-                findings.append(
-                    Finding(
-                        severity="HIGH"
-                        if fn.max_nesting_depth > max_nesting_depth + 2
-                        else "MEDIUM",
-                        location=loc,
-                        title=f"Excessive Nesting Depth in `{fn.name}` ({fn.max_nesting_depth} > {max_nesting_depth})",
-                        description=(
-                            f"Function `{fn.name}` reaches a nesting depth of {fn.max_nesting_depth}, "
-                            f"exceeding the strict limit of {max_nesting_depth} levels."
-                        ),
-                        fix="Flatten nested loops and branches using guard clauses or early returns.",
-                    )
-                )
+            findings.extend(
+                _evaluate_function_findings(fn, rel_path, max_complexity, max_nesting_depth)
+            )
 
     return findings

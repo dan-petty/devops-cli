@@ -3242,6 +3242,20 @@ devops mcp serve [OPTIONS]
 devops mcp tools
 ```
 
+### `devops mcp export-schemas`
+
+**Export FastMCP tool JSON schemas and instructions for MCP clients.**
+
+```bash
+devops mcp export-schemas [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--output-dir`, `-o` | `path` | `~/.gemini/antigravity-ide/mcp/devops-cli` | Destination directory for tool schema JSON files. |
+
 ---
 
 ## devops docs

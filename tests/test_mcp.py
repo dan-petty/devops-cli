@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import subprocess
+from pathlib import Path
 from typing import TYPE_CHECKING
 from unittest.mock import patch
 
@@ -174,6 +175,16 @@ class TestMcpCli:
                 transport="sse", host="0.0.0.0", port=9090, allow_remote=False
             )
 
+    def test_export_schemas_command(self, runner: CliRunner, tmp_path: Path) -> None:
+        """devops mcp export-schemas must write JSON files and instructions."""
+        out_dir = tmp_path / "mcp_schemas"
+        result = runner.invoke(app, ["export-schemas", "--output-dir", str(out_dir)])
+        assert result.exit_code == 0
+        assert (out_dir / "instructions.md").exists()
+        assert (out_dir / "scan_trivy.json").exists()
+        assert (out_dir / "vault_set.json").exists()
+        assert "Exported" in result.output
+
 
 # ── OpenTofu / Terraform MCP Tools ───────────────────────────────────────────
 
@@ -310,6 +321,72 @@ class TestAllMcpToolsDirectly:
             assert k8s_enable_tls(stack="all", secret_name="web-tls") == "mock_output"
             assert telemetry_status() == "mock_output"
             assert telemetry_test_span(name="test") == "mock_output"
+
+
+def test_expanded_mcp_tools_and_prompts_execution() -> None:
+    """Verify execution of newly added security, k8s, vault, benchmark, and git governance MCP tools."""
+    from devops_cli.ai.mcp.server import (
+        ai_architecture,
+        benchmark_embeddings,
+        branches_list,
+        code_review_prompt,
+        k8s_audit,
+        k8s_chaos,
+        k8s_diff_helm,
+        k8s_lint,
+        k8s_validate,
+        pr_checks,
+        pr_list,
+        scan_aibom,
+        scan_checkov,
+        scan_complexity,
+        scan_gitleaks,
+        scan_sbom,
+        scan_semgrep,
+        scan_trivy,
+        security_audit_prompt,
+        vault_set,
+        vault_sync,
+    )
+
+    with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="mock_output"):
+        # Security scanners
+        assert scan_trivy(".") == "mock_output"
+        assert scan_gitleaks(".") == "mock_output"
+        assert scan_semgrep(".") == "mock_output"
+        assert scan_checkov(".") == "mock_output"
+        assert scan_complexity("src") == "mock_output"
+        assert scan_aibom(".") == "mock_output"
+        assert scan_sbom(".") == "mock_output"
+
+        # Kubernetes operations
+        assert k8s_chaos("validate", "pod-failure") == "mock_output"
+        assert k8s_audit("default") == "mock_output"
+        assert k8s_lint(".") == "mock_output"
+        assert k8s_validate(".") == "mock_output"
+        assert k8s_diff_helm("argocd", "argo/argo-cd") == "mock_output"
+
+        # HashiCorp Vault
+        assert vault_set("secret/data/app", ["FOO=bar"]) == "mock_output"
+        assert vault_sync("secret/data/app") == "mock_output"
+
+        # AI & Benchmark
+        assert benchmark_embeddings(provider="ollama", model="bge-m3") == "mock_output"
+        assert ai_architecture(target="src") == "mock_output"
+
+        # Git & PR governance
+        assert branches_list() == "mock_output"
+        assert pr_list(limit=5) == "mock_output"
+        assert pr_checks(32) == "mock_output"
+
+    # Prompts return formatted strings
+    review_p = code_review_prompt(persona="architect", target="src/devops_cli")
+    assert "architect" in review_p
+    assert "src/devops_cli" in review_p
+
+    sec_p = security_audit_prompt(target="src")
+    assert "security audit" in sec_p.lower()
+    assert "src" in sec_p
 
 
 def test_mcp_helpers_and_error_branches() -> None:

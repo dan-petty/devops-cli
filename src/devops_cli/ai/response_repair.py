@@ -114,25 +114,40 @@ def _extract_json_dict_tool_call(
     )
 
 
+def _extract_json_tool_calls(json_obj: Any, known_tool_names: set[str]) -> list[ExtractedToolCall]:
+    """Extract structured tool calls from parsed JSON structures."""
+    items = (
+        [json_obj]
+        if isinstance(json_obj, dict)
+        else (json_obj if isinstance(json_obj, list) else [])
+    )
+    calls: list[ExtractedToolCall] = []
+    for item in items:
+        if isinstance(item, dict):
+            call = _extract_json_dict_tool_call(item, known_tool_names)
+            if call:
+                calls.append(call)
+    return calls
+
+
+def _parse_fn_args(raw_args: str) -> dict[str, Any]:
+    """Parse function-style arguments into a key-value dictionary."""
+    if raw_args.startswith("{") and raw_args.endswith("}"):
+        parsed_json = repair_json_string(raw_args)
+        return parsed_json if isinstance(parsed_json, dict) else {}
+    parsed_args: dict[str, Any] = {}
+    kw_matches = re.findall(r'([a-zA-Z0-9_]+)\s*=\s*(?:"([^"]*)"|\'([^\']*)\'|([^\s,]+))', raw_args)
+    for kw in kw_matches:
+        parsed_args[kw[0]] = kw[1] or kw[2] or kw[3]
+    return parsed_args
+
+
 def _extract_tool_invocations_from_chunk(
     text: str,
     known_tool_names: set[str],
 ) -> list[ExtractedToolCall]:
     """Extract tool calls from a single text chunk with bounded parsing."""
-    calls: list[ExtractedToolCall] = []
-
-    # 1. JSON-based tool call detection
-    json_obj = repair_json_string(text)
-    if isinstance(json_obj, dict):
-        call = _extract_json_dict_tool_call(json_obj, known_tool_names)
-        if call:
-            calls.append(call)
-    elif isinstance(json_obj, list):
-        for item in json_obj:
-            if isinstance(item, dict):
-                call = _extract_json_dict_tool_call(item, known_tool_names)
-                if call:
-                    calls.append(call)
+    calls = _extract_json_tool_calls(repair_json_string(text), known_tool_names)
 
     # 2. Function-style call extraction: tool_name({"arg": "val"}) or tool_name(arg="val")
     fn_pattern = (
@@ -146,20 +161,7 @@ def _extract_tool_invocations_from_chunk(
         if any(c.tool_name == function_name for c in calls):
             continue
 
-        parsed_args: dict[str, Any] = {}
-        if raw_args.startswith("{") and raw_args.endswith("}"):
-            parsed_json = repair_json_string(raw_args)
-            if isinstance(parsed_json, dict):
-                parsed_args = parsed_json
-        else:
-            kw_matches = re.findall(
-                r'([a-zA-Z0-9_]+)\s*=\s*(?:"([^"]*)"|\'([^\']*)\'|([^\s,]+))', raw_args
-            )
-            for kw in kw_matches:
-                arg_key = kw[0]
-                arg_value = kw[1] or kw[2] or kw[3]
-                parsed_args[arg_key] = arg_value
-
+        parsed_args = _parse_fn_args(raw_args)
         if parsed_args or (
             raw_args == "" and not function_name.lower().startswith(("the", "we", "this", "that"))
         ):

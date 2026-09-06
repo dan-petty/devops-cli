@@ -21,6 +21,7 @@ from devops_cli.ai.agents.pydantic_agent import (
     RunContext,
     Tool,
 )
+from devops_cli.exceptions.ai import HarnessValidationError
 from devops_cli.models.ai import ChatMessage
 
 logger = logging.getLogger(__name__)
@@ -380,7 +381,9 @@ class Planning(BaseCapability):
             if not self.enable_subtasks and (
                 item.status == "blocked" or item.parent_id or item.depends_on
             ):
-                raise ValueError("Subtasks and dependency blocking require enable_subtasks=True")
+                raise HarnessValidationError(
+                    "Subtasks and dependency blocking require enable_subtasks=True"
+                )
             return item
         if isinstance(item, str):
             return PlanItem(content=item, status="pending")
@@ -389,7 +392,9 @@ class Planning(BaseCapability):
         parent_id = item.get("parent_id")
         depends_on = list(item.get("depends_on") or [])
         if not self.enable_subtasks and (status == "blocked" or parent_id or depends_on):
-            raise ValueError("Subtasks and dependency blocking require enable_subtasks=True")
+            raise HarnessValidationError(
+                "Subtasks and dependency blocking require enable_subtasks=True"
+            )
 
         return PlanItem(
             id=str(item.get("id") or f"task-{uuid.uuid4().hex[:6]}"),
@@ -612,7 +617,9 @@ class Planning(BaseCapability):
             registered_names = {getattr(t, "name", "") for t in all_tools}
             unknown = tool_set - registered_names
             if unknown:
-                raise ValueError(f"Unknown tool(s) requested for Planning capability: {unknown}")
+                raise HarnessValidationError(
+                    f"Unknown tool(s) requested for Planning capability: {unknown}"
+                )
             return [t for t in all_tools if getattr(t, "name", "") in tool_set]
 
         return all_tools

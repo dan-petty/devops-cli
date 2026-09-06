@@ -25,6 +25,7 @@ from devops_cli.ai.agents.pydantic_agent import (
     Tool,
 )
 from devops_cli.ai.harness.constants import DEFAULT_SUMMARIZING_INSTRUCTIONS
+from devops_cli.exceptions.ai import HarnessValidationError
 from devops_cli.models.ai import ChatMessage
 
 logger = logging.getLogger(__name__)
@@ -840,7 +841,9 @@ class WarnOnCacheBusts(BaseCapability):
         id: str = "warn_on_cache_busts",
     ) -> None:
         if collapse_ratio <= 0.0:
-            raise ValueError(f"collapse_ratio must be greater than 0.0, got {collapse_ratio}")
+            raise HarnessValidationError(
+                f"collapse_ratio must be greater than 0.0, got {collapse_ratio}"
+            )
         super().__init__(
             id=str(id or "warn_on_cache_busts"),
             collapse_ratio=collapse_ratio,

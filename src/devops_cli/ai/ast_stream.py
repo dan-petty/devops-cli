@@ -50,20 +50,88 @@ class TokenLineInfo(BaseModel):
     has_docstring_or_string: bool
 
 
+def _extract_single_decorator_name(d: ast.expr) -> str | None:
+    if isinstance(d, ast.Name):
+        return d.id
+    if isinstance(d, ast.Attribute):
+        return f"{getattr(d.value, 'id', '')}.{d.attr}".strip(".")
+    if isinstance(d, ast.Call):
+        if isinstance(d.func, ast.Name):
+            return d.func.id
+        if isinstance(d.func, ast.Attribute):
+            return f"{getattr(d.func.value, 'id', '')}.{d.func.attr}".strip(".")
+    return None
+
+
 def _extract_decorator_names(decorator_list: list[ast.expr]) -> list[str]:
     """Extract string representations of AST decorator nodes concisely."""
     results: list[str] = []
     for d in decorator_list:
-        if isinstance(d, ast.Name):
-            results.append(d.id)
-        elif isinstance(d, ast.Attribute):
-            results.append(f"{getattr(d.value, 'id', '')}.{d.attr}".strip("."))
-        elif isinstance(d, ast.Call):
-            if isinstance(d.func, ast.Name):
-                results.append(d.func.id)
-            elif isinstance(d.func, ast.Attribute):
-                results.append(f"{getattr(d.func.value, 'id', '')}.{d.func.attr}".strip("."))
+        name = _extract_single_decorator_name(d)
+        if name:
+            results.append(name)
     return results
+
+
+def _handle_import_node(
+    node: ast.Import | ast.ImportFrom, parent_scope: str | None
+) -> list[ASTSymbol]:
+    """Extract import symbols from Import or ImportFrom AST nodes."""
+    symbols: list[ASTSymbol] = []
+    module = getattr(node, "module", "") or ""
+    for alias in node.names:
+        name = f"{module}.{alias.name}" if module else alias.name
+        symbols.append(
+            ASTSymbol(
+                name=name,
+                symbol_type=ASTSymbolType.IMPORT,
+                line_start=node.lineno,
+                line_end=getattr(node, "end_lineno", node.lineno),
+                parent_scope=parent_scope,
+            )
+        )
+    return symbols
+
+
+def _handle_ast_node(
+    node: ast.AST,
+    parent_scope: str | None,
+    stack: list[tuple[ast.AST, str | None]],
+) -> list[ASTSymbol]:
+    if isinstance(node, ast.ClassDef):
+        stack.append((node, node.name))
+        return [
+            ASTSymbol(
+                name=node.name,
+                symbol_type=ASTSymbolType.CLASS,
+                line_start=node.lineno,
+                line_end=getattr(node, "end_lineno", node.lineno),
+                parent_scope=parent_scope,
+                decorators=_extract_decorator_names(node.decorator_list),
+                docstring=ast.get_docstring(node),
+            )
+        ]
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        sym_type = (
+            ASTSymbolType.ASYNC_FUNCTION
+            if isinstance(node, ast.AsyncFunctionDef)
+            else ASTSymbolType.FUNCTION
+        )
+        stack.append((node, f"{parent_scope}.{node.name}" if parent_scope else node.name))
+        return [
+            ASTSymbol(
+                name=node.name,
+                symbol_type=sym_type,
+                line_start=node.lineno,
+                line_end=getattr(node, "end_lineno", node.lineno),
+                parent_scope=parent_scope,
+                decorators=_extract_decorator_names(node.decorator_list),
+                docstring=ast.get_docstring(node),
+            )
+        ]
+    if isinstance(node, (ast.Import, ast.ImportFrom)):
+        return _handle_import_node(node, parent_scope)
+    return []
 
 
 def stream_ast_symbols(source: str | Path) -> Iterator[ASTSymbol]:
@@ -84,70 +152,43 @@ def stream_ast_symbols(source: str | Path) -> Iterator[ASTSymbol]:
 
     while stack:
         current, parent_scope = stack.pop()
-
         for node in ast.iter_child_nodes(current):
-            if isinstance(node, ast.ClassDef):
-                doc = ast.get_docstring(node)
-                decorators = _extract_decorator_names(node.decorator_list)
-                yield ASTSymbol(
-                    name=node.name,
-                    symbol_type=ASTSymbolType.CLASS,
-                    line_start=node.lineno,
-                    line_end=getattr(node, "end_lineno", node.lineno),
-                    parent_scope=parent_scope,
-                    decorators=decorators,
-                    docstring=doc,
-                )
-                stack.append((node, node.name))
+            yield from _handle_ast_node(node, parent_scope, stack)
 
-            elif isinstance(node, ast.FunctionDef):
-                doc = ast.get_docstring(node)
-                decorators = _extract_decorator_names(node.decorator_list)
-                yield ASTSymbol(
-                    name=node.name,
-                    symbol_type=ASTSymbolType.FUNCTION,
-                    line_start=node.lineno,
-                    line_end=getattr(node, "end_lineno", node.lineno),
-                    parent_scope=parent_scope,
-                    decorators=decorators,
-                    docstring=doc,
-                )
-                stack.append((node, f"{parent_scope}.{node.name}" if parent_scope else node.name))
 
-            elif isinstance(node, ast.AsyncFunctionDef):
-                doc = ast.get_docstring(node)
-                decorators = _extract_decorator_names(node.decorator_list)
-                yield ASTSymbol(
-                    name=node.name,
-                    symbol_type=ASTSymbolType.ASYNC_FUNCTION,
-                    line_start=node.lineno,
-                    line_end=getattr(node, "end_lineno", node.lineno),
-                    parent_scope=parent_scope,
-                    decorators=decorators,
-                    docstring=doc,
-                )
-                stack.append((node, f"{parent_scope}.{node.name}" if parent_scope else node.name))
+def _make_token_line_info(
+    line_number: int,
+    indent_depth: int,
+    token_count: int,
+    has_comment: bool,
+    has_string: bool,
+) -> TokenLineInfo | None:
+    if token_count > 0 or has_comment:
+        return TokenLineInfo(
+            line_number=line_number,
+            indent_depth=indent_depth,
+            token_count=token_count,
+            has_comment=has_comment,
+            has_docstring_or_string=has_string,
+        )
+    return None
 
-            elif isinstance(node, ast.Import):
-                for alias in node.names:
-                    yield ASTSymbol(
-                        name=alias.name,
-                        symbol_type=ASTSymbolType.IMPORT,
-                        line_start=node.lineno,
-                        line_end=getattr(node, "end_lineno", node.lineno),
-                        parent_scope=parent_scope,
-                    )
 
-            elif isinstance(node, ast.ImportFrom):
-                module = node.module or ""
-                for alias in node.names:
-                    yield ASTSymbol(
-                        name=f"{module}.{alias.name}" if module else alias.name,
-                        symbol_type=ASTSymbolType.IMPORT,
-                        line_start=node.lineno,
-                        line_end=getattr(node, "end_lineno", node.lineno),
-                        parent_scope=parent_scope,
-                    )
+def _classify_token(token: tokenize.TokenInfo, current_indent: int) -> tuple[int, bool, bool, int]:
+    """Classify token into (indent, is_comment, is_string, token_increment)."""
+    tok_type = token.type
+    if tok_type == tokenize.INDENT:
+        return len(token.string) // 4, False, False, 0
+    if tok_type == tokenize.COMMENT:
+        indent = (
+            token.start[1] // 4 if current_indent == 0 and token.start[1] > 0 else current_indent
+        )
+        return indent, True, False, 0
+    if tok_type == tokenize.STRING:
+        return current_indent, False, True, 0
+    if tok_type not in (tokenize.NL, tokenize.NEWLINE, tokenize.DEDENT):
+        return current_indent, False, False, 1
+    return current_indent, False, False, 0
 
 
 def stream_token_lines(source: str | Path) -> Iterator[TokenLineInfo]:
@@ -166,38 +207,24 @@ def stream_token_lines(source: str | Path) -> Iterator[TokenLineInfo]:
             tok_line = token.start[0]
 
             if tok_line != current_line:
-                if current_tokens > 0 or has_comment:
-                    yield TokenLineInfo(
-                        line_number=current_line,
-                        indent_depth=current_indent,
-                        token_count=current_tokens,
-                        has_comment=has_comment,
-                        has_docstring_or_string=has_string,
-                    )
+                info = _make_token_line_info(
+                    current_line, current_indent, current_tokens, has_comment, has_string
+                )
+                if info is not None:
+                    yield info
                 current_line = tok_line
-                current_tokens = 0
-                has_comment = False
-                has_string = False
+                current_tokens, has_comment, has_string = 0, False, False
 
-            tok_type = token.type
-            if tok_type == tokenize.INDENT:
-                current_indent = len(token.string) // 4
-            elif tok_type == tokenize.COMMENT:
-                has_comment = True
-                if current_indent == 0 and token.start[1] > 0:
-                    current_indent = token.start[1] // 4
-            elif tok_type == tokenize.STRING:
-                has_string = True
-            elif tok_type not in (tokenize.NL, tokenize.NEWLINE, tokenize.DEDENT):
-                current_tokens += 1
+            indent, is_comm, is_str, inc = _classify_token(token, current_indent)
+            current_indent = indent
+            has_comment = has_comment or is_comm
+            has_string = has_string or is_str
+            current_tokens += inc
 
-        if current_tokens > 0 or has_comment:
-            yield TokenLineInfo(
-                line_number=current_line,
-                indent_depth=current_indent,
-                token_count=current_tokens,
-                has_comment=has_comment,
-                has_docstring_or_string=has_string,
-            )
+        final_info = _make_token_line_info(
+            current_line, current_indent, current_tokens, has_comment, has_string
+        )
+        if final_info is not None:
+            yield final_info
     except tokenize.TokenError:
         return

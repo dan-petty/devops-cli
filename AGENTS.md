@@ -8,8 +8,8 @@ This document provides foundational context, architectural principles, and opera
 - **Poetic Conciseness, Expressive Integration & Zero Boilerplate**:
   - The codebase must read as a poetically concise, expressive integration of tools, libraries, docs, AI, and automation rather than a collection of low-level nested loops, procedural boilerplate, or hard-to-decipher ad-hoc logic.
   - **Strict Complexity & Nesting Caps**:
-    - Aim for cyclomatic complexity $\le 10$ and fewer than 6 indentation levels across all functions and code blocks.
-    - Proactively decompose complex multi-step tasks, deep branching, and nested iterations into dedicated single-responsibility helper functions and functional pipelines.
+    - Strictly enforce cyclomatic complexity $\le 10$ and maximum nesting depth $\le 5$ (< 6 indentation levels) project-wide across all functions, closures, and code blocks. Continuous compliance is validated by `devops scan complexity` and automated architectural invariant gates (`tests/test_architectural_invariants.py`).
+    - Proactively decompose complex multi-step tasks, deep branching, and nested iterations into dedicated single-responsibility helper functions, pure predicate helpers, and functional pipelines.
     - Replace giant `if/elif` ladders and procedural dispatchers with dictionary mappings, registry lookups, or table-driven dispatch.
     - Extract nested AST node inspection, file traversal guards, and multi-condition filtering into pure predicate helpers.
   - Maximize standard library leverage (`functools`, `itertools`, `pathlib`, `collections`, `ipaddress`, `urllib.parse`), Pydantic v2 models, and functional pipelines.
@@ -139,8 +139,13 @@ Before planning, implementing, debugging, refactoring, or reviewing code, archit
   - Each stage must expose a pure functional interface, maintain explicit input/output contracts, and be decorated with `@trace_span` for granular telemetry waterfalls.
 - **Provider Protocol & Deterministic Mock Isolation**:
   - External LLM backends, cloud providers, and container runtimes must implement abstract provider protocols under `providers/` (e.g. `BaseLLMProvider`) and supply deterministic mock implementations for fast, offline unit testing.
-- **Standardized Domain Exception Taxonomy**:
-  - All domain error states must raise strongly typed exceptions inheriting from `DevOpsCLIError` under `src/devops_cli/exceptions/`, specifying explicit POSIX exit codes, canonical machine-readable error codes, and structured context dictionaries rather than raising generic `RuntimeError` or `ValueError`.
+- **Standardized Domain Exception Taxonomy & Zero Bare Built-in Exceptions**:
+  - All domain error states must raise strongly typed exceptions inheriting from `DevOpsCLIError` under `src/devops_cli/exceptions/`, specifying explicit POSIX exit codes, canonical machine-readable error codes (`CONST_ERROR_CODE_*`), and structured context dictionaries.
+  - Raising bare Python built-in exceptions (`ValueError`, `RuntimeError`, `TypeError`) in domain logic is strictly prohibited and continuously verified by automated architectural invariant gates (`tests/test_architectural_invariants.py`).
+  - To support standard idiomatic Python exception assertions (`isinstance(exc, ValueError)`), domain exceptions may declare multiple inheritance combining `DevOpsCLIError` and the relevant standard exception type (e.g. `class KubernetesContextError(KubernetesError, ValueError): ...`).
+- **Clean Test Collection Hygiene**:
+  - Test helper classes, dummy test models, or mock implementations located in `src/devops_cli` must declare `__test__ = False` to eliminate `PytestCollectionWarning` notices.
+  - Coroutine returns from async toolset implementations must be safely awaited or explicitly closed during synchronous introspection to prevent unawaited coroutine warnings.
 - **Telemetry & Metrics by Default**:
   - All new CLI subcommands, background tasks, and AI pipeline stages must be instrumented with OpenTelemetry distributed spans (`@trace_span`, `inject_traceparent_headers`) and record in-memory Prometheus metrics via `GLOBAL_METRICS`.
 

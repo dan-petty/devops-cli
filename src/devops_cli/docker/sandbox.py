@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 
 from devops_cli.config.defaults import DEFAULT_CURRENT_PATH, DEFAULT_DOCKER_TIMEOUT_SECONDS
 from devops_cli.core.process import run_subprocess
+from devops_cli.exceptions.docker import DockerSandboxError
 from devops_cli.telemetry import trace_span
 
 logger = logging.getLogger(__name__)
@@ -89,10 +90,10 @@ class WorkloadSandboxRunner:
     def _validate_workspace_dir(self) -> Path:
         ws = self.config.workspace_dir
         if ws.is_symlink():
-            raise ValueError(f"Workspace directory cannot be a symbolic link: {ws}")
+            raise DockerSandboxError(f"Workspace directory cannot be a symbolic link: {ws}")
         resolved = ws.resolve()
         if str(resolved) in self._FORBIDDEN_ROOTS or resolved == Path(resolved.anchor):
-            raise ValueError(
+            raise DockerSandboxError(
                 f"Mounting sensitive root system directory into sandbox is forbidden: {resolved}"
             )
         return resolved

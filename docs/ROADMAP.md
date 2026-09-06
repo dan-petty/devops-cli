@@ -242,6 +242,13 @@ High-density product roadmap, engineering milestones, and open-source integratio
 - [x] **Dedicated Agent Operational Task Tracking Tier (`docs/agent/`)**:
   - Canonical task status tracking under `docs/agent/task.md` with explicit lifecycle guidelines (`docs/agent/README.md`).
 
+### Workstation Infrastructure & MCP Integration Ecosystem (v0.2.11 - Current Release)
+- [x] **Workstation Infrastructure Valkey Migration**: Replaced Redis components with Valkey 8.0-alpine under BSD-3-Clause across ArgoCD and LLM cluster stacks.
+- [x] **Codebase Stylistic Drift Remediation & Invariants**: Enforced strict nesting depth $\le 5$ (< 6 indentations), cyclomatic complexity $\le 10$, standardized domain exception taxonomy (`DevOpsCLIError`), and automated CI architectural invariant gates (`tests/test_architectural_invariants.py`).
+- [x] **FastMCP Server Tool Parity Expansion (72 Tools)**: Expanded registered FastMCP tools from 53 to 72 tools covering security scans (Trivy, Gitleaks, Semgrep, Checkov, AIBOM, SBOM), Kubernetes operations (chaos, audit, lint, validate, diff), HashiCorp Vault (set, sync), benchmarking, and Git/PR governance.
+- [x] **FastMCP Prompt Templates & Dynamic System Resources**: Implemented 4 prompt templates (`code_review_prompt`, `security_audit_prompt`, `k8s_diagnostics_prompt`, `architecture_analysis_prompt`) and 6 dynamic system resources (`resource://workspace/status`, `resource://config/active`, `resource://telemetry/status`, `resource://release/status`, `resource://vault/status`, `resource://mcp/tools`).
+- [x] **FastMCP JSON Schema Exporter (`devops mcp export-schemas`)**: Built introspection CLI command exporting JSON tool schemas and markdown instructions, synchronizing with Antigravity IDE lazy tool loader.
+
 ### Multi-Cloud Mesh & Production Ecosystem (v0.3.0 - Future Vision)
 - [ ] **Multi-Region Workstation Mesh & Cluster Federation**: Distributed cluster management across hybrid on-prem homelab and multi-cloud Kubernetes clusters with automatic service mesh routing.
 - [ ] **Autonomous Self-Healing Agent Pipeline**: Closed-loop diagnostic engine capable of discovering cluster incidents, generating corrective patches, running CI gates, and executing rollback.
@@ -358,6 +365,9 @@ High-density product roadmap, engineering milestones, and open-source integratio
 | | Common AI Hallucination Scrutiny Pipeline | Pydantic / AST / Verification | High | Medium | v0.2.10 | ✅ Completed |
 | | Native Pydantic AI Framework Subsystems | PydanticAI / FastMCP | High | Medium | v0.2.10 | ✅ Completed |
 | | Codebase Hygiene & Zombie Code Elimination | Standard Lib / AST / Mimetypes | High | Medium | v0.2.10 | ✅ Completed |
+| | Workstation Infrastructure Valkey Migration | Valkey / Helm / ArgoCD | High | Medium | v0.2.11 | ✅ Completed |
+| | Codebase Stylistic Drift Remediation & Invariants | AST / McCabe / DevOpsCLIError | High | Medium | v0.2.11 | ✅ Completed |
+| | FastMCP Server Tool Expansion & Schema Export | FastMCP / PydanticAI / Toolset | High | Medium | v0.2.11 | ✅ Completed |
 | | Multi-Region Workstation Mesh & Cluster Federation | Kubernetes / Fleet | High | High | v0.3.0 | 💡 Future Vision |
 | | Autonomous Self-Healing Agent Pipeline | PydanticAI / Diagnostic | High | High | v0.3.0 | 💡 Future Vision |
 | | Cloud-Native Ephemeral Test Environment Engine | Minikube / Helm / Ingress | High | Medium | v0.3.0 | 💡 Future Vision |
