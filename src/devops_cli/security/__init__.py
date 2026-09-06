@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from devops_cli.security.bandit import run_bandit_scan
+from devops_cli.security.base import BaseSecurityScanner
 from devops_cli.security.checkov import run_checkov_scan
 from devops_cli.security.dive import run_dive_analysis
 from devops_cli.security.gitleaks import run_gitleaks_scan
@@ -17,6 +18,12 @@ from devops_cli.security.reference_extractor import (
     is_network_domain,
     is_public_ip,
 )
+from devops_cli.security.registry import ScannerRegistry, global_scanner_registry
+from devops_cli.security.sanitizer import (
+    mask_dict_secrets,
+    mask_secrets,
+    mask_uri_credentials,
+)
 from devops_cli.security.semgrep import run_semgrep_scan
 from devops_cli.security.tflint import run_tflint_scan
 from devops_cli.security.trivy import run_trivy_scan
@@ -28,15 +35,21 @@ from devops_cli.security.vulnerability_lookup import (
 )
 
 __all__ = [
+    "BaseSecurityScanner",
     "CloudflareRadarClient",
     "NVDClient",
     "OSVClient",
+    "ScannerRegistry",
     "ShodanInternetDBClient",
     "extract_dependencies_from_text",
     "extract_network_references",
+    "global_scanner_registry",
     "is_file_reference",
     "is_network_domain",
     "is_public_ip",
+    "mask_dict_secrets",
+    "mask_secrets",
+    "mask_uri_credentials",
     "run_bandit_scan",
     "run_checkov_scan",
     "run_dive_analysis",

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
 from pathlib import Path
 from typing import Annotated, Any
@@ -26,6 +25,7 @@ from devops_cli.config.settings import (
     load_settings,
     save_settings,
 )
+from devops_cli.core.binaries import check_binary
 from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run import render_dry_run_result
 from devops_cli.http.validation import validate_service_url
@@ -205,7 +205,7 @@ def init() -> None:
 
     # ── GitHub ─────────────────────────────────────────────────────────────
     print_info("[cyan]GitHub[/cyan]", prefix=False)
-    gh_path = shutil.which("gh")
+    gh_path = check_binary("gh")
     if gh_path:
         if not _gh_auth_status() and typer.confirm(
             "Authenticate with GitHub CLI now using 'gh auth login'?", default=True
@@ -305,7 +305,7 @@ def _is_secret_configured(key: str) -> bool:
     if env_var and bool(os.environ.get(env_var)):
         return True
     if key == opt.GITHUB_TOKEN:
-        gh_cmd = shutil.which("gh")
+        gh_cmd = check_binary("gh")
         if gh_cmd:
             try:
                 res = run_subprocess(["gh", "auth", "status"], quiet=True, timeout=3.0)

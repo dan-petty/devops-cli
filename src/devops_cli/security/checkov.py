@@ -6,11 +6,9 @@ Terraform, CloudFormation, Kubernetes, and Dockerfile manifests.
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 import shutil
-import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -158,17 +156,9 @@ def run_checkov_scan(
         cmd.extend(["--framework", framework])
 
     try:
-        proc = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            check=False,
-        )
-        if not proc.stdout.strip():
-            return []
+        from devops_cli.core.process import run_json_subprocess
 
-        raw_data = json.loads(proc.stdout)
+        raw_data = run_json_subprocess(cmd, timeout=timeout, default={})
         return _parse_checkov_results(raw_data)
     except Exception as exc:
         logger.debug("Checkov execution encountered an error: %s; falling back", exc)

@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import logging
 import shutil
-import subprocess
 from pathlib import Path
 
 from devops_cli.ai.review_schema import Finding
@@ -99,7 +98,9 @@ def run_kubeconform_validation(
     cmd.append(str(manifest_path))
 
     try:
-        proc = subprocess.run(
+        from devops_cli.core.process import run_subprocess
+
+        proc = run_subprocess(
             cmd,
             capture_output=True,
             text=True,

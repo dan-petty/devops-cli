@@ -237,6 +237,7 @@ def test_all_command_specs_registered() -> None:
         "docs",
         "release",
         "pr",
+        "gh",
         "tf",
         "tls",
         "telemetry",

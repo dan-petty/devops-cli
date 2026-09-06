@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 from typing import Annotated
 
@@ -10,6 +9,7 @@ import typer
 
 from devops_cli.config.commands import BIN_DAGGER, build_dagger_cmd
 from devops_cli.config.constants import CONST_CURRENT_DIR
+from devops_cli.core.binaries import check_binary
 from devops_cli.core.cli import new_typer
 from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
@@ -69,7 +69,7 @@ def run_pipeline_cmd(
         return
 
     with trace_span("pipeline.run", attributes={"pipeline_path": str(pipeline_path)}):
-        has_dagger = shutil.which(BIN_DAGGER) is not None
+        has_dagger = check_binary(BIN_DAGGER)
         if not has_dagger:
             print_error(
                 MESSAGES.pipeline.dagger_not_found,

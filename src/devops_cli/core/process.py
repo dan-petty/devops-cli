@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import subprocess
 import time
 from pathlib import Path
+from typing import Any
 
 from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.dry_run import is_dry_run
+from devops_cli.exceptions.base import DevOpsCLIError
+from devops_cli.exceptions.tools import SubprocessError
 from devops_cli.output import print_dry_run_command
 from devops_cli.telemetry import record_metric, trace_span
 from devops_cli.telemetry.tracer import get_tracer
@@ -276,3 +280,92 @@ async def run_subprocess_async(
             stdout=stdout_str,
             stderr=stderr_str,
         )
+
+
+_JSON_UNSET = object()
+
+
+def run_json_subprocess(
+    cmd: list[str],
+    *,
+    input: str | None = None,
+    cwd: Path | None = None,
+    env: dict[str, str] | None = None,
+    quiet: bool = True,
+    timeout: float = DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
+    default: Any = _JSON_UNSET,
+    error_cls: type[DevOpsCLIError] | None = None,
+) -> Any:
+    """Execute subprocess and safely deserialize its stdout as JSON.
+
+    Args:
+        cmd: Command arguments list.
+        input: Optional stdin string.
+        cwd: Working directory.
+        env: Environment variables override.
+        quiet: Suppress output.
+        timeout: Subprocess timeout in seconds.
+        default: Fallback value if JSON parsing fails.
+        error_cls: Exception class to raise upon command or parsing failure (defaults to SubprocessError).
+
+    Returns:
+        Parsed JSON data structure (dict or list), or default if fallback provided.
+
+    Raises:
+        SubprocessError or error_cls: If subprocess exits with non-zero code or JSON is invalid and default is unset.
+    """
+    err_type = error_cls or SubprocessError
+    res = run_subprocess(
+        cmd,
+        input=input,
+        cwd=cwd,
+        env=env,
+        quiet=quiet,
+        timeout=timeout,
+        check=False,
+    )
+
+    ret_code = res.returncode
+    is_non_zero = isinstance(ret_code, int) and ret_code != 0
+
+    if is_non_zero:
+        err_msg = (
+            (res.stderr or "").strip()
+            or (res.stdout or "").strip()
+            or f"Process exited with code {ret_code}"
+        )
+        if issubclass(err_type, SubprocessError):
+            raise err_type(
+                f"Subprocess failed for command '{cmd[0] if cmd else 'unknown'}': {err_msg}",
+                command=cmd,
+                exit_code=ret_code,
+                stderr=res.stderr,
+            )
+        raise err_type(
+            f"Subprocess failed for command '{cmd[0] if cmd else 'unknown'}': {err_msg}",
+            exit_code=ret_code,
+            details={"command": cmd, "stderr": res.stderr},
+        )
+
+    raw_stdout = (res.stdout or "").strip()
+    if not raw_stdout and default is not _JSON_UNSET:
+        return default
+
+    try:
+        return json.loads(raw_stdout)
+    except (json.JSONDecodeError, ValueError) as exc:
+        if default is not _JSON_UNSET:
+            return default
+        exit_val = ret_code if isinstance(ret_code, int) else 1
+        if issubclass(err_type, SubprocessError):
+            raise err_type(
+                f"Failed to parse JSON output from command '{cmd[0] if cmd else 'unknown'}': {exc}",
+                command=cmd,
+                exit_code=exit_val,
+                details={"raw_stdout": raw_stdout[:500]},
+            ) from exc
+        raise err_type(
+            f"Failed to parse JSON output from command '{cmd[0] if cmd else 'unknown'}': {exc}",
+            exit_code=exit_val,
+            details={"command": cmd, "raw_stdout": raw_stdout[:500]},
+        ) from exc

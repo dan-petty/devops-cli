@@ -34,6 +34,7 @@ from devops_cli.exceptions.docker import (
 )
 from devops_cli.exceptions.git import (
     BranchAlreadyExistsError,
+    GitHubOperationError,
     GitOperationError,
     InvalidBranchNameError,
 )
@@ -51,6 +52,8 @@ from devops_cli.exceptions.security import (
 )
 from devops_cli.exceptions.tools import (
     ChecksumMismatchError,
+    DependencyError,
+    SubprocessError,
     ToolDownloadError,
     ToolExecutionError,
 )
@@ -80,6 +83,7 @@ __all__ = [
     "DevOpsCLIError",
     "DockerError",
     "DockerSandboxError",
+    "GitHubOperationError",
     "GitOperationError",
     "HarnessExecutionError",
     "HarnessValidationError",
@@ -103,6 +107,8 @@ __all__ = [
     "SecretExposureError",
     "SecurityError",
     "SuspendedResponseExpired",
+    "DependencyError",
+    "SubprocessError",
     "ToolDownloadError",
     "ToolExecutionError",
     "ToolFailed",
