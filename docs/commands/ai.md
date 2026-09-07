@@ -842,3 +842,70 @@ devops ai cache clear
 ```
 
 ---
+
+## `devops ai harness`
+
+**Manage agent harness slots, sub-agent local offloading, and tiered synthesis.**
+
+```bash
+devops ai harness COMMAND [ARGS]...
+```
+
+### `devops ai harness status`
+
+**Display active harness slot configuration, models, and sandboxing status.**
+
+```bash
+devops ai harness status [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+
+### `devops ai harness offload`
+
+**Offload AST exploration, symbol cataloging, or file scouting to local sub-agent slot.**
+
+```bash
+devops ai harness offload [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-r` | `path` | `.` | Path to repository or source directory. |
+| `--symbol`, `-s` | `string` | - | Symbol name (class or function) to inspect or search. |
+| `--pattern`, `-p` | `string` | - | File glob pattern to scout. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+### `devops ai harness run`
+
+**Execute tiered synthesis: Big decides, small types, big checks.**
+
+```bash
+devops ai harness run [OPTIONS] <task>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<task>` | `string` | Yes | Task description to execute via 3-tier synthesis protocol |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-r` | `path` | `.` | Path to repository or source directory. |
+| `--symbol`, `-s` | `string` | - | Symbol name (class or function) to inspect or search. |
+| `--frontier-model` | `string` | `claude-3-7-sonnet` | Frontier model identifier for architecture and verification. |
+| `--local-model` | `string` | `qwen2.5-coder:7b` | Local model identifier for sub-agent offloading. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---

@@ -92,6 +92,8 @@ class AIMessages:
     interactive_prompt_header: str = "devops ai chat ({provider} / {model})"
     interactive_prompt_help: str = "Type your message and press Enter. Ctrl+C or exit to quit.\n"
     you_prompt: str = "You: "
+    harness_title: str = "Agent Harness Slots"
+    harness_offload_title: str = "Sub-Agent Local Offload"
 
 
 @dataclass(frozen=True)
