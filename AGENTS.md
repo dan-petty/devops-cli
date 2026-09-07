@@ -42,7 +42,7 @@ All work follows a test-first progressive verification strategy to optimize deve
    - Regression tests, bug fixes, and review finding remediations MUST be incorporated directly into the canonical, corresponding submodule test file (e.g. `tests/test_consolidation_dry_run_decorator.py`, `tests/test_server.py`, `tests/test_consolidation_security_sanitizer.py`, `tests/test_review_verification.py`, `tests/test_github_projects.py`, `tests/test_github_milestones.py`).
 3. **Implement Feature Logic**: Write clean, concise implementation code in `src/` to satisfy the tests.
 4. **Verify Locally**: Run targeted tests (`uv run pytest tests/test_<feature>.py`) for immediate feedback during development.
-5. **Comprehensive Quality Gate**: Execute `devops ci` (or `uv run devops ci`) to validate all gates and enforce the minimum 90% code coverage requirement across `src/`.
+5. **Comprehensive Quality Gate**: Execute `devops ci` (or `uv run devops ci`) to validate all gates and enforce the minimum project-specified code coverage requirement across `src/`.
 
 ### Project Planning & Task Tracking
 - **Mandatory Planning Artifacts**: Document project planning and technical implementation designs in dedicated planning documents (`implementation_plan.md`, `docs/agent/task.md`, `docs/ROADMAP.md`, `docs/PENDING_FEATURES.md`, `docs/LOG.md`) prior to executing complex, multi-step, or architectural changes.
@@ -50,6 +50,7 @@ All work follows a test-first progressive verification strategy to optimize deve
   - **Pending Tasks**: Queued deliverables, backlog requirements, and upcoming milestones awaiting execution.
   - **In-Progress Tasks (WIP)**: Active focus items, specific files under modification, and ongoing test specifications.
   - **Completed Tasks**: Verified implementations, green test gates, synchronized documentation, and closed operational loops.
+  - **No Standalone Agent Tracking Commits**: Updates to `docs/agent/` files must never be committed as standalone or isolated commits; they must always be bundled into functional feature, fix, or refactoring deliverable commits.
 - **GitHub Projects v2 & Issue Alignment**: Ground all task lifecycles, issue tracking, and sprint planning in GitHub Projects v2 (`.github/project-template.json`) and roadmap milestones (`docs/ROADMAP.md`), continuously reconciling state transitions (`Backlog` $\to$ `Ready` $\to$ `In Progress` $\to$ `In Review` $\to$ `Done`) and auditing issue/PR taxonomies.
 
 ### Knowledge Base Consultation
@@ -86,6 +87,8 @@ Before planning, implementing, debugging, refactoring, or reviewing code, consul
 - **Commit Standards**:
   - Follow **Conventional Commits** (`feat(scope): ...`, `fix(scope): ...`, `refactor(scope): ...`, `docs(scope): ...`).
   - **Atomic Commits by Default**: Break multi-faceted work into small, logically self-contained commits with precise messages.
+  - **No Internal References or Numeric IDs in Commit Messages**: Commit messages and PR titles MUST describe the technical or functional change using standard, descriptive engineering terminology. NEVER include internal session timestamps (e.g. `164259`, `003105`), review session numbers, subagent IDs, prompt phase numbers (e.g. `Phase 48.5`), or arbitrary numeric identifiers in commit subjects or messages.
+  - **No Standalone Agent Tracking Commits**: Updates to internal agent tracking documentation under `docs/agent/` (such as `docs/agent/task.md`) MUST NEVER be committed as standalone one-off commits. They must always be bundled atomically into the corresponding feature, fix, or refactoring commit that delivers the actual code changes, or kept in local workspace state until bundled with functional deliverable commits.
 - **Pull Request Governance & Title Conventions**:
   - **Conventional Commit PR Titles**: PR titles MUST follow Conventional Commits (`feat(scope): description`) for clean squash-merging onto `main`.
   - **GitHub Release Titles**: Strictly the version tag / number from `pyproject.toml` (e.g. `v0.2.11`) without conventional commit prefixes.

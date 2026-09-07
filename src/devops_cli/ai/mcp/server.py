@@ -1149,7 +1149,7 @@ def branches_list(remote: bool = True) -> str:
     """List git branches across repositories with tracking status and stale detection."""
     cmd = ["uv", "run", "devops", "branches", "list"]
     if remote:
-        cmd.append("--remote")
+        cmd.append("--all")
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 

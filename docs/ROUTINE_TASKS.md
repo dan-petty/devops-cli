@@ -163,6 +163,10 @@ sequenceDiagram
 - **Active PR Monitoring & Fix-on-Branch Protocol**: After opening or pushing updates to a PR, agents and developers must actively monitor remote GitHub Actions status (`gh pr checks <pr_number>` or `gh run list --branch <branch>`). If any check fails, immediately inspect failed logs (`gh run view <run_id> --log-failed`), apply remediation commits directly to the PR source branch, push to origin, and verify all checks pass green before closing out the task.
 - **No Commits to Merged Branches**: Once a PR is merged, create a fresh topic branch from `origin/release/vX.Y.Z` for the next task.
 - **Updating Open PRs**: When revisions are needed, push commits directly to the active topic branch. Do not open duplicate PRs.
+- **Commit Standards & Message Hygiene**:
+  - All commits must follow Conventional Commits (`feat(scope): ...`, `fix(scope): ...`, `refactor(scope): ...`, `docs(scope): ...`).
+  - **No Internal References or Numeric IDs**: Never include internal review session timestamps (e.g. `164259`, `003105`), review session IDs, subagent IDs, prompt phase numbers (`Phase 48.5`), or arbitrary numeric identifiers in commit subjects or messages. Use clear, descriptive technical terminology.
+  - **No Standalone Agent Tracking Commits**: Updates to internal agent tracking files under `docs/agent/` (`task.md`) must NEVER be committed in isolation; they must always be bundled atomically into the corresponding feature, fix, or refactoring deliverable commit.
 - **Issue Linkage & GitHub Projects Lifecycle**:
   - PRs addressing issues must explicitly link to them in the description using `Fixes #<id>`, `Closes #<id>`, or `Resolves #<id>`.
   - Reconcile task state transitions (`Backlog` $\to$ `Ready` $\to$ `In Progress` $\to$ `In Review` $\to$ `Done`) in [`docs/agent/task.md`](agent/task.md) and verify alignment with `.github/project-template.json` via `devops gh project sync --dry-run` or live sync `devops gh project sync`, link to repository (`devops gh project link <number>`), and audit views via `devops gh views list`.

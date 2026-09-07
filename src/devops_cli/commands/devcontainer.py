@@ -577,6 +577,48 @@ def _setup_volume_mount_permissions(workspace_dir: Path, *, dry_run: bool = Fals
     return actions
 
 
+def _sync_mcp_configuration(workspace_dir: Path, *, dry_run: bool = False) -> list[str]:
+    """Scaffold and synchronize MCP configuration across IDE and agent paths."""
+    actions: list[str] = []
+    vscode_mcp = workspace_dir / CONST_VSCODE_DIR_NAME / CONST_MCP_JSON_NAME
+    if not vscode_mcp.exists() and (workspace_dir / CONST_PYPROJECT_FILENAME).exists():
+        if not dry_run:
+            env = _jinja_env()
+            raw_name = workspace_dir.name
+            name = re.sub(r"[^a-zA-Z0-9._-]+", "_", raw_name)
+            write_text_file(
+                vscode_mcp,
+                env.get_template("mcp.json.j2").render(project_name=name),
+            )
+        actions.append(f"Scaffolded MCP configuration at {vscode_mcp}")
+
+    if vscode_mcp.exists():
+        for mcp_dest in (
+            Path.home() / ".gemini" / "config" / "mcp_config.json",
+            Path.home() / ".gemini" / "antigravity-ide" / "mcp_config.json",
+        ):
+            if not dry_run:
+                raw_text = vscode_mcp.read_text(encoding="utf-8")
+                synced_text = raw_text.replace("${workspaceFolder}", str(workspace_dir)).replace(
+                    "${env:HOME}", str(Path.home())
+                )
+                write_text_file(mcp_dest, synced_text)
+            actions.append(f"Synced MCP configuration to {mcp_dest}")
+
+        agents_dir = workspace_dir / ".agents"
+        if agents_dir.exists():
+            agents_mcp_dest = agents_dir / "mcp_config.json"
+            if not dry_run:
+                raw_text = vscode_mcp.read_text(encoding="utf-8")
+                synced_text = raw_text.replace("${workspaceFolder}", str(workspace_dir)).replace(
+                    "${env:HOME}", str(Path.home())
+                )
+                write_text_file(agents_mcp_dest, synced_text)
+            actions.append(f"Synced MCP configuration to {agents_mcp_dest}")
+
+    return actions
+
+
 def _run_post_create_lifecycle(workspace_dir: Path, *, dry_run: bool = False) -> list[str]:
     """Execute DevContainer post-create setup tasks in pure Python."""
     actions: list[str] = []
@@ -656,6 +698,7 @@ def _run_post_create_lifecycle(workspace_dir: Path, *, dry_run: bool = False) ->
     if not dry_run:
         gemini_cfg.mkdir(parents=True, exist_ok=True)
     actions.append(f"Ensured config directory exists at {gemini_cfg}")
+    actions.extend(_sync_mcp_configuration(workspace_dir, dry_run=dry_run))
 
     # 5. Agent instructions initialization
     agents_file = workspace_dir / CONST_AGENTS_MD_FILENAME
@@ -896,41 +939,7 @@ def _run_post_start_lifecycle(workspace_dir: Path, *, dry_run: bool = False) -> 
     actions.append(f"Initialized kubeconfig file at {kube_file}")
 
     # 4. MCP configuration sync
-    vscode_mcp = workspace_dir / CONST_VSCODE_DIR_NAME / CONST_MCP_JSON_NAME
-    if not vscode_mcp.exists() and (workspace_dir / CONST_PYPROJECT_FILENAME).exists():
-        if not dry_run:
-            env = _jinja_env()
-            raw_name = workspace_dir.name
-            name = re.sub(r"[^a-zA-Z0-9._-]+", "_", raw_name)
-            write_text_file(
-                vscode_mcp,
-                env.get_template("mcp.json.j2").render(project_name=name),
-            )
-        actions.append(f"Scaffolded MCP configuration at {vscode_mcp}")
-
-    if vscode_mcp.exists():
-        for mcp_dest in (
-            Path.home() / ".gemini" / "config" / "mcp_config.json",
-            Path.home() / ".gemini" / "antigravity-ide" / "mcp_config.json",
-        ):
-            if not dry_run:
-                raw_text = vscode_mcp.read_text(encoding="utf-8")
-                synced_text = raw_text.replace("${workspaceFolder}", str(workspace_dir)).replace(
-                    "${env:HOME}", str(Path.home())
-                )
-                write_text_file(mcp_dest, synced_text)
-            actions.append(f"Synced MCP configuration to {mcp_dest}")
-
-        agents_dir = workspace_dir / ".agents"
-        if agents_dir.exists():
-            agents_mcp_dest = agents_dir / "mcp_config.json"
-            if not dry_run:
-                raw_text = vscode_mcp.read_text(encoding="utf-8")
-                synced_text = raw_text.replace("${workspaceFolder}", str(workspace_dir)).replace(
-                    "${env:HOME}", str(Path.home())
-                )
-                write_text_file(agents_mcp_dest, synced_text)
-            actions.append(f"Synced MCP configuration to {agents_mcp_dest}")
+    actions.extend(_sync_mcp_configuration(workspace_dir, dry_run=dry_run))
 
     # 5. AI Agent instructions initialization
     agents_file = workspace_dir / CONST_AGENTS_MD_FILENAME

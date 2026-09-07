@@ -553,6 +553,14 @@
 
 ---
 
+- [x] Phase 48.7: DevContainer MCP Lifecycle Resiliency & Commit Hygiene Governance
+  - [x] Extract `_sync_mcp_configuration` in `devops_cli/commands/devcontainer.py` and invoke during both `post-create` and `post-start` lifecycles
+  - [x] Fix `branches_list` FastMCP tool CLI flag to use `--all` instead of `--remote`
+  - [x] Update `AGENTS.md` and `docs/ROUTINE_TASKS.md` prohibiting internal references/numeric IDs in commit messages and standalone commits for agent tracking documentation
+  - [x] Verify targeted test suites (`test_devcontainer.py`, `test_mcp.py`, `test_architectural_invariants.py`) pass cleanly
+
+---
+
 ### In-Progress Tasks (WIP)
 *(No active tasks currently in flight — ready for PR review and maintainer merge)*
 
