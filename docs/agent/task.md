@@ -506,8 +506,7 @@
 
 ---
 
-### In-Progress Tasks (WIP)
-- [/] Phase 48.4: Qdrant Vector Database API Key Secret Protection (Release v0.2.12 — Issue #43)
+- [x] Phase 48.4: Qdrant Vector Database API Key Secret Protection (Release v0.2.12 — Issue #43)
   - [x] Update `k8s/llm/values-qdrant.yaml` to configure `service.type: ClusterIP`, `apiKey: false`, `readOnlyApiKey: false`, and `extraEnv` injecting `QDRANT__SERVICE__API_KEY` from secret `qdrant-api-key`.
   - [x] Register `qdrant.api_key` in config options (`src/devops_cli/config/options.py`), environment mapping (`src/devops_cli/config/env.py`), secret audit list, and settings model (`src/devops_cli/config/settings.py`).
   - [x] Update RAG subsystem (`src/devops_cli/ai/rag/indexer.py`, `qdrant.py`, `investigator.py`, `commands/rag.py`, `builtin_tools.py`) to authenticate using OS Keyring via `get_qdrant_api_key(settings)`.
@@ -519,7 +518,15 @@
   - [x] Author atomic commit and open PR #48 targeting `release/v0.2.12` linking `Closes #43`.
   - [x] Monitor Remote CI Checks on PR #48 (all 4 checks passed 100% green).
   - [x] Address GitHub Copilot review feedback (stdin secret apply, deploy_stack fail-fast, debug logging) in commit `29bdabe`, reply to comments, and mark all 4 review threads resolved.
-  - [ ] Maintainer squash-merge PR #48 into `release/v0.2.12`.
+  - [x] PR #48 squash-merged by maintainer Daniel Petty (commit `a76c9cd`) into `release/v0.2.12`.
+  - [x] Automated devcontainer pruning verified for `pr-48` (run ID `34120359526`).
+  - [x] Closed tracking Issue #43 on GitHub.
+  - [x] Fast-forwarded local `release/v0.2.12` and deleted merged topic branch `feat/qdrant-secret-protection`.
+
+---
+
+### In-Progress Tasks (WIP)
+*(No active tasks currently in flight — ready for next milestone deliverable)*
 
 ---
 
