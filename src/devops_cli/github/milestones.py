@@ -196,3 +196,30 @@ def calculate_milestone_progress(milestone_data: dict[str, Any]) -> MilestonePro
         state=state,
         due_on=milestone_data.get("due_on"),
     )
+
+
+def close_repository_milestone(client: Any, repo: str, version_or_title: str) -> bool:
+    """Close a repository milestone matching the given version or title string."""
+    func = getattr(client, "close_milestone", None)
+    if callable(func):
+        try:
+            return bool(func(repo, version_or_title))
+        except TypeError:
+            return bool(func(version_or_title))
+
+    get_fn = getattr(client, "get_milestones", None)
+    if callable(get_fn):
+        try:
+            raw = get_fn(repo, state="all")
+        except TypeError:
+            raw = get_fn(state="all")
+        existing = _extract_milestones_from_raw(raw)
+        target = version_or_title.strip()
+        candidates = {target, target.lstrip("v"), f"v{target.lstrip('v')}"}
+        matched = next((m for m in existing if m.get("title") in candidates), None)
+        if matched and "number" in matched:
+            edit_fn = getattr(client, "edit_milestone", None)
+            if callable(edit_fn):
+                edit_fn(repo, int(matched["number"]), state="closed")
+                return True
+    return False

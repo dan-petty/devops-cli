@@ -125,3 +125,16 @@ def test_dry_run_command_resolves_target_from_positional_args() -> None:
             target="item-abc",
             details={"force": True},
         )
+
+
+def test_dry_run_command_restores_state_after_execution() -> None:
+    """Ensure dry-run state is preserved and restored after execution."""
+    set_dry_run(False)
+    assert not is_dry_run()
+
+    @dry_run_command(command="devops test", action="test_action")
+    def sample_command(*, dry_run: bool = False) -> str:
+        return "executed"
+
+    sample_command(dry_run=True)
+    assert not is_dry_run()

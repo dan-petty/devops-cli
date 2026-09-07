@@ -622,3 +622,94 @@ def test_check_syntax_error_hallucination_invalidates_pep758_claims(tmp_path: Pa
     assert res is not None
     assert res.status == "INVALIDATED"
     assert res.reportable is False
+
+
+def test_check_missing_symbol_hallucination_with_cross_module_ast() -> None:
+    """Ensure false ImportError claims on imported symbols are deterministically invalidated."""
+    import ast
+
+    from devops_cli.ai.review.common_hallucinations import (
+        _check_imported_module_for_symbol,
+        _verify_symbol_defined_in_ast_or_module,
+        is_common_hallucination,
+        verify_ground_truth_hallucination,
+    )
+    from devops_cli.ai.review.verification import (
+        _check_missing_symbol_hallucination,
+        _deterministic_pre_verification,
+    )
+
+    init_path = Path("src/devops_cli/commands/k8s/__init__.py").resolve()
+    assert init_path.is_file()
+
+    finding = Finding(
+        severity="LOW",
+        location="src/devops_cli/commands/k8s/__init__.py:16",
+        title="Missing _cluster_reachable import causes ImportError",
+        description=(
+            "The module imports `_cluster_reachable` from `devops_cli.commands.k8s.cluster_runtime`, "
+            "but that symbol is not defined in `cluster_runtime.py`."
+        ),
+        fix="Remove the import or implement _cluster_reachable",
+        references=[],
+    )
+
+    tree = ast.parse(init_path.read_text(encoding="utf-8"))
+    assert _check_imported_module_for_symbol(tree, "_cluster_reachable", init_path)
+    assert _verify_symbol_defined_in_ast_or_module(finding, tree, init_path)
+
+    match = is_common_hallucination(finding, threshold=0.7, file_path=init_path)
+    assert match is not None
+    assert match.hallucination.id == "HALLUCINATION-MISSING-SYMBOL-FALSE-ALARM"
+    assert verify_ground_truth_hallucination(finding, match.hallucination, init_path)
+
+    symbol_res = _check_missing_symbol_hallucination(finding, init_path)
+    assert symbol_res is not None
+    assert symbol_res.status == "INVALIDATED"
+    assert not symbol_res.verified
+    assert not symbol_res.reportable
+
+    pre_result = _deterministic_pre_verification(finding, repo_root=Path.cwd())
+    assert pre_result.status == "INVALIDATED"
+    assert not pre_result.verified
+    assert not pre_result.reportable
+
+
+def test_check_missing_header_hallucination_requires_assignment_and_dispatch() -> None:
+    """Ensure missing Authorization header claims are invalidated when assigned and dispatched."""
+    from devops_cli.ai.review.common_hallucinations import (
+        is_common_hallucination,
+        verify_ground_truth_hallucination,
+    )
+    from devops_cli.ai.review.verification import (
+        _check_missing_header_hallucination,
+        _deterministic_pre_verification,
+    )
+
+    openai_path = Path("src/devops_cli/ai/providers/openai.py").resolve()
+    assert openai_path.is_file()
+
+    finding = Finding(
+        severity="LOW",
+        location="src/devops_cli/ai/providers/openai.py:51-55",
+        title="Missing Authorization header in OpenAIProvider",
+        description="The OpenAIProvider constructs a request but fails to include Authorization header.",
+        fix="Add headers['Authorization'] = f'Bearer {self._token}'",
+        references=[],
+    )
+
+    match = is_common_hallucination(finding, threshold=0.6, file_path=openai_path)
+    assert match is not None
+    assert match.hallucination.id == "HALLUCINATION-UNVERIFIED-HEADER-MISSING"
+    assert verify_ground_truth_hallucination(finding, match.hallucination, openai_path)
+
+    header_res = _check_missing_header_hallucination(finding, openai_path)
+    assert header_res is not None
+    assert header_res.status == "INVALIDATED"
+    assert not header_res.verified
+    assert not header_res.reportable
+
+    pre_result = _deterministic_pre_verification(finding, repo_root=Path.cwd())
+    assert pre_result.status == "INVALIDATED"
+    assert not pre_result.verified
+    assert not pre_result.reportable

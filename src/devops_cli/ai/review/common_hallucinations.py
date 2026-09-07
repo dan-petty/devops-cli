@@ -533,9 +533,13 @@ def _verify_symbol_defined_in_ast_or_module(
     """Verify whether a symbol claimed as missing actually exists in the file AST, imports, or exports."""
     finding_text = f"{finding.title} {finding.description or ''}"
     backtick_candidates = set(re.findall(r"`([A-Za-z0-9_]+)`", finding_text))
-    word_candidates = set(re.findall(r"\b[A-Za-z0-9_]{3,}\b", finding_text))
-    all_candidates = backtick_candidates | {w for w in word_candidates if len(w) >= 3}
-    clean_symbols = [s for s in all_candidates if s.lower() not in _FORBIDDEN_COMMON_WORDS]
+    clean_backticks = [s for s in backtick_candidates if s.lower() not in _FORBIDDEN_COMMON_WORDS]
+    if clean_backticks:
+        clean_symbols = clean_backticks
+    else:
+        word_candidates = set(re.findall(r"\b[A-Za-z0-9_]{3,}\b", finding_text))
+        clean_symbols = [s for s in word_candidates if s.lower() not in _FORBIDDEN_COMMON_WORDS]
+
     if not clean_symbols:
         return False
 
@@ -578,7 +582,7 @@ def verify_ground_truth_hallucination(
 
         if "header" in entry.id.lower():
             raw_text = file_path.read_text(encoding="utf-8", errors="replace")
-            return any(
+            has_auth = any(
                 pattern in raw_text
                 for pattern in (
                     'headers["Authorization"]',
@@ -587,6 +591,16 @@ def verify_ground_truth_hallucination(
                     "'Authorization':",
                 )
             )
+            has_dispatch = any(
+                dispatch in raw_text
+                for dispatch in (
+                    "headers=headers",
+                    "headers = headers",
+                    "headers=self._headers",
+                    "headers=default_headers",
+                )
+            )
+            return has_auth and has_dispatch
 
         return True
 

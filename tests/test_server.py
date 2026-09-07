@@ -131,6 +131,7 @@ def test_config_recursive_redaction_helper() -> None:
             },
         },
         "normal": {"name": "app", "version": "1.0"},
+        "ai": {"allow_private_network": False},
     }
     redacted = _redact_config_dict(payload, secret_options)
     assert redacted["deeply"]["nested"]["secret_field"] == "***REDACTED***"
@@ -141,6 +142,7 @@ def test_config_recursive_redaction_helper() -> None:
     assert redacted["auth"]["nested_auth"]["private_key"] == "***REDACTED***"
     assert redacted["auth"]["nested_auth"]["standard_info"] == "visible"
     assert redacted["normal"]["name"] == "app"
+    assert redacted["ai"]["allow_private_network"] is False
 
 
 def test_server_cors_configuration() -> None:

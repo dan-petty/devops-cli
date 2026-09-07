@@ -25,6 +25,7 @@ jobs:
       contents: write
       packages: write
       pull-requests: read
+      issues: write
 
     # Run on:
     # 1. Annotated tag push (v*)
@@ -110,6 +111,13 @@ jobs:
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Close Release Milestone
+        run: |
+          uv run devops gh milestones close "${{ steps.ver.outputs.version }}" || echo "Milestone close skipped or already closed"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Log in to GitHub Container Registry (GHCR)
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4

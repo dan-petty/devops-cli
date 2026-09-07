@@ -98,7 +98,7 @@ def _is_secret_field(key: str, full_path: str, secret_options: frozenset[str]) -
     if key_lower in {"token", "password", "secret", "api_key", "private_key"}:
         return True
     parts = set(key_lower.split("_"))
-    if parts & {"token", "password", "secret", "private"}:
+    if parts & {"token", "password", "secret"}:
         return True
 
     return any(
@@ -118,7 +118,7 @@ def _redact_config_dict(
         full_path = f"{prefix}.{k}" if prefix else k
         if isinstance(v, dict):
             sanitized[k] = _redact_config_dict(v, secret_options, full_path)
-        elif _is_secret_field(k, full_path, secret_options):
+        elif not isinstance(v, bool) and _is_secret_field(k, full_path, secret_options):
             sanitized[k] = "***REDACTED***" if v else None
         else:
             sanitized[k] = v

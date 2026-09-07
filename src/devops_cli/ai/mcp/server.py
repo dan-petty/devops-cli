@@ -854,6 +854,31 @@ def gh_project_status() -> str:
 
 
 @mcp.tool()
+def gh_milestone_close(version: str, repo: str | None = None) -> str:
+    """Close a repository milestone matching the given version or title."""
+    _validate_mcp_arg("version", version)
+    cmd = ["uv", "run", "devops", "gh", "milestones", "close", version]
+    if repo:
+        _validate_mcp_arg("repo", repo)
+        cmd.extend(["--repo", repo])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def gh_project_sync(repo: str | None = None, dry_run: bool = True) -> str:
+    """Synchronize task items from task.md into GitHub Projects v2 status."""
+    cmd = ["uv", "run", "devops", "gh", "project", "sync"]
+    if dry_run:
+        cmd.append("--dry-run")
+    else:
+        cmd.append("--no-dry-run")
+    if repo:
+        _validate_mcp_arg("repo", repo)
+        cmd.extend(["--repo", repo])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
 def gh_view_spec() -> str:
     """Return JSON specification for GitHub Projects v2 views."""
     return _run_mcp_cmd(

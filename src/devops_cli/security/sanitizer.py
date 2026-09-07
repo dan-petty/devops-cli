@@ -138,7 +138,7 @@ def mask_uri_credentials(uri: str) -> str:
         pass
     # Regex fallback
     return re.sub(
-        r"://(?:([^:]*):)?([^@]+)@",
+        r"://([^:]*):([^@]+)@",
         lambda m: f"://{m.group(1)}:***@" if m.group(1) else "://***@",
         uri,
     )

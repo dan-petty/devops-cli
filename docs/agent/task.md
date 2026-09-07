@@ -540,6 +540,19 @@
 
 ---
 
+- [x] Phase 48.6: GitHub Projects v2 Remote Sync, Release Milestone Lifecycle Automation & Submodule Test Reorganization
+  - [x] Implement `verify_project_auth_scopes()` in `src/devops_cli/github/projects.py` providing actionable guidance when OAuth `project` scope is missing
+  - [x] Implement `sync_remote_project()`, `find_remote_project()`, `create_remote_project()`, `link_project_to_repository()`, and `provision_remote_project_fields()`
+  - [x] Add `devops gh project link <number>` and live sync `devops gh project sync --no-dry-run`
+  - [x] Implement automated release milestone closure: `close_repository_milestone()`, `devops gh milestones close <version>`, and `.github/workflows/release.yml` milestone closure step with `issues: write` permission
+  - [x] Add FastMCP tools: `gh_project_sync` and `gh_milestone_close`
+  - [x] Reorganize tests strictly by submodule and domain functionality, deprecating arbitrary session test files, and removing `tests/test_review_findings_remediation_164259.py`
+  - [x] Remediate all 4 GitHub Copilot review comments on PR #49 (URI regex colon requirement, boolean config retention, AST symbol resolution prioritization, headers dispatch parameter check)
+  - [x] Update `AGENTS.md` Sections 2 and 4, `docs/ROUTINE_TASKS.md`, and Knowledge Base (`github_project_management.md`)
+  - [x] Synchronize documentation and README Command Matrix (`devops docs generate --sync-readme`)
+
+---
+
 ### In-Progress Tasks (WIP)
 *(No active tasks currently in flight — ready for PR review and maintainer merge)*
 

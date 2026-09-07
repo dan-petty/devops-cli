@@ -419,7 +419,16 @@ def _check_missing_header_hallucination(finding: Finding, file_path: Path) -> Fi
                 "'Authorization':",
             )
         )
-        if has_auth:
+        has_dispatch = any(
+            dispatch in content
+            for dispatch in (
+                "headers=headers",
+                "headers = headers",
+                "headers=self._headers",
+                "headers=default_headers",
+            )
+        )
+        if has_auth and has_dispatch:
             from devops_cli.ai.review.common_hallucinations import auto_record_invalidated_finding
 
             res = finding.model_copy(

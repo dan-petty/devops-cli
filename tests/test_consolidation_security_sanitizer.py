@@ -96,3 +96,7 @@ def test_mask_uri_credentials_edge_cases() -> None:
     res_no_user = mask_uri_credentials(fallback_no_user)
     assert "supersecret" not in res_no_user
     assert "custom://***@myhost/path" == res_no_user
+
+    # URI with username but no password must not be masked
+    user_no_pass = "custom://myuser@myhost/path"
+    assert mask_uri_credentials(user_no_pass) == user_no_pass

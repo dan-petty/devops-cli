@@ -165,8 +165,8 @@ sequenceDiagram
 - **Updating Open PRs**: When revisions are needed, push commits directly to the active topic branch. Do not open duplicate PRs.
 - **Issue Linkage & GitHub Projects Lifecycle**:
   - PRs addressing issues must explicitly link to them in the description using `Fixes #<id>`, `Closes #<id>`, or `Resolves #<id>`.
-  - Reconcile task state transitions (`Backlog` $\to$ `Ready` $\to$ `In Progress` $\to$ `In Review` $\to$ `Done`) in [`docs/agent/task.md`](agent/task.md) and verify alignment with `.github/project-template.json` via `devops gh project sync --dry-run` and `devops gh views list`.
-  - Enforce taxonomy labels via `devops gh labels audit` and milestone alignment via `devops gh milestones sync`.
+  - Reconcile task state transitions (`Backlog` $\to$ `Ready` $\to$ `In Progress` $\to$ `In Review` $\to$ `Done`) in [`docs/agent/task.md`](agent/task.md) and verify alignment with `.github/project-template.json` via `devops gh project sync --dry-run` or live sync `devops gh project sync`, link to repository (`devops gh project link <number>`), and audit views via `devops gh views list`.
+  - Enforce taxonomy labels via `devops gh labels audit`, milestone alignment via `devops gh milestones sync`, and milestone closure upon release merge via `devops gh milestones close <version>`.
 
 ---
 
@@ -178,32 +178,26 @@ Executed per scheduled release (patch/minor) or upon milestone completion.
 sequenceDiagram
     autonumber
     actor Maintainer as Maintainer / Release Lead
-    participant CLI as devops release
-    participant Hub as GitHub
-    participant CI as GitHub Actions (release.yml)
+    participant Branch as release/vX.Y.Z
+    participant CI as GitHub Actions
+    participant Hub as GitHub (Main & Releases)
 
-    Maintainer->>CLI: devops release status
-    Maintainer->>CLI: devops release prepare 0.1.10 --create-pr
-    CLI->>Hub: Push branch release/v0.1.10 & Open PR (into main)
-    Hub->>Hub: CI Validation verifies release
-    Maintainer->>Hub: Peer Review & Squash Merge into main
-    Hub->>CI: Push to main triggers release.yml
-    CI->>CI: devops release check
-    CI->>CI: devops release tag 0.1.10
-    CI->>CI: devops release notes -v 0.1.10
-    CI->>Hub: Publish GitHub Release & DevContainer Image (GHCR)
+    Maintainer->>Branch: devops release prepare <version> --create-pr
+    Branch->>CI: Quality Gates Validate Release PR
+    Maintainer->>Hub: Squash-Merge Release PR into main
+    CI->>Hub: release.yml cuts tag, creates release, closes milestone, builds image
 ```
 
-#### Order of Operations:
-1. **Status Inspection**: Run `uv run devops release status` to check version alignment across `pyproject.toml`, `__init__.py`, `CHANGELOG.md`, and git tags.
-2. **Prepare Release PR**: Run `uv run devops release prepare <version> --create-pr`. This command:
+#### Step-by-Step Procedure:
+1. **Audit Open Tasks & Issues**: Ensure all milestone deliverables in `docs/ROADMAP.md` and `docs/agent/task.md` are completed.
+2. **Execute Release Preparation**: Run `devops release prepare <version> --create-pr`.
    - Bumps version in `pyproject.toml` and `src/devops_cli/__init__.py`.
    - Updates `CHANGELOG.md` converting `[Unreleased]` into the target version release block.
    - Regenerates docs and updates README Command Matrix.
    - Creates topic branch `release/v<version>`, commits bumps, and opens a GitHub PR targeting `main`.
 3. **Run Authoritative Release Check**: Run `uv run devops release check` to verify tree cleanliness, version matching, and CI validation.
 4. **Human Maintainer Merge**: The maintainer reviews and squash-merges the Release PR into `main`.
-5. **Automated Publishing**: GitHub Actions (`release.yml`) cuts the git tag, extracts release notes with `devops release notes`, creates the GitHub Release, and publishes the pre-built DevContainer image to GHCR.
+5. **Automated Publishing & Milestone Closure**: GitHub Actions (`release.yml`) cuts the git tag, extracts release notes with `devops release notes`, creates the GitHub Release, closes the release milestone via `devops gh milestones close <version>`, and publishes the pre-built DevContainer image to GHCR.
 6. **Post-Release DevContainer Validation**: Run `uv run devops devcontainer run-lifecycle --all` to verify container lifecycle tasks.
 
 ---

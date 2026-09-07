@@ -35,10 +35,14 @@ This document provides foundational context, architectural principles, and opera
 All work follows a test-first progressive verification strategy to optimize developer feedback loops while guaranteeing release readiness:
 
 ### Test-First Development Cycle (TDD as Living Contract)
-1. **Define Specification via Tests First**: Before writing or changing implementation code in `src/`, author comprehensive unit and integration tests in `tests/test_<feature>.py` defining intended behavior, arguments, return structures, edge cases, and exception handling. Tests serve as the authoritative, executable specification.
-2. **Implement Feature Logic**: Write clean, concise implementation code in `src/` to satisfy the tests.
-3. **Verify Locally**: Run targeted tests (`uv run pytest tests/test_<feature>.py`) for immediate feedback during development.
-4. **Comprehensive Quality Gate**: Execute `devops ci` (or `uv run devops ci`) to validate all gates and enforce the minimum 90% code coverage requirement across `src/`.
+1. **Define Specification via Tests First**: Before writing or changing implementation code in `src/`, author comprehensive unit and integration tests defining intended behavior, arguments, return structures, edge cases, and exception handling. Tests serve as the authoritative, executable specification.
+2. **Submodule-Aligned Test Organization (No Arbitrary One-Off Files)**:
+   - Tests MUST be organized strictly by submodule and domain functionality under `tests/` (`tests/test_<submodule>.py` or `tests/<submodule>/test_<feature>.py`), mirroring the source tree in `src/devops_cli/`.
+   - **Prohibited Naming**: NEVER create arbitrary, one-off, or temporary test files named after review sessions, bug report numbers, incident timestamps, or pull requests (e.g. `tests/test_review_findings_remediation_164259.py`, `tests/test_findings_session_*.py`).
+   - Regression tests, bug fixes, and review finding remediations MUST be incorporated directly into the canonical, corresponding submodule test file (e.g. `tests/test_consolidation_dry_run_decorator.py`, `tests/test_server.py`, `tests/test_consolidation_security_sanitizer.py`, `tests/test_review_verification.py`, `tests/test_github_projects.py`, `tests/test_github_milestones.py`).
+3. **Implement Feature Logic**: Write clean, concise implementation code in `src/` to satisfy the tests.
+4. **Verify Locally**: Run targeted tests (`uv run pytest tests/test_<feature>.py`) for immediate feedback during development.
+5. **Comprehensive Quality Gate**: Execute `devops ci` (or `uv run devops ci`) to validate all gates and enforce the minimum 90% code coverage requirement across `src/`.
 
 ### Project Planning & Task Tracking
 - **Mandatory Planning Artifacts**: Document project planning and technical implementation designs in dedicated planning documents (`implementation_plan.md`, `docs/agent/task.md`, `docs/ROADMAP.md`, `docs/PENDING_FEATURES.md`, `docs/LOG.md`) prior to executing complex, multi-step, or architectural changes.
@@ -68,6 +72,8 @@ Before planning, implementing, debugging, refactoring, or reviewing code, consul
 | **Targeted Lint** | `uv run ruff check path/to/file.py` | Fast lint inspection on modified files. |
 | **Targeted Typecheck** | `uv run mypy path/to/file.py` | Strict static type validation on modified modules. |
 | **Documentation Sync** | `devops docs generate --sync-readme` | Introspect CLI and synchronize markdown references and README. |
+| **Milestone Lifecycle** | `devops gh milestones list` / `close <ver>` | Inspect milestone completion rates and close on release merge. |
+| **Project Sync** | `devops gh project sync` | Synchronize task items and provision fields on GitHub Projects v2. |
 
 ---
 
@@ -92,7 +98,9 @@ Before planning, implementing, debugging, refactoring, or reviewing code, consul
     - Enforce declarative taxonomy labels on all issues matching `.github/labels.yml` across `type/*`, `scope/*`, `priority/*`, and `status/*`.
     - Prioritize incoming defects and blockers using the standardized *Triage & Quality Table* view (`type/bug`, `status/blocked`, `status/triage`) ordered by `Priority` (`P0-Critical` through `P3-Low`).
   - **Mandatory PR Taxonomy Labels**: Every PR MUST possess at least one `type/*` label and at least one `scope/*` label. Validate compliance with `devops gh labels audit`.
-  - **Roadmap-Driven Milestone Linking**: Every issue and PR targeting a release branch MUST link to the active release milestone in [`docs/ROADMAP.md`](docs/ROADMAP.md). Synchronize via `devops gh milestones sync` and inspect progress via `devops gh milestones status <version>`.
+  - **Roadmap-Driven Milestone Linking & Automated Closure**:
+    - Every issue and PR targeting a release branch MUST link to the active release milestone in [`docs/ROADMAP.md`](docs/ROADMAP.md). Synchronize via `devops gh milestones sync` and inspect progress via `devops gh milestones status <version>`.
+    - **Automated Milestone Closure**: When preparing release tags or when a release PR is merged into `main`, AI agents and CI workflows MUST close the release milestone via `devops gh milestones close <version>` (or FastMCP `gh_milestone_close`) to prevent stale open milestones.
   - **GitHub Projects v2 Lifecycle & Views Integration**:
     - Track tasks according to the 4 standardized views in `.github/project-template.json` (*Sprint Kanban*, *Roadmap Timeline*, *Triage & Quality Table*, *Value vs Effort Priority Matrix*).
     - Manage state transitions strictly (`Backlog` $\to$ `Ready` $\to$ `In Progress` $\to$ `In Review` $\to$ `Done`) across issues and tasks in [`docs/agent/task.md`](docs/agent/task.md):
@@ -102,9 +110,9 @@ Before planning, implementing, debugging, refactoring, or reviewing code, consul
       - `In Review`: Pull Request opened with CI checks running and code reviews in progress.
       - `Done`: Pull Request squash-merged by maintainer into release branch, remote CI verified, and issue closed.
     - Populate and maintain custom project fields: `Status`, `Milestone`, `Priority`, `Category`, `Value`, `Effort`.
-    - Validate alignment via `devops gh project sync --dry-run`, `devops gh project status`, and `devops gh views list`.
+    - Validate alignment via `devops gh project sync --dry-run` or live sync via `devops gh project sync`, ensure the project board is linked to the repository via `devops gh project link <number>`, and audit views via `devops gh views list`.
     - Never invent ad-hoc status tags or unregistered labels outside `.github/labels.yml` and `.github/project-template.json`.
-  - **FastMCP Agent Project Management Integration**: AI coding assistants MUST leverage the built-in FastMCP project management tools (`gh_project_status`, `gh_view_spec`, `gh_milestone_list`, `gh_milestone_sync`, `gh_label_list`, `gh_label_sync`) and CLI equivalents (`devops gh project`, `devops gh views`, `devops gh milestones`, `devops gh labels`) for all project tracking, milestone inspection, and taxonomy auditing.
+  - **FastMCP Agent Project Management Integration**: AI coding assistants MUST leverage the built-in FastMCP project management tools (`gh_project_status`, `gh_project_sync`, `gh_view_spec`, `gh_milestone_list`, `gh_milestone_sync`, `gh_milestone_close`, `gh_label_list`, `gh_label_sync`) and CLI equivalents (`devops gh project`, `devops gh views`, `devops gh milestones`, `devops gh labels`) for all project tracking, milestone lifecycle management, and taxonomy auditing.
 
 ---
 
@@ -125,7 +133,7 @@ Before planning, implementing, debugging, refactoring, or reviewing code, consul
 - **Modular Stage Pipeline Architecture**: Partition complex multi-step pipelines into dedicated, single-responsibility stage modules under a `stages/` subpackage, decorated with `@trace_span`.
 - **Provider Protocol & Deterministic Mock Isolation**: Implement abstract provider protocols under `providers/` (e.g. `BaseLLMProvider`) and supply deterministic mock implementations for offline testing.
 - **Standardized Domain Exception Taxonomy**: All domain error states must raise strongly typed exceptions inheriting from `DevOpsCLIError` under `src/devops_cli/exceptions/`, specifying explicit POSIX exit codes, canonical machine-readable error codes (`CONST_ERROR_CODE_*`), and structured context dictionaries. Raising bare Python built-in exceptions (`ValueError`, `RuntimeError`, `TypeError`) in domain logic is strictly prohibited.
-- **Clean Test Collection Hygiene**: Test helper classes and dummy test models in `src/devops_cli` must declare `__test__ = False` to prevent `PytestCollectionWarning`. Safely await or close coroutine returns.
+- **Clean Test Collection Hygiene & Submodule Test Grouping**: Test helper classes and dummy test models in `src/devops_cli` must declare `__test__ = False` to prevent `PytestCollectionWarning`. Safely await or close coroutine returns. Group tests strictly by submodule and domain functionality matching `src/devops_cli/` rather than creating arbitrary one-off test files.
 - **Telemetry & Metrics by Default**: Instrument new subcommands, background tasks, and AI pipeline stages with OpenTelemetry distributed spans (`@trace_span`) and record metrics via `GLOBAL_METRICS`.
 
 ---

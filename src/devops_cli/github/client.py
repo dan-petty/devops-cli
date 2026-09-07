@@ -210,3 +210,45 @@ class GitHubClient:
                 except ValueError:
                     kwargs["due_on"] = date.fromisoformat(clean_due)
         return self._gh.get_repo(repo).create_milestone(**kwargs)
+
+    def edit_milestone(
+        self,
+        repo: str,
+        number: int,
+        title: str | None = None,
+        state: str = "closed",
+        description: str | None = None,
+        due_on: str | date | datetime | None = None,
+    ) -> Any:
+        """Update an existing milestone in the specified repository."""
+        milestone = self._gh.get_repo(repo).get_milestone(number)
+        kwargs: dict[str, Any] = {"state": state}
+        if title is not None:
+            kwargs["title"] = title
+        if description is not None:
+            kwargs["description"] = description
+        if due_on is not None:
+            if isinstance(due_on, (datetime, date)):
+                kwargs["due_on"] = due_on
+            elif isinstance(due_on, str) and due_on.strip():
+                clean_due = due_on.strip()
+                try:
+                    kwargs["due_on"] = datetime.fromisoformat(clean_due.replace("Z", "+00:00"))
+                except ValueError:
+                    kwargs["due_on"] = date.fromisoformat(clean_due)
+        return milestone.edit(**kwargs)
+
+    def close_milestone(self, repo: str, version_or_number: str | int) -> bool:
+        """Close a milestone by number or title/version string."""
+        if isinstance(version_or_number, int):
+            self.edit_milestone(repo, version_or_number, state="closed")
+            return True
+
+        target_title = str(version_or_number).strip()
+        candidates = {target_title, target_title.lstrip("v"), f"v{target_title.lstrip('v')}"}
+        milestones = self.get_milestones(repo, state="all")
+        matched = next((m for m in milestones if m.get("title") in candidates), None)
+        if matched and "number" in matched:
+            self.edit_milestone(repo, int(matched["number"]), state="closed")
+            return True
+        return False

@@ -2,6 +2,37 @@
 
 Chronological log of refactoring milestones, quality gates, and security enhancements.
 
+### [2026-09-07] GitHub Projects v2 Remote Sync, Release Milestone Lifecycle Automation & Submodule Test Reorganization (Phase 48.6)
+- **GitHub Projects v2 Remote Synchronization & Scope Verification**:
+  - Implemented `verify_project_auth_scopes()` in `src/devops_cli/github/projects.py` to check for required `project` and `read:project` scopes, returning actionable guidance (`gh auth refresh -s project,read:project`) when scopes are missing.
+  - Implemented `sync_remote_project()`, `find_remote_project()`, `create_remote_project()`, `link_project_to_repository()`, and `provision_remote_project_fields()` to reconcile remote GitHub Projects boards and custom fields against `.github/project-template.json`.
+  - Added `devops gh project link <number>` and enhanced `devops gh project sync` with `--no-dry-run` live sync and `--repo` support.
+  - Added FastMCP tool `gh_project_sync`.
+- **Automated Milestone Closure on Release**:
+  - Implemented `close_milestone` and `edit_milestone` in `GitHubClient` (`src/devops_cli/github/client.py`).
+  - Added `close_repository_milestone` in `src/devops_cli/github/milestones.py`.
+  - Added CLI command `devops gh milestones close <version>` in `src/devops_cli/commands/gh.py`.
+  - Integrated automated milestone closure into `devops release tag` (`src/devops_cli/commands/release.py`).
+  - Updated `.github/workflows/release.yml` with `issues: write` permission and an automated milestone closure step triggered upon release publishing.
+  - Added FastMCP tool `gh_milestone_close`.
+- **Submodule Test Reorganization & Elimination of Arbitrary Session Files**:
+  - Reorganized all tests from `tests/test_review_findings_remediation_164259.py` into their canonical domain modules:
+    - Dry-run state restoration -> `tests/test_consolidation_dry_run_decorator.py`.
+    - Deep dictionary secret redaction and boolean settings preservation -> `tests/test_server.py`.
+    - URI credential masking without password -> `tests/test_consolidation_security_sanitizer.py`.
+    - Cross-module AST symbol resolution and request header dispatch checking -> `tests/test_review_verification.py`.
+    - Milestone closure and CLI -> `tests/test_github_milestones.py`.
+    - Project sync, auth scope verification, and repo linking -> `tests/test_github_projects.py`.
+  - Ruthlessly removed `tests/test_review_findings_remediation_164259.py`.
+- **Remediated GitHub Copilot Review Comments on PR #49**:
+  - `src/devops_cli/security/sanitizer.py`: Refined regex fallback `r"://([^:]*):([^@]+)@"` to require colon delimiter, preserving URIs with usernames but no passwords (`custom://user@host`).
+  - `src/devops_cli/server/routes/workspace.py`: Removed generic `"private"` keyword and ensured boolean settings like `ai.allow_private_network` are never redacted as secrets.
+  - `src/devops_cli/ai/review/common_hallucinations.py`: Prioritized backticked symbols first in `_verify_symbol_defined_in_ast_or_module`, preventing spuriously invalidating real reports.
+  - `src/devops_cli/ai/review/verification.py` & `common_hallucinations.py`: Required both auth header assignment and request dispatch (`headers=headers`) before auto-invalidating missing-header claims.
+- **Agent Instructions & Governance Updates**:
+  - Updated `AGENTS.md` Section 2 and Section 4 mandating that tests must be organized strictly by submodule and domain functionality rather than arbitrary one-off session files.
+  - Mandated automated milestone closure on release merge across `AGENTS.md`, `docs/ROUTINE_TASKS.md`, and Knowledge Base (`github_project_management.md`).
+
 ### [2026-09-07] Review Findings Remediation (Session 20260906-164259) & Self-Improvement Loop Hardening (Phase 48.5)
 - **Review Findings Remediation (TDD)**:
   - **Finding 1 (HIGH — Dry-Run State Leakage)**: Wrapped dry-run execution in `src/devops_cli/dry_run/decorator.py` with `try...finally: set_dry_run(original_dry_run)` so dry-run mode never leaks into subsequent calls across normal and exception paths. Verified in `tests/test_consolidation_dry_run_decorator.py`.
