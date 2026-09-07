@@ -7,6 +7,8 @@ import logging
 import threading
 from pathlib import Path
 
+from devops_cli.config.defaults import DEFAULT_MAX_AST_FILE_SIZE_BYTES
+
 logger = logging.getLogger(__name__)
 
 
@@ -26,10 +28,14 @@ def _extract_symbols_from_tree(tree: ast.AST) -> set[str]:
     return symbols
 
 
+MAX_AST_FILE_SIZE_BYTES = DEFAULT_MAX_AST_FILE_SIZE_BYTES
+
+
 class ASTCache:
     """Thread-safe AST cache indexed by file path and modification time."""
 
-    def __init__(self) -> None:
+    def __init__(self, max_file_size_bytes: int = DEFAULT_MAX_AST_FILE_SIZE_BYTES) -> None:
+        self._max_file_size_bytes = max_file_size_bytes
         self._ast_store: dict[Path, tuple[float, ast.AST]] = {}
         self._symbols_store: dict[Path, tuple[float, set[str]]] = {}
         self._lock = threading.Lock()
@@ -46,7 +52,10 @@ class ASTCache:
     def get_ast(self, file_path: Path) -> ast.AST | None:
         """Retrieve cached AST node or parse from disk if modified."""
         try:
-            mtime = file_path.stat().st_mtime
+            stat = file_path.stat()
+            if not file_path.is_file() or stat.st_size > self._max_file_size_bytes:
+                return None
+            mtime = stat.st_mtime
         except OSError, RuntimeError:
             return None
 
@@ -73,7 +82,10 @@ class ASTCache:
     def get_exported_symbols(self, file_path: Path) -> set[str]:
         """Extract top-level symbol names defined in the target Python module."""
         try:
-            mtime = file_path.stat().st_mtime
+            stat = file_path.stat()
+            if not file_path.is_file() or stat.st_size > self._max_file_size_bytes:
+                return set()
+            mtime = stat.st_mtime
         except OSError, RuntimeError:
             return set()
 

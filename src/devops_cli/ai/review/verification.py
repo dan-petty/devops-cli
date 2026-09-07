@@ -542,91 +542,299 @@ def _check_line_boundaries(finding: Finding, file_path: Path) -> Finding | None:
     return None
 
 
-def _deterministic_pre_verification(
-    finding: Finding,
-    repo_root: Path | None = None,
-    target_dir: Path | None = None,
-    **kwargs: Any,
-) -> Finding:
-    """Run local deterministic parser, line boundary, and hallucination checks to invalidate obvious false positives."""
-    title_lower = finding.title.lower()
-    desc_lower = (finding.description or "").lower()
-
-    # Invalidate conversational chain-of-thought monologue leaked into title
-    monologue_indicators = (
-        "chain of thought",
-        'indeed, "except',
-        "the fix: replace",
-        "it uses try/except with",
-        "we need to review",
-        "during our audit we noticed",
-    )
-    if any(ind in title_lower for ind in monologue_indicators):
+def _check_pathlib_resolve_hallucination(finding: Finding) -> Finding | None:
+    """Invalidate claims that Path.resolve() raises FileNotFoundError on non-existent paths."""
+    text = (finding.title + " " + (finding.description or "")).lower()
+    if "filenotfounderror" in text and "resolve" in text:
         return finding.model_copy(
             update={
                 "verified": False,
                 "mitigated": False,
                 "reportable": False,
                 "status": "INVALIDATED",
-                "invalidation_reason": "Conversational chain-of-thought monologue leaked into finding title",
+                "invalidation_reason": (
+                    "Matches verified common hallucination [HALLUCINATION-PATHLIB-RESOLVE-FILENOTFOUND]: "
+                    "In Python 3.6+, Path.resolve(strict=False) safely resolves non-existent paths without FileNotFoundError"
+                ),
             }
         )
+    return None
 
-    # Invalidate masked placeholder false identifier/syntax/NameError claims
-    if "<masked-" in title_lower or "<masked-" in desc_lower:
-        if any(
-            kw in title_lower or kw in desc_lower
-            for kw in (
-                "invalid identifier",
-                "syntax error",
-                "causes syntax error",
-                "not a valid",
-                "nameerror",
-                "undefined placeholder",
-                "not defined",
-                "placeholder",
-                "undefined variable",
-                "runtime error",
-            )
-        ):
-            return finding.model_copy(
-                update={
-                    "verified": False,
-                    "mitigated": False,
-                    "reportable": False,
-                    "status": "INVALIDATED",
-                    "invalidation_reason": (
-                        "Sanitization marker '<masked-*>' is a prompt redaction indicator, "
-                        "not an invalid identifier, undefined placeholder, or runtime defect"
-                    ),
-                }
-            )
 
+def _is_health_endpoint_version_claim(title_desc: str, loc: str) -> bool:
+    return "version" in title_desc and any(
+        k in loc or k in title_desc for k in ("health", "healthz", "health.py")
+    )
+
+
+def _is_stream_event_timestamp_claim(title_desc: str, loc: str) -> bool:
+    return "timestamp" in title_desc and any(
+        k in loc or k in title_desc for k in ("sse", "stream", "websocket", "stream.py")
+    )
+
+
+def _check_operational_protocol_hallucination(finding: Finding) -> Finding | None:
+    """Invalidate claims that health probe versions or stream event timestamps are leaks."""
+    text = (finding.title + " " + (finding.description or "")).lower()
+    loc = finding.location.lower()
+    if _is_health_endpoint_version_claim(text, loc):
+        return finding.model_copy(
+            update={
+                "verified": False,
+                "mitigated": False,
+                "reportable": False,
+                "status": "INVALIDATED",
+                "invalidation_reason": (
+                    "Matches verified common hallucination [HALLUCINATION-HEALTH-ENDPOINT-VERSION]: "
+                    "Health and liveness endpoints standardly provide service version for cluster orchestration"
+                ),
+            }
+        )
+    if _is_stream_event_timestamp_claim(text, loc):
+        return finding.model_copy(
+            update={
+                "verified": False,
+                "mitigated": False,
+                "reportable": False,
+                "status": "INVALIDATED",
+                "invalidation_reason": (
+                    "Matches verified common hallucination [HALLUCINATION-STREAM-EVENT-TIMESTAMP]: "
+                    "Real-time event streams require timestamps for event sequencing and client synchronization"
+                ),
+            }
+        )
+    return None
+
+
+def _check_test_fixture_credential_hallucination(
+    finding: Finding, file_path: Path
+) -> Finding | None:
+    """Invalidate claims of hardcoded secrets or credentials in test fixtures or mock test files."""
     loc_file = finding.location.split(":")[0].strip()
-    if not loc_file or _is_secret_path(loc_file):
-        return finding
+    p = Path(loc_file)
+    is_test = any(part in {"tests", "test", "fixtures"} for part in p.parts) or p.name.startswith(
+        ("test_", "mock_")
+    )
+    if not is_test:
+        return None
+    title_lower = finding.title.lower()
+    desc_lower = (finding.description or "").lower()
+    keywords = (
+        "hardcoded secret",
+        "hardcoded token",
+        "hardcoded credential",
+        "plaintext secret",
+        "exposed vault token",
+        "hardcoded vault token",
+        "hardcoded password",
+    )
+    if any(kw in title_lower or kw in desc_lower for kw in keywords):
+        return finding.model_copy(
+            update={
+                "verified": False,
+                "mitigated": False,
+                "reportable": False,
+                "status": "INVALIDATED",
+                "invalidation_reason": (
+                    "Matches verified common hallucination [HALLUCINATION-TEST-MOCK-CRED]: "
+                    "Test fixtures and mock suites legitimately use synthetic credentials"
+                ),
+            }
+        )
+    return None
 
-    effective_root = repo_root or target_dir
-    file_path = _resolve_target_file(loc_file, effective_root)
-    if file_path is None:
-        return finding
 
-    line_res = _check_line_boundaries(finding, file_path)
-    if line_res:
-        return line_res
+def _is_var_assigned_before(
+    node: ast.FunctionDef | ast.AsyncFunctionDef, var_name: str, target_line: int
+) -> int | None:
+    """Check if variable is assigned in function body before target line."""
+    for stmt in node.body:
+        stmt_line = getattr(stmt, "lineno", 0)
+        if stmt_line < target_line and isinstance(stmt, ast.Assign):
+            for target in stmt.targets:
+                if isinstance(target, ast.Name) and target.id == var_name:
+                    return stmt_line
+    return None
 
-    syntax_res = _check_syntax_error_hallucination(finding, file_path)
-    if syntax_res:
-        return syntax_res
 
-    symbol_res = _check_missing_symbol_hallucination(finding, file_path)
-    if symbol_res:
-        return symbol_res
+def _extract_uninitialized_var_name(title: str, desc: str) -> str | None:
+    import re
 
-    header_res = _check_missing_header_hallucination(finding, file_path)
-    if header_res:
-        return header_res
+    match = re.search(r"['\"`]([a-zA-Z0-9_]+)['\"`]", title) or re.search(
+        r"['\"`]([a-zA-Z0-9_]+)['\"`]", desc
+    )
+    return match.group(1) if match else None
 
+
+def _extract_location_line(location: str) -> int:
+    if ":" not in location:
+        return 0
+    try:
+        line_part = location.split(":", 1)[1].strip()
+        nums = [int(x) for x in line_part.replace("-", " ").split() if x.isdigit()]
+        return nums[0] if nums else 0
+    except Exception:
+        return 0
+
+
+def _find_enclosing_fn_assignment(tree: ast.AST, var_name: str, target_line: int) -> int | None:
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            fn_start = getattr(node, "lineno", 0)
+            fn_end = getattr(node, "end_lineno", fn_start + 1000)
+            if fn_start <= target_line <= fn_end:
+                assign_line = _is_var_assigned_before(node, var_name, target_line)
+                if assign_line is not None:
+                    return assign_line
+    return None
+
+
+def _is_uninitialized_claim(title_lower: str, desc_lower: str) -> bool:
+    return any(
+        kw in title_lower or kw in desc_lower for kw in ("uninitialized", "unboundlocalerror")
+    )
+
+
+def _try_find_var_assignment(file_path: Path, var_name: str, target_line: int) -> int | None:
+    try:
+        content = file_path.read_text(encoding="utf-8", errors="replace")
+        tree = ast.parse(content, filename=str(file_path))
+        return _find_enclosing_fn_assignment(tree, var_name, target_line)
+    except Exception:
+        return None
+
+
+def _check_uninitialized_variable_hallucination(
+    finding: Finding, file_path: Path
+) -> Finding | None:
+    """Check if variable claimed as uninitialized is actually initialized in enclosing function."""
+    if not (file_path.exists() and file_path.is_file() and file_path.suffix == ".py"):
+        return None
+    if not _is_uninitialized_claim(finding.title.lower(), (finding.description or "").lower()):
+        return None
+
+    var_name = _extract_uninitialized_var_name(finding.title, finding.description or "")
+    if not var_name:
+        return None
+
+    target_line = _extract_location_line(finding.location)
+    assign_line = _try_find_var_assignment(file_path, var_name, target_line)
+    if assign_line is not None:
+        return finding.model_copy(
+            update={
+                "verified": False,
+                "mitigated": False,
+                "reportable": False,
+                "status": "INVALIDATED",
+                "invalidation_reason": (
+                    f"Matches verified common hallucination "
+                    f"[HALLUCINATION-UNINITIALIZED-VARIABLE-ABOVE-LOOP]: "
+                    f"Variable '{var_name}' is explicitly initialized at line {assign_line} before reference"
+                ),
+            }
+        )
+    return None
+
+
+def _check_conversational_monologue(title_lower: str, finding: Finding) -> Finding | None:
+    phrases = (
+        "we need to",
+        "let's check",
+        "let's verify",
+        "first, let's",
+        "i need to",
+        "looking at the code",
+        "based on the above",
+    )
+    if any(phrase in title_lower for phrase in phrases):
+        return finding.model_copy(
+            update={
+                "verified": False,
+                "mitigated": False,
+                "reportable": False,
+                "status": "INVALIDATED",
+                "invalidation_reason": "Conversational scratchpad chain-of-thought monologue leaked into finding title",
+            }
+        )
+    return None
+
+
+def _check_benign_compliment(title_lower: str, finding: Finding) -> Finding | None:
+    phrases = (
+        "looks solid",
+        "properly implemented",
+        "no vulnerabilities found",
+        "clean code",
+        "well structured",
+        "all clear",
+    )
+    if any(phrase in title_lower for phrase in phrases):
+        return finding.model_copy(
+            update={
+                "verified": False,
+                "mitigated": False,
+                "reportable": False,
+                "status": "INVALIDATED",
+                "invalidation_reason": "Conversational praise or benign observation without a concrete defect",
+            }
+        )
+    return None
+
+
+def _check_masked_placeholder_syntax_error(
+    finding: Finding, title_lower: str, desc_lower: str
+) -> Finding | None:
+    has_marker = (
+        "<masked-" in finding.title
+        or "<masked-" in desc_lower
+        or "***redacted***" in finding.title.lower()
+        or "***redacted***" in desc_lower
+    )
+    if not has_marker:
+        return None
+    phrases = (
+        "syntax error",
+        "invalid syntax",
+        "undefined variable",
+        "nameerror",
+        "placeholder",
+        "unquoted placeholder",
+        "unresolved identifier",
+    )
+    if any(phrase in title_lower or phrase in desc_lower for phrase in phrases):
+        return finding.model_copy(
+            update={
+                "verified": False,
+                "mitigated": False,
+                "reportable": False,
+                "status": "INVALIDATED",
+                "invalidation_reason": (
+                    "Sanitization marker '<masked-*>' or '***redacted***' is a prompt redaction indicator, "
+                    "not an invalid identifier, undefined placeholder, or runtime defect"
+                ),
+            }
+        )
+    return None
+
+
+def _check_code_file_hallucinations(finding: Finding, file_path: Path) -> Finding | None:
+    """Run deterministic checks against resolved target code file."""
+    for checker in (
+        _check_test_fixture_credential_hallucination,
+        _check_uninitialized_variable_hallucination,
+        _check_line_boundaries,
+        _check_syntax_error_hallucination,
+        _check_missing_symbol_hallucination,
+        _check_missing_header_hallucination,
+    ):
+        res = checker(finding, file_path)
+        if res:
+            return res
+    return None
+
+
+def _check_catalog_hallucination(finding: Finding, file_path: Path) -> Finding:
+    """Check finding against dynamic common hallucinations catalog."""
     try:
         from devops_cli.ai.review.common_hallucinations import (
             auto_record_invalidated_finding,
@@ -649,8 +857,44 @@ def _deterministic_pre_verification(
             )
     except Exception:
         pass
-
     return finding
+
+
+def _deterministic_pre_verification(
+    finding: Finding,
+    repo_root: Path | None = None,
+    target_dir: Path | None = None,
+    **kwargs: Any,
+) -> Finding:
+    """Run local deterministic parser, line boundary, and hallucination checks to invalidate obvious false positives."""
+    title_lower = finding.title.lower()
+    desc_lower = (finding.description or "").lower()
+
+    early_results = [
+        _check_pathlib_resolve_hallucination(finding),
+        _check_operational_protocol_hallucination(finding),
+        _check_conversational_monologue(title_lower, finding),
+        _check_benign_compliment(title_lower, finding),
+        _check_masked_placeholder_syntax_error(finding, title_lower, desc_lower),
+    ]
+    for res in early_results:
+        if res:
+            return res
+
+    loc_file = finding.location.split(":")[0].strip()
+    if not loc_file or _is_secret_path(loc_file):
+        return finding
+
+    effective_root = repo_root or target_dir
+    file_path = _resolve_target_file(loc_file, effective_root)
+    if file_path is None:
+        return finding
+
+    code_res = _check_code_file_hallucinations(finding, file_path)
+    if code_res:
+        return code_res
+
+    return _check_catalog_hallucination(finding, file_path)
 
 
 def _apply_single_finding_verification(

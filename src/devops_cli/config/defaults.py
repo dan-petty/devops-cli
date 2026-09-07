@@ -223,6 +223,10 @@ DEFAULT_BADGE_FAIL_COLOR: str = "red"
 DEFAULT_BADGE_WARN_COLOR: str = "yellow"
 DEFAULT_CODE_SPAN_COLOR: str = "cyan"
 DEFAULT_STREAM_NAME: str = "stdout"
+DEFAULT_STREAM_PERSONA: str = "devsecops"
+DEFAULT_ALLOWED_STREAM_PERSONAS: frozenset[str] = frozenset(
+    {"devsecops", "architect", "challenger", "auditor", "qa", "pm"}
+)
 
 # ── AI, RAG & Agent Defaults ──────────────────────────────────────────────────
 DEFAULT_TIKTOKEN_MODEL: str = "gpt-4o"
@@ -260,6 +264,7 @@ DEFAULT_ANTHROPIC_MODEL: str = "claude-3-5-sonnet-20241022"
 DEFAULT_LLM_MAX_TOKENS: int = 8192
 DEFAULT_AI_TEST_PROMPT: str = "Hello, world!"
 DEFAULT_ESTIMATED_PROMPT_TOKENS: int = 1500
+DEFAULT_MAX_AST_FILE_SIZE_BYTES: int = 5 * 1024 * 1024  # 5MB DoS protection limit
 
 # ── Code Review, Scanner & Tooling Defaults ───────────────────────────────────
 DEFAULT_BASE_BRANCH: str = "main"

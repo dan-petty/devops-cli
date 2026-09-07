@@ -13,6 +13,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
 7. **Model Dependency Chaos Engineering & Slow-Zone Resilience**: Deliberately test fallback models ("Chaos Monkey for Models") against tool suites and keep documentation/CLI `--help` 100% synchronized so lesser models can pilot automation without human coaching.
 8. **Auditable Multi-Persona Code Reviews**: Domain-specialized personas (`devsecops`, `architect`, `pm`, `auditor`, `qa`) with deterministic static metadata extraction (`SegmentMeta`), prompt boundary isolation, and closed-loop finding verification.
 9. **Zero Boilerplate & Standard Library Leverage**: Expressive integration of modern standard library utilities (`pathlib`, `ast`, `collections`, `itertools`, `functools`), Pydantic v2 schemas, and strict indentation budgets (<6 levels).
+10. **Complete Observability Triad & Centralized Kubernetes Logging**: Unified telemetry integrating Prometheus client metrics, Jaeger/OTel distributed tracing, and Grafana Loki centralized log aggregation with LogQL CLI querying and agentic incident diagnosis.
 
 ---
 
@@ -275,7 +276,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
   - [x] **Qdrant Vector Database API Key Secret Protection**: Add optional API key authentication support and ClusterIP default configuration for production deployments in `k8s/llm/values-qdrant.yaml`.
 
 ### Advanced Agentic Harness, Sub-Agent Local Offloading & Terminal UX (v0.2.13 - Current Release / Active Development)
-- [ ] **Sub-Agent Local Offloading Engine & Agent Harness Slots (`devops_cli.ai.harness.slots`)**: Modular Harness Slots (`ModelSlot`, `SkillSlot`, `ToolSlot`, `SubAgentSlot`) offloading token-intensive exploration and symbol searching to local open models (Granite, Qwen2.5-Coder) under a "Big decides, small types, big checks" synthesis protocol, achieving 85%+ token savings.
+- [x] **Sub-Agent Local Offloading Engine & Agent Harness Slots (`devops_cli.ai.harness.slots`)**: Modular Harness Slots (`ModelSlot`, `SkillSlot`, `ToolSlot`, `SubAgentSlot`) offloading token-intensive exploration and symbol searching to local open models (Granite, Qwen2.5-Coder) under a "Big decides, small types, big checks" synthesis protocol, achieving 85%+ token savings.
 - [ ] **Interactive Terminal UI Dashboard (`devops dashboard` / `devops tui`)**: Full-screen responsive terminal dashboard powered by `Textual` providing real-time tabs for live Kubernetes pods, Minikube services, Docker container metrics, OpenTelemetry span waterfalls, active AI review findings, and Valkey cache metrics with keyboard navigation (`1-5`, `q`, `r`, `?`).
 - [ ] **Model Dependency Chaos Engineering Suite (`devops ai chaos-model`)**: "Chaos Monkey for Models" validation framework deliberately degrading frontier connections, injecting latency, and enforcing local open model fallbacks to verify that automation tools pass CI quality gates without human coaching.
 - [ ] **Agent Constellation Quiesce & Emergency Failover Controller (`devops ai quiesce`, `devops ai failover`)**: Centralized emergency control to cleanly suspend active agent loops, schedulers, and background cron jobs during upstream provider outages, with zero-state-loss failover to local endpoints.
@@ -293,9 +294,15 @@ High-density product roadmap, engineering milestones, and open-source integratio
 - [ ] **FastMCP Library Tools & Dynamic System Resource**: Exposing `ai_ingest_library`, `ai_query_library`, `ai_inspect_symbol`, and dynamic resource `resource://libraries/indexed` to IDE AI coding assistants.
 - [ ] **Autonomous RAG Index Drift Detection & Auto-Reindexing**: Scheduled background verification of vector store sync against workspace git tracking branches.
 
-### GitOps Fleet, FinOps & Production Security Mesh (v0.2.15 - Scheduled)
+### GitOps Fleet, FinOps, Centralized Logging & Production Security Mesh (v0.2.15 - Scheduled)
 - [ ] **Complete Security Scanner Migration to `BaseSecurityScanner` & `ScannerRegistry`**: Complete migration of all 11 scanner modules (`bandit`, `checkov`, `dive`, `gitleaks`, `kubeconform`, `kubelinter`, `pluto`, `popeye`, `semgrep`, `tflint`, `trivy`) to inherit from `BaseSecurityScanner`, standardizing execution, timeouts, JSON parsing, and normalized `Finding` models.
 - [ ] **Infracost FinOps Cloud Cost Engine (`devops tf cost`)**: Integrated Infracost CLI evaluating financial impacts of Terraform/OpenTofu diffs, enriching `pm` & `architect` review personas with monthly cost deltas.
+- [ ] **Centralized Kubernetes Logging Stack & LogQL Integration (`devops k8s logs` / `devops logs`)**:
+  - **Declarative Loki & Fluent Bit / Vector Aggregation Stack (`k8s/logging/`, `devops k8s deploy-stack --stack logging`)**: Multi-tenant, lightweight log aggregation engine running in dedicated namespace `logging` with Pod Security Admission (PSA) enforcement and restrictive NetworkPolicy; collecting container stdout/stderr, pod metadata, Kubernetes audit logs, and system events.
+  - **Pre-Configured Grafana Data Source & OTel Trace Correlation**: Seamless integration with existing `k8s/monitoring` Grafana instances, establishing automated `trace_id` correlation linking Jaeger distributed traces with Loki log streams.
+  - **Native LogQL Query & Stream Engine (`devops k8s logs query|tail|stream`)**: Rich terminal log inspection powered by LogQL parser pipelines (`| json`, `| logfmt`), regex filters (`|=`, `!~`), label selectors (`--namespace`, `--app`, `--pod`, `--container`), severity thresholds (`--level`), and WebSocket/HTTP chunked live follow mode (`--follow` / `-f`).
+  - **AI Agent Incident Diagnosis & FastMCP Integration (`k8s_logs_query`, `k8s_logs_tail`)**: FastMCP tool exposure and dynamic system resource `resource://k8s/logs/recent` enabling autonomous AI agents to query logs, diagnose CrashLoopBackOff/OOMKilled events, and synthesize incident post-mortems.
+  - **Interactive Terminal UI Logs Tab (`devops dashboard`)**: Dedicated real-time *Centralized Logs* view in the Textual TUI with syntax-highlighted LogQL search, streaming pause/resume, and drill-down into container metrics.
 - [ ] **Falco eBPF Runtime Security & Anomaly Streamer (`devops k8s security-stream`)**: Real-time streaming kernel anomaly and container syscall events via eBPF probes with automated severity threshold filtering.
 - [ ] **Multi-Cluster ArgoCD Fleet Sync & Rollouts (`devops argo sync --fleet`)**: Advanced canary and blue-green rollout management across multi-cluster fleets with Prometheus metric-based rollback gates.
 - [ ] **Automated GitOps Drift Detection & Webhook Synchronization (`devops argo gitops watch`)**: Real-time git commit and inotify/watchdog triggers automatically signaling ArgoCD applications to reconcile local workspace modifications.
@@ -447,7 +454,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
 | | Qdrant Vector DB API Key Secret Protection | Helm / Secret Store | High | Medium | v0.2.12 | ✅ Completed |
 | | Valkey High-Performance Distributed AI Cache Tier | Valkey / Pydantic | High | Medium | v0.2.12 | ✅ Completed |
 | | Ephemeral Testcontainers Valkey Testing Harness | `testcontainers-python` | High | Medium | v0.2.12 | ✅ Completed |
-| | Sub-Agent Local Offloading Engine & Harness Slots | PydanticAI / Ollama / vLLM | High | Medium | v0.2.13 | 📋 Scheduled |
+| | Sub-Agent Local Offloading Engine & Harness Slots | PydanticAI / Ollama / vLLM | High | Medium | v0.2.13 | ✅ Completed |
 | | Interactive Terminal UI Dashboard (`devops dashboard`) | `textual` TUI | High | Medium | v0.2.13 | 📋 Scheduled |
 | | Model Dependency Chaos Engineering Suite (`devops ai chaos-model`) | Pytest / Fallback Routing | High | Medium | v0.2.13 | 📋 Scheduled |
 | | Multi-Model LLM Benchmark Evaluation Harness | Pytest / Feedback Dataset | High | Low | v0.2.13 | 📋 Scheduled |
@@ -459,6 +466,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
 | | Library API Drift & Deprecation Auditor | AST / McCabe | High | Medium | v0.2.14 | 📋 Scheduled |
 | | Complete Security Scanner Migration to `BaseSecurityScanner` & `ScannerRegistry` | Python ABC / Subprocess | High | Medium | v0.2.15 | 📋 Scheduled |
 | | Infracost FinOps Cloud Cost Engine (`devops tf cost`) | `infracost` CLI | High | Medium | v0.2.15 | 📋 Scheduled |
+| | Centralized K8s Logging Stack & LogQL CLI (`devops k8s logs`) | Grafana Loki / Fluent Bit / LogQL | High | Medium | v0.2.15 | 📋 Scheduled |
 | | Falco eBPF Runtime Security & Anomaly Streamer | `falco` / eBPF | High | Medium | v0.2.15 | 📋 Scheduled |
 | | Multi-Cluster ArgoCD Fleet Sync & Rollouts | Argo Rollouts / Prometheus | High | High | v0.2.15 | 📋 Scheduled |
 | | Automated GitOps Drift Detection & Webhook Sync | Watchdog / ArgoCD REST | High | Medium | v0.2.15 | 📋 Scheduled |
@@ -483,6 +491,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
 | | Logfire Structured AI Observability Bridge | `logfire` SDK / OTel | Medium | Medium | v0.2.13 | 📋 Scheduled |
 | | Autonomous RAG Index Drift Detection & Auto-Reindexing | Git / Qdrant Sync | Medium | Low | v0.2.14 | 📋 Scheduled |
 | | Local GitOps Project Orchestration Pipeline | Git Daemon / ArgoCD App-of-Apps | High | Medium | v0.2.15 | 📋 Scheduled |
+| | FastMCP K8s Centralized Log Tools (`k8s_logs_query`, `k8s_logs_tail`) | FastMCP / Loki REST API | High | Low | v0.2.15 | 📋 Scheduled |
 | | Core Dependency Ecosystem Alignment | `uv lock --upgrade` / PyPI | Medium | Low | v0.2.15 | 📋 Scheduled |
 | **De-prioritized** | Bare-Metal OS Installers | Shell scripts | Low | High | — | ❌ Rejected (DevContainer native) |
 | | Heavyweight Monolithic Orchestrators | Full LangChain | Low | High | — | ❌ Rejected (FastMCP + PydanticAI) |

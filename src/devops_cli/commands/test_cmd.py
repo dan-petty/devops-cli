@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import shutil
 from pathlib import Path
 from typing import Annotated
@@ -23,11 +24,15 @@ app = new_typer(help=HELP.test.app, no_args_is_help=False)
 
 def find_changed_test_files(repo_root: Path, base_ref: str = "main") -> list[Path]:
     """Find test files corresponding to modified source files via git diff."""
+    clean_ref = base_ref.strip()
+    if clean_ref.startswith("-") or not re.match(r"^[a-zA-Z0-9_\-./~^]+$", clean_ref):
+        clean_ref = "main"
+
     changed_files: set[str] = set()
 
     # 1. Diff against base ref (or HEAD~1 if base ref unavailable)
     diff_proc = run_subprocess(
-        ["git", "diff", "--name-only", f"{base_ref}...HEAD"],
+        ["git", "diff", "--name-only", f"{clean_ref}...HEAD"],
         cwd=repo_root,
         check=False,
     )

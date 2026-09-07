@@ -320,3 +320,62 @@ def test_forbidden_common_words_excluded_from_similarity_matching() -> None:
 
     matches = find_similar_hallucinations(finding, threshold=0.3)
     assert len(matches) == 0
+
+
+def test_session_143610_cataloged_hallucinations_matching() -> None:
+    """Verify newly cataloged hallucinations from session 143610 match correctly."""
+    entries = load_common_hallucinations(include_builtin=True)
+    entry_ids = {e.id for e in entries}
+
+    assert "HALLUCINATION-UNINITIALIZED-VARIABLE-ABOVE-LOOP" in entry_ids
+    assert "HALLUCINATION-PATHLIB-RESOLVE-FILENOTFOUND" in entry_ids
+    assert "HALLUCINATION-HEALTH-ENDPOINT-VERSION" in entry_ids
+    assert "HALLUCINATION-STREAM-EVENT-TIMESTAMP" in entry_ids
+
+    # 1. Uninitialized variable above loop
+    f1 = Finding(
+        title="Uninitialized variable system_prompt used in loop causes UnboundLocalError",
+        description="Variable system_prompt is not initialized before the loop and causes runtime failure.",
+        location="agents.py:100",
+        severity="HIGH",
+        status="UNVERIFIED",
+    )
+    m1 = is_common_hallucination(f1, threshold=0.4)
+    assert m1 is not None
+    assert m1.hallucination.id == "HALLUCINATION-UNINITIALIZED-VARIABLE-ABOVE-LOOP"
+
+    # 2. Pathlib Path.resolve() False FileNotFoundError Claim
+    f2 = Finding(
+        title="Pathlib resolve raises FileNotFoundError on non-existent paths",
+        description="pathlib.resolve() causes FileNotFoundError when path does not exist.",
+        location="paths.py:42",
+        severity="MEDIUM",
+        status="UNVERIFIED",
+    )
+    m2 = is_common_hallucination(f2, threshold=0.4)
+    assert m2 is not None
+    assert m2.hallucination.id == "HALLUCINATION-PATHLIB-RESOLVE-FILENOTFOUND"
+
+    # 3. Health Endpoint Version Disclosure
+    f3 = Finding(
+        title="Information disclosure of version number in health endpoint",
+        description="Exposing version number in health endpoint represents CWE-200.",
+        location="routes/health.py:10",
+        severity="LOW",
+        status="UNVERIFIED",
+    )
+    m3 = is_common_hallucination(f3, threshold=0.4)
+    assert m3 is not None
+    assert m3.hallucination.id == "HALLUCINATION-HEALTH-ENDPOINT-VERSION"
+
+    # 4. Stream Event Timestamp Leakage
+    f4 = Finding(
+        title="Timestamp leakage in SSE event stream",
+        description="Leakage of timestamps in events stream reveals system clock information.",
+        location="routes/stream.py:50",
+        severity="LOW",
+        status="UNVERIFIED",
+    )
+    m4 = is_common_hallucination(f4, threshold=0.4)
+    assert m4 is not None
+    assert m4.hallucination.id == "HALLUCINATION-STREAM-EVENT-TIMESTAMP"

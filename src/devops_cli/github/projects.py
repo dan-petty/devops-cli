@@ -361,3 +361,107 @@ def sync_remote_project(
         dry_run=False,
         linked=linked,
     )
+
+
+def _map_view_layout(layout: str) -> str:
+    """Map template layout string to GraphQL ProjectV2ViewLayout enum."""
+    cleaned = layout.strip().lower()
+    if "board" in cleaned:
+        return "BOARD_LAYOUT"
+    if "roadmap" in cleaned:
+        return "ROADMAP_LAYOUT"
+    return "TABLE_LAYOUT"
+
+
+def get_remote_project_views(
+    owner: str, repo: str
+) -> tuple[str | None, int | None, list[dict[str, str]]]:
+    """Fetch remote ProjectV2 ID, number, and views for the given repository."""
+    repo_clean = repo.split("/")[-1]
+    query = (
+        f'query {{ repository(owner: "{owner}", name: "{repo_clean}") {{ '
+        f"projectsV2(first: 5) {{ nodes {{ id number title views(first: 20) {{ nodes {{ id name layout }} }} }} }} }} }}"
+    )
+    cmd = [CONST_GH_CLI, "api", "graphql", "-f", f"query={query}"]
+    proc = run_subprocess(cmd, check=False, quiet=True)
+    if proc.returncode != 0 or not proc.stdout:
+        return None, None, []
+    try:
+        data = json.loads(proc.stdout)
+        nodes = data.get("data", {}).get("repository", {}).get("projectsV2", {}).get("nodes", [])
+        if not nodes:
+            return None, None, []
+        proj = nodes[0]
+        views: list[dict[str, str]] = proj.get("views", {}).get("nodes", [])
+        return proj.get("id"), proj.get("number"), views
+    except json.JSONDecodeError, AttributeError, KeyError:
+        return None, None, []
+
+
+def _create_project_view(project_id: str, name: str, layout: str) -> bool:
+    """Create a project view via GraphQL mutation."""
+    layout_enum = _map_view_layout(layout)
+    mutation = (
+        f'mutation {{ createProjectV2View(input: {{ projectId: "{project_id}", '
+        f'name: "{name}", layout: {layout_enum} }}) {{ projectV2View {{ id name }} }} }}'
+    )
+    proc = run_subprocess(
+        [CONST_GH_CLI, "api", "graphql", "-f", f"query={mutation}"],
+        check=False,
+        quiet=True,
+    )
+    return proc.returncode == 0
+
+
+def _rename_default_view(view_id: str, name: str, layout: str) -> bool:
+    """Rename default View 1 via GraphQL mutation."""
+    layout_enum = _map_view_layout(layout)
+    mutation = (
+        f'mutation {{ updateProjectV2View(input: {{ viewId: "{view_id}", '
+        f'name: "{name}", layout: {layout_enum} }}) {{ projectV2View {{ id name }} }} }}'
+    )
+    proc = run_subprocess(
+        [CONST_GH_CLI, "api", "graphql", "-f", f"query={mutation}"],
+        check=False,
+        quiet=True,
+    )
+    return proc.returncode == 0
+
+
+def sync_remote_project_views(owner: str, repo: str, template: ProjectTemplate) -> dict[str, Any]:
+    """Reconcile template views against the remote GitHub Projects v2 board."""
+    verify_project_auth_scopes()
+    proj_id, proj_num, existing_views = get_remote_project_views(owner, repo)
+    if not proj_id:
+        return {
+            "project_number": None,
+            "created": [],
+            "existing": [],
+            "status": "No linked project found on repository",
+        }
+
+    existing_by_name = {v.get("name", "").lower(): v for v in existing_views}
+    created: list[str] = []
+    existing: list[str] = []
+
+    for tv in template.views:
+        if tv.name.lower() in existing_by_name:
+            existing.append(tv.name)
+            continue
+
+        if "view 1" in existing_by_name and not created and not existing:
+            view1_id = existing_by_name["view 1"].get("id", "")
+            if _rename_default_view(view1_id, tv.name, tv.layout):
+                created.append(tv.name)
+                del existing_by_name["view 1"]
+                continue
+
+        if _create_project_view(proj_id, tv.name, tv.layout):
+            created.append(tv.name)
+
+    return {
+        "project_number": proj_num,
+        "created": created,
+        "existing": existing,
+        "views": [v.name for v in template.views],
+    }

@@ -888,6 +888,16 @@ def gh_view_spec() -> str:
 
 
 @mcp.tool()
+def gh_views_sync(repo: str = "") -> str:
+    """Synchronize standardized GitHub Projects v2 views with the remote repository project."""
+    cmd = ["uv", "run", "devops", "gh", "views", "sync"]
+    if repo:
+        _validate_mcp_arg("repo", repo)
+        cmd.extend(["--repo", repo])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
 def scan_trivy(
     target: str = ".",
     scan_type: str = "fs",

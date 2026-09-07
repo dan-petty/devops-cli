@@ -2460,12 +2460,33 @@ def test_shell_limits_concurrent_background_processes() -> None:
 
 
 def test_macroscope_rejects_path_traversal_in_base_ref() -> None:
-    from devops_cli.ai.harness.agents import Macroscope
+    from devops_cli.ai.harness.agents import (
+        Macroscope,
+        _is_safe_diff_base,
+        _validate_diff_base,
+    )
+
+    assert _is_safe_diff_base("main") is True
+    assert _is_safe_diff_base("feature/branch-1") is True
+    assert _is_safe_diff_base("HEAD~1") is True
+    assert _is_safe_diff_base("v1.2.3") is True
+    assert _is_safe_diff_base("") is True
+
+    assert _is_safe_diff_base("../etc/passwd") is False
+    assert _is_safe_diff_base("/root") is False
+    assert _is_safe_diff_base("\\windows\\system32") is False
+    assert _is_safe_diff_base("branch;rm -rf /") is False
+
+    assert _validate_diff_base(None) is None
+    assert _validate_diff_base("main") is None
+    invalid_err = _validate_diff_base("../../refs/heads/main")
+    assert invalid_err is not None
+    assert "Invalid base reference" in invalid_err
 
     macroscope = Macroscope()
     tools = {t.name if hasattr(t, "name") else t.__name__: t for t in macroscope.get_tools()}
     review_tool = tools["run_macroscope_review"]
-    fn = review_tool.function if hasattr(review_tool, "func") else review_tool
+    fn = getattr(review_tool, "function", review_tool)
     res = fn(base="../../refs/heads/main")
     assert "invalid" in res.lower() or "blocked" in res.lower() or "traversal" in res.lower()
 

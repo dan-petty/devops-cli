@@ -49,7 +49,9 @@ def _base_url(settings: Settings) -> str:
             settings.prometheus.url, "Prometheus", allow=settings.ai.allow_private_network
         )
     except (ValueError, DevOpsCLIError) as exc:
-        print_error(str(exc), prefix=False)
+        from devops_cli.security.sanitizer import mask_secrets
+
+        print_error(mask_secrets(str(exc)), prefix=False)
         raise typer.Exit(1)
     return settings.prometheus.url.rstrip("/")
 

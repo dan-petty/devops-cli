@@ -242,4 +242,19 @@ devops gh views spec [OPTIONS]
 |---|---|---|---|
 | `--template`, `-t` | `path` | `.github/project-template.json` | Path to project template JSON |
 
+### `devops gh views sync`
+
+**Synchronize standardized views with the remote GitHub Projects v2 board.**
+
+```bash
+devops gh views sync [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--template`, `-t` | `path` | `.github/project-template.json` | Path to project template JSON |
+| `--repo`, `-R` | `string` | - | Target repository |
+
 ---

@@ -30,6 +30,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`gh_project_status`](#gh-project-status) | Inspect GitHub Projects v2 template configuration, fields, and view definitions. |
 | [`gh_project_sync`](#gh-project-sync) | Synchronize task items from task.md into GitHub Projects v2 status. |
 | [`gh_view_spec`](#gh-view-spec) | Return JSON specification for GitHub Projects v2 views. |
+| [`gh_views_sync`](#gh-views-sync) | Synchronize standardized GitHub Projects v2 views with the remote repository project. |
 | [`grafana_dashboards`](#grafana-dashboards) | List Grafana dashboards, optionally filtered by search query. |
 | [`k8s_audit`](#k8s-audit) | Audit Kubernetes cluster security posture, RBAC policies, and CIS benchmarks. |
 | [`k8s_bootstrap`](#k8s-bootstrap) | Bootstrap minikube Kubernetes cluster and deploy infrastructure stack. |
@@ -323,6 +324,16 @@ Synchronize task items from task.md into GitHub Projects v2 status.
 Return JSON specification for GitHub Projects v2 views.
 
 *No parameters required.*
+
+### `gh_views_sync`
+
+Synchronize standardized GitHub Projects v2 views with the remote repository project.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `repo` | `string` | No | `` | - |
 
 ### `grafana_dashboards`
 

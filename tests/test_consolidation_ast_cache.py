@@ -75,3 +75,26 @@ def test_global_ast_cache_singleton() -> None:
     global_ast_cache.clear()
     assert global_ast_cache.stats["hits"] == 0
     assert global_ast_cache.stats["misses"] == 0
+
+
+def test_ast_cache_respects_max_file_size(tmp_path: Path) -> None:
+    """ASTCache rejects files exceeding max_file_size_bytes without parsing AST."""
+    from devops_cli.ai.ast_cache import MAX_AST_FILE_SIZE_BYTES
+    from devops_cli.config import DEFAULT_MAX_AST_FILE_SIZE_BYTES
+    from devops_cli.config.defaults import DEFAULT_MAX_AST_FILE_SIZE_BYTES as DEFAULTS_LIMIT
+
+    assert DEFAULT_MAX_AST_FILE_SIZE_BYTES == DEFAULTS_LIMIT
+    assert MAX_AST_FILE_SIZE_BYTES == DEFAULT_MAX_AST_FILE_SIZE_BYTES
+
+    cache = ASTCache(max_file_size_bytes=15)
+    assert cache._max_file_size_bytes == 15
+
+    default_cache = ASTCache()
+    assert default_cache._max_file_size_bytes == DEFAULT_MAX_AST_FILE_SIZE_BYTES
+
+    sample = tmp_path / "oversized.py"
+    sample.write_text("def very_long_function_declaration(): pass\n", encoding="utf-8")
+    assert sample.stat().st_size > 15
+
+    assert cache.get_ast(sample) is None
+    assert cache.get_exported_symbols(sample) == set()

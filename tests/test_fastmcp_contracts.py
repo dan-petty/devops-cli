@@ -99,6 +99,8 @@ def test_fastmcp_tools_registration() -> None:
         "vault_get",
         "vault_set",
         "vault_sync",
+        # GitHub Projects & Views
+        "gh_views_sync",
     }
 
     for expected in expected_core_tools:

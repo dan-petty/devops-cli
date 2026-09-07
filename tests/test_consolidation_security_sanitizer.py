@@ -100,3 +100,105 @@ def test_mask_uri_credentials_edge_cases() -> None:
     # URI with username but no password must not be masked
     user_no_pass = "custom://myuser@myhost/path"
     assert mask_uri_credentials(user_no_pass) == user_no_pass
+
+
+def test_devops_cli_error_masks_message_and_details() -> None:
+    """Verify that DevOpsCLIError and all subclasses automatically redact secrets."""
+    from devops_cli.exceptions.base import DevOpsCLIError
+    from devops_cli.exceptions.vault import VaultError
+
+    raw_token = "ghp_1234567890abcdef1234"
+    raw_pass = "password='SuperSecretPass123!'"
+    raw_url = "https://user:mypassword999@vault.internal:8200"
+
+    err = DevOpsCLIError(
+        f"Failed operation with token {raw_token}",
+        details={"token": raw_token, "config": raw_pass, "target_url": raw_url, "count": 42},
+    )
+
+    assert raw_token not in err.message
+    assert "<masked-github-token>" in err.message
+    assert raw_token not in err.details["token"]
+    assert "<masked-github-token>" in err.details["token"]
+    assert "SuperSecretPass123!" not in err.details["config"]
+    assert "mypassword999" not in err.details["target_url"]
+    assert err.details["count"] == 42
+
+    # Subclass verification
+    v_err = VaultError(
+        f"Vault auth failed for {raw_url}",
+        vault_addr=raw_url,
+        details={"token": raw_token},
+    )
+    assert "mypassword999" not in v_err.message
+    assert raw_token not in v_err.details["token"]
+    assert "mypassword999" not in v_err.details["vault_addr"]
+
+
+def test_durable_mask_sensitive_data_handles_strings() -> None:
+    """Verify that durable execution _mask_sensitive_data sanitizes strings with secrets."""
+    from devops_cli.ai.durable import _mask_sensitive_data
+
+    secret_str = "Authorization: Bearer ghp_1234567890abcdef1234"
+    masked = _mask_sensitive_data(secret_str)
+    assert "ghp_1234567890abcdef1234" not in masked
+    assert "<masked-github-token>" in masked
+
+    # Dict with string secret value
+    data = {"tool_output": "Key: sk-ant-api03-abcdef123456789012345678"}
+    clean = _mask_sensitive_data(data)
+    assert "sk-ant-api03-abcdef123456789012345678" not in clean["tool_output"]
+    assert "<masked-anthropic-key>" in clean["tool_output"]
+
+
+def test_streaming_serializers_mask_secrets() -> None:
+    """Verify that streaming JSON and YAML serializers mask sensitive credentials."""
+    from devops_cli.output.streaming_serializer import (
+        stream_json_array,
+        stream_jsonl,
+        stream_yaml_docs,
+    )
+
+    items = [
+        {"token": "ghp_1234567890abcdef1234", "name": "service-alpha"},
+        {"secret": "sk-ant-api03-abcdef123456789012345678", "name": "service-beta"},
+    ]
+
+    json_chunks = "".join(stream_json_array(items))
+    assert "ghp_1234567890abcdef1234" not in json_chunks
+    assert "sk-ant-api03-abcdef123456789012345678" not in json_chunks
+    assert "<masked-github-token>" in json_chunks
+    assert "<masked-anthropic-key>" in json_chunks
+
+    jsonl_chunks = "".join(stream_jsonl(items))
+    assert "ghp_1234567890abcdef1234" not in jsonl_chunks
+    assert "sk-ant-api03-abcdef123456789012345678" not in jsonl_chunks
+
+    yaml_chunks = "".join(stream_yaml_docs(items))
+    assert "ghp_1234567890abcdef1234" not in yaml_chunks
+    assert "sk-ant-api03-abcdef123456789012345678" not in yaml_chunks
+
+
+def test_semgrep_findings_mask_secrets() -> None:
+    """Verify that Semgrep parse_semgrep_json redacts secrets in findings."""
+    from devops_cli.security.semgrep import parse_semgrep_json
+
+    sample_semgrep = {
+        "results": [
+            {
+                "check_id": "hardcoded-secret",
+                "path": "src/config.py",
+                "start": {"line": 10},
+                "end": {"line": 10},
+                "extra": {
+                    "message": "Found hardcoded token ghp_1234567890abcdef1234 in assignment",
+                    "severity": "ERROR",
+                },
+            }
+        ]
+    }
+    findings = parse_semgrep_json(sample_semgrep)
+    assert len(findings) == 1
+    assert "ghp_1234567890abcdef1234" not in findings[0].description
+    assert "<masked-github-token>" in findings[0].description
+    assert "ghp_1234567890abcdef1234" not in findings[0].title

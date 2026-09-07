@@ -238,6 +238,10 @@ _SENSITIVE_KEY_PATTERN = re.compile(
 
 def _mask_sensitive_data(data: Any) -> Any:
     """Recursively mask sensitive keys and credentials in step payloads."""
+    if isinstance(data, str):
+        from devops_cli.security.sanitizer import mask_secrets
+
+        return mask_secrets(data)
     if isinstance(data, dict):
         masked: dict[str, Any] = {}
         for k, v in data.items():

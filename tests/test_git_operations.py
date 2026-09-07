@@ -273,3 +273,81 @@ def test_git_operations_edge_cases(tmp_path: Path) -> None:
     with patch("devops_cli.git.operations.run_subprocess") as mock_run:
         mock_run.side_effect = [MagicMock(returncode=1), MagicMock(returncode=1, stdout="")]
         _ensure_known_host("invalid.example.test")
+
+
+def test_append_known_host_entry(tmp_path: Path) -> None:
+    """Verify _append_known_host_entry safely writes host keys and sets permissions."""
+    from devops_cli.git.operations import _append_known_host_entry
+
+    known_hosts = tmp_path / "known_hosts"
+    _append_known_host_entry(known_hosts, "host1.example.com ssh-ed25519 AAAAC3NzaC1\n")
+    assert "host1.example.com" in known_hosts.read_text(encoding="utf-8")
+    assert oct(known_hosts.stat().st_mode & 0o777) == "0o600"
+
+    # Append second entry when existing content doesn't end with newline
+    known_hosts.write_text("host1.example.com key1", encoding="utf-8")
+    _append_known_host_entry(known_hosts, "host2.example.com key2\n")
+    content = known_hosts.read_text(encoding="utf-8")
+    assert content == "host1.example.com key1\nhost2.example.com key2\n"
+
+    # Gracefully handle OS error when directory is read-only
+    invalid_path = tmp_path / "nonexistent_dir" / "known_hosts"
+    _append_known_host_entry(invalid_path, "host3.example.com key3\n")
+
+
+def test_host_key_and_clone_prep_helpers(tmp_path: Path) -> None:
+    """Verify _is_host_in_known_hosts, _scan_host_key, _validate_clone_dest, and _prepare_clone_url."""
+    from devops_cli.exceptions import GitOperationError
+    from devops_cli.git.operations import (
+        _is_host_in_known_hosts,
+        _prepare_clone_url,
+        _scan_host_key,
+        _validate_clone_dest,
+    )
+
+    # 1. _is_host_in_known_hosts when file missing
+    missing_file = tmp_path / "nonexistent_known_hosts"
+    assert not _is_host_in_known_hosts("github.com", missing_file)
+
+    # 2. _is_host_in_known_hosts when present
+    existing_file = tmp_path / "known_hosts"
+    existing_file.touch()
+    with patch("devops_cli.git.operations.run_subprocess") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0)
+        assert _is_host_in_known_hosts("github.com", existing_file)
+        mock_run.return_value = MagicMock(returncode=1)
+        assert not _is_host_in_known_hosts("github.com", existing_file)
+
+    # 3. _scan_host_key successes and failures
+    with patch("devops_cli.git.operations.run_subprocess") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0, stdout="github.com ssh-ed25519 AAAAC3N\n")
+        assert _scan_host_key("github.com") == "github.com ssh-ed25519 AAAAC3N\n"
+
+        mock_run.return_value = MagicMock(returncode=1, stdout="")
+        assert _scan_host_key("github.com") is None
+
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout="otherhost.com ssh-ed25519 AAAAC3N\n"
+        )
+        assert _scan_host_key("github.com") is None
+
+    # 4. _validate_clone_dest path traversal rejection
+    with pytest.raises(GitOperationError, match="Path traversal detected"):
+        _validate_clone_dest(Path("../unsafe_path"))
+
+    with pytest.raises(GitOperationError, match="Path traversal detected"):
+        _validate_clone_dest(Path("foo/../bar"))
+
+    # Safe destination passes
+    _validate_clone_dest(tmp_path / "safe_dest")
+
+    # 5. _prepare_clone_url
+    with patch("devops_cli.git.operations._ensure_known_host") as mock_ensure:
+        url_ssh = _prepare_clone_url("git@github.com:org/repo.git")
+        assert url_ssh == "git@github.com:org/repo.git"
+        mock_ensure.assert_called_once()
+
+    with patch("devops_cli.git.operations._ensure_known_host") as mock_ensure:
+        url_https = _prepare_clone_url("https://github.com/org/repo.git")
+        assert url_https == "https://github.com/org/repo.git"
+        mock_ensure.assert_not_called()

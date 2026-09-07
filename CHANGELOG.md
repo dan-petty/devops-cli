@@ -20,6 +20,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Dependabot Active Release Tracking**: Configured `.github/dependabot.yml` to target active release branch `release/v0.2.13`.
 
 ### Fixed
+- **Review Findings Remediation & Self-Improvement Loop Hardening**:
+  - Automatically mask sensitive dictionary fields in root `DevOpsError` exception representations.
+  - Hardened AI agent step persistence, durable execution serialization, prompt template sanitization against tag injection, and tool argument traversal checks.
+  - Eliminated Bandit B104 hardcoded loopback binding alert and satisfied strict static type constraints in `test_gen.py`.
+  - Expanded the common AI hallucinations catalog and deterministic pre-verification engine with checks for uninitialized variables above loops, Pathlib `resolve()` non-existent path behavior, health probe version disclosure, and SSE streaming event timestamps.
+  - Expanded test coverage across GitHub projects, milestones, labels, and verification heuristics to exceed strict 90% quality gate.
 
 ## [0.2.12] - 2026-09-07
 

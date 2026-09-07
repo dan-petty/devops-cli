@@ -450,6 +450,8 @@ class ScanMessages:
     gitleaks_passed: str = "✓ No secrets or credential leaks detected."
     semgrep_executing: str = "Executing Semgrep AST scan on '{target}' (config: {config})..."
     semgrep_passed: str = "✓ No static AST pattern flaws detected."
+    semgrep_default_flaw: str = "Code pattern flaw detected by Semgrep"
+    semgrep_default_message: str = "Code pattern flaw detected by Semgrep"
     checkov_executing: str = "Executing Checkov IaC scan on '{target}'..."
     checkov_passed: str = "✓ No IaC policy violations detected."
 

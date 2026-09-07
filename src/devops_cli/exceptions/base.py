@@ -2,19 +2,28 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from devops_cli.config.constants import CONST_ERROR_CODE_DEVOPS_CLI, CONST_EXIT_FAILURE
+
+
+def _sanitize_exception_details(details: dict[str, Any] | None) -> dict[str, Any]:
+    """Recursively mask secrets and credentials in exception details dictionaries."""
+    if not details:
+        return {}
+    from devops_cli.security.sanitizer import mask_dict_secrets
+
+    return cast(dict[str, Any], mask_dict_secrets(details))
 
 
 class DevOpsCLIError(Exception):
     """Root base exception for all domain-specific errors in devops-cli.
 
     Attributes:
-        message: Human-readable error explanation.
+        message: Human-readable error explanation (automatically sanitized).
         exit_code: POSIX process exit status code (defaults to 1).
         error_code: Canonical machine-readable identifier string.
-        details: Optional structured dictionary containing contextual debug data.
+        details: Optional structured dictionary containing contextual debug data (automatically sanitized).
     """
 
     def __init__(
@@ -25,11 +34,14 @@ class DevOpsCLIError(Exception):
         error_code: str = CONST_ERROR_CODE_DEVOPS_CLI,
         details: dict[str, Any] | None = None,
     ) -> None:
-        super().__init__(message)
-        self.message = message
+        from devops_cli.security.sanitizer import mask_secrets
+
+        clean_message = mask_secrets(message)
+        super().__init__(clean_message)
+        self.message = clean_message
         self.exit_code = exit_code
         self.error_code = error_code
-        self.details = details or {}
+        self.details = _sanitize_exception_details(details)
 
     def __str__(self) -> str:
         return self.message
