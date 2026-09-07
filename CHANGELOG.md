@@ -8,8 +8,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- **Sub-Agent Local Offloading Engine & Agent Harness Slots (`devops_cli.ai.harness.slots`)**: Modular Harness Slots (`ModelSlot`, `SkillSlot`, `ToolSlot`, `SubAgentSlot`) offloading token-intensive exploration and symbol searching to local open models.
-- **Interactive Terminal UI Dashboard (`devops dashboard` / `devops tui`)**: Full-screen responsive terminal dashboard powered by `Textual` for live Kubernetes pods, Docker containers, OTel spans, and Valkey cache metrics.
 - **GitHub Milestones Lifecycle Automation**: Hardened `close_repository_milestone` and `edit_milestone` with automatic title fallback and parameter signature inspection.
 
 ### Changed

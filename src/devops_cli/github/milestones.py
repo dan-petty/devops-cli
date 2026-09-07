@@ -199,6 +199,14 @@ def calculate_milestone_progress(milestone_data: dict[str, Any]) -> MilestonePro
     )
 
 
+def _fallback_close(func: Any, repo: str, version_or_title: str) -> bool:
+    """Fallback close invocation handling single- or two-parameter functions."""
+    try:
+        return bool(func(repo, version_or_title))
+    except TypeError:
+        return bool(func(version_or_title))
+
+
 def close_repository_milestone(client: Any, repo: str, version_or_title: str) -> bool:
     """Close a repository milestone matching the given version or title string."""
     func = getattr(client, "close_milestone", None)
@@ -214,11 +222,10 @@ def close_repository_milestone(client: Any, repo: str, version_or_title: str) ->
             if len(params) == 1:
                 return bool(func(version_or_title))
             return bool(func(repo, version_or_title))
-        except ValueError, TypeError:
-            try:
-                return bool(func(repo, version_or_title))
-            except TypeError:
-                return bool(func(version_or_title))
+        except TypeError:
+            return _fallback_close(func, repo, version_or_title)
+        except ValueError:
+            return _fallback_close(func, repo, version_or_title)
 
     get_fn = getattr(client, "get_milestones", None)
     if callable(get_fn):
