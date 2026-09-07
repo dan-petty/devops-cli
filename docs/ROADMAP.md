@@ -216,7 +216,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
 - [x] **Dedicated Agent Operational Task Tracking Tier (`docs/agent/`)**:
   - Canonical task status tracking under `docs/agent/task.md` with explicit lifecycle guidelines (`docs/agent/README.md`).
 
-### Workstation Infrastructure, FastMCP 72 Tools & Quality Architecture (v0.2.11 - Current Release)
+### Workstation Infrastructure, FastMCP 72 Tools & Quality Architecture (v0.2.11 - Completed)
 - [x] **Workstation Infrastructure Valkey Migration**: Replaced Redis components with Valkey 8.0-alpine under BSD-3-Clause across ArgoCD and LLM cluster stacks.
 - [x] **Codebase Stylistic Drift Remediation & Invariants**: Enforced strict nesting depth $\le 5$ (< 6 indentations), cyclomatic complexity $\le 10$, standardized domain exception taxonomy (`DevOpsCLIError`), and automated CI architectural invariant gates (`tests/test_architectural_invariants.py`).
 - [x] **FastMCP Server Tool Parity Expansion (72 Tools)**: Expanded registered FastMCP tools from 53 to 72 tools covering security scans (Trivy, Gitleaks, Semgrep, Checkov, AIBOM, SBOM), Kubernetes operations (chaos, audit, lint, validate, diff), HashiCorp Vault (set, sync), benchmarking, and Git/PR governance.
@@ -274,7 +274,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
   - [x] **Immutable GitHub Actions Commit SHA Pinning**: Pin all actions across `.github/workflows/ci.yml`, `codeql.yml`, and `release.yml` to immutable 40-character commit SHAs with inline version comments.
   - [x] **Qdrant Vector Database API Key Secret Protection**: Add optional API key authentication support and ClusterIP default configuration for production deployments in `k8s/llm/values-qdrant.yaml`.
 
-### Advanced Agentic Harness, Sub-Agent Local Offloading & Terminal UX (v0.2.13 - Scheduled)
+### Advanced Agentic Harness, Sub-Agent Local Offloading & Terminal UX (v0.2.13 - Current Release / Active Development)
 - [ ] **Sub-Agent Local Offloading Engine & Agent Harness Slots (`devops_cli.ai.harness.slots`)**: Modular Harness Slots (`ModelSlot`, `SkillSlot`, `ToolSlot`, `SubAgentSlot`) offloading token-intensive exploration and symbol searching to local open models (Granite, Qwen2.5-Coder) under a "Big decides, small types, big checks" synthesis protocol, achieving 85%+ token savings.
 - [ ] **Interactive Terminal UI Dashboard (`devops dashboard` / `devops tui`)**: Full-screen responsive terminal dashboard powered by `Textual` providing real-time tabs for live Kubernetes pods, Minikube services, Docker container metrics, OpenTelemetry span waterfalls, active AI review findings, and Valkey cache metrics with keyboard navigation (`1-5`, `q`, `r`, `?`).
 - [ ] **Model Dependency Chaos Engineering Suite (`devops ai chaos-model`)**: "Chaos Monkey for Models" validation framework deliberately degrading frontier connections, injecting latency, and enforcing local open model fallbacks to verify that automation tools pass CI quality gates without human coaching.

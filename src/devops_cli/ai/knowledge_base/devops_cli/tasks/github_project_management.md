@@ -104,12 +104,21 @@ devops gh views spec
    - Milestones must originate from `docs/ROADMAP.md` chronological headings (e.g. `### Feature Topic (vX.Y.Z - Status)`).
    - Pull requests targeting a release branch must link to the corresponding milestone.
    - Upon release PR squash-merge or cutting a release, close the completed milestone via `devops gh milestones close <version>` to avoid milestone staleness.
-3. **Projects v2 Item State Transitions & Linking**:
-   - Ensure the project board is linked to the repository via `devops gh project link <number>`.
+3. **Projects v2 Board Linkage & Issues Views Item State Transitions (`https://github.com/dan-petty/devops-cli/projects` & `https://github.com/dan-petty/devops-cli/issues/views`)**:
+   - Ensure the project board is linked to the repository via `devops gh project link <number>`, surfacing the project board under `https://github.com/dan-petty/devops-cli/projects` and its 4 canonical views under `https://github.com/dan-petty/devops-cli/issues/views`.
+   - Populate all 6 custom project fields (`Status`, `Milestone`, `Priority`, `Category`, `Value`, `Effort`) for each issue and PR card.
    - When beginning a task: transition card from `Backlog` to `In Progress`.
    - When PR is submitted: transition card to `In Review`.
    - When PR is merged: transition card to `Done`.
-4. **Use Dry-Run First**: Always run `devops gh labels sync --dry-run` and `devops gh milestones sync --dry-run` to preview reconciliations before applying changes.
+4. **Active Milestone Resource Population & Zero-Empty Queue/Projects Policy**:
+   - When initializing a new release branch or activating a milestone, AI agents must proactively author GitHub tracking issues for every planned deliverable in `docs/ROADMAP.md`.
+   - The open issues queue (`https://github.com/dan-petty/devops-cli/issues?q=is%3Aissue+state%3Aopen`), projects tab (`https://github.com/dan-petty/devops-cli/projects`), and issue views (`https://github.com/dan-petty/devops-cli/issues/views`) must never be left empty during an active release cycle.
+   - Each issue must follow Conventional Commits (`feat(<scope>): ...`), assign the milestone (`vX.Y.Z`), and include mandatory taxonomy labels (`type/*`, `scope/*`, `priority/*`).
+5. **Strict Remote Branch Lifecycle & PR Governance**:
+   - Every remote topic branch on `origin` must have an associated open PR targeting the active release branch or `main`.
+   - Remote branches must be deleted immediately upon PR merge or supersession (`git push origin --delete <branch>` and `git fetch --prune origin`).
+   - Orphan remote branches are strictly prohibited.
+6. **Use Dry-Run First**: Always run `devops gh labels sync --dry-run` and `devops gh milestones sync --dry-run` to preview reconciliations before applying changes.
 
 ---
 

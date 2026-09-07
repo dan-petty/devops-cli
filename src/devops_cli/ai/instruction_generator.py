@@ -248,6 +248,10 @@ codebase or reviewing target repositories.
 - **Pull Request Governance**:
   - AI agents prepare clean commits, open/update PRs, monitor remote CI checks, and leave merge
     approval to maintainers.
+- **GitHub Projects, Issues & Views Governance**:
+  - Proactively author and populate tracking issues for all scheduled roadmap deliverables upon milestone activation; the open issues queue (`issues?q=is:issue+state:open`), projects tab (`projects`), and issue views (`issues/views`) must never be left empty.
+  - Link project boards conforming to `.github/project-template.json` to the repository (`devops gh project link <number>`) and synchronize items and custom fields via `devops gh project sync`.
+  - Enforce strict remote branch lifecycle: every remote topic branch on `origin` must have an associated open PR, and merged or superseded branches must be deleted immediately.
 """
 
 

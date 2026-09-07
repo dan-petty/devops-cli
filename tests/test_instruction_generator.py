@@ -100,6 +100,7 @@ def test_generate_agents_md_contains_required_sections() -> None:
     assert "uv run ruff check" in content
     assert "uv run mypy src" in content
     assert "DevContainer Environment" in content
+    assert "GitHub Projects, Issues & Views Governance" in content
 
 
 def test_scaffold_agent_instructions(tmp_path: Path) -> None:

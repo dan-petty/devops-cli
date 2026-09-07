@@ -104,6 +104,18 @@ def test_close_repository_milestone() -> None:
     mock_client.close_milestone.assert_called_once_with("dan-petty/devops-cli", "v0.2.11")
 
 
+def test_close_repository_milestone_single_arg_signature() -> None:
+    """close_repository_milestone supports client whose close_milestone takes 1 positional arg."""
+    from devops_cli.github.milestones import close_repository_milestone
+
+    class SingleArgClient:
+        def close_milestone(self, version_or_title: str) -> bool:
+            return version_or_title == "v0.2.11"
+
+    ok = close_repository_milestone(SingleArgClient(), "dan-petty/devops-cli", "v0.2.11")
+    assert ok is True
+
+
 def test_close_repository_milestone_fallback() -> None:
     """close_repository_milestone falls back to get_milestones + edit_milestone."""
     from devops_cli.github.milestones import close_repository_milestone
