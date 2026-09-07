@@ -21,6 +21,8 @@ from devops_cli.ai.harness.slots import (
     TieredExecutionResult,
     TokenSavingsSummary,
     ToolSlot,
+    mark_tool_mutating,
+    mark_tool_read_only,
 )
 from devops_cli.ai.router import TaskComplexity
 from devops_cli.commands.ai import app as ai_app
@@ -77,34 +79,34 @@ def sanitize_input(val: str) -> str:
 
 def test_slot_enums() -> None:
     """Verify SlotState, SlotType, and SynthesisTier enum values."""
-    assert SlotState.EMPTY == "empty"
-    assert SlotState.ATTACHED == "attached"
-    assert SlotState.ACTIVE == "active"
-    assert SlotState.FAILED == "failed"
-    assert SlotState.DETACHED == "detached"
+    assert SlotState.EMPTY.value == "empty"
+    assert SlotState.ATTACHED.value == "attached"
+    assert SlotState.ACTIVE.value == "active"
+    assert SlotState.FAILED.value == "failed"
+    assert SlotState.DETACHED.value == "detached"
 
-    assert SlotType.MODEL == "model"
-    assert SlotType.SKILL == "skill"
-    assert SlotType.TOOL == "tool"
-    assert SlotType.SUBAGENT == "subagent"
+    assert SlotType.MODEL.value == "model"
+    assert SlotType.SKILL.value == "skill"
+    assert SlotType.TOOL.value == "tool"
+    assert SlotType.SUBAGENT.value == "subagent"
 
-    assert SynthesisTier.DECIDE == "decide"
-    assert SynthesisTier.TYPE == "type"
-    assert SynthesisTier.CHECK == "check"
+    assert SynthesisTier.DECIDE.value == "decide"
+    assert SynthesisTier.TYPE.value == "type"
+    assert SynthesisTier.CHECK.value == "check"
 
 
 def test_base_slot_lifecycle() -> None:
     """Verify BaseSlot lifecycle state transitions."""
     slot = BaseSlot(name="test_slot", slot_type=SlotType.MODEL)
-    assert slot.state == SlotState.EMPTY
+    assert getattr(slot, "state") == SlotState.EMPTY
     assert not slot.is_ready()
 
     slot.attach()
-    assert slot.state == SlotState.ATTACHED
+    assert getattr(slot, "state") == SlotState.ATTACHED
     assert slot.is_ready()
 
     slot.detach()
-    assert slot.state == SlotState.DETACHED
+    assert getattr(slot, "state") == SlotState.DETACHED
     assert not slot.is_ready()
 
 
@@ -189,7 +191,7 @@ def test_skill_slot_attach_detach(tmp_path: Path) -> None:
 
 
 def test_tool_slot_read_only_isolation() -> None:
-    """Verify ToolSlot read-only filtering hides mutating functions."""
+    """Verify ToolSlot read-only filtering hides mutating functions via metadata and allowlist."""
 
     def read_file(path: str) -> str:
         return "content"
@@ -203,16 +205,29 @@ def test_tool_slot_read_only_isolation() -> None:
     def delete_file(path: str) -> bool:
         return True
 
+    def unannotated_tool() -> str:
+        return "unannotated"
+
     slot = ToolSlot(name="tools", slot_type=SlotType.TOOL)
     slot.attach()
 
+    # Explicit metadata via attach_tool and helper functions
+    mark_tool_read_only(read_file)
     slot.attach_tool(read_file)
-    slot.attach_tool(search_symbols)
-    slot.attach_tool(write_file)
+    slot.attach_tool(write_file, is_mutating=True)
+
+    mark_tool_mutating(delete_file, is_mutating=True)
     slot.attach_tool(delete_file)
 
-    # Unfiltered tools
-    assert len(slot.get_active_tools()) == 4
+    # Allowlist registration for un-annotated tool
+    slot.attach_tool(search_symbols)
+    slot.allow_read_only_tools("search_symbols")
+
+    # Un-annotated tool lacking allowlisting (subject to default-deny sandboxing)
+    slot.attach_tool(unannotated_tool)
+
+    # Unfiltered tools when read_only is False
+    assert len(slot.get_active_tools()) == 5
 
     # Enable read-only sandboxing
     slot.set_read_only(True)
@@ -223,6 +238,7 @@ def test_tool_slot_read_only_isolation() -> None:
     assert "search_symbols" in active_names
     assert "write_file" not in active_names
     assert "delete_file" not in active_names
+    assert "unannotated_tool" not in active_names  # blocked by default-deny
 
     # Detach tool
     detached = slot.detach_tool("read_file")
@@ -346,7 +362,7 @@ def test_tiered_synthesis_protocol_execution(sample_repo_path: Path) -> None:
 
 
 def test_harness_failure_isolation(tmp_path: Path) -> None:
-    """Verify that sub-agent query errors do not crash the harness."""
+    """Verify that sub-agent query errors do not crash the harness and report failed status."""
     harness = AgentHarness.create_default()
 
     # Query in an empty non-existent directory
@@ -356,9 +372,68 @@ def test_harness_failure_isolation(tmp_path: Path) -> None:
         repo_path=bogus_dir,
         symbol_query="MissingSymbol",
     )
-    # The harness should gracefully complete with status completed or partial
-    assert result.status in ("completed", "partial")
+    # The harness should gracefully complete with status failed and an informative report
+    assert result.status == "failed"
     assert len(result.subagent_results) >= 1
+    assert "Sub-agent execution failed" in result.verification_report
+
+
+def test_tiered_synthesis_file_scout_report(sample_repo_path: Path) -> None:
+    """Verify tiered execution correctly reports matched files for scout runs."""
+    harness = AgentHarness.create_default()
+    result = harness.execute_tiered(
+        task="Find python files",
+        repo_path=sample_repo_path,
+        file_pattern="*.py",
+    )
+    assert result.status == "completed"
+    assert "matched file(s)" in result.verification_report
+    assert "0 discovered symbol(s)" not in result.verification_report
+
+
+def test_tiered_synthesis_symbol_catalog_report(sample_repo_path: Path) -> None:
+    """Verify tiered execution correctly reports cataloged symbols when no query or pattern is given."""
+    harness = AgentHarness.create_default()
+    result = harness.execute_tiered(
+        task="Catalog repo symbols",
+        repo_path=sample_repo_path,
+    )
+    assert result.status == "completed"
+    assert "discovered symbol(s)" in result.verification_report
+    assert "0 discovered symbol(s)" not in result.verification_report
+
+
+def test_tiered_synthesis_partial_status() -> None:
+    """Verify tiered execution returns partial status when some sub-agent steps fail."""
+    # Inject a failing sub-agent result alongside a successful one
+    success_res = SubAgentResult(
+        subagent_id="scout_1",
+        role="explorer",
+        status="success",
+        data={"matches": [{"name": "Foo", "kind": "class", "signature": "()", "file": "a.py"}]},
+        tokens_used=10,
+    )
+    failed_res = SubAgentResult(
+        subagent_id="scout_2",
+        role="explorer",
+        status="failed",
+        error="ConnectionTimeout",
+        tokens_used=0,
+    )
+
+    from devops_cli.ai.harness.slots import _evaluate_tiered_status, _format_verification_report
+
+    status = _evaluate_tiered_status([success_res, failed_res])
+    assert status == "partial"
+
+    report = _format_verification_report(
+        model_name="test-model",
+        task="Test partial task",
+        status=status,
+        sub_results=[success_res, failed_res],
+    )
+    assert "Partially verified" in report
+    assert "1 discovered symbol(s)" in report
 
 
 def test_cli_ai_harness_status(runner: CliRunner) -> None:

@@ -24,18 +24,6 @@ from devops_cli.exceptions.ai import HarnessValidationError
 
 logger = logging.getLogger(__name__)
 
-MUTATING_TOOL_PREFIXES: tuple[str, ...] = (
-    "write_",
-    "edit_",
-    "delete_",
-    "apply_",
-    "mutate_",
-    "rm_",
-    "create_",
-    "drop_",
-    "update_",
-    "set_",
-)
 
 IGNORED_EXPLORATION_DIRS: frozenset[str] = frozenset(
     {
@@ -237,10 +225,27 @@ def _get_tool_name(tool: Any) -> str:
     return str(getattr(tool, "__name__", getattr(tool, "name", str(tool))))
 
 
+def mark_tool_mutating(tool: Any, is_mutating: bool = True) -> Any:
+    """Explicitly mark a callable tool with mutating metadata."""
+    try:
+        setattr(tool, "is_mutating", is_mutating)
+    except AttributeError, TypeError:
+        pass
+    return tool
+
+
+def mark_tool_read_only(tool: Any) -> Any:
+    """Explicitly mark a callable tool as read-only safe."""
+    return mark_tool_mutating(tool, is_mutating=False)
+
+
 def _is_mutating_tool(tool: Any) -> bool:
-    """Predicate evaluating whether a tool performs mutating operations."""
-    name = _get_tool_name(tool).lower()
-    return any(name.startswith(p) for p in MUTATING_TOOL_PREFIXES)
+    """Predicate evaluating whether a tool performs mutating operations based on metadata."""
+    if hasattr(tool, "is_mutating"):
+        return bool(getattr(tool, "is_mutating"))
+    if hasattr(tool, "read_only"):
+        return not bool(getattr(tool, "read_only"))
+    return True
 
 
 class ToolSlot(BaseSlot):
@@ -250,6 +255,7 @@ class ToolSlot(BaseSlot):
     tools: list[Any] = Field(default_factory=list)
     read_only: bool = False
     denied_tools: set[str] = Field(default_factory=set)
+    read_only_allowlist: set[str] = Field(default_factory=set)
 
     def to_dict(self) -> dict[str, Any]:
         """Convert ToolSlot to dictionary."""
@@ -258,13 +264,16 @@ class ToolSlot(BaseSlot):
             {
                 "tools": [_get_tool_name(t) for t in self.tools],
                 "read_only": self.read_only,
+                "read_only_allowlist": sorted(self.read_only_allowlist),
                 "count": len(self.tools),
             }
         )
         return data
 
-    def attach_tool(self, tool: Any) -> None:
-        """Register a tool callable."""
+    def attach_tool(self, tool: Any, *, is_mutating: bool | None = None) -> None:
+        """Register a tool callable with optional explicit mutating metadata."""
+        if is_mutating is not None:
+            mark_tool_mutating(tool, is_mutating=is_mutating)
         self.tools.append(tool)
         self.state = SlotState.ATTACHED
 
@@ -279,6 +288,22 @@ class ToolSlot(BaseSlot):
         """Enable or disable read-only sandboxing mode."""
         self.read_only = enabled
 
+    def allow_read_only_tools(self, *tool_names: str) -> None:
+        """Register tool names in the safe read-only allowlist."""
+        self.read_only_allowlist.update(name.strip().lower() for name in tool_names if name.strip())
+
+    def is_tool_mutating(self, tool: Any) -> bool:
+        """Evaluate if a tool is mutating using explicit metadata or default-deny policy."""
+        if hasattr(tool, "is_mutating"):
+            return bool(getattr(tool, "is_mutating"))
+        if hasattr(tool, "read_only"):
+            return not bool(getattr(tool, "read_only"))
+        name = _get_tool_name(tool).lower()
+        if name in self.read_only_allowlist:
+            return False
+        # Default-deny when sandboxed: tools lacking explicit read-only status are treated as mutating
+        return True
+
     def get_active_tools(self) -> list[Any]:
         """Return executable tools applying read-only and denied-list filters."""
         if not self.read_only:
@@ -286,7 +311,7 @@ class ToolSlot(BaseSlot):
         return [
             t
             for t in self.tools
-            if _get_tool_name(t).lower() not in self.denied_tools and not _is_mutating_tool(t)
+            if _get_tool_name(t).lower() not in self.denied_tools and not self.is_tool_mutating(t)
         ]
 
 
@@ -412,6 +437,16 @@ class SubAgentSlot(BaseSlot):
         matches: list[dict[str, Any]] = []
 
         try:
+            if not root.is_dir():
+                elapsed = time.perf_counter() - start_time
+                return SubAgentResult(
+                    subagent_id=self.subagent_id,
+                    role=self.role,
+                    status="failed",
+                    output=f"Target repository path '{repo_path}' is not a directory.",
+                    error=f"NotADirectoryError: {repo_path}",
+                    duration_seconds=round(elapsed, 4),
+                )
             py_files = _walk_python_files(root, max_files=max_files)
             for file_path in py_files:
                 file_node = parse_file_symbols(file_path, root)
@@ -463,14 +498,23 @@ class SubAgentSlot(BaseSlot):
         matched_files: list[str] = []
 
         try:
-            if root.is_dir():
-                for item in root.rglob("*"):
-                    if any(part in IGNORED_EXPLORATION_DIRS for part in item.parts):
-                        continue
-                    if item.is_file() and fnmatch.fnmatch(item.name, pattern):
-                        matched_files.append(str(item.relative_to(root)))
-                        if len(matched_files) >= max_results:
-                            break
+            if not root.is_dir():
+                elapsed = time.perf_counter() - start_time
+                return SubAgentResult(
+                    subagent_id=self.subagent_id,
+                    role=self.role,
+                    status="failed",
+                    output=f"Target repository path '{repo_path}' is not a directory.",
+                    error=f"NotADirectoryError: {repo_path}",
+                    duration_seconds=round(elapsed, 4),
+                )
+            for item in root.rglob("*"):
+                if any(part in IGNORED_EXPLORATION_DIRS for part in item.parts):
+                    continue
+                if item.is_file() and fnmatch.fnmatch(item.name, pattern):
+                    matched_files.append(str(item.relative_to(root)))
+                    if len(matched_files) >= max_results:
+                        break
 
             output_text = f"Scouted {len(matched_files)} files matching '{pattern}':\n" + "\n".join(
                 f"- {f}" for f in matched_files
@@ -509,6 +553,16 @@ class SubAgentSlot(BaseSlot):
         catalog: list[dict[str, Any]] = []
 
         try:
+            if not root.is_dir():
+                elapsed = time.perf_counter() - start_time
+                return SubAgentResult(
+                    subagent_id=self.subagent_id,
+                    role=self.role,
+                    status="failed",
+                    output=f"Target repository path '{repo_path}' is not a directory.",
+                    error=f"NotADirectoryError: {repo_path}",
+                    duration_seconds=round(elapsed, 4),
+                )
             py_files = _walk_python_files(root, max_files=max_files)
             for file_path in py_files:
                 file_node = parse_file_symbols(file_path, root)
@@ -603,6 +657,49 @@ class TieredExecutionResult(BaseModel):
             "verification_report": self.verification_report,
             "savings": self.savings.to_dict(),
         }
+
+
+def _evaluate_tiered_status(sub_results: list[SubAgentResult]) -> str:
+    """Determine tiered execution status from sub-agent outcome statuses."""
+    if not sub_results:
+        return "completed"
+    successes = sum(1 for r in sub_results if r.status == "success")
+    if successes == len(sub_results):
+        return "completed"
+    if successes > 0:
+        return "partial"
+    return "failed"
+
+
+def _format_verification_report(
+    model_name: str,
+    task: str,
+    status: str,
+    sub_results: list[SubAgentResult],
+) -> str:
+    """Build accurate verification report summarizing findings and execution status."""
+    if status == "failed":
+        errors = [r.error or r.output for r in sub_results if r.error or r.output]
+        detail = f": {'; '.join(errors)}" if errors else "."
+        return f"Tier 3 (Frontier - {model_name}): Sub-agent execution failed for task '{task}'{detail}"
+
+    matched_symbols = sum(len(r.data.get("matches", [])) for r in sub_results)
+    cataloged_symbols = sum(len(r.data.get("symbols", [])) for r in sub_results)
+    total_symbols = matched_symbols + cataloged_symbols
+    scouted_files = sum(len(r.data.get("files", [])) for r in sub_results)
+
+    finding_clauses: list[str] = []
+    if total_symbols > 0:
+        finding_clauses.append(f"{total_symbols} discovered symbol(s)")
+    if scouted_files > 0:
+        finding_clauses.append(f"{scouted_files} matched file(s)")
+
+    findings_text = " and ".join(finding_clauses) if finding_clauses else "0 discovered entities"
+    prefix = "Partially verified" if status == "partial" else "Verified"
+    return (
+        f"Tier 3 (Frontier - {model_name}): {prefix} {findings_text} "
+        f"and synthesized response for task '{task}' against architectural invariants."
+    )
 
 
 class AgentHarness(BaseModel):
@@ -726,10 +823,12 @@ class AgentHarness(BaseModel):
             offloaded_tokens += cat_res.tokens_used
 
         # Tier 3: Big checks — synthesis and validation
-        match_count = sum(len(r.data.get("matches", [])) for r in sub_results)
-        verification_report = (
-            f"Tier 3 (Frontier - {self.model_slot.model_name}): Verified {match_count} discovered symbol(s) "
-            f"and synthesized response for task '{task}' against architectural invariants."
+        status = _evaluate_tiered_status(sub_results)
+        verification_report = _format_verification_report(
+            model_name=self.model_slot.model_name,
+            task=task,
+            status=status,
+            sub_results=sub_results,
         )
         frontier_tokens += self.model_slot.estimate_tokens(verification_report)
 
@@ -744,5 +843,5 @@ class AgentHarness(BaseModel):
             subagent_results=sub_results,
             verification_report=verification_report,
             savings=savings,
-            status="completed",
+            status=status,
         )

@@ -112,6 +112,8 @@ from devops_cli.ai.harness.slots import (
     TieredExecutionResult,
     TokenSavingsSummary,
     ToolSlot,
+    mark_tool_mutating,
+    mark_tool_read_only,
 )
 from devops_cli.ai.harness.workflow import (
     MINIMUM_EFFORT_FLOOR,
@@ -233,6 +235,8 @@ __all__ = [
     "indented_json",
     "is_pinned",
     "json_lines",
+    "mark_tool_mutating",
+    "mark_tool_read_only",
     "normalize_skill_name",
     "pin",
     "reinject_pinned",
