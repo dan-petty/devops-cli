@@ -11,6 +11,7 @@ import typer
 
 from devops_cli.ai.personas import Persona
 from devops_cli.commands.ai_cache import app as cache_app
+from devops_cli.commands.ai_harness import app as harness_app
 from devops_cli.commands.analyze import app as analyze_app
 from devops_cli.commands.benchmark import app as benchmark_app
 from devops_cli.commands.rag import app as rag_app
@@ -85,6 +86,11 @@ app.add_typer(
     cache_app,
     name="cache",
     help=HELP.ai.cache,
+)
+app.add_typer(
+    harness_app,
+    name="harness",
+    help=HELP.ai.harness,
 )
 
 

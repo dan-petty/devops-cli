@@ -120,6 +120,20 @@ class AICommandHelp:
     test_gen: str = "Synthesize unit test suites for functions and modules via LLM."
     test_function: str = "Specific function to synthesize tests for."
     target_file: str = "Target source file to synthesize unit tests for."
+    harness: str = "Manage agent harness slots, sub-agent local offloading, and tiered synthesis."
+
+
+@dataclass(frozen=True)
+class AIHarnessCommandHelp:
+    app: str = "Manage agent harness slots, sub-agent local offloading, and tiered synthesis."
+    status: str = "Display active harness slots and sub-agent offload configuration."
+    offload: str = "Offload AST exploration or symbol search to local sub-agent slot."
+    run: str = "Execute tiered synthesis task with local sub-agent AST offloading."
+    repo: str = "Path to repository or source directory."
+    symbol: str = "Symbol name (class or function) to inspect or search."
+    pattern: str = "File glob pattern to scout."
+    frontier_model: str = "Frontier model identifier for architecture and verification."
+    local_model: str = "Local model identifier for sub-agent offloading."
 
 
 @dataclass(frozen=True)
@@ -790,6 +804,7 @@ class HelpCatalog:
     options: OptionHelp = field(default_factory=OptionHelp)
     ai: AICommandHelp = field(default_factory=AICommandHelp)
     ai_cache: AICacheCommandHelp = field(default_factory=AICacheCommandHelp)
+    ai_harness: AIHarnessCommandHelp = field(default_factory=AIHarnessCommandHelp)
     k8s: K8sCommandHelp = field(default_factory=K8sCommandHelp)
     ssh: SSHCommandHelp = field(default_factory=SSHCommandHelp)
     branches: BranchesCommandHelp = field(default_factory=BranchesCommandHelp)

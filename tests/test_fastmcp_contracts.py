@@ -92,6 +92,8 @@ def test_fastmcp_tools_registration() -> None:
         "ai_diagram",
         "ai_test_gen",
         "ai_architecture",
+        "ai_harness_status",
+        "ai_subagent_offload",
         # HashiCorp Vault
         "vault_status",
         "vault_get",

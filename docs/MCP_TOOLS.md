@@ -8,7 +8,9 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 |---|---|
 | [`ai_architecture`](#ai-architecture) | Analyze architectural module boundaries, dependency graphs, and cyclic imports. |
 | [`ai_diagram`](#ai-diagram) | Generate visual Mermaid architecture or threat modeling diagram. |
+| [`ai_harness_status`](#ai-harness-status) | Inspect AI agent harness slot configuration, active models, skills, and sandbox state. |
 | [`ai_repomap`](#ai-repomap) | Generate a compact whole-repository AST symbol map for AI context. |
+| [`ai_subagent_offload`](#ai-subagent-offload) | Offload AST exploration, symbol cataloging, or file scouting to local sub-agent slot. |
 | [`ai_test_gen`](#ai-test-gen) | Synthesize isolated pytest unit test suite for a target Python file. |
 | [`argo_list`](#argo-list) | List ArgoCD applications. |
 | [`argo_status`](#argo-status) | Check ArgoCD application health and sync status. |
@@ -117,6 +119,12 @@ Generate visual Mermaid architecture or threat modeling diagram.
 | `diagram_type` | `string` | No | `arch` | - |
 | `target_dir` | `string` | No | `.` | - |
 
+### `ai_harness_status`
+
+Inspect AI agent harness slot configuration, active models, skills, and sandbox state.
+
+*No parameters required.*
+
 ### `ai_repomap`
 
 Generate a compact whole-repository AST symbol map for AI context.
@@ -126,6 +134,18 @@ Generate a compact whole-repository AST symbol map for AI context.
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `target_dir` | `string` | No | `.` | - |
+
+### `ai_subagent_offload`
+
+Offload AST exploration, symbol cataloging, or file scouting to local sub-agent slot.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `repo` | `string` | No | `.` | - |
+| `symbol` | `string` | No | - | - |
+| `pattern` | `string` | No | - | - |
 
 ### `ai_test_gen`
 

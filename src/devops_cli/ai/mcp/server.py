@@ -1232,6 +1232,33 @@ def valkey_flush(all_databases: bool = False) -> str:
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS)
 
 
+@mcp.tool()
+def ai_harness_status() -> str:
+    """Inspect AI agent harness slot configuration, active models, skills, and sandbox state."""
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "ai", "harness", "status"],
+        timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.tool()
+def ai_subagent_offload(
+    repo: str = ".",
+    symbol: str | None = None,
+    pattern: str | None = None,
+) -> str:
+    """Offload AST exploration, symbol cataloging, or file scouting to local sub-agent slot."""
+    _validate_mcp_arg("repo", repo)
+    cmd = ["uv", "run", "devops", "ai", "harness", "offload", "--repo", repo]
+    if symbol:
+        _validate_mcp_arg("symbol", symbol)
+        cmd.extend(["--symbol", symbol])
+    if pattern:
+        _validate_mcp_arg("pattern", pattern)
+        cmd.extend(["--pattern", pattern])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
 @mcp.resource("resource://vault/status")
 def get_vault_resource() -> str:
     """Return live HashiCorp Vault cluster health, sealing, and initialization status."""
