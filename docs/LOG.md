@@ -2,6 +2,55 @@
 
 Chronological log of refactoring milestones, quality gates, and security enhancements.
 
+### [2026-09-07] GitHub Projects v2 Remote Sync, Release Milestone Lifecycle Automation & Submodule Test Reorganization (Phase 48.6)
+- **GitHub Projects v2 Remote Synchronization & Scope Verification**:
+  - Implemented `verify_project_auth_scopes()` in `src/devops_cli/github/projects.py` to check for required `project` and `read:project` scopes, returning actionable guidance (`gh auth refresh -s project,read:project`) when scopes are missing.
+  - Implemented `sync_remote_project()`, `find_remote_project()`, `create_remote_project()`, `link_project_to_repository()`, and `provision_remote_project_fields()` to reconcile remote GitHub Projects boards and custom fields against `.github/project-template.json`.
+  - Added `devops gh project link <number>` and enhanced `devops gh project sync` with `--no-dry-run` live sync and `--repo` support.
+  - Added FastMCP tool `gh_project_sync`.
+- **Automated Milestone Closure on Release**:
+  - Implemented `close_milestone` and `edit_milestone` in `GitHubClient` (`src/devops_cli/github/client.py`).
+  - Added `close_repository_milestone` in `src/devops_cli/github/milestones.py`.
+  - Added CLI command `devops gh milestones close <version>` in `src/devops_cli/commands/gh.py`.
+  - Integrated automated milestone closure into `devops release tag` (`src/devops_cli/commands/release.py`).
+  - Updated `.github/workflows/release.yml` with `issues: write` permission and an automated milestone closure step triggered upon release publishing.
+  - Added FastMCP tool `gh_milestone_close`.
+- **Submodule Test Reorganization & Elimination of Arbitrary Session Files**:
+  - Reorganized all tests from `tests/test_review_findings_remediation_164259.py` into their canonical domain modules:
+    - Dry-run state restoration -> `tests/test_consolidation_dry_run_decorator.py`.
+    - Deep dictionary secret redaction and boolean settings preservation -> `tests/test_server.py`.
+    - URI credential masking without password -> `tests/test_consolidation_security_sanitizer.py`.
+    - Cross-module AST symbol resolution and request header dispatch checking -> `tests/test_review_verification.py`.
+    - Milestone closure and CLI -> `tests/test_github_milestones.py`.
+    - Project sync, auth scope verification, and repo linking -> `tests/test_github_projects.py`.
+  - Ruthlessly removed `tests/test_review_findings_remediation_164259.py`.
+- **Remediated GitHub Copilot Review Comments on PR #49**:
+  - `src/devops_cli/security/sanitizer.py`: Refined regex fallback `r"://([^:]*):([^@]+)@"` to require colon delimiter, preserving URIs with usernames but no passwords (`custom://user@host`).
+  - `src/devops_cli/server/routes/workspace.py`: Removed generic `"private"` keyword and ensured boolean settings like `ai.allow_private_network` are never redacted as secrets.
+  - `src/devops_cli/ai/review/common_hallucinations.py`: Prioritized backticked symbols first in `_verify_symbol_defined_in_ast_or_module`, preventing spuriously invalidating real reports.
+  - `src/devops_cli/ai/review/verification.py` & `common_hallucinations.py`: Required both auth header assignment and request dispatch (`headers=headers`) before auto-invalidating missing-header claims.
+- **Agent Instructions & Governance Updates**:
+  - Updated `AGENTS.md` Section 2 and Section 4 mandating that tests must be organized strictly by submodule and domain functionality rather than arbitrary one-off session files.
+  - Mandated automated milestone closure on release merge across `AGENTS.md`, `docs/ROUTINE_TASKS.md`, and Knowledge Base (`github_project_management.md`).
+
+### [2026-09-07] Review Findings Remediation (Session 20260906-164259) & Self-Improvement Loop Hardening (Phase 48.5)
+- **Review Findings Remediation (TDD)**:
+  - **Finding 1 (HIGH — Dry-Run State Leakage)**: Wrapped dry-run execution in `src/devops_cli/dry_run/decorator.py` with `try...finally: set_dry_run(original_dry_run)` so dry-run mode never leaks into subsequent calls across normal and exception paths. Verified in `tests/test_consolidation_dry_run_decorator.py`.
+  - **Finding 2 (MEDIUM — Configuration Endpoint Secret Leakage)**: Implemented recursive dictionary sanitizer `_redact_config_dict(data, secret_options)` in `src/devops_cli/server/routes/workspace.py` supporting arbitrarily nested configurations, dotted secret paths, and sensitive key patterns (`token`, `password`, `secret`, `api_key`, `private_key`). Verified in `tests/test_server.py`.
+  - **Finding 3 (LOW — URI Credential Masking)**: Handled absent/empty usernames in `mask_uri_credentials` in `src/devops_cli/security/sanitizer.py`, producing clean `***@host` format instead of `:***@host`, and refined regex fallback. Verified in `tests/test_consolidation_security_sanitizer.py`.
+- **Evidence-Based Hallucination Invalidation**:
+  - **Finding 4 (LOW — False `ImportError` Claim)**: Disproved claim that `_cluster_reachable` is not defined in `cluster_runtime.py` via AST verification (`cluster_runtime.py:62`). Invalidate in review records `.data/reviews/20260906-164259/findings.json` and `review.md`.
+  - **Finding 5 (LOW — False Missing Authorization Header Claim)**: Disproved claim that `OpenAIProvider` sends unauthenticated requests; lines 55-60 explicitly populate `headers["Authorization"] = f"Bearer {api_key}"` from settings, environment, or OS Keyring. Invalidate in review records.
+- **Review Engine & Self-Improvement Loop Hardening**:
+  - **Cross-Module Import AST Grounding**: Implemented `_check_imported_module_for_symbol`, `_find_module_file_candidates`, and `_file_defines_symbol` in `src/devops_cli/ai/review/common_hallucinations.py` to resolve imported symbols against target module files across the repository.
+  - **Deterministic Pre-Verification Defense**: Added `_check_missing_symbol_hallucination` and `_check_missing_header_hallucination` to `src/devops_cli/ai/review/verification.py` for deterministic falsification of false import and missing-header claims.
+  - **Common Hallucinations Registry**: Broadened `HALLUCINATION-MISSING-SYMBOL-FALSE-ALARM` patterns and added `HALLUCINATION-UNVERIFIED-HEADER-MISSING` in `common_hallucinations.json`.
+  - **Review Prompts & Knowledge Base**: Updated `verify_finding_system.md`, `review.md`, `devsecops/prompt.md`, and `ai_code_review.md` with explicit rules for cross-module import verification and dynamic header mutation inspection.
+- **Quality Gates & Regression Suite**:
+  - Authored comprehensive test suite `tests/test_review_findings_remediation_164259.py` (5/5 passed).
+  - All architectural invariants verified: cyclomatic complexity $\le 10$, nesting depth $\le 5$ across all modified files (`test_architectural_invariants.py` — 6/6 passed).
+  - Verified static typing (`mypy src/`) and code formatting (`ruff format --check src/ tests/`).
+
 ### [2026-09-06] Release v0.2.11 Cutting, PR #38 CI Validation & Automated Copilot Review Remediation (Phase 47.3)
 - **Version Bump & Release Governance**:
   - Bumped version to `0.2.11` across `pyproject.toml` and `src/devops_cli/__init__.py`.

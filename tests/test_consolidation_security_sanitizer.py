@@ -79,8 +79,24 @@ def test_mask_uri_credentials_edge_cases() -> None:
     assert "secret123" not in clean
     assert "user:***@example.com:8443" in clean
 
+    # URI with missing username (Finding 3: avoid ':***@host')
+    no_user = mask_uri_credentials("http://:supersecretpass@example.com:8080/data")
+    assert "supersecretpass" not in no_user
+    assert "http://***@example.com:8080/data" == no_user
+    assert not no_user.startswith("http://:***@")
+
     # URI where urlsplit might fail or regex fallback applies
     fallback_uri = "custom://admin:supersecret@myhost/path"
     res = mask_uri_credentials(fallback_uri)
     assert "supersecret" not in res
     assert "admin:***@" in res
+
+    # Regex fallback with missing username
+    fallback_no_user = "custom://:supersecret@myhost/path"
+    res_no_user = mask_uri_credentials(fallback_no_user)
+    assert "supersecret" not in res_no_user
+    assert "custom://***@myhost/path" == res_no_user
+
+    # URI with username but no password must not be masked
+    user_no_pass = "custom://myuser@myhost/path"
+    assert mask_uri_credentials(user_no_pass) == user_no_pass

@@ -109,6 +109,42 @@ def test_config_endpoint_sanitization(client: TestClient, monkeypatch: pytest.Mo
     assert cfg.get("grafana", {}).get("password") in ("***REDACTED***", None)
 
 
+def test_config_recursive_redaction_helper() -> None:
+    """Test _redact_config_dict handles deeply nested dictionaries and secret keywords."""
+    from devops_cli.server.routes.workspace import _redact_config_dict
+
+    secret_options = frozenset({"deeply.nested.secret_field", "auth.custom_token"})
+    payload = {
+        "deeply": {
+            "nested": {
+                "secret_field": "confidential_value",
+                "safe_field": "public_value",
+            },
+        },
+        "auth": {
+            "custom_token": "token_123",
+            "plain_password": "super_secret_password",
+            "nested_auth": {
+                "api_key": "nested_api_key_val",
+                "private_key": "synthetic_mock_private_key_data",
+                "standard_info": "visible",
+            },
+        },
+        "normal": {"name": "app", "version": "1.0"},
+        "ai": {"allow_private_network": False},
+    }
+    redacted = _redact_config_dict(payload, secret_options)
+    assert redacted["deeply"]["nested"]["secret_field"] == "***REDACTED***"
+    assert redacted["deeply"]["nested"]["safe_field"] == "public_value"
+    assert redacted["auth"]["custom_token"] == "***REDACTED***"
+    assert redacted["auth"]["plain_password"] == "***REDACTED***"
+    assert redacted["auth"]["nested_auth"]["api_key"] == "***REDACTED***"
+    assert redacted["auth"]["nested_auth"]["private_key"] == "***REDACTED***"
+    assert redacted["auth"]["nested_auth"]["standard_info"] == "visible"
+    assert redacted["normal"]["name"] == "app"
+    assert redacted["ai"]["allow_private_network"] is False
+
+
 def test_server_cors_configuration() -> None:
     """Test server CORS middleware uses safe explicit origin list."""
     app = create_app(cors_origins=["https://dashboard.example.com"])

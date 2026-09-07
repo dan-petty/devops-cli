@@ -525,10 +525,57 @@
 
 ---
 
-### In-Progress Tasks (WIP)
-*(No active tasks currently in flight — ready for next milestone deliverable)*
+- [x] Phase 48.5: Address Review Findings (Session 20260906-164259) & Self-Improvement Loop Hardening
+  - [x] Finding 1 (HIGH): Remediate dry-run decorator state leakage via `try...finally: set_dry_run(original_dry_run)` in `src/devops_cli/dry_run/decorator.py`
+  - [x] Finding 2 (MEDIUM): Implement recursive secret redaction helper `_redact_config_dict` for `/config` endpoint in `src/devops_cli/server/routes/workspace.py`
+  - [x] Finding 3 (LOW): Fix `mask_uri_credentials` empty username handling without producing `":***@host"` in `src/devops_cli/security/sanitizer.py`
+  - [x] Finding 4 (LOW — Hallucination): Invalidate false `_cluster_reachable` `ImportError` claim with AST evidence; enhance `verification.py` and `common_hallucinations.py` with cross-module import symbol resolution
+  - [x] Finding 5 (LOW — False Alarm): Invalidate false missing Authorization header claim with source inspection; add dynamic header checking to `verification.py` and review prompts
+  - [x] Update review session records `.data/reviews/20260906-164259/findings.json` and `review.md`
+  - [x] Author comprehensive regression & verification test suite `tests/test_review_findings_remediation_164259.py` (5/5 passed)
+  - [x] Synchronize documentation and Knowledge Base: `ai_code_review.md`, `devops docs generate --sync-readme`
+  - [x] Validate full CI verification suite (`uv run devops ci` — 10/10 green)
+  - [x] Author atomic commit and open PR #49 targeting `release/v0.2.12`
+  - [x] Monitor Remote CI Checks on PR #49 (all 4 checks passed 100% green)
 
 ---
+
+- [x] Phase 48.6: GitHub Projects v2 Remote Sync, Release Milestone Lifecycle Automation & Submodule Test Reorganization
+  - [x] Implement `verify_project_auth_scopes()` in `src/devops_cli/github/projects.py` providing actionable guidance when OAuth `project` scope is missing
+  - [x] Implement `sync_remote_project()`, `find_remote_project()`, `create_remote_project()`, `link_project_to_repository()`, and `provision_remote_project_fields()`
+  - [x] Add `devops gh project link <number>` and live sync `devops gh project sync --no-dry-run`
+  - [x] Implement automated release milestone closure: `close_repository_milestone()`, `devops gh milestones close <version>`, and `.github/workflows/release.yml` milestone closure step with `issues: write` permission
+  - [x] Add FastMCP tools: `gh_project_sync` and `gh_milestone_close`
+  - [x] Reorganize tests strictly by submodule and domain functionality, deprecating arbitrary session test files, and removing `tests/test_review_findings_remediation_164259.py`
+  - [x] Remediate all 4 GitHub Copilot review comments on PR #49 (URI regex colon requirement, boolean config retention, AST symbol resolution prioritization, headers dispatch parameter check)
+  - [x] Update `AGENTS.md` Sections 2 and 4, `docs/ROUTINE_TASKS.md`, and Knowledge Base (`github_project_management.md`)
+  - [x] Synchronize documentation and README Command Matrix (`devops docs generate --sync-readme`)
+
+---
+
+- [x] Phase 48.7: DevContainer MCP Lifecycle Resiliency & Commit Hygiene Governance
+  - [x] Extract `_sync_mcp_configuration` in `devops_cli/commands/devcontainer.py` and invoke during both `post-create` and `post-start` lifecycles
+  - [x] Fix `branches_list` FastMCP tool CLI flag to use `--all` instead of `--remote`
+  - [x] Update `AGENTS.md` and `docs/ROUTINE_TASKS.md` prohibiting internal references/numeric IDs in commit messages and standalone commits for agent tracking documentation
+  - [x] Verify targeted test suites (`test_devcontainer.py`, `test_mcp.py`, `test_architectural_invariants.py`) pass cleanly
+
+- [x] Phase 48.8: Human-Readable Duration Formatting for Command Elapsed Runtime
+  - [x] Upgrade `format_duration()` in `devops_cli.output.formatters.scalars` to decompose seconds into microsecond (µs), millisecond (ms), second (s), minute (m s), hour (h m s), and day (d h m) scales with configurable precision.
+  - [x] Wire `format_duration()` into CLI exit handler (`main.py`), CI pipeline summary (`commands/ci.py`), sandbox execution (`docker.py`, `test_cmd.py`), AI test commands (`commands/ai.py`), review pipeline and runner (`ai/review/pipeline.py`, `ai/review/runner.py`), benchmark tables and reports (`ai/benchmark/runner.py`, `output/formatters/tables.py`), and review message templates (`lang/en/messages.py`).
+  - [x] Add comprehensive unit test matrix in `tests/test_output.py` verifying all duration ranges, boundary thresholds, negative values, and precision controls.
+  - [x] Maintain green CI quality gates (`devops ci`), documentation synchronization, and zero-leakage security posture.
+
+- [x] Phase 48.9: Milestone Description Clean Up
+  - [x] Refine `extract_roadmap_milestones()` in `src/devops_cli/github/milestones.py` to assign milestone description strictly as `name` without appending status strings in parentheses.
+  - [x] Update test assertions in `tests/test_github_milestones.py` to verify milestone description purity and absence of status strings.
+
+---
+
+### In-Progress Tasks (WIP)
+*(No active tasks currently in flight — ready for PR review and maintainer merge)*
+
+---
+
 
 ### Pending Tasks
 - [ ] Valkey Workstation Management & High-Performance Distributed Caching Tier (Milestone v0.2.12)

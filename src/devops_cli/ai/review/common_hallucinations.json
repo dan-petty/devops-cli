@@ -196,24 +196,52 @@
     "category": "syntax_grammar",
     "description": "Claiming that an imported or re-exported variable, class, or function does not exist in the source module or causes an ImportError when it is actually defined in the module.",
     "signature_patterns": [
-      "(?:missing|undefined)\\s+[A-Z0-9_]+\\s+(?:import|symbol|variable|constant)",
-      "does\\s+not\\s+define\\s+(?:this\\s+name|DEFAULT_HTTP_BROKER)",
-      "causes?\\s+importerror.*(?:does\\s+not\\s+define|never\\s+defined)",
-      "importerror.*(?:DEFAULT_HTTP_BROKER|not\\s+defined)",
-      "DEFAULT_HTTP_BROKER.*(?:importerror|not\\s+defined|missing)"
+      "(?:missing|undefined)\\s+`?[a-zA-Z0-9_]+`?\\s+(?:import|symbol|variable|function|class|constant)",
+      "(?:does\\s+not\\s+define|never\\s+defined)\\s+(?:this\\s+name|`?[a-zA-Z0-9_]+`?)",
+      "causes?\\s+importerror.*(?:does\\s+not\\s+define|never\\s+defined|not\\s+defined|missing)",
+      "importerror.*(?:not\\s+defined|never\\s+defined|missing)",
+      "(?:symbol|function|variable|class)\\s+(?:is\\s+)?not\\s+defined\\s+in",
+      "raises?\\s+(?:an?\\s+)?importerror"
     ],
     "pattern_keywords": [
       "missing_symbol_false_alarm",
       "false_importerror",
       "default_http_broker",
       "missing_symbol",
-      "importerror"
+      "importerror",
+      "cluster_reachable",
+      "symbol_not_defined"
     ],
     "file_patterns": [
       "*.py"
     ],
     "resolution": "Verify ground-truth AST or module definitions before claiming an imported symbol is missing or causes ImportError.",
-    "occurrence_count": 2,
+    "occurrence_count": 3,
+    "last_seen": "2026-09-06T00:00:00",
+    "source": "builtin"
+  },
+  {
+    "id": "HALLUCINATION-UNVERIFIED-HEADER-MISSING",
+    "name": "Unverified Missing Request Header or Authorization Claim",
+    "category": "syntax_grammar",
+    "description": "Claiming an HTTP request or client invocation is missing an Authorization header or parameter when the enclosing function dynamically sets headers based on configuration or environment variables.",
+    "signature_patterns": [
+      "missing\\s+(?:authorization|auth)\\s+header",
+      "without\\s+including\\s+an?\\s+authorization\\s+header",
+      "request\\s+(?:will\\s+be|is)\\s+sent\\s+without\\s+authentication",
+      "missing\\s+header\\s+in\\s+[a-zA-Z0-9_]+"
+    ],
+    "pattern_keywords": [
+      "missing_authorization_header",
+      "missing_auth_header",
+      "unverified_auth_header",
+      "openai_provider_header"
+    ],
+    "file_patterns": [
+      "*.py"
+    ],
+    "resolution": "Inspect the entire enclosing function block for dynamic header population (e.g. headers['Authorization'] = ...) before claiming headers are omitted.",
+    "occurrence_count": 1,
     "last_seen": "2026-09-06T00:00:00",
     "source": "builtin"
   }

@@ -477,15 +477,69 @@ def _extract_defined_ast_names(tree: ast.AST) -> set[str]:
     return defined_names
 
 
+def _find_module_file_candidates(module_name: str, level: int, file_path: Path) -> list[Path]:
+    """Resolve Python module name and import level to potential disk paths."""
+    mod_parts = module_name.split(".")
+    rel_path = Path(*mod_parts).with_suffix(".py")
+    if level > 0:
+        parent_dir = file_path.parent
+        for _ in range(level - 1):
+            parent_dir = parent_dir.parent
+        return [parent_dir / rel_path, parent_dir / Path(*mod_parts) / "__init__.py"]
+
+    repo_root = file_path.parent
+    while repo_root.parent != repo_root:
+        if (repo_root / "pyproject.toml").exists() or (repo_root / ".git").exists():
+            break
+        repo_root = repo_root.parent
+    return [
+        repo_root / "src" / rel_path,
+        repo_root / rel_path,
+        file_path.parent / rel_path,
+    ]
+
+
+def _file_defines_symbol(path: Path, sym: str) -> bool:
+    """Check whether a python file defines a given symbol in AST or text."""
+    if not path.is_file():
+        return False
+    try:
+        content = path.read_text(encoding="utf-8", errors="replace")
+        tree = ast.parse(content)
+        if sym in _extract_defined_ast_names(tree):
+            return True
+        return any(pattern in content for pattern in (f"def {sym}", f"class {sym}", f"{sym} ="))
+    except Exception:
+        return False
+
+
+def _check_imported_module_for_symbol(tree: ast.AST, sym: str, file_path: Path) -> bool:
+    """Check if sym is imported from another module in the repository that defines it."""
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ImportFrom) or not node.module:
+            continue
+        has_sym = any(alias.name == sym or alias.asname == sym for alias in node.names)
+        if not has_sym:
+            continue
+        candidates = _find_module_file_candidates(node.module, node.level, file_path)
+        if any(_file_defines_symbol(cand, sym) for cand in candidates):
+            return True
+    return False
+
+
 def _verify_symbol_defined_in_ast_or_module(
     finding: Finding, tree: ast.AST, file_path: Path
 ) -> bool:
-    """Verify whether a symbol claimed as missing actually exists in the file AST or exports."""
+    """Verify whether a symbol claimed as missing actually exists in the file AST, imports, or exports."""
     finding_text = f"{finding.title} {finding.description or ''}"
     backtick_candidates = set(re.findall(r"`([A-Za-z0-9_]+)`", finding_text))
-    word_candidates = set(re.findall(r"\b[A-Z0-9_]{3,}\b", finding_text))
-    all_candidates = backtick_candidates | {w for w in word_candidates if len(w) >= 3}
-    clean_symbols = [s for s in all_candidates if s.lower() not in _FORBIDDEN_COMMON_WORDS]
+    clean_backticks = [s for s in backtick_candidates if s.lower() not in _FORBIDDEN_COMMON_WORDS]
+    if clean_backticks:
+        clean_symbols = clean_backticks
+    else:
+        word_candidates = set(re.findall(r"\b[A-Za-z0-9_]{3,}\b", finding_text))
+        clean_symbols = [s for s in word_candidates if s.lower() not in _FORBIDDEN_COMMON_WORDS]
+
     if not clean_symbols:
         return False
 
@@ -497,6 +551,7 @@ def _verify_symbol_defined_in_ast_or_module(
             or f"{sym} =" in raw_text
             or f"def {sym}" in raw_text
             or f"class {sym}" in raw_text
+            or _check_imported_module_for_symbol(tree, sym, file_path)
         ):
             return True
 
@@ -524,6 +579,28 @@ def verify_ground_truth_hallucination(
 
         if "missing" in entry.id.lower() or "symbol" in entry.id.lower():
             return _verify_symbol_defined_in_ast_or_module(finding, tree, file_path)
+
+        if "header" in entry.id.lower():
+            raw_text = file_path.read_text(encoding="utf-8", errors="replace")
+            has_auth = any(
+                pattern in raw_text
+                for pattern in (
+                    'headers["Authorization"]',
+                    "headers['Authorization']",
+                    '"Authorization":',
+                    "'Authorization':",
+                )
+            )
+            has_dispatch = any(
+                dispatch in raw_text
+                for dispatch in (
+                    "headers=headers",
+                    "headers = headers",
+                    "headers=self._headers",
+                    "headers=default_headers",
+                )
+            )
+            return has_auth and has_dispatch
 
         return True
 

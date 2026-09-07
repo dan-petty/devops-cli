@@ -130,13 +130,51 @@ def format_link(url: str, text: str | None = None) -> str:
     return f"[link={url}]{display}[/link]"
 
 
-def format_duration(seconds: float) -> str:
-    """Format a time duration in seconds or milliseconds."""
+def format_duration(seconds: float, *, precision: int = 2) -> str:
+    """Format a time duration into a concise, human-readable string."""
+    if seconds <= 0.0:
+        return "0.00s"
     if seconds < 0.001:
         return f"{seconds * 1_000_000:.0f}µs"
     if seconds < 1.0:
         return f"{seconds * 1000:.1f}ms"
-    return f"{seconds:.2f}s"
+    if seconds < 60.0:
+        if precision == 0:
+            return f"{round(seconds)}s"
+        if precision == 1:
+            return f"{seconds:.1f}s"
+        return f"{seconds:.2f}s"
+    if seconds < 3600.0:
+        minutes, rem_sec = divmod(seconds, 60.0)
+        if rem_sec < 0.01:
+            return f"{int(minutes)}m"
+        if precision == 0:
+            rem_str = f" {round(rem_sec)}s" if round(rem_sec) > 0 else ""
+            return f"{int(minutes)}m{rem_str}"
+        if precision == 1:
+            return f"{int(minutes)}m {rem_sec:.1f}s"
+        if abs(rem_sec - round(rem_sec)) < 1e-4:
+            return f"{int(minutes)}m {int(rem_sec)}s"
+        return f"{int(minutes)}m {rem_sec:.2f}s"
+    if seconds < 86400.0:
+        hours, remainder = divmod(seconds, 3600.0)
+        minutes, rem_sec = divmod(remainder, 60.0)
+        parts = [f"{int(hours)}h"]
+        if minutes > 0 or rem_sec >= 1.0:
+            parts.append(f"{int(minutes)}m")
+        if rem_sec >= 1.0:
+            parts.append(f"{int(rem_sec)}s")
+        return " ".join(parts)
+
+    days, remainder = divmod(seconds, 86400.0)
+    hours, remainder = divmod(remainder, 3600.0)
+    minutes, _ = divmod(remainder, 60.0)
+    parts = [f"{int(days)}d"]
+    if hours > 0 or minutes > 0:
+        parts.append(f"{int(hours)}h")
+    if minutes > 0:
+        parts.append(f"{int(minutes)}m")
+    return " ".join(parts)
 
 
 def format_latency(ms: float) -> str:

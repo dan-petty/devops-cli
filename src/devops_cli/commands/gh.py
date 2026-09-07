@@ -22,12 +22,15 @@ from devops_cli.github.labels import (
 )
 from devops_cli.github.milestones import (
     calculate_milestone_progress,
+    close_repository_milestone,
     extract_roadmap_milestones,
     sync_repository_milestones,
 )
 from devops_cli.github.projects import (
+    link_project_to_repository,
     load_project_template,
     parse_tasks_to_project_items,
+    sync_remote_project,
 )
 from devops_cli.lang import HELP
 from devops_cli.output import (
@@ -37,6 +40,7 @@ from devops_cli.output import (
     print_panel,
     print_success,
     print_table,
+    print_warning,
 )
 
 app = new_typer(help=HELP.gh.app, no_args_is_help=True)
@@ -51,7 +55,7 @@ app.add_typer(project_app, name="project")
 app.add_typer(views_app, name="views")
 
 
-def _resolve_repo(repo: str | None) -> str:
+def _resolve_repo(repo: str | None = None) -> str:
     """Resolve target repository string or discover from git origin."""
     target = repo or get_repo_origin_name()
     return target or "unknown/repo"
@@ -400,6 +404,51 @@ def status_milestone(
     )
 
 
+def _close_milestone_gh_cli(target_repo: str, name: str) -> bool:
+    """Close milestone using gh CLI when GitHubClient is unavailable."""
+    milestones = _get_repo_milestones(target_repo, state="all")
+    target = name.strip()
+    candidates = {target, target.lstrip("v"), f"v{target.lstrip('v')}"}
+    matched = next((m for m in milestones if m.get("title") in candidates), None)
+    if matched and "number" in matched:
+        num = matched["number"]
+        cmd = [
+            CONST_GH_CLI,
+            "api",
+            "-X",
+            "PATCH",
+            f"repos/{target_repo}/milestones/{num}",
+            "-f",
+            "state=closed",
+        ]
+        proc = run_subprocess(cmd, check=False)
+        return proc.returncode == 0
+    return False
+
+
+@milestones_app.command("close", help=HELP.gh.milestones_close)
+def close_milestone(
+    name: Annotated[str, typer.Argument(help="Milestone version or title (e.g. v0.2.11)")],
+    repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
+) -> None:
+    """Close a repository release milestone matching the given version or title."""
+    target_repo = repo or _resolve_repo()
+    client = _get_github_client()
+    success = (
+        close_repository_milestone(client, target_repo, name)
+        if client
+        else _close_milestone_gh_cli(target_repo, name)
+    )
+
+    if success:
+        print_success(f"Successfully closed milestone '{name}' in {target_repo}.")
+    else:
+        print_error(
+            f"Failed to close milestone '{name}' in {target_repo} (not found or permission denied)."
+        )
+        raise typer.Exit(1)
+
+
 # =============================================================================
 # Project Subcommands
 # =============================================================================
@@ -423,16 +472,23 @@ def status_project(
     )
 
 
-@project_app.command("sync")
+@project_app.command("sync", help=HELP.gh.project_sync)
 def sync_project(
     task_file: Annotated[
         Path,
         typer.Option("--task-file", "-f", help="Path to docs/agent/task.md"),
     ] = Path("docs/agent/task.md"),
+    template_file: Annotated[
+        Path,
+        typer.Option("--template", "-t", help="Path to project template JSON"),
+    ] = Path(".github/project-template.json"),
+    repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
     dry_run: Annotated[
         bool,
-        typer.Option("--dry-run", help="Preview task card items without sending mutations"),
-    ] = True,
+        typer.Option(
+            "--dry-run/--no-dry-run", help="Preview task card items without remote mutations"
+        ),
+    ] = False,
 ) -> None:
     """Synchronize task.md lifecycle items into GitHub Projects v2 status."""
     items = parse_tasks_to_project_items(task_file)
@@ -440,9 +496,46 @@ def sync_project(
     for it in items:
         counts[it.status] = counts.get(it.status, 0) + 1
 
-    mode_text = "[yellow][DRY RUN][/yellow] " if dry_run else ""
     summary = ", ".join(f"{k}: {v}" for k, v in sorted(counts.items()))
-    print_success(f"{mode_text}Parsed {len(items)} items from {task_file} ({summary}).")
+    target_repo = repo or _resolve_repo()
+    owner = target_repo.split("/")[0] if "/" in target_repo else "@me"
+    template = load_project_template(template_file)
+
+    try:
+        res = sync_remote_project(
+            owner=owner,
+            repo=target_repo,
+            template=template,
+            items=items,
+            dry_run=dry_run,
+        )
+        mode_text = "[yellow][DRY RUN][/yellow] " if res.dry_run else ""
+        link_text = " linked to repository" if res.linked else ""
+        print_success(
+            f"{mode_text}Project '{res.project_title}' (#{res.project_number}){link_text}: "
+            f"synchronized {res.items_synced} items ({summary}). "
+            f"Provisioned fields: {', '.join(res.fields_provisioned) or 'all up-to-date'}."
+        )
+    except Exception as exc:
+        print_warning(f"Remote project sync skipped or failed: {exc}")
+        print_info(f"Local tasks parsed: {len(items)} items ({summary}).")
+
+
+@project_app.command("link", help=HELP.gh.project_link)
+def link_project(
+    project_number: Annotated[int, typer.Argument(help="GitHub Projects v2 board number")],
+    repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
+) -> None:
+    """Link a GitHub Projects v2 board to the repository."""
+    target_repo = repo or _resolve_repo()
+    owner = target_repo.split("/")[0] if "/" in target_repo else "@me"
+    repo_name = target_repo.split("/")[1] if "/" in target_repo else target_repo
+    ok = link_project_to_repository(project_number, owner, repo_name)
+    if ok:
+        print_success(f"Linked project #{project_number} to {target_repo}.")
+    else:
+        print_error(f"Failed to link project #{project_number} to {target_repo}.")
+        raise typer.Exit(1)
 
 
 @project_app.command("template")

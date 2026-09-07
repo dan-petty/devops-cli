@@ -343,6 +343,115 @@ def _check_syntax_error_hallucination(finding: Finding, file_path: Path) -> Find
         return None
 
 
+def _check_missing_symbol_hallucination(finding: Finding, file_path: Path) -> Finding | None:
+    """Deterministically invalidate false missing symbol or ImportError claims if symbol exists."""
+    if not (file_path.exists() and file_path.is_file() and file_path.suffix.lower() == ".py"):
+        return None
+    title_lower = finding.title.lower()
+    desc_lower = (finding.description or "").lower()
+    claim_indicators = (
+        "importerror",
+        "missing",
+        "not defined",
+        "undefined",
+        "never defined",
+    )
+    if not any(kw in title_lower or kw in desc_lower for kw in claim_indicators):
+        return None
+
+    try:
+        content = file_path.read_text(encoding="utf-8", errors="replace")
+        tree = ast.parse(content)
+        from devops_cli.ai.review.common_hallucinations import (
+            _verify_symbol_defined_in_ast_or_module,
+            auto_record_invalidated_finding,
+        )
+
+        if _verify_symbol_defined_in_ast_or_module(finding, tree, file_path):
+            res = finding.model_copy(
+                update={
+                    "verified": False,
+                    "mitigated": False,
+                    "reportable": False,
+                    "status": "INVALIDATED",
+                    "invalidation_reason": "Ground-truth AST and cross-module inspection confirmed symbol is defined in module or exports",
+                }
+            )
+            try:
+                auto_record_invalidated_finding(
+                    res, file_path=file_path, reason=res.invalidation_reason
+                )
+            except Exception:
+                pass
+            return res
+    except Exception:
+        pass
+    return None
+
+
+def _check_missing_header_hallucination(finding: Finding, file_path: Path) -> Finding | None:
+    """Deterministically invalidate claims of missing Authorization headers if set in the module."""
+    if not (file_path.exists() and file_path.is_file()):
+        return None
+    title_lower = finding.title.lower()
+    desc_lower = (finding.description or "").lower()
+    header_claim = any(
+        kw in title_lower or kw in desc_lower
+        for kw in (
+            "missing authorization header",
+            "missing auth header",
+            "sent without authentication",
+            "without including an authorization header",
+            "missing header in",
+        )
+    )
+    if not header_claim:
+        return None
+
+    try:
+        content = file_path.read_text(encoding="utf-8", errors="replace")
+        has_auth = any(
+            pattern in content
+            for pattern in (
+                'headers["Authorization"]',
+                "headers['Authorization']",
+                '"Authorization":',
+                "'Authorization':",
+            )
+        )
+        has_dispatch = any(
+            dispatch in content
+            for dispatch in (
+                "headers=headers",
+                "headers = headers",
+                "headers=self._headers",
+                "headers=default_headers",
+            )
+        )
+        if has_auth and has_dispatch:
+            from devops_cli.ai.review.common_hallucinations import auto_record_invalidated_finding
+
+            res = finding.model_copy(
+                update={
+                    "verified": False,
+                    "mitigated": False,
+                    "reportable": False,
+                    "status": "INVALIDATED",
+                    "invalidation_reason": "Source code inspection confirmed Authorization header is dynamically configured before request dispatch",
+                }
+            )
+            try:
+                auto_record_invalidated_finding(
+                    res, file_path=file_path, reason=res.invalidation_reason
+                )
+            except Exception:
+                pass
+            return res
+    except Exception:
+        pass
+    return None
+
+
 def _check_candidate_paths(base_dir: Path, rel_path: Path) -> Path | None:
     """Check direct relative path and src-prefixed path under base directory."""
     cand = (base_dir / rel_path).resolve()
@@ -509,6 +618,14 @@ def _deterministic_pre_verification(
     syntax_res = _check_syntax_error_hallucination(finding, file_path)
     if syntax_res:
         return syntax_res
+
+    symbol_res = _check_missing_symbol_hallucination(finding, file_path)
+    if symbol_res:
+        return symbol_res
+
+    header_res = _check_missing_header_hallucination(finding, file_path)
+    if header_res:
+        return header_res
 
     try:
         from devops_cli.ai.review.common_hallucinations import (

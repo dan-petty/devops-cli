@@ -22,9 +22,11 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`docker_stats`](#docker-stats) | List local Docker images and display container information. |
 | [`gh_label_list`](#gh-label-list) | List declarative repository labels and descriptions. |
 | [`gh_label_sync`](#gh-label-sync) | Synchronize repository labels against .github/labels.yml schema. |
+| [`gh_milestone_close`](#gh-milestone-close) | Close a repository milestone matching the given version or title. |
 | [`gh_milestone_list`](#gh-milestone-list) | List repository milestones and progress rates. |
 | [`gh_milestone_sync`](#gh-milestone-sync) | Synchronize repository milestones from docs/ROADMAP.md. |
 | [`gh_project_status`](#gh-project-status) | Inspect GitHub Projects v2 template configuration, fields, and view definitions. |
+| [`gh_project_sync`](#gh-project-sync) | Synchronize task items from task.md into GitHub Projects v2 status. |
 | [`gh_view_spec`](#gh-view-spec) | Return JSON specification for GitHub Projects v2 views. |
 | [`grafana_dashboards`](#grafana-dashboards) | List Grafana dashboards, optionally filtered by search query. |
 | [`k8s_audit`](#k8s-audit) | Audit Kubernetes cluster security posture, RBAC policies, and CIS benchmarks. |
@@ -241,6 +243,17 @@ Synchronize repository labels against .github/labels.yml schema.
 | `repo` | `string` | No | - | - |
 | `dry_run` | `boolean` | No | `True` | - |
 
+### `gh_milestone_close`
+
+Close a repository milestone matching the given version or title.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `version` | `string` | Yes | - | - |
+| `repo` | `string` | No | - | - |
+
 ### `gh_milestone_list`
 
 List repository milestones and progress rates.
@@ -267,6 +280,17 @@ Synchronize repository milestones from docs/ROADMAP.md.
 Inspect GitHub Projects v2 template configuration, fields, and view definitions.
 
 *No parameters required.*
+
+### `gh_project_sync`
+
+Synchronize task items from task.md into GitHub Projects v2 status.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `repo` | `string` | No | - | - |
+| `dry_run` | `boolean` | No | `True` | - |
 
 ### `gh_view_spec`
 

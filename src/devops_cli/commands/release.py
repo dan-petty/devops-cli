@@ -907,3 +907,31 @@ def release_tag(
             )
             raise typer.Exit(1)
         _get("print_success")(MESSAGES.release.tag_pushed.format(tag=tag_name), prefix=False)
+        _close_release_milestone_safe(repo_root, target_ver)
+
+
+def _close_release_milestone_safe(repo_root: Path, version: str) -> None:
+    """Attempt to close the repository release milestone without raising on network or auth failure."""
+    try:
+        from devops_cli.commands.gh import (
+            _close_milestone_gh_cli,
+            _get_github_client,
+            _resolve_repo,
+        )
+        from devops_cli.github.milestones import close_repository_milestone
+
+        target_repo = _resolve_repo()
+        client = _get_github_client()
+        ok = (
+            close_repository_milestone(client, target_repo, version)
+            if client
+            else _close_milestone_gh_cli(target_repo, version)
+        )
+        if ok:
+            _get("print_success")(
+                f"Closed release milestone for v{version.lstrip('v')}.", prefix=False
+            )
+    except Exception as exc:
+        _get("print_warning")(
+            f"Note: Could not close milestone for v{version}: {exc}", prefix=False
+        )
