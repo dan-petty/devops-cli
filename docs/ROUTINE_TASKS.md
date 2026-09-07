@@ -48,7 +48,7 @@ The following matrix categorizes all project routine tasks by operational layer,
 | **Security & Audits** | Codebase Deduplication & Invariant Audit | Weekly / Pre-PR | `devops scan complexity` && `pytest tests/test_architectural_invariants.py` | Enforces complexity <= 10, nesting <= 5, and shared helper adoption | Zero invariant violations |
 | **Workspace & Sync** | DevContainer Lifecycle Hooks | Daily / On Start | `devops devcontainer run-lifecycle --post-start` | Cross-platform container initialization tasks | All lifecycle tasks complete successfully |
 | **Workspace & Sync** | Multi-Repo Synchronization | Daily / On Demand | `devops repos sync` / `devops repos status` | Pulls upstream changes across all managed repos | All repositories up to date |
-| **Workspace & Sync** | GitHub Issues Views & Project Sync | On Demand / Pre-PR | `devops gh project sync` / `devops gh views list` | Reconciles 4 declarative project views and links issues/views | All views populated with zero empty views state |
+| **Workspace & Sync** | GitHub Projects & Issues Views Sync | On Demand / Pre-PR | `devops gh project sync` / `devops gh views list` | Reconciles 4 declarative project views and links projects/views | All projects and views populated with zero empty state (`projects` & `issues/views`) |
 | **Workspace & Sync** | SSH Keys & Host Audit | On Demand | `devops ssh status` / `devops ssh audit` | Validates ED25519 keys, permissions, and GitHub keys | All keys secure with correct 0600/0700 perms |
 
 ---
@@ -173,10 +173,10 @@ sequenceDiagram
   - All commits must follow Conventional Commits (`feat(scope): ...`, `fix(scope): ...`, `refactor(scope): ...`, `docs(scope): ...`).
   - **No Internal References or Numeric IDs**: Never include internal review session timestamps (e.g. `164259`, `003105`), review session IDs, subagent IDs, prompt phase numbers (`Phase 48.5`), or arbitrary numeric identifiers in commit subjects or messages. Use clear, descriptive technical terminology.
   - **No Standalone Agent Tracking Commits**: Updates to internal agent tracking files under `docs/agent/` (`task.md`) must NEVER be committed in isolation; they must always be bundled atomically into the corresponding feature, fix, or refactoring deliverable commit.
-- **Issue Linkage, GitHub Projects & Issues Views Lifecycle (`https://github.com/dan-petty/devops-cli/issues/views`)**:
+- **Issue Linkage, GitHub Projects & Issues Views Lifecycle (`https://github.com/dan-petty/devops-cli/projects` & `https://github.com/dan-petty/devops-cli/issues/views`)**:
   - PRs addressing issues must explicitly link to them in the description using `Fixes #<id>`, `Closes #<id>`, or `Resolves #<id>`.
   - Reconcile task state transitions (`Backlog` $\to$ `Ready` $\to$ `In Progress` $\to$ `In Review` $\to$ `Done`) in [`docs/agent/task.md`](agent/task.md) and verify alignment with `.github/project-template.json` across the 4 canonical views (*Sprint Kanban*, *Roadmap Timeline*, *Triage & Quality Table*, *Value vs Effort Priority Matrix*) displayed under `https://github.com/dan-petty/devops-cli/issues/views`.
-  - Ensure the project board is linked to the repository via `devops gh project link <number>`, populate all 6 custom project fields (`Status`, `Milestone`, `Priority`, `Category`, `Value`, `Effort`), and audit views via `devops gh views list` and `devops gh views spec`.
+  - Ensure the project board is linked to the repository via `devops gh project link <number>` so it appears on `https://github.com/dan-petty/devops-cli/projects` and its views on `https://github.com/dan-petty/devops-cli/issues/views`, populate all 6 custom project fields (`Status`, `Milestone`, `Priority`, `Category`, `Value`, `Effort`), and audit views via `devops gh views list` and `devops gh views spec`.
   - Enforce taxonomy labels via `devops gh labels audit`, milestone alignment via `devops gh milestones sync`, and milestone closure upon release merge via `devops gh milestones close <version>`.
 
 ---
@@ -215,8 +215,8 @@ sequenceDiagram
    - Update `.github/dependabot.yml` target branch to the new active release branch.
    - Initialize `## [Unreleased]` section in `CHANGELOG.md`.
    - Proactively author GitHub issues for all planned deliverables in `docs/ROADMAP.md`, assigning each to the active milestone with full taxonomy labels (`type/*`, `scope/*`, `priority/*`).
-   - Ensure the open issues queue (`https://github.com/dan-petty/devops-cli/issues?q=is%3Aissue+state%3Aopen`) is populated with zero empty state.
-   - Synchronize items and custom fields into GitHub Projects v2 and repository issue views (`https://github.com/dan-petty/devops-cli/issues/views`) via `devops gh project sync`, link the board (`devops gh project link <number>`), and prune all stale remote tracking branches (`git fetch --prune origin`).
+   - Ensure the open issues queue (`https://github.com/dan-petty/devops-cli/issues?q=is%3Aissue+state%3Aopen`), projects tab (`https://github.com/dan-petty/devops-cli/projects`), and issue views (`https://github.com/dan-petty/devops-cli/issues/views`) are populated with zero empty state.
+   - Synchronize items and custom fields into GitHub Projects v2 (`https://github.com/dan-petty/devops-cli/projects`) and repository issue views (`https://github.com/dan-petty/devops-cli/issues/views`) via `devops gh project sync`, link the board (`devops gh project link <number>`), and prune all stale remote tracking branches (`git fetch --prune origin`).
 
 ---
 

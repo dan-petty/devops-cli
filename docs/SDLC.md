@@ -73,8 +73,8 @@ Every significant feature, structural refactoring, or tooling upgrade begins wit
    - Synchronize pending milestones in [`docs/PENDING_FEATURES.md`](PENDING_FEATURES.md).
 3. **Active Milestone GitHub Resource Population**:
    - When cutting a new release branch or activating a milestone, proactively create GitHub tracking issues for all scheduled features from [`docs/ROADMAP.md`](ROADMAP.md).
-   - Link each issue to the active release milestone, apply declarative taxonomy labels (`type/*`, `scope/*`, `priority/*`), and synchronize to GitHub Projects v2 and repository issue views (`https://github.com/dan-petty/devops-cli/issues/views`).
-   - The open issues queue (`https://github.com/dan-petty/devops-cli/issues?q=is%3Aissue+state%3Aopen`) must never be left empty while an active milestone exists with planned deliverables.
+   - Link each issue to the active release milestone, apply declarative taxonomy labels (`type/*`, `scope/*`, `priority/*`), and synchronize to GitHub Projects v2 board (`https://github.com/dan-petty/devops-cli/projects`) and repository issue views (`https://github.com/dan-petty/devops-cli/issues/views`).
+   - The open issues queue (`https://github.com/dan-petty/devops-cli/issues?q=is%3Aissue+state%3Aopen`), projects tab (`https://github.com/dan-petty/devops-cli/projects`), and issue views (`https://github.com/dan-petty/devops-cli/issues/views`) must never be left empty while an active milestone exists with planned deliverables.
 4. **Transparent Task Status Tracking**:
    - Maintain dynamic task status in [`docs/agent/task.md`](agent/task.md) divided into:
      - **Pending Tasks**: Queued deliverables and backlog milestones.
@@ -267,7 +267,7 @@ gitGraph
 - **GitHub Project Governance, Views & Labeling Standards**:
   - **Declarative Taxonomy (`.github/labels.yml`)**: Every PR must possess mandatory `type/*` and `scope/*` classification labels, verified in CI and audited via `devops gh labels audit`.
   - **Roadmap-Linked Milestones (`docs/ROADMAP.md`)**: Release branches and topic PRs associate directly with release milestones extracted from `ROADMAP.md` and reconciled via `devops gh milestones sync`.
-  - **Standardized Projects v2 & Issues Views (`https://github.com/dan-petty/devops-cli/issues/views`)**: Four standardized views (*Sprint Kanban*, *Roadmap Timeline*, *Triage & Quality Table*, *Value vs Effort Priority Matrix*) track features across lifecycles (`Backlog` -> `Ready` -> `In Progress` -> `In Review` -> `Done`), audited via `devops gh views list` / `spec` and synced via `devops gh project sync` with mandatory repository board linkage (`devops gh project link <number>`).
+  - **Standardized Projects v2 & Issues Views (`https://github.com/dan-petty/devops-cli/projects` & `https://github.com/dan-petty/devops-cli/issues/views`)**: Four standardized views (*Sprint Kanban*, *Roadmap Timeline*, *Triage & Quality Table*, *Value vs Effort Priority Matrix*) track features across lifecycles (`Backlog` -> `Ready` -> `In Progress` -> `In Review` -> `Done`), audited via `devops gh views list` / `spec` and synced via `devops gh project sync` with mandatory repository board linkage (`devops gh project link <number>`) so projects appear under `https://github.com/dan-petty/devops-cli/projects` and views under `https://github.com/dan-petty/devops-cli/issues/views`.
 - **Human-in-the-Loop Merging**: AI agents prepare PRs, monitor remote GitHub Actions CI, and remediate failures. AI agents **never merge PRs autonomously**. Maintainers approve and squash-merge.
 
 ---
