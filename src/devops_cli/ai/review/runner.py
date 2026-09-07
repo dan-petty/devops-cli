@@ -57,6 +57,7 @@ from devops_cli.core.repo import find_repo_root, is_ignored_by_git, is_safe_subp
 from devops_cli.dry_run import is_dry_run
 from devops_cli.models.ai import FileAnalysisMeta
 from devops_cli.output import (
+    format_duration,
     print_error,
     print_info,
     print_markdown,
@@ -590,13 +591,13 @@ def _log_segment_error(
     """Log segment failure or retry message."""
     if attempt <= _MAX_SEGMENT_RETRIES:
         print_warning(
-            f"  ✗ {file_label} error in {seg_elapsed:.1f}s"
+            f"  ✗ {file_label} error in {format_duration(seg_elapsed)}"
             f"{fail_backend} (attempt {attempt}), retrying...",
             prefix=False,
         )
     else:
         print_warning(
-            f"  ✗ {file_label} failed in {seg_elapsed:.1f}s after "
+            f"  ✗ {file_label} failed in {format_duration(seg_elapsed)} after "
             f"{_MAX_SEGMENT_RETRIES + 1} attempt(s); skipping.{fail_backend}",
             prefix=False,
         )
@@ -608,13 +609,13 @@ def _log_segment_empty(
     """Log empty segment response or retry message."""
     if attempt <= _MAX_SEGMENT_RETRIES:
         print_warning(
-            f"  ✗ {file_label} empty in {seg_elapsed:.1f}s"
+            f"  ✗ {file_label} empty in {format_duration(seg_elapsed)}"
             f"{req_backend_str} (attempt {attempt}), retrying...",
             prefix=False,
         )
     else:
         print_warning(
-            f"Warning: {file_label} still empty in {seg_elapsed:.1f}s "
+            f"Warning: {file_label} still empty in {format_duration(seg_elapsed)} "
             f"after {_MAX_SEGMENT_RETRIES + 1} attempt(s).{req_backend_str}",
             prefix=False,
         )
@@ -718,7 +719,7 @@ def _execute_review_segment_attempt(
         else:
             retry_note = f" (attempt {attempt})" if attempt > 1 else ""
             print_info(
-                f"[dim]  ✓ {file_label} in {seg_elapsed:.1f}s{req_backend_str}{retry_note}[/dim]",
+                f"[dim]  ✓ {file_label} in {format_duration(seg_elapsed)}{req_backend_str}{retry_note}[/dim]",
                 prefix=False,
             )
         break
@@ -773,7 +774,7 @@ def _execute_review_segments(
         responses = [_review_segment(i, page)[1] for i, page in enumerate(pages, 1)]
 
     if not is_dry_run():
-        print_info(f"[dim]  total {time.monotonic() - t2:.1f}s[/dim]", prefix=False)
+        print_info(f"[dim]  total {format_duration(time.monotonic() - t2)}[/dim]", prefix=False)
     return responses
 
 
@@ -811,7 +812,7 @@ def _validate_single_segment_findings(
     n_verified = sum(1 for f in validated.findings if f.verified)
     v_count = f"{n_verified}/{len(validated.findings)} finding(s) verified"
     print_info(
-        f"[dim]  ✓ {file_label} in {val_elapsed:.1f}s: {v_count}{analysis_suffix}[/dim]",
+        f"[dim]  ✓ {file_label} in {format_duration(val_elapsed)}: {v_count}{analysis_suffix}[/dim]",
         prefix=False,
     )
     return (index, validated)
@@ -879,7 +880,7 @@ def _execute_findings_validation(
             )
             validated_results[i - 1] = val_res
 
-    print_info(f"[dim]  total {time.monotonic() - t3:.1f}s[/dim]", prefix=False)
+    print_info(f"[dim]  total {format_duration(time.monotonic() - t3)}[/dim]", prefix=False)
     return validated_results
 
 
@@ -917,7 +918,9 @@ def _execute_final_recompose(
                 validator=lambda text: parse_review_response(text) is not None,
             )
         )
-        print_info(f"[dim]  ✓ {time.monotonic() - t4:.1f}s{compose_suffix}[/dim]", prefix=False)
+        print_info(
+            f"[dim]  ✓ {format_duration(time.monotonic() - t4)}{compose_suffix}[/dim]", prefix=False
+        )
         if not raw.strip():
             return _merge_segment_results(segment_results) or _fallback_join(non_empty)
         parsed = parse_review_response(raw)

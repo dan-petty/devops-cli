@@ -559,6 +559,12 @@
   - [x] Update `AGENTS.md` and `docs/ROUTINE_TASKS.md` prohibiting internal references/numeric IDs in commit messages and standalone commits for agent tracking documentation
   - [x] Verify targeted test suites (`test_devcontainer.py`, `test_mcp.py`, `test_architectural_invariants.py`) pass cleanly
 
+- [x] Phase 48.8: Human-Readable Duration Formatting for Command Elapsed Runtime
+  - [x] Upgrade `format_duration()` in `devops_cli.output.formatters.scalars` to decompose seconds into microsecond (µs), millisecond (ms), second (s), minute (m s), hour (h m s), and day (d h m) scales with configurable precision.
+  - [x] Wire `format_duration()` into CLI exit handler (`main.py`), CI pipeline summary (`commands/ci.py`), sandbox execution (`docker.py`, `test_cmd.py`), AI test commands (`commands/ai.py`), review pipeline and runner (`ai/review/pipeline.py`, `ai/review/runner.py`), benchmark tables and reports (`ai/benchmark/runner.py`, `output/formatters/tables.py`), and review message templates (`lang/en/messages.py`).
+  - [x] Add comprehensive unit test matrix in `tests/test_output.py` verifying all duration ranges, boundary thresholds, negative values, and precision controls.
+  - [x] Maintain green CI quality gates (`devops ci`), documentation synchronization, and zero-leakage security posture.
+
 ---
 
 ### In-Progress Tasks (WIP)

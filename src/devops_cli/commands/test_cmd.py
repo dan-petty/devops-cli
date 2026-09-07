@@ -15,7 +15,7 @@ from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import find_top_level_repo_root
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
 from devops_cli.lang import ERRORS, HELP, MESSAGES
-from devops_cli.output import print_error, print_info, print_muted, print_success
+from devops_cli.output import format_duration, print_error, print_info, print_muted, print_success
 from devops_cli.telemetry.tracer import trace_span
 
 app = new_typer(help=HELP.test.app, no_args_is_help=False)
@@ -310,4 +310,4 @@ def test_sandbox(
 
     if res.exit_code != 0:
         raise typer.Exit(res.exit_code)
-    print_success(f"✓ Sandbox workload completed in {res.duration_seconds}s")
+    print_success(f"✓ Sandbox workload completed in {format_duration(res.duration_seconds)}")

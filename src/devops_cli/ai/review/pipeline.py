@@ -61,7 +61,14 @@ from devops_cli.models.vulnerability import (
     NetworkReputationRecord,
     VulnerabilityRecord,
 )
-from devops_cli.output import escape_text, print_info, print_panel, print_success, print_table
+from devops_cli.output import (
+    escape_text,
+    format_duration,
+    print_info,
+    print_panel,
+    print_success,
+    print_table,
+)
 from devops_cli.security.reference_extractor import (
     extract_dependencies_from_text,
     extract_network_references,
@@ -1506,9 +1513,9 @@ class ReviewPipelineOrchestrator:
             handled_by = ", ".join(actual_servers) if actual_servers else server_info
             try:
                 sec_val = float(elapsed_sec)
-                sec_str = f"{sec_val:.1f}s"
+                sec_str = format_duration(sec_val)
             except TypeError, ValueError:
-                sec_str = "0.0s"
+                sec_str = "0.00s"
 
             print_info(
                 f"[{idx}/{total_files}] Reviewed [bold]{fpath}[/bold] "
@@ -1759,9 +1766,9 @@ class ReviewPipelineOrchestrator:
             handled_by = actual_backend or server_info
             try:
                 sec_val = float(elapsed_sec)
-                sec_str = f"{sec_val:.1f}s"
+                sec_str = format_duration(sec_val)
             except TypeError, ValueError:
-                sec_str = "0.0s"
+                sec_str = "0.00s"
 
             print_info(
                 f"[{idx}/{total_files}] Verified [bold]{fpath}[/bold] "

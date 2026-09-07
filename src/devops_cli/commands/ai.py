@@ -44,6 +44,7 @@ from devops_cli.core.process import run_subprocess
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
     escape_text,
+    format_duration,
     format_json,
     get_console,
     print_error,
@@ -478,9 +479,9 @@ def _test_single_ollama_endpoint(
     try:
         resp = sub_client.chat(system=test_sys_prompt, user=prompt)
         wall_sec = (
-            f"{resp.wall_seconds:.2f}s"
+            format_duration(resp.wall_seconds)
             if getattr(resp, "wall_seconds", None) is not None
-            else "0.0s"
+            else "0.00s"
         )
         return (u, True, str(resp).strip(), wall_sec)
     except Exception as exc:
@@ -576,7 +577,7 @@ def test(
         resp = client.chat(system=test_sys_prompt, user=prompt)
         handled = getattr(resp, "backend_info", None) or client.backend_info
         wall_sec = (
-            f" in {resp.wall_seconds:.1f}s"
+            f" in {format_duration(resp.wall_seconds)}"
             if getattr(resp, "wall_seconds", None) is not None
             else ""
         )

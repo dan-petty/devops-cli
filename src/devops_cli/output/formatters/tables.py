@@ -9,6 +9,7 @@ from devops_cli.config.defaults import DEFAULT_TABLE_BORDER_STYLE
 from devops_cli.lang import MESSAGES
 from devops_cli.output.formatters.scalars import (
     SEV_COLOR_MAP,
+    format_duration,
     format_timestamp_age,
 )
 
@@ -252,7 +253,7 @@ def format_benchmark_leaderboard_table(report: Any) -> TablePayload:
                 f"{getattr(model_summary, 'completeness_avg', 0.0) * 10.0:.1f}%",
                 f"{getattr(model_summary, 'clarity_avg', 0.0) * 10.0:.1f}%",
                 f"{getattr(model_summary, 'judge_weight', 1.0):.2f}",
-                f"{getattr(model_summary, 'average_duration_seconds', 0.0):.1f}s",
+                format_duration(getattr(model_summary, "average_duration_seconds", 0.0)),
                 bias_str,
                 self_bias_str,
             ]
@@ -342,9 +343,9 @@ def format_benchmark_server_table(report: Any) -> TablePayload | None:
         server_rows.append(
             [
                 getattr(s, "server", ""),
-                f"{gen_avg:.1f}s",
+                format_duration(gen_avg),
                 speed_str,
-                f"{getattr(s, 'total_duration_seconds', 0.0):.1f}s",
+                format_duration(getattr(s, "total_duration_seconds", 0.0)),
                 str(getattr(s, "tasks_generated_count", 0)),
                 f"{getattr(s, 'avg_score_awarded', 0.0):.1f}%",
                 bias_str,
