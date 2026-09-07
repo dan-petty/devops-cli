@@ -2,6 +2,26 @@
 
 Chronological log of refactoring milestones, quality gates, and security enhancements.
 
+### [2026-09-07] Release v0.2.12: Valkey Workstation Management, Distributed Caching Tier & Release Preparation
+- **Valkey Workstation Management & High-Performance Distributed Caching Tier**:
+  - Authored pure-Python synchronous RESP2/RESP3 wire protocol encoder and parser (`src/devops_cli/valkey/protocol.py`) without native C dependencies.
+  - Implemented standard TCP socket client (`ValkeyClient`) with connection pooling, bounded timeouts, password authentication, and zero-trust SSRF destination validation (`src/devops_cli/valkey/client.py`).
+  - Authored Valkey-backed atomic sliding-window token bucket rate limiter (`ValkeyTokenBucketRateLimiter`) with fail-soft burst mitigation and embedded Lua evaluation script (`src/devops_cli/valkey/rate_limiter.py`).
+  - Implemented distributed AI embedding and review finding cache tier (`ValkeyCacheProvider`) with fail-soft availability semantics and automatic key namespace isolation (`src/devops_cli/ai/cache/valkey_cache.py`).
+  - Implemented dedicated CLI command group `devops valkey` (`ping`, `info`, `stats`, `keys`, `get`, `set`, `flush`, `backup`, `cli`) integrated with `@dry_run_command` and runtime duration formatting (`src/devops_cli/commands/valkey.py`).
+  - Registered 6 new FastMCP tools (`valkey_ping`, `valkey_info`, `valkey_stats`, `valkey_get`, `valkey_set`, `valkey_flush`) and live system resource `resource://valkey/status` (`src/devops_cli/ai/mcp/server.py`).
+  - Integrated Valkey settings and Keyring secret password (`valkey.password`) into configuration and OS Keyring auditor.
+- **Runtime Duration Formatting & UI Modernization**:
+  - Converted elapsed command durations across CLI root, CI runners, benchmark tables, and multi-stage review pipelines into human-readable units (`format_duration`).
+  - Omitted status suffixes from milestone descriptions during automated roadmap extraction.
+- **Testing & Quality Assurance**:
+  - Authored comprehensive unit test suite `tests/test_valkey.py` (54/54 tests passed).
+  - Updated `tests/test_config_audit_keys.py` (8/8 audited secrets) and `tests/test_mcp.py` (85/85 tests passed).
+  - Verified architectural invariants and complexity gates (`devops scan complexity`).
+- **Release Preparation for v0.2.12**:
+  - Bumped version to `0.2.12` in `pyproject.toml` and `src/devops_cli/__init__.py`.
+  - Updated `CHANGELOG.md`, `docs/RELEASE_NOTES.md`, `docs/ROADMAP.md`, `docs/PENDING_FEATURES.md`.
+
 ### [2026-09-07] GitHub Projects v2 Remote Sync, Release Milestone Lifecycle Automation & Submodule Test Reorganization (Phase 48.6)
 - **GitHub Projects v2 Remote Synchronization & Scope Verification**:
   - Implemented `verify_project_auth_scopes()` in `src/devops_cli/github/projects.py` to check for required `project` and `read:project` scopes, returning actionable guidance (`gh auth refresh -s project,read:project`) when scopes are missing.

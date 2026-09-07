@@ -1,6 +1,26 @@
-# Release Notes — devops-cli v0.2.10
+# Release Notes — devops-cli v0.2.12
 
-Workstation-native DevOps CLI for managing repositories, SSH keys, Kubernetes clusters, Kustomize, ArgoCD, Grafana, Prometheus, Docker, workspace files, vector embedding benchmarks, TLS certificate automation, OpenTelemetry observability, and multi-persona AI code reviews.
+Workstation-native DevOps CLI for managing repositories, SSH keys, Kubernetes clusters, Kustomize, ArgoCD, Grafana, Prometheus, Docker, workspace files, vector embedding benchmarks, TLS certificate automation, OpenTelemetry observability, Valkey distributed caching, and multi-persona AI code reviews.
+
+---
+
+## 🚀 Highlights of v0.2.12
+
+### ⚡ Valkey Workstation Management & Distributed Caching Tier (`devops valkey`)
+- **Zero C-Dependency RESP Protocol (`src/devops_cli/valkey/protocol.py`)**: Pure-Python RESP2/RESP3 wire protocol encoder and stream parser supporting strings, integers, bulk strings, arrays, maps, and sets.
+- **TCP Socket Client (`ValkeyClient`)**: Standard TCP socket client with zero-trust SSRF validation, connection pooling, bounded timeouts, password authentication, and database selection.
+- **Atomic Sliding-Window Rate Limiter (`ValkeyTokenBucketRateLimiter`)**: Embedded Lua token-bucket rate limiter with fail-soft burst mitigation for high-concurrency automation tasks.
+- **Distributed AI Caching (`ValkeyCacheProvider`)**: High-performance persistent caching tier for embedding vectors, review findings, and LLM completions with key namespace isolation and fail-soft availability.
+- **CLI Subsystem (`devops valkey`)**: Subcommands `ping`, `info`, `stats`, `keys`, `get`, `set`, `flush`, `backup`, and `cli`, fully integrated with `@dry_run_command` and runtime duration formatting.
+- **FastMCP Toolset & System Resource**: Registered 6 new FastMCP tools (`valkey_ping`, `valkey_info`, `valkey_stats`, `valkey_get`, `valkey_set`, `valkey_flush`) and dynamic system resource `resource://valkey/status`.
+
+### ⏱️ Runtime Duration Formatting & UI Modernization
+- Converted elapsed command durations across CLI root, CI runners, benchmark tables, and multi-stage review pipelines into human-readable units (`format_duration`).
+- Omitted status suffixes from milestone descriptions during automated roadmap extraction.
+
+### 🔒 OS Keyring & Egress Security
+- Expanded audited secrets to 8 managed credentials including `valkey.password`.
+- Strict rejection of cloud metadata (`169.254.169.254`) and unauthorized non-public IPs on Valkey socket endpoints.
 
 ---
 

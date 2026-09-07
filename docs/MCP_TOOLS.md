@@ -80,6 +80,12 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`tls_generate_ca`](#tls-generate-ca) | Generate an X.509 Root CA key pair for local or homelab infrastructure. |
 | [`tls_generate_cert`](#tls-generate-cert) | Generate an X.509 TLS certificate with Subject Alternative Names signed by local CA. |
 | [`tls_inspect_cert`](#tls-inspect-cert) | Inspect and display metadata, validity, SANs, and expiration of a TLS certificate. |
+| [`valkey_flush`](#valkey-flush) | Flush and purge keys from current or all Valkey databases. |
+| [`valkey_get`](#valkey-get) | Retrieve string value stored at Valkey key. |
+| [`valkey_info`](#valkey-info) | Inspect Valkey server configuration, memory allocation, and operational metrics. |
+| [`valkey_ping`](#valkey-ping) | Test connection and measure latency to the workstation Valkey server. |
+| [`valkey_set`](#valkey-set) | Set string value of Valkey key with optional expiration TTL in seconds. |
+| [`valkey_stats`](#valkey-stats) | Display quick diagnostic summary of Valkey server health, memory, and keys. |
 | [`vault_get`](#vault-get) | Fetch secret from HashiCorp Vault or OS Keyring fallback. |
 | [`vault_set`](#vault-set) | Store secret key-value pairs in HashiCorp Vault KV-v2 engine. |
 | [`vault_status`](#vault-status) | Check HashiCorp Vault cluster health and sealing status. |
@@ -830,6 +836,60 @@ Inspect and display metadata, validity, SANs, and expiration of a TLS certificat
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `cert_path` | `string` | Yes | - | - |
+
+### `valkey_flush`
+
+Flush and purge keys from current or all Valkey databases.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `all_databases` | `boolean` | No | `False` | - |
+
+### `valkey_get`
+
+Retrieve string value stored at Valkey key.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `key` | `string` | Yes | - | - |
+
+### `valkey_info`
+
+Inspect Valkey server configuration, memory allocation, and operational metrics.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `section` | `string` | No | - | - |
+
+### `valkey_ping`
+
+Test connection and measure latency to the workstation Valkey server.
+
+*No parameters required.*
+
+### `valkey_set`
+
+Set string value of Valkey key with optional expiration TTL in seconds.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `key` | `string` | Yes | - | - |
+| `value` | `string` | Yes | - | - |
+| `ex` | `integer` | No | - | - |
+
+### `valkey_stats`
+
+Display quick diagnostic summary of Valkey server health, memory, and keys.
+
+*No parameters required.*
 
 ### `vault_get`
 

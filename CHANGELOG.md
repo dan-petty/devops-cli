@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.12] - 2026-09-07
+
+### Added
+- **Valkey Workstation Management & High-Performance Distributed Caching Tier (`devops valkey`)**:
+  - Pure-Python synchronous RESP2/RESP3 wire protocol encoder (`encode_command`) and streaming parser (`parse_resp`) without native C dependencies (`src/devops_cli/valkey/protocol.py`).
+  - Standard TCP socket client (`ValkeyClient`) with connection pooling, bounded timeouts, password authentication, and zero-trust SSRF destination validation (`src/devops_cli/valkey/client.py`).
+  - Valkey-backed atomic sliding-window token bucket rate limiter (`ValkeyTokenBucketRateLimiter`) with fail-soft burst mitigation and embedded Lua evaluation script (`src/devops_cli/valkey/rate_limiter.py`).
+  - Distributed AI embedding and review finding cache tier (`ValkeyCacheProvider`) with fail-soft availability semantics and automatic key namespace isolation (`src/devops_cli/ai/cache/valkey_cache.py`).
+  - Dedicated CLI command group `devops valkey` with subcommands: `ping`, `info`, `stats`, `keys`, `get`, `set`, `flush`, `backup`, and `cli`, integrated with `@dry_run_command` and runtime duration formatting (`src/devops_cli/commands/valkey.py`).
+  - 6 new FastMCP tools (`valkey_ping`, `valkey_info`, `valkey_stats`, `valkey_get`, `valkey_set`, `valkey_flush`) and live system resource `resource://valkey/status` (`src/devops_cli/ai/mcp/server.py`).
+  - Configuration and Keyring integration for Valkey: host, port, DB, timeout, and secret password (`valkey.password`) in OS keyring.
+- **GitHub Projects v2, Milestones & Runtime Duration Formatting**:
+  - Human-readable duration formatting (`format_duration`) across all CLI command outputs, benchmarks, and multi-stage review pipelines.
+  - Omitted status suffixes from milestone descriptions during automated roadmap extraction.
+  - Automated project management FastMCP tools and GraphQL conversation resolution for Pull Request reviews.
+
+### Fixed
+- **OS Keyring Secret Health Auditor**:
+  - Expanded audited secret keys in `devops config audit-keys` to 8 managed credentials including `valkey.password`.
+- **Egress & Protocol Safety**:
+  - Strict rejection of cloud metadata (`169.254.169.254`) and unauthorized non-public IPs on Valkey socket endpoints.
+
 ## [0.2.11] - 2026-09-06
 
 ### Added

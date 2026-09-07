@@ -569,18 +569,32 @@
   - [x] Refine `extract_roadmap_milestones()` in `src/devops_cli/github/milestones.py` to assign milestone description strictly as `name` without appending status strings in parentheses.
   - [x] Update test assertions in `tests/test_github_milestones.py` to verify milestone description purity and absence of status strings.
 
+- [x] Phase 48.10: Valkey Workstation Management & High-Performance Distributed Caching Tier (Milestone v0.2.12)
+  - [x] Pure-Python synchronous RESP2/RESP3 wire protocol encoder (`encode_command`) and streaming parser (`parse_resp`) without native C dependencies (`src/devops_cli/valkey/protocol.py`).
+  - [x] Standard TCP socket client (`ValkeyClient`) with connection pooling, bounded timeouts, password authentication, and zero-trust SSRF destination validation (`src/devops_cli/valkey/client.py`).
+  - [x] Valkey-backed atomic sliding-window token bucket rate limiter (`ValkeyTokenBucketRateLimiter`) with fail-soft burst mitigation and embedded Lua evaluation script (`src/devops_cli/valkey/rate_limiter.py`).
+  - [x] Distributed AI embedding and review finding cache tier (`ValkeyCacheProvider`) with fail-soft availability semantics and automatic key namespace isolation (`src/devops_cli/ai/cache/valkey_cache.py`).
+  - [x] Dedicated CLI command group `devops valkey` (`ping`, `info`, `stats`, `keys`, `get`, `set`, `flush`, `backup`, `cli`) integrated with `@dry_run_command` and runtime duration formatting (`src/devops_cli/commands/valkey.py`).
+  - [x] FastMCP Valkey toolset (6 tools: `valkey_ping`, `valkey_info`, `valkey_stats`, `valkey_get`, `valkey_set`, `valkey_flush`) and dynamic system resource `resource://valkey/status` (`src/devops_cli/ai/mcp/server.py`).
+  - [x] Comprehensive unit test suite `tests/test_valkey.py` (54/54 passed), updated `tests/test_config_audit_keys.py` (8 secrets), and updated `tests/test_mcp.py` (85/85 passed).
+  - [x] Verified zero complexity regressions via `devops scan complexity` and architectural invariants (`test_architectural_invariants.py`).
+
+- [x] Phase 48.11: Release v0.2.12 Preparation & Verification
+  - [x] Version bump to `0.2.12` in `pyproject.toml` and `src/devops_cli/__init__.py`.
+  - [x] Release documentation synchronized: `CHANGELOG.md`, `docs/RELEASE_NOTES.md`, `docs/ROADMAP.md`, `docs/PENDING_FEATURES.md`, `docs/LOG.md`.
+  - [x] Synchronized CLI documentation and README: `devops docs generate --sync-readme`.
+  - [x] Verified release consistency status: `devops release status` (100% matched).
+
 ---
 
 ### In-Progress Tasks (WIP)
-*(No active tasks currently in flight — ready for PR review and maintainer merge)*
+- [ ] Run Full 10-Gate CI Verification Suite (`uv run devops ci`)
+- [ ] Author release deliverable commit and open Release PR targeting `main`
 
 ---
 
-
 ### Pending Tasks
-- [ ] Valkey Workstation Management & High-Performance Distributed Caching Tier (Milestone v0.2.12)
-  - [ ] Valkey Workstation CLI Subsystem (`devops valkey` — ping, info, stats, keys, get, set, flush, cli, backup/restore)
-  - [ ] Distributed AI Embedding Cache Tier (`ai.cache.backend=valkey` — SHA-256 keyed cache with LRU eviction)
-  - [ ] Distributed LLM Token Bucket & Concurrency Rate Limiter (`valkey_token_bucket.lua`)
-  - [ ] FastMCP Valkey Toolset & Live System Resource (`valkey_ping`, `valkey_info`, `valkey_get`, `valkey_set`, `valkey_keys`, `valkey_flush`, `resource://valkey/status`)
-  - [ ] Ephemeral Testcontainers Valkey Testing Harness (`valkey/valkey:8.0-alpine`)
+- [ ] Sub-Agent Local Offloading Engine & Agent Harness Slots (Milestone v0.2.13)
+- [ ] Interactive Terminal UI Dashboard (`devops dashboard` / `devops tui`)
+- [ ] Model Dependency Chaos Engineering Suite (`devops ai chaos-model`)
+- [ ] Multi-Model LLM Benchmark Evaluation Harness (`devops ai benchmark --suite`)

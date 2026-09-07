@@ -62,6 +62,13 @@ from devops_cli.exceptions.validation import (
     InvalidVersionError,
     ValidationError,
 )
+from devops_cli.exceptions.valkey import (
+    ValkeyAuthenticationError,
+    ValkeyCommandError,
+    ValkeyConnectionError,
+    ValkeyError,
+    ValkeyTimeoutError,
+)
 from devops_cli.exceptions.vault import (
     VaultConfigurationError,
     VaultError,
@@ -116,6 +123,11 @@ __all__ = [
     "UsageLimitExceeded",
     "UserError",
     "ValidationError",
+    "ValkeyAuthenticationError",
+    "ValkeyCommandError",
+    "ValkeyConnectionError",
+    "ValkeyError",
+    "ValkeyTimeoutError",
     "VaultConfigurationError",
     "VaultError",
     "VaultKeyError",

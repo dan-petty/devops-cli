@@ -64,6 +64,13 @@ ENV_QDRANT_URL = "DEVOPS_CLI_QDRANT_URL"
 ENV_QDRANT_API_KEY = "DEVOPS_CLI_QDRANT_API_KEY"
 ENV_QDRANT_COLLECTION_PREFIX = "DEVOPS_CLI_QDRANT_COLLECTION_PREFIX"
 
+ENV_VALKEY_HOST = "DEVOPS_CLI_VALKEY_HOST"
+ENV_VALKEY_PORT = "DEVOPS_CLI_VALKEY_PORT"
+ENV_VALKEY_PASSWORD = "DEVOPS_CLI_VALKEY_PASSWORD"
+ENV_VALKEY_DB = "DEVOPS_CLI_VALKEY_DB"
+ENV_VALKEY_TIMEOUT = "DEVOPS_CLI_VALKEY_TIMEOUT"
+ENV_AI_CACHE_BACKEND = "DEVOPS_CLI_AI_CACHE_BACKEND"
+
 # Data Storage & Artifact Path environment variables
 ENV_DATA_DIR = "DEVOPS_CLI_DATA_DIR"
 ENV_DATA_ANALYSIS_DIR = "DEVOPS_CLI_DATA_ANALYSIS_DIR"
@@ -127,6 +134,12 @@ OPTION_TO_ENV_VAR: dict[str, str] = {
     opt.QDRANT_URL: ENV_QDRANT_URL,
     opt.QDRANT_API_KEY: ENV_QDRANT_API_KEY,
     opt.QDRANT_COLLECTION_PREFIX: ENV_QDRANT_COLLECTION_PREFIX,
+    opt.VALKEY_HOST: ENV_VALKEY_HOST,
+    opt.VALKEY_PORT: ENV_VALKEY_PORT,
+    opt.VALKEY_PASSWORD: ENV_VALKEY_PASSWORD,
+    opt.VALKEY_DB: ENV_VALKEY_DB,
+    opt.VALKEY_TIMEOUT: ENV_VALKEY_TIMEOUT,
+    opt.AI_CACHE_BACKEND: ENV_AI_CACHE_BACKEND,
     opt.DATA_DIR: ENV_DATA_DIR,
     opt.DATA_ANALYSIS_DIR: ENV_DATA_ANALYSIS_DIR,
     opt.DATA_REVIEWS_DIR: ENV_DATA_REVIEWS_DIR,
@@ -423,6 +436,42 @@ def get_all_env_var_specs() -> list[EnvVarSpec]:
             opt.QDRANT_COLLECTION_PREFIX,
             False,
             "Prefix for Qdrant collection names",
+        ),
+        EnvVarSpec(
+            ENV_VALKEY_HOST,
+            opt.VALKEY_HOST,
+            False,
+            "Valkey workstation caching server host (default: 127.0.0.1)",
+        ),
+        EnvVarSpec(
+            ENV_VALKEY_PORT,
+            opt.VALKEY_PORT,
+            False,
+            "Valkey workstation caching server port (default: 6379)",
+        ),
+        EnvVarSpec(
+            ENV_VALKEY_PASSWORD,
+            opt.VALKEY_PASSWORD,
+            True,
+            "Valkey authentication password (stored in OS keyring)",
+        ),
+        EnvVarSpec(
+            ENV_VALKEY_DB,
+            opt.VALKEY_DB,
+            False,
+            "Valkey database index (default: 0)",
+        ),
+        EnvVarSpec(
+            ENV_VALKEY_TIMEOUT,
+            opt.VALKEY_TIMEOUT,
+            False,
+            "Valkey network socket connection/read timeout in seconds (default: 5.0)",
+        ),
+        EnvVarSpec(
+            ENV_AI_CACHE_BACKEND,
+            opt.AI_CACHE_BACKEND,
+            False,
+            "AI cache storage backend: 'memory', 'disk', or 'valkey' (default: disk)",
         ),
         EnvVarSpec(
             ENV_DATA_DIR,
