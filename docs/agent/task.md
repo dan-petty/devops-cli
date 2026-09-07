@@ -618,8 +618,8 @@
   - [x] Hardened `close_repository_milestone` and `edit_milestone` in `src/devops_cli/github/` with automatic title preservation and signature inspection; authored unit tests in `tests/test_github_client.py` and `tests/test_github_milestones.py`.
   - [x] Audited remote branches and deleted merged/superseded branches (`fix/ssh-register-key-prefix`, `docs/roadmap-v0.2.8-and-docs-dedup`), pruned local tracking branch `origin/release/v0.2.12`.
   - [x] Codified strict remote branch lifecycle governance and zero-orphan branch mandate in `AGENTS.md`, `docs/ROUTINE_TASKS.md`, `docs/SDLC.md`, and Knowledge Base (`github_project_management.md`).
-  - [x] Codified active milestone GitHub resource & issue population mandate in `AGENTS.md`, `docs/ROUTINE_TASKS.md`, `docs/SDLC.md`, and Knowledge Base (`github_project_management.md`).
-  - [x] Proactively populated GitHub issues for all planned deliverables in Milestone `v0.2.13` (#52-#59), ensuring the open issues queue (`https://github.com/dan-petty/devops-cli/issues?q=is%3Aissue+state%3Aopen`) is populated with zero empty state.
+  - [x] Codified active milestone GitHub resource, issue queue, and issues views population mandates (`https://github.com/dan-petty/devops-cli/issues/views`) in `AGENTS.md`, `docs/ROUTINE_TASKS.md`, `docs/SDLC.md`, and Knowledge Base (`github_project_management.md`).
+  - [x] Proactively populated GitHub issues for all planned deliverables in Milestone `v0.2.13` (#52-#59), ensuring the open issues queue (`https://github.com/dan-petty/devops-cli/issues?q=is%3Aissue+state%3Aopen`) and issue views (`https://github.com/dan-petty/devops-cli/issues/views`) are populated with zero empty state.
 
 ---
 

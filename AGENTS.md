@@ -118,16 +118,22 @@ Before planning, implementing, debugging, refactoring, or reviewing code, consul
   - **Roadmap-Driven Milestone Linking & Automated Closure**:
     - Every issue and PR targeting a release branch MUST link to the active release milestone in [`docs/ROADMAP.md`](docs/ROADMAP.md). Synchronize via `devops gh milestones sync` and inspect progress via `devops gh milestones status <version>`.
     - **Automated Milestone Closure**: When preparing release tags or when a release PR is merged into `main`, AI agents and CI workflows MUST close the release milestone via `devops gh milestones close <version>` (or FastMCP `gh_milestone_close`) to prevent stale open milestones.
-  - **GitHub Projects v2 Lifecycle & Views Integration**:
-    - Track tasks according to the 4 standardized views in `.github/project-template.json` (*Sprint Kanban*, *Roadmap Timeline*, *Triage & Quality Table*, *Value vs Effort Priority Matrix*).
-    - Manage state transitions strictly (`Backlog` $\to$ `Ready` $\to$ `In Progress` $\to$ `In Review` $\to$ `Done`) across issues and tasks in [`docs/agent/task.md`](docs/agent/task.md):
+  - **GitHub Issues Views & Projects v2 Lifecycle Population Mandate (`https://github.com/dan-petty/devops-cli/issues/views`)**:
+    - The repository's issue views interface (`https://github.com/dan-petty/devops-cli/issues/views`) is powered by GitHub Projects v2. AI agents MUST ensure that repository issue views are populated, linked, and actively synchronized matching the 4 canonical views in `.github/project-template.json`:
+      1. **Sprint Kanban** (`BOARD`, Group By: `Status`): Active sprint execution tracking cards across lifecycle columns (`Backlog`, `Ready`, `In Progress`, `In Review`, `Done`), filtered strictly to the active release milestone.
+      2. **Roadmap Timeline** (`ROADMAP`, Group By: `Milestone`): Chronological delivery roadmap grouped by release milestone, tracking deliverable start/target dates and milestone completion ratios.
+      3. **Triage & Quality Table** (`TABLE`, Priority-Ordered): Incoming defect and blocker triage queue ordered by `Priority` (`P0-Critical` through `P3-Low`), filtering active bugs (`type/bug`, `status/blocked`, `status/triage`).
+      4. **Value vs Effort Priority Matrix** (`TABLE`, Group By: `Category`): Strategic portfolio matrix grouping deliverables into Quick Wins, Major Projects, Fill-Ins, and Foundation in direct alignment with [`docs/ROADMAP.md`](docs/ROADMAP.md).
+    - **Mandatory Repository Project Linkage**: Ensure the GitHub Projects v2 board is linked to the repository (`devops gh project link <number>`) so all views appear directly on the repository's `/issues/views` and `/projects` tabs.
+    - **Continuous Custom Field Population**: Every issue and pull request MUST be populated with custom project fields: `Status`, `Milestone`, `Priority`, `Category`, `Value`, `Effort`. Synchronize card states using `devops gh project sync` or FastMCP `gh_project_sync`.
+    - **Strict Task State Transitions**: Manage state transitions strictly (`Backlog` $\to$ `Ready` $\to$ `In Progress` $\to$ `In Review` $\to$ `Done`) across issues and tasks in [`docs/agent/task.md`](docs/agent/task.md):
       - `Backlog`: Queued items awaiting milestone assignment or scheduling.
       - `Ready`: Scoped items ready for immediate development.
       - `In Progress`: Active work items currently being authored/edited (mirrored in `docs/agent/task.md` under `### In-Progress Tasks (WIP)`).
       - `In Review`: Pull Request opened with CI checks running and code reviews in progress.
       - `Done`: Pull Request squash-merged by maintainer into release branch, remote CI verified, and issue closed.
-    - Populate and maintain custom project fields: `Status`, `Milestone`, `Priority`, `Category`, `Value`, `Effort`.
-    - Validate alignment via `devops gh project sync --dry-run` or live sync via `devops gh project sync`, ensure the project board is linked to the repository via `devops gh project link <number>`, and audit views via `devops gh views list`.
+    - **OAuth Scope Diagnostics & Offline Validation**: When the local GitHub token lacks `project` or `read:project` scopes, instruct the user to authorize via `gh auth refresh -s project,read:project`, while validating template integrity offline via `devops gh views list`, `devops gh views spec`, and `devops gh project sync --dry-run`.
+    - **Zero Empty Views State**: The repository's issue views queue (`https://github.com/dan-petty/devops-cli/issues/views`) must NEVER be left unlinked or empty during active release development.
     - Never invent ad-hoc status tags or unregistered labels outside `.github/labels.yml` and `.github/project-template.json`.
   - **FastMCP Agent Project Management Integration**: AI coding assistants MUST leverage the built-in FastMCP project management tools (`gh_project_status`, `gh_project_sync`, `gh_view_spec`, `gh_milestone_list`, `gh_milestone_sync`, `gh_milestone_close`, `gh_label_list`, `gh_label_sync`) and CLI equivalents (`devops gh project`, `devops gh views`, `devops gh milestones`, `devops gh labels`) for all project tracking, milestone lifecycle management, and taxonomy auditing.
 
