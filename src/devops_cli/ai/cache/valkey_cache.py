@@ -148,21 +148,26 @@ class ValkeyCacheProvider:
             return False
 
     def flush_ai_cache(self) -> int:
-        """Remove all AI cached items (embeddings, findings, LLM responses)."""
+        """Remove all AI cached items (embeddings, findings, LLM responses) using non-blocking SCAN."""
         try:
-            keys = self._client.keys(PREFIX_ALL)
+            keys = self._client.scan_iter(match=PREFIX_ALL)
             if not keys:
                 return 0
-            return self._client.delete(*keys)
+            deleted = 0
+            chunk_size = 500
+            for i in range(0, len(keys), chunk_size):
+                chunk = keys[i : i + chunk_size]
+                deleted += self._client.delete(*chunk)
+            return deleted
         except ValkeyError as exc:
             logger.debug("Failed flushing AI cache: %s", exc)
             return 0
 
     def get_stats(self) -> dict[str, Any]:
-        """Collect caching statistics and server diagnostics."""
+        """Collect caching statistics and server diagnostics using non-blocking SCAN."""
         try:
             info = self._client.info("memory")
-            keys = self._client.keys(PREFIX_ALL)
+            keys = self._client.scan_iter(match=PREFIX_ALL)
             return {
                 "available": True,
                 "ai_keys_count": len(keys),

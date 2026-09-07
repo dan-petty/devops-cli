@@ -77,6 +77,25 @@ def test_verify_project_auth_scopes_insufficient_scope() -> None:
         assert "lacks 'project' scope" in str(exc_info.value)
 
 
+def test_verify_project_auth_scopes_unrelated_error_ignored() -> None:
+    """verify_project_auth_scopes does not misclassify unrelated errors containing 'project'."""
+    from unittest.mock import MagicMock, patch
+
+    from devops_cli.github.projects import verify_project_auth_scopes
+
+    # Subprocess returns non-zero with "project not found", should not raise "lacks 'project' scope"
+    mock_proc = MagicMock(
+        return_value=MagicMock(
+            returncode=1,
+            stderr="error: project not found",
+            stdout="",
+        )
+    )
+    with patch("devops_cli.github.projects.run_subprocess", mock_proc):
+        # Should complete without raising GitHubOperationError about scopes
+        verify_project_auth_scopes()
+
+
 def test_sync_remote_project_dry_run() -> None:
     """sync_remote_project in dry_run mode returns preview without mutations."""
     from unittest.mock import patch

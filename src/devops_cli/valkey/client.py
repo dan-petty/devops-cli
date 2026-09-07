@@ -58,16 +58,38 @@ class ValkeyClient:
             raise ValkeyConnectionError("Invalid host: host cannot be empty.")
         try:
             ip = ipaddress.ip_address(clean_host)
-            if ip.is_link_local:
-                raise ValkeyConnectionError(
-                    f"Invalid or prohibited host '{self.host}': link-local metadata endpoints are prohibited."
-                )
-            if not self.allow_private_network and is_non_public_ip(ip):
-                raise ValkeyConnectionError(
-                    f"Invalid or prohibited host '{self.host}': non-public IP disallowed by egress policy."
-                )
+            self._validate_ip(ip)
+            return
         except ValueError:
             pass
+
+        # Resolve hostname and validate all resolved IP addresses against metadata/SSRF
+        try:
+            addrinfos = socket.getaddrinfo(clean_host, self.port, type=socket.SOCK_STREAM)
+        except (socket.gaierror, TimeoutError, OSError) as exc:
+            if not self.allow_private_network:
+                raise ValkeyConnectionError(
+                    f"Invalid or unresolvable host '{self.host}': DNS resolution failed under non-private egress policy."
+                ) from exc
+            return
+
+        for addrinfo in addrinfos:
+            try:
+                resolved_ip = ipaddress.ip_address(addrinfo[4][0])
+                self._validate_ip(resolved_ip)
+            except ValueError:
+                continue
+
+    def _validate_ip(self, ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> None:
+        """Validate an individual IP against link-local metadata and non-public egress policy."""
+        if ip.is_link_local:
+            raise ValkeyConnectionError(
+                f"Invalid or prohibited host '{self.host}': link-local metadata endpoints are prohibited."
+            )
+        if not self.allow_private_network and is_non_public_ip(ip):
+            raise ValkeyConnectionError(
+                f"Invalid or prohibited host '{self.host}': non-public IP disallowed by egress policy."
+            )
 
     def _create_socket(self) -> socket.socket:
         """Create connected socket instance."""
@@ -190,6 +212,36 @@ class ValkeyClient:
         if isinstance(res, list):
             return [str(k) for k in res]
         return []
+
+    def scan(
+        self, cursor: int = 0, match: str | None = None, count: int | None = None
+    ) -> tuple[int, list[str]]:
+        """Incrementally iterate over keys using non-blocking SCAN."""
+        args: list[Any] = ["SCAN", cursor]
+        if match is not None:
+            args.extend(["MATCH", match])
+        if count is not None:
+            args.extend(["COUNT", count])
+        res = self.execute(*args)
+        if isinstance(res, list) and len(res) == 2:
+            try:
+                next_cursor = int(res[0])
+            except ValueError, TypeError:
+                next_cursor = 0
+            keys = [str(k) for k in res[1]] if isinstance(res[1], list) else []
+            return next_cursor, keys
+        return 0, []
+
+    def scan_iter(self, match: str | None = None, count: int = 100) -> list[str]:
+        """Iterate over all matching keys incrementally without blocking server."""
+        cursor = 0
+        matched_keys: list[str] = []
+        while True:
+            cursor, batch = self.scan(cursor=cursor, match=match, count=count)
+            matched_keys.extend(batch)
+            if cursor == 0:
+                break
+        return matched_keys
 
     def flushdb(self, asynchronous: bool = False) -> bool:
         """Delete all keys from the current database."""

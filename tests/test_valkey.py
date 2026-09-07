@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import socket
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -233,6 +234,42 @@ class TestValkeyClient:
         with pytest.raises(ValkeyConnectionError, match="non-public IP disallowed"):
             ValkeyClient(host="10.0.0.1", allow_private_network=False)
 
+    def test_hostname_resolving_to_link_local_rejected(self) -> None:
+        with patch(
+            "socket.getaddrinfo",
+            return_value=[(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("169.254.169.254", 6379))],
+        ):
+            with pytest.raises(
+                ValkeyConnectionError, match="link-local metadata endpoints are prohibited"
+            ):
+                ValkeyClient(host="metadata.local", port=6379)
+
+    def test_hostname_resolving_to_private_rejected_when_not_allowed(self) -> None:
+        with patch(
+            "socket.getaddrinfo",
+            return_value=[(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.0.0.5", 6379))],
+        ):
+            with pytest.raises(ValkeyConnectionError, match="non-public IP disallowed"):
+                ValkeyClient(host="internal.valkey.service", allow_private_network=False)
+
+    def test_hostname_dns_failure_rejected_when_private_not_allowed(self) -> None:
+        with patch("socket.getaddrinfo", side_effect=socket.gaierror("Name or service not known")):
+            with pytest.raises(ValkeyConnectionError, match="DNS resolution failed"):
+                ValkeyClient(host="unresolvable.valkey.internal", allow_private_network=False)
+
+    def test_scan_and_scan_iter(self) -> None:
+        client = ValkeyClient(host="127.0.0.1", port=6379)
+        mock_sock = self._mock_socket_connection(
+            [
+                b"*2\r\n$2\r\n10\r\n*2\r\n$4\r\nkey1\r\n$4\r\nkey2\r\n",
+                b"*2\r\n$1\r\n0\r\n*1\r\n$4\r\nkey3\r\n",
+            ]
+        )
+        with patch.object(client, "_create_socket", return_value=mock_sock):
+            keys = client.scan_iter(match="key*")
+            assert keys == ["key1", "key2", "key3"]
+        client.close()
+
     def test_delete_empty_keys(self) -> None:
         client = ValkeyClient(host="127.0.0.1", port=6379)
         assert client.delete() == 0
@@ -326,6 +363,17 @@ class TestValkeyRateLimiter:
         # In fail-soft mode, traffic must not be blocked when caching tier drops
         assert limiter.acquire("user:1", tokens=1) is True
 
+    def test_rate_limiter_raises_on_programmer_error(self) -> None:
+        mock_client = MagicMock()
+        mock_client.eval.side_effect = TypeError("Unexpected parameter type")
+        limiter = ValkeyTokenBucketRateLimiter(
+            client=mock_client,
+            rate_limit_per_second=10.0,
+            burst_capacity=10,
+        )
+        with pytest.raises(TypeError):
+            limiter.acquire("user:1", tokens=1)
+
 
 # =============================================================================
 # 4. Distributed AI Cache Provider Tests
@@ -380,7 +428,7 @@ class TestValkeyCacheProvider:
 
     def test_flush_ai_cache(self) -> None:
         mock_client = MagicMock()
-        mock_client.keys.return_value = ["devops:ai:embedding:1", "devops:ai:finding:2"]
+        mock_client.scan_iter.return_value = ["devops:ai:embedding:1", "devops:ai:finding:2"]
         mock_client.delete.return_value = 2
 
         provider = ValkeyCacheProvider(client=mock_client)
@@ -392,7 +440,7 @@ class TestValkeyCacheProvider:
             "used_memory_human": "2.4M",
             "total_system_memory_human": "16G",
         }
-        mock_client.keys.return_value = ["key1", "key2"]
+        mock_client.scan_iter.return_value = ["key1", "key2"]
 
         provider = ValkeyCacheProvider(client=mock_client)
         stats = provider.get_stats()

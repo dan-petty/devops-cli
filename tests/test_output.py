@@ -386,6 +386,13 @@ def test_rich_formatters() -> None:
     assert format_duration(90060.0) == "1d 1h 1m"
     assert format_duration(92.27, precision=1) == "1m 32.3s"
     assert format_duration(92.27, precision=0) == "1m 32s"
+    # Boundary carrying tests (prevent "1m 60s", "59m 60s" etc.)
+    assert format_duration(59.96, precision=0) == "1m"
+    assert format_duration(59.96, precision=1) == "1m"
+    assert format_duration(119.6, precision=0) == "2m"
+    assert format_duration(119.96, precision=1) == "2m"
+    assert format_duration(3599.96, precision=1) == "1h"
+    assert format_duration(86399.96, precision=0) == "1d"
     assert format_latency(12.34) == "12.3ms"
 
     # 4. Severity & Code span

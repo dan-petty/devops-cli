@@ -5,6 +5,8 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING, Any
 
+from devops_cli.exceptions.valkey import ValkeyConnectionError, ValkeyTimeoutError
+
 if TYPE_CHECKING:
     from devops_cli.valkey.client import ValkeyClient
 
@@ -94,13 +96,14 @@ class ValkeyTokenBucketRateLimiter:
                 str(cost),
                 str(now_ts),
             )
-            if isinstance(res, list) and len(res) >= 1:
-                allowed = bool(res[0] == 1)
-                remaining = int(res[1]) if len(res) > 1 else 0
-                retry_ms = float(res[2]) if len(res) > 2 else 0.0
-                return allowed, remaining, round(retry_ms / 1000.0, 3)
-        except Exception:
-            # In case of Valkey network failure, fail-open to preserve availability
+        except ValkeyConnectionError, ValkeyTimeoutError, OSError, TimeoutError:
+            # In case of Valkey network or socket failure, fail-open to preserve availability
             return True, self.burst_capacity, 0.0
+
+        if isinstance(res, list) and len(res) >= 1:
+            allowed = bool(res[0] == 1)
+            remaining = int(res[1]) if len(res) > 1 else 0
+            retry_ms = float(res[2]) if len(res) > 2 else 0.0
+            return allowed, remaining, round(retry_ms / 1000.0, 3)
 
         return True, self.burst_capacity, 0.0

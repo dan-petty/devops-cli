@@ -165,14 +165,26 @@ def verify_project_auth_scopes() -> None:
     )
     if proc.returncode != 0:
         err = f"{proc.stderr or ''} {proc.stdout or ''}".lower()
-        if "missing required scopes" in err or "read:project" in err or "project" in err:
+        scope_error_patterns = (
+            "missing required scopes",
+            "insufficient_scopes",
+            "read:project",
+            "scope 'project'",
+            'scope "project"',
+            "project scope",
+            "oauth scope",
+            "requires additional permissions",
+            "requires the 'project' scope",
+            "need the 'project' scope",
+        )
+        if any(pattern in err for pattern in scope_error_patterns):
             raise GitHubOperationError(
                 "GitHub authentication token lacks 'project' scope. "
                 "Please run: gh auth refresh -s project,read:project or configure GH_TOKEN with project scope.",
                 operation="verify_project_auth_scopes",
                 details={"raw_error": proc.stderr.strip() if proc.stderr else proc.stdout.strip()},
             )
-        if "not logged in" in err:
+        if "not logged in" in err or "authentication required" in err:
             raise GitHubOperationError(
                 "GitHub CLI is not authenticated. Please run: gh auth login",
                 operation="verify_project_auth_scopes",

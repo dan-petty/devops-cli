@@ -130,42 +130,58 @@ def format_link(url: str, text: str | None = None) -> str:
     return f"[link={url}]{display}[/link]"
 
 
-def format_duration(seconds: float, *, precision: int = 2) -> str:
-    """Format a time duration into a concise, human-readable string."""
-    if seconds <= 0.0:
-        return "0.00s"
-    if seconds < 0.001:
-        return f"{seconds * 1_000_000:.0f}µs"
-    if seconds < 1.0:
-        return f"{seconds * 1000:.1f}ms"
-    if seconds < 60.0:
-        if precision == 0:
-            return f"{round(seconds)}s"
-        if precision == 1:
-            return f"{seconds:.1f}s"
-        return f"{seconds:.2f}s"
-    if seconds < 3600.0:
-        minutes, rem_sec = divmod(seconds, 60.0)
-        if rem_sec < 0.01:
-            return f"{int(minutes)}m"
-        if precision == 0:
-            rem_str = f" {round(rem_sec)}s" if round(rem_sec) > 0 else ""
-            return f"{int(minutes)}m{rem_str}"
-        if precision == 1:
-            return f"{int(minutes)}m {rem_sec:.1f}s"
-        if abs(rem_sec - round(rem_sec)) < 1e-4:
-            return f"{int(minutes)}m {int(rem_sec)}s"
-        return f"{int(minutes)}m {rem_sec:.2f}s"
-    if seconds < 86400.0:
-        hours, remainder = divmod(seconds, 3600.0)
-        minutes, rem_sec = divmod(remainder, 60.0)
-        parts = [f"{int(hours)}h"]
-        if minutes > 0 or rem_sec >= 1.0:
-            parts.append(f"{int(minutes)}m")
-        if rem_sec >= 1.0:
-            parts.append(f"{int(rem_sec)}s")
-        return " ".join(parts)
+def _format_seconds(seconds: float, precision: int) -> str:
+    """Format duration under 60 seconds with requested decimal precision."""
+    if precision == 0:
+        return f"{int(seconds)}s"
+    if precision == 1:
+        return f"{seconds:.1f}s"
+    return f"{seconds:.2f}s"
 
+
+def _format_minutes(seconds: float, precision: int) -> str:
+    """Format duration under 1 hour with minute and remainder second carrying."""
+    minutes, rem_sec = divmod(seconds, 60.0)
+    rem_sec = round(rem_sec, precision)
+    if rem_sec >= 60.0:
+        minutes += 1
+        rem_sec = 0.0
+    if minutes >= 60:
+        return f"{int(minutes // 60)}h"
+
+    if rem_sec < 1e-4:
+        return f"{int(minutes)}m"
+    if precision == 0:
+        return f"{int(minutes)}m {int(rem_sec)}s"
+    if precision == 1:
+        return f"{int(minutes)}m {rem_sec:.1f}s"
+    if abs(rem_sec - round(rem_sec)) < 1e-4:
+        return f"{int(minutes)}m {int(rem_sec)}s"
+    return f"{int(minutes)}m {rem_sec:.2f}s"
+
+
+def _format_hours(seconds: float) -> str:
+    """Format duration between 1 hour and 24 hours with minute and second carrying."""
+    hours, remainder = divmod(seconds, 3600.0)
+    minutes, rem_sec = divmod(remainder, 60.0)
+    if round(rem_sec) >= 60:
+        minutes += 1
+        rem_sec = 0.0
+    if minutes >= 60:
+        hours += 1
+        minutes = 0
+    if hours >= 24:
+        return f"{int(hours // 24)}d"
+    parts = [f"{int(hours)}h"]
+    if minutes > 0 or rem_sec >= 1.0:
+        parts.append(f"{int(minutes)}m")
+    if rem_sec >= 1.0:
+        parts.append(f"{int(rem_sec)}s")
+    return " ".join(parts)
+
+
+def _format_days(seconds: float) -> str:
+    """Format duration of 24 hours or greater."""
     days, remainder = divmod(seconds, 86400.0)
     hours, remainder = divmod(remainder, 3600.0)
     minutes, _ = divmod(remainder, 60.0)
@@ -175,6 +191,25 @@ def format_duration(seconds: float, *, precision: int = 2) -> str:
     if minutes > 0:
         parts.append(f"{int(minutes)}m")
     return " ".join(parts)
+
+
+def format_duration(seconds: float, *, precision: int = 2) -> str:
+    """Format a time duration into a concise, human-readable string."""
+    if seconds <= 0.0:
+        return "0.00s"
+    if seconds < 0.001:
+        return f"{seconds * 1_000_000:.0f}µs"
+    if seconds < 1.0:
+        return f"{seconds * 1000:.1f}ms"
+
+    rounded_total = round(seconds, precision)
+    if rounded_total < 60.0:
+        return _format_seconds(rounded_total, precision)
+    if rounded_total < 3600.0:
+        return _format_minutes(rounded_total, precision)
+    if rounded_total < 86400.0:
+        return _format_hours(rounded_total)
+    return _format_days(rounded_total)
 
 
 def format_latency(ms: float) -> str:
