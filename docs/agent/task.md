@@ -610,17 +610,21 @@
   - [x] Local workspace synchronized to `origin/main` (`git checkout main && git pull origin main`).
   - [x] Release status verified 100% clean and consistent (`uv run devops release status`).
 
-- [x] Phase 49.1: Release Branch `release/v0.2.13` Setup & Milestone v0.2.13 Preparation
+- [x] Phase 49.1: Release Branch `release/v0.2.13` Setup, Remote Branch Governance & Milestone v0.2.13 Issue Population (Issue #52, PR #51)
   - [x] Branch `release/v0.2.13` cut from `origin/main` at commit `28c8903` and pushed to `origin/release/v0.2.13`.
   - [x] Configured `.github/dependabot.yml` to target active release branch `release/v0.2.13`.
   - [x] Initialized `## [Unreleased]` section in `CHANGELOG.md` following Keep a Changelog format.
   - [x] Updated `docs/ROADMAP.md` and `docs/SDLC.md` establishing `v0.2.13` as active current release milestone.
   - [x] Hardened `close_repository_milestone` and `edit_milestone` in `src/devops_cli/github/` with automatic title preservation and signature inspection; authored unit tests in `tests/test_github_client.py` and `tests/test_github_milestones.py`.
+  - [x] Audited remote branches and deleted merged/superseded branches (`fix/ssh-register-key-prefix`, `docs/roadmap-v0.2.8-and-docs-dedup`), pruned local tracking branch `origin/release/v0.2.12`.
+  - [x] Codified strict remote branch lifecycle governance and zero-orphan branch mandate in `AGENTS.md`, `docs/ROUTINE_TASKS.md`, `docs/SDLC.md`, and Knowledge Base (`github_project_management.md`).
+  - [x] Codified active milestone GitHub resource & issue population mandate in `AGENTS.md`, `docs/ROUTINE_TASKS.md`, `docs/SDLC.md`, and Knowledge Base (`github_project_management.md`).
+  - [x] Proactively populated GitHub issues for all planned deliverables in Milestone `v0.2.13` (#52-#59), ensuring the open issues queue (`https://github.com/dan-petty/devops-cli/issues?q=is%3Aissue+state%3Aopen`) is populated with zero empty state.
 
 ---
 
 ### In-Progress Tasks (WIP)
-- [ ] Milestone `v0.2.13` Phase 49.2: Sub-Agent Local Offloading Engine & Agent Harness Slots (`devops_cli.ai.harness.slots`)
+- [ ] Milestone `v0.2.13` Phase 49.2: Sub-Agent Local Offloading Engine & Agent Harness Slots (`devops_cli.ai.harness.slots`) (Issue #53)
   - [ ] Modular Harness Slots (`ModelSlot`, `SkillSlot`, `ToolSlot`, `SubAgentSlot`)
   - [ ] "Big decides, small types, big checks" multi-tier synthesis protocol
   - [ ] Local open-weight offloading (Granite, Qwen2.5-Coder) for code exploration and AST symbol searching
@@ -628,9 +632,9 @@
 ---
 
 ### Pending Tasks
-- [ ] Phase 49.3: Interactive Terminal UI Dashboard (`devops dashboard` / `devops tui`)
-- [ ] Phase 49.4: Model Dependency Chaos Engineering Suite (`devops ai chaos-model`)
-- [ ] Phase 49.5: Agent Constellation Quiesce & Emergency Failover Controller (`devops ai quiesce`, `devops ai failover`)
-- [ ] Phase 49.6: Multi-Model LLM Benchmark Evaluation Harness (`devops ai benchmark --suite`)
-- [ ] Phase 49.7: Parallel Async Multi-File Review Worker Pool & Streaming Diff Parser
-- [ ] Phase 49.8: Logfire Structured AI Observability Bridge (`logfire`)
+- [ ] Phase 49.3: Interactive Terminal UI Dashboard (`devops dashboard` / `devops tui`) (Issue #54)
+- [ ] Phase 49.4: Model Dependency Chaos Engineering Suite (`devops ai chaos-model`) (Issue #55)
+- [ ] Phase 49.5: Agent Constellation Quiesce & Emergency Failover Controller (`devops ai quiesce`, `devops ai failover`) (Issue #56)
+- [ ] Phase 49.6: Multi-Model LLM Benchmark Evaluation Harness (`devops ai benchmark --suite`) (Issue #57)
+- [ ] Phase 49.7: Parallel Async Multi-File Review Worker Pool & Streaming Diff Parser (Issue #58)
+- [ ] Phase 49.8: Logfire Structured AI Observability Bridge (`logfire`) (Issue #59)

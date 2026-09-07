@@ -71,12 +71,16 @@ Every significant feature, structural refactoring, or tooling upgrade begins wit
    - Register milestones and strategic features in the Master Strategic Roadmap ([`docs/ROADMAP.md`](ROADMAP.md)).
    - Prioritize deliverables using the **Value vs. Effort Prioritization Matrix** (Quick Wins, Major Projects, Fill-Ins, Reconsider).
    - Synchronize pending milestones in [`docs/PENDING_FEATURES.md`](PENDING_FEATURES.md).
-3. **Transparent Task Status Tracking**:
+3. **Active Milestone GitHub Resource Population**:
+   - When cutting a new release branch or activating a milestone, proactively create GitHub tracking issues for all scheduled features from [`docs/ROADMAP.md`](ROADMAP.md).
+   - Link each issue to the active release milestone, apply declarative taxonomy labels (`type/*`, `scope/*`, `priority/*`), and synchronize to GitHub Projects v2.
+   - The open issues queue (`https://github.com/dan-petty/devops-cli/issues?q=is%3Aissue+state%3Aopen`) must never be left empty while an active milestone exists with planned deliverables.
+4. **Transparent Task Status Tracking**:
    - Maintain dynamic task status in [`docs/agent/task.md`](agent/task.md) divided into:
      - **Pending Tasks**: Queued deliverables and backlog milestones.
      - **In-Progress Tasks (WIP)**: Active focus items and files currently under modification.
      - **Completed Tasks**: Verified implementations, green test gates, and synchronized documentation.
-4. **Target Branch Selection**:
+5. **Target Branch Selection**:
    - Identify active release branch (`git fetch origin`, inspect `origin/release/vX.Y.Z`).
    - Create isolated topic branch from fresh upstream: `git checkout -b feat/<description> origin/release/vX.Y.Z`.
 
@@ -256,6 +260,7 @@ gitGraph
 #### Branch Governance & Hierarchy
 - **Zero Direct Commits to `main`**: All work occurs on dedicated topic branches (`feat/<desc>`, `fix/<desc>`, `docs/<desc>`, `refactor/<desc>`).
 - **PR Base Branch Targeting**: Topic PRs must target the active release branch (`--base release/vX.Y.Z`). Only release preparation PRs target `main`, titled strictly `feat(release): v<version>`.
+- **Strict Remote Branch Lifecycle Governance**: Every remote branch on `origin` must have an associated open Pull Request targeting the active release branch or `main`. Remote branches must be deleted immediately upon PR merge or supersession (`git push origin --delete <branch>` and `git fetch --prune origin`). Orphan remote branches are strictly prohibited.
 - **Atomic Conventional Commits & PR Titles**: All commit messages and PR titles must follow Conventional Commits: `feat(scope): ...`, `fix(scope): ...`, `docs(scope): ...`, `refactor(scope): ...`, `chore(scope): ...`. Release PR titles strictly follow `feat(release): v<version>`.
 - **Declarative Code Ownership (`.github/CODEOWNERS`)**: Pull requests automatically assign reviews based on touched file paths (Core CLI, AI/MCP, K8s, Security, CI/CD).
 - **Automated Dependency Updates (`.github/dependabot.yml`)**: Dependabot monitors `github-actions` and `pip` dependencies weekly, targeting active release branches with prefix `chore(deps)`.

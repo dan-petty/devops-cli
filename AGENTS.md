@@ -84,6 +84,10 @@ Before planning, implementing, debugging, refactoring, or reviewing code, consul
   - **Zero Direct Commits to `main`**: All work must be conducted on dedicated topic branches (`feat/<description>`, `fix/<description>`, `docs/<description>`, `refactor/<description>`).
   - **PR Base Branch Targeting**: Feature, fix, and refactoring PRs must target the active release branch (`--base release/v<version>`). Release branches target `main` when cutting an official release.
   - **Branch Freshness**: Always branch off fresh upstream tracking branches (`git fetch origin`).
+  - **Strict Remote Branch Lifecycle & PR Governance (Zero Orphan Remote Branches)**:
+    - Every remote topic or feature branch on `origin` MUST have an associated, open Pull Request targeting the active release branch (`release/v<version>`) or `main` (for official release PRs).
+    - **Immediate Deletion of Merged or Superseded Branches**: Once a PR is merged into its target branch, or if a branch's changes have been incorporated or superseded, the remote branch MUST be deleted immediately (`git push origin --delete <branch>`) and local tracking references pruned (`git fetch --prune origin`).
+    - **No Orphan Remote Branches**: Remote branches without an active PR or active development purpose are strictly prohibited. If updates from an old or dormant branch are still required, apply or cherry-pick them to the current active release branch / active PR, and delete the obsolete remote branch immediately.
 - **Commit Standards**:
   - Follow **Conventional Commits** (`feat(scope): ...`, `fix(scope): ...`, `refactor(scope): ...`, `docs(scope): ...`).
   - **Atomic Commits by Default**: Break multi-faceted work into small, logically self-contained commits with precise messages.
@@ -96,6 +100,15 @@ Before planning, implementing, debugging, refactoring, or reviewing code, consul
   - **Human-in-the-Loop Merging**: AI agents prepare clean commits, open/update PRs, monitor remote CI checks (`gh pr checks`), and leave merge approval to maintainers. Never merge autonomously.
   - **Active CI Monitoring & Remediation**: Actively monitor remote GitHub Actions status. If any check fails, inspect logs, diagnose root causes, push corrective commits, and verify green status.
 - **GitHub Projects, Issues, Views, Milestones & Label Governance (Project Management Integration)**:
+  - **Active Milestone GitHub Resource & Issue Population Mandate**:
+    - When cutting a new release branch or transitioning to a new active milestone, AI agents **MUST PROACTIVELY POPULATE GITHUB RESOURCES** (milestones, issues, project items, labels) for that active milestone.
+    - **Zero Empty Open Issues State**: The repository's open issues queue (`https://github.com/dan-petty/devops-cli/issues?q=is%3Aissue+state%3Aopen`) must **NEVER** be left empty while an active release milestone exists with planned deliverables in [`docs/ROADMAP.md`](docs/ROADMAP.md).
+    - Immediately upon milestone activation, AI agents must author formal tracking issues for every planned deliverable using standard templates (`.github/ISSUE_TEMPLATE/`), assigning:
+      - Canonical title following Conventional Commits (e.g. `feat(<scope>): <description>`).
+      - Milestone linkage (`--milestone "v<version>"`).
+      - Taxonomy labels matching `.github/labels.yml`: at least one `type/*`, one `scope/*`, and appropriate `priority/*` (`priority/p0-critical` through `priority/p3-low`).
+      - Clear problem statement, proposed architectural solution, and acceptance criteria.
+    - Synchronize the new issues into GitHub Projects v2 (`devops gh project sync` or FastMCP `gh_project_sync`), linking card lifecycles with [`docs/agent/task.md`](docs/agent/task.md) and PRs via closing keywords (`Closes #<issue>`).
   - **Issue Tracking, Triage & PR Linkage**:
     - Track all engineering issues, bug reports, feature requests, and technical chores using standardized issue templates (`.github/ISSUE_TEMPLATE/`: `bug_report.yml`, `feature_request.yml`, `security_advisory.yml`, `task.yml`).
     - Every PR addressing an issue MUST explicitly link to it using canonical GitHub closing keywords in the PR body (`Fixes #<issue>`, `Closes #<issue>`, `Resolves #<issue>`).
