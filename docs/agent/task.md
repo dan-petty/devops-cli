@@ -565,6 +565,10 @@
   - [x] Add comprehensive unit test matrix in `tests/test_output.py` verifying all duration ranges, boundary thresholds, negative values, and precision controls.
   - [x] Maintain green CI quality gates (`devops ci`), documentation synchronization, and zero-leakage security posture.
 
+- [x] Phase 48.9: Milestone Description Clean Up
+  - [x] Refine `extract_roadmap_milestones()` in `src/devops_cli/github/milestones.py` to assign milestone description strictly as `name` without appending status strings in parentheses.
+  - [x] Update test assertions in `tests/test_github_milestones.py` to verify milestone description purity and absence of status strings.
+
 ---
 
 ### In-Progress Tasks (WIP)

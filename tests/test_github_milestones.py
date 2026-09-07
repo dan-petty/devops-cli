@@ -36,7 +36,13 @@ def test_extract_roadmap_milestones(tmp_path: Path) -> None:
     assert "v0.2.12" in titles
     assert "v0.2.13" in titles
     valkey_spec = next(s for s in specs if s.title == "v0.2.12")
-    assert "Valkey Management" in valkey_spec.description
+    assert valkey_spec.description == "Valkey Management"
+    assert "Scheduled" not in valkey_spec.description
+
+    core_spec = next(s for s in specs if s.title == "v0.0.1")
+    assert core_spec.description == "Core Foundation"
+    assert "Completed" not in core_spec.description
+    assert core_spec.state == "closed"
 
 
 def test_diff_milestones() -> None:

@@ -67,7 +67,7 @@ def extract_roadmap_milestones(
         status = (match.group(3) or "").strip()
 
         state = "closed" if status.lower() == "completed" else "open"
-        description = f"{name} ({status})" if status else name
+        description = name
 
         specs.append(
             MilestoneSpec(
