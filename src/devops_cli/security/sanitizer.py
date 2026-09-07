@@ -132,9 +132,13 @@ def mask_uri_credentials(uri: str) -> str:
             user = parts.username or ""
             host = parts.hostname or ""
             port = f":{parts.port}" if parts.port else ""
-            netloc = f"{user}:***@{host}{port}"
+            netloc = f"{user}:***@{host}{port}" if user else f"***@{host}{port}"
             return urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment))
     except Exception:
         pass
     # Regex fallback
-    return re.sub(r"://([^:]+):([^@]+)@", r"://\1:***@", uri)
+    return re.sub(
+        r"://(?:([^:]*):)?([^@]+)@",
+        lambda m: f"://{m.group(1)}:***@" if m.group(1) else "://***@",
+        uri,
+    )

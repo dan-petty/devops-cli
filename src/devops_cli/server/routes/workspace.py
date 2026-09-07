@@ -88,6 +88,43 @@ async def list_workspaces() -> WorkspacesResponse:
     )
 
 
+def _is_secret_field(key: str, full_path: str, secret_options: frozenset[str]) -> bool:
+    """Predicate to determine if a config key or dotted path represents a secret."""
+    if full_path in secret_options:
+        return True
+    key_lower = key.lower()
+    if key_lower.startswith("non_"):
+        return False
+    if key_lower in {"token", "password", "secret", "api_key", "private_key"}:
+        return True
+    parts = set(key_lower.split("_"))
+    if parts & {"token", "password", "secret", "private"}:
+        return True
+
+    return any(
+        key_lower.endswith(sfx)
+        for sfx in ("_token", "_password", "_secret", "_api_key", "_private_key")
+    )
+
+
+def _redact_config_dict(
+    data: dict[str, Any],
+    secret_options: frozenset[str],
+    prefix: str = "",
+) -> dict[str, Any]:
+    """Recursively redact dictionary values matching secret keys, paths, or keywords."""
+    sanitized: dict[str, Any] = {}
+    for k, v in data.items():
+        full_path = f"{prefix}.{k}" if prefix else k
+        if isinstance(v, dict):
+            sanitized[k] = _redact_config_dict(v, secret_options, full_path)
+        elif _is_secret_field(k, full_path, secret_options):
+            sanitized[k] = "***REDACTED***" if v else None
+        else:
+            sanitized[k] = v
+    return sanitized
+
+
 @router.get("/config", response_model=ConfigResponse, summary="Get sanitized configuration")
 async def get_configuration() -> ConfigResponse:
     """Retrieve active non-secret configuration parameters."""
@@ -95,20 +132,9 @@ async def get_configuration() -> ConfigResponse:
 
     settings = Settings()
     config_dict = settings.model_dump(mode="json")
-
-    # Sanitize any sensitive tokens/keys
-    for sec_opt in SECRET_CONFIG_OPTIONS:
-        if "." in sec_opt:
-            section, key = sec_opt.split(".", 1)
-            if (
-                section in config_dict
-                and isinstance(config_dict[section], dict)
-                and key in config_dict[section]
-            ):
-                val = config_dict[section][key]
-                config_dict[section][key] = "***REDACTED***" if val else None
+    sanitized_config = _redact_config_dict(config_dict, SECRET_CONFIG_OPTIONS)
 
     return ConfigResponse(
         status="ok",
-        config=config_dict,
+        config=sanitized_config,
     )

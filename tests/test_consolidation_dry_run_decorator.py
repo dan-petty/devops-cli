@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -32,6 +33,10 @@ def test_dry_run_command_executes_when_dry_run_false() -> None:
 def test_dry_run_command_intercepts_when_kwarg_dry_run_true() -> None:
     """When dry_run=True is passed as kwarg, function body is NOT executed and dry run is rendered."""
     mock_fn = MagicMock()
+    observed_state_during_render: dict[str, bool] = {}
+
+    def fake_render(**kwargs: Any) -> None:
+        observed_state_during_render["active"] = is_dry_run()
 
     @dry_run_command(
         command="devops test cmd",
@@ -42,7 +47,9 @@ def test_dry_run_command_intercepts_when_kwarg_dry_run_true() -> None:
     def sample_cmd(name: str, chart: str, ns: str = "default", dry_run: bool = False) -> None:
         mock_fn()
 
-    with patch("devops_cli.dry_run.decorator.render_dry_run_result") as mock_render:
+    with patch(
+        "devops_cli.dry_run.decorator.render_dry_run_result", side_effect=fake_render
+    ) as mock_render:
         res = sample_cmd("my-release", "nginx", ns="prod", dry_run=True)
         assert res is None
         mock_fn.assert_not_called()
@@ -52,7 +59,24 @@ def test_dry_run_command_intercepts_when_kwarg_dry_run_true() -> None:
             target="my-release",
             details={"chart": "nginx", "ns": "prod"},
         )
-        assert is_dry_run()
+        assert observed_state_during_render.get("active") is True
+        assert not is_dry_run(), "is_dry_run() must be restored to False after execution"
+
+
+def test_dry_run_command_restores_state_on_exception() -> None:
+    """When render_dry_run_result raises an exception, original dry-run state is still restored."""
+
+    @dry_run_command(command="devops err", action="error_action")
+    def sample_cmd(dry_run: bool = False) -> None:
+        pass
+
+    with patch(
+        "devops_cli.dry_run.decorator.render_dry_run_result",
+        side_effect=RuntimeError("Render failure"),
+    ):
+        with pytest.raises(RuntimeError):
+            sample_cmd(dry_run=True)
+    assert not is_dry_run(), "is_dry_run() must be restored even if an exception occurs"
 
 
 def test_dry_run_command_intercepts_when_global_dry_run_active() -> None:
