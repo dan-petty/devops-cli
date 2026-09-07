@@ -370,9 +370,29 @@ def test_rich_formatters() -> None:
     )
 
     # 3. Durations & Latency
+    assert format_duration(0.0) == "0.00s"
+    assert format_duration(-5.0) == "0.00s"
     assert format_duration(0.0005) == "500µs"
     assert format_duration(0.05) == "50.0ms"
     assert format_duration(2.5) == "2.50s"
+    assert format_duration(59.9) == "59.90s"
+    assert format_duration(60.0) == "1m"
+    assert format_duration(65.0) == "1m 5s"
+    assert format_duration(92.27) == "1m 32.27s"
+    assert format_duration(120.0) == "2m"
+    assert format_duration(3600.0) == "1h"
+    assert format_duration(3665.0) == "1h 1m 5s"
+    assert format_duration(86400.0) == "1d"
+    assert format_duration(90060.0) == "1d 1h 1m"
+    assert format_duration(92.27, precision=1) == "1m 32.3s"
+    assert format_duration(92.27, precision=0) == "1m 32s"
+    # Boundary carrying tests (prevent "1m 60s", "59m 60s" etc.)
+    assert format_duration(59.96, precision=0) == "1m"
+    assert format_duration(59.96, precision=1) == "1m"
+    assert format_duration(119.6, precision=0) == "2m"
+    assert format_duration(119.96, precision=1) == "2m"
+    assert format_duration(3599.96, precision=1) == "1h"
+    assert format_duration(86399.96, precision=0) == "1d"
     assert format_latency(12.34) == "12.3ms"
 
     # 4. Severity & Code span

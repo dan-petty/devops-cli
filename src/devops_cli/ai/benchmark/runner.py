@@ -29,6 +29,7 @@ from devops_cli.output import (
     format_benchmark_category_table,
     format_benchmark_leaderboard_table,
     format_benchmark_server_table,
+    format_duration,
     print,
     print_info,
     write_stdout,
@@ -55,7 +56,9 @@ def _get_benchmarks_base_dir() -> Path:
 
 def _format_model_peer_feedback(m: Any, peer_grades: list[Any]) -> list[str]:
     """Format peer review strengths and improvement areas for a candidate model."""
-    score_info = f"{m.overall_percentage:.1f}% Score | {m.average_duration_seconds:.1f}s Latency"
+    score_info = (
+        f"{m.overall_percentage:.1f}% Score | {format_duration(m.average_duration_seconds)} Latency"
+    )
     lines: list[str] = [f"### `{m.model}` ({score_info})\n"]
     m_grades = [
         g for g in peer_grades if g.candidate_model == m.model and g.evaluator_model != m.model
@@ -289,7 +292,7 @@ class BenchmarkRunner:
                     f"  ✓ task=[cyan]{task.id}[/cyan] | "
                     f"model=[bold]{model_name}[/bold] | "
                     f"backend=[dim]{backend}[/dim] | "
-                    f"[yellow]{duration:.1f}s[/yellow]",
+                    f"[yellow]{format_duration(duration)}[/yellow]",
                     prefix=False,
                 )
             return TaskResponse(
@@ -308,7 +311,7 @@ class BenchmarkRunner:
                     f"  ✗ task=[cyan]{task.id}[/cyan] | "
                     f"model=[bold]{model_name}[/bold] | "
                     f"backend=[dim]{backend}[/dim] | "
-                    f"[yellow]{duration:.1f}s[/yellow] (failed)",
+                    f"[yellow]{format_duration(duration)}[/yellow] (failed)",
                     prefix=False,
                 )
             return TaskResponse(
@@ -422,7 +425,7 @@ class BenchmarkRunner:
                 f"judge=[bold]{evaluator_model}[/bold] | "
                 f"candidate=[dim]{candidate_model}[/dim] | "
                 f"backend=[dim]{backend}[/dim] | "
-                f"[yellow]{grade_dur:.1f}s[/yellow] → [bold]{grade.percentage:.1f}%[/bold]",
+                f"[yellow]{format_duration(grade_dur)}[/yellow] → [bold]{grade.percentage:.1f}%[/bold]",
                 prefix=False,
             )
         return grade
@@ -1019,7 +1022,7 @@ class BenchmarkRunner:
                 f"{model_summary.peer_only_percentage:.1f}% | {model_summary.accuracy_avg * 10.0:.1f}% | "
                 f"{model_summary.security_avg * 10.0:.1f}% | {model_summary.completeness_avg * 10.0:.1f}% | "
                 f"{model_summary.clarity_avg * 10.0:.1f}% | {model_summary.judge_weight:.2f} | "
-                f"{model_summary.average_duration_seconds:.1f}s | {self_bias_str} |"
+                f"{format_duration(model_summary.average_duration_seconds)} | {self_bias_str} |"
             )
             lines.append(row)
 
@@ -1077,8 +1080,8 @@ class BenchmarkRunner:
                     speed_str = "1.00x"
 
                 lines.append(
-                    f"| `{server_summary.server}` | {server_summary.generation_duration_avg:.1f}s | {speed_str} | "
-                    f"{server_summary.total_duration_seconds:.1f}s | {server_summary.tasks_generated_count} | "
+                    f"| `{server_summary.server}` | {format_duration(server_summary.generation_duration_avg)} | {speed_str} | "
+                    f"{format_duration(server_summary.total_duration_seconds)} | {server_summary.tasks_generated_count} | "
                     f"{server_summary.avg_score_awarded:.1f}% | {bias_str} | {lat_breakdown or '-'} |"
                 )
 

@@ -55,6 +55,19 @@ AI_RAG_EMBEDDING_URL = "ai.rag.embedding_url"
 AI_RAG_TOP_K = "ai.rag.top_k"
 AI_RAG_SCORE_THRESHOLD = "ai.rag.score_threshold"
 
+# Qdrant Vector Database
+QDRANT_URL = "qdrant.url"
+QDRANT_API_KEY = "qdrant.api_key"
+QDRANT_COLLECTION_PREFIX = "qdrant.collection_prefix"
+
+# Valkey In-Memory Data Store & Distributed Cache
+VALKEY_HOST = "valkey.host"
+VALKEY_PORT = "valkey.port"
+VALKEY_PASSWORD = "valkey.password"
+VALKEY_DB = "valkey.db"
+VALKEY_TIMEOUT = "valkey.timeout"
+AI_CACHE_BACKEND = "ai.cache.backend"
+
 # Data Storage & Artifact Paths
 DATA_DIR = "data.dir"
 DATA_ANALYSIS_DIR = "data.analysis_dir"
@@ -122,6 +135,15 @@ CONFIG_OPTIONS: tuple[str, ...] = (
     AI_RAG_EMBEDDING_URL,
     AI_RAG_TOP_K,
     AI_RAG_SCORE_THRESHOLD,
+    QDRANT_URL,
+    QDRANT_API_KEY,
+    QDRANT_COLLECTION_PREFIX,
+    VALKEY_HOST,
+    VALKEY_PORT,
+    VALKEY_PASSWORD,
+    VALKEY_DB,
+    VALKEY_TIMEOUT,
+    AI_CACHE_BACKEND,
     DATA_DIR,
     DATA_ANALYSIS_DIR,
     DATA_REVIEWS_DIR,
@@ -143,6 +165,8 @@ SECRET_CONFIG_OPTIONS: frozenset[str] = frozenset(
         ARGOCD_TOKEN,
         ARGOCD_PASSWORD,
         AI_API_KEY,
+        QDRANT_API_KEY,
+        VALKEY_PASSWORD,
     }
 )
 
@@ -153,4 +177,6 @@ KEYRING_KEYS: dict[str, str] = {
     ARGOCD_TOKEN: "argocd_token",
     ARGOCD_PASSWORD: "argocd_password",
     AI_API_KEY: "ai_api_key",
+    QDRANT_API_KEY: "qdrant_api_key",
+    VALKEY_PASSWORD: "valkey_password",
 }

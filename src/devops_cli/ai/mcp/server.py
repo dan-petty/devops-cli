@@ -854,6 +854,31 @@ def gh_project_status() -> str:
 
 
 @mcp.tool()
+def gh_milestone_close(version: str, repo: str | None = None) -> str:
+    """Close a repository milestone matching the given version or title."""
+    _validate_mcp_arg("version", version)
+    cmd = ["uv", "run", "devops", "gh", "milestones", "close", version]
+    if repo:
+        _validate_mcp_arg("repo", repo)
+        cmd.extend(["--repo", repo])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def gh_project_sync(repo: str | None = None, dry_run: bool = True) -> str:
+    """Synchronize task items from task.md into GitHub Projects v2 status."""
+    cmd = ["uv", "run", "devops", "gh", "project", "sync"]
+    if dry_run:
+        cmd.append("--dry-run")
+    else:
+        cmd.append("--no-dry-run")
+    if repo:
+        _validate_mcp_arg("repo", repo)
+        cmd.extend(["--repo", repo])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
 def gh_view_spec() -> str:
     """Return JSON specification for GitHub Projects v2 views."""
     return _run_mcp_cmd(
@@ -1124,7 +1149,7 @@ def branches_list(remote: bool = True) -> str:
     """List git branches across repositories with tracking status and stale detection."""
     cmd = ["uv", "run", "devops", "branches", "list"]
     if remote:
-        cmd.append("--remote")
+        cmd.append("--all")
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
@@ -1149,11 +1174,78 @@ def pr_checks(pr_number: int) -> str:
     )
 
 
+@mcp.tool()
+def valkey_ping() -> str:
+    """Test connection and measure latency to the workstation Valkey server."""
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "valkey", "ping"],
+        timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.tool()
+def valkey_info(section: str | None = None) -> str:
+    """Inspect Valkey server configuration, memory allocation, and operational metrics."""
+    cmd = ["uv", "run", "devops", "valkey", "info"]
+    if section:
+        _validate_mcp_arg("section", section)
+        cmd.extend(["--section", section])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def valkey_stats() -> str:
+    """Display quick diagnostic summary of Valkey server health, memory, and keys."""
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "valkey", "stats"],
+        timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.tool()
+def valkey_get(key: str) -> str:
+    """Retrieve string value stored at Valkey key."""
+    _validate_mcp_arg("key", key)
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "valkey", "get", key],
+        timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.tool()
+def valkey_set(key: str, value: str, ex: int | None = None) -> str:
+    """Set string value of Valkey key with optional expiration TTL in seconds."""
+    _validate_mcp_arg("key", key)
+    cmd = ["uv", "run", "devops", "valkey", "set", key, value]
+    if ex is not None:
+        _validate_mcp_int_bound("ex", ex, min_val=1)
+        cmd.extend(["--ex", str(ex)])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def valkey_flush(all_databases: bool = False) -> str:
+    """Flush and purge keys from current or all Valkey databases."""
+    cmd = ["uv", "run", "devops", "valkey", "flush"]
+    if all_databases:
+        cmd.append("--all")
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS)
+
+
 @mcp.resource("resource://vault/status")
 def get_vault_resource() -> str:
     """Return live HashiCorp Vault cluster health, sealing, and initialization status."""
     return _run_mcp_cmd(
         ["uv", "run", "devops", "vault", "status"],
+        timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.resource("resource://valkey/status")
+def get_valkey_resource() -> str:
+    """Return live Valkey caching server status, memory usage, and health."""
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "valkey", "stats"],
         timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
     )
 

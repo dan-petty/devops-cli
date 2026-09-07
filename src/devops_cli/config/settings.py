@@ -144,6 +144,16 @@ class QdrantConfig(BaseModel):
     model_config = ConfigDict(frozen=False)
     url: str | None = DEFAULT_QDRANT_URL
     collection_prefix: str = "devops"
+    api_key: str | None = None
+
+
+class ValkeyConfig(BaseModel):
+    model_config = ConfigDict(frozen=False)
+    host: str = "localhost"
+    port: int = 6379
+    password: str | None = None
+    db: int = 0
+    timeout: float = 2.0
 
 
 class JaegerConfig(BaseModel):
@@ -171,6 +181,7 @@ class AIRAGConfig(BaseModel):
 class AICacheConfig(BaseModel):
     model_config = ConfigDict(frozen=False)
     enabled: bool = DEFAULT_LLM_CACHE_ENABLED
+    backend: str = "file"  # "file" | "valkey" | "memory"
     dir: Path = DEFAULT_LLM_CACHE_DATA_DIR
     ttl_seconds: int = DEFAULT_LLM_CACHE_TTL_SECONDS
     max_entries: int = DEFAULT_LLM_CACHE_MAX_ENTRIES
@@ -328,6 +339,7 @@ class Settings(BaseSettings):
     prometheus: PrometheusConfig = PrometheusConfig()
     argocd: ArgoCDConfig = ArgoCDConfig()
     qdrant: QdrantConfig = QdrantConfig()
+    valkey: ValkeyConfig = ValkeyConfig()
     jaeger: JaegerConfig = JaegerConfig()
     telemetry: TelemetryConfig = TelemetryConfig()
     ai: AIConfig = AIConfig()
@@ -552,6 +564,14 @@ def get_argocd_password(settings: Settings) -> str | None:
 
 def get_ai_api_key(settings: Settings) -> str | None:
     return _keyring_get(_KEYRING_KEYS[opt.AI_API_KEY])
+
+
+def get_qdrant_api_key(settings: Settings) -> str | None:
+    return _keyring_get(_KEYRING_KEYS[opt.QDRANT_API_KEY]) or settings.qdrant.api_key
+
+
+def get_valkey_password(settings: Settings) -> str | None:
+    return _keyring_get(_KEYRING_KEYS[opt.VALKEY_PASSWORD]) or settings.valkey.password
 
 
 def get_llm_client(task: str | None = None) -> Any:

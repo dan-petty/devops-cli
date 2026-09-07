@@ -67,6 +67,11 @@ and domain categorization for all exceptions inheriting from `DevOpsCLIError`.
 | `USAGE_LIMIT_EXCEEDED` | `24` | Ai | Raised when an agent run exceeds configured request or token limits. |
 | `USER_ERROR` | `21` | Ai | Raised when an invalid configuration or argument is provided by the application developer. |
 | `VALIDATION_ERROR` | `1` | Validation | Base exception for user input and format validation failures. |
+| `VALKEY_AUTHENTICATION_ERROR` | `1` | Valkey | Raised when Valkey password authentication fails. |
+| `VALKEY_COMMAND_ERROR` | `1` | Valkey | Raised when a Valkey command execution returns an error from server. |
+| `VALKEY_CONNECTION_ERROR` | `1` | Valkey | Raised when connection to Valkey instance fails, times out, or drops. |
+| `VALKEY_ERROR` | `1` | Valkey | Base exception for Valkey workstation and caching operations. |
+| `VALKEY_TIMEOUT_ERROR` | `1` | Valkey | Raised when a Valkey socket operation exceeds timeout. |
 | `VAULT_CONFIGURATION_ERROR` | `1` | Vault | Raised when Vault environment or connection settings are missing or invalid. |
 | `VAULT_ERROR` | `1` | Vault | Base exception for HashiCorp Vault operations. |
 | `VAULT_KEY_ERROR` | `1` | Vault | Raised when a secret key or field is not found in Vault. |

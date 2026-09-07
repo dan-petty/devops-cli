@@ -92,6 +92,12 @@ class TestMcpServer:
             "k8s_enable_tls",
             "telemetry_status",
             "telemetry_test_span",
+            "valkey_ping",
+            "valkey_info",
+            "valkey_stats",
+            "valkey_get",
+            "valkey_set",
+            "valkey_flush",
         }
         assert expected.issubset(tool_names), f"Missing tools: {expected - tool_names}"
 
@@ -481,3 +487,87 @@ def test_mcp_integer_bounds_validation() -> None:
 
     with pytest.raises(ValidationError, match="max_depth"):
         ai_architecture(target="src", max_depth=0)
+
+
+class TestValkeyMcpTools:
+    """Tests for Valkey FastMCP tools and system resource."""
+
+    def test_valkey_ping(self) -> None:
+        from devops_cli.ai.mcp.server import valkey_ping
+
+        with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="PONG") as mock:
+            res = valkey_ping()
+            assert res == "PONG"
+            mock.assert_called_once()
+            args = mock.call_args[0][0]
+            assert "valkey" in args
+            assert "ping" in args
+
+    def test_valkey_info(self) -> None:
+        from devops_cli.ai.mcp.server import valkey_info
+
+        with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="info table") as mock:
+            res = valkey_info(section="memory")
+            assert res == "info table"
+            mock.assert_called_once()
+            args = mock.call_args[0][0]
+            assert "info" in args
+            assert "--section" in args
+            assert "memory" in args
+
+    def test_valkey_stats(self) -> None:
+        from devops_cli.ai.mcp.server import valkey_stats
+
+        with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="stats table") as mock:
+            res = valkey_stats()
+            assert res == "stats table"
+            mock.assert_called_once()
+            args = mock.call_args[0][0]
+            assert "stats" in args
+
+    def test_valkey_get(self) -> None:
+        from devops_cli.ai.mcp.server import valkey_get
+
+        with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="my-value") as mock:
+            res = valkey_get(key="user:100")
+            assert res == "my-value"
+            mock.assert_called_once()
+            args = mock.call_args[0][0]
+            assert "get" in args
+            assert "user:100" in args
+
+    def test_valkey_set(self) -> None:
+        from devops_cli.ai.mcp.server import valkey_set
+
+        with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="Success") as mock:
+            res = valkey_set(key="token", value="xyz", ex=300)
+            assert res == "Success"
+            mock.assert_called_once()
+            args = mock.call_args[0][0]
+            assert "set" in args
+            assert "token" in args
+            assert "xyz" in args
+            assert "--ex" in args
+            assert "300" in args
+
+    def test_valkey_flush(self) -> None:
+        from devops_cli.ai.mcp.server import valkey_flush
+
+        with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="Flushed") as mock:
+            res = valkey_flush(all_databases=True)
+            assert res == "Flushed"
+            mock.assert_called_once()
+            args = mock.call_args[0][0]
+            assert "flush" in args
+            assert "--all" in args
+
+    def test_valkey_resource(self) -> None:
+        from devops_cli.ai.mcp.server import get_valkey_resource
+
+        with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="live status") as mock:
+            res = get_valkey_resource()
+            assert res == "live status"
+            mock.assert_called_once()
+            args = mock.call_args[0][0]
+            assert "valkey" in args
+            assert "stats" in args

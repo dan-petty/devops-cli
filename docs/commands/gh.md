@@ -113,6 +113,26 @@ devops gh milestones status [OPTIONS] <name>
 |---|---|---|---|
 | `--repo`, `-R` | `string` | - | Target repository |
 
+### `devops gh milestones close`
+
+**Close a repository release milestone by title or version.**
+
+```bash
+devops gh milestones close [OPTIONS] <name>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<name>` | `string` | Yes | Milestone version or title (e.g. v0.2.11) |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Target repository |
+
 ---
 
 ## `devops gh project`
@@ -137,7 +157,7 @@ devops gh project status [OPTIONS]
 
 ### `devops gh project sync`
 
-**Synchronize task.md lifecycle items into GitHub Projects v2 status.**
+**Sync task items from task.md into GitHub Projects status.**
 
 ```bash
 devops gh project sync [OPTIONS]
@@ -148,7 +168,29 @@ devops gh project sync [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--task-file`, `-f` | `path` | `docs/agent/task.md` | Path to docs/agent/task.md |
-| `--dry-run` | `boolean` | `True` | Preview task card items without sending mutations |
+| `--template`, `-t` | `path` | `.github/project-template.json` | Path to project template JSON |
+| `--repo`, `-R` | `string` | - | Target repository |
+| `--dry-run`, `--no-dry-run` | `boolean` | - | Preview task card items without remote mutations |
+
+### `devops gh project link`
+
+**Link a GitHub Project v2 board to the repository.**
+
+```bash
+devops gh project link [OPTIONS] <project_number>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<project_number>` | `integer` | Yes | GitHub Projects v2 board number |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Target repository |
 
 ### `devops gh project template`
 

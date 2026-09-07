@@ -366,10 +366,12 @@ def _print_failures(results: list[CheckResult]) -> None:
 
 def _print_summary(results: list[CheckResult], total_elapsed: float) -> None:
     """Render the final formatted CI Summary table."""
+    from devops_cli.output import format_duration
+
     rows: list[list[str]] = []
     for res in results:
         status_text = "[green]✓ pass[/green]" if res.passed else "[red]✗ fail[/red]"
-        dur_text = f"{res.duration_seconds:.2f}s" if res.duration_seconds > 0 else "<0.01s"
+        dur_text = format_duration(res.duration_seconds) if res.duration_seconds > 0 else "<0.01s"
         rows.append([res.name, status_text, dur_text])
 
     _get("print_table")(
@@ -377,7 +379,9 @@ def _print_summary(results: list[CheckResult], total_elapsed: float) -> None:
         columns=[(MESSAGES.ci.col_check, "cyan"), MESSAGES.ci.col_result, ("Duration", "dim")],
         rows=rows,
     )
-    _get("print_muted")(f"Total Elapsed: {total_elapsed:.2f}s (concurrent async execution)\n")
+    _get("print_muted")(
+        f"Total Elapsed: {format_duration(total_elapsed)} (concurrent async execution)\n"
+    )
 
 
 @app.callback(invoke_without_command=True)

@@ -1,0 +1,94 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: monitoring-default-perimeter
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # 1. Allow intra-namespace pod communications (Prometheus, Grafana, node-exporter, kube-state-metrics)
+    - from:
+        - podSelector: {}
+    # 2. Allow external ingress to Grafana (3000) and Prometheus (9090) via NodePort, LoadBalancer, or ingress controllers (0.0.0.0/0)
+    - from:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - protocol: TCP
+          port: 3000
+        - protocol: TCP
+          port: 9090
+    # 3. Allow OpenTelemetry collector to push metrics to Prometheus remote write receiver (9090)
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: otel
+      ports:
+        - protocol: TCP
+          port: 9090
+  egress:
+    # 1. Allow intra-namespace pod communications
+    - to:
+        - podSelector: {}
+    # 2. Allow CoreDNS lookups in kube-system
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # 3. Allow Kubernetes API server and kubelet metrics scraping
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: default
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 6443
+        - protocol: TCP
+          port: 8443
+        - protocol: TCP
+          port: 10250
+    # 4. Allow cross-namespace metrics scraping (LLM and OTel)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: llm
+      ports:
+        - protocol: TCP
+          port: 6333
+        - protocol: TCP
+          port: 11434
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: otel
+      ports:
+        - protocol: TCP
+          port: 8888
+        - protocol: TCP
+          port: 16686
+    # 5. Outbound external egress (e.g. Grafana plugins/alerts) with cloud metadata SSRF strictly blocked
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 169.254.169.254/32
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 80

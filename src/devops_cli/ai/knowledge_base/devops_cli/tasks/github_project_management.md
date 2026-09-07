@@ -67,6 +67,9 @@ devops gh milestones sync
 
 # Inspect health and completion metrics for a specific milestone
 devops gh milestones status v0.2.11
+
+# Close a release milestone upon release merge or publish
+devops gh milestones close v0.2.11
 ```
 
 ### Project & Views Inspection Commands
@@ -74,8 +77,14 @@ devops gh milestones status v0.2.11
 # Display project template summary, custom fields, and views
 devops gh project status
 
+# Synchronize task.md item cards, provision fields, and link project
+devops gh project sync
+
 # Preview task.md item synchronization into project statuses
 devops gh project sync --dry-run
+
+# Link an existing project board to the repository
+devops gh project link 1
 
 # Inspect all 4 standardized project views in Rich table format
 devops gh views list
@@ -91,10 +100,12 @@ devops gh views spec
 1. **Mandatory PR Taxonomy Labels**:
    - Every Pull Request must be labeled with at least one **type** (`type/feature`, `type/bug`, `type/refactor`, `type/docs`, `type/infra`, `type/test`, `type/security`, `type/chore`).
    - Every Pull Request must be labeled with at least one **scope** (`scope/ai`, `scope/k8s`, `scope/cli`, `scope/review`, `scope/config`, `scope/security`, `scope/infra`, `scope/docs`, `scope/test`).
-2. **Roadmap-Driven Milestones**:
+2. **Roadmap-Driven Milestones & Closure**:
    - Milestones must originate from `docs/ROADMAP.md` chronological headings (e.g. `### Feature Topic (vX.Y.Z - Status)`).
    - Pull requests targeting a release branch must link to the corresponding milestone.
-3. **Projects v2 Item State Transitions**:
+   - Upon release PR squash-merge or cutting a release, close the completed milestone via `devops gh milestones close <version>` to avoid milestone staleness.
+3. **Projects v2 Item State Transitions & Linking**:
+   - Ensure the project board is linked to the repository via `devops gh project link <number>`.
    - When beginning a task: transition card from `Backlog` to `In Progress`.
    - When PR is submitted: transition card to `In Review`.
    - When PR is merged: transition card to `Done`.
@@ -107,8 +118,8 @@ devops gh views spec
 - **Zero-Plaintext Credentials**: GitHub tokens must be retrieved from the OS Keyring (`github_token`) or environment variable (`GITHUB_TOKEN`), never hardcoded or logged.
 - **Granular Token Scopes**:
   - Labels and Milestones require `repo` scope.
-  - Projects v2 mutations require `project` or `read:project` scopes. When scopes are restricted, `devops gh` falls back gracefully and preserves read-only/offline functionality.
-- **Dry-Run Default for Project Sync**: All task item and project synchronization commands default to safe dry-runs.
+  - Projects v2 mutations require `project` or `read:project` scopes. When scopes are restricted, `devops gh` falls back gracefully with clear instructions (`gh auth refresh -s project,read:project`) and preserves read-only/offline functionality.
+- **Dry-Run Mode for Project Sync**: Task items and project synchronization can be simulated without remote mutations using `--dry-run`.
 
 ---
 
@@ -119,8 +130,8 @@ devops gh views spec
   - Project Template: [`.github/project-template.json`](../../../../../../.github/project-template.json)
 - **FastMCP Tool Integration**: AI coding agents can interact with GitHub governance via MCP tools:
   - `gh_label_list`, `gh_label_sync`
-  - `gh_milestone_list`, `gh_milestone_sync`
-  - `gh_project_status`, `gh_view_spec`
+  - `gh_milestone_list`, `gh_milestone_sync`, `gh_milestone_close`
+  - `gh_project_status`, `gh_project_sync`, `gh_view_spec`
 
 ---
 

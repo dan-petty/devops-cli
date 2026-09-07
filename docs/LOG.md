@@ -2,6 +2,75 @@
 
 Chronological log of refactoring milestones, quality gates, and security enhancements.
 
+### [2026-09-07] Release v0.2.12: Valkey Workstation Management, Distributed Caching Tier & Release Preparation
+- **Valkey Workstation Management & High-Performance Distributed Caching Tier**:
+  - Authored pure-Python synchronous RESP2/RESP3 wire protocol encoder and parser (`src/devops_cli/valkey/protocol.py`) without native C dependencies.
+  - Implemented standard TCP socket client (`ValkeyClient`) with connection pooling, bounded timeouts, password authentication, and zero-trust SSRF destination validation (`src/devops_cli/valkey/client.py`).
+  - Authored Valkey-backed atomic sliding-window token bucket rate limiter (`ValkeyTokenBucketRateLimiter`) with fail-soft burst mitigation and embedded Lua evaluation script (`src/devops_cli/valkey/rate_limiter.py`).
+  - Implemented distributed AI embedding and review finding cache tier (`ValkeyCacheProvider`) with fail-soft availability semantics and automatic key namespace isolation (`src/devops_cli/ai/cache/valkey_cache.py`).
+  - Implemented dedicated CLI command group `devops valkey` (`ping`, `info`, `stats`, `keys`, `get`, `set`, `flush`, `backup`, `cli`) integrated with `@dry_run_command` and runtime duration formatting (`src/devops_cli/commands/valkey.py`).
+  - Registered 6 new FastMCP tools (`valkey_ping`, `valkey_info`, `valkey_stats`, `valkey_get`, `valkey_set`, `valkey_flush`) and live system resource `resource://valkey/status` (`src/devops_cli/ai/mcp/server.py`).
+  - Integrated Valkey settings and Keyring secret password (`valkey.password`) into configuration and OS Keyring auditor.
+- **Runtime Duration Formatting & UI Modernization**:
+  - Converted elapsed command durations across CLI root, CI runners, benchmark tables, and multi-stage review pipelines into human-readable units (`format_duration`).
+  - Omitted status suffixes from milestone descriptions during automated roadmap extraction.
+- **Testing & Quality Assurance**:
+  - Authored comprehensive unit test suite `tests/test_valkey.py` (54/54 tests passed).
+  - Updated `tests/test_config_audit_keys.py` (8/8 audited secrets) and `tests/test_mcp.py` (85/85 tests passed).
+  - Verified architectural invariants and complexity gates (`devops scan complexity`).
+- **Release Preparation for v0.2.12**:
+  - Bumped version to `0.2.12` in `pyproject.toml` and `src/devops_cli/__init__.py`.
+  - Updated `CHANGELOG.md`, `docs/RELEASE_NOTES.md`, `docs/ROADMAP.md`, `docs/PENDING_FEATURES.md`.
+
+### [2026-09-07] GitHub Projects v2 Remote Sync, Release Milestone Lifecycle Automation & Submodule Test Reorganization (Phase 48.6)
+- **GitHub Projects v2 Remote Synchronization & Scope Verification**:
+  - Implemented `verify_project_auth_scopes()` in `src/devops_cli/github/projects.py` to check for required `project` and `read:project` scopes, returning actionable guidance (`gh auth refresh -s project,read:project`) when scopes are missing.
+  - Implemented `sync_remote_project()`, `find_remote_project()`, `create_remote_project()`, `link_project_to_repository()`, and `provision_remote_project_fields()` to reconcile remote GitHub Projects boards and custom fields against `.github/project-template.json`.
+  - Added `devops gh project link <number>` and enhanced `devops gh project sync` with `--no-dry-run` live sync and `--repo` support.
+  - Added FastMCP tool `gh_project_sync`.
+- **Automated Milestone Closure on Release**:
+  - Implemented `close_milestone` and `edit_milestone` in `GitHubClient` (`src/devops_cli/github/client.py`).
+  - Added `close_repository_milestone` in `src/devops_cli/github/milestones.py`.
+  - Added CLI command `devops gh milestones close <version>` in `src/devops_cli/commands/gh.py`.
+  - Integrated automated milestone closure into `devops release tag` (`src/devops_cli/commands/release.py`).
+  - Updated `.github/workflows/release.yml` with `issues: write` permission and an automated milestone closure step triggered upon release publishing.
+  - Added FastMCP tool `gh_milestone_close`.
+- **Submodule Test Reorganization & Elimination of Arbitrary Session Files**:
+  - Reorganized all tests from `tests/test_review_findings_remediation_164259.py` into their canonical domain modules:
+    - Dry-run state restoration -> `tests/test_consolidation_dry_run_decorator.py`.
+    - Deep dictionary secret redaction and boolean settings preservation -> `tests/test_server.py`.
+    - URI credential masking without password -> `tests/test_consolidation_security_sanitizer.py`.
+    - Cross-module AST symbol resolution and request header dispatch checking -> `tests/test_review_verification.py`.
+    - Milestone closure and CLI -> `tests/test_github_milestones.py`.
+    - Project sync, auth scope verification, and repo linking -> `tests/test_github_projects.py`.
+  - Ruthlessly removed `tests/test_review_findings_remediation_164259.py`.
+- **Remediated GitHub Copilot Review Comments on PR #49**:
+  - `src/devops_cli/security/sanitizer.py`: Refined regex fallback `r"://([^:]*):([^@]+)@"` to require colon delimiter, preserving URIs with usernames but no passwords (`custom://user@host`).
+  - `src/devops_cli/server/routes/workspace.py`: Removed generic `"private"` keyword and ensured boolean settings like `ai.allow_private_network` are never redacted as secrets.
+  - `src/devops_cli/ai/review/common_hallucinations.py`: Prioritized backticked symbols first in `_verify_symbol_defined_in_ast_or_module`, preventing spuriously invalidating real reports.
+  - `src/devops_cli/ai/review/verification.py` & `common_hallucinations.py`: Required both auth header assignment and request dispatch (`headers=headers`) before auto-invalidating missing-header claims.
+- **Agent Instructions & Governance Updates**:
+  - Updated `AGENTS.md` Section 2 and Section 4 mandating that tests must be organized strictly by submodule and domain functionality rather than arbitrary one-off session files.
+  - Mandated automated milestone closure on release merge across `AGENTS.md`, `docs/ROUTINE_TASKS.md`, and Knowledge Base (`github_project_management.md`).
+
+### [2026-09-07] Review Findings Remediation (Session 20260906-164259) & Self-Improvement Loop Hardening (Phase 48.5)
+- **Review Findings Remediation (TDD)**:
+  - **Finding 1 (HIGH — Dry-Run State Leakage)**: Wrapped dry-run execution in `src/devops_cli/dry_run/decorator.py` with `try...finally: set_dry_run(original_dry_run)` so dry-run mode never leaks into subsequent calls across normal and exception paths. Verified in `tests/test_consolidation_dry_run_decorator.py`.
+  - **Finding 2 (MEDIUM — Configuration Endpoint Secret Leakage)**: Implemented recursive dictionary sanitizer `_redact_config_dict(data, secret_options)` in `src/devops_cli/server/routes/workspace.py` supporting arbitrarily nested configurations, dotted secret paths, and sensitive key patterns (`token`, `password`, `secret`, `api_key`, `private_key`). Verified in `tests/test_server.py`.
+  - **Finding 3 (LOW — URI Credential Masking)**: Handled absent/empty usernames in `mask_uri_credentials` in `src/devops_cli/security/sanitizer.py`, producing clean `***@host` format instead of `:***@host`, and refined regex fallback. Verified in `tests/test_consolidation_security_sanitizer.py`.
+- **Evidence-Based Hallucination Invalidation**:
+  - **Finding 4 (LOW — False `ImportError` Claim)**: Disproved claim that `_cluster_reachable` is not defined in `cluster_runtime.py` via AST verification (`cluster_runtime.py:62`). Invalidate in review records `.data/reviews/20260906-164259/findings.json` and `review.md`.
+  - **Finding 5 (LOW — False Missing Authorization Header Claim)**: Disproved claim that `OpenAIProvider` sends unauthenticated requests; lines 55-60 explicitly populate `headers["Authorization"] = f"Bearer {api_key}"` from settings, environment, or OS Keyring. Invalidate in review records.
+- **Review Engine & Self-Improvement Loop Hardening**:
+  - **Cross-Module Import AST Grounding**: Implemented `_check_imported_module_for_symbol`, `_find_module_file_candidates`, and `_file_defines_symbol` in `src/devops_cli/ai/review/common_hallucinations.py` to resolve imported symbols against target module files across the repository.
+  - **Deterministic Pre-Verification Defense**: Added `_check_missing_symbol_hallucination` and `_check_missing_header_hallucination` to `src/devops_cli/ai/review/verification.py` for deterministic falsification of false import and missing-header claims.
+  - **Common Hallucinations Registry**: Broadened `HALLUCINATION-MISSING-SYMBOL-FALSE-ALARM` patterns and added `HALLUCINATION-UNVERIFIED-HEADER-MISSING` in `common_hallucinations.json`.
+  - **Review Prompts & Knowledge Base**: Updated `verify_finding_system.md`, `review.md`, `devsecops/prompt.md`, and `ai_code_review.md` with explicit rules for cross-module import verification and dynamic header mutation inspection.
+- **Quality Gates & Regression Suite**:
+  - Authored comprehensive test suite `tests/test_review_findings_remediation_164259.py` (5/5 passed).
+  - All architectural invariants verified: cyclomatic complexity $\le 10$, nesting depth $\le 5$ across all modified files (`test_architectural_invariants.py` — 6/6 passed).
+  - Verified static typing (`mypy src/`) and code formatting (`ruff format --check src/ tests/`).
+
 ### [2026-09-06] Release v0.2.11 Cutting, PR #38 CI Validation & Automated Copilot Review Remediation (Phase 47.3)
 - **Version Bump & Release Governance**:
   - Bumped version to `0.2.11` across `pyproject.toml` and `src/devops_cli/__init__.py`.
@@ -22,6 +91,106 @@ Chronological log of refactoring milestones, quality gates, and security enhance
   - Verified local quality gate (`devops ci` — 10/10 gates green, 100% passing).
   - Authored atomic commit `4feb91c` (`fix(review): address Copilot findings for Checkov exit handling, milestone due_on, gitleaks Windows paths, and symlink semantics`), pushed to `origin/release/v0.2.11`, and replied to all Copilot discussion threads.
   - Monitored remote CI quality gates on `4feb91c` until 100% green (`gh pr checks 38` — 4/4 passed).
+  - Squash-merged PR #38 into `main` by maintainer Daniel Petty (commit `22bba04`).
+  - Automated Release Orchestrator workflow triggered on `main` push, successfully cutting git tag `v0.2.11` and publishing release assets.
+
+### [2026-09-06] Qdrant Vector Database API Key Secret Protection & ClusterIP Default (Phase 48.4 — Issue #43)
+- **Zero-Trust Infrastructure Perimeter & Vector Database Security**:
+  - Enforced mandatory API key secret protection on local Qdrant vector database Helm deployment in `k8s/llm/values-qdrant.yaml`.
+  - Configured `service.type: ClusterIP` to prevent unauthenticated NodePort exposure.
+  - Disabled plain-text API key configuration in values (`apiKey: false`, `readOnlyApiKey: false`) in favor of Kubernetes Secret injection via `extraEnv` binding `QDRANT__SERVICE__API_KEY` from secret `qdrant-api-key:api-key`.
+- **Configuration & Keyring Secret Storage Integration**:
+  - Registered `qdrant.url`, `qdrant.api_key`, and `qdrant.collection_prefix` in `src/devops_cli/config/options.py`.
+  - Added `qdrant.api_key` to `SECRET_CONFIG_OPTIONS` (bringing audited secret count to 7) and `KEYRING_KEYS` (`qdrant_api_key`).
+  - Added environment variable mapping in `src/devops_cli/config/env.py` (`DEVOPS_CLI_QDRANT_API_KEY`, `DEVOPS_CLI_QDRANT_URL`, `DEVOPS_CLI_QDRANT_COLLECTION_PREFIX`) with `is_secret=True`.
+  - Added `api_key: str | None = None` to `QdrantConfig` in `src/devops_cli/config/settings.py` and implemented `get_qdrant_api_key(settings)`.
+- **RAG Subsystem & Tool Authentication**:
+  - Updated `src/devops_cli/ai/rag/indexer.py` (`resolve_qdrant_client`, `WorkspaceIndexer.__init__`) to resolve API keys from OS Keyring when connecting to Qdrant.
+  - Updated `src/devops_cli/ai/rag/qdrant.py` (`QdrantClient.__init__`) to accept and default `api_key` to `get_qdrant_api_key(load_settings())`.
+  - Updated `src/devops_cli/ai/rag/investigator.py`, `src/devops_cli/commands/rag.py`, and `src/devops_cli/ai/tools/builtin_tools.py` to forward OS Keyring API keys to RAG and Qdrant clients.
+- **Kubernetes Secret Provisioning & Stack Lifecycle**:
+  - Implemented `fetch_qdrant_api_key()` and updated `sync_k8s_credentials()` in `src/devops_cli/k8s/credentials.py` to manage `qdrant-api-key` in the `llm` namespace.
+  - Added `_ensure_qdrant_api_key_secret()` in `src/devops_cli/commands/k8s/stack_lifecycle.py` to automatically provision the Kubernetes Secret prior to Qdrant Helm installation and synchronize post-deployment.
+- **Quality Gates & Test-First Verification**:
+  - Authored comprehensive test suite `tests/test_k8s_qdrant_security.py` (10/10 green) validating manifest parameters, env injection, ClusterIP service type, settings, env parsing, and RAG keyring resolution.
+  - Updated `tests/test_config_audit_keys.py` to assert 7 audited secrets.
+  - Validated Checkov IaC scan on `k8s/` (0 violations) and architectural invariants (`tests/test_architectural_invariants.py`).
+  - Full CI validation suite (`uv run devops ci` — 10/10 gates green, coverage >= 90%).
+
+### [2026-09-06] Cluster Default-Deny NetworkPolicies for Monitoring and ArgoCD (Phase 48.3 — Issue #40)
+- **Zero-Trust Infrastructure Perimeter & Network Isolation**:
+  - Implemented declarative default-deny ingress and egress `NetworkPolicy` manifests for `monitoring` (`k8s/monitoring/networkpolicy.yaml`) and `argocd` (`k8s/argocd/networkpolicy.yaml`).
+  - Strict intra-namespace pod-to-pod isolation with explicit exceptions for core communication flows.
+  - CoreDNS egress on port 53 (UDP and TCP) to `kube-system` explicitly permitted across both policies.
+  - Cloud instance metadata endpoint (`169.254.169.254/32`) strictly blocked via `ipBlock.except` on all outbound internet/egress rules to eliminate SSRF attack vectors.
+  - `monitoring`: Permits UI/NodePort ingress to Grafana (3000) and Prometheus (9090), remote-write metrics push from `otel` namespace, Kubernetes API server / kubelet scraping, and cross-namespace metric scraping of `llm` (qdrant:6333, ollama:11434) and `otel` (jaeger:16686, otel-collector:8888).
+  - `argocd`: Permits UI/API ingress on ports 8080 and 443, Prometheus metric scraping from `monitoring`, Kubernetes API server cluster reconciliation, and Git / Helm egress (HTTPS 443, SSH 22, Git 9418) with metadata SSRF blocked.
+  - Updated `k8s/monitoring/kustomization.yaml` and `k8s/argocd/kustomization.yaml` to include `networkpolicy.yaml`.
+- **Quality Gates & Test-First Verification**:
+  - Authored comprehensive test suite `tests/test_k8s_network_policies.py` (14/14 green) validating schema structure, policyTypes, DNS egress, SSRF exception rules, and namespace-specific port allocations.
+  - Validated with `devops k8s validate` (Kubeconform OpenAPI schema validation) and `devops scan iac` (Checkov IaC compliance scan — 0 violations).
+
+### [2026-09-06] Subprocess Environment Isolation & Credential Boundary (Phase 48.2 — Issue #41)
+- **Zero Ambient Credential Leakage & Subprocess Boundary**:
+  - Implemented ambient environment variable isolation in `src/devops_cli/core/process.py` (`build_subprocess_env`), strictly stripping ambient secrets (`GITHUB_TOKEN`, `GH_TOKEN`, `VAULT_TOKEN`, LLM API keys, cloud provider secrets, passwords) matching `DEFAULT_DENIED_ENV_PATTERNS` (`*TOKEN*`, `*SECRET*`, `*KEY*`, `*PASSWORD*`, `*CREDENTIAL*`, `*AUTH*`, `*PRIVATE*`).
+  - Preserved essential workstation, system, and tooling environment variables via `DEFAULT_ALLOWED_ENV_VARS` (`PATH`, `HOME`, `USER`, `TMPDIR`, `VIRTUAL_ENV`, `LANG`, `LC_*`, `OTEL_*`, `W3C_*`, `DEVOPS_CLI_*`, `KUBECONFIG`, `DOCKER_*`, `GIT_*`).
+  - Added support for caller-provided explicit environment variable overrides (`env`), always giving precedence to intentional caller-specified tokens without leaking parent environment secrets.
+  - Added opt-out capability via `isolate_env=False` and selective extension via `extra_allowed_env`.
+  - Propagated environment isolation uniformly across `run_subprocess`, `run_subprocess_async`, and `run_json_subprocess`.
+  - Exported `build_subprocess_env`, `DEFAULT_ALLOWED_ENV_VARS`, `DEFAULT_ALLOWED_ENV_PREFIXES`, and `DEFAULT_DENIED_ENV_PATTERNS` in `src/devops_cli/core/__init__.py`.
+- **Quality Gates & Test-First Verification**:
+  - Authored comprehensive test suite `tests/test_subprocess_env_boundary.py` (8/8 green) covering allowlists, denylists, caller overrides, isolation bypass, extra keys, real child process execution via `sys.executable`, async parity, and JSON subprocess parity.
+  - All existing process test suites (`tests/test_process.py`, `tests/test_consolidation_process_json.py`) passing 100%.
+  - Verified full quality gate via `uv run devops ci` (10/10 gates green, coverage >= 90%).
+  - Architectural invariants validated (`devops scan complexity`, `tests/test_architectural_invariants.py` — cyclomatic complexity <= 10, nesting depth <= 5).
+- **Pull Request #46 Verification & Copilot Feedback**:
+  - Opened PR #46 targeting `release/v0.2.12` linking `Closes #41` with taxonomy labels `type/security`, `scope/security`, `priority/P1-High`.
+  - Addressed Copilot code review comments in commit `92aab39`: normalized environment variable key casing for cross-platform matching (Windows) and established deterministic baseline `PATH` and `HOME` variables in child execution tests; added `test_build_subprocess_env_case_insensitivity`.
+  - Remote CI quality gates (`CodeQL Advanced/Analyze (actions)`, `CodeQL Advanced/Analyze (python)`, `CodeQL`, `CI Quality Gate/Validation`) passed 100% green.
+  - PR #46 squash-merged into `release/v0.2.12` by maintainer Daniel Petty (commit `5595ff6`).
+  - Automated `Cleanup PR DevContainer` workflow triggered on PR close (run ID `34062560747`), successfully pruning 3 `pr-46` images/layers from GHCR.
+  - Closed tracking Issue #41 on GitHub.
+  - Fast-forwarded local `release/v0.2.12` and pruned merged topic branch `feat/subprocess-env-boundary`.
+
+### [2026-09-06] Immutable GitHub Actions Commit SHA Pinning (Phase 48.1 — Issue #42)
+- **Supply Chain Security & Immutable Actions Pinning**:
+  - Pinned all third-party GitHub Actions across `.github/workflows/` to immutable 40-character commit SHAs with inline version comments, eliminating mutable tag spoofing risks.
+  - `.github/workflows/ci.yml`: Pinned `actions/checkout` (v7), `astral-sh/setup-uv` (v10.0.1), `docker/login-action` (v4), `devcontainers/ci` (v0.3).
+  - `.github/workflows/codeql.yml`: Pinned `actions/checkout` (v7), `github/codeql-action/init` (v4), `github/codeql-action/analyze` (v4).
+  - `.github/workflows/release.yml`: Pinned `actions/checkout` (v7), `astral-sh/setup-uv` (v10.0.1), `softprops/action-gh-release` (v3), `docker/login-action` (v4), `devcontainers/ci` (v0.3).
+  - Validated all workflows via `actionlint` with zero errors.
+- **Pull Request #45 Verification & Copilot Feedback**:
+  - Opened PR #45 targeting `release/v0.2.12` linking `Closes #42` with taxonomy labels `type/security`, `scope/github`, `priority/P2-Medium`.
+  - Addressed Copilot code review comments by updating `docs/ROADMAP.md` status to completed and broadening workflow references.
+  - Remote CI quality gates (`CodeQL Advanced/Analyze (actions)`, `CodeQL Advanced/Analyze (python)`, `CodeQL`, `CI Quality Gate/Validation`) passed 100% green.
+  - PR #45 squash-merged into `release/v0.2.12` by maintainer Daniel Petty (commit `347bed4`).
+  - Automated `Cleanup PR DevContainer` workflow triggered on PR close (run ID `34061068046`), successfully pruning 3 `pr-45` images/layers from GHCR.
+  - Closed tracking Issue #42 on GitHub.
+  - Fast-forwarded local `release/v0.2.12` and pruned merged topic branch `feat/actions-sha-pinning`.
+
+### [2026-09-06] PR DevContainer Image Pruning, Release Branch v0.2.12 & GitHub Project Tracking (Phase 47.4)
+- **Release Branch Setup (`release/v0.2.12`)**:
+  - Cut next version release branch `release/v0.2.12` directly from `origin/main` at commit `22bba04` and pushed to `origin/release/v0.2.12`.
+  - Created topic branch `feat/cleanup-pr-devcontainers` tracking `origin/release/v0.2.12`.
+- **Automated DevContainer Cleanup Workflow (`.github/workflows/cleanup-devcontainer.yml`)**:
+  - Implemented automated GHCR image pruning workflow triggered on `pull_request: [closed]` and manual `workflow_dispatch`.
+  - Target package: `devops-cli/devcontainer` under owner `dan-petty`.
+  - Scoped to prune `pr-<number>` or wildcard `pr-*` tags, with strict exclusion of permanent release tags (`latest,v*,main`).
+  - Enabled multi-architecture OCI image cleanup options (`delete-untagged: true`, `delete-ghost-images: true`, `delete-orphaned-images: true`).
+  - Supply chain security: pinned cleanup action to commit SHA `dataaxiom/ghcr-cleanup-action@d52806a0dc70b430571a37da1fde39733ffd640f` (# v1).
+  - Validated with `uv run devops ci actionlint`.
+- **Pull Request #44 & GHCR Verification**:
+  - Opened PR #44 (`feat(devcontainer): automate PR devcontainer cleanup on PR merge in GHCR`) targeting `release/v0.2.12` with standard taxonomy labels (`type/feature`, `scope/github`, `priority/P2-Medium`) and linking Issue #39 (`Closes #39`).
+  - Remote CI quality gates (`CI Quality Gate/Validation`, `CodeQL Advanced/Analyze`) passed 100% green.
+  - PR #44 squash-merged by maintainer Daniel Petty (commit `d156680`).
+  - Automatic `Cleanup PR DevContainer` workflow triggered on PR closure (run ID `34057041455`), successfully pruning 132 stale and orphaned images/manifests from `ghcr.io/dan-petty/devops-cli/devcontainer`.
+  - Closed tracking Issue #39 on GitHub.
+  - Fast-forwarded local `release/v0.2.12` and pruned merged topic branch `feat/cleanup-pr-devcontainers`.
+- **GitHub Projects v2 & Task Tracking Synchronization**:
+  - Updated `docs/agent/task.md` with active Phase 47.4 tasks and synchronized with `.github/project-template.json`.
+  - Verified project lifecycle alignment via `devops gh project sync --dry-run` (366 items: Backlog 5, In Progress 10, Done 351).
+  - Validated standardized views via `devops gh views list` (Sprint Kanban, Roadmap Timeline, Triage & Quality Table, Value vs Effort Priority Matrix).
+
 
 ### [2026-09-06] Principal DevSecOps Architectural Review & Zero-Trust Defense-in-Depth Hardening (Phase 47)
 

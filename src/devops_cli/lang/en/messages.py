@@ -23,12 +23,12 @@ class ReviewMessages:
     stage_segment: str = "Reviewing {count} file(s)..."
     stage_validate: str = "Validating findings for {count} file(s)..."
     stage_compose: str = "Composing final review..."
-    segment_progress: str = "  ✓ segment {index}/{total} in {elapsed:.1f}s"
+    segment_progress: str = "  ✓ segment {index}/{total} in {elapsed}"
     segment_progress_dryrun: str = "  ✓ segment {index}/{total} (dry-run)"
     segment_validate_progress: str = (
-        "  ✓ segment {index}/{total} in {elapsed:.1f}s: {verified}/{findings} finding(s) verified"
+        "  ✓ segment {index}/{total} in {elapsed}: {verified}/{findings} finding(s) verified"
     )
-    total_elapsed: str = "  total {elapsed:.1f}s"
+    total_elapsed: str = "  total {elapsed}"
     collecting_files: str = "Collecting {pattern} files under {target}..."
     no_files_found: str = "No files found."
     diffing_branches: str = "Diffing {branch} against {base}..."
@@ -151,7 +151,7 @@ class GeneralMessages:
         "Refusing non-public {purpose} URL. "
         "Set DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true to override."
     )
-    elapsed_time: str = "Elapsed: {elapsed:.2f}s"
+    elapsed_time: str = "Elapsed: {elapsed}"
 
 
 @dataclass(frozen=True)

@@ -44,24 +44,28 @@ def dry_run_command(
             active_dry_run = is_dry_run() or passed_dry_run
 
             if active_dry_run:
+                original_dry_run = is_dry_run()
                 set_dry_run(True)
-                target = (
-                    str(bound.arguments.get(target_param))
-                    if target_param and bound.arguments.get(target_param) is not None
-                    else None
-                )
-                details: dict[str, Any] = {}
-                if detail_params:
-                    for p in detail_params:
-                        if p in bound.arguments:
-                            details[p] = bound.arguments[p]
-                render_dry_run_result(
-                    command=command,
-                    action=action,
-                    target=target,
-                    details=details,
-                )
-                return None
+                try:
+                    target = (
+                        str(bound.arguments.get(target_param))
+                        if target_param and bound.arguments.get(target_param) is not None
+                        else None
+                    )
+                    details: dict[str, Any] = {}
+                    if detail_params:
+                        for p in detail_params:
+                            if p in bound.arguments:
+                                details[p] = bound.arguments[p]
+                    render_dry_run_result(
+                        command=command,
+                        action=action,
+                        target=target,
+                        details=details,
+                    )
+                    return None
+                finally:
+                    set_dry_run(original_dry_run)
 
             return fn(*args, **kwargs)
 

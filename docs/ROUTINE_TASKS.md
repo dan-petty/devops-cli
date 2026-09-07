@@ -163,6 +163,14 @@ sequenceDiagram
 - **Active PR Monitoring & Fix-on-Branch Protocol**: After opening or pushing updates to a PR, agents and developers must actively monitor remote GitHub Actions status (`gh pr checks <pr_number>` or `gh run list --branch <branch>`). If any check fails, immediately inspect failed logs (`gh run view <run_id> --log-failed`), apply remediation commits directly to the PR source branch, push to origin, and verify all checks pass green before closing out the task.
 - **No Commits to Merged Branches**: Once a PR is merged, create a fresh topic branch from `origin/release/vX.Y.Z` for the next task.
 - **Updating Open PRs**: When revisions are needed, push commits directly to the active topic branch. Do not open duplicate PRs.
+- **Commit Standards & Message Hygiene**:
+  - All commits must follow Conventional Commits (`feat(scope): ...`, `fix(scope): ...`, `refactor(scope): ...`, `docs(scope): ...`).
+  - **No Internal References or Numeric IDs**: Never include internal review session timestamps (e.g. `164259`, `003105`), review session IDs, subagent IDs, prompt phase numbers (`Phase 48.5`), or arbitrary numeric identifiers in commit subjects or messages. Use clear, descriptive technical terminology.
+  - **No Standalone Agent Tracking Commits**: Updates to internal agent tracking files under `docs/agent/` (`task.md`) must NEVER be committed in isolation; they must always be bundled atomically into the corresponding feature, fix, or refactoring deliverable commit.
+- **Issue Linkage & GitHub Projects Lifecycle**:
+  - PRs addressing issues must explicitly link to them in the description using `Fixes #<id>`, `Closes #<id>`, or `Resolves #<id>`.
+  - Reconcile task state transitions (`Backlog` $\to$ `Ready` $\to$ `In Progress` $\to$ `In Review` $\to$ `Done`) in [`docs/agent/task.md`](agent/task.md) and verify alignment with `.github/project-template.json` via `devops gh project sync --dry-run` or live sync `devops gh project sync`, link to repository (`devops gh project link <number>`), and audit views via `devops gh views list`.
+  - Enforce taxonomy labels via `devops gh labels audit`, milestone alignment via `devops gh milestones sync`, and milestone closure upon release merge via `devops gh milestones close <version>`.
 
 ---
 
@@ -174,32 +182,26 @@ Executed per scheduled release (patch/minor) or upon milestone completion.
 sequenceDiagram
     autonumber
     actor Maintainer as Maintainer / Release Lead
-    participant CLI as devops release
-    participant Hub as GitHub
-    participant CI as GitHub Actions (release.yml)
+    participant Branch as release/vX.Y.Z
+    participant CI as GitHub Actions
+    participant Hub as GitHub (Main & Releases)
 
-    Maintainer->>CLI: devops release status
-    Maintainer->>CLI: devops release prepare 0.1.10 --create-pr
-    CLI->>Hub: Push branch release/v0.1.10 & Open PR (into main)
-    Hub->>Hub: CI Validation verifies release
-    Maintainer->>Hub: Peer Review & Squash Merge into main
-    Hub->>CI: Push to main triggers release.yml
-    CI->>CI: devops release check
-    CI->>CI: devops release tag 0.1.10
-    CI->>CI: devops release notes -v 0.1.10
-    CI->>Hub: Publish GitHub Release & DevContainer Image (GHCR)
+    Maintainer->>Branch: devops release prepare <version> --create-pr
+    Branch->>CI: Quality Gates Validate Release PR
+    Maintainer->>Hub: Squash-Merge Release PR into main
+    CI->>Hub: release.yml cuts tag, creates release, closes milestone, builds image
 ```
 
-#### Order of Operations:
-1. **Status Inspection**: Run `uv run devops release status` to check version alignment across `pyproject.toml`, `__init__.py`, `CHANGELOG.md`, and git tags.
-2. **Prepare Release PR**: Run `uv run devops release prepare <version> --create-pr`. This command:
+#### Step-by-Step Procedure:
+1. **Audit Open Tasks & Issues**: Ensure all milestone deliverables in `docs/ROADMAP.md` and `docs/agent/task.md` are completed.
+2. **Execute Release Preparation**: Run `devops release prepare <version> --create-pr`.
    - Bumps version in `pyproject.toml` and `src/devops_cli/__init__.py`.
    - Updates `CHANGELOG.md` converting `[Unreleased]` into the target version release block.
    - Regenerates docs and updates README Command Matrix.
-   - Creates topic branch `release/v<version>`, commits bumps, and opens a GitHub PR targeting `main`.
+   - Creates topic branch `release/v<version>`, commits bumps, and opens a GitHub Release PR targeting `main` titled `feat(release): v<version>`.
 3. **Run Authoritative Release Check**: Run `uv run devops release check` to verify tree cleanliness, version matching, and CI validation.
 4. **Human Maintainer Merge**: The maintainer reviews and squash-merges the Release PR into `main`.
-5. **Automated Publishing**: GitHub Actions (`release.yml`) cuts the git tag, extracts release notes with `devops release notes`, creates the GitHub Release, and publishes the pre-built DevContainer image to GHCR.
+5. **Automated Publishing & Milestone Closure**: GitHub Actions (`release.yml`) cuts the git tag, extracts release notes with `devops release notes`, creates the GitHub Release, closes the release milestone via `devops gh milestones close <version>`, and publishes the pre-built DevContainer image to GHCR.
 6. **Post-Release DevContainer Validation**: Run `uv run devops devcontainer run-lifecycle --all` to verify container lifecycle tasks.
 
 ---

@@ -299,6 +299,15 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 |  | `devops vault get [OPTIONS] <path>` | Fetch secret value from Vault or OS Keyring fallback. |
 |  | `devops vault set [OPTIONS] <path> <key_values>` | Store secret key-value pairs in HashiCorp Vault KV-v2 engine. |
 |  | `devops vault sync [OPTIONS] <path>` | Synchronize secrets from Vault into OS Keyring for offline/local CLI operations. |
+| **valkey** | `devops valkey ping [OPTIONS]` | Test connection and measure round-trip latency to the Valkey server. |
+|  | `devops valkey info [OPTIONS]` | Inspect server configuration, memory allocation, and operational metrics. |
+|  | `devops valkey stats [OPTIONS]` | Display quick diagnostic summary of server health, memory, and keys. |
+|  | `devops valkey keys [OPTIONS] <pattern>` | List keys matching a glob pattern. |
+|  | `devops valkey get [OPTIONS] <key>` | Retrieve string value stored at key. |
+|  | `devops valkey set [OPTIONS] <key> <value>` | Set string value of key with optional expiration TTL. |
+|  | `devops valkey flush [OPTIONS]` | Flush and purge keys from current or all databases. |
+|  | `devops valkey backup [OPTIONS]` | Trigger background RDB persistence snapshot (BGSAVE). |
+|  | `devops valkey cli [OPTIONS] <command_args>` | Execute raw Valkey commands directly against the server. |
 <!-- COMMAND_MATRIX_END -->
 
 ---

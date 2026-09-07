@@ -19,6 +19,7 @@ from devops_cli.lang import ERRORS, HELP, MESSAGES
 from devops_cli.output import (
     TablePayload,
     format_docker_stats_table,
+    format_duration,
     print_error,
     print_info,
     print_success,
@@ -425,4 +426,4 @@ def docker_sandbox(
 
     if res.exit_code != 0:
         raise typer.Exit(res.exit_code)
-    print_success(f"✓ Sandbox workload completed in {res.duration_seconds}s")
+    print_success(f"✓ Sandbox workload completed in {format_duration(res.duration_seconds)}")

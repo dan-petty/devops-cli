@@ -20,9 +20,9 @@ _timing: dict[str, float] = {}
 def _print_elapsed() -> None:
     if "start" in _timing:
         elapsed = time.monotonic() - _timing["start"]
-        from devops_cli.output import print_muted
+        from devops_cli.output import format_duration, print_muted
 
-        print_muted(f"Elapsed: {elapsed:.2f}s", to_stderr=True)
+        print_muted(f"Elapsed: {format_duration(elapsed)}", to_stderr=True)
 
 
 atexit.register(_print_elapsed)
@@ -59,6 +59,7 @@ _COMMAND_SPECS: Final[dict[str, tuple[str, str]]] = {
     "test": ("devops_cli.commands.test_cmd", HELP.test.app),
     "pipeline": ("devops_cli.commands.pipeline", HELP.pipeline.app),
     "vault": ("devops_cli.commands.vault", "Enterprise HashiCorp Vault secret broker"),
+    "valkey": ("devops_cli.commands.valkey", "Valkey workstation caching and in-memory data store"),
 }
 
 

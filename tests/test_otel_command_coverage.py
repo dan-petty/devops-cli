@@ -245,6 +245,7 @@ def test_all_command_specs_registered() -> None:
         "test",
         "pipeline",
         "vault",
+        "valkey",
     }
     assert set(_COMMAND_SPECS.keys()) == expected_commands
 

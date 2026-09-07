@@ -1,6 +1,6 @@
 ## Security Review Focus
 Evaluate changes against core security principles using available scanners (`scan_trivy`, `scan_kubelinter`, `scan_pluto`, `scan_bandit`, `scan_popeye`):
-- **Secret & Credential Safety**: Plaintext secrets, hardcoded tokens, insecure keystores.
+- **Secret & Credential Safety**: Plaintext secrets, hardcoded tokens, insecure keystores. Distinguish initial empty declarations from subsequent dynamic key/header configuration; never report missing authentication without examining the full request dispatch block.
 - **Network & Perimeter**: SSRF, unvalidated egress, untrusted endpoint communication.
 - **Injection & Path Traversal**: Shell/subprocess injection, directory containment, path traversal (CWE-22).
 - **Supply-Chain & Cryptography**: Dependency CVEs, lockfile integrity (`uv.lock`), weak algorithms, permission masking (0600 with explicit chmod).

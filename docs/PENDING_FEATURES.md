@@ -8,51 +8,17 @@
 
 ## 🎯 Active Release Focus
 
-### Current Milestone: `v0.2.11` (Active Development)
-1. **Workstation Infrastructure Valkey Migration**: Replaced all Redis components in the Kubernetes stack (ArgoCD and LLM stack) with Valkey 8.0-alpine under the BSD-3-Clause open-source license.
-2. **Codebase Stylistic & Structural Drift Remediation & Parameter Establishment**:
-   - Zero functions exceeding nesting depth 5 (<6 indentations) project-wide across `src/devops_cli`.
-   - Reduced cyclomatic complexity $\le 10$ across tool factory closures (`FileSystem.get_tools`).
-   - Standardized domain exception taxonomy inheriting from `DevOpsCLIError`, completely eradicating bare `ValueError`/`RuntimeError` across domain logic.
-   - Clean test collection hygiene (`__test__ = False` on mock models) and unawaited coroutine prevention.
-   - Automated architectural invariant quality gates in CI (`tests/test_architectural_invariants.py`).
-3. **FastMCP Server Tool Expansion & Antigravity Schema Integration**:
-   - Expanded FastMCP server from 53 to 72 registered tools achieving 1:1 parity with CLI subcommands (Kubernetes chaos/audit/lint/validate/diff, Trivy, Gitleaks, Semgrep, Checkov, AIBOM, SBOM, Vault, benchmark, git branch/PR).
-   - Introduced 4 FastMCP prompt templates and 6 dynamic system resources.
-   - Added `devops mcp export-schemas` subcommand.
-   - Synchronized lazy tool schemas directly to Antigravity IDE (`/home/vscode/.gemini/antigravity-ide/mcp/devops-cli/`).
-4. **Submodule Boilerplate Consolidation & Usability Architecture (Phase 42)**:
-   - Declarative `@dry_run_command` in `src/devops_cli/dry_run/decorator.py` eliminating repetitive manual dry run checking across command modules.
-   - Universal CLI error boundary and execution decorator (`@cli_command_handler`) in `src/devops_cli/core/command_decorator.py`.
-   - Pure domain filesystem containment helper `safe_resolve_subpath` in `src/devops_cli/core/paths.py`.
-   - Structured subprocess execution and JSON deserializer `run_json_subprocess` in `src/devops_cli/core/process.py`.
-   - Binary pre-flight checker `require_binary` / `check_binary` in `src/devops_cli/core/binaries.py`.
-   - Centralized secret sanitizer `mask_secrets`, `mask_dict_secrets`, `mask_uri_credentials` in `src/devops_cli/security/sanitizer.py`.
-   - Resilient markdown JSON block extractor `extract_json_block` in `src/devops_cli/core/serialization.py`.
-5. **Declarative Security Framework Foundation & AST Cache Tier (Phase 43)**:
-   - `BaseSecurityScanner` abstract base class standardizing execution lifecycle, pre-flight checks, timeouts, and normalized `Finding` models.
-   - Dynamic `ScannerRegistry` for capability filtering and batch scan dispatch.
-   - Thread-safe in-memory `ASTCache` keyed by `(filepath, st_mtime)` eliminating redundant AST parsing during multi-persona reviews.
-   - Declarative `render_table` output helper in `src/devops_cli/output/table_builder.py` consolidating table layouts and JSON/YAML conversion.
-6. **GitHub Management & Quality Automation (Phase 44)**:
-   - Declarative GitHub label taxonomy (`.github/labels.yml`) and management CLI (`devops gh labels list|sync|audit`).
-   - Roadmap milestone extraction and progress metrics (`devops gh milestones list|sync|status`).
-   - GitHub Projects v2 lifecycle integration and 4 standardized views (`devops gh project status|sync|template`, `devops gh views list|spec`).
-   - 6 FastMCP GitHub tools (`gh_label_list`, `gh_label_sync`, `gh_milestone_list`, `gh_milestone_sync`, `gh_project_status`, `gh_view_spec`).
-   - Task Manual 13 in Knowledge Base (`tasks/github_project_management.md`).
-7. **Documentation & AI Instruction Token Optimization (Phase 45)**:
-   - Root `AGENTS.md` instructions optimized by 36% (10.5 KB reduction), eliminating context window truncation.
-   - Review prompt stack deduplication across `review.md`, `guardrails_isolation.md`, and `verify_finding_system.md` saving 34% tokens.
-   - Dedicated agent data directory isolation under `./.data/agent`.
-8. **DevSecOps Architectural Review & Zero-Trust Defense-in-Depth (Phase 47)**:
-   - Comprehensive architectural security review ([`devsecops_architectural_review.md`](../.gemini/antigravity-ide/brain/eca133d3-ba90-4e2d-a22d-06052bbec047/devsecops_architectural_review.md)) detailing 1 Critical, 4 High, and 4 Medium/Low findings.
-   - `OpenAIProvider` Authentication Header Injection: Inject `Authorization: Bearer <token>` in `OpenAIProvider.generate()` leveraging `settings.ai.openai_api_key` or OS Keyring.
-   - Fail-Closed SSRF DNS Resolution Guard: Harden `_enforce_non_private_ssrf` in `devops_cli.core.validation` to fail closed when `allow_private=False` upon DNS timeouts, `socket.gaierror`, or `OSError`.
-   - Universal Secret Sanitizer Pattern Expansion: Expand `_SECRET_PATTERNS` in `devops_cli.security.sanitizer` with Vault tokens (`hvs.*`, `s.*`), GitLab PATs (`glpat-*`), Slack/Discord webhooks, and HuggingFace API keys (`hf_*`).
-   - Docker Workload Sandbox Security Hardening: Harden `WorkloadSandboxRunner` in `devops_cli.docker.sandbox` by enforcing `cap_drop=["ALL"]`, `security_opt=["no-new-privileges:true"]`, `pids_limit=256`, default read-only volume mounting, and blocking sensitive host paths (`~/.ssh`, `~/.aws`, `~/.kube`, `.git`).
-   - Context-Aware Review Pre-Filter & Test Noise Reduction: Scope Gitleaks scanner pre-filter to ignore test mock fixtures (`tests/test_*.py`) and documentation examples in compliance with `AGENTS.md` guidelines.
+### Current Milestone: `v0.2.13` (Active Development)
+1. **Sub-Agent Local Offloading Engine & Agent Harness Slots (`devops_cli.ai.harness.slots`)**: Modular Harness Slots (`ModelSlot`, `SkillSlot`, `ToolSlot`, `SubAgentSlot`) offloading token-intensive exploration and symbol searching to local open models (Granite, Qwen2.5-Coder) under a "Big decides, small types, big checks" synthesis protocol, achieving 85%+ token savings.
+2. **Interactive Terminal UI Dashboard (`devops dashboard` / `devops tui`)**: Full-screen responsive terminal dashboard powered by `Textual` providing real-time tabs for live Kubernetes pods, Minikube services, Docker container metrics, OpenTelemetry span waterfalls, active AI review findings, and Valkey cache metrics with keyboard navigation (`1-5`, `q`, `r`, `?`).
+3. **Model Dependency Chaos Engineering Suite (`devops ai chaos-model`)**: "Chaos Monkey for Models" validation framework deliberately degrading frontier connections, injecting latency, and enforcing local open model fallbacks to verify that automation tools pass CI quality gates without human coaching.
+4. **Agent Constellation Quiesce & Emergency Failover Controller (`devops ai quiesce`, `devops ai failover`)**: Centralized emergency control to cleanly suspend active agent loops, schedulers, and background cron jobs during upstream provider outages, with zero-state-loss failover to local endpoints.
+5. **Multi-Model LLM Benchmark Evaluation Harness (`devops ai benchmark --suite`)**: Automated evaluation suite benchmarking candidate models against human-in-the-loop validated feedback datasets (`.data/feedback_dataset.jsonl`), calculating precision, recall, and hallucination scores.
+6. **Parallel Async Multi-File Review Worker Pool & Streaming Diff Parser**: Concurrent async file review execution utilizing Python 3.14 `asyncio.TaskGroup` bounded by semaphores and token budgets, combined with streaming generator-based unified diff chunking reducing peak memory by 60% and cutting review runtimes by up to 70%.
 
 ### Previous Milestones
+- **`v0.2.12` (Completed)**: Valkey Workstation Management & High-Performance Distributed Caching Tier, Zero C-Dependency RESP3 Protocol, Atomic Token Bucket Rate Limiter, Distributed AI Cache Tier, FastMCP Valkey Toolset (6 tools) & Status Resource, Runtime Duration Formatting, GitHub Projects v2 Automation.
+- **`v0.2.11` (Completed)**: Workstation Infrastructure Valkey Migration, Codebase Stylistic & Invariant Enforcement, FastMCP Tool Parity (72 tools), Declarative Submodule Boilerplate Consolidation (Phase 42), Declarative Security Framework Foundation (Phase 43), GitHub Management & Project Views (Phase 44), Token Optimization (Phase 45), DevSecOps Architectural Review & Zero-Trust Defense-in-Depth (Phase 47).
 - **`v0.2.10` (Completed)**: Native Pydantic AI Framework Subsystem Adoption, Autonomous Common Hallucinations Registry & Hardened Matching Engine, Secret Sanitizer Regex Hardening, Codebase Hygiene & Zombie Code Elimination.
 - **`v0.2.9` (Completed)**: Universal Multi-Stage Workflow Orchestration Pipeline (`src/devops_cli/pipeline/`), Unified Async HTTP/2 Connection Broker (`src/devops_cli/http/broker.py`), Local Kubernetes Chaos & Fault Injection Engine (`src/devops_cli/k8s/chaos_runner.py`), Continuous IDE File Watcher (`devops ai review path --watch`), Automated Dependency Vulnerability Remediation PR Engine (`devops scan fix`), Isolated Dockerized Workload Sandbox (`devops docker sandbox`), Enterprise Vault & Cloud KMS Secret Broker (`devops vault`), Kubernetes Background Port-Forward Daemon (`devops k8s port-forward`).
 - **`v0.2.8` (Completed)**: Output Subsystem Modularization (`src/devops_cli/output/formatters/`), Language Message Catalog & Badge Localization (`src/devops_cli/lang/en/messages.py`), Declarative Dispatch Registries, Zombie Code Elimination.
@@ -60,20 +26,6 @@
 - **`v0.2.6` (Completed)**: Static Code Complexity & Cyclomatic Depth Linter (`devops scan complexity`), Syft & Grype Automated SBOM Generator (`devops scan sbom`), Git-Diff Aware Test Selector (`devops test run --diff`), Real-Time Resource & State Watchers (`--watch`), Dynamic Multi-Axis Model Router (`devops_cli.ai.router`), In-Memory Embedding LRU Cache.
 
 ### Upcoming Milestones
-
-#### Milestone: `v0.2.12` (Scheduled - P0)
-1. **Valkey Workstation CLI Subsystem (`devops valkey`)**: Dedicated command group providing `ping`, `info`, `stats`, `keys [pattern]`, `get <key>`, `set <key> <val> [--ttl <sec>]`, `flush [--all]`, `cli`, and snapshot `backup`/`restore` managing local and remote Valkey instances via lightweight RESP3 socket communication without C dependencies.
-2. **Valkey High-Performance Distributed AI & Embedding Cache (`ai.cache.backend=valkey`)**: Distributed SHA-256 keyed embedding and review finding cache tier (`sha256(chunk + model + dim)`) slashing duplicate LLM inference by up to 85% across concurrent CLI runs, file watchers, and CI workers with configurable TTL and LRU memory management.
-3. **Distributed LLM Token Bucket & Concurrency Rate Limiter**: Valkey-backed atomic sliding-window rate limiter powered by Lua scripts (`valkey_token_bucket.lua`) enforcing Requests-Per-Minute (RPM) and Tokens-Per-Minute (TPM) caps to eliminate local Ollama GPU VRAM thrashing and cloud API 429 throttling.
-4. **FastMCP Valkey Toolset & Live System Resource**: 6 FastMCP tools (`valkey_ping`, `valkey_info`, `valkey_get`, `valkey_set`, `valkey_keys`, `valkey_flush`) and dynamic system resource `resource://valkey/status` reporting real-time memory usage, connected clients, and cache hit ratios.
-5. **Ephemeral Testcontainers Valkey Testing Harness**: Rootless container fixture (`testcontainers-python` running `valkey/valkey:8.0-alpine`) for offline unit and integration test suites without requiring live Minikube cluster dependencies.
-6. **Valkey IT Domain Knowledge Base Manual (`it_domains/tools/valkey.md`)**: Comprehensive technical guide covering Valkey 8.0 architecture, RESP3 wire protocol, memory optimization, eviction policies, and cluster topologies (completed).
-7. **Infrastructure Perimeter, Supply Chain & Workstation Zero-Trust (Phase 48)**:
-   - Kubernetes Pod Security Admission (PSA) enforcement labels (`pod-security.kubernetes.io/enforce: restricted`, `pod-security.kubernetes.io/warn: restricted`) across all namespaces in `k8s/namespaces.yaml`.
-   - Cluster Default-Deny NetworkPolicies: Author granular `NetworkPolicy` manifests for `k8s/llm/`, `k8s/monitoring/`, and `k8s/argocd/` with explicit DNS and inter-service egress rules.
-   - Subprocess Environment Isolation & Credential Boundary: Restrict default environment inheritance in `run_subprocess` (`src/devops_cli/core/process.py`) to prevent ambient token leakage to untrusted child binaries.
-   - Immutable GitHub Actions Commit SHA Pinning: Pin all actions across `.github/workflows/ci.yml` and `release.yml` to immutable 40-character commit SHAs with inline version comments.
-   - Qdrant Vector Database API Key Secret Protection: Add optional API key authentication support and ClusterIP default configuration for production deployments in `k8s/llm/values-qdrant.yaml`.
 
 #### Milestone: `v0.2.13` (Scheduled - P0)
 1. **Sub-Agent Local Offloading Engine & Agent Harness Slots (`devops_cli.ai.harness.slots`)**: Modular Harness Slots (`ModelSlot`, `SkillSlot`, `ToolSlot`, `SubAgentSlot`) offloading token-intensive exploration and symbol searching to local open models (Granite, Qwen2.5-Coder) under a "Big decides, small types, big checks" synthesis protocol, achieving 85%+ token savings.
