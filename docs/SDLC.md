@@ -249,6 +249,8 @@ gitGraph
     checkout main
     merge release/v0.2.12 id: "release PR merge"
     commit id: "tag: v0.2.12"
+    branch release/v0.2.13
+    checkout release/v0.2.13
 ```
 
 #### Branch Governance & Hierarchy

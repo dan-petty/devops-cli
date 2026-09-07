@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import re
 from pathlib import Path
 from typing import Any
@@ -203,9 +204,21 @@ def close_repository_milestone(client: Any, repo: str, version_or_title: str) ->
     func = getattr(client, "close_milestone", None)
     if callable(func):
         try:
+            sig = inspect.signature(func)
+            params = [
+                p
+                for p in sig.parameters.values()
+                if p.kind
+                in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+            ]
+            if len(params) == 1:
+                return bool(func(version_or_title))
             return bool(func(repo, version_or_title))
-        except TypeError:
-            return bool(func(version_or_title))
+        except ValueError, TypeError:
+            try:
+                return bool(func(repo, version_or_title))
+            except TypeError:
+                return bool(func(version_or_title))
 
     get_fn = getattr(client, "get_milestones", None)
     if callable(get_fn):
