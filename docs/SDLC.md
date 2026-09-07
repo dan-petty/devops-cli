@@ -253,8 +253,8 @@ gitGraph
 
 #### Branch Governance & Hierarchy
 - **Zero Direct Commits to `main`**: All work occurs on dedicated topic branches (`feat/<desc>`, `fix/<desc>`, `docs/<desc>`, `refactor/<desc>`).
-- **PR Base Branch Targeting**: Topic PRs must target the active release branch (`--base release/vX.Y.Z`). Only release preparation PRs target `main`.
-- **Atomic Conventional Commits**: All commit messages and PR titles must follow Conventional Commits: `feat(scope): ...`, `fix(scope): ...`, `docs(scope): ...`, `refactor(scope): ...`, `chore(scope): ...`.
+- **PR Base Branch Targeting**: Topic PRs must target the active release branch (`--base release/vX.Y.Z`). Only release preparation PRs target `main`, titled strictly `feat(release): v<version>`.
+- **Atomic Conventional Commits & PR Titles**: All commit messages and PR titles must follow Conventional Commits: `feat(scope): ...`, `fix(scope): ...`, `docs(scope): ...`, `refactor(scope): ...`, `chore(scope): ...`. Release PR titles strictly follow `feat(release): v<version>`.
 - **Declarative Code Ownership (`.github/CODEOWNERS`)**: Pull requests automatically assign reviews based on touched file paths (Core CLI, AI/MCP, K8s, Security, CI/CD).
 - **Automated Dependency Updates (`.github/dependabot.yml`)**: Dependabot monitors `github-actions` and `pip` dependencies weekly, targeting active release branches with prefix `chore(deps)`.
 - **GitHub Project Governance, Views & Labeling Standards**:

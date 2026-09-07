@@ -584,12 +584,19 @@
   - [x] Release documentation synchronized: `CHANGELOG.md`, `docs/RELEASE_NOTES.md`, `docs/ROADMAP.md`, `docs/PENDING_FEATURES.md`, `docs/LOG.md`.
   - [x] Synchronized CLI documentation and README: `devops docs generate --sync-readme`.
   - [x] Verified release consistency status: `devops release status` (100% matched).
+  - [x] Run Full 10-Gate CI Verification Suite (`uv run devops ci` — 10/10 green).
+  - [x] Author release deliverable commit (`2a858f1`) and push to `origin/release/v0.2.12`.
+  - [x] Open Release PR [#50](https://github.com/dan-petty/devops-cli/pull/50) targeting `main` titled `feat(release): v0.2.12` linked to milestone `v0.2.12`.
+  - [x] Verified 100% green remote GitHub Actions CI checks on PR #50.
+
+- [x] Phase 48.12: Release PR Title Governance & Agent Instruction Hardening
+  - [x] Update PR #50 title from verbose description to canonical `feat(release): v0.2.12`.
+  - [x] Update `AGENTS.md`, `docs/ROUTINE_TASKS.md`, and `docs/SDLC.md` to codify strict release PR title convention `feat(release): v<version>`.
 
 ---
 
 ### In-Progress Tasks (WIP)
-- [ ] Run Full 10-Gate CI Verification Suite (`uv run devops ci`)
-- [ ] Author release deliverable commit and open Release PR targeting `main`
+- [ ] Await maintainer review and squash-merge of Release PR #50
 
 ---
 

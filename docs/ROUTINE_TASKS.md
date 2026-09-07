@@ -198,7 +198,7 @@ sequenceDiagram
    - Bumps version in `pyproject.toml` and `src/devops_cli/__init__.py`.
    - Updates `CHANGELOG.md` converting `[Unreleased]` into the target version release block.
    - Regenerates docs and updates README Command Matrix.
-   - Creates topic branch `release/v<version>`, commits bumps, and opens a GitHub PR targeting `main`.
+   - Creates topic branch `release/v<version>`, commits bumps, and opens a GitHub Release PR targeting `main` titled `feat(release): v<version>`.
 3. **Run Authoritative Release Check**: Run `uv run devops release check` to verify tree cleanliness, version matching, and CI validation.
 4. **Human Maintainer Merge**: The maintainer reviews and squash-merges the Release PR into `main`.
 5. **Automated Publishing & Milestone Closure**: GitHub Actions (`release.yml`) cuts the git tag, extracts release notes with `devops release notes`, creates the GitHub Release, closes the release milestone via `devops gh milestones close <version>`, and publishes the pre-built DevContainer image to GHCR.
