@@ -60,6 +60,10 @@ ENV_AI_RAG_EMBEDDING_URL = "DEVOPS_CLI_AI_RAG_EMBEDDING_URL"
 ENV_AI_RAG_TOP_K = "DEVOPS_CLI_AI_RAG_TOP_K"
 ENV_AI_RAG_SCORE_THRESHOLD = "DEVOPS_CLI_AI_RAG_SCORE_THRESHOLD"
 
+ENV_QDRANT_URL = "DEVOPS_CLI_QDRANT_URL"
+ENV_QDRANT_API_KEY = "DEVOPS_CLI_QDRANT_API_KEY"
+ENV_QDRANT_COLLECTION_PREFIX = "DEVOPS_CLI_QDRANT_COLLECTION_PREFIX"
+
 # Data Storage & Artifact Path environment variables
 ENV_DATA_DIR = "DEVOPS_CLI_DATA_DIR"
 ENV_DATA_ANALYSIS_DIR = "DEVOPS_CLI_DATA_ANALYSIS_DIR"
@@ -120,6 +124,9 @@ OPTION_TO_ENV_VAR: dict[str, str] = {
     opt.AI_RAG_EMBEDDING_URL: ENV_AI_RAG_EMBEDDING_URL,
     opt.AI_RAG_TOP_K: ENV_AI_RAG_TOP_K,
     opt.AI_RAG_SCORE_THRESHOLD: ENV_AI_RAG_SCORE_THRESHOLD,
+    opt.QDRANT_URL: ENV_QDRANT_URL,
+    opt.QDRANT_API_KEY: ENV_QDRANT_API_KEY,
+    opt.QDRANT_COLLECTION_PREFIX: ENV_QDRANT_COLLECTION_PREFIX,
     opt.DATA_DIR: ENV_DATA_DIR,
     opt.DATA_ANALYSIS_DIR: ENV_DATA_ANALYSIS_DIR,
     opt.DATA_REVIEWS_DIR: ENV_DATA_REVIEWS_DIR,
@@ -398,6 +405,24 @@ def get_all_env_var_specs() -> list[EnvVarSpec]:
             opt.AI_RAG_EMBEDDING_URL,
             False,
             "Dedicated endpoint URL for RAG dense vector embedding generation (e.g. http://workhorse.lan:11434)",
+        ),
+        EnvVarSpec(
+            ENV_QDRANT_URL,
+            opt.QDRANT_URL,
+            False,
+            "Qdrant vector database server URL",
+        ),
+        EnvVarSpec(
+            ENV_QDRANT_API_KEY,
+            opt.QDRANT_API_KEY,
+            True,
+            "Qdrant API key (stored in OS keyring)",
+        ),
+        EnvVarSpec(
+            ENV_QDRANT_COLLECTION_PREFIX,
+            opt.QDRANT_COLLECTION_PREFIX,
+            False,
+            "Prefix for Qdrant collection names",
         ),
         EnvVarSpec(
             ENV_DATA_DIR,

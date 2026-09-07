@@ -9,12 +9,12 @@
 ## 🎯 Active Release Focus
 
 ### Current Milestone: `v0.2.12` (Active Development)
-1. **Automated PR DevContainer Pruning & Package Lifecycle (Phase 47.4)**: Automated GHCR image pruning on PR close (`cleanup-devcontainer.yml`), keeping container registry hygienic and eliminating stale PR artifacts.
+1. **Automated PR DevContainer Pruning & Package Lifecycle (Phase 47.4)**: Automated GHCR image pruning on PR close (`cleanup-devcontainer.yml`), keeping container registry hygienic and eliminating stale PR artifacts (completed).
 2. **Infrastructure Perimeter, Supply Chain & Workstation Zero-Trust (Phase 48)**:
-   - Cluster Default-Deny NetworkPolicies (`k8s/monitoring/`, `k8s/argocd/` — Issue #40).
-   - Subprocess Environment Isolation & Credential Boundary (`src/devops_cli/core/process.py` — Issue #41).
-   - Immutable GitHub Actions Commit SHA Pinning (`.github/workflows/ci.yml`, `release.yml` — Issue #42).
-   - Qdrant Vector Database API Key Secret Protection (`k8s/llm/values-qdrant.yaml` — Issue #43).
+   - Cluster Default-Deny NetworkPolicies (`k8s/monitoring/`, `k8s/argocd/` — Issue #40, completed).
+   - Subprocess Environment Isolation & Credential Boundary (`src/devops_cli/core/process.py` — Issue #41, completed).
+   - Immutable GitHub Actions Commit SHA Pinning (`.github/workflows/ci.yml`, `release.yml` — Issue #42, completed).
+   - Qdrant Vector Database API Key Secret Protection (`k8s/llm/values-qdrant.yaml` — Issue #43, completed).
 3. **Valkey Workstation Management & High-Performance Distributed Caching Tier**:
    - Dedicated `devops valkey` CLI command group (`ping`, `info`, `stats`, `keys`, `get`, `set`, `flush`, `cli`, `backup`/`restore`) via pure-Python RESP3 wire protocol.
    - High-performance distributed SHA-256 keyed AI cache (`ai.cache.backend=valkey`) slashing redundant LLM inference by up to 85%.
@@ -40,11 +40,11 @@
 5. **Ephemeral Testcontainers Valkey Testing Harness**: Rootless container fixture (`testcontainers-python` running `valkey/valkey:8.0-alpine`) for offline unit and integration test suites without requiring live Minikube cluster dependencies.
 6. **Valkey IT Domain Knowledge Base Manual (`it_domains/tools/valkey.md`)**: Comprehensive technical guide covering Valkey 8.0 architecture, RESP3 wire protocol, memory optimization, eviction policies, and cluster topologies (completed).
 7. **Infrastructure Perimeter, Supply Chain & Workstation Zero-Trust (Phase 48)**:
-   - Kubernetes Pod Security Admission (PSA) enforcement labels (`pod-security.kubernetes.io/enforce: restricted`, `pod-security.kubernetes.io/warn: restricted`) across all namespaces in `k8s/namespaces.yaml`.
-   - Cluster Default-Deny NetworkPolicies: Author granular `NetworkPolicy` manifests for `k8s/llm/`, `k8s/monitoring/`, and `k8s/argocd/` with explicit DNS and inter-service egress rules.
-   - Subprocess Environment Isolation & Credential Boundary: Restrict default environment inheritance in `run_subprocess` (`src/devops_cli/core/process.py`) to prevent ambient token leakage to untrusted child binaries.
-   - Immutable GitHub Actions Commit SHA Pinning: Pin all actions across `.github/workflows/ci.yml` and `release.yml` to immutable 40-character commit SHAs with inline version comments.
-   - Qdrant Vector Database API Key Secret Protection: Add optional API key authentication support and ClusterIP default configuration for production deployments in `k8s/llm/values-qdrant.yaml`.
+   - Kubernetes Pod Security Admission (PSA) enforcement labels (`pod-security.kubernetes.io/enforce: restricted`, `pod-security.kubernetes.io/warn: restricted`) across all namespaces in `k8s/namespaces.yaml` (completed).
+   - Cluster Default-Deny NetworkPolicies: Author granular `NetworkPolicy` manifests for `k8s/llm/`, `k8s/monitoring/`, and `k8s/argocd/` with explicit DNS and inter-service egress rules (completed).
+   - Subprocess Environment Isolation & Credential Boundary: Restrict default environment inheritance in `run_subprocess` (`src/devops_cli/core/process.py`) to prevent ambient token leakage to untrusted child binaries (completed).
+   - Immutable GitHub Actions Commit SHA Pinning: Pin all actions across `.github/workflows/ci.yml` and `release.yml` to immutable 40-character commit SHAs with inline version comments (completed).
+   - Qdrant Vector Database API Key Secret Protection: Add optional API key authentication support and ClusterIP default configuration for production deployments in `k8s/llm/values-qdrant.yaml` (completed).
 
 #### Milestone: `v0.2.13` (Scheduled - P0)
 1. **Sub-Agent Local Offloading Engine & Agent Harness Slots (`devops_cli.ai.harness.slots`)**: Modular Harness Slots (`ModelSlot`, `SkillSlot`, `ToolSlot`, `SubAgentSlot`) offloading token-intensive exploration and symbol searching to local open models (Granite, Qwen2.5-Coder) under a "Big decides, small types, big checks" synthesis protocol, achieving 85%+ token savings.

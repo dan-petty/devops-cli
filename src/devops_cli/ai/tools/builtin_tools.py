@@ -363,13 +363,15 @@ def rag_search(
         from devops_cli.ai.rag.embeddings import EmbeddingsEngine
         from devops_cli.ai.rag.qdrant import QdrantClient
         from devops_cli.ai.rag.retriever import SemanticRetriever
-        from devops_cli.config.settings import get_ai_api_key, load_settings
+        from devops_cli.config.settings import get_ai_api_key, get_qdrant_api_key, load_settings
 
         settings = load_settings()
         qdrant_url = settings.qdrant.url or "http://localhost:6333"
         prefix = settings.qdrant.collection_prefix or "devops"
         qdrant = QdrantClient(
-            base_url=qdrant_url, allow_private_network=settings.ai.allow_private_network
+            base_url=qdrant_url,
+            api_key=get_qdrant_api_key(settings),
+            allow_private_network=settings.ai.allow_private_network,
         )
         if not qdrant.is_alive():
             return f"RAG vector database unavailable at {qdrant_url}. Fallback: use search_code."
