@@ -1249,6 +1249,10 @@ def ai_subagent_offload(
 ) -> str:
     """Offload AST exploration, symbol cataloging, or file scouting to local sub-agent slot."""
     _validate_mcp_arg("repo", repo)
+    if symbol and pattern:
+        raise ValidationError(
+            "Cannot specify both 'symbol' and 'pattern'; provide one or the other."
+        )
     cmd = ["uv", "run", "devops", "ai", "harness", "offload", "--repo", repo]
     if symbol:
         _validate_mcp_arg("symbol", symbol)

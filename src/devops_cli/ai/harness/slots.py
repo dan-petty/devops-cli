@@ -196,7 +196,7 @@ class SkillSlot(BaseSlot):
         """Detach a skill by name."""
         try:
             norm_name = normalize_skill_name(skill_name)
-        except Exception:
+        except HarnessValidationError:
             norm_name = skill_name.strip().lower()
         if norm_name in self.active_skills:
             del self.active_skills[norm_name]
@@ -209,7 +209,7 @@ class SkillSlot(BaseSlot):
         """Check whether a skill is currently attached."""
         try:
             norm_name = normalize_skill_name(skill_name)
-        except Exception:
+        except HarnessValidationError:
             norm_name = skill_name.strip().lower()
         return norm_name in self.active_skills
 

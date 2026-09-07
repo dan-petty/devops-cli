@@ -397,6 +397,8 @@ def test_expanded_mcp_tools_and_prompts_execution() -> None:
         assert ai_architecture(target="src") == "mock_output"
         assert ai_harness_status() == "mock_output"
         assert ai_subagent_offload(repo="src", symbol="Foo") == "mock_output"
+        with pytest.raises(ValidationError, match="Cannot specify both 'symbol' and 'pattern'"):
+            ai_subagent_offload(repo="src", symbol="Foo", pattern="*.py")
 
         # Git & PR governance
         assert branches_list() == "mock_output"

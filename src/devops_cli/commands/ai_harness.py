@@ -85,7 +85,7 @@ def _render_offload_result(
     from devops_cli.output import format_json, print_table, write_stdout
 
     savings = TokenSavingsSummary.calculate(
-        frontier_tokens=25,
+        frontier_tokens=0,
         offloaded_tokens=result.tokens_used,
     )
 
