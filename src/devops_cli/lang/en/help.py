@@ -72,6 +72,8 @@ class OptionHelp:
     prompt: str = "Prompt text or workload payload to evaluate."
     quiesce_reason: str = "Reason for constellation quiesce or emergency failover."
     drain_timeout: str = "Drain timeout in seconds to wait for in-flight tasks to complete."
+    concurrency: str = "Maximum number of concurrent review workers."
+    parallel: str = "Execute multi-file review stages concurrently using async worker pool."
 
 
 @dataclass(frozen=True)
@@ -620,6 +622,8 @@ class ReviewCommandHelp:
     remediate_finding_id: str = "Finding ID or title to create remediation branch for."
     remediate_file: str = "Target source file to apply fix to."
     remediate_branch: str = "Custom topic branch name."
+    concurrency: str = "Max concurrent workers for parallel review and verification."
+    parallel: str = "Execute multi-file review stages concurrently using async worker pool."
 
 
 @dataclass(frozen=True)

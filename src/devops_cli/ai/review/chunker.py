@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Iterator
 from pathlib import Path
 
 from devops_cli.ai.review.sanitization import _unique_preserve_order
@@ -176,20 +177,22 @@ def _split_source_file_blocks(
     return windows
 
 
-def _split_diff_into_file_blocks(diff: str) -> list[str]:
-    """Split a unified diff into one block per file, without cutting through a hunk."""
+def _stream_diff_file_blocks(line_iter: Iterator[str]) -> Iterator[str]:
+    """Yield unified diff file blocks sequentially from a line iterator."""
     marker = "diff --git "
-    blocks: list[str] = []
     current: list[str] = []
-
-    for line in diff.splitlines(keepends=True):
+    for line in line_iter:
         if line.startswith(marker) and current:
-            blocks.append("".join(current))
+            yield "".join(current)
             current = []
         current.append(line)
-
     if current:
-        blocks.append("".join(current))
+        yield "".join(current)
+
+
+def _split_diff_into_file_blocks(diff: str) -> list[str]:
+    """Split a unified diff into one block per file, without cutting through a hunk."""
+    blocks = list(_stream_diff_file_blocks(iter(diff.splitlines(keepends=True))))
     return blocks or [diff]
 
 
@@ -238,16 +241,25 @@ def _is_generated_diff_block(block: str) -> bool:
     return Path(filename).name in CONST_REVIEW_GENERATED_FILES
 
 
-def diff_pages(
-    diff: str,
+def diff_stream_chunks(
+    diff_stream: Iterable[str] | str,
     max_chars: int = DEFAULT_REVIEW_MAX_DIFF_CHARS,
     window_size_factor: float = DEFAULT_REVIEW_WINDOW_SIZE_FACTOR,
     overlap_factor: float = DEFAULT_REVIEW_OVERLAP_FACTOR,
-) -> list[str]:
-    """Paginate a unified diff file-by-file into individual review pages using rolling windows."""
-    pages: list[str] = []
-    for block in _split_diff_into_file_blocks(diff):
-        if _is_generated_diff_block(block):
+) -> Iterator[str]:
+    """Stream unified diff chunks file-by-file with rolling window pagination.
+
+    Consumes diff lines lazily without buffering full diff files in memory,
+    reducing peak allocation on resource-constrained containers.
+    """
+    line_iter = (
+        iter(diff_stream.splitlines(keepends=True))
+        if isinstance(diff_stream, str)
+        else iter(diff_stream)
+    )
+    yielded_any = False
+    for block in _stream_diff_file_blocks(line_iter):
+        if not block.strip() or _is_generated_diff_block(block):
             continue
         file_pages = _paginate_file_diff_block(
             block,
@@ -255,8 +267,29 @@ def diff_pages(
             window_size_factor=window_size_factor,
             overlap_factor=overlap_factor,
         )
-        pages.extend(file_pages)
-    return pages or [""]
+        for page in file_pages:
+            yielded_any = True
+            yield page
+
+    if not yielded_any:
+        yield ""
+
+
+def diff_pages(
+    diff: str,
+    max_chars: int = DEFAULT_REVIEW_MAX_DIFF_CHARS,
+    window_size_factor: float = DEFAULT_REVIEW_WINDOW_SIZE_FACTOR,
+    overlap_factor: float = DEFAULT_REVIEW_OVERLAP_FACTOR,
+) -> list[str]:
+    """Paginate a unified diff file-by-file into individual review pages using rolling windows."""
+    return list(
+        diff_stream_chunks(
+            diff,
+            max_chars=max_chars,
+            window_size_factor=window_size_factor,
+            overlap_factor=overlap_factor,
+        )
+    )
 
 
 def _is_reviewable_candidate_file(
@@ -312,6 +345,7 @@ def find_repo_files(
 
 
 _diff_pages = diff_pages
+_diff_stream_chunks = diff_stream_chunks
 _find_repo_files = find_repo_files
 
-__all__ = ["diff_pages", "find_repo_files"]
+__all__ = ["diff_pages", "diff_stream_chunks", "find_repo_files"]

@@ -684,9 +684,13 @@ class ReviewPipelineOrchestrator:
         llm_client: LLMClient | None = None,
         target_dir: Path = DEFAULT_CURRENT_PATH,
         session_dir: Path | None = None,
+        concurrency: int | None = None,
+        parallel: bool = True,
     ) -> None:
         self.session_id = session_id or datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
         self.target_dir = target_dir
+        self.concurrency = concurrency
+        self.parallel = parallel
         if session_dir is not None:
             self.session_dir = session_dir
         else:
@@ -1411,7 +1415,7 @@ class ReviewPipelineOrchestrator:
                 )
                 return
 
-            from devops_cli.ai.review.chunker import diff_pages
+            from devops_cli.ai.review.chunker import diff_stream_chunks
             from devops_cli.config.defaults import (
                 DEFAULT_AI_CONTEXT_WINDOW,
                 DEFAULT_REVIEW_MAX_DIFF_CHARS,
@@ -1425,7 +1429,7 @@ class ReviewPipelineOrchestrator:
             max_diff_chars = max(DEFAULT_REVIEW_MAX_DIFF_CHARS, int(ctx_win * 3.5))
 
             pages = (
-                diff_pages(content_or_diff, max_chars=max_diff_chars)
+                list(diff_stream_chunks(content_or_diff, max_chars=max_diff_chars))
                 if len(content_or_diff) > max_diff_chars
                 else [content_or_diff]
             )
@@ -1614,7 +1618,10 @@ class ReviewPipelineOrchestrator:
             raw_par = getattr(config, "ollama_max_parallel", None)
             max_par = int(raw_par) if isinstance(raw_par, int) else 2
             batch_capacity = max(1, len(ollama_urls) * max_par)
-            n_workers = min(total_files, batch_capacity, 32) if total_files > 0 else 1
+            if self.concurrency is not None:
+                n_workers = max(1, self.concurrency)
+            else:
+                n_workers = min(total_files, batch_capacity, 32) if total_files > 0 else 1
 
             stage_span.set_attribute("review.workers", n_workers)
             stage_span.set_attribute("review.batch_capacity", batch_capacity)
@@ -1641,11 +1648,14 @@ class ReviewPipelineOrchestrator:
                     persona_lookup=persona_lookup,
                 )
 
-            if n_workers > 1:
-                with ThreadPoolExecutor(max_workers=n_workers) as executor:
-                    list(executor.map(_review_task, list(enumerate(file_payloads, 1))))
+            items = list(enumerate(file_payloads, 1))
+            if self.parallel and n_workers > 1:
+                from devops_cli.ai.review.pool import ReviewWorkerPool
+
+                pool = ReviewWorkerPool(max_concurrency=n_workers)
+                pool.run_sync_all(_review_task, items)
             else:
-                for item in enumerate(file_payloads, 1):
+                for item in items:
                     _review_task(item)
 
     # ── Cross-Referencing Verification & Reasoning ──────────────────────────
@@ -1818,7 +1828,10 @@ class ReviewPipelineOrchestrator:
             raw_par = getattr(config, "ollama_max_parallel", None)
             max_par = int(raw_par) if isinstance(raw_par, int) else 2
             batch_capacity = max(1, len(ollama_urls) * max_par)
-            n_workers = min(len(payloads_with_findings), batch_capacity)
+            if self.concurrency is not None:
+                n_workers = min(len(payloads_with_findings), max(1, self.concurrency))
+            else:
+                n_workers = min(len(payloads_with_findings), batch_capacity)
 
             s4_span.set_attribute("review.workers", n_workers)
             s4_span.set_attribute("review.batch_capacity", batch_capacity)
@@ -1827,9 +1840,11 @@ class ReviewPipelineOrchestrator:
                 idx, payload = arg
                 self._safe_verify_file_payload(idx, total_files, payload, server_info)
 
-            if n_workers > 1:
-                with ThreadPoolExecutor(max_workers=n_workers) as executor:
-                    list(executor.map(_verify_task, payloads_with_findings))
+            if self.parallel and n_workers > 1:
+                from devops_cli.ai.review.pool import ReviewWorkerPool
+
+                pool = ReviewWorkerPool(max_concurrency=n_workers)
+                pool.run_sync_all(_verify_task, payloads_with_findings)
             else:
                 for item in payloads_with_findings:
                     _verify_task(item)
