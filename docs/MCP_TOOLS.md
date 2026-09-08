@@ -8,9 +8,13 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 |---|---|
 | [`ai_architecture`](#ai-architecture) | Analyze architectural module boundaries, dependency graphs, and cyclic imports. |
 | [`ai_chaos_model`](#ai-chaos-model) | Execute model dependency chaos fault injection and verify automated fallback recovery. |
+| [`ai_constellation_status`](#ai-constellation-status) | Display constellation fleet status, active fallback routes, and suspended tasks. |
 | [`ai_diagram`](#ai-diagram) | Generate visual Mermaid architecture or threat modeling diagram. |
+| [`ai_failover`](#ai-failover) | Emergency failover controller re-routing tasks to designated fallback endpoints. |
 | [`ai_harness_status`](#ai-harness-status) | Inspect AI agent harness slot configuration, active models, skills, and sandbox state. |
+| [`ai_quiesce`](#ai-quiesce) | Centralized emergency quiesce cleanly suspending active agent loops and background tasks. |
 | [`ai_repomap`](#ai-repomap) | Generate a compact whole-repository AST symbol map for AI context. |
+| [`ai_resume`](#ai-resume) | Gracefully resume suspended constellation agent loops and task runners. |
 | [`ai_subagent_offload`](#ai-subagent-offload) | Offload AST exploration, symbol cataloging, or file scouting to local sub-agent slot. |
 | [`ai_test_gen`](#ai-test-gen) | Synthesize isolated pytest unit test suite for a target Python file. |
 | [`argo_list`](#argo-list) | List ArgoCD applications. |
@@ -122,6 +126,12 @@ Execute model dependency chaos fault injection and verify automated fallback rec
 | `fallback_model` | `string` | No | `qwen2.5-coder:7b` | - |
 | `dry_run` | `boolean` | No | `False` | - |
 
+### `ai_constellation_status`
+
+Display constellation fleet status, active fallback routes, and suspended tasks.
+
+*No parameters required.*
+
 ### `ai_diagram`
 
 Generate visual Mermaid architecture or threat modeling diagram.
@@ -133,11 +143,34 @@ Generate visual Mermaid architecture or threat modeling diagram.
 | `diagram_type` | `string` | No | `arch` | - |
 | `target_dir` | `string` | No | `.` | - |
 
+### `ai_failover`
+
+Emergency failover controller re-routing tasks to designated fallback endpoints.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `target_provider` | `string` | No | `ollama` | - |
+| `target_model` | `string` | No | `qwen2.5-coder:7b` | - |
+| `dry_run` | `boolean` | No | `False` | - |
+
 ### `ai_harness_status`
 
 Inspect AI agent harness slot configuration, active models, skills, and sandbox state.
 
 *No parameters required.*
+
+### `ai_quiesce`
+
+Centralized emergency quiesce cleanly suspending active agent loops and background tasks.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `reason` | `string` | No | `Operator requested emergency quiesce` | - |
+| `dry_run` | `boolean` | No | `False` | - |
 
 ### `ai_repomap`
 
@@ -148,6 +181,16 @@ Generate a compact whole-repository AST symbol map for AI context.
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `target_dir` | `string` | No | `.` | - |
+
+### `ai_resume`
+
+Gracefully resume suspended constellation agent loops and task runners.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `dry_run` | `boolean` | No | `False` | - |
 
 ### `ai_subagent_offload`
 

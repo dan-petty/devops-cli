@@ -235,6 +235,10 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 |  | `devops ai prompt-eval [OPTIONS]` | Benchmark persona prompt variations against verified review feedback datasets. |
 |  | `devops ai test-gen [OPTIONS] <target_file>` | Synthesize isolated pytest unit test suites for functions or source files. |
 |  | `devops ai chaos-model [OPTIONS]` | Model dependency chaos engineering suite simulating provider faults and validating local failovers. |
+|  | `devops ai quiesce [OPTIONS]` | Centralized emergency quiesce cleanly suspending active agent loops and background tasks. |
+|  | `devops ai failover [OPTIONS]` | Emergency failover controller re-routing tasks to designated fallback endpoints. |
+|  | `devops ai resume [OPTIONS]` | Gracefully resume suspended constellation agent loops and task runners. |
+|  | `devops ai constellation [OPTIONS]` | Display constellation fleet status, active fallback routes, and suspended tasks. |
 |  | `devops ai review [OPTIONS] COMMAND [ARGS]...` | AI-powered multi-persona code review system. |
 |  | `devops ai analyze [OPTIONS] COMMAND [ARGS]...` | Analyze codebase metadata and generate structural outlines. |
 |  | `devops ai rag [OPTIONS] COMMAND [ARGS]...` | Manage RAG vector embeddings, indexing, and semantic search (Qdrant). |

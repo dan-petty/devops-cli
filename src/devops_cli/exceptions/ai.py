@@ -8,6 +8,9 @@ from typing import TYPE_CHECKING, Any
 import pydantic_ai.exceptions as p_exc
 
 from devops_cli.config.constants import (
+    CONST_ERROR_CODE_CONSTELLATION_FAILOVER,
+    CONST_ERROR_CODE_CONSTELLATION_QUIESCE,
+    CONST_ERROR_CODE_CONSTELLATION_RESUME,
     CONST_ERROR_CODE_HARNESS_EXECUTION,
     CONST_ERROR_CODE_HARNESS_VALIDATION,
     CONST_ERROR_CODE_LLM_INFERENCE,
@@ -523,6 +526,57 @@ class HarnessExecutionError(DevOpsCLIError, RuntimeError):
         super().__init__(message, exit_code=exit_code, error_code=error_code, details=err_details)
 
 
+class ConstellationQuiesceError(DevOpsCLIError, RuntimeError):
+    """Raised when constellation quiesce suspension fails."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        reason: str | None = None,
+        exit_code: int = CONST_EXIT_FAILURE,
+        error_code: str = CONST_ERROR_CODE_CONSTELLATION_QUIESCE,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        err_details = {"reason": reason}
+        if details:
+            err_details.update(details)
+        super().__init__(message, exit_code=exit_code, error_code=error_code, details=err_details)
+
+
+class ConstellationFailoverError(DevOpsCLIError, RuntimeError):
+    """Raised when emergency failover routing fails."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        target_provider: str | None = None,
+        target_model: str | None = None,
+        exit_code: int = CONST_EXIT_FAILURE,
+        error_code: str = CONST_ERROR_CODE_CONSTELLATION_FAILOVER,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        err_details = {"target_provider": target_provider, "target_model": target_model}
+        if details:
+            err_details.update(details)
+        super().__init__(message, exit_code=exit_code, error_code=error_code, details=err_details)
+
+
+class ConstellationResumeError(DevOpsCLIError, RuntimeError):
+    """Raised when resuming suspended constellation tasks fails."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        exit_code: int = CONST_EXIT_FAILURE,
+        error_code: str = CONST_ERROR_CODE_CONSTELLATION_RESUME,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(message, exit_code=exit_code, error_code=error_code, details=details)
+
+
 # Native re-exports for control flow, groups, and warnings
 SkipModelRequest = p_exc.SkipModelRequest
 SkipToolValidation = p_exc.SkipToolValidation
@@ -541,6 +595,9 @@ __all__ = [
     "ApprovalRequired",
     "CallDeferred",
     "ConcurrencyLimitExceeded",
+    "ConstellationFailoverError",
+    "ConstellationQuiesceError",
+    "ConstellationResumeError",
     "ContentFilterError",
     "ContextBudgetExceededError",
     "CostCalculationFailedWarning",

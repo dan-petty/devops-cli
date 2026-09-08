@@ -9,6 +9,8 @@ from typing import Literal
 from fastmcp import FastMCP
 
 from devops_cli.config.defaults import (
+    DEFAULT_AI_FALLBACK_MODEL,
+    DEFAULT_AI_FALLBACK_PROVIDER,
     DEFAULT_MCP_SERVER_PORT,
     DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
     DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
@@ -16,6 +18,7 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions import SecurityError, ValidationError
+from devops_cli.lang import MESSAGES
 from devops_cli.models.ai import MCPToolInfo
 
 mcp = FastMCP(
@@ -1276,7 +1279,7 @@ def ai_subagent_offload(
 @mcp.tool()
 def ai_chaos_model(
     mode: str = "all",
-    fallback_model: str = "qwen2.5-coder:7b",
+    fallback_model: str = DEFAULT_AI_FALLBACK_MODEL,
     dry_run: bool = False,
 ) -> str:
     """Execute model dependency chaos fault injection and verify automated fallback recovery."""
@@ -1296,6 +1299,73 @@ def ai_chaos_model(
     if dry_run:
         cmd.append("--dry-run")
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def ai_quiesce(
+    reason: str = MESSAGES.ai.default_quiesce_reason,
+    dry_run: bool = False,
+) -> str:
+    """Centralized emergency quiesce cleanly suspending active agent loops and background tasks."""
+    _validate_mcp_arg("reason", reason)
+    cmd = ["uv", "run", "devops", "ai", "quiesce", "--reason", reason]
+    if dry_run:
+        cmd.append("--dry-run")
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def ai_failover(
+    target_provider: str = DEFAULT_AI_FALLBACK_PROVIDER,
+    target_model: str = DEFAULT_AI_FALLBACK_MODEL,
+    dry_run: bool = False,
+) -> str:
+    """Emergency failover controller re-routing tasks to designated fallback endpoints."""
+    _validate_mcp_arg("target_provider", target_provider)
+    _validate_mcp_arg("target_model", target_model)
+    cmd = [
+        "uv",
+        "run",
+        "devops",
+        "ai",
+        "failover",
+        "--target-provider",
+        target_provider,
+        "--target-model",
+        target_model,
+    ]
+    if dry_run:
+        cmd.append("--dry-run")
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def ai_resume(
+    dry_run: bool = False,
+) -> str:
+    """Gracefully resume suspended constellation agent loops and task runners."""
+    cmd = ["uv", "run", "devops", "ai", "resume"]
+    if dry_run:
+        cmd.append("--dry-run")
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def ai_constellation_status() -> str:
+    """Display constellation fleet status, active fallback routes, and suspended tasks."""
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "ai", "constellation", "--format", "json"],
+        timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.resource("resource://ai/constellation")
+def get_ai_constellation_resource() -> str:
+    """Return live constellation quiesce and active fallback routing status."""
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "ai", "constellation", "--format", "json"],
+        timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+    )
 
 
 @mcp.resource("resource://vault/status")

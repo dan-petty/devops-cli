@@ -13,7 +13,11 @@ from devops_cli.ai.chaos import (
     ModelChaosInjector,
     ModelChaosReport,
 )
-from devops_cli.config.defaults import DEFAULT_TABLE_FORMAT
+from devops_cli.config.defaults import (
+    DEFAULT_AI_FALLBACK_MODEL,
+    DEFAULT_AI_FALLBACK_PROVIDER,
+    DEFAULT_TABLE_FORMAT,
+)
 from devops_cli.lang import HELP
 from devops_cli.output import (
     format_json,
@@ -79,11 +83,11 @@ def run_chaos_model_cmd(
     fallback_provider: Annotated[
         str,
         typer.Option("--fallback-provider", help=HELP.options.fallback_provider),
-    ] = "ollama",
+    ] = DEFAULT_AI_FALLBACK_PROVIDER,
     fallback_model: Annotated[
         str,
         typer.Option("--fallback-model", help=HELP.options.fallback_model),
-    ] = "qwen2.5-coder:7b",
+    ] = DEFAULT_AI_FALLBACK_MODEL,
     prompt: Annotated[
         str,
         typer.Option("--prompt", help=HELP.options.prompt),

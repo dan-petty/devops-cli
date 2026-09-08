@@ -28,6 +28,9 @@ and domain categorization for all exceptions inheriting from `DevOpsCLIError`.
 | `ChecksumMismatchError` | `1` | Tools | Raised when downloaded tool archive SHA-256 does not match expected checksum. |
 | `CONCURRENCY_LIMIT_EXCEEDED` | `25` | Ai | Raised when the concurrency queue depth exceeds max_queued. |
 | `CONFIGURATION_ERROR` | `1` | Config | Base exception for configuration loading, validation, and serialization errors. |
+| `CONSTELLATION_FAILOVER_ERROR` | `1` | Ai | Raised when emergency failover routing fails. |
+| `CONSTELLATION_QUIESCE_ERROR` | `1` | Ai | Raised when constellation quiesce suspension fails. |
+| `CONSTELLATION_RESUME_ERROR` | `1` | Ai | Raised when resuming suspended constellation tasks fails. |
 | `CONTENT_FILTER_TRIGGERED` | `19` | Ai | Raised when a model response is filtered or refused by upstream content safety filters. |
 | `CONTEXT_BUDGET_EXCEEDED` | `11` | Ai | Raised when prompt token payload exceeds model context window limits. |
 | `DEPENDENCY_MISSING` | `1` | Tools | Raised when a required external binary/dependency is missing from the system PATH. |

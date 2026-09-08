@@ -95,6 +95,10 @@ def test_fastmcp_tools_registration() -> None:
         "ai_harness_status",
         "ai_subagent_offload",
         "ai_chaos_model",
+        "ai_quiesce",
+        "ai_failover",
+        "ai_resume",
+        "ai_constellation_status",
         # HashiCorp Vault
         "vault_status",
         "vault_get",
@@ -138,6 +142,7 @@ def test_fastmcp_prompts_and_resources_registration() -> None:
         "resource://telemetry/status",
         "resource://release/status",
         "resource://vault/status",
+        "resource://ai/constellation",
         "resource://mcp/tools",
     }
     assert expected_resources.issubset(resource_uris), (

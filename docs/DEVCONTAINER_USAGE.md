@@ -20,7 +20,7 @@ The official images are hosted on GHCR at:
 docker pull ghcr.io/dan-petty/devops-cli/devcontainer:latest
 
 # Or pull a specific pinned release
-docker pull ghcr.io/dan-petty/devops-cli/devcontainer:v0.2.9
+docker pull ghcr.io/dan-petty/devops-cli/devcontainer:latest
 ```
 
 ---
@@ -114,7 +114,7 @@ If your project requires additional system libraries, packages, or specific CLI 
 
 ### `.devcontainer/Dockerfile`
 ```dockerfile
-FROM ghcr.io/dan-petty/devops-cli/devcontainer:v0.1.11
+FROM ghcr.io/dan-petty/devops-cli/devcontainer:latest
 
 # Switch to root to install custom system packages
 USER root

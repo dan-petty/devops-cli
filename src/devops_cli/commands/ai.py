@@ -12,6 +12,12 @@ import typer
 from devops_cli.ai.personas import Persona
 from devops_cli.commands.ai_cache import app as cache_app
 from devops_cli.commands.ai_chaos import run_chaos_model_cmd
+from devops_cli.commands.ai_controller import (
+    run_constellation_cmd,
+    run_failover_cmd,
+    run_quiesce_cmd,
+    run_resume_cmd,
+)
 from devops_cli.commands.ai_harness import app as harness_app
 from devops_cli.commands.analyze import app as analyze_app
 from devops_cli.commands.benchmark import app as benchmark_app
@@ -1399,3 +1405,12 @@ def test_gen_cmd(
 # =============================================================================
 
 app.command("chaos-model", help=HELP.ai.chaos_model)(run_chaos_model_cmd)
+
+# =============================================================================
+# Command: devops ai constellation, quiesce, failover, resume
+# =============================================================================
+
+app.command("quiesce", help=HELP.ai.quiesce)(run_quiesce_cmd)
+app.command("failover", help=HELP.ai.failover)(run_failover_cmd)
+app.command("resume", help=HELP.ai.resume)(run_resume_cmd)
+app.command("constellation", help=HELP.ai.constellation)(run_constellation_cmd)
