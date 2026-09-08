@@ -1619,7 +1619,7 @@ class ReviewPipelineOrchestrator:
             max_par = int(raw_par) if isinstance(raw_par, int) else 2
             batch_capacity = max(1, len(ollama_urls) * max_par)
             if self.concurrency is not None:
-                n_workers = max(1, self.concurrency)
+                n_workers = min(total_files, max(1, self.concurrency)) if total_files > 0 else 1
             else:
                 n_workers = min(total_files, batch_capacity, 32) if total_files > 0 else 1
 
