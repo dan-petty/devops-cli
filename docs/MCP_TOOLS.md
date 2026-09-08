@@ -79,6 +79,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`security_intel_package`](#security-intel-package) | Query OSV.dev and NVD vulnerability databases for package CVE intelligence. |
 | [`ssh_audit`](#ssh-audit) | Audit SSH key expiration dates and key file permissions. |
 | [`ssh_status`](#ssh-status) | Inspect age and rotation status of managed SSH keys in ~/.ssh. |
+| [`telemetry_logfire_status`](#telemetry-logfire-status) | Check Logfire structured observability bridge status, token configuration, and recorded metrics. |
 | [`telemetry_profile`](#telemetry-profile) | Display terminal waterfall latency breakdown of OpenTelemetry trace spans. |
 | [`telemetry_status`](#telemetry-status) | Check OpenTelemetry collector connectivity, Jaeger UI URL, and active telemetry settings. |
 | [`telemetry_test_span`](#telemetry-test-span) | Emit a test OpenTelemetry trace span and metric to verify collector pipeline health. |
@@ -830,6 +831,12 @@ Audit SSH key expiration dates and key file permissions.
 ### `ssh_status`
 
 Inspect age and rotation status of managed SSH keys in ~/.ssh.
+
+*No parameters required.*
+
+### `telemetry_logfire_status`
+
+Check Logfire structured observability bridge status, token configuration, and recorded metrics.
 
 *No parameters required.*
 

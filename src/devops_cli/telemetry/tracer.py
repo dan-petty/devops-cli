@@ -978,9 +978,28 @@ def traced(
 
 def get_current_span_context() -> dict[str, str | None]:
     """Retrieve the current active span and trace IDs as a dictionary."""
+    tid = _current_trace_id_ctx.get()
+    sid = _current_span_id_ctx.get()
+    if tid and sid:
+        return {"trace_id": tid, "span_id": sid}
+
+    try:
+        from opentelemetry import trace
+
+        current_span = trace.get_current_span()
+        if current_span and current_span.is_recording():
+            ctx = current_span.get_span_context()
+            if ctx and ctx.trace_id and ctx.span_id:
+                return {
+                    "trace_id": format(ctx.trace_id, "032x"),
+                    "span_id": format(ctx.span_id, "016x"),
+                }
+    except Exception:
+        pass
+
     return {
-        "trace_id": _current_trace_id_ctx.get(),
-        "span_id": _current_span_id_ctx.get(),
+        "trace_id": tid,
+        "span_id": sid,
     }
 
 

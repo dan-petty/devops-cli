@@ -74,6 +74,11 @@ def telemetry_status_cmd() -> None:
     # Probe OTel collector
     is_reachable, health_msg, latency_ms = tracer.test_connection(timeout=1.5)
 
+    from devops_cli.telemetry.logfire import get_logfire_bridge
+
+    logfire_bridge = get_logfire_bridge()
+    lf_status = logfire_bridge.get_status()
+
     print_table(
         title=MESSAGES.telemetry.status_title,
         columns=[("Property", "cyan"), ("Value", "white")],
@@ -91,9 +96,77 @@ def telemetry_status_cmd() -> None:
                 if is_reachable
                 else format_status_badge(False, label=f"✗ Unreachable: {health_msg}"),
             ],
+            [
+                "Logfire Observability",
+                format_status_badge(
+                    lf_status.enabled, label="Active" if lf_status.enabled else "Inactive"
+                ),
+            ],
+            [
+                "Logfire Token",
+                format_status_badge(
+                    lf_status.token_configured,
+                    label="Configured (Keyring/Env)"
+                    if lf_status.token_configured
+                    else "Not Configured",
+                ),
+            ],
         ],
     )
     print_info(f"\n[dim]To view traces in Jaeger UI: {format_link(jaeger_url)}[/dim]", prefix=False)
+
+
+# =============================================================================
+# Command: devops telemetry logfire
+# =============================================================================
+
+
+@app.command("logfire")
+def telemetry_logfire_cmd(
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help=HELP.options.json_output),
+    ] = False,
+) -> None:
+    """Display Logfire structured observability bridge status and token metrics."""
+    import json
+
+    from devops_cli.output import write_stdout
+    from devops_cli.telemetry.logfire import get_logfire_bridge
+
+    bridge = get_logfire_bridge()
+    status = bridge.get_status()
+
+    if json_output:
+        write_stdout(json.dumps(status.model_dump(), indent=2) + "\n")
+        return
+
+    print_table(
+        title="Logfire Structured AI Observability Status",
+        columns=[("Property", "cyan"), ("Value", "white")],
+        rows=[
+            [
+                "Logfire Active",
+                format_status_badge(
+                    status.enabled, label="Active" if status.enabled else "Inactive"
+                ),
+            ],
+            [
+                "Token Configured",
+                format_status_badge(
+                    status.token_configured,
+                    label="Configured (Keyring/Env)"
+                    if status.token_configured
+                    else "Not Configured",
+                ),
+            ],
+            ["Send to Logfire", str(status.send_to_logfire)],
+            ["Recorded Agent Turns", str(status.turns_count)],
+            ["Input Tokens", str(status.token_metrics.get("input_tokens", 0))],
+            ["Output Tokens", str(status.token_metrics.get("output_tokens", 0))],
+            ["Total Tokens", str(status.token_metrics.get("total_tokens", 0))],
+        ],
+    )
 
 
 # =============================================================================
@@ -107,6 +180,10 @@ def telemetry_test_cmd(
         str,
         typer.Option("--name", "-n", help=HELP.telemetry.span_name),
     ] = DEFAULT_TELEMETRY_TEST_NAME,
+    logfire: Annotated[
+        bool,
+        typer.Option("--logfire", help=HELP.telemetry.test_logfire),
+    ] = False,
 ) -> None:
     """Emit a test OpenTelemetry trace span and metric to the configured collector."""
     tracer = get_tracer()
@@ -116,7 +193,7 @@ def telemetry_test_cmd(
             command="devops telemetry test",
             action="emit_test_telemetry",
             target=tracer.endpoint,
-            details={"span_name": name, "endpoint": tracer.endpoint},
+            details={"span_name": name, "endpoint": tracer.endpoint, "logfire": logfire},
         )
         return
 
@@ -129,6 +206,12 @@ def telemetry_test_cmd(
 
     with trace_span(name, attributes={"test": True, "cli": "devops-cli"}) as span_id:
         record_metric("devops_cli.test_counter", 1.0, unit="1", attributes={"test": True})
+        if logfire:
+            from devops_cli.telemetry.logfire import logfire_agent_turn
+
+            with logfire_agent_turn("test_agent", turn_index=1, prompt=name) as turn:
+                turn.record_tokens(input_tokens=10, output_tokens=5)
+                turn.set_response("Logfire test response")
         time.sleep(0.02)  # 20ms simulated span duration
 
     elapsed_ms = (time.perf_counter() - start) * 1000

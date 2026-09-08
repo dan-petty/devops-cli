@@ -635,6 +635,15 @@ def telemetry_test_span(name: str = "mcp_test_span") -> str:
 
 
 @mcp.tool()
+def telemetry_logfire_status() -> str:
+    """Check Logfire structured observability bridge status, token configuration, and recorded metrics."""
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "telemetry", "logfire"],
+        timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.tool()
 def ai_repomap(target_dir: str = ".") -> str:
     """Generate a compact whole-repository AST symbol map for AI context."""
     _validate_mcp_arg("target_dir", target_dir)
@@ -722,6 +731,15 @@ def get_telemetry_resource() -> str:
     """Return OpenTelemetry distributed tracing and Prometheus metrics status."""
     return _run_mcp_cmd(
         ["uv", "run", "devops", "telemetry", "status"],
+        timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.resource("resource://telemetry/logfire")
+def get_logfire_resource() -> str:
+    """Return Logfire structured AI observability status and token metrics."""
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "telemetry", "logfire", "--json"],
         timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
     )
 

@@ -162,6 +162,9 @@ class TelemetryConfig(BaseModel):
     model_config = ConfigDict(frozen=False)
     enabled: bool = True
     endpoint: str = DEFAULT_OTEL_ENDPOINT
+    logfire: bool = False
+    logfire_token: str | None = None
+    logfire_send_to_logfire: bool | str = "if-token-present"
 
 
 class AIRAGConfig(BaseModel):
@@ -592,6 +595,10 @@ def get_qdrant_api_key(settings: Settings) -> str | None:
 
 def get_valkey_password(settings: Settings) -> str | None:
     return _keyring_get(_KEYRING_KEYS[opt.VALKEY_PASSWORD]) or settings.valkey.password
+
+
+def get_logfire_token(settings: Settings) -> str | None:
+    return _keyring_get(_KEYRING_KEYS[opt.TELEMETRY_LOGFIRE_TOKEN]) or os.getenv("LOGFIRE_TOKEN")
 
 
 def get_llm_client(task: str | None = None) -> Any:

@@ -2,6 +2,29 @@
 
 Chronological log of refactoring milestones, quality gates, and security enhancements.
 
+### [2026-09-08] Phase 49.9: Logfire Structured AI Observability Bridge (`logfire`) (Issue #59)
+- **Logfire Observability Bridge (`src/devops_cli/telemetry/logfire.py`)**:
+  - Implemented `LogfireBridge` singleton managing configuration, secret resolution, instrumentation, and metrics.
+  - Added graceful fallback with non-blocking initialization when Logfire token is absent (`send_to_logfire=False` or `"if-token-present"`).
+  - Integrated zero-plaintext token resolution via OS Keyring (`logfire_token` in `KEYRING_KEYS`) and fallback environment variable `LOGFIRE_TOKEN`.
+  - Implemented `LogfireOTelBridgeProcessor` (OpenTelemetry `SpanProcessor`) forwarding completed Logfire spans into internal completed spans buffer for seamless integration with `devops telemetry profile`, `devops dashboard` (Textual TUI), and Jaeger collectors.
+  - Implemented `logfire_agent_turn` context manager and `AgentTurnHandle` recording turn attributes, prompt preview, response content, tools called, token metrics (`agent.tokens.input`, `agent.tokens.output`, `agent.tokens.total`), and turn counters (`agent.turns.total`).
+  - Added Rich terminal visualization components: `render_agent_turn_table` and `render_agent_turn_panel`.
+- **OpenTelemetry & Distributed Tracing Integration (`tracer.py`, `context.py`)**:
+  - Enhanced `get_current_span_context()` in `tracer.py` to fall back to active OpenTelemetry span context when ContextVar is unset, ensuring bidirectional W3C `traceparent` header propagation between Logfire and internal tracer.
+- **Domain Exceptions & Settings (`exceptions/telemetry.py`, `config/options.py`, `config/settings.py`)**:
+  - Introduced strongly typed domain exceptions `TelemetryError` and `LogfireConfigurationError` inheriting from `DevOpsCLIError`.
+  - Added `telemetry.logfire` and `telemetry.logfire_token` configuration options and secret store bindings.
+- **CLI & FastMCP Integrations (`commands/telemetry.py`, `commands/review.py`, `ai/mcp/server.py`)**:
+  - Updated `devops telemetry status` displaying Logfire bridge status and token configuration.
+  - Added `devops telemetry logfire` subcommand with table and `--json` format outputs.
+  - Added `--logfire` option to `devops telemetry test` and `--logfire / --no-logfire` options to `devops review path`, `branch`, and `pr`.
+  - Registered FastMCP tool `telemetry_logfire_status` and dynamic system resource `resource://telemetry/logfire`.
+- **Testing & Quality Gates**:
+  - Authored comprehensive TDD test suite in `tests/test_telemetry_logfire.py` (12 unit tests, 100% passing).
+  - Maintained strict architectural invariants (complexity <= 10, nesting <= 5, 0 bare exceptions).
+  - Validated full 10-gate CI suite (`uv run devops ci` — 10/10 green).
+
 ### [2026-09-08] Phase 49.8: Parallel Async Multi-File Review Worker Pool & Streaming Diff Parser (Issue #58)
 - **Parallel Async Review Worker Pool (`src/devops_cli/ai/review/pool.py`)**:
   - Implemented `ReviewWorkerPool` managing concurrent execution bounded by `asyncio.Semaphore` and Python 3.14 `asyncio.TaskGroup`.

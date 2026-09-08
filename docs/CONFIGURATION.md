@@ -45,6 +45,9 @@ OpenTelemetry distributed tracing and Prometheus metric export settings.
 |---|---|---|---|---|
 | `enabled` | `bool` | `True` | - | - |
 | `endpoint` | `str` | `http://localhost:4318` | - | - |
+| `logfire` | `bool` | `False` | - | - |
+| `logfire_token` | `Union` | - | - | - |
+| `logfire_send_to_logfire` | `Union` | `if-token-present` | - | - |
 
 ## AI & LLM Configuration (`ai`)
 

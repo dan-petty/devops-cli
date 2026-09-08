@@ -294,6 +294,7 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 |  | `devops tls verify [OPTIONS] <cert_path>` | Verify an X.509 certificate cryptographic chain against a CA certificate. |
 |  | `devops tls enable-k8s [OPTIONS]` | Generate and apply TLS secrets (kubernetes.io/tls) across Kubernetes namespaces. |
 | **telemetry** | `devops telemetry status` | Check OpenTelemetry collector health, Jaeger endpoint, and trace propagation status. |
+|  | `devops telemetry logfire [OPTIONS]` | Display Logfire structured observability bridge status and token metrics. |
 |  | `devops telemetry test [OPTIONS]` | Emit a test OpenTelemetry trace span and metric to the configured collector. |
 |  | `devops telemetry profile [OPTIONS] <command>` | Display terminal-rendered waterfall breakdown and latency heatmap of OpenTelemetry spans. |
 |  | `devops telemetry open-ui` | Print and show the Jaeger Query UI endpoint for inspecting traces. |
