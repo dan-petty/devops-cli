@@ -176,3 +176,30 @@ def test_fastmcp_arg_validation() -> None:
     # Hyphen flags raise ValidationError
     with pytest.raises(ValidationError, match="must not start with a hyphen"):
         _validate_mcp_arg("branch", "--all")
+
+
+def test_fastmcp_prompts_rendering() -> None:
+    """Verify that FastMCP prompt templates correctly interpolate parameters from task markdown files."""
+    from devops_cli.ai.mcp.server import (
+        architecture_analysis_prompt,
+        code_review_prompt,
+        k8s_diagnostics_prompt,
+        security_audit_prompt,
+    )
+
+    cr = code_review_prompt(persona="architect", target="src/core")
+    assert "architect" in cr
+    assert "src/core" in cr
+    assert "OWASP" in cr
+
+    sa = security_audit_prompt(target="src/security")
+    assert "src/security" in sa
+    assert "CVEs" in sa
+
+    k8s = k8s_diagnostics_prompt(namespace="kube-system")
+    assert "kube-system" in k8s
+    assert "pod status" in k8s
+
+    arch = architecture_analysis_prompt(target="src/devops_cli")
+    assert "src/devops_cli" in arch
+    assert "cyclic imports" in arch

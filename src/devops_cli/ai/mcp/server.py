@@ -8,6 +8,7 @@ from typing import Literal
 
 from fastmcp import FastMCP
 
+from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.defaults import (
     DEFAULT_AI_FALLBACK_MODEL,
     DEFAULT_AI_FALLBACK_PROVIDER,
@@ -1393,45 +1394,34 @@ def get_mcp_catalog_resource() -> str:
     return "\n".join(f"- {t.name}: {t.description}" for t in tools)
 
 
+_CODE_REVIEW_PROMPT_TEMPLATE = load_task_prompt("code_review_prompt.md")
+_SECURITY_AUDIT_PROMPT_TEMPLATE = load_task_prompt("security_audit_prompt.md")
+_K8S_DIAGNOSTICS_PROMPT_TEMPLATE = load_task_prompt("k8s_diagnostics_prompt.md")
+_ARCHITECTURE_ANALYSIS_PROMPT_TEMPLATE = load_task_prompt("architecture_analysis_prompt.md")
+
+
 @mcp.prompt()
 def code_review_prompt(persona: str = "devsecops", target: str = ".") -> str:
     """Prompt template for performing an AI code review with a specialized persona."""
-    return (
-        f"Perform an in-depth code review on '{target}' using the '{persona}' persona.\n"
-        "- Ground all findings against OWASP, CIS, and project architectural invariants.\n"
-        "- Format findings with canonical file:line locations and actionable recommendations."
-    )
+    return _CODE_REVIEW_PROMPT_TEMPLATE.format(persona=persona, target=target)
 
 
 @mcp.prompt()
 def security_audit_prompt(target: str = ".") -> str:
     """Prompt template for running a multi-layer security audit across dependencies and code."""
-    return (
-        f"Conduct a comprehensive security audit of '{target}'.\n"
-        "1. Scan dependencies for CVEs and outdated packages.\n"
-        "2. Check for hardcoded credentials and token leakage.\n"
-        "3. Inspect cyclomatic complexity and excessive indentation."
-    )
+    return _SECURITY_AUDIT_PROMPT_TEMPLATE.format(target=target)
 
 
 @mcp.prompt()
 def k8s_diagnostics_prompt(namespace: str = "default") -> str:
     """Prompt template for diagnosing Kubernetes cluster, workload, and pod health."""
-    return (
-        f"Diagnose Kubernetes workloads in the '{namespace}' namespace.\n"
-        "- Inspect pod status, container restarts, and resource limits.\n"
-        "- Verify accessible service endpoints and TLS configuration."
-    )
+    return _K8S_DIAGNOSTICS_PROMPT_TEMPLATE.format(namespace=namespace)
 
 
 @mcp.prompt()
 def architecture_analysis_prompt(target: str = "src") -> str:
     """Prompt template for analyzing software architecture, modularity, and dependencies."""
-    return (
-        f"Analyze the software architecture of '{target}'.\n"
-        "- Trace dependency boundaries and identify cyclic imports.\n"
-        "- Evaluate compliance with modular domain-driven design principles."
-    )
+    return _ARCHITECTURE_ANALYSIS_PROMPT_TEMPLATE.format(target=target)
 
 
 def list_mcp_tools() -> list[MCPToolInfo]:
