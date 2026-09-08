@@ -7,6 +7,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | Tool Name | Description |
 |---|---|
 | [`ai_architecture`](#ai-architecture) | Analyze architectural module boundaries, dependency graphs, and cyclic imports. |
+| [`ai_chaos_model`](#ai-chaos-model) | Execute model dependency chaos fault injection and verify automated fallback recovery. |
 | [`ai_diagram`](#ai-diagram) | Generate visual Mermaid architecture or threat modeling diagram. |
 | [`ai_harness_status`](#ai-harness-status) | Inspect AI agent harness slot configuration, active models, skills, and sandbox state. |
 | [`ai_repomap`](#ai-repomap) | Generate a compact whole-repository AST symbol map for AI context. |
@@ -108,6 +109,18 @@ Analyze architectural module boundaries, dependency graphs, and cyclic imports.
 |---|---|---|---|---|
 | `target` | `string` | No | `src` | - |
 | `max_depth` | `integer` | No | `4` | - |
+
+### `ai_chaos_model`
+
+Execute model dependency chaos fault injection and verify automated fallback recovery.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `mode` | `string` | No | `all` | - |
+| `fallback_model` | `string` | No | `qwen2.5-coder:7b` | - |
+| `dry_run` | `boolean` | No | `False` | - |
 
 ### `ai_diagram`
 

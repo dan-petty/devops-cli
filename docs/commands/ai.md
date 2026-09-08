@@ -304,6 +304,31 @@ devops ai test-gen [OPTIONS] <target_file>
 
 ---
 
+## `devops ai chaos-model`
+
+**Model dependency chaos engineering suite simulating provider faults and validating local failovers.**
+
+```bash
+devops ai chaos-model [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--mode`, `-m` | `string` | `all` | Chaos fault mode to simulate (latency, rate-limit, timeout, malformed-json, all). |
+| `--latency-ms` | `integer` | `500` | Synthetic network latency to inject in milliseconds. |
+| `--error-rate` | `float` | `1.0` | Probability of fault injection between 0.0 and 1.0. |
+| `--primary-provider` | `string` | `openai` | AI or cloud provider. |
+| `--primary-model` | `string` | `gpt-4o` | AI model identifier. |
+| `--fallback-provider` | `string` | `ollama` | Fallback AI provider to route execution to upon fault. |
+| `--fallback-model` | `string` | `qwen2.5-coder:7b` | Fallback AI model to route execution to upon fault. |
+| `--prompt` | `string` | `def test_health(): return True` | Prompt text or workload payload to evaluate. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---
+
 ## `devops ai review`
 
 **AI-powered multi-persona code review system.**

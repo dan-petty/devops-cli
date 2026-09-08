@@ -62,6 +62,14 @@ class OptionHelp:
     workspace_dir: str = "Workspace root directory path."
     watch: str = "Continuously watch target paths for changes and re-run reviews."
     debounce_ms: str = "Debounce window in milliseconds for filesystem watcher."
+    chaos_mode: str = (
+        "Chaos fault mode to simulate (latency, rate-limit, timeout, malformed-json, all)."
+    )
+    chaos_latency_ms: str = "Synthetic network latency to inject in milliseconds."
+    chaos_error_rate: str = "Probability of fault injection between 0.0 and 1.0."
+    fallback_provider: str = "Fallback AI provider to route execution to upon fault."
+    fallback_model: str = "Fallback AI model to route execution to upon fault."
+    prompt: str = "Prompt text or workload payload to evaluate."
 
 
 @dataclass(frozen=True)
@@ -121,6 +129,7 @@ class AICommandHelp:
     test_function: str = "Specific function to synthesize tests for."
     target_file: str = "Target source file to synthesize unit tests for."
     harness: str = "Manage agent harness slots, sub-agent local offloading, and tiered synthesis."
+    chaos_model: str = "Model dependency chaos engineering suite simulating provider faults and validating local failovers."
 
 
 @dataclass(frozen=True)
