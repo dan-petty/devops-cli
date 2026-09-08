@@ -130,6 +130,20 @@ class InMemoryMetricsRegistry:
             self._gauges.clear()
             self._histograms.clear()
 
+    def get_metrics_snapshot(self) -> dict[str, Any]:
+        """Retrieve aggregated snapshot of recorded metrics (counters, gauges, histogram counts)."""
+        with self._lock:
+            counters = {name: sum(cd.values()) for name, cd in self._counters.items()}
+            gauges = {name: list(gd.values())[0] for name, gd in self._gauges.items() if gd}
+            hist_count = len(self._histograms)
+        return {
+            "counters": counters,
+            "gauges": gauges,
+            "counter_count": len(counters),
+            "gauge_count": len(gauges),
+            "histogram_count": hist_count,
+        }
+
     def export_prometheus_text(self) -> str:
         """Export all recorded metrics in Prometheus text exposition format."""
         lines: list[str] = []

@@ -309,6 +309,8 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 |  | `devops valkey flush [OPTIONS]` | Flush and purge keys from current or all databases. |
 |  | `devops valkey backup [OPTIONS]` | Trigger background RDB persistence snapshot (BGSAVE). |
 |  | `devops valkey cli [OPTIONS] <command_args>` | Execute raw Valkey commands directly against the server. |
+| **dashboard** | `devops dashboard [OPTIONS]` | Interactive terminal UI dashboard for workstation situational awareness. |
+| **tui** | `devops tui [OPTIONS]` | Interactive terminal UI dashboard for workstation situational awareness. |
 <!-- COMMAND_MATRIX_END -->
 
 ---

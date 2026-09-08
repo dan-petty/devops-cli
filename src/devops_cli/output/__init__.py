@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from rich import box as box
 from rich.console import Console as Console
+from rich.console import Group as Group
 from rich.console import RenderableType as RenderableType
 from rich.live import Live as Live
 from rich.panel import Panel as Panel
@@ -116,6 +118,7 @@ from devops_cli.output.streaming_serializer import (
 
 __all__ = [
     "Console",
+    "Group",
     "JustifyMethod",
     "KeyValuePayload",
     "Live",
@@ -138,6 +141,7 @@ __all__ = [
     "TableColumn",
     "TablePayload",
     "Text",
+    "box",
     "escape_text",
     "format_argo_app_status_panel",
     "format_argo_apps_table",
