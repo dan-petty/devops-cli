@@ -704,15 +704,14 @@
   - [x] Configured `_config.yml`, `_layouts/default.html`, and `assets/css/style.css` for responsive documentation theme.
   - [x] Rebased PR #69 onto fresh `release/v0.2.13`, passed all 4/4 remote CI quality gates, and merged.
 
-- [x] Phase 49.7.2: Code Review Feedback Lifecycle Mandate & Jekyll Documentation Layout Hardening
-  - [x] 1. Addressed Copilot review feedback: dynamic `site.version`, table parent element guard, `Object.keys` iterator, and clipboard API feature detection/catch.
-  - [x] 2. Replied to all Copilot discussion threads and resolved conversations via GitHub GraphQL API.
-  - [x] 3. Updated agent instructions in `AGENTS.md` and `docs/ROUTINE_TASKS.md` codifying automated & peer review remediation lifecycle.
-
 ---
 
 ### In-Progress Tasks (WIP)
-- [ ] Preparing deliverable PR for Phase 49.7.2 (Agent Instructions Review Remediation & Jekyll Layout Hardening)
+- [ ] Phase 49.7.2: Code Review Feedback Lifecycle Mandate & Jekyll Documentation Layout Hardening (PR #70)
+  - [x] 1. Addressed Copilot review feedback: dynamic `site.version`, table parent element guard, `Object.keys` iterator, and clipboard API feature detection/catch.
+  - [x] 2. Replied to all Copilot discussion threads and resolved conversations via GitHub GraphQL API.
+  - [x] 3. Updated agent instructions in `AGENTS.md` and `docs/ROUTINE_TASKS.md` codifying automated & peer review remediation lifecycle.
+  - [x] 4. Reconciled task tracker state between WIP and Completed.
 
 ---
 
