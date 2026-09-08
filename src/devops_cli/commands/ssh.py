@@ -37,16 +37,25 @@ def _date_suffix() -> str:
     return date.today().strftime("%Y%m%d")
 
 
-def _configure_git_signing(key_path: Path) -> None:
-    """Point git's SSH commit signing at *key_path*."""
+def _configure_git_signing(key_path: Path, repo_dir: Path | None = None) -> None:
+    """Point git's SSH commit signing at *key_path* (both globally and locally in repo)."""
     from devops_cli.core.process import run_subprocess
 
+    target_repo = (repo_dir or Path.cwd()).resolve()
     for cmd in [
         ["git", "config", "--global", "gpg.format", "ssh"],
         ["git", "config", "--global", "user.signingkey", str(key_path)],
         ["git", "config", "--global", "commit.gpgsign", "true"],
     ]:
         run_subprocess(cmd, quiet=True)
+
+    if (target_repo / ".git").exists():
+        for cmd in [
+            ["git", "-C", str(target_repo), "config", "--local", "gpg.format", "ssh"],
+            ["git", "-C", str(target_repo), "config", "--local", "user.signingkey", str(key_path)],
+            ["git", "-C", str(target_repo), "config", "--local", "commit.gpgsign", "true"],
+        ]:
+            run_subprocess(cmd, quiet=True)
     print_success(MESSAGES.ssh.configured_signing, prefix=False)
 
 

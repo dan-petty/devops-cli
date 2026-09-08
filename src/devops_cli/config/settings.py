@@ -14,7 +14,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from devops_cli.config import options as opt
 from devops_cli.config.constants import (
-    CONST_CONFIG_DIR as CONFIG_DIR,
+    CONST_CONFIG_DIR as CONFIG_DIR,  # noqa: F401
 )
 from devops_cli.config.constants import (
     CONST_CONFIG_PATH as CONFIG_PATH,
@@ -436,10 +436,9 @@ def load_settings() -> Settings:
     if CONFIG_PATH.exists():
         raw = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8")) or {}
 
-    # DEVOPS_CLI_CONFIG env var (absolute path) takes precedence over CWD lookup.
-    env_config = os.environ.get(PROJECT_CONFIG_ENV)
-    project_path = Path(env_config) if env_config else Path(PROJECT_CONFIG_FILENAME)
-    if project_path.exists():
+    # DEVOPS_CLI_CONFIG env var or local/devcontainer project config lookup.
+    project_path = _find_project_config_path()
+    if project_path and project_path.exists():
         project_raw: dict[str, Any] = yaml.safe_load(project_path.read_text(encoding="utf-8")) or {}
         _deep_merge(raw, project_raw)
 
@@ -504,23 +503,47 @@ def load_settings() -> Settings:
     return settings
 
 
-def get_active_config_path() -> Path:
-    """Return active config file path (DEVOPS_CLI_CONFIG > ./config.yaml > ~/.config)."""
+def _find_project_config_path(base_dir: Path | None = None) -> Path | None:
+    """Locate candidate project/devcontainer config file from env, base_dir, or ancestor directories."""
     env_config = os.environ.get(PROJECT_CONFIG_ENV)
-    project_path = Path(env_config) if env_config else Path(PROJECT_CONFIG_FILENAME)
-    if project_path.exists():
-        return project_path.resolve()
-    return CONFIG_PATH
+    if env_config:
+        env_path = Path(env_config)
+        if env_path.is_file():
+            return env_path.resolve()
+
+    candidate_names = (
+        PROJECT_CONFIG_FILENAME,
+        f".devcontainer/{PROJECT_CONFIG_FILENAME}",
+        f".devops/{PROJECT_CONFIG_FILENAME}",
+        ".devops.yaml",
+        ".devcontainer/.devops.yaml",
+    )
+    start_dir = (base_dir or Path.cwd()).resolve()
+    for d in (start_dir, *start_dir.parents):
+        for name in candidate_names:
+            p = d / name
+            if p.is_file():
+                return p.resolve()
+        if (d / ".git").exists() or (d / ".devcontainer").exists():
+            break
+    return None
 
 
-def save_settings(settings: Settings) -> None:
+def get_active_config_path(base_dir: Path | None = None) -> Path:
+    """Return active config file path (DEVOPS_CLI_CONFIG > project config > ~/.config)."""
+    found = _find_project_config_path(base_dir=base_dir)
+    return found if found is not None else CONFIG_PATH
+
+
+def save_settings(settings: Settings, target_path: Path | None = None) -> None:
     """Persist settings to config YAML (secrets stay in keyring only)."""
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    dest_path = target_path or get_active_config_path()
+    dest_path.parent.mkdir(parents=True, exist_ok=True)
     data = settings.model_dump(mode="json", exclude_none=True)
     content = yaml.dump(data, default_flow_style=False, allow_unicode=True)
-    tmp = CONFIG_PATH.with_suffix(".yaml.tmp")
+    tmp = dest_path.with_suffix(".yaml.tmp")
     tmp.write_text(content, encoding="utf-8")
-    os.replace(tmp, CONFIG_PATH)
+    os.replace(tmp, dest_path)
 
 
 # NOTE (Design Justification - AGENTS.md §4): Secret storage prioritizes OS keyring integration

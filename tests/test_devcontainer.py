@@ -331,6 +331,113 @@ class TestDevcontainerCli:
         assert "Installed pre-commit Git hooks" in result.output
         assert any(c == ["uv", "run", "pre-commit", "install"] for c in calls)
 
+    def test_post_start_honors_workspace_ssh_key_prefix(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Verify post-start selects the SSH key matching the workspace config.yaml key_prefix."""
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        ssh_dir = fake_home / ".ssh"
+        ssh_dir.mkdir()
+        monkeypatch.setenv("HOME", str(fake_home))
+        monkeypatch.setenv("DEVOPS_MINIKUBE_AUTOSTART", "false")
+        monkeypatch.setenv("DEVOPS_K8S_AUTO_DEPLOY", "false")
+        monkeypatch.setenv("DEVOPS_GIT_DAEMON_AUTOSTART", "false")
+
+        ws = tmp_path / "test-local-dev"
+        ws.mkdir()
+        (ws / ".git").mkdir()
+        (ws / "config.yaml").write_text("ssh:\n  key_prefix: test-local-dev\n", encoding="utf-8")
+
+        key_target = ssh_dir / "test-local-dev-id_ed25519-20260908"
+        key_foreign = ssh_dir / "devops_cli-id_ed25519-20260908"
+        key_target.write_text("target", encoding="utf-8")
+        key_foreign.write_text("foreign", encoding="utf-8")
+
+        calls: list[list[str]] = []
+
+        def mock_run_subprocess(cmd: list[str], **kwargs: object) -> object:
+            calls.append(cmd)
+            import subprocess
+
+            return subprocess.CompletedProcess(cmd, returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr("devops_cli.commands.devcontainer.run_subprocess", mock_run_subprocess)
+
+        result = runner.invoke(app, ["post-start", "--workspace", str(ws)])
+        assert result.exit_code == 0
+        assert (
+            "Configured Git SSH commit signing with key test-local-dev-id_ed25519-20260908"
+            in result.output
+        )
+        assert any(
+            c[:5] == ["git", "-C", str(ws.resolve()), "config", "--local"]
+            and c[5:] == ["user.signingkey", str(key_target)]
+            for c in calls
+        )
+
+    def test_post_start_does_not_adopt_foreign_prefixed_key(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Verify post-start will not sign commits using a key prefixed for another project."""
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        ssh_dir = fake_home / ".ssh"
+        ssh_dir.mkdir()
+        monkeypatch.setenv("HOME", str(fake_home))
+        monkeypatch.setenv("DEVOPS_MINIKUBE_AUTOSTART", "false")
+        monkeypatch.setenv("DEVOPS_K8S_AUTO_DEPLOY", "false")
+        monkeypatch.setenv("DEVOPS_GIT_DAEMON_AUTOSTART", "false")
+
+        ws = tmp_path / "isolated-proj"
+        ws.mkdir()
+        (ws / ".git").mkdir()
+        (ws / "config.yaml").write_text("ssh:\n  key_prefix: isolated-proj\n", encoding="utf-8")
+
+        (ssh_dir / "devops_cli-id_ed25519-20260908").write_text("foreign", encoding="utf-8")
+
+        calls: list[list[str]] = []
+
+        def mock_run_subprocess(cmd: list[str], **kwargs: object) -> object:
+            calls.append(cmd)
+            import subprocess
+
+            return subprocess.CompletedProcess(cmd, returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr("devops_cli.commands.devcontainer.run_subprocess", mock_run_subprocess)
+
+        result = runner.invoke(app, ["post-start", "--workspace", str(ws)])
+        assert result.exit_code == 0
+        assert "Configured Git SSH commit signing" not in result.output
+        assert not any("user.signingkey" in c for c in calls)
+
+    def test_post_create_installs_pre_commit_when_missing(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Verify post-create runs uv tool install pre-commit when pre-commit binary is missing."""
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        monkeypatch.setenv("HOME", str(fake_home))
+
+        monkeypatch.setattr(
+            "shutil.which", lambda prog: "/usr/local/bin/uv" if prog == "uv" else None
+        )
+
+        calls: list[list[str]] = []
+
+        def mock_run_subprocess(cmd: list[str], **kwargs: object) -> object:
+            calls.append(cmd)
+            import subprocess
+
+            return subprocess.CompletedProcess(cmd, returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr("devops_cli.commands.devcontainer.run_subprocess", mock_run_subprocess)
+
+        result = runner.invoke(app, ["post-create", "--workspace", str(tmp_path)])
+        assert result.exit_code == 0
+        assert "Installed standalone pre-commit tool" in result.output
+        assert any(c == ["uv", "tool", "install", "pre-commit"] for c in calls)
+
     def test_run_lifecycle_command_executes_hooks(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
