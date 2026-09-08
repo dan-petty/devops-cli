@@ -2,7 +2,24 @@
 
 Chronological log of refactoring milestones, quality gates, and security enhancements.
 
+### [2026-09-08] Phase 49.7: Multi-Model LLM Benchmark Evaluation Harness (`devops ai benchmark --suite`) (Issue #57)
+- **Multi-Model LLM Benchmark Evaluation Harness Architecture (`devops_cli.ai.benchmark`)**:
+  - Implemented domain models (`BenchmarkSuiteCase`, `BenchmarkSuiteEvaluation`, `ModelSuiteMetrics`, `BenchmarkSuiteReport`) in `src/devops_cli/models/benchmark.py`.
+  - Implemented `load_feedback_benchmark_dataset()` in `src/devops_cli/ai/benchmark/suite.py` safely ingesting `.data/feedback_dataset.jsonl` with symlink and traversal protections, providing reference baseline suite cases across security, architecture, and QA personas when offline or dataset is empty.
+  - Implemented AST architectural invariant compliance evaluator `evaluate_architectural_compliance()` analyzing generated code fixes against cyclomatic complexity <= 10 and indentation depth <= 5 using `_ComplexityVisitor`.
+  - Implemented mathematical scoring engine `calculate_suite_metrics()` calculating precision, recall, harmonic F1, hallucination / false positive rate, token throughput (tokens/sec), inference latency (ms), architectural compliance rate, and weighted composite score.
+  - Implemented `BenchmarkSuiteRunner` supporting distributed worker concurrency across multiple backend endpoints, deterministic simulation for `--dry-run`, and structured Markdown report generation with persona allocation recommendations.
+- **CLI, Table Formatting & FastMCP Integration**:
+  - Implemented Rich terminal leaderboard table formatter `format_benchmark_suite_table()` in `src/devops_cli/output/formatters/tables.py`.
+  - Wired `--suite` and `--dataset` options into `devops ai benchmark` (`src/devops_cli/commands/benchmark.py`), refactoring command into single-responsibility helpers with cyclomatic complexity <= 10 and nesting depth <= 5.
+  - Added FastMCP tool `benchmark_suite` in `src/devops_cli/ai/mcp/server.py` with argument validation, exported 95 tool schemas, and synchronized CLI documentation (`devops mcp export-schemas`, `devops docs generate --sync-readme`).
+- **Quality Gates & Test Suite**:
+  - Authored comprehensive TDD test suite in `tests/test_ai_benchmark.py` covering model serialization, metric calculations, AST compliance, dataset loading, symlink traversal rejection, dry-run simulation, live client mocking, and CLI options (100% passing).
+  - Updated FastMCP contract regression suite `tests/test_fastmcp_contracts.py` (100% passing).
+  - Validated full 10-gate CI suite (`uv run devops ci` — 10/10 green, coverage >= 90.0%).
+
 ### [2026-09-08] Phase 49.6: Agent Constellation Quiesce & Emergency Failover Controller (Issue #56)
+
 - **Agent Constellation Quiesce & Emergency Failover Controller (`devops_cli.ai.controller`)**:
   - Implemented domain models (`QuiesceState`, `AgentTaskType`, `SuspendedTask`, `QuiesceSnapshot`, `QuiesceResult`, `FailoverResult`, `ResumeResult`, `ConstellationStatus`) in `src/devops_cli/ai/controller/models.py`.
   - Implemented `ConstellationManager` in `src/devops_cli/ai/controller/manager.py` managing state snapshot persistence in `.data/agent/quiesce.json`:

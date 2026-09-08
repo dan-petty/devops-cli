@@ -741,8 +741,10 @@ class BenchmarkCommandHelp:
     workers: str = "Number of concurrent model server workers (default: automatic per model count)."
     test_doc: str = "Path to large test document for in-memory tokenization and section retrieval."
     samples: str = "Number of random sections to sample for retrieval evaluation."
-    mode: str = "Benchmark mode: 'auto', 'chat', 'embedding'."
+    mode: str = "Benchmark mode: 'auto', 'chat', 'embedding', 'suite'."
     explain: str = "Explain benchmark metrics, terminology, and mathematical formulas."
+    suite: str = "Run multi-model evaluation suite grounded in feedback datasets."
+    dataset: str = "Path to feedback dataset JSONL file (defaults to .data/feedback_dataset.jsonl)."
 
 
 @dataclass(frozen=True)
