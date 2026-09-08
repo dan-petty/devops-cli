@@ -19,7 +19,7 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions import SecurityError, ValidationError
-from devops_cli.lang import MESSAGES
+from devops_cli.lang import ERRORS, MESSAGES
 from devops_cli.models.ai import MCPToolInfo
 
 mcp = FastMCP(
@@ -54,8 +54,7 @@ def _validate_mcp_arg(name: str, value: str) -> None:
     """Reject MCP tool arguments that start with a hyphen to prevent flag injection."""
     if value.startswith("-"):
         raise ValidationError(
-            f"Invalid value for '{name}': must not start with a hyphen. "
-            "Hyphen-prefixed values could be interpreted as flags by the underlying command.",
+            ERRORS.mcp.hyphen_prefixed_argument.format(name=name),
             field=name,
         )
 
@@ -64,7 +63,7 @@ def _validate_mcp_int_bound(name: str, value: int, min_val: int = 1) -> None:
     """Reject integer MCP arguments below min_val to prevent negative flag-like injection or invalid arguments."""
     if value < min_val:
         raise ValidationError(
-            f"Invalid value for '{name}': {value}. Must be >= {min_val}.",
+            ERRORS.mcp.integer_below_minimum.format(name=name, value=value, min_val=min_val),
             field=name,
         )
 
@@ -1264,9 +1263,7 @@ def ai_subagent_offload(
     """Offload AST exploration, symbol cataloging, or file scouting to local sub-agent slot."""
     _validate_mcp_arg("repo", repo)
     if symbol and pattern:
-        raise ValidationError(
-            "Cannot specify both 'symbol' and 'pattern'; provide one or the other."
-        )
+        raise ValidationError(ERRORS.mcp.conflicting_symbol_and_pattern)
     cmd = ["uv", "run", "devops", "ai", "harness", "offload", "--repo", repo]
     if symbol:
         _validate_mcp_arg("symbol", symbol)
@@ -1428,7 +1425,10 @@ def list_mcp_tools() -> list[MCPToolInfo]:
     """Return a list of tool names and descriptions registered on the FastMCP server."""
     tools = asyncio.run(mcp.list_tools())
     return [
-        MCPToolInfo(name=t.name, description=t.description or "No description provided.")
+        MCPToolInfo(
+            name=t.name,
+            description=t.description or MESSAGES.mcp.no_description_provided,
+        )
         for t in tools
     ]
 
@@ -1443,10 +1443,7 @@ def run_mcp_server(
     if transport == "sse":
         allowed_hosts = {"127.0.0.1", "::1", "localhost"}
         if not allow_remote and host not in allowed_hosts:
-            raise SecurityError(
-                f"Refusing to bind SSE transport to non-loopback host '{host}' by default. "
-                "Use allow_remote=True to permit external host binding."
-            )
+            raise SecurityError(ERRORS.mcp.security_sse_non_loopback.format(host=host))
         mcp.run(transport="sse", host=host, port=port)
     else:
         mcp.run(transport="stdio", show_banner=False)
