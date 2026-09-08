@@ -628,12 +628,26 @@ def _run_post_create_lifecycle(workspace_dir: Path, *, dry_run: bool = False) ->
 
     # 2. Bootstrap uv & tools if not present
     if shutil.which("uv") is None and not dry_run:
-        run_subprocess(
+        res = run_subprocess(
             ["sh", "-c", "curl -LsSf https://astral.sh/uv/install.sh | sh"],
             check=False,
             quiet=True,
         )
-        actions.append("Installed standalone uv binary into $HOME/.local/bin")
+        if res.returncode == 0:
+            actions.append("Installed standalone uv binary into $HOME/.local/bin")
+        else:
+            actions.append("Warning: Failed to install standalone uv binary")
+
+    if shutil.which("pre-commit") is None and not dry_run:
+        res = run_subprocess(
+            ["uv", "tool", "install", "pre-commit"],
+            check=False,
+            quiet=True,
+        )
+        if res.returncode == 0:
+            actions.append("Installed standalone pre-commit tool into $HOME/.local/bin")
+        else:
+            actions.append("Warning: Failed to install standalone pre-commit tool via uv")
 
     # 3. Persistent bash history
     hist_file = Path.home() / ".bash_history"
@@ -733,6 +747,23 @@ def _chmod_ssh_dir_and_keys(ssh_dir: Path) -> None:
                 key_path.chmod(0o600)
     except Exception as exc:
         logger.debug("Failed to set SSH permissions: %s", exc)
+
+
+def _configure_git_signing_for_workspace(workspace_dir: Path, key_path: Path) -> None:
+    """Configure git commit signing with *key_path* on the workspace repo only."""
+    if not (workspace_dir / ".git").exists():
+        return
+    signing_args = (
+        ["gpg.format", "ssh"],
+        ["user.signingkey", str(key_path)],
+        ["commit.gpgsign", "true"],
+    )
+    for args in signing_args:
+        run_subprocess(
+            ["git", "-C", str(workspace_dir), "config", "--local", *args],
+            check=False,
+            quiet=True,
+        )
 
 
 def _wait_for_docker_daemon(timeout_seconds: int = 45) -> bool:
@@ -880,11 +911,16 @@ def _run_post_start_lifecycle(workspace_dir: Path, *, dry_run: bool = False) -> 
         if not dry_run:
             _chmod_ssh_dir_and_keys(ssh_dir)
 
-        from devops_cli.crypto.ssh_keys import find_newest_key
+        from devops_cli.crypto.ssh_keys import (
+            find_newest_key,
+            get_ssh_key_prefix,
+            parse_key_prefix,
+        )
 
-        newest = find_newest_key(ssh_dir)
+        prefix = get_ssh_key_prefix(workspace_dir)
+        newest = find_newest_key(ssh_dir, prefix=prefix, fallback_to_any=False)
         if newest is None:
-            # Fallback to any unmanaged private key matching id_ if no managed key exists
+            # Fallback only to unmanaged keys matching id_ or un-prefixed keys; never foreign projects
             fallback_keys = sorted(
                 [
                     p
@@ -894,6 +930,7 @@ def _run_post_start_lifecycle(workspace_dir: Path, *, dry_run: bool = False) -> 
                     and "id_" in p.name
                     and p.name
                     not in {"config", "known_hosts", "authorized_keys", "allowed_signers"}
+                    and parse_key_prefix(p) in (None, prefix)
                 ],
                 key=lambda p: p.stat().st_mtime if p.exists() else 0,
                 reverse=True,
@@ -903,21 +940,7 @@ def _run_post_start_lifecycle(workspace_dir: Path, *, dry_run: bool = False) -> 
 
         if newest:
             if not dry_run:
-                run_subprocess(
-                    ["git", "config", "--global", "gpg.format", "ssh"],
-                    check=False,
-                    quiet=True,
-                )
-                run_subprocess(
-                    ["git", "config", "--global", "user.signingkey", str(newest)],
-                    check=False,
-                    quiet=True,
-                )
-                run_subprocess(
-                    ["git", "config", "--global", "commit.gpgsign", "true"],
-                    check=False,
-                    quiet=True,
-                )
+                _configure_git_signing_for_workspace(workspace_dir, newest)
             actions.append(f"Configured Git SSH commit signing with key {newest.name}")
 
     # 3. Kubeconfig initialization
@@ -976,6 +999,13 @@ def _run_post_start_lifecycle(workspace_dir: Path, *, dry_run: bool = False) -> 
                 check=False,
                 quiet=True,
             )
+            if res.returncode != 0 and shutil.which("pre-commit"):
+                res = run_subprocess(
+                    ["pre-commit", "install"],
+                    cwd=workspace_dir,
+                    check=False,
+                    quiet=True,
+                )
             if res.returncode == 0:
                 actions.append("Installed pre-commit Git hooks (uv run pre-commit install)")
             else:

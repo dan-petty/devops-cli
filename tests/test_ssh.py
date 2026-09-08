@@ -538,3 +538,34 @@ def test_crypto_ssh_keys_edge_cases(tmp_path: Path) -> None:
     # 3. parse_key_prefix with invalid key name
     assert parse_key_prefix(Path("unmanaged_rsa_key")) is None
     assert parse_key_prefix(Path("my-prefix-id_ed25519-20260901")) == "my-prefix"
+
+
+def test_crypto_ssh_keys_devcontainer_config_resolution(tmp_path: Path) -> None:
+    """Verify get_ssh_key_prefix resolves key_prefix from .devcontainer/config.yaml and ancestors."""
+    from devops_cli.config.settings import _find_project_config_path
+    from devops_cli.crypto.ssh_keys import get_ssh_key_prefix
+
+    # 1. Project with .devcontainer/config.yaml having ssh.key_prefix
+    proj_dir = tmp_path / "gdot-local-dev"
+    dev_dir = proj_dir / ".devcontainer"
+    dev_dir.mkdir(parents=True)
+    (dev_dir / "config.yaml").write_text("ssh:\n  key_prefix: gdot-local-dev\n", encoding="utf-8")
+
+    sub_dir = proj_dir / "repos" / "gdot-network" / "meraki-prom-exporter"
+    sub_dir.mkdir(parents=True)
+
+    # Resolving from project root
+    assert get_ssh_key_prefix(proj_dir) == "gdot-local-dev"
+    # Resolving from submodule/subdirectory
+    assert get_ssh_key_prefix(sub_dir) == "gdot-local-dev"
+
+    # 2. Project with root-level key_prefix in config.yaml
+    root_proj = tmp_path / "root-proj"
+    root_proj.mkdir()
+    (root_proj / "config.yaml").write_text("key_prefix: custom-root-prefix\n", encoding="utf-8")
+    assert get_ssh_key_prefix(root_proj) == "custom-root-prefix"
+
+    # 3. Verify _find_project_config_path detects .devcontainer/config.yaml
+    with patch("devops_cli.config.settings.os.environ.get", return_value=None):
+        found = _find_project_config_path(base_dir=sub_dir)
+        assert found == (dev_dir / "config.yaml").resolve()

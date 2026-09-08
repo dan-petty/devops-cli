@@ -23,21 +23,62 @@ from devops_cli.models.ssh import ManagedSSHKey
 _KEY_RE = re.compile(r"^(?:(?P<prefix>[a-zA-Z0-9_-]+)-)?id_ed25519-(?P<date>\d{8})$")
 
 
-def get_ssh_key_prefix(workspace_path: Path | None = None) -> str:
-    """Determine the SSH key prefix from config setting, devcontainer name, or basename pwd."""
-    from devops_cli.config.settings import load_settings
+def _sanitize_prefix(raw_prefix: str) -> str:
+    """Sanitize raw string into a clean lowercase identifier prefix."""
+    return re.sub(r"[^a-zA-Z0-9_-]", "-", raw_prefix.strip()).strip("-").lower()
 
+
+def _extract_prefix_from_yaml(cfg_file: Path) -> str | None:
+    """Extract and sanitize key_prefix from a YAML config file."""
+    import yaml
+
+    if not cfg_file.is_file():
+        return None
     try:
-        settings = load_settings()
-        if settings.ssh.key_prefix:
-            raw_prefix = settings.ssh.key_prefix.strip()
-            sanitized = re.sub(r"[^a-zA-Z0-9_-]", "-", raw_prefix).strip("-").lower()
-            if sanitized:
-                return sanitized
+        data = yaml.safe_load(cfg_file.read_text(encoding="utf-8")) or {}
+        if not isinstance(data, dict):
+            return None
+        ssh_conf = data.get("ssh", {})
+        raw_prefix = None
+        if isinstance(ssh_conf, dict) and ssh_conf.get("key_prefix"):
+            raw_prefix = ssh_conf["key_prefix"]
+        elif data.get("key_prefix"):
+            raw_prefix = data["key_prefix"]
+        return _sanitize_prefix(str(raw_prefix)) if raw_prefix else None
     except Exception:
-        pass
+        return None
 
-    target_dir = (workspace_path or Path.cwd()).resolve()
+
+def _resolve_prefix_from_project_config(target_dir: Path) -> str | None:
+    """Inspect target directory and ancestors for project/devcontainer config.yaml with key_prefix."""
+    import os
+
+    env_cfg = os.environ.get("DEVOPS_CLI_CONFIG")
+    if env_cfg:
+        prefix = _extract_prefix_from_yaml(Path(env_cfg))
+        if prefix:
+            return prefix
+
+    candidate_names = (
+        "config.yaml",
+        ".devcontainer/config.yaml",
+        ".devops/config.yaml",
+        ".devops.yaml",
+        ".devcontainer/.devops.yaml",
+    )
+    for d in (target_dir, *target_dir.parents):
+        for name in candidate_names:
+            prefix = _extract_prefix_from_yaml(d / name)
+            if prefix:
+                return prefix
+        if (d / ".git").exists() or (d / ".devcontainer").exists():
+            break
+    return None
+
+
+def _resolve_prefix_from_devcontainer(target_dir: Path) -> str | None:
+    """Extract and sanitize the 'name' field from devcontainer.json."""
+    import json
 
     candidate_paths: list[Path] = [
         target_dir / ".devcontainer" / "devcontainer.json",
@@ -49,24 +90,72 @@ def get_ssh_key_prefix(workspace_path: Path | None = None) -> str:
         candidate_paths.append(parent / ".devcontainer.json")
 
     for dev_path in candidate_paths:
-        if dev_path.is_file():
-            try:
-                import json
+        if not dev_path.is_file():
+            continue
+        try:
+            text = dev_path.read_text(encoding="utf-8")
+            cleaned = re.sub(r"//.*$", "", text, flags=re.MULTILINE)
+            data = json.loads(cleaned)
+            if isinstance(data, dict) and data.get("name"):
+                sanitized = _sanitize_prefix(str(data["name"]))
+                if sanitized:
+                    return sanitized
+        except Exception:
+            continue
+    return None
 
-                text = dev_path.read_text(encoding="utf-8")
-                cleaned = re.sub(r"//.*$", "", text, flags=re.MULTILINE)
-                data = json.loads(cleaned)
-                if isinstance(data, dict) and data.get("name"):
-                    raw_name = str(data["name"]).strip()
-                    sanitized = re.sub(r"[^a-zA-Z0-9_-]", "-", raw_name).strip("-").lower()
-                    if sanitized:
-                        return sanitized
-            except Exception:
-                pass
 
-    base_name = target_dir.name.strip()
-    sanitized = re.sub(r"[^a-zA-Z0-9_-]", "-", base_name).strip("-").lower()
-    return sanitized or "devops-cli"
+def _resolve_prefix_from_settings() -> str | None:
+    """Extract configured ssh.key_prefix from active loaded settings."""
+    from devops_cli.config.settings import load_settings
+
+    try:
+        settings = load_settings()
+        if settings.ssh.key_prefix:
+            sanitized = _sanitize_prefix(settings.ssh.key_prefix)
+            if sanitized:
+                return sanitized
+    except Exception:
+        pass
+    return None
+
+
+def get_ssh_key_prefix(workspace_path: Path | None = None) -> str:
+    """Determine the SSH key prefix from env, devcontainer name, project config, or settings."""
+    import os
+
+    # 1. Environment variable override
+    env_prefix = os.environ.get("DEVOPS_CLI_SSH_KEY_PREFIX")
+    if env_prefix and env_prefix.strip():
+        sanitized = _sanitize_prefix(env_prefix)
+        if sanitized:
+            return sanitized
+
+    target_dir = (workspace_path or Path.cwd()).resolve()
+
+    # 2. When a specific workspace_path is passed (external project), prioritize its local config/devcontainer
+    if workspace_path is not None:
+        proj_prefix = _resolve_prefix_from_project_config(target_dir)
+        if proj_prefix:
+            return proj_prefix
+
+        dev_prefix = _resolve_prefix_from_devcontainer(target_dir)
+        if dev_prefix:
+            return dev_prefix
+
+    # 3. Check loaded settings (respects load_settings mock and active project config)
+    settings_prefix = _resolve_prefix_from_settings()
+    if settings_prefix:
+        return settings_prefix
+
+    # 4. Devcontainer configuration in target directory hierarchy
+    dev_prefix = _resolve_prefix_from_devcontainer(target_dir)
+    if dev_prefix:
+        return dev_prefix
+
+    # 5. Target directory name fallback
+    base_name = _sanitize_prefix(target_dir.name)
+    return base_name or "devops-cli"
 
 
 def format_managed_key_filename(prefix: str | None = None, key_date: date | None = None) -> str:
@@ -159,11 +248,22 @@ def parse_key_prefix(key_path: Path) -> str | None:
     return match.group("prefix")
 
 
-def find_newest_key(key_dir: Path, prefix: str | None = None) -> Path | None:
+def find_newest_key(
+    key_dir: Path,
+    prefix: str | None = None,
+    *,
+    fallback_to_any: bool = True,
+) -> Path | None:
     """Return the newest managed SSH private key (optionally filtered by prefix), or None."""
     keys = list_managed_keys(key_dir, prefix=prefix)
     if not keys and prefix is not None:
-        keys = list_managed_keys(key_dir)
+        variant = prefix.replace("_", "-") if "_" in prefix else prefix.replace("-", "_")
+        keys = list_managed_keys(key_dir, prefix=variant)
+    if not keys and prefix is not None:
+        if fallback_to_any:
+            keys = list_managed_keys(key_dir)
+        else:
+            keys = [p for p in list_managed_keys(key_dir) if parse_key_prefix(p) is None]
     if not keys:
         return None
     return max(keys, key=lambda path: parse_key_date(path) or date.min)

@@ -647,6 +647,7 @@ class MCPMessages:
     table_title_tools: str = "Registered FastMCP Tools (devops-cli)"
     col_tool_name: str = "MCP Tool Name"
     col_description: str = "Description"
+    no_description_provided: str = "No description provided."
 
 
 @dataclass(frozen=True)
