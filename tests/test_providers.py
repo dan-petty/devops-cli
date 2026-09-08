@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from devops_cli.ai.providers import (
     AnthropicProvider,
     CopilotProvider,
@@ -108,6 +110,34 @@ def test_ollama_provider() -> None:
         provider_reasoning.generate(messages)
         call_kwargs = mock_post.call_args[1]
         assert call_kwargs["json"]["reasoning_effort"] == "low"
+
+
+def test_ollama_provider_url_validation_helpers(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test helper functions for Ollama URL validation and SSRF protection."""
+    from devops_cli.ai.providers.ollama import (
+        _is_loopback_or_private_allowed,
+        _validate_ollama_url,
+    )
+    from devops_cli.config.env import ENV_AI_ALLOW_PRIVATE_NETWORK
+    from devops_cli.exceptions.validation import ValidationError
+
+    assert _is_loopback_or_private_allowed("http://localhost:11434") is True
+    assert _is_loopback_or_private_allowed("http://127.0.0.1:11434") is True
+    assert _is_loopback_or_private_allowed("http://[::1]:11434") is True
+
+    monkeypatch.delenv(ENV_AI_ALLOW_PRIVATE_NETWORK, raising=False)
+    assert _is_loopback_or_private_allowed("http://192.168.1.100:11434") is False
+    assert _is_loopback_or_private_allowed("http://192.168.1.100:11434", allow_private=True) is True
+
+    monkeypatch.setenv(ENV_AI_ALLOW_PRIVATE_NETWORK, "true")
+    assert _is_loopback_or_private_allowed("http://192.168.1.100:11434") is True
+
+    # Validate that _validate_ollama_url accepts loopback
+    _validate_ollama_url("http://localhost:11434")
+
+    # Validate that _validate_ollama_url rejects invalid scheme
+    with pytest.raises(ValidationError):
+        _validate_ollama_url("ftp://localhost:11434")
 
 
 def test_openai_provider() -> None:

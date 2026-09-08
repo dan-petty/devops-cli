@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import threading
 import time
-from collections import defaultdict
+from collections import defaultdict, deque
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -21,12 +21,18 @@ class MetricSample(BaseModel):
     timestamp: float = Field(default_factory=time.time)
 
 
+_MAX_HISTOGRAM_SAMPLES = 10_000
+
+
 def _format_prometheus_labels(labels_items: Any) -> str:
-    """Format label pairs into Prometheus {k="v",...} string."""
+    """Format label pairs into Prometheus {k="v",...} string with value escaping."""
     if not labels_items:
         return ""
     items_iter = labels_items.items() if hasattr(labels_items, "items") else labels_items
-    items = [f'{k}="{v}"' for k, v in items_iter]
+    items: list[str] = []
+    for k, v in items_iter:
+        v_escaped = str(v).replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+        items.append(f'{k}="{v_escaped}"')
     return "{" + ",".join(items) + "}" if items else ""
 
 
@@ -41,8 +47,8 @@ class InMemoryMetricsRegistry:
         self._gauges: dict[str, dict[tuple[tuple[str, str], ...], float]] = defaultdict(
             lambda: defaultdict(float)
         )
-        self._histograms: dict[str, dict[tuple[tuple[str, str], ...], list[float]]] = defaultdict(
-            lambda: defaultdict(list)
+        self._histograms: dict[str, dict[tuple[tuple[str, str], ...], deque[float]]] = defaultdict(
+            lambda: defaultdict(lambda: deque(maxlen=_MAX_HISTOGRAM_SAMPLES))
         )
 
     def _freeze_labels(self, labels: dict[str, str] | None) -> tuple[tuple[str, str], ...]:
@@ -78,7 +84,7 @@ class InMemoryMetricsRegistry:
         value: float,
         labels: dict[str, str] | None = None,
     ) -> None:
-        """Record an observation in a histogram."""
+        """Record an observation in a histogram with bounded sample retention."""
         key = self._freeze_labels(labels)
         with self._lock:
             self._histograms[name][key].append(value)

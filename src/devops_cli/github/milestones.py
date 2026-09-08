@@ -43,26 +43,43 @@ class MilestoneSyncResult(BaseModel):
     created: list[str] = Field(default_factory=list)
 
 
-def extract_roadmap_milestones(
-    roadmap_path: Path = Path("docs/ROADMAP.md"),
-) -> list[MilestoneSpec]:
-    """Parse markdown headings from ROADMAP.md into MilestoneSpec objects."""
+_ROADMAP_HEADING_PATTERN = re.compile(
+    r"^###\s+(.+?)\s+\((v\d+\.\d+\.\d+)(?:\s*-\s*([^)]+))?\)",
+    re.MULTILINE,
+)
+
+
+def _is_safe_roadmap_path(roadmap_path: Path) -> bool:
+    """Predicate determining if roadmap path is free from directory traversal patterns."""
+    return ".." not in roadmap_path.parts
+
+
+def _validate_roadmap_path(roadmap_path: Path) -> Path:
+    """Validate roadmap path containment and file presence."""
+    if not _is_safe_roadmap_path(roadmap_path):
+        raise GitHubOperationError(
+            f"Path traversal detected in roadmap path: {roadmap_path}",
+            operation="extract_roadmap_milestones",
+            details={"path": str(roadmap_path)},
+        )
     if not roadmap_path.is_file():
         raise GitHubOperationError(
             f"Roadmap file not found: {roadmap_path}",
             operation="extract_roadmap_milestones",
             details={"path": str(roadmap_path)},
         )
+    return roadmap_path
 
-    content = roadmap_path.read_text(encoding="utf-8")
-    # Matches: ### Core Foundation (v0.0.1 - Completed) or ### Valkey (v0.2.12 - Scheduled)
-    pattern = re.compile(
-        r"^###\s+(.+?)\s+\((v\d+\.\d+\.\d+)(?:\s*-\s*([^)]+))?\)",
-        re.MULTILINE,
-    )
+
+def extract_roadmap_milestones(
+    roadmap_path: Path = Path("docs/ROADMAP.md"),
+) -> list[MilestoneSpec]:
+    """Parse markdown headings from ROADMAP.md into MilestoneSpec objects."""
+    valid_path = _validate_roadmap_path(roadmap_path)
+    content = valid_path.read_text(encoding="utf-8")
 
     specs: list[MilestoneSpec] = []
-    for match in pattern.finditer(content):
+    for match in _ROADMAP_HEADING_PATTERN.finditer(content):
         name = match.group(1).strip()
         version = match.group(2).strip()
         status = (match.group(3) or "").strip()

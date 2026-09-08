@@ -8,6 +8,7 @@ Functionality:
 
 from __future__ import annotations
 
+import logging
 import os
 from collections.abc import Generator
 from pathlib import Path
@@ -22,13 +23,20 @@ from devops_cli.config.constants import (
     CONST_GITHUB_SSH_PREFIX,
     CONST_GITHUB_SSH_URL_PREFIX,
     CONST_PERM_DIR,
+    CONST_PERM_PRIVATE_KEY,
     CONST_URL_SCHEME_HTTP,
     CONST_URL_SCHEME_HTTPS,
 )
 from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.core.process import run_subprocess
-from devops_cli.exceptions import BranchAlreadyExistsError, InvalidBranchNameError
+from devops_cli.exceptions import (
+    BranchAlreadyExistsError,
+    GitOperationError,
+    InvalidBranchNameError,
+)
 from devops_cli.models.git import BranchListing
+
+logger = logging.getLogger(__name__)
 
 
 def _normalize_clone_url(url: str) -> str:
@@ -58,23 +66,23 @@ def iter_workspace_repos(root: Path) -> Generator[Path]:
                 yield repo_dir
 
 
-def _ensure_known_host(hostname: str = CONST_GITHUB_HOST) -> None:
-    """Add *hostname* to ~/.ssh/known_hosts when it is missing."""
-    ssh_dir = Path.home() / ".ssh"
-    known_hosts = ssh_dir / "known_hosts"
-    ssh_dir.mkdir(mode=CONST_PERM_DIR, parents=True, exist_ok=True)
-    if known_hosts.exists():
-        result = run_subprocess(
-            ["ssh-keygen", "-F", hostname, "-f", str(known_hosts)],
-            capture_output=True,
-            text=True,
-            check=False,
-            quiet=True,
-            timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
-        )
-        if result.returncode == 0:
-            return
+def _is_host_in_known_hosts(hostname: str, known_hosts: Path) -> bool:
+    """Check if *hostname* is present in *known_hosts* via ssh-keygen."""
+    if not known_hosts.exists():
+        return False
+    result = run_subprocess(
+        ["ssh-keygen", "-F", hostname, "-f", str(known_hosts)],
+        capture_output=True,
+        text=True,
+        check=False,
+        quiet=True,
+        timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
+    )
+    return result.returncode == 0
 
+
+def _scan_host_key(hostname: str) -> str | None:
+    """Scan the ed25519 host key for *hostname* via ssh-keyscan."""
     result = run_subprocess(
         ["ssh-keyscan", "-t", "ed25519", hostname],
         capture_output=True,
@@ -84,20 +92,56 @@ def _ensure_known_host(hostname: str = CONST_GITHUB_HOST) -> None:
         timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
     )
     if result.returncode != 0 or not result.stdout.strip() or hostname not in result.stdout:
+        logger.debug(
+            "Failed scanning SSH host key for %s (exit code %s)", hostname, result.returncode
+        )
+        return None
+    return result.stdout
+
+
+def _append_known_host_entry(known_hosts: Path, entry: str) -> None:
+    """Safely append an ssh-keyscan host key entry to known_hosts with secure file permissions."""
+    try:
+        with known_hosts.open("a", encoding="utf-8") as handle:
+            if known_hosts.stat().st_size > 0 and not entry.startswith(os.linesep):
+                handle.write("\n")
+            handle.write(entry)
+        known_hosts.chmod(CONST_PERM_PRIVATE_KEY)
+    except (OSError, PermissionError) as exc:
+        logger.debug("Failed updating known_hosts: %s", exc)
+
+
+def _ensure_known_host(hostname: str = CONST_GITHUB_HOST) -> None:
+    """Add *hostname* to ~/.ssh/known_hosts when it is missing."""
+    ssh_dir = Path.home() / ".ssh"
+    known_hosts = ssh_dir / "known_hosts"
+    ssh_dir.mkdir(mode=CONST_PERM_DIR, parents=True, exist_ok=True)
+    if _is_host_in_known_hosts(hostname, known_hosts):
         return
 
-    with known_hosts.open("a", encoding="utf-8") as handle:
-        if known_hosts.stat().st_size > 0 and not result.stdout.startswith(os.linesep):
-            handle.write("\n")
-        handle.write(result.stdout)
-    known_hosts.chmod(0o600)
+    host_key = _scan_host_key(hostname)
+    if host_key:
+        _append_known_host_entry(known_hosts, host_key)
+
+
+def _validate_clone_dest(dest: Path) -> None:
+    """Validate that repository destination path does not attempt path traversal."""
+    if ".." in dest.parts:
+        raise GitOperationError(f"Path traversal detected in destination path: {dest}")
+
+
+def _prepare_clone_url(url: str) -> str:
+    """Normalize clone url and ensure host key is known for SSH clones."""
+    normalized_url = _normalize_clone_url(url)
+    if normalized_url.startswith((CONST_GITHUB_SSH_PREFIX, CONST_GITHUB_SSH_URL_PREFIX)):
+        _ensure_known_host()
+    return normalized_url
 
 
 def clone_repo(url: str, dest: Path) -> None:
     """Clone a repository to *dest*."""
-    normalized_url = _normalize_clone_url(url)
-    if normalized_url.startswith((CONST_GITHUB_SSH_PREFIX, CONST_GITHUB_SSH_URL_PREFIX)):
-        _ensure_known_host()
+    _validate_clone_dest(dest)
+    normalized_url = _prepare_clone_url(url)
     gitlib.Repo.clone_from(normalized_url, str(dest))
 
 

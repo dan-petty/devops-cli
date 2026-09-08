@@ -528,6 +528,7 @@ class GHCommandHelp:
     views_app: str = "Inspect standardized GitHub Projects v2 views."
     views_list: str = "List all 4 standardized project views."
     views_spec: str = "Output JSON schema specification for project views."
+    views_sync: str = "Synchronize standardized views with the remote GitHub Projects v2 board."
 
 
 @dataclass(frozen=True)

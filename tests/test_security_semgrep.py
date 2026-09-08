@@ -53,6 +53,14 @@ def test_parse_semgrep_json() -> None:
     assert findings[1].location == "src/views.py:40-45"
     assert findings[1].severity == "MEDIUM"
 
+    # Fallback to lang catalog message when extra.message is absent
+    from devops_cli.lang import MESSAGES
+
+    data_no_msg = {"results": [{"check_id": "test-check", "extra": {}}]}
+    findings_no_msg = parse_semgrep_json(data_no_msg)
+    assert MESSAGES.scan.semgrep_default_message in findings_no_msg[0].description
+    assert MESSAGES.scan.semgrep_default_message in findings_no_msg[0].title
+
 
 def test_run_semgrep_scan_subprocess_mock(tmp_path: Path) -> None:
     test_file = tmp_path / "app.py"

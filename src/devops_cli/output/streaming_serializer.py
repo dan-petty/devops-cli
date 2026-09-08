@@ -10,12 +10,16 @@ from pydantic import BaseModel
 
 
 def _dump_object(obj: Any) -> str:
-    """Serialize a single object or Pydantic model to a JSON string."""
+    """Serialize a single object or Pydantic model to a JSON string with automatic secret masking."""
+    from devops_cli.security.sanitizer import mask_secrets
+
     if isinstance(obj, BaseModel):
-        return obj.model_dump_json()
-    if isinstance(obj, (dict, list, str, int, float, bool)) or obj is None:
-        return json.dumps(obj, default=str)
-    return json.dumps(str(obj))
+        raw = obj.model_dump_json()
+    elif isinstance(obj, (dict, list, str, int, float, bool)) or obj is None:
+        raw = json.dumps(obj, default=str)
+    else:
+        raw = json.dumps(str(obj))
+    return mask_secrets(raw)
 
 
 def stream_json_array(items: Iterable[Any]) -> Iterator[str]:
@@ -40,10 +44,12 @@ def stream_jsonl(items: Iterable[Any]) -> Iterator[str]:
 
 
 def stream_yaml_docs(items: Iterable[Any]) -> Iterator[str]:
-    """Yield multi-document YAML stream blocks separated by document markers."""
+    """Yield multi-document YAML stream blocks separated by document markers with secret masking."""
     import yaml
+
+    from devops_cli.security.sanitizer import mask_secrets
 
     for item in items:
         data = item.model_dump() if isinstance(item, BaseModel) else item
         rendered = yaml.safe_dump(data, sort_keys=False)
-        yield f"---\n{rendered}"
+        yield mask_secrets(f"---\n{rendered}")

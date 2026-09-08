@@ -104,11 +104,15 @@ def format_run_summary(result: AgentRunResult[Any] | Any) -> dict[str, Any]:
         or get_active_traceparent()
     )
 
+    from devops_cli.security.sanitizer import mask_secrets
+
+    clean_output = mask_secrets(str(raw_output)) if raw_output is not None else ""
+
     return {
         "run_id": run_id,
         "conversation_id": conv_id,
         "timestamp": timestamp_str,
-        "output": str(raw_output) if raw_output is not None else "",
+        "output": clean_output,
         "usage": {
             "input_tokens": in_tok,
             "output_tokens": out_tok,

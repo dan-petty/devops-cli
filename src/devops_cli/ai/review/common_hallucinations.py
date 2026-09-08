@@ -326,7 +326,15 @@ def get_common_hallucinations_file_path() -> Path:
     """
     env_dir = os.environ.get("DEVOPS_CLI_DATA_DIR")
     if env_dir:
-        target = Path(env_dir) / CONST_HALLUCINATIONS_FILE_NAME
+        from devops_cli.core.paths import safe_resolve_subpath
+        from devops_cli.core.repo import find_top_level_repo_root
+
+        try:
+            repo_root = find_top_level_repo_root()
+            safe_dir = safe_resolve_subpath(repo_root, env_dir)
+            target = safe_dir / CONST_HALLUCINATIONS_FILE_NAME
+        except Exception:
+            target = (Path(env_dir) / CONST_HALLUCINATIONS_FILE_NAME).resolve()
     else:
         target = DEFAULT_HALLUCINATIONS_FILE_PATH
 
@@ -687,6 +695,8 @@ def calculate_hallucination_similarity(
             "nameerror",
             "importerror",
             "undefined",
+            "uninitialized",
+            "unboundlocalerror",
             "placeholder",
             "symbol",
             "import",

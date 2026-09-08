@@ -11,7 +11,7 @@ from devops_cli.ai.agents.pydantic_agent import FunctionToolset, Tool
 
 
 def _validate_langchain_kwargs(kwargs: dict[str, Any]) -> str | None:
-    """Validate tool keyword arguments against path traversal sequences, including percent-encoding."""
+    """Validate tool keyword arguments against path traversal sequences, including percent-encoding and absolute paths."""
     for k, v in kwargs.items():
         if any(
             pat in k.lower()
@@ -26,8 +26,10 @@ def _validate_langchain_kwargs(kwargs: dict[str, Any]) -> str | None:
                     or "..\\" in raw_str
                     or ".." in decoded
                     or any(part == ".." for part in Path(decoded).parts)
+                    or Path(decoded).is_absolute()
+                    or raw_str.startswith(("/", "\\"))
                 ):
-                    return f"Path traversal in argument '{k}' is blocked by security policy: {v}"
+                    return f"Path traversal or absolute path in argument '{k}' is blocked by security policy: {v}"
     return None
 
 
@@ -51,7 +53,7 @@ def tool_from_langchain(
         def _invoke_wrapper(**kwargs: Any) -> Any:
             err = _validate_langchain_kwargs(kwargs)
             if err:
-                return err
+                return f"Error: {err}"
             return langchain_tool.invoke(kwargs)
 
         run_func = _invoke_wrapper
@@ -60,7 +62,7 @@ def tool_from_langchain(
         def _run_wrapper(**kwargs: Any) -> Any:
             err = _validate_langchain_kwargs(kwargs)
             if err:
-                return err
+                return f"Error: {err}"
             return langchain_tool.run(kwargs)
 
         run_func = _run_wrapper
@@ -69,7 +71,7 @@ def tool_from_langchain(
         def _callable_wrapper(**kwargs: Any) -> Any:
             err = _validate_langchain_kwargs(kwargs)
             if err:
-                return err
+                return f"Error: {err}"
             return langchain_tool(**kwargs)
 
         run_func = _callable_wrapper

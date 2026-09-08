@@ -488,10 +488,15 @@ def analyze_pr(
 
     for f_file in pull.get_files():
         path = f_file.filename
-        if not path:
+        if not path or ".." in path or path.startswith(("/", "\\")):
+            continue
+        from devops_cli.core.paths import safe_resolve_subpath
+
+        try:
+            file_path = safe_resolve_subpath(repo, path)
+        except Exception:
             continue
         status = str(f_file.status)
-        file_path = repo / path
         if file_path.exists() and status != "removed":
             try:
                 content = file_path.read_text(encoding="utf-8", errors="replace")

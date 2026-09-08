@@ -46,13 +46,16 @@ class PortForwardDaemonManager:
 
     def save_forwards(self, forwards: list[PortForwardInfo]) -> None:
         """Persist active forwards list to JSON file."""
+        if self.state_file.is_symlink():
+            logger.warning("Refusing to write port-forward state to symlink: %s", self.state_file)
+            return
         self.state_file.parent.mkdir(parents=True, exist_ok=True)
         data = [f.model_dump(mode="json") for f in forwards]
         self.state_file.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
     def list_forwards(self) -> list[PortForwardInfo]:
         """Load and prune list of port forwards, returning only live processes."""
-        if not self.state_file.is_file():
+        if not self.state_file.is_file() or self.state_file.is_symlink():
             return []
 
         try:
@@ -63,7 +66,7 @@ class PortForwardDaemonManager:
             return []
 
         # Keep alive processes
-        alive = [it for it in items if it.is_alive]
+        alive = [it for it in items if it.is_alive and it.pid > 1]
         if len(alive) != len(items):
             self.save_forwards(alive)
         return alive
@@ -75,6 +78,8 @@ class PortForwardDaemonManager:
         remaining: list[PortForwardInfo] = []
 
         for f in forwards:
+            if f.pid <= 1:
+                continue
             if service_filter and service_filter.lower() not in f.service.lower():
                 remaining.append(f)
                 continue
