@@ -120,7 +120,7 @@ def _execute_suite_benchmark(
         is_dry_run=dry_run,
         concurrency=safe_concurrency,
         servers=server_list,
-        quiet=format_type.lower() == "json",
+        quiet=format_type.lower() in ("json", "markdown"),
     )
     suite_report = suite_runner.run()
 

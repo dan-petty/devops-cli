@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from devops_cli.ai.client import LLMClient
+from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.settings import Settings, get_ai_api_key, load_settings
 from devops_cli.core.repo import find_top_level_repo_root
 from devops_cli.dry_run.state import is_dry_run
@@ -34,6 +35,8 @@ from devops_cli.security.complexity import _ComplexityVisitor
 logger = logging.getLogger(__name__)
 
 _RANK_BADGES: dict[int, str] = {1: "🥇", 2: "🥈", 3: "🥉"}
+_SUITE_SYSTEM_PROMPT: str = load_task_prompt("benchmark_suite_system.md").strip()
+_SUITE_USER_PROMPT_TEMPLATE: str = load_task_prompt("benchmark_suite_user.md").strip()
 
 
 def _get_rank_badge(rank: int) -> str:
@@ -143,13 +146,16 @@ def get_baseline_suite_cases() -> list[BenchmarkSuiteCase]:
             expected_finding="Server-Side Request Forgery (SSRF) vulnerability",
         ),
         BenchmarkSuiteCase(
-            case_id="sec-hardcoded-aws-secret",
+            case_id="sec-hardcoded-api-secret",
             persona="devsecops",
-            title="Hardcoded AWS Access Key Identifier in Config",
+            title="Hardcoded Production API Secret Key in Config",
             severity="high",
             location="src/devops_cli/config/defaults.py:L12",
             description="Static credentials stored directly in production source code.",
-            code_snippet="AWS_ACCESS_KEY_ID = 'AKIAIOSFODNN7EXAMPLE'\nAWS_SECRET_KEY = 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY'\n",
+            code_snippet=(
+                "API_ACCESS_KEY_ID = '<masked-api-access-key-id>'\n"
+                "API_SECRET_KEY = '<masked-api-secret-key-token>'\n"
+            ),
             ground_truth_status="VALIDATED",
             is_vulnerability=True,
             expected_finding="Hardcoded credential leak",
@@ -327,12 +333,8 @@ def _compute_composite_score(
     compliance_rate: float,
     tokens_per_sec: float,
 ) -> float:
-    """Compute weighted composite score from F1, hallucination, compliance, and throughput."""
-    speed_factor = min(1.0, tokens_per_sec / 80.0) if tokens_per_sec > 0 else 0.5
-    raw = (
-        0.35 * f1 + 0.35 * (1.0 - hallucination_rate) + 0.15 * compliance_rate + 0.15 * speed_factor
-    ) * 100.0
-    return max(0.0, min(100.0, raw))
+    """Compute overall score directly from standard F1 score."""
+    return round(f1 * 100.0, 2)
 
 
 def calculate_suite_metrics(
@@ -419,38 +421,33 @@ def _compute_model_recommendations(leaderboard: list[ModelSuiteMetrics]) -> list
 
 def _parse_verdict_from_response(response_text: str) -> tuple[bool, float, str | None]:
     """Parse vulnerability verdict, confidence, and code fix from response."""
-    text_upper = response_text.upper()
-    has_false_positive = any(
-        kw in text_upper
-        for kw in (
-            "FALSE_POSITIVE",
-            "FALSE POSITIVE",
-            "NOT A VULNERABILITY",
-            "NO VULNERABILITY",
-            "INVALID FINDING",
-            "CLEAN CODE",
-        )
+    verdict_match = re.search(
+        r"^\s*VERDICT:\s*(VULNERABILITY(?:\s+DETECTED)?|FALSE[_\s]POSITIVE|CLEAN)",
+        response_text,
+        re.MULTILINE | re.IGNORECASE,
     )
-    has_positive = any(
-        kw in text_upper
-        for kw in (
-            "VULNERABILITY DETECTED",
-            "TRUE POSITIVE",
-            "SECURITY VULNERABILITY",
-            "DEFECT CONFIRMED",
-            "VERIFIED VULNERABILITY",
-        )
-    )
-
-    if has_false_positive and not has_positive:
-        predicted = False
-    elif has_positive:
-        predicted = True
+    if verdict_match:
+        tag = verdict_match.group(1).upper()
+        predicted = "VULNERABILITY" in tag
     else:
-        predicted = "VULNERABILITY" in text_upper and "NO VULNERABILITY" not in text_upper
+        has_fp = bool(
+            re.search(
+                r"\b(?:FALSE[_\s]POSITIVE|NOT\s+A\s+VULNERABILITY|NO\s+VULNERABILITY)\b",
+                response_text,
+                re.IGNORECASE,
+            )
+        )
+        has_tp = bool(
+            re.search(
+                r"\b(?:VULNERABILITY\s+DETECTED|TRUE\s+POSITIVE|SECURITY\s+VULNERABILITY|DEFECT\s+CONFIRMED)\b",
+                response_text,
+                re.IGNORECASE,
+            )
+        )
+        predicted = has_tp and not has_fp
 
     conf_match = re.search(r"confidence[:\s]+([0-9.]+)", response_text, re.IGNORECASE)
-    conf = float(conf_match.group(1)) if conf_match else 0.85
+    conf = float(conf_match.group(1)) if conf_match else 0.0
     conf = max(0.0, min(1.0, conf))
 
     code = extract_code_from_response(response_text)
@@ -588,20 +585,13 @@ class BenchmarkSuiteRunner:
     ) -> BenchmarkSuiteEvaluation:
         """Execute real LLM call against evaluation case and calculate scores."""
         client = self._client_for_model(model, server_url)
-        prompt = (
-            f"Persona: {case.persona}\n"
-            f"Review Finding: {case.title}\n"
-            f"Location: {case.location}\n"
-            f"Code:\n```python\n{case.code_snippet}\n```\n\n"
-            "Evaluate whether this is a genuine security/architectural defect or an invalidated false positive.\n"
-            "State your verdict strictly as 'VERDICT: VULNERABILITY DETECTED' or 'VERDICT: FALSE_POSITIVE'.\n"
-            "Include 'Confidence: 0.XX'. If a fix is needed, provide a clean Python function with complexity <= 10."
+        prompt = _SUITE_USER_PROMPT_TEMPLATE.format(
+            persona=case.persona,
+            title=case.title,
+            location=case.location,
+            code_snippet=case.code_snippet,
         )
-
-        system_prompt = (
-            "You are a rigorous DevSecOps and code review evaluator. "
-            "Analyze findings against real-world defect patterns and known false positive hallucinations."
-        )
+        system_prompt = _SUITE_SYSTEM_PROMPT
         start_time = time.perf_counter()
         try:
             resp = client.chat(system=system_prompt, user=prompt)
@@ -736,24 +726,10 @@ class BenchmarkSuiteRunner:
             for r in report.recommendations:
                 print_info(f"  • {r}", prefix=False)
 
-    def run(self) -> BenchmarkSuiteReport:
-        """Execute full benchmark evaluation suite across candidate models."""
-        dry_run = (
-            self._is_dry_run_override if self._is_dry_run_override is not None else is_dry_run()
-        )
-        cases = load_feedback_benchmark_dataset(self.dataset_path)
-
-        if not self.quiet:
-            print_info(
-                f"\n[bold blue]=== Starting AI Model Evaluation Suite (Session {self.session_id}) ===[/bold blue]",
-                prefix=False,
-            )
-            print_info(
-                f"[dim]Models: {len(self.models)} | Evaluation Cases: {len(cases)} | "
-                f"Dataset: {self.dataset_path or 'baseline feedback'} | Dry Run: {dry_run}[/dim]\n",
-                prefix=False,
-            )
-
+    def _execute_model_evaluations(
+        self, cases: list[BenchmarkSuiteCase], dry_run: bool
+    ) -> tuple[list[ModelSuiteMetrics], list[BenchmarkSuiteEvaluation]]:
+        """Evaluate all candidate models sequentially or concurrently."""
         leaderboard: list[ModelSuiteMetrics] = []
         all_evaluations: list[BenchmarkSuiteEvaluation] = []
 
@@ -781,6 +757,27 @@ class BenchmarkSuiteRunner:
                 leaderboard.append(metrics)
                 all_evaluations.extend(evals)
 
+        return leaderboard, all_evaluations
+
+    def run(self) -> BenchmarkSuiteReport:
+        """Execute full benchmark evaluation suite across candidate models."""
+        dry_run = (
+            self._is_dry_run_override if self._is_dry_run_override is not None else is_dry_run()
+        )
+        cases = load_feedback_benchmark_dataset(self.dataset_path)
+
+        if not self.quiet:
+            print_info(
+                f"\n[bold blue]=== Starting AI Model Evaluation Suite (Session {self.session_id}) ===[/bold blue]",
+                prefix=False,
+            )
+            print_info(
+                f"[dim]Models: {len(self.models)} | Evaluation Cases: {len(cases)} | "
+                f"Dataset: {self.dataset_path or 'baseline feedback'} | Dry Run: {dry_run}[/dim]\n",
+                prefix=False,
+            )
+
+        leaderboard, all_evaluations = self._execute_model_evaluations(cases, dry_run)
         leaderboard.sort(key=lambda x: x.overall_score, reverse=True)
         recommendations = _compute_model_recommendations(leaderboard)
 
