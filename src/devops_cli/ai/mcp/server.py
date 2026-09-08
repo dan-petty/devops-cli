@@ -16,6 +16,7 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions import SecurityError, ValidationError
+from devops_cli.lang import MESSAGES
 from devops_cli.models.ai import MCPToolInfo
 
 mcp = FastMCP(
@@ -1300,7 +1301,7 @@ def ai_chaos_model(
 
 @mcp.tool()
 def ai_quiesce(
-    reason: str = "Operator requested emergency quiesce",
+    reason: str = MESSAGES.ai.default_quiesce_reason,
     dry_run: bool = False,
 ) -> str:
     """Centralized emergency quiesce cleanly suspending active agent loops and background tasks."""

@@ -9,6 +9,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from devops_cli.lang import MESSAGES
+
 
 class QuiesceState(StrEnum):
     """Lifecycle state of constellation agent fleet."""
@@ -65,7 +67,7 @@ class QuiesceSnapshot(BaseModel):
 
     snapshot_id: str = Field(default_factory=_generate_snapshot_id)
     state: QuiesceState = QuiesceState.QUIESCED
-    reason: str = "Emergency quiesce"
+    reason: str = MESSAGES.ai.default_quiesce_reason
     quiesced_at: str = Field(default_factory=_utc_now_iso)
     tasks: list[SuspendedTask] = Field(default_factory=list)
     active_fallback: tuple[str, str] | None = None

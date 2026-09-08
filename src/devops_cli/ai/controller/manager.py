@@ -21,6 +21,7 @@ from devops_cli.ai.controller.models import (
     _utc_now_iso,
 )
 from devops_cli.config.settings import load_settings
+from devops_cli.lang import MESSAGES
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
 from devops_cli.telemetry.tracer import trace_span
 
@@ -131,7 +132,7 @@ class ConstellationManager:
 
     def quiesce(
         self,
-        reason: str = "Emergency quiesce",
+        reason: str = MESSAGES.ai.default_quiesce_reason,
         drain_timeout: float = 5.0,
         dry_run: bool = False,
     ) -> QuiesceResult:

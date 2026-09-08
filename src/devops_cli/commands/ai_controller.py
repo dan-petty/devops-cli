@@ -13,7 +13,7 @@ from devops_cli.ai.controller.models import (
     SuspendedTask,
 )
 from devops_cli.config.defaults import DEFAULT_TABLE_FORMAT
-from devops_cli.lang import HELP
+from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
     format_json,
     print_error,
@@ -73,7 +73,7 @@ def _render_constellation_status_table(status: ConstellationStatus) -> None:
 
     rows = _build_task_rows(status.tasks)
     print_table(
-        title="Agent Constellation Tasks",
+        title=MESSAGES.ai.constellation_tasks_title,
         columns=[
             ("Task ID", "cyan"),
             ("Type", "magenta"),
@@ -91,7 +91,7 @@ def run_quiesce_cmd(
     reason: Annotated[
         str,
         typer.Option("--reason", "-r", help=HELP.options.quiesce_reason),
-    ] = "Operator requested emergency quiesce",
+    ] = MESSAGES.ai.default_quiesce_reason,
     drain_timeout: Annotated[
         float,
         typer.Option("--drain-timeout", help=HELP.options.drain_timeout),
@@ -107,7 +107,7 @@ def run_quiesce_cmd(
 ) -> None:
     """Cleanly suspend active agent loops, schedulers, and background task runners."""
     if drain_timeout < 0:
-        print_error(f"Invalid --drain-timeout '{drain_timeout}': must be non-negative (>= 0).")
+        print_error(MESSAGES.ai.invalid_drain_timeout.format(timeout=drain_timeout))
         raise typer.Exit(code=1)
 
     manager = ConstellationManager()
@@ -119,9 +119,9 @@ def run_quiesce_cmd(
 
     badge = _build_status_badge(res.state)
     if dry_run:
-        print_info(f"[DRY RUN] Quiesce simulated: {badge} | Reason: {res.reason}")
+        print_info(MESSAGES.ai.quiesce_dry_run.format(badge=badge, reason=res.reason))
     else:
-        print_success(f"Quiesce executed: {badge} | Suspended: {res.suspended_count} task(s)")
+        print_success(MESSAGES.ai.quiesce_executed.format(badge=badge, count=res.suspended_count))
 
 
 def run_failover_cmd(
@@ -157,10 +157,12 @@ def run_failover_cmd(
     badge = _build_status_badge(res.state)
     target_str = f"{target_provider}/{target_model}"
     if dry_run:
-        print_info(f"[DRY RUN] Failover simulated: {badge} -> {target_str}")
+        print_info(MESSAGES.ai.failover_dry_run.format(badge=badge, target=target_str))
     else:
         print_success(
-            f"Emergency failover active: {badge} -> {target_str} ({res.rerouted_count} tasks)"
+            MESSAGES.ai.failover_executed.format(
+                badge=badge, target=target_str, count=res.rerouted_count
+            )
         )
 
 
@@ -184,9 +186,9 @@ def run_resume_cmd(
 
     badge = _build_status_badge(res.state)
     if dry_run:
-        print_info(f"[DRY RUN] Resumption simulated: {badge}")
+        print_info(MESSAGES.ai.resume_dry_run.format(badge=badge, count=res.resumed_count))
     else:
-        print_success(f"Constellation resumed: {badge} ({res.resumed_count} tasks reactivated)")
+        print_success(MESSAGES.ai.resume_executed.format(badge=badge, count=res.resumed_count))
 
 
 def run_constellation_cmd(
