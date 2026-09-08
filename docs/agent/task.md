@@ -709,7 +709,8 @@
   - [x] 5. Created `assets/css/style.css` with dark/light themes, Inter/JetBrains Mono typography, alert styling, and responsive tables.
   - [x] 6. Added test assertions in `tests/test_docs.py` verifying markdown table separation and synchronized docs.
   - [x] 7. Full CI quality gate execution (`devops ci` — 10/10 gates green).
-  - [x] 8. Rebase PR #69 onto fresh `release/v0.2.13` and verify all CI checks.
+  - [x] 8. Commit and open PR targeting active release branch (PR #69).
+  - [x] 9. Rebase PR #69 onto fresh `release/v0.2.13` and verify all CI checks.
 
 ---
 
