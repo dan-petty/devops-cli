@@ -37,6 +37,7 @@ __all__ = [
 def __getattr__(name: str) -> Any:
     if name in {
         "_diff_pages",
+        "_diff_stream_chunks",
         "_extract_code_lines",
         "_extract_segment_filenames",
         "_find_repo_files",
@@ -353,6 +354,14 @@ def path(
         int,
         typer.Option("--debounce-ms", help=HELP.options.debounce_ms),
     ] = 500,
+    concurrency: Annotated[
+        int | None,
+        typer.Option("--concurrency", "-c", help=HELP.review.concurrency),
+    ] = None,
+    parallel: Annotated[
+        bool,
+        typer.Option("--parallel/--no-parallel", help=HELP.review.parallel),
+    ] = True,
 ) -> None:
     """Review source files directly (no git required)."""
     if explain:
@@ -429,6 +438,8 @@ def path(
             target_ref=target_ref,
             target_dir=target_dir,
             stage_flags=stage_flags,
+            concurrency=concurrency,
+            parallel=parallel,
         )
 
     if watch:
@@ -550,6 +561,14 @@ def branch(
         bool,
         typer.Option("--append-cache", help=HELP.review.append_cache),
     ] = False,
+    concurrency: Annotated[
+        int | None,
+        typer.Option("--concurrency", "-c", help=HELP.review.concurrency),
+    ] = None,
+    parallel: Annotated[
+        bool,
+        typer.Option("--parallel/--no-parallel", help=HELP.review.parallel),
+    ] = True,
 ) -> None:
     """Review a git branch diff with one or all AI personas."""
     if explain:
@@ -592,6 +611,8 @@ def branch(
         target_ref=str(branch_name or "active"),
         target_dir=repo_path,
         stage_flags=stage_flags,
+        concurrency=concurrency,
+        parallel=parallel,
     )
 
 
@@ -691,6 +712,14 @@ def pr(
         bool,
         typer.Option("--append-cache", help=HELP.review.append_cache),
     ] = False,
+    concurrency: Annotated[
+        int | None,
+        typer.Option("--concurrency", "-c", help=HELP.review.concurrency),
+    ] = None,
+    parallel: Annotated[
+        bool,
+        typer.Option("--parallel/--no-parallel", help=HELP.review.parallel),
+    ] = True,
 ) -> None:
     """Review a GitHub pull request with one or all AI personas."""
     if explain:
@@ -743,6 +772,8 @@ def pr(
         target_ref=str(number),
         target_dir=Path.cwd(),
         stage_flags=stage_flags,
+        concurrency=concurrency,
+        parallel=parallel,
     )
 
     if post_comment and reviews:

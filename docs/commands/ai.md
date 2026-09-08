@@ -455,6 +455,8 @@ devops ai review path [OPTIONS] <targets>
 | `--append-cache` | `boolean` | - | Append cached response to the LLM prompt as context instead of using it directly as the final response. |
 | `--watch`, `-w` | `boolean` | - | Continuously watch target paths for changes and re-run reviews. |
 | `--debounce-ms` | `integer` | `500` | Debounce window in milliseconds for filesystem watcher. |
+| `--concurrency`, `-c` | `integer` | - | Max concurrent workers for parallel review and verification. |
+| `--parallel`, `--no-parallel` | `boolean` | `True` | Execute multi-file review stages concurrently using async worker pool. |
 
 ### `devops ai review branch`
 
@@ -496,6 +498,8 @@ devops ai review branch [OPTIONS] <branch_name>
 | `--no-cache` | `boolean` | - | Bypass LLM response cache and force fresh inference. |
 | `--force`, `-f` | `boolean` | - | Force fresh review execution without cache. |
 | `--append-cache` | `boolean` | - | Append cached response to the LLM prompt as context instead of using it directly as the final response. |
+| `--concurrency`, `-c` | `integer` | - | Max concurrent workers for parallel review and verification. |
+| `--parallel`, `--no-parallel` | `boolean` | `True` | Execute multi-file review stages concurrently using async worker pool. |
 
 ### `devops ai review pr`
 
@@ -537,6 +541,8 @@ devops ai review pr [OPTIONS] <number>
 | `--no-cache` | `boolean` | - | Bypass LLM response cache and force fresh inference. |
 | `--force`, `-f` | `boolean` | - | Force fresh review execution without cache. |
 | `--append-cache` | `boolean` | - | Append cached response to the LLM prompt as context instead of using it directly as the final response. |
+| `--concurrency`, `-c` | `integer` | - | Max concurrent workers for parallel review and verification. |
+| `--parallel`, `--no-parallel` | `boolean` | `True` | Execute multi-file review stages concurrently using async worker pool. |
 
 ### `devops ai review findings`
 

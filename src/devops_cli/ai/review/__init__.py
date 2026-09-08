@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from devops_cli.ai.review.chunker import diff_pages, find_repo_files
+from devops_cli.ai.review.chunker import diff_pages, diff_stream_chunks, find_repo_files
 from devops_cli.ai.review.common_hallucinations import (
     CommonHallucinationEntry,
     HallucinationCategory,
@@ -18,6 +18,7 @@ from devops_cli.ai.review.exporter import FeedbackRecord, export_invalidated_fee
 from devops_cli.ai.review.flags import ReviewStageFlags, resolve_stage_flags
 from devops_cli.ai.review.patching import stage_finding_patch
 from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
+from devops_cli.ai.review.pool import ReviewWorkerPool, TokenBucketRateLimiter
 from devops_cli.ai.review.runner import ReviewClients
 from devops_cli.ai.review_schema import (
     FileReviewPayload,
@@ -43,10 +44,13 @@ __all__ = [
     "ReviewResult",
     "ReviewSessionPayload",
     "ReviewStageFlags",
+    "ReviewWorkerPool",
     "SavedFinding",
+    "TokenBucketRateLimiter",
     "auto_record_invalidated_finding",
     "consolidate_duplicate_findings",
     "diff_pages",
+    "diff_stream_chunks",
     "export_invalidated_feedback",
     "extract_json_block",
     "find_repo_files",

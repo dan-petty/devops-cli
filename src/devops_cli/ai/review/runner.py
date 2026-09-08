@@ -1596,6 +1596,8 @@ def _execute_review_workflow(
     target_ref: str = ".",
     target_dir: Path = DEFAULT_CURRENT_PATH,
     stage_flags: ReviewStageFlags | None = None,
+    concurrency: int | None = None,
+    parallel: bool = True,
 ) -> list[tuple[PersonaDefinition, ReviewResult | str]]:
     """Common review execution workflow for path, branch, and PR reviews."""
     from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
@@ -1606,7 +1608,12 @@ def _execute_review_workflow(
         print_info(f"[dim]{spans_msg}[/dim]", prefix=False)
 
     all_files = sorted(list({fn for page in pages for fn in _extract_segment_filenames(page)}))
-    orchestrator = ReviewPipelineOrchestrator(llm_client=clients.analysis, target_dir=target_dir)
+    orchestrator = ReviewPipelineOrchestrator(
+        llm_client=clients.analysis,
+        target_dir=target_dir,
+        concurrency=concurrency,
+        parallel=parallel,
+    )
 
     if type(clients.analysis).__name__ == "LLMClient":
         server_info = orchestrator._get_server_info()

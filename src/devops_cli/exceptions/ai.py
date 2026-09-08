@@ -15,6 +15,7 @@ from devops_cli.config.constants import (
     CONST_ERROR_CODE_HARNESS_VALIDATION,
     CONST_ERROR_CODE_LLM_INFERENCE,
     CONST_ERROR_CODE_MODEL_BUNDLE,
+    CONST_ERROR_CODE_REVIEW_POOL,
     CONST_EXIT_ERROR_INFERENCE,
     CONST_EXIT_FAILURE,
 )
@@ -577,6 +578,26 @@ class ConstellationResumeError(DevOpsCLIError, RuntimeError):
         super().__init__(message, exit_code=exit_code, error_code=error_code, details=details)
 
 
+class ReviewPoolError(DevOpsCLIError, RuntimeError):
+    """Raised when an error occurs during parallel review worker pool execution."""
+
+    def __init__(
+        self,
+        message: str = "Parallel review worker pool execution failed",
+        *,
+        errors: list[Exception] | None = None,
+        exit_code: int = CONST_EXIT_FAILURE,
+        error_code: str = CONST_ERROR_CODE_REVIEW_POOL,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        err_details = details or {}
+        if errors:
+            err_details["error_count"] = len(errors)
+            err_details["errors"] = [str(e) for e in errors]
+        super().__init__(message, exit_code=exit_code, error_code=error_code, details=err_details)
+        self.errors = errors or []
+
+
 # Native re-exports for control flow, groups, and warnings
 SkipModelRequest = p_exc.SkipModelRequest
 SkipToolValidation = p_exc.SkipToolValidation
@@ -615,6 +636,7 @@ __all__ = [
     "ModelUnavailableError",
     "PersonaExecutionError",
     "PydanticAIDeprecationWarning",
+    "ReviewPoolError",
     "RunCancelled",
     "SkipModelRequest",
     "SkipToolExecution",

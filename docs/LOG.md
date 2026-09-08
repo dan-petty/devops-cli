@@ -2,6 +2,25 @@
 
 Chronological log of refactoring milestones, quality gates, and security enhancements.
 
+### [2026-09-08] Phase 49.8: Parallel Async Multi-File Review Worker Pool & Streaming Diff Parser (Issue #58)
+- **Parallel Async Review Worker Pool (`src/devops_cli/ai/review/pool.py`)**:
+  - Implemented `ReviewWorkerPool` managing concurrent execution bounded by `asyncio.Semaphore` and Python 3.14 `asyncio.TaskGroup`.
+  - Added clean async/sync bridging via `run_sync` and `run_sync_all` supporting both pure coroutines and sync worker functions (`submit_sync_all`) via `asyncio.to_thread`.
+  - Handled Python 3.11+ `ExceptionGroup` with clean unwrapping and domain exception aggregation (`ReviewPoolError`).
+- **Token Bucket Rate Limiter (`src/devops_cli/ai/review/pool.py`)**:
+  - Implemented `TokenBucketRateLimiter` supporting async token acquisition (`acquire`) and non-blocking checks (`try_acquire`, `available_tokens`).
+- **Streaming Unified Diff Chunker (`src/devops_cli/ai/review/chunker.py`)**:
+  - Implemented generator-based `diff_stream_chunks` streaming file blocks lazily without materializing full diff files or page lists in memory, reducing peak memory allocation by up to 60%.
+  - Refactored `diff_pages` to delegate to `diff_stream_chunks` for 100% backward compatibility.
+  - Exported `diff_stream_chunks` across review modules and CLI helpers.
+- **Pipeline & CLI Integration (`pipeline.py`, `stages/persona_review.py`, `commands/review.py`)**:
+  - Integrated `ReviewWorkerPool` into `ReviewPipelineOrchestrator` across multi-persona review and finding verification stages.
+  - Added `--concurrency` / `-c` and `--parallel / --no-parallel` options to `devops review path`, `branch`, and `pr` commands.
+- **Testing & Quality Gates**:
+  - Authored comprehensive TDD test suite `tests/test_ai_review_pool.py` (15 unit tests) and pipeline integration tests in `tests/test_review_pipeline.py`.
+  - Maintained strict architectural invariants (complexity <= 10, nesting <= 5, 0 bare exceptions).
+  - Validated full 10-gate CI suite (`uv run devops ci` — 10/10 green).
+
 ### [2026-09-08] Phase 49.7.2: Code Review Feedback Lifecycle Mandate & Jekyll Documentation Layout Hardening
 - **Agent Instructions & Routine Tasks Review Governance (`AGENTS.md`, `docs/ROUTINE_TASKS.md`, `docs/SDLC.md`, `instruction_generator.py`, `github_project_management.md`)**:
   - Codified mandatory code review feedback remediation protocol for AI agents and developers.
