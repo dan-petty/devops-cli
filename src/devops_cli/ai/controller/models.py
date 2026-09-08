@@ -54,7 +54,7 @@ class SuspendedTask(BaseModel):
     fallback_model: str | None = None
     status: str = "suspended"
     state_payload: dict[str, Any] = Field(default_factory=dict)
-    suspended_at: str = Field(default_factory=_utc_now_iso)
+    suspended_at: str | None = None
     resumed_at: str | None = None
 
 

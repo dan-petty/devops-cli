@@ -211,20 +211,26 @@ class TestConstellationManager:
         assert raw_data["tasks"][0]["status"] == "suspended"
 
     def test_quiesce_dry_run(self, manager: ConstellationManager, test_data_dir: Path) -> None:
-        """Verify dry run does not write snapshot to disk or mutate state."""
-        manager.register_task(
+        """Verify dry run does not write snapshot to disk or mutate in-memory state."""
+        task = manager.register_task(
             task_id="rev-01",
             task_type=AgentTaskType.REVIEW_LOOP,
             name="ci-reviewer",
             provider="openai",
             model="gpt-4o",
         )
+        assert task.status == "active"
+        assert task.suspended_at is None
+
         result = manager.quiesce(reason="Simulation drill", dry_run=True)
         assert result.success is True
         assert result.suspended_count == 1
         snapshot_path = test_data_dir / "agent" / "quiesce.json"
         assert not snapshot_path.exists()
         assert manager.status().state == QuiesceState.IDLE
+        # In-memory registered task must remain untouched
+        assert task.status == "active"
+        assert task.suspended_at is None
 
     def test_failover_execution(self, manager: ConstellationManager) -> None:
         """Verify failover re-routes suspended tasks to fallback provider/model."""
@@ -261,8 +267,17 @@ class TestConstellationManager:
         assert route == ("ollama", "qwen2.5-coder:7b")
 
     def test_failover_dry_run(self, manager: ConstellationManager) -> None:
-        """Verify failover dry run does not persist changes to disk."""
+        """Verify failover dry run does not persist changes to disk or mutate in-memory state."""
+        task = manager.register_task(
+            task_id="task-failover-dry",
+            task_type=AgentTaskType.SUBAGENT,
+            name="dry-runner",
+            provider="openai",
+            model="gpt-4o",
+        )
         manager.quiesce(reason="Outage")
+        assert task.fallback_provider is None
+
         res = manager.failover(
             target_provider="ollama",
             target_model="qwen2.5-coder:7b",
@@ -270,6 +285,9 @@ class TestConstellationManager:
         )
         assert res.success is True
         assert manager.status().state == QuiesceState.QUIESCED
+        # Registered task must not have fallback applied
+        assert task.fallback_provider is None
+        assert task.status == "suspended"
 
     def test_resume_execution(self, manager: ConstellationManager) -> None:
         """Verify resume restores tasks to active status and clears quiesced state."""
@@ -294,11 +312,76 @@ class TestConstellationManager:
         assert status.tasks[0].status == "resumed"
 
     def test_resume_dry_run(self, manager: ConstellationManager) -> None:
-        """Verify resume dry run does not mutate disk snapshot."""
+        """Verify resume dry run does not mutate disk snapshot or in-memory state."""
+        task = manager.register_task(
+            task_id="worker-resume-dry",
+            task_type=AgentTaskType.SLOT_WORKER,
+            name="symbol-worker",
+            provider="anthropic",
+            model="claude-3-7-sonnet",
+        )
         manager.quiesce(reason="Maintenance")
+        assert task.resumed_at is None
+
         res = manager.resume(dry_run=True)
         assert res.success is True
         assert manager.status().state == QuiesceState.QUIESCED
+        assert task.resumed_at is None
+        assert task.status == "suspended"
+
+    def test_status_suspended_task_count_reporting(self, manager: ConstellationManager) -> None:
+        """Verify suspended_task_count is 0 when idle/resumed, and matches count when quiesced."""
+        manager.register_task(
+            task_id="active-task-1",
+            task_type=AgentTaskType.REVIEW_LOOP,
+            name="live-reviewer",
+            provider="openai",
+            model="gpt-4o",
+        )
+        # In IDLE, registered tasks exist but suspended_task_count must be 0
+        idle_st = manager.status()
+        assert idle_st.state == QuiesceState.IDLE
+        assert idle_st.suspended_task_count == 0
+        assert len(idle_st.tasks) == 1
+
+        # In QUIESCED, suspended_task_count is 1
+        manager.quiesce(reason="Drill")
+        q_st = manager.status()
+        assert q_st.state == QuiesceState.QUIESCED
+        assert q_st.suspended_task_count == 1
+
+        # In FAILOVER, suspended_task_count is 1
+        manager.failover(target_provider="ollama", target_model="qwen2.5-coder:7b")
+        f_st = manager.status()
+        assert f_st.state == QuiesceState.FAILOVER
+        assert f_st.suspended_task_count == 1
+
+        # In RESUMED, suspended_task_count drops back to 0
+        manager.resume()
+        r_st = manager.status()
+        assert r_st.state == QuiesceState.RESUMED
+        assert r_st.suspended_task_count == 0
+
+    def test_atomic_snapshot_write_failure_cleanup(
+        self, manager: ConstellationManager, test_data_dir: Path
+    ) -> None:
+        """Verify atomic write cleans up temporary file if os.replace fails."""
+        from devops_cli.ai.controller.manager import _write_snapshot_file
+
+        snapshot = QuiesceSnapshot(
+            state=QuiesceState.QUIESCED,
+            reason="Atomic test",
+        )
+        target = test_data_dir / "agent" / "quiesce.json"
+
+        with patch("os.replace", side_effect=OSError("Disk full simulation")):
+            with pytest.raises(OSError, match="Disk full simulation"):
+                _write_snapshot_file(target, snapshot)
+
+        # Confirm no leftover .tmp files
+        agent_dir = test_data_dir / "agent"
+        tmp_files = list(agent_dir.glob("*.tmp"))
+        assert len(tmp_files) == 0
 
     def test_corrupted_snapshot_handling(
         self, manager: ConstellationManager, test_data_dir: Path
@@ -313,7 +396,7 @@ class TestConstellationManager:
         assert status.is_quiesced is False
 
     def test_telemetry_instrumentation(self, manager: ConstellationManager) -> None:
-        """Verify OpenTelemetry span emission and Prometheus metric updates."""
+        """Verify OpenTelemetry span emission and Prometheus metric updates without high-cardinality labels."""
         with (
             patch("devops_cli.ai.controller.manager.trace_span") as mock_span,
             patch(
@@ -324,7 +407,7 @@ class TestConstellationManager:
             mock_span.return_value.__exit__ = MagicMock()
             manager.quiesce(reason="Telemetry test")
             mock_span.assert_called()
-            mock_counter.inc.assert_called()
+            mock_counter.inc.assert_called_once_with()
 
     def test_manager_helpers_and_route_fallback(
         self, manager: ConstellationManager, monkeypatch: pytest.MonkeyPatch

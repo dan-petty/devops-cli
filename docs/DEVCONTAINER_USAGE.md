@@ -114,7 +114,7 @@ If your project requires additional system libraries, packages, or specific CLI 
 
 ### `.devcontainer/Dockerfile`
 ```dockerfile
-FROM ghcr.io/dan-petty/devops-cli/devcontainer:latest
+FROM ghcr.io/dan-petty/devops-cli/devcontainer:v0.2.9
 
 # Switch to root to install custom system packages
 USER root

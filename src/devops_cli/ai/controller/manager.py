@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -70,9 +71,27 @@ def _read_snapshot_file(file_path: Path) -> QuiesceSnapshot | None:
 
 
 def _write_snapshot_file(file_path: Path, snapshot: QuiesceSnapshot) -> None:
-    """Atomically write snapshot JSON payload to target destination."""
+    """Atomically write snapshot JSON payload to target destination using tempfile and os.replace."""
     file_path.parent.mkdir(parents=True, exist_ok=True)
-    file_path.write_text(snapshot.model_dump_json(indent=2), encoding="utf-8")
+    tmp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=file_path.parent,
+            delete=False,
+            prefix="quiesce_",
+            suffix=".tmp",
+        ) as tmp_file:
+            tmp_path = Path(tmp_file.name)
+            tmp_file.write(snapshot.model_dump_json(indent=2))
+            tmp_file.flush()
+            os.fsync(tmp_file.fileno())
+        os.replace(tmp_path, file_path)
+    except Exception:
+        if tmp_path and tmp_path.is_file():
+            tmp_path.unlink(missing_ok=True)
+        raise
 
 
 class ConstellationManager:
@@ -125,11 +144,18 @@ class ConstellationManager:
                 "quiesce.drain_timeout": drain_timeout,
             },
         ):
+            now_iso = _utc_now_iso()
             tasks_to_suspend: list[SuspendedTask] = []
             for task in self._registered_tasks.values():
-                task.status = "suspended"
-                task.suspended_at = _utc_now_iso()
-                tasks_to_suspend.append(task)
+                if dry_run:
+                    simulated_task = task.model_copy(deep=True)
+                    simulated_task.status = "suspended"
+                    simulated_task.suspended_at = now_iso
+                    tasks_to_suspend.append(simulated_task)
+                else:
+                    task.status = "suspended"
+                    task.suspended_at = now_iso
+                    tasks_to_suspend.append(task)
 
             snapshot = QuiesceSnapshot(
                 state=QuiesceState.QUIESCED,
@@ -137,7 +163,7 @@ class ConstellationManager:
                 tasks=tasks_to_suspend,
             )
 
-            devops_cli_ai_quiesce_events_total.inc(labels={"reason": reason})
+            devops_cli_ai_quiesce_events_total.inc()
 
             if not dry_run:
                 _write_snapshot_file(self.snapshot_file, snapshot)
@@ -173,11 +199,21 @@ class ConstellationManager:
                 "failover.dry_run": dry_run,
             },
         ):
-            snapshot = _read_snapshot_file(self.snapshot_file) or QuiesceSnapshot(
-                state=QuiesceState.FAILOVER,
-                reason="Automatic failover",
-                tasks=list(self._registered_tasks.values()),
-            )
+            existing_snapshot = _read_snapshot_file(self.snapshot_file)
+            if existing_snapshot:
+                snapshot = (
+                    existing_snapshot if not dry_run else existing_snapshot.model_copy(deep=True)
+                )
+            else:
+                base_tasks = [
+                    t.model_copy(deep=True) if dry_run else t
+                    for t in self._registered_tasks.values()
+                ]
+                snapshot = QuiesceSnapshot(
+                    state=QuiesceState.FAILOVER,
+                    reason="Automatic failover",
+                    tasks=base_tasks,
+                )
 
             snapshot.state = QuiesceState.FAILOVER
             snapshot.active_fallback = (target_provider, target_model)
@@ -186,7 +222,7 @@ class ConstellationManager:
                 task.fallback_provider = target_provider
                 task.fallback_model = target_model
                 task.status = "failed_over"
-                if task.task_id in self._registered_tasks:
+                if not dry_run and task.task_id in self._registered_tasks:
                     self._registered_tasks[task.task_id].fallback_provider = target_provider
                     self._registered_tasks[task.task_id].fallback_model = target_model
                     self._registered_tasks[task.task_id].status = "failed_over"
@@ -222,16 +258,28 @@ class ConstellationManager:
             "ai.constellation.resume",
             attributes={"resume.dry_run": dry_run},
         ):
-            snapshot = _read_snapshot_file(self.snapshot_file)
-            tasks = snapshot.tasks if snapshot else list(self._registered_tasks.values())
+            existing_snapshot = _read_snapshot_file(self.snapshot_file)
+            if existing_snapshot:
+                snapshot = (
+                    existing_snapshot if not dry_run else existing_snapshot.model_copy(deep=True)
+                )
+                tasks = snapshot.tasks
+            else:
+                snapshot = None
+                tasks = [
+                    t.model_copy(deep=True) if dry_run else t
+                    for t in self._registered_tasks.values()
+                ]
+
+            now_iso = _utc_now_iso()
             resumed_count = len(tasks)
 
             for task in tasks:
                 task.status = "resumed"
-                task.resumed_at = _utc_now_iso()
-                if task.task_id in self._registered_tasks:
+                task.resumed_at = now_iso
+                if not dry_run and task.task_id in self._registered_tasks:
                     self._registered_tasks[task.task_id].status = "resumed"
-                    self._registered_tasks[task.task_id].resumed_at = task.resumed_at
+                    self._registered_tasks[task.task_id].resumed_at = now_iso
 
             if snapshot:
                 snapshot.state = QuiesceState.RESUMED
@@ -263,18 +311,23 @@ class ConstellationManager:
             return ConstellationStatus(
                 state=QuiesceState.IDLE,
                 is_quiesced=False,
-                suspended_task_count=len(self._registered_tasks),
+                suspended_task_count=0,
                 tasks=list(self._registered_tasks.values()),
                 snapshot_path=str(self.snapshot_file),
             )
 
         is_quiesced = snapshot.state in (QuiesceState.QUIESCED, QuiesceState.FAILOVER)
+        suspended_count = (
+            len(snapshot.tasks)
+            if snapshot.state in (QuiesceState.QUIESCED, QuiesceState.FAILOVER)
+            else 0
+        )
         return ConstellationStatus(
             state=snapshot.state,
             is_quiesced=is_quiesced,
             reason=snapshot.reason,
             quiesced_at=snapshot.quiesced_at,
-            suspended_task_count=len(snapshot.tasks),
+            suspended_task_count=suspended_count,
             tasks=snapshot.tasks,
             active_fallback=snapshot.active_fallback,
             snapshot_path=str(self.snapshot_file),
