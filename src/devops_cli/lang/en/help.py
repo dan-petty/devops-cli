@@ -800,6 +800,15 @@ class PipelineCommandHelp:
 
 
 @dataclass(frozen=True)
+class DashboardCommandHelp:
+    app: str = "Interactive terminal UI dashboard for workstation situational awareness."
+    summary: str = "Print static summary panels and exit instead of starting full-screen TUI."
+    refresh_interval: str = "Auto-refresh interval in seconds for live dashboard updates."
+    tab: str = "Initial tab to activate (1=k8s, 2=docker, 3=telemetry, 4=ai, 5=valkey)."
+    dry_run: str = "Simulate dashboard launch and print static summary."
+
+
+@dataclass(frozen=True)
 class HelpCatalog:
     main: MainHelp = field(default_factory=MainHelp)
     options: OptionHelp = field(default_factory=OptionHelp)
@@ -838,6 +847,7 @@ class HelpCatalog:
     rag: RAGCommandHelp = field(default_factory=RAGCommandHelp)
     test: TestCommandHelp = field(default_factory=TestCommandHelp)
     pipeline: PipelineCommandHelp = field(default_factory=PipelineCommandHelp)
+    dashboard: DashboardCommandHelp = field(default_factory=DashboardCommandHelp)
 
 
 HELP = HelpCatalog()
