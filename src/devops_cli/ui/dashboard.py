@@ -117,7 +117,7 @@ class DashboardApp(App[None]):
         self._initial_tab = (
             initial_tab if initial_tab.startswith("tab-") else f"tab-{initial_tab.lower()}"
         )
-        self._refresh_interval = max(1, refresh_interval)
+        self._refresh_interval = max(0, refresh_interval)
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)

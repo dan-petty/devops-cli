@@ -10,7 +10,8 @@ import pytest
 from textual.widgets import TabbedContent
 from typer.testing import CliRunner
 
-from devops_cli.commands.dashboard import app
+from devops_cli.commands.dashboard import app as dashboard_app
+from devops_cli.main import app as main_app
 from devops_cli.ui.dashboard import DashboardApp, HelpScreen
 from devops_cli.ui.data_providers import (
     DockerSummary,
@@ -155,6 +156,7 @@ def test_fetch_review_status(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     assert summary.has_session is True
     assert summary.total_findings == 2
     assert summary.verified_count == 1
+    assert summary.unverified_count == 1
     assert summary.severity_distribution["HIGH"] == 1
     assert summary.severity_distribution["LOW"] == 1
 
@@ -268,9 +270,15 @@ async def test_textual_dashboard_app_lifecycle() -> None:
 # =============================================================================
 
 
+def test_dashboard_app_disable_auto_refresh() -> None:
+    """DashboardApp handles refresh_interval=0 without scheduling timer."""
+    tui = DashboardApp(refresh_interval=0)
+    assert tui._refresh_interval == 0
+
+
 def test_cli_dashboard_summary_option() -> None:
     """devops dashboard --summary outputs formatted multi-panel overview without starting TUI."""
-    res = runner.invoke(app, ["dashboard", "--summary"])
+    res = runner.invoke(dashboard_app, ["--summary"])
     assert res.exit_code == 0
     assert "Workstation Dashboard Summary" in res.output
     assert "Kubernetes Status" in res.output
@@ -280,9 +288,16 @@ def test_cli_dashboard_summary_option() -> None:
     assert "Valkey Caching" in res.output
 
 
+def test_cli_main_dashboard_command() -> None:
+    """devops dashboard --summary through main entry point."""
+    res = runner.invoke(main_app, ["dashboard", "--summary"])
+    assert res.exit_code == 0
+    assert "Workstation Dashboard Summary" in res.output
+
+
 def test_cli_tui_alias_command() -> None:
     """devops tui alias command behaves identically to devops dashboard."""
-    res = runner.invoke(app, ["tui", "--summary"])
+    res = runner.invoke(main_app, ["tui", "--summary"])
     assert res.exit_code == 0
     assert "Workstation Dashboard Summary" in res.output
 
@@ -290,6 +305,6 @@ def test_cli_tui_alias_command() -> None:
 def test_cli_dashboard_non_tty_auto_summary() -> None:
     """devops dashboard detects non-TTY stdout and falls back to static summary."""
     with patch("sys.stdout.isatty", return_value=False):
-        res = runner.invoke(app, ["dashboard"])
+        res = runner.invoke(dashboard_app, [])
         assert res.exit_code == 0
         assert "Workstation Dashboard Summary" in res.output

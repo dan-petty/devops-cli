@@ -164,16 +164,13 @@ def fetch_docker_status() -> DockerSummary:
 
 def fetch_telemetry_status() -> TelemetrySummary:
     """Retrieve in-memory OpenTelemetry metric counters and gauges."""
-    with GLOBAL_METRICS._lock:
-        counters = {name: sum(cd.values()) for name, cd in GLOBAL_METRICS._counters.items()}
-        gauges = {name: list(gd.values())[0] for name, gd in GLOBAL_METRICS._gauges.items() if gd}
-        hist_count = len(GLOBAL_METRICS._histograms)
+    snapshot = GLOBAL_METRICS.get_metrics_snapshot()
     return TelemetrySummary(
-        counter_count=len(counters),
-        gauge_count=len(gauges),
-        histogram_count=hist_count,
-        counters=counters,
-        gauges=gauges,
+        counter_count=snapshot["counter_count"],
+        gauge_count=snapshot["gauge_count"],
+        histogram_count=snapshot["histogram_count"],
+        counters=snapshot["counters"],
+        gauges=snapshot["gauges"],
     )
 
 
@@ -212,6 +209,7 @@ def fetch_review_status() -> ReviewSummary:
         verified_count = sum(
             1 for f in raw_findings if f.get("status") == "VERIFIED" or f.get("verified") is True
         )
+        unverified_count = len(raw_findings) - verified_count
 
         severities: dict[str, int] = {}
         for f in raw_findings:
@@ -223,6 +221,7 @@ def fetch_review_status() -> ReviewSummary:
             session_name=session_dir.name,
             total_findings=len(raw_findings),
             verified_count=verified_count,
+            unverified_count=unverified_count,
             severity_distribution=severities,
             findings=raw_findings[:50],
         )
