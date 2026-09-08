@@ -176,3 +176,80 @@ class EmbeddingBenchmarkReport(BaseModel):
     server_benchmarks: list[EmbeddingServerSummary] = Field(default_factory=list)
     recommendations: list[str] = Field(default_factory=list)
     is_dry_run: bool = False
+
+
+class BenchmarkSuiteCase(BaseModel):
+    """Evaluation test case grounded in verified or invalidated review findings."""
+
+    model_config = ConfigDict(frozen=True)
+
+    case_id: str
+    persona: str = "devsecops"
+    title: str
+    severity: str = "medium"
+    location: str = ""
+    description: str = ""
+    code_snippet: str = ""
+    ground_truth_status: str = "VALIDATED"
+    is_vulnerability: bool = True
+    invalidation_reason: str | None = None
+    expected_finding: str | None = None
+
+
+class BenchmarkSuiteEvaluation(BaseModel):
+    """Outcome of evaluating a single test case with a candidate model."""
+
+    model: str
+    case_id: str
+    persona: str
+    predicted_vulnerability: bool
+    confidence_score: float = Field(default=0.0, ge=0.0, le=1.0)
+    model_output: str = ""
+    generated_code: str | None = None
+    is_true_positive: bool = False
+    is_false_positive: bool = False
+    is_true_negative: bool = False
+    is_false_negative: bool = False
+    complexity_score: int | None = None
+    nesting_depth: int | None = None
+    invariant_compliant: bool = True
+    latency_ms: float = Field(default=0.0, ge=0.0)
+    tokens_generated: int = Field(default=0, ge=0)
+    tokens_per_second: float = Field(default=0.0, ge=0.0)
+
+
+class ModelSuiteMetrics(BaseModel):
+    """Aggregated quantitative performance metrics for a model across the benchmark suite."""
+
+    model: str
+    provider: str = "ollama"
+    server: str = ""
+    total_cases: int = Field(default=0, ge=0)
+    true_positives: int = Field(default=0, ge=0)
+    false_positives: int = Field(default=0, ge=0)
+    true_negatives: int = Field(default=0, ge=0)
+    false_negatives: int = Field(default=0, ge=0)
+    precision: float = Field(default=0.0, ge=0.0, le=1.0)
+    recall: float = Field(default=0.0, ge=0.0, le=1.0)
+    f1_score: float = Field(default=0.0, ge=0.0, le=1.0)
+    hallucination_rate: float = Field(default=0.0, ge=0.0, le=1.0)
+    accuracy: float = Field(default=0.0, ge=0.0, le=1.0)
+    avg_latency_ms: float = Field(default=0.0, ge=0.0)
+    avg_tokens_per_second: float = Field(default=0.0, ge=0.0)
+    total_tokens: int = Field(default=0, ge=0)
+    architectural_compliance_rate: float = Field(default=1.0, ge=0.0, le=1.0)
+    overall_score: float = Field(default=0.0, ge=0.0, le=100.0)
+
+
+class BenchmarkSuiteReport(BaseModel):
+    """Consolidated evaluation suite execution payload, leaderboard, and details."""
+
+    session_id: str
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    dataset_path: str = ""
+    total_cases: int = Field(default=0, ge=0)
+    models_evaluated: list[str] = Field(default_factory=list)
+    leaderboard: list[ModelSuiteMetrics] = Field(default_factory=list)
+    evaluations: list[BenchmarkSuiteEvaluation] = Field(default_factory=list)
+    recommendations: list[str] = Field(default_factory=list)
+    is_dry_run: bool = False

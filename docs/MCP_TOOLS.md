@@ -20,6 +20,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`argo_list`](#argo-list) | List ArgoCD applications. |
 | [`argo_status`](#argo-status) | Check ArgoCD application health and sync status. |
 | [`benchmark_embeddings`](#benchmark-embeddings) | Benchmark embedding model inference latency, dimensions, and retrieval accuracy. |
+| [`benchmark_suite`](#benchmark-suite) | Benchmark candidate models against feedback dataset for precision, recall, and hallucination scoring. |
 | [`branches_list`](#branches-list) | List git branches across repositories with tracking status and stale detection. |
 | [`ci_run`](#ci-run) | Run devops-cli complete quality gate (pytest, ruff check, ruff format, mypy). |
 | [`config_audit_keys`](#config-audit-keys) | Audit OS Keyring health, token state, and zero-plaintext secret compliance. |
@@ -241,6 +242,19 @@ Benchmark embedding model inference latency, dimensions, and retrieval accuracy.
 | `provider` | `string` | No | `ollama` | - |
 | `model` | `string` | No | `bge-m3` | - |
 | `samples` | `integer` | No | `10` | - |
+
+### `benchmark_suite`
+
+Benchmark candidate models against feedback dataset for precision, recall, and hallucination scoring.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `models` | `string` | No | `qwen2.5-coder:7b` | - |
+| `dataset` | `string` | No | `` | - |
+| `provider` | `string` | No | `ollama` | - |
+| `dry_run` | `boolean` | No | `True` | - |
 
 ### `branches_list`
 

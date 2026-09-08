@@ -1138,6 +1138,35 @@ def benchmark_embeddings(
 
 
 @mcp.tool()
+def benchmark_suite(
+    models: str = "qwen2.5-coder:7b",
+    dataset: str = "",
+    provider: str = "ollama",
+    dry_run: bool = True,
+) -> str:
+    """Benchmark candidate models against feedback dataset for precision, recall, and hallucination scoring."""
+    _validate_mcp_arg("models", models)
+    _validate_mcp_arg("provider", provider)
+    cmd = [
+        "uv",
+        "run",
+        "devops",
+        "benchmark",
+        "--suite",
+        "--models",
+        models,
+        "--provider",
+        provider,
+    ]
+    if dataset:
+        _validate_mcp_arg("dataset", dataset)
+        cmd.extend(["--dataset", dataset])
+    if dry_run:
+        cmd.append("--dry-run")
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
 def ai_architecture(target: str = "src", max_depth: int = 4) -> str:
     """Analyze architectural module boundaries, dependency graphs, and cyclic imports."""
     _validate_mcp_arg("target", target)

@@ -115,6 +115,9 @@ class BenchmarkMessages:
     table_title_server_hardware: str = (
         "Ollama Server Hardware & Node Performance (Session {session_id})"
     )
+    table_title_suite_leaderboard: str = (
+        "AI Benchmark Evaluation Suite Leaderboard (Session {session_id})"
+    )
 
 
 @dataclass(frozen=True)
