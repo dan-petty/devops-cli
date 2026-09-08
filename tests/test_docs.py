@@ -240,6 +240,7 @@ def test_sync_and_check_readme(generator: DocGenerator, tmp_path: Path) -> None:
     content = readme.read_text(encoding="utf-8")
     assert "<!-- COMMAND_MATRIX_START -->" in content
     assert "<!-- COMMAND_MATRIX_END -->" in content
+    assert "<!-- COMMAND_MATRIX_START -->\n\n| Command Group |" in content
     assert "| **repos** |" in content
 
     # Check passes when synchronized
@@ -266,6 +267,9 @@ def test_docs_cli_sync_readme(runner: CliRunner, tmp_path: Path) -> None:
     res = runner.invoke(docs_app, ["sync-readme", "--readme-path", str(readme)])
     assert res.exit_code == 0
     assert "<!-- COMMAND_MATRIX_START -->" in readme.read_text(encoding="utf-8")
+    assert "<!-- COMMAND_MATRIX_START -->\n\n| Command Group |" in readme.read_text(
+        encoding="utf-8"
+    )
 
     # Check flag passes
     check_res = runner.invoke(docs_app, ["sync-readme", "--check", "--readme-path", str(readme)])
