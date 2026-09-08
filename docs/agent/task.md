@@ -707,7 +707,7 @@
 - [ ] Phase 49.7.2: Code Review Feedback Lifecycle Mandate & Jekyll Documentation Layout Hardening (PR #70)
   - [x] 1. Addressed Copilot review feedback: dynamic `site.version`, table parent element guard, `Object.keys` iterator, and clipboard API feature detection/catch.
   - [x] 2. Replied to all Copilot discussion threads and resolved conversations via GitHub GraphQL API.
-  - [x] 3. Updated agent instructions in `AGENTS.md` and `docs/ROUTINE_TASKS.md` codifying automated & peer review remediation lifecycle.
+  - [x] 3. Updated agent instructions in `AGENTS.md`, `docs/ROUTINE_TASKS.md`, `docs/SDLC.md`, `instruction_generator.py`, and `github_project_management.md` codifying mandatory direct in-thread replies and conversation resolution.
   - [x] 4. Reconciled task tracker state between WIP and Completed.
 
 ---

@@ -3,10 +3,10 @@
 Chronological log of refactoring milestones, quality gates, and security enhancements.
 
 ### [2026-09-08] Phase 49.7.2: Code Review Feedback Lifecycle Mandate & Jekyll Documentation Layout Hardening
-- **Agent Instructions & Routine Tasks Review Governance (`AGENTS.md`, `docs/ROUTINE_TASKS.md`)**:
+- **Agent Instructions & Routine Tasks Review Governance (`AGENTS.md`, `docs/ROUTINE_TASKS.md`, `docs/SDLC.md`, `instruction_generator.py`, `github_project_management.md`)**:
   - Codified mandatory code review feedback remediation protocol for AI agents and developers.
   - Enforced inspecting GitHub Copilot automated and peer reviews (`gh api repos/:owner/:repo/pulls/:number/reviews` and review threads).
-  - Mandated test-first remediation, replying directly to each review comment/thread with technical resolution details, and resolving discussion threads on GitHub via GraphQL `resolveReviewThread`.
+  - Mandated test-first remediation, replying directly within each specific review thread (never solely via top-level PR comments) with technical resolution details, and resolving discussion threads on GitHub via GraphQL `resolveReviewThread`.
 - **Jekyll Documentation Layout & Configuration Hardening (`_layouts/default.html`, `_config.yml`)**:
   - Dynamically resolved documentation site version via `{{ site.version | default: 'v0.2.12' }}` and added `version: "v0.2.12"` to `_config.yml` matching `pyproject.toml`.
   - Added null parent guard to table wrapper container lookup (`table.parentElement && !table.parentElement.classList.contains('table-container')`).
