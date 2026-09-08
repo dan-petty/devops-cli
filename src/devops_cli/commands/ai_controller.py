@@ -12,7 +12,12 @@ from devops_cli.ai.controller.models import (
     QuiesceState,
     SuspendedTask,
 )
-from devops_cli.config.defaults import DEFAULT_TABLE_FORMAT
+from devops_cli.config.defaults import (
+    DEFAULT_AI_FALLBACK_MODEL,
+    DEFAULT_AI_FALLBACK_PROVIDER,
+    DEFAULT_CONSTELLATION_DRAIN_TIMEOUT,
+    DEFAULT_TABLE_FORMAT,
+)
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
     format_json,
@@ -95,7 +100,7 @@ def run_quiesce_cmd(
     drain_timeout: Annotated[
         float,
         typer.Option("--drain-timeout", help=HELP.options.drain_timeout),
-    ] = 5.0,
+    ] = DEFAULT_CONSTELLATION_DRAIN_TIMEOUT,
     output_format: Annotated[
         str,
         typer.Option("--format", "-f", help=HELP.options.format_type),
@@ -128,11 +133,11 @@ def run_failover_cmd(
     target_provider: Annotated[
         str,
         typer.Option("--target-provider", help=HELP.options.fallback_provider),
-    ] = "ollama",
+    ] = DEFAULT_AI_FALLBACK_PROVIDER,
     target_model: Annotated[
         str,
         typer.Option("--target-model", help=HELP.options.fallback_model),
-    ] = "qwen2.5-coder:7b",
+    ] = DEFAULT_AI_FALLBACK_MODEL,
     output_format: Annotated[
         str,
         typer.Option("--format", "-f", help=HELP.options.format_type),

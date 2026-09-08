@@ -20,6 +20,11 @@ from devops_cli.ai.controller.models import (
     SuspendedTask,
     _utc_now_iso,
 )
+from devops_cli.config.defaults import (
+    DEFAULT_AI_FALLBACK_MODEL,
+    DEFAULT_AI_FALLBACK_PROVIDER,
+    DEFAULT_CONSTELLATION_DRAIN_TIMEOUT,
+)
 from devops_cli.config.settings import load_settings
 from devops_cli.lang import MESSAGES
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
@@ -133,7 +138,7 @@ class ConstellationManager:
     def quiesce(
         self,
         reason: str = MESSAGES.ai.default_quiesce_reason,
-        drain_timeout: float = 5.0,
+        drain_timeout: float = DEFAULT_CONSTELLATION_DRAIN_TIMEOUT,
         dry_run: bool = False,
     ) -> QuiesceResult:
         """Cleanly freeze registered agent loops, cron jobs, and task runners."""
@@ -187,8 +192,8 @@ class ConstellationManager:
 
     def failover(
         self,
-        target_provider: str = "ollama",
-        target_model: str = "qwen2.5-coder:7b",
+        target_provider: str = DEFAULT_AI_FALLBACK_PROVIDER,
+        target_model: str = DEFAULT_AI_FALLBACK_MODEL,
         dry_run: bool = False,
     ) -> FailoverResult:
         """Safely re-route pending tasks to designated fallback endpoint."""

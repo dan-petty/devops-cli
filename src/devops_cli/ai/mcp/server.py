@@ -9,6 +9,8 @@ from typing import Literal
 from fastmcp import FastMCP
 
 from devops_cli.config.defaults import (
+    DEFAULT_AI_FALLBACK_MODEL,
+    DEFAULT_AI_FALLBACK_PROVIDER,
     DEFAULT_MCP_SERVER_PORT,
     DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
     DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
@@ -1277,7 +1279,7 @@ def ai_subagent_offload(
 @mcp.tool()
 def ai_chaos_model(
     mode: str = "all",
-    fallback_model: str = "qwen2.5-coder:7b",
+    fallback_model: str = DEFAULT_AI_FALLBACK_MODEL,
     dry_run: bool = False,
 ) -> str:
     """Execute model dependency chaos fault injection and verify automated fallback recovery."""
@@ -1314,8 +1316,8 @@ def ai_quiesce(
 
 @mcp.tool()
 def ai_failover(
-    target_provider: str = "ollama",
-    target_model: str = "qwen2.5-coder:7b",
+    target_provider: str = DEFAULT_AI_FALLBACK_PROVIDER,
+    target_model: str = DEFAULT_AI_FALLBACK_MODEL,
     dry_run: bool = False,
 ) -> str:
     """Emergency failover controller re-routing tasks to designated fallback endpoints."""

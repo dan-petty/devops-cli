@@ -6,6 +6,11 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from devops_cli.config.defaults import (
+    DEFAULT_AI_FALLBACK_MODEL,
+    DEFAULT_AI_FALLBACK_PROVIDER,
+)
+
 
 class ChaosMode(StrEnum):
     """Supported failure modes for AI model dependency chaos testing."""
@@ -36,8 +41,8 @@ class ChaosConfig(BaseModel):
     error_rate: float = Field(default=1.0, ge=0.0, le=1.0)
     primary_provider: str = "openai"
     primary_model: str = "gpt-4o"
-    fallback_provider: str = "ollama"
-    fallback_model: str = "qwen2.5-coder:7b"
+    fallback_provider: str = DEFAULT_AI_FALLBACK_PROVIDER
+    fallback_model: str = DEFAULT_AI_FALLBACK_MODEL
     prompt: str = "def test_health(): return True"
     dry_run: bool = False
     max_retries: int = Field(default=2, ge=0)
