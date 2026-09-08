@@ -2,6 +2,19 @@
 
 Chronological log of refactoring milestones, quality gates, and security enhancements.
 
+### [2026-09-08] Phase 49.7.2: Code Review Feedback Lifecycle Mandate & Jekyll Documentation Layout Hardening
+- **Agent Instructions & Routine Tasks Review Governance (`AGENTS.md`, `docs/ROUTINE_TASKS.md`, `docs/SDLC.md`, `instruction_generator.py`, `github_project_management.md`)**:
+  - Codified mandatory code review feedback remediation protocol for AI agents and developers.
+  - Enforced inspecting GitHub Copilot automated and peer reviews (`gh api repos/:owner/:repo/pulls/:number/reviews` and review threads).
+  - Mandated test-first remediation, replying directly within each specific review thread (never solely via top-level PR comments) with technical resolution details, and resolving discussion threads on GitHub via GraphQL `resolveReviewThread`.
+- **Jekyll Documentation Layout & Configuration Hardening (`_layouts/default.html`, `_config.yml`)**:
+  - Dynamically resolved documentation site version via `{{ site.version | default: 'v0.2.12' }}` and added `version: "v0.2.12"` to `_config.yml` matching `pyproject.toml`.
+  - Added null parent guard to table wrapper container lookup (`table.parentElement && !table.parentElement.classList.contains('table-container')`).
+  - Sanitized `alertTypes` callout marker iteration using `Object.keys(alertTypes).some(...)` to eliminate prototype property pollution risks.
+  - Hardened code block copy button with `navigator.clipboard && navigator.clipboard.writeText` feature detection and `.catch()` rejection handling to prevent unhandled promise rejections.
+- **Testing & Quality Gates**:
+  - Verified with full CI quality gate (`devops ci` — 10/10 green).
+
 ### [2026-09-08] Phase 49.7.1: GitHub Pages Site Remediation & Documentation Modernization
 - **GitHub Pages Rendering Remediation & Kramdown Fix (`src/devops_cli/docs/generator.py`)**:
   - Identified root cause of corrupted 200+ row command matrix table on `dan-petty.github.io/devops-cli/`: adjacent `<!-- COMMAND_MATRIX_START -->` marker without a trailing blank line caused Kramdown to treat the table as raw HTML paragraph text, converting `|---|---|---|` into em-dashes `|—|—|—|`.

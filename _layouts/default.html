@@ -29,7 +29,7 @@
           </svg>
           <span class="brand-title">devops-cli</span>
         </a>
-        <span class="version-pill">v0.2.13</span>
+        <span class="version-pill">{{ site.version | default: 'v0.2.12' }}</span>
       </div>
 
       <nav class="header-nav">
@@ -120,7 +120,7 @@
 
       // 2. Responsive Table Wrappers
       document.querySelectorAll('.markdown-body table').forEach(function (table) {
-        if (!table.parentElement.classList.contains('table-container')) {
+        if (table.parentElement && !table.parentElement.classList.contains('table-container')) {
           var wrapper = document.createElement('div');
           wrapper.className = 'table-container';
           table.parentNode.insertBefore(wrapper, table);
@@ -141,7 +141,7 @@
         var firstP = bq.querySelector('p');
         if (!firstP) return;
         var text = firstP.innerHTML.trim();
-        for (var marker in alertTypes) {
+        Object.keys(alertTypes).some(function (marker) {
           if (text.startsWith(marker)) {
             var info = alertTypes[marker];
             bq.classList.add('gh-alert', info.class);
@@ -150,9 +150,10 @@
             titleEl.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="' + info.icon + '"/></svg> ' + info.title;
             firstP.innerHTML = text.substring(marker.length).replace(/^<br\s*\/?>/, '').trim();
             bq.insertBefore(titleEl, firstP);
-            break;
+            return true;
           }
-        }
+          return false;
+        });
       });
 
       // 4. Code Block Copy Buttons
@@ -164,10 +165,14 @@
         btn.setAttribute('aria-label', 'Copy code to clipboard');
         btn.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
         btn.addEventListener('click', function () {
-          navigator.clipboard.writeText(code.innerText).then(function () {
-            btn.classList.add('copied');
-            setTimeout(function () { btn.classList.remove('copied'); }, 2000);
-          });
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(code.innerText).then(function () {
+              btn.classList.add('copied');
+              setTimeout(function () { btn.classList.remove('copied'); }, 2000);
+            }).catch(function (err) {
+              console.warn('Failed to copy to clipboard:', err);
+            });
+          }
         });
         pre.style.position = 'relative';
         pre.appendChild(btn);

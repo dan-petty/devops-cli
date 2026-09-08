@@ -119,6 +119,12 @@ devops gh views spec
    - Remote branches must be deleted immediately upon PR merge or supersession (`git push origin --delete <branch>` and `git fetch --prune origin`).
    - Orphan remote branches are strictly prohibited.
 6. **Use Dry-Run First**: Always run `devops gh labels sync --dry-run` and `devops gh milestones sync --dry-run` to preview reconciliations before applying changes.
+7. **Automated & Peer Code Review Remediation**:
+   - Actively inspect code review comments from GitHub Copilot and human reviewers via `gh api repos/:owner/:repo/pulls/:number/reviews` and GraphQL review threads.
+   - Remediate feedback iteratively using Test-First Development.
+   - Reply **directly within each specific review thread** (`gh api repos/:owner/:repo/pulls/:number/comments/:id/replies` or GraphQL `addPullRequestReviewThreadReply`). Never rely solely on top-level PR comments.
+   - Resolve conversation threads on GitHub via GraphQL `resolveReviewThread` once verified.
+   - Continuously monitor remote CI checks (`gh pr checks`) until 100% green.
 
 ---
 

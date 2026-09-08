@@ -99,6 +99,13 @@ Before planning, implementing, debugging, refactoring, or reviewing code, consul
   - **GitHub Release Titles**: Strictly the version tag / number from `pyproject.toml` (e.g. `v0.2.12`) without conventional commit prefixes.
   - **Human-in-the-Loop Merging**: AI agents prepare clean commits, open/update PRs, monitor remote CI checks (`gh pr checks`), and leave merge approval to maintainers. Never merge autonomously.
   - **Active CI Monitoring & Remediation**: Actively monitor remote GitHub Actions status. If any check fails, inspect logs, diagnose root causes, push corrective commits, and verify green status.
+  - **Automated & Peer Code Review Remediation Mandate**:
+    - AI agents MUST actively inspect, evaluate, and remediate all code review feedback (from GitHub Copilot, linters, or human reviewers) on open pull requests.
+    - Remediate feedback using Test-First Development (author/update tests, implement clean fixes, ensure zero zombie code).
+    - **Mandatory Direct In-Thread Replies**: AI agents MUST reply **directly within each specific review discussion thread** on the exact comment being addressed (`gh api repos/:owner/:repo/pulls/:number/comments/:comment_id/replies` or GraphQL mutation `addPullRequestReviewThreadReply(input: { pullRequestReviewThreadId: $threadId, body: $body })`). Posting solely a general, top-level PR summary comment (`gh pr comment`) is **STRICTLY PROHIBITED** and does not satisfy this requirement.
+    - Every in-thread reply must clearly articulate the concrete code modification, architectural rationale, or test addition implemented to resolve the reviewer's finding.
+    - **Mandatory Conversation Resolution**: Once fixes are committed, pushed, and verified, AI agents MUST programmatically resolve the conversation thread on GitHub via GraphQL mutation `resolveReviewThread(input: { threadId: $threadId })`. Never leave review conversations unresolved or unacknowledged.
+    - Always re-verify local quality gates (`devops ci`) and monitor remote GitHub Actions status (`gh pr checks`) until 100% green.
 - **GitHub Projects, Issues, Views, Milestones & Label Governance (Project Management Integration)**:
   - **Active Milestone GitHub Resource & Issue Population Mandate**:
     - When cutting a new release branch or transitioning to a new active milestone, AI agents **MUST PROACTIVELY POPULATE GITHUB RESOURCES** (milestones, issues, project items, labels) for that active milestone.

@@ -245,9 +245,13 @@ codebase or reviewing target repositories.
   - Follow **Conventional Commits** format (`feat(scope): ...`, `fix(scope): ...`,
     `refactor(scope): ...`, `docs(scope): ...`).
   - Maintain atomic, cohesive commits with clean commit messages.
-- **Pull Request Governance**:
+- **Pull Request Governance & Code Review Remediation**:
   - AI agents prepare clean commits, open/update PRs, monitor remote CI checks, and leave merge
     approval to maintainers.
+  - Actively inspect and evaluate review feedback from GitHub Copilot and human reviewers.
+  - Remediate feedback iteratively using Test-First Development (author/update tests first).
+  - Reply directly within each specific review thread on the exact comment addressed with concrete technical details; never rely solely on top-level PR comments.
+  - Resolve review conversations on GitHub (via GitHub API / GraphQL resolveReviewThread) once verified.
 - **GitHub Projects, Issues & Views Governance**:
   - Proactively author and populate tracking issues for all scheduled roadmap deliverables upon milestone activation; the open issues queue (`issues?q=is:issue+state:open`), projects tab (`projects`), and issue views (`issues/views`) must never be left empty.
   - Link project boards conforming to `.github/project-template.json` to the repository (`devops gh project link <number>`) and synchronize items and custom fields via `devops gh project sync`.
