@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import random
 import time
 
 from devops_cli.ai.chaos.models import (
@@ -62,9 +63,14 @@ class ModelChaosInjector:
         fallback_ai_cfg = AIConfig(
             provider=config.fallback_provider,
             model=config.fallback_model,
+            max_retries=config.max_retries,
         )
         client = LLMClient(config=fallback_ai_cfg)
-        res = client.chat(system="", user=prompt)
+        res = client.chat(
+            system="",
+            user=prompt,
+            max_retries=config.max_retries,
+        )
         return str(res.content)
 
     def _execute_fallback_recovery(
@@ -149,6 +155,17 @@ class ModelChaosInjector:
 
     def _dispatch_fault(self, mode: ChaosMode) -> ChaosFaultResult:
         """Dispatch fault injection according to specified mode."""
+        if self.config.error_rate <= 0.0 or (
+            self.config.error_rate < 1.0 and random.random() > self.config.error_rate
+        ):
+            return ChaosFaultResult(
+                mode=mode,
+                primary_provider=self.config.primary_provider,
+                primary_model=self.config.primary_model,
+                fault_injected=f"Fault injection skipped (error_rate={self.config.error_rate})",
+                status=ChaosStatus.SKIPPED,
+            )
+
         dispatch_table = {
             ChaosMode.LATENCY: self._inject_latency_fault,
             ChaosMode.RATE_LIMIT: self._inject_rate_limit_fault,
@@ -164,7 +181,25 @@ class ModelChaosInjector:
                 fault_injected=f"Unsupported chaos mode: {mode}",
                 status=ChaosStatus.SKIPPED,
             )
-        return handler()
+
+        with trace_span(
+            "ai.chaos.inject",
+            attributes={
+                "chaos.mode": mode.value,
+                "chaos.primary_provider": self.config.primary_provider,
+                "chaos.fallback_provider": self.config.fallback_provider,
+                "chaos.fallback_model": self.config.fallback_model,
+            },
+        ) as fault_span:
+            res = handler()
+            fault_span.set_attributes(
+                {
+                    "chaos.status": res.status.value,
+                    "chaos.fault_latency_ms": res.fault_latency_ms,
+                    "chaos.fallback_engaged": res.fallback_engaged,
+                }
+            )
+            return res
 
     def execute(self) -> ModelChaosReport:
         """Execute configured chaos tests with OpenTelemetry tracing and metrics."""

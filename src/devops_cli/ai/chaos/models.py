@@ -32,15 +32,15 @@ class ChaosConfig(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     mode: ChaosMode = ChaosMode.ALL
-    latency_ms: int = 500
-    error_rate: float = 1.0
+    latency_ms: int = Field(default=500, ge=0)
+    error_rate: float = Field(default=1.0, ge=0.0, le=1.0)
     primary_provider: str = "openai"
     primary_model: str = "gpt-4o"
     fallback_provider: str = "ollama"
     fallback_model: str = "qwen2.5-coder:7b"
     prompt: str = "def test_health(): return True"
     dry_run: bool = False
-    max_retries: int = 2
+    max_retries: int = Field(default=2, ge=0)
 
 
 class ChaosFaultResult(BaseModel):

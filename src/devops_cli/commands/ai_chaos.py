@@ -105,6 +105,14 @@ def run_chaos_model_cmd(
         print_error(f"Invalid chaos mode '{mode}'. Choose from: {valid_modes}")
         raise typer.Exit(code=1)
 
+    if latency_ms < 0:
+        print_error(f"Invalid --latency-ms '{latency_ms}': must be non-negative (>= 0).")
+        raise typer.Exit(code=1)
+
+    if not (0.0 <= error_rate <= 1.0):
+        print_error(f"Invalid --error-rate '{error_rate}': must be between 0.0 and 1.0.")
+        raise typer.Exit(code=1)
+
     config = ChaosConfig(
         mode=chaos_mode,
         latency_ms=latency_ms,

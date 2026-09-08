@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from typer.testing import CliRunner
@@ -274,6 +274,77 @@ def test_cli_chaos_model_invalid_mode() -> None:
     runner = CliRunner()
     result = runner.invoke(ai_app, ["chaos-model", "--mode", "unsupported-mode"])
     assert result.exit_code != 0
+
+
+def test_injector_spans_and_max_retries(clean_telemetry: list[tuple[str, dict[str, Any]]]) -> None:
+    """Verify child ai.chaos.inject spans and max_retries forwarding to AIConfig."""
+    config = ChaosConfig(
+        mode=ChaosMode.RATE_LIMIT,
+        dry_run=True,
+        max_retries=3,
+    )
+    injector = ModelChaosInjector(config)
+    report = injector.execute()
+    assert report.all_passed is True
+
+    trace_payloads = [p for path, p in clean_telemetry if path == "/v1/traces"]
+    span_names = [
+        s["name"] for p in trace_payloads for s in p["resourceSpans"][0]["scopeSpans"][0]["spans"]
+    ]
+    assert "ai.chaos.run" in span_names
+    assert "ai.chaos.inject" in span_names
+
+    # Test non-dry-run max_retries forwarding to AIConfig & chat
+    real_config = ChaosConfig(mode=ChaosMode.RATE_LIMIT, dry_run=False, max_retries=4)
+    real_injector = ModelChaosInjector(real_config)
+    with patch("devops_cli.ai.client.unified.LLMClient") as mock_client_cls:
+        mock_instance = mock_client_cls.return_value
+        mock_instance.chat.return_value = MagicMock(content="ok")
+        real_injector.execute()
+        ai_cfg_call = mock_client_cls.call_args[1]["config"]
+        assert ai_cfg_call.max_retries == 4
+        mock_instance.chat.assert_called_with(system="", user=real_config.prompt, max_retries=4)
+
+
+def test_injector_error_rate_thresholding() -> None:
+    """Verify that error_rate=0.0 skips fault injection."""
+    config = ChaosConfig(
+        mode=ChaosMode.ALL,
+        error_rate=0.0,
+        dry_run=True,
+    )
+    injector = ModelChaosInjector(config)
+    report = injector.execute()
+
+    assert report.total_faults == 4
+    for res in report.results:
+        assert res.status == ChaosStatus.SKIPPED
+        assert "skipped" in res.fault_injected.lower()
+
+
+def test_cli_and_config_validation_bounds() -> None:
+    """Verify bounds validation on latency_ms and error_rate."""
+    from pydantic import ValidationError as PydanticValidationError
+
+    # Model validation
+    with pytest.raises(PydanticValidationError):
+        ChaosConfig(latency_ms=-10)
+
+    with pytest.raises(PydanticValidationError):
+        ChaosConfig(error_rate=1.5)
+
+    with pytest.raises(PydanticValidationError):
+        ChaosConfig(error_rate=-0.1)
+
+    # CLI validation
+    runner = CliRunner()
+    res_lat = runner.invoke(ai_app, ["chaos-model", "--latency-ms", "-50"])
+    assert res_lat.exit_code != 0
+    assert "invalid --latency-ms" in res_lat.output.lower()
+
+    res_err = runner.invoke(ai_app, ["chaos-model", "--error-rate", "1.5"])
+    assert res_err.exit_code != 0
+    assert "invalid --error-rate" in res_err.output.lower()
 
 
 # ── 4. FastMCP Tool Contract Tests ────────────────────────────────────────────
