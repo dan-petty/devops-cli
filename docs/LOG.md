@@ -2,6 +2,21 @@
 
 Chronological log of refactoring milestones, quality gates, and security enhancements.
 
+### [2026-09-08] Phase 49.7.1: GitHub Pages Site Remediation & Documentation Modernization
+- **GitHub Pages Rendering Remediation & Kramdown Fix (`src/devops_cli/docs/generator.py`)**:
+  - Identified root cause of corrupted 200+ row command matrix table on `dan-petty.github.io/devops-cli/`: adjacent `<!-- COMMAND_MATRIX_START -->` marker without a trailing blank line caused Kramdown to treat the table as raw HTML paragraph text, converting `|---|---|---|` into em-dashes `|—|—|—|`.
+  - Updated `sync_readme_matrix` in `generator.py` to enforce `\n\n` blank line separation before and after the table.
+- **Repository Branding & Links Sanitization (`README.md`)**:
+  - Replaced legacy `your-org` placeholder with canonical `dan-petty` in badge URLs and git clone instructions.
+  - Resolved 404 links on GitHub Pages by targeting GitHub repository URLs for `.github/workflows/ci.yml`, `.devcontainer/devcontainer.json`, and `LICENSE`.
+- **GitHub Pages Modern Layout & Styling (`_config.yml`, `_layouts/default.html`, `assets/css/style.css`)**:
+  - Configured `_config.yml` with Kramdown GFM, Rouge syntax highlighting, and Jekyll plugins.
+  - Implemented modern responsive `_layouts/default.html` featuring a glassmorphism header, dark/light theme switcher (persisted in localStorage), dynamic GitHub alert callout processor (`[!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]`, `[!CAUTION]`), responsive table scroll containers, and code snippet copy buttons.
+  - Added custom stylesheet `assets/css/style.css` with curated dark/light tokens, Inter and JetBrains Mono typography, alert styling, and responsive tables.
+- **Testing & Verification (`tests/test_docs.py`)**:
+  - Added test assertions verifying blank line separation after `COMMAND_MATRIX_START` and automated synchronization.
+  - All tests passing (21/21 in `test_docs.py`, full CI green).
+
 ### [2026-09-08] Phase 49.7: Multi-Model LLM Benchmark Evaluation Harness (`devops ai benchmark --suite`) (Issue #57)
 - **Multi-Model LLM Benchmark Evaluation Harness Architecture (`devops_cli.ai.benchmark`)**:
   - Implemented domain models (`BenchmarkSuiteCase`, `BenchmarkSuiteEvaluation`, `ModelSuiteMetrics`, `BenchmarkSuiteReport`) in `src/devops_cli/models/benchmark.py`.

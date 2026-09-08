@@ -1,12 +1,12 @@
 # devops-cli — Workstation DevOps CLI & Multi-Persona AI Code Reviewer
 
-[![CI Validation](https://github.com/your-org/devops-cli/actions/workflows/ci.yml/badge.svg)](.github/workflows/ci.yml)
+[![CI Validation](https://github.com/dan-petty/devops-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/dan-petty/devops-cli/actions/workflows/ci.yml)
 [![Python 3.14+](https://img.shields.io/badge/python-3.14%2B-blue.svg)](https://www.python.org/downloads/)
 [![Type Checked: Mypy Strict](https://img.shields.io/badge/mypy-strict-blue.svg)](https://mypy-lang.org/)
 [![Code Style: Ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 [![FastMCP](https://img.shields.io/badge/FastMCP-Enabled-purple.svg)](docs/MCP_TOOLS.md)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![DevContainer Native](https://img.shields.io/badge/DevContainer-Native-green.svg)](.devcontainer/devcontainer.json)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/dan-petty/devops-cli/blob/main/LICENSE)
+[![DevContainer Native](https://img.shields.io/badge/DevContainer-Native-green.svg)](https://github.com/dan-petty/devops-cli/blob/main/.devcontainer/devcontainer.json)
 
 `devops-cli` is an enterprise-grade workstation CLI and agentic code analysis platform designed for Site Reliability Engineers and DevOps Practitioners running inside VS Code Dev Containers. It unifies multi-repository infrastructure management (Git, Kubernetes, Kustomize, ArgoCD, Grafana, Prometheus, Docker, SSH) with multi-persona **Agentic LLM code reviews**, OS Keyring secret isolation, active SSRF network guardrails, and automated release orchestration.
 
@@ -41,7 +41,7 @@
 
 ```bash
 # 1. Clone repository and open inside Dev Container
-git clone https://github.com/your-org/devops-cli.git
+git clone https://github.com/dan-petty/devops-cli.git
 cd devops-cli
 
 # 2. Inside the Dev Container, sync Python 3.14 dependencies:
@@ -107,6 +107,7 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 
 
 <!-- COMMAND_MATRIX_START -->
+
 | Command Group | Subcommand / Usage | Purpose & Features |
 |---|---|---|
 | **repos** | `devops repos clone-org [OPTIONS] <org>` | Clone all repos from a GitHub org into repos/<org>/. |
@@ -316,6 +317,7 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 |  | `devops valkey cli [OPTIONS] <command_args>` | Execute raw Valkey commands directly against the server. |
 | **dashboard** | `devops dashboard [OPTIONS]` | Interactive terminal UI dashboard for workstation situational awareness. |
 | **tui** | `devops tui [OPTIONS]` | Interactive terminal UI dashboard for workstation situational awareness. |
+
 <!-- COMMAND_MATRIX_END -->
 
 ---
@@ -362,4 +364,4 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 
 ## License
 
-Distributed under the MIT License. See `LICENSE` for details.
+Distributed under the MIT License. See [LICENSE](https://github.com/dan-petty/devops-cli/blob/main/LICENSE) for details.
