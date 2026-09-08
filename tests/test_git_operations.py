@@ -338,8 +338,9 @@ def test_host_key_and_clone_prep_helpers(tmp_path: Path) -> None:
     with pytest.raises(GitOperationError, match="Path traversal detected"):
         _validate_clone_dest(Path("foo/../bar"))
 
-    # Safe destination passes
+    # Safe destination passes (including filenames containing ..)
     _validate_clone_dest(tmp_path / "safe_dest")
+    _validate_clone_dest(tmp_path / "safe..dest")
 
     # 5. _prepare_clone_url
     with patch("devops_cli.git.operations._ensure_known_host") as mock_ensure:

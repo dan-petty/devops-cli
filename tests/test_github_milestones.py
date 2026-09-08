@@ -159,6 +159,7 @@ def test_validate_roadmap_path_helpers(tmp_path: Path) -> None:
 
     # Safe vs unsafe path predicates
     assert _is_safe_roadmap_path(Path("docs/ROADMAP.md"))
+    assert _is_safe_roadmap_path(Path("docs/ROADMAP..md"))
     assert _is_safe_roadmap_path(tmp_path / "ROADMAP.md")
     assert not _is_safe_roadmap_path(Path("../ROADMAP.md"))
     assert not _is_safe_roadmap_path(Path("docs/../ROADMAP.md"))

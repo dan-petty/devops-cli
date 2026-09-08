@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import threading
 import time
-from collections import defaultdict
+from collections import defaultdict, deque
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -47,8 +47,8 @@ class InMemoryMetricsRegistry:
         self._gauges: dict[str, dict[tuple[tuple[str, str], ...], float]] = defaultdict(
             lambda: defaultdict(float)
         )
-        self._histograms: dict[str, dict[tuple[tuple[str, str], ...], list[float]]] = defaultdict(
-            lambda: defaultdict(list)
+        self._histograms: dict[str, dict[tuple[tuple[str, str], ...], deque[float]]] = defaultdict(
+            lambda: defaultdict(lambda: deque(maxlen=_MAX_HISTOGRAM_SAMPLES))
         )
 
     def _freeze_labels(self, labels: dict[str, str] | None) -> tuple[tuple[str, str], ...]:
@@ -87,10 +87,7 @@ class InMemoryMetricsRegistry:
         """Record an observation in a histogram with bounded sample retention."""
         key = self._freeze_labels(labels)
         with self._lock:
-            samples = self._histograms[name][key]
-            if len(samples) >= _MAX_HISTOGRAM_SAMPLES:
-                samples.pop(0)
-            samples.append(value)
+            self._histograms[name][key].append(value)
 
     def get_counter(
         self,

@@ -304,6 +304,8 @@ def test_cli_views_sync_no_project_found() -> None:
         res = runner.invoke(views_app, ["sync", "--repo", "dan-petty/devops-cli"])
         assert res.exit_code == 0
         assert "No linked project found" in res.output
+        assert "milestone%3Acurrent" in res.output
+        assert "sort%3Apriority-desc" in res.output
 
 
 def test_find_and_create_remote_project() -> None:
@@ -424,3 +426,40 @@ def test_get_remote_project_views() -> None:
         assert pnum == 5
         assert len(views) == 1
         assert views[0]["name"] == "View 1"
+
+
+def test_graphql_query_and_mutation_escaping() -> None:
+    """Verify get_remote_project_views, _create_project_view, and _rename_default_view safely escape quotes."""
+    import json
+    from unittest.mock import MagicMock, patch
+
+    from devops_cli.github.projects import (
+        _create_project_view,
+        _rename_default_view,
+        get_remote_project_views,
+    )
+
+    mock_proc = MagicMock(
+        return_value=MagicMock(
+            returncode=0, stdout=json.dumps({"data": {"repository": {"projectsV2": {"nodes": []}}}})
+        )
+    )
+    with patch("devops_cli.github.projects.run_subprocess", mock_proc):
+        # Query with quotes in owner/repo
+        get_remote_project_views('owner"with"quotes', 'repo"with"quotes')
+        called_cmd = mock_proc.call_args[0][0]
+        query_arg = next(arg for arg in called_cmd if arg.startswith("query="))
+        assert r"\"owner\"with\"quotes\"" in query_arg or r"owner\"with\"quotes" in query_arg
+
+        # Mutation with quotes in view name
+        ok_create = _create_project_view("PVT_1", 'Sprint "Special" Kanban', "BOARD")
+        assert ok_create is True
+        called_cmd = mock_proc.call_args[0][0]
+        mutation_arg = next(arg for arg in called_cmd if arg.startswith("query="))
+        assert r"Sprint \"Special\" Kanban" in mutation_arg
+
+        ok_rename = _rename_default_view("V_1", 'Default "Renamed" View', "TABLE")
+        assert ok_rename is True
+        called_cmd = mock_proc.call_args[0][0]
+        mutation_arg = next(arg for arg in called_cmd if arg.startswith("query="))
+        assert r"Default \"Renamed\" View" in mutation_arg

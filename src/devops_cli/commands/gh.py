@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import urllib.parse
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -595,27 +596,22 @@ def spec_views(
 def _display_issues_saved_views(target_repo: str) -> None:
     """Output reference URLs for GitHub Issues saved views."""
     columns = ["View Name", "Issues Filter Query", "Direct Link"]
-    rows = [
-        [
-            "Sprint Kanban",
-            "is:issue state:open milestone:current",
-            f"https://github.com/{target_repo}/issues?q=is%3Aissue+state%3Aopen",
-        ],
-        [
+    views_specs = [
+        ("Sprint Kanban", "is:issue state:open milestone:current"),
+        (
             "Triage & Quality Table",
             "is:issue state:open label:status/triage,status/blocked,type/bug",
-            f"https://github.com/{target_repo}/issues?q=is%3Aissue+state%3Aopen+label%3Atype%2Fbug",
-        ],
+        ),
+        ("Roadmap Timeline", "is:issue state:open sort:milestone-desc"),
+        ("Value vs Effort Priority Matrix", "is:issue state:open sort:priority-desc"),
+    ]
+    rows = [
         [
-            "Roadmap Timeline",
-            "is:issue state:open sort:milestone-desc",
-            f"https://github.com/{target_repo}/issues?q=is%3Aissue+state%3Aopen+sort%3Amilestone-desc",
-        ],
-        [
-            "Value vs Effort Priority Matrix",
-            "is:issue state:open sort:priority-desc",
-            f"https://github.com/{target_repo}/issues?q=is%3Aissue+state%3Aopen+sort%3Acomments-desc",
-        ],
+            name,
+            query,
+            f"https://github.com/{target_repo}/issues?q={urllib.parse.quote_plus(query)}",
+        ]
+        for name, query in views_specs
     ]
     print_table(
         f"Repository Issues Views (Save via https://github.com/{target_repo}/issues/views)",

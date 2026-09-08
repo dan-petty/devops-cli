@@ -126,7 +126,7 @@ def _ensure_known_host(hostname: str = CONST_GITHUB_HOST) -> None:
 
 def _validate_clone_dest(dest: Path) -> None:
     """Validate that repository destination path does not attempt path traversal."""
-    if ".." in dest.parts or ".." in str(dest):
+    if ".." in dest.parts:
         raise GitOperationError(f"Path traversal detected in destination path: {dest}")
 
 

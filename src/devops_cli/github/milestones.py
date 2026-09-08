@@ -51,7 +51,7 @@ _ROADMAP_HEADING_PATTERN = re.compile(
 
 def _is_safe_roadmap_path(roadmap_path: Path) -> bool:
     """Predicate determining if roadmap path is free from directory traversal patterns."""
-    return ".." not in roadmap_path.parts and ".." not in str(roadmap_path)
+    return ".." not in roadmap_path.parts
 
 
 def _validate_roadmap_path(roadmap_path: Path) -> Path:

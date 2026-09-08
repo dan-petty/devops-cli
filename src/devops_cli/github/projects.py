@@ -379,7 +379,7 @@ def get_remote_project_views(
     """Fetch remote ProjectV2 ID, number, and views for the given repository."""
     repo_clean = repo.split("/")[-1]
     query = (
-        f'query {{ repository(owner: "{owner}", name: "{repo_clean}") {{ '
+        f"query {{ repository(owner: {json.dumps(owner)}, name: {json.dumps(repo_clean)}) {{ "
         f"projectsV2(first: 5) {{ nodes {{ id number title views(first: 20) {{ nodes {{ id name layout }} }} }} }} }} }}"
     )
     cmd = [CONST_GH_CLI, "api", "graphql", "-f", f"query={query}"]
@@ -402,8 +402,8 @@ def _create_project_view(project_id: str, name: str, layout: str) -> bool:
     """Create a project view via GraphQL mutation."""
     layout_enum = _map_view_layout(layout)
     mutation = (
-        f'mutation {{ createProjectV2View(input: {{ projectId: "{project_id}", '
-        f'name: "{name}", layout: {layout_enum} }}) {{ projectV2View {{ id name }} }} }}'
+        f"mutation {{ createProjectV2View(input: {{ projectId: {json.dumps(project_id)}, "
+        f"name: {json.dumps(name)}, layout: {layout_enum} }}) {{ projectV2View {{ id name }} }} }}"
     )
     proc = run_subprocess(
         [CONST_GH_CLI, "api", "graphql", "-f", f"query={mutation}"],
@@ -417,8 +417,8 @@ def _rename_default_view(view_id: str, name: str, layout: str) -> bool:
     """Rename default View 1 via GraphQL mutation."""
     layout_enum = _map_view_layout(layout)
     mutation = (
-        f'mutation {{ updateProjectV2View(input: {{ viewId: "{view_id}", '
-        f'name: "{name}", layout: {layout_enum} }}) {{ projectV2View {{ id name }} }} }}'
+        f"mutation {{ updateProjectV2View(input: {{ viewId: {json.dumps(view_id)}, "
+        f"name: {json.dumps(name)}, layout: {layout_enum} }}) {{ projectV2View {{ id name }} }} }}"
     )
     proc = run_subprocess(
         [CONST_GH_CLI, "api", "graphql", "-f", f"query={mutation}"],

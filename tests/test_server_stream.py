@@ -45,11 +45,25 @@ def test_streaming_sse_persona_validation() -> None:
     res_valid = client.get("/v1/stream/events?persona=architect")
     assert res_valid.status_code == 200
     assert "text/event-stream" in res_valid.headers.get("content-type", "")
+    valid_data_lines = [
+        line.removeprefix("data: ").strip()
+        for line in res_valid.text.split("\n")
+        if line.startswith("data: ")
+    ]
+    assert valid_data_lines
+    assert json.loads(valid_data_lines[0])["persona"] == "architect"
 
-    # Invalid persona falls back safely
+    # Invalid persona falls back safely to DEFAULT_STREAM_PERSONA
     res_invalid = client.get("/v1/stream/events?persona=malicious_injected_persona")
     assert res_invalid.status_code == 200
     assert "text/event-stream" in res_invalid.headers.get("content-type", "")
+    invalid_data_lines = [
+        line.removeprefix("data: ").strip()
+        for line in res_invalid.text.split("\n")
+        if line.startswith("data: ")
+    ]
+    assert invalid_data_lines
+    assert json.loads(invalid_data_lines[0])["persona"] == DEFAULT_STREAM_PERSONA
 
 
 def test_websocket_invalid_persona_fallback() -> None:
