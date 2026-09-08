@@ -655,7 +655,7 @@
 
 ---
 
-- [x] Phase 49.5: Model Dependency Chaos Engineering Suite (`devops ai chaos-model`) (Issue #55)
+- [x] Phase 49.5: Model Dependency Chaos Engineering Suite (`devops ai chaos-model`) (Issue #55, PR #64 — Merged)
   - [x] 1. Implement core chaos models (`ChaosMode`, `ChaosStatus`, `ChaosConfig`, `ChaosFaultResult`, `ModelChaosReport`) in `src/devops_cli/ai/chaos/models.py`.
   - [x] 2. Implement fault injection and failover engine (`ModelChaosInjector`) in `src/devops_cli/ai/chaos/injector.py` supporting 4 failure modes (latency, 429 rate-limit, timeout, malformed-json) and cascade execution.
   - [x] 3. Implement automated local open model fallback routing (Ollama Qwen2.5-Coder/Granite) ensuring CI quality validation passes without human coaching.
@@ -667,13 +667,24 @@
 
 ---
 
+- [x] Phase 49.6: Agent Constellation Quiesce & Emergency Failover Controller (`devops ai quiesce`, `devops ai failover`) (Issue #56)
+  - [x] 1. Implement core constellation domain models (`QuiesceState`, `AgentTaskType`, `SuspendedTask`, `QuiesceSnapshot`, `QuiesceResult`, `FailoverResult`, `ResumeResult`, `ConstellationStatus`) in `src/devops_cli/ai/controller/models.py`.
+  - [x] 2. Implement `ConstellationManager` in `src/devops_cli/ai/controller/manager.py` with state snapshot persistence in `.data/agent/quiesce.json`, supporting `quiesce()`, `failover()`, `resume()`, `status()`, `is_quiesced()`, and `get_active_route()`.
+  - [x] 3. Add strongly typed domain exceptions (`ConstellationQuiesceError`, `ConstellationFailoverError`, `ConstellationResumeError`) in `src/devops_cli/exceptions/ai.py` and re-export in `exceptions/__init__.py`.
+  - [x] 4. Telemetry and metrics: Emit OpenTelemetry spans (`ai.constellation.quiesce`, `ai.constellation.failover`, `ai.constellation.resume`) and increment Prometheus counters (`devops_cli_ai_quiesce_events_total`, `devops_cli_ai_failover_events_total`, `devops_cli_ai_resumptions_total`).
+  - [x] 5. Implement Typer CLI subcommands `devops ai quiesce`, `devops ai failover`, `devops ai resume`, and `devops ai constellation` in `src/devops_cli/commands/ai_controller.py` mounted onto `devops ai`.
+  - [x] 6. Expose FastMCP tools (`ai_quiesce`, `ai_failover`, `ai_resume`, `ai_constellation_status`) and live resource `resource://ai/constellation` in `src/devops_cli/ai/mcp/server.py`.
+  - [x] 7. Export 94 FastMCP tool schemas and synchronize documentation via `devops docs generate --sync-readme`.
+  - [x] 8. Author comprehensive TDD test suite `tests/test_ai_controller.py` (27/27 green, 100% controller coverage) and update `tests/test_fastmcp_contracts.py`.
+
+---
+
 ### In-Progress Tasks (WIP)
-- [ ] Preparing deliverable commit and pull request for Phase 49.5 (Issue #55)
+- [ ] Preparing deliverable commit and pull request for Phase 49.6 (Issue #56)
 
 ---
 
 ### Pending Tasks
-- [ ] Phase 49.6: Agent Constellation Quiesce & Emergency Failover Controller (`devops ai quiesce`, `devops ai failover`) (Issue #56)
 - [ ] Phase 49.7: Multi-Model LLM Benchmark Evaluation Harness (`devops ai benchmark --suite`) (Issue #57)
 - [ ] Phase 49.8: Parallel Async Multi-File Review Worker Pool & Streaming Diff Parser (Issue #58)
 - [ ] Phase 49.9: Logfire Structured AI Observability Bridge (`logfire`) (Issue #59)

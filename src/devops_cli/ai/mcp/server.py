@@ -1298,6 +1298,73 @@ def ai_chaos_model(
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
 
 
+@mcp.tool()
+def ai_quiesce(
+    reason: str = "Operator requested emergency quiesce",
+    dry_run: bool = False,
+) -> str:
+    """Centralized emergency quiesce cleanly suspending active agent loops and background tasks."""
+    _validate_mcp_arg("reason", reason)
+    cmd = ["uv", "run", "devops", "ai", "quiesce", "--reason", reason]
+    if dry_run:
+        cmd.append("--dry-run")
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def ai_failover(
+    target_provider: str = "ollama",
+    target_model: str = "qwen2.5-coder:7b",
+    dry_run: bool = False,
+) -> str:
+    """Emergency failover controller re-routing tasks to designated fallback endpoints."""
+    _validate_mcp_arg("target_provider", target_provider)
+    _validate_mcp_arg("target_model", target_model)
+    cmd = [
+        "uv",
+        "run",
+        "devops",
+        "ai",
+        "failover",
+        "--target-provider",
+        target_provider,
+        "--target-model",
+        target_model,
+    ]
+    if dry_run:
+        cmd.append("--dry-run")
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def ai_resume(
+    dry_run: bool = False,
+) -> str:
+    """Gracefully resume suspended constellation agent loops and task runners."""
+    cmd = ["uv", "run", "devops", "ai", "resume"]
+    if dry_run:
+        cmd.append("--dry-run")
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def ai_constellation_status() -> str:
+    """Display constellation fleet status, active fallback routes, and suspended tasks."""
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "ai", "constellation", "--format", "json"],
+        timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.resource("resource://ai/constellation")
+def get_ai_constellation_resource() -> str:
+    """Return live constellation quiesce and active fallback routing status."""
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "ai", "constellation", "--format", "json"],
+        timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+    )
+
+
 @mcp.resource("resource://vault/status")
 def get_vault_resource() -> str:
     """Return live HashiCorp Vault cluster health, sealing, and initialization status."""

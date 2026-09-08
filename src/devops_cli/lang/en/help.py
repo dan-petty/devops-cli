@@ -70,6 +70,8 @@ class OptionHelp:
     fallback_provider: str = "Fallback AI provider to route execution to upon fault."
     fallback_model: str = "Fallback AI model to route execution to upon fault."
     prompt: str = "Prompt text or workload payload to evaluate."
+    quiesce_reason: str = "Reason for constellation quiesce or emergency failover."
+    drain_timeout: str = "Drain timeout in seconds to wait for in-flight tasks to complete."
 
 
 @dataclass(frozen=True)
@@ -130,6 +132,16 @@ class AICommandHelp:
     target_file: str = "Target source file to synthesize unit tests for."
     harness: str = "Manage agent harness slots, sub-agent local offloading, and tiered synthesis."
     chaos_model: str = "Model dependency chaos engineering suite simulating provider faults and validating local failovers."
+    quiesce: str = (
+        "Centralized emergency quiesce cleanly suspending active agent loops and background tasks."
+    )
+    failover: str = (
+        "Emergency failover controller re-routing tasks to designated fallback endpoints."
+    )
+    resume: str = "Gracefully resume suspended constellation agent loops and task runners."
+    constellation: str = (
+        "Display constellation fleet status, active fallback routes, and suspended tasks."
+    )
 
 
 @dataclass(frozen=True)

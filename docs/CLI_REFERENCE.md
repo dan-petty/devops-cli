@@ -2456,6 +2456,69 @@ devops ai chaos-model [OPTIONS]
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
+### `devops ai quiesce`
+
+**Centralized emergency quiesce cleanly suspending active agent loops and background tasks.**
+
+```bash
+devops ai quiesce [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--reason`, `-r` | `string` | `Operator requested emergency quiesce` | Reason for constellation quiesce or emergency failover. |
+| `--drain-timeout` | `float` | `5.0` | Drain timeout in seconds to wait for in-flight tasks to complete. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+### `devops ai failover`
+
+**Emergency failover controller re-routing tasks to designated fallback endpoints.**
+
+```bash
+devops ai failover [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--target-provider` | `string` | `ollama` | Fallback AI provider to route execution to upon fault. |
+| `--target-model` | `string` | `qwen2.5-coder:7b` | Fallback AI model to route execution to upon fault. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+### `devops ai resume`
+
+**Gracefully resume suspended constellation agent loops and task runners.**
+
+```bash
+devops ai resume [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+### `devops ai constellation`
+
+**Display constellation fleet status, active fallback routes, and suspended tasks.**
+
+```bash
+devops ai constellation [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+
 ### `devops ai review`
 
 **AI-powered multi-persona code review system.**
