@@ -11,6 +11,7 @@ import typer
 
 from devops_cli.ai.personas import Persona
 from devops_cli.commands.ai_cache import app as cache_app
+from devops_cli.commands.ai_chaos import run_chaos_model_cmd
 from devops_cli.commands.ai_harness import app as harness_app
 from devops_cli.commands.analyze import app as analyze_app
 from devops_cli.commands.benchmark import app as benchmark_app
@@ -1391,3 +1392,10 @@ def test_gen_cmd(
 
     print_success(f"✓ Synthesized {res.test_count} unit test(s) for {res.target_file}:")
     write_stdout(f"```python\n{res.test_code}\n```\n")
+
+
+# =============================================================================
+# Command: devops ai chaos-model
+# =============================================================================
+
+app.command("chaos-model", help=HELP.ai.chaos_model)(run_chaos_model_cmd)

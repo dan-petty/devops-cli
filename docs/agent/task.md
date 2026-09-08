@@ -643,7 +643,7 @@
 
 ---
 
-- [x] Phase 49.4: Interactive Terminal UI Dashboard (`devops dashboard` / `devops tui`) (Issue #54)
+- [x] Phase 49.4: Interactive Terminal UI Dashboard (`devops dashboard` / `devops tui`) (Issue #54, PR #63 — Merged)
   - [x] 1. Add `textual` dependency and configure build targets (`textual==8.2.8` in `pyproject.toml`, `uv.lock`)
   - [x] 2. Implement subsystem data providers (`src/devops_cli/ui/data_providers.py`) for K8s, Docker, Telemetry, AI Review, Valkey
   - [x] 3. Design responsive `Textual` dashboard app (`src/devops_cli/ui/dashboard.py`) with 5 real-time tabs, DataTable widgets, status banners
@@ -655,13 +655,24 @@
 
 ---
 
+- [x] Phase 49.5: Model Dependency Chaos Engineering Suite (`devops ai chaos-model`) (Issue #55)
+  - [x] 1. Implement core chaos models (`ChaosMode`, `ChaosStatus`, `ChaosConfig`, `ChaosFaultResult`, `ModelChaosReport`) in `src/devops_cli/ai/chaos/models.py`.
+  - [x] 2. Implement fault injection and failover engine (`ModelChaosInjector`) in `src/devops_cli/ai/chaos/injector.py` supporting 4 failure modes (latency, 429 rate-limit, timeout, malformed-json) and cascade execution.
+  - [x] 3. Implement automated local open model fallback routing (Ollama Qwen2.5-Coder/Granite) ensuring CI quality validation passes without human coaching.
+  - [x] 4. Record failure and recovery metrics to OpenTelemetry spans (`ai.chaos.run`, `ai.chaos.inject`) and Prometheus counters (`devops_cli_ai_chaos_injections_total`, `devops_cli_ai_chaos_recoveries_total`).
+  - [x] 5. Expose CLI command `devops ai chaos-model` with options `--mode`, `--latency-ms`, `--error-rate`, `--fallback-model`, `--format table|json`, and `--dry-run` in `src/devops_cli/commands/ai_chaos.py` and `commands/ai.py`.
+  - [x] 6. Expose FastMCP tool `ai_chaos_model` in `src/devops_cli/ai/mcp/server.py` and export schemas.
+  - [x] 7. Author comprehensive TDD test suite in `tests/test_ai_chaos_model.py` and update `tests/test_fastmcp_contracts.py` (100% green).
+  - [x] 8. Maintain strict architectural invariants (complexity <= 10, nesting <= 5, 0 bare exceptions, full CI 10/10 gates green).
+
+---
+
 ### In-Progress Tasks (WIP)
-- [ ] Preparing deliverable commit and pull request for Phase 49.4 (Issue #54)
+- [ ] Preparing deliverable commit and pull request for Phase 49.5 (Issue #55)
 
 ---
 
 ### Pending Tasks
-- [ ] Phase 49.5: Model Dependency Chaos Engineering Suite (`devops ai chaos-model`) (Issue #55)
 - [ ] Phase 49.6: Agent Constellation Quiesce & Emergency Failover Controller (`devops ai quiesce`, `devops ai failover`) (Issue #56)
 - [ ] Phase 49.7: Multi-Model LLM Benchmark Evaluation Harness (`devops ai benchmark --suite`) (Issue #57)
 - [ ] Phase 49.8: Parallel Async Multi-File Review Worker Pool & Streaming Diff Parser (Issue #58)

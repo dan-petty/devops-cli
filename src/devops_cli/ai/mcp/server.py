@@ -1273,6 +1273,31 @@ def ai_subagent_offload(
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
+@mcp.tool()
+def ai_chaos_model(
+    mode: str = "all",
+    fallback_model: str = "qwen2.5-coder:7b",
+    dry_run: bool = False,
+) -> str:
+    """Execute model dependency chaos fault injection and verify automated fallback recovery."""
+    _validate_mcp_arg("mode", mode)
+    _validate_mcp_arg("fallback_model", fallback_model)
+    cmd = [
+        "uv",
+        "run",
+        "devops",
+        "ai",
+        "chaos-model",
+        "--mode",
+        mode,
+        "--fallback-model",
+        fallback_model,
+    ]
+    if dry_run:
+        cmd.append("--dry-run")
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
+
+
 @mcp.resource("resource://vault/status")
 def get_vault_resource() -> str:
     """Return live HashiCorp Vault cluster health, sealing, and initialization status."""

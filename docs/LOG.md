@@ -2,6 +2,26 @@
 
 Chronological log of refactoring milestones, quality gates, and security enhancements.
 
+### [2026-09-08] Phase 49.5: Model Dependency Chaos Engineering Suite (`devops ai chaos-model`) (Issue #55)
+- **Model Dependency Chaos Engineering Architecture (`devops_cli.ai.chaos`)**:
+  - Implemented declarative models (`ChaosMode`, `ChaosStatus`, `ChaosConfig`, `ChaosFaultResult`, `ModelChaosReport`) in `src/devops_cli/ai/chaos/models.py`.
+  - Implemented `ModelChaosInjector` in `src/devops_cli/ai/chaos/injector.py` simulating 4 real-world failure modes:
+    1. Synthetic network latency injection and response measurement.
+    2. HTTP 429 Too Many Requests rate-limiting emulation.
+    3. Connection timeouts and socket errors (`ConnectTimeout`).
+    4. Mid-stream truncation and malformed JSON payloads (`JSONDecodeError`).
+    5. Comprehensive sequential `all` cascade execution.
+  - Automated local open model fallback routing to local Ollama models (Qwen2.5-Coder:7b, Granite3.1-Dense:8b) ensuring CI quality validation passes without human coaching.
+  - Telemetry and metrics: Recorded failure and recovery events to OpenTelemetry spans (`ai.chaos.run`, `ai.chaos.inject`) and Prometheus counters (`devops_cli_ai_chaos_injections_total`, `devops_cli_ai_chaos_recoveries_total`).
+- **CLI & FastMCP Integration**:
+  - Exposed `devops ai chaos-model` CLI command group in `src/devops_cli/commands/ai_chaos.py` mounted onto `devops ai` with rich table formatting and JSON serialization.
+  - Added FastMCP tool `ai_chaos_model` in `src/devops_cli/ai/mcp/server.py` with argument validation against flag injection.
+  - Synchronized FastMCP tool schemas and CLI documentation (`devops mcp export-schemas`, `devops docs generate --sync-readme`).
+- **Quality Gates & Invariant Compliance**:
+  - Authored comprehensive TDD test suite `tests/test_ai_chaos_model.py` and updated `tests/test_fastmcp_contracts.py` (100% green).
+  - Maintained cyclomatic complexity <= 10 and nesting depth <= 5 across all new modules.
+  - Validated full 10-gate CI suite (`uv run devops ci` — 10/10 green, coverage >= 90.0%).
+
 ### [2026-09-07] Release v0.2.12: Valkey Workstation Management, Distributed Caching Tier & Release Preparation
 - **Valkey Workstation Management & High-Performance Distributed Caching Tier**:
   - Authored pure-Python synchronous RESP2/RESP3 wire protocol encoder and parser (`src/devops_cli/valkey/protocol.py`) without native C dependencies.
