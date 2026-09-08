@@ -684,7 +684,7 @@
   - [x] System-level pre-commit installation in devcontainer Dockerfile.
   - [x] Externalized FastMCP prompt templates and localized fallback strings into lang.en.
 
-- [x] Phase 49.7: Multi-Model LLM Benchmark Evaluation Harness (`devops ai benchmark --suite`) (Issue #57)
+- [x] Phase 49.7: Multi-Model LLM Benchmark Evaluation Harness (`devops ai benchmark --suite`) (Issue #57, PR #68 — Merged)
   - [x] 1. Define suite domain models (`BenchmarkSuiteCase`, `BenchmarkSuiteEvaluation`, `ModelSuiteMetrics`, `BenchmarkSuiteReport`) in `src/devops_cli/models/benchmark.py`.
   - [x] 2. Implement evaluation dataset loader and AST architectural compliance analyzer in `src/devops_cli/ai/benchmark/suite.py`.
   - [x] 3. Implement quantitative metrics calculation (precision, recall, F1, hallucination rate, throughput) in `src/devops_cli/ai/benchmark/suite.py`.
@@ -694,9 +694,6 @@
   - [x] 7. Expose FastMCP tool `benchmark_suite` in `src/devops_cli/ai/mcp/server.py` and export schemas.
   - [x] 8. Author comprehensive TDD test suite in `tests/test_ai_benchmark.py` and verify `tests/test_fastmcp_contracts.py`.
   - [x] 9. Maintain strict architectural invariants (complexity <= 10, nesting <= 5) and pass 10/10 CI gates.
-
-- [x] Phase 49.7: Multi-Model LLM Benchmark Evaluation Harness (`devops ai benchmark --suite`) (Issue #57, PR #68 — Merged)
-  - [x] Benchmark suite evaluation engine, metrics, CLI, FastMCP tool `ai_benchmark_suite`, and tests.
 
 - [x] Phase 49.7.1: GitHub Pages Site Remediation, Modernization & Documentation Synchronization (PR #69 — Merged)
   - [x] Corrected `generator.py` for Kramdown blank line separation before/after command matrix table.
