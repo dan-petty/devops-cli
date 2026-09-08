@@ -99,6 +99,12 @@ Before planning, implementing, debugging, refactoring, or reviewing code, consul
   - **GitHub Release Titles**: Strictly the version tag / number from `pyproject.toml` (e.g. `v0.2.12`) without conventional commit prefixes.
   - **Human-in-the-Loop Merging**: AI agents prepare clean commits, open/update PRs, monitor remote CI checks (`gh pr checks`), and leave merge approval to maintainers. Never merge autonomously.
   - **Active CI Monitoring & Remediation**: Actively monitor remote GitHub Actions status. If any check fails, inspect logs, diagnose root causes, push corrective commits, and verify green status.
+  - **Automated & Peer Code Review Remediation Mandate**:
+    - AI agents MUST actively inspect, evaluate, and remediate all code review feedback (from GitHub Copilot, linters, or human reviewers) on open pull requests.
+    - Remediate feedback using Test-First Development (author/update tests, implement clean fixes, ensure zero zombie code).
+    - AI agents MUST reply directly to each review comment or thread explaining the precise technical resolution.
+    - AI agents MUST resolve the review conversations on GitHub (via GitHub API / GraphQL `resolveReviewThread`) once the remediation is committed and verified.
+    - Always re-verify local quality gates (`devops ci`) and monitor remote GitHub Actions status (`gh pr checks`) until 100% green.
 - **GitHub Projects, Issues, Views, Milestones & Label Governance (Project Management Integration)**:
   - **Active Milestone GitHub Resource & Issue Population Mandate**:
     - When cutting a new release branch or transitioning to a new active milestone, AI agents **MUST PROACTIVELY POPULATE GITHUB RESOURCES** (milestones, issues, project items, labels) for that active milestone.

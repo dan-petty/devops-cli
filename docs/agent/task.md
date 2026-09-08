@@ -695,22 +695,24 @@
   - [x] 8. Author comprehensive TDD test suite in `tests/test_ai_benchmark.py` and verify `tests/test_fastmcp_contracts.py`.
   - [x] 9. Maintain strict architectural invariants (complexity <= 10, nesting <= 5) and pass 10/10 CI gates.
 
-- [x] Phase 49.7: Multi-Model LLM Benchmark Evaluation Harness (`devops ai benchmark --suite`) (Issue #57, PR #68)
+- [x] Phase 49.7: Multi-Model LLM Benchmark Evaluation Harness (`devops ai benchmark --suite`) (Issue #57, PR #68 — Merged)
   - [x] Benchmark suite evaluation engine, metrics, CLI, FastMCP tool `ai_benchmark_suite`, and tests.
+
+- [x] Phase 49.7.1: GitHub Pages Site Remediation, Modernization & Documentation Synchronization (PR #69 — Merged)
+  - [x] Corrected `generator.py` for Kramdown blank line separation before/after command matrix table.
+  - [x] Fixed `README.md` badge links and clone URLs with canonical `dan-petty` targets.
+  - [x] Configured `_config.yml`, `_layouts/default.html`, and `assets/css/style.css` for responsive documentation theme.
+  - [x] Rebased PR #69 onto fresh `release/v0.2.13`, passed all 4/4 remote CI quality gates, and merged.
+
+- [x] Phase 49.7.2: Code Review Feedback Lifecycle Mandate & Jekyll Documentation Layout Hardening
+  - [x] 1. Addressed Copilot review feedback: dynamic `site.version`, table parent element guard, `Object.keys` iterator, and clipboard API feature detection/catch.
+  - [x] 2. Replied to all Copilot discussion threads and resolved conversations via GitHub GraphQL API.
+  - [x] 3. Updated agent instructions in `AGENTS.md` and `docs/ROUTINE_TASKS.md` codifying automated & peer review remediation lifecycle.
 
 ---
 
 ### In-Progress Tasks (WIP)
-- [ ] Phase 49.7.1: GitHub Pages Site Remediation, Modernization & Documentation Synchronization (PR #69)
-  - [x] 1. Corrected `generator.py` to ensure `COMMAND_MATRIX_START` and `COMMAND_MATRIX_END` have blank line (`\n\n`) separation to fix Kramdown markdown table rendering.
-  - [x] 2. Fixed `README.md` badge links and clone URL: replaced `your-org` with `dan-petty` and eliminated 404 targets.
-  - [x] 3. Added `_config.yml` with GFM configuration, Rouge syntax highlighting, and SEO tags.
-  - [x] 4. Created modern responsive `_layouts/default.html` with glassmorphism navigation, dark/light theme toggle, GitHub callout processor, responsive table container, and copy buttons.
-  - [x] 5. Created `assets/css/style.css` with dark/light themes, Inter/JetBrains Mono typography, alert styling, and responsive tables.
-  - [x] 6. Added test assertions in `tests/test_docs.py` verifying markdown table separation and synchronized docs.
-  - [x] 7. Full CI quality gate execution (`devops ci` — 10/10 gates green).
-  - [x] 8. Commit and open PR targeting active release branch (PR #69).
-  - [x] 9. Rebase PR #69 onto fresh `release/v0.2.13` and verify all CI checks.
+- [ ] Preparing deliverable PR for Phase 49.7.2 (Agent Instructions Review Remediation & Jekyll Layout Hardening)
 
 ---
 
