@@ -375,6 +375,7 @@ class TestDevcontainerCli:
             and c[5:] == ["user.signingkey", str(key_target)]
             for c in calls
         )
+        assert not any("user.signingkey" in c and "--global" in c for c in calls)
 
     def test_post_start_does_not_adopt_foreign_prefixed_key(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -437,6 +438,32 @@ class TestDevcontainerCli:
         assert result.exit_code == 0
         assert "Installed standalone pre-commit tool" in result.output
         assert any(c == ["uv", "tool", "install", "pre-commit"] for c in calls)
+
+    def test_post_create_warns_on_pre_commit_install_failure(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Verify post-create appends warning when uv tool install pre-commit returns non-zero."""
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        monkeypatch.setenv("HOME", str(fake_home))
+
+        monkeypatch.setattr(
+            "shutil.which", lambda prog: "/usr/local/bin/uv" if prog == "uv" else None
+        )
+
+        def mock_run_subprocess(cmd: list[str], **kwargs: object) -> object:
+            import subprocess
+
+            rc = 1 if "pre-commit" in cmd else 0
+            return subprocess.CompletedProcess(
+                cmd, returncode=rc, stdout="", stderr="network error"
+            )
+
+        monkeypatch.setattr("devops_cli.commands.devcontainer.run_subprocess", mock_run_subprocess)
+
+        result = runner.invoke(app, ["post-create", "--workspace", str(tmp_path)])
+        assert result.exit_code == 0
+        assert "Warning: Failed to install standalone pre-commit tool" in result.output
 
     def test_run_lifecycle_command_executes_hooks(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

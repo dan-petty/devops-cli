@@ -14,9 +14,6 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from devops_cli.config import options as opt
 from devops_cli.config.constants import (
-    CONST_CONFIG_DIR as CONFIG_DIR,  # noqa: F401
-)
-from devops_cli.config.constants import (
     CONST_CONFIG_PATH as CONFIG_PATH,
 )
 from devops_cli.config.constants import (
