@@ -488,9 +488,9 @@ def _test_single_ollama_endpoint(
     from devops_cli.config.settings import get_ai_api_key
 
     sub_cfg = settings.ai.model_copy(update={"ollama_urls": [u]})
-    sub_client = LLMClient(sub_cfg, api_key=get_ai_api_key(settings))
+    sub_client = LLMClient(sub_cfg, api_key=get_ai_api_key(settings), cache_enabled=False)
     try:
-        resp = sub_client.chat(system=test_sys_prompt, user=prompt)
+        resp = sub_client.chat(system=test_sys_prompt, user=prompt, use_cache=False)
         wall_sec = (
             format_duration(resp.wall_seconds)
             if getattr(resp, "wall_seconds", None) is not None
@@ -580,14 +580,18 @@ def test(
             _run_ollama_server_tests(urls, test_sys_prompt, prompt, settings)
             return
 
-    client = LLMClient(settings.ai, api_key=get_ai_api_key(settings))
+    cfg = settings.ai
+    if url and settings.ai.provider == "ollama":
+        cfg = settings.ai.model_copy(update={"ollama_urls": [url]})
+
+    client = LLMClient(cfg, api_key=get_ai_api_key(settings), cache_enabled=False)
     print_info(
         f"Testing provider: [cyan]{client.backend_info}[/cyan] | "
         f"model: [cyan]{settings.ai.model}[/cyan]...",
         prefix=False,
     )
     try:
-        resp = client.chat(system=test_sys_prompt, user=prompt)
+        resp = client.chat(system=test_sys_prompt, user=prompt, use_cache=False)
         handled = getattr(resp, "backend_info", None) or client.backend_info
         wall_sec = (
             f" in {format_duration(resp.wall_seconds)}"
