@@ -12,7 +12,7 @@
 
 ---
 
-## 🏛️ SRE Engineering Tenets & Architectural Highlights
+## SRE Engineering Tenets & Architectural Highlights
 
 - 🔒 **Zero-Plaintext Secret Architecture**: Sensitive tokens (`github.token`, `grafana.token`, `argocd.token`, `ai.api_key`) are stored exclusively in the OS Keyring via Python `keyring`. Configuration files contain zero plaintext credentials.
 - 🛡️ **Active SSRF & Egress Guardrails**: Outbound API requests pass through strict IP validation (`validate_service_url`) blocking private subnets (RFC 1918), loopbacks, and cloud metadata endpoints by default.
@@ -23,7 +23,7 @@
 
 ---
 
-## 📚 Architectural & Governance Documentation
+## Architectural & Governance Documentation
 
 - 📐 [**System Architecture & Technical Design (`ARCHITECTURE.md`)**](ARCHITECTURE.md) — Subsystem topologies, multi-agent sequence diagrams, and lifecycle hooks.
 - 🔄 [**Release Cycle & Versioning Guide (`RELEASE_CYCLE.md`)**](RELEASE_CYCLE.md) — Semantic versioning, validation checks, and release procedures.
@@ -37,7 +37,7 @@
 
 ---
 
-## 🚀 Quick Start & Dev Container Setup
+## Quick Start & Dev Container Setup
 
 ```bash
 # 1. Clone repository and open inside Dev Container
@@ -57,7 +57,7 @@ devops ai test
 devops ci run
 ```
 
-### 📦 Reusable Dev Container Package (GHCR)
+### Reusable Dev Container Package (GHCR)
 
 Every release automatically builds and publishes a pre-packaged Dev Container image to the GitHub Container Registry (GHCR):
 
@@ -103,7 +103,7 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 
 ---
 
-## 📋 Complete Command Matrix
+## Complete Command Matrix
 
 
 <!-- COMMAND_MATRIX_START -->
