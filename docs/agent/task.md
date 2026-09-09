@@ -912,6 +912,15 @@
   - [x] 4. Enforced architectural invariants: cyclomatic complexity <= 10 and nesting depth <= 2 via extracted helper functions `_audit_file_calls` and `_audit_call_node`.
   - [x] 5. Unit tests in `tests/test_library_drift_auditor.py` (5/5 passed).
 
+- [x] Phase 50.8: AI Context Packing & Symbol-Pruned Prompt Synthesizer (P2 - Medium, Issue #85)
+  - [x] 1. Implemented `ContextPacker` and `PackedContext` in `src/devops_cli/ai/context_packer.py` ranking imported symbols, stripping unreferenced private methods/docstrings, and skeletonizing bodies with ellipsis (`...`).
+  - [x] 2. Supported zero-crash fallback for unparseable or non-Python code with bounded token truncation.
+  - [x] 3. Exposed CLI command `devops ai pack-context <path> [--referenced <syms>] [--max-tokens <int>] [--json]`.
+  - [x] 4. Registered FastMCP tool `ai_pack_context` in `src/devops_cli/ai/mcp/server.py` and exported 116 schemas.
+  - [x] 5. Integrated `ContextPacker` into `_collect_linked_snippets` in `src/devops_cli/ai/review/pipeline.py` for token-efficient prompt synthesis.
+  - [x] 6. Enforced architectural invariants: cyclomatic complexity <= 10 and maximum nesting depth <= 2 across all packer helper functions.
+  - [x] 7. Authored unit and contract tests in `tests/test_context_packer.py` (10/10 passed) and `tests/test_fastmcp_contracts.py` (9/9 passed).
+
 ---
 
 ### In-Progress Tasks (WIP)
@@ -920,6 +929,5 @@
 ---
 
 ### Pending Tasks
-- [ ] Phase 50.8: AI Context Packing & Symbol-Pruned Prompt Synthesizer (P2 - Medium, Issue #81)
-- [ ] Phase 50.9: Autonomous RAG Index Drift Detection & Auto-Reindexing (P2 - Medium)
+- [ ] Phase 50.9: Autonomous RAG Index Drift Detection & Auto-Reindexing (P2 - Medium, Issue #81)
 - [ ] Phase 50.10: Full CI Quality Gate & Release v0.2.14 Finalization

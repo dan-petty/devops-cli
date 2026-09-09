@@ -273,6 +273,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops ai spec [OPTIONS] <spec_path>` | Verify codebase against executable markdown architecture specification contracts. |
 |  | `devops ai repomap [OPTIONS]` | Generate compact whole-repository AST symbol and relationship map. |
 |  | `devops ai audit-library-usage [OPTIONS]` | Audit workspace code for library API drift and deprecated calls. |
+|  | `devops ai pack-context [OPTIONS] <target_path>` | Pack and prune source code context to fit token budget while preserving signatures. |
 |  | `devops ai diagram [OPTIONS] <diagram_type>` | Generate visual Mermaid architecture topology or STRIDE threat modeling diagrams. |
 |  | `devops ai prompt-eval [OPTIONS]` | Benchmark persona prompt variations against verified review feedback datasets. |
 |  | `devops ai test-gen [OPTIONS] <target_file>` | Synthesize isolated pytest unit test suites for functions or source files. |

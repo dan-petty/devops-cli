@@ -169,6 +169,18 @@ class AICommandHelp:
     graph_format: str = "Output format for synthesized code graph: 'json' or 'dot'."
     audit_library_usage: str = "Audit workspace code for library API drift and deprecated calls."
     fail_on_breaking: str = "Exit with code 1 if any breaking API drift issues are detected."
+    pack_context: str = (
+        "Pack and prune source code context to fit token budget while preserving signatures."
+    )
+    referenced_symbols: str = (
+        "Comma-separated list of symbols referenced by caller to prioritize during pruning."
+    )
+    strip_private: str = "Strip unreferenced private functions, methods, and attributes."
+    skeletonize: str = (
+        "Replace function and method bodies with ellipsis (...) while preserving signatures."
+    )
+    pack_target_file: str = "Path to source code file to pack and prune."
+    max_tokens: str = "Maximum token budget for packed context output."
 
 
 @dataclass(frozen=True)

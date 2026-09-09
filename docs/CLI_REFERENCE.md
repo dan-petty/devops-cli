@@ -2394,6 +2394,31 @@ devops ai audit-library-usage [OPTIONS]
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
+### `devops ai pack-context`
+
+**Pack and prune source code context to fit token budget while preserving signatures.**
+
+```bash
+devops ai pack-context [OPTIONS] <target_path>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<target_path>` | `path` | Yes | Path to source code file to pack and prune. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--referenced`, `-r` | `string` | - | Comma-separated list of symbols referenced by caller to prioritize during pruning. |
+| `--max-tokens` | `integer` | `<masked>` | Maximum token budget for packed context output. |
+| `--strip-private`, `--no-strip-private` | `boolean` | `True` | Strip unreferenced private functions, methods, and attributes. |
+| `--skeletonize`, `--no-skeletonize` | `boolean` | `True` | Replace function and method bodies with ellipsis (...) while preserving signatures. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
 ### `devops ai diagram`
 
 **Generate visual Mermaid architecture topology or STRIDE threat modeling diagrams.**

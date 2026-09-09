@@ -239,10 +239,10 @@ High-density product roadmap, engineering milestones, and open-source integratio
   - *Context & Rationale*: Proactively flags breaking changes prior to dependency upgrades by comparing workspace AST call sites against indexed library contracts.
   - *CLI & Output*: `devops ai audit-library-usage [--package <pkg>] [--fail-on-breaking]` emitting Rich tables and `.data/analysis/api_drift_report.json`.
   - *Acceptance Criteria*: 100% recall of deprecated parameter names and removed methods in test fixtures; cyclomatic complexity $\le 10$.
-- [ ] **AI Context Packing & Symbol-Pruned Prompt Synthesizer (P2 - Medium, Issue #81)**:
+- [x] **AI Context Packing & Symbol-Pruned Prompt Synthesizer (P2 - Medium, Issue #85)**:
   - *Context & Rationale*: Maximizes prompt token efficiency by ranking imported symbols by usage density, stripping unreferenced private methods/docstrings, and compressing type annotations.
   - *Architecture*: Integrated into `devops_cli.ai.context_packer`; cuts context token overhead by 40-60% while preserving strict type fidelity.
-- [ ] **Autonomous RAG Index Drift Detection & Auto-Reindexing (P2 - Medium)**:
+- [ ] **Autonomous RAG Index Drift Detection & Auto-Reindexing (P2 - Medium, Issue #81)**:
   - *Context & Rationale*: Maintains vector index freshness across git branch transitions. A lightweight watcher compares vector commit metadata against `HEAD` and automatically re-indexes modified files.
   - *CLI*: `devops ai index status` and `devops ai index reindex [--changed-only]`.
 
@@ -455,7 +455,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
 | | Import-Driven AST Prompt Grounding & Contract Injection | AST / PydanticAI | High | Medium | v0.2.14 | ✅ Completed |
 | | Tree-Sitter Multilingual AST Graph & Code Intelligence Engine | `tree-sitter` / Multi-Language | High | Medium | v0.2.14 | ✅ Completed |
 | | Library API Drift & Deprecation Auditor | AST / McCabe | High | Medium | v0.2.14 | ✅ Completed |
-| | AI Context Packing & Symbol-Pruned Prompt Synthesizer | `devops_cli.ai.context_packer` | High | Medium | v0.2.14 | 📋 Scheduled (P2) |
+| | AI Context Packing & Symbol-Pruned Prompt Synthesizer | `devops_cli.ai.context_packer` | High | Medium | v0.2.14 | ✅ Completed |
 | | Complete Security Scanner Migration to `BaseSecurityScanner` & `ScannerRegistry` | Python ABC / Subprocess | High | Medium | v0.2.15 | 📋 Scheduled (P0) |
 | | Centralized K8s Logging Stack & LogQL CLI (`devops k8s logs`) | Grafana Loki / Fluent Bit / LogQL | High | Medium | v0.2.15 | 📋 Scheduled (P0) |
 | | Infracost FinOps Cloud Cost Engine (`devops tf cost`) | `infracost` CLI | High | Medium | v0.2.15 | 📋 Scheduled (P1) |

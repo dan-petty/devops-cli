@@ -106,6 +106,7 @@ def test_fastmcp_tools_registration() -> None:
         "ai_inspect_symbol",
         "ai_ast_parse",
         "ai_ast_graph",
+        "ai_pack_context",
         # HashiCorp Vault
         "vault_status",
         "vault_get",
@@ -374,5 +375,42 @@ def test_fastmcp_ast_tools() -> None:
         assert res == '{"status": "ok"}'
         mock_cmd.assert_called_with(
             ["uv", "run", "devops", "ai", "ast", "graph", "--dir", "src", "--max-files", "20"],
+            timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
+        )
+
+
+def test_fastmcp_context_packing_tool() -> None:
+    """Verify ai_pack_context FastMCP execution contract."""
+    from unittest.mock import patch
+
+    from devops_cli.ai.mcp.server import ai_pack_context
+    from devops_cli.config.defaults import DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS
+
+    with patch("devops_cli.ai.mcp.server._run_mcp_cmd") as mock_cmd:
+        mock_cmd.return_value = '{"content": "..."}'
+
+        res = ai_pack_context(
+            file_path="src/main.py",
+            referenced="main,app",
+            max_tokens=500,
+            strip_private=True,
+            skeletonize=False,
+        )
+        assert res == '{"content": "..."}'
+        mock_cmd.assert_called_with(
+            [
+                "uv",
+                "run",
+                "devops",
+                "ai",
+                "pack-context",
+                "src/main.py",
+                "--max-tokens",
+                "500",
+                "--json",
+                "--referenced",
+                "main,app",
+                "--no-skeletonize",
+            ],
             timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
         )

@@ -527,6 +527,10 @@ def __getattr__(name: str) -> Any:
         import devops_cli.ai.ext_langchain
 
         return getattr(devops_cli.ai.ext_langchain, name)
+    if name in {"ContextPacker", "PackedContext", "PackingConfig"}:
+        import devops_cli.ai.context_packer
+
+        return getattr(devops_cli.ai.context_packer, name)
     if name in {
         "Advisor",
         "AgentContextInventory",
@@ -647,9 +651,12 @@ __all__ = [
     "ConcurrencyLimiter",
     "CONST_CLAUDE_MD_FILENAME",
     "CONST_COPILOT_INSTRUCTIONS_PATH",
+    "ContextPacker",
     "ContextUsage",
     "ConversationSearch",
     "ConversationSearchMatch",
+    "PackedContext",
+    "PackingConfig",
     "HarnessDeprecationWarning",
     "HistorySource",
     "DEFAULT_AGENT_FILES",

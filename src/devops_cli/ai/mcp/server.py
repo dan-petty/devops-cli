@@ -688,6 +688,37 @@ def ai_ast_graph(target_dir: str = ".", max_files: int = 50) -> str:
 
 
 @mcp.tool()
+def ai_pack_context(
+    file_path: str,
+    referenced: str = "",
+    max_tokens: int = 1500,
+    strip_private: bool = True,
+    skeletonize: bool = True,
+) -> str:
+    """Pack and prune source code context to fit token budget while preserving signatures and types."""
+    _validate_mcp_arg("file_path", file_path)
+    cmd = [
+        "uv",
+        "run",
+        "devops",
+        "ai",
+        "pack-context",
+        file_path,
+        "--max-tokens",
+        str(max_tokens),
+        "--json",
+    ]
+    if referenced:
+        _validate_mcp_arg("referenced", referenced)
+        cmd.extend(["--referenced", referenced])
+    if not strip_private:
+        cmd.append("--no-strip-private")
+    if not skeletonize:
+        cmd.append("--no-skeletonize")
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
 def ai_diagram(diagram_type: str = "arch", target_dir: str = ".") -> str:
     """Generate visual Mermaid architecture or threat modeling diagram."""
     _validate_mcp_arg("diagram_type", diagram_type)

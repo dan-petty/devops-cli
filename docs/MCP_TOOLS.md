@@ -16,6 +16,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`ai_harness_status`](#ai-harness-status) | Inspect AI agent harness slot configuration, active models, skills, and sandbox state. |
 | [`ai_ingest_library`](#ai-ingest-library) | Introspect an installed Python package and extract its public API contract into .data/libraries/. |
 | [`ai_inspect_symbol`](#ai-inspect-symbol) | Inspect exact symbol signature, parameter types, return type, and docstrings from library contracts. |
+| [`ai_pack_context`](#ai-pack-context) | Pack and prune source code context to fit token budget while preserving signatures and types. |
 | [`ai_query_library`](#ai-query-library) | Search library contracts and documentation via semantic search or exact symbol lookup. |
 | [`ai_quiesce`](#ai-quiesce) | Centralized emergency quiesce cleanly suspending active agent loops and background tasks. |
 | [`ai_repomap`](#ai-repomap) | Generate a compact whole-repository AST symbol map for AI context. |
@@ -225,6 +226,20 @@ Inspect exact symbol signature, parameter types, return type, and docstrings fro
 |---|---|---|---|---|
 | `symbol` | `string` | Yes | - | - |
 | `package` | `string` | No | `` | - |
+
+### `ai_pack_context`
+
+Pack and prune source code context to fit token budget while preserving signatures and types.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `file_path` | `string` | Yes | - | - |
+| `referenced` | `string` | No | `` | - |
+| `max_tokens` | `integer` | No | `1500` | - |
+| `strip_private` | `boolean` | No | `True` | - |
+| `skeletonize` | `boolean` | No | `True` | - |
 
 ### `ai_query_library`
 

@@ -382,16 +382,20 @@ def _collect_linked_snippets(
     linked_files: Sequence[FileAnalysisMeta],
     resolve_fn: Callable[[str], Path],
 ) -> list[str]:
-    """Extract code context snippets from linked repository files."""
+    """Extract code context snippets from linked repository files with context packing and skeletonization."""
+    from devops_cli.ai.context_packer import ContextPacker, PackingConfig
+
+    packer = ContextPacker(default_config=PackingConfig(max_tokens=400, skeletonize=True))
     snippets: list[str] = []
     for lmeta in linked_files:
         lpath = resolve_fn(lmeta.path)
         if lpath.exists() and lpath.is_file():
             try:
-                snippet = lpath.read_text(encoding="utf-8", errors="replace")[:2000]
-                snippets.append(f"Linked File ({lmeta.path}):\n{snippet}")
+                raw_code = lpath.read_text(encoding="utf-8", errors="replace")
+                packed = packer.pack_code(raw_code)
+                snippets.append(f"Linked File ({lmeta.path}):\n{packed.content}")
             except Exception as exc:
-                logger.debug("Failed reading linked file %s: %s", lmeta.path, exc)
+                logger.debug("Failed reading/packing linked file %s: %s", lmeta.path, exc)
     return snippets
 
 
