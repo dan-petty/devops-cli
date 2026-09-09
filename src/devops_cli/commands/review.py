@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any
 
 if TYPE_CHECKING:
-    pass
+    from devops_cli.config.settings import Settings
 
 import typer
 
@@ -251,6 +251,23 @@ def review_main(
         raise typer.Exit(0)
 
 
+def _init_logfire_if_enabled(logfire: bool | None, settings: Settings) -> None:
+    """Initialize Logfire observability if explicitly flagged or configured."""
+    is_enabled = logfire if logfire is not None else getattr(settings.telemetry, "logfire", False)
+    if not is_enabled:
+        return
+
+    from devops_cli.telemetry.logfire import get_logfire_bridge
+
+    if logfire is True:
+        get_logfire_bridge().configure(settings=settings)
+    else:
+        import contextlib
+
+        with contextlib.suppress(Exception):
+            get_logfire_bridge().configure(settings=settings)
+
+
 # =============================================================================
 # Command: devops review path
 # =============================================================================
@@ -362,6 +379,10 @@ def path(
         bool,
         typer.Option("--parallel/--no-parallel", help=HELP.review.parallel),
     ] = True,
+    logfire: Annotated[
+        bool | None,
+        typer.Option("--logfire/--no-logfire", help=HELP.review.logfire),
+    ] = None,
 ) -> None:
     """Review source files directly (no git required)."""
     if explain:
@@ -370,6 +391,8 @@ def path(
         render_explanation("review")
         return
     set_dry_run(dry_run)
+    settings = load_settings()
+    _init_logfire_if_enabled(logfire, settings)
     stage_flags = resolve_stage_flags(
         no_pre_analysis=no_pre_analysis,
         pre_analysis_only=pre_analysis_only,
@@ -569,6 +592,10 @@ def branch(
         bool,
         typer.Option("--parallel/--no-parallel", help=HELP.review.parallel),
     ] = True,
+    logfire: Annotated[
+        bool | None,
+        typer.Option("--logfire/--no-logfire", help=HELP.review.logfire),
+    ] = None,
 ) -> None:
     """Review a git branch diff with one or all AI personas."""
     if explain:
@@ -577,6 +604,8 @@ def branch(
         render_explanation("review")
         return
     set_dry_run(dry_run)
+    settings = load_settings()
+    _init_logfire_if_enabled(logfire, settings)
     stage_flags = resolve_stage_flags(
         no_pre_analysis=no_pre_analysis,
         pre_analysis_only=pre_analysis_only,
@@ -720,6 +749,10 @@ def pr(
         bool,
         typer.Option("--parallel/--no-parallel", help=HELP.review.parallel),
     ] = True,
+    logfire: Annotated[
+        bool | None,
+        typer.Option("--logfire/--no-logfire", help=HELP.review.logfire),
+    ] = None,
 ) -> None:
     """Review a GitHub pull request with one or all AI personas."""
     if explain:
@@ -730,6 +763,8 @@ def pr(
     from devops_cli.config.settings import get_github_token
 
     set_dry_run(dry_run)
+    settings = load_settings()
+    _init_logfire_if_enabled(logfire, settings)
     stage_flags = resolve_stage_flags(
         no_pre_analysis=no_pre_analysis,
         pre_analysis_only=pre_analysis_only,

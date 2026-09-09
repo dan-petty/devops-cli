@@ -16,7 +16,7 @@ dependencies = [
     "PyGithub==2.10.0",
     "gitpython==3.1.60",
     "cryptography==50.0.1",
-    "httpx2==2.9.0",
+    "httpx2==2.12.0",
     "keyring==25.7.0",
     "PyYAML==6.0.3",
     "jinja2==3.1.6",

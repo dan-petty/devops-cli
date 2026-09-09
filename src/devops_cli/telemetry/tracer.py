@@ -182,6 +182,23 @@ def _from_otlp_any_value(val: dict[str, Any]) -> Any:
     return str(val)
 
 
+def _extract_span_attributes(raw_attrs: Any) -> dict[str, Any]:
+    """Extract attributes dictionary from dict or OTLP key-value list."""
+    if isinstance(raw_attrs, dict):
+        return dict(raw_attrs)
+    if not isinstance(raw_attrs, list):
+        return {}
+    attrs: dict[str, Any] = {}
+    for attr in raw_attrs:
+        if not isinstance(attr, dict):
+            continue
+        k = attr.get("key")
+        v = attr.get("value")
+        if k and v:
+            attrs[k] = _from_otlp_any_value(v)
+    return attrs
+
+
 def build_span_waterfall_tree(spans: list[dict[str, Any]]) -> list[SpanWaterfallNode]:
     """Convert raw span dicts into a structured hierarchy with relative waterfall offsets and percentage durations."""
     if not spans:
@@ -199,13 +216,7 @@ def build_span_waterfall_tree(spans: list[dict[str, Any]]) -> list[SpanWaterfall
         status_info = s.get("status", {})
         status_code = status_info.get("code", "STATUS_CODE_OK")
         status_msg = status_info.get("message", "")
-
-        attrs: dict[str, Any] = {}
-        for attr in s.get("attributes", []):
-            k = attr.get("key")
-            v = attr.get("value")
-            if k and v:
-                attrs[k] = _from_otlp_any_value(v)
+        attrs = _extract_span_attributes(s.get("attributes", []))
 
         nodes[span_id] = SpanWaterfallNode(
             span_id=span_id,
@@ -978,9 +989,28 @@ def traced(
 
 def get_current_span_context() -> dict[str, str | None]:
     """Retrieve the current active span and trace IDs as a dictionary."""
+    tid = _current_trace_id_ctx.get()
+    sid = _current_span_id_ctx.get()
+    if tid and sid:
+        return {"trace_id": tid, "span_id": sid}
+
+    try:
+        from opentelemetry import trace
+
+        current_span = trace.get_current_span()
+        if current_span and current_span.is_recording():
+            ctx = current_span.get_span_context()
+            if ctx and ctx.trace_id and ctx.span_id:
+                return {
+                    "trace_id": format(ctx.trace_id, "032x"),
+                    "span_id": format(ctx.span_id, "016x"),
+                }
+    except Exception:
+        pass
+
     return {
-        "trace_id": _current_trace_id_ctx.get(),
-        "span_id": _current_span_id_ctx.get(),
+        "trace_id": tid,
+        "span_id": sid,
     }
 
 

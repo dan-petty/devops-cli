@@ -68,6 +68,10 @@ VALKEY_DB = "valkey.db"
 VALKEY_TIMEOUT = "valkey.timeout"
 AI_CACHE_BACKEND = "ai.cache.backend"
 
+# Telemetry & Structured Observability
+TELEMETRY_LOGFIRE = "telemetry.logfire"
+TELEMETRY_LOGFIRE_TOKEN = "telemetry.logfire_token"
+
 # Data Storage & Artifact Paths
 DATA_DIR = "data.dir"
 DATA_ANALYSIS_DIR = "data.analysis_dir"
@@ -155,6 +159,8 @@ CONFIG_OPTIONS: tuple[str, ...] = (
     DATA_TLS_DIR,
     DATA_AUDIT_LOG_PATH,
     DATA_FEEDBACK_DATASET_PATH,
+    TELEMETRY_LOGFIRE,
+    TELEMETRY_LOGFIRE_TOKEN,
 )
 
 SECRET_CONFIG_OPTIONS: frozenset[str] = frozenset(
@@ -167,6 +173,7 @@ SECRET_CONFIG_OPTIONS: frozenset[str] = frozenset(
         AI_API_KEY,
         QDRANT_API_KEY,
         VALKEY_PASSWORD,
+        TELEMETRY_LOGFIRE_TOKEN,
     }
 )
 
@@ -179,4 +186,5 @@ KEYRING_KEYS: dict[str, str] = {
     AI_API_KEY: "ai_api_key",
     QDRANT_API_KEY: "qdrant_api_key",
     VALKEY_PASSWORD: "valkey_password",
+    TELEMETRY_LOGFIRE_TOKEN: "logfire_token",
 }

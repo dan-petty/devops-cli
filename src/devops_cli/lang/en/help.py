@@ -624,6 +624,7 @@ class ReviewCommandHelp:
     remediate_branch: str = "Custom topic branch name."
     concurrency: str = "Max concurrent workers for parallel review and verification."
     parallel: str = "Execute multi-file review stages concurrently using async worker pool."
+    logfire: str = "Enable or disable Logfire structured observability and agent turn tracing."
 
 
 @dataclass(frozen=True)
@@ -673,6 +674,8 @@ class TelemetryCommandHelp:
     )
     trace_id: str = "Specific trace ID to visualize from in-memory span buffer."
     last: str = "Render waterfall for the most recently executed command trace."
+    logfire: str = "Display Logfire structured observability bridge status and token metrics."
+    test_logfire: str = "Emit test span via Logfire bridge."
 
 
 @dataclass(frozen=True)

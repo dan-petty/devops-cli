@@ -718,13 +718,28 @@
   - [x] 8. Authored comprehensive TDD test suite `tests/test_ai_review_pool.py` (15 unit tests) and added pipeline worker pool tests in `tests/test_review_pipeline.py` (100% green).
   - [x] 9. Maintained strict architectural invariants (complexity <= 10, nesting <= 5, 0 bare exceptions, full CI 10/10 gates green).
   - [x] 10. Addressed Copilot code review comments on PR #71: clamped review workers to total_files in `execute_multi_persona_review` and restored deterministic sequential progress output in `run_persona_review_stage`.
+  - [x] 11. PR #71 merged into `release/v0.2.13`, Issue #58 closed, remote tracking branch pruned, and GitHub project board synchronized.
+
+---
+
+- [x] Phase 49.9: Logfire Structured AI Observability Bridge (`logfire`) (Issue #59)
+  - [x] 1. Implemented `LogfireBridge` in `src/devops_cli/telemetry/logfire.py` with singleton lifecycle, token resolution, and graceful fallback when credentials are not configured.
+  - [x] 2. Implemented `LogfireOTelBridgeProcessor` forwarding finished Logfire spans to internal tracer and OpenTelemetry collector.
+  - [x] 3. Implemented `logfire_agent_turn` context manager, `AgentTurnHandle`, and real-time Rich terminal formatters (`render_agent_turn_table`, `render_agent_turn_panel`).
+  - [x] 4. Enhanced `get_current_span_context()` in `tracer.py` to fall back to active OpenTelemetry span context for bidirectional W3C traceparent propagation.
+  - [x] 5. Added domain exceptions `TelemetryError` and `LogfireConfigurationError` in `src/devops_cli/exceptions/telemetry.py` and constants in `constants.py`.
+  - [x] 6. Added configuration options `telemetry.logfire` and `telemetry.logfire_token` with OS Keyring storage in `options.py` and `settings.py`.
+  - [x] 7. Added `devops telemetry logfire` CLI command, `--logfire` flag to `devops telemetry test`, and `--logfire / --no-logfire` options to `devops review path`, `branch`, and `pr`.
+  - [x] 8. Registered FastMCP tool `telemetry_logfire_status` and dynamic system resource `resource://telemetry/logfire`, and exported schemas.
+  - [x] 9. Authored comprehensive TDD test suite `tests/test_telemetry_logfire.py` (20 unit tests, 100% passing) and updated `tests/test_architectural_invariants.py`, `tests/test_fastmcp_contracts.py`, and `tests/test_config_audit_keys.py`.
+  - [x] 10. Maintained strict architectural invariants (complexity <= 10, nesting <= 5, 0 bare exceptions).
 
 ---
 
 ### In-Progress Tasks (WIP)
-- [ ] Phase 49.8 PR Lifecycle & Remote CI Verification (Issue #58)
+- [ ] Phase 49.9 PR Lifecycle & Remote CI Verification (Issue #59)
 
 ---
 
 ### Pending Tasks
-- [ ] Phase 49.9: Logfire Structured AI Observability Bridge (`logfire`) (Issue #59)
+- [ ] Phase 49.10: Deterministic Mock LLM Test Isolation (< 60s CI)

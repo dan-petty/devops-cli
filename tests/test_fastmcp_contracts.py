@@ -56,6 +56,7 @@ def test_fastmcp_tools_registration() -> None:
         "telemetry_status",
         "telemetry_test_span",
         "telemetry_profile",
+        "telemetry_logfire_status",
         # Docker & Isolation
         "docker_stats",
         "docker_sandbox",
@@ -141,6 +142,7 @@ def test_fastmcp_prompts_and_resources_registration() -> None:
         "resource://workspace/status",
         "resource://config/active",
         "resource://telemetry/status",
+        "resource://telemetry/logfire",
         "resource://release/status",
         "resource://vault/status",
         "resource://ai/constellation",

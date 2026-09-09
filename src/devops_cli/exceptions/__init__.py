@@ -54,6 +54,10 @@ from devops_cli.exceptions.security import (
     SecurityError,
     SSRFBlockedError,
 )
+from devops_cli.exceptions.telemetry import (
+    LogfireConfigurationError,
+    TelemetryError,
+)
 from devops_cli.exceptions.tools import (
     ChecksumMismatchError,
     DependencyError,
@@ -110,6 +114,7 @@ __all__ = [
     "KubernetesDeployError",
     "KubernetesError",
     "LLMInferenceError",
+    "LogfireConfigurationError",
     "ModelAPIError",
     "ModelBundleError",
     "ModelHTTPError",
@@ -122,6 +127,7 @@ __all__ = [
     "SecretExposureError",
     "SecurityError",
     "SuspendedResponseExpired",
+    "TelemetryError",
     "DependencyError",
     "SubprocessError",
     "ToolDownloadError",

@@ -50,6 +50,7 @@ and domain categorization for all exceptions inheriting from `DevOpsCLIError`.
 | `K8S_DEPLOY_ERROR` | `1` | K8s | Raised when deploying manifests or Helm charts fails. |
 | `K8S_ERROR` | `1` | K8s | Base exception for Kubernetes operations. |
 | `LLM_INFERENCE_ERROR` | `10` | Ai | Base exception for LLM provider invocation failures. |
+| `LOGFIRE_CONFIG_ERROR` | `1` | Telemetry | Raised when Logfire configuration fails or credentials cannot be retrieved. |
 | `MODEL_API_ERROR` | `22` | Ai | Raised when a model provider API request fails. |
 | `MODEL_BUNDLE_ERROR` | `1` | Ai | Raised when an AI model bundle cannot be located, resolved, or loaded. |
 | `MODEL_HTTP_ERROR` | `23` | Ai | Raised when a model provider response has a status code of 4xx or 5xx. |
@@ -64,6 +65,7 @@ and domain categorization for all exceptions inheriting from `DevOpsCLIError`.
 | `SECURITY_ERROR` | `1` | Security | Base exception for all security, policy, and egress violations. |
 | `SUBPROCESS_FAILED` | `1` | Tools | Raised when an external subprocess command exits with a non-zero code or fails execution. |
 | `SUSPENDED_RESPONSE_EXPIRED` | `28` | Ai | Raised when resuming a suspended response whose server-side job is no longer available. |
+| `TELEMETRY_ERROR` | `1` | Telemetry | Base exception for telemetry, tracing, and metric collection errors. |
 | `ToolDownloadError` | `1` | Tools | Raised when an external tool download fails or is rejected. |
 | `TOOL_EXECUTION_ERROR` | `1` | Tools | Base exception for external developer tool and binary execution failures. |
 | `TOOL_FAILED` | `16` | Ai | Raised when a tool encounters an unrecoverable runtime failure without requesting model retry. |

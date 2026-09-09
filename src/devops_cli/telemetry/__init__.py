@@ -6,6 +6,17 @@ from devops_cli.telemetry.context import (
     extract_traceparent,
     inject_traceparent_headers,
 )
+from devops_cli.telemetry.logfire import (
+    AgentTurnHandle,
+    LogfireBridge,
+    LogfireOTelBridgeProcessor,
+    LogfireStatus,
+    get_logfire_bridge,
+    logfire_agent_turn,
+    render_agent_turn_panel,
+    render_agent_turn_table,
+    reset_logfire_bridge,
+)
 from devops_cli.telemetry.logging_bridge import (
     TraceCorrelationFilter,
     attach_trace_correlation_filter,
@@ -34,9 +45,13 @@ from devops_cli.telemetry.tracer import (
 )
 
 __all__ = [
+    "AgentTurnHandle",
     "GLOBAL_METRICS",
     "ContextPropagatingThreadPoolExecutor",
     "InMemoryMetricsRegistry",
+    "LogfireBridge",
+    "LogfireOTelBridgeProcessor",
+    "LogfireStatus",
     "OTelTelemetryClient",
     "SpanWaterfallNode",
     "TraceCorrelationFilter",
@@ -46,13 +61,18 @@ __all__ = [
     "extract_traceparent",
     "get_current_span_context",
     "get_current_trace_correlation",
+    "get_logfire_bridge",
     "get_recent_spans",
     "get_trace_spans",
     "get_tracer",
     "inject_trace_context",
     "inject_traceparent_headers",
+    "logfire_agent_turn",
     "record_completed_span",
     "record_metric",
+    "render_agent_turn_panel",
+    "render_agent_turn_table",
+    "reset_logfire_bridge",
     "reset_tracer",
     "trace_span",
     "traced",

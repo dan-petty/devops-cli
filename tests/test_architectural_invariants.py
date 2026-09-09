@@ -69,6 +69,18 @@ def test_domain_specific_exceptions_exist() -> None:
     assert h_exec.exit_code == 1
 
     from devops_cli.ai.rag.embeddings import EmbeddingsError
+    from devops_cli.exceptions.telemetry import LogfireConfigurationError, TelemetryError
+
+    assert issubclass(TelemetryError, DevOpsCLIError)
+    assert issubclass(LogfireConfigurationError, TelemetryError)
+
+    t_err = TelemetryError("telemetry failed")
+    assert t_err.error_code == "TELEMETRY_ERROR"
+    assert t_err.exit_code == 1
+
+    lf_err = LogfireConfigurationError("logfire config failed")
+    assert lf_err.error_code == "LOGFIRE_CONFIG_ERROR"
+    assert lf_err.exit_code == 1
 
     assert issubclass(EmbeddingsError, DevOpsCLIError)
     assert issubclass(EmbeddingsError, RuntimeError)
