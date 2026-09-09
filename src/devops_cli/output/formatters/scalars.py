@@ -164,7 +164,8 @@ def _format_hours(seconds: float) -> str:
     """Format duration between 1 hour and 24 hours with minute and second carrying."""
     hours, remainder = divmod(seconds, 3600.0)
     minutes, rem_sec = divmod(remainder, 60.0)
-    if round(rem_sec) >= 60:
+    rem_sec = float(round(rem_sec))
+    if rem_sec >= 60.0:
         minutes += 1
         rem_sec = 0.0
     if minutes >= 60:
@@ -193,8 +194,11 @@ def _format_days(seconds: float) -> str:
     return " ".join(parts)
 
 
-def format_duration(seconds: float, *, precision: int = 2) -> str:
-    """Format a time duration into a concise, human-readable string."""
+def format_duration(seconds: float, *, precision: int | None = None) -> str:
+    """Format a time duration into a concise, human-readable string.
+
+    Rounds to whole seconds on all time outputs unless the total time is less than 10 seconds.
+    """
     if seconds <= 0.0:
         return "0.00s"
     if seconds < 0.001:
@@ -202,11 +206,12 @@ def format_duration(seconds: float, *, precision: int = 2) -> str:
     if seconds < 1.0:
         return f"{seconds * 1000:.1f}ms"
 
-    rounded_total = round(seconds, precision)
+    effective_precision = (2 if seconds < 10.0 else 0) if precision is None else precision
+    rounded_total = round(seconds, effective_precision)
     if rounded_total < 60.0:
-        return _format_seconds(rounded_total, precision)
+        return _format_seconds(rounded_total, effective_precision)
     if rounded_total < 3600.0:
-        return _format_minutes(rounded_total, precision)
+        return _format_minutes(rounded_total, effective_precision)
     if rounded_total < 86400.0:
         return _format_hours(rounded_total)
     return _format_days(rounded_total)
