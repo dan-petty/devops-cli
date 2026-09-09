@@ -863,7 +863,17 @@
   - [x] 5. Refactored 15+ scattered in-place security checks across `commands/k8s/cluster_context.py`, `commands/k8s/diagnostics.py`, `commands/vault.py`, `commands/workspace.py`, `commands/install_tools.py`, `security/vault_broker.py`, `security/tflint.py`, `output/console.py`, `server/routes/telemetry.py`, `ai/common_tools.py`, `ai/model_bundler.py`, `ai/ext_langchain.py`, `ai/agents/context.py`, `ai/agents/prompt.py`, `ai/review/auto_fix.py`, and `ai/review/sanitization.py`.
   - [x] 6. Authored comprehensive test suites in `tests/test_validation.py`, `tests/test_consolidation_core_paths.py`, `tests/test_consolidation_security_sanitizer.py`, and updated `tests/test_tflint.py`.
   - [x] 7. Verified architectural invariants and complexity <= 10, nesting depth <= 5 across all modules (`devops scan complexity`, `tests/test_architectural_invariants.py`).
-  - [x] 8. Validated all 10 primary CI quality gates cleanly (`uv run devops ci`).
+- [x] Phase 50.3.5: Scratch Scripts Feature Enhancements: PR Review Threads & Project Custom Fields Reconciler
+  - [x] 1. Audited all 31 scratch scripts across brain directories and documented feature harvest in `scratch_scripts_feature_review.md`.
+  - [x] 2. Implemented GitHub PR review thread management in `src/devops_cli/github/pr_threads.py` (`ReviewComment`, `ReviewThread`, `ThreadResolutionResult`, `list_pr_review_threads`, `reply_pr_review_thread`, `resolve_pr_review_thread`, `unresolve_pr_review_thread`) via GraphQL API.
+  - [x] 3. Added CLI command group `devops pr threads [list|reply|resolve|unresolve]` in `src/devops_cli/commands/pr.py` and alias under `devops gh pr threads`.
+  - [x] 4. Implemented GitHub Projects v2 custom field reconciler in `src/devops_cli/github/projects.py` (`infer_item_priority`, `infer_item_status`, `infer_item_category_value_effort`, `reconcile_project_custom_fields`).
+  - [x] 5. Added CLI commands `devops gh project reconcile` and flag `--reconcile-fields` to `devops gh project sync` in `src/devops_cli/commands/gh.py`.
+  - [x] 6. Registered 4 FastMCP tools (`pr_threads_list`, `pr_thread_reply`, `pr_thread_resolve`, `gh_project_reconcile`) in `src/devops_cli/ai/mcp/server.py`.
+  - [x] 7. Authored comprehensive unit test suites in `tests/test_github_pr_threads.py`, `tests/test_github_projects_reconcile.py`, and updated `tests/test_pr_cmd.py`, `tests/test_gh_cmd.py` (42/42 passing).
+  - [x] 8. Enforced cyclomatic complexity <= 10 and nesting depth <= 5 across all new functions (`devops scan complexity`, `tests/test_architectural_invariants.py`).
+  - [x] 9. Synchronized documentation and README (`devops docs generate --sync-readme`).
+  - [x] 10. Validated all 10 primary CI quality gates cleanly (`uv run devops ci`).
 
 ---
 

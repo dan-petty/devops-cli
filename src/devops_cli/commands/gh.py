@@ -9,6 +9,7 @@ from typing import Annotated, Any
 
 import typer
 
+from devops_cli.commands.pr import app as pr_app
 from devops_cli.config.constants import CONST_GH_CLI
 from devops_cli.config.env import ENV_GITHUB_TOKEN
 from devops_cli.config.settings import get_keyring_secret
@@ -74,6 +75,7 @@ app.add_typer(project_app, name="project")
 app.add_typer(views_app, name="views")
 app.add_typer(pages_app, name="pages")
 app.add_typer(issues_app, name="issues")
+app.add_typer(pr_app, name="pr")
 
 
 def _resolve_repo(repo: str | None = None) -> str:
@@ -512,6 +514,13 @@ def sync_project(
             "--dry-run/--no-dry-run", help="Preview task card items without remote mutations"
         ),
     ] = False,
+    reconcile_fields: Annotated[
+        bool,
+        typer.Option(
+            "--reconcile-fields/--no-reconcile-fields",
+            help=HELP.gh.reconcile_fields,
+        ),
+    ] = True,
 ) -> None:
     """Synchronize task.md lifecycle items into GitHub Projects v2 status."""
     items = parse_tasks_to_project_items(task_file)
@@ -531,6 +540,7 @@ def sync_project(
             template=template,
             items=items,
             dry_run=dry_run,
+            reconcile_fields=reconcile_fields,
         )
         mode_text = "[yellow][DRY RUN][/yellow] " if res.dry_run else ""
         link_text = " linked to repository" if res.linked else ""
@@ -542,6 +552,52 @@ def sync_project(
     except Exception as exc:
         print_warning(f"Remote project sync skipped or failed: {exc}")
         print_info(f"Local tasks parsed: {len(items)} items ({summary}).")
+
+
+@project_app.command("reconcile", help=HELP.gh.project_reconcile)
+def reconcile_project_cmd(
+    project_number: Annotated[
+        int | None,
+        typer.Option("--project-number", "-n", help="GitHub Projects v2 board number"),
+    ] = None,
+    repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Preview field reconciliation without mutations"),
+    ] = False,
+) -> None:
+    """Reconcile custom fields (Status, Priority, Category, Value, Effort) on project items."""
+    from devops_cli.github.projects import (
+        find_remote_project,
+        load_project_template,
+        reconcile_project_custom_fields,
+    )
+
+    target_repo = repo or _resolve_repo()
+    owner = target_repo.split("/")[0] if "/" in target_repo else "@me"
+    proj_num = project_number
+    if not proj_num:
+        template = load_project_template()
+        matched = find_remote_project(owner, template.name)
+        if not matched and template.short_name:
+            matched = find_remote_project(owner, template.short_name)
+        proj_num = int(matched.get("number", 1)) if matched else 1
+
+    mode_text = "[yellow][DRY RUN][/yellow] " if dry_run else ""
+    try:
+        res = reconcile_project_custom_fields(
+            owner=owner,
+            repo=target_repo,
+            project_number=proj_num,
+            dry_run=dry_run,
+        )
+        print_success(
+            f"{mode_text}Reconciled project #{proj_num} custom fields: "
+            f"{res['items_reconciled']}/{res['items_evaluated']} items updated."
+        )
+    except Exception as exc:
+        print_error(f"Failed to reconcile project #{proj_num}: {exc}")
+        raise typer.Exit(1)
 
 
 @project_app.command("link", help=HELP.gh.project_link)

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 
@@ -275,3 +275,120 @@ def create_pr(
     if res.returncode != 0:
         raise typer.Exit(res.returncode)
     print_success(f"Pull request created successfully targeting base [bold]{target_base}[/bold]")
+
+
+# =============================================================================
+# Command Group: devops pr threads
+# =============================================================================
+
+threads_app = new_typer(
+    help=HELP.pr.threads_app,
+    no_args_is_help=True,
+)
+app.add_typer(threads_app, name="threads")
+
+
+def _render_threads_table(threads: list[Any]) -> None:
+    """Render PR review threads as a rich table."""
+    rows: list[list[str]] = []
+    for t in threads:
+        status = "[green]Resolved[/green]" if t.is_resolved else "[bold yellow]Open[/bold yellow]"
+        loc = f"{t.path}:{t.line}" if t.line else t.path
+        author = t.comments[0].author if t.comments else ""
+        first_comment = (
+            (t.comments[0].body[:50] + "...")
+            if t.comments and len(t.comments[0].body) > 50
+            else (t.comments[0].body if t.comments else "")
+        )
+        first_comment = first_comment.replace("\n", " ")
+        rows.append([t.id, status, loc, author, first_comment])
+
+    print_table(
+        title="PR Review Discussion Threads",
+        columns=["Thread ID", "Status", "Location", "Author", "First Comment"],
+        rows=rows,
+    )
+
+
+@threads_app.command("list")
+def list_threads(
+    number: Annotated[int, typer.Argument(help=HELP.pr.number)],
+    repo: Annotated[str | None, typer.Option("--repo", "-R", help=HELP.pr.target_repo)] = None,
+    unresolved_only: Annotated[
+        bool,
+        typer.Option("--unresolved-only", "-u", help=HELP.pr.unresolved_only),
+    ] = False,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.options.format_type),
+    ] = "table",
+) -> None:
+    """List PR review discussion threads, file locations, and comments."""
+    from devops_cli.core.repo import get_repo_origin_name
+    from devops_cli.github.pr_threads import list_pr_review_threads
+
+    target_repo = repo or get_repo_origin_name()
+    if not target_repo or "/" not in target_repo:
+        print_error("Target repository must be in OWNER/REPO format.")
+        raise typer.Exit(1)
+
+    owner, repo_name = target_repo.split("/", 1)
+    threads = list_pr_review_threads(owner, repo_name, number, unresolved_only=unresolved_only)
+
+    if output_format == "json":
+        from devops_cli.output import print as print_out
+
+        print_out(json.dumps([t.model_dump() for t in threads], indent=2))
+        return
+
+    if not threads:
+        msg = (
+            "No unresolved review threads found."
+            if unresolved_only
+            else "No review threads found on PR."
+        )
+        print_success(msg)
+        return
+
+    _render_threads_table(threads)
+
+
+@threads_app.command("reply")
+def reply_thread(
+    thread_id: Annotated[str, typer.Argument(help=HELP.pr.thread_id)],
+    body: Annotated[str, typer.Argument(help=HELP.pr.reply_body)],
+) -> None:
+    """Post an in-thread reply to a PR review discussion thread."""
+    from devops_cli.github.pr_threads import reply_pr_review_thread
+
+    comment = reply_pr_review_thread(thread_id, body)
+    print_success(f"In-thread reply posted successfully (Comment ID: [bold]{comment.id}[/bold])")
+
+
+@threads_app.command("resolve")
+def resolve_threads(
+    thread_ids: Annotated[list[str], typer.Argument(help=HELP.pr.thread_ids)],
+) -> None:
+    """Programmatically mark one or more PR review discussion threads as resolved."""
+    from devops_cli.github.pr_threads import resolve_pr_review_thread
+
+    resolved_count = 0
+    for tid in thread_ids:
+        res = resolve_pr_review_thread(tid)
+        if res.success:
+            resolved_count += 1
+            print_success(f"Thread [bold]{tid}[/bold] marked as resolved.")
+
+    print_success(f"Successfully resolved {resolved_count}/{len(thread_ids)} review thread(s).")
+
+
+@threads_app.command("unresolve")
+def unresolve_thread(
+    thread_id: Annotated[str, typer.Argument(help=HELP.pr.thread_id)],
+) -> None:
+    """Reopen a previously resolved PR review discussion thread."""
+    from devops_cli.github.pr_threads import unresolve_pr_review_thread
+
+    res = unresolve_pr_review_thread(thread_id)
+    if res.success:
+        print_success(f"Thread [bold]{thread_id}[/bold] reopened (unresolved).")

@@ -298,3 +298,36 @@ def test_gh_views_audit() -> None:
         result = runner.invoke(app, ["views", "audit", "--repo", "dan-petty/devops-cli"])
         assert result.exit_code == 0
         assert "Project Views Compliance" in result.output
+
+
+def test_gh_project_reconcile() -> None:
+    """devops gh project reconcile triggers field reconciliation."""
+    mock_res = {
+        "project_number": 2,
+        "items_evaluated": 10,
+        "items_reconciled": 8,
+        "dry_run": False,
+    }
+    with patch(
+        "devops_cli.github.projects.reconcile_project_custom_fields",
+        return_value=mock_res,
+    ):
+        result = runner.invoke(
+            app, ["project", "reconcile", "--project-number", "2", "--repo", "dan-petty/devops-cli"]
+        )
+        assert result.exit_code == 0
+        assert "Reconciled project #2" in result.output
+        assert "8/10 items updated" in result.output
+
+
+def test_gh_pr_threads_alias() -> None:
+    """devops gh pr threads list functions as an alias to devops pr threads list."""
+    with patch(
+        "devops_cli.github.pr_threads.list_pr_review_threads",
+        return_value=[],
+    ):
+        result = runner.invoke(
+            app, ["pr", "threads", "list", "83", "--repo", "dan-petty/devops-cli"]
+        )
+        assert result.exit_code == 0
+        assert "No review threads found" in result.output

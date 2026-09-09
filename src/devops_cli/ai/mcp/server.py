@@ -1073,6 +1073,25 @@ def gh_project_audit(repo: str | None = None) -> str:
 
 
 @mcp.tool()
+def gh_project_reconcile(
+    project_number: int | None = None,
+    repo: str | None = None,
+    dry_run: bool = False,
+) -> str:
+    """Reconcile custom fields (Status, Priority, Category, Value, Effort) on GitHub Projects v2 items."""
+    cmd = ["uv", "run", "devops", "gh", "project", "reconcile"]
+    if project_number is not None:
+        _validate_mcp_int_bound("project_number", project_number, min_val=1)
+        cmd.extend(["--project-number", str(project_number)])
+    if repo:
+        _validate_mcp_arg("repo", repo)
+        cmd.extend(["--repo", repo])
+    if dry_run:
+        cmd.append("--dry-run")
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
 def gh_views_audit(repo: str | None = None) -> str:
     """Audit remote project views against standardized view template specifications."""
     cmd = ["uv", "run", "devops", "gh", "views", "audit"]
@@ -1394,6 +1413,37 @@ def pr_checks(pr_number: int) -> str:
     _validate_mcp_int_bound("pr_number", pr_number, min_val=1)
     return _run_mcp_cmd(
         ["uv", "run", "devops", "pr", "checks", str(pr_number)],
+        timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.tool()
+def pr_threads_list(pr_number: int, unresolved_only: bool = True) -> str:
+    """List review discussion threads, file locations, and comments on a pull request."""
+    _validate_mcp_int_bound("pr_number", pr_number, min_val=1)
+    cmd = ["uv", "run", "devops", "pr", "threads", "list", str(pr_number)]
+    if unresolved_only:
+        cmd.append("--unresolved-only")
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def pr_thread_reply(thread_id: str, body: str) -> str:
+    """Post an in-thread reply directly to a pull request review discussion thread."""
+    _validate_mcp_arg("thread_id", thread_id)
+    _validate_mcp_arg("body", body)
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "pr", "threads", "reply", thread_id, body],
+        timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.tool()
+def pr_thread_resolve(thread_id: str) -> str:
+    """Programmatically mark a pull request review discussion thread as resolved."""
+    _validate_mcp_arg("thread_id", thread_id)
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "pr", "threads", "resolve", thread_id],
         timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
     )
 

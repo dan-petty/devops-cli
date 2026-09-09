@@ -463,12 +463,191 @@ def sync_repository_issues_to_project(
     return added
 
 
+def infer_item_priority(labels: list[Any]) -> str:
+    """Infer GitHub Projects Priority field from issue/PR taxonomy labels."""
+    names = [lbl.get("name", "") if isinstance(lbl, dict) else str(lbl) for lbl in labels]
+    for n in names:
+        n_lower = n.lower()
+        if "p0-critical" in n_lower:
+            return "P0-Critical"
+        if "p1-high" in n_lower:
+            return "P1-High"
+        if "p2-medium" in n_lower:
+            return "P2-Medium"
+        if "p3-low" in n_lower:
+            return "P3-Low"
+    return "P2-Medium"
+
+
+def infer_item_status(state: str, labels: list[Any]) -> str:
+    """Infer GitHub Projects Status field from state and taxonomy labels."""
+    st_upper = state.upper()
+    if st_upper in ("CLOSED", "MERGED"):
+        return "Done"
+    names = [lbl.get("name", "") if isinstance(lbl, dict) else str(lbl) for lbl in labels]
+    for n in names:
+        n_lower = n.lower()
+        if "status/blocked" in n_lower:
+            return "Blocked"
+        if "status/in-progress" in n_lower:
+            return "In Progress"
+        if "status/in-review" in n_lower:
+            return "In Review"
+        if "status/ready" in n_lower:
+            return "Ready"
+    return "Todo"
+
+
+def infer_item_category_value_effort(title: str, priority: str) -> tuple[str, str, str]:
+    """Infer Category, Value, and Effort for GitHub Projects v2 custom fields."""
+    t = title.lower()
+    if any(k in t for k in ("tree-sitter", "ast graph", "observability", "loki", "daemon")):
+        return "Major Project", "High", "High"
+    if any(k in t for k in ("fastmcp", "mcp", "prompt grounding", "contract")):
+        return "Quick Win", "High", "Low"
+    if any(k in t for k in ("vector", "store", "tier", "valkey", "ingest", "cache")):
+        return "Foundation", "High", "Medium"
+    if any(k in t for k in ("drift", "auditor", "usage", "docs", "chore")):
+        return "Fill-In", "Medium", "Medium"
+    if priority == "P0-Critical":
+        return "Quick Win", "High", "Low"
+    if priority == "P1-High":
+        return "Foundation", "High", "Medium"
+    return "Fill-In", "Medium", "Medium"
+
+
+def _fetch_repository_prs(repo: str) -> list[dict[str, Any]]:
+    """Retrieve candidate PRs from the repository via GitHub API."""
+    res = run_subprocess(
+        [
+            CONST_GH_CLI,
+            "api",
+            f"repos/{repo}/pulls?state=all&per_page=30",
+            "-H",
+            "Accept: application/vnd.github+json",
+        ],
+        check=False,
+        quiet=True,
+    )
+    if res.returncode != 0 or not res.stdout:
+        return []
+    try:
+        data = json.loads(res.stdout)
+        return [i for i in data if isinstance(i, dict)] if isinstance(data, list) else []
+    except Exception:
+        return []
+
+
+def _edit_project_item_field(
+    owner: str, project_number: int, url: str, field_name: str, field_val: str
+) -> bool:
+    """Update a single custom field value on a project item."""
+    edit_cmd = [
+        CONST_GH_CLI,
+        "project",
+        "item-edit",
+        str(project_number),
+        "--owner",
+        owner,
+        "--url",
+        url,
+        "--field",
+        field_name,
+        "--value",
+        field_val,
+    ]
+    proc = run_subprocess(edit_cmd, check=False, quiet=True)
+    return proc.returncode == 0
+
+
+def _reconcile_single_item(
+    owner: str,
+    project_number: int,
+    item: dict[str, Any],
+    dry_run: bool,
+) -> bool:
+    """Infer and apply all custom fields to a single candidate project item."""
+    url = item.get("html_url") or item.get("url") or ""
+    if not url:
+        return False
+    title = item.get("title", "")
+    state = str(item.get("state", "OPEN"))
+    labels = item.get("labels", [])
+
+    priority = infer_item_priority(labels)
+    status = infer_item_status(state, labels)
+    category, val, eff = infer_item_category_value_effort(title, priority)
+
+    if dry_run:
+        return True
+
+    fields = [
+        ("Status", status),
+        ("Priority", priority),
+        ("Category", category),
+        ("Value", val),
+        ("Effort", eff),
+    ]
+    for fname, fval in fields:
+        _edit_project_item_field(owner, project_number, url, fname, fval)
+    return True
+
+
+def reconcile_project_custom_fields(
+    owner: str,
+    repo: str,
+    project_number: int,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Reconcile custom field values (Status, Priority, Category, Value, Effort) on project items."""
+    existing_urls = _fetch_project_item_urls(owner, project_number)
+    issues = _fetch_repository_issues(repo)
+    prs = _fetch_repository_prs(repo)
+    candidates = issues + prs
+
+    if not dry_run:
+        for it in candidates:
+            url = it.get("html_url") or it.get("url")
+            if url and url not in existing_urls:
+                add_proc = run_subprocess(
+                    [
+                        CONST_GH_CLI,
+                        "project",
+                        "item-add",
+                        str(project_number),
+                        "--owner",
+                        owner,
+                        "--url",
+                        url,
+                    ],
+                    check=False,
+                    quiet=True,
+                )
+                if add_proc.returncode == 0:
+                    existing_urls.add(url)
+
+    reconciled_count = 0
+    for it in candidates:
+        if _reconcile_single_item(owner, project_number, it, dry_run):
+            reconciled_count += 1
+
+    return {
+        "project_number": project_number,
+        "owner": owner,
+        "repo": repo,
+        "items_evaluated": len(candidates),
+        "items_reconciled": reconciled_count,
+        "dry_run": dry_run,
+    }
+
+
 def sync_remote_project(
     owner: str,
     repo: str,
     template: ProjectTemplate,
     items: list[ProjectItem],
     dry_run: bool = False,
+    reconcile_fields: bool = True,
 ) -> ProjectSyncResult:
     """Reconcile remote GitHub Projects v2 board with declarative template and local tasks."""
     if dry_run:
@@ -496,6 +675,8 @@ def sync_remote_project(
     linked = link_project_to_repository(proj_num, owner, repo)
     provisioned = provision_remote_project_fields(proj_num, owner, template.fields)
     items_added = sync_repository_issues_to_project(owner, repo, proj_num, dry_run=False)
+    if reconcile_fields:
+        reconcile_project_custom_fields(owner, repo, proj_num, dry_run=False)
 
     return ProjectSyncResult(
         project_number=proj_num,

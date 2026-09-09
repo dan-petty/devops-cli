@@ -42,6 +42,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`gh_pages_verify`](#gh-pages-verify) | Verify local repository readiness for GitHub Pages publishing. |
 | [`gh_project_audit`](#gh-project-audit) | Audit project board health and alignment against standardized template. |
 | [`gh_project_list`](#gh-project-list) | List available GitHub Projects v2 boards for user or organization. |
+| [`gh_project_reconcile`](#gh-project-reconcile) | Reconcile custom fields (Status, Priority, Category, Value, Effort) on GitHub Projects v2 items. |
 | [`gh_project_status`](#gh-project-status) | Inspect GitHub Projects v2 template configuration, fields, and view definitions. |
 | [`gh_project_sync`](#gh-project-sync) | Synchronize task items from task.md into GitHub Projects v2 status. |
 | [`gh_view_spec`](#gh-view-spec) | Return JSON specification for GitHub Projects v2 views. |
@@ -63,6 +64,9 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`k8s_validate`](#k8s-validate) | Validate Kubernetes manifest syntax and schemas against OpenAPI specifications. |
 | [`pr_checks`](#pr-checks) | Inspect detailed status of GitHub Actions CI checks for a pull request. |
 | [`pr_list`](#pr-list) | List GitHub pull requests with review approval state and CI check summaries. |
+| [`pr_thread_reply`](#pr-thread-reply) | Post an in-thread reply directly to a pull request review discussion thread. |
+| [`pr_thread_resolve`](#pr-thread-resolve) | Programmatically mark a pull request review discussion thread as resolved. |
+| [`pr_threads_list`](#pr-threads-list) | List review discussion threads, file locations, and comments on a pull request. |
 | [`prometheus_query`](#prometheus-query) | Execute PromQL instant query against Prometheus endpoint. |
 | [`rag_index`](#rag-index) | Index workspace files into Qdrant vector database for semantic retrieval. |
 | [`rag_search`](#rag-search) | Perform semantic vector search across indexed workspace codebase and architecture docs. |
@@ -477,6 +481,18 @@ List available GitHub Projects v2 boards for user or organization.
 |---|---|---|---|---|
 | `owner` | `string` | No | - | - |
 
+### `gh_project_reconcile`
+
+Reconcile custom fields (Status, Priority, Category, Value, Effort) on GitHub Projects v2 items.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `project_number` | `integer` | No | - | - |
+| `repo` | `string` | No | - | - |
+| `dry_run` | `boolean` | No | `False` | - |
+
 ### `gh_project_status`
 
 Inspect GitHub Projects v2 template configuration, fields, and view definitions.
@@ -683,6 +699,38 @@ List GitHub pull requests with review approval state and CI check summaries.
 |---|---|---|---|---|
 | `limit` | `integer` | No | `10` | - |
 | `state` | `string` | No | `open` | - |
+
+### `pr_thread_reply`
+
+Post an in-thread reply directly to a pull request review discussion thread.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `thread_id` | `string` | Yes | - | - |
+| `body` | `string` | Yes | - | - |
+
+### `pr_thread_resolve`
+
+Programmatically mark a pull request review discussion thread as resolved.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `thread_id` | `string` | Yes | - | - |
+
+### `pr_threads_list`
+
+List review discussion threads, file locations, and comments on a pull request.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `pr_number` | `integer` | Yes | - | - |
+| `unresolved_only` | `boolean` | No | `True` | - |
 
 ### `prometheus_query`
 

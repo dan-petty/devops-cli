@@ -110,3 +110,76 @@ devops pr create [OPTIONS]
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 
 ---
+
+## `devops pr threads`
+
+```bash
+devops pr threads COMMAND [ARGS]...
+```
+
+### `devops pr threads list`
+
+**List PR review discussion threads, file locations, and comments.**
+
+```bash
+devops pr threads list [OPTIONS] <number>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<number>` | `integer` | Yes | Pull request number. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+| `--unresolved-only`, `-u` | `boolean` | - | Filter to display only unresolved review discussion threads. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+
+### `devops pr threads reply`
+
+**Post an in-thread reply to a PR review discussion thread.**
+
+```bash
+devops pr threads reply <thread_id> <body>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<thread_id>` | `string` | Yes | Review thread GraphQL ID (e.g. PRRT_...). |
+| `<body>` | `string` | Yes | Reply message text to append directly to the review thread. |
+
+### `devops pr threads resolve`
+
+**Programmatically mark one or more PR review discussion threads as resolved.**
+
+```bash
+devops pr threads resolve <thread_ids>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<thread_ids>` | `string` | Yes | One or more review thread GraphQL IDs to resolve. |
+
+### `devops pr threads unresolve`
+
+**Reopen a previously resolved PR review discussion thread.**
+
+```bash
+devops pr threads unresolve <thread_id>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<thread_id>` | `string` | Yes | Review thread GraphQL ID (e.g. PRRT_...). |
+
+---

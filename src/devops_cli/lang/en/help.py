@@ -544,6 +544,17 @@ class PRCommandHelp:
     edit_base: str = "Change the base branch for this pull request."
     edit_title: str = "Set the new title."
     edit_body: str = "Set the new body."
+    threads_app: str = "Manage and programmatically resolve PR review discussion threads."
+    threads_list: str = "List PR review discussion threads, file locations, and comments."
+    threads_reply: str = "Post an in-thread reply to a PR review discussion thread."
+    threads_resolve: str = (
+        "Programmatically mark one or more PR review discussion threads as resolved."
+    )
+    threads_unresolve: str = "Reopen a previously resolved PR review discussion thread."
+    thread_id: str = "Review thread GraphQL ID (e.g. PRRT_...)."
+    thread_ids: str = "One or more review thread GraphQL IDs to resolve."
+    unresolved_only: str = "Filter to display only unresolved review discussion threads."
+    reply_body: str = "Reply message text to append directly to the review thread."
 
 
 @dataclass(frozen=True)
@@ -562,6 +573,12 @@ class GHCommandHelp:
     project_list: str = "List available GitHub Projects v2 boards for user or organization."
     project_status: str = "Inspect project template structure and configured views."
     project_sync: str = "Sync task items from task.md into GitHub Projects status."
+    project_reconcile: str = (
+        "Reconcile custom fields (Status, Priority, Category, Value, Effort) on project items."
+    )
+    reconcile_fields: str = (
+        "Automatically infer and update project custom fields from taxonomy labels and issue state."
+    )
     project_link: str = "Link a GitHub Project v2 board to the repository."
     project_audit: str = "Audit project board items and fields against local tasks and template."
     project_template: str = "Display the declarative GitHub Projects v2 JSON template."
