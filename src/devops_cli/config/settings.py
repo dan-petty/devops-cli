@@ -239,11 +239,30 @@ class AIConfig(BaseModel):
     api_base_url: str | None = None
     allow_private_network: bool = False
     max_retries: int = DEFAULT_AI_MAX_RETRIES
-    append_cache: bool = False
     tasks: AITasksConfig = AITasksConfig()
     rag: AIRAGConfig = AIRAGConfig()
     cache: AICacheConfig = AICacheConfig()
     durable: AIDurableConfig = AIDurableConfig()
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_append_cache(cls, data: Any) -> Any:
+        if isinstance(data, dict) and "append_cache" in data:
+            val = data.pop("append_cache")
+            if "cache" in data and isinstance(data["cache"], dict):
+                data["cache"].setdefault("append_cache", val)
+            elif "cache" not in data:
+                data["cache"] = {"append_cache": val}
+        return data
+
+    @property
+    def append_cache(self) -> bool:
+        """Convenience property delegating to self.cache.append_cache."""
+        return self.cache.append_cache
+
+    @append_cache.setter
+    def append_cache(self, value: bool) -> None:
+        self.cache.append_cache = value
 
     @property
     def get_ollama_urls(self) -> list[str]:
