@@ -251,3 +251,55 @@ class GitHubClient:
             self.edit_milestone(repo, int(matched["number"]), state="closed")
             return True
         return False
+
+    # ── Issues ───────────────────────────────────────────────────────────────
+
+    def get_issues(
+        self,
+        repo: str,
+        state: str = "open",
+        milestone: str | int | None = None,
+        labels: list[str] | None = None,
+        limit: int = 30,
+    ) -> list[dict[str, Any]]:
+        """Fetch issues matching state, milestone, and labels."""
+        from devops_cli.github.issues import get_repository_issues
+
+        m_str = str(milestone) if milestone is not None else None
+        lbl_str = labels[0] if labels else None
+        issues = get_repository_issues(
+            repo, state=state, milestone=m_str, label=lbl_str, limit=limit
+        )
+        return [issue.model_dump() for issue in issues]
+
+    def create_issue(
+        self,
+        repo: str,
+        title: str,
+        body: str = "",
+        milestone: str | None = None,
+        labels: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Create a new issue with milestone and taxonomy labels."""
+        from devops_cli.github.issues import create_repository_issue
+
+        issue = create_repository_issue(
+            repo=repo, title=title, body=body, milestone=milestone, labels=labels
+        )
+        return issue.model_dump()
+
+    # ── GitHub Pages ──────────────────────────────────────────────────────────
+
+    def get_pages_info(self, repo: str) -> dict[str, Any] | None:
+        """Fetch GitHub Pages site status and configuration."""
+        from devops_cli.github.pages import get_pages_status
+
+        info = get_pages_status(repo)
+        return info.model_dump() if info else None
+
+    def get_pages_builds(self, repo: str, limit: int = 5) -> list[dict[str, Any]]:
+        """Fetch historical GitHub Pages build records."""
+        from devops_cli.github.pages import get_pages_builds
+
+        builds = get_pages_builds(repo, limit=limit)
+        return [b.model_dump() for b in builds]

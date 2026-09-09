@@ -1,12 +1,14 @@
-# Knowledge Base Task: GitHub Project Governance, Views, Milestones & Labels
+# Knowledge Base Task: GitHub Project Governance, Views, Milestones, Issues & Pages
 
 ## 1. Overview & Purpose
 
-GitHub project governance in `devops-cli` standardizes repository metadata across four foundational pillars:
-1. **GitHub Views & Projects v2**: Declarative workspace templates defining custom fields (`Status`, `Milestone`, `Priority`, `Category`, `Value`, `Effort`) and four standardized views for agile sprint execution, chronological roadmap tracking, defect triage, and portfolio prioritization.
-2. **Roadmap Milestones**: Synchronized milestone lifecycle directly extracted from `docs/ROADMAP.md` release headings, providing issue completion ratios and health metrics.
-3. **Declarative Label Taxonomy**: Repository label synchronization driven by `.github/labels.yml`, enforcing strict categorization across `type/*`, `scope/*`, `priority/*`, `status/*`, and `review/*`.
-4. **Pull Request Quality Auditing**: Automated validation ensuring every active pull request possesses mandatory `type/*` and `scope/*` classification labels.
+GitHub project governance in `devops-cli` standardizes repository metadata across six foundational pillars:
+1. **GitHub Pages Publishing**: Inspection of deployment health, custom domain status, HTTPS enforcement, build history, manual build dispatching, and local Jekyll `_config.yml` / `docs/` readiness verification.
+2. **GitHub Issues Lifecycle & Triage**: Issue creation, taxonomy label enforcement (`type/*`, `scope/*`, `priority/*`), milestone linkage, and proactive triage auditing to guarantee zero unclassified or unmilestoned open issues.
+3. **GitHub Projects v2 Lifecycle**: Board creation, multi-board listing, card lifecycle reconciliation against `docs/agent/task.md`, and automated drift auditing against standardized template schemas.
+4. **Standardized Projects v2 Views**: Continuous auditing and synchronization of the 4 canonical views (`Sprint Kanban`, `Roadmap Timeline`, `Triage & Quality Table`, and `Value vs Effort Priority Matrix`) ensuring full alignment across `https://github.com/dan-petty/devops-cli/projects` and `https://github.com/dan-petty/devops-cli/issues/views`.
+5. **Roadmap Milestones**: Synchronized milestone lifecycle directly extracted from `docs/ROADMAP.md` release headings, providing issue completion ratios, health metrics, and automated milestone closure on release.
+6. **Declarative Label Taxonomy & PR Auditing**: Repository label synchronization driven by `.github/labels.yml`, enforcing strict categorization across `type/*`, `scope/*`, `priority/*`, `status/*`, and `review/*`.
 
 ---
 
@@ -17,13 +19,15 @@ graph TD
     A[Declarative Schemas<br/>.github/labels.yml & project-template.json] -->|devops gh labels sync| B[Remote GitHub Labels]
     C[docs/ROADMAP.md Headings] -->|devops gh milestones sync| D[Remote GitHub Milestones]
     E[docs/agent/task.md Lifecycles] -->|devops gh project sync| F[GitHub Projects v2 Items]
-    B --> G[devops gh labels audit]
-    D --> H[devops gh milestones list]
-    F --> I[Standardized Views Engine]
-    I --> J[Sprint Kanban]
-    I --> K[Roadmap Timeline]
-    I --> L[Triage & Quality Table]
-    I --> M[Value vs Effort Matrix]
+    G[docs/ & _config.yml] -->|devops gh pages verify| H[GitHub Pages Deployment]
+    I[Open Issues Queue] -->|devops gh issues triage| J[Triage Audit & Taxonomies]
+    B --> K[devops gh labels audit]
+    D --> L[devops gh milestones list]
+    F --> M[Standardized Views Engine]
+    M --> N[Sprint Kanban]
+    M --> O[Roadmap Timeline]
+    M --> P[Triage & Quality Table]
+    M --> Q[Value vs Effort Matrix]
 ```
 
 ### The 4 Standardized Projects v2 Views
@@ -39,43 +43,46 @@ graph TD
 
 ## 3. Useful Usage Information & Common Commands
 
-### Label Management Commands
+### GitHub Pages Commands
 ```bash
-# List all labels defined in the remote repository
-devops gh labels list
+# Inspect GitHub Pages deployment status, URL, custom domain, and HTTPS enforcement
+devops gh pages status
 
-# Preview reconciliation against .github/labels.yml without mutating remote state
-devops gh labels sync --dry-run
+# View recent GitHub Pages build history and statuses
+devops gh pages builds --limit 10
 
-# Synchronize labels against declarative schema
-devops gh labels sync
+# Request a new GitHub Pages deployment build
+devops gh pages build
 
-# Audit open pull requests for mandatory type/ and scope/ taxonomy labels
-devops gh labels audit
+# Verify local repository readiness (validates Jekyll _config.yml and docs/ directory)
+devops gh pages verify
 ```
 
-### Milestone Management Commands
+### Issue Management & Triage Commands
 ```bash
-# List release milestones and issue progress rates
-devops gh milestones list
+# List repository issues filtered by state, milestone, or label
+devops gh issues list --state open --milestone v0.2.14 --limit 30
 
-# Preview extraction and synchronization from docs/ROADMAP.md
-devops gh milestones sync --dry-run
+# Create a new issue linked to active milestone and taxonomy labels
+devops gh issues create --title "feat(rag): vector index optimization" --milestone v0.2.14 --label "type/feature,scope/ai,priority/p1-high"
 
-# Reconcile milestones with docs/ROADMAP.md
-devops gh milestones sync
+# Audit open issues for taxonomy compliance and milestone linkage
+devops gh issues triage
 
-# Inspect health and completion metrics for a specific milestone
-devops gh milestones status v0.2.11
-
-# Close a release milestone upon release merge or publish
-devops gh milestones close v0.2.11
+# Display aggregated issue counts by priority, type, and milestone
+devops gh issues status
 ```
 
 ### Project & Views Inspection Commands
 ```bash
+# List available GitHub Projects v2 boards for user or organization
+devops gh project list
+
 # Display project template summary, custom fields, and views
 devops gh project status
+
+# Audit project board health and alignment against standardized template
+devops gh project audit
 
 # Synchronize task.md item cards, provision fields, and link project
 devops gh project sync
@@ -89,24 +96,49 @@ devops gh project link 1
 # Inspect all 4 standardized project views in Rich table format
 devops gh views list
 
+# Audit remote project views against standardized view template specifications
+devops gh views audit
+
 # Output JSON specification for GitHub Projects v2 views
 devops gh views spec
+```
+
+### Label & Milestone Management Commands
+```bash
+# List all labels defined in the remote repository
+devops gh labels list
+
+# Synchronize labels against declarative schema (.github/labels.yml)
+devops gh labels sync
+
+# Audit open pull requests for mandatory type/ and scope/ taxonomy labels
+devops gh labels audit
+
+# List release milestones and issue progress rates
+devops gh milestones list
+
+# Reconcile milestones with docs/ROADMAP.md
+devops gh milestones sync
+
+# Close a release milestone upon release merge or publish
+devops gh milestones close v0.2.14
 ```
 
 ---
 
 ## 4. Best Practice Guidance
 
-1. **Mandatory PR Taxonomy Labels**:
-   - Every Pull Request must be labeled with at least one **type** (`type/feature`, `type/bug`, `type/refactor`, `type/docs`, `type/infra`, `type/test`, `type/security`, `type/chore`).
-   - Every Pull Request must be labeled with at least one **scope** (`scope/ai`, `scope/k8s`, `scope/cli`, `scope/review`, `scope/config`, `scope/security`, `scope/infra`, `scope/docs`, `scope/test`).
-2. **Roadmap-Driven Milestones & Closure**:
-   - Milestones must originate from `docs/ROADMAP.md` chronological headings (e.g. `### Feature Topic (vX.Y.Z - Status)`).
-   - Pull requests targeting a release branch must link to the corresponding milestone.
-   - Upon release PR squash-merge or cutting a release, close the completed milestone via `devops gh milestones close <version>` to avoid milestone staleness.
+1. **GitHub Pages Deployment Readiness**:
+   - Before requesting builds or pushing documentation releases, run `devops gh pages verify` to validate local Jekyll configuration files (`_config.yml` syntax, title, markdown engine) and confirm the `docs/` publishing root exists.
+   - Verify that HTTPS is strictly enforced (`enforce_https: true`) and custom domains have valid SSL certificates via `devops gh pages status`.
+2. **Issue Triage & Zero-Untracked Defect Policy**:
+   - Every open issue must have at least one `type/*` label, at least one `scope/*` label, and an assigned `priority/*` label (`priority/p0-critical` through `priority/p3-low`).
+   - Every feature or defect issue must link to the active release milestone (`--milestone "v<version>"`).
+   - Regularly execute `devops gh issues triage` to catch issues missing labels or milestones.
 3. **Projects v2 Board Linkage & Issues Views Item State Transitions (`https://github.com/dan-petty/devops-cli/projects` & `https://github.com/dan-petty/devops-cli/issues/views`)**:
    - Ensure the project board is linked to the repository via `devops gh project link <number>`, surfacing the project board under `https://github.com/dan-petty/devops-cli/projects` and its 4 canonical views under `https://github.com/dan-petty/devops-cli/issues/views`.
    - Populate all 6 custom project fields (`Status`, `Milestone`, `Priority`, `Category`, `Value`, `Effort`) for each issue and PR card.
+   - Run `devops gh project audit` and `devops gh views audit` to detect missing fields, invalid options, or misconfigured view filters.
    - When beginning a task: transition card from `Backlog` to `In Progress`.
    - When PR is submitted: transition card to `In Review`.
    - When PR is merged: transition card to `Done`.
@@ -118,20 +150,12 @@ devops gh views spec
    - Every remote topic branch on `origin` must have an associated open PR targeting the active release branch or `main`.
    - Remote branches must be deleted immediately upon PR merge or supersession (`git push origin --delete <branch>` and `git fetch --prune origin`).
    - Orphan remote branches are strictly prohibited.
-6. **Use Dry-Run First**: Always run `devops gh labels sync --dry-run` and `devops gh milestones sync --dry-run` to preview reconciliations before applying changes.
-7. **Automated & Peer Code Review Remediation**:
-   - Actively inspect code review comments from GitHub Copilot and human reviewers via `gh api repos/:owner/:repo/pulls/:number/reviews` and GraphQL review threads.
-   - Remediate feedback iteratively using Test-First Development.
-   - Reply **directly within each specific review thread** (`gh api repos/:owner/:repo/pulls/:number/comments/:id/replies` or GraphQL `addPullRequestReviewThreadReply`). Never rely solely on top-level PR comments.
-   - Resolve conversation threads on GitHub via GraphQL `resolveReviewThread` once verified.
-   - Continuously monitor remote CI checks (`gh pr checks`) until 100% green.
-8. **Mandatory Defect & Incident Tracking on CLI Errors/Warnings**:
+6. **Mandatory Defect & Incident Tracking on CLI Errors/Warnings**:
    - Whenever an AI agent or developer encounters an unhandled error, subcommand failure, crash, diagnostic warning, or unexpected behavior while executing `devops` CLI commands, they must immediately file a formal bug issue via `gh issue create` (using `.github/ISSUE_TEMPLATE/bug_report.yml`).
    - Title follows Conventional Commits: `fix(<scope>): <concise description>`.
    - Apply mandatory taxonomy labels: `type/bug`, appropriate `scope/*`, `priority/*`, and `status/triage` (or `status/in-progress`).
    - Link the active release milestone (`--milestone "v<version>"`).
    - Reconcile and synchronize the new issue into GitHub Projects v2 (`devops gh project sync` or FastMCP `gh_project_sync`) so that it appears in the *Triage & Quality Table*.
-
 
 ---
 
@@ -139,21 +163,29 @@ devops gh views spec
 
 - **Zero-Plaintext Credentials**: GitHub tokens must be retrieved from the OS Keyring (`github_token`) or environment variable (`GITHUB_TOKEN`), never hardcoded or logged.
 - **Granular Token Scopes**:
-  - Labels and Milestones require `repo` scope.
+  - Labels, Milestones, Issues, and Pages require standard `repo` scope.
   - Projects v2 mutations require `project` or `read:project` scopes. When scopes are restricted, `devops gh` falls back gracefully with clear instructions (`gh auth refresh -s project,read:project`) and preserves read-only/offline functionality.
-- **Dry-Run Mode for Project Sync**: Task items and project synchronization can be simulated without remote mutations using `--dry-run`.
+- **Dry-Run Mode for Mutations**: Task items and project synchronization can be simulated without remote mutations using `--dry-run`.
 
 ---
 
-## 6. General Standards & Reference Guidelines
+## 6. FastMCP Tool & Dynamic Resource Integration
 
-- **Declarative Schema Canonical Paths**:
-  - Labels: [`.github/labels.yml`](../../../../../../.github/labels.yml)
-  - Project Template: [`.github/project-template.json`](../../../../../../.github/project-template.json)
-- **FastMCP Tool Integration**: AI coding agents can interact with GitHub governance via MCP tools:
-  - `gh_label_list`, `gh_label_sync`
-  - `gh_milestone_list`, `gh_milestone_sync`, `gh_milestone_close`
-  - `gh_project_status`, `gh_project_sync`, `gh_view_spec`
+AI coding agents have native access to GitHub project management through 16 FastMCP tools and 4 dynamic system resources:
+
+### Registered FastMCP Tools
+- **Pages**: `gh_pages_status`, `gh_pages_build`, `gh_pages_verify`
+- **Issues**: `gh_issue_list`, `gh_issue_create`, `gh_issue_triage`, `gh_issue_status`
+- **Projects**: `gh_project_list`, `gh_project_status`, `gh_project_audit`, `gh_project_sync`
+- **Views**: `gh_views_audit`, `gh_views_sync`, `gh_view_spec`
+- **Milestones**: `gh_milestone_list`, `gh_milestone_sync`, `gh_milestone_close`
+- **Labels**: `gh_label_list`, `gh_label_sync`
+
+### Registered Dynamic System Resources
+- `resource://gh/pages/status`: Real-time GitHub Pages publishing status and build health.
+- `resource://gh/issues/status`: Live issue distribution across priorities, types, and milestones.
+- `resource://gh/project/status`: GitHub Projects v2 board configuration and field definitions.
+- `resource://gh/views/status`: Remote project views synchronization and schema audit status.
 
 ---
 
@@ -161,7 +193,10 @@ devops gh views spec
 
 - **GitHub CLI Documentation**: [cli.github.com/manual](https://cli.github.com/manual)
 - **GitHub Projects v2 API & Views**: [docs.github.com/en/issues/planning-and-tracking-with-projects](https://docs.github.com/en/issues/planning-and-tracking-with-projects)
+- **GitHub Pages API**: [docs.github.com/en/rest/pages](https://docs.github.com/en/rest/pages)
 - **DevOps CLI GitHub Subsystem**: [src/devops_cli/commands/gh.py](../../../../commands/gh.py)
-- **Declarative Label Engine**: [src/devops_cli/github/labels.py](../../../../github/labels.py)
-- **Milestone Engine**: [src/devops_cli/github/milestones.py](../../../../github/milestones.py)
+- **GitHub Pages Engine**: [src/devops_cli/github/pages.py](../../../../github/pages.py)
+- **GitHub Issues Engine**: [src/devops_cli/github/issues.py](../../../../github/issues.py)
 - **Projects & Views Engine**: [src/devops_cli/github/projects.py](../../../../github/projects.py)
+- **Milestone Engine**: [src/devops_cli/github/milestones.py](../../../../github/milestones.py)
+- **Declarative Label Engine**: [src/devops_cli/github/labels.py](../../../../github/labels.py)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from pathlib import Path
 from typing import Any, cast
@@ -12,6 +13,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from devops_cli.config.constants import CONST_GH_CLI
 from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions.git import GitHubOperationError
+
+logger = logging.getLogger(__name__)
 
 
 class ProjectFieldOption(BaseModel):
@@ -464,4 +467,76 @@ def sync_remote_project_views(owner: str, repo: str, template: ProjectTemplate) 
         "created": created,
         "existing": existing,
         "views": [v.name for v in template.views],
+    }
+
+
+def list_remote_projects(owner: str) -> list[dict[str, Any]]:
+    """List GitHub Projects v2 boards belonging to the user or organization."""
+    cmd = [CONST_GH_CLI, "project", "list", "--owner", owner, "--format", "json"]
+    proc = run_subprocess(cmd, check=False, quiet=True)
+    if proc.returncode != 0 or not proc.stdout.strip():
+        return []
+    try:
+        data = json.loads(proc.stdout)
+        raw = (
+            data.get("projects", [])
+            if isinstance(data, dict)
+            else (data if isinstance(data, list) else [])
+        )
+        return [
+            {
+                "number": p.get("number", 0),
+                "title": p.get("title", ""),
+                "state": "closed" if p.get("closed", False) else "open",
+                "id": p.get("id", ""),
+                "url": p.get("url", ""),
+            }
+            for p in raw
+            if isinstance(p, dict)
+        ]
+    except Exception as exc:
+        logger.debug("Failed to parse project list: %s", exc)
+        return []
+
+
+def audit_remote_project_views(owner: str, repo: str, template: ProjectTemplate) -> dict[str, Any]:
+    """Audit remote project views against template requirements."""
+    _, proj_num, existing_views = get_remote_project_views(owner, repo)
+    if not proj_num:
+        return {
+            "project_number": None,
+            "compliant": False,
+            "missing_views": [v.name for v in template.views],
+            "matching_views": [],
+            "total_remote_views": 0,
+        }
+
+    existing_names = {v.get("name", "").strip().lower() for v in existing_views}
+    expected_names = [v.name for v in template.views]
+    missing = [name for name in expected_names if name.lower() not in existing_names]
+    matching = [name for name in expected_names if name.lower() in existing_names]
+
+    return {
+        "project_number": proj_num,
+        "compliant": len(missing) == 0,
+        "missing_views": missing,
+        "matching_views": matching,
+        "total_remote_views": len(existing_views),
+    }
+
+
+def audit_project_drift(owner: str, repo: str, template: ProjectTemplate) -> dict[str, Any]:
+    """Audit project board health, field presence, and view alignment."""
+    views_audit = audit_remote_project_views(owner, repo, template)
+    matched = find_remote_project(owner, template.name)
+    if not matched and template.short_name:
+        matched = find_remote_project(owner, template.short_name)
+
+    proj_num = matched.get("number") if matched else views_audit.get("project_number")
+    return {
+        "project_number": proj_num,
+        "project_found": proj_num is not None,
+        "views_compliant": views_audit.get("compliant", False),
+        "missing_views": views_audit.get("missing_views", []),
+        "matching_views": views_audit.get("matching_views", []),
     }

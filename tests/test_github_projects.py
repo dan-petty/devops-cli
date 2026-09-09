@@ -463,3 +463,77 @@ def test_graphql_query_and_mutation_escaping() -> None:
         called_cmd = mock_proc.call_args[0][0]
         mutation_arg = next(arg for arg in called_cmd if arg.startswith("query="))
         assert r"Default \"Renamed\" View" in mutation_arg
+
+
+def test_list_remote_projects() -> None:
+    """list_remote_projects parses gh project list json."""
+    import json
+    from unittest.mock import MagicMock, patch
+
+    from devops_cli.github.projects import list_remote_projects
+
+    payload = {
+        "projects": [
+            {
+                "number": 2,
+                "title": "Roadmap Board",
+                "closed": False,
+                "id": "PVT_123",
+                "url": "https://github.com/users/test/projects/2",
+            }
+        ]
+    }
+    with patch("devops_cli.github.projects.run_subprocess") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0, stdout=json.dumps(payload))
+        projects = list_remote_projects("test")
+        assert len(projects) == 1
+        assert projects[0]["number"] == 2
+        assert projects[0]["state"] == "open"
+
+
+def test_audit_remote_project_views() -> None:
+    """audit_remote_project_views matches template views against remote views."""
+    from unittest.mock import patch
+
+    from devops_cli.github.projects import ProjectTemplate, ProjectView, audit_remote_project_views
+
+    template = ProjectTemplate(
+        name="Test",
+        views=[
+            ProjectView(name="Sprint Kanban", layout="BOARD"),
+            ProjectView(name="Roadmap Timeline", layout="ROADMAP"),
+        ],
+    )
+    remote_views = [{"name": "Sprint Kanban", "layout": "BOARD_LAYOUT"}]
+    with patch(
+        "devops_cli.github.projects.get_remote_project_views",
+        return_value=("PVT_1", 2, remote_views),
+    ):
+        res = audit_remote_project_views("owner", "repo", template)
+        assert res["project_number"] == 2
+        assert res["compliant"] is False
+        assert "Roadmap Timeline" in res["missing_views"]
+        assert "Sprint Kanban" in res["matching_views"]
+
+
+def test_audit_project_drift() -> None:
+    """audit_project_drift produces comprehensive status check."""
+    from unittest.mock import patch
+
+    from devops_cli.github.projects import ProjectTemplate, audit_project_drift
+
+    template = ProjectTemplate(name="Test Board", short_name="test-board", views=[])
+    views_audit = {
+        "project_number": 2,
+        "compliant": True,
+        "missing_views": [],
+        "matching_views": [],
+    }
+    with (
+        patch("devops_cli.github.projects.audit_remote_project_views", return_value=views_audit),
+        patch("devops_cli.github.projects.find_remote_project", return_value={"number": 2}),
+    ):
+        res = audit_project_drift("owner", "repo", template)
+        assert res["project_found"] is True
+        assert res["project_number"] == 2
+        assert res["views_compliant"] is True

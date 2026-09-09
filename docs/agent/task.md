@@ -794,6 +794,19 @@
   - [x] 4. Updated the Strategic Value vs. Effort Prioritization Matrix in `docs/ROADMAP.md` with 12 new deliverables across Quick Wins, Strategic Investments, and Tactical Additions.
   - [x] 5. Validated documentation integrity with zero drift via `devops docs generate --sync-readme` and `devops docs check`.
 
+- [x] Phase 50.2.3: GitHub Governance, Pages, Issues, Projects & Views Integration with FastMCP & Agent Instructions
+  - [x] 1. Implemented GitHub Pages management engine in `src/devops_cli/github/pages.py` (`get_pages_status`, `get_pages_builds`, `request_pages_build`, `verify_pages_configuration`).
+  - [x] 2. Implemented GitHub Issues engine and taxonomy audit in `src/devops_cli/github/issues.py` (`get_repository_issues`, `create_repository_issue`, `audit_issues_triage`, `get_issues_summary`).
+  - [x] 3. Enhanced GitHub Projects v2 engine in `src/devops_cli/github/projects.py` with multi-board listing (`list_remote_projects`), view auditing (`audit_remote_project_views`), and board drift auditing (`audit_project_drift`).
+  - [x] 4. Integrated Typer CLI subcommands: `devops gh pages [status|builds|build|verify]`, `devops gh issues [list|create|triage|status]`, `devops gh project [list|audit]`, `devops gh views audit`.
+  - [x] 5. Added centralized English CLI help catalogs in `src/devops_cli/lang/en/help.py`.
+  - [x] 6. Registered 10 new FastMCP tools (`gh_pages_status`, `gh_pages_build`, `gh_pages_verify`, `gh_issue_list`, `gh_issue_create`, `gh_issue_triage`, `gh_issue_status`, `gh_project_list`, `gh_project_audit`, `gh_views_audit`) and 4 dynamic system resources (`resource://gh/pages/status`, `resource://gh/issues/status`, `resource://gh/project/status`, `resource://gh/views/status`) in `src/devops_cli/ai/mcp/server.py`.
+  - [x] 7. Exported 106 FastMCP tool schemas (`devops mcp export-schemas`).
+  - [x] 8. Codified mandatory operational rules in `AGENTS.md` and `docs/ROUTINE_TASKS.md` for Pages verification, issue triage, project reconciliation, and views drift auditing.
+  - [x] 9. Updated Knowledge Base Task Manual 13 (`src/devops_cli/ai/knowledge_base/devops_cli/tasks/github_project_management.md`).
+  - [x] 10. Authored comprehensive test-first suites in `tests/test_github_pages.py` (8/8), `tests/test_github_issues.py` (6/6), `tests/test_github_projects.py` (21/21), `tests/test_gh_cmd.py` (18/18), `tests/test_mcp.py` (30/30), `tests/test_fastmcp_contracts.py` (6/6).
+  - [x] 11. Verified complexity <= 10 and indentation depth <= 5 across all modules (`devops scan complexity`).
+
 ---
 
 ### In-Progress Tasks (WIP)
