@@ -347,6 +347,8 @@ def test_expanded_mcp_tools_and_prompts_execution() -> None:
     """Verify execution of newly added security, k8s, vault, benchmark, and git governance MCP tools."""
     from devops_cli.ai.mcp.server import (
         ai_architecture,
+        ai_harness_status,
+        ai_subagent_offload,
         benchmark_embeddings,
         branches_list,
         code_review_prompt,
@@ -393,6 +395,10 @@ def test_expanded_mcp_tools_and_prompts_execution() -> None:
         # AI & Benchmark
         assert benchmark_embeddings(provider="ollama", model="bge-m3") == "mock_output"
         assert ai_architecture(target="src") == "mock_output"
+        assert ai_harness_status() == "mock_output"
+        assert ai_subagent_offload(repo="src", symbol="Foo") == "mock_output"
+        with pytest.raises(ValidationError, match="Cannot specify both 'symbol' and 'pattern'"):
+            ai_subagent_offload(repo="src", symbol="Foo", pattern="*.py")
 
         # Git & PR governance
         assert branches_list() == "mock_output"

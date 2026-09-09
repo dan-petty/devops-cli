@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "devops-cli"
-version = "0.2.12"
+version = "0.2.13"
 
 description = "DevOps CLI for managing repos, SSH keys, Kubernetes, and more"
 requires-python = ">=3.14"
@@ -16,7 +16,7 @@ dependencies = [
     "PyGithub==2.10.0",
     "gitpython==3.1.60",
     "cryptography==50.0.1",
-    "httpx2==2.9.0",
+    "httpx2==2.12.0",
     "keyring==25.7.0",
     "PyYAML==6.0.3",
     "jinja2==3.1.6",
@@ -35,6 +35,7 @@ dependencies = [
     "pydantic-ai==2.35.0",
     "opentelemetry-exporter-otlp-proto-grpc==1.44.0",
     "pydantic-handlebars==0.2.1",
+    "textual==8.2.8",
 ]
 
 [project.scripts]

@@ -90,9 +90,11 @@ def _run_native_fallback_iac_checks(target_path: Path) -> list[Finding]:
     target_files = [resolved] if resolved.is_file() else list(resolved.rglob("*"))
 
     for f in target_files:
-        if not f.is_file():
+        if not f.is_file() or f.is_symlink():
             continue
         rel_root = resolved if resolved.is_dir() else resolved.parent
+        if not f.resolve().is_relative_to(rel_root):
+            continue
         rel_str = str(f.relative_to(rel_root)) if f.is_relative_to(rel_root) else f.name
 
         if f.name.lower() == "dockerfile" or f.name.lower().endswith(".dockerfile"):

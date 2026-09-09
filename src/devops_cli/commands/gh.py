@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import urllib.parse
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -31,6 +32,7 @@ from devops_cli.github.projects import (
     load_project_template,
     parse_tasks_to_project_items,
     sync_remote_project,
+    sync_remote_project_views,
 )
 from devops_cli.lang import HELP
 from devops_cli.output import (
@@ -589,3 +591,61 @@ def spec_views(
     template = load_project_template(template_file)
     views_dicts = [v.model_dump() for v in template.views]
     print(json.dumps(views_dicts, indent=2))
+
+
+def _display_issues_saved_views(target_repo: str) -> None:
+    """Output reference URLs for GitHub Issues saved views."""
+    columns = ["View Name", "Issues Filter Query", "Direct Link"]
+    views_specs = [
+        ("Sprint Kanban", "is:issue state:open milestone:current"),
+        (
+            "Triage & Quality Table",
+            "is:issue state:open label:status/triage,status/blocked,type/bug",
+        ),
+        ("Roadmap Timeline", "is:issue state:open sort:milestone-desc"),
+        ("Value vs Effort Priority Matrix", "is:issue state:open sort:priority-desc"),
+    ]
+    rows = [
+        [
+            name,
+            query,
+            f"https://github.com/{target_repo}/issues?q={urllib.parse.quote_plus(query)}",
+        ]
+        for name, query in views_specs
+    ]
+    print_table(
+        f"Repository Issues Views (Save via https://github.com/{target_repo}/issues/views)",
+        columns,
+        rows,
+    )
+
+
+@views_app.command("sync", help=HELP.gh.views_sync)
+def sync_views(
+    template_file: Annotated[
+        Path,
+        typer.Option("--template", "-t", help="Path to project template JSON"),
+    ] = Path(".github/project-template.json"),
+    repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
+) -> None:
+    """Synchronize standardized views with remote GitHub Projects v2 board."""
+    target_repo = repo or _resolve_repo()
+    owner = target_repo.split("/")[0] if "/" in target_repo else "@me"
+    repo_name = target_repo.split("/")[1] if "/" in target_repo else target_repo
+    template = load_project_template(template_file)
+
+    try:
+        res = sync_remote_project_views(owner, repo_name, template)
+        proj_num = res.get("project_number")
+        if proj_num:
+            print_success(
+                f"Project #{proj_num} views synchronized: "
+                f"{len(res.get('existing', []))} existing, {len(res.get('created', []))} created "
+                f"({', '.join(res.get('views', []))})."
+            )
+        else:
+            print_warning(f"Could not sync views: {res.get('status', 'Project not found')}")
+    except Exception as exc:
+        print_warning(f"Views sync skipped or failed: {exc}")
+
+    _display_issues_saved_views(target_repo)

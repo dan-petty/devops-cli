@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any
 
 if TYPE_CHECKING:
-    pass
+    from devops_cli.config.settings import Settings
 
 import typer
 
@@ -37,6 +37,7 @@ __all__ = [
 def __getattr__(name: str) -> Any:
     if name in {
         "_diff_pages",
+        "_diff_stream_chunks",
         "_extract_code_lines",
         "_extract_segment_filenames",
         "_find_repo_files",
@@ -250,6 +251,23 @@ def review_main(
         raise typer.Exit(0)
 
 
+def _init_logfire_if_enabled(logfire: bool | None, settings: Settings) -> None:
+    """Initialize Logfire observability if explicitly flagged or configured."""
+    is_enabled = logfire if logfire is not None else getattr(settings.telemetry, "logfire", False)
+    if not is_enabled:
+        return
+
+    from devops_cli.telemetry.logfire import get_logfire_bridge
+
+    if logfire is True:
+        get_logfire_bridge().configure(settings=settings)
+    else:
+        import contextlib
+
+        with contextlib.suppress(Exception):
+            get_logfire_bridge().configure(settings=settings)
+
+
 # =============================================================================
 # Command: devops review path
 # =============================================================================
@@ -353,6 +371,18 @@ def path(
         int,
         typer.Option("--debounce-ms", help=HELP.options.debounce_ms),
     ] = 500,
+    concurrency: Annotated[
+        int | None,
+        typer.Option("--concurrency", "-c", help=HELP.review.concurrency),
+    ] = None,
+    parallel: Annotated[
+        bool,
+        typer.Option("--parallel/--no-parallel", help=HELP.review.parallel),
+    ] = True,
+    logfire: Annotated[
+        bool | None,
+        typer.Option("--logfire/--no-logfire", help=HELP.review.logfire),
+    ] = None,
 ) -> None:
     """Review source files directly (no git required)."""
     if explain:
@@ -361,6 +391,8 @@ def path(
         render_explanation("review")
         return
     set_dry_run(dry_run)
+    settings = load_settings()
+    _init_logfire_if_enabled(logfire, settings)
     stage_flags = resolve_stage_flags(
         no_pre_analysis=no_pre_analysis,
         pre_analysis_only=pre_analysis_only,
@@ -429,6 +461,8 @@ def path(
             target_ref=target_ref,
             target_dir=target_dir,
             stage_flags=stage_flags,
+            concurrency=concurrency,
+            parallel=parallel,
         )
 
     if watch:
@@ -550,6 +584,18 @@ def branch(
         bool,
         typer.Option("--append-cache", help=HELP.review.append_cache),
     ] = False,
+    concurrency: Annotated[
+        int | None,
+        typer.Option("--concurrency", "-c", help=HELP.review.concurrency),
+    ] = None,
+    parallel: Annotated[
+        bool,
+        typer.Option("--parallel/--no-parallel", help=HELP.review.parallel),
+    ] = True,
+    logfire: Annotated[
+        bool | None,
+        typer.Option("--logfire/--no-logfire", help=HELP.review.logfire),
+    ] = None,
 ) -> None:
     """Review a git branch diff with one or all AI personas."""
     if explain:
@@ -558,6 +604,8 @@ def branch(
         render_explanation("review")
         return
     set_dry_run(dry_run)
+    settings = load_settings()
+    _init_logfire_if_enabled(logfire, settings)
     stage_flags = resolve_stage_flags(
         no_pre_analysis=no_pre_analysis,
         pre_analysis_only=pre_analysis_only,
@@ -592,6 +640,8 @@ def branch(
         target_ref=str(branch_name or "active"),
         target_dir=repo_path,
         stage_flags=stage_flags,
+        concurrency=concurrency,
+        parallel=parallel,
     )
 
 
@@ -691,6 +741,18 @@ def pr(
         bool,
         typer.Option("--append-cache", help=HELP.review.append_cache),
     ] = False,
+    concurrency: Annotated[
+        int | None,
+        typer.Option("--concurrency", "-c", help=HELP.review.concurrency),
+    ] = None,
+    parallel: Annotated[
+        bool,
+        typer.Option("--parallel/--no-parallel", help=HELP.review.parallel),
+    ] = True,
+    logfire: Annotated[
+        bool | None,
+        typer.Option("--logfire/--no-logfire", help=HELP.review.logfire),
+    ] = None,
 ) -> None:
     """Review a GitHub pull request with one or all AI personas."""
     if explain:
@@ -701,6 +763,8 @@ def pr(
     from devops_cli.config.settings import get_github_token
 
     set_dry_run(dry_run)
+    settings = load_settings()
+    _init_logfire_if_enabled(logfire, settings)
     stage_flags = resolve_stage_flags(
         no_pre_analysis=no_pre_analysis,
         pre_analysis_only=pre_analysis_only,
@@ -743,6 +807,8 @@ def pr(
         target_ref=str(number),
         target_dir=Path.cwd(),
         stage_flags=stage_flags,
+        concurrency=concurrency,
+        parallel=parallel,
     )
 
     if post_comment and reviews:

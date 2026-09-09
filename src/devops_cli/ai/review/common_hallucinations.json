@@ -244,5 +244,98 @@
     "occurrence_count": 1,
     "last_seen": "2026-09-06T00:00:00",
     "source": "builtin"
+  },
+  {
+    "id": "HALLUCINATION-UNINITIALIZED-VARIABLE-ABOVE-LOOP",
+    "name": "Uninitialized Variable Hallucination Above Loop",
+    "category": "syntax_grammar",
+    "description": "Claiming that a variable used in a loop (e.g. system_prompt) is uninitialized or causes UnboundLocalError when it was explicitly initialized in the enclosing function scope before the loop.",
+    "signature_patterns": [
+      "uninitialized\\s+variable.*(?:loop|runtime\\s+failure|unboundlocalerror)",
+      "variable\\s+`?[a-zA-Z0-9_]+`?\\s+is\\s+not\\s+initialized\\s+before\\s+the\\s+loop",
+      "uninitialized\\s+variable\\s+['\"]?[a-zA-Z0-9_]+['\"]?"
+    ],
+    "pattern_keywords": [
+      "uninitialized_variable",
+      "system_prompt",
+      "unboundlocalerror",
+      "uninitialized_loop_var"
+    ],
+    "file_patterns": [
+      "*.py"
+    ],
+    "resolution": "Verify the enclosing function body above the loop. The variable was already initialized to a default value before the loop statement.",
+    "occurrence_count": 1,
+    "last_seen": "2026-09-07T00:00:00",
+    "source": "builtin"
+  },
+  {
+    "id": "HALLUCINATION-PATHLIB-RESOLVE-FILENOTFOUND",
+    "name": "Pathlib Path.resolve() False FileNotFoundError Claim",
+    "category": "dependency_ecosystem",
+    "description": "Claiming that pathlib.Path.resolve() raises FileNotFoundError on non-existent paths or rejects non-existent paths.",
+    "signature_patterns": [
+      "path(?:lib)?\\.resolve.*filenotfounderror",
+      "resolve\\(\\).*raises?\\s+filenotfounderror",
+      "rejects?\\s+non-existent\\s+paths\\s+due\\s+to\\s+path\\.resolve"
+    ],
+    "pattern_keywords": [
+      "pathlib_resolve_filenotfound",
+      "resolve_nonexistent",
+      "path_resolve_error"
+    ],
+    "file_patterns": [
+      "*.py"
+    ],
+    "resolution": "In Python 3.6+, Path.resolve(strict=False) safely resolves non-existent paths without raising FileNotFoundError.",
+    "occurrence_count": 1,
+    "last_seen": "2026-09-07T00:00:00",
+    "source": "builtin"
+  },
+  {
+    "id": "HALLUCINATION-HEALTH-ENDPOINT-VERSION",
+    "name": "Health Probe Endpoint Version Disclosure Hallucination",
+    "category": "documentation_context",
+    "description": "Claiming that /health or /healthz endpoints exposing the application version string represent a security vulnerability or CWE-200 information exposure.",
+    "signature_patterns": [
+      "information\\s+disclosure.*(?:version|health|healthz)",
+      "exposing\\s+version\\s+number\\s+in\\s+health\\s+endpoint",
+      "health.*(?:version\\s+leakage|cwe-200)"
+    ],
+    "pattern_keywords": [
+      "health_version_disclosure",
+      "healthz_version",
+      "health_cwe200"
+    ],
+    "file_patterns": [
+      "*.py"
+    ],
+    "resolution": "Application health and liveness endpoints (/health, /healthz) standardly provide service version and uptime metrics for Kubernetes cluster orchestration.",
+    "occurrence_count": 1,
+    "last_seen": "2026-09-07T00:00:00",
+    "source": "builtin"
+  },
+  {
+    "id": "HALLUCINATION-STREAM-EVENT-TIMESTAMP",
+    "name": "Streaming Event Timestamp Leakage False Alarm",
+    "category": "documentation_context",
+    "description": "Claiming that timestamps or timing metadata in Server-Sent Events (SSE) or WebSocket event streams represent a security vulnerability or sensitive information leakage.",
+    "signature_patterns": [
+      "timestamp\\s+leakage\\s+in\\s+(?:sse|websocket|events)",
+      "leakage\\s+of\\s+timestamps?\\s+in\\s+(?:stream|events)",
+      "sse.*timestamp\\s+leak"
+    ],
+    "pattern_keywords": [
+      "sse_timestamp_leakage",
+      "stream_event_timestamp",
+      "timestamp_leak"
+    ],
+    "file_patterns": [
+      "*.py"
+    ],
+    "resolution": "Real-time event streams (SSE, WebSockets) require monotonic or epoch timestamps for event sequencing, deduplication, and client synchronization.",
+    "occurrence_count": 1,
+    "last_seen": "2026-09-07T00:00:00",
+    "source": "builtin"
   }
 ]

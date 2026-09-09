@@ -312,3 +312,29 @@ def test_ai_cache_cli_commands(clean_cache: LLMResponseCache) -> None:
     res_clear = runner.invoke(ai_app, ["cache", "clear"])
     assert res_clear.exit_code == 0
     assert "Cleared" in res_clear.output
+
+
+def test_ai_config_append_cache_deduplication_and_migration() -> None:
+    """Verify that AIConfig eliminates duplicate append_cache in dumped YAML and migrates legacy inputs."""
+    # 1. Default instance: append_cache is only serialized under cache
+    cfg = AIConfig()
+    dumped = cfg.model_dump(mode="json")
+    assert "append_cache" not in dumped
+    assert "append_cache" in dumped["cache"]
+    assert cfg.append_cache is False
+    assert cfg.cache.append_cache is False
+
+    # 2. Mutating property updates cache.append_cache
+    cfg.append_cache = True
+    assert cfg.append_cache is True
+    assert cfg.cache.append_cache is True
+    dumped_updated = cfg.model_dump(mode="json")
+    assert "append_cache" not in dumped_updated
+    assert dumped_updated["cache"]["append_cache"] is True
+
+    # 3. Loading legacy dict with top-level append_cache seamlessly migrates into cache.append_cache
+    legacy_data = {"append_cache": True, "provider": "ollama"}
+    migrated_cfg = AIConfig(**legacy_data)
+    assert migrated_cfg.append_cache is True
+    assert migrated_cfg.cache.append_cache is True
+    assert "append_cache" not in migrated_cfg.model_dump(mode="json")

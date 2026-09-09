@@ -223,8 +223,7 @@ class GitHubClient:
         """Update an existing milestone in the specified repository."""
         milestone = self._gh.get_repo(repo).get_milestone(number)
         kwargs: dict[str, Any] = {"state": state}
-        if title is not None:
-            kwargs["title"] = title
+        kwargs["title"] = title if title is not None else milestone.title
         if description is not None:
             kwargs["description"] = description
         if due_on is not None:

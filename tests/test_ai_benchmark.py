@@ -10,15 +10,25 @@ import pytest
 from typer.testing import CliRunner
 
 from devops_cli.ai.benchmark.runner import BenchmarkRunner
+from devops_cli.ai.benchmark.suite import (
+    BenchmarkSuiteRunner,
+    calculate_suite_metrics,
+    evaluate_architectural_compliance,
+    load_feedback_benchmark_dataset,
+)
 from devops_cli.ai.benchmark.tasks import BENCHMARK_TASKS, get_benchmark_tasks
 from devops_cli.commands.ai import app as ai_app
 from devops_cli.models.benchmark import (
     BenchmarkReport,
+    BenchmarkSuiteEvaluation,
+    BenchmarkSuiteReport,
     BenchmarkTask,
     ModelBenchmarkSummary,
+    ModelSuiteMetrics,
     PeerGrade,
     TaskResponse,
 )
+from devops_cli.output import format_benchmark_suite_table
 
 runner = CliRunner()
 
@@ -640,3 +650,286 @@ def test_embedding_eval_dataset_parsers() -> None:
     all_pairs, corpus = get_embedding_eval_dataset()
     assert len(all_pairs) > 0
     assert len(corpus) >= len(all_pairs)
+
+
+def test_suite_models_and_metrics_calculation() -> None:
+    """Verify calculation of precision, recall, F1, hallucination rate, and throughput."""
+    evals = [
+        BenchmarkSuiteEvaluation(
+            model="qwen-test",
+            case_id="c1",
+            persona="devsecops",
+            predicted_vulnerability=True,
+            is_true_positive=True,
+            invariant_compliant=True,
+            latency_ms=100.0,
+            tokens_generated=50,
+        ),
+        BenchmarkSuiteEvaluation(
+            model="qwen-test",
+            case_id="c2",
+            persona="devsecops",
+            predicted_vulnerability=False,
+            is_true_negative=True,
+            invariant_compliant=True,
+            latency_ms=100.0,
+            tokens_generated=50,
+        ),
+        BenchmarkSuiteEvaluation(
+            model="qwen-test",
+            case_id="c3",
+            persona="qa",
+            predicted_vulnerability=True,
+            is_false_positive=True,  # Hallucination!
+            invariant_compliant=True,
+            latency_ms=100.0,
+            tokens_generated=50,
+        ),
+        BenchmarkSuiteEvaluation(
+            model="qwen-test",
+            case_id="c4",
+            persona="architecture",
+            predicted_vulnerability=False,
+            is_false_negative=True,
+            invariant_compliant=False,
+            latency_ms=100.0,
+            tokens_generated=50,
+        ),
+    ]
+    metrics = calculate_suite_metrics(evals, model="qwen-test", provider="ollama")
+
+    assert metrics.total_cases == 4
+    assert metrics.true_positives == 1
+    assert metrics.false_positives == 1
+    assert metrics.true_negatives == 1
+    assert metrics.false_negatives == 1
+    assert metrics.precision == 0.5
+    assert metrics.recall == 0.5
+    assert metrics.f1_score == 0.5
+    assert metrics.hallucination_rate == 0.5
+    assert metrics.accuracy == 0.5
+    assert metrics.avg_latency_ms == 100.0
+    assert metrics.total_tokens == 200
+    assert metrics.avg_tokens_per_second == 500.0
+    assert metrics.architectural_compliance_rate == 0.75
+    assert 0.0 <= metrics.overall_score <= 100.0
+
+
+def test_evaluate_architectural_compliance() -> None:
+    """Verify AST compliance calculation against cyclomatic complexity and nesting depth."""
+    compliant_code = """
+def clean_function(val: int) -> int:
+    if val > 0:
+        return val * 2
+    return 0
+"""
+    comp, nest, compliant = evaluate_architectural_compliance(
+        compliant_code, max_complexity=10, max_nesting=5
+    )
+    assert comp <= 10
+    assert nest <= 5
+    assert compliant is True
+
+    complex_code = """
+def overly_complex_function(data: list[int]) -> int:
+    total = 0
+    if len(data) > 0:
+        for a in data:
+            if a > 1:
+                for b in range(a):
+                    if b > 2:
+                        while b < 10:
+                            if b % 2 == 0:
+                                total += 1
+                                for c in range(b):
+                                    if c > 0:
+                                        total += c
+                            b += 1
+    return total
+"""
+    comp2, nest2, compliant2 = evaluate_architectural_compliance(
+        complex_code, max_complexity=10, max_nesting=5
+    )
+    assert comp2 > 5
+    assert nest2 >= 6
+    assert compliant2 is False
+
+    empty_comp, empty_nest, empty_compliant = evaluate_architectural_compliance("")
+    assert empty_compliant is True
+
+    invalid_comp, invalid_nest, invalid_compliant = evaluate_architectural_compliance(
+        "def invalid syntax (("
+    )
+    assert invalid_compliant is False
+
+
+def test_load_feedback_benchmark_dataset_fallback() -> None:
+    """Verify loading baseline feedback benchmark dataset when no dataset file is provided."""
+    cases = load_feedback_benchmark_dataset(None)
+    assert len(cases) >= 6
+
+    # Verify presence of ground truth positive and negative cases
+    positives = [c for c in cases if c.is_vulnerability]
+    negatives = [c for c in cases if not c.is_vulnerability]
+    assert len(positives) >= 3
+    assert len(negatives) >= 3
+
+    # Check specific critical findings
+    case_ids = {c.case_id for c in cases}
+    assert "sec-ssrf-webhook-fetch" in case_ids
+    assert "qa-pep758-bracketless-except" in case_ids
+
+
+def test_load_feedback_benchmark_dataset_custom_file(tmp_path: Path) -> None:
+    """Verify loading feedback cases from custom JSONL file."""
+    dataset_file = tmp_path / "custom_feedback.jsonl"
+    record_1 = {
+        "id": "finding-1",
+        "persona": "devsecops",
+        "title": "Custom Hardcoded Token Leak",
+        "severity": "high",
+        "location": "src/auth.py:10",
+        "description": "Plaintext secret detected",
+        "status": "VALIDATED",
+        "verified": True,
+        "code_snippet": "TOKEN = 'secret'",
+    }
+    record_2 = {
+        "id": "finding-2",
+        "persona": "qa",
+        "title": "False Positive Syntax Hallucination",
+        "severity": "medium",
+        "location": "src/parser.py:20",
+        "description": "Bracketless exception flagged as syntax error",
+        "status": "INVALIDATED",
+        "verified": False,
+        "invalidation_reason": "PEP 758 valid syntax",
+    }
+    dataset_file.write_text(f"{json.dumps(record_1)}\n{json.dumps(record_2)}\n", encoding="utf-8")
+
+    cases = load_feedback_benchmark_dataset(dataset_file)
+    assert len(cases) == 2
+    assert cases[0].case_id == "finding-1"
+    assert cases[0].is_vulnerability is True
+    assert cases[1].case_id == "finding-2"
+    assert cases[1].is_vulnerability is False
+
+
+def test_load_feedback_benchmark_dataset_security_traversal(tmp_path: Path) -> None:
+    """Verify rejection of symlinks and path traversal attempts."""
+    symlink_file = tmp_path / "symlink_dataset.jsonl"
+    real_file = tmp_path / "real.jsonl"
+    real_file.write_text("{}\n", encoding="utf-8")
+    symlink_file.symlink_to(real_file)
+
+    from devops_cli.exceptions import SecurityError
+
+    with pytest.raises(SecurityError, match="must not be a symbolic link"):
+        load_feedback_benchmark_dataset(symlink_file)
+
+
+def test_benchmark_suite_runner_simulation(tmp_path: Path) -> None:
+    """Verify execution of BenchmarkSuiteRunner in dry-run mode."""
+    runner_inst = BenchmarkSuiteRunner(
+        models=["qwen-coder:7b", "weak-test-model:1b"],
+        is_dry_run=True,
+    )
+    report = runner_inst.run()
+
+    assert report.total_cases >= 6
+    assert len(report.models_evaluated) == 2
+    assert len(report.leaderboard) == 2
+    assert len(report.recommendations) >= 1
+    assert report.is_dry_run is True
+
+    # Higher quality model should lead leaderboard over weak model
+    assert report.leaderboard[0].model == "qwen-coder:7b"
+    assert report.leaderboard[0].overall_score >= report.leaderboard[1].overall_score
+
+    # Verify Markdown report generation
+    md = runner_inst.to_markdown(report)
+    assert "# AI Benchmark Evaluation Suite Report" in md
+    assert "Leaderboard Summary" in md
+    assert "qwen-coder:7b" in md
+
+
+def test_benchmark_suite_runner_live_mocked() -> None:
+    """Verify live model execution with mocked LLMClient responses."""
+    runner_inst = BenchmarkSuiteRunner(
+        models=["mock-model:7b"],
+        is_dry_run=False,
+    )
+    mock_client = MagicMock()
+    mock_client.chat.return_value = (
+        "VERDICT: VULNERABILITY DETECTED\n"
+        "Confidence: 0.95\n"
+        "Reasoning: Genuine SSRF vulnerability found.\n"
+        "```python\ndef remediate_ssrf(url: str) -> bool:\n    return True\n```"
+    )
+
+    with patch.object(runner_inst, "_client_for_model", return_value=mock_client):
+        report = runner_inst.run()
+        assert len(report.leaderboard) == 1
+        metrics = report.leaderboard[0]
+        assert metrics.model == "mock-model:7b"
+        assert metrics.true_positives >= 1
+        assert metrics.architectural_compliance_rate >= 0.9
+
+
+def test_benchmark_suite_cli(tmp_path: Path) -> None:
+    """Verify CLI devops ai benchmark --suite invocations across formats."""
+    # Test dry-run suite execution
+    res = runner.invoke(ai_app, ["benchmark", "--suite", "--dry-run"])
+    assert res.exit_code == 0
+    assert "AI Benchmark Evaluation Suite" in res.output or "Leaderboard" in res.output
+
+    # Test JSON output format
+    res_json = runner.invoke(ai_app, ["benchmark", "--suite", "--format", "json", "--dry-run"])
+    assert res_json.exit_code == 0
+    data = json.loads(res_json.output)
+    assert "leaderboard" in data
+    assert "session_id" in data
+
+    # Test Markdown output format
+    res_md = runner.invoke(ai_app, ["benchmark", "--suite", "--format", "markdown", "--dry-run"])
+    assert res_md.exit_code == 0
+    assert "# AI Benchmark Evaluation Suite Report" in res_md.output
+
+    # Test export to custom file
+    out_file = tmp_path / "custom_suite_report.json"
+    res_out = runner.invoke(
+        ai_app,
+        ["benchmark", "--suite", "--output", str(out_file), "--dry-run"],
+    )
+    assert res_out.exit_code == 0
+    assert out_file.exists()
+
+
+def test_format_benchmark_suite_table() -> None:
+    """Verify TablePayload generation for benchmark suite leaderboard."""
+    metrics = ModelSuiteMetrics(
+        model="qwen-coder:7b",
+        overall_score=94.5,
+        precision=0.95,
+        recall=0.92,
+        f1_score=0.935,
+        hallucination_rate=0.04,
+        architectural_compliance_rate=1.0,
+        avg_latency_ms=85.0,
+        avg_tokens_per_second=120.0,
+        true_positives=5,
+        false_positives=0,
+        true_negatives=5,
+        false_negatives=0,
+    )
+    report = BenchmarkSuiteReport(
+        session_id="20260908-test",
+        total_cases=10,
+        models_evaluated=["qwen-coder:7b"],
+        leaderboard=[metrics],
+        is_dry_run=True,
+    )
+    table_payload = format_benchmark_suite_table(report)
+    assert table_payload.title
+    assert len(table_payload.rows) == 1
+    assert table_payload.rows[0][1] == "qwen-coder:7b"

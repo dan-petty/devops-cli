@@ -1032,3 +1032,90 @@ def test_render_single_finding_panel_escapes_malformed_markup(tmp_path: Path) ->
     assert "Finding #1" in output
     assert "tables.py:402" in output
     assert "[/{status_color}]" in output
+
+
+def test_orchestrator_parallel_worker_pool_execution(tmp_path: Path) -> None:
+    """Verify ReviewPipelineOrchestrator executes reviews and verification via ReviewWorkerPool."""
+    mock_llm = _create_mock_review_llm()
+    orchestrator = ReviewPipelineOrchestrator(
+        session_id="pool-test-session",
+        llm_client=mock_llm,
+        target_dir=tmp_path,
+        concurrency=3,
+        parallel=True,
+    )
+
+    fmeta1 = FileAnalysisMeta(path="src/one.py", key_symbols=["alpha"])
+    fmeta2 = FileAnalysisMeta(path="src/two.py", key_symbols=["beta"])
+    payloads = orchestrator.init_per_file_payloads(
+        ["src/one.py", "src/two.py"],
+        {"src/one.py": fmeta1, "src/two.py": fmeta2},
+    )
+
+    # 1. Test parallel multi-persona review via ReviewWorkerPool
+    diff_map = {"src/one.py": "def alpha(): pass", "src/two.py": "def beta(): pass"}
+    orchestrator.execute_multi_persona_review(
+        payloads, diff_text_by_file=diff_map, personas=["devsecops"]
+    )
+    assert all(p.ai_scratchpad["stage"] == "reviewed" for p in payloads)
+    assert all(len(p.findings) == 1 for p in payloads)
+
+    # 2. Test parallel verification via ReviewWorkerPool
+    orchestrator.execute_finding_verification(payloads)
+    assert all(p.ai_scratchpad["stage"] == "verified" for p in payloads)
+
+    # 3. Test sequential fallback (parallel=False)
+    seq_orchestrator = ReviewPipelineOrchestrator(
+        session_id="seq-test-session",
+        llm_client=mock_llm,
+        target_dir=tmp_path,
+        concurrency=1,
+        parallel=False,
+    )
+    seq_payloads = seq_orchestrator.init_per_file_payloads(
+        ["src/one.py"],
+        {"src/one.py": fmeta1},
+    )
+    seq_orchestrator.execute_multi_persona_review(
+        seq_payloads, diff_text_by_file=diff_map, personas=["devsecops"]
+    )
+    assert seq_payloads[0].ai_scratchpad["stage"] == "reviewed"
+    seq_orchestrator.execute_finding_verification(seq_payloads)
+    assert seq_payloads[0].ai_scratchpad["stage"] == "verified"
+
+
+def test_orchestrator_worker_clamping_to_total_files(tmp_path: Path) -> None:
+    """Verify worker pool concurrency is clamped to total_files count."""
+    mock_llm = _create_mock_review_llm()
+    orchestrator = ReviewPipelineOrchestrator(
+        session_id="clamp-test-session",
+        llm_client=mock_llm,
+        target_dir=tmp_path,
+        concurrency=16,
+        parallel=True,
+    )
+    fmeta = FileAnalysisMeta(path="src/one.py", key_symbols=["alpha"])
+    payloads = orchestrator.init_per_file_payloads(["src/one.py"], {"src/one.py": fmeta})
+
+    with patch("devops_cli.ai.review.pool.ReviewWorkerPool") as mock_pool_cls:
+        mock_pool = MagicMock()
+        mock_pool_cls.return_value = mock_pool
+        orchestrator.execute_multi_persona_review(
+            payloads, diff_text_by_file={"src/one.py": "code"}, personas=["devsecops"]
+        )
+        assert not mock_pool_cls.called
+
+    fmeta2 = FileAnalysisMeta(path="src/two.py", key_symbols=["beta"])
+    payloads2 = orchestrator.init_per_file_payloads(
+        ["src/one.py", "src/two.py"], {"src/one.py": fmeta, "src/two.py": fmeta2}
+    )
+    with patch("devops_cli.ai.review.pool.ReviewWorkerPool") as mock_pool_cls:
+        mock_pool = MagicMock()
+        mock_pool_cls.return_value = mock_pool
+        orchestrator.execute_multi_persona_review(
+            payloads2,
+            diff_text_by_file={"src/one.py": "c1", "src/two.py": "c2"},
+            personas=["devsecops"],
+        )
+        assert mock_pool_cls.called
+        assert mock_pool_cls.call_args.kwargs.get("max_concurrency") == 2

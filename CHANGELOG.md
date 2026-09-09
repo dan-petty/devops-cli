@@ -5,6 +5,63 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [0.2.13] - 2026-09-09
+
+### Added
+- **Sub-Agent Local Offloading Engine & Agent Harness Slots (`devops_cli.ai.harness.slots`)**:
+  - Modular Harness Slots (`ModelSlot`, `SkillSlot`, `ToolSlot`, `SubAgentSlot`) offloading token-intensive AST exploration, file scouting, and symbol cataloging to local open models (Granite, Qwen2.5-Coder via Ollama).
+  - "Big decides, small types, big checks" multi-tier synthesis protocol achieving 85%+ frontier token savings with automated baseline calculation.
+  - Dedicated CLI command group `devops ai harness` (`status`, `offload`, `run`) with `--format json` and `--dry-run` modes.
+  - 2 FastMCP tools: `ai_harness_status` and `ai_subagent_offload`.
+- **Interactive Terminal UI Dashboard (`devops dashboard` / `devops tui`)**: Full-screen responsive terminal dashboard powered by `Textual` for live Kubernetes pods, Docker containers, OTel spans, Valkey cache metrics, and AI review statuses with keyboard navigation and accessible help modal.
+- **Model Dependency Chaos Engineering Suite (`devops ai chaos-model`)**:
+  - Automated fault injection engine (`ModelChaosInjector`) evaluating resilient fallback routing across 4 failure modes: artificial latency, HTTP 429 rate-limiting, request timeouts, and malformed JSON payloads.
+  - Automated local open-model fallback routing ensuring CI quality gates pass without manual intervention.
+  - OpenTelemetry spans and Prometheus counter metrics tracking chaos injections and recovery events.
+  - FastMCP tool `ai_chaos_model` and CLI command `devops ai chaos-model`.
+- **Agent Constellation Quiesce & Emergency Failover Controller (`devops ai quiesce`, `devops ai failover`)**:
+  - Enterprise state machine managing agent constellation suspension (`quiesce`), emergency route diversion (`failover`), and state resumption (`resume`).
+  - Persistent snapshot state machine in `.data/agent/quiesce.json` with active route discovery and health inspection.
+  - 4 FastMCP tools: `ai_quiesce`, `ai_failover`, `ai_resume`, `ai_constellation_status` and live resource `resource://ai/constellation`.
+- **Multi-Model LLM Benchmark Evaluation Harness (`devops ai benchmark --suite`)**:
+  - Parallel evaluation runner executing standardized benchmark suites with quantitative scoring (precision, recall, F1, hallucination rate, throughput).
+  - Rich leaderboard table output and Markdown export for offline analysis.
+  - FastMCP tool `benchmark_suite`.
+- **Parallel Async Multi-File Review Worker Pool & Streaming Diff Parser**:
+  - Asynchronous worker pool (`ReviewWorkerPool`) leveraging Python 3.14 `asyncio.TaskGroup`, `asyncio.Semaphore`, and token bucket rate limiting.
+  - Streaming generator-based unified diff chunker (`diff_stream_chunks`) for zero-copy review processing.
+  - CLI flags `--concurrency` / `-c` and `--parallel / --no-parallel` across `devops review path`, `branch`, and `pr`.
+- **Logfire Structured AI Observability Bridge (`logfire`)**:
+  - Native integration with Pydantic Logfire (`LogfireBridge`) supporting bidirectional W3C traceparent propagation and OTel collector forwarding.
+  - Context manager `logfire_agent_turn` and Rich terminal visualizers (`render_agent_turn_table`, `render_agent_turn_panel`).
+  - FastMCP tool `telemetry_logfire_status` and dynamic system resource `resource://telemetry/logfire`.
+- **In-Cluster Container Registry & Kubernetes Stack Lifecycle**:
+  - Automated local container registry on NodePort `30500` with containerd mirror endpoints on k3s nodes.
+  - PodSecurity admission label alignment across namespaces.
+  - Added `--wait / --no-wait` and `--timeout` flags to `devops k8s deploy-stack` for non-blocking deployments.
+- **GitHub Milestones Lifecycle Automation**: Hardened `close_repository_milestone` and `edit_milestone` with automatic title fallback and parameter signature inspection.
+
+### Changed
+- **Dependabot Active Release Tracking**: Configured `.github/dependabot.yml` to target active release branch `release/v0.2.13`.
+- **Human-Readable Output Duration Formatting**: Rounded durations >= 10s to whole seconds across CLI outputs, benchmarks, and multi-stage reviews.
+- **Configuration Deduplication & Child Path Rebasing**: Harmonized `append_cache` between `AIConfig` and `AICacheConfig`, and implemented table-driven child path rebasing in `DataConfig`.
+
+### Fixed
+- **Review Findings Remediation & Self-Improvement Loop Hardening**:
+  - Automatically mask sensitive dictionary fields in root `DevOpsError` exception representations.
+  - Hardened AI agent step persistence, durable execution serialization, prompt template sanitization against tag injection, and tool argument traversal checks.
+  - Eliminated Bandit B104 hardcoded loopback binding alert and satisfied strict static type constraints in `test_gen.py`.
+  - Expanded the common AI hallucinations catalog and deterministic pre-verification engine with checks for uninitialized variables above loops, Pathlib `resolve()` non-existent path behavior, health probe version disclosure, and SSE streaming event timestamps.
+  - Expanded test coverage across GitHub projects, milestones, labels, and verification heuristics to exceed strict 90% quality gate.
+- **DevContainer SSH Signing Key Isolation & Tooling**:
+  - Isolated git commit signing to devcontainer without mutating user global configurations.
+  - Installed `pre-commit` at the system level in devcontainer Dockerfile.
+- **GitHub Pages Site Layout & Documentation Badges**:
+  - Resolved table rendering for Kramdown, updated canonical repository links, and hardened responsive CSS layouts.
+  - Addressed Copilot code review feedback with dynamic site versioning and defensive DOM helpers.
+
 ## [0.2.12] - 2026-09-07
 
 ### Added

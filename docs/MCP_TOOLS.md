@@ -7,12 +7,20 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | Tool Name | Description |
 |---|---|
 | [`ai_architecture`](#ai-architecture) | Analyze architectural module boundaries, dependency graphs, and cyclic imports. |
+| [`ai_chaos_model`](#ai-chaos-model) | Execute model dependency chaos fault injection and verify automated fallback recovery. |
+| [`ai_constellation_status`](#ai-constellation-status) | Display constellation fleet status, active fallback routes, and suspended tasks. |
 | [`ai_diagram`](#ai-diagram) | Generate visual Mermaid architecture or threat modeling diagram. |
+| [`ai_failover`](#ai-failover) | Emergency failover controller re-routing tasks to designated fallback endpoints. |
+| [`ai_harness_status`](#ai-harness-status) | Inspect AI agent harness slot configuration, active models, skills, and sandbox state. |
+| [`ai_quiesce`](#ai-quiesce) | Centralized emergency quiesce cleanly suspending active agent loops and background tasks. |
 | [`ai_repomap`](#ai-repomap) | Generate a compact whole-repository AST symbol map for AI context. |
+| [`ai_resume`](#ai-resume) | Gracefully resume suspended constellation agent loops and task runners. |
+| [`ai_subagent_offload`](#ai-subagent-offload) | Offload AST exploration, symbol cataloging, or file scouting to local sub-agent slot. |
 | [`ai_test_gen`](#ai-test-gen) | Synthesize isolated pytest unit test suite for a target Python file. |
 | [`argo_list`](#argo-list) | List ArgoCD applications. |
 | [`argo_status`](#argo-status) | Check ArgoCD application health and sync status. |
 | [`benchmark_embeddings`](#benchmark-embeddings) | Benchmark embedding model inference latency, dimensions, and retrieval accuracy. |
+| [`benchmark_suite`](#benchmark-suite) | Benchmark candidate models against feedback dataset for precision, recall, and hallucination scoring. |
 | [`branches_list`](#branches-list) | List git branches across repositories with tracking status and stale detection. |
 | [`ci_run`](#ci-run) | Run devops-cli complete quality gate (pytest, ruff check, ruff format, mypy). |
 | [`config_audit_keys`](#config-audit-keys) | Audit OS Keyring health, token state, and zero-plaintext secret compliance. |
@@ -28,6 +36,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`gh_project_status`](#gh-project-status) | Inspect GitHub Projects v2 template configuration, fields, and view definitions. |
 | [`gh_project_sync`](#gh-project-sync) | Synchronize task items from task.md into GitHub Projects v2 status. |
 | [`gh_view_spec`](#gh-view-spec) | Return JSON specification for GitHub Projects v2 views. |
+| [`gh_views_sync`](#gh-views-sync) | Synchronize standardized GitHub Projects v2 views with the remote repository project. |
 | [`grafana_dashboards`](#grafana-dashboards) | List Grafana dashboards, optionally filtered by search query. |
 | [`k8s_audit`](#k8s-audit) | Audit Kubernetes cluster security posture, RBAC policies, and CIS benchmarks. |
 | [`k8s_bootstrap`](#k8s-bootstrap) | Bootstrap minikube Kubernetes cluster and deploy infrastructure stack. |
@@ -70,6 +79,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`security_intel_package`](#security-intel-package) | Query OSV.dev and NVD vulnerability databases for package CVE intelligence. |
 | [`ssh_audit`](#ssh-audit) | Audit SSH key expiration dates and key file permissions. |
 | [`ssh_status`](#ssh-status) | Inspect age and rotation status of managed SSH keys in ~/.ssh. |
+| [`telemetry_logfire_status`](#telemetry-logfire-status) | Check Logfire structured observability bridge status, token configuration, and recorded metrics. |
 | [`telemetry_profile`](#telemetry-profile) | Display terminal waterfall latency breakdown of OpenTelemetry trace spans. |
 | [`telemetry_status`](#telemetry-status) | Check OpenTelemetry collector connectivity, Jaeger UI URL, and active telemetry settings. |
 | [`telemetry_test_span`](#telemetry-test-span) | Emit a test OpenTelemetry trace span and metric to verify collector pipeline health. |
@@ -106,6 +116,24 @@ Analyze architectural module boundaries, dependency graphs, and cyclic imports.
 | `target` | `string` | No | `src` | - |
 | `max_depth` | `integer` | No | `4` | - |
 
+### `ai_chaos_model`
+
+Execute model dependency chaos fault injection and verify automated fallback recovery.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `mode` | `string` | No | `all` | - |
+| `fallback_model` | `string` | No | `qwen2.5-coder:7b` | - |
+| `dry_run` | `boolean` | No | `False` | - |
+
+### `ai_constellation_status`
+
+Display constellation fleet status, active fallback routes, and suspended tasks.
+
+*No parameters required.*
+
 ### `ai_diagram`
 
 Generate visual Mermaid architecture or threat modeling diagram.
@@ -117,6 +145,35 @@ Generate visual Mermaid architecture or threat modeling diagram.
 | `diagram_type` | `string` | No | `arch` | - |
 | `target_dir` | `string` | No | `.` | - |
 
+### `ai_failover`
+
+Emergency failover controller re-routing tasks to designated fallback endpoints.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `target_provider` | `string` | No | `ollama` | - |
+| `target_model` | `string` | No | `qwen2.5-coder:7b` | - |
+| `dry_run` | `boolean` | No | `False` | - |
+
+### `ai_harness_status`
+
+Inspect AI agent harness slot configuration, active models, skills, and sandbox state.
+
+*No parameters required.*
+
+### `ai_quiesce`
+
+Centralized emergency quiesce cleanly suspending active agent loops and background tasks.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `reason` | `string` | No | `Operator requested emergency quiesce` | - |
+| `dry_run` | `boolean` | No | `False` | - |
+
 ### `ai_repomap`
 
 Generate a compact whole-repository AST symbol map for AI context.
@@ -126,6 +183,28 @@ Generate a compact whole-repository AST symbol map for AI context.
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `target_dir` | `string` | No | `.` | - |
+
+### `ai_resume`
+
+Gracefully resume suspended constellation agent loops and task runners.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `dry_run` | `boolean` | No | `False` | - |
+
+### `ai_subagent_offload`
+
+Offload AST exploration, symbol cataloging, or file scouting to local sub-agent slot.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `repo` | `string` | No | `.` | - |
+| `symbol` | `string` | No | - | - |
+| `pattern` | `string` | No | - | - |
 
 ### `ai_test_gen`
 
@@ -164,6 +243,19 @@ Benchmark embedding model inference latency, dimensions, and retrieval accuracy.
 | `provider` | `string` | No | `ollama` | - |
 | `model` | `string` | No | `bge-m3` | - |
 | `samples` | `integer` | No | `10` | - |
+
+### `benchmark_suite`
+
+Benchmark candidate models against feedback dataset for precision, recall, and hallucination scoring.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `models` | `string` | No | `qwen2.5-coder:7b` | - |
+| `dataset` | `string` | No | `` | - |
+| `provider` | `string` | No | `ollama` | - |
+| `dry_run` | `boolean` | No | `True` | - |
 
 ### `branches_list`
 
@@ -303,6 +395,16 @@ Synchronize task items from task.md into GitHub Projects v2 status.
 Return JSON specification for GitHub Projects v2 views.
 
 *No parameters required.*
+
+### `gh_views_sync`
+
+Synchronize standardized GitHub Projects v2 views with the remote repository project.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `repo` | `string` | No | `` | - |
 
 ### `grafana_dashboards`
 
@@ -729,6 +831,12 @@ Audit SSH key expiration dates and key file permissions.
 ### `ssh_status`
 
 Inspect age and rotation status of managed SSH keys in ~/.ssh.
+
+*No parameters required.*
+
+### `telemetry_logfire_status`
+
+Check Logfire structured observability bridge status, token configuration, and recorded metrics.
 
 *No parameters required.*
 

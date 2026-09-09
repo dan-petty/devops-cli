@@ -67,11 +67,9 @@ class StepPersistence(BaseCapability):
             self.save_step("tool_call", {"tool_name": tool_name, "args": clean_args})
 
         def after_tool(ctx: RunContext[Any], tool_name: str, result: Any) -> None:
-            clean_res = (
-                _mask_sensitive_data(result)
-                if isinstance(result, (dict, list))
-                else str(result)[:500]
-            )
+            clean_res = _mask_sensitive_data(result)
+            if isinstance(clean_res, str) and len(clean_res) > 500:
+                clean_res = clean_res[:500]
             self.save_step("tool_result", {"tool_name": tool_name, "result": clean_res})
 
         return AgentHooks(before_tool_execute=[before_tool], after_tool_execute=[after_tool])

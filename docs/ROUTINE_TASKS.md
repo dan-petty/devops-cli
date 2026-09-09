@@ -35,18 +35,20 @@ The following matrix categorizes all project routine tasks by operational layer,
 | **Feature / PR Lifecycle** | PR Iteration & Updates | Step 4 | `git push origin <branch>` | Pushes revisions directly to existing PR branch | Remote CI checks trigger and pass |
 | **Feature / PR Lifecycle** | AI Code Review | Step 5 | `devops ai review branch <name> --dry-run` | Multi-persona analysis (`devsecops`, `architect`, `qa`) | Findings inspected in `.data/reviews/` |
 | **Feature / PR Lifecycle** | Human Squash Merge | Step 6 | `gh pr merge <id> --squash` | Maintainer merges approved PR into release branch | PR merged and topic branch deleted |
+| **Feature / PR Lifecycle** | Remote Branch Audit & Pruning | Step 7 | `git fetch --prune origin` | Prunes merged, closed, or superseded remote tracking branches | Zero orphan remote branches on origin |
 | **Release Lifecycle** | Release Status Assessment | Step 1 | `uv run devops release status` | Checks version consistency, git tags, and docs state | Clean working tree and version clarity |
 | **Release Lifecycle** | Release Preparation | Step 2 | `uv run devops release prepare <version> --create-pr` | Bumps version, updates changelog, syncs docs, opens PR | Release PR opened targeting `main` |
 | **Release Lifecycle** | Authoritative Release Check | Step 3 | `uv run devops release check` | Validates git tree, version matching, CI validation | All checks green |
 | **Release Lifecycle** | Maintainer Release PR Merge | Step 4 | `gh pr merge <id> --squash` | Human maintainer squash-merges release PR into `main` | Push event on `main` branch |
 | **Release Lifecycle** | Automated Tagging & Publish | Step 5 | Automated (`release.yml`) | Cuts annotated git tag `vX.Y.Z`, generates notes, publishes GH Release | GitHub Release published with assets |
+| **Release Lifecycle** | Milestone Issue Population | Step 6 | `gh issue create` / `devops gh project sync` | Proactively creates GitHub issues for active milestone deliverables | Open issues populated with zero empty state |
 | **Security & Audits** | Dependency Security Audit | Weekly / Pre-Release | `uv run devops ci audit` (`uv audit`) | Scans installed packages for known vulnerabilities | 0 known vulnerabilities |
 | **Security & Audits** | Static Security Scan (SAST) | Weekly / Pre-Release | `uv run devops ci security` (`bandit`) | Static security scan for code vulnerabilities | 0 high/medium issues identified |
 | **Security & Audits** | Kubernetes Manifest Scans | Per Manifest Change | `devops scan [kubelinter\|popeye\|pluto\|trivy]` | Validates manifests against K8s security best practices | Zero deprecated APIs or misconfigurations |
 | **Security & Audits** | Codebase Deduplication & Invariant Audit | Weekly / Pre-PR | `devops scan complexity` && `pytest tests/test_architectural_invariants.py` | Enforces complexity <= 10, nesting <= 5, and shared helper adoption | Zero invariant violations |
 | **Workspace & Sync** | DevContainer Lifecycle Hooks | Daily / On Start | `devops devcontainer run-lifecycle --post-start` | Cross-platform container initialization tasks | All lifecycle tasks complete successfully |
 | **Workspace & Sync** | Multi-Repo Synchronization | Daily / On Demand | `devops repos sync` / `devops repos status` | Pulls upstream changes across all managed repos | All repositories up to date |
-| **Workspace & Sync** | GitHub Project & Label Governance | On Demand / Pre-PR | `devops gh labels sync` / `devops gh milestones sync` | Reconciles declarative labels, milestones, and project views | Labels and milestones synchronized with zero drift |
+| **Workspace & Sync** | GitHub Projects & Issues Views Sync | On Demand / Pre-PR | `devops gh project sync` / `devops gh views list` | Reconciles 4 declarative project views and links projects/views | All projects and views populated with zero empty state (`projects` & `issues/views`) |
 | **Workspace & Sync** | SSH Keys & Host Audit | On Demand | `devops ssh status` / `devops ssh audit` | Validates ED25519 keys, permissions, and GitHub keys | All keys secure with correct 0600/0700 perms |
 
 ---
@@ -159,17 +161,23 @@ sequenceDiagram
   - Docs: `docs/<name>`
   - Chores/Refactors: `chore/<name>` or `refactor/<name>`
 - **Base Branch Targeting**: PRs must target the active release branch (`--base release/vX.Y.Z`). Only release branches target `main`.
+- **Strict Remote Branch Lifecycle & PR Governance (Zero Orphan Remote Branches)**:
+  - Every remote topic or feature branch on `origin` MUST have an associated, open Pull Request targeting the active release branch (`--base release/vX.Y.Z`) or `main` (for official release PRs).
+  - **Immediate Deletion of Merged or Superseded Branches**: Once a PR is merged into its target branch, or if a branch's changes have been incorporated or superseded, the remote branch MUST be deleted immediately (`git push origin --delete <branch>`) and local tracking references pruned (`git fetch --prune origin`).
+  - **No Orphan Remote Branches**: Remote branches without an active PR or active development purpose are strictly prohibited. If updates from an old or dormant branch are still required, apply or cherry-pick them to the active release branch / active PR, and delete the obsolete remote branch immediately.
 - **Agent Non-Merge Rule**: AI agents must push commits and create/update PRs, but never execute `gh pr merge`.
 - **Active PR Monitoring & Fix-on-Branch Protocol**: After opening or pushing updates to a PR, agents and developers must actively monitor remote GitHub Actions status (`gh pr checks <pr_number>` or `gh run list --branch <branch>`). If any check fails, immediately inspect failed logs (`gh run view <run_id> --log-failed`), apply remediation commits directly to the PR source branch, push to origin, and verify all checks pass green before closing out the task.
+- **Review Comment Remediation & Direct In-Thread Reply Mandate**: Actively evaluate code review feedback from GitHub Copilot and human reviewers (`gh api repos/:owner/:repo/pulls/:number/reviews` and GraphQL review threads). Apply fixes cleanly via TDD, reply **directly within each specific review thread** on the exact comment addressed (`gh api repos/:owner/:repo/pulls/:number/comments/:comment_id/replies` or GraphQL `addPullRequestReviewThreadReply`, never solely via top-level PR comments) with concrete technical details, and resolve the conversation on GitHub (GraphQL `resolveReviewThread`). Never leave unaddressed comments or unresolved conversations.
 - **No Commits to Merged Branches**: Once a PR is merged, create a fresh topic branch from `origin/release/vX.Y.Z` for the next task.
 - **Updating Open PRs**: When revisions are needed, push commits directly to the active topic branch. Do not open duplicate PRs.
 - **Commit Standards & Message Hygiene**:
   - All commits must follow Conventional Commits (`feat(scope): ...`, `fix(scope): ...`, `refactor(scope): ...`, `docs(scope): ...`).
   - **No Internal References or Numeric IDs**: Never include internal review session timestamps (e.g. `164259`, `003105`), review session IDs, subagent IDs, prompt phase numbers (`Phase 48.5`), or arbitrary numeric identifiers in commit subjects or messages. Use clear, descriptive technical terminology.
   - **No Standalone Agent Tracking Commits**: Updates to internal agent tracking files under `docs/agent/` (`task.md`) must NEVER be committed in isolation; they must always be bundled atomically into the corresponding feature, fix, or refactoring deliverable commit.
-- **Issue Linkage & GitHub Projects Lifecycle**:
+- **Issue Linkage, GitHub Projects & Issues Views Lifecycle (`https://github.com/dan-petty/devops-cli/projects` & `https://github.com/dan-petty/devops-cli/issues/views`)**:
   - PRs addressing issues must explicitly link to them in the description using `Fixes #<id>`, `Closes #<id>`, or `Resolves #<id>`.
-  - Reconcile task state transitions (`Backlog` $\to$ `Ready` $\to$ `In Progress` $\to$ `In Review` $\to$ `Done`) in [`docs/agent/task.md`](agent/task.md) and verify alignment with `.github/project-template.json` via `devops gh project sync --dry-run` or live sync `devops gh project sync`, link to repository (`devops gh project link <number>`), and audit views via `devops gh views list`.
+  - Reconcile task state transitions (`Backlog` $\to$ `Ready` $\to$ `In Progress` $\to$ `In Review` $\to$ `Done`) in [`docs/agent/task.md`](agent/task.md) and verify alignment with `.github/project-template.json` across the 4 canonical views (*Sprint Kanban*, *Roadmap Timeline*, *Triage & Quality Table*, *Value vs Effort Priority Matrix*) displayed under `https://github.com/dan-petty/devops-cli/issues/views`.
+  - Ensure the project board is linked to the repository via `devops gh project link <number>` so it appears on `https://github.com/dan-petty/devops-cli/projects` and its views on `https://github.com/dan-petty/devops-cli/issues/views`, populate all 6 custom project fields (`Status`, `Milestone`, `Priority`, `Category`, `Value`, `Effort`), and audit views via `devops gh views list` and `devops gh views spec`.
   - Enforce taxonomy labels via `devops gh labels audit`, milestone alignment via `devops gh milestones sync`, and milestone closure upon release merge via `devops gh milestones close <version>`.
 
 ---
@@ -203,6 +211,13 @@ sequenceDiagram
 4. **Human Maintainer Merge**: The maintainer reviews and squash-merges the Release PR into `main`.
 5. **Automated Publishing & Milestone Closure**: GitHub Actions (`release.yml`) cuts the git tag, extracts release notes with `devops release notes`, creates the GitHub Release, closes the release milestone via `devops gh milestones close <version>`, and publishes the pre-built DevContainer image to GHCR.
 6. **Post-Release DevContainer Validation**: Run `uv run devops devcontainer run-lifecycle --all` to verify container lifecycle tasks.
+7. **Next Active Milestone Initialization & Issue/Views Population**:
+   - Cut and push the next release branch (`release/vX.Y.Z`) from `main`.
+   - Update `.github/dependabot.yml` target branch to the new active release branch.
+   - Initialize `## [Unreleased]` section in `CHANGELOG.md`.
+   - Proactively author GitHub issues for all planned deliverables in `docs/ROADMAP.md`, assigning each to the active milestone with full taxonomy labels (`type/*`, `scope/*`, `priority/*`).
+   - Ensure the open issues queue (`https://github.com/dan-petty/devops-cli/issues?q=is%3Aissue+state%3Aopen`), projects tab (`https://github.com/dan-petty/devops-cli/projects`), and issue views (`https://github.com/dan-petty/devops-cli/issues/views`) are populated with zero empty state.
+   - Synchronize items and custom fields into GitHub Projects v2 (`https://github.com/dan-petty/devops-cli/projects`) and repository issue views (`https://github.com/dan-petty/devops-cli/issues/views`) via `devops gh project sync`, link the board (`devops gh project link <number>`), and prune all stale remote tracking branches (`git fetch --prune origin`).
 
 ---
 

@@ -60,6 +60,8 @@ _COMMAND_SPECS: Final[dict[str, tuple[str, str]]] = {
     "pipeline": ("devops_cli.commands.pipeline", HELP.pipeline.app),
     "vault": ("devops_cli.commands.vault", "Enterprise HashiCorp Vault secret broker"),
     "valkey": ("devops_cli.commands.valkey", "Valkey workstation caching and in-memory data store"),
+    "dashboard": ("devops_cli.commands.dashboard", HELP.dashboard.app),
+    "tui": ("devops_cli.commands.dashboard", "Interactive terminal UI dashboard (alias)"),
 }
 
 

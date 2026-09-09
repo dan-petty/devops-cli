@@ -1,18 +1,18 @@
 # devops-cli — Workstation DevOps CLI & Multi-Persona AI Code Reviewer
 
-[![CI Validation](https://github.com/your-org/devops-cli/actions/workflows/ci.yml/badge.svg)](.github/workflows/ci.yml)
+[![CI Validation](https://github.com/dan-petty/devops-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/dan-petty/devops-cli/actions/workflows/ci.yml)
 [![Python 3.14+](https://img.shields.io/badge/python-3.14%2B-blue.svg)](https://www.python.org/downloads/)
 [![Type Checked: Mypy Strict](https://img.shields.io/badge/mypy-strict-blue.svg)](https://mypy-lang.org/)
 [![Code Style: Ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 [![FastMCP](https://img.shields.io/badge/FastMCP-Enabled-purple.svg)](docs/MCP_TOOLS.md)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![DevContainer Native](https://img.shields.io/badge/DevContainer-Native-green.svg)](.devcontainer/devcontainer.json)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/dan-petty/devops-cli/blob/main/LICENSE)
+[![DevContainer Native](https://img.shields.io/badge/DevContainer-Native-green.svg)](https://github.com/dan-petty/devops-cli/blob/main/.devcontainer/devcontainer.json)
 
 `devops-cli` is an enterprise-grade workstation CLI and agentic code analysis platform designed for Site Reliability Engineers and DevOps Practitioners running inside VS Code Dev Containers. It unifies multi-repository infrastructure management (Git, Kubernetes, Kustomize, ArgoCD, Grafana, Prometheus, Docker, SSH) with multi-persona **Agentic LLM code reviews**, OS Keyring secret isolation, active SSRF network guardrails, and automated release orchestration.
 
 ---
 
-## 🏛️ SRE Engineering Tenets & Architectural Highlights
+## SRE Engineering Tenets & Architectural Highlights
 
 - 🔒 **Zero-Plaintext Secret Architecture**: Sensitive tokens (`github.token`, `grafana.token`, `argocd.token`, `ai.api_key`) are stored exclusively in the OS Keyring via Python `keyring`. Configuration files contain zero plaintext credentials.
 - 🛡️ **Active SSRF & Egress Guardrails**: Outbound API requests pass through strict IP validation (`validate_service_url`) blocking private subnets (RFC 1918), loopbacks, and cloud metadata endpoints by default.
@@ -23,7 +23,7 @@
 
 ---
 
-## 📚 Architectural & Governance Documentation
+## Architectural & Governance Documentation
 
 - 📐 [**System Architecture & Technical Design (`ARCHITECTURE.md`)**](ARCHITECTURE.md) — Subsystem topologies, multi-agent sequence diagrams, and lifecycle hooks.
 - 🔄 [**Release Cycle & Versioning Guide (`RELEASE_CYCLE.md`)**](RELEASE_CYCLE.md) — Semantic versioning, validation checks, and release procedures.
@@ -37,11 +37,11 @@
 
 ---
 
-## 🚀 Quick Start & Dev Container Setup
+## Quick Start & Dev Container Setup
 
 ```bash
 # 1. Clone repository and open inside Dev Container
-git clone https://github.com/your-org/devops-cli.git
+git clone https://github.com/dan-petty/devops-cli.git
 cd devops-cli
 
 # 2. Inside the Dev Container, sync Python 3.14 dependencies:
@@ -57,7 +57,7 @@ devops ai test
 devops ci run
 ```
 
-### 📦 Reusable Dev Container Package (GHCR)
+### Reusable Dev Container Package (GHCR)
 
 Every release automatically builds and publishes a pre-packaged Dev Container image to the GitHub Container Registry (GHCR):
 
@@ -103,10 +103,51 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 
 ---
 
-## 📋 Complete Command Matrix
+## AI Review Engine & Personas
+
+- **DevSecOps (`--persona devsecops`)**: OWASP Top 10, secret leaks, supply chain vulnerabilities, Docker/IaC security misconfigurations.
+- **Architect (`--persona architect`)**: SOLID principles, clean architecture/DDD, microservice coupling, observability, API contract design.
+- **Project Manager (`--persona pm`)**: Scope risk, breaking changes, test coverage adequacy, deployment rollback readiness, action items.
+- **Auditor (`--persona auditor`)**: Regulatory compliance frameworks (NIST SP 800-53, PCI-DSS v4.0, SOC 2 Type II) with exact control IDs.
+- **QA / Test Engineer (`--persona qa`)**: Regression prevention, test coverage gaps, edge cases, pytest code skeletons, validation steps.
+
+---
+
+## Local Workstation Model & Security Architecture
+
+1. **Local Workstation Timeouts**: High timeouts (`DEFAULT_REVIEW_TIMEOUT_SECONDS = 3600.0`, `DEFAULT_SUBPROCESS_TIMEOUT_SECONDS = 1800.0`) support local LLM inference (CPU/GPU Ollama) and corporate proxies.
+2. **Key Material Mounting**: `${localEnv:HOME}/.ssh` is bind-mounted by design into `.devcontainer` for local SSH key generation and 90-day rotation.
+3. **SSRF Protections**: `validate_service_url` blocks non-public IPs unless `DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true` is set.
+4. **Workspace Boundary Guards**: Path traversal checks (`_is_safe_workspace_path`) enforce repository boundaries on file commands.
+5. **Checksum Verification**: `devops install-tools` validates SHA-256 checksums before writing binaries to disk.
+6. **Automated Design Justification & Documentation Maintenance**: Non-instructional, reference-backed inline comments (`# NOTE (Design Justification - <REF>): ...`) automatically document intentional design trade-offs directly above target code constructs, and project documentation (`AGENTS.md`, `README.md`, `CLAUDE.md`, `.github/copilot-instructions.md`) is routinely updated whenever code or prompt conventions evolve.
+
+---
+
+## Strategic Prioritization Matrix & Product Roadmap
+
+The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliverables (`v0.2.4` through `v0.3.0`), architectural principles, and continuous release schedules are actively managed in the dedicated [Product Roadmap](docs/ROADMAP.md).
+
+---
+
+## Working Documentation
+
+- [AGENTS.md](AGENTS.md) — Single source of truth for AI agents.
+- [Knowledge Base](src/devops_cli/ai/knowledge_base/README.md) — Comprehensive technical manual for tools and operational tasks.
+- [RELEASE_NOTES.md](docs/RELEASE_NOTES.md) — Version release notes and highlights.
+- [CHANGELOG.md](CHANGELOG.md) — Historical release and version changes.
+- [ROADMAP.md](docs/ROADMAP.md) — Vision, principles, and phased deliverables.
+- [PENDING_FEATURES.md](docs/PENDING_FEATURES.md) — Active proposals and feature specifications.
+- [KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md) — Operational edge cases and intentional design trade-offs.
+- [LOG.md](docs/LOG.md) — Active chronological development and refactoring log.
+
+---
+
+## Complete Command Matrix
 
 
 <!-- COMMAND_MATRIX_START -->
+
 | Command Group | Subcommand / Usage | Purpose & Features |
 |---|---|---|
 | **repos** | `devops repos clone-org [OPTIONS] <org>` | Clone all repos from a GitHub org into repos/<org>/. |
@@ -234,11 +275,17 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 |  | `devops ai diagram [OPTIONS] <diagram_type>` | Generate visual Mermaid architecture topology or STRIDE threat modeling diagrams. |
 |  | `devops ai prompt-eval [OPTIONS]` | Benchmark persona prompt variations against verified review feedback datasets. |
 |  | `devops ai test-gen [OPTIONS] <target_file>` | Synthesize isolated pytest unit test suites for functions or source files. |
+|  | `devops ai chaos-model [OPTIONS]` | Model dependency chaos engineering suite simulating provider faults and validating local failovers. |
+|  | `devops ai quiesce [OPTIONS]` | Centralized emergency quiesce cleanly suspending active agent loops and background tasks. |
+|  | `devops ai failover [OPTIONS]` | Emergency failover controller re-routing tasks to designated fallback endpoints. |
+|  | `devops ai resume [OPTIONS]` | Gracefully resume suspended constellation agent loops and task runners. |
+|  | `devops ai constellation [OPTIONS]` | Display constellation fleet status, active fallback routes, and suspended tasks. |
 |  | `devops ai review [OPTIONS] COMMAND [ARGS]...` | AI-powered multi-persona code review system. |
 |  | `devops ai analyze [OPTIONS] COMMAND [ARGS]...` | Analyze codebase metadata and generate structural outlines. |
 |  | `devops ai rag [OPTIONS] COMMAND [ARGS]...` | Manage RAG vector embeddings, indexing, and semantic search (Qdrant). |
 |  | `devops ai benchmark [OPTIONS]` | Benchmark, evaluate, and peer-grade candidate AI models across engineering tasks. |
 |  | `devops ai cache COMMAND [ARGS]...` | Manage LLM response cache, performance metrics, and warm starting points. |
+|  | `devops ai harness COMMAND [ARGS]...` | Manage agent harness slots, sub-agent local offloading, and tiered synthesis. |
 | **review** | `devops review path [OPTIONS] <targets>` | Review source files directly (no git required). |
 |  | `devops review branch [OPTIONS] <branch_name>` | Review a git branch diff with one or all AI personas. |
 |  | `devops review pr [OPTIONS] <number>` | Review a GitHub pull request with one or all AI personas. |
@@ -287,6 +334,7 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 |  | `devops tls verify [OPTIONS] <cert_path>` | Verify an X.509 certificate cryptographic chain against a CA certificate. |
 |  | `devops tls enable-k8s [OPTIONS]` | Generate and apply TLS secrets (kubernetes.io/tls) across Kubernetes namespaces. |
 | **telemetry** | `devops telemetry status` | Check OpenTelemetry collector health, Jaeger endpoint, and trace propagation status. |
+|  | `devops telemetry logfire [OPTIONS]` | Display Logfire structured observability bridge status and token metrics. |
 |  | `devops telemetry test [OPTIONS]` | Emit a test OpenTelemetry trace span and metric to the configured collector. |
 |  | `devops telemetry profile [OPTIONS] <command>` | Display terminal-rendered waterfall breakdown and latency heatmap of OpenTelemetry spans. |
 |  | `devops telemetry open-ui` | Print and show the Jaeger Query UI endpoint for inspecting traces. |
@@ -308,50 +356,13 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 |  | `devops valkey flush [OPTIONS]` | Flush and purge keys from current or all databases. |
 |  | `devops valkey backup [OPTIONS]` | Trigger background RDB persistence snapshot (BGSAVE). |
 |  | `devops valkey cli [OPTIONS] <command_args>` | Execute raw Valkey commands directly against the server. |
+| **dashboard** | `devops dashboard [OPTIONS]` | Interactive terminal UI dashboard for workstation situational awareness. |
+| **tui** | `devops tui [OPTIONS]` | Interactive terminal UI dashboard for workstation situational awareness. |
+
 <!-- COMMAND_MATRIX_END -->
-
----
-
-## AI Review Engine & Personas
-
-- **DevSecOps (`--persona devsecops`)**: OWASP Top 10, secret leaks, supply chain vulnerabilities, Docker/IaC security misconfigurations.
-- **Architect (`--persona architect`)**: SOLID principles, clean architecture/DDD, microservice coupling, observability, API contract design.
-- **Project Manager (`--persona pm`)**: Scope risk, breaking changes, test coverage adequacy, deployment rollback readiness, action items.
-- **Auditor (`--persona auditor`)**: Regulatory compliance frameworks (NIST SP 800-53, PCI-DSS v4.0, SOC 2 Type II) with exact control IDs.
-- **QA / Test Engineer (`--persona qa`)**: Regression prevention, test coverage gaps, edge cases, pytest code skeletons, validation steps.
-
----
-
-## Local Workstation Model & Security Architecture
-
-1. **Local Workstation Timeouts**: High timeouts (`DEFAULT_REVIEW_TIMEOUT_SECONDS = 3600.0`, `DEFAULT_SUBPROCESS_TIMEOUT_SECONDS = 1800.0`) support local LLM inference (CPU/GPU Ollama) and corporate proxies.
-2. **Key Material Mounting**: `${localEnv:HOME}/.ssh` is bind-mounted by design into `.devcontainer` for local SSH key generation and 90-day rotation.
-3. **SSRF Protections**: `validate_service_url` blocks non-public IPs unless `DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true` is set.
-4. **Workspace Boundary Guards**: Path traversal checks (`_is_safe_workspace_path`) enforce repository boundaries on file commands.
-5. **Checksum Verification**: `devops install-tools` validates SHA-256 checksums before writing binaries to disk.
-6. **Automated Design Justification & Documentation Maintenance**: Non-instructional, reference-backed inline comments (`# NOTE (Design Justification - <REF>): ...`) automatically document intentional design trade-offs directly above target code constructs, and project documentation (`AGENTS.md`, `README.md`, `CLAUDE.md`, `.github/copilot-instructions.md`) is routinely updated whenever code or prompt conventions evolve.
-
----
-
-## Strategic Prioritization Matrix & Product Roadmap
-
-The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliverables (`v0.2.4` through `v0.3.0`), architectural principles, and continuous release schedules are actively managed in the dedicated [Product Roadmap](docs/ROADMAP.md).
-
----
-
-## Working Documentation
-
-- [AGENTS.md](AGENTS.md) — Single source of truth for AI agents.
-- [Knowledge Base](src/devops_cli/ai/knowledge_base/README.md) — Comprehensive technical manual for tools and operational tasks.
-- [RELEASE_NOTES.md](docs/RELEASE_NOTES.md) — Version release notes and highlights.
-- [CHANGELOG.md](CHANGELOG.md) — Historical release and version changes.
-- [ROADMAP.md](docs/ROADMAP.md) — Vision, principles, and phased deliverables.
-- [PENDING_FEATURES.md](docs/PENDING_FEATURES.md) — Active proposals and feature specifications.
-- [KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md) — Operational edge cases and intentional design trade-offs.
-- [LOG.md](docs/LOG.md) — Active chronological development and refactoring log.
 
 ---
 
 ## License
 
-Distributed under the MIT License. See `LICENSE` for details.
+Distributed under the MIT License. See [LICENSE](https://github.com/dan-petty/devops-cli/blob/main/LICENSE) for details.

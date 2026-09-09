@@ -575,7 +575,7 @@ class DocGenerator:
                 re.DOTALL,
             )
             new_content = pattern.sub(
-                f"{start_marker}\n{matrix_table}\n{end_marker}",
+                f"{start_marker}\n\n{matrix_table}\n\n{end_marker}",
                 content,
             )
         else:
@@ -587,7 +587,7 @@ class DocGenerator:
             )
             if pattern.search(content):
                 new_content = pattern.sub(
-                    rf"\g<1>{start_marker}\n{matrix_table}\n{end_marker}",
+                    rf"\g<1>{start_marker}\n\n{matrix_table}\n\n{end_marker}",
                     content,
                 )
             else:

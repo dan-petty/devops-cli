@@ -296,6 +296,11 @@ def test_embeddings_engine_to_embedder(monkeypatch: pytest.MonkeyPatch) -> None:
         return [[0.3] * 512 for _ in texts]
 
     monkeypatch.setattr(EmbeddingsEngine, "_deterministic_fallback", fake_deterministic)
+    monkeypatch.setattr(
+        EmbeddingsEngine,
+        "_dispatch_embed",
+        lambda self, texts: [[0.3] * 512 for _ in texts],
+    )
     ai_cfg = AIConfig(provider="ollama", ollama_urls=[])
     engine = EmbeddingsEngine(ai_cfg)
 

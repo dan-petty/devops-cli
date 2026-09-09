@@ -24,6 +24,9 @@ spec:
         runAsUser: 1000
         runAsGroup: 1000
         fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+
       containers:
         - name: valkey
           image: valkey/valkey:8.0-alpine

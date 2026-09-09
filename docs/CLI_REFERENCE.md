@@ -35,6 +35,8 @@ Complete command-line reference for `devops-cli`, automatically generated from C
 - [`devops pipeline`](#devops-pipeline) — Programmable containerized pipeline execution (Dagger).
 - [`devops vault`](#devops-vault) — Enterprise HashiCorp Vault secret broker
 - [`devops valkey`](#devops-valkey) — Valkey workstation caching and in-memory data store
+- [`devops dashboard`](#devops-dashboard) — Interactive terminal UI dashboard for workstation situational awareness.
+- [`devops tui`](#devops-tui) — Interactive terminal UI dashboard (alias)
 
 ---
 
@@ -698,6 +700,8 @@ devops k8s deploy-stack [OPTIONS]
 | `--k8s-dir` | `path` | `k8s` | Path to k8s/ config directory. |
 | `--stack`, `-s` | `string` | `infra` | Stack to operate on: infra | llm | all. |
 | `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
+| `--wait`, `--no-wait` | `boolean` | `True` | Wait for Helm releases and workloads to become ready before returning. |
+| `--timeout`, `-t` | `string` | `10m` | Timeout for Helm operations when waiting. |
 
 ### `devops k8s sync-secrets`
 
@@ -2431,6 +2435,92 @@ devops ai test-gen [OPTIONS] <target_file>
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
+### `devops ai chaos-model`
+
+**Model dependency chaos engineering suite simulating provider faults and validating local failovers.**
+
+```bash
+devops ai chaos-model [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--mode`, `-m` | `string` | `all` | Chaos fault mode to simulate (latency, rate-limit, timeout, malformed-json, all). |
+| `--latency-ms` | `integer` | `500` | Synthetic network latency to inject in milliseconds. |
+| `--error-rate` | `float` | `1.0` | Probability of fault injection between 0.0 and 1.0. |
+| `--primary-provider` | `string` | `openai` | AI or cloud provider. |
+| `--primary-model` | `string` | `gpt-4o` | AI model identifier. |
+| `--fallback-provider` | `string` | `ollama` | Fallback AI provider to route execution to upon fault. |
+| `--fallback-model` | `string` | `qwen2.5-coder:7b` | Fallback AI model to route execution to upon fault. |
+| `--prompt` | `string` | `def test_health(): return True` | Prompt text or workload payload to evaluate. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+### `devops ai quiesce`
+
+**Centralized emergency quiesce cleanly suspending active agent loops and background tasks.**
+
+```bash
+devops ai quiesce [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--reason`, `-r` | `string` | `Operator requested emergency quiesce` | Reason for constellation quiesce or emergency failover. |
+| `--drain-timeout` | `float` | `5.0` | Drain timeout in seconds to wait for in-flight tasks to complete. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+### `devops ai failover`
+
+**Emergency failover controller re-routing tasks to designated fallback endpoints.**
+
+```bash
+devops ai failover [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--target-provider` | `string` | `ollama` | Fallback AI provider to route execution to upon fault. |
+| `--target-model` | `string` | `qwen2.5-coder:7b` | Fallback AI model to route execution to upon fault. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+### `devops ai resume`
+
+**Gracefully resume suspended constellation agent loops and task runners.**
+
+```bash
+devops ai resume [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+### `devops ai constellation`
+
+**Display constellation fleet status, active fallback routes, and suspended tasks.**
+
+```bash
+devops ai constellation [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+
 ### `devops ai review`
 
 **AI-powered multi-persona code review system.**
@@ -2486,6 +2576,9 @@ devops ai review path [OPTIONS] <targets>
 | `--append-cache` | `boolean` | - | Append cached response to the LLM prompt as context instead of using it directly as the final response. |
 | `--watch`, `-w` | `boolean` | - | Continuously watch target paths for changes and re-run reviews. |
 | `--debounce-ms` | `integer` | `500` | Debounce window in milliseconds for filesystem watcher. |
+| `--concurrency`, `-c` | `integer` | - | Max concurrent workers for parallel review and verification. |
+| `--parallel`, `--no-parallel` | `boolean` | `True` | Execute multi-file review stages concurrently using async worker pool. |
+| `--logfire`, `--no-logfire` | `boolean` | - | Enable or disable Logfire structured observability and agent turn tracing. |
 
 #### `devops ai review branch`
 
@@ -2527,6 +2620,9 @@ devops ai review branch [OPTIONS] <branch_name>
 | `--no-cache` | `boolean` | - | Bypass LLM response cache and force fresh inference. |
 | `--force`, `-f` | `boolean` | - | Force fresh review execution without cache. |
 | `--append-cache` | `boolean` | - | Append cached response to the LLM prompt as context instead of using it directly as the final response. |
+| `--concurrency`, `-c` | `integer` | - | Max concurrent workers for parallel review and verification. |
+| `--parallel`, `--no-parallel` | `boolean` | `True` | Execute multi-file review stages concurrently using async worker pool. |
+| `--logfire`, `--no-logfire` | `boolean` | - | Enable or disable Logfire structured observability and agent turn tracing. |
 
 #### `devops ai review pr`
 
@@ -2568,6 +2664,9 @@ devops ai review pr [OPTIONS] <number>
 | `--no-cache` | `boolean` | - | Bypass LLM response cache and force fresh inference. |
 | `--force`, `-f` | `boolean` | - | Force fresh review execution without cache. |
 | `--append-cache` | `boolean` | - | Append cached response to the LLM prompt as context instead of using it directly as the final response. |
+| `--concurrency`, `-c` | `integer` | - | Max concurrent workers for parallel review and verification. |
+| `--parallel`, `--no-parallel` | `boolean` | `True` | Execute multi-file review stages concurrently using async worker pool. |
+| `--logfire`, `--no-logfire` | `boolean` | - | Enable or disable Logfire structured observability and agent turn tracing. |
 
 #### `devops ai review findings`
 
@@ -2920,7 +3019,9 @@ devops ai benchmark [OPTIONS]
 | `--models`, `-m` | `string` | - | Comma-separated candidate models (e.g. 'qwen2.5:0.5b,llama3.1:8b@http://gpu2:11434'). |
 | `--servers`, `--ollama-urls` | `string` | - | Comma-separated Ollama server URLs for concurrent execution (e.g. 'http://node1:11434,http://node2:11434'). |
 | `--provider`, `-p` | `string` | - | AI or cloud provider. |
-| `--type`, `--mode` | `string` | `auto` | Benchmark mode: 'auto', 'chat', 'embedding'. |
+| `--type`, `--mode` | `string` | `auto` | Benchmark mode: 'auto', 'chat', 'embedding', 'suite'. |
+| `--suite` | `boolean` | - | Run multi-model evaluation suite grounded in feedback datasets. |
+| `--dataset` | `path` | - | Path to feedback dataset JSONL file (defaults to .data/feedback_dataset.jsonl). |
 | `--tasks`, `-t` | `string` | - | Filter specific task categories or IDs (e.g. 'security,kubernetes'). |
 | `--concurrency`, `-c` | `integer` | `4` | Number of concurrent model server workers (default: automatic per model count). |
 | `--output`, `-o` | `path` | - | Destination path for output report or artifacts. |
@@ -2959,6 +3060,71 @@ devops ai cache status [OPTIONS]
 ```bash
 devops ai cache clear
 ```
+
+### `devops ai harness`
+
+**Manage agent harness slots, sub-agent local offloading, and tiered synthesis.**
+
+```bash
+devops ai harness COMMAND [ARGS]...
+```
+
+#### `devops ai harness status`
+
+**Display active harness slot configuration, models, and sandboxing status.**
+
+```bash
+devops ai harness status [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+
+#### `devops ai harness offload`
+
+**Offload AST exploration, symbol cataloging, or file scouting to local sub-agent slot.**
+
+```bash
+devops ai harness offload [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-r` | `path` | `.` | Path to repository or source directory. |
+| `--symbol`, `-s` | `string` | - | Symbol name (class or function) to inspect or search. |
+| `--pattern`, `-p` | `string` | - | File glob pattern to scout. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+#### `devops ai harness run`
+
+**Execute tiered synthesis: Big decides, small types, big checks.**
+
+```bash
+devops ai harness run [OPTIONS] <task>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<task>` | `string` | Yes | Task description to execute via 3-tier synthesis protocol |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-r` | `path` | `.` | Path to repository or source directory. |
+| `--symbol`, `-s` | `string` | - | Symbol name (class or function) to inspect or search. |
+| `--frontier-model` | `string` | `claude-3-7-sonnet` | Frontier model identifier for architecture and verification. |
+| `--local-model` | `string` | `qwen2.5-coder:7b` | Local model identifier for sub-agent offloading. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -3007,6 +3173,9 @@ devops review path [OPTIONS] <targets>
 | `--append-cache` | `boolean` | - | Append cached response to the LLM prompt as context instead of using it directly as the final response. |
 | `--watch`, `-w` | `boolean` | - | Continuously watch target paths for changes and re-run reviews. |
 | `--debounce-ms` | `integer` | `500` | Debounce window in milliseconds for filesystem watcher. |
+| `--concurrency`, `-c` | `integer` | - | Max concurrent workers for parallel review and verification. |
+| `--parallel`, `--no-parallel` | `boolean` | `True` | Execute multi-file review stages concurrently using async worker pool. |
+| `--logfire`, `--no-logfire` | `boolean` | - | Enable or disable Logfire structured observability and agent turn tracing. |
 
 ### `devops review branch`
 
@@ -3048,6 +3217,9 @@ devops review branch [OPTIONS] <branch_name>
 | `--no-cache` | `boolean` | - | Bypass LLM response cache and force fresh inference. |
 | `--force`, `-f` | `boolean` | - | Force fresh review execution without cache. |
 | `--append-cache` | `boolean` | - | Append cached response to the LLM prompt as context instead of using it directly as the final response. |
+| `--concurrency`, `-c` | `integer` | - | Max concurrent workers for parallel review and verification. |
+| `--parallel`, `--no-parallel` | `boolean` | `True` | Execute multi-file review stages concurrently using async worker pool. |
+| `--logfire`, `--no-logfire` | `boolean` | - | Enable or disable Logfire structured observability and agent turn tracing. |
 
 ### `devops review pr`
 
@@ -3089,6 +3261,9 @@ devops review pr [OPTIONS] <number>
 | `--no-cache` | `boolean` | - | Bypass LLM response cache and force fresh inference. |
 | `--force`, `-f` | `boolean` | - | Force fresh review execution without cache. |
 | `--append-cache` | `boolean` | - | Append cached response to the LLM prompt as context instead of using it directly as the final response. |
+| `--concurrency`, `-c` | `integer` | - | Max concurrent workers for parallel review and verification. |
+| `--parallel`, `--no-parallel` | `boolean` | `True` | Execute multi-file review stages concurrently using async worker pool. |
+| `--logfire`, `--no-logfire` | `boolean` | - | Enable or disable Logfire structured observability and agent turn tracing. |
 
 ### `devops review findings`
 
@@ -3771,6 +3946,21 @@ devops gh views spec [OPTIONS]
 |---|---|---|---|
 | `--template`, `-t` | `path` | `.github/project-template.json` | Path to project template JSON |
 
+#### `devops gh views sync`
+
+**Synchronize standardized views with the remote GitHub Projects v2 board.**
+
+```bash
+devops gh views sync [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--template`, `-t` | `path` | `.github/project-template.json` | Path to project template JSON |
+| `--repo`, `-R` | `string` | - | Target repository |
+
 ---
 
 ## devops tf
@@ -4125,6 +4315,20 @@ OpenTelemetry tracing, metrics, and Jaeger observability.
 devops telemetry status
 ```
 
+### `devops telemetry logfire`
+
+**Display Logfire structured observability bridge status and token metrics.**
+
+```bash
+devops telemetry logfire [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+
 ### `devops telemetry test`
 
 **Emit a test OpenTelemetry trace span and metric to the configured collector.**
@@ -4138,6 +4342,7 @@ devops telemetry test [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--name`, `-n` | `string` | `devops-cli.manual_test` | Name for test span. |
+| `--logfire` | `boolean` | - | Emit test span via Logfire bridge. |
 
 ### `devops telemetry profile`
 
@@ -4566,5 +4771,53 @@ devops valkey cli [OPTIONS] <command_args>
 |---|---|---|---|
 | `--host`, `-h` | `string` | - | Valkey server host |
 | `--port`, `-p` | `integer` | - | Valkey server port |
+
+---
+
+## devops dashboard
+
+Interactive terminal UI dashboard for workstation situational awareness.
+
+### `devops dashboard`
+
+**Interactive terminal UI dashboard for workstation situational awareness.**
+
+```bash
+devops dashboard [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--summary`, `-s` | `boolean` | - | Print static summary panels and exit instead of starting full-screen TUI. |
+| `--refresh-interval`, `-r` | `integer` | `5` | Auto-refresh interval in seconds for live dashboard updates. |
+| `--tab`, `-t` | `string` | `k8s` | Initial tab to activate (1=k8s, 2=docker, 3=telemetry, 4=ai, 5=valkey). |
+| `--dry-run` | `boolean` | - | Simulate dashboard launch and print static summary. |
+
+---
+
+## devops tui
+
+Interactive terminal UI dashboard (alias)
+
+Interactive terminal UI dashboard for workstation situational awareness.
+
+### `devops tui`
+
+**Interactive terminal UI dashboard for workstation situational awareness.**
+
+```bash
+devops tui [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--summary`, `-s` | `boolean` | - | Print static summary panels and exit instead of starting full-screen TUI. |
+| `--refresh-interval`, `-r` | `integer` | `5` | Auto-refresh interval in seconds for live dashboard updates. |
+| `--tab`, `-t` | `string` | `k8s` | Initial tab to activate (1=k8s, 2=docker, 3=telemetry, 4=ai, 5=valkey). |
+| `--dry-run` | `boolean` | - | Simulate dashboard launch and print static summary. |
 
 ---

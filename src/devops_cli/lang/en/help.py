@@ -62,6 +62,18 @@ class OptionHelp:
     workspace_dir: str = "Workspace root directory path."
     watch: str = "Continuously watch target paths for changes and re-run reviews."
     debounce_ms: str = "Debounce window in milliseconds for filesystem watcher."
+    chaos_mode: str = (
+        "Chaos fault mode to simulate (latency, rate-limit, timeout, malformed-json, all)."
+    )
+    chaos_latency_ms: str = "Synthetic network latency to inject in milliseconds."
+    chaos_error_rate: str = "Probability of fault injection between 0.0 and 1.0."
+    fallback_provider: str = "Fallback AI provider to route execution to upon fault."
+    fallback_model: str = "Fallback AI model to route execution to upon fault."
+    prompt: str = "Prompt text or workload payload to evaluate."
+    quiesce_reason: str = "Reason for constellation quiesce or emergency failover."
+    drain_timeout: str = "Drain timeout in seconds to wait for in-flight tasks to complete."
+    concurrency: str = "Maximum number of concurrent review workers."
+    parallel: str = "Execute multi-file review stages concurrently using async worker pool."
 
 
 @dataclass(frozen=True)
@@ -120,6 +132,31 @@ class AICommandHelp:
     test_gen: str = "Synthesize unit test suites for functions and modules via LLM."
     test_function: str = "Specific function to synthesize tests for."
     target_file: str = "Target source file to synthesize unit tests for."
+    harness: str = "Manage agent harness slots, sub-agent local offloading, and tiered synthesis."
+    chaos_model: str = "Model dependency chaos engineering suite simulating provider faults and validating local failovers."
+    quiesce: str = (
+        "Centralized emergency quiesce cleanly suspending active agent loops and background tasks."
+    )
+    failover: str = (
+        "Emergency failover controller re-routing tasks to designated fallback endpoints."
+    )
+    resume: str = "Gracefully resume suspended constellation agent loops and task runners."
+    constellation: str = (
+        "Display constellation fleet status, active fallback routes, and suspended tasks."
+    )
+
+
+@dataclass(frozen=True)
+class AIHarnessCommandHelp:
+    app: str = "Manage agent harness slots, sub-agent local offloading, and tiered synthesis."
+    status: str = "Display active harness slots and sub-agent offload configuration."
+    offload: str = "Offload AST exploration or symbol search to local sub-agent slot."
+    run: str = "Execute tiered synthesis task with local sub-agent AST offloading."
+    repo: str = "Path to repository or source directory."
+    symbol: str = "Symbol name (class or function) to inspect or search."
+    pattern: str = "File glob pattern to scout."
+    frontier_model: str = "Frontier model identifier for architecture and verification."
+    local_model: str = "Local model identifier for sub-agent offloading."
 
 
 @dataclass(frozen=True)
@@ -514,6 +551,7 @@ class GHCommandHelp:
     views_app: str = "Inspect standardized GitHub Projects v2 views."
     views_list: str = "List all 4 standardized project views."
     views_spec: str = "Output JSON schema specification for project views."
+    views_sync: str = "Synchronize standardized views with the remote GitHub Projects v2 board."
 
 
 @dataclass(frozen=True)
@@ -584,6 +622,9 @@ class ReviewCommandHelp:
     remediate_finding_id: str = "Finding ID or title to create remediation branch for."
     remediate_file: str = "Target source file to apply fix to."
     remediate_branch: str = "Custom topic branch name."
+    concurrency: str = "Max concurrent workers for parallel review and verification."
+    parallel: str = "Execute multi-file review stages concurrently using async worker pool."
+    logfire: str = "Enable or disable Logfire structured observability and agent turn tracing."
 
 
 @dataclass(frozen=True)
@@ -633,6 +674,8 @@ class TelemetryCommandHelp:
     )
     trace_id: str = "Specific trace ID to visualize from in-memory span buffer."
     last: str = "Render waterfall for the most recently executed command trace."
+    logfire: str = "Display Logfire structured observability bridge status and token metrics."
+    test_logfire: str = "Emit test span via Logfire bridge."
 
 
 @dataclass(frozen=True)
@@ -705,8 +748,10 @@ class BenchmarkCommandHelp:
     workers: str = "Number of concurrent model server workers (default: automatic per model count)."
     test_doc: str = "Path to large test document for in-memory tokenization and section retrieval."
     samples: str = "Number of random sections to sample for retrieval evaluation."
-    mode: str = "Benchmark mode: 'auto', 'chat', 'embedding'."
+    mode: str = "Benchmark mode: 'auto', 'chat', 'embedding', 'suite'."
     explain: str = "Explain benchmark metrics, terminology, and mathematical formulas."
+    suite: str = "Run multi-model evaluation suite grounded in feedback datasets."
+    dataset: str = "Path to feedback dataset JSONL file (defaults to .data/feedback_dataset.jsonl)."
 
 
 @dataclass(frozen=True)
@@ -785,11 +830,21 @@ class PipelineCommandHelp:
 
 
 @dataclass(frozen=True)
+class DashboardCommandHelp:
+    app: str = "Interactive terminal UI dashboard for workstation situational awareness."
+    summary: str = "Print static summary panels and exit instead of starting full-screen TUI."
+    refresh_interval: str = "Auto-refresh interval in seconds for live dashboard updates."
+    tab: str = "Initial tab to activate (1=k8s, 2=docker, 3=telemetry, 4=ai, 5=valkey)."
+    dry_run: str = "Simulate dashboard launch and print static summary."
+
+
+@dataclass(frozen=True)
 class HelpCatalog:
     main: MainHelp = field(default_factory=MainHelp)
     options: OptionHelp = field(default_factory=OptionHelp)
     ai: AICommandHelp = field(default_factory=AICommandHelp)
     ai_cache: AICacheCommandHelp = field(default_factory=AICacheCommandHelp)
+    ai_harness: AIHarnessCommandHelp = field(default_factory=AIHarnessCommandHelp)
     k8s: K8sCommandHelp = field(default_factory=K8sCommandHelp)
     ssh: SSHCommandHelp = field(default_factory=SSHCommandHelp)
     branches: BranchesCommandHelp = field(default_factory=BranchesCommandHelp)
@@ -822,6 +877,7 @@ class HelpCatalog:
     rag: RAGCommandHelp = field(default_factory=RAGCommandHelp)
     test: TestCommandHelp = field(default_factory=TestCommandHelp)
     pipeline: PipelineCommandHelp = field(default_factory=PipelineCommandHelp)
+    dashboard: DashboardCommandHelp = field(default_factory=DashboardCommandHelp)
 
 
 HELP = HelpCatalog()

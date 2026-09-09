@@ -13,6 +13,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
 7. **Model Dependency Chaos Engineering & Slow-Zone Resilience**: Deliberately test fallback models ("Chaos Monkey for Models") against tool suites and keep documentation/CLI `--help` 100% synchronized so lesser models can pilot automation without human coaching.
 8. **Auditable Multi-Persona Code Reviews**: Domain-specialized personas (`devsecops`, `architect`, `pm`, `auditor`, `qa`) with deterministic static metadata extraction (`SegmentMeta`), prompt boundary isolation, and closed-loop finding verification.
 9. **Zero Boilerplate & Standard Library Leverage**: Expressive integration of modern standard library utilities (`pathlib`, `ast`, `collections`, `itertools`, `functools`), Pydantic v2 schemas, and strict indentation budgets (<6 levels).
+10. **Complete Observability Triad & Centralized Kubernetes Logging**: Unified telemetry integrating Prometheus client metrics, Jaeger/OTel distributed tracing, and Grafana Loki centralized log aggregation with LogQL CLI querying and agentic incident diagnosis.
 
 ---
 
@@ -216,7 +217,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
 - [x] **Dedicated Agent Operational Task Tracking Tier (`docs/agent/`)**:
   - Canonical task status tracking under `docs/agent/task.md` with explicit lifecycle guidelines (`docs/agent/README.md`).
 
-### Workstation Infrastructure, FastMCP 72 Tools & Quality Architecture (v0.2.11 - Current Release)
+### Workstation Infrastructure, FastMCP 72 Tools & Quality Architecture (v0.2.11 - Completed)
 - [x] **Workstation Infrastructure Valkey Migration**: Replaced Redis components with Valkey 8.0-alpine under BSD-3-Clause across ArgoCD and LLM cluster stacks.
 - [x] **Codebase Stylistic Drift Remediation & Invariants**: Enforced strict nesting depth $\le 5$ (< 6 indentations), cyclomatic complexity $\le 10$, standardized domain exception taxonomy (`DevOpsCLIError`), and automated CI architectural invariant gates (`tests/test_architectural_invariants.py`).
 - [x] **FastMCP Server Tool Parity Expansion (72 Tools)**: Expanded registered FastMCP tools from 53 to 72 tools covering security scans (Trivy, Gitleaks, Semgrep, Checkov, AIBOM, SBOM), Kubernetes operations (chaos, audit, lint, validate, diff), HashiCorp Vault (set, sync), benchmarking, and Git/PR governance.
@@ -274,14 +275,15 @@ High-density product roadmap, engineering milestones, and open-source integratio
   - [x] **Immutable GitHub Actions Commit SHA Pinning**: Pin all actions across `.github/workflows/ci.yml`, `codeql.yml`, and `release.yml` to immutable 40-character commit SHAs with inline version comments.
   - [x] **Qdrant Vector Database API Key Secret Protection**: Add optional API key authentication support and ClusterIP default configuration for production deployments in `k8s/llm/values-qdrant.yaml`.
 
-### Advanced Agentic Harness, Sub-Agent Local Offloading & Terminal UX (v0.2.13 - Scheduled)
-- [ ] **Sub-Agent Local Offloading Engine & Agent Harness Slots (`devops_cli.ai.harness.slots`)**: Modular Harness Slots (`ModelSlot`, `SkillSlot`, `ToolSlot`, `SubAgentSlot`) offloading token-intensive exploration and symbol searching to local open models (Granite, Qwen2.5-Coder) under a "Big decides, small types, big checks" synthesis protocol, achieving 85%+ token savings.
-- [ ] **Interactive Terminal UI Dashboard (`devops dashboard` / `devops tui`)**: Full-screen responsive terminal dashboard powered by `Textual` providing real-time tabs for live Kubernetes pods, Minikube services, Docker container metrics, OpenTelemetry span waterfalls, active AI review findings, and Valkey cache metrics with keyboard navigation (`1-5`, `q`, `r`, `?`).
-- [ ] **Model Dependency Chaos Engineering Suite (`devops ai chaos-model`)**: "Chaos Monkey for Models" validation framework deliberately degrading frontier connections, injecting latency, and enforcing local open model fallbacks to verify that automation tools pass CI quality gates without human coaching.
-- [ ] **Agent Constellation Quiesce & Emergency Failover Controller (`devops ai quiesce`, `devops ai failover`)**: Centralized emergency control to cleanly suspend active agent loops, schedulers, and background cron jobs during upstream provider outages, with zero-state-loss failover to local endpoints.
-- [ ] **Multi-Model LLM Benchmark Evaluation Harness (`devops ai benchmark --suite`)**: Automated evaluation suite benchmarking candidate models against human-in-the-loop validated feedback datasets (`.data/feedback_dataset.jsonl`), calculating precision, recall, and hallucination scores.
-- [ ] **Parallel Async Multi-File Review Worker Pool & Streaming Diff Parser**: Concurrent async file review execution utilizing Python 3.14 `asyncio.TaskGroup` bounded by semaphores and token budgets, combined with streaming generator-based unified diff chunking reducing peak memory by 60% and cutting review runtimes by up to 70%.
-- [ ] **Logfire Structured AI Observability Bridge (`logfire`)**: Native Pydantic Logfire integration binding with OpenTelemetry distributed spans and Rich terminal formatters for live agent reasoning inspection, token throughput counters, and trace waterfalls.
+### Advanced Agentic Harness, Sub-Agent Local Offloading & Terminal UX (v0.2.13 - Current Release / Active Development)
+- [x] **Sub-Agent Local Offloading Engine & Agent Harness Slots (`devops_cli.ai.harness.slots`)**: Modular Harness Slots (`ModelSlot`, `SkillSlot`, `ToolSlot`, `SubAgentSlot`) offloading token-intensive exploration and symbol searching to local open models (Granite, Qwen2.5-Coder) under a "Big decides, small types, big checks" synthesis protocol, achieving 85%+ token savings.
+- [x] **Interactive Terminal UI Dashboard (`devops dashboard` / `devops tui`)**: Full-screen responsive terminal dashboard powered by `Textual` providing real-time tabs for live Kubernetes pods, Minikube services, Docker container metrics, OpenTelemetry span waterfalls, active AI review findings, and Valkey cache metrics with keyboard navigation (`1-5`, `q`, `r`, `?`).
+- [x] **Model Dependency Chaos Engineering Suite (`devops ai chaos-model`)**: "Chaos Monkey for Models" validation framework deliberately degrading frontier connections, injecting latency, and enforcing local open model fallbacks to verify that automation tools pass CI quality gates without human coaching.
+- [x] **Agent Constellation Quiesce & Emergency Failover Controller (`devops ai quiesce`, `devops ai failover`)**: Centralized emergency control to cleanly suspend active agent loops, schedulers, and background cron jobs during upstream provider outages, with zero-state-loss failover to local endpoints.
+- [x] **Multi-Model LLM Benchmark Evaluation Harness (`devops ai benchmark --suite`)**: Automated evaluation suite benchmarking candidate models against human-in-the-loop validated feedback datasets (`.data/feedback_dataset.jsonl`), calculating precision, recall, and hallucination scores.
+- [x] **Parallel Async Multi-File Review Worker Pool & Streaming Diff Parser**: Concurrent async file review execution utilizing Python 3.14 `asyncio.TaskGroup` bounded by semaphores and token budgets, combined with streaming generator-based unified diff chunking reducing peak memory by 60% and cutting review runtimes by up to 70%.
+
+- [x] **Logfire Structured AI Observability Bridge (`logfire`)**: Native Pydantic Logfire integration binding with OpenTelemetry distributed spans and Rich terminal formatters for live agent reasoning inspection, token throughput counters, and trace waterfalls.
 
 ### Multilingual Code Intelligence & Library Ingestion Engine (v0.2.14 - Scheduled)
 - [ ] **Tree-Sitter Multilingual AST Graph & Code Intelligence Engine (`tree-sitter`)**: Incremental multi-language syntax tree parsing across Python, TypeScript, Go, Rust, Java, and HCL for whole-repository symbol navigation, call-graph synthesis, and structural diff analysis.
@@ -293,9 +295,15 @@ High-density product roadmap, engineering milestones, and open-source integratio
 - [ ] **FastMCP Library Tools & Dynamic System Resource**: Exposing `ai_ingest_library`, `ai_query_library`, `ai_inspect_symbol`, and dynamic resource `resource://libraries/indexed` to IDE AI coding assistants.
 - [ ] **Autonomous RAG Index Drift Detection & Auto-Reindexing**: Scheduled background verification of vector store sync against workspace git tracking branches.
 
-### GitOps Fleet, FinOps & Production Security Mesh (v0.2.15 - Scheduled)
+### GitOps Fleet, FinOps, Centralized Logging & Production Security Mesh (v0.2.15 - Scheduled)
 - [ ] **Complete Security Scanner Migration to `BaseSecurityScanner` & `ScannerRegistry`**: Complete migration of all 11 scanner modules (`bandit`, `checkov`, `dive`, `gitleaks`, `kubeconform`, `kubelinter`, `pluto`, `popeye`, `semgrep`, `tflint`, `trivy`) to inherit from `BaseSecurityScanner`, standardizing execution, timeouts, JSON parsing, and normalized `Finding` models.
 - [ ] **Infracost FinOps Cloud Cost Engine (`devops tf cost`)**: Integrated Infracost CLI evaluating financial impacts of Terraform/OpenTofu diffs, enriching `pm` & `architect` review personas with monthly cost deltas.
+- [ ] **Centralized Kubernetes Logging Stack & LogQL Integration (`devops k8s logs` / `devops logs`)**:
+  - **Declarative Loki & Fluent Bit / Vector Aggregation Stack (`k8s/logging/`, `devops k8s deploy-stack --stack logging`)**: Multi-tenant, lightweight log aggregation engine running in dedicated namespace `logging` with Pod Security Admission (PSA) enforcement and restrictive NetworkPolicy; collecting container stdout/stderr, pod metadata, Kubernetes audit logs, and system events.
+  - **Pre-Configured Grafana Data Source & OTel Trace Correlation**: Seamless integration with existing `k8s/monitoring` Grafana instances, establishing automated `trace_id` correlation linking Jaeger distributed traces with Loki log streams.
+  - **Native LogQL Query & Stream Engine (`devops k8s logs query|tail|stream`)**: Rich terminal log inspection powered by LogQL parser pipelines (`| json`, `| logfmt`), regex filters (`|=`, `!~`), label selectors (`--namespace`, `--app`, `--pod`, `--container`), severity thresholds (`--level`), and WebSocket/HTTP chunked live follow mode (`--follow` / `-f`).
+  - **AI Agent Incident Diagnosis & FastMCP Integration (`k8s_logs_query`, `k8s_logs_tail`)**: FastMCP tool exposure and dynamic system resource `resource://k8s/logs/recent` enabling autonomous AI agents to query logs, diagnose CrashLoopBackOff/OOMKilled events, and synthesize incident post-mortems.
+  - **Interactive Terminal UI Logs Tab (`devops dashboard`)**: Dedicated real-time *Centralized Logs* view in the Textual TUI with syntax-highlighted LogQL search, streaming pause/resume, and drill-down into container metrics.
 - [ ] **Falco eBPF Runtime Security & Anomaly Streamer (`devops k8s security-stream`)**: Real-time streaming kernel anomaly and container syscall events via eBPF probes with automated severity threshold filtering.
 - [ ] **Multi-Cluster ArgoCD Fleet Sync & Rollouts (`devops argo sync --fleet`)**: Advanced canary and blue-green rollout management across multi-cluster fleets with Prometheus metric-based rollback gates.
 - [ ] **Automated GitOps Drift Detection & Webhook Synchronization (`devops argo gitops watch`)**: Real-time git commit and inotify/watchdog triggers automatically signaling ArgoCD applications to reconcile local workspace modifications.
@@ -393,8 +401,8 @@ High-density product roadmap, engineering milestones, and open-source integratio
 | | Distributed LLM Token Bucket & Rate Limiter | Valkey Lua / Atomics | High | Low | v0.2.12 | ✅ Completed |
 | | FastMCP Valkey Toolset & Live System Resource | FastMCP / Valkey | High | Low | v0.2.12 | ✅ Completed |
 | | Valkey IT Domain Knowledge Base Manual | Markdown / Docs | Medium | Low | v0.2.12 | ✅ Completed |
-| | Agent Constellation Quiesce & Failover Controller | Asyncio / State Machine | High | Low | v0.2.13 | 📋 Scheduled |
-| | Deterministic Mock LLM Test Isolation (< 60s CI) | `unittest.mock` / Pytest | High | Low | v0.2.13 | 📋 Scheduled |
+| | Agent Constellation Quiesce & Failover Controller | Asyncio / State Machine | High | Low | v0.2.13 | ✅ Completed |
+| | Deterministic Mock LLM Test Isolation (< 60s CI) | `unittest.mock` / Pytest | High | Low | v0.2.13 | ✅ Completed |
 | | Dedicated Library Vector Tier (`devops_libraries`) | Qdrant / Valkey | High | Low | v0.2.14 | 📋 Scheduled |
 | | FastMCP Library Tools & Indexed Resource | FastMCP / Qdrant | High | Low | v0.2.14 | 📋 Scheduled |
 | | Declarative Branch Protection Auditor (`devops gh branch-protection`) | GitHub REST / Policy | High | Low | v0.2.15 | 📋 Scheduled |
@@ -447,11 +455,12 @@ High-density product roadmap, engineering milestones, and open-source integratio
 | | Qdrant Vector DB API Key Secret Protection | Helm / Secret Store | High | Medium | v0.2.12 | ✅ Completed |
 | | Valkey High-Performance Distributed AI Cache Tier | Valkey / Pydantic | High | Medium | v0.2.12 | ✅ Completed |
 | | Ephemeral Testcontainers Valkey Testing Harness | `testcontainers-python` | High | Medium | v0.2.12 | ✅ Completed |
-| | Sub-Agent Local Offloading Engine & Harness Slots | PydanticAI / Ollama / vLLM | High | Medium | v0.2.13 | 📋 Scheduled |
-| | Interactive Terminal UI Dashboard (`devops dashboard`) | `textual` TUI | High | Medium | v0.2.13 | 📋 Scheduled |
-| | Model Dependency Chaos Engineering Suite (`devops ai chaos-model`) | Pytest / Fallback Routing | High | Medium | v0.2.13 | 📋 Scheduled |
-| | Multi-Model LLM Benchmark Evaluation Harness | Pytest / Feedback Dataset | High | Low | v0.2.13 | 📋 Scheduled |
-| | Parallel Async Multi-File Review Worker Pool & Streaming Diff | Python 3.14 TaskGroup / Generator | High | Medium | v0.2.13 | 📋 Scheduled |
+| | Sub-Agent Local Offloading Engine & Harness Slots | PydanticAI / Ollama / vLLM | High | Medium | v0.2.13 | ✅ Completed |
+| | Interactive Terminal UI Dashboard (`devops dashboard`) | `textual` TUI | High | Medium | v0.2.13 | ✅ Completed |
+| | Model Dependency Chaos Engineering Suite (`devops ai chaos-model`) | Pytest / Fallback Routing | High | Medium | v0.2.13 | ✅ Completed |
+| | Multi-Model LLM Benchmark Evaluation Harness | Pytest / Feedback Dataset | High | Low | v0.2.13 | ✅ Completed |
+| | Parallel Async Multi-File Review Worker Pool & Streaming Diff | Python 3.14 TaskGroup / Generator | High | Medium | v0.2.13 | ✅ Completed |
+
 | | Tree-Sitter Multilingual AST Graph & Code Intelligence Engine | `tree-sitter` / Multi-Language | High | Medium | v0.2.14 | 📋 Scheduled |
 | | Dynamic Package Introspection & Type Stub Parser (`devops ai ingest library`) | `ast` / `pkgutil` / `inspect` | High | Medium | v0.2.14 | 📋 Scheduled |
 | | Multi-Source Documentation & Standards Ingester (`devops ai ingest docs`) | `httpx2` / `pathspec` | High | Medium | v0.2.14 | 📋 Scheduled |
@@ -459,6 +468,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
 | | Library API Drift & Deprecation Auditor | AST / McCabe | High | Medium | v0.2.14 | 📋 Scheduled |
 | | Complete Security Scanner Migration to `BaseSecurityScanner` & `ScannerRegistry` | Python ABC / Subprocess | High | Medium | v0.2.15 | 📋 Scheduled |
 | | Infracost FinOps Cloud Cost Engine (`devops tf cost`) | `infracost` CLI | High | Medium | v0.2.15 | 📋 Scheduled |
+| | Centralized K8s Logging Stack & LogQL CLI (`devops k8s logs`) | Grafana Loki / Fluent Bit / LogQL | High | Medium | v0.2.15 | 📋 Scheduled |
 | | Falco eBPF Runtime Security & Anomaly Streamer | `falco` / eBPF | High | Medium | v0.2.15 | 📋 Scheduled |
 | | Multi-Cluster ArgoCD Fleet Sync & Rollouts | Argo Rollouts / Prometheus | High | High | v0.2.15 | 📋 Scheduled |
 | | Automated GitOps Drift Detection & Webhook Sync | Watchdog / ArgoCD REST | High | Medium | v0.2.15 | 📋 Scheduled |
@@ -480,9 +490,10 @@ High-density product roadmap, engineering milestones, and open-source integratio
 | | Automated PR Remediation Branch Generator | Git / GitHub API | Medium | Medium | v0.2.4 | ✅ Completed |
 | | FastMCP JSON Schema Exporter CLI (`devops mcp export-schemas`) | FastMCP / Introspection | Medium | Low | v0.2.11 | ✅ Completed |
 | | Executive Summary & Good/Bad Pattern Report Generation | Markdown / Rich Panels | Medium | Low | v0.2.11 | ✅ Completed |
-| | Logfire Structured AI Observability Bridge | `logfire` SDK / OTel | Medium | Medium | v0.2.13 | 📋 Scheduled |
+| | Logfire Structured AI Observability Bridge | `logfire` SDK / OTel | Medium | Medium | v0.2.13 | ✅ Completed |
 | | Autonomous RAG Index Drift Detection & Auto-Reindexing | Git / Qdrant Sync | Medium | Low | v0.2.14 | 📋 Scheduled |
 | | Local GitOps Project Orchestration Pipeline | Git Daemon / ArgoCD App-of-Apps | High | Medium | v0.2.15 | 📋 Scheduled |
+| | FastMCP K8s Centralized Log Tools (`k8s_logs_query`, `k8s_logs_tail`) | FastMCP / Loki REST API | High | Low | v0.2.15 | 📋 Scheduled |
 | | Core Dependency Ecosystem Alignment | `uv lock --upgrade` / PyPI | Medium | Low | v0.2.15 | 📋 Scheduled |
 | **De-prioritized** | Bare-Metal OS Installers | Shell scripts | Low | High | — | ❌ Rejected (DevContainer native) |
 | | Heavyweight Monolithic Orchestrators | Full LangChain | Low | High | — | ❌ Rejected (FastMCP + PydanticAI) |

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from devops_cli.ai.agents import (
     GLOBAL_PROMPT_REGISTRY,
     ManagedPrompt,
@@ -47,7 +49,7 @@ def test_managed_prompt_render_and_fallback() -> None:
         version="v1",
         template_vars={"repo": "devops-cli"},
     )
-    ctx = RunContext(session_id="s1", model="gpt-4o")
+    ctx: RunContext[Any] = RunContext(session_id="s1", model="gpt-4o")
     prompts = managed_reg.get_system_prompt_additions(ctx)
     assert len(prompts) == 1
     assert prompts[0] == "Perform review of devops-cli using model gpt-4o."
@@ -85,3 +87,23 @@ def test_prompt_render_neutralizes_system_and_instruction_escape_tags() -> None:
     assert "</system>" not in rendered
     assert "<instructions>" not in rendered
     assert "</instructions>" not in rendered
+
+
+def test_prompt_injection_constant_in_config_constants() -> None:
+    """Verify prompt injection tags regex is properly exported from config constants."""
+    from devops_cli.ai.agents.prompt import _PROMPT_INJECTION_TAGS_REGEX
+    from devops_cli.config import (
+        CONST_PROMPT_INJECTION_TAGS_RE,
+        CONST_PROMPT_INJECTION_TAGS_REGEX,
+    )
+    from devops_cli.config.constants import (
+        CONST_PROMPT_INJECTION_TAGS_RE as CONSTS_RE,
+    )
+
+    assert CONST_PROMPT_INJECTION_TAGS_RE is CONSTS_RE
+    assert CONST_PROMPT_INJECTION_TAGS_REGEX is CONST_PROMPT_INJECTION_TAGS_RE
+    assert _PROMPT_INJECTION_TAGS_REGEX is CONST_PROMPT_INJECTION_TAGS_RE
+
+    assert CONST_PROMPT_INJECTION_TAGS_RE.search("<System>evil</SYSTEM>") is not None
+    assert CONST_PROMPT_INJECTION_TAGS_RE.search("<untrusted>") is not None
+    assert CONST_PROMPT_INJECTION_TAGS_RE.search("<prompt foo='bar'>") is not None

@@ -12,6 +12,11 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from devops_cli.config.defaults import (
+    DEFAULT_ALLOWED_STREAM_PERSONAS,
+    DEFAULT_STREAM_PERSONA,
+)
+
 router = APIRouter(prefix="/v1", tags=["Streaming"])
 
 
@@ -21,19 +26,30 @@ class StreamEvent(BaseModel):
     event_type: str = Field(
         ..., description="Event kind: token, reasoning_step, scratchpad, finding"
     )
-    persona: str = Field(default="devsecops", description="Originating agent persona")
+    persona: str = Field(default=DEFAULT_STREAM_PERSONA, description="Originating agent persona")
     content: str = Field(..., description="Content payload or delta")
     timestamp: float = Field(default_factory=time.time, description="Timestamp of the event")
     metadata: dict[str, Any] = Field(default_factory=dict, description="Contextual event metadata")
 
 
-async def _generate_agent_reasoning_events(persona: str = "devsecops") -> AsyncGenerator[str]:
+async def _generate_agent_reasoning_events(
+    persona: str = DEFAULT_STREAM_PERSONA,
+) -> AsyncGenerator[str]:
     """Simulate streaming agent reasoning tokens and scratchpad updates for IDE integration."""
     steps = [
-        ("reasoning_step", "Parsing AST structure and extracting call-graph invariants..."),
-        ("token", "Analyzing input boundaries and potential SSRF surfaces in network layer..."),
+        (
+            "reasoning_step",
+            "Parsing AST structure and extracting call-graph invariants...",
+        ),
+        (
+            "token",
+            "Analyzing input boundaries and potential SSRF surfaces in network layer...",
+        ),
         ("scratchpad", "Checking against CWE-918 and CWE-200 threat models..."),
-        ("finding", "✓ Zero-trust security invariants verified. No unvalidated egress found."),
+        (
+            "finding",
+            "✓ Zero-trust security invariants verified. No unvalidated egress found.",
+        ),
     ]
     for kind, text in steps:
         evt = StreamEvent(event_type=kind, persona=persona, content=text)
@@ -42,10 +58,15 @@ async def _generate_agent_reasoning_events(persona: str = "devsecops") -> AsyncG
 
 
 @router.get("/stream/events", summary="Server-Sent Events (SSE) agent reasoning feed")
-async def stream_agent_events(persona: str = "devsecops") -> StreamingResponse:
+async def stream_agent_events(
+    persona: str = DEFAULT_STREAM_PERSONA,
+) -> StreamingResponse:
     """Stream real-time LLM reasoning events and scratchpad updates via SSE."""
+    clean_persona = persona.lower().strip()
+    if clean_persona not in DEFAULT_ALLOWED_STREAM_PERSONAS:
+        clean_persona = DEFAULT_STREAM_PERSONA
     return StreamingResponse(
-        _generate_agent_reasoning_events(persona),
+        _generate_agent_reasoning_events(clean_persona),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
     )
@@ -58,7 +79,9 @@ async def websocket_reasoning_endpoint(websocket: WebSocket) -> None:
     try:
         data = await websocket.receive_text()
         req = json.loads(data) if data else {}
-        persona = req.get("persona", "devsecops")
+        persona = str(req.get("persona", DEFAULT_STREAM_PERSONA)).lower().strip()
+        if persona not in DEFAULT_ALLOWED_STREAM_PERSONAS:
+            persona = DEFAULT_STREAM_PERSONA
 
         async for chunk in _generate_agent_reasoning_events(persona):
             lines = chunk.strip().splitlines()

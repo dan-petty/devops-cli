@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import MagicMock, patch
 
+import pytest
 from github.GithubException import UnknownObjectException
 
 from devops_cli.github.client import GitHubClient, RepoInfo
@@ -116,7 +118,7 @@ def test_get_org_repos_falls_back_to_authenticated_user_login() -> None:
         def get_user(self) -> _FakeUser:
             return _FakeUser()
 
-    client._gh = _FakeGithub()
+    client._gh = _FakeGithub()  # type: ignore[assignment]
 
     result = client.get_org_repos("octo", include_private=False, include_forks=False)
 
@@ -155,7 +157,7 @@ def test_get_org_repos_skips_archived_repos() -> None:
         def get_organization(self, org_name: str) -> _FakeOrg:
             return _FakeOrg()
 
-    client._gh = _FakeGithub()
+    client._gh = _FakeGithub()  # type: ignore[assignment]
 
     result = client.get_org_repos(
         "octo", include_private=False, include_forks=False, include_archived=False
@@ -184,7 +186,7 @@ def test_create_pr_review_comment() -> None:
         def get_repo(self, repo: str) -> _FakeRepo:
             return _FakeRepo()
 
-    client._gh = _FakeGithub()
+    client._gh = _FakeGithub()  # type: ignore[assignment]
 
     res = client.create_pr_review_comment(
         repo="octo/repo",
@@ -201,7 +203,7 @@ def test_create_pr_review_comment() -> None:
     assert called_kwargs["line"] == 15
 
 
-def test_get_pr_diff_normal_and_redirect(monkeypatch) -> None:
+def test_get_pr_diff_normal_and_redirect(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify get_pr_diff fetches unified diff with and without redirect."""
     import httpx2
 
@@ -228,7 +230,7 @@ def test_get_pr_diff_normal_and_redirect(monkeypatch) -> None:
     # 2. Redirected diff response
     calls = []
 
-    def mock_redirect_get(self, url, **kwargs):
+    def mock_redirect_get(self: Any, url: str, **kwargs: Any) -> MockDiffResponse:
         calls.append(url)
         if len(calls) == 1:
             return MockDiffResponse(
@@ -244,7 +246,7 @@ def test_get_pr_diff_normal_and_redirect(monkeypatch) -> None:
     assert len(calls) == 2
 
 
-def test_create_milestone_forwards_due_on(monkeypatch) -> None:
+def test_create_milestone_forwards_due_on(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify create_milestone parses and forwards due_on to GitHub repository."""
     import datetime
     from unittest.mock import MagicMock
@@ -279,3 +281,52 @@ def test_create_milestone_forwards_due_on(monkeypatch) -> None:
     )
     called_kwargs2 = mock_repo.create_milestone.call_args[1]
     assert called_kwargs2["due_on"] == target_date
+
+
+def test_edit_milestone_supplies_existing_title(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify edit_milestone supplies milestone.title when title is None."""
+    from unittest.mock import MagicMock
+
+    client = GitHubClient("token123")
+    mock_repo = MagicMock()
+    mock_milestone = MagicMock()
+    mock_milestone.title = "v0.2.12"
+    mock_repo.get_milestone.return_value = mock_milestone
+    monkeypatch.setattr(client._gh, "get_repo", lambda r: mock_repo)
+
+    client.edit_milestone("octo/repo", 24, state="closed")
+    mock_milestone.edit.assert_called_once_with(state="closed", title="v0.2.12")
+
+
+def test_close_milestone_by_title_and_number(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify close_milestone closes by numeric id and by title string."""
+    from unittest.mock import MagicMock
+
+    client = GitHubClient("token123")
+    mock_repo = MagicMock()
+    mock_milestone = MagicMock()
+    mock_milestone.title = "v0.2.12"
+    mock_repo.get_milestone.return_value = mock_milestone
+    monkeypatch.setattr(client._gh, "get_repo", lambda r: mock_repo)
+
+    # 1. Close by integer
+    res_int = client.close_milestone("octo/repo", 24)
+    assert res_int is True
+    mock_milestone.edit.assert_called_with(state="closed", title="v0.2.12")
+
+    # 2. Close by title matching
+    mock_milestone.reset_mock()
+    monkeypatch.setattr(
+        client,
+        "get_milestones",
+        lambda repo, state="all": [{"title": "v0.2.13", "number": 25}],
+    )
+    mock_milestone.title = "v0.2.13"
+    res_title = client.close_milestone("octo/repo", "v0.2.13")
+    assert res_title is True
+    mock_repo.get_milestone.assert_called_with(25)
+    mock_milestone.edit.assert_called_with(state="closed", title="v0.2.13")
+
+    # 3. Non-existent milestone returns False
+    res_missing = client.close_milestone("octo/repo", "v9.9.9")
+    assert res_missing is False

@@ -34,6 +34,9 @@ def _prune_single_item(
 ) -> None:
     """Helper to evaluate and prune a single expired file or directory."""
     try:
+        if item.is_symlink() or not item.resolve().is_relative_to(top_root.resolve()):
+            return
+
         mtime = item.stat().st_mtime
         if mtime >= cutoff_time:
             return
@@ -70,7 +73,11 @@ def cleanup_data_tier(
     )
     summary = CleanupSummary(dry_run=dry_run)
 
-    if not data_dir.exists() or not data_dir.is_dir():
+    if (
+        not data_dir.exists()
+        or not data_dir.is_dir()
+        or not data_dir.resolve().is_relative_to(top_root.resolve())
+    ):
         return summary
 
     cutoff_time = time.time() - older_than_seconds

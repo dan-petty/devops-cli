@@ -63,7 +63,6 @@ def isolate_devops_cli_config(tmp_path_factory: pytest.TempPathFactory):
             },
         ),
         patch("devops_cli.config.settings.CONFIG_PATH", dummy_config),
-        patch("devops_cli.config.settings.CONFIG_DIR", dummy_config.parent),
     ):
         yield dummy_config
     reset_tracer()

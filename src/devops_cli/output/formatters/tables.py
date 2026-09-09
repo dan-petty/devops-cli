@@ -266,6 +266,77 @@ def format_benchmark_leaderboard_table(report: Any) -> TablePayload:
     )
 
 
+def _format_suite_leaderboard_row(rank_index: int, m: Any) -> list[str]:
+    rank_badge = (
+        "🥇"
+        if rank_index == 1
+        else ("🥈" if rank_index == 2 else ("🥉" if rank_index == 3 else f"#{rank_index}"))
+    )
+    hallucination_rate = getattr(m, "hallucination_rate", 0.0)
+    hallucination_color = (
+        "green"
+        if hallucination_rate <= 0.05
+        else ("yellow" if hallucination_rate <= 0.15 else "red")
+    )
+    hallucination_str = (
+        f"[{hallucination_color}]{hallucination_rate * 100.0:.1f}%[/{hallucination_color}]"
+    )
+
+    compliance_rate = getattr(m, "architectural_compliance_rate", 1.0)
+    compliance_color = "green" if compliance_rate >= 0.90 else "yellow"
+    compliance_str = f"[{compliance_color}]{compliance_rate * 100.0:.1f}%[/{compliance_color}]"
+
+    tp = getattr(m, "true_positives", 0)
+    fp = getattr(m, "false_positives", 0)
+    tn = getattr(m, "true_negatives", 0)
+    fn = getattr(m, "false_negatives", 0)
+    matrix_str = f"{tp}/{fp}/{tn}/{fn}"
+
+    return [
+        rank_badge,
+        getattr(m, "model", ""),
+        f"[bold green]{getattr(m, 'overall_score', 0.0):.1f}%[/bold green]",
+        f"{getattr(m, 'precision', 0.0) * 100.0:.1f}%",
+        f"{getattr(m, 'recall', 0.0) * 100.0:.1f}%",
+        f"{getattr(m, 'f1_score', 0.0) * 100.0:.1f}%",
+        hallucination_str,
+        compliance_str,
+        format_duration(getattr(m, "avg_latency_ms", 0.0) / 1000.0),
+        f"{getattr(m, 'avg_tokens_per_second', 0.0):.1f} tps",
+        matrix_str,
+    ]
+
+
+def format_benchmark_suite_table(report: Any) -> TablePayload:
+    """Build structured TablePayload for multi-model benchmark evaluation suite leaderboard."""
+    from devops_cli.output.models import TablePayload
+
+    columns: list[Any] = [
+        ("Rank", "bold"),
+        ("Model", "cyan"),
+        ("Overall", "bold green"),
+        ("Precision", "green"),
+        ("Recall", "green"),
+        ("F1 Score", "bold cyan"),
+        ("Hallucination", "yellow"),
+        ("Arch Compl", "magenta"),
+        ("Latency", "dim"),
+        ("Throughput", "dim"),
+        ("TP/FP/TN/FN", "blue"),
+    ]
+    rows: list[list[str]] = []
+    leaderboard = getattr(report, "leaderboard", [])
+    for rank_index, model_summary in enumerate(leaderboard, start=1):
+        rows.append(_format_suite_leaderboard_row(rank_index, model_summary))
+
+    session_id = getattr(report, "session_id", "")
+    return TablePayload(
+        title=MESSAGES.benchmark.table_title_suite_leaderboard.format(session_id=session_id),
+        columns=columns,
+        rows=rows,
+    )
+
+
 def format_benchmark_category_table(report: Any) -> TablePayload | None:
     """Build a structured TablePayload for domain category breakdown."""
     from devops_cli.output.models import TablePayload

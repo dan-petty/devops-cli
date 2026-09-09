@@ -39,13 +39,22 @@ def test_static_scan_stage(tmp_path: Path) -> None:
 
 
 def test_persona_review_stage(tmp_path: Path) -> None:
-    payload = FileReviewPayload(
+    payload1 = FileReviewPayload(
         file_path="src/app.py",
         file_hash="12345",
         findings=[],
     )
-    run_persona_review_stage([payload], {"src/app.py": "def test(): pass"})
-    assert payload.file_path == "src/app.py"
+    payload2 = FileReviewPayload(
+        file_path="src/utils.py",
+        file_hash="67890",
+        findings=[],
+    )
+    run_persona_review_stage(
+        [payload1, payload2],
+        {"src/app.py": "def test(): pass", "src/utils.py": "def util(): pass"},
+    )
+    assert payload1.file_path == "src/app.py"
+    assert payload2.file_path == "src/utils.py"
 
 
 def test_verification_stage() -> None:

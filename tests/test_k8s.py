@@ -684,3 +684,28 @@ def test_k8s_bootstrap_openwebui() -> None:
     with patch("devops_cli.commands.k8s._run_cmd", return_value=_mock_proc(1, "")):
         res_fail = runner.invoke(app, ["bootstrap-openwebui"])
         assert res_fail.exit_code == 1
+
+
+def test_k8s_deploy_stack_no_wait() -> None:
+    """Verify k8s deploy-stack with --no-wait omits --wait flag in helm upgrade command."""
+    set_dry_run(True)
+    try:
+        res = runner.invoke(app, ["deploy-stack", "--stack", "infra", "--no-wait"])
+        assert res.exit_code == 0
+        assert '"wait": false' in res.output
+    finally:
+        set_dry_run(False)
+
+    with (
+        patch("devops_cli.commands.k8s._cluster_reachable", return_value=True),
+        patch("devops_cli.commands.k8s._run_cmd") as mock_cmd,
+        patch("devops_cli.commands.k8s.port_forward"),
+        patch("devops_cli.k8s.credentials.sync_k8s_credentials", return_value={}),
+    ):
+        mock_cmd.return_value = _mock_proc(0, "")
+        res_exec = runner.invoke(app, ["deploy-stack", "--stack", "infra", "--no-wait"])
+        assert res_exec.exit_code == 0
+        for call_args in mock_cmd.call_args_list:
+            cmd = call_args[0][0]
+            if isinstance(cmd, list) and "helm" in cmd and "upgrade" in cmd:
+                assert "--wait" not in cmd

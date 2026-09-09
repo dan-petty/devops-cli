@@ -14,6 +14,22 @@ devops telemetry status
 
 ---
 
+## `devops telemetry logfire`
+
+**Display Logfire structured observability bridge status and token metrics.**
+
+```bash
+devops telemetry logfire [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+
+---
+
 ## `devops telemetry test`
 
 **Emit a test OpenTelemetry trace span and metric to the configured collector.**
@@ -27,6 +43,7 @@ devops telemetry test [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--name`, `-n` | `string` | `devops-cli.manual_test` | Name for test span. |
+| `--logfire` | `boolean` | - | Emit test span via Logfire bridge. |
 
 ---
 

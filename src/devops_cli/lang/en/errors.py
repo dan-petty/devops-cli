@@ -130,6 +130,18 @@ class GrafanaErrorMessages:
 @dataclass(frozen=True)
 class MCPErrorMessages:
     invalid_transport: str = "Invalid transport '{transport}'. Choose 'stdio' or 'sse'."
+    hyphen_prefixed_argument: str = (
+        "Invalid value for '{name}': must not start with a hyphen. "
+        "Hyphen-prefixed values could be interpreted as flags by the underlying command."
+    )
+    integer_below_minimum: str = "Invalid value for '{name}': {value}. Must be >= {min_val}."
+    conflicting_symbol_and_pattern: str = (
+        "Cannot specify both 'symbol' and 'pattern'; provide one or the other."
+    )
+    security_sse_non_loopback: str = (
+        "Refusing to bind SSE transport to non-loopback host '{host}' by default. "
+        "Use allow_remote=True to permit external host binding."
+    )
 
 
 @dataclass(frozen=True)

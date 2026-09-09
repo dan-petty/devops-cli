@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import logging
+import re
+import shutil
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
@@ -216,6 +218,33 @@ def _format_macroscope_review(review: MacroscopeReview) -> str:
     return "\n".join(formatted)
 
 
+_DIFF_BASE_PATTERN: re.Pattern[str] = re.compile(r"^[a-zA-Z0-9_\-./~^]+$")
+
+
+def _is_safe_diff_base(diff_base: str) -> bool:
+    """Predicate checking whether a diff base reference is safe against path traversal."""
+    if not diff_base:
+        return True
+    if (
+        ".." in diff_base
+        or diff_base.startswith(("/", "\\"))
+        or Path(diff_base).is_absolute()
+        or not _DIFF_BASE_PATTERN.match(diff_base)
+    ):
+        return False
+    return True
+
+
+def _validate_diff_base(diff_base: str | None) -> str | None:
+    """Validate diff base reference against path traversal and malicious characters."""
+    if diff_base and not _is_safe_diff_base(diff_base):
+        return (
+            f"Invalid base reference '{diff_base}': "
+            "path traversal or invalid characters blocked by security policy."
+        )
+    return None
+
+
 class Macroscope(BaseCapability):
     """Capability running Macroscope CLI code reviews and feeding structured findings to the agent."""
 
@@ -247,17 +276,9 @@ class Macroscope(BaseCapability):
     def get_tools(self) -> list[AgentTool | Callable[..., Any]]:
         def run_macroscope_review(base: str | None = None) -> str:
             """Run macroscope codereview and return findings."""
-            import re
-            import shutil
-
             diff_base = base or self.base
-            if diff_base and (
-                ".." in diff_base or not re.match(r"^[a-zA-Z0-9_\-./~^]+$", diff_base)
-            ):
-                return (
-                    f"Invalid base reference '{diff_base}': "
-                    "path traversal or invalid characters blocked by security policy."
-                )
+            if err := _validate_diff_base(diff_base):
+                return err
 
             bin_path = shutil.which(self.command)
             if not bin_path:

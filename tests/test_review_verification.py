@@ -713,3 +713,221 @@ def test_check_missing_header_hallucination_requires_assignment_and_dispatch() -
     assert pre_result.status == "INVALIDATED"
     assert not pre_result.verified
     assert not pre_result.reportable
+
+
+def test_check_uninitialized_variable_hallucination(tmp_path: Path) -> None:
+    """Verify that claims of uninitialized variables assigned above a loop are invalidated."""
+    from devops_cli.ai.review.verification import _deterministic_pre_verification
+
+    code = (
+        "def process_items(items):\n"
+        "    system_prompt = 'initial'\n"
+        "    results = []\n"
+        "    for item in items:\n"
+        "        results.append(f'{system_prompt}: {item}')\n"
+        "    return results\n"
+    )
+    src_file = tmp_path / "processor.py"
+    src_file.write_text(code, encoding="utf-8")
+
+    finding = Finding(
+        severity="HIGH",
+        location=f"{src_file.name}:4-5",
+        title="Uninitialized variable 'system_prompt' in loop causes UnboundLocalError",
+        description="The variable 'system_prompt' is referenced inside the loop without initialization.",
+    )
+    res = _deterministic_pre_verification(finding, repo_root=tmp_path)
+    assert res.status == "INVALIDATED"
+    assert res.verified is False
+    assert "HALLUCINATION-UNINITIALIZED-VARIABLE-ABOVE-LOOP" in res.invalidation_reason
+
+
+def test_check_pathlib_resolve_hallucination() -> None:
+    """Verify that false claims regarding Path.resolve() and FileNotFoundError are invalidated."""
+    from devops_cli.ai.review.verification import _deterministic_pre_verification
+
+    finding = Finding(
+        severity="MEDIUM",
+        location="src/devops_cli/core/paths.py:42",
+        title="Pathlib Path.resolve() raises FileNotFoundError on non-existent targets",
+        description="Using target.resolve() will fail with FileNotFoundError if file does not exist.",
+    )
+    res = _deterministic_pre_verification(finding)
+    assert res.status == "INVALIDATED"
+    assert "HALLUCINATION-PATHLIB-RESOLVE-FILENOTFOUND" in res.invalidation_reason
+
+
+def test_check_operational_protocol_hallucination() -> None:
+    """Verify that health probe version endpoints and SSE timestamps are not flagged as leaks."""
+    from devops_cli.ai.review.verification import _deterministic_pre_verification
+
+    f_health = Finding(
+        severity="LOW",
+        location="src/devops_cli/server/routes/health.py:20",
+        title="Information disclosure: health endpoint reveals application version",
+        description="Exposing version in /health allows attackers to fingerprint running services.",
+    )
+    res_health = _deterministic_pre_verification(f_health)
+    assert res_health.status == "INVALIDATED"
+    assert "HALLUCINATION-HEALTH-ENDPOINT-VERSION" in res_health.invalidation_reason
+
+    f_stream = Finding(
+        severity="LOW",
+        location="src/devops_cli/server/routes/stream.py:35",
+        title="Timestamp leakage in SSE streaming reasoning feed",
+        description="Streaming event timestamps expose internal clock details.",
+    )
+    res_stream = _deterministic_pre_verification(f_stream)
+    assert res_stream.status == "INVALIDATED"
+    assert "HALLUCINATION-STREAM-EVENT-TIMESTAMP" in res_stream.invalidation_reason
+
+
+def test_check_test_fixture_credential_hallucination(tmp_path: Path) -> None:
+    """Verify that claims of hardcoded test credentials in test suites are invalidated."""
+    from devops_cli.ai.review.verification import _deterministic_pre_verification
+
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir()
+    test_file = tests_dir / "test_auth_fixtures.py"
+    test_file.write_text("TEST_TOKEN = 'ghp_fake1234567890abcdef'\n", encoding="utf-8")
+
+    finding = Finding(
+        severity="CRITICAL",
+        location=f"tests/{test_file.name}:1",
+        title="Plaintext secret: exposed vault token in source code",
+        description="Found hardcoded secret in test module.",
+    )
+    res = _deterministic_pre_verification(finding, repo_root=tmp_path)
+    assert res.status == "INVALIDATED"
+    assert "HALLUCINATION-TEST-MOCK-CRED" in res.invalidation_reason
+
+
+def test_check_conversational_monologue() -> None:
+    """Verify conversational chain-of-thought monologue findings are invalidated."""
+    from devops_cli.ai.review.verification import _deterministic_pre_verification
+
+    for phrase in [
+        "Let's check the database connection",
+        "First, let's verify tokens",
+        "We need to fix this",
+    ]:
+        f = Finding(
+            severity="LOW",
+            location="src/devops_cli/main.py:10",
+            title=phrase,
+            description="Thinking out loud about code.",
+        )
+        res = _deterministic_pre_verification(f)
+        assert res.status == "INVALIDATED"
+        assert "monologue" in res.invalidation_reason.lower()
+
+
+def test_check_benign_compliment() -> None:
+    """Verify benign compliments without concrete defects are invalidated."""
+    from devops_cli.ai.review.verification import _deterministic_pre_verification
+
+    for phrase in [
+        "Implementation looks solid and clean",
+        "No vulnerabilities found in module",
+        "All clear",
+    ]:
+        f = Finding(
+            severity="LOW",
+            location="src/devops_cli/main.py:10",
+            title=phrase,
+            description="Positive remarks.",
+        )
+        res = _deterministic_pre_verification(f)
+        assert res.status == "INVALIDATED"
+        assert "benign" in res.invalidation_reason.lower()
+
+
+def test_check_masked_placeholder_syntax_error() -> None:
+    """Verify false syntax errors on redaction tokens are invalidated."""
+    from devops_cli.ai.review.verification import _deterministic_pre_verification
+
+    f1 = Finding(
+        severity="HIGH",
+        location="src/devops_cli/core.py:5",
+        title="Syntax error: unquoted placeholder <masked-secret>",
+        description="Unresolved identifier found in code snippet.",
+    )
+    res1 = _deterministic_pre_verification(f1)
+    assert res1.status == "INVALIDATED"
+    assert "Sanitization marker" in res1.invalidation_reason
+
+    f2 = Finding(
+        severity="HIGH",
+        location="src/devops_cli/core.py:5",
+        title="Undefined variable in sanitized payload",
+        description="Found ***redacted*** used as nameerror trigger.",
+    )
+    res2 = _deterministic_pre_verification(f2)
+    assert res2.status == "INVALIDATED"
+    assert "Sanitization marker" in res2.invalidation_reason
+
+
+def test_verification_helper_edge_cases(tmp_path: Path) -> None:
+    """Test edge cases for internal verification helpers."""
+    from devops_cli.ai.review.verification import (
+        _check_test_fixture_credential_hallucination,
+        _check_uninitialized_variable_hallucination,
+        _extract_location_line,
+        _extract_uninitialized_var_name,
+        _is_health_endpoint_version_claim,
+        _is_stream_event_timestamp_claim,
+    )
+
+    # Location line extractor
+    assert _extract_location_line("no_colon") == 0
+    assert _extract_location_line("file.py:invalid") == 0
+    assert _extract_location_line("file.py:12-15") == 12
+
+    # Variable name extractor
+    assert _extract_uninitialized_var_name("No quotes here", "also none") is None
+    assert _extract_uninitialized_var_name("Uninitialized `my_var`", "") == "my_var"
+
+    # Protocol claim checkers
+    assert not _is_health_endpoint_version_claim("something else", "loc.py")
+    assert not _is_stream_event_timestamp_claim("something else", "loc.py")
+
+    # Fixture credential check on non-test file
+    prod_file = tmp_path / "prod.py"
+    prod_file.write_text("API_KEY = 'real_secret'\n", encoding="utf-8")
+    f_prod = Finding(
+        severity="CRITICAL",
+        location=f"{prod_file.name}:1",
+        title="Plaintext secret: exposed vault token",
+    )
+    assert _check_test_fixture_credential_hallucination(f_prod, prod_file) is None
+
+    # Uninitialized variable check on non-python file or non-existent file
+    txt_file = tmp_path / "notes.txt"
+    txt_file.write_text("some notes\n", encoding="utf-8")
+    f_txt = Finding(
+        severity="HIGH",
+        location=f"{txt_file.name}:1",
+        title="Uninitialized variable 'test' causes UnboundLocalError",
+    )
+    assert _check_uninitialized_variable_hallucination(f_txt, txt_file) is None
+    assert _check_uninitialized_variable_hallucination(f_txt, tmp_path / "missing.py") is None
+
+    # Non-uninitialized claim
+    py_file = tmp_path / "script.py"
+    py_file.write_text("x = 1\n", encoding="utf-8")
+    f_other = Finding(
+        severity="LOW",
+        location=f"{py_file.name}:1",
+        title="Code style preference",
+    )
+    assert _check_uninitialized_variable_hallucination(f_other, py_file) is None
+
+    # When syntax error exists in file, _try_find_var_assignment returns None safely
+    broken_py = tmp_path / "broken.py"
+    broken_py.write_text("def broken(:\n", encoding="utf-8")
+    f_broken = Finding(
+        severity="HIGH",
+        location=f"{broken_py.name}:1",
+        title="Uninitialized variable 'var' causes UnboundLocalError",
+    )
+    assert _check_uninitialized_variable_hallucination(f_broken, broken_py) is None

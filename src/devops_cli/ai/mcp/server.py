@@ -8,7 +8,10 @@ from typing import Literal
 
 from fastmcp import FastMCP
 
+from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.defaults import (
+    DEFAULT_AI_FALLBACK_MODEL,
+    DEFAULT_AI_FALLBACK_PROVIDER,
     DEFAULT_MCP_SERVER_PORT,
     DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
     DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
@@ -16,6 +19,7 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions import SecurityError, ValidationError
+from devops_cli.lang import ERRORS, MESSAGES
 from devops_cli.models.ai import MCPToolInfo
 
 mcp = FastMCP(
@@ -50,8 +54,7 @@ def _validate_mcp_arg(name: str, value: str) -> None:
     """Reject MCP tool arguments that start with a hyphen to prevent flag injection."""
     if value.startswith("-"):
         raise ValidationError(
-            f"Invalid value for '{name}': must not start with a hyphen. "
-            "Hyphen-prefixed values could be interpreted as flags by the underlying command.",
+            ERRORS.mcp.hyphen_prefixed_argument.format(name=name),
             field=name,
         )
 
@@ -60,7 +63,7 @@ def _validate_mcp_int_bound(name: str, value: int, min_val: int = 1) -> None:
     """Reject integer MCP arguments below min_val to prevent negative flag-like injection or invalid arguments."""
     if value < min_val:
         raise ValidationError(
-            f"Invalid value for '{name}': {value}. Must be >= {min_val}.",
+            ERRORS.mcp.integer_below_minimum.format(name=name, value=value, min_val=min_val),
             field=name,
         )
 
@@ -632,6 +635,15 @@ def telemetry_test_span(name: str = "mcp_test_span") -> str:
 
 
 @mcp.tool()
+def telemetry_logfire_status() -> str:
+    """Check Logfire structured observability bridge status, token configuration, and recorded metrics."""
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "telemetry", "logfire"],
+        timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.tool()
 def ai_repomap(target_dir: str = ".") -> str:
     """Generate a compact whole-repository AST symbol map for AI context."""
     _validate_mcp_arg("target_dir", target_dir)
@@ -719,6 +731,15 @@ def get_telemetry_resource() -> str:
     """Return OpenTelemetry distributed tracing and Prometheus metrics status."""
     return _run_mcp_cmd(
         ["uv", "run", "devops", "telemetry", "status"],
+        timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.resource("resource://telemetry/logfire")
+def get_logfire_resource() -> str:
+    """Return Logfire structured AI observability status and token metrics."""
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "telemetry", "logfire", "--json"],
         timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
     )
 
@@ -885,6 +906,16 @@ def gh_view_spec() -> str:
         ["uv", "run", "devops", "gh", "views", "spec"],
         timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
     )
+
+
+@mcp.tool()
+def gh_views_sync(repo: str = "") -> str:
+    """Synchronize standardized GitHub Projects v2 views with the remote repository project."""
+    cmd = ["uv", "run", "devops", "gh", "views", "sync"]
+    if repo:
+        _validate_mcp_arg("repo", repo)
+        cmd.extend(["--repo", repo])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
 
 
 @mcp.tool()
@@ -1125,6 +1156,35 @@ def benchmark_embeddings(
 
 
 @mcp.tool()
+def benchmark_suite(
+    models: str = "qwen2.5-coder:7b",
+    dataset: str = "",
+    provider: str = "ollama",
+    dry_run: bool = True,
+) -> str:
+    """Benchmark candidate models against feedback dataset for precision, recall, and hallucination scoring."""
+    _validate_mcp_arg("models", models)
+    _validate_mcp_arg("provider", provider)
+    cmd = [
+        "uv",
+        "run",
+        "devops",
+        "benchmark",
+        "--suite",
+        "--models",
+        models,
+        "--provider",
+        provider,
+    ]
+    if dataset:
+        _validate_mcp_arg("dataset", dataset)
+        cmd.extend(["--dataset", dataset])
+    if dry_run:
+        cmd.append("--dry-run")
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
 def ai_architecture(target: str = "src", max_depth: int = 4) -> str:
     """Analyze architectural module boundaries, dependency graphs, and cyclic imports."""
     _validate_mcp_arg("target", target)
@@ -1232,6 +1292,127 @@ def valkey_flush(all_databases: bool = False) -> str:
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS)
 
 
+@mcp.tool()
+def ai_harness_status() -> str:
+    """Inspect AI agent harness slot configuration, active models, skills, and sandbox state."""
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "ai", "harness", "status"],
+        timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.tool()
+def ai_subagent_offload(
+    repo: str = ".",
+    symbol: str | None = None,
+    pattern: str | None = None,
+) -> str:
+    """Offload AST exploration, symbol cataloging, or file scouting to local sub-agent slot."""
+    _validate_mcp_arg("repo", repo)
+    if symbol and pattern:
+        raise ValidationError(ERRORS.mcp.conflicting_symbol_and_pattern)
+    cmd = ["uv", "run", "devops", "ai", "harness", "offload", "--repo", repo]
+    if symbol:
+        _validate_mcp_arg("symbol", symbol)
+        cmd.extend(["--symbol", symbol])
+    if pattern:
+        _validate_mcp_arg("pattern", pattern)
+        cmd.extend(["--pattern", pattern])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def ai_chaos_model(
+    mode: str = "all",
+    fallback_model: str = DEFAULT_AI_FALLBACK_MODEL,
+    dry_run: bool = False,
+) -> str:
+    """Execute model dependency chaos fault injection and verify automated fallback recovery."""
+    _validate_mcp_arg("mode", mode)
+    _validate_mcp_arg("fallback_model", fallback_model)
+    cmd = [
+        "uv",
+        "run",
+        "devops",
+        "ai",
+        "chaos-model",
+        "--mode",
+        mode,
+        "--fallback-model",
+        fallback_model,
+    ]
+    if dry_run:
+        cmd.append("--dry-run")
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def ai_quiesce(
+    reason: str = MESSAGES.ai.default_quiesce_reason,
+    dry_run: bool = False,
+) -> str:
+    """Centralized emergency quiesce cleanly suspending active agent loops and background tasks."""
+    _validate_mcp_arg("reason", reason)
+    cmd = ["uv", "run", "devops", "ai", "quiesce", "--reason", reason]
+    if dry_run:
+        cmd.append("--dry-run")
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def ai_failover(
+    target_provider: str = DEFAULT_AI_FALLBACK_PROVIDER,
+    target_model: str = DEFAULT_AI_FALLBACK_MODEL,
+    dry_run: bool = False,
+) -> str:
+    """Emergency failover controller re-routing tasks to designated fallback endpoints."""
+    _validate_mcp_arg("target_provider", target_provider)
+    _validate_mcp_arg("target_model", target_model)
+    cmd = [
+        "uv",
+        "run",
+        "devops",
+        "ai",
+        "failover",
+        "--target-provider",
+        target_provider,
+        "--target-model",
+        target_model,
+    ]
+    if dry_run:
+        cmd.append("--dry-run")
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def ai_resume(
+    dry_run: bool = False,
+) -> str:
+    """Gracefully resume suspended constellation agent loops and task runners."""
+    cmd = ["uv", "run", "devops", "ai", "resume"]
+    if dry_run:
+        cmd.append("--dry-run")
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def ai_constellation_status() -> str:
+    """Display constellation fleet status, active fallback routes, and suspended tasks."""
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "ai", "constellation", "--format", "json"],
+        timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.resource("resource://ai/constellation")
+def get_ai_constellation_resource() -> str:
+    """Return live constellation quiesce and active fallback routing status."""
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "ai", "constellation", "--format", "json"],
+        timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+    )
+
+
 @mcp.resource("resource://vault/status")
 def get_vault_resource() -> str:
     """Return live HashiCorp Vault cluster health, sealing, and initialization status."""
@@ -1257,52 +1438,44 @@ def get_mcp_catalog_resource() -> str:
     return "\n".join(f"- {t.name}: {t.description}" for t in tools)
 
 
+_CODE_REVIEW_PROMPT_TEMPLATE = load_task_prompt("code_review_prompt.md")
+_SECURITY_AUDIT_PROMPT_TEMPLATE = load_task_prompt("security_audit_prompt.md")
+_K8S_DIAGNOSTICS_PROMPT_TEMPLATE = load_task_prompt("k8s_diagnostics_prompt.md")
+_ARCHITECTURE_ANALYSIS_PROMPT_TEMPLATE = load_task_prompt("architecture_analysis_prompt.md")
+
+
 @mcp.prompt()
 def code_review_prompt(persona: str = "devsecops", target: str = ".") -> str:
     """Prompt template for performing an AI code review with a specialized persona."""
-    return (
-        f"Perform an in-depth code review on '{target}' using the '{persona}' persona.\n"
-        "- Ground all findings against OWASP, CIS, and project architectural invariants.\n"
-        "- Format findings with canonical file:line locations and actionable recommendations."
-    )
+    return _CODE_REVIEW_PROMPT_TEMPLATE.format(persona=persona, target=target)
 
 
 @mcp.prompt()
 def security_audit_prompt(target: str = ".") -> str:
     """Prompt template for running a multi-layer security audit across dependencies and code."""
-    return (
-        f"Conduct a comprehensive security audit of '{target}'.\n"
-        "1. Scan dependencies for CVEs and outdated packages.\n"
-        "2. Check for hardcoded credentials and token leakage.\n"
-        "3. Inspect cyclomatic complexity and excessive indentation."
-    )
+    return _SECURITY_AUDIT_PROMPT_TEMPLATE.format(target=target)
 
 
 @mcp.prompt()
 def k8s_diagnostics_prompt(namespace: str = "default") -> str:
     """Prompt template for diagnosing Kubernetes cluster, workload, and pod health."""
-    return (
-        f"Diagnose Kubernetes workloads in the '{namespace}' namespace.\n"
-        "- Inspect pod status, container restarts, and resource limits.\n"
-        "- Verify accessible service endpoints and TLS configuration."
-    )
+    return _K8S_DIAGNOSTICS_PROMPT_TEMPLATE.format(namespace=namespace)
 
 
 @mcp.prompt()
 def architecture_analysis_prompt(target: str = "src") -> str:
     """Prompt template for analyzing software architecture, modularity, and dependencies."""
-    return (
-        f"Analyze the software architecture of '{target}'.\n"
-        "- Trace dependency boundaries and identify cyclic imports.\n"
-        "- Evaluate compliance with modular domain-driven design principles."
-    )
+    return _ARCHITECTURE_ANALYSIS_PROMPT_TEMPLATE.format(target=target)
 
 
 def list_mcp_tools() -> list[MCPToolInfo]:
     """Return a list of tool names and descriptions registered on the FastMCP server."""
     tools = asyncio.run(mcp.list_tools())
     return [
-        MCPToolInfo(name=t.name, description=t.description or "No description provided.")
+        MCPToolInfo(
+            name=t.name,
+            description=t.description or MESSAGES.mcp.no_description_provided,
+        )
         for t in tools
     ]
 
@@ -1317,10 +1490,7 @@ def run_mcp_server(
     if transport == "sse":
         allowed_hosts = {"127.0.0.1", "::1", "localhost"}
         if not allow_remote and host not in allowed_hosts:
-            raise SecurityError(
-                f"Refusing to bind SSE transport to non-loopback host '{host}' by default. "
-                "Use allow_remote=True to permit external host binding."
-            )
+            raise SecurityError(ERRORS.mcp.security_sse_non_loopback.format(host=host))
         mcp.run(transport="sse", host=host, port=port)
     else:
         mcp.run(transport="stdio", show_banner=False)

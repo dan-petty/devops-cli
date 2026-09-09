@@ -244,6 +244,30 @@ def test_ai_multi_server_test_and_agents_validation(tmp_path: Path) -> None:
     assert not (tmp_path / "../../outside.md").exists()
 
 
+def test_ai_test_disables_cache_and_targets_url() -> None:
+    """Verify that devops ai test bypasses cache and properly targets a specific --url."""
+    from devops_cli.ai.client import LLMClient
+
+    st = Settings()
+    st.ai.provider = "ollama"
+    st.ai.ollama_urls = ["http://hog.lan:11434", "http://condor.lan:11434"]
+
+    mock_resp = MagicMock()
+    mock_resp.__str__.return_value = "Hello live"
+    mock_resp.wall_seconds = 0.5
+    mock_resp.backend_info = "ollama (condor.lan:11434)"
+
+    with (
+        patch("devops_cli.config.settings.load_settings", return_value=st),
+        patch.object(LLMClient, "chat", return_value=mock_resp) as mock_chat,
+    ):
+        res = runner.invoke(ai_app, ["test", "-u", "http://condor.lan:11434"])
+        assert res.exit_code == 0
+        assert "Hello live" in res.output
+        mock_chat.assert_called_once()
+        assert mock_chat.call_args.kwargs.get("use_cache") is False
+
+
 def test_ai_extended_commands(tmp_path: Path) -> None:
     """Verify bundle-models, token-count, route, and live pipeline commands."""
     from devops_cli.ai.agents.pipeline import MultiAgentPipelineResult, PipelineStepResult

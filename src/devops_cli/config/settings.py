@@ -14,9 +14,6 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from devops_cli.config import options as opt
 from devops_cli.config.constants import (
-    CONST_CONFIG_DIR as CONFIG_DIR,
-)
-from devops_cli.config.constants import (
     CONST_CONFIG_PATH as CONFIG_PATH,
 )
 from devops_cli.config.constants import (
@@ -165,6 +162,9 @@ class TelemetryConfig(BaseModel):
     model_config = ConfigDict(frozen=False)
     enabled: bool = True
     endpoint: str = DEFAULT_OTEL_ENDPOINT
+    logfire: bool = False
+    logfire_token: str | None = None
+    logfire_send_to_logfire: bool | str = "if-token-present"
 
 
 class AIRAGConfig(BaseModel):
@@ -239,11 +239,30 @@ class AIConfig(BaseModel):
     api_base_url: str | None = None
     allow_private_network: bool = False
     max_retries: int = DEFAULT_AI_MAX_RETRIES
-    append_cache: bool = False
     tasks: AITasksConfig = AITasksConfig()
     rag: AIRAGConfig = AIRAGConfig()
     cache: AICacheConfig = AICacheConfig()
     durable: AIDurableConfig = AIDurableConfig()
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_append_cache(cls, data: Any) -> Any:
+        if isinstance(data, dict) and "append_cache" in data:
+            val = data.pop("append_cache")
+            if "cache" in data and isinstance(data["cache"], dict):
+                data["cache"].setdefault("append_cache", val)
+            elif "cache" not in data:
+                data["cache"] = {"append_cache": val}
+        return data
+
+    @property
+    def append_cache(self) -> bool:
+        """Convenience property delegating to self.cache.append_cache."""
+        return self.cache.append_cache
+
+    @append_cache.setter
+    def append_cache(self, value: bool) -> None:
+        self.cache.append_cache = value
 
     @property
     def get_ollama_urls(self) -> list[str]:
@@ -283,6 +302,46 @@ class AIConfig(BaseModel):
         return self.model_copy(update=updates) if updates else self
 
 
+_DEFAULT_CHILD_DATA_PATHS: tuple[tuple[str, Path, Path], ...] = (
+    ("analysis_dir", DEFAULT_ANALYSIS_DATA_DIR, Path("analysis")),
+    ("reviews_dir", DEFAULT_REVIEWS_DATA_DIR, Path("reviews")),
+    ("logs_dir", DEFAULT_LOGS_DATA_DIR, Path("logs")),
+    ("models_dir", DEFAULT_MODELS_DATA_DIR, Path("models")),
+    ("cache_dir", DEFAULT_CACHE_DATA_DIR, Path("cache")),
+    ("benchmarks_dir", DEFAULT_BENCHMARKS_DATA_DIR, Path("benchmarks")),
+    ("rag_dir", DEFAULT_RAG_DATA_DIR, Path("rag")),
+    ("tls_dir", DEFAULT_TLS_DATA_DIR, Path("tls")),
+    ("audit_log_path", DEFAULT_AUDIT_LOG_PATH, Path("logs/audit.jsonl")),
+    ("feedback_dataset_path", DEFAULT_FEEDBACK_DATASET_PATH, Path("feedback_dataset.jsonl")),
+)
+
+_CHILD_DATA_ENV_MAP: dict[str, str] = {
+    "analysis_dir": "DEVOPS_CLI_DATA_ANALYSIS_DIR",
+    "reviews_dir": "DEVOPS_CLI_DATA_REVIEWS_DIR",
+    "logs_dir": "DEVOPS_CLI_DATA_LOGS_DIR",
+    "models_dir": "DEVOPS_CLI_DATA_MODELS_DIR",
+    "cache_dir": "DEVOPS_CLI_DATA_CACHE_DIR",
+    "benchmarks_dir": "DEVOPS_CLI_DATA_BENCHMARKS_DIR",
+    "rag_dir": "DEVOPS_CLI_DATA_RAG_DIR",
+    "tls_dir": "DEVOPS_CLI_DATA_TLS_DIR",
+    "audit_log_path": "DEVOPS_CLI_DATA_AUDIT_LOG_PATH",
+    "feedback_dataset_path": "DEVOPS_CLI_DATA_FEEDBACK_DATASET_PATH",
+}
+
+_DEFAULT_CHILD_DATA_MAP: dict[str, Path] = {
+    "analysis_dir": DEFAULT_ANALYSIS_DATA_DIR,
+    "reviews_dir": DEFAULT_REVIEWS_DATA_DIR,
+    "logs_dir": DEFAULT_LOGS_DATA_DIR,
+    "models_dir": DEFAULT_MODELS_DATA_DIR,
+    "cache_dir": DEFAULT_CACHE_DATA_DIR,
+    "benchmarks_dir": DEFAULT_BENCHMARKS_DATA_DIR,
+    "rag_dir": DEFAULT_RAG_DATA_DIR,
+    "tls_dir": DEFAULT_TLS_DATA_DIR,
+    "audit_log_path": DEFAULT_AUDIT_LOG_PATH,
+    "feedback_dataset_path": DEFAULT_FEEDBACK_DATASET_PATH,
+}
+
+
 class DataConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -301,26 +360,9 @@ class DataConfig(BaseModel):
     @model_validator(mode="after")
     def _rebase_child_paths_if_custom_dir(self) -> DataConfig:
         if self.dir != DEFAULT_DATA_DIR:
-            if self.analysis_dir == DEFAULT_ANALYSIS_DATA_DIR:
-                self.analysis_dir = self.dir / "analysis"
-            if self.reviews_dir == DEFAULT_REVIEWS_DATA_DIR:
-                self.reviews_dir = self.dir / "reviews"
-            if self.logs_dir == DEFAULT_LOGS_DATA_DIR:
-                self.logs_dir = self.dir / "logs"
-            if self.models_dir == DEFAULT_MODELS_DATA_DIR:
-                self.models_dir = self.dir / "models"
-            if self.cache_dir == DEFAULT_CACHE_DATA_DIR:
-                self.cache_dir = self.dir / "cache"
-            if self.benchmarks_dir == DEFAULT_BENCHMARKS_DATA_DIR:
-                self.benchmarks_dir = self.dir / "benchmarks"
-            if self.rag_dir == DEFAULT_RAG_DATA_DIR:
-                self.rag_dir = self.dir / "rag"
-            if self.tls_dir == DEFAULT_TLS_DATA_DIR:
-                self.tls_dir = self.dir / "tls"
-            if self.audit_log_path == DEFAULT_AUDIT_LOG_PATH:
-                self.audit_log_path = self.dir / "logs" / "audit.jsonl"
-            if self.feedback_dataset_path == DEFAULT_FEEDBACK_DATASET_PATH:
-                self.feedback_dataset_path = self.dir / "feedback_dataset.jsonl"
+            for field, default_val, rel_path in _DEFAULT_CHILD_DATA_PATHS:
+                if getattr(self, field) == default_val:
+                    setattr(self, field, self.dir / rel_path)
         return self
 
 
@@ -430,26 +472,12 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> None:
             base[key] = value
 
 
-def load_settings() -> Settings:
-    """Load settings: global config → project config → env vars (each layer wins)."""
-    raw: dict[str, Any] = {}
-    if CONFIG_PATH.exists():
-        raw = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8")) or {}
-
-    # DEVOPS_CLI_CONFIG env var (absolute path) takes precedence over CWD lookup.
-    env_config = os.environ.get(PROJECT_CONFIG_ENV)
-    project_path = Path(env_config) if env_config else Path(PROJECT_CONFIG_FILENAME)
-    if project_path.exists():
-        project_raw: dict[str, Any] = yaml.safe_load(project_path.read_text(encoding="utf-8")) or {}
-        _deep_merge(raw, project_raw)
-
-    settings = Settings.model_validate(raw)
-
+def _apply_env_overrides(settings: Settings) -> None:
+    """Allow devcontainer and shell environment variables to override file config."""
     env_data_dir = os.environ.get("DEVOPS_CLI_DATA_DIR")
     if env_data_dir:
         settings.data.dir = Path(env_data_dir)
 
-    # Allow devcontainer and shell environment variables to override file config.
     for option_key, env_var in OPTION_TO_ENV_VAR.items():
         if option_key in _SECRET_FIELDS:
             continue
@@ -462,65 +490,89 @@ def load_settings() -> Settings:
             # Ignore invalid or unknown env overrides and keep existing settings.
             continue
 
-    # Rebase child paths if data.dir was customized via environment variables or settings
-    raw_data = raw.get("data", {}) if isinstance(raw.get("data"), dict) else {}
-    explicit_data: dict[str, Any] = {"dir": settings.data.dir}
 
-    child_env_map = {
-        "analysis_dir": "DEVOPS_CLI_DATA_ANALYSIS_DIR",
-        "reviews_dir": "DEVOPS_CLI_DATA_REVIEWS_DIR",
-        "logs_dir": "DEVOPS_CLI_DATA_LOGS_DIR",
-        "models_dir": "DEVOPS_CLI_DATA_MODELS_DIR",
-        "cache_dir": "DEVOPS_CLI_DATA_CACHE_DIR",
-        "benchmarks_dir": "DEVOPS_CLI_DATA_BENCHMARKS_DIR",
-        "rag_dir": "DEVOPS_CLI_DATA_RAG_DIR",
-        "tls_dir": "DEVOPS_CLI_DATA_TLS_DIR",
-        "audit_log_path": "DEVOPS_CLI_DATA_AUDIT_LOG_PATH",
-        "feedback_dataset_path": "DEVOPS_CLI_DATA_FEEDBACK_DATASET_PATH",
-    }
-    default_child_map = {
-        "analysis_dir": DEFAULT_ANALYSIS_DATA_DIR,
-        "reviews_dir": DEFAULT_REVIEWS_DATA_DIR,
-        "logs_dir": DEFAULT_LOGS_DATA_DIR,
-        "models_dir": DEFAULT_MODELS_DATA_DIR,
-        "cache_dir": DEFAULT_CACHE_DATA_DIR,
-        "benchmarks_dir": DEFAULT_BENCHMARKS_DATA_DIR,
-        "rag_dir": DEFAULT_RAG_DATA_DIR,
-        "tls_dir": DEFAULT_TLS_DATA_DIR,
-        "audit_log_path": DEFAULT_AUDIT_LOG_PATH,
-        "feedback_dataset_path": DEFAULT_FEEDBACK_DATASET_PATH,
-    }
-    for field_name, env_v in child_env_map.items():
+def _resolve_data_config(raw_data: dict[str, Any], current_data_dir: Path) -> DataConfig:
+    """Resolve DataConfig with environment variable and explicit YAML overrides."""
+    env_data_dir = os.environ.get("DEVOPS_CLI_DATA_DIR")
+    explicit_data: dict[str, Any] = {"dir": current_data_dir}
+
+    for field_name, env_v in _CHILD_DATA_ENV_MAP.items():
         env_val = os.environ.get(env_v)
         if env_val:
             explicit_data[field_name] = Path(env_val)
         elif field_name in raw_data and not env_data_dir:
             raw_path = Path(raw_data[field_name])
-            if settings.data.dir == DEFAULT_DATA_DIR or raw_path != default_child_map[field_name]:
+            if (
+                current_data_dir == DEFAULT_DATA_DIR
+                or raw_path != _DEFAULT_CHILD_DATA_MAP[field_name]
+            ):
                 explicit_data[field_name] = raw_path
 
-    settings.data = DataConfig.model_validate(explicit_data)
+    return DataConfig.model_validate(explicit_data)
+
+
+def load_settings() -> Settings:
+    """Load settings: global config → project config → env vars (each layer wins)."""
+    raw: dict[str, Any] = {}
+    if CONFIG_PATH.exists():
+        raw = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8")) or {}
+
+    # DEVOPS_CLI_CONFIG env var or local/devcontainer project config lookup.
+    project_path = _find_project_config_path()
+    if project_path and project_path.exists():
+        project_raw: dict[str, Any] = yaml.safe_load(project_path.read_text(encoding="utf-8")) or {}
+        _deep_merge(raw, project_raw)
+
+    settings = Settings.model_validate(raw)
+    _apply_env_overrides(settings)
+
+    raw_data = raw.get("data", {}) if isinstance(raw.get("data"), dict) else {}
+    settings.data = _resolve_data_config(raw_data, settings.data.dir)
 
     return settings
 
 
-def get_active_config_path() -> Path:
-    """Return active config file path (DEVOPS_CLI_CONFIG > ./config.yaml > ~/.config)."""
+def _find_project_config_path(base_dir: Path | None = None) -> Path | None:
+    """Locate candidate project/devcontainer config file from env, base_dir, or ancestor directories."""
     env_config = os.environ.get(PROJECT_CONFIG_ENV)
-    project_path = Path(env_config) if env_config else Path(PROJECT_CONFIG_FILENAME)
-    if project_path.exists():
-        return project_path.resolve()
-    return CONFIG_PATH
+    if env_config:
+        env_path = Path(env_config)
+        if env_path.is_file():
+            return env_path.resolve()
+
+    candidate_names = (
+        PROJECT_CONFIG_FILENAME,
+        f".devcontainer/{PROJECT_CONFIG_FILENAME}",
+        f".devops/{PROJECT_CONFIG_FILENAME}",
+        ".devops.yaml",
+        ".devcontainer/.devops.yaml",
+    )
+    start_dir = (base_dir or Path.cwd()).resolve()
+    for d in (start_dir, *start_dir.parents):
+        for name in candidate_names:
+            p = d / name
+            if p.is_file():
+                return p.resolve()
+        if (d / ".git").exists() or (d / ".devcontainer").exists():
+            break
+    return None
 
 
-def save_settings(settings: Settings) -> None:
+def get_active_config_path(base_dir: Path | None = None) -> Path:
+    """Return active config file path (DEVOPS_CLI_CONFIG > project config > ~/.config)."""
+    found = _find_project_config_path(base_dir=base_dir)
+    return found if found is not None else CONFIG_PATH
+
+
+def save_settings(settings: Settings, target_path: Path | None = None) -> None:
     """Persist settings to config YAML (secrets stay in keyring only)."""
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    dest_path = target_path or get_active_config_path()
+    dest_path.parent.mkdir(parents=True, exist_ok=True)
     data = settings.model_dump(mode="json", exclude_none=True)
     content = yaml.dump(data, default_flow_style=False, allow_unicode=True)
-    tmp = CONFIG_PATH.with_suffix(".yaml.tmp")
+    tmp = dest_path.with_suffix(".yaml.tmp")
     tmp.write_text(content, encoding="utf-8")
-    os.replace(tmp, CONFIG_PATH)
+    os.replace(tmp, dest_path)
 
 
 # NOTE (Design Justification - AGENTS.md §4): Secret storage prioritizes OS keyring integration
@@ -572,6 +624,15 @@ def get_qdrant_api_key(settings: Settings) -> str | None:
 
 def get_valkey_password(settings: Settings) -> str | None:
     return _keyring_get(_KEYRING_KEYS[opt.VALKEY_PASSWORD]) or settings.valkey.password
+
+
+def get_logfire_token(settings: Settings) -> str | None:
+    return (
+        _keyring_get(_KEYRING_KEYS[opt.TELEMETRY_LOGFIRE_TOKEN])
+        or os.getenv("DEVOPS_CLI_TELEMETRY_LOGFIRE_TOKEN")
+        or getattr(settings.telemetry, "logfire_token", None)
+        or os.getenv("LOGFIRE_TOKEN")
+    )
 
 
 def get_llm_client(task: str | None = None) -> Any:

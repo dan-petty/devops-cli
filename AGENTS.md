@@ -84,6 +84,10 @@ Before planning, implementing, debugging, refactoring, or reviewing code, consul
   - **Zero Direct Commits to `main`**: All work must be conducted on dedicated topic branches (`feat/<description>`, `fix/<description>`, `docs/<description>`, `refactor/<description>`).
   - **PR Base Branch Targeting**: Feature, fix, and refactoring PRs must target the active release branch (`--base release/v<version>`). Release branches target `main` when cutting an official release.
   - **Branch Freshness**: Always branch off fresh upstream tracking branches (`git fetch origin`).
+  - **Strict Remote Branch Lifecycle & PR Governance (Zero Orphan Remote Branches)**:
+    - Every remote topic or feature branch on `origin` MUST have an associated, open Pull Request targeting the active release branch (`release/v<version>`) or `main` (for official release PRs).
+    - **Immediate Deletion of Merged or Superseded Branches**: Once a PR is merged into its target branch, or if a branch's changes have been incorporated or superseded, the remote branch MUST be deleted immediately (`git push origin --delete <branch>`) and local tracking references pruned (`git fetch --prune origin`).
+    - **No Orphan Remote Branches**: Remote branches without an active PR or active development purpose are strictly prohibited. If updates from an old or dormant branch are still required, apply or cherry-pick them to the current active release branch / active PR, and delete the obsolete remote branch immediately.
 - **Commit Standards**:
   - Follow **Conventional Commits** (`feat(scope): ...`, `fix(scope): ...`, `refactor(scope): ...`, `docs(scope): ...`).
   - **Atomic Commits by Default**: Break multi-faceted work into small, logically self-contained commits with precise messages.
@@ -95,7 +99,23 @@ Before planning, implementing, debugging, refactoring, or reviewing code, consul
   - **GitHub Release Titles**: Strictly the version tag / number from `pyproject.toml` (e.g. `v0.2.12`) without conventional commit prefixes.
   - **Human-in-the-Loop Merging**: AI agents prepare clean commits, open/update PRs, monitor remote CI checks (`gh pr checks`), and leave merge approval to maintainers. Never merge autonomously.
   - **Active CI Monitoring & Remediation**: Actively monitor remote GitHub Actions status. If any check fails, inspect logs, diagnose root causes, push corrective commits, and verify green status.
+  - **Automated & Peer Code Review Remediation Mandate**:
+    - AI agents MUST actively inspect, evaluate, and remediate all code review feedback (from GitHub Copilot, linters, or human reviewers) on open pull requests.
+    - Remediate feedback using Test-First Development (author/update tests, implement clean fixes, ensure zero zombie code).
+    - **Mandatory Direct In-Thread Replies**: AI agents MUST reply **directly within each specific review discussion thread** on the exact comment being addressed (`gh api repos/:owner/:repo/pulls/:number/comments/:comment_id/replies` or GraphQL mutation `addPullRequestReviewThreadReply(input: { pullRequestReviewThreadId: $threadId, body: $body })`). Posting solely a general, top-level PR summary comment (`gh pr comment`) is **STRICTLY PROHIBITED** and does not satisfy this requirement.
+    - Every in-thread reply must clearly articulate the concrete code modification, architectural rationale, or test addition implemented to resolve the reviewer's finding.
+    - **Mandatory Conversation Resolution**: Once fixes are committed, pushed, and verified, AI agents MUST programmatically resolve the conversation thread on GitHub via GraphQL mutation `resolveReviewThread(input: { threadId: $threadId })`. Never leave review conversations unresolved or unacknowledged.
+    - Always re-verify local quality gates (`devops ci`) and monitor remote GitHub Actions status (`gh pr checks`) until 100% green.
 - **GitHub Projects, Issues, Views, Milestones & Label Governance (Project Management Integration)**:
+  - **Active Milestone GitHub Resource & Issue Population Mandate**:
+    - When cutting a new release branch or transitioning to a new active milestone, AI agents **MUST PROACTIVELY POPULATE GITHUB RESOURCES** (milestones, issues, project items, labels) for that active milestone.
+    - **Zero Empty Open Issues State**: The repository's open issues queue (`https://github.com/dan-petty/devops-cli/issues?q=is%3Aissue+state%3Aopen`) must **NEVER** be left empty while an active release milestone exists with planned deliverables in [`docs/ROADMAP.md`](docs/ROADMAP.md).
+    - Immediately upon milestone activation, AI agents must author formal tracking issues for every planned deliverable using standard templates (`.github/ISSUE_TEMPLATE/`), assigning:
+      - Canonical title following Conventional Commits (e.g. `feat(<scope>): <description>`).
+      - Milestone linkage (`--milestone "v<version>"`).
+      - Taxonomy labels matching `.github/labels.yml`: at least one `type/*`, one `scope/*`, and appropriate `priority/*` (`priority/p0-critical` through `priority/p3-low`).
+      - Clear problem statement, proposed architectural solution, and acceptance criteria.
+    - Synchronize the new issues into GitHub Projects v2 (`devops gh project sync` or FastMCP `gh_project_sync`), linking card lifecycles with [`docs/agent/task.md`](docs/agent/task.md) and PRs via closing keywords (`Closes #<issue>`).
   - **Issue Tracking, Triage & PR Linkage**:
     - Track all engineering issues, bug reports, feature requests, and technical chores using standardized issue templates (`.github/ISSUE_TEMPLATE/`: `bug_report.yml`, `feature_request.yml`, `security_advisory.yml`, `task.yml`).
     - Every PR addressing an issue MUST explicitly link to it using canonical GitHub closing keywords in the PR body (`Fixes #<issue>`, `Closes #<issue>`, `Resolves #<issue>`).
@@ -105,16 +125,22 @@ Before planning, implementing, debugging, refactoring, or reviewing code, consul
   - **Roadmap-Driven Milestone Linking & Automated Closure**:
     - Every issue and PR targeting a release branch MUST link to the active release milestone in [`docs/ROADMAP.md`](docs/ROADMAP.md). Synchronize via `devops gh milestones sync` and inspect progress via `devops gh milestones status <version>`.
     - **Automated Milestone Closure**: When preparing release tags or when a release PR is merged into `main`, AI agents and CI workflows MUST close the release milestone via `devops gh milestones close <version>` (or FastMCP `gh_milestone_close`) to prevent stale open milestones.
-  - **GitHub Projects v2 Lifecycle & Views Integration**:
-    - Track tasks according to the 4 standardized views in `.github/project-template.json` (*Sprint Kanban*, *Roadmap Timeline*, *Triage & Quality Table*, *Value vs Effort Priority Matrix*).
-    - Manage state transitions strictly (`Backlog` $\to$ `Ready` $\to$ `In Progress` $\to$ `In Review` $\to$ `Done`) across issues and tasks in [`docs/agent/task.md`](docs/agent/task.md):
+  - **GitHub Projects & Issues Views Lifecycle Population Mandate (`https://github.com/dan-petty/devops-cli/projects` & `https://github.com/dan-petty/devops-cli/issues/views`)**:
+    - The repository's Projects tab (`https://github.com/dan-petty/devops-cli/projects`) and issue views interface (`https://github.com/dan-petty/devops-cli/issues/views`) are powered by GitHub Projects v2. AI agents MUST ensure that repository projects and issue views are populated, linked, and actively synchronized matching the 4 canonical views in `.github/project-template.json`:
+      1. **Sprint Kanban** (`BOARD`, Group By: `Status`): Active sprint execution tracking cards across lifecycle columns (`Backlog`, `Ready`, `In Progress`, `In Review`, `Done`), filtered strictly to the active release milestone.
+      2. **Roadmap Timeline** (`ROADMAP`, Group By: `Milestone`): Chronological delivery roadmap grouped by release milestone, tracking deliverable start/target dates and milestone completion ratios.
+      3. **Triage & Quality Table** (`TABLE`, Priority-Ordered): Incoming defect and blocker triage queue ordered by `Priority` (`P0-Critical` through `P3-Low`), filtering active bugs (`type/bug`, `status/blocked`, `status/triage`).
+      4. **Value vs Effort Priority Matrix** (`TABLE`, Group By: `Category`): Strategic portfolio matrix grouping deliverables into Quick Wins, Major Projects, Fill-Ins, and Foundation in direct alignment with [`docs/ROADMAP.md`](docs/ROADMAP.md).
+    - **Mandatory Repository Project Linkage & Creation**: Ensure that the active GitHub Projects v2 board conforming to `.github/project-template.json` is created and linked to the repository (`devops gh project link <number>`) so that the board appears directly under `https://github.com/dan-petty/devops-cli/projects` and its views appear under `https://github.com/dan-petty/devops-cli/issues/views`. If no project board exists yet, AI agents must instruct or provision the project matching the declarative template (`.github/project-template.json`) and link it immediately.
+    - **Continuous Custom Field & Project Item Population**: Every issue and pull request for the active milestone MUST be added as a project item and populated with custom project fields: `Status`, `Milestone`, `Priority`, `Category`, `Value`, `Effort`. Synchronize card states using `devops gh project sync` or FastMCP `gh_project_sync`.
+    - **Strict Task State Transitions**: Manage state transitions strictly (`Backlog` $\to$ `Ready` $\to$ `In Progress` $\to$ `In Review` $\to$ `Done`) across issues and tasks in [`docs/agent/task.md`](docs/agent/task.md):
       - `Backlog`: Queued items awaiting milestone assignment or scheduling.
       - `Ready`: Scoped items ready for immediate development.
       - `In Progress`: Active work items currently being authored/edited (mirrored in `docs/agent/task.md` under `### In-Progress Tasks (WIP)`).
       - `In Review`: Pull Request opened with CI checks running and code reviews in progress.
       - `Done`: Pull Request squash-merged by maintainer into release branch, remote CI verified, and issue closed.
-    - Populate and maintain custom project fields: `Status`, `Milestone`, `Priority`, `Category`, `Value`, `Effort`.
-    - Validate alignment via `devops gh project sync --dry-run` or live sync via `devops gh project sync`, ensure the project board is linked to the repository via `devops gh project link <number>`, and audit views via `devops gh views list`.
+    - **OAuth Scope Diagnostics & Offline Validation**: When the local GitHub token lacks `project` or `read:project` scopes, instruct the user to authorize via `gh auth refresh -s project,read:project`, while validating template integrity offline via `devops gh project status`, `devops gh views list`, `devops gh views spec`, and `devops gh project sync --dry-run`.
+    - **Zero Empty Projects & Views State**: The repository's Projects tab (`https://github.com/dan-petty/devops-cli/projects`) and issue views queue (`https://github.com/dan-petty/devops-cli/issues/views`) must NEVER be left unlinked or empty during active release development.
     - Never invent ad-hoc status tags or unregistered labels outside `.github/labels.yml` and `.github/project-template.json`.
   - **FastMCP Agent Project Management Integration**: AI coding assistants MUST leverage the built-in FastMCP project management tools (`gh_project_status`, `gh_project_sync`, `gh_view_spec`, `gh_milestone_list`, `gh_milestone_sync`, `gh_milestone_close`, `gh_label_list`, `gh_label_sync`) and CLI equivalents (`devops gh project`, `devops gh views`, `devops gh milestones`, `devops gh labels`) for all project tracking, milestone lifecycle management, and taxonomy auditing.
 

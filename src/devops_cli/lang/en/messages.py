@@ -92,6 +92,18 @@ class AIMessages:
     interactive_prompt_header: str = "devops ai chat ({provider} / {model})"
     interactive_prompt_help: str = "Type your message and press Enter. Ctrl+C or exit to quit.\n"
     you_prompt: str = "You: "
+    harness_title: str = "Agent Harness Slots"
+    harness_offload_title: str = "Sub-Agent Local Offload"
+    default_quiesce_reason: str = "Operator requested emergency quiesce"
+    quiesce_dry_run: str = "[DRY RUN] Quiesce simulated: {badge} | Reason: {reason}"
+    quiesce_executed: str = "Quiesce executed: {badge} | Suspended: {count} task(s)"
+    failover_dry_run: str = "[DRY RUN] Failover simulated: {badge} -> {target}"
+    failover_executed: str = "Failover engaged: {badge} -> {target} ({count} task(s))"
+    resume_dry_run: str = "[DRY RUN] Resume simulated: {badge} | Reactivated: {count} task(s)"
+    resume_executed: str = "Constellation resumed: {badge} | Reactivated: {count} task(s)"
+    constellation_title: str = "Agent Constellation Fleet"
+    constellation_tasks_title: str = "Agent Constellation Tasks"
+    invalid_drain_timeout: str = "Invalid --drain-timeout '{timeout}': must be non-negative (>= 0)."
 
 
 @dataclass(frozen=True)
@@ -102,6 +114,9 @@ class BenchmarkMessages:
     table_title_category_breakdown: str = "Domain Category Breakdown (Session {session_id})"
     table_title_server_hardware: str = (
         "Ollama Server Hardware & Node Performance (Session {session_id})"
+    )
+    table_title_suite_leaderboard: str = (
+        "AI Benchmark Evaluation Suite Leaderboard (Session {session_id})"
     )
 
 
@@ -448,6 +463,8 @@ class ScanMessages:
     gitleaks_passed: str = "✓ No secrets or credential leaks detected."
     semgrep_executing: str = "Executing Semgrep AST scan on '{target}' (config: {config})..."
     semgrep_passed: str = "✓ No static AST pattern flaws detected."
+    semgrep_default_flaw: str = "Code pattern flaw detected by Semgrep"
+    semgrep_default_message: str = "Code pattern flaw detected by Semgrep"
     checkov_executing: str = "Executing Checkov IaC scan on '{target}'..."
     checkov_passed: str = "✓ No IaC policy violations detected."
 
@@ -633,6 +650,7 @@ class MCPMessages:
     table_title_tools: str = "Registered FastMCP Tools (devops-cli)"
     col_tool_name: str = "MCP Tool Name"
     col_description: str = "Description"
+    no_description_provided: str = "No description provided."
 
 
 @dataclass(frozen=True)

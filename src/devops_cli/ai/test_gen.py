@@ -35,7 +35,16 @@ def synthesize_unit_tests(
     function_filter: str | None = None,
 ) -> SynthesizedTestSuite:
     """Analyze a source file via AST and synthesize isolated pytest unit tests."""
-    content = target_file.read_text(encoding="utf-8") if target_file.exists() else ""
+    resolved = target_file.resolve()
+    if not resolved.is_file():
+        return SynthesizedTestSuite(
+            target_file=str(target_file),
+            function_names=[],
+            test_code="",
+            test_count=0,
+            validation_status="NOT_FOUND",
+        )
+    content = resolved.read_text(encoding="utf-8", errors="replace")
     module_stem = target_file.stem
     import_path = str(target_file).replace("/", ".").replace(".py", "").lstrip(".")
     if "src." in import_path:

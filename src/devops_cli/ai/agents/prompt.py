@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 import time
 from typing import Any
 
@@ -10,11 +9,9 @@ from pydantic import BaseModel, Field
 
 from devops_cli.ai.agents.capabilities import BaseCapability
 from devops_cli.ai.agents.context import RunContext
+from devops_cli.config.constants import CONST_PROMPT_INJECTION_TAGS_RE
 
-_PROMPT_INJECTION_TAGS_REGEX = re.compile(
-    r"<\/?(?:system|instructions?|prompt|untrusted)[^>]*>",
-    re.IGNORECASE,
-)
+_PROMPT_INJECTION_TAGS_REGEX = CONST_PROMPT_INJECTION_TAGS_RE
 
 
 class PromptRegistry(BaseModel):
@@ -70,7 +67,8 @@ class ManagedPrompt(BaseCapability):
         if not template:
             template = self.fallback_template
 
-        self._cached_template = template or ""
+        sanitized_template = _PROMPT_INJECTION_TAGS_REGEX.sub("", template or "")
+        self._cached_template = sanitized_template
         self._last_fetch_time = now
         return self._cached_template
 

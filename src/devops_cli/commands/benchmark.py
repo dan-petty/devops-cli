@@ -1,9 +1,9 @@
-"""Benchmark command group for evaluating and cross-grading LLM models."""
+"""Benchmark command group for evaluating, cross-grading, and scoring LLM models."""
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 
@@ -15,6 +15,7 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.core.cli import new_typer
 from devops_cli.lang import ERRORS, HELP
+from devops_cli.output import print_error, print_success, write_stdout, write_text_file
 
 app = new_typer(
     help=HELP.ai.benchmark,
@@ -35,8 +36,153 @@ _EMBEDDING_MODEL_HINTS = {
 
 
 def _is_embedding_model(model_name: str) -> bool:
+    """Check if model name matches common embedding model patterns."""
     m = model_name.lower()
     return any(hint in m for hint in _EMBEDDING_MODEL_HINTS)
+
+
+def _parse_model_list(models: str | None, default_model: str) -> list[str]:
+    """Parse comma-separated model string into list of models."""
+    if models:
+        return [m.strip() for m in models.split(",") if m.strip()]
+    return [default_model]
+
+
+def _parse_server_list(servers: str | None) -> list[str] | None:
+    """Parse and validate comma-separated Ollama server endpoints."""
+    if not servers:
+        return None
+    from devops_cli.core.validation import validate_service_url
+
+    server_list: list[str] = []
+    for s in servers.split(","):
+        clean_s = s.strip()
+        if clean_s:
+            validate_service_url(clean_s, "Ollama Server", allow=True)
+            server_list.append(clean_s)
+    return server_list or None
+
+
+def _execute_embedding_benchmark(
+    model_list: list[str],
+    settings: Any,
+    provider: str | None,
+    dry_run: bool,
+    safe_concurrency: int,
+    server_list: list[str] | None,
+    document: Path | None,
+    samples: int,
+    output: Path | None,
+    format_type: str,
+) -> None:
+    """Execute embedding model benchmark run."""
+    from devops_cli.ai.benchmark.embedding_runner import EmbeddingBenchmarkRunner
+
+    embed_runner = EmbeddingBenchmarkRunner(
+        models=model_list,
+        settings=settings,
+        provider=provider,
+        is_dry_run=dry_run,
+        concurrency=safe_concurrency,
+        servers=server_list,
+        document_path=document,
+        sample_count=samples,
+    )
+    embed_report = embed_runner.run()
+
+    if output:
+        resolved_output = output.resolve()
+        write_text_file(resolved_output, embed_report.model_dump_json(indent=2))
+        print_success(f"Exported custom report to {resolved_output}")
+
+    embed_runner.print_report(embed_report, format_type=format_type)
+
+
+def _execute_suite_benchmark(
+    model_list: list[str],
+    dataset: Path | None,
+    settings: Any,
+    provider: str | None,
+    dry_run: bool,
+    safe_concurrency: int,
+    server_list: list[str] | None,
+    output: Path | None,
+    format_type: str,
+) -> None:
+    """Execute feedback-grounded multi-model benchmark evaluation suite."""
+    from devops_cli.ai.benchmark.suite import BenchmarkSuiteRunner
+
+    suite_runner = BenchmarkSuiteRunner(
+        models=model_list,
+        dataset_path=dataset,
+        settings=settings,
+        provider=provider,
+        is_dry_run=dry_run,
+        concurrency=safe_concurrency,
+        servers=server_list,
+        quiet=format_type.lower() in ("json", "markdown"),
+    )
+    suite_report = suite_runner.run()
+
+    if output:
+        resolved_output = output.resolve()
+        write_text_file(resolved_output, suite_report.model_dump_json(indent=2))
+        print_success(f"Exported custom report to {resolved_output}")
+
+    if format_type.lower() == "json":
+        write_stdout(suite_report.model_dump_json(indent=2) + "\n")
+    elif format_type.lower() == "markdown":
+        write_stdout(suite_runner.to_markdown(suite_report) + "\n")
+    else:
+        suite_runner.render_results(suite_report)
+
+
+def _execute_tasks_benchmark(
+    model_list: list[str],
+    tasks_filter: str | None,
+    settings: Any,
+    provider: str | None,
+    dry_run: bool,
+    safe_concurrency: int,
+    server_list: list[str] | None,
+    output: Path | None,
+    format_type: str,
+) -> None:
+    """Execute peer-grading task benchmark run."""
+    from devops_cli.ai.benchmark.runner import BenchmarkRunner
+    from devops_cli.ai.benchmark.tasks import get_benchmark_tasks
+
+    cat_filters = [c.strip() for c in tasks_filter.split(",")] if tasks_filter else None
+    task_list = get_benchmark_tasks(cat_filters)
+
+    if not task_list:
+        err = ERRORS.ai.unsupported_provider.format(provider="No matching tasks found")
+        print_error(err)
+        raise typer.Exit(1)
+
+    runner = BenchmarkRunner(
+        models=model_list,
+        tasks=task_list,
+        settings=settings,
+        provider=provider,
+        is_dry_run=dry_run,
+        concurrency=safe_concurrency,
+        servers=server_list,
+    )
+
+    report = runner.execute()
+
+    if output:
+        resolved_output = output.resolve()
+        write_text_file(resolved_output, report.model_dump_json(indent=2))
+        print_success(f"Exported custom report to {resolved_output}")
+
+    if format_type.lower() == "json":
+        write_stdout(report.model_dump_json(indent=2) + "\n")
+    elif format_type.lower() == "markdown":
+        write_stdout(runner.to_markdown(report) + "\n")
+    else:
+        runner.render_results(report)
 
 
 @app.callback(invoke_without_command=True)
@@ -70,6 +216,20 @@ def run_benchmark(
             help=HELP.benchmark.mode,
         ),
     ] = DEFAULT_BENCHMARK_TYPE,
+    suite: Annotated[
+        bool,
+        typer.Option(
+            "--suite",
+            help=HELP.benchmark.suite,
+        ),
+    ] = False,
+    dataset: Annotated[
+        Path | None,
+        typer.Option(
+            "--dataset",
+            help=HELP.benchmark.dataset,
+        ),
+    ] = None,
     tasks_filter: Annotated[
         str | None,
         typer.Option(
@@ -132,91 +292,54 @@ def run_benchmark(
         return
 
     from devops_cli.config.settings import load_settings
-    from devops_cli.output import print_error, print_success, write_text_file
 
     settings = load_settings()
-
-    # Parse models list
-    if models:
-        model_list = [m.strip() for m in models.split(",") if m.strip()]
-    else:
-        model_list = [settings.ai.model]
-
-    # Bound concurrency safely
+    model_list = _parse_model_list(models, settings.ai.model)
     safe_concurrency = max(1, min(concurrency, 32))
+    server_list = _parse_server_list(servers)
 
-    # Parse and validate servers list
-    server_list: list[str] | None = None
-    if servers:
-        from devops_cli.core.validation import validate_service_url
+    is_suite = suite or benchmark_type.lower() == "suite"
+    if is_suite:
+        _execute_suite_benchmark(
+            model_list=model_list,
+            dataset=dataset,
+            settings=settings,
+            provider=provider,
+            dry_run=dry_run,
+            safe_concurrency=safe_concurrency,
+            server_list=server_list,
+            output=output,
+            format_type=format_type,
+        )
+        return
 
-        server_list = []
-        for s in servers.split(","):
-            clean_s = s.strip()
-            if clean_s:
-                validate_service_url(clean_s, "Ollama Server", allow=True)
-                server_list.append(clean_s)
-
-    # Check if embedding benchmark mode should be activated
     is_embedding = benchmark_type.lower() in ("embed", "embedding", "embeddings") or (
         benchmark_type.lower() == "auto" and any(_is_embedding_model(m) for m in model_list)
     )
 
     if is_embedding:
-        from devops_cli.ai.benchmark.embedding_runner import EmbeddingBenchmarkRunner
-
-        embed_runner = EmbeddingBenchmarkRunner(
-            models=model_list,
+        _execute_embedding_benchmark(
+            model_list=model_list,
             settings=settings,
             provider=provider,
-            is_dry_run=dry_run,
-            concurrency=safe_concurrency,
-            servers=server_list,
-            document_path=document,
-            sample_count=samples,
+            dry_run=dry_run,
+            safe_concurrency=safe_concurrency,
+            server_list=server_list,
+            document=document,
+            samples=samples,
+            output=output,
+            format_type=format_type,
         )
-        embed_report = embed_runner.run()
-
-        if output:
-            resolved_output = output.resolve()
-            write_text_file(resolved_output, embed_report.model_dump_json(indent=2))
-            print_success(f"Exported custom report to {resolved_output}")
-
-        embed_runner.print_report(embed_report, format_type=format_type)
         return
 
-    # Parse task filters for LLM Chat benchmark
-    from devops_cli.ai.benchmark.runner import BenchmarkRunner
-    from devops_cli.ai.benchmark.tasks import get_benchmark_tasks
-
-    cat_filters = [c.strip() for c in tasks_filter.split(",")] if tasks_filter else None
-    task_list = get_benchmark_tasks(cat_filters)
-
-    if not task_list:
-        err = ERRORS.ai.unsupported_provider.format(provider="No matching tasks found")
-        print_error(err)
-        raise typer.Exit(1)
-
-    runner = BenchmarkRunner(
-        models=model_list,
-        tasks=task_list,
+    _execute_tasks_benchmark(
+        model_list=model_list,
+        tasks_filter=tasks_filter,
         settings=settings,
         provider=provider,
-        is_dry_run=dry_run,
-        concurrency=safe_concurrency,
-        servers=server_list,
+        dry_run=dry_run,
+        safe_concurrency=safe_concurrency,
+        server_list=server_list,
+        output=output,
+        format_type=format_type,
     )
-
-    report = runner.execute()
-
-    if output:
-        resolved_output = output.resolve()
-        write_text_file(resolved_output, report.model_dump_json(indent=2))
-        print_success(f"Exported custom report to {resolved_output}")
-
-    if format_type.lower() == "json":
-        print(report.model_dump_json(indent=2))
-    elif format_type.lower() == "markdown":
-        print(runner.to_markdown(report))
-    else:
-        runner.render_results(report)

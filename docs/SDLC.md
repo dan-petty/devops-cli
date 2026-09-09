@@ -71,12 +71,16 @@ Every significant feature, structural refactoring, or tooling upgrade begins wit
    - Register milestones and strategic features in the Master Strategic Roadmap ([`docs/ROADMAP.md`](ROADMAP.md)).
    - Prioritize deliverables using the **Value vs. Effort Prioritization Matrix** (Quick Wins, Major Projects, Fill-Ins, Reconsider).
    - Synchronize pending milestones in [`docs/PENDING_FEATURES.md`](PENDING_FEATURES.md).
-3. **Transparent Task Status Tracking**:
+3. **Active Milestone GitHub Resource Population**:
+   - When cutting a new release branch or activating a milestone, proactively create GitHub tracking issues for all scheduled features from [`docs/ROADMAP.md`](ROADMAP.md).
+   - Link each issue to the active release milestone, apply declarative taxonomy labels (`type/*`, `scope/*`, `priority/*`), and synchronize to GitHub Projects v2 board (`https://github.com/dan-petty/devops-cli/projects`) and repository issue views (`https://github.com/dan-petty/devops-cli/issues/views`).
+   - The open issues queue (`https://github.com/dan-petty/devops-cli/issues?q=is%3Aissue+state%3Aopen`), projects tab (`https://github.com/dan-petty/devops-cli/projects`), and issue views (`https://github.com/dan-petty/devops-cli/issues/views`) must never be left empty while an active milestone exists with planned deliverables.
+4. **Transparent Task Status Tracking**:
    - Maintain dynamic task status in [`docs/agent/task.md`](agent/task.md) divided into:
      - **Pending Tasks**: Queued deliverables and backlog milestones.
      - **In-Progress Tasks (WIP)**: Active focus items and files currently under modification.
      - **Completed Tasks**: Verified implementations, green test gates, and synchronized documentation.
-4. **Target Branch Selection**:
+5. **Target Branch Selection**:
    - Identify active release branch (`git fetch origin`, inspect `origin/release/vX.Y.Z`).
    - Create isolated topic branch from fresh upstream: `git checkout -b feat/<description> origin/release/vX.Y.Z`.
 
@@ -249,19 +253,28 @@ gitGraph
     checkout main
     merge release/v0.2.12 id: "release PR merge"
     commit id: "tag: v0.2.12"
+    branch release/v0.2.13
+    checkout release/v0.2.13
 ```
 
 #### Branch Governance & Hierarchy
 - **Zero Direct Commits to `main`**: All work occurs on dedicated topic branches (`feat/<desc>`, `fix/<desc>`, `docs/<desc>`, `refactor/<desc>`).
 - **PR Base Branch Targeting**: Topic PRs must target the active release branch (`--base release/vX.Y.Z`). Only release preparation PRs target `main`, titled strictly `feat(release): v<version>`.
+- **Strict Remote Branch Lifecycle Governance**: Every remote branch on `origin` must have an associated open Pull Request targeting the active release branch or `main`. Remote branches must be deleted immediately upon PR merge or supersession (`git push origin --delete <branch>` and `git fetch --prune origin`). Orphan remote branches are strictly prohibited.
 - **Atomic Conventional Commits & PR Titles**: All commit messages and PR titles must follow Conventional Commits: `feat(scope): ...`, `fix(scope): ...`, `docs(scope): ...`, `refactor(scope): ...`, `chore(scope): ...`. Release PR titles strictly follow `feat(release): v<version>`.
 - **Declarative Code Ownership (`.github/CODEOWNERS`)**: Pull requests automatically assign reviews based on touched file paths (Core CLI, AI/MCP, K8s, Security, CI/CD).
 - **Automated Dependency Updates (`.github/dependabot.yml`)**: Dependabot monitors `github-actions` and `pip` dependencies weekly, targeting active release branches with prefix `chore(deps)`.
 - **GitHub Project Governance, Views & Labeling Standards**:
   - **Declarative Taxonomy (`.github/labels.yml`)**: Every PR must possess mandatory `type/*` and `scope/*` classification labels, verified in CI and audited via `devops gh labels audit`.
   - **Roadmap-Linked Milestones (`docs/ROADMAP.md`)**: Release branches and topic PRs associate directly with release milestones extracted from `ROADMAP.md` and reconciled via `devops gh milestones sync`.
-  - **Standardized Projects v2 Views (`.github/project-template.json`)**: Four standardized views (*Sprint Kanban*, *Roadmap Timeline*, *Triage & Quality Table*, *Value vs Effort Priority Matrix*) track features across lifecycles (`Backlog` -> `Ready` -> `In Progress` -> `In Review` -> `Done`), audited via `devops gh views list` and synced via `devops gh project sync --dry-run`.
+  - **Standardized Projects v2 & Issues Views (`https://github.com/dan-petty/devops-cli/projects` & `https://github.com/dan-petty/devops-cli/issues/views`)**: Four standardized views (*Sprint Kanban*, *Roadmap Timeline*, *Triage & Quality Table*, *Value vs Effort Priority Matrix*) track features across lifecycles (`Backlog` -> `Ready` -> `In Progress` -> `In Review` -> `Done`), audited via `devops gh views list` / `spec` and synced via `devops gh project sync` with mandatory repository board linkage (`devops gh project link <number>`) so projects appear under `https://github.com/dan-petty/devops-cli/projects` and views under `https://github.com/dan-petty/devops-cli/issues/views`.
 - **Human-in-the-Loop Merging**: AI agents prepare PRs, monitor remote GitHub Actions CI, and remediate failures. AI agents **never merge PRs autonomously**. Maintainers approve and squash-merge.
+- **Automated & Peer Code Review Remediation Mandate**:
+  - AI agents and developers must actively evaluate all review feedback (from GitHub Copilot, linters, or human reviewers) on open pull requests.
+  - Review feedback must be addressed iteratively via Test-First Development (author/update tests first in `tests/`, implement clean fixes in `src/`, ensuring zero zombie code).
+  - **Mandatory Direct In-Thread Replies**: AI agents MUST reply **directly within each specific review discussion thread** on the exact comment being addressed (`gh api repos/:owner/:repo/pulls/:number/comments/:comment_id/replies` or GraphQL `addPullRequestReviewThreadReply`). Never post solely a general, top-level PR summary comment.
+  - **Conversation Resolution**: Once committed, pushed, and verified, AI agents MUST resolve the conversation thread on GitHub via GraphQL `resolveReviewThread`.
+  - **Continuous Quality Gate Verification**: Re-verify local quality gates (`devops ci`) and monitor remote GitHub Actions status (`gh pr checks`) until 100% green.
 
 ---
 
