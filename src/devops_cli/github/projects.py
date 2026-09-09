@@ -137,9 +137,9 @@ def parse_tasks_to_project_items(
         item_match = item_regex.match(stripped)
         if item_match:
             title = item_match.group(2).strip()
-            # If line is checked [x] and section status is not explicitly set, prefer Done
+            # If line is checked [x], prefer Done
             item_status = current_status
-            if item_match.group(1).lower() == "x" and current_status == "Backlog":
+            if item_match.group(1).lower() == "x":
                 item_status = "Done"
 
             items.append(ProjectItem(title=title, status=item_status))
@@ -160,6 +160,24 @@ class ProjectSyncResult(BaseModel):
     linked: bool = False
 
 
+def check_github_rate_limit_error(output: str, operation: str = "github_operation") -> None:
+    """Check if subprocess output indicates a GitHub API rate limit exhaustion."""
+    clean = output.lower()
+    rate_limit_indicators = (
+        "unknown owner type",
+        "api rate limit already exceeded",
+        "graphql_rate_limit",
+        "rate limit exceeded",
+    )
+    if any(ind in clean for ind in rate_limit_indicators):
+        raise GitHubOperationError(
+            "GitHub GraphQL API rate limit is currently exhausted. "
+            "Please wait for quota reset or utilize REST endpoints.",
+            operation=operation,
+            details={"output": output.strip()},
+        )
+
+
 def verify_project_auth_scopes() -> None:
     """Verify that the gh CLI has the necessary project/read:project OAuth scopes."""
     proc = run_subprocess(
@@ -168,6 +186,7 @@ def verify_project_auth_scopes() -> None:
     )
     if proc.returncode != 0:
         err = f"{proc.stderr or ''} {proc.stdout or ''}".lower()
+        check_github_rate_limit_error(err, operation="verify_project_auth_scopes")
         scope_error_patterns = (
             "missing required scopes",
             "insufficient_scopes",
@@ -195,13 +214,42 @@ def verify_project_auth_scopes() -> None:
             )
 
 
-def find_remote_project(owner: str, name_or_short: str) -> dict[str, Any] | None:
-    """Locate an existing remote project by title or short name."""
+def _find_project_in_list(projects: list[Any], target: str) -> dict[str, Any] | None:
+    """Find a project by matching lowercased title."""
+    clean_target = target.strip().lower()
+    for p in projects:
+        if isinstance(p, dict) and str(p.get("title", "")).strip().lower() == clean_target:
+            return cast(dict[str, Any], p)
+    return None
+
+
+def _find_project_via_rest(owner: str, name_or_short: str) -> dict[str, Any] | None:
+    """Attempt to locate a remote project via GitHub REST API."""
+    for endpoint in (f"users/{owner}/projectsV2", f"orgs/{owner}/projectsV2"):
+        cmd = [CONST_GH_CLI, "api", endpoint, "-H", "Accept: application/vnd.github+json"]
+        proc = run_subprocess(cmd, check=False, quiet=True)
+        if proc.returncode != 0 or not proc.stdout.strip():
+            continue
+        try:
+            data = json.loads(proc.stdout)
+            if isinstance(data, list):
+                match = _find_project_in_list(data, name_or_short)
+                if match:
+                    return match
+        except json.JSONDecodeError:
+            continue
+    return None
+
+
+def _find_project_via_cli(owner: str, name_or_short: str) -> dict[str, Any] | None:
+    """Fallback to searching projects via gh project list CLI."""
     proc = run_subprocess(
         [CONST_GH_CLI, "project", "list", "--owner", owner, "--format", "json"],
         check=False,
     )
     if proc.returncode != 0:
+        err = f"{proc.stderr or ''} {proc.stdout or ''}"
+        check_github_rate_limit_error(err, operation="find_remote_project")
         return None
     try:
         data = json.loads(proc.stdout or "{}")
@@ -210,13 +258,16 @@ def find_remote_project(owner: str, name_or_short: str) -> dict[str, Any] | None
             if isinstance(data, dict)
             else (data if isinstance(data, list) else [])
         )
-        for p in projects:
-            title = str(p.get("title", "")).strip().lower()
-            if title == name_or_short.strip().lower() and isinstance(p, dict):
-                return cast(dict[str, Any], p)
+        return _find_project_in_list(projects, name_or_short)
     except Exception:
         return None
-    return None
+
+
+def find_remote_project(owner: str, name_or_short: str) -> dict[str, Any] | None:
+    """Locate an existing remote project by title or short name."""
+    return _find_project_via_rest(owner, name_or_short) or _find_project_via_cli(
+        owner, name_or_short
+    )
 
 
 def create_remote_project(owner: str, title: str) -> dict[str, Any]:
@@ -321,6 +372,97 @@ def provision_remote_project_fields(
     return provisioned
 
 
+def _fetch_project_item_urls(owner: str, project_number: int) -> set[str]:
+    """Retrieve URLs of items currently present on the project board."""
+    res = run_subprocess(
+        [
+            CONST_GH_CLI,
+            "api",
+            f"users/{owner}/projectsV2/{project_number}/items",
+            "-H",
+            "Accept: application/vnd.github+json",
+        ],
+        check=False,
+        quiet=True,
+    )
+    if res.returncode != 0 or not res.stdout:
+        return set()
+    try:
+        items = json.loads(res.stdout)
+        return {
+            url
+            for it in items
+            if isinstance(it, dict)
+            if (
+                url := (it.get("content") or {}).get("html_url")
+                or (it.get("content") or {}).get("url")
+            )
+        }
+    except Exception:
+        return set()
+
+
+def _fetch_repository_issues(repo: str) -> list[dict[str, Any]]:
+    """Retrieve candidate issues from the repository via GitHub API."""
+    res = run_subprocess(
+        [
+            CONST_GH_CLI,
+            "api",
+            f"repos/{repo}/issues?state=all&per_page=30",
+            "-H",
+            "Accept: application/vnd.github+json",
+        ],
+        check=False,
+        quiet=True,
+    )
+    if res.returncode != 0 or not res.stdout:
+        return []
+    try:
+        data = json.loads(res.stdout)
+        return [i for i in data if isinstance(i, dict)] if isinstance(data, list) else []
+    except Exception:
+        return []
+
+
+def sync_repository_issues_to_project(
+    owner: str,
+    repo: str,
+    project_number: int,
+    dry_run: bool = False,
+) -> int:
+    """Synchronize open and active repository issues to the project board."""
+    if dry_run:
+        return 0
+
+    existing_urls = _fetch_project_item_urls(owner, project_number)
+    issues = _fetch_repository_issues(repo)
+    added = 0
+
+    for iss in issues:
+        url = iss.get("html_url") or iss.get("url")
+        if not url or url in existing_urls:
+            continue
+        add_proc = run_subprocess(
+            [
+                CONST_GH_CLI,
+                "project",
+                "item-add",
+                str(project_number),
+                "--owner",
+                owner,
+                "--url",
+                url,
+            ],
+            check=False,
+            quiet=True,
+        )
+        if add_proc.returncode == 0:
+            added += 1
+            existing_urls.add(url)
+
+    return added
+
+
 def sync_remote_project(
     owner: str,
     repo: str,
@@ -329,8 +471,6 @@ def sync_remote_project(
     dry_run: bool = False,
 ) -> ProjectSyncResult:
     """Reconcile remote GitHub Projects v2 board with declarative template and local tasks."""
-    verify_project_auth_scopes()
-
     if dry_run:
         return ProjectSyncResult(
             project_number=1,
@@ -343,6 +483,8 @@ def sync_remote_project(
             linked=True,
         )
 
+    verify_project_auth_scopes()
+
     matched = find_remote_project(owner, template.name)
     if not matched and template.short_name:
         matched = find_remote_project(owner, template.short_name)
@@ -353,6 +495,7 @@ def sync_remote_project(
     proj_num = int(matched.get("number", 1))
     linked = link_project_to_repository(proj_num, owner, repo)
     provisioned = provision_remote_project_fields(proj_num, owner, template.fields)
+    items_added = sync_repository_issues_to_project(owner, repo, proj_num, dry_run=False)
 
     return ProjectSyncResult(
         project_number=proj_num,
@@ -360,7 +503,7 @@ def sync_remote_project(
         owner=owner,
         repo=repo,
         fields_provisioned=provisioned,
-        items_synced=len(items),
+        items_synced=len(items) + items_added,
         dry_run=False,
         linked=linked,
     )
@@ -470,8 +613,35 @@ def sync_remote_project_views(owner: str, repo: str, template: ProjectTemplate) 
     }
 
 
-def list_remote_projects(owner: str) -> list[dict[str, Any]]:
-    """List GitHub Projects v2 boards belonging to the user or organization."""
+def _list_projects_via_rest(owner: str) -> list[dict[str, Any]]:
+    """List projects using GitHub REST API."""
+    for endpoint in (f"users/{owner}/projectsV2", f"orgs/{owner}/projectsV2"):
+        cmd = [CONST_GH_CLI, "api", endpoint, "-H", "Accept: application/vnd.github+json"]
+        proc = run_subprocess(cmd, check=False, quiet=True)
+        if proc.returncode != 0 or not proc.stdout.strip():
+            continue
+        try:
+            data = json.loads(proc.stdout)
+            if isinstance(data, list) and data:
+                return [
+                    {
+                        "number": p.get("number", 0),
+                        "title": p.get("title", ""),
+                        "state": p.get("state", "open"),
+                        "id": p.get("node_id") or str(p.get("id", "")),
+                        "url": p.get("html_url")
+                        or f"https://github.com/users/{owner}/projects/{p.get('number', '')}",
+                    }
+                    for p in data
+                    if isinstance(p, dict)
+                ]
+        except json.JSONDecodeError:
+            continue
+    return []
+
+
+def _list_projects_via_cli(owner: str) -> list[dict[str, Any]]:
+    """List projects using gh project list CLI command."""
     cmd = [CONST_GH_CLI, "project", "list", "--owner", owner, "--format", "json"]
     proc = run_subprocess(cmd, check=False, quiet=True)
     if proc.returncode != 0 or not proc.stdout.strip():
@@ -497,6 +667,11 @@ def list_remote_projects(owner: str) -> list[dict[str, Any]]:
     except Exception as exc:
         logger.debug("Failed to parse project list: %s", exc)
         return []
+
+
+def list_remote_projects(owner: str) -> list[dict[str, Any]]:
+    """List GitHub Projects v2 boards belonging to the user or organization."""
+    return _list_projects_via_rest(owner) or _list_projects_via_cli(owner)
 
 
 def audit_remote_project_views(owner: str, repo: str, template: ProjectTemplate) -> dict[str, Any]:

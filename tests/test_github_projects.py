@@ -537,3 +537,116 @@ def test_audit_project_drift() -> None:
         assert res["project_found"] is True
         assert res["project_number"] == 2
         assert res["views_compliant"] is True
+
+
+def test_parse_tasks_to_project_items_wip_checked_marks_done(tmp_path: Path) -> None:
+    """parse_tasks_to_project_items marks [x] items as Done even under In-Progress section."""
+    sample_task_md = tmp_path / "task.md"
+    sample_task_md.write_text(
+        "# Task Tracking\n\n"
+        "### In-Progress Tasks (WIP)\n"
+        "- [x] Phase 2.1: Completed sub-step in WIP\n"
+        "- [ ] Phase 2.2: Ongoing sub-step\n\n"
+        "### Pending Tasks\n"
+        "- [ ] Phase 3: Future item\n",
+        encoding="utf-8",
+    )
+    items = parse_tasks_to_project_items(sample_task_md)
+    assert len(items) == 3
+    assert items[0].title == "Phase 2.1: Completed sub-step in WIP"
+    assert items[0].status == "Done"
+    assert items[1].title == "Phase 2.2: Ongoing sub-step"
+    assert items[1].status == "In Progress"
+    assert items[2].title == "Phase 3: Future item"
+    assert items[2].status == "Backlog"
+
+
+def test_check_github_rate_limit_error() -> None:
+    """check_github_rate_limit_error detects rate limit indicators and raises GitHubOperationError."""
+    import pytest
+
+    from devops_cli.exceptions.git import GitHubOperationError
+    from devops_cli.github.projects import check_github_rate_limit_error
+
+    with pytest.raises(GitHubOperationError) as exc_info:
+        check_github_rate_limit_error("Fetching UserOrgOwner... unknown owner type")
+    assert "rate limit is currently exhausted" in str(exc_info.value)
+
+    with pytest.raises(GitHubOperationError):
+        check_github_rate_limit_error("API rate limit already exceeded for user ID 12345")
+
+    # Unrelated error should not raise
+    check_github_rate_limit_error("error: repository not found")
+
+
+def test_verify_project_auth_scopes_rate_limit() -> None:
+    """verify_project_auth_scopes raises when rate limit is encountered."""
+    from unittest.mock import MagicMock, patch
+
+    import pytest
+
+    from devops_cli.exceptions.git import GitHubOperationError
+    from devops_cli.github.projects import verify_project_auth_scopes
+
+    mock_proc = MagicMock(
+        return_value=MagicMock(returncode=1, stderr="unknown owner type", stdout="")
+    )
+    with patch("devops_cli.github.projects.run_subprocess", mock_proc):
+        with pytest.raises(GitHubOperationError) as exc_info:
+            verify_project_auth_scopes()
+        assert "rate limit is currently exhausted" in str(exc_info.value)
+
+
+def test_find_remote_project_via_rest() -> None:
+    """find_remote_project successfully finds project via REST without CLI fallback."""
+    import json
+    from unittest.mock import MagicMock, patch
+
+    from devops_cli.github.projects import find_remote_project
+
+    mock_proc = MagicMock(
+        return_value=MagicMock(
+            returncode=0,
+            stdout=json.dumps([{"title": "DevOps CLI Roadmap", "number": 2, "id": "PVT_123"}]),
+            stderr="",
+        )
+    )
+    with patch("devops_cli.github.projects.run_subprocess", mock_proc):
+        res = find_remote_project("dan-petty", "DevOps CLI Roadmap")
+        assert res is not None
+        assert res["number"] == 2
+        assert res["id"] == "PVT_123"
+
+
+def test_sync_repository_issues_to_project() -> None:
+    """sync_repository_issues_to_project adds missing repository issues to project."""
+    import json
+    from unittest.mock import MagicMock, patch
+
+    from devops_cli.github.projects import sync_repository_issues_to_project
+
+    existing_items = [
+        {"content": {"html_url": "https://github.com/dan-petty/devops-cli/issues/75"}}
+    ]
+    repo_issues = [
+        {"html_url": "https://github.com/dan-petty/devops-cli/issues/75", "number": 75},
+        {"html_url": "https://github.com/dan-petty/devops-cli/issues/78", "number": 78},
+    ]
+
+    mock_proc = MagicMock(
+        side_effect=[
+            MagicMock(returncode=0, stdout=json.dumps(existing_items), stderr=""),
+            MagicMock(returncode=0, stdout=json.dumps(repo_issues), stderr=""),
+            MagicMock(returncode=0, stdout="{}", stderr=""),
+        ]
+    )
+    with patch("devops_cli.github.projects.run_subprocess", mock_proc):
+        added = sync_repository_issues_to_project(
+            "dan-petty", "dan-petty/devops-cli", 2, dry_run=False
+        )
+        assert added == 1
+
+    # Dry run should immediately return 0
+    assert (
+        sync_repository_issues_to_project("dan-petty", "dan-petty/devops-cli", 2, dry_run=True) == 0
+    )

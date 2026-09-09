@@ -844,6 +844,17 @@
     - [x] Expanded unit test suite to 19 tests in `tests/test_library_vector_tier.py` (100% passing).
     - [x] Validated all 10 quality gates via `uv run devops ci` (10/10 green).
 
+- [x] Phase 50.3.3: GitHub Projects v2 Synchronization, GraphQL Rate-Limit Resilience & Custom Fields Reconciliation
+  - [x] 1. Reconciled and populated all 19 Project #2 items on View 1 (*Sprint Kanban*) with complete custom field values (`Status`, `Priority`, `Category`, `Value`, `Effort`) for Milestone `v0.2.14` deliverables (#74, #75, #76, #77, #78, #79, #80, #81, PR #83) and prior closed items.
+  - [x] 2. Upgraded `src/devops_cli/github/projects.py` with `_find_project_via_rest` and `_list_projects_via_rest` to resolve Project #2 via GitHub REST API (`GET /users/{owner}/projectsV2`), bypassing GraphQL quota constraints.
+  - [x] 3. Implemented `check_github_rate_limit_error()` to detect GraphQL rate limit exhaustion and surface actionable diagnostic warnings rather than generic `unknown owner type` errors.
+  - [x] 4. Added automated repository issue reconciliation in `sync_repository_issues_to_project()` to link missing repo issues directly to the project board.
+  - [x] 5. Fixed `parse_tasks_to_project_items()` to consistently mark any `[x]` checked task as `Done` regardless of parent section heading.
+  - [x] 6. Streamlined `sync_remote_project()` so that `--dry-run` executes preview logic without requiring remote authentication checks.
+  - [x] 7. Authored 5 new unit tests in `tests/test_github_projects.py` (26/26 passing).
+  - [x] 8. Validated cyclomatic complexity <= 10 and indentation depth <= 5 across all functions (`devops scan complexity`).
+  - [x] 9. Passed all 10/10 primary CI quality gates cleanly (`uv run devops ci`).
+
 ---
 
 ### Pending Tasks
