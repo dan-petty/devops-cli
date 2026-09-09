@@ -598,6 +598,18 @@ class ReviewPoolError(DevOpsCLIError, RuntimeError):
         self.errors = errors or []
 
 
+class LibraryIngestionError(DevOpsCLIError):
+    """Base exception for package introspection and library ingestion errors."""
+
+
+class LibraryNotFoundError(LibraryIngestionError):
+    """Raised when target package cannot be imported or found in the environment."""
+
+
+class DocsIngestionError(DevOpsCLIError):
+    """Base exception for documentation ingestion errors."""
+
+
 # Native re-exports for control flow, groups, and warnings
 SkipModelRequest = p_exc.SkipModelRequest
 SkipToolValidation = p_exc.SkipToolValidation
@@ -623,11 +635,14 @@ __all__ = [
     "ContextBudgetExceededError",
     "CostCalculationFailedWarning",
     "CostNotFoundWarning",
+    "DocsIngestionError",
     "FallbackExceptionGroup",
     "HarnessExecutionError",
     "HarnessValidationError",
     "IncompleteToolCall",
     "LLMInferenceError",
+    "LibraryIngestionError",
+    "LibraryNotFoundError",
     "MessageHistoryMutatedWarning",
     "ModelAPIError",
     "ModelBundleError",

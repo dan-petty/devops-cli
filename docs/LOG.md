@@ -2,6 +2,28 @@
 
 Chronological log of refactoring milestones, quality gates, and security enhancements.
 
+### [2026-09-09] Phase 50.1 & 50.2: Dynamic Package Introspection & Documentation Ingestion Engine (Issues #75, #76)
+- **Dynamic Package Introspector (`src/devops_cli/ai/library/introspector.py`)**:
+  - Implemented `PackageIntrospector` with runtime package version resolution and module tree introspection bounded by `--max-depth`.
+  - Implemented `extract_function_signature` and `extract_class_signature` extracting typed parameters, defaults, kinds, docstrings, bases, methods, and properties.
+  - Generates fast `symbols_index` mapping qualified symbol names to symbol types (`function`, `class`, `method`, `constant`).
+  - Implemented JSON serialization and deserialization via `save_to_dir` and `load_from_dir`.
+- **Multi-Source Documentation Ingester (`src/devops_cli/ai/library/docs_ingester.py`)**:
+  - Implemented `DocsIngester` with recursive local directory crawling for `.md`, `.markdown`, `.rst`, and `.txt` files.
+  - Implemented heading-aware markdown chunker tracking hierarchical heading breadcrumbs into discrete `DocChunk` units.
+  - Implemented remote URL crawling with HTML-to-markdown extraction, tag filtering (skipping `nav`, `footer`, `script`), and strict SSRF destination validation via `validate_service_url(allow=False)`.
+- **Domain Models & Exceptions (`models/library.py`, `exceptions/ai.py`)**:
+  - Added Pydantic v2 models: `ParameterSignature`, `FunctionSignature`, `ClassSignature`, `ModuleContract`, `LibraryContract`, `DocChunk`, `IngestDocResult`.
+  - Added domain exceptions `LibraryIngestionError`, `LibraryNotFoundError`, and `DocsIngestionError` inheriting from `DevOpsCLIError`.
+- **CLI Subcommand Integration (`commands/ai_ingest.py`, `commands/ai.py`)**:
+  - Added `devops ai ingest library <package_name>` and `devops ai ingest docs <source>` commands with table and `--format json` outputs.
+  - Added centralized CLI help catalog strings in `src/devops_cli/lang/en/help.py`.
+- **Testing & Quality Gates**:
+  - Authored comprehensive test-first suites in `tests/test_library_ingest.py` (11 tests) and `tests/test_docs_ingester.py` (9 tests), 100% passing.
+  - Reached 95.39% coverage on `ai/library` and 100% coverage on `commands/ai_ingest.py`.
+  - Validated architectural invariants (complexity <= 10, nesting <= 5, 0 bare exceptions).
+  - Validated full 10-gate CI suite (`uv run devops ci` — 10/10 green).
+
 ### [2026-09-08] Phase 49.9: Logfire Structured AI Observability Bridge (`logfire`) (Issue #59)
 - **Logfire Observability Bridge (`src/devops_cli/telemetry/logfire.py`)**:
   - Implemented `LogfireBridge` singleton managing configuration, secret resolution, instrumentation, and metrics.

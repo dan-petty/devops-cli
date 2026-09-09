@@ -3126,6 +3126,58 @@ devops ai harness run [OPTIONS] <task>
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
+### `devops ai ingest`
+
+**Ingest library API contracts, type stubs, and documentation.**
+
+```bash
+devops ai ingest COMMAND [ARGS]...
+```
+
+#### `devops ai ingest library`
+
+**Introspect an installed Python package and extract its public API contract.**
+
+```bash
+devops ai ingest library [OPTIONS] <package_name>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<package_name>` | `string` | Yes | Introspect an installed Python package and extract its public API contract. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--max-depth`, `-d` | `integer` | `1` | Maximum module recursion depth for package introspection. |
+| `--output-dir`, `-o` | `path` | - | Directory path for generated output files. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+
+#### `devops ai ingest docs`
+
+**Ingest local or remote documentation into chunked markdown knowledge files.**
+
+```bash
+devops ai ingest docs [OPTIONS] <source>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<source>` | `string` | Yes | Ingest local or remote documentation into chunked markdown knowledge files. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--output-dir`, `-o` | `path` | - | Directory path for generated output files. |
+| `--max-pages`, `-p` | `integer` | `10` | Maximum number of items to return or display. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+
 ---
 
 ## devops review

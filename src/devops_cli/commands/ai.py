@@ -19,6 +19,7 @@ from devops_cli.commands.ai_controller import (
     run_resume_cmd,
 )
 from devops_cli.commands.ai_harness import app as harness_app
+from devops_cli.commands.ai_ingest import app as ingest_app
 from devops_cli.commands.analyze import app as analyze_app
 from devops_cli.commands.benchmark import app as benchmark_app
 from devops_cli.commands.rag import app as rag_app
@@ -98,6 +99,11 @@ app.add_typer(
     harness_app,
     name="harness",
     help=HELP.ai.harness,
+)
+app.add_typer(
+    ingest_app,
+    name="ingest",
+    help=HELP.ai.ingest,
 )
 
 
@@ -1418,3 +1424,6 @@ app.command("quiesce", help=HELP.ai.quiesce)(run_quiesce_cmd)
 app.command("failover", help=HELP.ai.failover)(run_failover_cmd)
 app.command("resume", help=HELP.ai.resume)(run_resume_cmd)
 app.command("constellation", help=HELP.ai.constellation)(run_constellation_cmd)
+
+# Canonical alias for app
+ai_app = app

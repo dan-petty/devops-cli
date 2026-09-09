@@ -286,6 +286,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops ai benchmark [OPTIONS]` | Benchmark, evaluate, and peer-grade candidate AI models across engineering tasks. |
 |  | `devops ai cache COMMAND [ARGS]...` | Manage LLM response cache, performance metrics, and warm starting points. |
 |  | `devops ai harness COMMAND [ARGS]...` | Manage agent harness slots, sub-agent local offloading, and tiered synthesis. |
+|  | `devops ai ingest COMMAND [ARGS]...` | Ingest library API contracts, type stubs, and documentation. |
 | **review** | `devops review path [OPTIONS] <targets>` | Review source files directly (no git required). |
 |  | `devops review branch [OPTIONS] <branch_name>` | Review a git branch diff with one or all AI personas. |
 |  | `devops review pr [OPTIONS] <number>` | Review a GitHub pull request with one or all AI personas. |

@@ -765,11 +765,36 @@
 
 ---
 
+- [x] Phase 50.0: Release v0.2.14 Lifecycle & Milestone Initialization
+  - [x] 1. Created release branch `release/v0.2.14` tracking `origin/main`.
+  - [x] 2. Configured Dependabot (`.github/dependabot.yml`) for weekly package updates across pip, github-actions, and devcontainers.
+  - [x] 3. Scrubbed all documentation, manifests, tests, and configs of private hostnames and homelab references.
+  - [x] 4. Authored tracking issues #74 through #81 for all Milestone `v0.2.14` roadmap deliverables and synchronized into GitHub Projects v2 (#2, 622 items).
+
+- [x] Phase 50.1 & 50.2: Dynamic Package Introspection & Multi-Source Documentation Ingestion Engine (Issues #75, #76)
+  - [x] 1. Authored comprehensive test-first suites in `tests/test_library_ingest.py` (parameter extraction, function signatures, class hierarchy, serialization roundtrip, CLI) and `tests/test_docs_ingester.py` (markdown chunking, heading breadcrumbs, SSRF protection, remote crawling, CLI).
+  - [x] 2. Implemented Pydantic v2 contract models in `src/devops_cli/models/library.py` (`ParameterSignature`, `FunctionSignature`, `ClassSignature`, `ModuleContract`, `LibraryContract`, `DocChunk`, `IngestDocResult`).
+  - [x] 3. Added domain exceptions `LibraryIngestionError`, `LibraryNotFoundError`, and `DocsIngestionError` in `src/devops_cli/exceptions/ai.py` and re-exported in `src/devops_cli/exceptions/__init__.py`.
+  - [x] 4. Implemented `PackageIntrospector` and signature extractors in `src/devops_cli/ai/library/introspector.py` with runtime inspection, recursion depth capping, and JSON persistence.
+  - [x] 5. Implemented `DocsIngester` in `src/devops_cli/ai/library/docs_ingester.py` with markdown heading-aware chunking and SSRF egress blocking via `validate_service_url`.
+  - [x] 6. Created `devops ai ingest library` and `devops ai ingest docs` subcommands in `src/devops_cli/commands/ai_ingest.py` and wired into `ai_app` in `src/devops_cli/commands/ai.py`.
+  - [x] 7. Added centralized English CLI help catalogs in `src/devops_cli/lang/en/help.py`.
+  - [x] 8. Validated complexity <= 10 and nesting depth <= 5 across all new code (`devops scan complexity`).
+  - [x] 9. Reached 95.39% coverage on `ai/library` and 100% on `commands/ai_ingest.py`.
+  - [x] 10. Synchronized CLI reference documentation and README matrix (`devops docs generate --sync-readme`).
+  - [x] 11. Passed all 10/10 primary CI quality gates cleanly (`uv run devops ci`).
+
+---
+
 ### In-Progress Tasks (WIP)
-- [ ] Active planning and issue decomposition for Milestone `v0.2.14`
+- [ ] PR creation for `feat/library-ingestion-engine` targeting `release/v0.2.14` (resolves #75, #76) and CI monitoring.
 
 ---
 
 ### Pending Tasks
-- [ ] Milestone `v0.2.14` GitHub Issue & Project Card population
-- [ ] Automated Release Orchestration verification on `main` (Git Tag `v0.2.13`, GitHub Release, Dev Container publish)
+- [ ] Phase 50.3: Multi-Format AST Parser & Tree-sitter Grammar Service (Issue #77)
+- [ ] Phase 50.4: Cross-Language Type Inference & Call-Graph Synthesis (Issue #78)
+- [ ] Phase 50.5: Local RAG Knowledge Graph & Cross-Reference Linker (Issue #79)
+- [ ] Phase 50.6: Continuous Code Intelligence Cache & Invalidation Daemon (Issue #80)
+- [ ] Phase 50.7: AI Context Packing & Symbol-Pruned Prompt Synthesizer (Issue #81)
+- [ ] Phase 50.8: Full CI Quality Gate & Release v0.2.14 Finalization

@@ -144,6 +144,12 @@ class AICommandHelp:
     constellation: str = (
         "Display constellation fleet status, active fallback routes, and suspended tasks."
     )
+    ingest: str = "Ingest library API contracts, type stubs, and documentation."
+    ingest_library: str = (
+        "Introspect an installed Python package and extract its public API contract."
+    )
+    ingest_docs: str = "Ingest local or remote documentation into chunked markdown knowledge files."
+    max_depth: str = "Maximum module recursion depth for package introspection."
 
 
 @dataclass(frozen=True)
