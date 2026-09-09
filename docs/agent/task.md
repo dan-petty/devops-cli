@@ -807,6 +807,15 @@
   - [x] 10. Authored comprehensive test-first suites in `tests/test_github_pages.py` (8/8), `tests/test_github_issues.py` (6/6), `tests/test_github_projects.py` (21/21), `tests/test_gh_cmd.py` (18/18), `tests/test_mcp.py` (30/30), `tests/test_fastmcp_contracts.py` (6/6).
   - [x] 11. Verified complexity <= 10 and indentation depth <= 5 across all modules (`devops scan complexity`).
 
+- [x] Phase 50.3.1: Roadmap Comprehensive Review, Context Enrichment & Milestone Reprioritization
+  - [x] 1. Reviewed and synchronized all active and scheduled release milestones in `docs/ROADMAP.md` (`v0.2.13`, `v0.2.14`, `v0.2.15`, `v0.2.16`, `v0.2.17`, and `v0.3.0`).
+  - [x] 2. Marked Milestone `v0.2.13` as Completed and Milestone `v0.2.14` as Current Release / Active Development with 4 completed deliverables.
+  - [x] 3. Reprioritized remaining `v0.2.14` tasks with explicit priority tiers, deep technical context, and acceptance criteria (P0: AST Grounding #78, FastMCP Library Tools #80; P1: Tree-sitter #74, Drift Auditor #79; P2: Context Packing #81, RAG Index Drift).
+  - [x] 4. Front-loaded `v0.2.15` with `BaseSecurityScanner` migration (P0) and Loki/Fluent Bit Centralized Logging (P0) to establish prerequisites for sandboxed app observability.
+  - [x] 5. Enriched `v0.2.16` and `v0.2.17` with detailed architecture for socket/OpenAPI/gRPC probing, cgroup v2 metrics, W3C traceparent propagation, OpenAPI dynamic fuzzing, DAST, and closed-loop autonomous repair.
+  - [x] 6. Fully reconciled Section 3 *Value vs. Effort Prioritization Matrix* with 1-to-1 alignment with milestone tasks and explicit priority tags.
+  - [x] 7. Verified documentation freshness (`devops docs check`) and full CI suite (`devops ci` — 10/10 green).
+
 ---
 
 ### In-Progress Tasks (WIP)
@@ -820,13 +829,13 @@
   - [x] 7. Verified complexity <= 10 and indentation depth <= 5 via `devops scan complexity`.
   - [x] 8. Verified full CI suite (`devops ci` — 10/10 green), committed, pushed, and opened PR #83 targeting `release/v0.2.14` (Closes #77). CI checks running on GitHub Actions.
 
-
 ---
 
 ### Pending Tasks
-- [ ] Phase 50.4: Import-Driven AST Prompt Grounding and API Contract Invalidator (Issue #78)
-- [ ] Phase 50.5: Library API Drift and Deprecation Usage Auditor (Issue #79)
-- [ ] Phase 50.6: Expose FastMCP Library Intelligence Tools and System Resources (Issue #80)
-- [ ] Phase 50.7: AI Context Packing & Symbol-Pruned Prompt Synthesizer (Issue #81)
-- [ ] Phase 50.8: Tree-sitter Multilingual AST Graph & Code Intelligence Integration (Issue #74)
-- [ ] Phase 50.9: Full CI Quality Gate & Release v0.2.14 Finalization
+- [ ] Phase 50.4: Import-Driven AST Prompt Grounding and API Contract Invalidator (P0 - Critical, Issue #78)
+- [ ] Phase 50.5: FastMCP Library Intelligence Tools and System Resources (P0 - Critical, Issue #80)
+- [ ] Phase 50.6: Tree-sitter Multilingual AST Graph & Code Intelligence Integration (P1 - High, Issue #74)
+- [ ] Phase 50.7: Library API Drift and Deprecation Usage Auditor (P1 - High, Issue #79)
+- [ ] Phase 50.8: AI Context Packing & Symbol-Pruned Prompt Synthesizer (P2 - Medium, Issue #81)
+- [ ] Phase 50.9: Autonomous RAG Index Drift Detection & Auto-Reindexing (P2 - Medium)
+- [ ] Phase 50.10: Full CI Quality Gate & Release v0.2.14 Finalization
