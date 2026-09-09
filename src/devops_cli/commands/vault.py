@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import re
-import urllib.parse
 from typing import Annotated
 
 import typer
 
 from devops_cli.core.cli import new_typer
+from devops_cli.core.paths import validate_no_path_traversal
 from devops_cli.dry_run.models import CommandDryRunResult
 from devops_cli.dry_run.state import is_dry_run, set_dry_run
 from devops_cli.exceptions.vault import VaultConfigurationError
@@ -29,9 +29,11 @@ def _validate_vault_path(path: str) -> None:
     clean = path.strip()
     if not clean:
         raise VaultConfigurationError("Vault secret path cannot be empty.")
-    unquoted = urllib.parse.unquote(clean)
-    if ".." in clean or ".." in unquoted:
-        raise VaultConfigurationError("Vault secret path cannot contain '..' traversal sequences.")
+    validate_no_path_traversal(
+        clean,
+        error_cls=VaultConfigurationError,
+        label="Vault secret path",
+    )
     if not VAULT_PATH_PATTERN.match(clean):
         raise VaultConfigurationError(f"Vault secret path contains invalid characters: '{path}'")
 

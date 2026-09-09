@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TypeVar
+from typing import Any, TypeVar
 
+from devops_cli.config.constants import CONST_FORBIDDEN_SYSTEM_DIRS
 from devops_cli.exceptions import ValidationError
 from devops_cli.exceptions.base import DevOpsCLIError
 from devops_cli.exceptions.security import SecurityError
@@ -81,3 +82,94 @@ def safe_resolve_subpath(
         )
 
     return resolved
+
+
+_ADDITIONAL_SYSTEM_DIRS: tuple[Path, ...] = (
+    Path("/dev"),
+    Path("/boot"),
+)
+_ALL_FORBIDDEN_SYSTEM_DIRS: tuple[Path, ...] = CONST_FORBIDDEN_SYSTEM_DIRS + _ADDITIONAL_SYSTEM_DIRS
+
+_PATH_PARAM_KEYWORDS: tuple[str, ...] = (
+    "path",
+    "file",
+    "dir",
+    "dest",
+    "target",
+    "filename",
+    "filepath",
+    "uri",
+)
+
+
+def is_forbidden_system_path(path: Path | str) -> bool:
+    """Return True if path resolves to a forbidden host system directory."""
+    raw_str = str(path).strip()
+    if not raw_str:
+        return False
+    p = Path(path)
+    if not p.is_absolute():
+        return False
+    resolved = p.resolve()
+    return any(
+        resolved == sys_dir or resolved.is_relative_to(sys_dir)
+        for sys_dir in _ALL_FORBIDDEN_SYSTEM_DIRS
+    )
+
+
+def validate_no_path_traversal(
+    path: Path | str,
+    *,
+    error_cls: type[Exception] = SecurityError,
+    label: str = "Path",
+) -> Path:
+    """Validate that a path string does not contain traversal sequences or escape attempts."""
+    raw_str = str(path).strip()
+    if not raw_str:
+        raise error_cls(f"{label} traversal detected: empty path provided.")
+
+    import urllib.parse
+
+    unquoted = urllib.parse.unquote(raw_str)
+    p = Path(unquoted)
+
+    if ".." in raw_str or ".." in unquoted or any(part == ".." for part in p.parts):
+        raise error_cls(
+            f"Path traversal detected in {label}: '{path}' (cannot contain '..' traversal sequences)."
+        )
+    return Path(path)
+
+
+def validate_path_parameter(
+    param_name: str,
+    value: Any,
+    *,
+    allow_absolute: bool = True,
+    error_cls: type[Exception] = SecurityError,
+) -> None:
+    """Validate tool argument values named after path parameters against traversal and escapes."""
+    if not isinstance(value, (str, Path)):
+        return
+    lower_name = param_name.lower()
+    if not any(kw in lower_name for kw in _PATH_PARAM_KEYWORDS):
+        return
+
+    raw_str = str(value).strip()
+    import urllib.parse
+
+    unquoted = urllib.parse.unquote(raw_str)
+    p = Path(unquoted)
+
+    if (
+        ".." in raw_str
+        or "../" in raw_str
+        or "..\\" in raw_str
+        or ".." in unquoted
+        or any(part == ".." for part in p.parts)
+    ):
+        raise error_cls(f"Path traversal sequence detected in parameter '{param_name}': '{value}'.")
+
+    if not allow_absolute and (p.is_absolute() or raw_str.startswith(("/", "\\"))):
+        raise error_cls(
+            f"Absolute path in parameter '{param_name}' is blocked by security policy: '{value}'."
+        )

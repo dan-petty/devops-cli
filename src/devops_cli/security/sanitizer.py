@@ -142,3 +142,99 @@ def mask_uri_credentials(uri: str) -> str:
         lambda m: f"://{m.group(1)}:***@" if m.group(1) else "://***@",
         uri,
     )
+
+
+_SENSITIVE_ARG_FLAGS: frozenset[str] = frozenset(
+    {"--password", "-p", "--token", "--api-key", "--secret", "--auth-token"}
+)
+_SENSITIVE_ARG_PREFIXES: tuple[str, ...] = (
+    "--password=",
+    "--token=",
+    "--api-key=",
+    "--secret=",
+    "--auth-token=",
+)
+
+
+def sanitize_command_args_for_display(command: list[str]) -> list[str]:
+    """Mask sensitive argument values in command list before terminal printing."""
+    sanitized: list[str] = []
+    skip_next = False
+    for arg in command:
+        if skip_next:
+            sanitized.append("<masked>")
+            skip_next = False
+            continue
+        if arg in _SENSITIVE_ARG_FLAGS:
+            sanitized.append(arg)
+            skip_next = True
+        elif any(arg.startswith(prefix) for prefix in _SENSITIVE_ARG_PREFIXES):
+            key = arg.split("=", 1)[0]
+            sanitized.append(f"{key}=<masked>")
+        else:
+            sanitized.append(arg)
+    return sanitized
+
+
+def sanitize_telemetry_endpoint(endpoint: str) -> str:
+    """Sanitize OTLP collector URL to prevent leaking internal network topology and credentials."""
+    if not endpoint:
+        return ""
+    try:
+        parsed = urlsplit(endpoint)
+        host = parsed.hostname or ""
+        port = f":{parsed.port}" if parsed.port is not None else ""
+
+        if host in ("localhost", "127.0.0.1", "::1"):
+            clean_host = host
+        else:
+            try:
+                import ipaddress
+
+                ip = ipaddress.ip_address(host)
+                clean_host = "<internal-ip>" if (ip.is_private or ip.is_loopback) else host
+            except ValueError:
+                clean_host = host
+
+        clean_netloc = f"{clean_host}{port}"
+        return parsed._replace(netloc=clean_netloc).geturl()
+    except Exception:
+        return "<internal-endpoint>"
+
+
+_PROMPT_BOUNDARY_TAGS: tuple[str, ...] = (
+    "target_code_to_review",
+    "untrusted_code_diff",
+    "project_conventions_context",
+    "untrusted_segment_content",
+    "untrusted_finding_excerpts",
+    "untrusted_findings_input",
+    "untrusted_segment_outputs",
+    "review_metadata_context",
+    "untrusted_related_files",
+    "instruction",
+    "instructions",
+    "system",
+    "prompt",
+)
+
+
+def sanitize_prompt_boundary_tags(text: str) -> str:
+    """Sanitize XML-style boundary opening and closing tags in untrusted content."""
+    if not text:
+        return ""
+    sanitized = text
+    for tag in _PROMPT_BOUNDARY_TAGS:
+        sanitized = sanitized.replace(f"<{tag}>", f"&lt;{tag}&gt;")
+        sanitized = sanitized.replace(f"<{tag} ", f"&lt;{tag} ")
+        sanitized = sanitized.replace(f"</{tag}>", f"&lt;/{tag}&gt;")
+    return sanitized
+
+
+def sanitize_prompt_injection(text: str) -> str:
+    """Scrub prompt injection tags from dynamically interpolated templates or prompt inputs."""
+    if not text:
+        return ""
+    from devops_cli.config.constants import CONST_PROMPT_INJECTION_TAGS_RE
+
+    return CONST_PROMPT_INJECTION_TAGS_RE.sub("", text)

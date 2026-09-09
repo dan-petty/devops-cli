@@ -104,9 +104,9 @@ def get_stderr_console(
 def _sanitize_output_text(text: str) -> str:
     """Sanitize and mask any sensitive tokens or secrets before standard stream writing."""
     normalized_text = text if isinstance(text, str) else ("" if text is None else str(text))
-    from devops_cli.ai.review.sanitization import _mask_secrets_in_content
+    from devops_cli.security.sanitizer import mask_secrets
 
-    return _mask_secrets_in_content(normalized_text)
+    return mask_secrets(normalized_text)
 
 
 def write_stream(
@@ -590,25 +590,9 @@ def progress_context(
 
 def _sanitize_command_args_for_display(command: list[str]) -> list[str]:
     """Mask sensitive argument values in command list before terminal printing."""
-    sanitized: list[str] = []
-    skip_next = False
-    for arg in command:
-        if skip_next:
-            sanitized.append("<masked>")
-            skip_next = False
-            continue
-        if arg in ("--password", "-p", "--token", "--api-key", "--secret", "--auth-token"):
-            sanitized.append(arg)
-            skip_next = True
-        elif any(
-            arg.startswith(prefix)
-            for prefix in ("--password=", "--token=", "--api-key=", "--secret=", "--auth-token=")
-        ):
-            key = arg.split("=", 1)[0]
-            sanitized.append(f"{key}=<masked>")
-        else:
-            sanitized.append(arg)
-    return sanitized
+    from devops_cli.security.sanitizer import sanitize_command_args_for_display
+
+    return sanitize_command_args_for_display(command)
 
 
 def print_dry_run_command(

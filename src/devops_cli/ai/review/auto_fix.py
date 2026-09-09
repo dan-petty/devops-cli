@@ -58,14 +58,12 @@ def generate_remediation_branch(
         )
 
     # In active mode: verify target file existence and containment
-    top_root = find_top_level_repo_root(Path.cwd()).resolve()
-    file_path = (top_root / target_file).resolve()
+    from devops_cli.core.paths import safe_resolve_subpath
 
-    if (
-        not file_path.is_relative_to(top_root)
-        or ".." in Path(target_file).parts
-        or not file_path.exists()
-    ):
+    top_root = find_top_level_repo_root(Path.cwd()).resolve()
+    try:
+        safe_resolve_subpath(top_root, target_file, must_exist=True)
+    except Exception:
         return AutoFixResult(
             finding_id=finding_id,
             branch_name=target_branch,

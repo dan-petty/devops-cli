@@ -30,17 +30,15 @@ def bundle_ollama_models(
     Returns (count, bundle_path).
     """
     if output_dir is not None:
-        target = Path(output_dir)
-        if ".." in target.parts or ".." in str(output_dir):
-            raise ModelBundleError(f"Path traversal detected in output directory: {output_dir}")
+        from devops_cli.core.paths import is_forbidden_system_path, validate_no_path_traversal
+
+        target = validate_no_path_traversal(
+            output_dir, error_cls=ModelBundleError, label="output directory"
+        )
         if target.is_absolute():
-            resolved = target.resolve()
-            for sys_dir in ("/etc", "/sys", "/proc", "/dev", "/boot", "/bin", "/sbin", "/usr"):
-                if str(resolved) == sys_dir or str(resolved).startswith(f"{sys_dir}/"):
-                    raise ModelBundleError(
-                        f"Output directory outside allowed workspace: {output_dir}"
-                    )
-            target = resolved
+            if is_forbidden_system_path(target):
+                raise ModelBundleError(f"Output directory outside allowed workspace: {output_dir}")
+            target = target.resolve()
         else:
             from devops_cli.core.paths import safe_resolve_subpath
             from devops_cli.core.repo import find_top_level_repo_root

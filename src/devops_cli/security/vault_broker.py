@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import logging
 import os
-from pathlib import Path
 from typing import Any
-from urllib.parse import unquote, urlparse
+from urllib.parse import urlparse
 
 from pydantic import BaseModel
 
 from devops_cli.config.defaults import DEFAULT_HTTP_PROBE_TIMEOUT_SECONDS
 from devops_cli.config.settings import get_keyring_secret, set_keyring_secret
+from devops_cli.core.paths import validate_no_path_traversal
 from devops_cli.exceptions.vault import VaultConfigurationError
 from devops_cli.http.broker import get_broker
 from devops_cli.telemetry import trace_span
@@ -48,26 +48,12 @@ def parse_vault_uri(uri: str) -> tuple[str, str | None]:
         cleaned, key = cleaned.split("#", 1)
         key = key.strip() or None
 
-    decoded_uri = unquote(cleaned)
-    if (
-        any(part == ".." for part in Path(decoded_uri).parts)
-        or ".." in decoded_uri
-        or any(part == ".." for part in Path(cleaned).parts)
-        or ".." in cleaned
-    ):
-        raise VaultConfigurationError(f"Path traversal detected in Vault URI: '{uri}'")
+    validate_no_path_traversal(cleaned, error_cls=VaultConfigurationError, label="Vault URI")
 
     if cleaned.startswith("vault://"):
         parsed = urlparse(cleaned)
         path = f"{parsed.netloc}{parsed.path}".lstrip("/")
-        decoded_path = unquote(path)
-        if (
-            any(part == ".." for part in Path(decoded_path).parts)
-            or ".." in decoded_path
-            or any(part == ".." for part in Path(path).parts)
-            or ".." in path
-        ):
-            raise VaultConfigurationError(f"Path traversal detected in Vault URI: '{uri}'")
+        validate_no_path_traversal(path, error_cls=VaultConfigurationError, label="Vault URI")
         return path, key
 
     return cleaned, key
@@ -95,10 +81,11 @@ class VaultSecretBroker:
             )
         if not parsed.netloc:
             raise VaultConfigurationError(f"Invalid Vault address host/netloc: '{self.vault_addr}'")
-        if ".." in self.vault_addr or ".." in parsed.path:
-            raise VaultConfigurationError(
-                f"Path traversal detected in Vault address: '{self.vault_addr}'"
-            )
+        validate_no_path_traversal(
+            self.vault_addr,
+            error_cls=VaultConfigurationError,
+            label="Vault address",
+        )
 
         self.vault_token = (
             vault_token or os.getenv("VAULT_TOKEN") or os.getenv("DEVOPS_CLI_VAULT_TOKEN")

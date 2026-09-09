@@ -855,6 +855,21 @@
   - [x] 8. Validated cyclomatic complexity <= 10 and indentation depth <= 5 across all functions (`devops scan complexity`).
   - [x] 9. Passed all 10/10 primary CI quality gates cleanly (`uv run devops ci`).
 
+- [x] Phase 50.3.4: Security Architecture Consolidation & Canonical Submodule Helpers Refactor
+  - [x] 1. Comprehensive codebase audit across SSRF, path traversal, secret masking, prompt injection, and subprocess execution.
+  - [x] 2. Implemented canonical SSRF validation helpers in `src/devops_cli/core/validation.py` (`is_loopback_or_private_host`, `validate_url_egress`).
+  - [x] 3. Implemented canonical path traversal and containment helpers in `src/devops_cli/core/paths.py` (`is_forbidden_system_path`, `validate_no_path_traversal`, `validate_path_parameter`).
+  - [x] 4. Implemented canonical secret and prompt sanitizers in `src/devops_cli/security/sanitizer.py` (`sanitize_command_args_for_display`, `sanitize_telemetry_endpoint`, `sanitize_prompt_boundary_tags`, `sanitize_prompt_injection`).
+  - [x] 5. Refactored 15+ scattered in-place security checks across `commands/k8s/cluster_context.py`, `commands/k8s/diagnostics.py`, `commands/vault.py`, `commands/workspace.py`, `commands/install_tools.py`, `security/vault_broker.py`, `security/tflint.py`, `output/console.py`, `server/routes/telemetry.py`, `ai/common_tools.py`, `ai/model_bundler.py`, `ai/ext_langchain.py`, `ai/agents/context.py`, `ai/agents/prompt.py`, `ai/review/auto_fix.py`, and `ai/review/sanitization.py`.
+  - [x] 6. Authored comprehensive test suites in `tests/test_validation.py`, `tests/test_consolidation_core_paths.py`, `tests/test_consolidation_security_sanitizer.py`, and updated `tests/test_tflint.py`.
+  - [x] 7. Verified architectural invariants and complexity <= 10, nesting depth <= 5 across all modules (`devops scan complexity`, `tests/test_architectural_invariants.py`).
+  - [x] 8. Validated all 10 primary CI quality gates cleanly (`uv run devops ci`).
+
+---
+
+### In-Progress Tasks (WIP)
+- None. Ready for next deliverable.
+
 ---
 
 ### Pending Tasks

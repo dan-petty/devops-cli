@@ -23,6 +23,10 @@ from devops_cli.security.sanitizer import (
     mask_dict_secrets,
     mask_secrets,
     mask_uri_credentials,
+    sanitize_command_args_for_display,
+    sanitize_prompt_boundary_tags,
+    sanitize_prompt_injection,
+    sanitize_telemetry_endpoint,
 )
 from devops_cli.security.semgrep import run_semgrep_scan
 from devops_cli.security.tflint import run_tflint_scan
@@ -61,4 +65,8 @@ __all__ = [
     "run_semgrep_scan",
     "run_tflint_scan",
     "run_trivy_scan",
+    "sanitize_command_args_for_display",
+    "sanitize_prompt_boundary_tags",
+    "sanitize_prompt_injection",
+    "sanitize_telemetry_endpoint",
 ]

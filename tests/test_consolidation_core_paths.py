@@ -106,3 +106,66 @@ def test_safe_resolve_subpath_custom_error_cls(tmp_path: Path) -> None:
 
     with pytest.raises(CustomError):
         safe_resolve_subpath(tmp_path, "../outside", error_cls=CustomError)
+
+
+def test_is_forbidden_system_path() -> None:
+    """Verify system directory identification."""
+    from devops_cli.core.paths import is_forbidden_system_path
+
+    assert is_forbidden_system_path("/etc") is True
+    assert is_forbidden_system_path("/etc/shadow") is True
+    assert is_forbidden_system_path("/sys/kernel") is True
+    assert is_forbidden_system_path("/proc/cpuinfo") is True
+    assert is_forbidden_system_path("/dev/null") is True
+    assert is_forbidden_system_path("/bin/sh") is True
+    assert is_forbidden_system_path("/sbin/iptables") is True
+    assert is_forbidden_system_path("/usr/bin/python3") is True
+
+    assert is_forbidden_system_path("/workspaces/devops-cli/src") is False
+    assert is_forbidden_system_path("relative/path/to/file.txt") is False
+
+
+def test_validate_no_path_traversal() -> None:
+    """Verify traversal rejection for strings and paths."""
+    from devops_cli.core.paths import validate_no_path_traversal
+
+    class CustomTraversalError(Exception):
+        pass
+
+    assert validate_no_path_traversal("safe/sub/path.txt") == Path("safe/sub/path.txt")
+    assert validate_no_path_traversal(Path("safe/path.json")) == Path("safe/path.json")
+
+    with pytest.raises(SecurityError, match="traversal"):
+        validate_no_path_traversal("../secret.txt")
+
+    with pytest.raises(CustomTraversalError, match="traversal"):
+        validate_no_path_traversal(
+            "dir/../../escaped", error_cls=CustomTraversalError, label="Target file"
+        )
+
+    # URL-encoded traversal
+    with pytest.raises(SecurityError, match="traversal"):
+        validate_no_path_traversal("%2e%2e/encoded")
+
+
+def test_validate_path_parameter() -> None:
+    """Verify tool parameter inspection against path traversal and escapes."""
+    from devops_cli.core.paths import validate_path_parameter
+
+    # Non-path parameter is ignored
+    validate_path_parameter("user_name", "../not-a-path-param")
+
+    # Safe path parameter
+    validate_path_parameter("file_path", "src/devops_cli/main.py")
+    validate_path_parameter("dest_dir", Path("build/output"))
+
+    # Traversal in path param
+    with pytest.raises(SecurityError, match="traversal"):
+        validate_path_parameter("target_path", "../../../etc/passwd")
+
+    with pytest.raises(SecurityError, match="traversal"):
+        validate_path_parameter("dest", "sub/%2e%2e/escape")
+
+    # Absolute path blocked when allow_absolute=False
+    with pytest.raises(SecurityError, match=r"(?i)absolute path"):
+        validate_path_parameter("output_file", "/etc/passwd", allow_absolute=False)

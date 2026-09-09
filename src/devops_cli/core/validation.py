@@ -31,10 +31,81 @@ _ALLOW_PRIVATE_NETWORK_ENV = "DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK"
 
 PathKind = Literal["any", "dir", "file", "key"]
 
+_LOOPBACK_AND_LOCAL_HOSTS: frozenset[str] = frozenset(
+    {"localhost", "127.0.0.1", "::1", "169.254.169.254"}
+)
+
 
 def is_non_public_ip(addr: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
     """Return True if the IP address is private, loopback, link-local, or non-global."""
     return not addr.is_global
+
+
+def is_loopback_or_private_host(host_or_ip: str, *, resolve_dns: bool = True) -> bool:
+    """Return True if host or IP string resolves to loopback, link-local, private, or non-global space."""
+    clean = host_or_ip.strip().lower()
+    if not clean:
+        return True
+    if clean in _LOOPBACK_AND_LOCAL_HOSTS or clean.endswith(".local"):
+        return True
+    try:
+        addr = ipaddress.ip_address(clean)
+        return is_non_public_ip(addr)
+    except ValueError:
+        pass
+
+    if not resolve_dns:
+        return False
+
+    old_timeout = socket.getdefaulttimeout()
+    try:
+        socket.setdefaulttimeout(DEFAULT_DNS_TIMEOUT_SECONDS)
+        addrinfos = socket.getaddrinfo(clean, None, type=socket.SOCK_STREAM)
+        resolved: list[ipaddress.IPv4Address | ipaddress.IPv6Address] = []
+        for a in addrinfos:
+            try:
+                resolved.append(ipaddress.ip_address(a[4][0]))
+            except ValueError:
+                continue
+        return bool(resolved and any(is_non_public_ip(ip) for ip in resolved))
+    except socket.gaierror, TimeoutError, OSError:
+        return False
+    finally:
+        socket.setdefaulttimeout(old_timeout)
+
+
+def validate_url_egress(
+    url: str,
+    purpose: str = "service",
+    *,
+    allow_private: bool = False,
+    schemes: tuple[str, ...] | set[str] = ("http", "https"),
+    error_cls: type[Exception] = SSRFBlockedError,
+) -> str:
+    """Validate URL egress safety against SSRF and non-permitted protocols.
+
+    Args:
+        url: Clean URL to validate.
+        purpose: Human-readable service label for error reporting.
+        allow_private: Whether private/loopback addresses are allowed.
+        schemes: Allowed protocol schemes.
+        error_cls: Custom exception class to raise on violation (defaults to SSRFBlockedError).
+
+    Returns:
+        The validated clean URL string.
+    """
+    clean_url = str(url).strip()
+    parsed = urlparse(clean_url)
+    if parsed.scheme not in schemes:
+        schemes_str = " or ".join(sorted(schemes))
+        raise error_cls(f"Invalid {purpose} URL scheme '{parsed.scheme}': must be {schemes_str}")
+    host = parsed.hostname or ""
+    if not host:
+        raise error_cls(f"Invalid {purpose} URL: missing valid hostname in '{url}'")
+
+    if not allow_private and is_loopback_or_private_host(host, resolve_dns=True):
+        raise error_cls(f"{purpose.capitalize()} URL resolves to private or reserved IP: {host}")
+    return clean_url
 
 
 def _enforce_non_private_ssrf(

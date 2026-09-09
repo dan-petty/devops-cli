@@ -127,10 +127,12 @@ def _write_binary(data: bytes, dest: Path) -> None:
 
 
 def _extract_tar_member(data: bytes, member: str, dest: Path) -> None:
-    import os
     import shutil
 
-    if member.startswith("/") or ".." in Path(member).parts:
+    from devops_cli.core.paths import validate_no_path_traversal
+
+    validate_no_path_traversal(member, error_cls=ToolExecutionError, label="archive member")
+    if member.startswith("/"):
         raise ToolExecutionError(f"Path traversal detected in archive member '{member}'")
 
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -144,7 +146,7 @@ def _extract_tar_member(data: bytes, member: str, dest: Path) -> None:
     # Symlink-safe check: verify resolved dest stays within intended directory.
     resolved = dest.resolve()
     target_dir = dest.parent.resolve()
-    if os.path.commonpath([resolved, target_dir]) != str(target_dir):
+    if not resolved.is_relative_to(target_dir):
         dest.unlink(missing_ok=True)
         raise ToolExecutionError(
             f"Extracted path '{resolved}' escapes target directory '{target_dir}'"

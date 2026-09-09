@@ -191,3 +191,76 @@ def test_validation_edge_cases() -> None:
             _enforce_non_private_ssrf(
                 "http://timeout.invalid", "timeout.invalid", "http", 80, "service"
             )
+
+
+def test_is_loopback_or_private_host() -> None:
+    """Verify loopback and private host classification."""
+    from unittest.mock import patch
+
+    from devops_cli.core.validation import is_loopback_or_private_host
+
+    assert is_loopback_or_private_host("127.0.0.1") is True
+    assert is_loopback_or_private_host("::1") is True
+    assert is_loopback_or_private_host("localhost") is True
+    assert is_loopback_or_private_host("service.local") is True
+    assert is_loopback_or_private_host("10.0.0.1") is True
+    assert is_loopback_or_private_host("192.168.1.100") is True
+    assert is_loopback_or_private_host("169.254.169.254") is True
+    assert is_loopback_or_private_host("8.8.8.8") is False
+    assert is_loopback_or_private_host("1.1.1.1") is False
+
+    # DNS resolution mock
+    with patch("socket.getaddrinfo", return_value=[(2, 1, 6, "", ("127.0.0.1", 80))]):
+        assert is_loopback_or_private_host("custom-internal-host.com") is True
+
+    with patch("socket.getaddrinfo", return_value=[(2, 1, 6, "", ("93.184.216.34", 80))]):
+        assert is_loopback_or_private_host("example.com") is False
+
+    import socket
+
+    with patch("socket.getaddrinfo", side_effect=socket.gaierror):
+        assert is_loopback_or_private_host("unresolvable.invalid") is False
+
+
+def test_validate_url_egress() -> None:
+    """Verify validate_url_egress helper with custom error classes and scheme enforcement."""
+    from unittest.mock import patch
+
+    from devops_cli.core.validation import validate_url_egress
+    from devops_cli.exceptions import SSRFBlockedError
+
+    class CustomContextError(Exception):
+        pass
+
+    # Valid public URL
+    with patch("socket.getaddrinfo", return_value=[(2, 1, 6, "", ("93.184.216.34", 80))]):
+        assert (
+            validate_url_egress("http://example.com/manifest.yaml")
+            == "http://example.com/manifest.yaml"
+        )
+
+    # Private IP blocked with default SSRFBlockedError
+    with pytest.raises(SSRFBlockedError):
+        validate_url_egress("http://127.0.0.1/manifest.yaml", allow_private=False)
+
+    # Private IP allowed
+    assert (
+        validate_url_egress("http://127.0.0.1/manifest.yaml", allow_private=True)
+        == "http://127.0.0.1/manifest.yaml"
+    )
+
+    # Custom error class
+    with pytest.raises(CustomContextError, match="resolves to private or reserved IP"):
+        validate_url_egress(
+            "http://169.254.169.254/latest/meta-data",
+            allow_private=False,
+            error_cls=CustomContextError,
+        )
+
+    # Invalid scheme
+    with pytest.raises(CustomContextError, match="scheme"):
+        validate_url_egress(
+            "ftp://example.com/manifest.yaml",
+            schemes=("http", "https"),
+            error_cls=CustomContextError,
+        )

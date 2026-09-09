@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
-import ipaddress
 import time
-from urllib.parse import urlparse
 
 from fastapi import APIRouter
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 
 from devops_cli import __version__
+from devops_cli.security.sanitizer import sanitize_telemetry_endpoint
 from devops_cli.telemetry.tracer import get_tracer
 
 router = APIRouter(tags=["Telemetry & Metrics"])
@@ -21,26 +20,7 @@ _REQUEST_COUNTER: dict[str, int] = {}
 
 def _sanitize_telemetry_endpoint(endpoint: str) -> str:
     """Sanitize OTLP collector URL to prevent leaking internal network topology and credentials."""
-    if not endpoint:
-        return ""
-    try:
-        parsed = urlparse(endpoint)
-        host = parsed.hostname or ""
-        port = f":{parsed.port}" if parsed.port is not None else ""
-
-        if host in ("localhost", "127.0.0.1", "::1"):
-            clean_host = host
-        else:
-            try:
-                ip = ipaddress.ip_address(host)
-                clean_host = "<internal-ip>" if (ip.is_private or ip.is_loopback) else host
-            except ValueError:
-                clean_host = host
-
-        clean_netloc = f"{clean_host}{port}"
-        return parsed._replace(netloc=clean_netloc).geturl()
-    except Exception:
-        return "<internal-endpoint>"
+    return sanitize_telemetry_endpoint(endpoint)
 
 
 class TelemetryStatusResponse(BaseModel):

@@ -2,16 +2,14 @@
 
 from __future__ import annotations
 
-import ipaddress
-import socket
-from pathlib import Path
 from typing import Annotated
-from urllib.parse import urlparse
 
 import typer
 
 import devops_cli.commands.k8s as k8s
 from devops_cli.config.defaults import DEFAULT_K8S_LOGS_TAIL, DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
+from devops_cli.core.paths import validate_no_path_traversal
+from devops_cli.core.validation import validate_url_egress
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
 from devops_cli.exceptions.k8s import KubernetesContextError
 from devops_cli.lang import HELP, MESSAGES
@@ -94,44 +92,19 @@ def apply(
 ) -> None:
     """Apply a Kubernetes manifest (delegates to kubectl)."""
     if "://" in path:
-        u = urlparse(path)
-        if u.scheme not in ("http", "https"):
-            raise KubernetesContextError(f"Unsupported manifest URL scheme: {u.scheme}")
-        host = u.hostname or ""
-        if not host:
-            raise KubernetesContextError(f"Invalid manifest URL: {path}")
-        if host.lower() in ("localhost", "127.0.0.1", "169.254.169.254", "::1"):
-            raise KubernetesContextError(f"Manifest URL points to forbidden host: {host}")
-        try:
-            ip = ipaddress.ip_address(host)
-            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
-                raise KubernetesContextError(
-                    f"Manifest URL points to private or reserved IP: {host}"
-                )
-        except ValueError:
-            pass
-
-        try:
-            resolved_addrs = socket.getaddrinfo(host, None)
-            for addr in resolved_addrs:
-                ip_str = str(addr[4][0])
-                resolved_ip = ipaddress.ip_address(ip_str)
-                if (
-                    resolved_ip.is_private
-                    or resolved_ip.is_loopback
-                    or resolved_ip.is_link_local
-                    or resolved_ip.is_reserved
-                ):
-                    raise KubernetesContextError(
-                        f"Manifest URL resolves to private or reserved IP: {ip_str} for host {host}"
-                    )
-        except (socket.gaierror, socket.herror) as err:
-            raise KubernetesContextError(
-                f"Failed to resolve manifest URL host '{host}': {err}"
-            ) from err
+        validate_url_egress(
+            path,
+            purpose="manifest",
+            allow_private=False,
+            schemes=("http", "https"),
+            error_cls=KubernetesContextError,
+        )
     else:
-        if ".." in Path(path).parts or ".." in path:
-            raise KubernetesContextError(f"Path traversal detected in manifest path: {path}")
+        validate_no_path_traversal(
+            path,
+            error_cls=KubernetesContextError,
+            label="Manifest path",
+        )
 
     if namespace:
         k8s._validate_k8s_identifier(namespace, "namespace", namespace=True)
