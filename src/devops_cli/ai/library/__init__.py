@@ -8,9 +8,11 @@ from devops_cli.ai.library.introspector import (
     extract_class_signature,
     extract_function_signature,
 )
+from devops_cli.ai.rag.library_store import LibraryVectorStore
 
 __all__ = [
     "DocsIngester",
+    "LibraryVectorStore",
     "PackageIntrospector",
     "extract_class_signature",
     "extract_function_signature",

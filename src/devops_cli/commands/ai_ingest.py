@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 
@@ -102,3 +102,186 @@ def ingest_docs(
         columns=[("Property", "cyan"), ("Value", "bold green")],
         rows=rows,
     )
+
+
+def _load_local_contracts(contracts_dir: Path) -> list[Any]:
+    """Load all valid LibraryContract instances from a local directory."""
+    from devops_cli.models.library import LibraryContract
+
+    contracts: list[LibraryContract] = []
+    if not contracts_dir.exists():
+        return contracts
+
+    for filepath in sorted(contracts_dir.glob("*.json")):
+        try:
+            contract = LibraryContract.model_validate_json(filepath.read_text(encoding="utf-8"))
+            contracts.append(contract)
+        except Exception:
+            continue
+    return contracts
+
+
+def _render_index_libraries_table(contracts: list[Any], dry_run: bool) -> None:
+    """Render summary table for indexed library contracts."""
+    from devops_cli.output import print_table
+
+    mode_tag = " [dry-run]" if dry_run else ""
+    rows = [
+        [
+            c.package_name,
+            c.version,
+            str(c.total_modules),
+            str(c.total_functions),
+            str(c.total_classes),
+            "Simulated" if dry_run else "Indexed",
+        ]
+        for c in contracts
+    ]
+    print_table(
+        title=f"Library Contracts Indexing{mode_tag}",
+        columns=[
+            ("Package", "cyan"),
+            ("Version", "green"),
+            ("Modules", "yellow"),
+            ("Functions", "magenta"),
+            ("Classes", "blue"),
+            ("Status", "bold white"),
+        ],
+        rows=rows,
+    )
+
+
+def _render_query_exact_table(sig: Any) -> None:
+    """Render table display for an exact symbol signature lookup."""
+    from devops_cli.models.library import ClassSignature, FunctionSignature
+    from devops_cli.output import print_table
+
+    if isinstance(sig, FunctionSignature):
+        rows = [
+            ["Name", sig.name],
+            ["Qualname", sig.qualname],
+            ["Parameters", ", ".join(p.name for p in sig.parameters) or "(none)"],
+            ["Return Type", sig.return_annotation],
+            ["Docstring", (sig.docstring or "(none)").strip().split("\n")[0]],
+        ]
+    elif isinstance(sig, ClassSignature):
+        rows = [
+            ["Name", sig.name],
+            ["Qualname", sig.qualname],
+            ["Bases", ", ".join(sig.bases) or "(none)"],
+            ["Methods", ", ".join(sig.methods.keys()) or "(none)"],
+            ["Docstring", (sig.docstring or "(none)").strip().split("\n")[0]],
+        ]
+    else:
+        rows = [["Symbol", getattr(sig, "name", str(sig))]]
+
+    print_table(
+        title=f"Symbol Signature: {getattr(sig, 'name', 'Result')}",
+        columns=[("Property", "cyan"), ("Value", "bold green")],
+        rows=rows,
+    )
+
+
+def _render_search_results_table(results: list[Any]) -> None:
+    """Render table display for semantic library search results."""
+    from devops_cli.output import print_table
+
+    rows = [
+        [
+            f"{r.score:.3f}",
+            r.symbol_name,
+            r.package_name,
+            r.kind,
+            r.signature_text or (r.docstring or "")[:60],
+        ]
+        for r in results
+    ]
+    print_table(
+        title="Library Search Results",
+        columns=[
+            ("Score", "cyan"),
+            ("Symbol / Title", "bold green"),
+            ("Package", "yellow"),
+            ("Kind", "magenta"),
+            ("Signature / Summary", "white"),
+        ],
+        rows=rows,
+    )
+
+
+@app.command(name="index-libraries")
+def index_libraries(
+    contracts_dir: Annotated[Path, typer.Option("--dir", "-d", help=HELP.ai.contracts_dir)] = Path(
+        ".data/libraries"
+    ),
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
+    output_format: Annotated[
+        str, typer.Option("--format", "-f", help=HELP.options.format_type)
+    ] = DEFAULT_TABLE_FORMAT,
+) -> None:
+    """Index exported library API contracts into Qdrant vector collection and Valkey cache."""
+    import json
+
+    from devops_cli.ai.rag.library_store import LibraryVectorStore
+    from devops_cli.output import print_warning, write_stdout
+
+    contracts = _load_local_contracts(contracts_dir)
+    if not contracts:
+        print_warning(f"No library contract JSON files found in {contracts_dir}.")
+        return
+
+    if not dry_run:
+        store = LibraryVectorStore(local_contracts_dir=contracts_dir)
+        for contract in contracts:
+            store.index_contract(contract)
+
+    if output_format == "json":
+        payload = [
+            {"package": c.package_name, "version": c.version, "dry_run": dry_run} for c in contracts
+        ]
+        write_stdout(json.dumps(payload, indent=2) + "\n")
+        return
+
+    _render_index_libraries_table(contracts, dry_run=dry_run)
+
+
+@app.command(name="query-library")
+def query_library(
+    query: Annotated[str, typer.Argument(help=HELP.ai.query_library)],
+    package: Annotated[
+        str | None, typer.Option("--package", "-p", help=HELP.ai.package_name)
+    ] = None,
+    exact: Annotated[bool, typer.Option("--exact", "-e", help=HELP.ai.exact_lookup)] = False,
+    top_k: Annotated[int, typer.Option("--top-k", "-k", help=HELP.options.limit)] = 5,
+    contracts_dir: Annotated[
+        Path, typer.Option("--contracts-dir", help=HELP.ai.contracts_dir)
+    ] = Path(".data/libraries"),
+    output_format: Annotated[
+        str, typer.Option("--format", "-f", help=HELP.options.format_type)
+    ] = DEFAULT_TABLE_FORMAT,
+) -> None:
+    """Search library contracts and documentation via semantic search or exact symbol lookup."""
+    import json
+
+    from devops_cli.ai.rag.library_store import LibraryVectorStore
+    from devops_cli.output import print_error, write_stdout
+
+    store = LibraryVectorStore(local_contracts_dir=contracts_dir)
+
+    if exact:
+        sig = store.lookup_symbol(query, package=package)
+        if sig is None:
+            print_error(f"Symbol '{query}' not found in library contracts or cache.")
+            raise typer.Exit(code=1)
+        if output_format == "json":
+            write_stdout(sig.model_dump_json(indent=2) + "\n")
+            return
+        _render_query_exact_table(sig)
+        return
+
+    results = store.search(query, package=package, top_k=top_k)
+    if output_format == "json":
+        write_stdout(json.dumps([r.model_dump() for r in results], indent=2) + "\n")
+        return
+
+    _render_search_results_table(results)

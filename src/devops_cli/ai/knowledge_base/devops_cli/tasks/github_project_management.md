@@ -125,6 +125,13 @@ devops gh views spec
    - Reply **directly within each specific review thread** (`gh api repos/:owner/:repo/pulls/:number/comments/:id/replies` or GraphQL `addPullRequestReviewThreadReply`). Never rely solely on top-level PR comments.
    - Resolve conversation threads on GitHub via GraphQL `resolveReviewThread` once verified.
    - Continuously monitor remote CI checks (`gh pr checks`) until 100% green.
+8. **Mandatory Defect & Incident Tracking on CLI Errors/Warnings**:
+   - Whenever an AI agent or developer encounters an unhandled error, subcommand failure, crash, diagnostic warning, or unexpected behavior while executing `devops` CLI commands, they must immediately file a formal bug issue via `gh issue create` (using `.github/ISSUE_TEMPLATE/bug_report.yml`).
+   - Title follows Conventional Commits: `fix(<scope>): <concise description>`.
+   - Apply mandatory taxonomy labels: `type/bug`, appropriate `scope/*`, `priority/*`, and `status/triage` (or `status/in-progress`).
+   - Link the active release milestone (`--milestone "v<version>"`).
+   - Reconcile and synchronize the new issue into GitHub Projects v2 (`devops gh project sync` or FastMCP `gh_project_sync`) so that it appears in the *Triage & Quality Table*.
+
 
 ---
 

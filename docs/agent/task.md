@@ -783,18 +783,35 @@
   - [x] 9. Reached 95.39% coverage on `ai/library` and 100% on `commands/ai_ingest.py`.
   - [x] 10. Synchronized CLI reference documentation and README matrix (`devops docs generate --sync-readme`).
   - [x] 11. Passed all 10/10 primary CI quality gates cleanly (`uv run devops ci`).
+  - [x] 12. Opened PR #82 (`feat(ai): dynamic package introspection and multi-source docs ingestion engine`) targeting `release/v0.2.14` linking `Closes #75, Closes #76`.
+  - [x] 13. PR #82 squash-merged into `release/v0.2.14` by maintainer (commit `e77dc7b`). Issues #75 and #76 closed; remote branch pruned.
+
+
+- [x] Phase 50.2.1: Agent Instruction Hardening — Mandatory Defect Incident Tracking on CLI Errors/Warnings
+  - [x] 1. Updated `AGENTS.md` (Section 1, Section 2, and Section 3) mandating that whenever an AI agent encounters unhandled errors, subcommand failures, crashes, diagnostic warnings, or unexpected output from `devops` CLI, a formal bug/issue entry must be filed immediately in GitHub Issues and synced to GitHub Projects.
+  - [x] 2. Updated `docs/ROUTINE_TASKS.md` with Core Engineering Tenet 6 on mandatory defect incident tracking.
+  - [x] 3. Updated Knowledge Base manual `src/devops_cli/ai/knowledge_base/devops_cli/tasks/github_project_management.md` with standard operating procedure step 8.
 
 ---
 
 ### In-Progress Tasks (WIP)
-- [ ] PR creation for `feat/library-ingestion-engine` targeting `release/v0.2.14` (resolves #75, #76) and CI monitoring.
+- [ ] Phase 50.3: Dedicated Library Vector Tier (`devops_libraries`) & Valkey Symbol Cache Store (Issue #77)
+  - [x] 1. Authored test-first verification suite in `tests/test_library_vector_tier.py` (12/12 passing).
+  - [x] 2. Added configuration defaults `DEFAULT_RAG_LIBRARIES_COLLECTION` and `DEFAULT_VALKEY_SYMBOL_TTL_SECONDS` in `src/devops_cli/config/defaults.py`.
+  - [x] 3. Implemented `LibrarySearchResult` in `src/devops_cli/models/library.py`.
+  - [x] 4. Implemented `LibraryVectorStore` in `src/devops_cli/ai/rag/library_store.py` with segregated Qdrant collection and L1 Valkey symbol cache.
+  - [x] 5. Implemented `devops ai ingest index-libraries` and `devops ai ingest query-library` CLI subcommands in `src/devops_cli/commands/ai_ingest.py`.
+  - [x] 6. Added CLI help strings in `src/devops_cli/lang/en/help.py`.
+  - [x] 7. Verified complexity <= 10 and indentation depth <= 5 via `devops scan complexity`.
+  - [x] 8. Verified full CI suite (`devops ci` — 10/10 green), ready to commit, push, and open PR targeting `release/v0.2.14` (Closes #77).
+
 
 ---
 
 ### Pending Tasks
-- [ ] Phase 50.3: Multi-Format AST Parser & Tree-sitter Grammar Service (Issue #77)
-- [ ] Phase 50.4: Cross-Language Type Inference & Call-Graph Synthesis (Issue #78)
-- [ ] Phase 50.5: Local RAG Knowledge Graph & Cross-Reference Linker (Issue #79)
-- [ ] Phase 50.6: Continuous Code Intelligence Cache & Invalidation Daemon (Issue #80)
+- [ ] Phase 50.4: Import-Driven AST Prompt Grounding and API Contract Invalidator (Issue #78)
+- [ ] Phase 50.5: Library API Drift and Deprecation Usage Auditor (Issue #79)
+- [ ] Phase 50.6: Expose FastMCP Library Intelligence Tools and System Resources (Issue #80)
 - [ ] Phase 50.7: AI Context Packing & Symbol-Pruned Prompt Synthesizer (Issue #81)
-- [ ] Phase 50.8: Full CI Quality Gate & Release v0.2.14 Finalization
+- [ ] Phase 50.8: Tree-sitter Multilingual AST Graph & Code Intelligence Integration (Issue #74)
+- [ ] Phase 50.9: Full CI Quality Gate & Release v0.2.14 Finalization

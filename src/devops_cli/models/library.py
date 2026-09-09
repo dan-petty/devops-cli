@@ -137,3 +137,20 @@ class IngestDocResult(BaseModel):
     chunk_files: list[str] = Field(
         default_factory=list, description="List of generated chunk filenames"
     )
+
+
+class LibrarySearchResult(BaseModel):
+    """Semantic or exact search result returned from the library vector and symbol store."""
+
+    model_config = ConfigDict(frozen=True)
+
+    symbol_name: str = Field(description="Fully qualified symbol name or document section title")
+    package_name: str = Field(description="Origin library package name")
+    version: str = Field(default="", description="Package version string")
+    kind: str = Field(
+        default="function", description="Symbol kind: function, class, method, or doc"
+    )
+    signature_text: str = Field(default="", description="Formatted parameter and return signature")
+    docstring: str | None = Field(default=None, description="Docstring or section content summary")
+    score: float = Field(default=0.0, description="Relevance similarity score (0.0 - 1.0)")
+    source: str = Field(default="library_contract", description="Origin source descriptor")

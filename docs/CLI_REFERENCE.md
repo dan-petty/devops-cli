@@ -3178,6 +3178,46 @@ devops ai ingest docs [OPTIONS] <source>
 | `--max-pages`, `-p` | `integer` | `10` | Maximum number of items to return or display. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 
+#### `devops ai ingest index-libraries`
+
+**Index exported library API contracts into Qdrant vector collection and Valkey cache.**
+
+```bash
+devops ai ingest index-libraries [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dir`, `-d` | `path` | `.data/libraries` | Path to directory containing exported library contract JSON files. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+
+#### `devops ai ingest query-library`
+
+**Search library contracts and documentation via semantic search or exact symbol lookup.**
+
+```bash
+devops ai ingest query-library [OPTIONS] <query>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<query>` | `string` | Yes | Search library contracts and documentation via semantic search or exact symbol lookup. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--package`, `-p` | `string` | - | Filter by package distribution name. |
+| `--exact`, `-e` | `boolean` | - | Perform exact qualified symbol lookup instead of semantic vector search. |
+| `--top-k`, `-k` | `integer` | `5` | Maximum number of items to return or display. |
+| `--contracts-dir` | `path` | `.data/libraries` | Path to directory containing exported library contract JSON files. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+
 ---
 
 ## devops review

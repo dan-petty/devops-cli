@@ -27,6 +27,7 @@ This document provides foundational context, architectural principles, and opera
 - **Clean Solutions Over Legacy Remnants (Zero Zombie Code)**: When modifying, refactoring, or replacing features, schemas, configurations, or interfaces, implement clean, complete solutions and ruthlessly remove obsolete code, variables, aliases, fallback shims, and legacy workarounds. Never leave remnants or vestigial fallback paths.
 - **Dedicated Agent Workspace Data Isolation**: The workspace data directory is configured via `DEVOPS_CLI_DATA_DIR` (or configuration key `data.dir`, defaulting to `./.data`). AI agents executing CLI review sessions, background benchmarks, analysis scans, test executions, or temporary operational tasks must isolate agent work products (reviews, logs, traces, metadata) under the dedicated `agent/` subfolder (`<data_dir>/agent`, e.g. `./.data/agent`) to keep agent artifacts separate from the user workspace data tier.
 - **Mandatory Backup for Files Outside Workspace**: Whenever modifying, overwriting, editing, or truncating any file located outside the project workspace directory (e.g. `~/.ssh/`, `~/.bashrc`, `~/.zshrc`, `/etc/`), AI agents **MUST ALWAYS** create a timestamped backup named `<original-filepath>.bak-<YYYYMMDD-HHMMSS>` prior to making edits.
+- **Mandatory Defect Filing on CLI Errors & Warnings (Zero Unrecorded Issues)**: Whenever an AI agent or automated workflow encounters an unhandled error, subcommand failure, exception, crash, diagnostic warning, or unexpected output while executing `devops` CLI commands, the agent **MUST ALWAYS PROMPTLY CREATE A FORMAL BUG/ISSUE ENTRY** in GitHub Issues and synchronize it into GitHub Projects tracking. Suppressing, ignoring, bypassing, or silently working around CLI errors or warnings without formal defect tracking is strictly prohibited.
 
 ---
 
@@ -63,6 +64,9 @@ Before planning, implementing, debugging, refactoring, or reviewing code, consul
 - **Primary CI Verification Gate**: Run `devops ci` (or `uv run devops ci`) to comprehensively validate all 10 gates. Do not run redundant standalone tools that are already aggregated by `devops ci`.
 - **Mandatory Iterative CI Loop**: Make planned code changes, run `devops ci`, fix reported issues, and run `devops ci` again iteratively until all quality gates pass cleanly.
 - **Mandatory Documentation Synchronization**: Update documentation, command matrix, and README (`devops docs generate --sync-readme`, `docs/`, `AGENTS.md`) after every change to prevent documentation drift.
+- **Mandatory CLI Defect Filing**: If `devops` CLI commands emit unexpected errors, traceback failures, or warnings during local development or routine tasks, immediately file a tracking issue and sync to GitHub Projects before continuing.
+- **Mandatory Telemetry, Log & CLI Output Review**: AI agents must routinely review devops CLI command outputs, application logs (under `.data/logs/`), metrics, and OpenTelemetry tracing data (`@trace_span` / Logfire) for performance issues, latency bottlenecks, misconfigurations, unhandled exceptions, and diagnostic warnings. Any detected regression, error, or warning must be remediated and formally tracked in GitHub project tracking.
+
 
 ### Build, Lint & Test Commands
 | Operation | Command | Purpose |
@@ -116,6 +120,17 @@ Before planning, implementing, debugging, refactoring, or reviewing code, consul
       - Taxonomy labels matching `.github/labels.yml`: at least one `type/*`, one `scope/*`, and appropriate `priority/*` (`priority/p0-critical` through `priority/p3-low`).
       - Clear problem statement, proposed architectural solution, and acceptance criteria.
     - Synchronize the new issues into GitHub Projects v2 (`devops gh project sync` or FastMCP `gh_project_sync`), linking card lifecycles with [`docs/agent/task.md`](docs/agent/task.md) and PRs via closing keywords (`Closes #<issue>`).
+  - **Mandatory Defect & Warning Incident Tracking (Zero Unrecorded CLI Errors & Warnings)**:
+    - Whenever an AI agent encounters an unhandled error, subcommand failure, crash, diagnostic warning, or unexpected behavior while executing `devops` CLI commands (e.g. CLI crashes, option parsing errors, unhandled exceptions, linter/scanner warnings, or unexpected non-zero exits), the agent **MUST IMMEDIATELY CREATE A FORMAL BUG/ISSUE ENTRY** in GitHub project tracking.
+    - **Issue Creation Protocol**:
+      - File a GitHub issue using the standardized bug report template (`.github/ISSUE_TEMPLATE/bug_report.yml` or `gh issue create`).
+      - Format the title using Conventional Commits: `fix(<scope>): <concise description of error/warning>`.
+      - Apply declarative taxonomy labels matching `.github/labels.yml`: `type/bug`, appropriate `scope/*`, `priority/*` (`priority/p0-critical` for blocking CLI crashes/failures, `priority/p1-high` or `priority/p2-medium` for warnings/non-blocking bugs), and `status/triage` (or `status/in-progress` if actively resolving).
+      - Link the active release milestone (`--milestone "v<version>"`).
+      - Provide full operational context in the issue body: exact CLI command executed, operating environment, full terminal traceback or warning message, steps to reproduce, and root-cause analysis.
+      - Synchronize the new issue into GitHub Projects v2 (`devops gh project sync` or FastMCP `gh_project_sync`) so that it appears in the *Triage & Quality Table* view (`type/bug`, `status/blocked`, `status/triage`).
+      - Immediately mirror the bug tracking entry in [`docs/agent/task.md`](docs/agent/task.md) and [`docs/ROADMAP.md`](docs/ROADMAP.md) under active defects.
+      - **Zero Suppression Policy**: Never suppress, ignore, work around silently, or bypass errors or warnings emitted by the `devops` CLI without formally documenting and tracking them as defects in GitHub Issues and GitHub Projects.
   - **Issue Tracking, Triage & PR Linkage**:
     - Track all engineering issues, bug reports, feature requests, and technical chores using standardized issue templates (`.github/ISSUE_TEMPLATE/`: `bug_report.yml`, `feature_request.yml`, `security_advisory.yml`, `task.yml`).
     - Every PR addressing an issue MUST explicitly link to it using canonical GitHub closing keywords in the PR body (`Fixes #<issue>`, `Closes #<issue>`, `Resolves #<issue>`).

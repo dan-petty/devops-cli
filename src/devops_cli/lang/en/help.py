@@ -150,6 +150,15 @@ class AICommandHelp:
     )
     ingest_docs: str = "Ingest local or remote documentation into chunked markdown knowledge files."
     max_depth: str = "Maximum module recursion depth for package introspection."
+    index_libraries: str = (
+        "Index exported library API contracts and doc chunks into Qdrant and Valkey."
+    )
+    query_library: str = (
+        "Search library contracts and documentation via semantic search or exact symbol lookup."
+    )
+    contracts_dir: str = "Path to directory containing exported library contract JSON files."
+    exact_lookup: str = "Perform exact qualified symbol lookup instead of semantic vector search."
+    package_name: str = "Filter by package distribution name."
 
 
 @dataclass(frozen=True)
