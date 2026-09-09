@@ -753,6 +753,42 @@ def get_release_resource() -> str:
     )
 
 
+@mcp.resource("resource://gh/pages/status")
+def get_gh_pages_resource() -> str:
+    """Return live GitHub Pages publishing status, custom domain, and build health."""
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "gh", "pages", "status"],
+        timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.resource("resource://gh/issues/status")
+def get_gh_issues_resource() -> str:
+    """Return aggregated open GitHub issues counts grouped by priority, type, and milestone."""
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "gh", "issues", "status"],
+        timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.resource("resource://gh/project/status")
+def get_gh_project_resource() -> str:
+    """Return live GitHub Projects v2 board configuration and field mappings."""
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "gh", "project", "status"],
+        timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.resource("resource://gh/views/status")
+def get_gh_views_resource() -> str:
+    """Return remote GitHub Projects views synchronization and audit status."""
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "gh", "views", "audit"],
+        timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+    )
+
+
 @mcp.tool()
 def scan_fix(
     target_path: str = ".",
@@ -916,6 +952,134 @@ def gh_views_sync(repo: str = "") -> str:
         _validate_mcp_arg("repo", repo)
         cmd.extend(["--repo", repo])
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def gh_pages_status(repo: str | None = None) -> str:
+    """Inspect GitHub Pages site deployment status, URL, branch, and HTTPS enforcement."""
+    cmd = ["uv", "run", "devops", "gh", "pages", "status"]
+    if repo:
+        _validate_mcp_arg("repo", repo)
+        cmd.extend(["--repo", repo])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def gh_pages_build(repo: str | None = None) -> str:
+    """Trigger a new deployment build for GitHub Pages."""
+    cmd = ["uv", "run", "devops", "gh", "pages", "build"]
+    if repo:
+        _validate_mcp_arg("repo", repo)
+        cmd.extend(["--repo", repo])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def gh_pages_verify() -> str:
+    """Verify local repository readiness for GitHub Pages publishing."""
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "gh", "pages", "verify"],
+        timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.tool()
+def gh_issue_list(
+    repo: str | None = None,
+    state: str = "open",
+    milestone: str | None = None,
+    label: str | None = None,
+    limit: int = 30,
+) -> str:
+    """List repository issues with milestone, taxonomy labels, and status."""
+    _validate_mcp_arg("state", state)
+    cmd = ["uv", "run", "devops", "gh", "issues", "list", "--state", state, "--limit", str(limit)]
+    if repo:
+        _validate_mcp_arg("repo", repo)
+        cmd.extend(["--repo", repo])
+    if milestone:
+        _validate_mcp_arg("milestone", milestone)
+        cmd.extend(["--milestone", milestone])
+    if label:
+        _validate_mcp_arg("label", label)
+        cmd.extend(["--label", label])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def gh_issue_create(
+    title: str,
+    body: str = "",
+    milestone: str | None = None,
+    labels: str | None = None,
+    repo: str | None = None,
+) -> str:
+    """Create a new GitHub issue linking milestone and taxonomy labels."""
+    _validate_mcp_arg("title", title)
+    cmd = ["uv", "run", "devops", "gh", "issues", "create", "--title", title, "--body", body]
+    if repo:
+        _validate_mcp_arg("repo", repo)
+        cmd.extend(["--repo", repo])
+    if milestone:
+        _validate_mcp_arg("milestone", milestone)
+        cmd.extend(["--milestone", milestone])
+    if labels:
+        for lbl in labels.split(","):
+            cleaned = lbl.strip()
+            if cleaned:
+                _validate_mcp_arg("label", cleaned)
+                cmd.extend(["--label", cleaned])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def gh_issue_triage(repo: str | None = None) -> str:
+    """Audit open issues for mandatory taxonomy labels and milestone linkage."""
+    cmd = ["uv", "run", "devops", "gh", "issues", "triage"]
+    if repo:
+        _validate_mcp_arg("repo", repo)
+        cmd.extend(["--repo", repo])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def gh_issue_status(repo: str | None = None) -> str:
+    """Display aggregated issue counts by priority, type, and milestone."""
+    cmd = ["uv", "run", "devops", "gh", "issues", "status"]
+    if repo:
+        _validate_mcp_arg("repo", repo)
+        cmd.extend(["--repo", repo])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def gh_project_list(owner: str | None = None) -> str:
+    """List available GitHub Projects v2 boards for user or organization."""
+    cmd = ["uv", "run", "devops", "gh", "project", "list"]
+    if owner:
+        _validate_mcp_arg("owner", owner)
+        cmd.extend(["--owner", owner])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def gh_project_audit(repo: str | None = None) -> str:
+    """Audit project board health and alignment against standardized template."""
+    cmd = ["uv", "run", "devops", "gh", "project", "audit"]
+    if repo:
+        _validate_mcp_arg("repo", repo)
+        cmd.extend(["--repo", repo])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def gh_views_audit(repo: str | None = None) -> str:
+    """Audit remote project views against standardized view template specifications."""
+    cmd = ["uv", "run", "devops", "gh", "views", "audit"]
+    if repo:
+        _validate_mcp_arg("repo", repo)
+        cmd.extend(["--repo", repo])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
 @mcp.tool()

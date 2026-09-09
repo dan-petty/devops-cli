@@ -783,18 +783,74 @@
   - [x] 9. Reached 95.39% coverage on `ai/library` and 100% on `commands/ai_ingest.py`.
   - [x] 10. Synchronized CLI reference documentation and README matrix (`devops docs generate --sync-readme`).
   - [x] 11. Passed all 10/10 primary CI quality gates cleanly (`uv run devops ci`).
+  - [x] 12. Opened PR #82 (`feat(ai): dynamic package introspection and multi-source docs ingestion engine`) targeting `release/v0.2.14` linking `Closes #75, Closes #76`.
+  - [x] 13. PR #82 squash-merged into `release/v0.2.14` by maintainer (commit `e77dc7b`). Issues #75 and #76 closed; remote branch pruned.
+
+
+- [x] Phase 50.2.2: Sandbox Application Probing, Monitoring, Fuzzing, Scanning & Iteration Architecture (Roadmap v0.2.16 & v0.2.17)
+  - [x] 1. Investigated 5 sandbox application lifecycle capabilities: probing (socket, HTTP/REST, OpenAPI, gRPC reflection), monitoring (cgroups v2, Prometheus /metrics, W3C traceparent correlation with OTel/Jaeger/Logfire, log streaming & panic detection), fuzzing (OpenAPI schema mutations, boundary testing, stateful sequences, minimal repro case generator), scanning (DAST with OWASP ZAP/Nuclei, container fs diffing, network egress anomaly detection, privilege verification), and iterating (autonomous closed-loop remediation pipeline, AST diagnosis, multi-persona AI repair, continuous watch mode).
+  - [x] 2. Defined Milestone `v0.2.16` (Ephemeral Workload Sandboxing, Dynamic Probing & Runtime Observability) with 5 major feature blocks and operational requirements in `docs/ROADMAP.md` and `docs/PENDING_FEATURES.md`.
+  - [x] 3. Defined Milestone `v0.2.17` (Dynamic API Fuzzing, Runtime Security DAST & Autonomous Remediation Iteration) with 5 major feature blocks, closed-loop iteration architecture, and FastMCP toolset in `docs/ROADMAP.md` and `docs/PENDING_FEATURES.md`.
+  - [x] 4. Updated the Strategic Value vs. Effort Prioritization Matrix in `docs/ROADMAP.md` with 12 new deliverables across Quick Wins, Strategic Investments, and Tactical Additions.
+  - [x] 5. Validated documentation integrity with zero drift via `devops docs generate --sync-readme` and `devops docs check`.
+
+- [x] Phase 50.2.3: GitHub Governance, Pages, Issues, Projects & Views Integration with FastMCP & Agent Instructions
+  - [x] 1. Implemented GitHub Pages management engine in `src/devops_cli/github/pages.py` (`get_pages_status`, `get_pages_builds`, `request_pages_build`, `verify_pages_configuration`).
+  - [x] 2. Implemented GitHub Issues engine and taxonomy audit in `src/devops_cli/github/issues.py` (`get_repository_issues`, `create_repository_issue`, `audit_issues_triage`, `get_issues_summary`).
+  - [x] 3. Enhanced GitHub Projects v2 engine in `src/devops_cli/github/projects.py` with multi-board listing (`list_remote_projects`), view auditing (`audit_remote_project_views`), and board drift auditing (`audit_project_drift`).
+  - [x] 4. Integrated Typer CLI subcommands: `devops gh pages [status|builds|build|verify]`, `devops gh issues [list|create|triage|status]`, `devops gh project [list|audit]`, `devops gh views audit`.
+  - [x] 5. Added centralized English CLI help catalogs in `src/devops_cli/lang/en/help.py`.
+  - [x] 6. Registered 10 new FastMCP tools (`gh_pages_status`, `gh_pages_build`, `gh_pages_verify`, `gh_issue_list`, `gh_issue_create`, `gh_issue_triage`, `gh_issue_status`, `gh_project_list`, `gh_project_audit`, `gh_views_audit`) and 4 dynamic system resources (`resource://gh/pages/status`, `resource://gh/issues/status`, `resource://gh/project/status`, `resource://gh/views/status`) in `src/devops_cli/ai/mcp/server.py`.
+  - [x] 7. Exported 106 FastMCP tool schemas (`devops mcp export-schemas`).
+  - [x] 8. Codified mandatory operational rules in `AGENTS.md` and `docs/ROUTINE_TASKS.md` for Pages verification, issue triage, project reconciliation, and views drift auditing.
+  - [x] 9. Updated Knowledge Base Task Manual 13 (`src/devops_cli/ai/knowledge_base/devops_cli/tasks/github_project_management.md`).
+  - [x] 10. Authored comprehensive test-first suites in `tests/test_github_pages.py` (8/8), `tests/test_github_issues.py` (6/6), `tests/test_github_projects.py` (21/21), `tests/test_gh_cmd.py` (18/18), `tests/test_mcp.py` (30/30), `tests/test_fastmcp_contracts.py` (6/6).
+  - [x] 11. Verified complexity <= 10 and indentation depth <= 5 across all modules (`devops scan complexity`).
+
+- [x] Phase 50.3.1: Roadmap Comprehensive Review, Context Enrichment & Milestone Reprioritization
+  - [x] 1. Reviewed and synchronized all active and scheduled release milestones in `docs/ROADMAP.md` (`v0.2.13`, `v0.2.14`, `v0.2.15`, `v0.2.16`, `v0.2.17`, and `v0.3.0`).
+  - [x] 2. Marked Milestone `v0.2.13` as Completed and Milestone `v0.2.14` as Current Release / Active Development with 4 completed deliverables.
+  - [x] 3. Reprioritized remaining `v0.2.14` tasks with explicit priority tiers, deep technical context, and acceptance criteria (P0: AST Grounding #78, FastMCP Library Tools #80; P1: Tree-sitter #74, Drift Auditor #79; P2: Context Packing #81, RAG Index Drift).
+  - [x] 4. Front-loaded `v0.2.15` with `BaseSecurityScanner` migration (P0) and Loki/Fluent Bit Centralized Logging (P0) to establish prerequisites for sandboxed app observability.
+  - [x] 5. Enriched `v0.2.16` and `v0.2.17` with detailed architecture for socket/OpenAPI/gRPC probing, cgroup v2 metrics, W3C traceparent propagation, OpenAPI dynamic fuzzing, DAST, and closed-loop autonomous repair.
+  - [x] 6. Fully reconciled Section 3 *Value vs. Effort Prioritization Matrix* with 1-to-1 alignment with milestone tasks and explicit priority tags.
+  - [x] 7. Verified documentation freshness (`devops docs check`) and full CI suite (`devops ci` — 10/10 green).
+
+- [x] Phase 50.3.2: Historical Documentation Compaction (v0.1 Series) & Automated Release Compaction Instructions
+  - [x] 1. Compacted historical `v0.0.1`–`v0.1.9` milestone sections in `docs/ROADMAP.md` into a single, high-density section `### Workstation Foundation, SecOps, Multi-Cloud IaC & Core Architecture (v0.0.1 – v0.1.9 - Completed)`.
+  - [x] 2. Consolidated older `v0.1.x` rows in Section 3 (*Value vs. Effort Prioritization Matrix*) into high-level category summary entries under Quick Wins, Strategic Investments, and Tactical Additions.
+  - [x] 3. Compacted verbose historical release highlights for `v0.1.5` through `v0.1.13` in `docs/RELEASE_NOTES.md` into a unified `## 🚀 Highlights of v0.1 Series (v0.1.0 – v0.1.13 - Completed)` block.
+  - [x] 4. Replaced stale `v0.1.9` roadmap section in `RELEASE_CYCLE.md` with canonical reference to `docs/ROADMAP.md` and active release milestones.
+  - [x] 5. Compacted historical release logs and removed redundant duplicate planning paragraphs in `docs/LOG.md`.
+  - [x] 6. Codified the mandatory rule *Mandatory Historical Documentation Compaction on Major & Minor Releases* in `AGENTS.md` (Section 3) and `docs/ROUTINE_TASKS.md` (Cadence C Step 8 and Routine Tasks Matrix Step 7).
+  - [x] 7. Verified documentation freshness (`uv run devops docs check`) and passed full CI suite (`uv run devops ci` — 10/10 green).
 
 ---
 
-### In-Progress Tasks (WIP)
-- [ ] PR creation for `feat/library-ingestion-engine` targeting `release/v0.2.14` (resolves #75, #76) and CI monitoring.
+- [x] Phase 50.3: Dedicated Library Vector Tier (`devops_libraries`) & Valkey Symbol Cache Store (Issue #77, PR #83)
+  - [x] 1. Authored test-first verification suite in `tests/test_library_vector_tier.py` (19/19 passing).
+  - [x] 2. Added configuration defaults `DEFAULT_RAG_LIBRARIES_COLLECTION` and `DEFAULT_VALKEY_SYMBOL_TTL_SECONDS` in `src/devops_cli/config/defaults.py`.
+  - [x] 3. Implemented `LibrarySearchResult` in `src/devops_cli/models/library.py`.
+  - [x] 4. Implemented `LibraryVectorStore` in `src/devops_cli/ai/rag/library_store.py` with segregated Qdrant collection and L1 Valkey symbol cache.
+  - [x] 5. Implemented `devops ai ingest index-libraries` and `devops ai ingest query-library` CLI subcommands in `src/devops_cli/commands/ai_ingest.py`.
+  - [x] 6. Added CLI help strings in `src/devops_cli/lang/en/help.py`.
+  - [x] 7. Verified complexity <= 10 and indentation depth <= 5 via `devops scan complexity`.
+  - [x] 8. Verified full CI suite (`devops ci` — 10/10 green), committed, pushed, and opened PR #83 targeting `release/v0.2.14` (Closes #77).
+  - [x] 9. Addressed all 5 code review findings on PR #83:
+    - [x] Updated `ensure_collection_exists()` to call `ensure_collection` on `QdrantClient` with fallback to `create_collection`.
+    - [x] Implemented `_build_runtime_vector_store` in `src/devops_cli/commands/ai_ingest.py` to wire live `QdrantClient`, `EmbeddingsEngine`, and `ValkeyClient` in `index-libraries` and `query-library`.
+    - [x] Added class method indexing in `_collect_contract_items()` for embedding points (`kind="method"`) and Valkey caching (`symbol:<qualname>`).
+    - [x] Updated `_load_local_contracts()` to return `list[LibraryContract]` with debug logging on malformed contract JSON.
+    - [x] Expanded unit test suite to 19 tests in `tests/test_library_vector_tier.py` (100% passing).
+    - [x] Validated all 10 quality gates via `uv run devops ci` (10/10 green).
 
 ---
 
 ### Pending Tasks
-- [ ] Phase 50.3: Multi-Format AST Parser & Tree-sitter Grammar Service (Issue #77)
-- [ ] Phase 50.4: Cross-Language Type Inference & Call-Graph Synthesis (Issue #78)
-- [ ] Phase 50.5: Local RAG Knowledge Graph & Cross-Reference Linker (Issue #79)
-- [ ] Phase 50.6: Continuous Code Intelligence Cache & Invalidation Daemon (Issue #80)
-- [ ] Phase 50.7: AI Context Packing & Symbol-Pruned Prompt Synthesizer (Issue #81)
-- [ ] Phase 50.8: Full CI Quality Gate & Release v0.2.14 Finalization
+- [ ] Phase 50.4: Import-Driven AST Prompt Grounding and API Contract Invalidator (P0 - Critical, Issue #78)
+- [ ] Phase 50.5: FastMCP Library Intelligence Tools and System Resources (P0 - Critical, Issue #80)
+- [ ] Phase 50.6: Tree-sitter Multilingual AST Graph & Code Intelligence Integration (P1 - High, Issue #74)
+- [ ] Phase 50.7: Library API Drift and Deprecation Usage Auditor (P1 - High, Issue #79)
+- [ ] Phase 50.8: AI Context Packing & Symbol-Pruned Prompt Synthesizer (P2 - Medium, Issue #81)
+- [ ] Phase 50.9: Autonomous RAG Index Drift Detection & Auto-Reindexing (P2 - Medium)
+- [ ] Phase 50.10: Full CI Quality Gate & Release v0.2.14 Finalization

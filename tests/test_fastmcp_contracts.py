@@ -106,8 +106,18 @@ def test_fastmcp_tools_registration() -> None:
         "vault_get",
         "vault_set",
         "vault_sync",
-        # GitHub Projects & Views
+        # GitHub Projects, Pages, Issues & Views
         "gh_views_sync",
+        "gh_pages_status",
+        "gh_pages_build",
+        "gh_pages_verify",
+        "gh_issue_list",
+        "gh_issue_create",
+        "gh_issue_triage",
+        "gh_issue_status",
+        "gh_project_list",
+        "gh_project_audit",
+        "gh_views_audit",
     }
 
     for expected in expected_core_tools:
@@ -147,6 +157,10 @@ def test_fastmcp_prompts_and_resources_registration() -> None:
         "resource://vault/status",
         "resource://ai/constellation",
         "resource://mcp/tools",
+        "resource://gh/pages/status",
+        "resource://gh/issues/status",
+        "resource://gh/project/status",
+        "resource://gh/views/status",
     }
     assert expected_resources.issubset(resource_uris), (
         f"Missing FastMCP resources: {expected_resources - resource_uris}"

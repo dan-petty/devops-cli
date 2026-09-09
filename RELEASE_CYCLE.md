@@ -205,9 +205,10 @@ uv run devops devcontainer run-lifecycle --all
 
 ---
 
-## 8. Upcoming Version Roadmap
+## 8. Strategic Roadmap & Milestone Progression
 
-### v0.1.9 — OpenTofu Multi-Cloud Infrastructure & Kubernetes Cloud Provisioning
-- **OpenTofu CLI Integration (`devops tofu` / `devops tf`)**: Infrastructure-as-Code command suite automating OpenTofu initialization, planning, applying, state inspection, and outputs.
-- **Multi-Cloud Cloud Resource Modules (`tf/`)**: Production OpenTofu manifests for provisioning Kubernetes clusters and cloud networking across AWS (EKS), Azure (AKS), and Google Cloud (GKE) tailored for deploying project `k8s/` resources.
-- **Automated Multi-Cloud Kubeconfig Synchronization**: Direct integration between cloud cluster provisioning outputs and `devops k8s bootstrap` / `devops k8s deploy-stack`.
+For active release milestones, architectural technical specifications, and the portfolio prioritization matrix, consult the canonical [Strategic Roadmap](docs/ROADMAP.md).
+
+- **Current Active Development**: Milestone `v0.2.14` (*Multilingual Code Intelligence & Library Ingestion Engine*).
+- **Scheduled Milestones**: `v0.2.15` (*GitOps Fleet, FinOps, Centralized Logging & Production Security Mesh*), `v0.2.16` (*Ephemeral Workload Sandboxing, Dynamic Probing & Runtime Observability*), and `v0.2.17` (*Dynamic API Fuzzing, Runtime Security DAST & Autonomous Remediation Iteration*).
+- **Roadmap Governance**: Follow test-first progressive verification, active GitHub Projects v2 issue population, and automated milestone closure on release merge.

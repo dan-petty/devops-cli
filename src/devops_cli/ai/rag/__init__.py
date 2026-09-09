@@ -9,6 +9,7 @@ from devops_cli.ai.rag.investigator import (
     format_rag_investigation_for_prompt,
     investigate_rag_context,
 )
+from devops_cli.ai.rag.library_store import LibraryVectorStore
 from devops_cli.ai.rag.models import CodeChunk, IndexStats, RAGContext, SearchResult
 from devops_cli.ai.rag.qdrant import QdrantClient, QdrantClientError
 from devops_cli.ai.rag.retriever import SemanticRetriever
@@ -18,6 +19,7 @@ __all__ = [
     "EmbeddingsEngine",
     "EmbeddingsError",
     "IndexStats",
+    "LibraryVectorStore",
     "OllamaEmbeddingModel",
     "QdrantClient",
     "QdrantClientError",

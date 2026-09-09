@@ -26,7 +26,7 @@ Complete command-line reference for `devops-cli`, automatically generated from C
 - [`devops docs`](#devops-docs) — Generate and validate CLI and architecture documentation.
 - [`devops release`](#devops-release) — Automate version bumps, changelogs, tags, and GitHub releases.
 - [`devops pr`](#devops-pr) — GitHub Pull Request workflows and reviews.
-- [`devops gh`](#devops-gh) — GitHub Views, Projects, Milestones, and Labels automation.
+- [`devops gh`](#devops-gh) — GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation.
 - [`devops tf`](#devops-tf) — OpenTofu and Terraform Infrastructure-as-Code operations.
 - [`devops tls`](#devops-tls) — Generate and manage homelab TLS certificates and CAs.
 - [`devops telemetry`](#devops-telemetry) — OpenTelemetry tracing, metrics, and Jaeger observability.
@@ -3178,6 +3178,46 @@ devops ai ingest docs [OPTIONS] <source>
 | `--max-pages`, `-p` | `integer` | `10` | Maximum number of items to return or display. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 
+#### `devops ai ingest index-libraries`
+
+**Index exported library API contracts into Qdrant vector collection and Valkey cache.**
+
+```bash
+devops ai ingest index-libraries [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dir`, `-d` | `path` | `.data/libraries` | Path to directory containing exported library contract JSON files. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+
+#### `devops ai ingest query-library`
+
+**Search library contracts and documentation via semantic search or exact symbol lookup.**
+
+```bash
+devops ai ingest query-library [OPTIONS] <query>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<query>` | `string` | Yes | Search library contracts and documentation via semantic search or exact symbol lookup. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--package`, `-p` | `string` | - | Filter by package distribution name. |
+| `--exact`, `-e` | `boolean` | - | Perform exact qualified symbol lookup instead of semantic vector search. |
+| `--top-k`, `-k` | `integer` | `5` | Maximum number of items to return or display. |
+| `--contracts-dir` | `path` | `.data/libraries` | Path to directory containing exported library contract JSON files. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+
 ---
 
 ## devops review
@@ -3764,7 +3804,7 @@ devops pr create [OPTIONS]
 
 ## devops gh
 
-GitHub Views, Projects, Milestones, and Labels automation.
+GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation.
 
 ### `devops gh labels`
 
@@ -3950,6 +3990,35 @@ devops gh project link [OPTIONS] <project_number>
 |---|---|---|---|
 | `--repo`, `-R` | `string` | - | Target repository |
 
+#### `devops gh project list`
+
+**List available GitHub Projects v2 boards for user or organization.**
+
+```bash
+devops gh project list [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--owner`, `-o` | `string` | - | Target user or organization |
+
+#### `devops gh project audit`
+
+**Audit project board items and fields against local tasks and template.**
+
+```bash
+devops gh project audit [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--template`, `-t` | `path` | `.github/project-template.json` | Path to project template JSON |
+| `--repo`, `-R` | `string` | - | Target repository |
+
 #### `devops gh project template`
 
 **Display the raw GitHub Projects v2 declarative JSON template.**
@@ -4011,6 +4080,154 @@ devops gh views sync [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--template`, `-t` | `path` | `.github/project-template.json` | Path to project template JSON |
+| `--repo`, `-R` | `string` | - | Target repository |
+
+#### `devops gh views audit`
+
+**Audit remote project views against standardized template specifications.**
+
+```bash
+devops gh views audit [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--template`, `-t` | `path` | `.github/project-template.json` | Path to project template JSON |
+| `--repo`, `-R` | `string` | - | Target repository |
+
+### `devops gh pages`
+
+```bash
+devops gh pages COMMAND [ARGS]...
+```
+
+#### `devops gh pages status`
+
+**Inspect GitHub Pages deployment status, URL, branch, and HTTPS enforcement.**
+
+```bash
+devops gh pages status [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Target repository |
+
+#### `devops gh pages builds`
+
+**List recent GitHub Pages build history and durations.**
+
+```bash
+devops gh pages builds [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Target repository |
+| `--limit`, `-l` | `integer` | `5` | Number of builds to retrieve |
+
+#### `devops gh pages build`
+
+**Trigger a new deployment build for GitHub Pages.**
+
+```bash
+devops gh pages build [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Target repository |
+
+#### `devops gh pages verify`
+
+**Verify local repository readiness for GitHub Pages publishing.**
+
+```bash
+devops gh pages verify [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dir`, `-d` | `path` | `.` | Path to project root directory |
+
+### `devops gh issues`
+
+```bash
+devops gh issues COMMAND [ARGS]...
+```
+
+#### `devops gh issues list`
+
+**List repository issues with milestone, taxonomy labels, and status.**
+
+```bash
+devops gh issues list [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Target repository |
+| `--state`, `-s` | `string` | `open` | Issue state: open, closed, all |
+| `--milestone`, `-m` | `string` | - | Filter by milestone |
+| `--label`, `-l` | `string` | - | Filter by label |
+| `--limit` | `integer` | `30` | Max issues to return |
+
+#### `devops gh issues create`
+
+**Create a new issue linking milestone and taxonomy labels.**
+
+```bash
+devops gh issues create [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--title`, `-t` | `string` | - | Issue title |
+| `--body`, `-b` | `string` | `` | Issue description |
+| `--milestone`, `-m` | `string` | - | Target milestone |
+| `--label`, `-l` | `string` | - | Taxonomy label (repeatable) |
+| `--repo`, `-R` | `string` | - | Target repository |
+
+#### `devops gh issues triage`
+
+**Audit open issues for mandatory taxonomy labels and milestone linkage.**
+
+```bash
+devops gh issues triage [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Target repository |
+
+#### `devops gh issues status`
+
+**Display aggregated issue counts by priority, type, and milestone.**
+
+```bash
+devops gh issues status [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
 | `--repo`, `-R` | `string` | - | Target repository |
 
 ---

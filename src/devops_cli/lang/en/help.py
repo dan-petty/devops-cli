@@ -150,6 +150,15 @@ class AICommandHelp:
     )
     ingest_docs: str = "Ingest local or remote documentation into chunked markdown knowledge files."
     max_depth: str = "Maximum module recursion depth for package introspection."
+    index_libraries: str = (
+        "Index exported library API contracts and doc chunks into Qdrant and Valkey."
+    )
+    query_library: str = (
+        "Search library contracts and documentation via semantic search or exact symbol lookup."
+    )
+    contracts_dir: str = "Path to directory containing exported library contract JSON files."
+    exact_lookup: str = "Perform exact qualified symbol lookup instead of semantic vector search."
+    package_name: str = "Filter by package distribution name."
 
 
 @dataclass(frozen=True)
@@ -539,7 +548,7 @@ class PRCommandHelp:
 
 @dataclass(frozen=True)
 class GHCommandHelp:
-    app: str = "GitHub Views, Projects, Milestones, and Labels automation."
+    app: str = "GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation."
     labels_app: str = "Manage declarative repository labels and audit PR taxonomy."
     labels_list: str = "List all repository labels."
     labels_sync: str = "Synchronize repository labels against declarative schema."
@@ -550,14 +559,31 @@ class GHCommandHelp:
     milestones_status: str = "Inspect progress and health for a specific milestone."
     milestones_close: str = "Close a repository release milestone by title or version."
     project_app: str = "Manage GitHub Projects v2 templates and task item synchronization."
+    project_list: str = "List available GitHub Projects v2 boards for user or organization."
     project_status: str = "Inspect project template structure and configured views."
     project_sync: str = "Sync task items from task.md into GitHub Projects status."
     project_link: str = "Link a GitHub Project v2 board to the repository."
+    project_audit: str = "Audit project board items and fields against local tasks and template."
     project_template: str = "Display the declarative GitHub Projects v2 JSON template."
     views_app: str = "Inspect standardized GitHub Projects v2 views."
     views_list: str = "List all 4 standardized project views."
     views_spec: str = "Output JSON schema specification for project views."
     views_sync: str = "Synchronize standardized views with the remote GitHub Projects v2 board."
+    views_audit: str = "Audit remote project views against standardized template specifications."
+    pages_app: str = (
+        "Inspect GitHub Pages site deployment status, builds, and local Jekyll configuration."
+    )
+    pages_status: str = (
+        "Inspect GitHub Pages deployment status, URL, branch, and HTTPS enforcement."
+    )
+    pages_builds: str = "List recent GitHub Pages build history and durations."
+    pages_build: str = "Trigger a new deployment build for GitHub Pages."
+    pages_verify: str = "Verify local repository readiness for GitHub Pages publishing."
+    issues_app: str = "Manage GitHub Issues, track milestones, and enforce taxonomy standards."
+    issues_list: str = "List repository issues with milestone, taxonomy labels, and status."
+    issues_create: str = "Create a new issue linking milestone and taxonomy labels."
+    issues_triage: str = "Audit open issues for mandatory taxonomy labels and milestone linkage."
+    issues_status: str = "Display aggregated issue counts by priority, type, and milestone."
 
 
 @dataclass(frozen=True)

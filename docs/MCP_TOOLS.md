@@ -28,14 +28,24 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`config_show`](#config-show) | Display configuration settings with masked secret tokens. |
 | [`docker_sandbox`](#docker-sandbox) | Execute command inside an isolated Docker container sandbox. |
 | [`docker_stats`](#docker-stats) | List local Docker images and display container information. |
+| [`gh_issue_create`](#gh-issue-create) | Create a new GitHub issue linking milestone and taxonomy labels. |
+| [`gh_issue_list`](#gh-issue-list) | List repository issues with milestone, taxonomy labels, and status. |
+| [`gh_issue_status`](#gh-issue-status) | Display aggregated issue counts by priority, type, and milestone. |
+| [`gh_issue_triage`](#gh-issue-triage) | Audit open issues for mandatory taxonomy labels and milestone linkage. |
 | [`gh_label_list`](#gh-label-list) | List declarative repository labels and descriptions. |
 | [`gh_label_sync`](#gh-label-sync) | Synchronize repository labels against .github/labels.yml schema. |
 | [`gh_milestone_close`](#gh-milestone-close) | Close a repository milestone matching the given version or title. |
 | [`gh_milestone_list`](#gh-milestone-list) | List repository milestones and progress rates. |
 | [`gh_milestone_sync`](#gh-milestone-sync) | Synchronize repository milestones from docs/ROADMAP.md. |
+| [`gh_pages_build`](#gh-pages-build) | Trigger a new deployment build for GitHub Pages. |
+| [`gh_pages_status`](#gh-pages-status) | Inspect GitHub Pages site deployment status, URL, branch, and HTTPS enforcement. |
+| [`gh_pages_verify`](#gh-pages-verify) | Verify local repository readiness for GitHub Pages publishing. |
+| [`gh_project_audit`](#gh-project-audit) | Audit project board health and alignment against standardized template. |
+| [`gh_project_list`](#gh-project-list) | List available GitHub Projects v2 boards for user or organization. |
 | [`gh_project_status`](#gh-project-status) | Inspect GitHub Projects v2 template configuration, fields, and view definitions. |
 | [`gh_project_sync`](#gh-project-sync) | Synchronize task items from task.md into GitHub Projects v2 status. |
 | [`gh_view_spec`](#gh-view-spec) | Return JSON specification for GitHub Projects v2 views. |
+| [`gh_views_audit`](#gh-views-audit) | Audit remote project views against standardized view template specifications. |
 | [`gh_views_sync`](#gh-views-sync) | Synchronize standardized GitHub Projects v2 views with the remote repository project. |
 | [`grafana_dashboards`](#grafana-dashboards) | List Grafana dashboards, optionally filtered by search query. |
 | [`k8s_audit`](#k8s-audit) | Audit Kubernetes cluster security posture, RBAC policies, and CIS benchmarks. |
@@ -320,6 +330,54 @@ List local Docker images and display container information.
 
 *No parameters required.*
 
+### `gh_issue_create`
+
+Create a new GitHub issue linking milestone and taxonomy labels.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `title` | `string` | Yes | - | - |
+| `body` | `string` | No | `` | - |
+| `milestone` | `string` | No | - | - |
+| `labels` | `string` | No | - | - |
+| `repo` | `string` | No | - | - |
+
+### `gh_issue_list`
+
+List repository issues with milestone, taxonomy labels, and status.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `repo` | `string` | No | - | - |
+| `state` | `string` | No | `open` | - |
+| `milestone` | `string` | No | - | - |
+| `label` | `string` | No | - | - |
+| `limit` | `integer` | No | `30` | - |
+
+### `gh_issue_status`
+
+Display aggregated issue counts by priority, type, and milestone.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `repo` | `string` | No | - | - |
+
+### `gh_issue_triage`
+
+Audit open issues for mandatory taxonomy labels and milestone linkage.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `repo` | `string` | No | - | - |
+
 ### `gh_label_list`
 
 List declarative repository labels and descriptions.
@@ -373,6 +431,52 @@ Synchronize repository milestones from docs/ROADMAP.md.
 | `repo` | `string` | No | - | - |
 | `dry_run` | `boolean` | No | `True` | - |
 
+### `gh_pages_build`
+
+Trigger a new deployment build for GitHub Pages.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `repo` | `string` | No | - | - |
+
+### `gh_pages_status`
+
+Inspect GitHub Pages site deployment status, URL, branch, and HTTPS enforcement.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `repo` | `string` | No | - | - |
+
+### `gh_pages_verify`
+
+Verify local repository readiness for GitHub Pages publishing.
+
+*No parameters required.*
+
+### `gh_project_audit`
+
+Audit project board health and alignment against standardized template.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `repo` | `string` | No | - | - |
+
+### `gh_project_list`
+
+List available GitHub Projects v2 boards for user or organization.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `owner` | `string` | No | - | - |
+
 ### `gh_project_status`
 
 Inspect GitHub Projects v2 template configuration, fields, and view definitions.
@@ -395,6 +499,16 @@ Synchronize task items from task.md into GitHub Projects v2 status.
 Return JSON specification for GitHub Projects v2 views.
 
 *No parameters required.*
+
+### `gh_views_audit`
+
+Audit remote project views against standardized view template specifications.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `repo` | `string` | No | - | - |
 
 ### `gh_views_sync`
 

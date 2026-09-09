@@ -313,10 +313,12 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops pr checks [OPTIONS] <number>` | Check remote CI quality gate status on a pull request. |
 |  | `devops pr edit [OPTIONS] <number>` | Edit pull request base branch, title, or body. |
 |  | `devops pr create [OPTIONS]` | Create a pull request with automatic release branch target validation. |
-| **gh** | `devops gh labels COMMAND [ARGS]...` | GitHub Views, Projects, Milestones, and Labels automation. |
-|  | `devops gh milestones COMMAND [ARGS]...` | GitHub Views, Projects, Milestones, and Labels automation. |
-|  | `devops gh project COMMAND [ARGS]...` | GitHub Views, Projects, Milestones, and Labels automation. |
-|  | `devops gh views COMMAND [ARGS]...` | GitHub Views, Projects, Milestones, and Labels automation. |
+| **gh** | `devops gh labels COMMAND [ARGS]...` | GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation. |
+|  | `devops gh milestones COMMAND [ARGS]...` | GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation. |
+|  | `devops gh project COMMAND [ARGS]...` | GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation. |
+|  | `devops gh views COMMAND [ARGS]...` | GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation. |
+|  | `devops gh pages COMMAND [ARGS]...` | GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation. |
+|  | `devops gh issues COMMAND [ARGS]...` | GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation. |
 | **tf** | `devops tf init [OPTIONS] <directory>` | Initialize an OpenTofu working directory. |
 |  | `devops tf plan [OPTIONS] <directory>` | Generate and show an OpenTofu execution plan. |
 |  | `devops tf apply [OPTIONS] <directory>` | Create or update OpenTofu infrastructure. |

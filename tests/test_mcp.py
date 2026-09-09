@@ -577,3 +577,146 @@ class TestValkeyMcpTools:
             args = mock.call_args[0][0]
             assert "valkey" in args
             assert "stats" in args
+
+
+class TestGitHubMcpTools:
+    """Tests for GitHub Pages, Issues, Project, and Views FastMCP tools and system resources."""
+
+    def test_gh_pages_tools(self) -> None:
+        from devops_cli.ai.mcp.server import (
+            get_gh_pages_resource,
+            gh_pages_build,
+            gh_pages_status,
+            gh_pages_verify,
+        )
+
+        with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="pages status") as mock:
+            res = gh_pages_status(repo="owner/repo")
+            assert res == "pages status"
+            mock.assert_called_once()
+            args = mock.call_args[0][0]
+            assert ["gh", "pages", "status", "--repo", "owner/repo"] == args[3:]
+
+        with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="build queued") as mock:
+            res = gh_pages_build()
+            assert res == "build queued"
+            mock.assert_called_once()
+            args = mock.call_args[0][0]
+            assert ["gh", "pages", "build"] == args[3:]
+
+        with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="verified") as mock:
+            res = gh_pages_verify()
+            assert res == "verified"
+            mock.assert_called_once()
+            args = mock.call_args[0][0]
+            assert ["gh", "pages", "verify"] == args[3:]
+
+        with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="res status") as mock:
+            res = get_gh_pages_resource()
+            assert res == "res status"
+            mock.assert_called_once()
+            args = mock.call_args[0][0]
+            assert ["gh", "pages", "status"] == args[3:]
+
+    def test_gh_issues_tools(self) -> None:
+        from devops_cli.ai.mcp.server import (
+            get_gh_issues_resource,
+            gh_issue_create,
+            gh_issue_list,
+            gh_issue_status,
+            gh_issue_triage,
+        )
+
+        with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="issue list") as mock:
+            res = gh_issue_list(
+                repo="owner/repo", state="open", milestone="v0.2.14", label="type/feat", limit=10
+            )
+            assert res == "issue list"
+            mock.assert_called_once()
+            args = mock.call_args[0][0]
+            assert "issues" in args
+            assert "--milestone" in args
+            assert "--label" in args
+
+        with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="issue created") as mock:
+            res = gh_issue_create(
+                title="feat(gh): new feature",
+                body="Issue body description",
+                milestone="v0.2.14",
+                labels="type/feat, priority/p1-high",
+                repo="owner/repo",
+            )
+            assert res == "issue created"
+            mock.assert_called_once()
+            args = mock.call_args[0][0]
+            assert "create" in args
+            assert "--title" in args
+            assert "--milestone" in args
+            assert "--label" in args
+
+        with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="triage report") as mock:
+            res = gh_issue_triage(repo="owner/repo")
+            assert res == "triage report"
+            mock.assert_called_once()
+            args = mock.call_args[0][0]
+            assert "triage" in args
+
+        with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="status summary") as mock:
+            res = gh_issue_status(repo="owner/repo")
+            assert res == "status summary"
+            mock.assert_called_once()
+            args = mock.call_args[0][0]
+            assert "status" in args
+
+        with patch(
+            "devops_cli.ai.mcp.server._run_mcp_cmd", return_value="res issue status"
+        ) as mock:
+            res = get_gh_issues_resource()
+            assert res == "res issue status"
+            mock.assert_called_once()
+            args = mock.call_args[0][0]
+            assert ["gh", "issues", "status"] == args[3:]
+
+    def test_gh_project_and_views_tools(self) -> None:
+        from devops_cli.ai.mcp.server import (
+            get_gh_project_resource,
+            get_gh_views_resource,
+            gh_project_audit,
+            gh_project_list,
+            gh_views_audit,
+        )
+
+        with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="project list") as mock:
+            res = gh_project_list(owner="my-org")
+            assert res == "project list"
+            mock.assert_called_once()
+            args = mock.call_args[0][0]
+            assert ["gh", "project", "list", "--owner", "my-org"] == args[3:]
+
+        with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="project audit") as mock:
+            res = gh_project_audit(repo="owner/repo")
+            assert res == "project audit"
+            mock.assert_called_once()
+            args = mock.call_args[0][0]
+            assert ["gh", "project", "audit", "--repo", "owner/repo"] == args[3:]
+
+        with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="views audit") as mock:
+            res = gh_views_audit(repo="owner/repo")
+            assert res == "views audit"
+            mock.assert_called_once()
+            args = mock.call_args[0][0]
+            assert ["gh", "views", "audit", "--repo", "owner/repo"] == args[3:]
+
+        with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="proj status") as mock:
+            res = get_gh_project_resource()
+            assert res == "proj status"
+            mock.assert_called_once()
+            args = mock.call_args[0][0]
+            assert ["gh", "project", "status"] == args[3:]
+
+        with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="views status") as mock:
+            res = get_gh_views_resource()
+            assert res == "views status"
+            mock.assert_called_once()
+            args = mock.call_args[0][0]
+            assert ["gh", "views", "audit"] == args[3:]

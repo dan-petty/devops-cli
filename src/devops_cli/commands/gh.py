@@ -16,6 +16,12 @@ from devops_cli.core.cli import new_typer
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import get_repo_origin_name
 from devops_cli.github.client import GitHubClient
+from devops_cli.github.issues import (
+    audit_issues_triage,
+    create_repository_issue,
+    get_issues_summary,
+    get_repository_issues,
+)
 from devops_cli.github.labels import (
     audit_repository_labels,
     load_label_specs,
@@ -27,8 +33,17 @@ from devops_cli.github.milestones import (
     extract_roadmap_milestones,
     sync_repository_milestones,
 )
+from devops_cli.github.pages import (
+    get_pages_builds,
+    get_pages_status,
+    request_pages_build,
+    verify_pages_configuration,
+)
 from devops_cli.github.projects import (
+    audit_project_drift,
+    audit_remote_project_views,
     link_project_to_repository,
+    list_remote_projects,
     load_project_template,
     parse_tasks_to_project_items,
     sync_remote_project,
@@ -50,11 +65,15 @@ labels_app = new_typer(help=HELP.gh.labels_app, no_args_is_help=True)
 milestones_app = new_typer(help=HELP.gh.milestones_app, no_args_is_help=True)
 project_app = new_typer(help=HELP.gh.project_app, no_args_is_help=True)
 views_app = new_typer(help=HELP.gh.views_app, no_args_is_help=True)
+pages_app = new_typer(help=HELP.gh.pages_app, no_args_is_help=True)
+issues_app = new_typer(help=HELP.gh.issues_app, no_args_is_help=True)
 
 app.add_typer(labels_app, name="labels")
 app.add_typer(milestones_app, name="milestones")
 app.add_typer(project_app, name="project")
 app.add_typer(views_app, name="views")
+app.add_typer(pages_app, name="pages")
+app.add_typer(issues_app, name="issues")
 
 
 def _resolve_repo(repo: str | None = None) -> str:
@@ -63,31 +82,33 @@ def _resolve_repo(repo: str | None = None) -> str:
     return target or "unknown/repo"
 
 
+def _resolve_github_token() -> str | None:
+    """Resolve GitHub authentication token from Keyring, environment, or gh CLI."""
+    for key in ("github.token", "github_token", "github"):
+        val = get_keyring_secret(key)
+        if val:
+            return val
+    import os
+
+    for env_var in (ENV_GITHUB_TOKEN, "GITHUB_TOKEN", "GH_TOKEN"):
+        env_val = os.environ.get(env_var)
+        if env_val:
+            return env_val
+    res = run_subprocess([CONST_GH_CLI, "auth", "token"], check=False, quiet=True)
+    if res.returncode == 0 and res.stdout.strip():
+        return res.stdout.strip()
+    return None
+
+
 def _get_github_client() -> GitHubClient | None:
     """Construct an authenticated GitHub client if token is available."""
-    token = (
-        get_keyring_secret("github.token")
-        or get_keyring_secret("github_token")
-        or get_keyring_secret("github")
-    )
+    token = _resolve_github_token()
     if not token:
-        import os
-
-        token = (
-            os.environ.get(ENV_GITHUB_TOKEN)
-            or os.environ.get("GITHUB_TOKEN")
-            or os.environ.get("GH_TOKEN")
-        )
-    if not token:
-        res = run_subprocess([CONST_GH_CLI, "auth", "token"], check=False, quiet=True)
-        if res.returncode == 0 and res.stdout.strip():
-            token = res.stdout.strip()
-    if token:
-        try:
-            return GitHubClient(token)
-        except Exception:
-            return None
-    return None
+        return None
+    try:
+        return GitHubClient(token)
+    except Exception:
+        return None
 
 
 def _get_repo_labels(repo: str | None = None) -> list[dict[str, Any]]:
@@ -540,6 +561,54 @@ def link_project(
         raise typer.Exit(1)
 
 
+@project_app.command("list", help=HELP.gh.project_list)
+def list_projects(
+    owner: Annotated[
+        str | None, typer.Option("--owner", "-o", help="Target user or organization")
+    ] = None,
+) -> None:
+    """List available GitHub Projects v2 boards."""
+    resolved_owner = owner or _resolve_repo().split("/")[0]
+    projects = list_remote_projects(resolved_owner)
+    if not projects:
+        print_info(f"No GitHub Projects v2 boards found for owner '{resolved_owner}'.")
+        return
+    columns = ["#", "Project Title", "State", "ID", "URL"]
+    rows = [[str(p["number"]), p["title"], p["state"].upper(), p["id"], p["url"]] for p in projects]
+    print_table(f"GitHub Projects v2 Boards ({resolved_owner})", columns, rows)
+
+
+@project_app.command("audit", help=HELP.gh.project_audit)
+def audit_project(
+    template_file: Annotated[
+        Path,
+        typer.Option("--template", "-t", help="Path to project template JSON"),
+    ] = Path(".github/project-template.json"),
+    repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
+) -> None:
+    """Audit project board health and alignment against standardized template."""
+    target_repo = repo or _resolve_repo()
+    owner = target_repo.split("/")[0] if "/" in target_repo else "@me"
+    repo_name = target_repo.split("/")[1] if "/" in target_repo else target_repo
+    template = load_project_template(template_file)
+    res = audit_project_drift(owner, repo_name, template)
+    if not res.get("project_found"):
+        print_warning(f"No active project board found for repository '{target_repo}'.")
+        return
+    proj_num = res.get("project_number")
+    status_str = (
+        "[green]COMPLIANT[/green]"
+        if res.get("views_compliant")
+        else "[yellow]DRIFT DETECTED[/yellow]"
+    )
+    print_panel(
+        f"Project #{proj_num} Status: {status_str}\n"
+        f"Matching Views: {', '.join(res.get('matching_views', [])) or 'none'}\n"
+        f"Missing Views: {', '.join(res.get('missing_views', [])) or 'none'}",
+        title="Project Board Audit",
+    )
+
+
 @project_app.command("template")
 def show_template(
     template_file: Annotated[
@@ -649,3 +718,242 @@ def sync_views(
         print_warning(f"Views sync skipped or failed: {exc}")
 
     _display_issues_saved_views(target_repo)
+
+
+@views_app.command("audit", help=HELP.gh.views_audit)
+def audit_views(
+    template_file: Annotated[
+        Path,
+        typer.Option("--template", "-t", help="Path to project template JSON"),
+    ] = Path(".github/project-template.json"),
+    repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
+) -> None:
+    """Audit remote project views against standardized view template specifications."""
+    target_repo = repo or _resolve_repo()
+    owner = target_repo.split("/")[0] if "/" in target_repo else "@me"
+    repo_name = target_repo.split("/")[1] if "/" in target_repo else target_repo
+    template = load_project_template(template_file)
+    res = audit_remote_project_views(owner, repo_name, template)
+    if not res.get("project_number"):
+        print_warning(f"No linked project board found for repository '{target_repo}'.")
+        return
+    columns = ["View Name", "Required", "Remote Status"]
+    matching = set(res.get("matching_views", []))
+    rows = [
+        [
+            v.name,
+            "YES",
+            "[green]FOUND[/green]" if v.name in matching else "[red]MISSING[/red]",
+        ]
+        for v in template.views
+    ]
+    print_table(f"Project Views Compliance (Project #{res.get('project_number')})", columns, rows)
+
+
+# =============================================================================
+# GitHub Pages Subcommands
+# =============================================================================
+
+
+@pages_app.command("status", help=HELP.gh.pages_status)
+def pages_status_cmd(
+    repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
+) -> None:
+    """Inspect GitHub Pages deployment status, URL, branch, and HTTPS enforcement."""
+    target_repo = repo or _resolve_repo()
+    info = get_pages_status(target_repo)
+    if not info:
+        print_warning(
+            f"Repository '{target_repo}' does not have GitHub Pages enabled or published."
+        )
+        return
+    https_badge = "[green]ENFORCED[/green]" if info.https_enforced else "[yellow]DISABLED[/yellow]"
+    print_panel(
+        f"Deployment Status: [bold cyan]{info.status.upper()}[/bold cyan]\n"
+        f"Site URL: [link={info.html_url}]{info.html_url}[/link]\n"
+        f"Source Branch: {info.branch} (path: {info.path})\n"
+        f"Build Type: {info.build_type}\n"
+        f"HTTPS Enforced: {https_badge}\n"
+        f"Custom Domain: {info.cname or '—'}",
+        title=f"GitHub Pages Status ({target_repo})",
+    )
+
+
+@pages_app.command("builds", help=HELP.gh.pages_builds)
+def pages_builds_cmd(
+    repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
+    limit: Annotated[int, typer.Option("--limit", "-l", help="Number of builds to retrieve")] = 5,
+) -> None:
+    """List recent GitHub Pages build history and durations."""
+    target_repo = repo or _resolve_repo()
+    builds = get_pages_builds(target_repo, limit=limit)
+    if not builds:
+        print_info(f"No recent GitHub Pages builds found for '{target_repo}'.")
+        return
+    columns = ["Commit", "Status", "Duration", "Created At", "Error"]
+    rows = [
+        [
+            b.commit[:7] if b.commit else "—",
+            b.status.upper(),
+            f"{b.duration_ms / 1000:.1f}s" if b.duration_ms else "—",
+            b.created_at or "—",
+            b.error_message or "—",
+        ]
+        for b in builds
+    ]
+    print_table(f"GitHub Pages Build History ({target_repo})", columns, rows)
+
+
+@pages_app.command("build", help=HELP.gh.pages_build)
+def pages_build_cmd(
+    repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
+) -> None:
+    """Trigger a new deployment build for GitHub Pages."""
+    target_repo = repo or _resolve_repo()
+    ok = request_pages_build(target_repo)
+    if ok:
+        print_success(f"Successfully requested GitHub Pages build for '{target_repo}'.")
+    else:
+        print_error(f"Failed to request GitHub Pages build for '{target_repo}'.")
+        raise typer.Exit(1)
+
+
+@pages_app.command("verify", help=HELP.gh.pages_verify)
+def pages_verify_cmd(
+    root_dir: Annotated[
+        Path,
+        typer.Option("--dir", "-d", help="Path to project root directory"),
+    ] = Path("."),
+) -> None:
+    """Verify local repository readiness for GitHub Pages publishing."""
+    valid, diagnostics = verify_pages_configuration(root_dir)
+    for diag in diagnostics:
+        if diag.startswith("✓"):
+            print_success(diag)
+        else:
+            print_error(diag)
+    if not valid:
+        raise typer.Exit(1)
+    print_success("GitHub Pages local configuration is 100% compliant.")
+
+
+# =============================================================================
+# GitHub Issues Subcommands
+# =============================================================================
+
+
+@issues_app.command("list", help=HELP.gh.issues_list)
+def issues_list_cmd(
+    repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
+    state: Annotated[
+        str, typer.Option("--state", "-s", help="Issue state: open, closed, all")
+    ] = "open",
+    milestone: Annotated[
+        str | None, typer.Option("--milestone", "-m", help="Filter by milestone")
+    ] = None,
+    label: Annotated[str | None, typer.Option("--label", "-l", help="Filter by label")] = None,
+    limit: Annotated[int, typer.Option("--limit", help="Max issues to return")] = 30,
+) -> None:
+    """List repository issues with milestone, taxonomy labels, and status."""
+    target_repo = repo or _resolve_repo()
+    issues = get_repository_issues(
+        target_repo, state=state, milestone=milestone, label=label, limit=limit
+    )
+    if not issues:
+        print_info(f"No {state} issues found in '{target_repo}'.")
+        return
+    columns = ["#", "Title", "Milestone", "Labels", "Assignees"]
+    rows = [
+        [
+            f"#{iss.number}",
+            iss.title[:50] + ("..." if len(iss.title) > 50 else ""),
+            iss.milestone or "—",
+            ", ".join(iss.labels[:3]) or "—",
+            ", ".join(iss.assignees) or "—",
+        ]
+        for iss in issues
+    ]
+    print_table(f"Repository Issues ({target_repo})", columns, rows)
+
+
+@issues_app.command("create", help=HELP.gh.issues_create)
+def issues_create_cmd(
+    title: Annotated[str, typer.Option("--title", "-t", help="Issue title")],
+    body: Annotated[str, typer.Option("--body", "-b", help="Issue description")] = "",
+    milestone: Annotated[
+        str | None, typer.Option("--milestone", "-m", help="Target milestone")
+    ] = None,
+    label: Annotated[
+        list[str] | None, typer.Option("--label", "-l", help="Taxonomy label (repeatable)")
+    ] = None,
+    repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
+) -> None:
+    """Create a new issue linking milestone and taxonomy labels."""
+    target_repo = repo or _resolve_repo()
+    created = create_repository_issue(
+        target_repo,
+        title=title,
+        body=body,
+        milestone=milestone,
+        labels=label,
+    )
+    print_success(f"Created issue #{created.number}: '{created.title}' ({created.url or 'local'})")
+
+
+@issues_app.command("triage", help=HELP.gh.issues_triage)
+def issues_triage_cmd(
+    repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
+) -> None:
+    """Audit open issues for mandatory taxonomy labels and milestone linkage."""
+    target_repo = repo or _resolve_repo()
+    audit = audit_issues_triage(target_repo)
+    columns = ["Metric", "Value", "Violating Issues"]
+    rows = [
+        ["Total Open Issues", str(audit.total_open), "—"],
+        ["Taxonomy Compliant", f"{audit.valid_count} ({audit.compliance_rate}%)", "—"],
+        [
+            "Missing type/*",
+            str(len(audit.issues_missing_type)),
+            ", ".join(f"#{n}" for n in audit.issues_missing_type) or "None",
+        ],
+        [
+            "Missing scope/*",
+            str(len(audit.issues_missing_scope)),
+            ", ".join(f"#{n}" for n in audit.issues_missing_scope) or "None",
+        ],
+        [
+            "Missing priority/*",
+            str(len(audit.issues_missing_priority)),
+            ", ".join(f"#{n}" for n in audit.issues_missing_priority) or "None",
+        ],
+        [
+            "Missing Milestone",
+            str(len(audit.issues_missing_milestone)),
+            ", ".join(f"#{n}" for n in audit.issues_missing_milestone) or "None",
+        ],
+    ]
+    print_table(f"GitHub Issues Triage & Taxonomy Audit ({target_repo})", columns, rows)
+    if audit.valid_count < audit.total_open:
+        print_warning(
+            "Triage audit detected issues missing required taxonomy labels or milestone linkage."
+        )
+
+
+@issues_app.command("status", help=HELP.gh.issues_status)
+def issues_status_cmd(
+    repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
+) -> None:
+    """Display aggregated issue counts by priority, type, and milestone."""
+    target_repo = repo or _resolve_repo()
+    summary = get_issues_summary(target_repo)
+    columns = ["Category", "Breakdown"]
+    p_str = ", ".join(f"{k}: {v}" for k, v in sorted(summary.get("by_priority", {}).items()))
+    t_str = ", ".join(f"{k}: {v}" for k, v in sorted(summary.get("by_type", {}).items()))
+    m_str = ", ".join(f"{k}: {v}" for k, v in sorted(summary.get("by_milestone", {}).items()))
+    rows = [
+        ["Total Open", str(summary.get("total_open", 0))],
+        ["By Priority", p_str or "none"],
+        ["By Type", t_str or "none"],
+        ["By Milestone", m_str or "none"],
+    ]
+    print_table(f"GitHub Issues Status Summary ({target_repo})", columns, rows)
