@@ -201,3 +201,41 @@ def test_get_benchmarks_base_dir_isolation(tmp_path: Path, monkeypatch: pytest.M
     assert str(bench_dir).startswith(str(isolated_data))
     assert bench_dir == isolated_data / "benchmarks"
     assert bench_dir.exists()
+
+
+def test_load_settings_defaults_when_data_section_omitted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify that when the data section is omitted from config.yaml, all 11 default paths are populated."""
+    from devops_cli.config.defaults import (
+        DEFAULT_ANALYSIS_DATA_DIR,
+        DEFAULT_AUDIT_LOG_PATH,
+        DEFAULT_BENCHMARKS_DATA_DIR,
+        DEFAULT_CACHE_DATA_DIR,
+        DEFAULT_DATA_DIR,
+        DEFAULT_FEEDBACK_DATASET_PATH,
+        DEFAULT_LOGS_DATA_DIR,
+        DEFAULT_MODELS_DATA_DIR,
+        DEFAULT_RAG_DATA_DIR,
+        DEFAULT_REVIEWS_DATA_DIR,
+        DEFAULT_TLS_DATA_DIR,
+    )
+    from devops_cli.config.settings import load_settings
+
+    custom_cfg = tmp_path / "config.yaml"
+    custom_cfg.write_text("repos:\n  base_dir: repos\n", encoding="utf-8")
+    monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(custom_cfg))
+    monkeypatch.delenv("DEVOPS_CLI_DATA_DIR", raising=False)
+
+    settings = load_settings()
+    assert settings.data.dir == DEFAULT_DATA_DIR
+    assert settings.data.analysis_dir == DEFAULT_ANALYSIS_DATA_DIR
+    assert settings.data.reviews_dir == DEFAULT_REVIEWS_DATA_DIR
+    assert settings.data.logs_dir == DEFAULT_LOGS_DATA_DIR
+    assert settings.data.models_dir == DEFAULT_MODELS_DATA_DIR
+    assert settings.data.cache_dir == DEFAULT_CACHE_DATA_DIR
+    assert settings.data.benchmarks_dir == DEFAULT_BENCHMARKS_DATA_DIR
+    assert settings.data.rag_dir == DEFAULT_RAG_DATA_DIR
+    assert settings.data.tls_dir == DEFAULT_TLS_DATA_DIR
+    assert settings.data.audit_log_path == DEFAULT_AUDIT_LOG_PATH
+    assert settings.data.feedback_dataset_path == DEFAULT_FEEDBACK_DATASET_PATH

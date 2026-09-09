@@ -302,6 +302,46 @@ class AIConfig(BaseModel):
         return self.model_copy(update=updates) if updates else self
 
 
+_DEFAULT_CHILD_DATA_PATHS: tuple[tuple[str, Path, Path], ...] = (
+    ("analysis_dir", DEFAULT_ANALYSIS_DATA_DIR, Path("analysis")),
+    ("reviews_dir", DEFAULT_REVIEWS_DATA_DIR, Path("reviews")),
+    ("logs_dir", DEFAULT_LOGS_DATA_DIR, Path("logs")),
+    ("models_dir", DEFAULT_MODELS_DATA_DIR, Path("models")),
+    ("cache_dir", DEFAULT_CACHE_DATA_DIR, Path("cache")),
+    ("benchmarks_dir", DEFAULT_BENCHMARKS_DATA_DIR, Path("benchmarks")),
+    ("rag_dir", DEFAULT_RAG_DATA_DIR, Path("rag")),
+    ("tls_dir", DEFAULT_TLS_DATA_DIR, Path("tls")),
+    ("audit_log_path", DEFAULT_AUDIT_LOG_PATH, Path("logs/audit.jsonl")),
+    ("feedback_dataset_path", DEFAULT_FEEDBACK_DATASET_PATH, Path("feedback_dataset.jsonl")),
+)
+
+_CHILD_DATA_ENV_MAP: dict[str, str] = {
+    "analysis_dir": "DEVOPS_CLI_DATA_ANALYSIS_DIR",
+    "reviews_dir": "DEVOPS_CLI_DATA_REVIEWS_DIR",
+    "logs_dir": "DEVOPS_CLI_DATA_LOGS_DIR",
+    "models_dir": "DEVOPS_CLI_DATA_MODELS_DIR",
+    "cache_dir": "DEVOPS_CLI_DATA_CACHE_DIR",
+    "benchmarks_dir": "DEVOPS_CLI_DATA_BENCHMARKS_DIR",
+    "rag_dir": "DEVOPS_CLI_DATA_RAG_DIR",
+    "tls_dir": "DEVOPS_CLI_DATA_TLS_DIR",
+    "audit_log_path": "DEVOPS_CLI_DATA_AUDIT_LOG_PATH",
+    "feedback_dataset_path": "DEVOPS_CLI_DATA_FEEDBACK_DATASET_PATH",
+}
+
+_DEFAULT_CHILD_DATA_MAP: dict[str, Path] = {
+    "analysis_dir": DEFAULT_ANALYSIS_DATA_DIR,
+    "reviews_dir": DEFAULT_REVIEWS_DATA_DIR,
+    "logs_dir": DEFAULT_LOGS_DATA_DIR,
+    "models_dir": DEFAULT_MODELS_DATA_DIR,
+    "cache_dir": DEFAULT_CACHE_DATA_DIR,
+    "benchmarks_dir": DEFAULT_BENCHMARKS_DATA_DIR,
+    "rag_dir": DEFAULT_RAG_DATA_DIR,
+    "tls_dir": DEFAULT_TLS_DATA_DIR,
+    "audit_log_path": DEFAULT_AUDIT_LOG_PATH,
+    "feedback_dataset_path": DEFAULT_FEEDBACK_DATASET_PATH,
+}
+
+
 class DataConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -320,26 +360,9 @@ class DataConfig(BaseModel):
     @model_validator(mode="after")
     def _rebase_child_paths_if_custom_dir(self) -> DataConfig:
         if self.dir != DEFAULT_DATA_DIR:
-            if self.analysis_dir == DEFAULT_ANALYSIS_DATA_DIR:
-                self.analysis_dir = self.dir / "analysis"
-            if self.reviews_dir == DEFAULT_REVIEWS_DATA_DIR:
-                self.reviews_dir = self.dir / "reviews"
-            if self.logs_dir == DEFAULT_LOGS_DATA_DIR:
-                self.logs_dir = self.dir / "logs"
-            if self.models_dir == DEFAULT_MODELS_DATA_DIR:
-                self.models_dir = self.dir / "models"
-            if self.cache_dir == DEFAULT_CACHE_DATA_DIR:
-                self.cache_dir = self.dir / "cache"
-            if self.benchmarks_dir == DEFAULT_BENCHMARKS_DATA_DIR:
-                self.benchmarks_dir = self.dir / "benchmarks"
-            if self.rag_dir == DEFAULT_RAG_DATA_DIR:
-                self.rag_dir = self.dir / "rag"
-            if self.tls_dir == DEFAULT_TLS_DATA_DIR:
-                self.tls_dir = self.dir / "tls"
-            if self.audit_log_path == DEFAULT_AUDIT_LOG_PATH:
-                self.audit_log_path = self.dir / "logs" / "audit.jsonl"
-            if self.feedback_dataset_path == DEFAULT_FEEDBACK_DATASET_PATH:
-                self.feedback_dataset_path = self.dir / "feedback_dataset.jsonl"
+            for field, default_val, rel_path in _DEFAULT_CHILD_DATA_PATHS:
+                if getattr(self, field) == default_val:
+                    setattr(self, field, self.dir / rel_path)
         return self
 
 
@@ -449,6 +472,45 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> None:
             base[key] = value
 
 
+def _apply_env_overrides(settings: Settings) -> None:
+    """Allow devcontainer and shell environment variables to override file config."""
+    env_data_dir = os.environ.get("DEVOPS_CLI_DATA_DIR")
+    if env_data_dir:
+        settings.data.dir = Path(env_data_dir)
+
+    for option_key, env_var in OPTION_TO_ENV_VAR.items():
+        if option_key in _SECRET_FIELDS:
+            continue
+        env_value = os.environ.get(env_var)
+        if env_value in (None, ""):
+            continue
+        try:
+            dotted_set(settings, option_key, env_value)
+        except AttributeError, ValueError:
+            # Ignore invalid or unknown env overrides and keep existing settings.
+            continue
+
+
+def _resolve_data_config(raw_data: dict[str, Any], current_data_dir: Path) -> DataConfig:
+    """Resolve DataConfig with environment variable and explicit YAML overrides."""
+    env_data_dir = os.environ.get("DEVOPS_CLI_DATA_DIR")
+    explicit_data: dict[str, Any] = {"dir": current_data_dir}
+
+    for field_name, env_v in _CHILD_DATA_ENV_MAP.items():
+        env_val = os.environ.get(env_v)
+        if env_val:
+            explicit_data[field_name] = Path(env_val)
+        elif field_name in raw_data and not env_data_dir:
+            raw_path = Path(raw_data[field_name])
+            if (
+                current_data_dir == DEFAULT_DATA_DIR
+                or raw_path != _DEFAULT_CHILD_DATA_MAP[field_name]
+            ):
+                explicit_data[field_name] = raw_path
+
+    return DataConfig.model_validate(explicit_data)
+
+
 def load_settings() -> Settings:
     """Load settings: global config → project config → env vars (each layer wins)."""
     raw: dict[str, Any] = {}
@@ -462,62 +524,10 @@ def load_settings() -> Settings:
         _deep_merge(raw, project_raw)
 
     settings = Settings.model_validate(raw)
+    _apply_env_overrides(settings)
 
-    env_data_dir = os.environ.get("DEVOPS_CLI_DATA_DIR")
-    if env_data_dir:
-        settings.data.dir = Path(env_data_dir)
-
-    # Allow devcontainer and shell environment variables to override file config.
-    for option_key, env_var in OPTION_TO_ENV_VAR.items():
-        if option_key in _SECRET_FIELDS:
-            continue
-        env_value = os.environ.get(env_var)
-        if env_value in (None, ""):
-            continue
-        try:
-            dotted_set(settings, option_key, env_value)
-        except AttributeError, ValueError:
-            # Ignore invalid or unknown env overrides and keep existing settings.
-            continue
-
-    # Rebase child paths if data.dir was customized via environment variables or settings
     raw_data = raw.get("data", {}) if isinstance(raw.get("data"), dict) else {}
-    explicit_data: dict[str, Any] = {"dir": settings.data.dir}
-
-    child_env_map = {
-        "analysis_dir": "DEVOPS_CLI_DATA_ANALYSIS_DIR",
-        "reviews_dir": "DEVOPS_CLI_DATA_REVIEWS_DIR",
-        "logs_dir": "DEVOPS_CLI_DATA_LOGS_DIR",
-        "models_dir": "DEVOPS_CLI_DATA_MODELS_DIR",
-        "cache_dir": "DEVOPS_CLI_DATA_CACHE_DIR",
-        "benchmarks_dir": "DEVOPS_CLI_DATA_BENCHMARKS_DIR",
-        "rag_dir": "DEVOPS_CLI_DATA_RAG_DIR",
-        "tls_dir": "DEVOPS_CLI_DATA_TLS_DIR",
-        "audit_log_path": "DEVOPS_CLI_DATA_AUDIT_LOG_PATH",
-        "feedback_dataset_path": "DEVOPS_CLI_DATA_FEEDBACK_DATASET_PATH",
-    }
-    default_child_map = {
-        "analysis_dir": DEFAULT_ANALYSIS_DATA_DIR,
-        "reviews_dir": DEFAULT_REVIEWS_DATA_DIR,
-        "logs_dir": DEFAULT_LOGS_DATA_DIR,
-        "models_dir": DEFAULT_MODELS_DATA_DIR,
-        "cache_dir": DEFAULT_CACHE_DATA_DIR,
-        "benchmarks_dir": DEFAULT_BENCHMARKS_DATA_DIR,
-        "rag_dir": DEFAULT_RAG_DATA_DIR,
-        "tls_dir": DEFAULT_TLS_DATA_DIR,
-        "audit_log_path": DEFAULT_AUDIT_LOG_PATH,
-        "feedback_dataset_path": DEFAULT_FEEDBACK_DATASET_PATH,
-    }
-    for field_name, env_v in child_env_map.items():
-        env_val = os.environ.get(env_v)
-        if env_val:
-            explicit_data[field_name] = Path(env_val)
-        elif field_name in raw_data and not env_data_dir:
-            raw_path = Path(raw_data[field_name])
-            if settings.data.dir == DEFAULT_DATA_DIR or raw_path != default_child_map[field_name]:
-                explicit_data[field_name] = raw_path
-
-    settings.data = DataConfig.model_validate(explicit_data)
+    settings.data = _resolve_data_config(raw_data, settings.data.dir)
 
     return settings
 
