@@ -598,7 +598,12 @@ def get_valkey_password(settings: Settings) -> str | None:
 
 
 def get_logfire_token(settings: Settings) -> str | None:
-    return _keyring_get(_KEYRING_KEYS[opt.TELEMETRY_LOGFIRE_TOKEN]) or os.getenv("LOGFIRE_TOKEN")
+    return (
+        _keyring_get(_KEYRING_KEYS[opt.TELEMETRY_LOGFIRE_TOKEN])
+        or os.getenv("DEVOPS_CLI_TELEMETRY_LOGFIRE_TOKEN")
+        or getattr(settings.telemetry, "logfire_token", None)
+        or os.getenv("LOGFIRE_TOKEN")
+    )
 
 
 def get_llm_client(task: str | None = None) -> Any:

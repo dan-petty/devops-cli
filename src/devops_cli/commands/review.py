@@ -254,10 +254,15 @@ def review_main(
 def _init_logfire_if_enabled(logfire: bool | None, settings: Settings) -> None:
     """Initialize Logfire observability if explicitly flagged or configured."""
     is_enabled = logfire if logfire is not None else getattr(settings.telemetry, "logfire", False)
-    if is_enabled:
-        import contextlib
+    if not is_enabled:
+        return
 
-        from devops_cli.telemetry.logfire import get_logfire_bridge
+    from devops_cli.telemetry.logfire import get_logfire_bridge
+
+    if logfire is True:
+        get_logfire_bridge().configure(settings=settings)
+    else:
+        import contextlib
 
         with contextlib.suppress(Exception):
             get_logfire_bridge().configure(settings=settings)

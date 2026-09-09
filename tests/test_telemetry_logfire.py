@@ -10,7 +10,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from typer.testing import CliRunner
 
-from devops_cli.config.settings import Settings
+from devops_cli.commands.review import _init_logfire_if_enabled
+from devops_cli.config.settings import Settings, get_logfire_token
 from devops_cli.exceptions.telemetry import LogfireConfigurationError
 from devops_cli.main import app
 from devops_cli.telemetry.logfire import (
@@ -25,9 +26,11 @@ from devops_cli.telemetry.logfire import (
     reset_logfire_bridge,
 )
 from devops_cli.telemetry.tracer import (
+    build_span_waterfall_tree,
     clear_span_buffer,
     get_current_span_context,
     get_recent_spans,
+    record_completed_span,
 )
 
 runner = CliRunner()
@@ -134,6 +137,13 @@ def test_logfire_otel_bridge_processor_span_forwarding() -> None:
     assert record["name"] == "agent.test_step"
     assert record["traceId"] == format(0x1234567890ABCDEF1234567890ABCDEF, "032x")
     assert record["spanId"] == format(0x1122334455667788, "016x")
+    assert isinstance(record["attributes"], list)
+    assert any(a.get("key") == "agent.name" for a in record["attributes"])
+
+    nodes = build_span_waterfall_tree([record])
+    assert len(nodes) == 1
+    assert nodes[0].attributes.get("agent.name") == "architect"
+    assert nodes[0].attributes.get("step") == 1
 
 
 def test_logfire_agent_turn_recording_and_metrics() -> None:
@@ -390,3 +400,86 @@ def test_agent_turn_handle_without_span() -> None:
     assert handle.input_tokens == 50
     assert handle.output_tokens == 25
     assert handle.duration_ms >= 0
+
+
+def test_get_logfire_token_resolution_order() -> None:
+    """Verify token resolution order: keyring > DEVOPS_CLI env > settings config > LOGFIRE_TOKEN."""
+    settings = Settings()
+
+    # 1. Keyring takes precedence
+    with (
+        patch("devops_cli.config.settings._keyring_get", return_value="keyring-token"),
+        patch.dict(
+            "os.environ",
+            {"DEVOPS_CLI_TELEMETRY_LOGFIRE_TOKEN": "env-cli-token", "LOGFIRE_TOKEN": "env-token"},
+        ),
+    ):
+        settings.telemetry.logfire_token = "config-token"
+        assert get_logfire_token(settings) == "keyring-token"
+
+    # 2. DEVOPS_CLI_TELEMETRY_LOGFIRE_TOKEN
+    with (
+        patch("devops_cli.config.settings._keyring_get", return_value=None),
+        patch.dict(
+            "os.environ",
+            {"DEVOPS_CLI_TELEMETRY_LOGFIRE_TOKEN": "env-cli-token", "LOGFIRE_TOKEN": "env-token"},
+        ),
+    ):
+        settings.telemetry.logfire_token = "config-token"
+        assert get_logfire_token(settings) == "env-cli-token"
+
+    # 3. settings.telemetry.logfire_token
+    with (
+        patch("devops_cli.config.settings._keyring_get", return_value=None),
+        patch.dict(
+            "os.environ", {"DEVOPS_CLI_TELEMETRY_LOGFIRE_TOKEN": "", "LOGFIRE_TOKEN": "env-token"}
+        ),
+    ):
+        settings.telemetry.logfire_token = "config-token"
+        assert get_logfire_token(settings) == "config-token"
+
+    # 4. Fallback to LOGFIRE_TOKEN
+    with (
+        patch("devops_cli.config.settings._keyring_get", return_value=None),
+        patch.dict(
+            "os.environ", {"DEVOPS_CLI_TELEMETRY_LOGFIRE_TOKEN": "", "LOGFIRE_TOKEN": "env-token"}
+        ),
+    ):
+        settings.telemetry.logfire_token = None
+        assert get_logfire_token(settings) == "env-token"
+
+
+def test_init_logfire_if_enabled_error_handling() -> None:
+    """Verify _init_logfire_if_enabled propagates error when explicitly requested, suppresses when ambient."""
+    settings = Settings()
+
+    # Explicit flag logfire=True: exception must propagate
+    with patch("devops_cli.telemetry.logfire.get_logfire_bridge") as mock_bridge:
+        mock_bridge.return_value.configure.side_effect = LogfireConfigurationError(
+            "Explicit config failure"
+        )
+        with pytest.raises(LogfireConfigurationError):
+            _init_logfire_if_enabled(True, settings)
+
+    # Ambient logfire=None but settings.telemetry.logfire=True: exception must be suppressed
+    settings.telemetry.logfire = True
+    with patch("devops_cli.telemetry.logfire.get_logfire_bridge") as mock_bridge:
+        mock_bridge.return_value.configure.side_effect = LogfireConfigurationError(
+            "Ambient config failure"
+        )
+        # Should not raise
+        _init_logfire_if_enabled(None, settings)
+
+
+def test_logfire_bridge_status_reports_all_active_spans() -> None:
+    """Verify LogfireBridge.get_status().active_spans_count counts the full span buffer beyond 100 spans."""
+    bridge = LogfireBridge()
+    # Insert 150 dummy spans into buffer
+    clear_span_buffer()
+    for i in range(150):
+        record_completed_span(
+            {"name": f"span-{i}", "spanId": f"{i:016x}", "traceId": "0" * 32, "attributes": []}
+        )
+
+    status = bridge.get_status()
+    assert status.active_spans_count == 150

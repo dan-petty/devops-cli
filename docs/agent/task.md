@@ -731,7 +731,7 @@
   - [x] 6. Added configuration options `telemetry.logfire` and `telemetry.logfire_token` with OS Keyring storage in `options.py` and `settings.py`.
   - [x] 7. Added `devops telemetry logfire` CLI command, `--logfire` flag to `devops telemetry test`, and `--logfire / --no-logfire` options to `devops review path`, `branch`, and `pr`.
   - [x] 8. Registered FastMCP tool `telemetry_logfire_status` and dynamic system resource `resource://telemetry/logfire`, and exported schemas.
-  - [x] 9. Authored comprehensive TDD test suite `tests/test_telemetry_logfire.py` (17 unit tests, 100% passing) and updated `tests/test_architectural_invariants.py`, `tests/test_fastmcp_contracts.py`, and `tests/test_config_audit_keys.py`.
+  - [x] 9. Authored comprehensive TDD test suite `tests/test_telemetry_logfire.py` (20 unit tests, 100% passing) and updated `tests/test_architectural_invariants.py`, `tests/test_fastmcp_contracts.py`, and `tests/test_config_audit_keys.py`.
   - [x] 10. Maintained strict architectural invariants (complexity <= 10, nesting <= 5, 0 bare exceptions).
 
 ---

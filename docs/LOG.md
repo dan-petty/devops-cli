@@ -21,7 +21,7 @@ Chronological log of refactoring milestones, quality gates, and security enhance
   - Added `--logfire` option to `devops telemetry test` and `--logfire / --no-logfire` options to `devops review path`, `branch`, and `pr`.
   - Registered FastMCP tool `telemetry_logfire_status` and dynamic system resource `resource://telemetry/logfire`.
 - **Testing & Quality Gates**:
-  - Authored comprehensive TDD test suite in `tests/test_telemetry_logfire.py` (12 unit tests, 100% passing).
+  - Authored comprehensive TDD test suite in `tests/test_telemetry_logfire.py` (20 unit tests, 100% passing).
   - Maintained strict architectural invariants (complexity <= 10, nesting <= 5, 0 bare exceptions).
   - Validated full 10-gate CI suite (`uv run devops ci` — 10/10 green).
 

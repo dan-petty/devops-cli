@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 from devops_cli.config.settings import Settings, get_logfire_token, load_settings
 from devops_cli.exceptions.telemetry import LogfireConfigurationError
 from devops_cli.output import Panel, Table
-from devops_cli.telemetry.tracer import record_completed_span
+from devops_cli.telemetry.tracer import _to_otlp_any_value, record_completed_span
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +66,11 @@ class LogfireOTelBridgeProcessor:
                 code_attr = getattr(status_obj, "status_code", None)
                 status_code = getattr(code_attr, "name", str(code_attr))
 
+            raw_attrs = dict(getattr(span, "attributes", {}) or {})
+            otlp_attrs = [
+                {"key": str(k), "value": _to_otlp_any_value(v)} for k, v in raw_attrs.items()
+            ]
+
             record = {
                 "name": getattr(span, "name", "logfire.span"),
                 "spanId": span_id_hex,
@@ -73,7 +78,7 @@ class LogfireOTelBridgeProcessor:
                 "parentSpanId": parent_id_hex,
                 "startTimeUnixNano": str(getattr(span, "start_time", 0)),
                 "endTimeUnixNano": str(getattr(span, "end_time", 0)),
-                "attributes": dict(getattr(span, "attributes", {}) or {}),
+                "attributes": otlp_attrs,
                 "status": {"code": status_code},
             }
             record_completed_span(record)
@@ -261,7 +266,7 @@ class LogfireBridge:
         """Return current status of the Logfire bridge."""
         from devops_cli.telemetry.tracer import get_recent_spans
 
-        active_spans = len(get_recent_spans()[:100])
+        active_spans = len(get_recent_spans())
         with self._lock:
             return LogfireStatus(
                 enabled=self._enabled,
