@@ -3,7 +3,7 @@ description: "Workstation DevOps CLI & Multi-Persona AI Code Reviewer"
 url: "https://dan-petty.github.io"
 baseurl: "/devops-cli"
 repository: "dan-petty/devops-cli"
-version: "v0.2.12"
+version: "v0.2.13"
 
 # Markdown & Syntax Highlighting
 markdown: kramdown

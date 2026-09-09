@@ -101,11 +101,20 @@ def _scan_host_key(hostname: str) -> str | None:
 
 def _append_known_host_entry(known_hosts: Path, entry: str) -> None:
     """Safely append an ssh-keyscan host key entry to known_hosts with secure file permissions."""
+    cleaned_entry = entry.strip()
+    if not cleaned_entry:
+        return
     try:
+        needs_prefix_newline = False
+        if known_hosts.is_file() and known_hosts.stat().st_size > 0:
+            with known_hosts.open("rb") as f:
+                f.seek(-1, os.SEEK_END)
+                needs_prefix_newline = f.read(1) != b"\n"
+
         with known_hosts.open("a", encoding="utf-8") as handle:
-            if known_hosts.stat().st_size > 0 and not entry.startswith(os.linesep):
+            if needs_prefix_newline:
                 handle.write("\n")
-            handle.write(entry)
+            handle.write(f"{cleaned_entry}\n")
         known_hosts.chmod(CONST_PERM_PRIVATE_KEY)
     except (OSError, PermissionError) as exc:
         logger.debug("Failed updating known_hosts: %s", exc)

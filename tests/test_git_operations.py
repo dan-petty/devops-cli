@@ -284,15 +284,25 @@ def test_append_known_host_entry(tmp_path: Path) -> None:
     assert "host1.example.com" in known_hosts.read_text(encoding="utf-8")
     assert oct(known_hosts.stat().st_mode & 0o777) == "0o600"
 
-    # Append second entry when existing content doesn't end with newline
-    known_hosts.write_text("host1.example.com key1", encoding="utf-8")
+    # Append second entry when existing content already ends with newline (prevent blank lines)
     _append_known_host_entry(known_hosts, "host2.example.com key2\n")
     content = known_hosts.read_text(encoding="utf-8")
-    assert content == "host1.example.com key1\nhost2.example.com key2\n"
+    assert content == "host1.example.com ssh-ed25519 AAAAC3NzaC1\nhost2.example.com key2\n"
+    assert "\n\n" not in content
+
+    # Append third entry when existing content lacks trailing newline
+    known_hosts.write_text("host1.example.com key1", encoding="utf-8")
+    _append_known_host_entry(known_hosts, "host3.example.com key3\n")
+    content = known_hosts.read_text(encoding="utf-8")
+    assert content == "host1.example.com key1\nhost3.example.com key3\n"
+
+    # Empty or whitespace entry should be a no-op
+    _append_known_host_entry(known_hosts, "   \n")
+    assert known_hosts.read_text(encoding="utf-8") == content
 
     # Gracefully handle OS error when directory is read-only
     invalid_path = tmp_path / "nonexistent_dir" / "known_hosts"
-    _append_known_host_entry(invalid_path, "host3.example.com key3\n")
+    _append_known_host_entry(invalid_path, "host4.example.com key4\n")
 
 
 def test_host_key_and_clone_prep_helpers(tmp_path: Path) -> None:
