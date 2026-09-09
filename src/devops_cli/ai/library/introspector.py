@@ -101,7 +101,11 @@ def _extract_methods_and_props(
             continue
         if isinstance(member_val, property):
             properties.append(member_name)
-        elif inspect.isfunction(member_val) or inspect.isroutine(member_val):
+        elif (
+            (inspect.isfunction(member_val) or inspect.isroutine(member_val))
+            and not inspect.isbuiltin(member_val)
+            and member_name != "mro"
+        ):
             try:
                 methods[member_name] = extract_function_signature(member_val)
             except Exception:
