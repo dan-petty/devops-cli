@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from devops_cli.ai.review.ast_imports import (
+    extract_imports_from_diff,
+    extract_imports_from_source,
+    group_imports_by_package,
+)
 from devops_cli.ai.review.chunker import diff_pages, diff_stream_chunks, find_repo_files
 from devops_cli.ai.review.common_hallucinations import (
     CommonHallucinationEntry,
@@ -13,6 +18,10 @@ from devops_cli.ai.review.common_hallucinations import (
     load_common_hallucinations,
     register_common_hallucination,
     save_common_hallucinations,
+)
+from devops_cli.ai.review.contract_grounding import (
+    format_contract_grounding_for_prompt,
+    resolve_grounded_contracts,
 )
 from devops_cli.ai.review.exporter import FeedbackRecord, export_invalidated_feedback
 from devops_cli.ai.review.flags import ReviewStageFlags, resolve_stage_flags
@@ -52,14 +61,19 @@ __all__ = [
     "diff_pages",
     "diff_stream_chunks",
     "export_invalidated_feedback",
+    "extract_imports_from_diff",
+    "extract_imports_from_source",
     "extract_json_block",
     "find_repo_files",
     "find_similar_hallucinations",
+    "format_contract_grounding_for_prompt",
+    "group_imports_by_package",
     "is_common_hallucination",
     "load_common_hallucinations",
     "normalize_unicode_text",
     "parse_review_response",
     "register_common_hallucination",
+    "resolve_grounded_contracts",
     "resolve_stage_flags",
     "save_common_hallucinations",
     "stage_finding_patch",

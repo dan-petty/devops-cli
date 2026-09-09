@@ -37,6 +37,7 @@ and domain categorization for all exceptions inheriting from `DevOpsCLIError`.
 | `DOCKER_ERROR` | `1` | Docker | Base exception for Docker operations. |
 | `DOCKER_SANDBOX_ERROR` | `1` | Docker | Raised when docker sandbox execution, container creation, or termination fails. |
 | `DOCS_INGESTION_ERROR` | `1` | Ai | Base exception for documentation ingestion errors. |
+| `LLM_INFERENCE_ERROR` | `1` | Devops_cli.ai.rag.embeddings | Raised when embeddings generation fails across all endpoints. |
 | `GITHUB_OPERATION_FAILED` | `1` | Git | Exception raised for GitHub API or CLI automation failures. |
 | `GIT_OPERATION_ERROR` | `1` | Git | Base exception for Git repository and branch operation failures. |
 | `HARNESS_EXECUTION_ERROR` | `1` | Ai | Raised when execution of an AI test harness or benchmark fails. |
@@ -61,6 +62,7 @@ and domain categorization for all exceptions inheriting from `DevOpsCLIError`.
 | `MODEL_RETRY_REQUESTED` | `14` | Ai | Raised by tools or output validators to request the model to retry with corrective feedback. |
 | `MODEL_UNAVAILABLE` | `12` | Ai | Raised when the requested LLM backend or model endpoint is unreachable. |
 | `PERSONA_EXECUTION_ERROR` | `13` | Ai | Raised when an AI reviewer persona fails during diff analysis. |
+| `DEVOPS_CLI_ERROR` | `1` | Devops_cli.ai.rag.qdrant | Raised when an interaction with Qdrant fails. |
 | `REVIEW_POOL_ERROR` | `1` | Ai | Raised when an error occurs during parallel review worker pool execution. |
 | `RUN_CANCELLED` | `26` | Ai | Raised when an agent run was cancelled by the application or timeout. |
 | `SSRF_BLOCKED` | `2` | Security | Raised when an outbound HTTP request targets a private or forbidden network IP. |

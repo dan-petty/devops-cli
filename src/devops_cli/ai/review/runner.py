@@ -1598,6 +1598,7 @@ def _execute_review_workflow(
     stage_flags: ReviewStageFlags | None = None,
     concurrency: int | None = None,
     parallel: bool = True,
+    ground_contracts: bool = True,
 ) -> list[tuple[PersonaDefinition, ReviewResult | str]]:
     """Common review execution workflow for path, branch, and PR reviews."""
     from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
@@ -1613,6 +1614,7 @@ def _execute_review_workflow(
         target_dir=target_dir,
         concurrency=concurrency,
         parallel=parallel,
+        ground_contracts=ground_contracts,
     )
 
     if type(clients.analysis).__name__ == "LLMClient":

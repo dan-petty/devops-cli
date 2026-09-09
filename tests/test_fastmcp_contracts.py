@@ -101,6 +101,9 @@ def test_fastmcp_tools_registration() -> None:
         "ai_failover",
         "ai_resume",
         "ai_constellation_status",
+        "ai_ingest_library",
+        "ai_query_library",
+        "ai_inspect_symbol",
         # HashiCorp Vault
         "vault_status",
         "vault_get",
@@ -161,6 +164,7 @@ def test_fastmcp_prompts_and_resources_registration() -> None:
         "resource://gh/issues/status",
         "resource://gh/project/status",
         "resource://gh/views/status",
+        "resource://libraries/indexed",
     }
     assert expected_resources.issubset(resource_uris), (
         f"Missing FastMCP resources: {expected_resources - resource_uris}"
@@ -249,3 +253,88 @@ def test_fastmcp_messages_and_errors_localization() -> None:
     with pytest.raises(SecurityError) as sec_info:
         run_mcp_server(transport="sse", host="192.168.1.50")
     assert ERRORS.mcp.security_sse_non_loopback.format(host="192.168.1.50") in str(sec_info.value)
+
+
+def test_fastmcp_library_tools_and_resource() -> None:
+    """Verify library intelligence FastMCP tools and system resource execution."""
+    from unittest.mock import patch
+
+    from devops_cli.ai.mcp.server import (
+        ai_ingest_library,
+        ai_inspect_symbol,
+        ai_query_library,
+        get_indexed_libraries_resource,
+    )
+    from devops_cli.config.defaults import (
+        DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
+        DEFAULT_MCP_TOOL_TIMEOUT_SECONDS,
+    )
+
+    with patch("devops_cli.ai.mcp.server._run_mcp_cmd") as mock_cmd:
+        mock_cmd.return_value = '{"status": "ok"}'
+
+        res = ai_ingest_library(package="typer", max_depth=2)
+        assert res == '{"status": "ok"}'
+        mock_cmd.assert_called_with(
+            [
+                "uv",
+                "run",
+                "devops",
+                "ai",
+                "ingest",
+                "library",
+                "typer",
+                "--max-depth",
+                "2",
+                "--format",
+                "json",
+            ],
+            timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS,
+        )
+
+        res = ai_query_library(query="command", package="typer", exact=True, top_k=3)
+        assert res == '{"status": "ok"}'
+        mock_cmd.assert_called_with(
+            [
+                "uv",
+                "run",
+                "devops",
+                "ai",
+                "ingest",
+                "query-library",
+                "command",
+                "--top-k",
+                "3",
+                "--format",
+                "json",
+                "--package",
+                "typer",
+                "--exact",
+            ],
+            timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
+        )
+
+        res = ai_inspect_symbol(symbol="Typer", package="typer")
+        assert res == '{"status": "ok"}'
+        mock_cmd.assert_called_with(
+            [
+                "uv",
+                "run",
+                "devops",
+                "ai",
+                "ingest",
+                "query-library",
+                "Typer",
+                "--exact",
+                "--format",
+                "json",
+                "--package",
+                "typer",
+            ],
+            timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
+        )
+
+    # Test resource returns valid JSON
+    resource_data = get_indexed_libraries_resource()
+    assert isinstance(resource_data, str)
+    assert resource_data.startswith("[")

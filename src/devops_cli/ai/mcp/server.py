@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import subprocess
+from pathlib import Path
 from typing import Literal
 
 from fastmcp import FastMCP
@@ -1616,6 +1618,104 @@ def ai_constellation_status() -> str:
         ["uv", "run", "devops", "ai", "constellation", "--format", "json"],
         timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
     )
+
+
+@mcp.tool()
+def ai_ingest_library(
+    package: str,
+    max_depth: int = 1,
+) -> str:
+    """Introspect an installed Python package and extract its public API contract into .data/libraries/."""
+    _validate_mcp_arg("package", package)
+    cmd = [
+        "uv",
+        "run",
+        "devops",
+        "ai",
+        "ingest",
+        "library",
+        package,
+        "--max-depth",
+        str(max_depth),
+        "--format",
+        "json",
+    ]
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def ai_query_library(
+    query: str,
+    package: str = "",
+    exact: bool = False,
+    top_k: int = 5,
+) -> str:
+    """Search library contracts and documentation via semantic search or exact symbol lookup."""
+    _validate_mcp_arg("query", query)
+    cmd = [
+        "uv",
+        "run",
+        "devops",
+        "ai",
+        "ingest",
+        "query-library",
+        query,
+        "--top-k",
+        str(top_k),
+        "--format",
+        "json",
+    ]
+    if package:
+        _validate_mcp_arg("package", package)
+        cmd.extend(["--package", package])
+    if exact:
+        cmd.append("--exact")
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def ai_inspect_symbol(
+    symbol: str,
+    package: str = "",
+) -> str:
+    """Inspect exact symbol signature, parameter types, return type, and docstrings from library contracts."""
+    _validate_mcp_arg("symbol", symbol)
+    cmd = [
+        "uv",
+        "run",
+        "devops",
+        "ai",
+        "ingest",
+        "query-library",
+        symbol,
+        "--exact",
+        "--format",
+        "json",
+    ]
+    if package:
+        _validate_mcp_arg("package", package)
+        cmd.extend(["--package", package])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.resource("resource://libraries/indexed")
+def get_indexed_libraries_resource() -> str:
+    """Return JSON metadata of all indexed library contracts, module counts, and symbol counts."""
+    from devops_cli.commands.ai_ingest import _load_local_contracts
+
+    contracts = _load_local_contracts(Path(".data/libraries"))
+    payload = [
+        {
+            "package_name": c.package_name,
+            "version": c.version,
+            "timestamp": c.timestamp,
+            "total_modules": c.total_modules,
+            "total_functions": c.total_functions,
+            "total_classes": c.total_classes,
+        }
+        for c in contracts
+    ]
+    return json.dumps(payload, indent=2)
 
 
 @mcp.resource("resource://ai/constellation")

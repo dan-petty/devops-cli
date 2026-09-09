@@ -223,11 +223,11 @@ High-density product roadmap, engineering milestones, and open-source integratio
 - [x] **Multi-Source Documentation & Standards Ingester (`devops ai ingest docs`)**: SSRF-guarded crawler ingesting local and remote documentation sets (Sphinx, MkDocs, DevDocs, PEPs, CIS benchmarks) into clean, chunked markdown reference collections with breadcrumb metadata. (PR #82)
 - [x] **Dedicated Library Vector Tier (`devops_libraries`) & Valkey Symbol Store**: Segregated Qdrant collection and Valkey L1 cache tier (`symbol:<qualname>`) providing sub-millisecond API signature lookups and hybrid dense-sparse search. (PR #83)
 - [x] **GitHub Pages, Issues, Projects & Views Integration with FastMCP**: Complete management subsystem: `devops gh pages [status|builds|build|verify]`, `devops gh issues [list|create|triage|status]`, `devops gh project [list|audit]`, and `devops gh views audit`; 10 new FastMCP tools and 4 dynamic system resources (`resource://gh/*`). (PR #83)
-- [ ] **Import-Driven AST Prompt Grounding & Contract Invalidation (P0 - Critical, Issue #78)**:
+- [x] **Import-Driven AST Prompt Grounding & Contract Invalidation (P0 - Critical, Issue #78)**:
   - *Context & Rationale*: Eliminates AI third-party API hallucinations by extracting imported symbols from review diffs via AST, fetching verified signatures from `devops_libraries` / Valkey, and injecting concrete contracts into review prompts.
   - *CLI & Architecture*: Integrated into `Stage1PreAnalysis` and `Stage3PersonaReview` with `--ground-contracts` flag; falls back gracefully to offline JSON contracts.
   - *Acceptance Criteria*: Measured reduction of third-party API hallucination rate to <1% across benchmark datasets; AST symbol extraction overhead <10ms per file.
-- [ ] **FastMCP Library Intelligence Tools & Dynamic System Resources (P0 - Critical, Issue #80)**:
+- [x] **FastMCP Library Intelligence Tools & Dynamic System Resources (P0 - Critical, Issue #80)**:
   - *Context & Rationale*: Exposes library intelligence directly to IDE-hosted AI coding assistants through native FastMCP tools and dynamic resources.
   - *Tools & Resources*: FastMCP tools `ai_ingest_library(package)`, `ai_query_library(query, package, exact)`, `ai_inspect_symbol(symbol, package)`; dynamic system resource `resource://libraries/indexed` reporting indexed libraries, symbol counts, and vector point health.
   - *Acceptance Criteria*: 100% typed parameters, comprehensive docstrings, auto-exported schemas via `devops mcp export-schemas`, and contract test verification in `tests/test_fastmcp_contracts.py`.
@@ -393,7 +393,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
 | | Dedicated Library Vector Tier (`devops_libraries`) | Qdrant / Valkey | High | Low | v0.2.14 | ✅ Completed |
 | | GitHub Pages Publishing & Deployment Verification CLI (`devops gh pages`) | Python / Jekyll / GitHub REST | High | Low | v0.2.14 | ✅ Completed |
 | | FastMCP GitHub Pages, Issues & Views Tools (10 Tools) | FastMCP / Pydantic | High | Low | v0.2.14 | ✅ Completed |
-| | FastMCP Library Tools & Indexed Resource | FastMCP / Qdrant | High | Low | v0.2.14 | 📋 Scheduled (P0) |
+| | FastMCP Library Tools & Indexed Resource | FastMCP / Qdrant | High | Low | v0.2.14 | ✅ Completed |
 | | Declarative Branch Protection Auditor (`devops gh branch-protection`) | GitHub REST / Policy | High | Low | v0.2.15 | 📋 Scheduled (P2) |
 | | Workstation Secret to GitHub Secret Sync (`devops gh secrets`) | `PyNaCl` / Keyring / Vault | High | Low | v0.2.15 | 📋 Scheduled (P2) |
 | | Deterministic Async Memory & Pool Profiler | `asyncio` / `tracemalloc` | Medium | Low | v0.2.15 | 📋 Scheduled (P2) |
@@ -452,7 +452,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
 | | Dynamic Package Introspection & Type Stub Parser (`devops ai ingest library`) | `ast` / `pkgutil` / `inspect` | High | Medium | v0.2.14 | ✅ Completed |
 | | Multi-Source Documentation & Standards Ingester (`devops ai ingest docs`) | `httpx2` / `pathspec` | High | Medium | v0.2.14 | ✅ Completed |
 | | GitHub Issue Triage & Management Engine (`devops gh issues`) | GitHub API / `httpx2` | High | Medium | v0.2.14 | ✅ Completed |
-| | Import-Driven AST Prompt Grounding & Contract Injection | AST / PydanticAI | High | Medium | v0.2.14 | 📋 Scheduled (P0) |
+| | Import-Driven AST Prompt Grounding & Contract Injection | AST / PydanticAI | High | Medium | v0.2.14 | ✅ Completed |
 | | Tree-Sitter Multilingual AST Graph & Code Intelligence Engine | `tree-sitter` / Multi-Language | High | Medium | v0.2.14 | 📋 Scheduled (P1) |
 | | Library API Drift & Deprecation Auditor | AST / McCabe | High | Medium | v0.2.14 | 📋 Scheduled (P1) |
 | | AI Context Packing & Symbol-Pruned Prompt Synthesizer | `devops_cli.ai.context_packer` | High | Medium | v0.2.14 | 📋 Scheduled (P2) |

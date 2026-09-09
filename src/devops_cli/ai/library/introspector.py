@@ -191,6 +191,9 @@ def _discover_submodules(root_module: ModuleType, max_depth: int) -> list[Module
     prefix = f"{root_module.__name__}."
 
     for _, sub_name, _ in pkgutil.iter_modules(root_module.__path__, prefix=prefix):
+        leaf = sub_name.rsplit(".", 1)[-1]
+        if leaf.startswith("_"):
+            continue
         depth = sub_name.count(".") - root_module.__name__.count(".")
         if depth > max_depth:
             continue

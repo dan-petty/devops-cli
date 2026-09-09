@@ -875,6 +875,27 @@
   - [x] 9. Synchronized documentation and README (`devops docs generate --sync-readme`).
   - [x] 10. Validated all 10 primary CI quality gates cleanly (`uv run devops ci`).
 
+- [x] Defect Fix: Skip Private Submodules and `__main__` During Package Introspection (Issue #84)
+  - [x] 1. Filtered out any discovered leaf submodule starting with `_` (e.g. `__main__`, `_vendor`, `_internal`) in `_discover_submodules()` in `src/devops_cli/ai/library/introspector.py`.
+  - [x] 2. Prevented CLI execution hazard where importing packages like `typer` runs `typer.cli.main()` reading `sys.argv`.
+  - [x] 3. Filed GitHub Issue #84 and synced to GitHub Projects v2 (#2).
+  - [x] 4. Added regression test in `tests/test_library_vector_tier.py` (20/20 passed).
+
+- [x] Phase 50.4: Import-Driven AST Prompt Grounding and API Contract Invalidator (P0 - Critical, Issue #78)
+  - [x] 1. Implemented AST import extraction for source files and unified diffs in `src/devops_cli/ai/review/ast_imports.py` (`extract_imports_from_source`, `extract_imports_from_diff`, `group_imports_by_package`).
+  - [x] 2. Implemented contract grounding resolver in `src/devops_cli/ai/review/contract_grounding.py` (`resolve_grounded_contracts`, `format_contract_grounding_for_prompt`) linking imports to Valkey L1 cache / Qdrant / offline JSON contracts.
+  - [x] 3. Integrated contract context injection into `_build_page_review_prompt` and `_review_single_file_payload` in `src/devops_cli/ai/review/pipeline.py` with `--ground-contracts` flag in `runner.py`.
+  - [x] 4. Populated grounded contracts in `payload.ai_scratchpad["grounded_contracts"]` for downstream verification and invalidation.
+  - [x] 5. Authored comprehensive unit tests in `tests/test_contract_injection.py` (9/9 passed).
+
+- [x] Phase 50.5: FastMCP Library Intelligence Tools and Dynamic System Resources (P0 - Critical, Issue #80)
+  - [x] 1. Registered `@mcp.tool()` `ai_ingest_library(package, max_depth)` in `src/devops_cli/ai/mcp/server.py`.
+  - [x] 2. Registered `@mcp.tool()` `ai_query_library(query, package, exact, top_k)` in `src/devops_cli/ai/mcp/server.py`.
+  - [x] 3. Registered `@mcp.tool()` `ai_inspect_symbol(symbol, package)` in `src/devops_cli/ai/mcp/server.py`.
+  - [x] 4. Registered `@mcp.resource("resource://libraries/indexed")` in `src/devops_cli/ai/mcp/server.py` listing indexed contracts, symbol counts, and vector point health.
+  - [x] 5. Exported 113 MCP schemas via `devops mcp export-schemas` and updated `tests/test_fastmcp_contracts.py` (7/7 passed).
+  - [x] 6. Enforced cyclomatic complexity <= 10 and nesting depth <= 5 across all functions.
+
 ---
 
 ### In-Progress Tasks (WIP)
@@ -883,8 +904,6 @@
 ---
 
 ### Pending Tasks
-- [ ] Phase 50.4: Import-Driven AST Prompt Grounding and API Contract Invalidator (P0 - Critical, Issue #78)
-- [ ] Phase 50.5: FastMCP Library Intelligence Tools and System Resources (P0 - Critical, Issue #80)
 - [ ] Phase 50.6: Tree-sitter Multilingual AST Graph & Code Intelligence Integration (P1 - High, Issue #74)
 - [ ] Phase 50.7: Library API Drift and Deprecation Usage Auditor (P1 - High, Issue #79)
 - [ ] Phase 50.8: AI Context Packing & Symbol-Pruned Prompt Synthesizer (P2 - Medium, Issue #81)

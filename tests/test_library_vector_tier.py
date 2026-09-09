@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
@@ -439,3 +440,38 @@ def test_cli_ai_ingest_query_library_semantic(
     assert "demo_pkg.api.get_data" in result.output
     assert "0.950" in result.output
     mock_store.search.assert_called_once_with("how to get data", package=None, top_k=5)
+
+
+def test_discover_submodules_skips_private_and_main(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Regression test for Issue #84: ensure _discover_submodules skips __main__ and private submodules."""
+    from types import ModuleType
+
+    from devops_cli.ai.library.introspector import _discover_submodules
+
+    dummy_root = ModuleType("dummy_pkg")
+    dummy_root.__path__ = ["/dummy/path"]  # type: ignore[attr-defined]
+
+    dummy_modules = [
+        (None, "dummy_pkg.sub", False),
+        (None, "dummy_pkg.__main__", False),
+        (None, "dummy_pkg._private", False),
+        (None, "dummy_pkg._internal.deep", False),
+    ]
+
+    imported_names: list[str] = []
+
+    def mock_iter_modules(path: Any, prefix: str = "") -> list[Any]:
+        return dummy_modules
+
+    def mock_import(name: str) -> ModuleType:
+        imported_names.append(name)
+        return ModuleType(name)
+
+    monkeypatch.setattr("pkgutil.iter_modules", mock_iter_modules)
+    monkeypatch.setattr("importlib.import_module", mock_import)
+
+    discovered = _discover_submodules(dummy_root, max_depth=1)
+    assert len(discovered) == 1
+    assert discovered[0].__name__ == "dummy_pkg.sub"
+    assert "dummy_pkg.__main__" not in imported_names
+    assert "dummy_pkg._private" not in imported_names

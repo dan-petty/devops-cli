@@ -12,6 +12,9 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`ai_diagram`](#ai-diagram) | Generate visual Mermaid architecture or threat modeling diagram. |
 | [`ai_failover`](#ai-failover) | Emergency failover controller re-routing tasks to designated fallback endpoints. |
 | [`ai_harness_status`](#ai-harness-status) | Inspect AI agent harness slot configuration, active models, skills, and sandbox state. |
+| [`ai_ingest_library`](#ai-ingest-library) | Introspect an installed Python package and extract its public API contract into .data/libraries/. |
+| [`ai_inspect_symbol`](#ai-inspect-symbol) | Inspect exact symbol signature, parameter types, return type, and docstrings from library contracts. |
+| [`ai_query_library`](#ai-query-library) | Search library contracts and documentation via semantic search or exact symbol lookup. |
 | [`ai_quiesce`](#ai-quiesce) | Centralized emergency quiesce cleanly suspending active agent loops and background tasks. |
 | [`ai_repomap`](#ai-repomap) | Generate a compact whole-repository AST symbol map for AI context. |
 | [`ai_resume`](#ai-resume) | Gracefully resume suspended constellation agent loops and task runners. |
@@ -176,6 +179,41 @@ Emergency failover controller re-routing tasks to designated fallback endpoints.
 Inspect AI agent harness slot configuration, active models, skills, and sandbox state.
 
 *No parameters required.*
+
+### `ai_ingest_library`
+
+Introspect an installed Python package and extract its public API contract into .data/libraries/.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `package` | `string` | Yes | - | - |
+| `max_depth` | `integer` | No | `1` | - |
+
+### `ai_inspect_symbol`
+
+Inspect exact symbol signature, parameter types, return type, and docstrings from library contracts.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `symbol` | `string` | Yes | - | - |
+| `package` | `string` | No | `` | - |
+
+### `ai_query_library`
+
+Search library contracts and documentation via semantic search or exact symbol lookup.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `query` | `string` | Yes | - | - |
+| `package` | `string` | No | `` | - |
+| `exact` | `boolean` | No | `False` | - |
+| `top_k` | `integer` | No | `5` | - |
 
 ### `ai_quiesce`
 
