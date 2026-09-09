@@ -46,6 +46,7 @@ The following matrix categorizes all project routine tasks by operational layer,
 | **Release Lifecycle** | Maintainer Release PR Merge | Step 4 | `gh pr merge <id> --squash` | Human maintainer squash-merges release PR into `main` | Push event on `main` branch |
 | **Release Lifecycle** | Automated Tagging & Publish | Step 5 | Automated (`release.yml`) | Cuts annotated git tag `vX.Y.Z`, generates notes, publishes GH Release | GitHub Release published with assets |
 | **Release Lifecycle** | Milestone Issue Population | Step 6 | `gh issue create` / `devops gh project sync` | Proactively creates GitHub issues for active milestone deliverables | Open issues populated with zero empty state |
+| **Release Lifecycle** | Historical Documentation Compaction | Step 7 | Automated / Manual | Compacts historical milestone docs in `docs/ROADMAP.md`, `RELEASE_NOTES.md`, and `LOG.md` on major/minor releases | Expressive, token-efficient docs with zero bloat |
 | **Security & Audits** | Dependency Security Audit | Weekly / Pre-Release | `uv run devops ci audit` (`uv audit`) | Scans installed packages for known vulnerabilities | 0 known vulnerabilities |
 | **Security & Audits** | Static Security Scan (SAST) | Weekly / Pre-Release | `uv run devops ci security` (`bandit`) | Static security scan for code vulnerabilities | 0 high/medium issues identified |
 | **Security & Audits** | Kubernetes Manifest Scans | Per Manifest Change | `devops scan [kubelinter\|popeye\|pluto\|trivy]` | Validates manifests against K8s security best practices | Zero deprecated APIs or misconfigurations |
@@ -239,6 +240,9 @@ sequenceDiagram
    - Proactively author GitHub issues for all planned deliverables in `docs/ROADMAP.md`, assigning each to the active milestone with full taxonomy labels (`type/*`, `scope/*`, `priority/*`).
    - Ensure the open issues queue (`https://github.com/dan-petty/devops-cli/issues?q=is%3Aissue+state%3Aopen`), projects tab (`https://github.com/dan-petty/devops-cli/projects`), and issue views (`https://github.com/dan-petty/devops-cli/issues/views`) are populated with zero empty state.
    - Synchronize items and custom fields into GitHub Projects v2 (`https://github.com/dan-petty/devops-cli/projects`) and repository issue views (`https://github.com/dan-petty/devops-cli/issues/views`) via `devops gh project sync`, link the board (`devops gh project link <number>`), and prune all stale remote tracking branches (`git fetch --prune origin`).
+8. **Automated Historical Documentation Compaction**:
+   - When transitioning to a new major or minor release, automatically compact historical documentation for older release series across `docs/ROADMAP.md` (consolidating completed milestone subsections and matrix rows into summary blocks), `docs/RELEASE_NOTES.md` (consolidating highlight sections into unified series blocks), and `docs/LOG.md` (compacting old planning entries).
+   - Re-verify documentation freshness via `uv run devops docs generate --sync-readme` and `uv run devops docs check`.
 
 ---
 

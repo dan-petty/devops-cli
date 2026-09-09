@@ -816,6 +816,15 @@
   - [x] 6. Fully reconciled Section 3 *Value vs. Effort Prioritization Matrix* with 1-to-1 alignment with milestone tasks and explicit priority tags.
   - [x] 7. Verified documentation freshness (`devops docs check`) and full CI suite (`devops ci` — 10/10 green).
 
+- [x] Phase 50.3.2: Historical Documentation Compaction (v0.1 Series) & Automated Release Compaction Instructions
+  - [x] 1. Compacted historical `v0.0.1`–`v0.1.9` milestone sections in `docs/ROADMAP.md` into a single, high-density section `### Workstation Foundation, SecOps, Multi-Cloud IaC & Core Architecture (v0.0.1 – v0.1.9 - Completed)`.
+  - [x] 2. Consolidated older `v0.1.x` rows in Section 3 (*Value vs. Effort Prioritization Matrix*) into high-level category summary entries under Quick Wins, Strategic Investments, and Tactical Additions.
+  - [x] 3. Compacted verbose historical release highlights for `v0.1.5` through `v0.1.13` in `docs/RELEASE_NOTES.md` into a unified `## 🚀 Highlights of v0.1 Series (v0.1.0 – v0.1.13 - Completed)` block.
+  - [x] 4. Replaced stale `v0.1.9` roadmap section in `RELEASE_CYCLE.md` with canonical reference to `docs/ROADMAP.md` and active release milestones.
+  - [x] 5. Compacted historical release logs and removed redundant duplicate planning paragraphs in `docs/LOG.md`.
+  - [x] 6. Codified the mandatory rule *Mandatory Historical Documentation Compaction on Major & Minor Releases* in `AGENTS.md` (Section 3) and `docs/ROUTINE_TASKS.md` (Cadence C Step 8 and Routine Tasks Matrix Step 7).
+  - [x] 7. Verified documentation freshness (`uv run devops docs check`) and passed full CI suite (`uv run devops ci` — 10/10 green).
+
 ---
 
 ### In-Progress Tasks (WIP)
