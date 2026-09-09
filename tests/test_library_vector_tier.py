@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import pytest
 from typer.testing import CliRunner
 
 from devops_cli.ai.rag.library_store import LibraryVectorStore
@@ -95,11 +96,25 @@ def test_ensure_collection_created() -> None:
     created = store.ensure_collection_exists()
 
     assert created is True
+    mock_qdrant.ensure_collection.assert_called_once()
+    args, kwargs = mock_qdrant.ensure_collection.call_args
+    assert kwargs.get("name") == DEFAULT_RAG_LIBRARIES_COLLECTION or (
+        args and args[0] == DEFAULT_RAG_LIBRARIES_COLLECTION
+    )
+
+
+def test_ensure_collection_created_fallback_create_collection() -> None:
+    mock_qdrant = MagicMock(spec=["get_collection_info", "create_collection"])
+    mock_qdrant.get_collection_info.return_value = None
+
+    store = LibraryVectorStore(qdrant_client=mock_qdrant, valkey_client=None)
+    created = store.ensure_collection_exists()
+
+    assert created is True
     mock_qdrant.create_collection.assert_called_once()
     args, kwargs = mock_qdrant.create_collection.call_args
-    assert (
-        kwargs.get("collection_name") == DEFAULT_RAG_LIBRARIES_COLLECTION
-        or args[0] == DEFAULT_RAG_LIBRARIES_COLLECTION
+    assert kwargs.get("collection_name") == DEFAULT_RAG_LIBRARIES_COLLECTION or (
+        args and args[0] == DEFAULT_RAG_LIBRARIES_COLLECTION
     )
 
 
@@ -111,6 +126,7 @@ def test_ensure_collection_already_exists() -> None:
     created = store.ensure_collection_exists()
 
     assert created is False
+    mock_qdrant.ensure_collection.assert_not_called()
     mock_qdrant.create_collection.assert_not_called()
 
 
@@ -133,9 +149,9 @@ def test_index_contract_and_valkey_cache() -> None:
     contract = _create_sample_contract()
     count = store.index_contract(contract)
 
-    assert count >= 2  # at least function and class
+    assert count >= 3  # function, class, and method
     mock_qdrant.upsert_points.assert_called_once()
-    assert mock_valkey.set.call_count >= 2  # function, class cached in Valkey
+    assert mock_valkey.set.call_count >= 3  # function, class, and method cached in Valkey
 
 
 def test_lookup_symbol_valkey_hit() -> None:
@@ -291,3 +307,135 @@ def test_cli_ai_ingest_query_library_json(tmp_path: Path) -> None:
     assert result.exit_code == 0
     data = json.loads(result.output)
     assert data["name"] == "get_data"
+
+
+def test_index_contract_indexes_methods() -> None:
+    mock_qdrant = MagicMock()
+    mock_qdrant.get_collection_info.return_value = {"status": "green"}
+    mock_valkey = MagicMock()
+
+    store = LibraryVectorStore(
+        qdrant_client=mock_qdrant,
+        valkey_client=mock_valkey,
+    )
+
+    contract = _create_sample_contract()
+    points_meta, texts, cache_entries = store._collect_contract_items(contract)
+
+    kinds = {item["kind"] for item in points_meta}
+    assert "function" in kinds
+    assert "class" in kinds
+    assert "method" in kinds
+
+    method_items = [item for item in points_meta if item["kind"] == "method"]
+    assert len(method_items) >= 1
+    assert any("get_data" in item["symbol_name"] for item in method_items)
+
+    cached_keys = [k for k, _ in cache_entries]
+    assert any("get_data" in k for k in cached_keys)
+
+
+def test_load_local_contracts_skips_invalid_json(tmp_path: Path) -> None:
+    from devops_cli.commands.ai_ingest import _load_local_contracts
+
+    valid_contract = _create_sample_contract()
+    valid_file = tmp_path / "valid.json"
+    valid_file.write_text(valid_contract.model_dump_json(), encoding="utf-8")
+
+    corrupt_file = tmp_path / "corrupt.json"
+    corrupt_file.write_text("{invalid json here", encoding="utf-8")
+
+    empty_file = tmp_path / "empty.json"
+    empty_file.write_text("{}", encoding="utf-8")
+
+    loaded = _load_local_contracts(tmp_path)
+    assert len(loaded) == 1
+    assert loaded[0].package_name == "demo-pkg"
+
+
+def test_build_runtime_vector_store_dry_run(tmp_path: Path) -> None:
+    from devops_cli.commands.ai_ingest import _build_runtime_vector_store
+
+    store = _build_runtime_vector_store(tmp_path, dry_run=True)
+    assert store.qdrant_client is None
+    assert store.valkey_client is None
+    assert store.embedder is None
+
+
+def test_build_runtime_vector_store_with_mocked_clients(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from devops_cli.commands import ai_ingest
+
+    mock_valkey = MagicMock()
+    mock_qdrant = MagicMock()
+    mock_embedder = MagicMock()
+
+    monkeypatch.setattr(ai_ingest, "_resolve_runtime_valkey_client", lambda: mock_valkey)
+    monkeypatch.setattr(
+        ai_ingest,
+        "_resolve_runtime_qdrant_and_embedder",
+        lambda: (mock_qdrant, mock_embedder),
+    )
+
+    store = ai_ingest._build_runtime_vector_store(tmp_path, semantic_needed=True, dry_run=False)
+    assert store.valkey_client is mock_valkey
+    assert store.qdrant_client is mock_qdrant
+    assert store.embedder is mock_embedder
+
+
+def test_cli_ai_ingest_index_libraries_live(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from devops_cli.commands import ai_ingest
+
+    contract = _create_sample_contract()
+    pkg_file = tmp_path / "demo-pkg.json"
+    pkg_file.write_text(contract.model_dump_json(), encoding="utf-8")
+
+    mock_store = MagicMock()
+    monkeypatch.setattr(
+        ai_ingest,
+        "_build_runtime_vector_store",
+        lambda *args, **kwargs: mock_store,
+    )
+
+    result = runner.invoke(
+        ai_app,
+        ["ingest", "index-libraries", "--dir", str(tmp_path)],
+    )
+    assert result.exit_code == 0
+    assert "demo-pkg" in result.output
+    mock_store.index_contract.assert_called_once()
+
+
+def test_cli_ai_ingest_query_library_semantic(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from devops_cli.commands import ai_ingest
+
+    mock_store = MagicMock()
+    mock_res = LibrarySearchResult(
+        symbol_name="demo_pkg.api.get_data",
+        package_name="demo-pkg",
+        version="1.0.0",
+        kind="function",
+        signature_text="def get_data(query: str) -> dict[str, Any]",
+        score=0.95,
+        source="library_contract",
+    )
+    mock_store.search.return_value = [mock_res]
+    monkeypatch.setattr(
+        ai_ingest,
+        "_build_runtime_vector_store",
+        lambda *args, **kwargs: mock_store,
+    )
+
+    result = runner.invoke(
+        ai_app,
+        ["ingest", "query-library", "how to get data", "--contracts-dir", str(tmp_path)],
+    )
+    assert result.exit_code == 0
+    assert "demo_pkg.api.get_data" in result.output
+    assert "0.950" in result.output
+    mock_store.search.assert_called_once_with("how to get data", package=None, top_k=5)

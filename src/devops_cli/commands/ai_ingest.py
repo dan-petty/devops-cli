@@ -2,14 +2,21 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
-from typing import Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any
 
 import typer
 
 from devops_cli.config.defaults import DEFAULT_TABLE_FORMAT
 from devops_cli.core.cli import new_typer
 from devops_cli.lang import HELP
+
+if TYPE_CHECKING:
+    from devops_cli.ai.rag.library_store import LibraryVectorStore
+    from devops_cli.models.library import LibraryContract
+
+logger = logging.getLogger(__name__)
 
 app = new_typer(
     help=HELP.ai.ingest,
@@ -104,7 +111,7 @@ def ingest_docs(
     )
 
 
-def _load_local_contracts(contracts_dir: Path) -> list[Any]:
+def _load_local_contracts(contracts_dir: Path) -> list[LibraryContract]:
     """Load all valid LibraryContract instances from a local directory."""
     from devops_cli.models.library import LibraryContract
 
@@ -116,7 +123,8 @@ def _load_local_contracts(contracts_dir: Path) -> list[Any]:
         try:
             contract = LibraryContract.model_validate_json(filepath.read_text(encoding="utf-8"))
             contracts.append(contract)
-        except Exception:
+        except Exception as exc:
+            logger.debug("Skipping invalid contract file %s: %s", filepath.name, exc)
             continue
     return contracts
 
@@ -209,6 +217,64 @@ def _render_search_results_table(results: list[Any]) -> None:
     )
 
 
+def _resolve_runtime_valkey_client() -> Any:
+    """Attempt to resolve and connect to a live Valkey client."""
+    try:
+        from devops_cli.commands.valkey import _resolve_client
+
+        client = _resolve_client()
+        return client if client.ping() else None
+    except Exception as exc:
+        logger.debug("Valkey client unavailable for library vector tier: %s", exc)
+        return None
+
+
+def _resolve_runtime_qdrant_and_embedder() -> tuple[Any, Any]:
+    """Attempt to resolve and connect to a live Qdrant client and EmbeddingsEngine."""
+    try:
+        from devops_cli.ai.rag.embeddings import EmbeddingsEngine
+        from devops_cli.ai.rag.indexer import resolve_qdrant_client
+        from devops_cli.config.settings import get_ai_api_key, load_settings
+
+        settings = load_settings()
+        client = resolve_qdrant_client()
+        if not client.is_alive():
+            return None, None
+        embedder = EmbeddingsEngine(
+            ai_config=settings.ai,
+            api_key=get_ai_api_key(settings),
+        )
+        return client, embedder
+    except Exception as exc:
+        logger.debug("Qdrant or embedder unavailable for library vector tier: %s", exc)
+        return None, None
+
+
+def _build_runtime_vector_store(
+    contracts_dir: Path,
+    *,
+    semantic_needed: bool = True,
+    dry_run: bool = False,
+) -> LibraryVectorStore:
+    """Construct LibraryVectorStore wired with Qdrant, embedder, and Valkey clients if available."""
+    from devops_cli.ai.rag.library_store import LibraryVectorStore
+
+    if dry_run:
+        return LibraryVectorStore(local_contracts_dir=contracts_dir)
+
+    valkey_client = _resolve_runtime_valkey_client()
+    qdrant_client, embedder = (
+        _resolve_runtime_qdrant_and_embedder() if semantic_needed else (None, None)
+    )
+
+    return LibraryVectorStore(
+        qdrant_client=qdrant_client,
+        valkey_client=valkey_client,
+        embedder=embedder,
+        local_contracts_dir=contracts_dir,
+    )
+
+
 @app.command(name="index-libraries")
 def index_libraries(
     contracts_dir: Annotated[Path, typer.Option("--dir", "-d", help=HELP.ai.contracts_dir)] = Path(
@@ -222,7 +288,6 @@ def index_libraries(
     """Index exported library API contracts into Qdrant vector collection and Valkey cache."""
     import json
 
-    from devops_cli.ai.rag.library_store import LibraryVectorStore
     from devops_cli.output import print_warning, write_stdout
 
     contracts = _load_local_contracts(contracts_dir)
@@ -231,7 +296,7 @@ def index_libraries(
         return
 
     if not dry_run:
-        store = LibraryVectorStore(local_contracts_dir=contracts_dir)
+        store = _build_runtime_vector_store(contracts_dir, semantic_needed=True, dry_run=False)
         for contract in contracts:
             store.index_contract(contract)
 
@@ -263,10 +328,13 @@ def query_library(
     """Search library contracts and documentation via semantic search or exact symbol lookup."""
     import json
 
-    from devops_cli.ai.rag.library_store import LibraryVectorStore
     from devops_cli.output import print_error, write_stdout
 
-    store = LibraryVectorStore(local_contracts_dir=contracts_dir)
+    store = _build_runtime_vector_store(
+        contracts_dir,
+        semantic_needed=not exact,
+        dry_run=False,
+    )
 
     if exact:
         sig = store.lookup_symbol(query, package=package)

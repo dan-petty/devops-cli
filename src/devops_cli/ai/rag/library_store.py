@@ -107,6 +107,44 @@ def _search_contract_modules(
     return None
 
 
+def _collect_function_item(
+    fn: FunctionSignature, package_name: str, version: str, kind: str = "function"
+) -> tuple[dict[str, Any], str, tuple[str, str]]:
+    """Extract point metadata, embedding text, and cache tuple for a function or method."""
+    sig = _format_fn_signature(fn)
+    text = f"{sig}\n\n{fn.docstring or ''}"
+    meta = {
+        "symbol_name": fn.qualname,
+        "package_name": package_name,
+        "version": version,
+        "kind": kind,
+        "signature_text": sig,
+        "docstring": fn.docstring,
+        "source": "library_contract",
+    }
+    cache = (f"symbol:{fn.qualname}", fn.model_dump_json())
+    return meta, text, cache
+
+
+def _collect_class_item(
+    cls: ClassSignature, package_name: str, version: str
+) -> tuple[dict[str, Any], str, tuple[str, str]]:
+    """Extract point metadata, embedding text, and cache tuple for a class."""
+    cls_sig = _format_class_signature(cls)
+    text = f"{cls_sig}\n\n{cls.docstring or ''}"
+    meta = {
+        "symbol_name": cls.qualname,
+        "package_name": package_name,
+        "version": version,
+        "kind": "class",
+        "signature_text": cls_sig,
+        "docstring": cls.docstring,
+        "source": "library_contract",
+    }
+    cache = (f"symbol:{cls.qualname}", cls.model_dump_json())
+    return meta, text, cache
+
+
 class LibraryVectorStore:
     """Segregated vector index and in-memory symbol cache for library contracts."""
 
@@ -144,11 +182,18 @@ class LibraryVectorStore:
             return False
 
         dim = self._resolve_dimension()
-        self.qdrant_client.create_collection(
-            collection_name=self.collection_name,
-            vector_size=dim,
-            distance=DEFAULT_QDRANT_DISTANCE,
-        )
+        if hasattr(self.qdrant_client, "ensure_collection"):
+            self.qdrant_client.ensure_collection(
+                name=self.collection_name,
+                vector_size=dim,
+                distance=DEFAULT_QDRANT_DISTANCE,
+            )
+        elif hasattr(self.qdrant_client, "create_collection"):
+            self.qdrant_client.create_collection(
+                collection_name=self.collection_name,
+                vector_size=dim,
+                distance=DEFAULT_QDRANT_DISTANCE,
+            )
         return True
 
     def _embed_single_text(self, text: str) -> list[float]:
@@ -197,36 +242,28 @@ class LibraryVectorStore:
 
         for mod in contract.modules.values():
             for fn in mod.functions.values():
-                sig = _format_fn_signature(fn)
-                texts.append(f"{sig}\n\n{fn.docstring or ''}")
-                points_meta.append(
-                    {
-                        "symbol_name": fn.qualname,
-                        "package_name": contract.package_name,
-                        "version": contract.version,
-                        "kind": "function",
-                        "signature_text": sig,
-                        "docstring": fn.docstring,
-                        "source": "library_contract",
-                    }
+                meta, text, cache = _collect_function_item(
+                    fn, contract.package_name, contract.version, "function"
                 )
-                cache_entries.append((f"symbol:{fn.qualname}", fn.model_dump_json()))
+                points_meta.append(meta)
+                texts.append(text)
+                cache_entries.append(cache)
 
             for cls in mod.classes.values():
-                cls_sig = _format_class_signature(cls)
-                texts.append(f"{cls_sig}\n\n{cls.docstring or ''}")
-                points_meta.append(
-                    {
-                        "symbol_name": cls.qualname,
-                        "package_name": contract.package_name,
-                        "version": contract.version,
-                        "kind": "class",
-                        "signature_text": cls_sig,
-                        "docstring": cls.docstring,
-                        "source": "library_contract",
-                    }
+                meta, text, cache = _collect_class_item(
+                    cls, contract.package_name, contract.version
                 )
-                cache_entries.append((f"symbol:{cls.qualname}", cls.model_dump_json()))
+                points_meta.append(meta)
+                texts.append(text)
+                cache_entries.append(cache)
+
+                for method in cls.methods.values():
+                    m_meta, m_text, m_cache = _collect_function_item(
+                        method, contract.package_name, contract.version, "method"
+                    )
+                    points_meta.append(m_meta)
+                    texts.append(m_text)
+                    cache_entries.append(m_cache)
 
         return points_meta, texts, cache_entries
 

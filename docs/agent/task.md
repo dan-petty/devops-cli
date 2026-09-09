@@ -827,16 +827,22 @@
 
 ---
 
-### In-Progress Tasks (WIP)
-- [ ] Phase 50.3: Dedicated Library Vector Tier (`devops_libraries`) & Valkey Symbol Cache Store (Issue #77)
-  - [x] 1. Authored test-first verification suite in `tests/test_library_vector_tier.py` (12/12 passing).
+- [x] Phase 50.3: Dedicated Library Vector Tier (`devops_libraries`) & Valkey Symbol Cache Store (Issue #77, PR #83)
+  - [x] 1. Authored test-first verification suite in `tests/test_library_vector_tier.py` (19/19 passing).
   - [x] 2. Added configuration defaults `DEFAULT_RAG_LIBRARIES_COLLECTION` and `DEFAULT_VALKEY_SYMBOL_TTL_SECONDS` in `src/devops_cli/config/defaults.py`.
   - [x] 3. Implemented `LibrarySearchResult` in `src/devops_cli/models/library.py`.
   - [x] 4. Implemented `LibraryVectorStore` in `src/devops_cli/ai/rag/library_store.py` with segregated Qdrant collection and L1 Valkey symbol cache.
   - [x] 5. Implemented `devops ai ingest index-libraries` and `devops ai ingest query-library` CLI subcommands in `src/devops_cli/commands/ai_ingest.py`.
   - [x] 6. Added CLI help strings in `src/devops_cli/lang/en/help.py`.
   - [x] 7. Verified complexity <= 10 and indentation depth <= 5 via `devops scan complexity`.
-  - [x] 8. Verified full CI suite (`devops ci` — 10/10 green), committed, pushed, and opened PR #83 targeting `release/v0.2.14` (Closes #77). CI checks running on GitHub Actions.
+  - [x] 8. Verified full CI suite (`devops ci` — 10/10 green), committed, pushed, and opened PR #83 targeting `release/v0.2.14` (Closes #77).
+  - [x] 9. Addressed all 5 code review findings on PR #83:
+    - [x] Updated `ensure_collection_exists()` to call `ensure_collection` on `QdrantClient` with fallback to `create_collection`.
+    - [x] Implemented `_build_runtime_vector_store` in `src/devops_cli/commands/ai_ingest.py` to wire live `QdrantClient`, `EmbeddingsEngine`, and `ValkeyClient` in `index-libraries` and `query-library`.
+    - [x] Added class method indexing in `_collect_contract_items()` for embedding points (`kind="method"`) and Valkey caching (`symbol:<qualname>`).
+    - [x] Updated `_load_local_contracts()` to return `list[LibraryContract]` with debug logging on malformed contract JSON.
+    - [x] Expanded unit test suite to 19 tests in `tests/test_library_vector_tier.py` (100% passing).
+    - [x] Validated all 10 quality gates via `uv run devops ci` (10/10 green).
 
 ---
 
