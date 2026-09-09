@@ -688,7 +688,7 @@ class TLSCommandHelp:
     bundle: str = "Generate full homelab TLS certificate bundle."
     k8s_secret: str = "Create Kubernetes TLS secret in cluster namespaces."
     output_dir: str = "Directory to save certificate and key files."
-    common_name: str = "Common Name for the certificate (e.g. *.local.lan)."
+    common_name: str = "Common Name for the certificate (e.g. *.example.internal)."
     organization: str = "Organization name."
     country: str = "2-letter country code."
     validity_days: str = "Validity period in days."

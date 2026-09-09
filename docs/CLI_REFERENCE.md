@@ -4203,7 +4203,7 @@ devops tls ca [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--output-dir`, `-o` | `path` | `~/.config/devops-cli/tls` | Directory to save certificate and key files. |
-| `--common-name`, `-cn` | `string` | `Homelab DevOps Root CA` | Common Name for the certificate (e.g. *.local.lan). |
+| `--common-name`, `-cn` | `string` | `Homelab DevOps Root CA` | Common Name for the certificate (e.g. *.example.internal). |
 | `--organization`, `-org` | `string` | `Homelab DevOps` | Organization name. |
 | `--country`, `-c` | `string` | `US` | 2-letter country code. |
 | `--validity-days`, `-d` | `integer` | `3650` | Validity period in days. |
@@ -4222,7 +4222,7 @@ devops tls cert [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--common-name`, `-cn` | `string` | `homelab.local` | Common Name for the certificate (e.g. *.local.lan). |
+| `--common-name`, `-cn` | `string` | `homelab.local` | Common Name for the certificate (e.g. *.example.internal). |
 | `--san`, `-s` | `string` | - | Subject Alternative Names (DNS names or IP addresses). |
 | `--ca-cert` | `path` | - | Path to signing CA certificate (ca.crt). |
 | `--ca-key` | `path` | - | Path to signing CA private key (ca.key). |

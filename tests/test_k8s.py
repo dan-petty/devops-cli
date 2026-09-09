@@ -128,7 +128,7 @@ def test_k8s_deploy_stack_fails_when_cluster_unreachable(
 ) -> None:
     """k8s deploy-stack must fail gracefully when cluster is unreachable."""
     set_dry_run(False)
-    result = runner.invoke(app, ["deploy-stack", "--context", "homelab-k3s"])
+    result = runner.invoke(app, ["deploy-stack", "--context", "local-k3s"])
     assert result.exit_code == 1
     assert "Kubernetes cluster is not reachable" in result.output
 
@@ -231,7 +231,7 @@ def test_adopt_helm_resource_if_conflict(mock_run: MagicMock) -> None:
         "and cannot be imported into the current release: invalid ownership metadata; "
         'label validation error: missing key "app.kubernetes.io/managed-by": must be set to "Helm"'
     )
-    res = _adopt_helm_resource_if_conflict(err, "ollama", "llm", context="homelab-k3s")
+    res = _adopt_helm_resource_if_conflict(err, "ollama", "llm", context="local-k3s")
     assert res is True
     assert mock_run.call_count == 2
 
