@@ -103,6 +103,46 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 
 ---
 
+## AI Review Engine & Personas
+
+- **DevSecOps (`--persona devsecops`)**: OWASP Top 10, secret leaks, supply chain vulnerabilities, Docker/IaC security misconfigurations.
+- **Architect (`--persona architect`)**: SOLID principles, clean architecture/DDD, microservice coupling, observability, API contract design.
+- **Project Manager (`--persona pm`)**: Scope risk, breaking changes, test coverage adequacy, deployment rollback readiness, action items.
+- **Auditor (`--persona auditor`)**: Regulatory compliance frameworks (NIST SP 800-53, PCI-DSS v4.0, SOC 2 Type II) with exact control IDs.
+- **QA / Test Engineer (`--persona qa`)**: Regression prevention, test coverage gaps, edge cases, pytest code skeletons, validation steps.
+
+---
+
+## Local Workstation Model & Security Architecture
+
+1. **Local Workstation Timeouts**: High timeouts (`DEFAULT_REVIEW_TIMEOUT_SECONDS = 3600.0`, `DEFAULT_SUBPROCESS_TIMEOUT_SECONDS = 1800.0`) support local LLM inference (CPU/GPU Ollama) and corporate proxies.
+2. **Key Material Mounting**: `${localEnv:HOME}/.ssh` is bind-mounted by design into `.devcontainer` for local SSH key generation and 90-day rotation.
+3. **SSRF Protections**: `validate_service_url` blocks non-public IPs unless `DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true` is set.
+4. **Workspace Boundary Guards**: Path traversal checks (`_is_safe_workspace_path`) enforce repository boundaries on file commands.
+5. **Checksum Verification**: `devops install-tools` validates SHA-256 checksums before writing binaries to disk.
+6. **Automated Design Justification & Documentation Maintenance**: Non-instructional, reference-backed inline comments (`# NOTE (Design Justification - <REF>): ...`) automatically document intentional design trade-offs directly above target code constructs, and project documentation (`AGENTS.md`, `README.md`, `CLAUDE.md`, `.github/copilot-instructions.md`) is routinely updated whenever code or prompt conventions evolve.
+
+---
+
+## Strategic Prioritization Matrix & Product Roadmap
+
+The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliverables (`v0.2.4` through `v0.3.0`), architectural principles, and continuous release schedules are actively managed in the dedicated [Product Roadmap](docs/ROADMAP.md).
+
+---
+
+## Working Documentation
+
+- [AGENTS.md](AGENTS.md) — Single source of truth for AI agents.
+- [Knowledge Base](src/devops_cli/ai/knowledge_base/README.md) — Comprehensive technical manual for tools and operational tasks.
+- [RELEASE_NOTES.md](docs/RELEASE_NOTES.md) — Version release notes and highlights.
+- [CHANGELOG.md](CHANGELOG.md) — Historical release and version changes.
+- [ROADMAP.md](docs/ROADMAP.md) — Vision, principles, and phased deliverables.
+- [PENDING_FEATURES.md](docs/PENDING_FEATURES.md) — Active proposals and feature specifications.
+- [KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md) — Operational edge cases and intentional design trade-offs.
+- [LOG.md](docs/LOG.md) — Active chronological development and refactoring log.
+
+---
+
 ## Complete Command Matrix
 
 
@@ -320,46 +360,6 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 | **tui** | `devops tui [OPTIONS]` | Interactive terminal UI dashboard for workstation situational awareness. |
 
 <!-- COMMAND_MATRIX_END -->
-
----
-
-## AI Review Engine & Personas
-
-- **DevSecOps (`--persona devsecops`)**: OWASP Top 10, secret leaks, supply chain vulnerabilities, Docker/IaC security misconfigurations.
-- **Architect (`--persona architect`)**: SOLID principles, clean architecture/DDD, microservice coupling, observability, API contract design.
-- **Project Manager (`--persona pm`)**: Scope risk, breaking changes, test coverage adequacy, deployment rollback readiness, action items.
-- **Auditor (`--persona auditor`)**: Regulatory compliance frameworks (NIST SP 800-53, PCI-DSS v4.0, SOC 2 Type II) with exact control IDs.
-- **QA / Test Engineer (`--persona qa`)**: Regression prevention, test coverage gaps, edge cases, pytest code skeletons, validation steps.
-
----
-
-## Local Workstation Model & Security Architecture
-
-1. **Local Workstation Timeouts**: High timeouts (`DEFAULT_REVIEW_TIMEOUT_SECONDS = 3600.0`, `DEFAULT_SUBPROCESS_TIMEOUT_SECONDS = 1800.0`) support local LLM inference (CPU/GPU Ollama) and corporate proxies.
-2. **Key Material Mounting**: `${localEnv:HOME}/.ssh` is bind-mounted by design into `.devcontainer` for local SSH key generation and 90-day rotation.
-3. **SSRF Protections**: `validate_service_url` blocks non-public IPs unless `DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true` is set.
-4. **Workspace Boundary Guards**: Path traversal checks (`_is_safe_workspace_path`) enforce repository boundaries on file commands.
-5. **Checksum Verification**: `devops install-tools` validates SHA-256 checksums before writing binaries to disk.
-6. **Automated Design Justification & Documentation Maintenance**: Non-instructional, reference-backed inline comments (`# NOTE (Design Justification - <REF>): ...`) automatically document intentional design trade-offs directly above target code constructs, and project documentation (`AGENTS.md`, `README.md`, `CLAUDE.md`, `.github/copilot-instructions.md`) is routinely updated whenever code or prompt conventions evolve.
-
----
-
-## Strategic Prioritization Matrix & Product Roadmap
-
-The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliverables (`v0.2.4` through `v0.3.0`), architectural principles, and continuous release schedules are actively managed in the dedicated [Product Roadmap](docs/ROADMAP.md).
-
----
-
-## Working Documentation
-
-- [AGENTS.md](AGENTS.md) — Single source of truth for AI agents.
-- [Knowledge Base](src/devops_cli/ai/knowledge_base/README.md) — Comprehensive technical manual for tools and operational tasks.
-- [RELEASE_NOTES.md](docs/RELEASE_NOTES.md) — Version release notes and highlights.
-- [CHANGELOG.md](CHANGELOG.md) — Historical release and version changes.
-- [ROADMAP.md](docs/ROADMAP.md) — Vision, principles, and phased deliverables.
-- [PENDING_FEATURES.md](docs/PENDING_FEATURES.md) — Active proposals and feature specifications.
-- [KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md) — Operational edge cases and intentional design trade-offs.
-- [LOG.md](docs/LOG.md) — Active chronological development and refactoring log.
 
 ---
 
