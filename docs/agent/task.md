@@ -787,10 +787,12 @@
   - [x] 13. PR #82 squash-merged into `release/v0.2.14` by maintainer (commit `e77dc7b`). Issues #75 and #76 closed; remote branch pruned.
 
 
-- [x] Phase 50.2.1: Agent Instruction Hardening — Mandatory Defect Incident Tracking on CLI Errors/Warnings
-  - [x] 1. Updated `AGENTS.md` (Section 1, Section 2, and Section 3) mandating that whenever an AI agent encounters unhandled errors, subcommand failures, crashes, diagnostic warnings, or unexpected output from `devops` CLI, a formal bug/issue entry must be filed immediately in GitHub Issues and synced to GitHub Projects.
-  - [x] 2. Updated `docs/ROUTINE_TASKS.md` with Core Engineering Tenet 6 on mandatory defect incident tracking.
-  - [x] 3. Updated Knowledge Base manual `src/devops_cli/ai/knowledge_base/devops_cli/tasks/github_project_management.md` with standard operating procedure step 8.
+- [x] Phase 50.2.2: Sandbox Application Probing, Monitoring, Fuzzing, Scanning & Iteration Architecture (Roadmap v0.2.16 & v0.2.17)
+  - [x] 1. Investigated 5 sandbox application lifecycle capabilities: probing (socket, HTTP/REST, OpenAPI, gRPC reflection), monitoring (cgroups v2, Prometheus /metrics, W3C traceparent correlation with OTel/Jaeger/Logfire, log streaming & panic detection), fuzzing (OpenAPI schema mutations, boundary testing, stateful sequences, minimal repro case generator), scanning (DAST with OWASP ZAP/Nuclei, container fs diffing, network egress anomaly detection, privilege verification), and iterating (autonomous closed-loop remediation pipeline, AST diagnosis, multi-persona AI repair, continuous watch mode).
+  - [x] 2. Defined Milestone `v0.2.16` (Ephemeral Workload Sandboxing, Dynamic Probing & Runtime Observability) with 5 major feature blocks and operational requirements in `docs/ROADMAP.md` and `docs/PENDING_FEATURES.md`.
+  - [x] 3. Defined Milestone `v0.2.17` (Dynamic API Fuzzing, Runtime Security DAST & Autonomous Remediation Iteration) with 5 major feature blocks, closed-loop iteration architecture, and FastMCP toolset in `docs/ROADMAP.md` and `docs/PENDING_FEATURES.md`.
+  - [x] 4. Updated the Strategic Value vs. Effort Prioritization Matrix in `docs/ROADMAP.md` with 12 new deliverables across Quick Wins, Strategic Investments, and Tactical Additions.
+  - [x] 5. Validated documentation integrity with zero drift via `devops docs generate --sync-readme` and `devops docs check`.
 
 ---
 
@@ -803,7 +805,7 @@
   - [x] 5. Implemented `devops ai ingest index-libraries` and `devops ai ingest query-library` CLI subcommands in `src/devops_cli/commands/ai_ingest.py`.
   - [x] 6. Added CLI help strings in `src/devops_cli/lang/en/help.py`.
   - [x] 7. Verified complexity <= 10 and indentation depth <= 5 via `devops scan complexity`.
-  - [x] 8. Verified full CI suite (`devops ci` — 10/10 green), ready to commit, push, and open PR targeting `release/v0.2.14` (Closes #77).
+  - [x] 8. Verified full CI suite (`devops ci` — 10/10 green), committed, pushed, and opened PR #83 targeting `release/v0.2.14` (Closes #77). CI checks running on GitHub Actions.
 
 
 ---

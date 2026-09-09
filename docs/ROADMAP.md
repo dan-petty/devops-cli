@@ -317,6 +317,57 @@ High-density product roadmap, engineering milestones, and open-source integratio
   - `gitpython` (`3.1.60` → `3.1.61`) & `httpx2` (`2.9.0` → `2.12.0`)
   - `ruff` (`0.16.4` → `0.16.5`) & sub-dependencies (`anthropic v1.2.0`, `grpcio v1.83.1`, `platformdirs v4.11.5`)
 
+### Ephemeral Workload Sandboxing, Dynamic Probing & Runtime Observability (v0.2.16 - Scheduled)
+- [ ] **Long-Running Workload Sandbox Lifecycle Engine (`devops sandbox deploy|status|stop|exec`)**:
+  - Rootless container and ephemeral Kubernetes namespace (`sandbox-<app>-<timestamp>`) lifecycle orchestration.
+  - Dynamic host port binding (`10000-60000`) and Kubernetes Service mapping with healthcheck readiness polling.
+  - Strict cgroup v2 resource budgeting (`cpu_limit`, `memory_limit`, `pids_limit=256`), read-only root filesystems, `/tmp` tmpfs, and `cap_drop=["ALL"]`.
+  - Process daemon state tracking in `.data/sandbox/instances.json` with uptime, PID, and port allocations.
+- [ ] **Comprehensive Endpoint, Readiness & Health Probing Subsystem (`devops sandbox probe`)**:
+  - Non-blocking TCP socket reachability and port listener verification.
+  - HTTP/REST readiness and liveness probing (`/healthz`, `/health`, `/ready`, `/live`, `/`) with status assertions, regex response matching, and latency SLA checks.
+  - OpenAPI/Swagger schema-driven route crawler automatically fetching `/openapi.json` and executing safe schema-validated GET probes.
+  - gRPC health checking protocol (`grpc.health.v1.Health/Check`) and reflection probing without proto pre-compilation.
+  - Strongly typed `SandboxProbeReport` Pydantic models with rich terminal tables and machine-readable output.
+- [ ] **Cgroup Metrics, Prometheus Scraping & Real-Time Telemetry (`devops sandbox metrics`)**:
+  - Container-level cgroup v2 metric harvesting: real-time CPU % utilization, memory RSS, page faults, open file descriptors, network RX/TX bytes, and active thread counts.
+  - Prometheus metrics scraper discovering `/metrics` endpoints, extracting request counters, error rates (`5xx`), and latency histograms.
+  - Dynamic threshold alerts for memory leak trends, CPU saturation, and elevated error rates during sandboxed runs.
+- [ ] **Traceparent Propagation & Distributed Trace Correlation (`devops sandbox traces`)**:
+  - W3C Trace Context injection: auto-injecting `traceparent` and `tracestate` headers into synthetic probe and test requests.
+  - End-to-end trace correlation linking synthetic probe spans with application spans received by local OpenTelemetry Collector (`http://localhost:4318`), Jaeger, and Logfire.
+  - Interactive terminal waterfall visualization displaying latency breakdowns across database queries, HTTP clients, and middleware.
+- [ ] **Streaming Diagnostic Log Aggregator & Panic Detector (`devops sandbox logs`)**:
+  - Real-time multiplexed stdout/stderr log tailing with follow mode (`-f` / `--follow`) and line buffering.
+  - Automated panic & exception detector parsing log streams for Python tracebacks, Go panics, Java stacktraces, Rust panics, and segmentation faults.
+  - Structured diagnostic incident capture into `.data/sandbox/incidents/<incident_id>.json` for downstream AI remediation.
+
+### Dynamic API Fuzzing, Runtime Security DAST & Autonomous Remediation Iteration (v0.2.17 - Scheduled)
+- [ ] **OpenAPI & Schema-Driven Dynamic API Fuzzing Engine (`devops sandbox fuzz`)**:
+  - Mutational and grammar-aware payload generation systematically mutating parameters, query strings, and JSON request bodies based on OpenAPI 3.x / REST schemas.
+  - Boundary value and type confusion testing: null bytes, extreme string lengths (10KB - 10MB), format strings, integer overflows, NaN, and inverted types.
+  - Security injection test suite: testing SQL injection, command injection, path traversal (`../../etc/passwd`), XML external entities (XXE), and SSRF egress vectors.
+  - Stateful API sequence fuzzing: simulating multi-step CRUD workflows and sequence chaos (deleting non-existent IDs, cross-tenant entity access, replaying expired tokens).
+  - Minimal reproduction case generator isolating failing payloads into standalone `curl` commands and `.data/sandbox/repros/<fuzz_id>.json`.
+- [ ] **Dynamic Application Security Testing (DAST) & Egress Scanner (`devops sandbox scan`)**:
+  - DAST vulnerability scanner integration: automated OWASP ZAP baseline scans and Nuclei templates targeting sandbox ports to detect missing security headers, CORS flaws, open redirects, and exposed debug endpoints.
+  - Container filesystem mutation auditor: executing `docker diff` to verify the application does not create unexpected executable files or write outside designated `/tmp` directories.
+  - Network egress anomaly scanner: monitoring container network sockets to detect unauthorized outbound connections, private IP probing (SSRF against `169.254.169.254` or internal LANs), or suspicious DNS queries.
+  - Runtime privilege verification ensuring no privilege escalation, `setuid` execution, or host device access.
+- [ ] **Chaos Fault & Resource Exhaustion Injection (`devops sandbox chaos`)**:
+  - Resource starvation testing: dynamic CPU throttling, memory ballooning to test OOM behavior, and disk fill simulations.
+  - Network latency & packet drop injection: simulating network degradation and HTTP timeouts via traffic control (`tc`) in the sandbox network namespace.
+  - Process signal resilience testing: injecting `SIGTERM`, `SIGHUP`, and `SIGKILL` verifying graceful shutdown, socket cleanup, and state consistency.
+- [ ] **Autonomous Closed-Loop Debugging & Iterative Code Patch Engine (`devops sandbox iterate`)**:
+  - End-to-end iteration loop: unifies deploy $\to$ probe $\to$ monitor $\to$ fuzz $\to$ scan $\to$ diagnose $\to$ patch $\to$ re-verify into a single autonomous command.
+  - Incident diagnosis & AST mapping: correlates fuzzing crashes and stacktraces back to specific workspace source files and AST nodes.
+  - Multi-persona AI remediation: sends diagnostics, stacktraces, repro payloads, and source AST context to `devsecops`, `qa`, and `architect` personas to synthesize a targeted code fix.
+  - Automated patch application & verification: applies synthesized patches, re-deploys the app in the sandbox, re-runs the failing tests, and asserts resolution with zero regressions.
+  - Live watch mode (`devops sandbox iterate --watch`): continuous iteration on local source code changes using inotify/watchdog events.
+- [ ] **FastMCP Sandbox Tools & Dynamic System Resources**:
+  - Exposes 6 FastMCP tools: `sandbox_deploy`, `sandbox_probe`, `sandbox_metrics`, `sandbox_fuzz`, `sandbox_scan`, `sandbox_iterate`.
+  - Exposes dynamic system resources: `resource://sandbox/status`, `resource://sandbox/metrics`, `resource://sandbox/incidents`.
+
 ### Multi-Cloud Mesh & Production Ecosystem (v0.3.0 - Future Vision)
 - [ ] **Multi-Region Workstation Mesh & Cluster Federation**: Distributed cluster management across hybrid on-prem homelab and multi-cloud Kubernetes clusters with automatic service mesh routing.
 - [ ] **Autonomous Self-Healing Agent Pipeline**: Closed-loop diagnostic engine capable of discovering cluster incidents, generating corrective patches, running CI gates, and executing rollback.
@@ -408,6 +459,9 @@ High-density product roadmap, engineering milestones, and open-source integratio
 | | Declarative Branch Protection Auditor (`devops gh branch-protection`) | GitHub REST / Policy | High | Low | v0.2.15 | 📋 Scheduled |
 | | Workstation Secret to GitHub Secret Sync (`devops gh secrets`) | `PyNaCl` / Keyring / Vault | High | Low | v0.2.15 | 📋 Scheduled |
 | | Deterministic Async Memory & Pool Profiler | `asyncio` / `tracemalloc` | Medium | Low | v0.2.15 | 📋 Scheduled |
+| | Endpoint & Readiness Probing Subsystem (`devops sandbox probe`) | Standard Library (`http.client`, `socket`) | High | Low | v0.2.16 | 📋 Scheduled |
+| | Minimal Fuzzing Repro Case Generator (`.data/sandbox/repros/`) | Standard Library (`json`, `pathlib`) | High | Low | v0.2.17 | 📋 Scheduled |
+| | Container Filesystem Mutation Auditor (`docker diff`) | Docker CLI / Subprocess | High | Low | v0.2.17 | 📋 Scheduled |
 | | Zero-Trust Git Commit & Tag Signature Verifier | `git`, GPG, Sigstore | High | Low | v0.3.0 | 💡 Future Vision |
 | | JIT Python 3.14 Bytecode Optimization Benchmarking | `pytest-benchmark` / JIT | Medium | Low | v0.3.0 | 💡 Future Vision |
 | **Strategic Investments** | OpenTofu Multi-Cloud IaC Modules (`tf/`) | OpenTofu / AWS / Azure / GCP | High | High | v0.1.9 | ✅ Completed |
@@ -474,6 +528,12 @@ High-density product roadmap, engineering milestones, and open-source integratio
 | | Automated GitOps Drift Detection & Webhook Sync | Watchdog / ArgoCD REST | High | Medium | v0.2.15 | 📋 Scheduled |
 | | Sigstore Cosign Container Provenance (`devops docker sign|verify`) | `cosign` CLI / OS Keyring | High | Medium | v0.2.15 | 📋 Scheduled |
 | | GitHub Issue Triage & Management Engine (`devops gh issues`) | GitHub API / `httpx2` | High | Medium | v0.2.15 | 📋 Scheduled |
+| | Ephemeral Workload Sandbox Lifecycle Engine (`devops sandbox`) | Docker SDK / Rootless Containers | High | Medium | v0.2.16 | 📋 Scheduled |
+| | Cgroup Metrics & Prometheus Scraping Subsystem | `prometheus-client` / cgroups | High | Medium | v0.2.16 | 📋 Scheduled |
+| | W3C Traceparent Propagation & Distributed Trace Correlation | OpenTelemetry SDK / Jaeger | High | Medium | v0.2.16 | 📋 Scheduled |
+| | OpenAPI & Schema-Driven Dynamic API Fuzzer (`devops sandbox fuzz`) | `hypothesis` / OpenAPI / Mutators | High | Medium | v0.2.17 | 📋 Scheduled |
+| | Dynamic Application Security Testing (DAST) & Egress Scanner | OWASP ZAP / Nuclei / Subprocess | High | Medium | v0.2.17 | 📋 Scheduled |
+| | Autonomous Closed-Loop Debugging & Iterative Patch Engine | PydanticAI / AST / Subprocess | High | High | v0.2.17 | 📋 Scheduled |
 | | Multi-Region Workstation Mesh & Cluster Federation | Kubernetes / Fleet | High | High | v0.3.0 | 💡 Future Vision |
 | | Autonomous Self-Healing Agent Pipeline | PydanticAI / Diagnostic | High | High | v0.3.0 | 💡 Future Vision |
 | | Cloud-Native Ephemeral Test Environment Engine | Minikube / Helm / Ingress | High | Medium | v0.3.0 | 💡 Future Vision |
@@ -495,5 +555,8 @@ High-density product roadmap, engineering milestones, and open-source integratio
 | | Local GitOps Project Orchestration Pipeline | Git Daemon / ArgoCD App-of-Apps | High | Medium | v0.2.15 | 📋 Scheduled |
 | | FastMCP K8s Centralized Log Tools (`k8s_logs_query`, `k8s_logs_tail`) | FastMCP / Loki REST API | High | Low | v0.2.15 | 📋 Scheduled |
 | | Core Dependency Ecosystem Alignment | `uv lock --upgrade` / PyPI | Medium | Low | v0.2.15 | 📋 Scheduled |
+| | Streaming Diagnostic Log Aggregator & Stacktrace Detector | `rich.live` / Regex | Medium | Low | v0.2.16 | 📋 Scheduled |
+| | Sandbox Chaos Fault & Resource Exhaustion Injection | `tc` / cgroups / Signals | Medium | Medium | v0.2.17 | 📋 Scheduled |
+| | FastMCP Sandbox Tools & Dynamic System Resources | FastMCP / PydanticAI | High | Low | v0.2.17 | 📋 Scheduled |
 | **De-prioritized** | Bare-Metal OS Installers | Shell scripts | Low | High | — | ❌ Rejected (DevContainer native) |
 | | Heavyweight Monolithic Orchestrators | Full LangChain | Low | High | — | ❌ Rejected (FastMCP + PydanticAI) |
