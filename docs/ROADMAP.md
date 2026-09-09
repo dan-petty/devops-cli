@@ -218,7 +218,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
 - [x] **Parallel Async Multi-File Review Worker Pool & Streaming Diff Parser**: Concurrent async file review execution utilizing Python 3.14 `asyncio.TaskGroup` bounded by semaphores and token budgets, combined with streaming generator-based unified diff chunking reducing peak memory by 60% and cutting review runtimes by up to 70%.
 - [x] **Logfire Structured AI Observability Bridge (`logfire`)**: Native Pydantic Logfire integration binding with OpenTelemetry distributed spans and Rich terminal formatters for live agent reasoning inspection, token throughput counters, and trace waterfalls.
 
-### Multilingual Code Intelligence & Library Ingestion Engine (v0.2.14 - Current Release / Active Development)
+### Multilingual Code Intelligence & Library Ingestion Engine (v0.2.14 - Completed)
 - [x] **Dynamic Package Introspection & Type Stub Parser (`devops ai ingest library`)**: Automated AST and type stub (`.pyi`) extractor indexing installed library classes, method signatures, parameter types, defaults, and docstrings into structured Pydantic v2 contracts (`.data/libraries/<pkg>-contract.json`). (PR #82)
 - [x] **Multi-Source Documentation & Standards Ingester (`devops ai ingest docs`)**: SSRF-guarded crawler ingesting local and remote documentation sets (Sphinx, MkDocs, DevDocs, PEPs, CIS benchmarks) into clean, chunked markdown reference collections with breadcrumb metadata. (PR #82)
 - [x] **Dedicated Library Vector Tier (`devops_libraries`) & Valkey Symbol Store**: Segregated Qdrant collection and Valkey L1 cache tier (`symbol:<qualname>`) providing sub-millisecond API signature lookups and hybrid dense-sparse search. (PR #83)
@@ -246,7 +246,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
   - *Context & Rationale*: Maintains vector index freshness across git branch transitions. A lightweight watcher compares vector commit metadata against `HEAD` and automatically re-indexes modified files.
   - *CLI*: `devops ai index status` and `devops ai index reindex [--changed-only]`.
 
-### GitOps Fleet, FinOps, Centralized Logging & Production Security Mesh (v0.2.15 - Scheduled)
+### GitOps Fleet, FinOps, Centralized Logging & Production Security Mesh (v0.2.15 - Current Release / Active Development)
 - [ ] **Complete Security Scanner Migration to `BaseSecurityScanner` & `ScannerRegistry` (P0 - Critical)**:
   - *Context & Rationale*: Standardizes all 11 scanner modules (`bandit`, `checkov`, `dive`, `gitleaks`, `kubeconform`, `kubelinter`, `pluto`, `popeye`, `semgrep`, `tflint`, `trivy`) to inherit from `BaseSecurityScanner`. Eliminates duplicate subprocess boilerplate, enforces pre-flight binary verification (`require_binary`), guarantees bounded timeouts, and produces normalized `Finding` objects.
   - *Acceptance Criteria*: 100% scanner registration in `ScannerRegistry`; zero ad-hoc subprocess calls; cyclomatic complexity $\le 10$ and nesting depth $\le 5$ across all scanner adapters.

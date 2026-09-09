@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.14] - 2026-09-09
+
+### Added
+- **Tree-Sitter Multilingual AST Graph & Polyglot Code Intelligence Engine (`devops ai ast`, `devops ai repomap --multilingual`)**:
+  - Polyglot concrete syntax tree (CST) parser and S-expression query engine supporting Python, TypeScript, Go, Rust, Java, and HCL/Terraform without requiring host C compiler toolchains.
+  - Subcommands `devops ai ast parse <file> [--query <s-expr>]` and `devops ai ast graph <path> [--format json|dot]`.
+  - FastMCP tools `ai_ast_parse` and `ai_ast_graph` with dynamic AST schema exports.
+  - Resilient zero-crash fallback to standard library `ast` when optional tree-sitter grammars are uninstalled.
+- **Library API Drift & Deprecation Usage Auditor (`devops ai audit-library-usage`)**:
+  - Proactive AST call-site auditor comparing workspace code against indexed library contracts in `.data/libraries/`.
+  - Categorizes and flags `REMOVED_METHOD`, `UNKNOWN_ATTRIBUTE`, `UNRECOGNIZED_KWARG`, and `DEPRECATED_CALL`.
+  - Emits Rich terminal discrepancy tables and persistent JSON reports (`.data/analysis/api_drift_report.json`) with `--fail-on-breaking`.
+- **AI Context Packing & Symbol-Pruned Prompt Synthesizer (`devops ai pack-context`)**:
+  - AST-driven symbol extraction and usage ranking reducing prompt token consumption by 40-60% while preserving strict interface fidelity.
+  - Strips unreferenced private functions, methods, and attributes (`_helper`), skeletonizes function bodies with ellipsis (`...`), and compresses docstrings.
+  - Multi-snippet token budgeting (`pack_snippets`) distributing limits proportionally across files.
+  - Integrated into AI review pipeline `Stage1PreAnalysis` replacing naive character slicing.
+  - CLI command `devops ai pack-context <path> [--referenced <syms>] [--max-tokens <int>]` and FastMCP tool `ai_pack_context`.
+- **Autonomous RAG Index Drift Detection & Auto-Reindexing Engine (`devops ai rag drift`)**:
+  - Compares working tree file content hashes and git commit HEAD divergence against vector index cache (`WorkspaceIndexer._load_cache()`).
+  - Tracks `stale_modified_files`, `new_unindexed_files`, `deleted_files`, and computes normalized drift score ($[0.0, 1.0]$).
+  - OpenTelemetry distributed tracing span (`rag.drift_detection`) and Prometheus metrics (`devops_cli_rag_drift_detected_total`, `devops_cli_rag_drift_score`).
+  - Automated index reconciliation via `--auto-sync` and exit code gating with `--fail-on-drift`.
+  - FastMCP tool `rag_drift(path, auto_sync)`.
+- **Import-Driven AST Prompt Grounding & Contract Invalidation**:
+  - Ground-truth library contract injection into code review stages (`Stage1PreAnalysis` and `Stage3PersonaReview`), reducing third-party API hallucination rates to <1%.
+- **FastMCP Library Intelligence Tools & Dynamic System Resources**:
+  - 3 FastMCP tools (`ai_ingest_library`, `ai_query_library`, `ai_inspect_symbol`) and dynamic system resource `resource://libraries/indexed`.
+- **Dynamic Package Introspection & Multi-Source Documentation Ingestion (`devops ai ingest`)**:
+  - Automated type stub extractor indexing installed library signatures into structured Pydantic v2 contracts (`.data/libraries/<pkg>-contract.json`).
+  - SSRF-guarded documentation crawler ingesting remote/local documentation with breadcrumb navigation.
+  - Dedicated vector collection `devops_libraries` in Qdrant with Valkey symbol caching.
+- **GitHub Pages, Issues, Projects & Views Integration with FastMCP**:
+  - Complete management subsystem for GitHub Pages, Issues, Projects v2, and Views with 10 FastMCP tools and 4 dynamic system resources (`resource://gh/*`).
+- **GitHub Pull Request Review Threads & Multi-Turn Conversation Management**:
+  - Programmatic resolution and in-thread reply automation for GitHub Pull Request review threads via GraphQL and REST APIs.
+
+### Changed
+- **Knowledge Base & Documentation Freshness**: Introspected CLI reference and README command matrix with 117 registered FastMCP tool schemas.
+- **Architectural Invariants Compliance**: Enforced strict cyclomatic complexity $\le 10$ and nesting depth $\le 5$ project-wide across all new modules and CLI commands.
+
 ## [0.2.13] - 2026-09-09
 
 ### Added

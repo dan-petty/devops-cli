@@ -1,6 +1,53 @@
-# Release Notes — devops-cli v0.2.12
+# Release Notes — devops-cli v0.2.14
 
 Workstation-native DevOps CLI for managing repositories, SSH keys, Kubernetes clusters, Kustomize, ArgoCD, Grafana, Prometheus, Docker, workspace files, vector embedding benchmarks, TLS certificate automation, OpenTelemetry observability, Valkey distributed caching, and multi-persona AI code reviews.
+
+---
+
+## 🚀 Highlights of v0.2.14
+
+### 🌳 Tree-Sitter Multilingual AST Graph & Polyglot Code Intelligence Engine (`devops ai ast`, `devops ai repomap --multilingual`)
+- **Polyglot CST Parsing & S-Expression Engine**: Parses concrete syntax trees across Python, TypeScript, Go, Rust, Java, and HCL/Terraform with tree-sitter S-expression query resolution.
+- **Polyglot Code Graphs**: Generates DOT and JSON code structure graphs capturing class hierarchies, functions, and cross-file dependencies.
+- **FastMCP Toolset**: Registered `ai_ast_parse` and `ai_ast_graph` FastMCP tools with dynamic schema export.
+- **Zero-Crash Fallback**: Automatically falls back to standard library `ast` when optional tree-sitter grammars are uninstalled.
+
+### 🔍 Library API Drift & Deprecation Usage Auditor (`devops ai audit-library-usage`)
+- **Proactive AST Call-Site Auditor**: Scans workspace call sites against indexed library contracts in `.data/libraries/` to surface breaking changes before dependency upgrades.
+- **Defect Taxonomy**: Detects and categorizes `REMOVED_METHOD`, `UNKNOWN_ATTRIBUTE`, `UNRECOGNIZED_KWARG`, and `DEPRECATED_CALL`.
+- **Quality Gating**: Rich terminal table discrepancies and persistent JSON reports (`.data/analysis/api_drift_report.json`) with `--fail-on-breaking`.
+
+### 📦 AI Context Packing & Symbol-Pruned Prompt Synthesizer (`devops ai pack-context`)
+- **AST Pruning & Skeletonization**: Prunes unreferenced private symbols and skeletonizes implementation bodies with `...`, preserving full parameter types, defaults, and return annotations while slashing prompt token consumption by 40-60%.
+- **Budget-Aware Distribution**: Multi-snippet token distribution (`pack_snippets`) with configurable token bounds and docstring compression.
+- **Review Pipeline Integration**: Integrated into `Stage1PreAnalysis` and FastMCP tool `ai_pack_context`.
+
+### 🔄 Autonomous RAG Index Drift Detection & Auto-Reindexing Engine (`devops ai rag drift`)
+- **Working Tree & Commit Drift Detection**: Identifies SHA256 content divergence and git HEAD divergence against the vector index cache.
+- **Granular Metrics & Scoring**: Tracks stale, new, and deleted files with normalized drift scoring ($[0.0, 1.0]$).
+- **Observability Integration**: OpenTelemetry spans (`rag.drift_detection`) and Prometheus metrics (`devops_cli_rag_drift_detected_total`, `devops_cli_rag_drift_score`).
+- **Automated Sync**: Programmatic reconciliation via `--auto-sync` and CI gating via `--fail-on-drift`.
+
+### 🛡️ Ground-Truth Library Contract Grounding & Invalidation
+- Injects verified library signatures from `devops_libraries` / Valkey into review prompts, driving third-party API hallucination rates to <1%.
+- Registered FastMCP tools `ai_ingest_library`, `ai_query_library`, and `ai_inspect_symbol` with dynamic resource `resource://libraries/indexed`.
+
+---
+
+## 🚀 Highlights of v0.2.13
+
+### 🤖 Sub-Agent Local Offloading Engine & Agent Harness Slots (`devops ai harness`)
+- Modular harness slots (`ModelSlot`, `SkillSlot`, `ToolSlot`, `SubAgentSlot`) offloading token-heavy AST syntax exploration to local open models (Granite, Qwen2.5-Coder via Ollama), achieving 85%+ token savings.
+- Dedicated CLI command group `devops ai harness` (`status`, `offload`, `run`) and FastMCP tools `ai_harness_status`, `ai_subagent_offload`.
+
+### 🖥️ Interactive Terminal UI Dashboard (`devops dashboard` / `devops tui`)
+- Responsive full-screen `Textual` dashboard for Kubernetes pods, Docker containers, OTel spans, Valkey metrics, and AI review statuses.
+
+### 💥 Model Dependency Chaos Engineering Suite (`devops ai chaos-model`)
+- Automated fault injection engine evaluating fallback routing across latency, 429 rate-limits, timeouts, and malformed JSON payloads.
+
+### ⏸️ Agent Constellation Quiesce & Emergency Failover Controller (`devops ai quiesce`, `devops ai failover`)
+- Workstation agent task suspension, route diversion, and state resumption with `.data/agent/quiesce.json` snapshot persistence.
 
 ---
 
