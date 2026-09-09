@@ -733,13 +733,24 @@
   - [x] 8. Registered FastMCP tool `telemetry_logfire_status` and dynamic system resource `resource://telemetry/logfire`, and exported schemas.
   - [x] 9. Authored comprehensive TDD test suite `tests/test_telemetry_logfire.py` (20 unit tests, 100% passing) and updated `tests/test_architectural_invariants.py`, `tests/test_fastmcp_contracts.py`, and `tests/test_config_audit_keys.py`.
   - [x] 10. Maintained strict architectural invariants (complexity <= 10, nesting <= 5, 0 bare exceptions).
+  - [x] 11. Remediated 5 GitHub Copilot review comments in commit 38662f8, replied in-thread, resolved threads via GraphQL, validated full CI gates, and squash-merged PR #72 into release branch `release/v0.2.13`. Closed Issue #59 and pruned remote branch.
+
+- [x] Phase 49.9.2: In-Cluster Container Registry, Pod Security Alignment & Non-Blocking Stack Deployment
+  - [x] 1. Deployed Docker Registry v2 (`registry:2.8.3`) in `registry` namespace on `homelab-k3s` backed by a 50Gi `local-path` PersistentVolumeClaim and exposed via NodePort `30500`.
+  - [x] 2. Configured containerd mirror registry endpoints across k3s cluster nodes (`hog.lan`, `condor.lan`) via Ansible playbook `configure_registries.yaml` to pull insecure HTTP images from `192.168.1.4:30500`, `hog.lan:30500`, and `condor.lan:30500`.
+  - [x] 3. Configured devcontainer Docker daemon with `insecure-registries` and verified end-to-end container build, push, and Kubernetes execution (`kubectl run test-hello-registry`).
+  - [x] 4. Aligned PodSecurity admission labels and security contexts across namespaces (`monitoring`, `llm`, `registry`, `argocd`, `otel`), eliminating all PodSecurity admission warnings.
+  - [x] 5. Added `--wait / --no-wait` and `--timeout` flags to `devops k8s deploy-stack`, preventing Helm hangs when cluster nodes (such as `workhorse`) are temporarily offline.
+  - [x] 6. Authored comprehensive unit tests (`test_k8s_deploy_stack_no_wait` in `tests/test_k8s.py`) and verified 100% passing.
+  - [x] 7. Synchronized documentation and CLI references via `devops docs generate --sync-readme`.
 
 ---
 
 ### In-Progress Tasks (WIP)
-- [ ] Phase 49.9 PR Lifecycle & Remote CI Verification (Issue #59)
+*(None currently active)*
 
 ---
 
 ### Pending Tasks
 - [ ] Phase 49.10: Deterministic Mock LLM Test Isolation (< 60s CI)
+- [ ] Release v0.2.13 Preparation & Release PR to `main`

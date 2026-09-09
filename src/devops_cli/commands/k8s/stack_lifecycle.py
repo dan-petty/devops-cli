@@ -307,6 +307,17 @@ def deploy_stack(
     context: Annotated[
         str | None, typer.Option("--context", "-c", help=HELP.options.context)
     ] = None,
+    wait: Annotated[
+        bool,
+        typer.Option(
+            "--wait/--no-wait",
+            help="Wait for Helm releases and workloads to become ready before returning.",
+        ),
+    ] = True,
+    timeout: Annotated[
+        str,
+        typer.Option("--timeout", "-t", help="Timeout for Helm operations when waiting."),
+    ] = "10m",
 ) -> None:
     """Deploy infrastructure or LLM stack (Ollama, WebUI, Qdrant, Valkey) to Kubernetes."""
     if context:
@@ -330,6 +341,8 @@ def deploy_stack(
                 "stack": stack,
                 "stacks": selected_stacks,
                 "context": context,
+                "wait": wait,
+                "timeout": timeout,
                 "helm_releases": [r["name"] for r in all_releases],
                 "manifests": all_manifests,
             },
@@ -379,25 +392,20 @@ def deploy_stack(
                 )
                 raise typer.Exit(1)
         print_info(f"[bold]Installing {release['name']}...[/bold]", prefix=False)
-        helm_cmd = (
-            [
-                "helm",
-                "upgrade",
-                "--install",
-                release["name"],
-                release["chart"],
-                "--namespace",
-                release["namespace"],
-                "--values",
-                release["values"],
-            ]
-            + helm_ctx
-            + [
-                "--wait",
-                "--timeout",
-                "10m",
-            ]
-        )
+        helm_cmd = [
+            "helm",
+            "upgrade",
+            "--install",
+            release["name"],
+            release["chart"],
+            "--namespace",
+            release["namespace"],
+            "--values",
+            release["values"],
+        ] + helm_ctx
+        if wait:
+            helm_cmd.extend(["--wait", "--timeout", timeout])
+
         result = k8s._run_cmd(helm_cmd, check=False, capture=True)
         # If conflict occurs on pre-existing unmanaged resources, adopt and retry up to 5 times
         for _ in range(5):
