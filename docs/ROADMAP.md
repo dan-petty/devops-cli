@@ -231,11 +231,11 @@ High-density product roadmap, engineering milestones, and open-source integratio
   - *Context & Rationale*: Exposes library intelligence directly to IDE-hosted AI coding assistants through native FastMCP tools and dynamic resources.
   - *Tools & Resources*: FastMCP tools `ai_ingest_library(package)`, `ai_query_library(query, package, exact)`, `ai_inspect_symbol(symbol, package)`; dynamic system resource `resource://libraries/indexed` reporting indexed libraries, symbol counts, and vector point health.
   - *Acceptance Criteria*: 100% typed parameters, comprehensive docstrings, auto-exported schemas via `devops mcp export-schemas`, and contract test verification in `tests/test_fastmcp_contracts.py`.
-- [ ] **Tree-Sitter Multilingual AST Graph & Code Intelligence Engine (P1 - High, Issue #74)**:
+- [x] **Tree-Sitter Multilingual AST Graph & Code Intelligence Engine (P1 - High, Issue #74)**:
   - *Context & Rationale*: Extends code intelligence beyond Python to polyglot ecosystems (TypeScript, Go, Rust, Java, HCL). Tree-sitter provides incremental concrete syntax trees with concrete token spans, resilient error recovery, and lightning-fast queries via S-expressions.
   - *CLI & Architecture*: `devops ai ast parse <file> [--query <s-expr>]` and `devops ai repomap --multilingual`; language grammars packaged without requiring host C compiler toolchains.
   - *Acceptance Criteria*: Sub-5ms query resolution per file; automated fallback to Python standard `ast` when tree-sitter grammars are uninstalled.
-- [ ] **Library API Drift & Deprecation Usage Auditor (`devops ai audit-library-usage`) (P1 - High, Issue #79)**:
+- [x] **Library API Drift & Deprecation Usage Auditor (`devops ai audit-library-usage`) (P1 - High, Issue #79)**:
   - *Context & Rationale*: Proactively flags breaking changes prior to dependency upgrades by comparing workspace AST call sites against indexed library contracts.
   - *CLI & Output*: `devops ai audit-library-usage [--package <pkg>] [--fail-on-breaking]` emitting Rich tables and `.data/analysis/api_drift_report.json`.
   - *Acceptance Criteria*: 100% recall of deprecated parameter names and removed methods in test fixtures; cyclomatic complexity $\le 10$.
@@ -453,8 +453,8 @@ High-density product roadmap, engineering milestones, and open-source integratio
 | | Multi-Source Documentation & Standards Ingester (`devops ai ingest docs`) | `httpx2` / `pathspec` | High | Medium | v0.2.14 | ✅ Completed |
 | | GitHub Issue Triage & Management Engine (`devops gh issues`) | GitHub API / `httpx2` | High | Medium | v0.2.14 | ✅ Completed |
 | | Import-Driven AST Prompt Grounding & Contract Injection | AST / PydanticAI | High | Medium | v0.2.14 | ✅ Completed |
-| | Tree-Sitter Multilingual AST Graph & Code Intelligence Engine | `tree-sitter` / Multi-Language | High | Medium | v0.2.14 | 📋 Scheduled (P1) |
-| | Library API Drift & Deprecation Auditor | AST / McCabe | High | Medium | v0.2.14 | 📋 Scheduled (P1) |
+| | Tree-Sitter Multilingual AST Graph & Code Intelligence Engine | `tree-sitter` / Multi-Language | High | Medium | v0.2.14 | ✅ Completed |
+| | Library API Drift & Deprecation Auditor | AST / McCabe | High | Medium | v0.2.14 | ✅ Completed |
 | | AI Context Packing & Symbol-Pruned Prompt Synthesizer | `devops_cli.ai.context_packer` | High | Medium | v0.2.14 | 📋 Scheduled (P2) |
 | | Complete Security Scanner Migration to `BaseSecurityScanner` & `ScannerRegistry` | Python ABC / Subprocess | High | Medium | v0.2.15 | 📋 Scheduled (P0) |
 | | Centralized K8s Logging Stack & LogQL CLI (`devops k8s logs`) | Grafana Loki / Fluent Bit / LogQL | High | Medium | v0.2.15 | 📋 Scheduled (P0) |

@@ -104,6 +104,8 @@ def test_fastmcp_tools_registration() -> None:
         "ai_ingest_library",
         "ai_query_library",
         "ai_inspect_symbol",
+        "ai_ast_parse",
+        "ai_ast_graph",
         # HashiCorp Vault
         "vault_status",
         "vault_get",
@@ -338,3 +340,39 @@ def test_fastmcp_library_tools_and_resource() -> None:
     resource_data = get_indexed_libraries_resource()
     assert isinstance(resource_data, str)
     assert resource_data.startswith("[")
+
+
+def test_fastmcp_ast_tools() -> None:
+    """Verify ai_ast_parse and ai_ast_graph FastMCP execution contracts."""
+    from unittest.mock import patch
+
+    from devops_cli.ai.mcp.server import ai_ast_graph, ai_ast_parse
+    from devops_cli.config.defaults import DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS
+
+    with patch("devops_cli.ai.mcp.server._run_mcp_cmd") as mock_cmd:
+        mock_cmd.return_value = '{"status": "ok"}'
+
+        res = ai_ast_parse(file_path="src/main.py", query="(function_definition) @fn")
+        assert res == '{"status": "ok"}'
+        mock_cmd.assert_called_with(
+            [
+                "uv",
+                "run",
+                "devops",
+                "ai",
+                "ast",
+                "parse",
+                "src/main.py",
+                "--json",
+                "--query",
+                "(function_definition) @fn",
+            ],
+            timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
+        )
+
+        res = ai_ast_graph(target_dir="src", max_files=20)
+        assert res == '{"status": "ok"}'
+        mock_cmd.assert_called_with(
+            ["uv", "run", "devops", "ai", "ast", "graph", "--dir", "src", "--max-files", "20"],
+            timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
+        )

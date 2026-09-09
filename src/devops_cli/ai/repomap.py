@@ -129,39 +129,95 @@ def parse_file_symbols(file_path: Path, relative_to: Path) -> FileMapNode | None
     return FileMapNode(path=rel_path, line_count=line_count, symbols=symbols)
 
 
+def _is_file_excluded(source_file: Path, include_tests: bool) -> bool:
+    if source_file.is_symlink():
+        return True
+    if any(
+        part in source_file.parts
+        for part in (
+            ".venv",
+            ".git",
+            "__pycache__",
+            ".pytest_cache",
+            "build",
+            "dist",
+            ".data",
+            "node_modules",
+        )
+    ):
+        return True
+    return not include_tests and "test" in source_file.name
+
+
+def _discover_repo_files(
+    target_dir: Path,
+    include_tests: bool,
+    multilingual: bool,
+) -> list[Path]:
+    from devops_cli.ai.ast.engine import EXT_TO_LANG
+
+    extensions = list(EXT_TO_LANG.keys()) if multilingual else [".py"]
+    found: list[Path] = []
+    for ext in extensions:
+        for p in target_dir.rglob(f"*{ext}"):
+            if not _is_file_excluded(p, include_tests):
+                found.append(p)
+    return sorted(found, key=lambda f: str(f))
+
+
+def _polyglot_to_file_node(source_file: Path, base_root: Path) -> FileMapNode | None:
+    from devops_cli.ai.ast.engine import TreeSitterEngine
+
+    engine = TreeSitterEngine()
+    poly_map = engine.parse_file(source_file)
+    if not poly_map or not poly_map.symbols:
+        return None
+
+    try:
+        rel_path = str(source_file.relative_to(base_root))
+    except ValueError:
+        rel_path = str(source_file)
+
+    symbols = [
+        SymbolNode(
+            name=s.name,
+            kind=s.kind.value,
+            line_number=s.span.line_start,
+            signature=s.signature,
+            docstring=s.docstring,
+        )
+        for s in poly_map.symbols
+    ]
+    return FileMapNode(path=rel_path, line_count=poly_map.line_count, symbols=symbols)
+
+
 def generate_repo_map(
     root_dir: Path | None = None,
     max_files: int = 100,
     include_tests: bool = False,
+    multilingual: bool = False,
 ) -> list[FileMapNode]:
     """Traverse repository source files and generate symbol maps."""
     base_root = root_dir or find_top_level_repo_root(Path.cwd())
     src_dir = base_root / "src"
     target_dir = src_dir if src_dir.is_dir() else base_root
 
-    py_files = sorted(
-        [
-            source_file
-            for source_file in target_dir.rglob("*.py")
-            if not source_file.is_symlink()
-            and not any(
-                part in source_file.parts
-                for part in (".venv", ".git", "__pycache__", ".pytest_cache", "build", "dist")
-            )
-            and (include_tests or "test" not in source_file.name)
-        ],
-        key=lambda source_file: str(source_file),
-    )
-
+    files = _discover_repo_files(target_dir, include_tests, multilingual)
     results: list[FileMapNode] = []
     base_resolved = base_root.resolve()
-    for source_file in py_files[:max_files]:
+
+    for source_file in files[:max_files]:
         try:
             if not source_file.resolve().is_relative_to(base_resolved):
                 continue
         except ValueError, OSError:
             continue
-        node = parse_file_symbols(source_file, base_root)
+
+        if source_file.suffix.lower() == ".py" and not multilingual:
+            node = parse_file_symbols(source_file, base_root)
+        else:
+            node = _polyglot_to_file_node(source_file, base_root)
+
         if node and node.symbols:
             results.append(node)
 

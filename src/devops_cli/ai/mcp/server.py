@@ -656,6 +656,38 @@ def ai_repomap(target_dir: str = ".") -> str:
 
 
 @mcp.tool()
+def ai_ast_parse(file_path: str, query: str = "") -> str:
+    """Parse a polyglot source file (Python, TypeScript, Go, Rust, Java, HCL) into syntax symbols or execute S-expression query."""
+    _validate_mcp_arg("file_path", file_path)
+    cmd = ["uv", "run", "devops", "ai", "ast", "parse", file_path, "--json"]
+    if query:
+        _validate_mcp_arg("query", query)
+        cmd.extend(["--query", query])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def ai_ast_graph(target_dir: str = ".", max_files: int = 50) -> str:
+    """Synthesize whole-repository code symbol and reference graph across polyglot languages."""
+    _validate_mcp_arg("target_dir", target_dir)
+    return _run_mcp_cmd(
+        [
+            "uv",
+            "run",
+            "devops",
+            "ai",
+            "ast",
+            "graph",
+            "--dir",
+            target_dir,
+            "--max-files",
+            str(max_files),
+        ],
+        timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.tool()
 def ai_diagram(diagram_type: str = "arch", target_dir: str = ".") -> str:
     """Generate visual Mermaid architecture or threat modeling diagram."""
     _validate_mcp_arg("diagram_type", diagram_type)

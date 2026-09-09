@@ -10,6 +10,7 @@ from typing import Annotated, Any
 import typer
 
 from devops_cli.ai.personas import Persona
+from devops_cli.commands.ai_ast import app as ast_app
 from devops_cli.commands.ai_cache import app as cache_app
 from devops_cli.commands.ai_chaos import run_chaos_model_cmd
 from devops_cli.commands.ai_controller import (
@@ -104,6 +105,11 @@ app.add_typer(
     ingest_app,
     name="ingest",
     help=HELP.ai.ingest,
+)
+app.add_typer(
+    ast_app,
+    name="ast",
+    help=HELP.ai.ast,
 )
 
 
@@ -1207,6 +1213,10 @@ def repomap_cmd(
         bool,
         typer.Option("--include-tests", help=HELP.ai.include_tests),
     ] = False,
+    multilingual: Annotated[
+        bool,
+        typer.Option("--multilingual", "-m", help=HELP.ai.multilingual),
+    ] = False,
     json_output: Annotated[
         bool,
         typer.Option("--json", help=HELP.options.json_output),
@@ -1229,12 +1239,18 @@ def repomap_cmd(
             details={
                 "max_files": max_files,
                 "include_tests": include_tests,
+                "multilingual": multilingual,
                 "status": "DRY_RUN_MAPPED",
             },
         )
         return
 
-    maps = generate_repo_map(target_dir, max_files=max_files, include_tests=include_tests)
+    maps = generate_repo_map(
+        target_dir,
+        max_files=max_files,
+        include_tests=include_tests,
+        multilingual=multilingual,
+    )
     if json_output:
         payload = {"files_count": len(maps), "files": [f.to_dict() for f in maps]}
         write_stdout(json.dumps(payload, indent=2) + "\n")
@@ -1246,6 +1262,76 @@ def repomap_cmd(
         prefix=False,
     )
     write_stdout(text + "\n")
+
+
+# =============================================================================
+# Command: devops ai audit-library-usage
+# =============================================================================
+
+
+@app.command("audit-library-usage")
+def audit_library_usage_cmd(
+    package: Annotated[
+        str | None,
+        typer.Option("--package", "-p", help=HELP.ai.package_name),
+    ] = None,
+    target_dir: Annotated[
+        Path | None,
+        typer.Option("--target", "-t", "--dir", "-d", help=HELP.ai.target_dir),
+    ] = None,
+    contracts_dir: Annotated[
+        Path | None,
+        typer.Option("--contracts-dir", help=HELP.ai.contracts_dir),
+    ] = None,
+    fail_on_breaking: Annotated[
+        bool,
+        typer.Option("--fail-on-breaking", help=HELP.ai.fail_on_breaking),
+    ] = False,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help=HELP.options.json_output),
+    ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+) -> None:
+    """Audit workspace code for library API drift and deprecated calls."""
+    import json
+
+    from devops_cli.ai.library.drift_auditor import LibraryDriftAuditor
+    from devops_cli.dry_run import is_dry_run, render_dry_run_result
+
+    if dry_run or is_dry_run():
+        render_dry_run_result(
+            command="devops ai audit-library-usage",
+            action="audit_library_drift",
+            details={
+                "package": package or "all",
+                "fail_on_breaking": fail_on_breaking,
+                "status": "DRY_RUN_AUDITED",
+            },
+        )
+        return
+
+    auditor = LibraryDriftAuditor(contracts_dir=contracts_dir)
+    ws_dir = target_dir or Path.cwd()
+    report = auditor.audit_workspace(ws_dir, package_filter=package)
+
+    if json_output:
+        write_stdout(json.dumps(report.to_dict(), indent=2) + "\n")
+    else:
+        print_info(
+            f"[bold]Library API Drift Audit[/bold] ({report.files_scanned} files, {report.total_calls_checked} calls, {report.breaking_count} breaking, {report.warning_count} warnings):\n",
+            prefix=False,
+        )
+        for f in report.findings:
+            color = "red" if f.is_breaking else "yellow"
+            tag = "[BREAKING]" if f.is_breaking else "[WARNING]"
+            write_stdout(f"[{color}]{tag}[/{color}] {f.file_path}:{f.line_number} {f.message}\n")
+
+    if fail_on_breaking and report.breaking_count > 0:
+        raise typer.Exit(code=1)
 
 
 # =============================================================================

@@ -232,6 +232,28 @@ devops ai repomap [OPTIONS]
 | `--target`, `-t`, `--dir`, `-d` | `path` | - | Target source directory to verify or analyze. |
 | `--max-files`, `-n` | `integer` | `100` | Maximum source files to include. |
 | `--include-tests` | `boolean` | - | Include test modules in symbol map. |
+| `--multilingual`, `-m` | `boolean` | - | Enable multilingual polyglot scanning across Python, TypeScript, Go, Rust, Java, and HCL. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---
+
+## `devops ai audit-library-usage`
+
+**Audit workspace code for library API drift and deprecated calls.**
+
+```bash
+devops ai audit-library-usage [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--package`, `-p` | `string` | - | Filter by package distribution name. |
+| `--target`, `-t`, `--dir`, `-d` | `path` | - | Target source directory to verify or analyze. |
+| `--contracts-dir` | `path` | - | Path to directory containing exported library contract JSON files. |
+| `--fail-on-breaking` | `boolean` | - | Exit with code 1 if any breaking API drift issues are detected. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -1108,5 +1130,55 @@ devops ai ingest query-library [OPTIONS] <query>
 | `--top-k`, `-k` | `integer` | `5` | Maximum number of items to return or display. |
 | `--contracts-dir` | `path` | `.data/libraries` | Path to directory containing exported library contract JSON files. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+
+---
+
+## `devops ai ast`
+
+**Tree-Sitter multilingual AST concrete syntax tree parsing and code graph synthesis.**
+
+```bash
+devops ai ast COMMAND [ARGS]...
+```
+
+### `devops ai ast parse`
+
+**Parse source file concrete syntax tree and extract structural symbols.**
+
+```bash
+devops ai ast parse [OPTIONS] <file_path>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<file_path>` | `path` | Yes | Parse source file concrete syntax tree and extract structural symbols. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--query`, `-q` | `string` | `` | Optional Tree-Sitter S-expression query to execute against the syntax tree. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+### `devops ai ast graph`
+
+**Synthesize whole-repository symbol dependency and reference graph.**
+
+```bash
+devops ai ast graph [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dir`, `-d` | `path` | - | Target source directory to verify or analyze. |
+| `--max-files`, `-n` | `integer` | `100` | Maximum source files to include. |
+| `--output`, `-o` | `path` | - | Destination file path for output report or artifacts. |
+| `--format`, `-f` | `string` | `json` | Output format for synthesized code graph: 'json' or 'dot'. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---

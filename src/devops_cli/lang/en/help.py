@@ -159,6 +159,16 @@ class AICommandHelp:
     contracts_dir: str = "Path to directory containing exported library contract JSON files."
     exact_lookup: str = "Perform exact qualified symbol lookup instead of semantic vector search."
     package_name: str = "Filter by package distribution name."
+    multilingual: str = (
+        "Enable multilingual polyglot scanning across Python, TypeScript, Go, Rust, Java, and HCL."
+    )
+    ast: str = "Tree-Sitter multilingual AST concrete syntax tree parsing and code graph synthesis."
+    ast_parse: str = "Parse source file concrete syntax tree and extract structural symbols."
+    ast_graph: str = "Synthesize whole-repository symbol dependency and reference graph."
+    ast_query: str = "Optional Tree-Sitter S-expression query to execute against the syntax tree."
+    graph_format: str = "Output format for synthesized code graph: 'json' or 'dot'."
+    audit_library_usage: str = "Audit workspace code for library API drift and deprecated calls."
+    fail_on_breaking: str = "Exit with code 1 if any breaking API drift issues are detected."
 
 
 @dataclass(frozen=True)

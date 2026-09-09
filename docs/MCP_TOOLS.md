@@ -7,6 +7,8 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | Tool Name | Description |
 |---|---|
 | [`ai_architecture`](#ai-architecture) | Analyze architectural module boundaries, dependency graphs, and cyclic imports. |
+| [`ai_ast_graph`](#ai-ast-graph) | Synthesize whole-repository code symbol and reference graph across polyglot languages. |
+| [`ai_ast_parse`](#ai-ast-parse) | Parse a polyglot source file (Python, TypeScript, Go, Rust, Java, HCL) into syntax symbols or execute S-expression query. |
 | [`ai_chaos_model`](#ai-chaos-model) | Execute model dependency chaos fault injection and verify automated fallback recovery. |
 | [`ai_constellation_status`](#ai-constellation-status) | Display constellation fleet status, active fallback routes, and suspended tasks. |
 | [`ai_diagram`](#ai-diagram) | Generate visual Mermaid architecture or threat modeling diagram. |
@@ -132,6 +134,28 @@ Analyze architectural module boundaries, dependency graphs, and cyclic imports.
 |---|---|---|---|---|
 | `target` | `string` | No | `src` | - |
 | `max_depth` | `integer` | No | `4` | - |
+
+### `ai_ast_graph`
+
+Synthesize whole-repository code symbol and reference graph across polyglot languages.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `target_dir` | `string` | No | `.` | - |
+| `max_files` | `integer` | No | `50` | - |
+
+### `ai_ast_parse`
+
+Parse a polyglot source file (Python, TypeScript, Go, Rust, Java, HCL) into syntax symbols or execute S-expression query.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `file_path` | `string` | Yes | - | - |
+| `query` | `string` | No | `` | - |
 
 ### `ai_chaos_model`
 

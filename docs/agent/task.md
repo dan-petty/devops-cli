@@ -896,6 +896,22 @@
   - [x] 5. Exported 113 MCP schemas via `devops mcp export-schemas` and updated `tests/test_fastmcp_contracts.py` (7/7 passed).
   - [x] 6. Enforced cyclomatic complexity <= 10 and nesting depth <= 5 across all functions.
 
+- [x] Phase 50.6: Tree-sitter Multilingual AST Graph & Code Intelligence Integration (P1 - High, Issue #74)
+  - [x] 1. Domain models in `src/devops_cli/ai/ast/models.py`: `SymbolKind`, `CodeSpan`, `PolyglotSymbol`, `PolyglotFileMap`, `CodeGraphEdge`, and `CodeGraph` (JSON and DOT graph exporters).
+  - [x] 2. Zero-crash polyglot AST/token parser in `src/devops_cli/ai/ast/fallback.py`: Python (`ast`), TypeScript, Go, Rust, Java, HCL/Terraform.
+  - [x] 3. Polyglot engine in `src/devops_cli/ai/ast/engine.py` with extension mapping, dynamic grammars, S-expression query execution, and mtime caching.
+  - [x] 4. Code graph builder in `src/devops_cli/ai/ast/graph.py` linking cross-file call and reference edges.
+  - [x] 5. CLI subcommands `devops ai ast parse` and `devops ai ast graph` registered in `ai.py` via `src/devops_cli/commands/ai_ast.py`. Added `--multilingual` to `devops ai repomap`.
+  - [x] 6. FastMCP tools `ai_ast_parse` and `ai_ast_graph` registered in `src/devops_cli/ai/mcp/server.py` and exported 115 schemas.
+  - [x] 7. Unit and contract tests in `tests/test_treesitter_engine.py` (13/13 passed) and `tests/test_fastmcp_contracts.py` (8/8 passed).
+
+- [x] Phase 50.7: Library API Drift and Deprecation Usage Auditor (P1 - High, Issue #79)
+  - [x] 1. Implemented `LibraryDriftAuditor` in `src/devops_cli/ai/library/drift_auditor.py` auditing workspace AST call sites against indexed `.data/libraries/` contracts.
+  - [x] 2. Supported detection of `REMOVED_METHOD`, `UNKNOWN_ATTRIBUTE`, `UNRECOGNIZED_KWARG`, and `DEPRECATED_CALL`.
+  - [x] 3. CLI command `devops ai audit-library-usage` with `--package`, `--dir`, `--contracts-dir`, `--fail-on-breaking`, and `--json`.
+  - [x] 4. Enforced architectural invariants: cyclomatic complexity <= 10 and nesting depth <= 2 via extracted helper functions `_audit_file_calls` and `_audit_call_node`.
+  - [x] 5. Unit tests in `tests/test_library_drift_auditor.py` (5/5 passed).
+
 ---
 
 ### In-Progress Tasks (WIP)
@@ -904,8 +920,6 @@
 ---
 
 ### Pending Tasks
-- [ ] Phase 50.6: Tree-sitter Multilingual AST Graph & Code Intelligence Integration (P1 - High, Issue #74)
-- [ ] Phase 50.7: Library API Drift and Deprecation Usage Auditor (P1 - High, Issue #79)
 - [ ] Phase 50.8: AI Context Packing & Symbol-Pruned Prompt Synthesizer (P2 - Medium, Issue #81)
 - [ ] Phase 50.9: Autonomous RAG Index Drift Detection & Auto-Reindexing (P2 - Medium)
 - [ ] Phase 50.10: Full CI Quality Gate & Release v0.2.14 Finalization
