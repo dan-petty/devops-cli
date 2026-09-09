@@ -36,6 +36,7 @@ and domain categorization for all exceptions inheriting from `DevOpsCLIError`.
 | `DEPENDENCY_MISSING` | `1` | Tools | Raised when a required external binary/dependency is missing from the system PATH. |
 | `DOCKER_ERROR` | `1` | Docker | Base exception for Docker operations. |
 | `DOCKER_SANDBOX_ERROR` | `1` | Docker | Raised when docker sandbox execution, container creation, or termination fails. |
+| `DOCS_INGESTION_ERROR` | `1` | Ai | Base exception for documentation ingestion errors. |
 | `GITHUB_OPERATION_FAILED` | `1` | Git | Exception raised for GitHub API or CLI automation failures. |
 | `GIT_OPERATION_ERROR` | `1` | Git | Base exception for Git repository and branch operation failures. |
 | `HARNESS_EXECUTION_ERROR` | `1` | Ai | Raised when execution of an AI test harness or benchmark fails. |
@@ -50,6 +51,8 @@ and domain categorization for all exceptions inheriting from `DevOpsCLIError`.
 | `K8S_DEPLOY_ERROR` | `1` | K8s | Raised when deploying manifests or Helm charts fails. |
 | `K8S_ERROR` | `1` | K8s | Base exception for Kubernetes operations. |
 | `LLM_INFERENCE_ERROR` | `10` | Ai | Base exception for LLM provider invocation failures. |
+| `LIBRARY_INGESTION_ERROR` | `1` | Ai | Base exception for package introspection and library ingestion errors. |
+| `LIBRARY_NOT_FOUND_ERROR` | `1` | Ai | Raised when target package cannot be imported or found in the environment. |
 | `LOGFIRE_CONFIG_ERROR` | `1` | Telemetry | Raised when Logfire configuration fails or credentials cannot be retrieved. |
 | `MODEL_API_ERROR` | `22` | Ai | Raised when a model provider API request fails. |
 | `MODEL_BUNDLE_ERROR` | `1` | Ai | Raised when an AI model bundle cannot be located, resolved, or loaded. |

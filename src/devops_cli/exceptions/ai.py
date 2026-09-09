@@ -11,8 +11,11 @@ from devops_cli.config.constants import (
     CONST_ERROR_CODE_CONSTELLATION_FAILOVER,
     CONST_ERROR_CODE_CONSTELLATION_QUIESCE,
     CONST_ERROR_CODE_CONSTELLATION_RESUME,
+    CONST_ERROR_CODE_DOCS_INGESTION,
     CONST_ERROR_CODE_HARNESS_EXECUTION,
     CONST_ERROR_CODE_HARNESS_VALIDATION,
+    CONST_ERROR_CODE_LIBRARY_INGESTION,
+    CONST_ERROR_CODE_LIBRARY_NOT_FOUND,
     CONST_ERROR_CODE_LLM_INFERENCE,
     CONST_ERROR_CODE_MODEL_BUNDLE,
     CONST_ERROR_CODE_REVIEW_POOL,
@@ -598,6 +601,57 @@ class ReviewPoolError(DevOpsCLIError, RuntimeError):
         self.errors = errors or []
 
 
+class LibraryIngestionError(DevOpsCLIError):
+    """Base exception for package introspection and library ingestion errors."""
+
+    DEFAULT_ERROR_CODE = CONST_ERROR_CODE_LIBRARY_INGESTION
+    DEFAULT_EXIT_CODE = CONST_EXIT_FAILURE
+
+    def __init__(
+        self,
+        message: str = "Library ingestion failed",
+        *,
+        exit_code: int = CONST_EXIT_FAILURE,
+        error_code: str = CONST_ERROR_CODE_LIBRARY_INGESTION,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(message, exit_code=exit_code, error_code=error_code, details=details)
+
+
+class LibraryNotFoundError(LibraryIngestionError):
+    """Raised when target package cannot be imported or found in the environment."""
+
+    DEFAULT_ERROR_CODE = CONST_ERROR_CODE_LIBRARY_NOT_FOUND
+    DEFAULT_EXIT_CODE = CONST_EXIT_FAILURE
+
+    def __init__(
+        self,
+        message: str = "Target library was not found in environment",
+        *,
+        exit_code: int = CONST_EXIT_FAILURE,
+        error_code: str = CONST_ERROR_CODE_LIBRARY_NOT_FOUND,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(message, exit_code=exit_code, error_code=error_code, details=details)
+
+
+class DocsIngestionError(DevOpsCLIError):
+    """Base exception for documentation ingestion errors."""
+
+    DEFAULT_ERROR_CODE = CONST_ERROR_CODE_DOCS_INGESTION
+    DEFAULT_EXIT_CODE = CONST_EXIT_FAILURE
+
+    def __init__(
+        self,
+        message: str = "Documentation ingestion failed",
+        *,
+        exit_code: int = CONST_EXIT_FAILURE,
+        error_code: str = CONST_ERROR_CODE_DOCS_INGESTION,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(message, exit_code=exit_code, error_code=error_code, details=details)
+
+
 # Native re-exports for control flow, groups, and warnings
 SkipModelRequest = p_exc.SkipModelRequest
 SkipToolValidation = p_exc.SkipToolValidation
@@ -623,11 +677,14 @@ __all__ = [
     "ContextBudgetExceededError",
     "CostCalculationFailedWarning",
     "CostNotFoundWarning",
+    "DocsIngestionError",
     "FallbackExceptionGroup",
     "HarnessExecutionError",
     "HarnessValidationError",
     "IncompleteToolCall",
     "LLMInferenceError",
+    "LibraryIngestionError",
+    "LibraryNotFoundError",
     "MessageHistoryMutatedWarning",
     "ModelAPIError",
     "ModelBundleError",
