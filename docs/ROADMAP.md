@@ -242,7 +242,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
 - [x] **AI Context Packing & Symbol-Pruned Prompt Synthesizer (P2 - Medium, Issue #85)**:
   - *Context & Rationale*: Maximizes prompt token efficiency by ranking imported symbols by usage density, stripping unreferenced private methods/docstrings, and compressing type annotations.
   - *Architecture*: Integrated into `devops_cli.ai.context_packer`; cuts context token overhead by 40-60% while preserving strict type fidelity.
-- [ ] **Autonomous RAG Index Drift Detection & Auto-Reindexing (P2 - Medium, Issue #81)**:
+- [x] **Autonomous RAG Index Drift Detection & Auto-Reindexing (P2 - Medium, Issue #81)**:
   - *Context & Rationale*: Maintains vector index freshness across git branch transitions. A lightweight watcher compares vector commit metadata against `HEAD` and automatically re-indexes modified files.
   - *CLI*: `devops ai index status` and `devops ai index reindex [--changed-only]`.
 
@@ -483,7 +483,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
 | | FastMCP JSON Schema Exporter CLI (`devops mcp export-schemas`) | FastMCP / Introspection | Medium | Low | v0.2.11 | ✅ Completed |
 | | Executive Summary & Good/Bad Pattern Report Generation | Markdown / Rich Panels | Medium | Low | v0.2.11 | ✅ Completed |
 | | Logfire Structured AI Observability Bridge | `logfire` SDK / OTel | Medium | Medium | v0.2.13 | ✅ Completed |
-| | Autonomous RAG Index Drift Detection & Auto-Reindexing | Git / Qdrant Sync | Medium | Low | v0.2.14 | 📋 Scheduled (P2) |
+| | Autonomous RAG Index Drift Detection & Auto-Reindexing | Git / Qdrant Sync | Medium | Low | v0.2.14 | ✅ Completed |
 | | FastMCP K8s Centralized Log Tools (`k8s_logs_query`, `k8s_logs_tail`) | FastMCP / Loki REST API | High | Low | v0.2.15 | 📋 Scheduled (P0) |
 | | Local GitOps Project Orchestration Pipeline | Git Daemon / ArgoCD App-of-Apps | High | Medium | v0.2.15 | 📋 Scheduled (P1) |
 | | Core Dependency Ecosystem Alignment | `uv lock --upgrade` / PyPI | Medium | Low | v0.2.15 | 📋 Scheduled (P2) |

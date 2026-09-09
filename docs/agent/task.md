@@ -921,6 +921,15 @@
   - [x] 6. Enforced architectural invariants: cyclomatic complexity <= 10 and maximum nesting depth <= 2 across all packer helper functions.
   - [x] 7. Authored unit and contract tests in `tests/test_context_packer.py` (10/10 passed) and `tests/test_fastmcp_contracts.py` (9/9 passed).
 
+- [x] Phase 50.9: Autonomous RAG Index Drift Detection & Auto-Reindexing (P2 - Medium, Issue #81)
+  - [x] 1. Implemented `RAGDriftDetector` and `RAGDriftReport` in `src/devops_cli/ai/rag/drift.py` comparing working tree file hashes and git commit HEAD against vector index cache.
+  - [x] 2. Supported detection of stale modified files, newly added files, deleted files, and git commit divergence with normalized drift scoring.
+  - [x] 3. Instrumented OpenTelemetry tracing span `rag.drift_detection` and Prometheus metrics `devops_cli_rag_drift_detected_total` and `devops_cli_rag_drift_score`.
+  - [x] 4. Exposed CLI command `devops ai rag drift [path] [--auto-sync] [--fail-on-drift] [--json]`.
+  - [x] 5. Registered FastMCP tool `rag_drift` in `src/devops_cli/ai/mcp/server.py` and exported 117 schemas.
+  - [x] 6. Enforced architectural invariants: cyclomatic complexity <= 10 and maximum nesting depth <= 2.
+  - [x] 7. Authored unit and contract tests in `tests/test_rag_drift.py` (9/9 passed) and `tests/test_fastmcp_contracts.py` (10/10 passed).
+
 ---
 
 ### In-Progress Tasks (WIP)
@@ -929,5 +938,4 @@
 ---
 
 ### Pending Tasks
-- [ ] Phase 50.9: Autonomous RAG Index Drift Detection & Auto-Reindexing (P2 - Medium, Issue #81)
 - [ ] Phase 50.10: Full CI Quality Gate & Release v0.2.14 Finalization

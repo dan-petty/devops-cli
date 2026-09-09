@@ -543,3 +543,107 @@ def clear_cmd(
     if cache_file.exists():
         cache_file.unlink()
         print_success(MESSAGES.rag.reset_cache_success)
+
+
+# =============================================================================
+# Command: devops rag drift
+# =============================================================================
+
+
+def _print_drift_file_lists(report: Any) -> None:
+    """Print lists of new, stale, and deleted files."""
+    if report.new_files:
+        print_info(
+            f"[cyan]New files ({len(report.new_files)}):[/cyan] "
+            + ", ".join(report.new_files[:10])
+            + ("..." if len(report.new_files) > 10 else ""),
+            prefix=False,
+        )
+    if report.stale_files:
+        print_warning(
+            f"Stale files ({len(report.stale_files)}): "
+            + ", ".join(report.stale_files[:10])
+            + ("..." if len(report.stale_files) > 10 else "")
+        )
+    if report.deleted_files:
+        print_info(
+            f"[red]Deleted files ({len(report.deleted_files)}):[/red] "
+            + ", ".join(report.deleted_files[:10])
+            + ("..." if len(report.deleted_files) > 10 else ""),
+            prefix=False,
+        )
+
+
+def _render_drift_report(report: Any, json_output: bool) -> None:
+    """Render RAG drift report in json or rich text format."""
+    import json
+
+    from devops_cli.output.console import write_stdout
+
+    if json_output:
+        write_stdout(json.dumps(report.to_dict(), indent=2) + "\n")
+        return
+
+    status_str = (
+        "[green]Clean (0% drift)[/green]"
+        if report.drift_score == 0
+        else f"[yellow]{int(report.drift_score * 100)}% drift[/yellow]"
+    )
+    print_info(
+        f"[bold]RAG Index Drift[/bold]: {status_str} (Project: {report.project}, {report.synced_files}/{report.total_files} synced)\n",
+        prefix=False,
+    )
+    if report.git_commit_drift:
+        print_warning(
+            f"Git commit HEAD has drifted from indexed commit: {report.last_indexed_commit} -> {report.current_head_commit}"
+        )
+    _print_drift_file_lists(report)
+    if report.reindexed_files > 0:
+        print_success(f"Auto-synced {report.reindexed_files} file(s) into Qdrant.")
+
+
+@app.command("drift")
+def drift_cmd(
+    path: Annotated[
+        Path,
+        typer.Argument(help=HELP.rag.target),
+    ] = DEFAULT_CURRENT_PATH,
+    auto_sync: Annotated[
+        bool,
+        typer.Option("--auto-sync", "--reindex", "-s", help=HELP.rag.auto_sync),
+    ] = False,
+    fail_on_drift: Annotated[
+        bool,
+        typer.Option("--fail-on-drift", help=HELP.rag.fail_on_drift),
+    ] = False,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help=HELP.options.json_output),
+    ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+) -> None:
+    """Detect staleness and drift between the working tree and the Qdrant vector index."""
+    from devops_cli.ai.rag.drift import RAGDriftDetector
+
+    if dry_run or is_dry_run():
+        render_dry_run_result(
+            command=f"devops ai rag drift {path}",
+            action="detect_rag_drift",
+            details={
+                "path": str(path),
+                "auto_sync": auto_sync,
+                "fail_on_drift": fail_on_drift,
+                "status": "DRY_RUN_DRIFT_CHECKED",
+            },
+        )
+        return
+
+    detector = RAGDriftDetector(root_dir=path)
+    report = detector.detect_and_sync(auto_sync=auto_sync)
+    _render_drift_report(report, json_output)
+
+    if fail_on_drift and (report.drift_score > 0.0 or report.git_commit_drift):
+        raise typer.Exit(code=1)

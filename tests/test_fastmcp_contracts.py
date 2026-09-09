@@ -71,6 +71,7 @@ def test_fastmcp_tools_registration() -> None:
         # RAG & Embeddings
         "rag_search",
         "rag_index",
+        "rag_drift",
         "benchmark_embeddings",
         "benchmark_suite",
         # Security Intel & Scanners
@@ -411,6 +412,34 @@ def test_fastmcp_context_packing_tool() -> None:
                 "--referenced",
                 "main,app",
                 "--no-skeletonize",
+            ],
+            timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
+        )
+
+
+def test_fastmcp_rag_drift_tool() -> None:
+    """Verify rag_drift FastMCP execution contract."""
+    from unittest.mock import patch
+
+    from devops_cli.ai.mcp.server import rag_drift
+    from devops_cli.config.defaults import DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS
+
+    with patch("devops_cli.ai.mcp.server._run_mcp_cmd") as mock_cmd:
+        mock_cmd.return_value = '{"drift_score": 0.0}'
+
+        res = rag_drift(path="src", auto_sync=True)
+        assert res == '{"drift_score": 0.0}'
+        mock_cmd.assert_called_with(
+            [
+                "uv",
+                "run",
+                "devops",
+                "ai",
+                "rag",
+                "drift",
+                "src",
+                "--json",
+                "--auto-sync",
             ],
             timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
         )

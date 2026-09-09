@@ -444,6 +444,16 @@ def rag_index(path: str = ".", project: str | None = None, force: bool = False) 
 
 
 @mcp.tool()
+def rag_drift(path: str = ".", auto_sync: bool = False) -> str:
+    """Detect staleness and drift between the working tree and the Qdrant vector index."""
+    _validate_mcp_arg("path", path)
+    cmd = ["uv", "run", "devops", "ai", "rag", "drift", path, "--json"]
+    if auto_sync:
+        cmd.append("--auto-sync")
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
 def k8s_jaeger_info() -> str:
     """Retrieve Jaeger distributed tracing Query UI URL and OTLP trace endpoints."""
     return (

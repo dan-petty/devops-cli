@@ -74,6 +74,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`pr_thread_resolve`](#pr-thread-resolve) | Programmatically mark a pull request review discussion thread as resolved. |
 | [`pr_threads_list`](#pr-threads-list) | List review discussion threads, file locations, and comments on a pull request. |
 | [`prometheus_query`](#prometheus-query) | Execute PromQL instant query against Prometheus endpoint. |
+| [`rag_drift`](#rag-drift) | Detect staleness and drift between the working tree and the Qdrant vector index. |
 | [`rag_index`](#rag-index) | Index workspace files into Qdrant vector database for semantic retrieval. |
 | [`rag_search`](#rag-search) | Perform semantic vector search across indexed workspace codebase and architecture docs. |
 | [`release_status`](#release-status) | Check devops-cli release status, version consistency, tags, and docs state. |
@@ -818,6 +819,17 @@ Execute PromQL instant query against Prometheus endpoint.
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `promql` | `string` | No | `up` | - |
+
+### `rag_drift`
+
+Detect staleness and drift between the working tree and the Qdrant vector index.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `path` | `string` | No | `.` | - |
+| `auto_sync` | `boolean` | No | `False` | - |
 
 ### `rag_index`
 

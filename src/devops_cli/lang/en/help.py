@@ -873,6 +873,9 @@ class RAGCommandHelp:
     min_score: str = "Minimum similarity score (0.0 - 1.0)."
     file_filter: str = "Filter by filepath glob pattern."
     explain: str = "Explain RAG vector embeddings, Qdrant indexing, and terminology."
+    drift: str = "Detect staleness and drift between the working tree and the Qdrant vector index."
+    auto_sync: str = "Automatically re-index stale and newly added files."
+    fail_on_drift: str = "Exit with code 1 if index drift or git commit divergence is detected."
 
 
 @dataclass(frozen=True)

@@ -936,6 +936,29 @@ devops ai rag clear [OPTIONS]
 | `--collection`, `-c` | `string` | - | Target collection override. |
 | `--force`, `-f` | `boolean` | - | Force execution ignoring non-blocking warnings. |
 
+### `devops ai rag drift`
+
+**Detect staleness and drift between the working tree and the Qdrant vector index.**
+
+```bash
+devops ai rag drift [OPTIONS] <path>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<path>` | `path` | No | Directory or file to index into vector store. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--auto-sync`, `--reindex`, `-s` | `boolean` | - | Automatically re-index stale and newly added files. |
+| `--fail-on-drift` | `boolean` | - | Exit with code 1 if index drift or git commit divergence is detected. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
 ---
 
 ## `devops ai benchmark`
