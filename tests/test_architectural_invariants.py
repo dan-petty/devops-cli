@@ -22,8 +22,11 @@ def test_exception_taxonomy_inheritance() -> None:
 def test_domain_specific_exceptions_exist() -> None:
     """Ensure newly established domain exceptions are defined with correct error codes."""
     from devops_cli.exceptions.ai import (
+        DocsIngestionError,
         HarnessExecutionError,
         HarnessValidationError,
+        LibraryIngestionError,
+        LibraryNotFoundError,
         ModelBundleError,
     )
     from devops_cli.exceptions.docker import DockerError, DockerSandboxError
@@ -49,6 +52,21 @@ def test_domain_specific_exceptions_exist() -> None:
     assert issubclass(ModelBundleError, DevOpsCLIError)
     assert issubclass(HarnessValidationError, DevOpsCLIError)
     assert issubclass(HarnessExecutionError, DevOpsCLIError)
+    assert issubclass(LibraryIngestionError, DevOpsCLIError)
+    assert issubclass(LibraryNotFoundError, LibraryIngestionError)
+    assert issubclass(DocsIngestionError, DevOpsCLIError)
+
+    lib_err = LibraryIngestionError("library ingest failed")
+    assert lib_err.error_code == "LIBRARY_INGESTION_ERROR"
+    assert lib_err.exit_code == 1
+
+    lib_nf_err = LibraryNotFoundError("library not found")
+    assert lib_nf_err.error_code == "LIBRARY_NOT_FOUND_ERROR"
+    assert lib_nf_err.exit_code == 1
+
+    docs_err = DocsIngestionError("docs ingest failed")
+    assert docs_err.error_code == "DOCS_INGESTION_ERROR"
+    assert docs_err.exit_code == 1
 
     err = DockerSandboxError("test sandbox error")
     assert err.error_code == "DOCKER_SANDBOX_ERROR"

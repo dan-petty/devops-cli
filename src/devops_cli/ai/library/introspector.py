@@ -205,13 +205,10 @@ def _build_symbols_index(modules: dict[str, ModuleContract]) -> dict[str, str]:
     for mod in modules.values():
         for fn_name in mod.functions:
             index[f"{mod.name}.{fn_name}"] = "function"
-            index[fn_name] = "function"
         for cls_name, cls_sig in mod.classes.items():
             index[f"{mod.name}.{cls_name}"] = "class"
-            index[cls_name] = "class"
             for m_name in cls_sig.methods:
                 index[f"{mod.name}.{cls_name}.{m_name}"] = "method"
-                index[f"{cls_name}.{m_name}"] = "method"
         for const_name in mod.constants:
             index[f"{mod.name}.{const_name}"] = "constant"
     return index
