@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import Any
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.defaults import DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS
@@ -70,13 +71,15 @@ class ScannerRegistry:
     def scan_all(
         self,
         target_path: Path,
+        image: str | None = None,
         timeout: float = DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+        **kwargs: Any,
     ) -> dict[str, list[Finding]]:
         """Run all registered scanners against target_path and collect findings."""
         results: dict[str, list[Finding]] = {}
         for name, scanner in self._scanners.items():
             try:
-                results[name] = scanner.scan(target_path, timeout=timeout)
+                results[name] = scanner.scan(target_path, image=image, timeout=timeout, **kwargs)
             except Exception as exc:
                 logger.debug("Error running scanner '%s': %s", name, exc)
                 results[name] = []

@@ -124,7 +124,7 @@ class TrivyScanner(BaseSecurityScanner):
         return [
             Finding(
                 severity="HIGH",
-                location=f"{target_path}:CVE-2026-DRYRUN",
+                location=f"{target_path}:simulation",
                 title="[DRY-RUN] Simulated Trivy Vulnerability Scan Result",
                 description="Trivy security scan simulation mode active.",
                 fix="No action required (dry-run mode)",

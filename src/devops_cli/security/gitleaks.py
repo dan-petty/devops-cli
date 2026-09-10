@@ -222,7 +222,11 @@ def _execute_gitleaks_proc(
                         f for f in parsed if not _is_test_file(_extract_location_path(f.location))
                     ]
                 return parsed
-    except FileNotFoundError, OSError, subprocess.SubprocessError:
+    except (
+        FileNotFoundError,
+        OSError,
+        subprocess.SubprocessError,
+    ):
         pass
     except Exception as exc:
         logger.debug("Gitleaks execution skipped or failed: %s", exc)

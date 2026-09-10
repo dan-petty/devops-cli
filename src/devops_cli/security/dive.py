@@ -10,7 +10,11 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from devops_cli.ai.review_schema import Finding
-from devops_cli.config.defaults import DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS
+from devops_cli.config.defaults import (
+    DEFAULT_DIVE_MAX_WASTED_BYTES,
+    DEFAULT_DIVE_MIN_EFFICIENCY,
+    DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
+)
 from devops_cli.security.base import BaseSecurityScanner
 from devops_cli.telemetry import trace_span
 
@@ -111,9 +115,21 @@ class DiveScanner(BaseSecurityScanner):
     binary_name: str = "dive"
 
     def build_command(self, target_path: Path, **kwargs: Any) -> list[str]:
-        """Build argument command list for invoking Dive."""
-        image_name = str(target_path)
-        return [self.binary_name, image_name, "--json", "-"]
+        """Build argument command list for invoking Dive.
+
+        If target_path is an existing filesystem directory and no explicit image reference
+        is supplied via kwargs ('image' or 'image_name'), returns empty list to skip directory paths.
+        """
+        image_name = kwargs.get("image") or kwargs.get("image_name")
+        if not image_name:
+            if target_path.exists() and target_path.is_dir():
+                logger.debug(
+                    "Dive scanner requires container image target; skipping filesystem directory %s",
+                    target_path,
+                )
+                return []
+            image_name = str(target_path)
+        return [self.binary_name, str(image_name), "--json", "-"]
 
     def parse_output(self, data: Any, target_path: Path) -> list[Finding]:
         """Convert Dive layer efficiency metrics into Finding models."""
@@ -124,7 +140,7 @@ class DiveScanner(BaseSecurityScanner):
         efficiency = float(image_data.get("efficiencyScore", 1.0))
         wasted_bytes = int(image_data.get("wastedBytes", 0))
         img = str(target_path)
-        if efficiency < 0.90 or wasted_bytes > (50 * 1024 * 1024):
+        if efficiency < DEFAULT_DIVE_MIN_EFFICIENCY or wasted_bytes > DEFAULT_DIVE_MAX_WASTED_BYTES:
             findings.append(
                 Finding(
                     severity="MEDIUM",
