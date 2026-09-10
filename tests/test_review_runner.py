@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -42,6 +43,7 @@ from devops_cli.ai.review_schema import (
 )
 from devops_cli.commands.review import app as review_app
 from devops_cli.config.settings import Settings
+from devops_cli.core.repo import is_ignored_by_git
 from devops_cli.models.vulnerability import DependencySpec, NetworkReference
 from devops_cli.output import (
     render_review_raw,
@@ -98,7 +100,7 @@ def test_runner_file_and_repo_helpers(tmp_path: Path) -> None:
     st.repos.base_dir = tmp_path
     repo_dir = tmp_path / "repo"
     repo_dir.mkdir()
-    (repo_dir / ".git").mkdir()
+    subprocess.run(["git", "init", str(repo_dir)], check=True, capture_output=True)
     (repo_dir / "src").mkdir()
     sample_file = repo_dir / "src" / "app.py"
     sample_file.write_text("print('hello')\n")
@@ -110,13 +112,14 @@ def test_runner_file_and_repo_helpers(tmp_path: Path) -> None:
     agents_content = _load_agents_md(repo_dir)
     assert "Agents Guidelines" in agents_content
 
-    with patch("devops_cli.core.repo.is_ignored_by_git", return_value=False):
-        from devops_cli.core.repo import is_ignored_by_git
-
-        assert is_ignored_by_git(repo_dir, sample_file) is False
+    assert is_ignored_by_git(repo_dir, sample_file) is False
 
     files = _collect_files(repo_dir / "src", "*.py")
-    assert len(files) >= 1
+    assert "print('hello')" in files
+
+    (repo_dir / ".gitignore").write_text("*.py\n")
+    assert is_ignored_by_git(repo_dir, sample_file) is True
+    (repo_dir / ".gitignore").unlink()
 
     blocks = _collect_file_blocks(repo_dir / "src", "*.py")
     assert len(blocks) >= 1

@@ -306,6 +306,31 @@ class GitHubClient:
         return [b.model_dump() for b in builds]
 
 
+def parse_paginated_json(text: str) -> list[dict[str, Any]]:
+    """Parse one or multiple concatenated JSON documents or arrays from gh api --paginate."""
+    if not text or not text.strip():
+        return []
+    decoder = json.JSONDecoder()
+    items: list[dict[str, Any]] = []
+    idx = 0
+    length = len(text)
+    while idx < length:
+        while idx < length and text[idx].isspace():
+            idx += 1
+        if idx >= length:
+            break
+        try:
+            obj, end_idx = decoder.raw_decode(text, idx)
+            idx = end_idx
+            if isinstance(obj, list):
+                items.extend(item for item in obj if isinstance(item, dict))
+            elif isinstance(obj, dict):
+                items.append(obj)
+        except json.JSONDecodeError:
+            break
+    return items
+
+
 class GhCliClient:
     """GitHub client backed by the gh CLI tool for local operations without raw PATs."""
 
@@ -367,23 +392,19 @@ class GhCliClient:
         ]
         res = run_subprocess(cmd, check=False, quiet=True)
         if res.returncode == 0 and res.stdout.strip():
-            try:
-                raw = json.loads(res.stdout)
-                return [
-                    {
-                        "title": m.get("title", ""),
-                        "number": m.get("number", 0),
-                        "state": m.get("state", "open"),
-                        "description": m.get("description", ""),
-                        "open_issues": m.get("open_issues", 0),
-                        "closed_issues": m.get("closed_issues", 0),
-                        "due_on": m.get("due_on"),
-                    }
-                    for m in raw
-                    if isinstance(m, dict)
-                ]
-            except json.JSONDecodeError:
-                pass
+            raw = parse_paginated_json(res.stdout)
+            return [
+                {
+                    "title": m.get("title", ""),
+                    "number": m.get("number", 0),
+                    "state": m.get("state", "open"),
+                    "description": m.get("description", ""),
+                    "open_issues": m.get("open_issues", 0),
+                    "closed_issues": m.get("closed_issues", 0),
+                    "due_on": m.get("due_on"),
+                }
+                for m in raw
+            ]
         return []
 
     def create_milestone(
@@ -407,5 +428,26 @@ class GhCliClient:
             f"state={state}",
         ]
         if due_on:
+            cmd.extend(["-f", f"due_on={due_on}"])
+        run_subprocess(cmd, check=False)
+
+    def edit_milestone(
+        self,
+        repo: str,
+        number: int,
+        title: str | None = None,
+        description: str | None = None,
+        state: str | None = None,
+        due_on: Any = None,
+    ) -> None:
+        target_repo = repo or self.default_repo or ""
+        cmd = [CONST_GH_CLI, "api", "-X", "PATCH", f"repos/{target_repo}/milestones/{number}"]
+        if title is not None:
+            cmd.extend(["-f", f"title={title}"])
+        if description is not None:
+            cmd.extend(["-f", f"description={description}"])
+        if state is not None:
+            cmd.extend(["-f", f"state={state}"])
+        if due_on is not None:
             cmd.extend(["-f", f"due_on={due_on}"])
         run_subprocess(cmd, check=False)

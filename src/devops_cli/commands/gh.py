@@ -16,7 +16,7 @@ from devops_cli.config.settings import get_keyring_secret
 from devops_cli.core.cli import new_typer
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import get_repo_origin_name
-from devops_cli.github.client import GhCliClient, GitHubClient
+from devops_cli.github.client import GhCliClient, GitHubClient, parse_paginated_json
 from devops_cli.github.issues import (
     audit_issues_triage,
     create_repository_issue,
@@ -153,23 +153,19 @@ def _get_repo_milestones(repo: str | None = None, state: str = "all") -> list[di
     ]
     res = run_subprocess(cmd, check=False, quiet=True)
     if res.returncode == 0 and res.stdout.strip():
-        try:
-            raw = json.loads(res.stdout)
-            return [
-                {
-                    "title": m.get("title", ""),
-                    "number": m.get("number", 0),
-                    "state": m.get("state", "open"),
-                    "description": m.get("description", "") or "",
-                    "open_issues": m.get("open_issues", 0),
-                    "closed_issues": m.get("closed_issues", 0),
-                    "due_on": m.get("due_on"),
-                }
-                for m in raw
-                if isinstance(m, dict)
-            ]
-        except json.JSONDecodeError:
-            pass
+        raw = parse_paginated_json(res.stdout)
+        return [
+            {
+                "title": m.get("title", ""),
+                "number": m.get("number", 0),
+                "state": m.get("state", "open"),
+                "description": m.get("description", "") or "",
+                "open_issues": m.get("open_issues", 0),
+                "closed_issues": m.get("closed_issues", 0),
+                "due_on": m.get("due_on"),
+            }
+            for m in raw
+        ]
     return []
 
 
