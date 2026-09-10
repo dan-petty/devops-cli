@@ -412,7 +412,7 @@ def test_ai_config_models_preload_and_chat_interactive(tmp_path: Path) -> None:
         mock_exp_chat.assert_called_once_with("rag")
 
     # 11. chat command interactive session with exit input
-    mock_run_res = AgentResponse(
+    mock_run_res: AgentResponse = AgentResponse(
         content="Hello! How can I help you?",
         tool_calls=[],
         turns=1,
@@ -431,6 +431,10 @@ def test_ai_config_models_preload_and_chat_interactive(tmp_path: Path) -> None:
         res_chat = runner.invoke(ai_app, ["chat", "--persona", "architect", "--no-stream"])
         assert res_chat.exit_code == 0
         assert "Hello! How can I help you?" in res_chat.output
+        mock_console.input.assert_any_call("[bold cyan]You:[/bold cyan] ")
+        mock_console.print.assert_any_call(
+            "\n[bold dark_orange]Enterprise Infrastructure Architect:[/bold dark_orange] ", end=""
+        )
 
 
 def test_ai_token_count_route_pipeline_bundle(tmp_path: Path) -> None:
